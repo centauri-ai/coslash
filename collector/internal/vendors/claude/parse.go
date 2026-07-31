@@ -1,0 +1,463 @@
+package claude
+
+import (
+	"cmp"
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings"
+
+	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+)
+
+// interruptMarker prefixes the synthetic user message Claude Code injects when a turn is interrupted.
+const interruptMarker = "[Request interrupted by user"
+
+type claudeSessionAnalysis struct {
+	sessionID                string
+	workingDirectory         string
+	branch                   *string
+	entrypoint               *string
+	durationMs               int
+	timestamps               session.TimestampRange
+	customTitle              string
+	customName               string
+	generatedName            string
+	inTurn                   bool
+	awaySummary              string
+	compactionSeed           string
+	declaredGoal             string
+	compactBoundaries        int
+	compactSummaries         int
+	pullRequests             map[string]struct{}
+	turns                    int
+	firstUserPrompt          string
+	toolUseCount             int
+	errors                   int
+	completedToolUses        map[string]struct{}
+	spawnTurns               map[string]int
+	editedFiles              map[string]struct{}
+	commands                 session.CommandLog
+	commits                  []string
+	dedupedMessageTokenUsage map[string]messageUsage
+	tokens                   map[string]session.ModelTokens
+	fileEdits                *session.FileEditSet
+	tasks                    map[string]*taskEntry
+	taskOrder                []string
+	digest                   session.DigestLog
+	userPromptCount          int
+	model                    string
+	lastUsage                *claudeUsage
+}
+
+type messageUsage struct {
+	model string
+	usage *claudeUsage
+}
+
+type taskEntry struct {
+	subject string
+	status  string
+}
+
+func Parse(path string) (*vendors.ParsedTranscript, error) {
+	analysis, err := analyzeClaudeSession(path)
+	if err != nil {
+		return nil, err
+	}
+	parsed := &vendors.ParsedTranscript{
+		Session:    analysis.unifiedSession(path),
+		ParentID:   ParentIDFromPath(path),
+		Name:       analysis.transcriptName(),
+		InTurn:     analysis.inTurn,
+		SpawnTurns: analysis.spawnTurns,
+		Completed:  analysis.completedToolUses,
+		Commands:   analysis.commands.Labelled(),
+		ForkUsage:  analysis.dedupedMessageTokenUsage,
+	}
+	if parsed.ParentID != "" {
+		metaPath := strings.TrimSuffix(path, ".jsonl") + ".meta.json"
+		var meta subagentMeta
+		if _, err := session.ReadJSONIfValid(metaPath, &meta); err != nil {
+			log.Printf("%s: unreadable subagent metadata: %v", metaPath, err)
+		}
+		parsed.Name = cmp.Or(meta.Description, meta.AgentType)
+		parsed.SpawnKey = cmp.Or(workflowRunID(path), meta.ToolUseID)
+		parsed.Stopped = meta.StoppedByUser
+	}
+	return parsed, nil
+}
+
+func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
+	rows, err := session.ParseJSONL[claudeSessionRecord](file)
+	if err != nil {
+		return nil, err
+	}
+	analysis := &claudeSessionAnalysis{
+		dedupedMessageTokenUsage: map[string]messageUsage{},
+		completedToolUses:        map[string]struct{}{},
+		pullRequests:             map[string]struct{}{},
+		spawnTurns:               map[string]int{},
+		editedFiles:              map[string]struct{}{},
+		tokens:                   map[string]session.ModelTokens{},
+		tasks:                    map[string]*taskEntry{},
+		fileEdits:                session.NewFileEditSet(),
+		commits:                  []string{},
+	}
+	pendingAssistantText := ""
+	pendingCommand := ""
+	emitPrompt := func(text string) {
+		analysis.inTurn = true
+		pendingAssistantText = ""
+		analysis.userPromptCount++
+		if analysis.firstUserPrompt == "" {
+			analysis.firstUserPrompt = text
+		}
+		category := session.DigestUser
+		if analysis.userPromptCount == 1 {
+			category = session.DigestFirstPrompt
+		}
+		analysis.digest.Push(analysis.userPromptCount, category, text)
+	}
+	for _, row := range rows {
+		if row.SessionID != "" {
+			analysis.sessionID = row.SessionID
+		}
+		if row.WorkingDirectory != "" {
+			analysis.workingDirectory = row.WorkingDirectory
+		}
+		if row.Branch != nil && *row.Branch != "" {
+			analysis.branch = row.Branch
+		}
+		if row.Entrypoint != nil && *row.Entrypoint != "" {
+			analysis.entrypoint = row.Entrypoint
+		}
+		if row.TurnDurationMs != nil {
+			analysis.durationMs += *row.TurnDurationMs
+			analysis.turns++
+			analysis.inTurn = false
+			pendingAssistantText = ""
+		}
+		if row.Timestamp != "" {
+			timestamp, err := session.RFC3339ToUnixEpoch(row.Timestamp)
+			if err != nil {
+				log.Printf("%s: skipping unparseable timestamp %q: %v", file, row.Timestamp, err)
+			} else {
+				analysis.timestamps.Note(timestamp)
+			}
+		}
+		if row.Type == "custom-title" && row.CustomTitle != "" {
+			analysis.customTitle = row.CustomTitle
+		}
+		if row.Type == "agent-name" && row.CustomSessionName != "" {
+			analysis.customName = row.CustomSessionName
+		}
+		if row.Type == "ai-title" && row.GeneratedSessionName != "" {
+			analysis.generatedName = row.GeneratedSessionName
+		}
+		if row.Type == "pr-link" && row.PRURL != "" {
+			analysis.pullRequests[row.PRURL] = struct{}{}
+		}
+		if row.Subtype == "away_summary" {
+			analysis.awaySummary = row.Content
+		}
+		if row.Subtype == "compact_boundary" {
+			analysis.compactBoundaries++
+			analysis.digest.Push(analysis.userPromptCount,
+				session.DigestCompaction,
+				fmt.Sprintf("context compacted (%d)", analysis.compactBoundaries),
+			)
+		}
+		if row.IsCompactSummary && row.Message != nil {
+			analysis.compactionSeed = stripCompactionSummary(row.Message.textContent())
+		}
+		if row.IsCompactSummary {
+			analysis.compactSummaries++
+		}
+		if row.Type == "user" {
+			if row.Message != nil && !row.IsCompactSummary {
+				if goal, ok := parseDeclaredGoal(row.Message.textContent()); ok {
+					analysis.declaredGoal = goal
+				}
+			}
+			switch {
+			case row.commandInvocation() != "":
+				pendingCommand = row.commandInvocation()
+			case row.IsMeta:
+				if pendingCommand != "" {
+					emitPrompt(pendingCommand)
+					pendingCommand = ""
+				}
+			default:
+				pendingCommand = ""
+				text := row.promptText()
+				switch {
+				case strings.HasPrefix(text, interruptMarker):
+					analysis.inTurn = false
+					pendingAssistantText = ""
+				case text != "":
+					emitPrompt(text)
+				}
+			}
+		}
+		resultToolUseID := ""
+		if row.Message != nil {
+			if row.Type == "assistant" {
+				if text := strings.TrimSpace(row.Message.textContent()); text != "" {
+					pendingAssistantText = text
+				}
+			}
+			blocks, err := row.Message.contentBlocks()
+			if err != nil {
+				log.Printf("%s: skipping malformed message content: %v", file, err)
+				blocks = nil
+			}
+			for _, block := range blocks {
+				if block.Type == "tool_use" {
+					analysis.toolUseCount++
+					if block.ID != "" {
+						analysis.spawnTurns[block.ID] = max(analysis.userPromptCount, 1)
+						if isSubagentTool(block.Name) {
+							analysis.digest.PushSubagent(analysis.userPromptCount, block.ID)
+						}
+					}
+				}
+				if block.Type == "tool_result" && block.ToolUseID != "" {
+					analysis.completedToolUses[block.ToolUseID] = struct{}{}
+					resultToolUseID = block.ToolUseID
+				}
+				if block.IsError {
+					analysis.errors++
+				}
+				if block.Name == "ExitPlanMode" && analysis.userPromptCount > 0 &&
+					pendingAssistantText != "" {
+					analysis.digest.Push(
+						analysis.userPromptCount,
+						session.DigestRecap,
+						pendingAssistantText,
+					)
+					pendingAssistantText = ""
+				}
+				if block.Name == "Edit" || block.Name == "Write" {
+					analysis.editedFiles[block.Input.FilePath] = struct{}{}
+				}
+				if block.Name == "TaskUpdate" {
+					if task, ok := analysis.tasks[block.Input.TaskID]; ok {
+						if block.Input.Status == "deleted" {
+							delete(analysis.tasks, block.Input.TaskID)
+						} else if block.Input.Status != "" {
+							task.status = block.Input.Status
+							if block.Input.Status == "completed" {
+								analysis.digest.Push(analysis.userPromptCount, session.DigestTodos, "completed — "+task.subject)
+							}
+						}
+					}
+				}
+				if block.Input.Command != "" {
+					analysis.commands.Note(block.Input.Command, block.Input.Description)
+					if message, ok := session.CommitMessage(block.Input.Command); ok {
+						analysis.commits = append(analysis.commits, message)
+					}
+				}
+			}
+			if row.Message.ID != "" && row.Message.Usage != nil &&
+				row.Message.Model != "<synthetic>" {
+				analysis.dedupedMessageTokenUsage[row.Message.ID] = messageUsage{
+					model: row.Message.Model,
+					usage: row.Message.Usage,
+				}
+				analysis.lastUsage = row.Message.Usage
+			}
+			if row.Message.Model != "" && row.Message.Model != "<synthetic>" {
+				analysis.model = row.Message.Model
+			}
+			if row.Type == "assistant" && row.Message.StopReason != "" {
+				if row.Message.StopReason != "tool_use" && row.Message.StopReason != "pause_turn" {
+					analysis.inTurn = false
+					reply := strings.TrimSpace(row.Message.textContent())
+					if analysis.userPromptCount > 0 && reply != "" {
+						analysis.digest.Push(analysis.userPromptCount, session.DigestRecap, reply)
+					}
+					pendingAssistantText = ""
+				}
+			}
+		}
+		if row.ToolUseResult != nil {
+			result, err := row.toolResult()
+			if err != nil {
+				log.Printf("%s: skipping malformed toolUseResult: %v", file, err)
+			}
+			if result != nil && result.FilePath != "" {
+				var diffLines []string
+				for _, patch := range result.StructuredPatch {
+					diffLines = append(diffLines, patch.Lines...)
+				}
+				lineAdditions, lineDeletions := session.DiffStat(diffLines)
+				if len(result.StructuredPatch) == 0 && result.Type == "create" {
+					var content string
+					if err := json.Unmarshal(result.Content, &content); err != nil {
+						log.Printf(
+							"%s: skipping unreadable new file for %s: %v",
+							file,
+							result.FilePath,
+							err,
+						)
+					} else {
+						lineAdditions = session.CountLines(content)
+					}
+				}
+				analysis.fileEdits.Add(
+					result.FilePath, lineAdditions, lineDeletions, result.Type == "create",
+				)
+			}
+			if result != nil && result.Task != nil && result.Task.ID != "" {
+				if _, ok := analysis.tasks[result.Task.ID]; !ok {
+					analysis.taskOrder = append(analysis.taskOrder, result.Task.ID)
+				}
+				analysis.tasks[result.Task.ID] = &taskEntry{
+					subject: result.Task.Subject,
+				}
+			}
+			if result != nil && result.RunID != "" {
+				if turn, ok := analysis.spawnTurns[resultToolUseID]; ok {
+					analysis.spawnTurns[result.RunID] = turn
+				}
+				analysis.digest.PushSubagent(analysis.userPromptCount, result.RunID)
+			}
+			if result != nil && result.Answers != nil {
+				for _, question := range result.Questions {
+					description := question.Question
+					if answer := result.Answers[question.Question].String(); answer != "" {
+						description = question.Question + " ↳ " + answer
+					}
+					analysis.digest.Push(
+						analysis.userPromptCount,
+						session.DigestQuestion,
+						description,
+					)
+				}
+			}
+		}
+	}
+	for _, message := range analysis.dedupedMessageTokenUsage {
+		usage := message.usage
+		currentTotalUsage := analysis.tokens[message.model]
+		currentTotalUsage.InputTokens += usage.InputTokens
+		currentTotalUsage.OutputTokens += usage.OutputTokens
+		currentTotalUsage.CacheReadInputTokens += usage.CacheReadInputTokens
+		currentTotalUsage.CacheCreation1hInputTokens += usage.CacheWriteInputTokens.Ephemeral1h
+		currentTotalUsage.CacheCreationInputTokens += usage.CacheWriteInputTokens.Ephemeral5m +
+			usage.untieredCacheCreation()
+		analysis.tokens[message.model] = currentTotalUsage
+	}
+	return analysis, nil
+}
+
+func isSubagentTool(name string) bool {
+	return name == "Agent" || name == "Task"
+}
+
+func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.Session {
+	sessionID := IDFromPath(filePath)
+	if sessionID == "" {
+		sessionID = analysis.sessionID
+	}
+	turns := analysis.turns
+	if turns == 0 {
+		turns = analysis.userPromptCount
+	}
+	unifiedSessionDetails := session.SessionDetails{
+		LogPath:        filePath,
+		Compactions:    max(analysis.compactBoundaries, analysis.compactSummaries),
+		PullRequests:   len(analysis.pullRequests),
+		Turns:          turns,
+		ToolUses:       analysis.toolUseCount,
+		Errors:         analysis.errors,
+		Commands:       analysis.commands.Raw(),
+		CommandCount:   analysis.commands.Count(),
+		Commits:        analysis.commits,
+		FileEdits:      analysis.fileEdits.Edits,
+		Digest:         analysis.digest.Entries(),
+		ContextTokens:  contextTokens(analysis.lastUsage),
+		ContextWindow:  session.ContextWindowFor(analysis.model),
+		CompactionSeed: analysis.compactionSeed,
+	}
+	if analysis.firstUserPrompt != "" {
+		unifiedSessionDetails.FirstPrompt = &analysis.firstUserPrompt
+	}
+	if analysis.declaredGoal != "" {
+		unifiedSessionDetails.DeclaredGoal = &analysis.declaredGoal
+	}
+	summary := analysis.awaySummary
+	if recap := analysis.digest.LastRecap(); recap != "" {
+		summary = recap
+	}
+	summary = session.Truncate(summary, session.TruncateTextLimit)
+	unifiedSession := session.Session{
+		Agent:            vendors.AgentClaude,
+		ID:               sessionID,
+		WorkingDirectory: analysis.workingDirectory,
+		Branch:           analysis.branch,
+		Entrypoint:       analysis.entrypoint,
+		SessionDetails:   unifiedSessionDetails,
+		LastActivityTime: analysis.timestamps.Latest,
+		EditedFileCount:  len(analysis.editedFiles),
+		Tokens:           analysis.tokens,
+		Subagents:        []session.Subagent{},
+	}
+	if summary != "" {
+		unifiedSession.Summary = &summary
+	}
+	unifiedSession.DurationMs = analysis.elapsedMs()
+	if unifiedSession.LastActivityTime == 0 {
+		unifiedSession.LastActivityTime = session.FileModificationTime(filePath)
+	}
+	if analysis.model != "" {
+		unifiedSession.Model = &analysis.model
+	}
+	todos := []session.Todo{}
+	for _, id := range analysis.taskOrder {
+		if task, ok := analysis.tasks[id]; ok {
+			todos = append(
+				todos,
+				session.Todo{Text: task.subject, Done: task.status == "completed"},
+			)
+		}
+	}
+	unifiedSession.Todos = todos
+	return &unifiedSession
+}
+
+func contextTokens(usage *claudeUsage) *int {
+	if usage == nil {
+		return nil
+	}
+	total := session.ContextTokens(
+		usage.InputTokens,
+		usage.CacheReadInputTokens,
+		usage.CacheWriteInputTokens.Ephemeral1h+usage.CacheWriteInputTokens.Ephemeral5m,
+	)
+	return &total
+}
+
+func (analysis *claudeSessionAnalysis) transcriptName() string {
+	if analysis.customTitle != "" {
+		return analysis.customTitle
+	}
+	if analysis.customName != "" {
+		return analysis.customName
+	}
+	return analysis.generatedName
+}
+
+func (analysis *claudeSessionAnalysis) elapsedMs() *int {
+	if analysis.durationMs > 0 {
+		return &analysis.durationMs
+	}
+	if analysis.timestamps.Latest > 0 {
+		span := analysis.timestamps.SpanMs()
+		return &span
+	}
+	return nil
+}
