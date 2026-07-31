@@ -1,0 +1,10 @@
+{
+  "printWidth": 110,
+  "tabWidth": 2,
+  "singleQuote": true,
+  "quoteProps": "consistent",
+  "semi": true,
+  "trailingComma": "all",
+  "importOrder": ["<BUILTIN_MODULES>", "^react", "<THIRD_PARTY_MODULES>", "^@/(.*)$", "^[./]"],
+  "plugins": ["@ianvs/prettier-plugin-sort-imports", "prettier-plugin-tailwindcss"]
+}
