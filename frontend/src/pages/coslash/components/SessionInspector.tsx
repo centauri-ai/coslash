@@ -26,7 +26,7 @@ import {
 } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
-import { formatCost, formatDuration, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
+import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import {
@@ -115,12 +115,15 @@ function contextFillReadiness(detail: SessionDetail): { value: string; tone: str
 
 function branchDriftReadiness(git: SessionDetail['git']): { value: string; tone: string } | null {
   if (git == null) return null;
-  return { value: `+${git.ahead} −${git.behind} on ${git.baseBranch}`, tone: driftTone(git.behind) };
+  return {
+    value: `${git.ahead} ahead, ${git.behind} behind ${git.baseBranch}.`,
+    tone: driftTone(git.behind),
+  };
 }
 
 function treeStaleReadiness(lastEditAt: number | null): { value: string; tone: string } | null {
   if (lastEditAt == null) return null;
-  return { value: `edits ${formatTimeAgo(lastEditAt)}`, tone: staleTone(Date.now() - lastEditAt) };
+  return { value: `Last edit ${formatTimeAgo(lastEditAt)}.`, tone: staleTone(Date.now() - lastEditAt) };
 }
 
 function fillTone(pct: number): string {
@@ -218,7 +221,7 @@ function HeaderMeta({ detail }: { detail: SessionDetail }) {
           <SessionModelUsage agent={detail.agent} model={detail.model} tokens={detail.tokens} />
           <span className="font-bold">
             <UnpricedModelWarning tokens={[detail.tokens]}>
-              {formatCost(getEstimatedCost(detail.tokens))} est.
+              {formatEstimatedCost(getEstimatedCost(detail.tokens))}
             </UnpricedModelWarning>
           </span>
         </div>
@@ -297,7 +300,7 @@ function ResumeSessionButton({ detail }: { detail: SessionDetail }) {
     <div className="flex flex-col gap-1">
       <Button className="bg-brand w-fit p-2 text-xs" onClick={() => launch('resume')}>
         <PlayIcon />
-        <span>Resume session</span>
+        <span>Resume</span>
       </Button>
       <LaunchError message={launchError} />
     </div>
@@ -324,7 +327,7 @@ function StartNewSessionButton({
     <div className="flex flex-col gap-1">
       <Button className="bg-brand w-fit p-2 text-xs" onClick={startNewSession}>
         <TerminalIcon />
-        <span>Copy debrief & start new session</span>
+        <span>Start fresh with handoff</span>
       </Button>
       <LaunchError message={launchError} />
     </div>
@@ -347,19 +350,19 @@ function HandoffSection({ detail }: { detail: SessionDetail }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <SectionLabel title="HANDOFF" note="resume-readiness" />
+      <SectionLabel title="RESUME OR HAND OFF" />
       <div className="bg-border grid grid-cols-5 gap-px overflow-hidden rounded-lg border">
-        <ReadinessCell label="Context fill" value={contextFill?.value} tone={contextFill?.tone} />
+        <ReadinessCell label="Context used" value={contextFill?.value} tone={contextFill?.tone} />
         <ReadinessCell label="Compactions" value={String(detail.compactions)} />
-        <ReadinessCell label="Branch drift" value={branchDrift?.value} tone={branchDrift?.tone} />
-        <ReadinessCell label="Tree staleness" value={treeStale?.value} tone={treeStale?.tone} />
+        <ReadinessCell label="Branch" value={branchDrift?.value} tone={branchDrift?.tone} />
+        <ReadinessCell label="Working tree" value={treeStale?.value} tone={treeStale?.tone} />
         <PromptCacheCell lastAccessAt={detail.mtime} />
       </div>
 
       <div className="flex items-center gap-2">
         <StartNewSessionButton detail={detail} brief={brief} onCopy={copyBrief} />
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={copyBrief}>
-          <span>Copy handoff debrief</span>
+          <span>Copy handoff</span>
         </Button>
         {copied && <span className="text-xs text-neutral-300">copied to clipboard</span>}
       </div>
@@ -379,7 +382,7 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
 
   return (
     <div>
-      <SectionLabel title="DEBRIEF" note="outcome & digest" />
+      <SectionLabel title="DEBRIEF" />
       <div className="rounded-lg border p-3">
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground text-xs">GOAL</span>
@@ -433,7 +436,7 @@ const DEFAULT_HIDDEN_CATEGORIES: DigestCategory[] = ['user', 'compaction'];
 const DIGEST_CATEGORIES: Record<DigestCategory, { label: string; fg: string; dot: string }> = {
   first_prompt: { label: 'FIRST PROMPT', fg: 'text-success-fg', dot: 'bg-success-fg' },
   question: { label: 'QUESTION', fg: 'text-question', dot: 'bg-question' },
-  subagent: { label: 'SUBAGENT', fg: 'text-subagent', dot: 'bg-subagent' },
+  subagent: { label: 'Subagent', fg: 'text-subagent', dot: 'bg-subagent' },
   todos: { label: 'TODOS', fg: 'text-muted-foreground', dot: 'bg-muted-foreground' },
   recap: { label: 'RECAP', fg: 'text-recap', dot: 'bg-recap' },
   user: { label: 'USER TURN', fg: 'text-brand', dot: 'bg-brand' },
@@ -511,14 +514,14 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
     <Dialog>
       <DialogTrigger asChild>
         <div className="bg-subagent-card border-subagent-rail flex cursor-pointer items-baseline gap-2 rounded-lg border p-2">
-          <span className="text-subagent w-24 shrink-0 text-xs font-bold tracking-wide">SUBAGENT</span>
+          <span className="text-subagent w-24 shrink-0 text-xs font-bold tracking-wide">Subagent</span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="min-w-0 truncate text-sm font-semibold">{subagent.name}</span>
               <SubagentModelBadge model={subagent.model} />
             </div>
             <div className="text-muted-foreground truncate pt-1 text-xs">
-              ↳ {subagent.result === '' ? status : `${status}: ${subagent.result}`}
+              {subagent.result === '' ? status : `${status}: ${subagent.result}`}
             </div>
           </div>
           <div className="text-brand flex shrink-0 items-center gap-1 text-xs">
@@ -557,10 +560,10 @@ function DigestSection({ detail }: { detail: SessionDetail }) {
     <div>
       <div className="flex items-baseline justify-between gap-2 pb-2">
         <div className="flex items-baseline gap-2">
-          <span className="text-muted-foreground text-xs font-semibold tracking-wide">DIGEST</span>
-          <span className="text-muted-foreground text-xs">mined candidates</span>
+          <span className="text-muted-foreground text-xs font-semibold tracking-wide">TIMELINE</span>
+          <span className="text-muted-foreground text-xs">key events from this session</span>
         </div>
-        <span className="text-muted-foreground text-xs">tap to filter categories</span>
+        <span className="text-muted-foreground text-xs">Click a category to show or hide it.</span>
       </div>
       <div className="flex flex-wrap gap-1 pb-2">
         {(Object.keys(DIGEST_CATEGORIES) as DigestCategory[])
@@ -620,9 +623,10 @@ function ArtifactStats({ detail }: { detail: SessionDetail }) {
 
 function FilesChangedList({ detail }: { detail: SessionDetail }) {
   if (detail.fileEdits.length === 0) return null;
+  const newFiles = detail.fileEdits.filter((fileEdit) => fileEdit.isNew).length;
   return (
     <div>
-      <FieldLabel>DIFFS - per edit, grouped by file</FieldLabel>
+      <FieldLabel>{`FILES CHANGED · ${detail.fileEdits.length} TOTAL${newFiles ? `, ${newFiles} NEW` : ''}`}</FieldLabel>
       <div className="rounded-sm border p-2">
         {detail.fileEdits.map((fileEdit) => (
           <div key={fileEdit.path} className="flex items-center justify-between gap-2 py-1 font-mono text-xs">
@@ -652,7 +656,7 @@ function CommitsAndTodos({ detail }: { detail: SessionDetail }) {
   return (
     <div className="flex gap-4 pt-4">
       <div className="min-w-0 flex-1">
-        <FieldLabel>COMMITS / PRS</FieldLabel>
+        <FieldLabel>COMMITS</FieldLabel>
         {detail.commits.length === 0 ? (
           <div className="text-muted-foreground text-xs">—</div>
         ) : (
@@ -740,7 +744,7 @@ function InspectorFooter({ detail }: { detail: SessionDetail }) {
       <div className="flex min-w-0 flex-col">
         <span className="text-xs">Resume this exact session</span>
         <span className="text-muted-foreground text-xs font-light">
-          Reopens the full context in {getVendor(detail.agent).label}
+          Reopens this session in {getVendor(detail.agent).label} with its full context.
         </span>
       </div>
       <ResumeSessionButton detail={detail} />
