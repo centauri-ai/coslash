@@ -198,11 +198,11 @@ export function CoslashPage() {
     windowStart == null
       ? sessions
       : sessions.filter((session) => session.status != null || session.mtime >= windowStart);
+  const sessionsForVendor = sessionsInWindow.filter(
+    (session) => vendor === 'all' || session.agent === vendor,
+  );
   const visibleSessions = sortSessions(
-    sessionsInWindow.filter(
-      (session) =>
-        (vendor === 'all' || session.agent === vendor) && sessionMatchesSearchTerm(session, searchTerm),
-    ),
+    sessionsForVendor.filter((session) => sessionMatchesSearchTerm(session, searchTerm)),
     sortKey,
     sortDir,
   );
@@ -239,7 +239,7 @@ export function CoslashPage() {
         </div>
         <div className="flex min-h-7 items-center">
           <LoadingSpinner isLoading={isLoading}>
-            <SessionsStats sessions={sessionsInWindow} loadFailed={loadFailed} timeWindow={timeWindow} />
+            <SessionsStats sessions={sessionsForVendor} loadFailed={loadFailed} timeWindow={timeWindow} />
           </LoadingSpinner>
         </div>
       </div>
