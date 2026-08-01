@@ -76,10 +76,12 @@ function SessionCardColumn({
 function BranchRow({
   branch,
   sessions,
+  visibleStatuses,
   onSelectSession,
 }: {
   branch: string;
   sessions: Session[];
+  visibleStatuses: [string, Status][];
   onSelectSession: (session: Session) => void;
 }) {
   const tokens = sessions.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
@@ -96,7 +98,7 @@ function BranchRow({
           </UnpricedModelWarning>
         </span>
       </div>
-      {Object.keys(STATUSES).map((status) => (
+      {visibleStatuses.map(([status]) => (
         <div
           key={status}
           data-status={status}
@@ -116,10 +118,17 @@ export function SessionBoard({
   sessions: Session[];
   onSelectSession: (session: Session) => void;
 }) {
+  const visibleStatuses = Object.entries(STATUSES).filter(([status]) =>
+    sessions.some((session) => getStatus(session.status) === status),
+  );
+
   return (
-    <div className="grid grid-cols-5 bg-neutral-50">
+    <div
+      className="grid bg-neutral-50"
+      style={{ gridTemplateColumns: `repeat(${visibleStatuses.length + 1}, minmax(0, 1fr))` }}
+    >
       <div className="sticky top-0 z-10 border-b bg-neutral-50" />
-      {Object.entries(STATUSES).map(([key, status]) => (
+      {visibleStatuses.map(([key, status]) => (
         <StatusColumnHeader
           key={key}
           status={status}
@@ -134,6 +143,7 @@ export function SessionBoard({
               key={branch}
               branch={branch}
               sessions={branchSessions}
+              visibleStatuses={visibleStatuses}
               onSelectSession={onSelectSession}
             />
           ))}
