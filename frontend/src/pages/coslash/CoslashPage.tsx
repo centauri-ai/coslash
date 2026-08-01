@@ -22,7 +22,7 @@ import {
 } from '@/pages/coslash/CoslashTabMenus';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
-import { sessionsEmptyStateCopy, sessionsFooterText } from '@/pages/coslash/lib/page-copy';
+import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import { getStatus, type Session } from '@/pages/coslash/lib/session';
@@ -63,33 +63,6 @@ function SessionSearch({
         value={searchTerm}
         onChange={(event) => onSearchTermChange(event.target.value)}
       />
-    </div>
-  );
-}
-
-function CoslashPageFooter({
-  sessions,
-  isLoading,
-  loadFailed,
-  timeWindow,
-}: {
-  sessions: Session[];
-  isLoading: boolean;
-  loadFailed: boolean;
-  timeWindow: TimeWindow;
-}) {
-  const sessionCount = sessionsFooterText({
-    count: sessions.length,
-    timeWindow,
-    isLoading,
-    loadFailed,
-  });
-
-  return (
-    <div className="bg-background flex items-center gap-2 border-t px-4 py-2 font-mono text-xs">
-      <span>{sessionCount}</span>
-      <span>·</span>
-      <span>Source logs are read-only</span>
     </div>
   );
 }
@@ -284,12 +257,6 @@ export function CoslashPage() {
           />
         </LoadingSpinner>
       </div>
-      <CoslashPageFooter
-        sessions={sessionsInWindow}
-        isLoading={isLoading}
-        loadFailed={loadFailed}
-        timeWindow={timeWindow}
-      />
       <SessionInspector
         session={selectedSession}
         sessionsVersion={sessionsVersion}
