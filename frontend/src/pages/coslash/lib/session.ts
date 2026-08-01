@@ -112,8 +112,12 @@ export function getSessionOutcome(session: Pick<Session, 'synthesis' | 'summary'
   return session.summary?.trim() || null;
 }
 
-export function getSessionCardSummary(session: Pick<Session, 'synthesis' | 'summary'>): string {
-  return firstSentence(getSessionOutcome(session)) ?? 'No summary';
+export function getSessionCardSummary(
+  session: Pick<Session, 'synthesis' | 'summary' | 'synthesisPending'>,
+): string {
+  const summary = firstSentence(getSessionOutcome(session));
+  if (summary) return summary;
+  return session.synthesisPending ? 'Summary still generating' : 'No summary available';
 }
 
 export type Vendor = { label: string; mono: string; fg: string; bg: string };

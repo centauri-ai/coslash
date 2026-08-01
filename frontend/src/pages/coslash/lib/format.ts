@@ -1,8 +1,8 @@
 import { MINUTE } from '@/pages/coslash/lib/time';
 
-export function formatCost(usd: number): string {
+export function formatEstimatedCost(usd: number): string {
   if (usd > 0 && usd < 0.01) return '<$0.01';
-  return `$${usd.toFixed(2)}`;
+  return `≈$${usd.toFixed(2)}`;
 }
 
 export function formatDuration(ms: number | null): string {

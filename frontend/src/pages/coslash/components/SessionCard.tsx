@@ -16,7 +16,7 @@ import {
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
-import { formatCost, formatDuration, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
+import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import {
   getModality,
@@ -79,7 +79,7 @@ export function SessionName({
         'opacity-75': name == null && variant === 'detailed',
       })}
     >
-      {name ?? 'no name'}
+      {name ?? 'Untitled session'}
     </span>
   );
 }
@@ -129,8 +129,7 @@ function TokenUsageAndCost({ session }: { session: Session }) {
     <div className="flex-none text-right">
       <div className="text-base font-bold">
         <UnpricedModelWarning tokens={[session.tokens]}>
-          {formatCost(getEstimatedCost(session.tokens))}{' '}
-          <span className="text-muted-foreground text-xs font-normal">est.</span>
+          {formatEstimatedCost(getEstimatedCost(session.tokens))}
         </UnpricedModelWarning>
       </div>
       <div className="text-muted-foreground pt-1 font-mono text-xs">
@@ -154,7 +153,7 @@ function CompactSessionCard({ session }: { session: Session }) {
         </div>
         <span className="text-xs font-semibold whitespace-nowrap">
           <UnpricedModelWarning tokens={[session.tokens]}>
-            {formatCost(getEstimatedCost(session.tokens))}
+            {formatEstimatedCost(getEstimatedCost(session.tokens))}
           </UnpricedModelWarning>
         </span>
       </div>
@@ -190,17 +189,8 @@ function DetailedSessionCard({ session }: { session: Session }) {
   );
 }
 
-function SubagentBadge({ abbreviated = false }: { abbreviated?: boolean }) {
-  return (
-    <Badge
-      className={cn('text-subagent bg-subagent-bg shrink-0 text-xs', {
-        'font-mono font-bold': abbreviated,
-        'font-semibold': !abbreviated,
-      })}
-    >
-      {abbreviated ? 'SUB' : 'SUBAGENT'}
-    </Badge>
-  );
+function SubagentBadge() {
+  return <Badge className="text-subagent bg-subagent-bg shrink-0 text-xs font-semibold">Subagent</Badge>;
 }
 
 export function SubagentModelBadge({ model }: { model: string | null }) {
@@ -224,7 +214,7 @@ function SubagentTokenSummary({ subagent }: { subagent: Subagent }) {
           {formatDuration(subagent.durationMs)} · {subagent.toolUses} tools ·{' '}
           {formatTokens(getTotalTokens(subagent.tokens))} tok
         </span>
-        <span className="font-bold">{formatCost(getEstimatedCost(subagent.tokens))} est.</span>
+        <span className="font-bold">{formatEstimatedCost(getEstimatedCost(subagent.tokens))}</span>
       </div>
       <div className="text-muted-foreground pt-1">
         in {formatTokens(sumTokens(subagent.tokens, 'input_tokens'))} · out{' '}
@@ -244,7 +234,7 @@ function SubagentCommands({ commands }: { commands: SubagentCommand[] }) {
   if (commands.length === 0) return null;
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="text-xs font-bold tracking-widest">WHAT IT DID</div>
+      <div className="text-xs font-bold tracking-widest">Steps</div>
       <div className="bg-muted max-h-44 overflow-auto rounded-lg border p-3">
         <div className="flex w-max flex-col gap-1">
           {commands.map(({ label, command }, index) => (
@@ -302,9 +292,9 @@ export function SubagentDialogContent({
         <DialogDescription asChild>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <span className="text-muted-foreground text-xs">
-              ↳ spawned by{' '}
-              <span className="text-foreground font-semibold">{parentName ?? 'unnamed session'}</span>
-              {subagent.spawnedAtTurn != null && ` · turn ${subagent.spawnedAtTurn}`}
+              Spawned by{' '}
+              <span className="text-foreground font-semibold">{parentName ?? 'Untitled session'}</span>
+              {subagent.spawnedAtTurn != null && ` at turn ${subagent.spawnedAtTurn}`}
             </span>
             <SubagentStatusBadge status={subagent.status} />
             <SubagentModelBadge model={subagent.model} />
@@ -312,9 +302,9 @@ export function SubagentDialogContent({
         </DialogDescription>
       </DialogHeader>
       <SubagentTokenSummary subagent={subagent} />
-      <SubagentProse label="TASK FROM PARENT" labelClass="text-subagent" text={subagent.task} italic />
+      <SubagentProse label="Task" labelClass="text-subagent" text={subagent.task} italic />
       <SubagentCommands commands={subagent.commands} />
-      <SubagentProse label="RETURNED TO PARENT" labelClass="text-success-fg" text={subagent.result} />
+      <SubagentProse label="Result" labelClass="text-success-fg" text={subagent.result} />
       <DialogFooter className="flex items-center gap-4">
         <div className="text-muted-foreground text-xs">
           Subagents run in their own context window and return one result to the parent — they aren't resumed
@@ -322,7 +312,7 @@ export function SubagentDialogContent({
         </div>
         <DialogClose>
           <Button>
-            <span>Back to session</span>
+            <span>Close</span>
           </Button>
         </DialogClose>
       </DialogFooter>
@@ -341,7 +331,7 @@ function DetailedSubagentRow({ subagent }: { subagent: Subagent }) {
       </div>
       <div className="flex flex-none items-center gap-2">
         <span className="text-xs font-light whitespace-nowrap">
-          {formatCost(getEstimatedCost(subagent.tokens))}
+          {formatEstimatedCost(getEstimatedCost(subagent.tokens))}
         </span>
         <span className="text-muted-foreground font-mono text-xs whitespace-nowrap">
           {formatTokens(getTotalTokens(subagent.tokens))} tok
@@ -355,11 +345,11 @@ function CompactSubagentRow({ subagent }: { subagent: Subagent }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
-        <SubagentBadge abbreviated />
+        <SubagentBadge />
         <span className="min-w-0 truncate text-xs font-semibold">{subagent.name}</span>
       </div>
       <span className="text-xs font-light whitespace-nowrap">
-        {formatCost(getEstimatedCost(subagent.tokens))}
+        {formatEstimatedCost(getEstimatedCost(subagent.tokens))}
       </span>
     </div>
   );

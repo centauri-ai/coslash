@@ -24,7 +24,7 @@ export type SortDir = 'asc' | 'desc';
 
 const SORT_LABELS: Record<SortKey, string> = {
   [SortKey.Recency]: 'Recency',
-  [SortKey.Value]: 'Est. value',
+  [SortKey.Value]: 'Est. cost',
   [SortKey.Tokens]: 'Tokens',
   [SortKey.Duration]: 'Duration',
 };

@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { cn } from '@/lib/utils';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
-import { formatCost, formatTokens } from '@/pages/coslash/lib/format';
+import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { getStatus, getTotalTokens, STATUSES, type Session, type Status } from '@/pages/coslash/lib/session';
 
@@ -41,7 +41,7 @@ function RepoGroupHeader({ repo, sessions }: { repo: string; sessions: Session[]
       <span className="text-muted-foreground text-xs">
         {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
         <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
-          {formatCost(cost)}
+          {formatEstimatedCost(cost)}
         </UnpricedModelWarning>
       </span>
     </div>
@@ -92,7 +92,7 @@ function BranchRow({
         <span className="text-muted-foreground text-xs">
           {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
           <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
-            {formatCost(cost)}
+            {formatEstimatedCost(cost)}
           </UnpricedModelWarning>
         </span>
       </div>

@@ -21,7 +21,8 @@ import {
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
-import { formatCost } from '@/pages/coslash/lib/format';
+import { formatEstimatedCost } from '@/pages/coslash/lib/format';
+import { sessionsEmptyStateCopy, sessionsFooterText } from '@/pages/coslash/lib/page-copy';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import { getStatus, type Session } from '@/pages/coslash/lib/session';
@@ -70,22 +71,25 @@ function CoslashPageFooter({
   sessions,
   isLoading,
   loadFailed,
+  timeWindow,
 }: {
   sessions: Session[];
   isLoading: boolean;
   loadFailed: boolean;
+  timeWindow: TimeWindow;
 }) {
-  const sessionCount = loadFailed
-    ? 'session count unavailable'
-    : isLoading
-      ? 'loading sessions'
-      : `${sessions.length} sessions in selected window`;
+  const sessionCount = sessionsFooterText({
+    count: sessions.length,
+    timeWindow,
+    isLoading,
+    loadFailed,
+  });
 
   return (
     <div className="bg-background flex items-center gap-2 border-t px-4 py-2 font-mono text-xs">
       <span>{sessionCount}</span>
       <span>·</span>
-      <span>read-only</span>
+      <span>Source logs are read-only</span>
     </div>
   );
 }
@@ -116,13 +120,13 @@ function SessionsStats({
           {sessions.filter((session) => session.agent === 'codex').length} Codex ·
         </span>
         <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
-          {formatCost(sessions.reduce((sum, session) => sum + getEstimatedCost(session.tokens), 0))}
+          {formatEstimatedCost(sessions.reduce((sum, session) => sum + getEstimatedCost(session.tokens), 0))}
         </UnpricedModelWarning>
         <span
           className="shrink-0 cursor-help underline decoration-dotted underline-offset-2"
-          title="Full-session totals for sessions with activity in the selected window."
+          title="Includes each session’s full history, not only activity in this window."
         >
-          at API list prices
+          at list API prices
         </span>
       </div>
       <div className="text-muted-foreground flex shrink-0 items-center gap-3 text-xs">
@@ -143,12 +147,18 @@ function CoslashContent({
   loadFailed,
   onRetry,
   visibleSessions,
+  hasSessions,
+  searchTerm,
+  outsideWindowMatches,
   view,
   onSelectSession,
 }: {
   loadFailed: boolean;
   onRetry: () => void;
   visibleSessions: Session[];
+  hasSessions: boolean;
+  searchTerm: string;
+  outsideWindowMatches: number;
   view: ViewMode;
   onSelectSession: (session: Session) => void;
 }) {
@@ -156,7 +166,7 @@ function CoslashContent({
     return (
       <div role="alert" className="text-destructive grid h-full place-items-center bg-neutral-50 text-sm">
         <div className="flex flex-col items-center gap-3">
-          <div>Unable to load sessions</div>
+          <div>CoSlash couldn’t load sessions from the API.</div>
           <Button variant="outline" size="sm" onClick={onRetry}>
             Try again
           </Button>
@@ -165,11 +175,12 @@ function CoslashContent({
     );
   }
   if (visibleSessions.length === 0) {
+    const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, outsideWindowMatches });
     return (
       <div role="status" className="grid h-full place-items-center bg-neutral-50 text-center">
         <div>
-          <div className="text-sm font-semibold">No sessions found</div>
-          <div className="text-muted-foreground pt-1 text-xs">Try another vendor or a wider time window.</div>
+          <div className="text-sm font-semibold">{emptyState.title}</div>
+          {emptyState.detail && <div className="text-muted-foreground pt-1 text-xs">{emptyState.detail}</div>}
         </div>
       </div>
     );
@@ -222,6 +233,16 @@ export function CoslashPage() {
     sortKey,
     sortDir,
   );
+  const outsideWindowMatches =
+    windowStart == null
+      ? 0
+      : sessions.filter(
+          (session) =>
+            session.status == null &&
+            session.mtime < windowStart &&
+            (vendor === 'all' || session.agent === vendor) &&
+            sessionMatchesSearchTerm(session, searchTerm),
+        ).length;
 
   return (
     <div className="flex h-svh flex-col">
@@ -255,12 +276,20 @@ export function CoslashPage() {
             loadFailed={loadFailed}
             onRetry={retrySessions}
             visibleSessions={visibleSessions}
+            hasSessions={sessions.length > 0}
+            searchTerm={searchTerm}
+            outsideWindowMatches={outsideWindowMatches}
             view={view}
             onSelectSession={(session) => setSelectedSessionId(session.id)}
           />
         </LoadingSpinner>
       </div>
-      <CoslashPageFooter sessions={sessionsInWindow} isLoading={isLoading} loadFailed={loadFailed} />
+      <CoslashPageFooter
+        sessions={sessionsInWindow}
+        isLoading={isLoading}
+        loadFailed={loadFailed}
+        timeWindow={timeWindow}
+      />
       <SessionInspector
         session={selectedSession}
         sessionsVersion={sessionsVersion}
