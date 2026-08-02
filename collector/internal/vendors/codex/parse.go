@@ -243,6 +243,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				if question, ok := questionFrom(row.Payload); ok {
 					analysis.digest.Push(analysis.prompts, session.DigestQuestion, question)
 				}
+				analysis.notePlan(row.Payload)
 			case "function_call_output":
 				if id := spawnedAgentID(row.Payload.Output); id != "" {
 					analysis.spawnTurns[id] = max(analysis.prompts, 1)
@@ -468,7 +469,9 @@ func unifiedDiffStat(diff string) (additions, deletions int) {
 	return session.DiffStat(lines)
 }
 
-var execCmdPattern = regexp.MustCompile(`"cmd":\s*("(?:[^"\\]|\\.)*")`)
+var execCmdPattern = regexp.MustCompile(
+	`(?:^|[{,]\s*)(?:"cmd"|cmd)\s*:\s*("(?:[^"\\]|\\.)*")`,
+)
 var questionPattern = regexp.MustCompile(`"question"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var planStepPattern = regexp.MustCompile(
 	`"?step"?\s*:\s*("(?:[^"\\]|\\.)*")\s*,\s*"?status"?\s*:\s*"(\w+)"`,
