@@ -762,6 +762,7 @@ export function SessionInspector({
   onClose: () => void;
 }) {
   const detail = useSessionDetail(session, sessionsVersion);
+  const contentRef = useRef<HTMLDivElement>(null);
   const isOpen = session != null;
 
   return (
@@ -771,7 +772,16 @@ export function SessionInspector({
         if (!open) onClose();
       }}
     >
-      <SheetContent className="w-1/2! max-w-none! gap-0" showCloseButton={true}>
+      <SheetContent
+        ref={contentRef}
+        tabIndex={-1}
+        className="w-1/2! max-w-none! gap-0 outline-none"
+        showCloseButton={true}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
+      >
         {isOpen && detail != null && (
           <>
             <SheetHeader>
