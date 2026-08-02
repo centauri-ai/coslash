@@ -1,14 +1,11 @@
 import { useState } from 'react';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -290,14 +287,20 @@ export function SubagentDialogContent({
           <DialogTitle className="min-w-0 text-base">{subagent.name}</DialogTitle>
         </div>
         <DialogDescription asChild>
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <span className="text-muted-foreground text-xs">
-              Spawned by{' '}
-              <span className="text-foreground font-semibold">{parentName ?? 'Untitled session'}</span>
-              {subagent.spawnedAtTurn != null && ` at turn ${subagent.spawnedAtTurn}`}
-            </span>
-            <SubagentStatusBadge status={subagent.status} />
-            <SubagentModelBadge model={subagent.model} />
+          <div className="flex flex-col gap-2 pt-1">
+            <div className="text-muted-foreground text-xs">
+              Subagents run in their own context window and return one result to the parent — they aren't
+              resumed on their own.
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-muted-foreground text-xs">
+                Spawned by{' '}
+                <span className="text-foreground font-semibold">{parentName ?? 'Untitled session'}</span>
+                {subagent.spawnedAtTurn != null && ` at turn ${subagent.spawnedAtTurn}`}
+              </span>
+              <SubagentStatusBadge status={subagent.status} />
+              <SubagentModelBadge model={subagent.model} />
+            </div>
           </div>
         </DialogDescription>
       </DialogHeader>
@@ -305,17 +308,6 @@ export function SubagentDialogContent({
       <SubagentProse label="Task" labelClass="text-subagent" text={subagent.task} italic />
       <SubagentCommands commands={subagent.commands} />
       <SubagentProse label="Result" labelClass="text-success-fg" text={subagent.result} />
-      <DialogFooter className="flex items-center gap-4">
-        <div className="text-muted-foreground text-xs">
-          Subagents run in their own context window and return one result to the parent — they aren't resumed
-          on their own.
-        </div>
-        <DialogClose>
-          <Button>
-            <span>Close</span>
-          </Button>
-        </DialogClose>
-      </DialogFooter>
     </DialogContent>
   );
 }
