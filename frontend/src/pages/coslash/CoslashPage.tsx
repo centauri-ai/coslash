@@ -43,28 +43,26 @@ function CoslashPageHeader({
   onSearchTermChange: (value: string) => void;
 }) {
   return (
-    <div className="bg-background flex items-center justify-between gap-2 border-b px-4 pt-2 pb-1">
+    <div className="bg-background flex items-center justify-between">
       <div className="flex items-center gap-2">
         <img
           src="/brand/coslash-logo.svg"
           alt="coSlash"
-          className="h-8 w-auto origin-center translate-x-10 scale-[1.75]"
+          className="h-12"
         />
       </div>
-      <div>
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Search titles, repos, branches"
-            className="bg-muted w-2xs text-xs"
-            value={searchTerm}
-            onChange={(event) => onSearchTermChange(event.target.value)}
-          />
-          <Avatar className="size-8">
-            <AvatarFallback className="text-muted-foreground text-xs font-bold">
-              <span>FL</span>
-            </AvatarFallback>
-          </Avatar>
-        </div>
+      <div className="flex items-center gap-2">
+        <Input
+          placeholder="Search titles, repos, branches"
+          className="bg-muted h-10 w-2xs text-sm"
+          value={searchTerm}
+          onChange={(event) => onSearchTermChange(event.target.value)}
+        />
+        <Avatar className="size-10">
+          <AvatarFallback className="text-muted-foreground text-xs font-bold">
+            <span>FL</span>
+          </AvatarFallback>
+        </Avatar>
       </div>
     </div>
   );
@@ -212,20 +210,20 @@ export function CoslashPage() {
 
   return (
     <div className="flex h-svh flex-col">
-      <div className="bg-background border-b">
+      <div className="bg-background flex flex-col gap-2 px-4 py-2">
         <CoslashPageHeader searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
-        <div className="flex items-baseline justify-between px-4 pt-3">
+        <div className="flex items-baseline justify-between">
           <h1 className="text-base font-bold">Sessions</h1>
           <LoadingSpinner isLoading={isLoading}>
             <SessionsStats sessions={sessionsInWindow} loadFailed={loadFailed} timeWindow={timeWindow} />
           </LoadingSpinner>
         </div>
-        <div className="flex items-center justify-between gap-2 px-4 py-2">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <AgentVendorFilterTabMenu value={vendor} onValueChange={setVendor} />
-            <span className="bg-border h-5 w-px" />
+            <span className="bg-border w-px" />
             <TimeWindowFilterTabMenu value={timeWindow} onValueChange={setTimeWindow} />
-            <span className="bg-border h-5 w-px" />
+            <span className="bg-border w-px" />
             <ViewingModeTabMenu value={view} onValueChange={setView} />
           </div>
           <SessionSortDropdownMenu
