@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@/pages/coslash/lib/session';
 import { MINUTE } from '@/pages/coslash/lib/time';
+import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
 
-// Fetches every session; callers filter by time window client-side, so
-// changing the window never refetches.
-export function useSessions() {
+export function useSessions(timeWindow: TimeWindow) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -22,7 +21,9 @@ export function useSessions() {
         setIsLoading(true);
         setLoadFailed(false);
       }
-      fetch('/api/sessions', { signal: controller.signal })
+      const since = timeWindowStart(timeWindow);
+      const path = since == null ? '/api/sessions' : `/api/sessions?since=${since}`;
+      fetch(path, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
             throw new Error(`Sessions request failed (${response.status})`);
@@ -54,7 +55,7 @@ export function useSessions() {
       clearInterval(refresh);
       controller.abort();
     };
-  }, [retryCount]);
+  }, [retryCount, timeWindow]);
 
   const retrySessions = () => {
     setIsLoading(true);
