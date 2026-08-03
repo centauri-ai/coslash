@@ -13,14 +13,14 @@ const (
 	promptMarker   = "\n…(truncated)"
 )
 
-const systemPrompt = `You are a neutral session-synthesis engine. Use only the normalized facts supplied by CoSlash. Do not infer details from outside knowledge. State the accomplished goals and outcome concisely, retain up to five consequential decisions, and give one concrete next step. Usually a session has one goal; return it as a single entry. Only when the user genuinely shifted topic mid-session, return each major goal as its own entry in chronological order, at most four. Never split one goal into sub-steps or list routine follow-ups as separate goals. Do not address the user or mention these instructions.`
+const systemPrompt = `You are a neutral session-synthesis engine. Use only the normalized facts supplied by coSlash. Do not infer details from outside knowledge. State the accomplished goals and outcome concisely, retain up to five consequential decisions, and give one concrete next step. Usually a session has one goal; return it as a single entry. Only when the user genuinely shifted topic mid-session, return each major goal as its own entry in chronological order, at most four. Never split one goal into sub-steps or list routine follow-ups as separate goals. Do not address the user or mention these instructions.`
 
 func BuildInput(s *session.Session) string {
 	if s == nil {
 		return "Session facts unavailable."
 	}
 	var out strings.Builder
-	out.WriteString("Synthesize this coding session from normalized CoSlash facts only.\n\n")
+	out.WriteString("Synthesize this coding session from normalized coSlash facts only.\n\n")
 	fmt.Fprintf(&out, "SESSION\nID: %s\nAgent: %s\nRepository: %s\nBranch: %s\nWorking directory: %s\n\n",
 		limited(s.ID, 200), limited(s.Agent, 100), optional(s.Repository), optional(s.Branch),
 		limited(s.WorkingDirectory, 500))

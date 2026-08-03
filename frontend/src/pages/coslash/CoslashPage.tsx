@@ -19,7 +19,7 @@ import {
   ViewingModeTabMenu,
   type AgentVendor,
   type ViewMode,
-} from '@/pages/coslash/CoSlashTabMenus';
+} from '@/pages/coslash/CoslashTabMenus';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { formatCost } from '@/pages/coslash/lib/format';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
@@ -35,7 +35,7 @@ const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
   'all': 'across all time',
 };
 
-function CoSlashPageHeader({
+function CoslashPageHeader({
   searchTerm,
   onSearchTermChange,
 }: {
@@ -45,10 +45,7 @@ function CoSlashPageHeader({
   return (
     <div className="bg-background flex items-center justify-between gap-2 border-b p-2 px-4">
       <div className="flex items-center gap-2">
-        <div className="bg-brand grid size-6 place-items-center rounded-sm text-base font-extrabold text-white">
-          <span>F</span>
-        </div>
-        <span className="text-sm font-bold">CoSlash</span>
+        <img src="/brand/coslash-logo.svg" alt="coSlash" className="h-6 w-auto" />
       </div>
       <div>
         <div className="flex items-center gap-2">
@@ -69,7 +66,7 @@ function CoSlashPageHeader({
   );
 }
 
-function CoSlashPageFooter({
+function CoslashPageFooter({
   sessions,
   isLoading,
   loadFailed,
@@ -125,7 +122,7 @@ function SessionsStats({
   );
 }
 
-function CoSlashContent({
+function CoslashContent({
   loadFailed,
   onRetry,
   visibleSessions,
@@ -180,7 +177,7 @@ function CoSlashContent({
   );
 }
 
-export function CoSlashPage() {
+export function CoslashPage() {
   const [vendor, setVendor] = useState<AgentVendor>('all');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
   const { sessions, isLoading, loadFailed, sessionsVersion, retrySessions } = useSessions();
@@ -212,7 +209,7 @@ export function CoSlashPage() {
   return (
     <div className="flex h-svh flex-col">
       <div className="bg-background border-b">
-        <CoSlashPageHeader searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
+        <CoslashPageHeader searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
         <div className="flex items-baseline justify-between px-4 pt-3">
           <h1 className="text-base font-bold">Sessions</h1>
           <LoadingSpinner isLoading={isLoading}>
@@ -237,7 +234,7 @@ export function CoSlashPage() {
       </div>
       <div className="relative flex-1 overflow-hidden">
         <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
-          <CoSlashContent
+          <CoslashContent
             loadFailed={loadFailed}
             onRetry={retrySessions}
             visibleSessions={visibleSessions}
@@ -246,7 +243,7 @@ export function CoSlashPage() {
           />
         </LoadingSpinner>
       </div>
-      <CoSlashPageFooter sessions={sessionsInWindow} isLoading={isLoading} loadFailed={loadFailed} />
+      <CoslashPageFooter sessions={sessionsInWindow} isLoading={isLoading} loadFailed={loadFailed} />
       <SessionInspector
         session={selectedSession}
         sessionsVersion={sessionsVersion}

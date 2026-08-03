@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 88" role="img" aria-labelledby="title">
+  <title id="title">coSlash reverse horizontal logo</title>
+  <g transform="translate(8 12)">
+    <rect x="4" y="4" width="56" height="56" rx="18" fill="#EEF1FF"/>
+    <path d="M42 7c5 1 7 5 4 10L27 51c-3 5-9 6-12 2-2-3 0-6 2-10l20-33c1-2 3-3 5-3Z" fill="#7182E5"/>
+    <path d="m20 51-3 7M25 52l2 6" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="38" cy="24" r="6.3" fill="#fff"/>
+    <circle cx="39.7" cy="24.8" r="2.3" fill="#172033"/>
+    <circle cx="40.5" cy="23.9" r=".75" fill="#fff"/>
+  </g>
+  <text x="92" y="57" fill="#fff" font-family="Inter, Arial, sans-serif" font-size="39" letter-spacing="-1.7"><tspan font-weight="500">co</tspan><tspan font-weight="750">Slash</tspan></text>
+</svg>
