@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
@@ -24,7 +24,7 @@ import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { formatCost } from '@/pages/coslash/lib/format';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
-import { type Session } from '@/pages/coslash/lib/session';
+import { getStatus, type Session } from '@/pages/coslash/lib/session';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
@@ -35,7 +35,18 @@ const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
   'all': 'across all time',
 };
 
-function CoslashPageHeader({
+function CoslashPageHeader() {
+  return (
+      <div className="flex items-center gap-2 px-4">
+        <img src="/brand/coslash-logo.svg" alt="coSlash" className="h-12" />
+        <span className="text-muted-foreground text-sm font-medium">
+        Run more agents. Lose less context.
+      </span>
+    </div>
+  );
+}
+
+function SessionSearch({
   searchTerm,
   onSearchTermChange,
 }: {
@@ -43,27 +54,14 @@ function CoslashPageHeader({
   onSearchTermChange: (value: string) => void;
 }) {
   return (
-    <div className="bg-background flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <img
-          src="/brand/coslash-logo.svg"
-          alt="coSlash"
-          className="h-12"
-        />
-      </div>
-      <div className="flex items-center gap-2">
-        <Input
-          placeholder="Search titles, repos, branches"
-          className="bg-muted h-10 w-2xs text-sm"
-          value={searchTerm}
-          onChange={(event) => onSearchTermChange(event.target.value)}
-        />
-        <Avatar className="size-10">
-          <AvatarFallback className="text-muted-foreground text-xs font-bold">
-            <span>FL</span>
-          </AvatarFallback>
-        </Avatar>
-      </div>
+    <div className="relative max-w-sm min-w-32 flex-1">
+      <Search className="text-muted-foreground pointer-events-none absolute top-2 left-2.5 size-4" />
+      <Input
+        placeholder="Search sessions -- title, repo, branch"
+        className="bg-muted h-8 pl-8 text-sm"
+        value={searchTerm}
+        onChange={(event) => onSearchTermChange(event.target.value)}
+      />
     </div>
   );
 }
@@ -103,23 +101,40 @@ function SessionsStats({
 }) {
   if (loadFailed) return null;
 
+  const activeSessions = sessions.filter((session) => getStatus(session.status) === 'busy').length;
+  const waitingSessions = sessions.filter((session) => getStatus(session.status) === 'waiting').length;
+
   return (
-    <div className="text-muted-foreground flex items-center gap-2 text-xs">
-      <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
-        {formatCost(sessions.reduce((sum, session) => sum + getEstimatedCost(session.tokens), 0))}
-      </UnpricedModelWarning>
-      <span
-        className="cursor-help underline decoration-dotted underline-offset-2"
-        title="Full-session totals for sessions with activity in the selected window."
-      >
-        lifetime est. API value
-      </span>
-      <span>
-        · {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}{' '}
-        {WINDOW_ACTIVITY_LABELS[timeWindow]} ·{' '}
-        {sessions.filter((session) => session.agent === 'claude').length} Claude Code /{' '}
-        {sessions.filter((session) => session.agent === 'codex').length} Codex
-      </span>
+    <div className="flex w-full min-w-0 items-center justify-between gap-3">
+      <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
+        <span className="truncate">
+          <span className="font-semibold text-foreground">
+            {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
+          </span>{' '}
+          {WINDOW_ACTIVITY_LABELS[timeWindow]} ·{' '}
+          {sessions.filter((session) => session.agent === 'claude').length} Claude Code,{' '}
+          {sessions.filter((session) => session.agent === 'codex').length} Codex ·
+        </span>
+        <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
+          {formatCost(sessions.reduce((sum, session) => sum + getEstimatedCost(session.tokens), 0))}
+        </UnpricedModelWarning>
+        <span
+          className="shrink-0 cursor-help underline decoration-dotted underline-offset-2"
+          title="Full-session totals for sessions with activity in the selected window."
+        >
+          at API list prices
+        </span>
+      </div>
+      <div className="text-muted-foreground flex shrink-0 items-center gap-3 text-xs">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="bg-success size-1.5 animate-pulse rounded-full" />
+          {activeSessions} active
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="bg-warning size-1.5 rounded-full" />
+          {waitingSessions} waiting on you
+        </span>
+      </div>
     </div>
   );
 }
@@ -210,20 +225,15 @@ export function CoslashPage() {
 
   return (
     <div className="flex h-svh flex-col">
-      <div className="bg-background flex flex-col gap-2 px-4 py-2">
-        <CoslashPageHeader searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-base font-bold">Sessions</h1>
-          <LoadingSpinner isLoading={isLoading}>
-            <SessionsStats sessions={sessionsInWindow} loadFailed={loadFailed} timeWindow={timeWindow} />
-          </LoadingSpinner>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+      <CoslashPageHeader />
+      <div className="bg-background flex flex-col border-b px-4 gap-2 pb-2">
+        <div className="flex items-center gap-2 overflow-x-auto">
+          <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
+          <div className="flex shrink-0 items-center gap-2">
             <AgentVendorFilterTabMenu value={vendor} onValueChange={setVendor} />
-            <span className="bg-border w-px" />
+            <span className="bg-border h-5 w-px" />
             <TimeWindowFilterTabMenu value={timeWindow} onValueChange={setTimeWindow} />
-            <span className="bg-border w-px" />
+            <span className="bg-border h-5 w-px" />
             <ViewingModeTabMenu value={view} onValueChange={setView} />
           </div>
           <SessionSortDropdownMenu
@@ -232,6 +242,11 @@ export function CoslashPage() {
             onSortKeyChange={setSortKey}
             onSortDirChange={setSortDir}
           />
+        </div>
+        <div className="flex min-h-7 items-center">
+          <LoadingSpinner isLoading={isLoading}>
+            <SessionsStats sessions={sessionsInWindow} loadFailed={loadFailed} timeWindow={timeWindow} />
+          </LoadingSpinner>
         </div>
       </div>
       <div className="relative flex-1 overflow-hidden">
