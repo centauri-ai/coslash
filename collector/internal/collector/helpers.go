@@ -14,6 +14,7 @@ const maxParseWorkers = 8
 
 func collectAndParseVendor(
 	source vendorSource,
+	since int64,
 ) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error) {
 	files, err := source.files()
 	if err != nil {
@@ -22,6 +23,9 @@ func collectAndParseVendor(
 	metadata, err := source.metadata()
 	if err != nil {
 		return nil, nil, err
+	}
+	if since > 0 {
+		files = source.window(files, metadata.Live, since)
 	}
 	// parsing can be done in parallel, but file order must be preserved
 	results := make([]*vendors.ParsedTranscript, len(files))

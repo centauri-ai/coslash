@@ -17,7 +17,10 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
-const maxProbeWorkers = 8
+const (
+	maxProbeWorkers     = 8
+	windowContextBuffer = 24 * time.Hour
+)
 
 type vendorSource struct {
 	name     string
@@ -26,26 +29,33 @@ type vendorSource struct {
 	parse    func(path string) (*vendors.ParsedTranscript, error)
 	metadata func() (*vendors.SessionMetadata, error) // information not extractable from logs alone
 	fork     func(parsed []*vendors.ParsedTranscript)
+	window   func(files []string, live map[string]string, since int64) []string
 }
 
 var vendorSources = []vendorSource{
 	{
 		vendors.AgentClaude, claude.Files, claude.IDFromPath,
-		claude.Parse, claude.LoadMetadata, claude.ApplyForkedUsage,
+		claude.Parse, claude.LoadMetadata, claude.ApplyForkedUsage, claude.FilesSince,
 	},
 	{
 		vendors.AgentCodex, codex.Files, codex.SessionIDFromRollout,
-		codex.Parse, codex.LoadMetadata, codex.ApplyForkedUsage,
+		codex.Parse, codex.LoadMetadata, codex.ApplyForkedUsage, codex.FilesSince,
 	},
 }
 
-func List() ([]*session.Session, error) {
-	parsed, metadata, err := collect()
+func List(since int64) ([]*session.Session, error) {
+	parsed, metadata, err := collect(max(0, since-windowContextBuffer.Milliseconds()))
 	if err != nil {
 		return nil, err
 	}
 	applyForkedUsage(parsed)
 	roots := groupSubagents(parsed, metadata)
+	if since > 0 {
+		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedTranscript) bool {
+			_, live := metadata[root.Session.Agent].Live[root.Session.ID]
+			return !live && root.Session.LastActivityTime < since
+		})
+	}
 	probeEnvironment(roots)
 	resolveNames(roots, metadata)
 	resolveStatus(roots, metadata)
@@ -62,12 +72,12 @@ func applyForkedUsage(parsed []*vendors.ParsedTranscript) {
 	}
 }
 
-func collect() ([]*vendors.ParsedTranscript, map[string]*vendors.SessionMetadata, error) {
+func collect(since int64) ([]*vendors.ParsedTranscript, map[string]*vendors.SessionMetadata, error) {
 	parsed := []*vendors.ParsedTranscript{}
 	metadata := map[string]*vendors.SessionMetadata{}
 	var failures []error
 	for _, source := range vendorSources {
-		vendorParsed, vendorMetadata, err := collectAndParseVendor(source)
+		vendorParsed, vendorMetadata, err := collectAndParseVendor(source, since)
 		if err != nil {
 			log.Printf("%s session collection failed: %v; serving other vendors", source.name, err)
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
