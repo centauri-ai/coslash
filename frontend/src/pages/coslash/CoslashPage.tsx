@@ -181,7 +181,7 @@ function CoslashContent({
 export function CoslashPage() {
   const [vendor, setVendor] = useState<AgentVendor>('all');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
-  const { sessions, isLoading, loadFailed, sessionsVersion, retrySessions } = useSessions();
+  const { sessions, isLoading, loadFailed, sessionsVersion, retrySessions } = useSessions(timeWindow);
   const [view, setView] = useState<ViewMode>('list');
   const [sortKey, setSortKey] = useState<SortKey>(SortKey.Recency);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
