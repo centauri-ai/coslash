@@ -32,7 +32,6 @@ func ParentIDFromPath(path string) string {
 	}
 	return ""
 }
-
 func Files() ([]string, error) {
 	root, err := Root()
 	if err != nil {
@@ -51,4 +50,31 @@ func Files() ([]string, error) {
 		files = append(files, file)
 	}
 	return files, nil
+}
+
+// FilesSince keeps recent/live roots and every subagent file in those sessions.
+func FilesSince(files []string, live map[string]string, since int64) []string {
+	selectedRoots := map[string]struct{}{}
+	for _, file := range files {
+		if ParentIDFromPath(file) != "" {
+			continue
+		}
+		id := IDFromPath(file)
+		info, err := os.Stat(file)
+		_, isLive := live[id]
+		if err != nil || isLive || info.ModTime().UnixMilli() >= since {
+			selectedRoots[id] = struct{}{}
+		}
+	}
+	selected := make([]string, 0, len(files))
+	for _, file := range files {
+		rootID := ParentIDFromPath(file)
+		if rootID == "" {
+			rootID = IDFromPath(file)
+		}
+		if _, ok := selectedRoots[rootID]; ok {
+			selected = append(selected, file)
+		}
+	}
+	return selected
 }

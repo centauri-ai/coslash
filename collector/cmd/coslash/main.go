@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -22,12 +23,16 @@ func main() {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr = synthesis.NewManager(nil)
 	}
-	go mgr.Run(context.Background(), collector.List)
+	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
+		now := time.Now()
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		return collector.List(today.UnixMilli())
+	})
 	go cleanupHandoffs()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, _ *http.Request) {
-		handleList(w, mgr)
+	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		handleList(w, r, mgr)
 	})
 	mux.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
@@ -40,11 +45,15 @@ func main() {
 	}
 }
 
-// /api/sessions → every session, each a complete record; only synthesis is
-// served separately. Time-window filtering is the frontend's, since parsing
-// happens regardless of window.
-func handleList(w http.ResponseWriter, mgr *synthesis.Manager) {
-	sessions, err := collector.List()
+// /api/sessions → complete session records, optionally limited by an
+// epoch-millisecond activity cutoff before transcript parsing.
+func handleList(w http.ResponseWriter, r *http.Request, mgr *synthesis.Manager) {
+	since, err := parseSince(r.URL.Query().Get("since"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sessions, err := collector.List(since)
 	if err != nil {
 		log.Printf("list sessions: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -59,6 +68,17 @@ func handleList(w http.ResponseWriter, mgr *synthesis.Manager) {
 	}
 	writeJSON(w, sessions)
 	log.Printf("list sessions: %d", len(sessions))
+}
+
+func parseSince(value string) (int64, error) {
+	if value == "" {
+		return 0, nil
+	}
+	since, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || since < 0 {
+		return 0, fmt.Errorf("invalid 'since' parameter")
+	}
+	return since, nil
 }
 
 // /api/synthesis?id=X → cached synthesis for one session, triggering a run

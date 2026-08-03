@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,23 @@ var rolloutID = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 
 func SessionIDFromRollout(path string) string {
 	return rolloutID.FindString(filepath.Base(path))
+}
+
+func readHeader(path string) (string, string, bool) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", "", false
+	}
+	defer file.Close()
+	var row codexRow
+	if err := json.NewDecoder(file).Decode(&row); err != nil {
+		return "", "", false
+	}
+	id := SessionIDFromRollout(path)
+	if row.Type != "session_meta" || id == "" || row.Payload.ID != id {
+		return "", "", false
+	}
+	return id, row.Payload.ParentThreadID, true
 }
 
 // root/subagents: ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<session-uuid>.jsonl
@@ -31,4 +49,48 @@ func Files() ([]string, error) {
 		return nil, err
 	}
 	return vendors.JSONLFilesUnder(root)
+}
+
+// FilesSince keeps recent/live roots and their complete descendant graph.
+func FilesSince(files []string, live map[string]string, since int64) []string {
+	byID := make(map[string]string, len(files))
+	children := map[string][]string{}
+	selected := map[string]struct{}{}
+	queue := []string{}
+	for _, file := range files {
+		id, parentID, ok := readHeader(file)
+		if !ok {
+			selected[file] = struct{}{}
+			continue
+		}
+		byID[id] = file
+		if parentID != "" {
+			children[parentID] = append(children[parentID], id)
+			continue
+		}
+		info, statErr := os.Stat(file)
+		_, isLive := live[id]
+		if statErr != nil || isLive || info.ModTime().UnixMilli() >= since {
+			queue = append(queue, id)
+		}
+	}
+	for i := 0; i < len(queue); i++ {
+		id := queue[i]
+		file, ok := byID[id]
+		if !ok {
+			continue
+		}
+		if _, seen := selected[file]; seen {
+			continue
+		}
+		selected[file] = struct{}{}
+		queue = append(queue, children[id]...)
+	}
+	result := make([]string, 0, len(selected))
+	for _, file := range files {
+		if _, ok := selected[file]; ok {
+			result = append(result, file)
+		}
+	}
+	return result
 }
