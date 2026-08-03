@@ -43,9 +43,13 @@ function CoslashPageHeader({
   onSearchTermChange: (value: string) => void;
 }) {
   return (
-    <div className="bg-background flex items-center justify-between gap-2 border-b p-2 px-4">
+    <div className="bg-background flex items-center justify-between gap-2 border-b px-4 pt-2 pb-1">
       <div className="flex items-center gap-2">
-        <img src="/brand/coslash-logo.svg" alt="coSlash" className="h-10 w-auto" />
+        <img
+          src="/brand/coslash-logo.svg"
+          alt="coSlash"
+          className="h-8 w-auto origin-center translate-x-10 scale-[1.75]"
+        />
       </div>
       <div>
         <div className="flex items-center gap-2">
