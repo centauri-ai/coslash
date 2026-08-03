@@ -181,7 +181,8 @@ function CoslashContent({
 export function CoslashPage() {
   const [vendor, setVendor] = useState<AgentVendor>('all');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
-  const { sessions, isLoading, loadFailed, sessionsVersion, retrySessions } = useSessions();
+  const { sessions, knownSessions, isLoading, loadFailed, sessionsVersion, retrySessions } =
+    useSessions(timeWindow);
   const [view, setView] = useState<ViewMode>('list');
   const [sortKey, setSortKey] = useState<SortKey>(SortKey.Recency);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -190,9 +191,9 @@ export function CoslashPage() {
   // Held by id, not by value: the inspector must render the freshest record
   // each refresh, and a stored object would freeze at click time. Looked up
   // from the unfiltered list so filters never close an open inspector.
-  const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
-  // The API returns every session, so the window is applied here — switching it
-  // never refetches. A live session shows regardless of how old its log is.
+  const selectedSession = (selectedSessionId == null ? null : knownSessions.get(selectedSessionId)) ?? null;
+  // The server applies this window before parsing Codex history. Keep the same
+  // predicate here for cached responses near rolling-window boundaries.
   const windowStart = timeWindowStart(timeWindow);
   const sessionsInWindow =
     windowStart == null
