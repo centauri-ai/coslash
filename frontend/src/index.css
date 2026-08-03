@@ -47,7 +47,7 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* CoSlash semantic colors — generates utilities like bg-brand, text-success-fg, bg-warning-bg */
+/* coSlash semantic colors — generates utilities like bg-brand, text-success-fg, bg-warning-bg */
 @theme {
   /* brand accent (logo, primary actions) */
   --color-brand: #3554d1;
