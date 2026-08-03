@@ -16,15 +16,24 @@ import (
 // before the divergence belongs to the parent. An unresolvable or unreadable
 // parent leaves the full cumulative usage in place; over-counting is the
 // deliberate failure mode, never under-counting.
-func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
+func ApplyForkedUsage(parsed []*vendors.ParsedTranscript, discovered map[string]string) {
 	forks := []*vendors.ParsedTranscript{}
-	index := map[string]string{}
+	index := make(map[string]string, len(discovered)+len(parsed))
+	parsedUsages := make(map[string][]codexTokenUsage, len(parsed))
+	for id, path := range discovered {
+		index[id] = path
+	}
 	for _, p := range parsed {
 		f, ok := p.ForkUsage.(codexFork)
 		if !ok {
 			continue
 		}
 		index[p.Session.ID] = p.Session.LogPath
+		usages := make([]codexTokenUsage, len(f.samples))
+		for i, sample := range f.samples {
+			usages[i] = sample.usage
+		}
+		parsedUsages[p.Session.ID] = usages
 		if f.forkedFromID != "" {
 			forks = append(forks, p)
 		}
@@ -59,13 +68,17 @@ func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
 		for i, sample := range fork.samples {
 			forkSeq[i] = sample.usage
 		}
-		parentUsages, err := parentForkUsages(parentPath, forkSeq)
-		if err != nil {
-			log.Printf(
-				"%s: fork parent %q unreadable; counting full usage: %v",
-				p.Session.LogPath, parentPath, err,
-			)
-			continue
+		parentUsages, ok := parsedUsages[fork.forkedFromID]
+		if !ok {
+			var err error
+			parentUsages, err = parentForkUsages(parentPath, forkSeq)
+			if err != nil {
+				log.Printf(
+					"%s: fork parent %q unreadable; counting full usage: %v",
+					p.Session.LogPath, parentPath, err,
+				)
+				continue
+			}
 		}
 		p.Session.Tokens = tokenBuckets(fork.samples, parentUsages, p.Session.LogPath)
 	}

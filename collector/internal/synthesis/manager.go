@@ -130,7 +130,7 @@ func (m *Manager) InCooldown(id string, mtime int64) bool {
 	return false
 }
 
-func (m *Manager) Run(ctx context.Context, list func() ([]*session.Session, error)) {
+func (m *Manager) Run(ctx context.Context, list func(since int64) ([]*session.Session, error)) {
 	if m == nil || m.runner == nil {
 		return
 	}
@@ -147,10 +147,10 @@ func (m *Manager) Run(ctx context.Context, list func() ([]*session.Session, erro
 	}
 }
 
-func (m *Manager) sweep(list func() ([]*session.Session, error)) {
+func (m *Manager) sweep(list func(since int64) ([]*session.Session, error)) {
 	now := m.now()
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
-	sessions, err := list()
+	sessions, err := list(startOfToday)
 	if err != nil {
 		log.Printf("list sessions for synthesis: %v", err)
 		return

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -17,22 +18,27 @@ import (
 )
 
 func main() {
+	sessionCollector := collector.New()
 	mgr := synthesis.NewManager(synthesis.NewCLIRunner())
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr = synthesis.NewManager(nil)
 	}
-	go mgr.Run(context.Background(), collector.List)
+	go mgr.Run(context.Background(), func(since int64) ([]*session.Session, error) {
+		return sessionCollector.List(collector.ListOptions{Since: since})
+	})
 	go cleanupHandoffs()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, _ *http.Request) {
-		handleList(w, mgr)
+	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		handleList(w, r, mgr, sessionCollector)
 	})
 	mux.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
-		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
+		handleSynthesis(w, r.URL.Query().Get("id"), mgr, sessionCollector)
 	})
-	mux.HandleFunc("POST /api/launch", handleLaunch)
+	mux.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
+		handleLaunch(w, r, sessionCollector)
+	})
 	addr := "127.0.0.1:8787"
 	log.Printf("listening on http://%s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
@@ -40,11 +46,20 @@ func main() {
 	}
 }
 
-// /api/sessions → every session, each a complete record; only synthesis is
-// served separately. Time-window filtering is the frontend's, since parsing
-// happens regardless of window.
-func handleList(w http.ResponseWriter, mgr *synthesis.Manager) {
-	sessions, err := collector.List()
+// /api/sessions → complete session records, optionally restricted to roots
+// active since an epoch-millisecond cutoff. Live sessions always remain visible.
+func handleList(
+	w http.ResponseWriter,
+	r *http.Request,
+	mgr *synthesis.Manager,
+	sessionCollector *collector.Collector,
+) {
+	since, err := parseSince(r.URL.Query().Get("since"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sessions, err := sessionCollector.List(collector.ListOptions{Since: since})
 	if err != nil {
 		log.Printf("list sessions: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -58,15 +73,30 @@ func handleList(w http.ResponseWriter, mgr *synthesis.Manager) {
 		session.Synthesis = mgr.Lookup(session.ID, mtime)
 	}
 	writeJSON(w, sessions)
-	log.Printf("list sessions: %d", len(sessions))
+}
+
+func parseSince(value string) (int64, error) {
+	if value == "" {
+		return 0, nil
+	}
+	since, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || since < 0 {
+		return 0, fmt.Errorf("invalid 'since' parameter")
+	}
+	return since, nil
 }
 
 // /api/synthesis?id=X → cached synthesis for one session, triggering a run
 // when eligible. Parses one file, never the whole machine — Get skips fork,
 // subagents, and name/status resolution because BuildInput and Eligible read
 // none of those.
-func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
-	found, err := collector.Get(id)
+func handleSynthesis(
+	w http.ResponseWriter,
+	id string,
+	mgr *synthesis.Manager,
+	sessionCollector *collector.Collector,
+) {
+	found, err := sessionCollector.Get(id)
 	if err != nil {
 		log.Printf("synthesis: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -102,9 +132,9 @@ func cleanupHandoffs() {
 	}
 }
 
-func handleLaunch(w http.ResponseWriter, r *http.Request) {
+func handleLaunch(w http.ResponseWriter, r *http.Request, sessionCollector *collector.Collector) {
 	query := r.URL.Query()
-	found, err := collector.Get(query.Get("id"))
+	found, err := sessionCollector.Get(query.Get("id"))
 	if err != nil {
 		log.Printf("launch: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -69,6 +69,17 @@ func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
 			return 0
 		}
 	}
+	type comparisonKey struct{ left, right string }
+	comparisons := map[comparisonKey]int{}
+	compare := func(e *entry, c *candidate) int {
+		key := comparisonKey{left: e.p.Session.LogPath, right: c.path}
+		if result, ok := comparisons[key]; ok {
+			return result
+		}
+		result := upstream(e, c)
+		comparisons[key] = result
+		return result
+	}
 	owners := map[string]*candidate{}
 	for _, e := range entries {
 		for id := range e.ids {
@@ -80,7 +91,7 @@ func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
 				continue
 			}
 			c.count++
-			switch upstream(e, c) {
+			switch compare(e, c) {
 			case -1:
 				c.path, c.ids, c.birth, c.tie = e.p.Session.LogPath, e.ids, e.birth, false
 			case 0:

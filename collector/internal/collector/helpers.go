@@ -12,17 +12,11 @@ import (
 
 const maxParseWorkers = 8
 
-func collectAndParseVendor(
+func (c *Collector) collectAndParseVendor(
 	source vendorSource,
-) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error) {
-	files, err := source.files()
-	if err != nil {
-		return nil, nil, err
-	}
-	metadata, err := source.metadata()
-	if err != nil {
-		return nil, nil, err
-	}
+	files []transcriptFile,
+	stats *collectionStats,
+) ([]*vendors.ParsedTranscript, error) {
 	// parsing can be done in parallel, but file order must be preserved
 	results := make([]*vendors.ParsedTranscript, len(files))
 	workers := make(chan struct{}, maxParseWorkers)
@@ -33,9 +27,9 @@ func collectAndParseVendor(
 			defer wg.Done()
 			workers <- struct{}{}
 			defer func() { <-workers }()
-			p, err := source.parse(file)
+			p, err := c.parseCached(source, file, stats)
 			if err != nil {
-				log.Printf("%s: skipping unreadable transcript: %v", file, err)
+				log.Printf("%s: skipping unreadable transcript: %v", file.path, err)
 				return
 			}
 			results[i] = p
@@ -48,7 +42,7 @@ func collectAndParseVendor(
 			parsed = append(parsed, p)
 		}
 	}
-	return parsed, metadata, nil
+	return parsed, nil
 }
 
 func subagentFrom(
@@ -59,7 +53,7 @@ func subagentFrom(
 	s := child.Session
 	subagent := session.Subagent{
 		ID:         s.ID,
-		Name:       cmp.Or(child.Name, s.ID),
+		Name:       session.Truncate(cmp.Or(child.Name, s.ID), session.TruncateTextLimit),
 		Model:      s.Model,
 		Status:     subagentStatus(child, parent, metadata),
 		Task:       session.Truncate(deref(s.FirstPrompt), session.TruncateTextLimit),
@@ -73,7 +67,10 @@ func subagentFrom(
 		subagent.SpawnedAtTurn = &turn
 	}
 	if claudeWorkflowAgent != nil {
-		subagent.Name = cmp.Or(claudeWorkflowAgent.Label, subagent.Name)
+		subagent.Name = session.Truncate(
+			cmp.Or(claudeWorkflowAgent.Label, subagent.Name),
+			session.TruncateTextLimit,
+		)
 		subagent.Status = claudeWorkflowAgent.Status()
 		result := cmp.Or(
 			claudeWorkflowAgent.ResultPreview, claudeWorkflowAgent.Error, subagent.Result,

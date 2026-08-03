@@ -25,13 +25,16 @@ type vendorSource struct {
 	id       func(path string) string // session id without parsing, for Get
 	parse    func(path string) (*vendors.ParsedTranscript, error)
 	metadata func() (*vendors.SessionMetadata, error) // information not extractable from logs alone
-	fork     func(parsed []*vendors.ParsedTranscript)
+	fork     func(parsed []*vendors.ParsedTranscript, paths map[string]string)
 }
 
 var vendorSources = []vendorSource{
 	{
 		vendors.AgentClaude, claude.Files, claude.IDFromPath,
-		claude.Parse, claude.LoadMetadata, claude.ApplyForkedUsage,
+		claude.Parse, claude.LoadMetadata,
+		func(parsed []*vendors.ParsedTranscript, _ map[string]string) {
+			claude.ApplyForkedUsage(parsed)
+		},
 	},
 	{
 		vendors.AgentCodex, codex.Files, codex.SessionIDFromRollout,
@@ -39,35 +42,77 @@ var vendorSources = []vendorSource{
 	},
 }
 
-func List() ([]*session.Session, error) {
-	parsed, metadata, err := collect()
+func (c *Collector) list(options ListOptions, stats *collectionStats) ([]*session.Session, error) {
+	parsed, metadata, paths, err := c.collect(options, stats)
 	if err != nil {
 		return nil, err
 	}
-	applyForkedUsage(parsed)
+	applyForkedUsage(parsed, paths)
 	roots := groupSubagents(parsed, metadata)
 	probeEnvironment(roots)
 	resolveNames(roots, metadata)
 	resolveStatus(roots, metadata)
-	return excludeSynthesisRuns(roots), nil
+	sessions := excludeSynthesisRuns(roots)
+	if options.Since > 0 {
+		sessions = slices.DeleteFunc(sessions, func(s *session.Session) bool {
+			return s.Status == nil && s.LastActivityTime < options.Since
+		})
+	}
+	return sessions, nil
 }
 
-func applyForkedUsage(parsed []*vendors.ParsedTranscript) {
+func applyForkedUsage(
+	parsed []*vendors.ParsedTranscript,
+	paths map[string]map[string]string,
+) {
 	byAgent := map[string][]*vendors.ParsedTranscript{}
 	for _, p := range parsed {
 		byAgent[p.Session.Agent] = append(byAgent[p.Session.Agent], p)
 	}
 	for _, source := range vendorSources {
-		source.fork(byAgent[source.name])
+		source.fork(byAgent[source.name], paths[source.name])
 	}
 }
 
-func collect() ([]*vendors.ParsedTranscript, map[string]*vendors.SessionMetadata, error) {
+func (c *Collector) collect(
+	options ListOptions,
+	stats *collectionStats,
+) (
+	[]*vendors.ParsedTranscript,
+	map[string]*vendors.SessionMetadata,
+	map[string]map[string]string,
+	error,
+) {
 	parsed := []*vendors.ParsedTranscript{}
 	metadata := map[string]*vendors.SessionMetadata{}
+	paths := map[string]map[string]string{}
 	var failures []error
 	for _, source := range vendorSources {
-		vendorParsed, vendorMetadata, err := collectAndParseVendor(source)
+		discovered, err := source.files()
+		if err != nil {
+			log.Printf("%s session discovery failed: %v; serving other vendors", source.name, err)
+			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
+			continue
+		}
+		files := statTranscriptFiles(discovered)
+		c.evictMissing(source.name, files)
+		vendorMetadata, err := source.metadata()
+		if err != nil {
+			log.Printf("%s session metadata failed: %v; serving other vendors", source.name, err)
+			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
+			continue
+		}
+		paths[source.name] = make(map[string]string, len(files))
+		for _, file := range files {
+			if id := source.id(file.path); id != "" {
+				paths[source.name][id] = file.path
+			}
+		}
+		selected := files
+		if source.name == vendors.AgentCodex && options.Since > 0 {
+			selected = c.selectCodexFiles(files, vendorMetadata, options.Since, stats)
+		}
+		vendorParsed, err := c.collectAndParseVendor(source, selected, stats)
 		if err != nil {
 			log.Printf("%s session collection failed: %v; serving other vendors", source.name, err)
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
@@ -77,9 +122,9 @@ func collect() ([]*vendors.ParsedTranscript, map[string]*vendors.SessionMetadata
 		parsed = append(parsed, vendorParsed...)
 	}
 	if len(failures) == len(vendorSources) {
-		return nil, nil, errors.Join(failures...)
+		return nil, nil, nil, errors.Join(failures...)
 	}
-	return parsed, metadata, nil
+	return parsed, metadata, paths, nil
 }
 
 func groupSubagents(
@@ -197,6 +242,7 @@ func resolveNames(roots []*vendors.ParsedTranscript, metadata map[string]*vendor
 	for _, p := range roots {
 		s := p.Session
 		if name := cmp.Or(metadata[s.Agent].Names[s.ID], p.Name); name != "" {
+			name = session.Truncate(name, session.TruncateTextLimit)
 			s.Name = &name
 		}
 	}
@@ -244,7 +290,9 @@ func deref(value *string) string {
 // probes. No fork pass, no subagents, no name/status resolution — synthesis (BuildInput,
 // Eligible) and launch read none of those. Sessions in the synthesis cwd stay
 // invisible, as in the list. Returns nil when the id is unknown.
-func Get(id string) (*session.Session, error) {
+func (c *Collector) Get(id string) (*session.Session, error) {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
 	if id == "" {
 		return nil, nil
 	}
@@ -264,7 +312,11 @@ func Get(id string) (*session.Session, error) {
 		if path == "" {
 			continue
 		}
-		if p, err = source.parse(path); err != nil {
+		versioned := statTranscriptFiles([]string{path})
+		if len(versioned) == 0 {
+			return nil, nil
+		}
+		if p, err = c.parseCached(source, versioned[0], &collectionStats{}); err != nil {
 			return nil, err
 		}
 		break
