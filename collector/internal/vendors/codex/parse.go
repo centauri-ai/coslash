@@ -93,10 +93,6 @@ func Parse(path string) (*vendors.ParsedTranscript, error) {
 }
 
 func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
-	rows, err := session.ParseJSONL[codexRow](file)
-	if err != nil {
-		return nil, err
-	}
 	ownID := SessionIDFromRollout(file)
 	var metas []codexMeta
 	analysis := &codexSessionAnalysis{
@@ -104,7 +100,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 		fileEdits:  session.NewFileEditSet(),
 		commits:    []string{},
 	}
-	for _, row := range rows {
+	err := session.WalkJSONL[codexRow](file, func(row codexRow) error {
 		var timestamp *int64
 		if row.Timestamp != "" {
 			milliseconds, err := session.RFC3339ToUnixEpoch(row.Timestamp)
@@ -145,7 +141,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 			switch row.Payload.Type {
 			case "user_message":
 				if analysis.inReview {
-					continue
+					return nil
 				}
 				if row.Payload.Message != "" && !session.IsHarnessWrapped(row.Payload.Message) {
 					prompt := promptText(row.Payload.Message)
@@ -252,6 +248,10 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				analysis.notePlan(row.Payload)
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	// Lineage, parentage, and context all come from the rollout's OWN meta —
 	// a fork's inlined ancestor metas must not win last-write on cwd/branch.
@@ -375,6 +375,7 @@ func tokenBuckets(
 	buckets := map[string]session.ModelTokens{}
 	shared := sharedUsagePrefix(samples, parentUsages)
 	previous := codexTokenUsage{}
+	missingModel := false
 	if shared > 0 {
 		previous = samples[shared-1].usage
 	}
@@ -382,10 +383,7 @@ func tokenBuckets(
 		delta := subtractUsage(sample.usage, previous)
 		previous = sample.usage
 		if sample.model == "" {
-			log.Printf(
-				"%s: token usage without a turn_context model, omitting token delta",
-				filePath,
-			)
+			missingModel = true
 			continue
 		}
 		current := buckets[sample.model]
@@ -399,6 +397,9 @@ func tokenBuckets(
 		current.CacheReadInputTokens += delta.CachedInputTokens
 		current.OutputTokens += delta.OutputTokens
 		buckets[sample.model] = current
+	}
+	if missingModel {
+		log.Printf("%s: token usage without a turn_context model, omitting token deltas", filePath)
 	}
 	return buckets
 }

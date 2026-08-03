@@ -90,10 +90,6 @@ func Parse(path string) (*vendors.ParsedTranscript, error) {
 }
 
 func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
-	rows, err := session.ParseJSONL[claudeSessionRecord](file)
-	if err != nil {
-		return nil, err
-	}
 	analysis := &claudeSessionAnalysis{
 		dedupedMessageTokenUsage: map[string]messageUsage{},
 		completedToolUses:        map[string]struct{}{},
@@ -120,7 +116,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 		}
 		analysis.digest.Push(analysis.userPromptCount, category, text)
 	}
-	for _, row := range rows {
+	err := session.WalkJSONL[claudeSessionRecord](file, func(row claudeSessionRecord) error {
 		if row.SessionID != "" {
 			analysis.sessionID = row.SessionID
 		}
@@ -339,6 +335,10 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 				}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	for _, message := range analysis.dedupedMessageTokenUsage {
 		usage := message.usage

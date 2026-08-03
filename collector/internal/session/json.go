@@ -8,15 +8,16 @@ import (
 	"os"
 )
 
-// ParseJSONL decodes a JSONL file (one JSON value per line) into a slice of T.
-func ParseJSONL[T any](path string) ([]T, error) {
+// WalkJSONL decodes a JSONL file one value at a time. A torn final value from
+// a live-appended transcript is ignored, matching the collector's prior
+// ParseJSONL behavior without retaining every decoded row.
+func WalkJSONL[T any](path string, visit func(T) error) error {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(file)
-	var records []T
 	for {
 		var record T
 		err := decoder.Decode(&record)
@@ -24,11 +25,37 @@ func ParseJSONL[T any](path string) ([]T, error) {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				break
 			}
-			return nil, err
+			return err
 		}
-		records = append(records, record)
+		if err := visit(record); err != nil {
+			return err
+		}
 	}
-	return records, nil
+	return nil
+}
+
+func ReadFirstJSONL[T any](path string) (T, error) {
+	var record T
+	file, err := os.Open(path)
+	if err != nil {
+		return record, err
+	}
+	defer file.Close()
+	if err := json.NewDecoder(file).Decode(&record); err != nil {
+		return record, err
+	}
+	return record, nil
+}
+
+// ParseJSONL remains for small sidecar journals whose complete contents are
+// needed together.
+func ParseJSONL[T any](path string) ([]T, error) {
+	var records []T
+	err := WalkJSONL(path, func(record T) error {
+		records = append(records, record)
+		return nil
+	})
+	return records, err
 }
 
 func ReadJSONIfValid(path string, value any) (bool, error) {
