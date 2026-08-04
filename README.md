@@ -4,7 +4,7 @@ The attention layer for coding agents. coSlash watches your local Claude Code an
 
 ## Quick start
 
-**Prerequisites:** Go 1.26+ and Node 22+ (Node is only needed to build).
+**Prerequisites:** Go 1.26+ and Node 24+ (Node is only needed to build).
 
 ```sh
 cd collector

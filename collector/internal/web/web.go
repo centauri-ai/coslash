@@ -27,8 +27,8 @@ func Handler() (http.Handler, error) {
 	return handler(assets)
 }
 
-// handler serves real files as themselves, extensionless paths as index.html so
-// client-side routes survive a refresh, and everything else as a 404.
+// handler serves real files as themselves, client-side routes as index.html so
+// they survive a refresh, and missing static assets as a 404.
 func handler(assets fs.FS) (http.Handler, error) {
 	document, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
@@ -40,6 +40,8 @@ func handler(assets fs.FS) (http.Handler, error) {
 		switch {
 		case isFile(assets, name):
 			files.ServeHTTP(w, r)
+		case strings.HasPrefix(name, "/assets/"):
+			http.NotFound(w, r)
 		case path.Ext(name) != "":
 			http.NotFound(w, r)
 		default:
