@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,11 @@ import {
   sortSessions,
   type SortDir,
 } from '@/pages/coslash/components/SessionSortDropdownMenu';
+import {
+  SettingsButton,
+  SettingsDialog,
+  type SettingsDialogMode,
+} from '@/pages/coslash/components/SettingsDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import {
   AgentVendorFilterTabMenu,
@@ -21,11 +26,13 @@ import {
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
+import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import { getStatus, type Session } from '@/pages/coslash/lib/session';
+import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
@@ -36,11 +43,34 @@ const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
   'all': 'across all time',
 };
 
-function CoslashPageHeader() {
+function CoslashPageHeader({
+  onOpenSettings,
+  settingsError,
+}: {
+  onOpenSettings: () => void;
+  settingsError: boolean;
+}) {
   return (
-    <div className="flex items-center gap-2 px-4">
-      <img src="/brand/coslash-logo.svg" alt="coSlash" className="h-12" />
-      <span className="text-muted-foreground text-sm font-medium">Run more agents. Lose less context.</span>
+    <div className="flex items-center justify-between gap-4 px-4">
+      <div className="flex items-center gap-2">
+        <img src="/brand/coslash-logo.svg" alt="coSlash" className="h-12" />
+        <span className="text-muted-foreground text-sm font-medium">Run more agents. Lose less context.</span>
+      </div>
+      <SettingsButton onClick={onOpenSettings} hasError={settingsError} />
+    </div>
+  );
+}
+
+function SettingsErrorBanner({ message, onOpen }: { message: string; onOpen: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="text-destructive flex items-center justify-between gap-4 border-y bg-neutral-50 px-4 py-2 text-sm"
+    >
+      <span>{message} Synthesis is off and terminal launches are blocked.</span>
+      <Button variant="outline" size="sm" onClick={onOpen}>
+        Repair settings
+      </Button>
     </div>
   );
 }
@@ -185,10 +215,27 @@ export function CoslashPage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
+  const settingsState = useSettings();
+  const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
   // Held by id, not by value: the inspector must render the freshest record
   // each refresh, and a stored object would freeze at click time. Looked up
   // from the unfiltered list so filters never close an open inspector.
   const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
+  const synthesisSettingsKey = settingsState.response
+    ? [
+        settingsState.response.persisted,
+        settingsState.response.settings.synthesis.enabled,
+        settingsState.response.settings.synthesis.backend,
+        settingsState.response.settings.synthesis.model,
+      ].join(':')
+    : 'loading';
+
+  useEffect(() => {
+    if (shouldPromptForSynthesisConsent(selectedSession, settingsState.response)) {
+      setSettingsDialogMode((current) => current ?? 'synthesis-consent');
+    }
+  }, [selectedSession, settingsState.response]);
   // The API returns every session, so the window is applied here — switching it
   // never refetches. A live session shows regardless of how old its log is.
   const windowStart = timeWindowStart(timeWindow);
@@ -207,7 +254,16 @@ export function CoslashPage() {
 
   return (
     <div className="flex h-svh flex-col">
-      <CoslashPageHeader />
+      <CoslashPageHeader
+        onOpenSettings={() => setSettingsDialogMode('full-settings')}
+        settingsError={settingsHaveError}
+      />
+      {settingsState.response?.valid === false && (
+        <SettingsErrorBanner
+          message={settingsState.response.error ?? 'settings.json is invalid.'}
+          onOpen={() => setSettingsDialogMode('full-settings')}
+        />
+      )}
       <div className="bg-background flex flex-col gap-2 border-b px-4 pb-2">
         <div className="-m-1 flex items-center gap-2 overflow-x-auto p-1">
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
@@ -248,7 +304,21 @@ export function CoslashPage() {
       <SessionInspector
         session={selectedSession}
         sessionsVersion={sessionsVersion}
+        synthesisSettingsKey={synthesisSettingsKey}
         onClose={() => setSelectedSessionId(null)}
+      />
+      <SettingsDialog
+        open={settingsDialogMode != null}
+        mode={settingsDialogMode ?? 'full-settings'}
+        onOpenChange={(open) => {
+          if (!open) setSettingsDialogMode(null);
+        }}
+        response={settingsState.response}
+        isLoading={settingsState.isLoading}
+        loadError={settingsState.loadError}
+        saveError={settingsState.saveError}
+        isSaving={settingsState.isSaving}
+        onSave={settingsState.save}
       />
     </div>
   );

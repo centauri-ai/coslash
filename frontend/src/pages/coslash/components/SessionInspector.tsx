@@ -48,9 +48,14 @@ import { HOUR, MINUTE } from '@/pages/coslash/lib/time';
 type SynthesisResponse = {
   synthesis: SessionDetail['synthesis'];
   synthesisPending: boolean;
+  synthesisError?: string;
 };
 
-function useSessionDetail(session: Session | null, sessionsVersion: number): SessionDetail | null {
+function useSessionDetail(
+  session: Session | null,
+  sessionsVersion: number,
+  synthesisSettingsKey: string,
+): SessionDetail | null {
   const [loaded, setLoaded] = useState<({ sessionId: string } & SynthesisResponse) | null>(null);
   const pollDeadline = useRef<{ sessionId: string; deadline: number } | null>(null);
   const sessionId = session?.id ?? null;
@@ -94,11 +99,16 @@ function useSessionDetail(session: Session | null, sessionsVersion: number): Ses
       controller.abort();
       if (timer != null) clearTimeout(timer);
     };
-  }, [sessionId, sessionsVersion]);
+  }, [sessionId, sessionsVersion, synthesisSettingsKey]);
 
   if (session == null) return null;
   if (loaded?.sessionId !== session.id) return session;
-  return { ...session, synthesis: loaded.synthesis, synthesisPending: loaded.synthesisPending };
+  return {
+    ...session,
+    synthesis: loaded.synthesis,
+    synthesisPending: loaded.synthesisPending,
+    synthesisError: loaded.synthesisError,
+  };
 }
 
 function contextFillReadiness(detail: SessionDetail): { value: string; tone: string } | null {
@@ -384,7 +394,12 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
     <div>
       <SectionLabel title="DEBRIEF" />
       <div className="rounded-lg border p-3">
-        <div className="flex items-center gap-2">
+        {detail.synthesisError && (
+          <div role="alert" className="bg-warning-bg text-warning-fg rounded-lg p-2 text-xs">
+            {detail.synthesisError} Using the transcript-derived debrief instead.
+          </div>
+        )}
+        <div className={cn('flex items-center gap-2', { 'pt-3': detail.synthesisError != null })}>
           <span className="text-muted-foreground text-xs">GOAL</span>
           <Badge variant="secondary" className="text-xs">
             {goalSourceLabel(goal.source)}
@@ -755,13 +770,15 @@ function InspectorFooter({ detail }: { detail: SessionDetail }) {
 export function SessionInspector({
   session,
   sessionsVersion,
+  synthesisSettingsKey,
   onClose,
 }: {
   session: Session | null;
   sessionsVersion: number;
+  synthesisSettingsKey: string;
   onClose: () => void;
 }) {
-  const detail = useSessionDetail(session, sessionsVersion);
+  const detail = useSessionDetail(session, sessionsVersion, synthesisSettingsKey);
   const contentRef = useRef<HTMLDivElement>(null);
   const isOpen = session != null;
 
