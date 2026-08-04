@@ -159,6 +159,7 @@ function CoslashContent({
   view,
   onSelectSession,
   diagnostics,
+  noTranscripts,
   diagnosticsLoading,
   diagnosticsLoadFailed,
   onRefreshDiagnostics,
@@ -172,6 +173,7 @@ function CoslashContent({
   view: ViewMode;
   onSelectSession: (session: Session) => void;
   diagnostics: Diagnostics | null;
+  noTranscripts: boolean | null;
   diagnosticsLoading: boolean;
   diagnosticsLoadFailed: boolean;
   onRefreshDiagnostics: () => void;
@@ -189,7 +191,7 @@ function CoslashContent({
     );
   }
   if (visibleSessions.length === 0) {
-    const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, timeWindow });
+    const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, timeWindow, noTranscripts });
     if (emptyState.kind === 'first-run') {
       return (
         <FirstRunOnboarding
@@ -282,6 +284,8 @@ export function CoslashPage() {
     sortDir,
   );
   const coverageGaps = diagnostics ? uncoveredSources(diagnostics) : [];
+  // Sessions are fetched per window, so only diagnostics can tell a first run from an empty window.
+  const noTranscripts = diagnostics ? diagnostics.sources.every((source) => source.transcripts === 0) : null;
   const refreshFirstRun = () => {
     retrySessions();
     refreshDiagnostics();
@@ -350,6 +354,7 @@ export function CoslashPage() {
               view={view}
               onSelectSession={(session) => setSelectedSessionId(session.id)}
               diagnostics={diagnostics}
+              noTranscripts={noTranscripts}
               diagnosticsLoading={diagnosticsLoading}
               diagnosticsLoadFailed={diagnosticsLoadFailed}
               onRefreshDiagnostics={refreshFirstRun}

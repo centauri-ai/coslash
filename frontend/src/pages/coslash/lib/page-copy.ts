@@ -4,13 +4,16 @@ export function sessionsEmptyStateCopy({
   hasSessions,
   searchTerm,
   timeWindow,
+  noTranscripts,
 }: {
   hasSessions: boolean;
   searchTerm: string;
   timeWindow: TimeWindow;
+  // null until diagnostics load; the window check stands in until then.
+  noTranscripts: boolean | null;
 }): { kind: 'first-run' } | { kind: 'copy'; title: string; detail?: string } {
   if (!hasSessions) {
-    return timeWindow === 'all'
+    return noTranscripts || timeWindow === 'all'
       ? { kind: 'first-run' }
       : {
           kind: 'copy',
