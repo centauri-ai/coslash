@@ -15,6 +15,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/web"
 )
@@ -61,10 +62,18 @@ func main() {
 		return
 	}
 
-	mgr := synthesis.NewManager(synthesis.NewCLIRunner())
+	settingsStore := settings.Open()
+	settingsState := settingsStore.State()
+	var runner synthesis.Runner
+	if !settingsState.Valid {
+		log.Printf("settings: %s", settingsState.Error)
+	} else if settingsState.Persisted {
+		runner, _ = synthesis.NewRunner(settingsState.Config.Synthesis)
+	}
+	mgr := synthesis.NewManager(runner)
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
-		mgr = synthesis.NewManager(nil)
+		mgr.SetRunner(nil)
 	}
 	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
 		now := time.Now()
@@ -86,12 +95,12 @@ func main() {
 			log.Printf("could not open a browser (%v); open %s yourself", err, url)
 		}
 	}
-	if err := http.Serve(listener, routes(mgr)); err != nil {
+	if err := http.Serve(listener, routes(mgr, settingsStore)); err != nil {
 		log.Fatalf("coslash: %v", err)
 	}
 }
 
-func routes(mgr *synthesis.Manager) *http.ServeMux {
+func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		handleList(w, r, mgr)
@@ -99,7 +108,15 @@ func routes(mgr *synthesis.Manager) *http.ServeMux {
 	mux.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
 	})
-	mux.HandleFunc("POST /api/launch", handleLaunch)
+	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
+		writeSettings(w, settingsStore.State())
+	})
+	mux.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		handleSaveSettings(w, r, settingsStore, mgr)
+	})
+	mux.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
+		handleLaunch(w, r, settingsStore)
+	})
 	// An unrouted /api path is a 404, never the frontend document.
 	mux.Handle("/api/", http.NotFoundHandler())
 

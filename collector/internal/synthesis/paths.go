@@ -3,17 +3,12 @@ package synthesis
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
 func Home() string {
-	if home := os.Getenv("COSLASH_HOME"); home != "" {
-		return home
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".coslash"
-	}
-	return filepath.Join(home, ".coslash")
+	return settings.Home()
 }
 
 func SummariesDir() string {
@@ -25,10 +20,15 @@ func SynthesisCwd() string {
 }
 
 func EnsureDirs() error {
-	if err := os.MkdirAll(SummariesDir(), 0o700); err != nil {
-		return err
+	for _, directory := range []string{Home(), SummariesDir(), SynthesisCwd()} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return err
+		}
+		if err := os.Chmod(directory, 0o700); err != nil {
+			return err
+		}
 	}
-	return os.MkdirAll(SynthesisCwd(), 0o700)
+	return nil
 }
 
 func TranscriptMtime(logPath string) (int64, error) {
