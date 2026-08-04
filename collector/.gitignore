@@ -1,2 +1,6 @@
 /bin/
 .DS_Store
+
+# Frontend assets staged for go:embed by `make release`.
+internal/web/dist/*
+!internal/web/dist/.gitkeep
