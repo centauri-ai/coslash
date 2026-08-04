@@ -6,25 +6,25 @@
 [![License](https://img.shields.io/github/license/centauri-ai/coslash)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/centauri-ai/coslash)](https://github.com/centauri-ai/coslash/releases)
 
-The attention layer for coding agents. coSlash watches your local Claude Code and Codex sessions, reconstructs what each one was doing — goal, decisions, files, commits, next step — and shows which ones need you. Resume any session in its terminal, or copy a handoff brief and pick it up cold.
+The attention layer for coding agents. coSlash watches your local Claude Code and Codex sessions, reconstructs what each one was doing—goal, decisions, files, commits, next step—and shows which ones need you. Resume any session in its terminal, or copy a handoff brief and pick it up cold.
+
+**Early preview · macOS only**
 
 ## Install
-
-coSlash ships prebuilt binaries for macOS on Apple silicon and Intel.
 
 ```sh
 brew install centauri-ai/tap/coslash
 coslash
 ```
 
-`brew upgrade coslash` moves to a newer release; `brew uninstall coslash` removes it.
+Use `brew upgrade coslash` to update and `brew uninstall coslash` to remove the binary. Uninstalling keeps coSlash data in `~/.coslash`; delete that directory separately if you no longer need it.
 
-Or download a release archive directly, substituting the version and architecture
-you want:
+<details>
+<summary>Install a release archive manually</summary>
 
 ```sh
 VERSION=v0.0.1
-ARCH=arm64  # or amd64 on Intel
+ARCH=arm64  # amd64 on Intel
 ASSET="coslash_${VERSION}_darwin_${ARCH}.tar.gz"
 BASE_URL="https://github.com/centauri-ai/coslash/releases/download/${VERSION}"
 curl -fLO "${BASE_URL}/${ASSET}"
@@ -34,23 +34,37 @@ tar -xzf "${ASSET}"
 "${ASSET%.tar.gz}/coslash"
 ```
 
-The binaries are unsigned, so macOS may warn about an archive you downloaded
-through a browser — the Homebrew install above is the supported path and is not
-affected.
+Release binaries are unsigned. macOS may warn about archives downloaded through a browser; the supported Homebrew install is unaffected.
 
-Running `coslash` starts one executable at
-[http://127.0.0.1:8787](http://127.0.0.1:8787) and opens a browser. There is no
-Node, Vite, or second process at runtime.
+</details>
 
-| Flag        | Effect                           |
-| ----------- | -------------------------------- |
-| `--port N`  | serve on port N (default `8787`) |
-| `--no-open` | do not open the browser          |
-| `--version` | print the version and exit       |
+`coslash` serves <http://127.0.0.1:8787> and opens a browser with a new access token. Use the opened URL; old links expire when the server restarts.
 
-## Build from source
+| Command | Effect |
+| --- | --- |
+| `coslash --port N` | Use another loopback port. |
+| `coslash --no-open` | Do not open the browser. |
+| `coslash --version` | Print the version. |
+| `coslash doctor` | Check session sources, agent CLIs, and local storage. |
+| `coslash doctor --json` | Print the same diagnostics as JSON. |
 
-**Prerequisites:** Go 1.26+ and Node 24+ (Node is only needed to build).
+## What you get
+
+- Attention states, search, filters, sorting, and board or list views across Claude Code and Codex sessions.
+- Goals, outcomes, decisions, todos, changes, commits, context use, and estimated cost in one inspector.
+- Actions to resume a session or start fresh with a copyable handoff.
+
+## Settings and data
+
+Settings are available in the top-right menu and stored in `~/.coslash/settings.json`. Synthesis is off until you save a backend and model; light and dark themes, Apple Terminal, and iTerm2 are supported. See [`settings.schema.json`](settings.schema.json) for the file format.
+
+Transcripts are read-only. When enabled, synthesis sends bounded session facts through your selected local Claude Code or Codex CLI and may consume account usage. Cached summaries and temporary handoffs live under `~/.coslash`.
+
+The server is loopback-only and protects API requests with a per-start access token. Read [Data and privacy](docs/data-and-privacy.md) before using coSlash with sensitive transcripts.
+
+## Develop
+
+Requires Go 1.26+ and Node 24+.
 
 ```sh
 cd collector
@@ -58,63 +72,14 @@ make release
 ./bin/coslash
 ```
 
-That builds the frontend, embeds it into the binary, and leaves it at
-`collector/bin/coslash`. `make dist` instead cross-compiles both macOS
-architectures into `collector/dist/` with a `checksums.txt`, which is what the
-release workflow publishes.
+See [Contributing](CONTRIBUTING.md) for the development loop and checks.
 
-On every start, coSlash prints and opens a URL containing a new access token.
-Use that URL rather than typing the address by hand. The token is delivered in
-the URL fragment, kept in browser session storage, and, when local storage is
-writable, saved to `~/.coslash/token` with owner-only permissions. An old link
-expires when the server restarts.
+## Help
 
-## Develop
+- [Troubleshooting](docs/troubleshooting.md)
+- [Data and privacy](docs/data-and-privacy.md)
+- [Contributing](CONTRIBUTING.md)
 
-In two terminals:
+## License
 
-```sh
-cd collector && make run
-cd frontend && npm run dev
-```
-
-The UI is at [http://127.0.0.1:5173](http://127.0.0.1:5173): Vite serves it and
-proxies `/api` to the Go server on port `8787`, reading the current development
-token automatically. If port `5173` is occupied, use the fallback URL Vite
-prints. `make run` embeds no frontend and opens no browser, so port `8787`
-serves the API alone.
-
-The production server binds only to IPv4 loopback and rejects unexpected Host,
-Origin, and cross-site browser requests. Direct API calls must include the
-current token. This form keeps the token out of `curl`'s process arguments:
-
-```sh
-sed 's/^/header = "X-Coslash-Token: /; s/$/"/' ~/.coslash/token \
-  | curl --config - http://127.0.0.1:8787/api/sessions
-```
-
-coSlash does not enable CORS. New HTTP routes must remain behind the same
-loopback request guard.
-
-## Global settings
-
-coSlash stores machine-wide preferences in `~/.coslash/settings.json`. The file is optional: synthesis is off and Apple Terminal is used until you inspect a synthesis-eligible session and save a choice in the first-run Settings dialog. That dialog initially selects synthesis On, but synthesis remains off until you save. coSlash writes the directory with mode `0700` and the file with mode `0600`.
-
-Synthesis sends derived session facts through your selected CLI using its existing authentication and may consume account usage. Results are cached under `~/.coslash`; source transcripts are never modified. Do not put API keys, tokens, or other credentials in `settings.json`.
-
-Version 1 supports:
-
-- Synthesis backends: Claude Code (`claude-cli`) and Codex (`codex_exec`).
-- Claude models: `claude-haiku-4-5`, `claude-sonnet-5`, and `claude-opus-5`.
-- Codex models: `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-5.6-sol`.
-- Themes: light and dark.
-- Terminal apps: Apple Terminal (`terminal`) and iTerm2 (`iterm2`).
-
-Use the top-right Settings dialog to save synthesis, theme, and terminal changes. The focused first-run dialog shown from an eligible session contains only synthesis consent and model choices. If you edit the JSON file directly, restart coSlash. The document must match [`settings.schema.json`](settings.schema.json); invalid or unsupported settings disable synthesis and block terminal launches until repaired rather than silently selecting another app.
-
-After installing coSlash, run `coslash doctor` to check detected session sources, CLIs, and local storage.
-
-| Command                 | Effect                                                                      |
-| ----------------------- | --------------------------------------------------------------------------- |
-| `coslash doctor`        | Print checks and local diagnostic facts; exits non-zero when a check fails. |
-| `coslash doctor --json` | Print the same diagnostic snapshot as JSON.                                 |
+[MIT](LICENSE)

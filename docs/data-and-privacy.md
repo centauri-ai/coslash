@@ -1,0 +1,39 @@
+# Data and privacy
+
+coSlash runs locally, but agent transcripts can contain prompts, source code, command output, credentials, and other secrets. Review these boundaries before use.
+
+## Local access
+
+coSlash reads, but does not modify:
+
+- Claude Code and Codex transcripts and their local session metadata.
+- Recorded working directories and Git metadata used for branch and change summaries.
+- Local process information used to identify live sessions.
+
+`COSLASH_HOME` sets the storage root and defaults to `~/.coslash`:
+
+| Path | Contents |
+| --- | --- |
+| `settings.json` | Synthesis, appearance, and terminal preferences. |
+| `token` | Access token for the current server process. |
+| `summaries/` | Cached synthesis results. |
+| `synthesis/` | Temporary synthesis files. |
+| `sys-prompts/` | Temporary handoffs for fresh sessions. |
+
+coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
+
+## Outbound data
+
+The collector does not upload data itself. If you enable synthesis, it passes a bounded set of session facts—such as prompts or recaps, todos, filenames, commands, and commit text—to your selected local Claude Code or Codex CLI. That CLI sends the request using its existing authentication, so the selected provider's settings and terms apply.
+
+Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
+
+## Local server
+
+coSlash listens on IPv4 loopback and protects API requests with a new access token on every start. It rejects unexpected hosts, origins, and cross-site browser requests. The token is stored in `~/.coslash/token` with mode `0600`, so other processes running as your macOS user can still read it and access coSlash. Do not proxy or forward the port.
+
+## Control and removal
+
+Synthesis is off until you enable and save it in Settings. Disable it there to stop new requests, then delete `~/.coslash/summaries` to remove cached results.
+
+To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names.
