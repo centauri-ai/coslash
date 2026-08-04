@@ -29,4 +29,4 @@ cd collector && make run
 cd frontend && npm run dev
 ```
 
-Vite serves the UI and proxies `/api` to the Go server on port `8787`.
+The UI is at [http://localhost:5173](http://localhost:5173): Vite serves it and proxies `/api` to the Go server on port `8787`. `make run` embeds no frontend and opens no browser, so port `8787` serves the API alone.

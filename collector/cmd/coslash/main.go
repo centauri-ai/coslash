@@ -1,6 +1,4 @@
 // Command coslash serves the coSlash frontend and API from one loopback origin.
-// The frontend is embedded in this binary, so running the product needs neither
-// Node nor a second process.
 package main
 
 import (
@@ -70,8 +68,7 @@ func main() {
 	go cleanupHandoffs()
 
 	// Bind before opening the browser, so a port conflict is an error the user
-	// reads rather than a browser tab pointed at nothing. Requests that arrive
-	// before Serve accepts them wait in the listen backlog.
+	// reads rather than a browser tab pointed at nothing.
 	listener, err := listen(opts.port)
 	if err != nil {
 		log.Fatalf("coslash: %v", err)
@@ -97,14 +94,13 @@ func routes(mgr *synthesis.Manager) *http.ServeMux {
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
 	})
 	mux.HandleFunc("POST /api/launch", handleLaunch)
-	// An unrouted /api path is a 404, never the frontend document. The routes
-	// above are more specific, so ServeMux still prefers them over this.
+	// An unrouted /api path is a 404, never the frontend document.
 	mux.Handle("/api/", http.NotFoundHandler())
 
 	frontend, err := web.Handler()
 	if err != nil {
-		// Reachable from a `make build` binary, whose assets are unstaged: keep
-		// the API usable for `npm run dev` and say so in the browser.
+		// A `make build` binary has no staged assets; keep its API usable for
+		// `npm run dev` instead of failing to start.
 		log.Printf("coslash: %v", err)
 		frontend = unavailable(err)
 	}

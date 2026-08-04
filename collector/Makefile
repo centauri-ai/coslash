@@ -5,9 +5,8 @@ STAGED := internal/web/dist
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 ARGS :=
 
-.PHONY: build run test tidy clean release stage
+.PHONY: build run test tidy clean release stage unstage
 
-# One command from a clean checkout to a single executable that needs no Node.
 release: stage
 	go build -ldflags '-X main.version=$(VERSION)' -o bin/$(BINARY) $(PKG)
 	@echo "built bin/$(BINARY) $(VERSION)"
@@ -23,11 +22,17 @@ stage:
 	cp -R $(FRONTEND)/dist/. $(STAGED)/
 	touch $(STAGED)/.gitkeep
 
-build:
+# Without this a build after `make release` would embed that release's frontend.
+unstage:
+	@mkdir -p $(STAGED)
+	@find $(STAGED) -mindepth 1 ! -name .gitkeep -delete
+	@touch $(STAGED)/.gitkeep
+
+build: unstage
 	go build -o bin/$(BINARY) $(PKG)
 
-run:
-	go run $(PKG) $(ARGS)
+run: unstage
+	go run $(PKG) --no-open $(ARGS)
 
 test:
 	go test ./...
@@ -35,6 +40,5 @@ test:
 tidy:
 	go mod tidy
 
-clean:
+clean: unstage
 	rm -rf bin
-	find $(STAGED) -mindepth 1 ! -name .gitkeep -delete

@@ -1,8 +1,6 @@
 // Package web serves the compiled frontend from assets embedded in the binary.
-// Go cannot embed a path outside its own module, so `make release` stages
-// frontend/dist into the dist directory here before compiling. A checkout that
-// has not been staged embeds only a placeholder, which Handler reports rather
-// than serving an empty product.
+// `make release` stages frontend/dist into the dist directory here before
+// compiling, since Go cannot embed a path outside its own module.
 package web
 
 import (
@@ -30,8 +28,7 @@ func Handler() (http.Handler, error) {
 }
 
 // handler serves real files as themselves, extensionless paths as index.html so
-// client-side routes survive direct navigation and refresh, and everything else
-// as a 404 — a missing hashed asset is a broken build, not a client route.
+// client-side routes survive a refresh, and everything else as a 404.
 func handler(assets fs.FS) (http.Handler, error) {
 	document, err := fs.ReadFile(assets, "index.html")
 	if err != nil {
@@ -51,9 +48,8 @@ func handler(assets fs.FS) (http.Handler, error) {
 	}), nil
 }
 
-// isFile reports whether name is a regular file in assets. Directories fail the
-// check so that a bare directory path falls through to index.html instead of
-// serving a listing.
+// isFile reports whether name is a regular file in assets. A directory fails
+// the check so it falls through to index.html instead of serving a listing.
 func isFile(assets fs.FS, name string) bool {
 	info, err := fs.Stat(assets, strings.TrimPrefix(name, "/"))
 	return err == nil && info.Mode().IsRegular()
