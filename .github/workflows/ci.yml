@@ -42,6 +42,8 @@ jobs:
         run: npm run format:check
       - name: Test frontend
         run: npm test
+      - name: Build frontend
+        run: npm run build
 
   collector:
     name: Collector
