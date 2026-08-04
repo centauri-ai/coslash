@@ -1,0 +1,181 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build and smoke-test without publishing, e.g. v0.0.1-test"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: collector/go.mod
+          cache: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "error: version must be a tag such as v0.0.1 or v0.0.1-rc.1" >&2
+            exit 1
+          fi
+      - name: Test
+        run: make -C collector test
+      - name: Package
+        env:
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: make -C collector dist VERSION="$VERSION"
+      - name: Smoke-test packaged binaries
+        env:
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          smoke_dir="$(mktemp -d)"
+          server_pid=
+          cleanup() {
+            if [[ -n "$server_pid" ]]; then
+              kill "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+            rm -rf "$smoke_dir"
+          }
+          trap cleanup EXIT
+
+          arm_stem="coslash_${VERSION}_darwin_arm64"
+          tar -xzf "collector/dist/${arm_stem}.tar.gz" -C "$smoke_dir"
+          arm_binary="$smoke_dir/$arm_stem/coslash"
+          [[ "$("$arm_binary" --version)" == "$VERSION" ]]
+
+          "$arm_binary" --no-open --port 8787 >"$smoke_dir/server.log" 2>&1 &
+          server_pid=$!
+          curl --retry 20 --retry-delay 1 --retry-connrefused -sf \
+            http://127.0.0.1:8787/ -o "$smoke_dir/index.html"
+          grep -q '<div id="root"' "$smoke_dir/index.html"
+          curl -sf http://127.0.0.1:8787/api/sessions | python3 -m json.tool >/dev/null
+          kill "$server_pid"
+          wait "$server_pid" 2>/dev/null || true
+          server_pid=
+
+          intel_stem="coslash_${VERSION}_darwin_amd64"
+          tar -xzf "collector/dist/${intel_stem}.tar.gz" -C "$smoke_dir"
+          file "$smoke_dir/$intel_stem/coslash" | grep -q 'Mach-O 64-bit executable x86_64'
+          (cd collector/dist && shasum -a 256 -c checksums.txt)
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          assets=(collector/dist/*.tar.gz collector/dist/checksums.txt)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            exit 0
+          fi
+
+          # Homebrew is the supported install path, so the notes lead with it
+          # rather than with the raw artifacts.
+          notes=$(mktemp)
+          cat >"$notes" <<'NOTES'
+          ## Install
+
+          ```sh
+          brew install centauri-ai/tap/coslash
+          coslash
+          ```
+
+          Already tapped? `brew upgrade coslash`.
+
+          The `.tar.gz` assets below are for manual installs. Verify them with
+          `shasum -a 256 -c checksums.txt`. The binaries are unsigned and
+          unnotarized, so macOS may warn about an archive downloaded through a
+          browser; the Homebrew install above is not affected.
+          NOTES
+
+          create=(gh release create "$TAG" "${assets[@]}"
+            --title "$TAG" --notes-file "$notes" --generate-notes)
+          if [[ "$TAG" == *-* ]]; then
+            create+=(--prerelease)
+          fi
+          "${create[@]}"
+
+  bump-homebrew:
+    needs: release
+    if: >-
+      startsWith(github.ref, 'refs/tags/') &&
+      !contains(github.ref_name, '-')
+    runs-on: macos-15
+    steps:
+      - name: Check out coSlash
+        uses: actions/checkout@v5
+        with:
+          path: coslash
+      - name: Check out Homebrew tap
+        uses: actions/checkout@v5
+        with:
+          repository: centauri-ai/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Download and verify release assets
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "error: Homebrew bumps require a stable semver tag" >&2
+            exit 1
+          fi
+
+          mkdir downloads
+          base_url="https://github.com/centauri-ai/coslash/releases/download/$TAG"
+          arm_asset="coslash_${TAG}_darwin_arm64.tar.gz"
+          intel_asset="coslash_${TAG}_darwin_amd64.tar.gz"
+          curl -fL "$base_url/$arm_asset" -o "downloads/$arm_asset"
+          curl -fL "$base_url/$intel_asset" -o "downloads/$intel_asset"
+          curl -fL "$base_url/checksums.txt" -o downloads/checksums.txt
+          (cd downloads && shasum -a 256 -c checksums.txt)
+
+          {
+            echo "BREW_VERSION=${TAG#v}"
+            echo "RELEASE_TAG=$TAG"
+            echo "ARM_SHA=$(shasum -a 256 "downloads/$arm_asset" | awk '{print $1}')"
+            echo "INTEL_SHA=$(shasum -a 256 "downloads/$intel_asset" | awk '{print $1}')"
+          } >> "$GITHUB_ENV"
+      - name: Render formula
+        run: |
+          mkdir -p tap/Formula
+          ruby -rerb -e 'File.write(ARGV[1], ERB.new(File.read(ARGV[0]), trim_mode: "-").result)' coslash/.github/homebrew/coslash.rb.erb tap/Formula/coslash.rb
+      - name: Commit formula
+        working-directory: tap
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git add Formula/coslash.rb
+          if git diff --cached --quiet; then
+            echo "Formula already matches $TAG"
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "coslash $TAG"
+          git push

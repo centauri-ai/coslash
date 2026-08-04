@@ -4,7 +4,44 @@
 
 The attention layer for coding agents. coSlash watches your local Claude Code and Codex sessions, reconstructs what each one was doing — goal, decisions, files, commits, next step — and shows which ones need you. Resume any session in its terminal, or copy a handoff brief and pick it up cold.
 
-## Quick start
+## Install
+
+coSlash ships prebuilt binaries for macOS on Apple silicon and Intel.
+
+```sh
+brew install centauri-ai/tap/coslash
+coslash
+```
+
+`brew upgrade coslash` moves to a newer release; `brew uninstall coslash` removes it.
+
+Or download a release archive directly, substituting the version and architecture
+you want:
+
+```sh
+VERSION=v0.0.1
+ARCH=arm64  # or amd64 on Intel
+curl -LO "https://github.com/centauri-ai/coslash/releases/download/${VERSION}/coslash_${VERSION}_darwin_${ARCH}.tar.gz"
+tar -xzf "coslash_${VERSION}_darwin_${ARCH}.tar.gz"
+"coslash_${VERSION}_darwin_${ARCH}/coslash"
+```
+
+Every release publishes a `checksums.txt`; verify with
+`shasum -a 256 -c checksums.txt`. The binaries are unsigned, so macOS may warn
+about an archive you downloaded through a browser — the Homebrew install above
+is the supported path and is not affected.
+
+Running `coslash` starts one executable at
+[http://127.0.0.1:8787](http://127.0.0.1:8787) and opens a browser. There is no
+Node, Vite, or second process at runtime.
+
+| Flag | Effect |
+| --- | --- |
+| `--port N` | serve on port N (default `8787`) |
+| `--no-open` | do not open the browser |
+| `--version` | print the version and exit |
+
+## Build from source
 
 **Prerequisites:** Go 1.26+ and Node 24+ (Node is only needed to build).
 
@@ -14,13 +51,10 @@ make release
 ./bin/coslash
 ```
 
-That builds the frontend, embeds it, and starts one executable at [http://127.0.0.1:8787](http://127.0.0.1:8787). No Node, Vite, or second process at runtime — the browser should open on its own.
-
-| Flag | Effect |
-| --- | --- |
-| `--port N` | serve on port N (default `8787`) |
-| `--no-open` | do not open the browser |
-| `--version` | print the version and exit |
+That builds the frontend, embeds it into the binary, and leaves it at
+`collector/bin/coslash`. `make dist` instead cross-compiles both macOS
+architectures into `collector/dist/` with a `checksums.txt`, which is what the
+release workflow publishes.
 
 ## Develop
 
