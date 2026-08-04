@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { setTheme } from '@/lib/theme';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
@@ -30,7 +31,6 @@ import {
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
-import { setTheme } from '@/lib/theme';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
