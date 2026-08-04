@@ -94,3 +94,11 @@ func FilesSince(files []string, live map[string]string, since int64) []string {
 	}
 	return result
 }
+
+func Scan() (*vendors.SourceScan, error) {
+	root, err := Root()
+	if err != nil {
+		return nil, err
+	}
+	return vendors.Scan(root)
+}

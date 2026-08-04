@@ -6,11 +6,12 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 DIST := dist
 PLATFORMS := darwin/arm64 darwin/amd64
 ARGS :=
+LDFLAGS := -X main.version=$(VERSION)
 
 .PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist
 
 release: stage
-	go build -ldflags '-X main.version=$(VERSION)' -o bin/$(BINARY) $(PKG)
+	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) $(PKG)
 	@echo "built bin/$(BINARY) $(VERSION)"
 
 # Go cannot embed $(FRONTEND)/dist directly, so copy it into the module first.
@@ -52,10 +53,10 @@ unstage:
 	@touch $(STAGED)/.gitkeep
 
 build: unstage
-	go build -o bin/$(BINARY) $(PKG)
+	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) $(PKG)
 
 run: unstage
-	go run $(PKG) --no-open $(ARGS)
+	go run -ldflags "$(LDFLAGS)" $(PKG) --no-open $(ARGS)
 
 test:
 	go test ./...

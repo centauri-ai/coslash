@@ -37,19 +37,36 @@ func Files() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	all, err := vendors.JSONLFilesUnder(root)
+	files, err := vendors.JSONLFilesUnder(root)
 	if err != nil {
 		return nil, err
 	}
+	return filterWorkflowTranscripts(files), nil
+}
+
+func Scan() (*vendors.SourceScan, error) {
+	root, err := Root()
+	if err != nil {
+		return nil, err
+	}
+	scan, err := vendors.Scan(root)
+	if err != nil {
+		return nil, err
+	}
+	scan.Files = filterWorkflowTranscripts(scan.Files)
+	return scan, nil
+}
+
+func filterWorkflowTranscripts(all []string) []string {
 	files := make([]string, 0, len(all))
+	workflowSegment := string(filepath.Separator) + filepath.Join("subagents", "workflows") + string(filepath.Separator)
 	for _, file := range all {
-		if strings.Contains(file, "/subagents/workflows/") &&
-			!strings.HasPrefix(filepath.Base(file), "agent-") {
+		if strings.Contains(file, workflowSegment) && !strings.HasPrefix(filepath.Base(file), "agent-") {
 			continue
 		}
 		files = append(files, file)
 	}
-	return files, nil
+	return files
 }
 
 // FilesSince keeps recent/live roots and every subagent file in those sessions.

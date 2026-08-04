@@ -8,11 +8,12 @@ export function sessionsEmptyStateCopy({
   hasSessions: boolean;
   searchTerm: string;
   timeWindow: TimeWindow;
-}): { title: string; detail?: string } {
+}): { kind: 'first-run' } | { kind: 'copy'; title: string; detail?: string } {
   if (!hasSessions) {
     return timeWindow === 'all'
-      ? { title: 'No sessions yet.' }
+      ? { kind: 'first-run' }
       : {
+          kind: 'copy',
           title: 'No sessions in this window.',
           detail: 'Select “All” to view older sessions.',
         };
@@ -21,10 +22,11 @@ export function sessionsEmptyStateCopy({
   const term = searchTerm.trim();
   if (term !== '') {
     return {
+      kind: 'copy',
       title: `Nothing matches “${term}” in this window.`,
       detail: timeWindow === 'all' ? undefined : 'Select “All” to search older sessions.',
     };
   }
 
-  return { title: 'No sessions match these filters.' };
+  return { kind: 'copy', title: 'No sessions match these filters.' };
 }

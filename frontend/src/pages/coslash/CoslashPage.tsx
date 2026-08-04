@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
+import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { SessionBoard } from '@/pages/coslash/components/SessionBoard';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
@@ -17,6 +19,7 @@ import {
   SettingsDialog,
   type SettingsDialogMode,
 } from '@/pages/coslash/components/SettingsDialog';
+import { SourceCoverageBanner } from '@/pages/coslash/components/SourceCoverageBanner';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import {
   AgentVendorFilterTabMenu,
@@ -25,8 +28,10 @@ import {
   type AgentVendor,
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
+import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
+import { uncoveredSources, type Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
@@ -153,6 +158,10 @@ function CoslashContent({
   timeWindow,
   view,
   onSelectSession,
+  diagnostics,
+  diagnosticsLoading,
+  diagnosticsLoadFailed,
+  onRefreshDiagnostics,
 }: {
   loadFailed: boolean;
   onRetry: () => void;
@@ -162,6 +171,10 @@ function CoslashContent({
   timeWindow: TimeWindow;
   view: ViewMode;
   onSelectSession: (session: Session) => void;
+  diagnostics: Diagnostics | null;
+  diagnosticsLoading: boolean;
+  diagnosticsLoadFailed: boolean;
+  onRefreshDiagnostics: () => void;
 }) {
   if (loadFailed) {
     return (
@@ -177,6 +190,16 @@ function CoslashContent({
   }
   if (visibleSessions.length === 0) {
     const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, timeWindow });
+    if (emptyState.kind === 'first-run') {
+      return (
+        <FirstRunOnboarding
+          diagnostics={diagnostics}
+          isLoading={diagnosticsLoading}
+          loadFailed={diagnosticsLoadFailed}
+          onRefresh={onRefreshDiagnostics}
+        />
+      );
+    }
     return (
       <div role="status" className="grid h-full place-items-center bg-neutral-50 text-center">
         <div>
@@ -210,6 +233,13 @@ export function CoslashPage() {
   const [vendor, setVendor] = useState<AgentVendor>('all');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
   const { sessions, isLoading, loadFailed, sessionsVersion, retrySessions } = useSessions(timeWindow);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const {
+    diagnostics,
+    isLoading: diagnosticsLoading,
+    loadFailed: diagnosticsLoadFailed,
+    refresh: refreshDiagnostics,
+  } = useDiagnostics();
   const [view, setView] = useState<ViewMode>('list');
   const [sortKey, setSortKey] = useState<SortKey>(SortKey.Recency);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -251,6 +281,11 @@ export function CoslashPage() {
     sortKey,
     sortDir,
   );
+  const coverageGaps = diagnostics ? uncoveredSources(diagnostics) : [];
+  const refreshFirstRun = () => {
+    retrySessions();
+    refreshDiagnostics();
+  };
 
   return (
     <div className="flex h-svh flex-col">
@@ -282,24 +317,45 @@ export function CoslashPage() {
           />
         </div>
         <div className="flex min-h-7 items-center">
-          <LoadingSpinner isLoading={isLoading}>
-            <SessionsStats sessions={sessionsForVendor} loadFailed={loadFailed} timeWindow={timeWindow} />
-          </LoadingSpinner>
+          <div className="flex w-full items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <LoadingSpinner isLoading={isLoading}>
+                <SessionsStats sessions={sessionsForVendor} loadFailed={loadFailed} timeWindow={timeWindow} />
+              </LoadingSpinner>
+            </div>
+            <DiagnosticsDialog
+              open={diagnosticsOpen}
+              onOpenChange={setDiagnosticsOpen}
+              diagnostics={diagnostics}
+              isLoading={diagnosticsLoading}
+              loadFailed={diagnosticsLoadFailed}
+              onRefresh={refreshDiagnostics}
+            />
+          </div>
         </div>
       </div>
-      <div className="relative flex-1 overflow-hidden">
-        <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
-          <CoslashContent
-            loadFailed={loadFailed}
-            onRetry={retrySessions}
-            visibleSessions={visibleSessions}
-            hasSessions={sessions.length > 0}
-            searchTerm={searchTerm}
-            timeWindow={timeWindow}
-            view={view}
-            onSelectSession={(session) => setSelectedSessionId(session.id)}
-          />
-        </LoadingSpinner>
+      <div className="relative flex flex-1 flex-col overflow-hidden">
+        {sessions.length > 0 && (
+          <SourceCoverageBanner sources={coverageGaps} onDetails={() => setDiagnosticsOpen(true)} />
+        )}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
+            <CoslashContent
+              loadFailed={loadFailed}
+              onRetry={retrySessions}
+              visibleSessions={visibleSessions}
+              hasSessions={sessions.length > 0}
+              searchTerm={searchTerm}
+              timeWindow={timeWindow}
+              view={view}
+              onSelectSession={(session) => setSelectedSessionId(session.id)}
+              diagnostics={diagnostics}
+              diagnosticsLoading={diagnosticsLoading}
+              diagnosticsLoadFailed={diagnosticsLoadFailed}
+              onRefreshDiagnostics={refreshFirstRun}
+            />
+          </LoadingSpinner>
+        </div>
       </div>
       <SessionInspector
         session={selectedSession}

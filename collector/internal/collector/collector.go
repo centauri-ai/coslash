@@ -24,7 +24,9 @@ const (
 
 type vendorSource struct {
 	name     string
+	root     func() (string, error)
 	files    func() ([]string, error)
+	scan     func() (*vendors.SourceScan, error)
 	id       func(path string) string // session id without parsing, for Get
 	parse    func(path string) (*vendors.ParsedTranscript, error)
 	metadata func() (*vendors.SessionMetadata, error) // information not extractable from logs alone
@@ -34,13 +36,46 @@ type vendorSource struct {
 
 var vendorSources = []vendorSource{
 	{
-		vendors.AgentClaude, claude.Files, claude.IDFromPath,
+		vendors.AgentClaude, claude.Root, claude.Files, claude.Scan, claude.IDFromPath,
 		claude.Parse, claude.LoadMetadata, claude.ApplyForkedUsage, claude.FilesSince,
 	},
 	{
-		vendors.AgentCodex, codex.Files, codex.SessionIDFromRollout,
+		vendors.AgentCodex, codex.Root, codex.Files, codex.Scan, codex.SessionIDFromRollout,
 		codex.Parse, codex.LoadMetadata, codex.ApplyForkedUsage, codex.FilesSince,
 	},
+}
+
+type SourceHealth struct {
+	Agent   string
+	Root    string
+	Scan    *vendors.SourceScan
+	ScanErr error
+}
+
+func Sources() []SourceHealth {
+	health := make([]SourceHealth, 0, len(vendorSources))
+	for _, source := range vendorSources {
+		root, rootErr := source.root()
+		if rootErr != nil {
+			health = append(health, SourceHealth{Agent: source.name, ScanErr: rootErr})
+			continue
+		}
+		scan, scanErr := source.scan()
+		health = append(health, SourceHealth{Agent: source.name, Root: root, Scan: scan, ScanErr: scanErr})
+	}
+	return health
+}
+
+func SessionCountsByAgent() (map[string]int, error) {
+	sessions, err := List(0)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[string]int{}
+	for _, candidate := range sessions {
+		counts[candidate.Agent]++
+	}
+	return counts, nil
 }
 
 func List(since int64) ([]*session.Session, error) {
