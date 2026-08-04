@@ -122,7 +122,7 @@ function CoslashContent({
   visibleSessions,
   hasSessions,
   searchTerm,
-  outsideWindowMatches,
+  timeWindow,
   view,
   onSelectSession,
 }: {
@@ -131,7 +131,7 @@ function CoslashContent({
   visibleSessions: Session[];
   hasSessions: boolean;
   searchTerm: string;
-  outsideWindowMatches: number;
+  timeWindow: TimeWindow;
   view: ViewMode;
   onSelectSession: (session: Session) => void;
 }) {
@@ -148,7 +148,7 @@ function CoslashContent({
     );
   }
   if (visibleSessions.length === 0) {
-    const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, outsideWindowMatches });
+    const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, timeWindow });
     return (
       <div role="status" className="grid h-full place-items-center bg-neutral-50 text-center">
         <div>
@@ -206,16 +206,6 @@ export function CoslashPage() {
     sortKey,
     sortDir,
   );
-  const outsideWindowMatches =
-    windowStart == null
-      ? 0
-      : sessions.filter(
-          (session) =>
-            session.status == null &&
-            session.mtime < windowStart &&
-            (vendor === 'all' || session.agent === vendor) &&
-            sessionMatchesSearchTerm(session, searchTerm),
-        ).length;
 
   return (
     <div className="flex h-svh flex-col">
@@ -251,7 +241,7 @@ export function CoslashPage() {
             visibleSessions={visibleSessions}
             hasSessions={sessions.length > 0}
             searchTerm={searchTerm}
-            outsideWindowMatches={outsideWindowMatches}
+            timeWindow={timeWindow}
             view={view}
             onSelectSession={(session) => setSelectedSessionId(session.id)}
           />
