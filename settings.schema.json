@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/centauri-ai/coslash/main/settings.schema.json",
+  "title": "coSlash global settings",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "synthesis", "launch"],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/centauri-ai/coslash/main/settings.schema.json"
+    },
+    "version": { "const": 1 },
+    "synthesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "backend", "model"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "backend": { "enum": ["claude-cli", "codex_exec"] },
+        "model": {
+          "enum": [
+            "claude-haiku-4-5",
+            "claude-sonnet-5",
+            "claude-opus-5",
+            "gpt-5.6-luna",
+            "gpt-5.6-terra",
+            "gpt-5.6-sol"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "backend": { "const": "claude-cli" } } },
+          "then": {
+            "properties": {
+              "model": {
+                "enum": ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "backend": { "const": "codex_exec" } } },
+          "then": {
+            "properties": {
+              "model": { "enum": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"] }
+            }
+          }
+        }
+      ]
+    },
+    "launch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terminal"],
+      "properties": {
+        "terminal": { "enum": ["terminal", "iterm2"] }
+      }
+    }
+  }
+}
