@@ -5,7 +5,7 @@ STAGED := internal/web/dist
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 ARGS :=
 
-.PHONY: build run test tidy clean release stage unstage
+.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev
 
 release: stage
 	go build -ldflags '-X main.version=$(VERSION)' -o bin/$(BINARY) $(PKG)
@@ -36,6 +36,19 @@ run: unstage
 
 test:
 	go test ./...
+
+check:
+	@unformatted=$$(gofmt -l .); \
+		test -z "$$unformatted" || { echo "gofmt needed:"; echo "$$unformatted"; exit 1; }
+	go vet ./...
+
+# Checks the release binary over HTTP; run `make release` first.
+smoke:
+	./scripts/smoke.sh bin/$(BINARY) embedded
+
+# Checks that a dev binary embeds no frontend; run `make build` first.
+smoke-dev:
+	./scripts/smoke.sh bin/$(BINARY) bare
 
 tidy:
 	go mod tidy

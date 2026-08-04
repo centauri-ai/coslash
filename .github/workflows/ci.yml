@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Lint frontend
+        run: npm run lint
+      - name: Check frontend formatting
+        run: npm run format:check
+      - name: Test frontend
+        run: npm test
+
+  collector:
+    name: Collector
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: collector
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: collector/go.mod
+          # This module has no dependencies or go.sum to cache.
+          cache: false
+      - name: Check collector
+        run: make check
+      - name: Test collector
+        run: make test
+
+  release:
+    name: Release
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: collector
+    steps:
+      - name: Check out repository with tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: collector/go.mod
+          # This module has no dependencies or go.sum to cache.
+          cache: false
+      - name: Build release binary
+        run: make release
+      - name: Verify release leaves worktree clean
+        run: |
+          status=$(git status --porcelain)
+          if [[ -n "$status" ]]; then
+            echo "Release build dirtied the worktree:"
+            echo "$status"
+            exit 1
+          fi
+      - name: Smoke test embedded frontend
+        run: make smoke
+      - name: Preserve release binary
+        run: cp bin/coslash bin/coslash-release
+      - name: Build development binary
+        run: make build
+      - name: Smoke test development binary
+        run: make smoke-dev
+      - name: Upload release binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: coslash-macos
+          path: collector/bin/coslash-release
+          retention-days: 7
+          if-no-files-found: error
