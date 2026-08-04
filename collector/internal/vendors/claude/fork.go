@@ -3,7 +3,6 @@ package claude
 import (
 	"log"
 	"os"
-	"syscall"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -127,9 +126,8 @@ func fileCreationTime(path string) int64 {
 		log.Printf("%s: stat for fork ordering failed: %v", path, err)
 		return 0
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return info.ModTime().UnixMilli()
+	if created, ok := birthtime(info); ok {
+		return created
 	}
-	return stat.Birthtimespec.Sec*1000 + stat.Birthtimespec.Nsec/1_000_000
+	return info.ModTime().UnixMilli()
 }
