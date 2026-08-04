@@ -8,26 +8,59 @@ import (
 	"strings"
 )
 
-func JSONLFilesUnder(root string) ([]string, error) {
-	var files []string
+const maxRecordedSkippedPaths = 10
+
+type SkippedPath struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
+}
+
+type SourceScan struct {
+	Files        []string
+	Skipped      []SkippedPath
+	SkippedTotal int
+	RootMissing  bool
+}
+
+func Scan(root string) (*SourceScan, error) {
+	scan := &SourceScan{Files: []string{}, Skipped: []SkippedPath{}}
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			if path == root {
 				if errors.Is(err, fs.ErrNotExist) {
+					scan.RootMissing = true
 					return nil
 				}
 				return err
 			}
-			log.Printf("transcript scan %q: %v; skipping", path, err)
+			scan.SkippedTotal++
+			if len(scan.Skipped) < maxRecordedSkippedPaths {
+				scan.Skipped = append(scan.Skipped, SkippedPath{Path: path, Error: err.Error()})
+			}
 			return nil
 		}
 		if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".jsonl") {
-			files = append(files, path)
+			scan.Files = append(scan.Files, path)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return files, nil
+	return scan, nil
+}
+
+// JSONLFilesUnder keeps the collection hot path compatible while Scan exposes failures to diagnostics.
+func JSONLFilesUnder(root string) ([]string, error) {
+	scan, err := Scan(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, skipped := range scan.Skipped {
+		log.Printf("transcript scan %q: %s; skipping", skipped.Path, skipped.Error)
+	}
+	if scan.SkippedTotal > len(scan.Skipped) {
+		log.Printf("transcript scan: %d additional paths skipped", scan.SkippedTotal-len(scan.Skipped))
+	}
+	return scan.Files, nil
 }

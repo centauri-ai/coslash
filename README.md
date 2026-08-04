@@ -84,3 +84,10 @@ Version 1 supports:
 - Terminal apps: Apple Terminal (`terminal`) and iTerm2 (`iterm2`).
 
 Use the top-right Settings dialog to apply synthesis and terminal changes immediately. The focused first-run dialog shown from an eligible session contains only synthesis consent and model choices. If you edit the JSON file directly, restart coSlash. The document must match [`settings.schema.json`](settings.schema.json); invalid or unsupported settings disable synthesis and block terminal launches until repaired rather than silently selecting another app.
+
+After installing coSlash, run `coslash doctor` to check detected session sources, CLIs, and local storage.
+
+| Command | Effect |
+| --- | --- |
+| `coslash doctor` | Print checks and local diagnostic facts; exits non-zero when a check fails. |
+| `coslash doctor --json` | Print the same diagnostic snapshot as JSON. |

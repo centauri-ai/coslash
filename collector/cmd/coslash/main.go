@@ -50,6 +50,10 @@ func parseOptions(arguments []string) (options, error) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "doctor" {
+		os.Exit(runDoctor(os.Stdout, os.Stderr, os.Args[2:]))
+	}
+
 	opts, err := parseOptions(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -117,6 +121,7 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 	mux.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
 		handleLaunch(w, r, settingsStore)
 	})
+	mux.Handle("GET /api/diagnostics", newDiagnosticsHandler(version, 10*time.Second))
 	// An unrouted /api path is a 404, never the frontend document.
 	mux.Handle("/api/", http.NotFoundHandler())
 
