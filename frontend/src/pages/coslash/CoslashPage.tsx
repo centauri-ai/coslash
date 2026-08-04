@@ -221,7 +221,7 @@ export function CoslashPage() {
     <div className="flex h-svh flex-col">
       <CoslashPageHeader />
       <div className="bg-background flex flex-col border-b px-4 gap-2 pb-2">
-        <div className="flex items-center gap-2 overflow-x-auto">
+        <div className="-m-1 flex items-center gap-2 overflow-x-auto p-1">
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
           <div className="flex shrink-0 items-center gap-2">
             <AgentVendorFilterTabMenu value={vendor} onValueChange={setVendor} />
