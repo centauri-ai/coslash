@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os/exec"
 	"strconv"
 	"time"
 	"unicode/utf8"
@@ -13,6 +14,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 )
 
@@ -70,6 +72,7 @@ func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
 	response := struct {
 		Synthesis        *session.SessionSynthesis `json:"synthesis"`
 		SynthesisPending bool                      `json:"synthesisPending"`
+		SynthesisError   string                    `json:"synthesisError,omitempty"`
 	}{}
 	mtime, err := synthesis.TranscriptMtime(found.LogPath)
 	if err == nil && mtime > 0 {
@@ -77,6 +80,9 @@ func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
 		mgr.Ensure(found, mtime)
 		response.SynthesisPending = response.Synthesis == nil && synthesis.Eligible(found) &&
 			!mgr.InCooldown(found.ID, mtime)
+		if response.Synthesis == nil {
+			response.SynthesisError = mgr.Failure(found.ID, mtime)
+		}
 	}
 	writeJSON(w, response)
 	log.Printf("synthesis: %s", id)
@@ -93,7 +99,12 @@ func cleanupHandoffs() {
 	}
 }
 
-func handleLaunch(w http.ResponseWriter, r *http.Request) {
+func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *settings.Store) {
+	state := settingsStore.State()
+	if !state.Valid {
+		http.Error(w, state.Error+"; open Settings to repair it", http.StatusConflict)
+		return
+	}
 	query := r.URL.Query()
 	found, err := collector.Get(query.Get("id"))
 	if err != nil {
@@ -112,13 +123,84 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mode := query.Get("mode")
-	if err := launch.Terminal(found.Agent, found.WorkingDirectory, found.ID, mode, handoff); err != nil {
+	if err := launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff); err != nil {
 		log.Printf("launch: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	log.Printf("launch %s: %s %s", mode, found.Agent, found.ID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+const maxSettingsBytes = 64 * 1024
+
+type availableBackend struct {
+	settings.BackendOption
+	Available bool `json:"available"`
+}
+
+type availableTerminal struct {
+	settings.TerminalOption
+	Available bool `json:"available"`
+}
+
+type settingsResponse struct {
+	Settings  settings.Config `json:"settings"`
+	Persisted bool            `json:"persisted"`
+	Valid     bool            `json:"valid"`
+	Error     string          `json:"error,omitempty"`
+	Options   struct {
+		SynthesisBackends []availableBackend  `json:"synthesisBackends"`
+		Terminals         []availableTerminal `json:"terminals"`
+	} `json:"options"`
+}
+
+func writeSettings(w http.ResponseWriter, state settings.State) {
+	response := settingsResponse{
+		Settings:  state.Config,
+		Persisted: state.Persisted,
+		Valid:     state.Valid,
+		Error:     state.Error,
+	}
+	for _, option := range settings.BackendOptions() {
+		_, err := exec.LookPath(settings.BackendExecutable(option.ID))
+		response.Options.SynthesisBackends = append(response.Options.SynthesisBackends, availableBackend{
+			BackendOption: option,
+			Available:     err == nil,
+		})
+	}
+	for _, option := range settings.TerminalOptions() {
+		response.Options.Terminals = append(response.Options.Terminals, availableTerminal{
+			TerminalOption: option,
+			Available:      launch.Available(option.ID),
+		})
+	}
+	writeJSON(w, response)
+}
+
+func handleSaveSettings(w http.ResponseWriter, r *http.Request, store *settings.Store, mgr *synthesis.Manager) {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSettingsBytes))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("settings exceed %d bytes", maxSettingsBytes), http.StatusBadRequest)
+		return
+	}
+	config, err := settings.Decode(data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	runner, err := synthesis.NewRunner(config.Synthesis)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := store.Save(config); err != nil {
+		log.Printf("save settings: %v", err)
+		http.Error(w, "could not save settings.json; check ~/.coslash permissions", http.StatusInternalServerError)
+		return
+	}
+	mgr.SetRunner(runner)
+	writeSettings(w, store.State())
 }
 
 func readHandoff(w http.ResponseWriter, r *http.Request) (string, error) {

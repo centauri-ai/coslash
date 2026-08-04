@@ -26,7 +26,13 @@ type failureKey struct {
 	mtime int64
 }
 
+type failure struct {
+	at      time.Time
+	message string
+}
+
 type Manager struct {
+	runnerMu           sync.RWMutex
 	runner             Runner
 	cache              *Cache
 	slots              chan struct{}
@@ -54,14 +60,17 @@ func NewManager(runner Runner) *Manager {
 }
 
 func (m *Manager) Lookup(id string, mtime int64) *session.SessionSynthesis {
-	if m == nil || m.runner == nil {
+	if m == nil {
 		return nil
 	}
 	return m.cache.Lookup(id, mtime)
 }
 
 func (m *Manager) Ensure(s *session.Session, mtime int64) bool {
-	if m == nil || m.runner == nil || mtime <= 0 || !Eligible(s) {
+	if m == nil || mtime <= 0 || !Eligible(s) {
+		return false
+	}
+	if m.currentRunner() == nil {
 		return false
 	}
 	if m.Lookup(s.ID, mtime) != nil || m.InCooldown(s.ID, mtime) {
@@ -77,7 +86,11 @@ func (m *Manager) Ensure(s *session.Session, mtime int64) bool {
 		m.slots <- struct{}{}
 		defer func() { <-m.slots }()
 
-		result, err := m.runner.Run(context.Background(), input)
+		runner := m.currentRunner()
+		if runner == nil {
+			return
+		}
+		result, err := runner.Run(context.Background(), input)
 		if err != nil {
 			m.recordFailure(id, mtime, err)
 			log.Printf("synthesize session %s: %v", id, err)
@@ -86,7 +99,7 @@ func (m *Manager) Ensure(s *session.Session, mtime int64) bool {
 		record := Record{
 			SessionID:   id,
 			Mtime:       mtime,
-			Model:       runnerModel(m.runner),
+			Model:       runnerModel(runner),
 			GeneratedAt: m.now().UnixMilli(),
 			Synthesis:   result,
 		}
@@ -111,7 +124,11 @@ func buildInputWithDetailProbes(s *session.Session) string {
 }
 
 func (m *Manager) InCooldown(id string, mtime int64) bool {
-	if m == nil || m.runner == nil {
+	if m == nil {
+		return true
+	}
+	runner := m.currentRunner()
+	if runner == nil {
 		return true
 	}
 	now := m.now()
@@ -123,7 +140,7 @@ func (m *Manager) InCooldown(id string, mtime int64) bool {
 	if !ok {
 		return false
 	}
-	if now.Sub(value.(time.Time)) < m.failureCooldown {
+	if now.Sub(value.(failure).at) < m.failureCooldown {
 		return true
 	}
 	m.failures.Delete(key)
@@ -131,7 +148,7 @@ func (m *Manager) InCooldown(id string, mtime int64) bool {
 }
 
 func (m *Manager) Run(ctx context.Context, list func() ([]*session.Session, error)) {
-	if m == nil || m.runner == nil {
+	if m == nil {
 		return
 	}
 	m.sweep(list)
@@ -179,10 +196,46 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 
 func (m *Manager) recordFailure(id string, mtime int64, err error) {
 	now := m.now()
-	m.failures.Store(failureKey{id: id, mtime: mtime}, now)
+	m.failures.Store(failureKey{id: id, mtime: mtime}, failure{at: now, message: err.Error()})
 	if errors.Is(err, exec.ErrNotFound) {
 		m.cliMissingUntil.Store(now.Add(m.cliMissingCooldown).UnixNano())
 	}
+}
+
+func (m *Manager) SetRunner(runner Runner) {
+	if m == nil {
+		return
+	}
+	m.runnerMu.Lock()
+	m.runner = runner
+	m.runnerMu.Unlock()
+	m.cliMissingUntil.Store(0)
+	m.failures.Range(func(key, _ any) bool {
+		m.failures.Delete(key)
+		return true
+	})
+}
+
+func (m *Manager) Failure(id string, mtime int64) string {
+	if m == nil {
+		return ""
+	}
+	value, ok := m.failures.Load(failureKey{id: id, mtime: mtime})
+	if !ok {
+		return ""
+	}
+	failed := value.(failure)
+	if m.now().Sub(failed.at) >= m.failureCooldown {
+		m.failures.Delete(failureKey{id: id, mtime: mtime})
+		return ""
+	}
+	return failed.message
+}
+
+func (m *Manager) currentRunner() Runner {
+	m.runnerMu.RLock()
+	defer m.runnerMu.RUnlock()
+	return m.runner
 }
 
 func runnerModel(runner Runner) string {

@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -40,29 +40,64 @@ var sessionIDPattern = regexp.MustCompile(
 	`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
 )
 
-func Terminal(agent, workingDirectory, sessionID, mode, handoff string) error {
+type terminalAdapter struct {
+	label     string
+	available func() error
+	open      func(string, string) error
+}
+
+func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string) error {
 	if workingDirectory == "" {
 		return fmt.Errorf("launch: session has no working directory")
+	}
+	adapter, err := terminalFor(terminal)
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS != "darwin" {
+		return fmt.Errorf("launch: opening a terminal is not supported on %s", runtime.GOOS)
+	}
+	if err := adapter.available(); err != nil {
+		return fmt.Errorf("launch: %s is not installed or available; choose another terminal in Settings", adapter.label)
 	}
 	command, handoffPath, err := cliCommand(agent, sessionID, mode, handoff)
 	if err != nil {
 		return err
 	}
-	if err := openTerminal(workingDirectory, command); err != nil {
+	if err := adapter.open(workingDirectory, command); err != nil {
 		if handoffPath != "" {
 			os.Remove(handoffPath)
 		}
-		return err
+		return fmt.Errorf("launch: open %s: %w", adapter.label, err)
 	}
 	return nil
 }
 
-func openTerminal(workingDirectory, command string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return openMacTerminal(workingDirectory, command)
+func Available(terminal string) bool {
+	if runtime.GOOS != "darwin" {
+		return false
 	}
-	return fmt.Errorf("launch: opening a terminal is not supported on %s", runtime.GOOS)
+	adapter, err := terminalFor(terminal)
+	return err == nil && adapter.available() == nil
+}
+
+func terminalFor(terminal string) (terminalAdapter, error) {
+	switch terminal {
+	case settings.TerminalApple:
+		return terminalAdapter{
+			label:     "Apple Terminal",
+			available: func() error { return macApplicationAvailable("Terminal") },
+			open:      openMacTerminal,
+		}, nil
+	case settings.TerminalITerm:
+		return terminalAdapter{
+			label:     "iTerm2",
+			available: func() error { return macApplicationAvailable("iTerm2") },
+			open:      openMacITerm,
+		}, nil
+	default:
+		return terminalAdapter{}, fmt.Errorf("launch: unsupported terminal %q", terminal)
+	}
 }
 
 func cliCommand(agent, sessionID, mode, handoff string) (string, string, error) {
@@ -117,7 +152,7 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 }
 
 func handoffDir() string {
-	return filepath.Join(synthesis.Home(), "sys-prompts")
+	return filepath.Join(settings.Home(), "sys-prompts")
 }
 
 func writeHandoffFile(contents string) (string, error) {
