@@ -1,22 +1,28 @@
+import type { TimeWindow } from '@/pages/coslash/lib/time-window';
+
 export function sessionsEmptyStateCopy({
   hasSessions,
   searchTerm,
-  outsideWindowMatches,
+  timeWindow,
 }: {
   hasSessions: boolean;
   searchTerm: string;
-  outsideWindowMatches: number;
+  timeWindow: TimeWindow;
 }): { title: string; detail?: string } {
-  if (!hasSessions) return { title: 'No sessions yet.' };
+  if (!hasSessions) {
+    return timeWindow === 'all'
+      ? { title: 'No sessions yet.' }
+      : {
+          title: 'No sessions in this window.',
+          detail: 'Select “All” to view older sessions.',
+        };
+  }
 
   const term = searchTerm.trim();
   if (term !== '') {
     return {
       title: `Nothing matches “${term}” in this window.`,
-      detail:
-        outsideWindowMatches > 0
-          ? `${outsideWindowMatches} matching ${outsideWindowMatches === 1 ? 'session' : 'sessions'} outside this window.`
-          : undefined,
+      detail: timeWindow === 'all' ? undefined : 'Select “All” to search older sessions.',
     };
   }
 
