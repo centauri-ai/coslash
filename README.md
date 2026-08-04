@@ -32,3 +32,18 @@ cd frontend && npm run dev
 ```
 
 The UI is at [http://localhost:5173](http://localhost:5173): Vite serves it and proxies `/api` to the Go server on port `8787`. `make run` embeds no frontend and opens no browser, so port `8787` serves the API alone.
+
+## Global settings
+
+coSlash stores machine-wide preferences in `~/.coslash/settings.json`. The file is optional: synthesis is off and Apple Terminal is used until you inspect a synthesis-eligible session and save a choice in the first-run Settings dialog. That dialog initially selects synthesis On, but synthesis remains off until you save. coSlash writes the directory with mode `0700` and the file with mode `0600`.
+
+Synthesis sends derived session facts through your selected CLI using its existing authentication and may consume account usage. Results are cached under `~/.coslash`; source transcripts are never modified. Do not put API keys, tokens, or other credentials in `settings.json`.
+
+Version 1 supports:
+
+- Synthesis backends: Claude Code (`claude-cli`) and Codex (`codex_exec`).
+- Claude models: `claude-haiku-4-5`, `claude-sonnet-5`, and `claude-opus-5`.
+- Codex models: `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-5.6-sol`.
+- Terminal apps: Apple Terminal (`terminal`) and iTerm2 (`iterm2`).
+
+Use the top-right Settings dialog to apply synthesis and terminal changes immediately. The focused first-run dialog shown from an eligible session contains only synthesis consent and model choices. If you edit the JSON file directly, restart coSlash. The document must match [`settings.schema.json`](settings.schema.json); invalid or unsupported settings disable synthesis and block terminal launches until repaired rather than silently selecting another app.
