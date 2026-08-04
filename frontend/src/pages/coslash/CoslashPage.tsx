@@ -38,11 +38,9 @@ const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
 
 function CoslashPageHeader() {
   return (
-      <div className="flex items-center gap-2 px-4">
-        <img src="/brand/coslash-logo.svg" alt="coSlash" className="h-12" />
-        <span className="text-muted-foreground text-sm font-medium">
-        Run more agents. Lose less context.
-      </span>
+    <div className="flex items-center gap-2 px-4">
+      <img src="/brand/coslash-logo.svg" alt="coSlash" className="h-12" />
+      <span className="text-muted-foreground text-sm font-medium">Run more agents. Lose less context.</span>
     </div>
   );
 }
@@ -85,7 +83,7 @@ function SessionsStats({
     <div className="flex w-full min-w-0 items-center justify-between gap-3">
       <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
         <span className="truncate">
-          <span className="font-semibold text-foreground">
+          <span className="text-foreground font-semibold">
             {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
           </span>{' '}
           {WINDOW_ACTIVITY_LABELS[timeWindow]} ·{' '}
@@ -210,7 +208,7 @@ export function CoslashPage() {
   return (
     <div className="flex h-svh flex-col">
       <CoslashPageHeader />
-      <div className="bg-background flex flex-col border-b px-4 gap-2 pb-2">
+      <div className="bg-background flex flex-col gap-2 border-b px-4 pb-2">
         <div className="-m-1 flex items-center gap-2 overflow-x-auto p-1">
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
           <div className="flex shrink-0 items-center gap-2">
