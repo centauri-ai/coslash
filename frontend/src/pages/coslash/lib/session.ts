@@ -40,6 +40,7 @@ export type Session = {
   entrypoint: string | null;
   synthesis: SessionSynthesis | null;
   synthesisPending: boolean;
+  synthesisError?: string;
   declaredGoal: string | null;
   logPath: string;
   model: string | null;
@@ -81,6 +82,12 @@ export type DigestEntry = {
 export type SessionDetail = Session;
 
 export type GoalSource = 'declared' | 'inferred' | 'floor';
+
+export function isSynthesisEligible(
+  session: Pick<Session, 'turns' | 'compactions' | 'contextTokens'>,
+): boolean {
+  return session.turns > 5 || session.compactions > 0 || (session.contextTokens ?? 0) > 100_000;
+}
 
 export function goalSourceLabel(source: GoalSource): string {
   return source === 'floor' ? 'first prompt' : source;
