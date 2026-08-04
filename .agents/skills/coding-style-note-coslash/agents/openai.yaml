@@ -1,4 +1,0 @@
-interface:
-  display_name: "coSlash Coding Style"
-  short_description: "Comment, build, and docs conventions for coslash"
-  default_prompt: "Use $coding-style-note-coslash before writing or reviewing code in this repo."
