@@ -1,64 +1,22 @@
-// Command coslash serves the coSlash frontend and API from one loopback origin.
 package main
 
 import (
 	"context"
-	"errors"
-	"flag"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
-	"net"
 	"net/http"
-	"os"
-	"syscall"
+	"time"
+	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	"github.com/centauri-ai/coslash/collector/internal/launch"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
-	"github.com/centauri-ai/coslash/collector/internal/web"
 )
 
-// version is injected by the release build; see collector/Makefile.
-var version = "dev"
-
-const defaultPort = 8787
-
-type options struct {
-	port        int
-	noOpen      bool
-	showVersion bool
-}
-
-func parseOptions(arguments []string) (options, error) {
-	flags := flag.NewFlagSet("coslash", flag.ContinueOnError)
-	var opts options
-	flags.IntVar(&opts.port, "port", defaultPort, "port to serve on, loopback only")
-	flags.BoolVar(&opts.noOpen, "no-open", false, "do not open a browser on startup")
-	flags.BoolVar(&opts.showVersion, "version", false, "print the version and exit")
-	if err := flags.Parse(arguments); err != nil {
-		return options{}, err
-	}
-	if opts.port < 1 || opts.port > 65535 {
-		return options{}, fmt.Errorf("--port must be between 1 and 65535, got %d", opts.port)
-	}
-	if extra := flags.Args(); len(extra) > 0 {
-		return options{}, fmt.Errorf("unexpected argument %q", extra[0])
-	}
-	return opts, nil
-}
-
 func main() {
-	opts, err := parseOptions(os.Args[1:])
-	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return
-		}
-		log.Fatalf("coslash: %v", err)
-	}
-	if opts.showVersion {
-		fmt.Println(version)
-		return
-	}
-
 	mgr := synthesis.NewManager(synthesis.NewCLIRunner())
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
@@ -67,25 +25,6 @@ func main() {
 	go mgr.Run(context.Background(), collector.List)
 	go cleanupHandoffs()
 
-	// Bind before opening the browser, so a port conflict is an error the user
-	// reads rather than a browser tab pointed at nothing.
-	listener, err := listen(opts.port)
-	if err != nil {
-		log.Fatalf("coslash: %v", err)
-	}
-	url := "http://" + listener.Addr().String()
-	log.Printf("listening on %s", url)
-	if !opts.noOpen {
-		if err := openBrowser(url); err != nil {
-			log.Printf("could not open a browser (%v); open %s yourself", err, url)
-		}
-	}
-	if err := http.Serve(listener, routes(mgr)); err != nil {
-		log.Fatalf("coslash: %v", err)
-	}
-}
-
-func routes(mgr *synthesis.Manager) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, _ *http.Request) {
 		handleList(w, mgr)
@@ -94,34 +33,117 @@ func routes(mgr *synthesis.Manager) *http.ServeMux {
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
 	})
 	mux.HandleFunc("POST /api/launch", handleLaunch)
-	// An unrouted /api path is a 404, never the frontend document.
-	mux.Handle("/api/", http.NotFoundHandler())
-
-	frontend, err := web.Handler()
-	if err != nil {
-		// A `make build` binary has no staged assets; keep its API usable for
-		// `npm run dev` instead of failing to start.
-		log.Printf("coslash: %v", err)
-		frontend = unavailable(err)
+	addr := "127.0.0.1:8787"
+	log.Printf("listening on http://%s", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		log.Fatal(err)
 	}
-	mux.Handle("/", frontend)
-	return mux
 }
 
-func listen(port int) (net.Listener, error) {
-	address := fmt.Sprintf("127.0.0.1:%d", port)
-	listener, err := net.Listen("tcp", address)
+// /api/sessions → every session, each a complete record; only synthesis is
+// served separately. Time-window filtering is the frontend's, since parsing
+// happens regardless of window.
+func handleList(w http.ResponseWriter, mgr *synthesis.Manager) {
+	sessions, err := collector.List()
 	if err != nil {
-		if errors.Is(err, syscall.EADDRINUSE) {
-			return nil, fmt.Errorf("port %d is already in use; quit the other process or pass --port", port)
+		log.Printf("list sessions: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for _, session := range sessions {
+		mtime, err := synthesis.TranscriptMtime(session.LogPath)
+		if err != nil || mtime <= 0 {
+			continue
 		}
-		return nil, fmt.Errorf("listen on %s: %w", address, err)
+		session.Synthesis = mgr.Lookup(session.ID, mtime)
 	}
-	return listener, nil
+	writeJSON(w, sessions)
+	log.Printf("list sessions: %d", len(sessions))
 }
 
-func unavailable(err error) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-	})
+// /api/synthesis?id=X → cached synthesis for one session, triggering a run
+// when eligible. Parses one file, never the whole machine — Get skips fork,
+// subagents, and name/status resolution because BuildInput and Eligible read
+// none of those.
+func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
+	found, err := collector.Get(id)
+	if err != nil {
+		log.Printf("synthesis: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if found == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	response := struct {
+		Synthesis        *session.SessionSynthesis `json:"synthesis"`
+		SynthesisPending bool                      `json:"synthesisPending"`
+	}{}
+	mtime, err := synthesis.TranscriptMtime(found.LogPath)
+	if err == nil && mtime > 0 {
+		response.Synthesis = mgr.Lookup(found.ID, mtime)
+		mgr.Ensure(found, mtime)
+		response.SynthesisPending = response.Synthesis == nil && synthesis.Eligible(found) &&
+			!mgr.InCooldown(found.ID, mtime)
+	}
+	writeJSON(w, response)
+	log.Printf("synthesis: %s", id)
+}
+
+func cleanupHandoffs() {
+	ticker := time.NewTicker(launch.HandoffSweepInterval)
+	defer ticker.Stop()
+	for {
+		if err := launch.CleanupHandoffs(); err != nil {
+			log.Printf("sweep handoffs: %v", err)
+		}
+		<-ticker.C
+	}
+}
+
+func handleLaunch(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	found, err := collector.Get(query.Get("id"))
+	if err != nil {
+		log.Printf("launch: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if found == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	handoff, err := readHandoff(w, r)
+	if err != nil {
+		log.Printf("launch: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	mode := query.Get("mode")
+	if err := launch.Terminal(found.Agent, found.WorkingDirectory, found.ID, mode, handoff); err != nil {
+		log.Printf("launch: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("launch %s: %s %s", mode, found.Agent, found.ID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func readHandoff(w http.ResponseWriter, r *http.Request) (string, error) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, launch.MaxHandoffBytes))
+	if err != nil {
+		return "", fmt.Errorf("handoff context exceeds %d bytes", launch.MaxHandoffBytes)
+	}
+	if !utf8.Valid(body) {
+		return "", fmt.Errorf("handoff context is not valid UTF-8")
+	}
+	return string(body), nil
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("encoding response: %v", err)
+	}
 }
