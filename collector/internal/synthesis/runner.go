@@ -16,8 +16,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
-const defaultModel = "claude-haiku-4-5"
-
 const synthesisSchema = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"keyDecisions":{"type":"array","items":{"type":"string"},"maxItems":5},"nextStep":{"type":"string"}},"required":["goals","outcome","keyDecisions","nextStep"],"additionalProperties":false}`
 
 type Runner interface {
@@ -48,26 +46,20 @@ type CLIRunner struct {
 	exec    commandExecutor
 }
 
-func NewClaudeRunner(model string) *CLIRunner {
-	return &CLIRunner{Backend: settings.BackendClaude, Bin: "claude", Model: model, Timeout: 90 * time.Second}
-}
-
-func NewCodexRunner(model string) *CLIRunner {
-	return &CLIRunner{Backend: settings.BackendCodex, Bin: "codex", Model: model, Timeout: 90 * time.Second}
-}
-
 func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 	if !config.Enabled {
 		return nil, nil
 	}
+	runner := &CLIRunner{Backend: config.Backend, Model: config.Model, Timeout: 90 * time.Second}
 	switch config.Backend {
 	case settings.BackendClaude:
-		return NewClaudeRunner(config.Model), nil
+		runner.Bin = "claude"
 	case settings.BackendCodex:
-		return NewCodexRunner(config.Model), nil
+		runner.Bin = "codex"
 	default:
 		return nil, fmt.Errorf("unsupported synthesis backend %q", config.Backend)
 	}
+	return runner, nil
 }
 
 func (r *CLIRunner) ModelName() string {
@@ -75,8 +67,6 @@ func (r *CLIRunner) ModelName() string {
 }
 
 func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynthesis, error) {
-	bin := r.Bin
-	model := r.Model
 	var label string
 	var args []string
 	var parse func([]byte) (session.SessionSynthesis, error)
@@ -85,15 +75,9 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	case settings.BackendClaude:
 		label = "Claude Code"
 		parse = parseEnvelope
-		if bin == "" {
-			bin = "claude"
-		}
-		if model == "" {
-			model = defaultModel
-		}
 		args = []string{
 			"-p",
-			"--model", model,
+			"--model", r.Model,
 			"--output-format", "json",
 			"--json-schema", synthesisSchema,
 			"--system-prompt", systemPrompt,
@@ -104,12 +88,6 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	case settings.BackendCodex:
 		label = "Codex"
 		parse = parseSynthesis
-		if bin == "" {
-			bin = "codex"
-		}
-		if model == "" {
-			model = "gpt-5.6-luna"
-		}
 		var err error
 		schemaPath, err = writeSchemaFile()
 		if err != nil {
@@ -123,7 +101,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			"--ignore-rules",
 			"--skip-git-repo-check",
 			"--sandbox", "read-only",
-			"--model", model,
+			"--model", r.Model,
 			"--output-schema", schemaPath,
 			"--color", "never",
 			systemPrompt,
@@ -131,18 +109,14 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	default:
 		return session.SessionSynthesis{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
 	}
-	timeout := r.Timeout
-	if timeout <= 0 {
-		timeout = 90 * time.Second
-	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	runCtx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
 	executor := r.exec
 	if executor == nil {
 		executor = executeCommand
 	}
 	output, err := executor(runCtx, commandSpec{
-		bin:   bin,
+		bin:   r.Bin,
 		args:  args,
 		dir:   SynthesisCwd(),
 		stdin: input,
