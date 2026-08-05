@@ -3,7 +3,6 @@ import { cn } from '@/lib/utils';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
-import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { getStatus, getTotalTokens, STATUSES, type Session, type Status } from '@/pages/coslash/lib/session';
 
 // Preserves insertion order, so sorted input yields groups ordered by their top session.
@@ -33,12 +32,12 @@ function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Se
 
 function GroupTotals({ sessions }: { sessions: Session[] }) {
   const tokens = sessions.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
-  const cost = sessions.reduce((sum, session) => sum + getEstimatedCost(session.tokens), 0);
+  const cost = sessions.reduce((sum, session) => sum + session.cost, 0);
 
   return (
     <span className="text-muted-foreground text-xs">
       {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
-      <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
+      <UnpricedModelWarning unpriced={sessions.flatMap((session) => session.unpricedModels)}>
         {formatEstimatedCost(cost)}
       </UnpricedModelWarning>
     </span>

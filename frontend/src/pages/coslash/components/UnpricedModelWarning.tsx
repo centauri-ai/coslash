@@ -1,17 +1,10 @@
 import { type ReactNode } from 'react';
 import { TriangleAlertIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { getUnpricedModels, type ModelTokens } from '@/pages/coslash/lib/pricing';
 
 // Wraps a cost figure that excludes a model the pricing table doesn't cover yet
-export function UnpricedModelWarning({
-  tokens,
-  children,
-}: {
-  tokens: Record<string, ModelTokens>[];
-  children: ReactNode;
-}) {
-  const models = [...new Set(tokens.flatMap(getUnpricedModels))];
+export function UnpricedModelWarning({ unpriced, children }: { unpriced: string[]; children: ReactNode }) {
+  const models = [...new Set(unpriced)];
   if (models.length === 0) return children;
 
   return (
