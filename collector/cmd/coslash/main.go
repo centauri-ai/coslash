@@ -35,14 +35,15 @@ type options struct {
 func parseOptions(arguments []string) (options, error) {
 	flags := flag.NewFlagSet("coslash", flag.ContinueOnError)
 	var opts options
-	flags.IntVar(&opts.port, "port", defaultPort, "port to serve on, loopback only")
+	flags.IntVar(&opts.port, "port", defaultPort, "port to serve on, loopback only; 0 picks any free port")
 	flags.BoolVar(&opts.noOpen, "no-open", false, "do not open a browser on startup")
 	flags.BoolVar(&opts.showVersion, "version", false, "print the version and exit")
 	if err := flags.Parse(arguments); err != nil {
 		return options{}, err
 	}
-	if opts.port < 1 || opts.port > 65535 {
-		return options{}, fmt.Errorf("--port must be between 1 and 65535, got %d", opts.port)
+	// 0 asks the kernel for a free port; the bound one is logged at startup.
+	if opts.port < 0 || opts.port > 65535 {
+		return options{}, fmt.Errorf("--port must be between 0 and 65535, got %d", opts.port)
 	}
 	if extra := flags.Args(); len(extra) > 0 {
 		return options{}, fmt.Errorf("unexpected argument %q", extra[0])

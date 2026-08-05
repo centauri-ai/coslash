@@ -43,47 +43,32 @@ if [[ "$mode" == "bare" ]]; then
   readiness_path=/api/sessions
 fi
 
+# --port 0 lets the kernel pick a free port, so this cannot collide with
+# whatever else is listening. The server logs the port it actually bound.
+env HOME="$smoke_home" "$binary" --no-open --port 0 >"$server_log" 2>&1 &
+server_pid=$!
+
 base_url=
-for port in 18787 18788 18789; do
-  : >"$server_log"
-  env HOME="$smoke_home" "$binary" --no-open --port "$port" >"$server_log" 2>&1 &
-  server_pid=$!
-
-  ready=false
-  for ((attempt = 1; attempt <= 40; attempt++)); do
-    if ! kill -0 "$server_pid" 2>/dev/null; then
-      break
-    fi
-    if grep -Fq "listening on http://127.0.0.1:$port" "$server_log" &&
-      curl -fs -o /dev/null "http://127.0.0.1:$port$readiness_path" &&
-      kill -0 "$server_pid" 2>/dev/null; then
-      ready=true
-      break
-    fi
-    sleep 0.25
-  done
-
-  if [[ "$ready" == "true" ]]; then
-    base_url="http://127.0.0.1:$port"
-    echo "server ready on $base_url ($mode mode)"
-    break
-  fi
-
-  if kill -0 "$server_pid" 2>/dev/null; then
-    echo "error: server did not become ready on port $port" >&2
+for ((attempt = 1; attempt <= 40; attempt++)); do
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    echo "error: server exited during startup" >&2
     cat "$server_log" >&2
     exit 1
   fi
-
-  wait "$server_pid" 2>/dev/null || true
-  server_pid=
+  base_url=$(sed -n 's|.*listening on \(http://127\.0\.0\.1:[0-9]\{1,\}\).*|\1|p' "$server_log" | head -1)
+  if [[ -n "$base_url" ]] && curl -fs -o /dev/null "$base_url$readiness_path"; then
+    break
+  fi
+  base_url=
+  sleep 0.25
 done
 
 if [[ -z "$base_url" ]]; then
-  echo "error: server failed to start on candidate ports 18787, 18788, and 18789" >&2
+  echo "error: server did not become ready" >&2
   cat "$server_log" >&2
   exit 1
 fi
+echo "server ready on $base_url ($mode mode)"
 
 expect_status() {
   local path=$1
