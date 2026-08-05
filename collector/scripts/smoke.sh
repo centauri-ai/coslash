@@ -49,6 +49,7 @@ env HOME="$smoke_home" "$binary" --no-open --port 0 >"$server_log" 2>&1 &
 server_pid=$!
 
 base_url=
+token=
 for ((attempt = 1; attempt <= 40; attempt++)); do
   if ! kill -0 "$server_pid" 2>/dev/null; then
     echo "error: server exited during startup" >&2
@@ -56,7 +57,12 @@ for ((attempt = 1; attempt <= 40; attempt++)); do
     exit 1
   fi
   base_url=$(sed -n 's|.*listening on \(http://127\.0\.0\.1:[0-9]\{1,\}\).*|\1|p' "$server_log" | head -1)
-  if [[ -n "$base_url" ]] && curl -fs -o /dev/null "$base_url$readiness_path"; then
+  if [[ -f "$smoke_home/.coslash/token" ]]; then
+    IFS= read -r token <"$smoke_home/.coslash/token"
+  fi
+  if [[ -n "$base_url" && -n "$token" ]] &&
+    printf 'header = "X-Coslash-Token: %s"\n' "$token" |
+      curl --config - -fs -o /dev/null "$base_url$readiness_path"; then
     break
   fi
   base_url=
@@ -76,7 +82,10 @@ expect_status() {
   local actual
 
   echo "GET $path -> expecting $expected"
-  if ! actual=$(curl -sS -o "$response_body" -w '%{http_code}' "$base_url$path"); then
+  if ! actual=$(
+    printf 'header = "X-Coslash-Token: %s"\n' "$token" |
+      curl --config - -sS -o "$response_body" -w '%{http_code}' "$base_url$path"
+  ); then
     echo "error: GET $path failed" >&2
     exit 1
   fi

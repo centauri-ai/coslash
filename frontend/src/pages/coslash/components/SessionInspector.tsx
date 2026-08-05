@@ -27,6 +27,7 @@ import {
 } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
+import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
@@ -55,13 +56,15 @@ function useSessionDetail(
   session: Session | null,
   sessionsVersion: number,
   synthesisSettingsKey: string,
-): SessionDetail | null {
+): { detail: SessionDetail | null; loadError: string | null } {
   const [loaded, setLoaded] = useState<({ sessionId: string } & SynthesisResponse) | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const pollDeadline = useRef<{ sessionId: string; deadline: number } | null>(null);
   const sessionId = session?.id ?? null;
 
   useEffect(() => {
     setLoaded((current) => (current?.sessionId === sessionId ? current : null));
+    setLoadError(null);
     if (sessionId == null) {
       pollDeadline.current = null;
       return;
@@ -73,7 +76,7 @@ function useSessionDetail(
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
       try {
-        const res = await fetch(`/api/synthesis?id=${sessionId}`, {
+        const res = await apiFetch(`/api/synthesis?id=${sessionId}`, {
           signal: controller.signal,
         });
         if (!res.ok) return;
@@ -90,8 +93,10 @@ function useSessionDetail(
           pollDeadline.current = null;
           setLoaded({ sessionId, ...result });
         }
-      } catch {
-        // aborted by a newer selection or panel close
+      } catch (error: unknown) {
+        if (!controller.signal.aborted && error instanceof ApiAuthenticationError) {
+          setLoadError(error.message);
+        }
       }
     };
     void load();
@@ -101,13 +106,16 @@ function useSessionDetail(
     };
   }, [sessionId, sessionsVersion, synthesisSettingsKey]);
 
-  if (session == null) return null;
-  if (loaded?.sessionId !== session.id) return session;
+  if (session == null) return { detail: null, loadError };
+  if (loaded?.sessionId !== session.id) return { detail: session, loadError };
   return {
-    ...session,
-    synthesis: loaded.synthesis,
-    synthesisPending: loaded.synthesisPending,
-    synthesisError: loaded.synthesisError,
+    detail: {
+      ...session,
+      synthesis: loaded.synthesis,
+      synthesisPending: loaded.synthesisPending,
+      synthesisError: loaded.synthesisError,
+    },
+    loadError,
   };
 }
 
@@ -769,7 +777,7 @@ export function SessionInspector({
   synthesisSettingsKey: string;
   onClose: () => void;
 }) {
-  const detail = useSessionDetail(session, sessionsVersion, synthesisSettingsKey);
+  const { detail, loadError } = useSessionDetail(session, sessionsVersion, synthesisSettingsKey);
   const contentRef = useRef<HTMLDivElement>(null);
   const isOpen = session != null;
 
@@ -805,6 +813,11 @@ export function SessionInspector({
                 <div className="border-b p-1" />
               </div>
             </SheetHeader>
+            {loadError != null && (
+              <div role="alert" className="text-destructive px-4 pb-2 text-xs">
+                {loadError}
+              </div>
+            )}
             <InspectorBody detail={detail} />
             <InspectorFooter detail={detail} />
           </>

@@ -29,7 +29,7 @@ func handleList(w http.ResponseWriter, r *http.Request, mgr *synthesis.Manager) 
 	sessions, err := collector.List(since)
 	if err != nil {
 		log.Printf("list sessions: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "could not list sessions", http.StatusInternalServerError)
 		return
 	}
 	for _, session := range sessions {
@@ -62,7 +62,7 @@ func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
 	found, err := collector.Get(id)
 	if err != nil {
 		log.Printf("synthesis: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "could not load synthesis", http.StatusInternalServerError)
 		return
 	}
 	if found == nil {
@@ -109,7 +109,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 	found, err := collector.Get(query.Get("id"))
 	if err != nil {
 		log.Printf("launch: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "could not load session", http.StatusInternalServerError)
 		return
 	}
 	if found == nil {
@@ -125,7 +125,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 	mode := query.Get("mode")
 	if err := launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff); err != nil {
 		log.Printf("launch: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
 		return
 	}
 	log.Printf("launch %s: %s %s", mode, found.Agent, found.ID)
