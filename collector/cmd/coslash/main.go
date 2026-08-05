@@ -9,7 +9,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -86,9 +88,54 @@ func main() {
 			log.Printf("could not open a browser (%v); open %s yourself", err, url)
 		}
 	}
-	if err := http.Serve(listener, routes(mgr)); err != nil {
+	if err := http.Serve(listener, sameOrigin(routes(mgr), opts.port)); err != nil {
 		log.Fatalf("coslash: %v", err)
 	}
+}
+
+func sameOrigin(next http.Handler, port int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch fetchSite := r.Header.Get("Sec-Fetch-Site"); fetchSite {
+		case "same-origin", "none":
+		case "":
+			if !sameOriginFallback(r) {
+				http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+				return
+			}
+		default:
+			http.Error(w, "cross-origin request rejected", http.StatusForbidden)
+			return
+		}
+
+		// The Vite proxy must rewrite Host so dev requests pass this DNS-rebinding guard.
+		host, requestPort, err := net.SplitHostPort(r.Host)
+		if err != nil || requestPort != fmt.Sprint(port) || (host != "127.0.0.1" && !strings.EqualFold(host, "localhost")) {
+			http.Error(w, "invalid host", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sameOriginFallback protects clients that do not send Fetch Metadata. An
+// entirely headerless request is allowed so command-line clients keep working.
+func sameOriginFallback(r *http.Request) bool {
+	source := r.Header.Get("Origin")
+	isOrigin := source != ""
+	if !isOrigin {
+		source = r.Header.Get("Referer")
+	}
+	if source == "" {
+		return true
+	}
+
+	u, err := url.Parse(source)
+	if err != nil || u.User != nil || !strings.EqualFold(u.Scheme, "http") || !strings.EqualFold(u.Host, r.Host) {
+		return false
+	}
+	// Origin is serialized as a scheme and authority only. Referer may include
+	// the page path, query, and fragment.
+	return !isOrigin || (u.Path == "" && u.RawQuery == "" && u.Fragment == "")
 }
 
 func routes(mgr *synthesis.Manager) *http.ServeMux {

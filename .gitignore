@@ -1,0 +1,10 @@
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.local
+node_modules/
+
+# Local agent and orchestration state.
+.claude/
+.fleetlog/

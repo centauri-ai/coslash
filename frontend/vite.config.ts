@@ -6,7 +6,13 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    proxy: { '/api': 'http://127.0.0.1:8787' },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8787',
+        // The API accepts only loopback Host headers to prevent DNS rebinding.
+        changeOrigin: true,
+      },
+    },
   },
   resolve: {
     alias: {
