@@ -82,7 +82,11 @@ func List(since int64) ([]*session.Session, error) {
 	probeEnvironment(roots)
 	resolveNames(roots, metadata)
 	resolveStatus(roots, metadata)
-	return excludeSynthesisRuns(roots), nil
+	sessions := excludeSynthesisRuns(roots)
+	for _, s := range sessions {
+		session.AttachCosts(s)
+	}
+	return sessions, nil
 }
 
 func applyForkedUsage(parsed []*vendors.ParsedTranscript) {
@@ -311,5 +315,6 @@ func Get(id string) (*session.Session, error) {
 	// No subagents here means no spawn key can resolve
 	p.Session.Digest = slices.DeleteFunc(p.Session.Digest, unresolvedSpawn)
 	probeEnvironment([]*vendors.ParsedTranscript{p})
+	session.AttachCosts(p.Session)
 	return p.Session, nil
 }
