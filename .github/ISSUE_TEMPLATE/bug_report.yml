@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible problem in coSlash
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include agent transcripts, prompts, credentials, personal paths, or other private data. Report security issues through the private link shown on the issue chooser.
+  - type: input
+    id: version
+    attributes:
+      label: coSlash version
+      description: Run `coslash --version` or `./bin/coslash --version`.
+      placeholder: v0.0.1
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and architecture
+      placeholder: macOS 15.5, Apple silicon
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent CLI and version
+      placeholder: Claude Code 1.0.0 or Codex CLI 0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use synthetic identifiers and paths when examples are needed.
+      placeholder: |
+        1. Start coSlash with ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Optional. Remove transcripts, prompts, credentials, usernames, personal paths, and private URLs before pasting logs.
+      render: shell
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have removed transcripts, credentials, personal paths, and other private data.
+          required: true
