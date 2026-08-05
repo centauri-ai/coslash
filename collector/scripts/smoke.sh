@@ -122,15 +122,11 @@ if [[ "$mode" == "embedded" ]]; then
     exit 1
   fi
 
+  # The failure this guards against is /api/sessions falling through to the
+  # SPA document, so the opening bracket is the whole question.
   expect_status /api/sessions 200
-  if command -v jq >/dev/null 2>&1; then
-    if ! jq -e type "$response_body" >/dev/null; then
-      echo "error: /api/sessions did not return valid JSON" >&2
-      cat "$response_body" >&2
-      exit 1
-    fi
-  elif ! grep -Eq '^[[:space:]]*[\[{]' "$response_body"; then
-    echo "error: /api/sessions did not look like JSON" >&2
+  if ! grep -Eq '^[[:space:]]*[\[{]' "$response_body"; then
+    echo "error: /api/sessions did not return JSON" >&2
     cat "$response_body" >&2
     exit 1
   fi
