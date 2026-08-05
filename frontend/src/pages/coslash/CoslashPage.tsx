@@ -33,7 +33,7 @@ import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import { getStatus, type Session } from '@/pages/coslash/lib/session';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
-import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
+import { type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
   'week': 'active this week',
@@ -236,16 +236,9 @@ export function CoslashPage() {
       setSettingsDialogMode((current) => current ?? 'synthesis-consent');
     }
   }, [selectedSession, settingsState.response]);
-  // The API returns every session, so the window is applied here — switching it
-  // never refetches. A live session shows regardless of how old its log is.
-  const windowStart = timeWindowStart(timeWindow);
-  const sessionsInWindow =
-    windowStart == null
-      ? sessions
-      : sessions.filter((session) => session.status != null || session.mtime >= windowStart);
-  const sessionsForVendor = sessionsInWindow.filter(
-    (session) => vendor === 'all' || session.agent === vendor,
-  );
+  // useSessions refetches on every window change and the API applies the
+  // window before parsing, so sessions already holds exactly this window.
+  const sessionsForVendor = sessions.filter((session) => vendor === 'all' || session.agent === vendor);
   const visibleSessions = sortSessions(
     sessionsForVendor.filter((session) => sessionMatchesSearchTerm(session, searchTerm)),
     sortKey,
@@ -288,7 +281,7 @@ export function CoslashPage() {
         </div>
       </div>
       <div className="relative flex-1 overflow-hidden">
-        <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
+        <LoadingSpinner isLoading={isLoading}>
           <CoslashContent
             loadFailed={loadFailed}
             onRetry={retrySessions}
