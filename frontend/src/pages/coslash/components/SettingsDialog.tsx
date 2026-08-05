@@ -212,11 +212,6 @@ export function SettingsDialog({
     setDisclosureOpen(false);
   }, [open, response]);
 
-  const save = async () => {
-    if (!draft) return;
-    if (await onSave(draft)) onOpenChange(false);
-  };
-
   const initialDraft = response ? initialSettingsDraft(response) : null;
   const isDirty = !settingsEqual(draft, initialDraft);
   const selectedBackend = response?.options.synthesisBackends.find(
@@ -224,18 +219,27 @@ export function SettingsDialog({
   );
   const selectedModel = selectedBackend?.models.find((option) => option.id === draft?.synthesis.model);
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
-  const canSave = isFirstRun || response?.valid === false || isDirty;
+  const synthesisBackendAvailable = draft?.synthesis.enabled !== true || selectedBackend?.available === true;
+  const canSave = (isFirstRun || response?.valid === false || isDirty) && synthesisBackendAvailable;
+
+  const save = async () => {
+    if (!draft || !synthesisBackendAvailable) return;
+    if (await onSave(draft)) onOpenChange(false);
+  };
+
   const status = saveError
     ? { label: 'Save failed', className: 'text-destructive' }
     : isSaving
       ? { label: 'Saving…', className: 'text-muted-foreground' }
-      : response?.valid === false
-        ? { label: 'Repair required', className: 'text-warning-fg' }
-        : isDirty
-          ? { label: 'Unsaved changes', className: 'text-warning-fg' }
-          : isFirstRun
-            ? { label: 'Not saved yet', className: 'text-warning-fg' }
-            : { label: 'No changes', className: 'text-muted-foreground' };
+      : !synthesisBackendAvailable
+        ? { label: 'Backend unavailable', className: 'text-warning-fg' }
+        : response?.valid === false
+          ? { label: 'Repair required', className: 'text-warning-fg' }
+          : isDirty
+            ? { label: 'Unsaved changes', className: 'text-warning-fg' }
+            : isFirstRun
+              ? { label: 'Not saved yet', className: 'text-warning-fg' }
+              : { label: 'No changes', className: 'text-muted-foreground' };
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!requiresConsent || next ? onOpenChange(next) : undefined)}>

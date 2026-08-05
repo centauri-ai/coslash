@@ -49,12 +49,20 @@ export function modelForBackend(response: SettingsResponse, backend: string): st
 }
 
 export function initialSettingsDraft(response: SettingsResponse): CoslashSettings {
+  const synthesis = { ...response.settings.synthesis };
+
+  if (!response.persisted) {
+    const availableBackend = response.options.synthesisBackends.find((option) => option.available);
+    synthesis.enabled = availableBackend != null;
+    if (availableBackend) {
+      synthesis.backend = availableBackend.id;
+      synthesis.model = modelForBackend(response, availableBackend.id);
+    }
+  }
+
   return {
     ...response.settings,
-    synthesis: {
-      ...response.settings.synthesis,
-      enabled: response.persisted ? response.settings.synthesis.enabled : true,
-    },
+    synthesis,
     launch: { ...response.settings.launch },
   };
 }
