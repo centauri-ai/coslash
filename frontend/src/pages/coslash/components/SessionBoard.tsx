@@ -97,11 +97,7 @@ function BranchRow({
         <GroupTotals sessions={sessions} />
       </div>
       {visibleStatuses.map(([status]) => (
-        <div
-          key={status}
-          data-status={status}
-          className="flex flex-col gap-2 border-b border-l p-2"
-        >
+        <div key={status} data-status={status} className="flex flex-col gap-2 border-b border-l p-2">
           <SessionCardColumn status={status} sessions={sessions} onSelectSession={onSelectSession} />
         </div>
       ))}

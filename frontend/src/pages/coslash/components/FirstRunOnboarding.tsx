@@ -15,7 +15,7 @@ export function FirstRunOnboarding({
   onRefresh: () => void;
 }) {
   return (
-    <div role="status" className="h-full overflow-y-auto bg-background px-4 py-8">
+    <div role="status" className="bg-background h-full overflow-y-auto px-4 py-8">
       <div className="bg-background mx-auto flex max-w-2xl flex-col gap-5 rounded-xl border p-6 text-left shadow-sm">
         <div>
           <div className="text-lg font-semibold">No agent sessions found on this machine.</div>
