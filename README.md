@@ -42,11 +42,11 @@ Running `coslash` starts one executable at
 [http://127.0.0.1:8787](http://127.0.0.1:8787) and opens a browser. There is no
 Node, Vite, or second process at runtime.
 
-| Flag | Effect |
-| --- | --- |
-| `--port N` | serve on port N (default `8787`) |
-| `--no-open` | do not open the browser |
-| `--version` | print the version and exit |
+| Flag        | Effect                           |
+| ----------- | -------------------------------- |
+| `--port N`  | serve on port N (default `8787`) |
+| `--no-open` | do not open the browser          |
+| `--version` | print the version and exit       |
 
 ## Build from source
 
@@ -63,6 +63,12 @@ That builds the frontend, embeds it into the binary, and leaves it at
 architectures into `collector/dist/` with a `checksums.txt`, which is what the
 release workflow publishes.
 
+On every start, coSlash prints and opens a URL containing a new access token.
+Use that URL rather than typing the address by hand. The token is delivered in
+the URL fragment, kept in browser session storage, and, when local storage is
+writable, saved to `~/.coslash/token` with owner-only permissions. An old link
+expires when the server restarts.
+
 ## Develop
 
 In two terminals:
@@ -72,7 +78,23 @@ cd collector && make run
 cd frontend && npm run dev
 ```
 
-The UI is at [http://localhost:5173](http://localhost:5173): Vite serves it and proxies `/api` to the Go server on port `8787`. `make run` embeds no frontend and opens no browser, so port `8787` serves the API alone.
+The UI is at [http://127.0.0.1:5173](http://127.0.0.1:5173): Vite serves it and
+proxies `/api` to the Go server on port `8787`, reading the current development
+token automatically. If port `5173` is occupied, use the fallback URL Vite
+prints. `make run` embeds no frontend and opens no browser, so port `8787`
+serves the API alone.
+
+The production server binds only to IPv4 loopback and rejects unexpected Host,
+Origin, and cross-site browser requests. Direct API calls must include the
+current token. This form keeps the token out of `curl`'s process arguments:
+
+```sh
+sed 's/^/header = "X-Coslash-Token: /; s/$/"/' ~/.coslash/token \
+  | curl --config - http://127.0.0.1:8787/api/sessions
+```
+
+coSlash does not enable CORS. New HTTP routes must remain behind the same
+loopback request guard.
 
 ## Global settings
 
@@ -91,7 +113,7 @@ Use the top-right Settings dialog to apply synthesis and terminal changes immedi
 
 After installing coSlash, run `coslash doctor` to check detected session sources, CLIs, and local storage.
 
-| Command | Effect |
-| --- | --- |
-| `coslash doctor` | Print checks and local diagnostic facts; exits non-zero when a check fails. |
-| `coslash doctor --json` | Print the same diagnostic snapshot as JSON. |
+| Command                 | Effect                                                                      |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `coslash doctor`        | Print checks and local diagnostic facts; exits non-zero when a check fails. |
+| `coslash doctor --json` | Print the same diagnostic snapshot as JSON.                                 |

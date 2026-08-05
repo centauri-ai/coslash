@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import type { Session } from '@/pages/coslash/lib/session';
 import { MINUTE } from '@/pages/coslash/lib/time';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
@@ -9,7 +10,7 @@ const REFRESH_INTERVAL_MS = MINUTE;
 export function useSessions(timeWindow: TimeWindow) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [sessionsVersion, setSessionsVersion] = useState(0);
 
@@ -19,11 +20,11 @@ export function useSessions(timeWindow: TimeWindow) {
     const load = (background: boolean) => {
       if (!background) {
         setIsLoading(true);
-        setLoadFailed(false);
+        setLoadError(null);
       }
       const since = timeWindowStart(timeWindow);
       const path = since == null ? '/api/sessions' : `/api/sessions?since=${since}`;
-      fetch(path, { signal: controller.signal })
+      apiFetch(path, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
             throw new Error(`Sessions request failed (${response.status})`);
@@ -35,15 +36,19 @@ export function useSessions(timeWindow: TimeWindow) {
           setSessions(loadedSessions);
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
-          setLoadFailed(false);
+          setLoadError(null);
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
-          // keep showing the last good list when a background refresh fails
-          if (!background) {
+          const authenticationFailed = error instanceof ApiAuthenticationError;
+          // Keep showing the last good list when an ordinary background
+          // refresh fails. Authentication failures invalidate that private data.
+          if (!background || authenticationFailed) {
             setSessions([]);
             setIsLoading(false);
-            setLoadFailed(true);
+            setLoadError(
+              authenticationFailed ? error.message : 'CoSlash couldn’t load sessions from the API.',
+            );
           }
           console.error('Failed to load sessions', error);
         });
@@ -59,9 +64,15 @@ export function useSessions(timeWindow: TimeWindow) {
 
   const retrySessions = () => {
     setIsLoading(true);
-    setLoadFailed(false);
+    setLoadError(null);
     setRetryCount((key) => key + 1);
   };
 
-  return { sessions, isLoading, loadFailed, sessionsVersion, retrySessions };
+  return {
+    sessions,
+    isLoading,
+    loadError,
+    sessionsVersion,
+    retrySessions,
+  };
 }

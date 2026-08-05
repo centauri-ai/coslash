@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { apiFetch } from '@/pages/coslash/lib/api';
 
 export type LaunchMode = 'resume' | 'new';
 
 async function launchTerminal(sessionId: string, mode: LaunchMode, handoff?: string): Promise<void> {
-  const response = await fetch(`/api/launch?id=${sessionId}&mode=${mode}`, {
+  const response = await apiFetch(`/api/launch?id=${sessionId}&mode=${mode}`, {
     method: 'POST',
     body: handoff,
   });

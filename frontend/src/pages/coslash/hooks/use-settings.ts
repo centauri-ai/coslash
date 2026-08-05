@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '@/pages/coslash/lib/api';
 import type { CoslashSettings, SettingsResponse } from '@/pages/coslash/lib/settings';
 
 async function readError(response: Response): Promise<string> {
@@ -15,7 +16,7 @@ export function useSettings() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/settings', { signal: controller.signal })
+    apiFetch('/api/settings', { signal: controller.signal })
       .then(async (result) => {
         if (!result.ok) throw new Error(await readError(result));
         return result.json() as Promise<SettingsResponse>;
@@ -37,7 +38,7 @@ export function useSettings() {
     setIsSaving(true);
     setSaveError(null);
     try {
-      const result = await fetch('/api/settings', {
+      const result = await apiFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),

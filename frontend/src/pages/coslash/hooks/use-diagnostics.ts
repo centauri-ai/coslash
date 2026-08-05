@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { apiFetch } from '@/pages/coslash/lib/api';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 
 export function useDiagnostics(enabled: boolean) {
@@ -12,7 +13,7 @@ export function useDiagnostics(enabled: boolean) {
     const controller = new AbortController();
     setIsLoading(true);
     setLoadFailed(false);
-    fetch('/api/diagnostics', { signal: controller.signal })
+    apiFetch('/api/diagnostics', { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`Diagnostics request failed (${response.status})`);
         return response.json() as Promise<Diagnostics>;

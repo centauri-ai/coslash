@@ -36,6 +36,10 @@ func handler(assets fs.FS) (http.Handler, error) {
 	}
 	files := http.FileServerFS(assets)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hasTraversal(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
 		name := path.Clean(r.URL.Path)
 		switch {
 		case isFile(assets, name):
@@ -48,6 +52,15 @@ func handler(assets fs.FS) (http.Handler, error) {
 			http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(document))
 		}
 	}), nil
+}
+
+func hasTraversal(requestPath string) bool {
+	for _, part := range strings.Split(requestPath, "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // isFile reports whether name is a regular file in assets. A directory fails

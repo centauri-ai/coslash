@@ -149,7 +149,7 @@ function SessionsStats({
 }
 
 function CoslashContent({
-  loadFailed,
+  loadError,
   onRetry,
   visibleSessions,
   hasSessions,
@@ -162,7 +162,7 @@ function CoslashContent({
   diagnosticsLoadFailed,
   onRefreshDiagnostics,
 }: {
-  loadFailed: boolean;
+  loadError: string | null;
   onRetry: () => void;
   visibleSessions: Session[];
   hasSessions: boolean;
@@ -175,11 +175,11 @@ function CoslashContent({
   diagnosticsLoadFailed: boolean;
   onRefreshDiagnostics: () => void;
 }) {
-  if (loadFailed) {
+  if (loadError != null) {
     return (
       <div role="alert" className="text-destructive grid h-full place-items-center bg-neutral-50 text-sm">
         <div className="flex flex-col items-center gap-3">
-          <div>CoSlash couldn’t load sessions from the API.</div>
+          <div>{loadError}</div>
           <Button variant="outline" size="sm" onClick={onRetry}>
             Try again
           </Button>
@@ -234,9 +234,9 @@ function CoslashContent({
 export function CoslashPage() {
   const [vendor, setVendor] = useState<AgentVendor>('all');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
-  const { sessions, isLoading, loadFailed, sessionsVersion, retrySessions } = useSessions(timeWindow);
+  const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions(timeWindow);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const diagnosticsEnabled = diagnosticsOpen || (!isLoading && !loadFailed && sessions.length === 0);
+  const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
   const {
     diagnostics,
     isLoading: diagnosticsLoading,
@@ -322,7 +322,11 @@ export function CoslashPage() {
           <div className="flex w-full items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <LoadingSpinner isLoading={isLoading}>
-                <SessionsStats sessions={sessionsForVendor} loadFailed={loadFailed} timeWindow={timeWindow} />
+                <SessionsStats
+                  sessions={sessionsForVendor}
+                  loadFailed={loadError != null}
+                  timeWindow={timeWindow}
+                />
               </LoadingSpinner>
             </div>
             <DiagnosticsDialog
@@ -340,7 +344,7 @@ export function CoslashPage() {
         <div className="min-h-0 flex-1 overflow-hidden">
           <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
             <CoslashContent
-              loadFailed={loadFailed}
+              loadError={loadError}
               onRetry={retrySessions}
               visibleSessions={visibleSessions}
               hasSessions={sessions.length > 0}

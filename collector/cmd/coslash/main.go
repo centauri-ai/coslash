@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,11 +12,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
+	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
@@ -94,22 +98,44 @@ func main() {
 	if err != nil {
 		log.Fatalf("coslash: %v", err)
 	}
-	url := "http://" + listener.Addr().String()
-	log.Printf("listening on %s", url)
+	token, err := newToken()
+	if err != nil {
+		log.Fatalf("coslash: generate API token: %v", err)
+	}
+	if err := writeToken(token); err != nil {
+		log.Printf("write API token: %v", err)
+	}
+	baseURL := "http://" + listener.Addr().String()
+	accessURL := baseURL + "/#t=" + token
+	log.Printf("listening on %s", baseURL)
+	log.Printf("open %s", accessURL)
 	if !opts.noOpen {
-		if err := openBrowser(url); err != nil {
-			log.Printf("could not open a browser (%v); open %s yourself", err, url)
+		if err := openBrowser(accessURL); err != nil {
+			log.Printf("could not open a browser (%v); use the URL above", err)
 		}
 	}
-	if err := http.Serve(listener, routes(mgr, settingsStore)); err != nil {
+	guard := httpsec.Guard{Addr: listener.Addr().String(), Token: token}
+	server := newServer(guard, mgr, settingsStore)
+	if err := server.Serve(listener); err != nil {
 		log.Fatalf("coslash: %v", err)
+	}
+}
+
+func newServer(guard httpsec.Guard, mgr *synthesis.Manager, settingsStore *settings.Store) *http.Server {
+	return &http.Server{
+		Handler:           guard.Wrap(routes(mgr, settingsStore)),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      3 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 16,
 	}
 }
 
 func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
-	api.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		handleList(w, r, mgr)
 	})
 	api.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
@@ -127,30 +153,18 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.Collect(r.Context(), version, false))
 	})
-	apiHandler := sameOriginAPI(api)
-	mux.Handle("/api", apiHandler)
-	mux.Handle("/api/", apiHandler)
+	mux.Handle("/api", api)
+	mux.Handle("/api/", api)
 
 	frontend, err := web.Handler()
 	if err != nil {
 		// A `make build` binary has no staged assets; keep its API usable for
 		// `npm run dev` instead of failing to start.
-		log.Printf("coslash: %v", err)
-		frontend = unavailable(err)
+		log.Printf("coslash: frontend unavailable: %v", err)
+		frontend = unavailable()
 	}
 	mux.Handle("/", frontend)
 	return mux
-}
-
-func sameOriginAPI(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		site := r.Header.Get("Sec-Fetch-Site")
-		if site != "" && site != "same-origin" && site != "none" {
-			http.Error(w, "cross-origin API requests are not allowed", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 func listen(port int) (net.Listener, error) {
@@ -165,8 +179,38 @@ func listen(port int) (net.Listener, error) {
 	return listener, nil
 }
 
-func unavailable(err error) http.Handler {
+func unavailable() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		http.Error(w, "frontend unavailable", http.StatusServiceUnavailable)
 	})
+}
+
+func newToken() (string, error) {
+	random := make([]byte, 32)
+	if _, err := rand.Read(random); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(random), nil
+}
+
+func writeToken(token string) error {
+	home := settings.Home()
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(home, "token")
+	temporary, err := os.CreateTemp(home, ".token-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.WriteString(token + "\n"); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
 }
