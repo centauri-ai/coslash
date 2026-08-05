@@ -6,21 +6,6 @@ import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { getStatus, getTotalTokens, STATUSES, type Session, type Status } from '@/pages/coslash/lib/session';
 
-// Preserves insertion order, so sorted input yields groups ordered by their top session.
-function groupBy(sessions: Session[], keyOf: (session: Session) => string): [string, Session[]][] {
-  const groups = new Map<string, Session[]>();
-  for (const session of sessions) {
-    const key = keyOf(session);
-    let group = groups.get(key);
-    if (!group) {
-      groups.set(key, [session]);
-      continue;
-    }
-    group.push(session);
-  }
-  return [...groups.entries()];
-}
-
 function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Session[] }) {
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-l border-l-neutral-100 bg-neutral-50 px-3 py-2">
@@ -135,18 +120,21 @@ export function SessionBoard({
           sessions={sessions.filter((session) => getStatus(session.status) === key)}
         />
       ))}
-      {groupBy(sessions, (session) => session.repo ?? '(no repo)').map(([repo, repoSessions]) => (
+      {/* Map keeps insertion order, so sorted input groups by its top session. */}
+      {[...Map.groupBy(sessions, (session) => session.repo ?? '(no repo)')].map(([repo, repoSessions]) => (
         <Fragment key={repo}>
           <RepoGroupHeader repo={repo} sessions={repoSessions} />
-          {groupBy(repoSessions, (session) => session.branch ?? '—').map(([branch, branchSessions]) => (
-            <BranchRow
-              key={branch}
-              branch={branch}
-              sessions={branchSessions}
-              visibleStatuses={visibleStatuses}
-              onSelectSession={onSelectSession}
-            />
-          ))}
+          {[...Map.groupBy(repoSessions, (session) => session.branch ?? '—')].map(
+            ([branch, branchSessions]) => (
+              <BranchRow
+                key={branch}
+                branch={branch}
+                sessions={branchSessions}
+                visibleStatuses={visibleStatuses}
+                onSelectSession={onSelectSession}
+              />
+            ),
+          )}
         </Fragment>
       ))}
     </div>
