@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 )
 
@@ -63,6 +64,7 @@ type Storage struct {
 type Synthesis struct {
 	Enabled  bool   `json:"enabled"`
 	Model    string `json:"model"`
+	CLI      string `json:"cli"`
 	CLIFound bool   `json:"cliFound"`
 	Reason   string `json:"reason"`
 }
@@ -113,10 +115,12 @@ type Deps struct {
 	Now              func() time.Time
 	SynthesisEnabled bool
 	SynthesisModel   string
+	SynthesisCLI     string
 }
 
 func Default(version string) Deps {
-	runner := synthesis.NewCLIRunner()
+	state := settings.Open().State()
+	config := state.Config.Synthesis
 	return Deps{
 		Sources:          collector.Sources,
 		SessionCounts:    collector.SessionCountsByAgent,
@@ -128,8 +132,9 @@ func Default(version string) Deps {
 		GOARCH:           runtime.GOARCH,
 		Version:          version,
 		Now:              time.Now,
-		SynthesisEnabled: true,
-		SynthesisModel:   runner.ModelName(),
+		SynthesisEnabled: state.Valid && state.Persisted && config.Enabled,
+		SynthesisModel:   config.Model,
+		SynthesisCLI:     settings.BackendExecutable(config.Backend),
 	}
 }
 
@@ -164,20 +169,21 @@ func Collect(ctx context.Context, deps Deps) *Snapshot {
 		snapshot.Sources = append(snapshot.Sources, collectSource(ctx, deps, userHome, health, counts))
 	}
 
-	claudeFound := false
+	synthesisCLIFound := false
 	for _, source := range snapshot.Sources {
-		if source.Agent == "claude" {
-			claudeFound = source.CLI.Found
+		if source.CLI.Name == deps.SynthesisCLI {
+			synthesisCLIFound = source.CLI.Found
 			break
 		}
 	}
 	snapshot.Synthesis = Synthesis{
 		Enabled:  deps.SynthesisEnabled,
 		Model:    deps.SynthesisModel,
-		CLIFound: claudeFound,
+		CLI:      deps.SynthesisCLI,
+		CLIFound: synthesisCLIFound,
 	}
-	if deps.SynthesisEnabled && !claudeFound {
-		snapshot.Synthesis.Reason = "Claude CLI is not on PATH."
+	if deps.SynthesisEnabled && !synthesisCLIFound {
+		snapshot.Synthesis.Reason = fmt.Sprintf("%s CLI is not on PATH.", deps.SynthesisCLI)
 	}
 	snapshot.Checks = derive(snapshot)
 	return snapshot
