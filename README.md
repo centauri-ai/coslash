@@ -1,6 +1,10 @@
 # coSlash
 
 [![CI](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml/badge.svg)](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.26.5-00ADD8?logo=go)](collector/go.mod)
+[![Node](https://img.shields.io/badge/Node-24.4.1-339933?logo=node.js&logoColor=white)](frontend/.nvmrc)
+[![License](https://img.shields.io/github/license/centauri-ai/coslash)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/centauri-ai/coslash)](https://github.com/centauri-ai/coslash/releases)
 
 The attention layer for coding agents. coSlash watches your local Claude Code and Codex sessions, reconstructs what each one was doing — goal, decisions, files, commits, next step — and shows which ones need you. Resume any session in its terminal, or copy a handoff brief and pick it up cold.
 
