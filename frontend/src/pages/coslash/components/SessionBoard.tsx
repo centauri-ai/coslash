@@ -31,19 +31,25 @@ function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Se
   );
 }
 
-function RepoGroupHeader({ repo, sessions }: { repo: string; sessions: Session[] }) {
+function GroupTotals({ sessions }: { sessions: Session[] }) {
   const tokens = sessions.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
   const cost = sessions.reduce((sum, session) => sum + getEstimatedCost(session.tokens), 0);
 
   return (
+    <span className="text-muted-foreground text-xs">
+      {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
+      <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
+        {formatEstimatedCost(cost)}
+      </UnpricedModelWarning>
+    </span>
+  );
+}
+
+function RepoGroupHeader({ repo, sessions }: { repo: string; sessions: Session[] }) {
+  return (
     <div className="bg-muted col-span-full flex items-center justify-between gap-2 border-b px-4 py-2">
       <span className="font-mono text-sm font-bold">{repo}/</span>
-      <span className="text-muted-foreground text-xs">
-        {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
-        <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
-          {formatEstimatedCost(cost)}
-        </UnpricedModelWarning>
-      </span>
+      <GroupTotals sessions={sessions} />
     </div>
   );
 }
@@ -84,19 +90,11 @@ function BranchRow({
   visibleStatuses: [string, Status][];
   onSelectSession: (session: Session) => void;
 }) {
-  const tokens = sessions.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
-  const cost = sessions.reduce((sum, session) => sum + getEstimatedCost(session.tokens), 0);
-
   return (
     <>
       <div className="flex flex-col gap-1 border-b p-4">
         <span className="text-muted-foreground font-mono text-xs break-all">{branch}</span>
-        <span className="text-muted-foreground text-xs">
-          {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
-          <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
-            {formatEstimatedCost(cost)}
-          </UnpricedModelWarning>
-        </span>
+        <GroupTotals sessions={sessions} />
       </div>
       {visibleStatuses.map(([status]) => (
         <div
