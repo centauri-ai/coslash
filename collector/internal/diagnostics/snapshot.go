@@ -12,7 +12,6 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
-	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
@@ -119,7 +118,7 @@ func Collect(ctx context.Context, version string, includeVersions bool) *Snapsho
 		snapshot.homeError = userHomeErr.Error()
 	}
 
-	storageHome := synthesis.Home()
+	storageHome := settings.Home()
 	snapshot.Storage = probeStorage(storageHome)
 	snapshot.Storage.Home = displayPath(userHome, storageHome)
 	snapshot.Storage.Error = displayError(userHome, snapshot.Storage.Error)
