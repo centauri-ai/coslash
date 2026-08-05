@@ -203,6 +203,22 @@ function SubagentStatusBadge({ status }: { status: Subagent['status'] }) {
   return <Badge className={cn('shrink-0 text-xs font-semibold', style.fg, style.bg)}>{style.label}</Badge>;
 }
 
+// Cache writes fold the 5-minute and 1-hour buckets into one figure.
+export function TokenBreakdown({ tokens }: { tokens: Session['tokens'] }) {
+  return (
+    <div className="text-muted-foreground pt-1">
+      in {formatTokens(sumTokens(tokens, 'input_tokens'))} · out{' '}
+      {formatTokens(sumTokens(tokens, 'output_tokens'))} · cache{' '}
+      {formatTokens(sumTokens(tokens, 'cache_read_input_tokens'))}r /{' '}
+      {formatTokens(
+        sumTokens(tokens, 'cache_creation_input_tokens') +
+          sumTokens(tokens, 'cache_creation_1h_input_tokens'),
+      )}
+      w
+    </div>
+  );
+}
+
 function SubagentTokenSummary({ subagent }: { subagent: Subagent }) {
   return (
     <div className="bg-muted rounded-lg border p-2 font-mono text-xs">
@@ -213,16 +229,7 @@ function SubagentTokenSummary({ subagent }: { subagent: Subagent }) {
         </span>
         <span className="font-bold">{formatEstimatedCost(getEstimatedCost(subagent.tokens))}</span>
       </div>
-      <div className="text-muted-foreground pt-1">
-        in {formatTokens(sumTokens(subagent.tokens, 'input_tokens'))} · out{' '}
-        {formatTokens(sumTokens(subagent.tokens, 'output_tokens'))} · cache{' '}
-        {formatTokens(sumTokens(subagent.tokens, 'cache_read_input_tokens'))}r /{' '}
-        {formatTokens(
-          sumTokens(subagent.tokens, 'cache_creation_input_tokens') +
-            sumTokens(subagent.tokens, 'cache_creation_1h_input_tokens'),
-        )}
-        w
-      </div>
+      <TokenBreakdown tokens={subagent.tokens} />
     </div>
   );
 }
