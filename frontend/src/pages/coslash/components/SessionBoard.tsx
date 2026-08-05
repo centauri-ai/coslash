@@ -23,7 +23,7 @@ function groupBy(sessions: Session[], keyOf: (session: Session) => string): [str
 
 function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Session[] }) {
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-l border-l-neutral-100 bg-neutral-50 px-3 py-2">
+    <div className="bg-background sticky top-0 z-10 flex items-center gap-2 border-b border-l px-3 py-2">
       <span className={cn('size-2 rounded-full', status.dot)} />
       <span className={cn('text-xs font-semibold', status.fg)}>{status.label}</span>
       <span className="text-muted-foreground font-mono text-xs">{sessions.length}</span>
@@ -100,7 +100,7 @@ function BranchRow({
         <div
           key={status}
           data-status={status}
-          className="flex flex-col gap-2 border-b border-l border-l-neutral-100 p-2"
+          className="flex flex-col gap-2 border-b border-l p-2"
         >
           <SessionCardColumn status={status} sessions={sessions} onSelectSession={onSelectSession} />
         </div>
@@ -122,10 +122,10 @@ export function SessionBoard({
 
   return (
     <div
-      className="grid bg-neutral-50"
+      className="bg-background grid"
       style={{ gridTemplateColumns: `repeat(${visibleStatuses.length + 1}, minmax(0, 1fr))` }}
     >
-      <div className="sticky top-0 z-10 border-b bg-neutral-50" />
+      <div className="bg-background sticky top-0 z-10 border-b" />
       {visibleStatuses.map(([key, status]) => (
         <StatusColumnHeader
           key={key}
