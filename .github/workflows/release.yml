@@ -254,7 +254,7 @@ jobs:
           if [[ ! -f "$formula" ]]; then
             exit 0
           fi
-          current_version="$(ruby -ne 'if $_ =~ /^\s*version "([^"]+)"/; puts $1; exit; end' "$formula")"
+          current_version="$(ruby -ne 'if $_ =~ %r{/releases/download/v([^/]+)/}; puts $1; exit; end' "$formula")"
           if [[ -z "$current_version" ]]; then
             echo "error: could not read the current tap version" >&2
             exit 1
