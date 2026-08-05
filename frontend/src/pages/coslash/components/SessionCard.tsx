@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
-import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import {
   getModality,
   getSessionCardSummary,
@@ -125,8 +124,8 @@ function TokenUsageAndCost({ session }: { session: Session }) {
   return (
     <div className="flex-none text-right">
       <div className="text-base font-bold">
-        <UnpricedModelWarning tokens={[session.tokens]}>
-          {formatEstimatedCost(getEstimatedCost(session.tokens))}
+        <UnpricedModelWarning unpriced={session.unpricedModels}>
+          {formatEstimatedCost(session.cost)}
         </UnpricedModelWarning>
       </div>
       <div className="text-muted-foreground pt-1 font-mono text-xs">
@@ -149,8 +148,8 @@ function CompactSessionCard({ session }: { session: Session }) {
           <SessionName name={session.name} variant="compact" />
         </div>
         <span className="text-xs font-semibold whitespace-nowrap">
-          <UnpricedModelWarning tokens={[session.tokens]}>
-            {formatEstimatedCost(getEstimatedCost(session.tokens))}
+          <UnpricedModelWarning unpriced={session.unpricedModels}>
+            {formatEstimatedCost(session.cost)}
           </UnpricedModelWarning>
         </span>
       </div>
@@ -227,7 +226,7 @@ function SubagentTokenSummary({ subagent }: { subagent: Subagent }) {
           {formatDuration(subagent.durationMs)} · {subagent.toolUses} tools ·{' '}
           {formatTokens(getTotalTokens(subagent.tokens))} tok
         </span>
-        <span className="font-bold">{formatEstimatedCost(getEstimatedCost(subagent.tokens))}</span>
+        <span className="font-bold">{formatEstimatedCost(subagent.cost)}</span>
       </div>
       <TokenBreakdown tokens={subagent.tokens} />
     </div>
@@ -329,9 +328,7 @@ function DetailedSubagentRow({ subagent }: { subagent: Subagent }) {
         <SubagentStatusBadge status={subagent.status} />
       </div>
       <div className="flex flex-none items-center gap-2">
-        <span className="text-xs font-light whitespace-nowrap">
-          {formatEstimatedCost(getEstimatedCost(subagent.tokens))}
-        </span>
+        <span className="text-xs font-light whitespace-nowrap">{formatEstimatedCost(subagent.cost)}</span>
         <span className="text-muted-foreground font-mono text-xs whitespace-nowrap">
           {formatTokens(getTotalTokens(subagent.tokens))} tok
         </span>
@@ -347,9 +344,7 @@ function CompactSubagentRow({ subagent }: { subagent: Subagent }) {
         <SubagentBadge />
         <span className="min-w-0 truncate text-xs font-semibold">{subagent.name}</span>
       </div>
-      <span className="text-xs font-light whitespace-nowrap">
-        {formatEstimatedCost(getEstimatedCost(subagent.tokens))}
-      </span>
+      <span className="text-xs font-light whitespace-nowrap">{formatEstimatedCost(subagent.cost)}</span>
     </div>
   );
 }

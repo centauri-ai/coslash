@@ -9,7 +9,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { assertOneOf } from '@/pages/coslash/lib/narrow';
-import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { getTotalTokens, type Session } from '@/pages/coslash/lib/session';
 
 export const SortKey = {
@@ -34,7 +33,7 @@ function sortValue(session: Session, key: SortKey): number {
     case SortKey.Recency:
       return session.mtime;
     case SortKey.Value:
-      return getEstimatedCost(session.tokens);
+      return session.cost;
     case SortKey.Tokens:
       return getTotalTokens(session.tokens);
     case SortKey.Duration:

@@ -1,5 +1,4 @@
 import { formatDuration, formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
-import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import {
   getTotalTokens,
   getVendor,
@@ -59,7 +58,7 @@ export function handoffBrief(detail: SessionDetail): string {
     `- Working directory: ${detail.cwd}`,
     `- Runtime: ${formatDuration(detail.durationMs)}`,
     `- Tokens: ${formatTokens(getTotalTokens(detail.tokens))}`,
-    `- Estimated cost at list API prices: ${formatEstimatedCost(getEstimatedCost(detail.tokens))}`,
+    `- Estimated cost at list API prices: ${formatEstimatedCost(detail.cost)}`,
     `- Errors: ${detail.errors}; subagents: ${detail.subagents.length}`,
   ].join('\n');
 }
