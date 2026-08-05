@@ -19,7 +19,6 @@ import {
   SettingsDialog,
   type SettingsDialogMode,
 } from '@/pages/coslash/components/SettingsDialog';
-import { SourceCoverageBanner } from '@/pages/coslash/components/SourceCoverageBanner';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import {
   AgentVendorFilterTabMenu,
@@ -31,7 +30,7 @@ import {
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
-import { uncoveredSources, type Diagnostics } from '@/pages/coslash/lib/diagnostics';
+import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
@@ -159,7 +158,6 @@ function CoslashContent({
   view,
   onSelectSession,
   diagnostics,
-  noTranscripts,
   diagnosticsLoading,
   diagnosticsLoadFailed,
   onRefreshDiagnostics,
@@ -173,7 +171,6 @@ function CoslashContent({
   view: ViewMode;
   onSelectSession: (session: Session) => void;
   diagnostics: Diagnostics | null;
-  noTranscripts: boolean | null;
   diagnosticsLoading: boolean;
   diagnosticsLoadFailed: boolean;
   onRefreshDiagnostics: () => void;
@@ -191,8 +188,8 @@ function CoslashContent({
     );
   }
   if (visibleSessions.length === 0) {
-    const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, timeWindow, noTranscripts });
-    if (emptyState.kind === 'first-run') {
+    const noTranscripts = diagnostics?.sources.every((source) => source.transcripts === 0);
+    if (!hasSessions && (noTranscripts || timeWindow === 'all')) {
       return (
         <FirstRunOnboarding
           diagnostics={diagnostics}
@@ -202,6 +199,7 @@ function CoslashContent({
         />
       );
     }
+    const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, timeWindow });
     return (
       <div role="status" className="grid h-full place-items-center bg-neutral-50 text-center">
         <div>
@@ -283,9 +281,6 @@ export function CoslashPage() {
     sortKey,
     sortDir,
   );
-  const coverageGaps = diagnostics ? uncoveredSources(diagnostics) : [];
-  // Sessions are fetched per window, so only diagnostics can tell a first run from an empty window.
-  const noTranscripts = diagnostics ? diagnostics.sources.every((source) => source.transcripts === 0) : null;
   const refreshFirstRun = () => {
     retrySessions();
     refreshDiagnostics();
@@ -338,10 +333,7 @@ export function CoslashPage() {
           </div>
         </div>
       </div>
-      <div className="relative flex flex-1 flex-col overflow-hidden">
-        {sessions.length > 0 && (
-          <SourceCoverageBanner sources={coverageGaps} onDetails={() => setDiagnosticsOpen(true)} />
-        )}
+      <div className="flex flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-hidden">
           <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
             <CoslashContent
@@ -354,7 +346,6 @@ export function CoslashPage() {
               view={view}
               onSelectSession={(session) => setSelectedSessionId(session.id)}
               diagnostics={diagnostics}
-              noTranscripts={noTranscripts}
               diagnosticsLoading={diagnosticsLoading}
               diagnosticsLoadFailed={diagnosticsLoadFailed}
               onRefreshDiagnostics={refreshFirstRun}

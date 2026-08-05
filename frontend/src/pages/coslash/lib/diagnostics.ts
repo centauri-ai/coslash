@@ -26,9 +26,8 @@ export type Diagnostics = {
   version: string;
   generatedAt: number;
   platform: { os: string; arch: string; terminalLaunchSupported: boolean };
-  storage: { home: string; writable: boolean; summaries: number; error: string };
+  storage: { home: string; writable: boolean; error: string };
   synthesis: { enabled: boolean; model: string; cliFound: boolean; reason: string };
-  settings: null;
   sources: DiagnosticSource[];
   checks: DiagnosticsCheck[];
 };
@@ -42,27 +41,12 @@ export function worstStatus(checks: DiagnosticsCheck[]): DiagnosticStatus {
   );
 }
 
-export function uncoveredSources(snapshot: Diagnostics): DiagnosticSource[] {
-  return snapshot.sources.filter((source) => source.state !== 'ok' || source.skippedTotal > 0);
-}
-
-export function sourceCoverageMessage(sources: DiagnosticSource[]): string {
-  return sources
-    .map((source) => {
-      if (source.state === 'missing') return `${source.label} not detected`;
-      if (source.state === 'empty') return `No ${source.label} sessions found`;
-      if (source.state === 'unreadable') return `${source.label} session scan failed`;
-      return `${source.label} scan skipped ${source.skippedTotal} unreadable ${source.skippedTotal === 1 ? 'path' : 'paths'}`;
-    })
-    .join('; ');
-}
-
 export function formatDiagnosticsForCopy(snapshot: Diagnostics): string {
   const lines = [
     `coSlash ${snapshot.version} diagnostics`,
     `Generated: ${new Date(snapshot.generatedAt).toISOString()}`,
     `Platform: ${snapshot.platform.os}/${snapshot.platform.arch}; terminal launch=${snapshot.platform.terminalLaunchSupported}`,
-    `Storage: ${snapshot.storage.home}; writable=${snapshot.storage.writable}; summaries=${snapshot.storage.summaries}`,
+    `Storage: ${snapshot.storage.home}; writable=${snapshot.storage.writable}`,
     `Synthesis: enabled=${snapshot.synthesis.enabled}; model=${snapshot.synthesis.model || 'unknown'}; CLI found=${snapshot.synthesis.cliFound}`,
     '',
     'Sources:',

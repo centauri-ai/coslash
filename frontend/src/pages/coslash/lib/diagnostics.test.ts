@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatDiagnosticsForCopy,
-  sourceCoverageMessage,
-  uncoveredSources,
   worstStatus,
   type Diagnostics,
   type DiagnosticsCheck,
@@ -21,9 +19,8 @@ function snapshot(): Diagnostics {
     version: 'dev',
     generatedAt: 0,
     platform: { os: 'darwin', arch: 'arm64', terminalLaunchSupported: true },
-    storage: { home: '~/.coslash', writable: true, summaries: 2, error: '' },
+    storage: { home: '~/.coslash', writable: true, error: '' },
     synthesis: { enabled: true, model: 'test-model', cliFound: true, reason: '' },
-    settings: null,
     sources: [
       {
         agent: 'claude',
@@ -59,25 +56,6 @@ describe('diagnostics helpers', () => {
     expect(worstStatus([])).toBe('ok');
     expect(worstStatus([check('ok'), check('warn')])).toBe('warn');
     expect(worstStatus([check('warn'), check('fail'), check('ok')])).toBe('fail');
-  });
-
-  it('identifies missing and empty agents', () => {
-    const value = snapshot();
-    expect(uncoveredSources(value).map((source) => source.agent)).toEqual(['codex']);
-    value.sources[0].state = 'empty';
-    expect(uncoveredSources(value).map((source) => source.agent)).toEqual(['claude', 'codex']);
-    expect(sourceCoverageMessage(value.sources)).toBe('No Claude Code sessions found; Codex not detected');
-  });
-
-  it('identifies failed and partial source scans', () => {
-    const value = snapshot();
-    value.sources[0].state = 'unreadable';
-    value.sources[1].state = 'ok';
-    value.sources[1].skippedTotal = 2;
-    expect(uncoveredSources(value).map((source) => source.agent)).toEqual(['claude', 'codex']);
-    expect(sourceCoverageMessage(value.sources)).toBe(
-      'Claude Code session scan failed; Codex scan skipped 2 unreadable paths',
-    );
   });
 
   it('formats safe diagnostic facts without session content', () => {

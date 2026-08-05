@@ -5,10 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -16,8 +14,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 )
-
-const maxSkippedPaths = 10
 
 type Status string
 
@@ -42,7 +38,6 @@ type Snapshot struct {
 	Platform    Platform  `json:"platform"`
 	Storage     Storage   `json:"storage"`
 	Synthesis   Synthesis `json:"synthesis"`
-	Settings    any       `json:"settings"`
 	Sources     []Source  `json:"sources"`
 	Checks      []Check   `json:"checks"`
 	countsError string
@@ -55,16 +50,14 @@ type Platform struct {
 }
 
 type Storage struct {
-	Home      string `json:"home"`
-	Writable  bool   `json:"writable"`
-	Summaries int    `json:"summaries"`
-	Error     string `json:"error"`
+	Home     string `json:"home"`
+	Writable bool   `json:"writable"`
+	Error    string `json:"error"`
 }
 
 type Synthesis struct {
 	Enabled  bool   `json:"enabled"`
 	Model    string `json:"model"`
-	CLI      string `json:"cli"`
 	CLIFound bool   `json:"cliFound"`
 	Reason   string `json:"reason"`
 }
@@ -102,88 +95,47 @@ type Check struct {
 	Fix    string `json:"fix"`
 }
 
-type Deps struct {
-	Sources          func() []collector.SourceHealth
-	SessionCounts    func() (map[string]int, error)
-	LookPath         func(string) (string, error)
-	CLIVersion       func(context.Context, string) string
-	Home             func() string
-	UserHome         func() (string, error)
-	GOOS             string
-	GOARCH           string
-	Version          string
-	Now              func() time.Time
-	SynthesisEnabled bool
-	SynthesisModel   string
-	SynthesisCLI     string
-}
-
-func Default(version string) Deps {
+// Collect turns every probe failure into data so the diagnostic surface itself remains available.
+func Collect(ctx context.Context, version string) *Snapshot {
+	userHome, _ := os.UserHomeDir()
 	state := settings.Open().State()
 	config := state.Config.Synthesis
-	return Deps{
-		Sources:          collector.Sources,
-		SessionCounts:    collector.SessionCountsByAgent,
-		LookPath:         exec.LookPath,
-		CLIVersion:       commandVersion,
-		Home:             synthesis.Home,
-		UserHome:         os.UserHomeDir,
-		GOOS:             runtime.GOOS,
-		GOARCH:           runtime.GOARCH,
-		Version:          version,
-		Now:              time.Now,
-		SynthesisEnabled: state.Valid && state.Persisted && config.Enabled,
-		SynthesisModel:   config.Model,
-		SynthesisCLI:     settings.BackendExecutable(config.Backend),
-	}
-}
-
-// Collect turns every probe failure into data so the diagnostic surface itself remains available.
-func Collect(ctx context.Context, deps Deps) *Snapshot {
-	userHome, _ := deps.UserHome()
 	snapshot := &Snapshot{
-		Version:     deps.Version,
-		GeneratedAt: deps.Now().UnixMilli(),
+		Version:     version,
+		GeneratedAt: time.Now().UnixMilli(),
 		Platform: Platform{
-			OS:                      deps.GOOS,
-			Arch:                    deps.GOARCH,
-			TerminalLaunchSupported: deps.GOOS == "darwin",
+			OS:                      runtime.GOOS,
+			Arch:                    runtime.GOARCH,
+			TerminalLaunchSupported: runtime.GOOS == "darwin",
 		},
-		Settings: nil,
-		Sources:  []Source{},
-		Checks:   []Check{},
+		Sources: []Source{},
+		Checks:  []Check{},
 	}
 
-	storageHome := deps.Home()
+	storageHome := synthesis.Home()
 	snapshot.Storage = probeStorage(storageHome)
 	snapshot.Storage.Home = displayPath(userHome, storageHome)
 	snapshot.Storage.Error = displayError(userHome, snapshot.Storage.Error)
 
-	counts, countsErr := deps.SessionCounts()
+	counts, countsErr := collector.SessionCountsByAgent()
 	if countsErr != nil {
 		snapshot.countsError = displayError(userHome, countsErr.Error())
 		counts = map[string]int{}
 	}
 
-	for _, health := range deps.Sources() {
-		snapshot.Sources = append(snapshot.Sources, collectSource(ctx, deps, userHome, health, counts))
+	for _, health := range collector.Sources() {
+		snapshot.Sources = append(snapshot.Sources, collectSource(ctx, userHome, health, counts))
 	}
 
-	synthesisCLIFound := false
-	for _, source := range snapshot.Sources {
-		if source.CLI.Name == deps.SynthesisCLI {
-			synthesisCLIFound = source.CLI.Found
-			break
-		}
-	}
+	synthesisCLI := settings.BackendExecutable(config.Backend)
+	_, synthesisCLIErr := exec.LookPath(synthesisCLI)
 	snapshot.Synthesis = Synthesis{
-		Enabled:  deps.SynthesisEnabled,
-		Model:    deps.SynthesisModel,
-		CLI:      deps.SynthesisCLI,
-		CLIFound: synthesisCLIFound,
+		Enabled:  state.Valid && state.Persisted && config.Enabled,
+		Model:    config.Model,
+		CLIFound: synthesisCLIErr == nil,
 	}
-	if deps.SynthesisEnabled && !synthesisCLIFound {
-		snapshot.Synthesis.Reason = fmt.Sprintf("%s CLI is not on PATH.", deps.SynthesisCLI)
+	if snapshot.Synthesis.Enabled && synthesisCLIErr != nil {
+		snapshot.Synthesis.Reason = fmt.Sprintf("%s CLI is not on PATH.", synthesisCLI)
 	}
 	snapshot.Checks = derive(snapshot)
 	return snapshot
@@ -191,7 +143,6 @@ func Collect(ctx context.Context, deps Deps) *Snapshot {
 
 func collectSource(
 	ctx context.Context,
-	deps Deps,
 	userHome string,
 	health collector.SourceHealth,
 	counts map[string]int,
@@ -226,17 +177,17 @@ func collectSource(
 		}
 		source.Transcripts = len(health.Scan.Files)
 		source.Sessions = counts[health.Agent]
-		for _, skipped := range health.Scan.Skipped[:min(len(health.Scan.Skipped), maxSkippedPaths)] {
+		for _, skipped := range health.Scan.Skipped {
 			source.Skipped = append(source.Skipped, SkippedPath{
 				Path:  displayPath(userHome, skipped.Path),
 				Error: displayError(userHome, skipped.Error),
 			})
 		}
 	}
-	if path, err := deps.LookPath(health.Agent); err == nil {
+	if path, err := exec.LookPath(health.Agent); err == nil {
 		source.CLI.Found = true
 		source.CLI.Path = displayPath(userHome, path)
-		source.CLI.Version = deps.CLIVersion(ctx, path)
+		source.CLI.Version = commandVersion(ctx, path)
 	}
 	return source
 }
@@ -270,15 +221,5 @@ func probeStorage(home string) Storage {
 		return storage
 	}
 	storage.Writable = true
-	entries, err := os.ReadDir(filepath.Join(home, "summaries"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		storage.Error = err.Error()
-		return storage
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			storage.Summaries++
-		}
-	}
 	return storage
 }

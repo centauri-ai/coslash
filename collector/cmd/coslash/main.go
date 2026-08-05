@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
@@ -121,7 +122,9 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 	mux.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
 		handleLaunch(w, r, settingsStore)
 	})
-	mux.Handle("GET /api/diagnostics", newDiagnosticsHandler(version, 10*time.Second))
+	mux.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, diagnostics.Collect(r.Context(), version))
+	})
 	// An unrouted /api path is a 404, never the frontend document.
 	mux.Handle("/api/", http.NotFoundHandler())
 
