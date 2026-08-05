@@ -177,7 +177,7 @@ function CoslashContent({
 }) {
   if (loadError != null) {
     return (
-      <div role="alert" className="text-destructive grid h-full place-items-center bg-neutral-50 text-sm">
+      <div role="alert" className="text-destructive grid h-full place-items-center bg-background text-sm">
         <div className="flex flex-col items-center gap-3">
           <div>{loadError}</div>
           <Button variant="outline" size="sm" onClick={onRetry}>
@@ -203,7 +203,7 @@ function CoslashContent({
     }
     const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, timeWindow });
     return (
-      <div role="status" className="grid h-full place-items-center bg-neutral-50 text-center">
+      <div role="status" className="grid h-full place-items-center bg-background text-center">
         <div>
           <div className="text-sm font-semibold">{emptyState.title}</div>
           {emptyState.detail && <div className="text-muted-foreground pt-1 text-xs">{emptyState.detail}</div>}
@@ -217,7 +217,7 @@ function CoslashContent({
       {view === 'board' ? (
         <SessionBoard sessions={visibleSessions} onSelectSession={onSelectSession} />
       ) : (
-        <div className="flex flex-col gap-4 bg-neutral-50 px-4 py-2">
+        <div className="flex flex-col gap-4 bg-background px-4 py-2">
           {visibleSessions.map((session) => (
             <SessionCard
               key={`${session.agent}:${session.id}`}
