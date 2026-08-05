@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, ChevronRight, Settings, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { getTheme, setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import {
   initialSettingsDraft,
@@ -190,6 +191,7 @@ export function SettingsDialog({
     response ? initialSettingsDraft(response) : null,
   );
   const [disclosureOpen, setDisclosureOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => getTheme(localStorage.getItem('theme')) === 'dark');
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
   const showFullSettings = mode === 'full-settings';
@@ -363,6 +365,37 @@ export function SettingsDialog({
                   )}
                 </div>
               </div>
+
+              {showFullSettings && (
+                <div className="flex flex-col gap-2">
+                  <SectionLabel>Appearance</SectionLabel>
+                  <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <div className="text-sm font-semibold">Dark mode</div>
+                      <div className="text-muted-foreground text-xs">Use a darker color palette.</div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label="Dark mode"
+                      aria-checked={darkMode}
+                      onClick={() => {
+                        const theme = darkMode ? 'light' : 'dark';
+                        setTheme(theme);
+                        setDarkMode(theme === 'dark');
+                      }}
+                      className="bg-input focus-visible:border-ring focus-visible:ring-ring aria-checked:bg-primary relative inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors outline-none focus-visible:ring-3"
+                    >
+                      <span
+                        className={cn(
+                          'bg-background pointer-events-none size-5 rounded-full shadow-sm transition-transform',
+                          { 'translate-x-4': darkMode },
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {showFullSettings && (
                 <div className="flex flex-col gap-2">
