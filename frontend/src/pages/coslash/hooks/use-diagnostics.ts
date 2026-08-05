@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 
-export function useDiagnostics() {
+export function useDiagnostics(enabled: boolean) {
   const [diagnostics, setDiagnostics] = useState<Diagnostics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [requestID, setRequestID] = useState(0);
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     setIsLoading(true);
     setLoadFailed(false);
@@ -28,8 +29,9 @@ export function useDiagnostics() {
         console.error('Failed to load diagnostics', error);
       });
     return () => controller.abort();
-  }, [requestID]);
+  }, [enabled, requestID]);
 
   const refresh = () => setRequestID((id) => id + 1);
-  return { diagnostics, isLoading, loadFailed, refresh };
+  const waitingToLoad = enabled && diagnostics === null && !loadFailed;
+  return { diagnostics, isLoading: enabled && (isLoading || waitingToLoad), loadFailed, refresh };
 }

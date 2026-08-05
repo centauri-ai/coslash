@@ -17,8 +17,9 @@ func commandVersion(ctx context.Context, bin string) string {
 		return ""
 	}
 	version := strings.TrimSpace(strings.SplitN(string(output), "\n", 2)[0])
-	if len(version) > maxVersionLength {
-		version = version[:maxVersionLength]
+	runes := []rune(version)
+	if len(runes) > maxVersionLength {
+		version = string(runes[:maxVersionLength])
 	}
 	return version
 }

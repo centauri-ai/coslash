@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +17,9 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 	flags.SetOutput(stderr)
 	jsonOutput := flags.Bool("json", false, "print the diagnostics snapshot as JSON")
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if flags.NArg() != 0 {
@@ -24,7 +28,7 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 	}
 	logOutput := log.Writer()
 	log.SetOutput(io.Discard)
-	snapshot := diagnostics.Collect(context.Background(), version)
+	snapshot := diagnostics.Collect(context.Background(), version, true)
 	log.SetOutput(logOutput)
 	if *jsonOutput {
 		if err := json.NewEncoder(stdout).Encode(snapshot); err != nil {
@@ -58,7 +62,7 @@ func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
 				cli += " (" + source.CLI.Version + ")"
 			}
 		}
-		fmt.Fprintf(w, "%s: %s, %d transcripts, %d sessions; CLI %s\n", source.Label, source.Root, source.Transcripts, source.Sessions, cli)
+		fmt.Fprintf(w, "%s: %s, %d transcript files, %d session files; CLI %s\n", source.Label, source.Root, source.Transcripts, source.SessionFiles, cli)
 	}
 	fmt.Fprintf(w, "Storage: %s, writable=%t\n", snapshot.Storage.Home, snapshot.Storage.Writable)
 }

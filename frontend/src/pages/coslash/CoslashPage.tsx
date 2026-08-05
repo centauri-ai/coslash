@@ -188,8 +188,10 @@ function CoslashContent({
     );
   }
   if (visibleSessions.length === 0) {
-    const noTranscripts = diagnostics?.sources.every((source) => source.transcripts === 0);
-    if (!hasSessions && (noTranscripts || timeWindow === 'all')) {
+    const firstRun = diagnostics?.sources.every(
+      (source) => source.state === 'missing' || source.state === 'empty',
+    );
+    if (!hasSessions && (diagnosticsLoading || diagnosticsLoadFailed || firstRun)) {
       return (
         <FirstRunOnboarding
           diagnostics={diagnostics}
@@ -234,12 +236,13 @@ export function CoslashPage() {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
   const { sessions, isLoading, loadFailed, sessionsVersion, retrySessions } = useSessions(timeWindow);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const diagnosticsEnabled = diagnosticsOpen || (!isLoading && !loadFailed && sessions.length === 0);
   const {
     diagnostics,
     isLoading: diagnosticsLoading,
     loadFailed: diagnosticsLoadFailed,
     refresh: refreshDiagnostics,
-  } = useDiagnostics();
+  } = useDiagnostics(diagnosticsEnabled);
   const [view, setView] = useState<ViewMode>('list');
   const [sortKey, setSortKey] = useState<SortKey>(SortKey.Recency);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
