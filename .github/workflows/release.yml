@@ -13,19 +13,15 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  build:
     runs-on: macos-15
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: collector/go.mod
           cache: false
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: frontend/.nvmrc
           cache: npm
@@ -44,7 +40,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version || github.ref_name }}
         run: make -C collector dist VERSION="$VERSION"
-      - name: Smoke-test packaged binaries
+      - name: Smoke-test Apple silicon package
         env:
           VERSION: ${{ inputs.version || github.ref_name }}
         run: |
@@ -75,21 +71,82 @@ jobs:
           wait "$server_pid" 2>/dev/null || true
           server_pid=
 
-          intel_stem="coslash_${VERSION}_darwin_amd64"
-          tar -xzf "collector/dist/${intel_stem}.tar.gz" -C "$smoke_dir"
-          file "$smoke_dir/$intel_stem/coslash" | grep -q 'Mach-O 64-bit executable x86_64'
           (cd collector/dist && shasum -a 256 -c checksums.txt)
+      - name: Save release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-artifacts
+          path: |
+            collector/dist/*.tar.gz
+            collector/dist/checksums.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  smoke-intel:
+    needs: build
+    runs-on: macos-15-intel
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-artifacts
+          path: dist
+      - name: Smoke-test Intel package
+        env:
+          VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          smoke_dir="$(mktemp -d)"
+          server_pid=
+          cleanup() {
+            if [[ -n "$server_pid" ]]; then
+              kill "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+            rm -rf "$smoke_dir"
+          }
+          trap cleanup EXIT
+
+          intel_stem="coslash_${VERSION}_darwin_amd64"
+          tar -xzf "dist/${intel_stem}.tar.gz" -C "$smoke_dir"
+          intel_binary="$smoke_dir/$intel_stem/coslash"
+          [[ "$("$intel_binary" --version)" == "$VERSION" ]]
+
+          "$intel_binary" --no-open --port 8787 >"$smoke_dir/server.log" 2>&1 &
+          server_pid=$!
+          curl --retry 20 --retry-delay 1 --retry-connrefused -sf \
+            http://127.0.0.1:8787/ -o "$smoke_dir/index.html"
+          grep -q '<div id="root"' "$smoke_dir/index.html"
+          curl -sf http://127.0.0.1:8787/api/sessions | python3 -m json.tool >/dev/null
+          kill "$server_pid"
+          wait "$server_pid" 2>/dev/null || true
+          server_pid=
+          (cd dist && shasum -a 256 -c checksums.txt)
+
+  publish:
+    needs: [build, smoke-intel]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: release-artifacts
+          path: dist
       - name: Publish
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          assets=(collector/dist/*.tar.gz collector/dist/checksums.txt)
+          assets=(dist/*.tar.gz dist/checksums.txt)
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${assets[@]}" --clobber
-            exit 0
+            if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]]; then
+              echo "error: release $TAG is already public; refusing to replace its assets" >&2
+              exit 1
+            fi
           fi
 
           # Homebrew is the supported install path, so the notes lead with it
@@ -111,40 +168,59 @@ jobs:
           browser; the Homebrew install above is not affected.
           NOTES
 
-          create=(gh release create "$TAG" "${assets[@]}"
-            --title "$TAG" --notes-file "$notes" --generate-notes)
-          if [[ "$TAG" == *-* ]]; then
-            create+=(--prerelease)
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            create=(gh release create "$TAG" --draft
+              --title "$TAG" --notes-file "$notes" --generate-notes)
+            if [[ "$TAG" == *-* ]]; then
+              create+=(--prerelease)
+            fi
+            "${create[@]}"
           fi
-          "${create[@]}"
+
+          existing_dir="$(mktemp -d)"
+          for asset in "${assets[@]}"; do
+            name="${asset##*/}"
+            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
+              gh release download "$TAG" --pattern "$name" --dir "$existing_dir"
+              if ! cmp -s "$asset" "$existing_dir/$name"; then
+                echo "error: draft already contains a different $name" >&2
+                exit 1
+              fi
+            else
+              gh release upload "$TAG" "$asset"
+            fi
+          done
+
+          verify_dir="$(mktemp -d)"
+          gh release download "$TAG" --pattern '*.tar.gz' --pattern checksums.txt --dir "$verify_dir"
+          for asset in "${assets[@]}"; do
+            cmp "$asset" "$verify_dir/${asset##*/}"
+          done
+          (cd "$verify_dir" && shasum -a 256 -c checksums.txt)
+          gh release edit "$TAG" --draft=false
 
   bump-homebrew:
-    needs: release
+    needs: publish
     if: >-
+      github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/') &&
       !contains(github.ref_name, '-')
     runs-on: macos-15
+    concurrency:
+      group: homebrew-tap-coslash
+      cancel-in-progress: false
     steps:
       - name: Check out coSlash
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: coslash
       - name: Check out Homebrew tap
-        uses: actions/checkout@v5
-        with:
-          repository: centauri-ai/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
+        run: git clone --depth 1 https://github.com/centauri-ai/homebrew-tap.git tap
       - name: Download and verify release assets
         env:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "error: Homebrew bumps require a stable semver tag" >&2
-            exit 1
-          fi
-
           mkdir downloads
           base_url="https://github.com/centauri-ai/coslash/releases/download/$TAG"
           arm_asset="coslash_${TAG}_darwin_arm64.tar.gz"
@@ -160,10 +236,34 @@ jobs:
             echo "ARM_SHA=$(shasum -a 256 "downloads/$arm_asset" | awk '{print $1}')"
             echo "INTEL_SHA=$(shasum -a 256 "downloads/$intel_asset" | awk '{print $1}')"
           } >> "$GITHUB_ENV"
+      - name: Reject stale tap update
+        run: |
+          set -euo pipefail
+          formula=tap/Formula/coslash.rb
+          if [[ ! -f "$formula" ]]; then
+            exit 0
+          fi
+          current_version="$(ruby -ne 'if $_ =~ /^\s*version "([^"]+)"/; puts $1; exit; end' "$formula")"
+          if [[ -z "$current_version" ]]; then
+            echo "error: could not read the current tap version" >&2
+            exit 1
+          fi
+          if ruby -rrubygems -e 'exit(Gem::Version.new(ARGV[0]) < Gem::Version.new(ARGV[1]) ? 0 : 1)' "$BREW_VERSION" "$current_version"; then
+            echo "error: refusing to replace $current_version with older version $BREW_VERSION" >&2
+            exit 1
+          fi
       - name: Render formula
         run: |
           mkdir -p tap/Formula
           ruby -rerb -e 'File.write(ARGV[1], ERB.new(File.read(ARGV[0]), trim_mode: "-").result)' coslash/.github/homebrew/coslash.rb.erb tap/Formula/coslash.rb
+      - name: Validate formula
+        working-directory: tap
+        run: |
+          tap_dir="$(brew --repository)/Library/Taps/centauri-ai/homebrew-tap"
+          mkdir -p "${tap_dir%/*}"
+          ln -s "$GITHUB_WORKSPACE/tap" "$tap_dir"
+          brew style --formula centauri-ai/tap/coslash
+          brew audit --strict centauri-ai/tap/coslash
       - name: Commit formula
         working-directory: tap
         env:
@@ -178,4 +278,8 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git commit -m "coslash $TAG"
-          git push
+      - name: Push formula
+        working-directory: tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: git push "https://x-access-token:${TAP_TOKEN}@github.com/centauri-ai/homebrew-tap.git" HEAD:main

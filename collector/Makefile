@@ -38,7 +38,8 @@ dist: stage
 			go build -trimpath -ldflags '-s -w -X main.version=$(VERSION)' \
 			-o $(DIST)/$$stem/$(BINARY) $(PKG) || exit 1; \
 		cp ../LICENSE ../README.md $(DIST)/$$stem/; \
-		tar -czf $(DIST)/$$stem.tar.gz -C $(DIST) $$stem; \
+		find $(DIST)/$$stem -exec touch -t 198001010000 {} +; \
+		COPYFILE_DISABLE=1 tar --format ustar -cf - -C $(DIST) $$stem | gzip -n > $(DIST)/$$stem.tar.gz; \
 		rm -rf $(DIST)/$$stem; \
 		echo "packaged $(DIST)/$$stem.tar.gz"; \
 	done
