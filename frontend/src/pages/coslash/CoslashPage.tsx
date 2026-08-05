@@ -57,7 +57,10 @@ function CoslashPageHeader({
   return (
     <div className="flex items-center justify-between gap-4 px-4">
       <div className="flex items-center gap-2">
-        <img src="/brand/coslash-logo.svg" alt="coSlash" className="h-12" />
+        <span aria-label="coSlash">
+          <img src="/brand/coslash-logo.svg" alt="" className="h-12 dark:hidden" />
+          <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden h-12 dark:block" />
+        </span>
         <span className="text-muted-foreground text-sm font-medium">Run more agents. Lose less context.</span>
       </div>
       <SettingsButton onClick={onOpenSettings} hasError={settingsError} />
