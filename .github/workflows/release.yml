@@ -40,38 +40,6 @@ jobs:
         env:
           VERSION: ${{ inputs.version || github.ref_name }}
         run: make -C collector dist VERSION="$VERSION"
-      - name: Smoke-test Apple silicon package
-        env:
-          VERSION: ${{ inputs.version || github.ref_name }}
-        run: |
-          set -euo pipefail
-          smoke_dir="$(mktemp -d)"
-          server_pid=
-          cleanup() {
-            if [[ -n "$server_pid" ]]; then
-              kill "$server_pid" 2>/dev/null || true
-              wait "$server_pid" 2>/dev/null || true
-            fi
-            rm -rf "$smoke_dir"
-          }
-          trap cleanup EXIT
-
-          arm_stem="coslash_${VERSION}_darwin_arm64"
-          tar -xzf "collector/dist/${arm_stem}.tar.gz" -C "$smoke_dir"
-          arm_binary="$smoke_dir/$arm_stem/coslash"
-          [[ "$("$arm_binary" --version)" == "$VERSION" ]]
-
-          "$arm_binary" --no-open --port 8787 >"$smoke_dir/server.log" 2>&1 &
-          server_pid=$!
-          curl --retry 20 --retry-delay 1 --retry-connrefused -sf \
-            http://127.0.0.1:8787/ -o "$smoke_dir/index.html"
-          grep -q '<div id="root"' "$smoke_dir/index.html"
-          curl -sf http://127.0.0.1:8787/api/sessions | python3 -m json.tool >/dev/null
-          kill "$server_pid"
-          wait "$server_pid" 2>/dev/null || true
-          server_pid=
-
-          (cd collector/dist && shasum -a 256 -c checksums.txt)
       - name: Save release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -82,49 +50,51 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  smoke-intel:
+  # Unpacks each published archive on its own hardware and runs the same
+  # scripts/smoke.sh a local `make smoke` runs, so the packaged binary is
+  # checked the way a person would check it.
+  smoke:
     needs: build
-    runs-on: macos-15-intel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: amd64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
     steps:
+      - name: Check out coSlash
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Download release artifacts
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: release-artifacts
           path: dist
-      - name: Smoke-test Intel package
+      - name: Smoke-test ${{ matrix.arch }} package
         env:
           VERSION: ${{ inputs.version || github.ref_name }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          smoke_dir="$(mktemp -d)"
-          server_pid=
-          cleanup() {
-            if [[ -n "$server_pid" ]]; then
-              kill "$server_pid" 2>/dev/null || true
-              wait "$server_pid" 2>/dev/null || true
-            fi
-            rm -rf "$smoke_dir"
-          }
-          trap cleanup EXIT
-
-          intel_stem="coslash_${VERSION}_darwin_amd64"
-          tar -xzf "dist/${intel_stem}.tar.gz" -C "$smoke_dir"
-          intel_binary="$smoke_dir/$intel_stem/coslash"
-          [[ "$("$intel_binary" --version)" == "$VERSION" ]]
-
-          "$intel_binary" --no-open --port 8787 >"$smoke_dir/server.log" 2>&1 &
-          server_pid=$!
-          curl --retry 20 --retry-delay 1 --retry-connrefused -sf \
-            http://127.0.0.1:8787/ -o "$smoke_dir/index.html"
-          grep -q '<div id="root"' "$smoke_dir/index.html"
-          curl -sf http://127.0.0.1:8787/api/sessions | python3 -m json.tool >/dev/null
-          kill "$server_pid"
-          wait "$server_pid" 2>/dev/null || true
-          server_pid=
           (cd dist && shasum -a 256 -c checksums.txt)
 
+          stem="coslash_${VERSION}_darwin_${ARCH}"
+          unpacked="$(mktemp -d)"
+          trap 'rm -rf "$unpacked"' EXIT
+          tar -xzf "dist/${stem}.tar.gz" -C "$unpacked"
+
+          binary="$unpacked/$stem/coslash"
+          version="$("$binary" --version)"
+          if [[ "$version" != "$VERSION" ]]; then
+            echo "error: packaged binary reports $version, expected $VERSION" >&2
+            exit 1
+          fi
+          collector/scripts/smoke.sh "$binary" embedded
+
   publish:
-    needs: [build, smoke-intel]
+    needs: [build, smoke]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: macos-15
     permissions:
