@@ -11,8 +11,7 @@ export function useDiagnostics() {
     const controller = new AbortController();
     setIsLoading(true);
     setLoadFailed(false);
-    const url = requestID === 0 ? '/api/diagnostics' : '/api/diagnostics?refresh=1';
-    fetch(url, { signal: controller.signal })
+    fetch('/api/diagnostics', { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`Diagnostics request failed (${response.status})`);
         return response.json() as Promise<Diagnostics>;

@@ -36,9 +36,6 @@ func derive(snapshot *Snapshot) []Check {
 		storage.Status = StatusFail
 		storage.Detail = "coSlash cannot write to " + snapshot.Storage.Home + ": " + snapshot.Storage.Error
 		storage.Fix = "Check that the directory exists and is owned by your user."
-	} else if snapshot.Storage.Error != "" {
-		storage.Status = StatusWarn
-		storage.Detail = "Writable at " + snapshot.Storage.Home + ", but summaries could not be counted: " + snapshot.Storage.Error
 	}
 	checks = append(checks, storage)
 
@@ -47,7 +44,7 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Detail = "Disabled; coSlash will show deterministic transcript details only."
 	} else if !snapshot.Synthesis.CLIFound {
 		synthesis.Status = StatusWarn
-		synthesis.Detail = "Enabled, but the " + snapshot.Synthesis.CLI + " CLI is not on PATH."
+		synthesis.Detail = "Enabled, but " + snapshot.Synthesis.Reason
 		synthesis.Fix = "Install the selected synthesis CLI or add it to PATH."
 	} else {
 		synthesis.Detail = "Enabled with " + snapshot.Synthesis.Model + "."

@@ -24,7 +24,7 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 	}
 	logOutput := log.Writer()
 	log.SetOutput(io.Discard)
-	snapshot := diagnostics.Collect(context.Background(), diagnostics.Default(version))
+	snapshot := diagnostics.Collect(context.Background(), version)
 	log.SetOutput(logOutput)
 	if *jsonOutput {
 		if err := json.NewEncoder(stdout).Encode(snapshot); err != nil {
@@ -60,7 +60,7 @@ func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
 		}
 		fmt.Fprintf(w, "%s: %s, %d transcripts, %d sessions; CLI %s\n", source.Label, source.Root, source.Transcripts, source.Sessions, cli)
 	}
-	fmt.Fprintf(w, "Storage: %s, writable=%t, summaries=%d\n", snapshot.Storage.Home, snapshot.Storage.Writable, snapshot.Storage.Summaries)
+	fmt.Fprintf(w, "Storage: %s, writable=%t\n", snapshot.Storage.Home, snapshot.Storage.Writable)
 }
 
 func doctorExitCode(snapshot *diagnostics.Snapshot) int {

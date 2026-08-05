@@ -73,7 +73,7 @@ export function DiagnosticsDialog({
                   </div>
                 ))}
                 <div>
-                  Storage: <code>{diagnostics.storage.home}</code> · {diagnostics.storage.summaries} summaries
+                  Storage: <code>{diagnostics.storage.home}</code>
                 </div>
               </div>
             </div>
