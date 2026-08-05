@@ -20,7 +20,7 @@ function snapshot(): Diagnostics {
     generatedAt: 0,
     platform: { os: 'darwin', arch: 'arm64', terminalLaunchSupported: true },
     storage: { home: '~/.coslash', writable: true, error: '' },
-    synthesis: { enabled: true, model: 'test-model', cliFound: true, reason: '' },
+    synthesis: { enabled: true, model: 'test-model', cliFound: true, reason: '', error: '' },
     sources: [
       {
         agent: 'claude',
@@ -28,7 +28,7 @@ function snapshot(): Diagnostics {
         root: '~/.claude/projects',
         state: 'ok',
         transcripts: 4,
-        sessions: 3,
+        sessionFiles: 3,
         skipped: [],
         skippedTotal: 0,
         error: '',
@@ -40,7 +40,7 @@ function snapshot(): Diagnostics {
         root: '~/.codex/sessions',
         state: 'missing',
         transcripts: 0,
-        sessions: 0,
+        sessionFiles: 0,
         skipped: [],
         skippedTotal: 0,
         error: '',
@@ -65,9 +65,13 @@ describe('diagnostics helpers', () => {
     };
     value.privatePath = '/Users/alice/.claude/projects/private.jsonl';
     value.sessions = [{ name: 'secret session name', transcript: 'private transcript content' }];
+    value.sources[0].skipped = [
+      { path: '~/.claude/projects/-Users-alice-private-repo/session.jsonl', error: 'permission denied' },
+    ];
     const output = formatDiagnosticsForCopy(value);
     expect(output).toContain('~/.claude/projects');
-    expect(output).toContain('transcripts=4; sessions=3');
+    expect(output).toContain('transcripts=4; session files=3');
+    expect(output).not.toContain('-Users-alice-private-repo');
     expect(output).not.toContain('/Users/alice');
     expect(output).not.toContain('secret session name');
     expect(output).not.toContain('private transcript content');

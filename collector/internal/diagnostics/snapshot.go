@@ -13,6 +13,9 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 type Status string
@@ -40,7 +43,7 @@ type Snapshot struct {
 	Synthesis   Synthesis `json:"synthesis"`
 	Sources     []Source  `json:"sources"`
 	Checks      []Check   `json:"checks"`
-	countsError string
+	homeError   string
 }
 
 type Platform struct {
@@ -60,6 +63,7 @@ type Synthesis struct {
 	Model    string `json:"model"`
 	CLIFound bool   `json:"cliFound"`
 	Reason   string `json:"reason"`
+	Error    string `json:"error"`
 }
 
 type Source struct {
@@ -68,7 +72,7 @@ type Source struct {
 	Root         string        `json:"root"`
 	State        SourceState   `json:"state"`
 	Transcripts  int           `json:"transcripts"`
-	Sessions     int           `json:"sessions"`
+	SessionFiles int           `json:"sessionFiles"`
 	Skipped      []SkippedPath `json:"skipped"`
 	SkippedTotal int           `json:"skippedTotal"`
 	Error        string        `json:"error"`
@@ -96,8 +100,8 @@ type Check struct {
 }
 
 // Collect turns every probe failure into data so the diagnostic surface itself remains available.
-func Collect(ctx context.Context, version string) *Snapshot {
-	userHome, _ := os.UserHomeDir()
+func Collect(ctx context.Context, version string, includeVersions bool) *Snapshot {
+	userHome, userHomeErr := os.UserHomeDir()
 	state := settings.Open().State()
 	config := state.Config.Synthesis
 	snapshot := &Snapshot{
@@ -111,20 +115,17 @@ func Collect(ctx context.Context, version string) *Snapshot {
 		Sources: []Source{},
 		Checks:  []Check{},
 	}
+	if userHomeErr != nil {
+		snapshot.homeError = userHomeErr.Error()
+	}
 
 	storageHome := synthesis.Home()
 	snapshot.Storage = probeStorage(storageHome)
 	snapshot.Storage.Home = displayPath(userHome, storageHome)
 	snapshot.Storage.Error = displayError(userHome, snapshot.Storage.Error)
 
-	counts, countsErr := collector.SessionCountsByAgent()
-	if countsErr != nil {
-		snapshot.countsError = displayError(userHome, countsErr.Error())
-		counts = map[string]int{}
-	}
-
 	for _, health := range collector.Sources() {
-		snapshot.Sources = append(snapshot.Sources, collectSource(ctx, userHome, health, counts))
+		snapshot.Sources = append(snapshot.Sources, collectSource(ctx, userHome, health, includeVersions))
 	}
 
 	synthesisCLI := settings.BackendExecutable(config.Backend)
@@ -134,7 +135,9 @@ func Collect(ctx context.Context, version string) *Snapshot {
 		Model:    config.Model,
 		CLIFound: synthesisCLIErr == nil,
 	}
-	if snapshot.Synthesis.Enabled && synthesisCLIErr != nil {
+	if !state.Valid {
+		snapshot.Synthesis.Error = displayError(userHome, state.Error)
+	} else if snapshot.Synthesis.Enabled && synthesisCLIErr != nil {
 		snapshot.Synthesis.Reason = fmt.Sprintf("%s CLI is not on PATH.", synthesisCLI)
 	}
 	snapshot.Checks = derive(snapshot)
@@ -145,7 +148,7 @@ func collectSource(
 	ctx context.Context,
 	userHome string,
 	health collector.SourceHealth,
-	counts map[string]int,
+	includeVersion bool,
 ) Source {
 	source := Source{
 		Agent:   health.Agent,
@@ -166,8 +169,7 @@ func collectSource(
 			source.State = SourceUnreadable
 			source.Error = fmt.Sprintf("scan skipped %d unreadable paths", source.SkippedTotal)
 			if len(health.Scan.Skipped) > 0 {
-				first := health.Scan.Skipped[0]
-				source.Error += fmt.Sprintf("; first failure: %s: %s", first.Path, first.Error)
+				source.Error += "; first failure: " + health.Scan.Skipped[0].Error
 			}
 			source.Error = displayError(userHome, source.Error)
 		case len(health.Scan.Files) == 0:
@@ -176,7 +178,7 @@ func collectSource(
 			source.State = SourceOK
 		}
 		source.Transcripts = len(health.Scan.Files)
-		source.Sessions = counts[health.Agent]
+		source.SessionFiles = sessionFileCount(health.Agent, health.Scan.Files)
 		for _, skipped := range health.Scan.Skipped {
 			source.Skipped = append(source.Skipped, SkippedPath{
 				Path:  displayPath(userHome, skipped.Path),
@@ -187,9 +189,28 @@ func collectSource(
 	if path, err := exec.LookPath(health.Agent); err == nil {
 		source.CLI.Found = true
 		source.CLI.Path = displayPath(userHome, path)
-		source.CLI.Version = commandVersion(ctx, path)
+		if includeVersion {
+			source.CLI.Version = commandVersion(ctx, path)
+		}
 	}
 	return source
+}
+
+func sessionFileCount(agent string, files []string) int {
+	count := 0
+	for _, file := range files {
+		switch agent {
+		case vendors.AgentClaude:
+			if claude.ParentIDFromPath(file) == "" {
+				count++
+			}
+		case vendors.AgentCodex:
+			if codex.SessionIDFromRollout(file) != "" {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func sourceLabel(agent string) string {

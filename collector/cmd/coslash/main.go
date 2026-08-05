@@ -107,26 +107,28 @@ func main() {
 
 func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
+	api := http.NewServeMux()
+	api.HandleFunc("/api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		handleList(w, r, mgr)
 	})
-	mux.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
 	})
-	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
+	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
 		writeSettings(w, settingsStore.State())
 	})
-	mux.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		handleSaveSettings(w, r, settingsStore, mgr)
 	})
-	mux.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
+	api.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
 		handleLaunch(w, r, settingsStore)
 	})
-	mux.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, diagnostics.Collect(r.Context(), version))
+	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, diagnostics.Collect(r.Context(), version, false))
 	})
-	// An unrouted /api path is a 404, never the frontend document.
-	mux.Handle("/api/", http.NotFoundHandler())
+	apiHandler := sameOriginAPI(api)
+	mux.Handle("/api", apiHandler)
+	mux.Handle("/api/", apiHandler)
 
 	frontend, err := web.Handler()
 	if err != nil {
@@ -137,6 +139,17 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 	}
 	mux.Handle("/", frontend)
 	return mux
+}
+
+func sameOriginAPI(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		site := r.Header.Get("Sec-Fetch-Site")
+		if site != "" && site != "same-origin" && site != "none" {
+			http.Error(w, "cross-origin API requests are not allowed", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func listen(port int) (net.Listener, error) {

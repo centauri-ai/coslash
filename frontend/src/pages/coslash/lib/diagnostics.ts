@@ -15,7 +15,7 @@ export type DiagnosticSource = {
   root: string;
   state: DiagnosticSourceState;
   transcripts: number;
-  sessions: number;
+  sessionFiles: number;
   skipped: { path: string; error: string }[];
   skippedTotal: number;
   error: string;
@@ -27,7 +27,7 @@ export type Diagnostics = {
   generatedAt: number;
   platform: { os: string; arch: string; terminalLaunchSupported: boolean };
   storage: { home: string; writable: boolean; error: string };
-  synthesis: { enabled: boolean; model: string; cliFound: boolean; reason: string };
+  synthesis: { enabled: boolean; model: string; cliFound: boolean; reason: string; error: string };
   sources: DiagnosticSource[];
   checks: DiagnosticsCheck[];
 };
@@ -53,10 +53,10 @@ export function formatDiagnosticsForCopy(snapshot: Diagnostics): string {
   ];
   for (const source of snapshot.sources) {
     lines.push(
-      `- ${source.label}: ${source.state}; root=${source.root}; transcripts=${source.transcripts}; sessions=${source.sessions}; skipped=${source.skippedTotal}`,
+      `- ${source.label}: ${source.state}; root=${source.root}; transcripts=${source.transcripts}; session files=${source.sessionFiles}; skipped=${source.skippedTotal}`,
       `  CLI: found=${source.cli.found}; path=${source.cli.path || 'unknown'}; version=${source.cli.version || 'unknown'}`,
     );
-    for (const skipped of source.skipped) lines.push(`  Skipped: ${skipped.path}: ${skipped.error}`);
+    for (const skipped of source.skipped) lines.push(`  Skipped: ${skipped.error}`);
   }
   lines.push('', 'Checks:');
   for (const check of snapshot.checks) {

@@ -66,18 +66,6 @@ func Sources() []SourceHealth {
 	return health
 }
 
-func SessionCountsByAgent() (map[string]int, error) {
-	sessions, err := List(0)
-	if err != nil {
-		return nil, err
-	}
-	counts := map[string]int{}
-	for _, candidate := range sessions {
-		counts[candidate.Agent]++
-	}
-	return counts, nil
-}
-
 func List(since int64) ([]*session.Session, error) {
 	parsed, metadata, err := collect(max(0, since-windowContextBuffer.Milliseconds()))
 	if err != nil {

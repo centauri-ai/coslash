@@ -6,7 +6,13 @@ import (
 )
 
 func displayPath(home, path string) string {
-	if home == "" || path == "" {
+	if path == "" {
+		return path
+	}
+	if home == "" {
+		if filepath.IsAbs(path) {
+			return "<redacted>"
+		}
 		return path
 	}
 	cleanHome := filepath.Clean(home)
@@ -23,7 +29,10 @@ func displayPath(home, path string) string {
 
 func displayError(home, message string) string {
 	if home == "" {
-		return message
+		return "details redacted because the home directory is unavailable"
 	}
-	return strings.ReplaceAll(message, filepath.Clean(home), "~")
+	cleanHome := filepath.Clean(home)
+	redacted := strings.ReplaceAll(message, cleanHome, "~")
+	homeSlug := strings.ReplaceAll(cleanHome, string(filepath.Separator), "-")
+	return strings.ReplaceAll(redacted, homeSlug, "~")
 }

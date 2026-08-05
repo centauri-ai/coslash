@@ -11,6 +11,15 @@ describe('sessionsEmptyStateCopy', () => {
       }),
     ).toEqual({
       title: 'No sessions in this window.',
+    });
+    expect(
+      sessionsEmptyStateCopy({
+        hasSessions: false,
+        searchTerm: '',
+        timeWindow: 'week',
+      }),
+    ).toEqual({
+      title: 'No sessions in this window.',
       detail: 'Select “All” to view older sessions.',
     });
   });

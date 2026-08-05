@@ -12,7 +12,7 @@ export function sessionsEmptyStateCopy({
   if (!hasSessions) {
     return {
       title: 'No sessions in this window.',
-      detail: 'Select “All” to view older sessions.',
+      detail: timeWindow === 'all' ? undefined : 'Select “All” to view older sessions.',
     };
   }
 

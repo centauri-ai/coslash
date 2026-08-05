@@ -33,14 +33,21 @@ export function DiagnosticsDialog({
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const copyDiagnostics = () => {
     if (!diagnostics) return;
-    navigator.clipboard
-      .writeText(formatDiagnosticsForCopy(diagnostics))
-      .then(() => setCopyState('copied'))
-      .catch(() => setCopyState('failed'));
+    const write = navigator.clipboard?.writeText(formatDiagnosticsForCopy(diagnostics));
+    if (!write) {
+      setCopyState('failed');
+      return;
+    }
+    write.then(() => setCopyState('copied')).catch(() => setCopyState('failed'));
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) setCopyState('idle');
+    onOpenChange(nextOpen);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <DiagnosticsButton status={diagnostics ? worstStatus(diagnostics.checks) : 'ok'} />
       </DialogTrigger>
@@ -66,8 +73,7 @@ export function DiagnosticsDialog({
                 </div>
                 {diagnostics.sources.map((source) => (
                   <div key={source.agent}>
-                    {source.label}: {source.sessions} sessions from {source.transcripts} transcripts in{' '}
-                    <code>{source.root}</code>
+                    {source.label}: {source.sessionFiles} session files in <code>{source.root}</code>
                     <br />
                     CLI: {source.cli.found ? source.cli.version || source.cli.path : 'not found'}
                   </div>

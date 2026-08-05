@@ -4,23 +4,25 @@ import "fmt"
 
 func derive(snapshot *Snapshot) []Check {
 	checks := make([]Check, 0, 8)
-	noSessions := true
-	for _, source := range snapshot.Sources {
-		checks = append(checks, sourceCheck(source, snapshot.countsError))
-		if source.Sessions > 0 {
-			noSessions = false
-		}
-	}
-	if noSessions {
+	if snapshot.homeError != "" {
 		checks = append(checks, Check{
-			ID:     "sources.none",
-			Title:  "Agent sessions",
+			ID:     "home",
+			Title:  "Home directory",
 			Status: StatusFail,
-			Detail: "No Claude Code or Codex sessions were found on this machine.",
-			Fix:    "Run claude or codex in a repo for one turn, then re-run these checks.",
+			Detail: "coSlash could not resolve the home directory: " + snapshot.homeError,
+			Fix:    "Check that the current user has a valid home directory.",
 		})
 	}
+	noTranscripts := true
+	scanFailed := false
 	for _, source := range snapshot.Sources {
+		checks = append(checks, sourceCheck(source))
+		if source.Transcripts > 0 {
+			noTranscripts = false
+		}
+		if source.State == SourceUnreadable {
+			scanFailed = true
+		}
 		if source.Transcripts > 0 && !source.CLI.Found {
 			checks = append(checks, Check{
 				ID:     "cli." + source.Agent,
@@ -31,6 +33,15 @@ func derive(snapshot *Snapshot) []Check {
 			})
 		}
 	}
+	if noTranscripts && !scanFailed && snapshot.homeError == "" {
+		checks = append(checks, Check{
+			ID:     "sources.none",
+			Title:  "Agent sessions",
+			Status: StatusFail,
+			Detail: "No Claude Code or Codex sessions were found on this machine.",
+			Fix:    "Run claude or codex in a repo for one turn, then re-run these checks.",
+		})
+	}
 	storage := Check{ID: "storage", Title: "coSlash storage", Status: StatusOK, Detail: "Writable at " + snapshot.Storage.Home}
 	if !snapshot.Storage.Writable {
 		storage.Status = StatusFail
@@ -40,8 +51,16 @@ func derive(snapshot *Snapshot) []Check {
 	checks = append(checks, storage)
 
 	synthesis := Check{ID: "synthesis", Title: "Session debriefs", Status: StatusOK}
-	if !snapshot.Synthesis.Enabled {
+	if snapshot.Synthesis.Error != "" {
+		synthesis.Status = StatusFail
+		synthesis.Detail = snapshot.Synthesis.Error
+		synthesis.Fix = "Open Settings and repair settings.json."
+	} else if !snapshot.Synthesis.Enabled {
 		synthesis.Detail = "Disabled; coSlash will show deterministic transcript details only."
+	} else if !snapshot.Storage.Writable {
+		synthesis.Status = StatusFail
+		synthesis.Detail = "Enabled, but coSlash storage is not writable."
+		synthesis.Fix = "Repair coSlash storage permissions, then re-run these checks."
 	} else if !snapshot.Synthesis.CLIFound {
 		synthesis.Status = StatusWarn
 		synthesis.Detail = "Enabled, but " + snapshot.Synthesis.Reason
@@ -63,13 +82,18 @@ func derive(snapshot *Snapshot) []Check {
 	return checks
 }
 
-func sourceCheck(source Source, countsError string) Check {
+func sourceCheck(source Source) Check {
 	check := Check{ID: "source." + source.Agent, Title: source.Label + " sessions", Status: StatusOK}
 	switch {
 	case source.State == SourceUnreadable:
 		check.Status = StatusFail
-		check.Detail = fmt.Sprintf("Could not fully scan %s: %s", source.Root, source.Error)
-		check.Fix = "Run ls -la " + source.Root + " and check ownership."
+		if source.Root == "" {
+			check.Detail = "Could not locate the session root: " + source.Error
+			check.Fix = "Check that the home directory is available and readable."
+		} else {
+			check.Detail = fmt.Sprintf("Could not fully scan %s: %s", source.Root, source.Error)
+			check.Fix = "Run ls -la " + source.Root + " and check ownership."
+		}
 	case source.State == SourceMissing:
 		check.Status = StatusWarn
 		check.Detail = "No " + source.Root + " directory; " + source.Label + " sessions will not appear."
@@ -78,23 +102,16 @@ func sourceCheck(source Source, countsError string) Check {
 		check.Status = StatusWarn
 		check.Detail = source.Root + " exists, but no sessions have been recorded yet."
 		check.Fix = "Run " + source.CLI.Name + " in a repo for one turn, then re-run these checks."
-	case countsError != "" && source.Transcripts > 0:
+	case source.Transcripts > 0 && source.SessionFiles == 0:
 		check.Status = StatusFail
-		check.Detail = fmt.Sprintf("Found %d transcripts, but session collection failed: %s", source.Transcripts, countsError)
-		check.Fix = "Check the transcript scan errors and re-run these checks."
-	case source.Transcripts > 0 && source.Sessions == 0:
-		check.Status = StatusFail
-		check.Detail = fmt.Sprintf("Found %d transcripts in %s, but no sessions could be displayed.", source.Transcripts, source.Root)
+		check.Detail = fmt.Sprintf("Found %d transcripts in %s, but no root session files.", source.Transcripts, source.Root)
 		check.Fix = "Check transcript formats and whether subagent transcripts still have their parent sessions."
 	case source.SkippedTotal > 0:
 		check.Status = StatusWarn
-		check.Detail = fmt.Sprintf("%d sessions from %d transcripts; skipped %d unreadable paths in %s.", source.Sessions, source.Transcripts, source.SkippedTotal, source.Root)
-		if len(source.Skipped) > 0 {
-			check.Detail += fmt.Sprintf(" First failure: %s: %s", source.Skipped[0].Path, source.Skipped[0].Error)
-		}
+		check.Detail = fmt.Sprintf("%d session files; skipped %d unreadable paths in %s.", source.SessionFiles, source.SkippedTotal, source.Root)
 		check.Fix = "Run ls -la " + source.Root + " and check ownership."
 	default:
-		check.Detail = fmt.Sprintf("%d sessions from %d transcripts in %s", source.Sessions, source.Transcripts, source.Root)
+		check.Detail = fmt.Sprintf("%d session files in %s", source.SessionFiles, source.Root)
 	}
 	return check
 }
