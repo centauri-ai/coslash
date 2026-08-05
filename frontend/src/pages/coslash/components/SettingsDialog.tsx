@@ -151,18 +151,6 @@ function BackendChoice({
   );
 }
 
-function settingsEqual(left: CoslashSettings | null, right: CoslashSettings | null): boolean {
-  if (!left || !right) return left === right;
-  return (
-    left.$schema === right.$schema &&
-    left.version === right.version &&
-    left.synthesis.enabled === right.synthesis.enabled &&
-    left.synthesis.backend === right.synthesis.backend &&
-    left.synthesis.model === right.synthesis.model &&
-    left.launch.terminal === right.launch.terminal
-  );
-}
-
 export function SettingsButton({ onClick, hasError }: { onClick: () => void; hasError: boolean }) {
   return (
     <Button type="button" variant="outline" size="sm" className="relative" onClick={onClick}>
@@ -213,7 +201,8 @@ export function SettingsDialog({
   }, [open, response]);
 
   const initialDraft = response ? initialSettingsDraft(response) : null;
-  const isDirty = !settingsEqual(draft, initialDraft);
+  // Both sides are spreads of the same response.settings, so key order matches.
+  const isDirty = JSON.stringify(draft) !== JSON.stringify(initialDraft);
   const selectedBackend = response?.options.synthesisBackends.find(
     (option) => option.id === draft?.synthesis.backend,
   );
