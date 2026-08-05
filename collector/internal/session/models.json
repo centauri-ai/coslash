@@ -690,11 +690,5 @@
     "input_cost_per_token": 0.0000011,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.0000044
-  },
-  "o4-mini-2025-04-16": {
-    "cache_read_input_token_cost": 2.75E-7,
-    "input_cost_per_token": 0.0000011,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.0000044
   }
 }
