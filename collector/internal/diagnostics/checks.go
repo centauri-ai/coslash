@@ -47,8 +47,8 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Detail = "Disabled; coSlash will show deterministic transcript details only."
 	} else if !snapshot.Synthesis.CLIFound {
 		synthesis.Status = StatusWarn
-		synthesis.Detail = "Enabled, but the Claude CLI is not on PATH."
-		synthesis.Fix = "Install Claude Code or add claude to PATH."
+		synthesis.Detail = "Enabled, but the " + snapshot.Synthesis.CLI + " CLI is not on PATH."
+		synthesis.Fix = "Install the selected synthesis CLI or add it to PATH."
 	} else {
 		synthesis.Detail = "Enabled with " + snapshot.Synthesis.Model + "."
 	}
