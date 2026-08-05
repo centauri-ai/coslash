@@ -34,7 +34,6 @@ import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
-import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import { getStatus, type Session } from '@/pages/coslash/lib/session';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
@@ -128,8 +127,8 @@ function SessionsStats({
           {sessions.filter((session) => session.agent === 'claude').length} Claude Code,{' '}
           {sessions.filter((session) => session.agent === 'codex').length} Codex ·
         </span>
-        <UnpricedModelWarning tokens={sessions.map((session) => session.tokens)}>
-          {formatEstimatedCost(sessions.reduce((sum, session) => sum + getEstimatedCost(session.tokens), 0))}
+        <UnpricedModelWarning unpriced={sessions.flatMap((session) => session.unpricedModels)}>
+          {formatEstimatedCost(sessions.reduce((sum, session) => sum + session.cost, 0))}
         </UnpricedModelWarning>
         <span
           className="shrink-0 cursor-help underline decoration-dotted underline-offset-2"
