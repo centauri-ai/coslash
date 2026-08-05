@@ -21,15 +21,18 @@ you want:
 ```sh
 VERSION=v0.0.1
 ARCH=arm64  # or amd64 on Intel
-curl -LO "https://github.com/centauri-ai/coslash/releases/download/${VERSION}/coslash_${VERSION}_darwin_${ARCH}.tar.gz"
-tar -xzf "coslash_${VERSION}_darwin_${ARCH}.tar.gz"
-"coslash_${VERSION}_darwin_${ARCH}/coslash"
+ASSET="coslash_${VERSION}_darwin_${ARCH}.tar.gz"
+BASE_URL="https://github.com/centauri-ai/coslash/releases/download/${VERSION}"
+curl -fLO "${BASE_URL}/${ASSET}"
+curl -fLO "${BASE_URL}/checksums.txt"
+grep -F "  ${ASSET}" checksums.txt | shasum -a 256 -c -
+tar -xzf "${ASSET}"
+"${ASSET%.tar.gz}/coslash"
 ```
 
-Every release publishes a `checksums.txt`; verify with
-`shasum -a 256 -c checksums.txt`. The binaries are unsigned, so macOS may warn
-about an archive you downloaded through a browser — the Homebrew install above
-is the supported path and is not affected.
+The binaries are unsigned, so macOS may warn about an archive you downloaded
+through a browser — the Homebrew install above is the supported path and is not
+affected.
 
 Running `coslash` starts one executable at
 [http://127.0.0.1:8787](http://127.0.0.1:8787) and opens a browser. There is no
