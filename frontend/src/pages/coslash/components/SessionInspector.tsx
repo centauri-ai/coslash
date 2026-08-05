@@ -23,6 +23,7 @@ import {
   SessionVendorBadge,
   SubagentDialogContent,
   SubagentModelBadge,
+  TokenBreakdown,
 } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
@@ -38,7 +39,6 @@ import {
   resolveGoal,
   STATUSES,
   SUBAGENT_STATUSES,
-  sumTokens,
   type DigestEntry,
   type Session,
   type SessionDetail,
@@ -239,16 +239,7 @@ function HeaderMeta({ detail }: { detail: SessionDetail }) {
           {formatDuration(detail.durationMs)} · {detail.turns} turns · {detail.toolUses} tools ·{' '}
           {detail.errors} errors
         </div>
-        <div className="text-muted-foreground pt-1">
-          in {formatTokens(sumTokens(detail.tokens, 'input_tokens'))} · out{' '}
-          {formatTokens(sumTokens(detail.tokens, 'output_tokens'))} · cache{' '}
-          {formatTokens(sumTokens(detail.tokens, 'cache_read_input_tokens'))}r /{' '}
-          {formatTokens(
-            sumTokens(detail.tokens, 'cache_creation_input_tokens') +
-              sumTokens(detail.tokens, 'cache_creation_1h_input_tokens'),
-          )}
-          w
-        </div>
+        <TokenBreakdown tokens={detail.tokens} />
       </div>
     </div>
   );
