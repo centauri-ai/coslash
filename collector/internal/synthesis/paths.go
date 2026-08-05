@@ -7,20 +7,16 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
-func Home() string {
-	return settings.Home()
-}
-
 func SummariesDir() string {
-	return filepath.Join(Home(), "summaries")
+	return filepath.Join(settings.Home(), "summaries")
 }
 
 func SynthesisCwd() string {
-	return filepath.Join(Home(), "synthesis")
+	return filepath.Join(settings.Home(), "synthesis")
 }
 
 func EnsureDirs() error {
-	for _, directory := range []string{Home(), SummariesDir(), SynthesisCwd()} {
+	for _, directory := range []string{settings.Home(), SummariesDir(), SynthesisCwd()} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return err
 		}
