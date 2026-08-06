@@ -24,10 +24,11 @@ const (
 )
 
 type Config struct {
-	Schema    string            `json:"$schema"`
-	Version   int               `json:"version"`
-	Synthesis SynthesisSettings `json:"synthesis"`
-	Launch    LaunchSettings    `json:"launch"`
+	Schema     string             `json:"$schema"`
+	Version    int                `json:"version"`
+	Synthesis  SynthesisSettings  `json:"synthesis"`
+	Appearance AppearanceSettings `json:"appearance"`
+	Launch     LaunchSettings     `json:"launch"`
 }
 
 type SynthesisSettings struct {
@@ -38,6 +39,10 @@ type SynthesisSettings struct {
 
 type LaunchSettings struct {
 	Terminal string `json:"terminal"`
+}
+
+type AppearanceSettings struct {
+	Theme string `json:"theme"`
 }
 
 type ModelOption struct {
@@ -94,7 +99,8 @@ func Defaults() Config {
 			Backend: BackendClaude,
 			Model:   "claude-haiku-4-5",
 		},
-		Launch: LaunchSettings{Terminal: TerminalApple},
+		Appearance: AppearanceSettings{Theme: "light"},
+		Launch:     LaunchSettings{Terminal: TerminalApple},
 	}
 }
 
@@ -167,6 +173,9 @@ func Validate(config Config) error {
 	if !modelSupported {
 		return fmt.Errorf("model %q is not supported by %q", config.Synthesis.Model, backend.ID)
 	}
+	if config.Appearance.Theme != "light" && config.Appearance.Theme != "dark" {
+		return fmt.Errorf("unsupported theme %q", config.Appearance.Theme)
+	}
 	for _, option := range TerminalOptions() {
 		if option.ID == config.Launch.Terminal {
 			return nil
@@ -184,11 +193,15 @@ func Decode(data []byte) (Config, error) {
 	type launchDocument struct {
 		Terminal *string `json:"terminal"`
 	}
+	type appearanceDocument struct {
+		Theme *string `json:"theme"`
+	}
 	type configDocument struct {
-		Schema    *string            `json:"$schema"`
-		Version   *int               `json:"version"`
-		Synthesis *synthesisDocument `json:"synthesis"`
-		Launch    *launchDocument    `json:"launch"`
+		Schema     *string             `json:"$schema"`
+		Version    *int                `json:"version"`
+		Synthesis  *synthesisDocument  `json:"synthesis"`
+		Appearance *appearanceDocument `json:"appearance"`
+		Launch     *launchDocument     `json:"launch"`
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -213,7 +226,14 @@ func Decode(data []byte) (Config, error) {
 			Backend: *document.Synthesis.Backend,
 			Model:   *document.Synthesis.Model,
 		},
-		Launch: LaunchSettings{Terminal: *document.Launch.Terminal},
+		Appearance: AppearanceSettings{Theme: "light"},
+		Launch:     LaunchSettings{Terminal: *document.Launch.Terminal},
+	}
+	if document.Appearance != nil {
+		if document.Appearance.Theme == nil {
+			return Config{}, errors.New("appearance must include theme")
+		}
+		config.Appearance.Theme = *document.Appearance.Theme
 	}
 	if err := Validate(config); err != nil {
 		return Config{}, err
