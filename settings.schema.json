@@ -49,6 +49,14 @@
         }
       ]
     },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["theme"],
+      "properties": {
+        "theme": { "enum": ["light", "dark"] }
+      }
+    },
     "launch": {
       "type": "object",
       "additionalProperties": false,
