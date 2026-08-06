@@ -28,6 +28,7 @@ type codexPayload struct {
 	Input          string            `json:"input"`
 	Arguments      codexArguments    `json:"arguments"`
 	Name           string            `json:"name"`
+	CallID         string            `json:"call_id"`
 	Output         json.RawMessage   `json:"output"`
 	Changes        codexPatchChanges `json:"changes"`
 	ID             string            `json:"id"`
