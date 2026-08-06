@@ -107,9 +107,10 @@ Version 1 supports:
 - Synthesis backends: Claude Code (`claude-cli`) and Codex (`codex_exec`).
 - Claude models: `claude-haiku-4-5`, `claude-sonnet-5`, and `claude-opus-5`.
 - Codex models: `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-5.6-sol`.
+- Themes: light and dark.
 - Terminal apps: Apple Terminal (`terminal`) and iTerm2 (`iterm2`).
 
-Use the top-right Settings dialog to apply synthesis and terminal changes immediately. The focused first-run dialog shown from an eligible session contains only synthesis consent and model choices. If you edit the JSON file directly, restart coSlash. The document must match [`settings.schema.json`](settings.schema.json); invalid or unsupported settings disable synthesis and block terminal launches until repaired rather than silently selecting another app.
+Use the top-right Settings dialog to save synthesis, theme, and terminal changes. The focused first-run dialog shown from an eligible session contains only synthesis consent and model choices. If you edit the JSON file directly, restart coSlash. The document must match [`settings.schema.json`](settings.schema.json); invalid or unsupported settings disable synthesis and block terminal launches until repaired rather than silently selecting another app.
 
 After installing coSlash, run `coslash doctor` to check detected session sources, CLIs, and local storage.
 
