@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, ChevronRight, Settings, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { getTheme, setTheme } from '@/lib/theme';
+import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import {
   initialSettingsDraft,
@@ -191,7 +191,6 @@ export function SettingsDialog({
     response ? initialSettingsDraft(response) : null,
   );
   const [disclosureOpen, setDisclosureOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => getTheme(localStorage.getItem('theme')) === 'dark');
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
   const showFullSettings = mode === 'full-settings';
@@ -215,7 +214,15 @@ export function SettingsDialog({
 
   const save = async () => {
     if (!draft || !synthesisBackendAvailable) return;
-    if (await onSave(draft)) onOpenChange(false);
+    if (await onSave(draft)) {
+      setTheme(draft.appearance.theme);
+      onOpenChange(false);
+    }
+  };
+
+  const close = () => {
+    setTheme(response?.settings.appearance.theme ?? 'light');
+    onOpenChange(false);
   };
 
   const status = saveError
@@ -233,7 +240,14 @@ export function SettingsDialog({
               : { label: 'No changes', className: 'text-muted-foreground' };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (!requiresConsent || next ? onOpenChange(next) : undefined)}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (requiresConsent && !next) return;
+        if (next) onOpenChange(true);
+        else close();
+      }}
+    >
       <DialogContent
         className="max-h-[calc(100svh-2rem)] gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
         showCloseButton={!requiresConsent}
@@ -378,18 +392,21 @@ export function SettingsDialog({
                       type="button"
                       role="switch"
                       aria-label="Dark mode"
-                      aria-checked={darkMode}
+                      aria-checked={draft.appearance.theme === 'dark'}
                       onClick={() => {
-                        const theme = darkMode ? 'light' : 'dark';
+                        const theme = draft.appearance.theme === 'dark' ? 'light' : 'dark';
                         setTheme(theme);
-                        setDarkMode(theme === 'dark');
+                        setDraft({
+                          ...draft,
+                          appearance: { theme },
+                        });
                       }}
                       className="bg-input focus-visible:border-ring focus-visible:ring-ring aria-checked:bg-primary relative inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors outline-none focus-visible:ring-3"
                     >
                       <span
                         className={cn(
                           'bg-background pointer-events-none size-5 rounded-full shadow-sm transition-transform',
-                          { 'translate-x-4': darkMode },
+                          { 'translate-x-4': draft.appearance.theme === 'dark' },
                         )}
                       />
                     </button>
@@ -454,7 +471,7 @@ export function SettingsDialog({
           </div>
           <div className="flex items-center gap-2">
             {!requiresConsent && (
-              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+              <Button variant="outline" onClick={close} disabled={isSaving}>
                 Cancel
               </Button>
             )}
