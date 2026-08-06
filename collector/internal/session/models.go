@@ -51,7 +51,8 @@ func loadModels() map[string]modelInfo {
 	return loaded
 }
 
-var releaseDateSuffix = regexp.MustCompile(`-\d{8}$`)
+// Anthropic dates a model id as -20251001, OpenAI as -2025-04-16.
+var releaseDateSuffix = regexp.MustCompile(`-\d{4}-?\d{2}-?\d{2}$`)
 
 func modelInfoFor(model string) (modelInfo, bool) {
 	key := strings.TrimSuffix(model, "[1m]")
