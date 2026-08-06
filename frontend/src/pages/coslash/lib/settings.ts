@@ -10,6 +10,7 @@ export type CoslashSettings = {
   $schema: string;
   version: number;
   synthesis: SynthesisSettings;
+  appearance: { theme: 'light' | 'dark' };
   launch: { terminal: string };
 };
 
@@ -63,6 +64,7 @@ export function initialSettingsDraft(response: SettingsResponse): CoslashSetting
   return {
     ...response.settings,
     synthesis,
+    appearance: { ...response.settings.appearance },
     launch: { ...response.settings.launch },
   };
 }

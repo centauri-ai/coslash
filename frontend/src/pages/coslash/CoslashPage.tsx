@@ -30,6 +30,7 @@ import {
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
+import { setTheme } from '@/lib/theme';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
@@ -254,6 +255,10 @@ export function CoslashPage() {
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const settingsState = useSettings();
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
+
+  useEffect(() => {
+    if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
+  }, [settingsState.response]);
   // Held by id, not by value: the inspector must render the freshest record
   // each refresh, and a stored object would freeze at click time. Looked up
   // from the unfiltered list so filters never close an open inspector.
