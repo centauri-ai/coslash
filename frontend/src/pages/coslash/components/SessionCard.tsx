@@ -289,9 +289,11 @@ export function SubagentDialogContent({
   return (
     <DialogContent className="sm:max-w-2xl">
       <DialogHeader className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2 pr-8">
           <SubagentBadge />
-          <DialogTitle className="min-w-0 text-base">{subagent.name}</DialogTitle>
+          <DialogTitle className="min-w-0 flex-1 truncate text-base">
+            {subagent.name}
+          </DialogTitle>
         </div>
         <DialogDescription asChild>
           <div className="flex flex-col gap-2 pt-1">
