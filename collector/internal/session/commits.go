@@ -11,8 +11,8 @@ var gitCommitCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*git\s+commit(?:$|[\s;
 // -m, --message, or a combined short flag such as -am, single or double-quoted
 var commitMessage = regexp.MustCompile(`(?:--message|-[a-zA-Z]*m)[=\s]*(?:"([^"]+)"|'([^']+)')`)
 
-// -F or --file, which read the message from a file instead of the command line
-var commitFileFlag = regexp.MustCompile(`(?:--file|-[a-zA-Z]*F)[=\s]`)
+// -F or --file with its operand, which name the file the message comes from
+var commitFileFlag = regexp.MustCompile(`(?:--file|-[a-zA-Z]*F)[=\s]+(\S+)`)
 
 var commitAmend = regexp.MustCompile(`--amend\b`)
 
@@ -37,9 +37,12 @@ func CommitMessage(command string) (string, bool) {
 
 func commitSubject(command string) string {
 	flag := commitMessage.FindStringIndex(command)
-	file := commitFileFlag.FindStringIndex(command)
+	file := commitFileFlag.FindStringSubmatchIndex(command)
 	if file != nil && (flag == nil || file[0] < flag[0]) {
-		body, _ := unwrapMultilineMessage(command) // `-F -` takes stdin
+		if command[file[2]:file[3]] != "-" {
+			return "" // a named file, whose contents the transcript does not hold
+		}
+		body, _ := unwrapMultilineMessage(command) // `-F -` reads stdin
 		return firstLine(body)
 	}
 	if flag == nil {
