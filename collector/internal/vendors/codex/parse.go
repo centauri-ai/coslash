@@ -240,8 +240,10 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 						analysis.pullRequests++
 					}
 				}
-				if question, ok := questionFrom(row.Payload); ok {
-					analysis.digest.Push(analysis.prompts, session.DigestQuestion, question)
+				if questions, ok := questionsFrom(row.Payload); ok {
+					for _, question := range questions {
+						analysis.digest.Push(analysis.prompts, session.DigestQuestion, question)
+					}
 				}
 				analysis.notePlan(row.Payload)
 			case "function_call_output":
@@ -472,7 +474,6 @@ func unifiedDiffStat(diff string) (additions, deletions int) {
 var execCmdPattern = regexp.MustCompile(
 	`(?:^|[{,]\s*)(?:"cmd"|cmd)\s*:\s*("(?:[^"\\]|\\.)*")`,
 )
-var questionPattern = regexp.MustCompile(`"question"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var planStepPattern = regexp.MustCompile(
 	`"?step"?\s*:\s*("(?:[^"\\]|\\.)*")\s*,\s*"?status"?\s*:\s*"(\w+)"`,
 )
@@ -508,23 +509,31 @@ func (analysis *codexSessionAnalysis) notePlan(payload codexPayload) {
 	analysis.plan = steps
 }
 
-func questionFrom(payload codexPayload) (string, bool) {
-	text := payload.Input
+func questionsFrom(payload codexPayload) ([]string, bool) {
+	if payload.Name != "request_user_input" {
+		return nil, false
+	}
+	text := string(payload.Arguments)
 	if text == "" {
-		text = string(payload.Arguments)
+		text = payload.Input
 	}
-	if payload.Name != "request_user_input" && !strings.Contains(text, "request_user_input") {
-		return "", false
+	var arguments struct {
+		Questions []struct {
+			Question string `json:"question"`
+		} `json:"questions"`
 	}
-	m := questionPattern.FindStringSubmatch(text)
-	if m == nil {
-		return "requested user input", true
+	if err := json.Unmarshal([]byte(text), &arguments); err != nil || len(arguments.Questions) == 0 {
+		return []string{"requested user input"}, true
 	}
-	var question string
-	if err := json.Unmarshal([]byte(m[1]), &question); err != nil {
-		return "requested user input", true
+	questions := make([]string, 0, len(arguments.Questions))
+	for _, item := range arguments.Questions {
+		question := item.Question
+		if strings.TrimSpace(question) == "" {
+			question = "requested user input"
+		}
+		questions = append(questions, question)
 	}
-	return question, true
+	return questions, true
 }
 
 func commandFrom(payload codexPayload) (string, bool) {
