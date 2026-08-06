@@ -5,7 +5,7 @@
 with_entries(
   select(
     (.value.litellm_provider == "anthropic" or .value.litellm_provider == "openai")
-    and .value.mode == "chat"
+    and (.value.mode == "chat" or .value.mode == "responses")
     and .value.input_cost_per_token != null
   )
   | .value |= (
