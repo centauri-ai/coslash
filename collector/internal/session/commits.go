@@ -8,8 +8,13 @@ import (
 // git commit as a complete command word, excludes plumbing commands (i.e.  commit-tree)
 var gitCommitCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*git\s+commit(?:$|[\s;&|])`)
 
-// single or double-quoted
-var commitMessage = regexp.MustCompile(`-m\s+(?:"([^"]+)"|'([^']+)')`)
+// -m, --message, or a combined short flag such as -am, single or double-quoted
+var commitMessage = regexp.MustCompile(`(?:--message|-[a-zA-Z]*m)[=\s]*(?:"([^"]+)"|'([^']+)')`)
+
+// -F or --file, which read the message from a file instead of the command line
+var commitFileFlag = regexp.MustCompile(`(?:--file|-[a-zA-Z]*F)[=\s]`)
+
+var commitAmend = regexp.MustCompile(`--amend\b`)
 
 // multilineBlockOpener matches the start of a shell here-document (<<EOF, <<'EOF', <<"EOF", <<-EOF)
 var multilineBlockOpener = regexp.MustCompile(`<<-?\s*['"]?(\w+)['"]?`)
@@ -20,19 +25,40 @@ func CommitMessage(command string) (string, bool) {
 		return "", false
 	}
 	// only match after git commit command, discard everything before
-	matchStart := matchIndices[0]
-	match := commitMessage.FindStringSubmatch(command[matchStart:])
-	if match == nil {
-		return "(commit)", true
+	tail := command[matchIndices[0]:]
+	if subject := commitSubject(tail); subject != "" {
+		return subject, true
 	}
+	if commitAmend.MatchString(tail) {
+		return "", false
+	}
+	return "(commit)", true
+}
+
+func commitSubject(command string) string {
+	flag := commitMessage.FindStringIndex(command)
+	file := commitFileFlag.FindStringIndex(command)
+	if file != nil && (flag == nil || file[0] < flag[0]) {
+		body, _ := unwrapMultilineMessage(command) // `-F -` takes stdin
+		return firstLine(body)
+	}
+	if flag == nil {
+		return ""
+	}
+	match := commitMessage.FindStringSubmatch(command)
 	message := match[1] // double quote message
 	if message == "" {
 		message = match[2] // single quote message
 	}
 	if body, ok := unwrapMultilineMessage(message); ok {
-		return body, true
+		message = body
 	}
-	return message, true
+	return firstLine(message)
+}
+
+func firstLine(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	return strings.TrimSpace(line)
 }
 
 // unwrapMultilineMessage extracts  body of a `-m "$(cat <<'EOF' … EOF)"` commit message
