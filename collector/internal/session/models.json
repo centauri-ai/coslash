@@ -194,6 +194,12 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00001
   },
+  "codex-mini-latest": {
+    "cache_read_input_token_cost": 3.75E-7,
+    "input_cost_per_token": 0.0000015,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000006
+  },
   "ft:gpt-3.5-turbo": {
     "input_cost_per_token": 0.000003,
     "max_input_tokens": 16385,
@@ -465,6 +471,12 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.00001
   },
+  "gpt-5-codex": {
+    "cache_read_input_token_cost": 1.25E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00001
+  },
   "gpt-5-mini": {
     "cache_read_input_token_cost": 2.5E-8,
     "input_cost_per_token": 2.5E-7,
@@ -488,6 +500,16 @@
     "input_cost_per_token": 5E-8,
     "max_input_tokens": 272000,
     "output_cost_per_token": 4E-7
+  },
+  "gpt-5-pro": {
+    "input_cost_per_token": 0.000015,
+    "max_input_tokens": 400000,
+    "output_cost_per_token": 0.00012
+  },
+  "gpt-5-pro-2025-10-06": {
+    "input_cost_per_token": 0.000015,
+    "max_input_tokens": 400000,
+    "output_cost_per_token": 0.00012
   },
   "gpt-5-search-api": {
     "cache_read_input_token_cost": 1.25E-7,
@@ -519,6 +541,24 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.00001
   },
+  "gpt-5.1-codex": {
+    "cache_read_input_token_cost": 1.25E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00001
+  },
+  "gpt-5.1-codex-max": {
+    "cache_read_input_token_cost": 1.25E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.00001
+  },
+  "gpt-5.1-codex-mini": {
+    "cache_read_input_token_cost": 2.5E-8,
+    "input_cost_per_token": 2.5E-7,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.000002
+  },
   "gpt-5.2": {
     "cache_read_input_token_cost": 1.75E-7,
     "input_cost_per_token": 0.00000175,
@@ -537,10 +577,32 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.000014
   },
+  "gpt-5.2-codex": {
+    "cache_read_input_token_cost": 1.75E-7,
+    "input_cost_per_token": 0.00000175,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.000014
+  },
+  "gpt-5.2-pro": {
+    "input_cost_per_token": 0.000021,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.000168
+  },
+  "gpt-5.2-pro-2025-12-11": {
+    "input_cost_per_token": 0.000021,
+    "max_input_tokens": 272000,
+    "output_cost_per_token": 0.000168
+  },
   "gpt-5.3-chat-latest": {
     "cache_read_input_token_cost": 1.75E-7,
     "input_cost_per_token": 0.00000175,
     "max_input_tokens": 128000,
+    "output_cost_per_token": 0.000014
+  },
+  "gpt-5.3-codex": {
+    "cache_read_input_token_cost": 1.75E-7,
+    "input_cost_per_token": 0.00000175,
+    "max_input_tokens": 272000,
     "output_cost_per_token": 0.000014
   },
   "gpt-5.4": {
@@ -579,6 +641,18 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.00000125
   },
+  "gpt-5.4-pro": {
+    "cache_read_input_token_cost": 0.000003,
+    "input_cost_per_token": 0.00003,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.00018
+  },
+  "gpt-5.4-pro-2026-03-05": {
+    "cache_read_input_token_cost": 0.000003,
+    "input_cost_per_token": 0.00003,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.00018
+  },
   "gpt-5.5": {
     "cache_read_input_token_cost": 5E-7,
     "input_cost_per_token": 0.000005,
@@ -590,6 +664,18 @@
     "input_cost_per_token": 0.000005,
     "max_input_tokens": 1050000,
     "output_cost_per_token": 0.00003
+  },
+  "gpt-5.5-pro": {
+    "cache_read_input_token_cost": 0.000003,
+    "input_cost_per_token": 0.00003,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.00018
+  },
+  "gpt-5.5-pro-2026-04-23": {
+    "cache_read_input_token_cost": 0.000003,
+    "input_cost_per_token": 0.00003,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.00018
   },
   "gpt-5.6": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -661,6 +747,16 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.00006
   },
+  "o1-pro": {
+    "input_cost_per_token": 0.00015,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.0006
+  },
+  "o1-pro-2025-03-19": {
+    "input_cost_per_token": 0.00015,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.0006
+  },
   "o3": {
     "cache_read_input_token_cost": 5E-7,
     "input_cost_per_token": 0.000002,
@@ -672,6 +768,18 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000008
+  },
+  "o3-deep-research": {
+    "cache_read_input_token_cost": 0.0000025,
+    "input_cost_per_token": 0.00001,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00004
+  },
+  "o3-deep-research-2025-06-26": {
+    "cache_read_input_token_cost": 0.0000025,
+    "input_cost_per_token": 0.00001,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00004
   },
   "o3-mini": {
     "cache_read_input_token_cost": 5.5E-7,
@@ -685,10 +793,38 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.0000044
   },
+  "o3-pro": {
+    "input_cost_per_token": 0.00002,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00008
+  },
+  "o3-pro-2025-06-10": {
+    "input_cost_per_token": 0.00002,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.00008
+  },
   "o4-mini": {
     "cache_read_input_token_cost": 2.75E-7,
     "input_cost_per_token": 0.0000011,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.0000044
+  },
+  "o4-mini-2025-04-16": {
+    "cache_read_input_token_cost": 2.75E-7,
+    "input_cost_per_token": 0.0000011,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.0000044
+  },
+  "o4-mini-deep-research": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000008
+  },
+  "o4-mini-deep-research-2025-06-26": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000008
   }
 }
