@@ -29,7 +29,14 @@ func CommitMessage(command string) (string, bool) {
 	if subject := commitSubject(tail); subject != "" {
 		return subject, true
 	}
-	if commitAmend.MatchString(tail) {
+	// the flags of this invocation alone, so that a later `git commit --amend` in
+	// the same script cannot suppress the commit that this one creates. The match
+	// ends on the separator or space after `commit`, so keep that byte.
+	flags := command[matchIndices[1]-1:]
+	if end := strings.IndexAny(flags, ";&|\n"); end >= 0 {
+		flags = flags[:end]
+	}
+	if commitAmend.MatchString(flags) {
 		return "", false
 	}
 	return "(commit)", true
