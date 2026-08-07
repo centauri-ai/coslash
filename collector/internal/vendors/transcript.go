@@ -23,5 +23,5 @@ type ParsedTranscript struct {
 
 	// consumed at resolveNames / resolveStatus
 	Name   string // from the file: transcript title (roots), meta description/agentType (children)
-	InTurn bool   // refines "interactive" to busy/idle
+	InTurn bool   // roots: refines "interactive" to busy/idle. children: still running
 }
