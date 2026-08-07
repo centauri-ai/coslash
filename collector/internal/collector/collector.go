@@ -263,7 +263,11 @@ func servableRoots(roots []*vendors.ParsedTranscript) []*session.Session {
 		if filepath.Clean(s.WorkingDirectory) == synthesisCwd {
 			continue
 		}
-		if s.Status == nil && s.Turns == 0 && s.ToolUses == 0 && len(s.Tokens) == 0 {
+		// FirstPrompt keeps a session that recorded a prompt but never ran it.
+		// Codex counts a turn on task_started, not on the prompt, so an
+		// interrupted rollout reaches here with real user work and zero counters.
+		if s.Status == nil && s.FirstPrompt == nil &&
+			s.Turns == 0 && s.ToolUses == 0 && len(s.Tokens) == 0 {
 			continue
 		}
 		kept = append(kept, s)
