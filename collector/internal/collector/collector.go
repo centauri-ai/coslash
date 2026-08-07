@@ -82,7 +82,7 @@ func List(since int64) ([]*session.Session, error) {
 	probeEnvironment(roots)
 	resolveNames(roots, metadata)
 	resolveStatus(roots, metadata)
-	return excludeSynthesisRuns(roots), nil
+	return servableRoots(roots), nil
 }
 
 func applyForkedUsage(parsed []*vendors.ParsedTranscript) {
@@ -252,16 +252,25 @@ func resolveStatus(
 	}
 }
 
-// excludeSynthesisRuns drops the collector's own synthesis CLI sessions, which
-// run in SynthesisCwd and would otherwise show up as sessions of their own.
-func excludeSynthesisRuns(roots []*vendors.ParsedTranscript) []*session.Session {
+// drop synthesis cli sessions
+// claude: drop /clear stub sessions
+// codex: drop session_meta-only sessions
+func servableRoots(roots []*vendors.ParsedTranscript) []*session.Session {
 	synthesisCwd := filepath.Clean(synthesis.SynthesisCwd())
 	kept := []*session.Session{}
 	for _, p := range roots {
-		if filepath.Clean(p.Session.WorkingDirectory) == synthesisCwd {
+		s := p.Session
+		if filepath.Clean(s.WorkingDirectory) == synthesisCwd {
 			continue
 		}
-		kept = append(kept, p.Session)
+		// FirstPrompt keeps a session that recorded a prompt but never ran it.
+		// Codex counts a turn on task_started, not on the prompt, so an
+		// interrupted rollout reaches here with real user work and zero counters.
+		if s.Status == nil && s.FirstPrompt == nil &&
+			s.Turns == 0 && s.ToolUses == 0 && len(s.Tokens) == 0 {
+			continue
+		}
+		kept = append(kept, s)
 	}
 	return kept
 }
