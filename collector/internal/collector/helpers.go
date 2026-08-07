@@ -106,5 +106,9 @@ func subagentStatus(
 	if _, ok := parent.Completed[child.SpawnKey]; ok {
 		return session.SubagentReturned
 	}
+	// A forked skill is not spawned by a tool call, fall back to child transcript
+	if child.SpawnKey == "" && !child.InTurn {
+		return session.SubagentReturned
+	}
 	return session.SubagentRunning
 }
