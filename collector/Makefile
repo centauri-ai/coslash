@@ -7,8 +7,10 @@ DIST := dist
 PLATFORMS := darwin/arm64 darwin/amd64
 ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
+MODELS := internal/session/models.json
+LITELLM_URL := https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
 
-.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist
+.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models
 
 release: stage
 	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) $(PKG)
@@ -76,6 +78,17 @@ smoke-dev:
 
 tidy:
 	go mod tidy
+
+# Rewrites the embedded model table from LiteLLM. The Models workflow runs this
+# daily and opens a pull request; run it by hand for a model LiteLLM just added.
+models:
+	curl -sfL $(LITELLM_URL) | jq -S -f scripts/models.jq > $(MODELS).new
+	@test -s $(MODELS).new || { echo "error: the download produced no model table"; rm -f $(MODELS).new; exit 1; }
+	@jq -e 'length > 50' $(MODELS).new > /dev/null || { \
+		echo "error: $$(jq length $(MODELS).new) models is too few; the upstream format changed"; \
+		rm -f $(MODELS).new; exit 1; }
+	mv $(MODELS).new $(MODELS)
+	@echo "wrote $(MODELS) ($$(jq length $(MODELS)) models)"
 
 clean: unstage
 	rm -rf bin $(DIST)

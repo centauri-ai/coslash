@@ -1,4 +1,10 @@
-import type { ModelTokens } from '@/pages/coslash/lib/pricing';
+export type ModelTokens = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_creation_1h_input_tokens: number;
+  cache_read_input_tokens: number;
+};
 
 export type SessionSynthesis = {
   goals: string[];
@@ -21,6 +27,7 @@ export type Subagent = {
   toolUses: number;
   commands: SubagentCommand[];
   tokens: Record<string, ModelTokens>;
+  cost: number;
 };
 
 export type Session = {
@@ -35,6 +42,8 @@ export type Session = {
   files: number;
   durationMs: number | null;
   tokens: Record<string, ModelTokens>;
+  cost: number;
+  unpricedModels: string[];
   subagents: Subagent[];
   mtime: number;
   entrypoint: string | null;

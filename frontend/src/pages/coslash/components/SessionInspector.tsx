@@ -30,7 +30,6 @@ import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
-import { getEstimatedCost } from '@/pages/coslash/lib/pricing';
 import {
   getModality,
   getSessionOutcome,
@@ -238,8 +237,8 @@ function HeaderMeta({ detail }: { detail: SessionDetail }) {
         <div className="flex flex-wrap items-baseline justify-between gap-1">
           <SessionModelUsage agent={detail.agent} model={detail.model} tokens={detail.tokens} />
           <span className="font-bold">
-            <UnpricedModelWarning tokens={[detail.tokens]}>
-              {formatEstimatedCost(getEstimatedCost(detail.tokens))}
+            <UnpricedModelWarning unpriced={detail.unpricedModels}>
+              {formatEstimatedCost(detail.cost)}
             </UnpricedModelWarning>
           </span>
         </div>
