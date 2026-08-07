@@ -106,5 +106,17 @@ func subagentStatus(
 	if _, ok := parent.Completed[child.SpawnKey]; ok {
 		return session.SubagentReturned
 	}
+	// A forked skill is not spawned by a tool call, so its meta.json carries no
+	// toolUseId and it never reaches parent.Completed. Settle it from its own
+	// transcript, which clears InTurn on a terminal stop_reason.
+	if child.SpawnKey == "" {
+		if !child.InTurn {
+			return session.SubagentReturned
+		}
+		// The transcript stops mid-turn when the run dies with its parent.
+		if _, live := metadata.Live[parent.Session.ID]; !live {
+			return session.SubagentAborted
+		}
+	}
 	return session.SubagentRunning
 }

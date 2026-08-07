@@ -95,6 +95,10 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 		return nil, err
 	}
 	analysis := &claudeSessionAnalysis{
+		// A subagent transcript opens mid-turn: the spawn already happened, and
+		// its task prompt is a meta row that emitPrompt skips. A forked skill has
+		// no other prompt row, so nothing else would ever raise this.
+		inTurn:                   ParentIDFromPath(file) != "",
 		dedupedMessageTokenUsage: map[string]messageUsage{},
 		completedToolUses:        map[string]struct{}{},
 		pullRequests:             map[string]struct{}{},
