@@ -29,7 +29,7 @@ Live task state is automatic: each assigned agent exclusively updates `task-stat
 
 ```text
 Wave 0:  00 reference baseline  ||  01 plugin contracts
-Wave 1:  02 core registration   ||  03 runfs  ||  04 terminal  ||  06 detail  ||  07 UI shell
+Wave 1:  02 core registration → 04 terminal   ||  03 runfs  ||  06 detail  ||  07 UI shell
 Wave 2:  05 git/artifacts       ||  08 persistence
 Wave 3:  09/10 Session Canvas   ||  11 DaGama model  ||  14 Atlas model
 Wave 4:  12/13 DaGama           ||  15/16 Atlas      ||  17 legacy import

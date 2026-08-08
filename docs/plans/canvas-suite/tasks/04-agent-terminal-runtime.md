@@ -14,8 +14,8 @@ No updates yet.
 
 ## Dependencies
 
-- Task 01 contracts.
-- Dependency versions supplied by the master through task 02.
+- Tasks 01 and 02 merged into the assigned base SHA.
+- Approved terminal dependency versions selected, documented, and pinned by the master in Task 02.
 
 ## Owned paths
 
@@ -58,7 +58,7 @@ Status: complete | partial | blocked
 Branch/base/result SHA:
 Execution adapters delivered:
 Terminal lifecycle delivered:
-Dependencies requested:
+Pinned dependencies consumed:
 Tests/race/leak results:
 Security findings:
 Contract deviations:

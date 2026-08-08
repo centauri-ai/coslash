@@ -604,8 +604,11 @@
                 </select>
               </label>
               <label>
-                Result SHA
-                <input id="shaInput" placeholder="commit SHA" />
+                Result / merge SHA
+                <input
+                  id="shaInput"
+                  placeholder="full 40-character commit SHA"
+                />
               </label>
               <label class="wide">
                 Status reason / current focus
@@ -767,6 +770,21 @@ EXECUTION RULES
         "use strict";
 
         const STORAGE_KEY = "coslash-canvas-migration-control-v1";
+        const TASK_STATES = new Set([
+          "untouched",
+          "claimed",
+          "in_progress",
+          "blocked",
+          "review",
+          "changes_requested",
+          "complete",
+          "deferred",
+        ]);
+        const REVIEW_STATES = new Set([
+          "pending",
+          "approved",
+          "changes_requested",
+        ]);
         const TASKS = [
           {
             id: "00",
@@ -812,7 +830,7 @@ EXECUTION RULES
             id: "04",
             title: "Agent + terminal",
             wave: 1,
-            start: ["01"],
+            start: ["01", "02"],
             integrate: [],
             owner: "worker",
             area: "backend runtime",
@@ -977,6 +995,8 @@ EXECUTION RULES
           state: "untouched",
           agent: "",
           branch: "",
+          worktree: "",
+          baseSha: "",
           reviewer: "",
           review: "pending",
           sha: "",
@@ -986,6 +1006,7 @@ EXECUTION RULES
           startedAt: "",
           completedAt: "",
           updatedAt: "",
+          tests: [],
         });
 
         let selectedId = location.hash.slice(1);
@@ -1080,33 +1101,76 @@ EXECUTION RULES
           }
         }
 
+        function validTaskState(value) {
+          return TASK_STATES.has(value) ? value : "untouched";
+        }
+
+        function hasPassingTestEvidence(tests) {
+          return (
+            Array.isArray(tests) &&
+            tests.some(
+              (test) =>
+                test &&
+                typeof test === "object" &&
+                typeof test.command === "string" &&
+                test.command.trim() &&
+                test.result === "passed" &&
+                typeof test.evidence === "string" &&
+                test.evidence.trim(),
+            )
+          );
+        }
+
+        function hasCompletionEvidence(record) {
+          return (
+            validTaskState(record.state) === "complete" &&
+            typeof record.agent === "string" &&
+            record.agent.trim() &&
+            typeof record.branch === "string" &&
+            record.branch.trim() &&
+            typeof record.sha === "string" &&
+            /^[0-9a-f]{40}$/i.test(record.sha.trim()) &&
+            typeof record.reviewer === "string" &&
+            record.reviewer.trim() &&
+            record.review === "approved" &&
+            hasPassingTestEvidence(record.tests)
+          );
+        }
+
         function dependenciesComplete(ids) {
-          return ids.every((id) => state.tasks[id].state === "complete");
+          return ids.every((id) => hasCompletionEvidence(state.tasks[id]));
         }
 
         function displayState(task) {
-          const value = state.tasks[task.id].state;
+          const value = validTaskState(state.tasks[task.id].state);
+          if (
+            value === "complete" &&
+            !hasCompletionEvidence(state.tasks[task.id])
+          )
+            return "review";
           if (value !== "untouched") return value;
           return dependenciesComplete(task.start) ? "ready" : "waiting";
         }
 
         function labelFor(value) {
-          return {
-            untouched: "Untouched",
-            ready: "Ready",
-            waiting: "Waiting",
-            claimed: "Claimed",
-            in_progress: "In progress",
-            blocked: "Blocked",
-            review: "Review",
-            changes_requested: "Changes",
-            complete: "Complete",
-            deferred: "Deferred",
-          }[value];
+          return (
+            {
+              untouched: "Untouched",
+              ready: "Ready",
+              waiting: "Waiting",
+              claimed: "Claimed",
+              in_progress: "In progress",
+              blocked: "Blocked",
+              review: "Review",
+              changes_requested: "Changes",
+              complete: "Complete",
+              deferred: "Deferred",
+            }[value] || "Untouched"
+          );
         }
 
         function missing(ids) {
-          return ids.filter((id) => state.tasks[id].state !== "complete");
+          return ids.filter((id) => !hasCompletionEvidence(state.tasks[id]));
         }
 
         function render() {
@@ -1176,7 +1240,14 @@ EXECUTION RULES
           const integrationMissing = missing(task.integrate);
 
           elements.taskHeading.textContent = `Task ${task.id} — ${task.title}`;
-          elements.statusLine.innerHTML = `<span class="status-label ${current}">${labelFor(current)}</span><span class="meta">${record.reason || readinessReason(task, current)}</span>`;
+          const statusLabel = document.createElement("span");
+          statusLabel.className = `status-label ${current}`;
+          statusLabel.textContent = labelFor(current);
+          const statusMeta = document.createElement("span");
+          statusMeta.className = "meta";
+          statusMeta.textContent =
+            record.reason || readinessReason(task, current);
+          elements.statusLine.replaceChildren(statusLabel, statusMeta);
           elements.briefLink.href = task.brief;
           elements.taskFacts.innerHTML = [
             ["Owner", task.owner],
@@ -1193,7 +1264,7 @@ EXECUTION RULES
             )
             .join("");
 
-          elements.stateInput.value = record.state;
+          elements.stateInput.value = validTaskState(record.state);
           elements.agentInput.value = record.agent;
           elements.branchInput.value = record.branch;
           elements.reviewerInput.value = record.reviewer;
@@ -1311,9 +1382,21 @@ EXECUTION RULES
         }
 
         function selectTask(id) {
+          if (!TASK_BY_ID[id] || id === selectedId) return true;
+          if (
+            formDirty &&
+            !confirm(
+              `Discard unsaved changes for Task ${selectedId} and open Task ${id}?`,
+            )
+          ) {
+            history.replaceState(null, "", `#${selectedId}`);
+            return false;
+          }
+          formDirty = false;
           selectedId = id;
           history.replaceState(null, "", `#${id}`);
           render();
+          return true;
         }
 
         function updateSelected(event) {
@@ -1322,9 +1405,11 @@ EXECUTION RULES
           const record = state.tasks[selectedId];
           const nextState = elements.stateInput.value;
           const agent = elements.agentInput.value.trim();
+          const branch = elements.branchInput.value.trim();
           const reviewer = elements.reviewerInput.value.trim();
           const reason = elements.reasonInput.value.trim();
           const review = elements.reviewInput.value;
+          const sha = elements.shaInput.value.trim();
           const assignedStates = [
             "claimed",
             "in_progress",
@@ -1342,14 +1427,20 @@ EXECUTION RULES
             return showToast(
               "Completion requires a human reviewer and Approved outcome.",
             );
-          if (
-            nextState === "complete" &&
-            missing(task.start).length &&
-            !confirm(
-              `Start dependencies ${missing(task.start).join(", ")} are not complete. Record this task complete anyway?`,
-            )
-          )
-            return;
+          if (nextState === "complete" && !branch)
+            return showToast("Completion requires the reviewed branch.");
+          if (nextState === "complete" && !/^[0-9a-f]{40}$/i.test(sha))
+            return showToast(
+              "Completion requires the full 40-character merged/result SHA.",
+            );
+          if (nextState === "complete" && !hasPassingTestEvidence(record.tests))
+            return showToast(
+              "Completion requires passing command and evidence records from the task sidecar.",
+            );
+          if (nextState === "complete" && missing(task.start).length)
+            return showToast(
+              `Completion requires merged dependencies ${missing(task.start).join(", ")}.`,
+            );
 
           const now = new Date().toISOString();
           if (assignedStates.includes(nextState) && !record.claimedAt)
@@ -1372,10 +1463,10 @@ EXECUTION RULES
           record.state =
             review === "changes_requested" ? "changes_requested" : nextState;
           record.agent = agent;
-          record.branch = elements.branchInput.value.trim();
+          record.branch = branch;
           record.reviewer = reviewer;
           record.review = review;
-          record.sha = elements.shaInput.value.trim();
+          record.sha = sha;
           record.reason = reason;
           record.notes = elements.notesInput.value.trim();
           record.updatedAt = now;
@@ -1448,10 +1539,23 @@ EXECUTION RULES
             if (parsed.version !== 1 || !parsed.tasks)
               throw new Error("Unsupported tracker schema");
             const next = Object.fromEntries(
-              TASKS.map((task) => [
-                task.id,
-                { ...emptyRecord(), ...(parsed.tasks[task.id] || {}) },
-              ]),
+              TASKS.map((task) => {
+                const imported = parsed.tasks[task.id] || {};
+                if (
+                  imported == null ||
+                  typeof imported !== "object" ||
+                  Array.isArray(imported)
+                )
+                  throw new Error(`Invalid Task ${task.id} record`);
+                if (imported.state != null && !TASK_STATES.has(imported.state))
+                  throw new Error(`Invalid Task ${task.id} state`);
+                if (
+                  imported.review != null &&
+                  !REVIEW_STATES.has(imported.review)
+                )
+                  throw new Error(`Invalid Task ${task.id} review outcome`);
+                return [task.id, { ...emptyRecord(), ...imported }];
+              }),
             );
             state = {
               version: 1,
@@ -1459,6 +1563,7 @@ EXECUTION RULES
               updatedAt: new Date().toISOString(),
             };
             saveState();
+            formDirty = false;
             render();
             showToast("Tracker state imported.");
           } catch (error) {
@@ -1481,6 +1586,7 @@ EXECUTION RULES
             // Continue with an in-memory reset if file-origin storage is disabled.
           }
           state = loadState();
+          formDirty = false;
           selectedId = "00";
           history.replaceState(null, "", "#00");
           render();

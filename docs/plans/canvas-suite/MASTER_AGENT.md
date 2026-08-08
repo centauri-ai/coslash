@@ -19,6 +19,7 @@ You are the sole coordinator and integrator. Do not delegate coordination itself
 
 - Keep one agent slot for coordination and use at most three workers concurrently.
 - Start only tasks marked `ready` in `STATUS.md`.
+- Complete Task 02's dependency selection and manifest pinning before creating the Task 04 worker branch.
 - Do not run two tasks with overlapping owned paths.
 - A task may start from frozen mocked contracts before its backend exists, but it cannot be marked integrated until its runtime dependency is merged.
 - If a worker discovers a contract change, pause all consumers. Decide centrally, update `CONTRACTS.md` and `DECISIONS.md`, then rebase affected branches.

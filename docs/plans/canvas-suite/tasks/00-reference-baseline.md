@@ -2,7 +2,7 @@
 
 ## Objective
 
-Make Fleetlog commit `c13a3ef01438193dcdcd2e387300e69ae3c27437` recoverable and convert its intended behavior into sanitized fixtures and visual evidence before translation begins.
+Verify the master-created remote archive for Fleetlog commit `c13a3ef01438193dcdcd2e387300e69ae3c27437` and convert its intended behavior into sanitized fixtures and visual evidence before translation begins.
 
 ## Automatic status and reporting
 
@@ -19,19 +19,19 @@ The commit is one local commit ahead of the remote branch. Its tests mostly pass
 ## Prerequisites
 
 - Access to the legacy Fleetlog checkout and its exact source SHA.
-- An archive branch approved by the master agent.
+- A non-force-pushed remote archive ref created by the master agent, recorded in `STATUS.md`, and verified to resolve to the exact source SHA.
 - Read `MASTER_PLAN.md`, `ACCEPTANCE.md`, and this task.
 
 ## Owned outputs
 
-- Legacy archive/stabilization branches assigned by the master.
+- A legacy stabilization branch assigned by the master; the worker never creates or publishes the archive ref.
 - `docs/plans/canvas-suite/fixtures/`.
 - Future coSlash `collector/internal/plugins/canvas/testdata/legacy/` fixture payloads.
 - No changes to production coSlash code.
 
 ## Work
 
-1. Archive the exact commit without force-updating an existing branch.
+1. Verify that the master-created remote archive ref resolves to the exact source SHA; stop and report the missing prerequisite if it does not.
 2. Create a separate stabilization branch; do not modify the archive.
 3. Classify and minimally repair the 12 build errors, documenting every semantic change.
 4. Instrument watcher creation/close paths and determine whether `EMFILE` is a leak or parallel-test pressure.
@@ -53,7 +53,7 @@ Also run controller tests repeatedly with watcher counts before/after. Never wor
 
 ## Exit gate
 
-- Source SHA is recoverable remotely.
+- The master-created remote archive ref is recorded and independently verified to resolve to the exact source SHA.
 - All build/test failures are classified.
 - Fixtures contain no credentials, private prompts, repository secrets, or user-identifying paths.
 - Visual and behavioral evidence is indexed for downstream tasks.

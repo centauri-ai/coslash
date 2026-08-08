@@ -31,7 +31,7 @@ Only the existing-file allowlist in `FILE_OWNERSHIP.md`, plus integration tests.
 2. Add guarded WebSocket token-subprotocol support without weakening existing HTTP checks.
 3. Add frontend destination delegation and session-card action slots.
 4. Forward card action support through Board without changing existing card content.
-5. Add pinned Go/npm dependencies requested by task 04.
+5. Select, document, and pin the approved Go/npm terminal dependencies before Task 04 starts; Task 04 consumes these versions and never edits manifests.
 6. Keep incomplete destinations hidden through plugin readiness flags.
 
 ## Tests
@@ -45,6 +45,7 @@ Only the existing-file allowlist in `FILE_OWNERSHIP.md`, plus integration tests.
 
 - With the plugin disabled/unready, current coSlash renders and behaves exactly as before.
 - Unauthorized plugin routes and sockets fail.
+- Task 04's approved dependency versions are present in the manifests and recorded in the Task 02 report.
 - Existing-file diff is limited to the allowlist and contains no product implementation.
 
 ## Report back
