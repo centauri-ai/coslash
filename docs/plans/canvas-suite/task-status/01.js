@@ -1,0 +1,28 @@
+window.COSLASH_CANVAS_TASK_STATUS = window.COSLASH_CANVAS_TASK_STATUS || {};
+window.COSLASH_CANVAS_TASK_STATUS["01"] = {
+  schemaVersion: 1,
+  taskId: "01",
+  state: "untouched",
+  agent: "",
+  branch: "",
+  worktree: "",
+  baseSha: "",
+  sha: "",
+  reviewer: "",
+  review: "pending",
+  reason: "Ready to claim when the coSlash integration checkout exists.",
+  notes: "",
+  claimedAt: "",
+  startedAt: "",
+  completedAt: "",
+  updatedAt: "2026-08-08T19:56:18Z",
+  progress: [],
+  tests: [],
+  issues: [],
+  postImplementation: {
+    remainingWork: [],
+    improvements: [],
+    knownIssues: [],
+    followUps: [],
+  },
+};

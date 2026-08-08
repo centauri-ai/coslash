@@ -1,0 +1,1577 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>coSlash Canvas Migration Control</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: light-dark(#f5f6f8, #111418);
+        --panel: light-dark(#ffffff, #191d23);
+        --panel-2: light-dark(#f0f2f5, #22272f);
+        --text: light-dark(#17202b, #eef2f7);
+        --muted: light-dark(#647184, #9ca8b8);
+        --line: light-dark(#d8dde5, #343b46);
+        --accent: light-dark(#275efe, #78a0ff);
+        --ready: light-dark(#087a51, #57d6a5);
+        --active: light-dark(#075cc9, #67a9ff);
+        --review: light-dark(#875600, #f2bd55);
+        --blocked: light-dark(#b3261e, #ff817a);
+        --done: light-dark(#4a5260, #aeb7c5);
+        --radius: 8px;
+        font:
+          13px/1.4 ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button,
+      select,
+      input,
+      textarea {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--text);
+      }
+
+      button,
+      select,
+      input {
+        min-height: 32px;
+      }
+
+      button {
+        cursor: pointer;
+        padding: 5px 9px;
+      }
+
+      button:hover,
+      a:hover {
+        border-color: var(--accent);
+      }
+
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      .app {
+        max-width: 1440px;
+        margin: auto;
+        padding: 16px;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 12px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 18px;
+      }
+
+      h2 {
+        font-size: 14px;
+      }
+
+      .sub,
+      .meta,
+      small {
+        color: var(--muted);
+      }
+
+      .top-actions,
+      .docs,
+      .summary,
+      .form-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .docs {
+        margin-bottom: 12px;
+      }
+
+      .docs a {
+        padding: 4px 7px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--text);
+        background: var(--panel);
+      }
+
+      .summary {
+        margin: 8px 0 12px;
+        justify-content: space-between;
+      }
+
+      .counts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .count strong {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .progress {
+        width: min(340px, 100%);
+        height: 7px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--line);
+      }
+
+      .progress > span {
+        display: block;
+        width: 0;
+        height: 100%;
+        background: var(--ready);
+        transition: width 160ms ease;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+      }
+
+      .pipeline {
+        padding: 12px;
+        margin-bottom: 12px;
+        overflow-x: auto;
+      }
+
+      .pipeline-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 9px;
+      }
+
+      .waves {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(145px, 1fr));
+        min-width: 1080px;
+        gap: 8px;
+      }
+
+      .wave {
+        position: relative;
+        padding: 7px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel-2);
+      }
+
+      .wave:not(:last-child)::after {
+        content: "→";
+        position: absolute;
+        z-index: 2;
+        right: -9px;
+        top: 9px;
+        color: var(--muted);
+      }
+
+      .wave-title {
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .node {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 24px 1fr auto;
+        gap: 6px;
+        align-items: center;
+        min-height: 39px;
+        margin-top: 5px;
+        padding: 5px 6px;
+        text-align: left;
+        background: var(--panel);
+      }
+
+      .node.selected {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+
+      .task-id {
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .task-title {
+        overflow: hidden;
+        font-size: 12px;
+        line-height: 1.2;
+        text-overflow: ellipsis;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+
+      .dot.ready,
+      .dot.complete {
+        background: var(--ready);
+      }
+
+      .dot.claimed,
+      .dot.in_progress {
+        background: var(--active);
+      }
+
+      .dot.review,
+      .dot.changes_requested {
+        background: var(--review);
+      }
+
+      .dot.blocked {
+        background: var(--blocked);
+      }
+
+      .dot.deferred,
+      .dot.waiting {
+        background: var(--done);
+      }
+
+      .lower {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+        gap: 12px;
+      }
+
+      .control,
+      .recommendations {
+        padding: 12px;
+      }
+
+      .control-head,
+      .recommendation-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .status-line {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 3px;
+      }
+
+      .status-label {
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+
+      .status-label.ready,
+      .status-label.complete {
+        color: var(--ready);
+      }
+
+      .status-label.claimed,
+      .status-label.in_progress {
+        color: var(--active);
+      }
+
+      .status-label.review,
+      .status-label.changes_requested {
+        color: var(--review);
+      }
+
+      .status-label.blocked {
+        color: var(--blocked);
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+      }
+
+      label {
+        display: grid;
+        gap: 4px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      label.wide {
+        grid-column: 1 / -1;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        padding: 6px 7px;
+      }
+
+      textarea {
+        min-height: 58px;
+        resize: vertical;
+      }
+
+      .form-actions {
+        margin-top: 10px;
+      }
+
+      .task-facts {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 10px;
+        padding: 8px;
+        border-radius: 6px;
+        background: var(--panel-2);
+      }
+
+      .fact b {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--muted);
+        font-size: 10px;
+        text-transform: uppercase;
+      }
+
+      .fact span {
+        overflow-wrap: anywhere;
+      }
+
+      .recommendations ol {
+        margin: 0;
+        padding-left: 21px;
+      }
+
+      .recommendations li {
+        margin: 0 0 8px;
+      }
+
+      .recommendations li button {
+        min-height: auto;
+        padding: 0;
+        border: 0;
+        text-align: left;
+        color: var(--text);
+        background: transparent;
+      }
+
+      .recommendations li button:hover {
+        color: var(--accent);
+      }
+
+      .capacity {
+        margin-top: 9px;
+        padding-top: 9px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+      }
+
+      .toast {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        display: none;
+        max-width: 340px;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+        box-shadow: 0 8px 25px rgb(0 0 0 / 18%);
+      }
+
+      .toast.show {
+        display: block;
+      }
+
+      dialog {
+        width: min(820px, calc(100% - 24px));
+        max-height: calc(100% - 24px);
+        padding: 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--panel);
+        color: var(--text);
+      }
+
+      dialog::backdrop {
+        background: rgb(0 0 0 / 46%);
+      }
+
+      .prompt-head,
+      .prompt-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 12px;
+      }
+
+      .prompt-head {
+        border-bottom: 1px solid var(--line);
+      }
+
+      .prompt-body {
+        padding: 12px;
+      }
+
+      #agentPromptText {
+        min-height: min(62vh, 650px);
+        margin-top: 8px;
+        font:
+          12px/1.45 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+      }
+
+      @media (max-width: 780px) {
+        header,
+        .summary,
+        .lower {
+          display: block;
+        }
+
+        .top-actions,
+        .progress,
+        .recommendations {
+          margin-top: 10px;
+        }
+
+        .form-grid,
+        .task-facts {
+          grid-template-columns: 1fr;
+        }
+
+        label.wide {
+          grid-column: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div>
+          <h1>coSlash Canvas migration control</h1>
+          <p class="sub">
+            Agent-fed tracker · auto-refresh 15s · main stays untouched
+          </p>
+        </div>
+        <div class="top-actions">
+          <button id="promptButton" type="button">Agent launch prompt</button>
+          <button id="exportButton" type="button">Export state</button>
+          <button id="importButton" type="button">Import state</button>
+          <button id="resetButton" type="button">Reset</button>
+          <input
+            id="importFile"
+            type="file"
+            accept="application/json,.json"
+            hidden
+          />
+        </div>
+      </header>
+
+      <nav class="docs" aria-label="Migration documents">
+        <a href="README.md" target="_blank">Start</a>
+        <a href="MASTER_PLAN.md" target="_blank">Master plan</a>
+        <a href="MASTER_AGENT.md" target="_blank">Master agent</a>
+        <a href="AUTOMATION.md" target="_blank">Automation</a>
+        <a href="STATUS.md" target="_blank">Status</a>
+        <a href="REPORTS.md" target="_blank">Reports</a>
+        <a href="ISSUES.md" target="_blank">Issues</a>
+        <a href="DECISIONS.md" target="_blank">Decisions</a>
+        <a href="CONTRACTS.md" target="_blank">Contracts</a>
+        <a href="FILE_OWNERSHIP.md" target="_blank">Ownership</a>
+        <a href="ACCEPTANCE.md" target="_blank">Acceptance</a>
+      </nav>
+
+      <section class="summary" aria-label="Migration summary">
+        <div class="counts" id="counts"></div>
+        <div class="progress" aria-label="Completion progress">
+          <span id="progressBar"></span>
+        </div>
+      </section>
+
+      <section class="panel pipeline" aria-labelledby="pipelineTitle">
+        <div class="pipeline-head">
+          <h2 id="pipelineTitle">Dependency tree</h2>
+          <small>Click a task to command or review it</small>
+        </div>
+        <div class="waves" id="waves"></div>
+      </section>
+
+      <div class="lower">
+        <section class="panel control" aria-labelledby="taskHeading">
+          <div class="control-head">
+            <div>
+              <h2 id="taskHeading">Task</h2>
+              <div class="status-line" id="statusLine"></div>
+            </div>
+            <a id="briefLink" href="#" target="_blank">Open brief ↗</a>
+          </div>
+
+          <div class="task-facts" id="taskFacts"></div>
+
+          <form id="taskForm">
+            <div class="form-grid">
+              <label>
+                Work state
+                <select id="stateInput">
+                  <option value="untouched">Untouched</option>
+                  <option value="claimed">Claimed</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="blocked">Blocked</option>
+                  <option value="review">Ready for review</option>
+                  <option value="changes_requested">Changes requested</option>
+                  <option value="complete">Complete</option>
+                  <option value="deferred">Deferred</option>
+                </select>
+              </label>
+              <label>
+                Coding agent
+                <input id="agentInput" placeholder="agent ID or name" />
+              </label>
+              <label>
+                Branch
+                <input id="branchInput" placeholder="task branch" />
+              </label>
+              <label>
+                Reviewer
+                <input id="reviewerInput" placeholder="human reviewer" />
+              </label>
+              <label>
+                Review outcome
+                <select id="reviewInput">
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="changes_requested">Changes requested</option>
+                </select>
+              </label>
+              <label>
+                Result SHA
+                <input id="shaInput" placeholder="commit SHA" />
+              </label>
+              <label class="wide">
+                Status reason / current focus
+                <input
+                  id="reasonInput"
+                  placeholder="why it is here and what happens next"
+                />
+              </label>
+              <label class="wide">
+                Post-implementation notes
+                <textarea
+                  id="notesInput"
+                  placeholder="remaining work, improvements, known issues, follow-ups"
+                ></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="primary" type="submit">Save task</button>
+              <button id="copyReportButton" type="button">Copy report</button>
+              <small id="timeLine"></small>
+            </div>
+          </form>
+        </section>
+
+        <aside
+          class="panel recommendations"
+          aria-labelledby="recommendationTitle"
+        >
+          <div class="recommendation-head">
+            <h2 id="recommendationTitle">Recommended next</h2>
+            <small id="updatedAt">No changes</small>
+          </div>
+          <ol id="recommendationList"></ol>
+          <div class="capacity" id="capacity"></div>
+        </aside>
+      </div>
+    </div>
+
+    <dialog id="promptDialog">
+      <div class="prompt-head">
+        <h2>Reusable coding-agent launch prompt</h2>
+        <button id="closePromptButton" type="button">Close</button>
+      </div>
+      <div class="prompt-body">
+        <p class="sub">Use unchanged for every newly opened worker agent.</p>
+        <textarea id="agentPromptText" readonly spellcheck="false">
+You are one worker coding agent for the coSlash Canvas migration. Automatically evaluate the shared plan, select at most one safe eligible worker task, claim it, and execute it. Do not ask me to choose a task when the plan provides enough evidence. Do not take a second task after finishing or becoming blocked.
+
+AUTHORITATIVE LOCATIONS
+
+- Plan root: /Users/helu/code/product/coslash/docs/plans/canvas-suite
+- Human dashboard: file:///Users/helu/code/product/coslash/docs/plans/canvas-suite/migration-control.html#01
+- Legacy/reference repository: /Users/helu/code/product/fleetlog-canvas
+- Target remote: https://github.com/centauri-ai/coslash
+- Required integration branch: hlu/canvas-migration, based on current coSlash main
+- Legacy source baseline: c13a3ef01438193dcdcd2e387300e69ae3c27437
+
+The dashboard's browser-local state is for the human operator and is not shared agent state. Determine coordination truth from the Markdown records and Git/worktree evidence. Never implement target coSlash code on Fleetlog main or coSlash main.
+
+STARTUP AUDIT — READ ONLY BEFORE CLAIMING
+
+1. Read completely: README.md, MASTER_PLAN.md, MASTER_AGENT.md, AUTOMATION.md, CONTRACTS.md, FILE_OWNERSHIP.md, ACCEPTANCE.md, STATUS.md, REPORTS.md, ISSUES.md, and DECISIONS.md under the plan root.
+2. Inspect every task brief under tasks/ and every matching task-status/NN.js sidecar for its ID, dependencies, owner, live status, owned paths, exit gate, and report-back requirements. After selecting, read that entire task file and sidecar again.
+3. Inspect actual Git evidence: repository identity, current branch/SHA, git status, git worktree list, relevant task branches, integration-branch state, and dependency result SHAs. Preserve unrelated or user-owned changes.
+4. Reconcile status sources using AUTOMATION.md. The newest valid task sidecar plus Git/worktree evidence is the live claim source. A claim/in-progress/review/complete task, active task branch/worktree, or overlapping owned paths makes that task unavailable. If records materially disagree and safe ownership cannot be established, choose WAIT and report the inconsistency instead of guessing.
+
+ELIGIBILITY AND SELECTION
+
+A task is startable only when all of these are true:
+
+- It is a worker task. Never self-assign master-only Tasks 02 or 19.
+- Its state is untouched or ready. It is not claimed, in progress, blocked, in review, changes requested, complete, or deferred.
+- Every start dependency is complete, reviewed, merged, and present in the candidate base SHA. A task brief's explicit frozen-fixture parallel exception may permit frontend work, but does not waive final integration dependencies.
+- No active task owns overlapping files, and FILE_OWNERSHIP.md permits the work.
+- The correct repository and an isolated task worktree are available, or a safe isolated worktree can be created from the exact dependency base without switching a shared checkout.
+- Fewer than three worker tasks are currently active; keep one agent slot for the master.
+- Required contracts and baseline evidence exist. Never invent missing contracts to make a task appear ready.
+
+Rank eligible tasks by: earliest execution wave, then greatest downstream unblocking value, then lowest task number. Select exactly one. Tasks 00 and 01 may run in parallel only when each task's environment and brief are independently satisfied.
+
+ATOMIC CLAIM PROTOCOL
+
+Immediately before claiming, re-read task-status/NN.js, the selected task brief, STATUS.md, and Git/worktree evidence. If another agent claimed it, discard the selection and rescan once.
+
+Atomically claim by updating only task-status/NN.js for the selected task and its matching task brief's automatic status/progress area in one patch. Record state=claimed, your coding-agent ID, UTC claim time, branch, worktree, exact base SHA, current reason, current focus, and next action. Re-read the sidecar after the patch; if the claim does not still belong to you, stop. Then set in_progress and startedAt when implementation actually begins.
+
+Never edit another task's sidecar or brief. Workers do not edit STATUS.md, REPORTS.md, ISSUES.md, or DECISIONS.md; the master mirrors accepted worker data there. The dashboard reads task sidecars automatically, so do not ask the human to re-enter status.
+
+Do not switch branches in a shared checkout. Use an isolated task branch/worktree. If the plan package is not safely available on the integration branch, the required coSlash checkout/base is missing, a worktree cannot be created safely, or a claim cannot be recorded without conflict, choose WAIT.
+
+LAUNCH DECISION
+
+Before implementation, report concisely:
+
+LAUNCH DECISION: START TASK NN — title
+Eligible now: [task IDs]
+Selected because: [dependency/wave/ownership reason]
+Claim evidence: [task-status/NN.js timestamp, branch, worktree, base SHA]
+
+Then continue immediately with the selected task; do not wait for confirmation.
+
+If no task is eligible, make no implementation or claim edits, do not poll, and report:
+
+LAUNCH DECISION: WAIT
+Active tasks: [IDs and agents]
+Unavailable tasks: [brief reason]
+Unlock condition: [exact task IDs, review/merge/setup action required]
+Recommended next check: [what evidence should change]
+
+EXECUTION RULES
+
+- Follow the selected brief, contracts, file ownership, plugin boundary, and exact tests.
+- Prefer new files under collector/internal/plugins/canvas/ and frontend/src/plugins/canvas/. Existing coSlash-file edits are master-only unless the brief and allowlist explicitly assign them.
+- Preserve working Canvas, DaGama Canvas, and Atlas Canvas behavior and design. Treat legacy code as read-only evidence.
+- Keep session identity composite as {agent,id}. Use guarded APIs, native PTY/WebSocket plus tmux, server-backed persistence, and safe path/command boundaries. Do not restore ttyd or privileged Vite middleware.
+- Use fakes for ordinary agent/tmux/GitHub tests. Do not push, open PRs, publish, delete legacy data, kill unrelated processes, or perform destructive cleanup without explicit authorization.
+- Run every test in the task brief and proportionate regression tests. Record exact commands and results.
+- Follow AUTOMATION.md without prompting the human: update task-status/NN.js and the task brief at claim, start, each material checkpoint/test, block, review handoff, and review outcome. Keep progress, tests, issues, post-implementation notes, UTC timestamps, and result SHA current.
+- If blocked mid-task, update only the selected task's status to blocked with reason, evidence, owner, UTC time, and exact unlock condition. Report back and stop; do not take another task.
+- When implementation is ready, set the task to review, not complete. A human/master marks complete only after reviewing evidence and merging it.
+- Fill the task's report-back schema completely: changed files, result SHA, tests/evidence, deviations, decisions, issues, remaining work, improvements, known issues, and follow-ups. Ask the master to mirror the report into central records.
+- Stop after this one task.</textarea>
+        <div class="prompt-actions">
+          <small
+            >Shared truth remains in Markdown and Git, not browser
+            storage.</small
+          >
+          <button id="copyAgentPromptButton" class="primary" type="button">
+            Copy prompt
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="task-status/00.js"></script>
+    <script src="task-status/01.js"></script>
+    <script src="task-status/02.js"></script>
+    <script src="task-status/03.js"></script>
+    <script src="task-status/04.js"></script>
+    <script src="task-status/05.js"></script>
+    <script src="task-status/06.js"></script>
+    <script src="task-status/07.js"></script>
+    <script src="task-status/08.js"></script>
+    <script src="task-status/09.js"></script>
+    <script src="task-status/10.js"></script>
+    <script src="task-status/11.js"></script>
+    <script src="task-status/12.js"></script>
+    <script src="task-status/13.js"></script>
+    <script src="task-status/14.js"></script>
+    <script src="task-status/15.js"></script>
+    <script src="task-status/16.js"></script>
+    <script src="task-status/17.js"></script>
+    <script src="task-status/18.js"></script>
+    <script src="task-status/19.js"></script>
+    <script>
+      (() => {
+        "use strict";
+
+        const STORAGE_KEY = "coslash-canvas-migration-control-v1";
+        const TASKS = [
+          {
+            id: "00",
+            title: "Reference baseline",
+            wave: 0,
+            start: [],
+            integrate: [],
+            owner: "worker",
+            area: "legacy reference",
+            brief: "tasks/00-reference-baseline.md",
+          },
+          {
+            id: "01",
+            title: "Plugin contracts",
+            wave: 0,
+            start: [],
+            integrate: [],
+            owner: "worker",
+            area: "plugin contracts",
+            brief: "tasks/01-plugin-contracts.md",
+          },
+          {
+            id: "02",
+            title: "Core registration",
+            wave: 1,
+            start: ["01"],
+            integrate: [],
+            owner: "master",
+            area: "coSlash core allowlist",
+            brief: "tasks/02-core-registration.md",
+          },
+          {
+            id: "03",
+            title: "RunFS + events",
+            wave: 1,
+            start: ["01"],
+            integrate: [],
+            owner: "worker",
+            area: "backend runfs",
+            brief: "tasks/03-runfs-eventstore.md",
+          },
+          {
+            id: "04",
+            title: "Agent + terminal",
+            wave: 1,
+            start: ["01"],
+            integrate: [],
+            owner: "worker",
+            area: "backend runtime",
+            brief: "tasks/04-agent-terminal-runtime.md",
+          },
+          {
+            id: "06",
+            title: "Session detail",
+            wave: 1,
+            start: ["00", "01"],
+            integrate: [],
+            owner: "worker",
+            area: "backend projection",
+            brief: "tasks/06-session-detail-projection.md",
+          },
+          {
+            id: "07",
+            title: "Frontend shell",
+            wave: 1,
+            start: ["00", "01"],
+            integrate: [],
+            owner: "worker",
+            area: "frontend shared",
+            brief: "tasks/07-frontend-plugin-shell.md",
+          },
+          {
+            id: "05",
+            title: "Git + artifacts",
+            wave: 2,
+            start: ["03"],
+            integrate: [],
+            owner: "worker",
+            area: "backend primitives",
+            brief: "tasks/05-git-artifacts-publication.md",
+          },
+          {
+            id: "08",
+            title: "Persistence",
+            wave: 2,
+            start: ["01", "03"],
+            integrate: [],
+            owner: "worker",
+            area: "backend + client",
+            brief: "tasks/08-persistence-foundation.md",
+          },
+          {
+            id: "09",
+            title: "Session backend",
+            wave: 3,
+            start: ["02", "04", "06", "08"],
+            integrate: [],
+            owner: "worker",
+            area: "backend session",
+            brief: "tasks/09-session-canvas-backend.md",
+          },
+          {
+            id: "10",
+            title: "Session frontend",
+            wave: 3,
+            start: ["07"],
+            integrate: ["09"],
+            owner: "worker",
+            area: "frontend session",
+            brief: "tasks/10-session-canvas-frontend.md",
+          },
+          {
+            id: "11",
+            title: "DaGama model",
+            wave: 3,
+            start: ["00", "03", "05"],
+            integrate: [],
+            owner: "worker",
+            area: "backend DaGama",
+            brief: "tasks/11-dagama-model-store.md",
+          },
+          {
+            id: "14",
+            title: "Atlas model",
+            wave: 3,
+            start: ["00", "03", "05"],
+            integrate: [],
+            owner: "worker",
+            area: "backend Atlas",
+            brief: "tasks/14-atlas-model-store.md",
+          },
+          {
+            id: "12",
+            title: "DaGama controller",
+            wave: 4,
+            start: ["04", "05", "11"],
+            integrate: [],
+            owner: "worker",
+            area: "backend DaGama",
+            brief: "tasks/12-dagama-controller.md",
+          },
+          {
+            id: "13",
+            title: "DaGama frontend",
+            wave: 4,
+            start: ["07", "11"],
+            integrate: ["12"],
+            owner: "worker",
+            area: "frontend DaGama",
+            brief: "tasks/13-dagama-frontend.md",
+          },
+          {
+            id: "15",
+            title: "Atlas controller",
+            wave: 4,
+            start: ["04", "05", "14"],
+            integrate: [],
+            owner: "worker",
+            area: "backend Atlas",
+            brief: "tasks/15-atlas-controller.md",
+          },
+          {
+            id: "16",
+            title: "Atlas frontend",
+            wave: 4,
+            start: ["07", "14"],
+            integrate: ["15"],
+            owner: "worker",
+            area: "frontend Atlas",
+            brief: "tasks/16-atlas-frontend.md",
+          },
+          {
+            id: "17",
+            title: "Legacy import",
+            wave: 4,
+            start: ["08", "11", "14"],
+            integrate: [],
+            owner: "worker",
+            area: "migration",
+            brief: "tasks/17-legacy-import.md",
+          },
+          {
+            id: "18",
+            title: "Security + E2E",
+            wave: 5,
+            start: ["09", "10", "11", "12", "13", "14", "15", "16", "17"],
+            integrate: [],
+            owner: "worker",
+            area: "validation",
+            brief: "tasks/18-security-e2e-release.md",
+          },
+          {
+            id: "19",
+            title: "Final integration",
+            wave: 6,
+            start: ["18"],
+            integrate: [],
+            owner: "master",
+            area: "integration branch",
+            brief: "tasks/19-final-integration.md",
+          },
+        ];
+
+        const TASK_BY_ID = Object.fromEntries(
+          TASKS.map((task) => [task.id, task]),
+        );
+        const emptyRecord = () => ({
+          state: "untouched",
+          agent: "",
+          branch: "",
+          reviewer: "",
+          review: "pending",
+          sha: "",
+          reason: "",
+          notes: "",
+          claimedAt: "",
+          startedAt: "",
+          completedAt: "",
+          updatedAt: "",
+        });
+
+        let selectedId = location.hash.slice(1);
+        if (!TASK_BY_ID[selectedId]) selectedId = "00";
+        let state = loadState();
+        let formDirty = false;
+
+        const elements = {
+          waves: document.getElementById("waves"),
+          counts: document.getElementById("counts"),
+          progressBar: document.getElementById("progressBar"),
+          taskHeading: document.getElementById("taskHeading"),
+          statusLine: document.getElementById("statusLine"),
+          briefLink: document.getElementById("briefLink"),
+          taskFacts: document.getElementById("taskFacts"),
+          taskForm: document.getElementById("taskForm"),
+          stateInput: document.getElementById("stateInput"),
+          agentInput: document.getElementById("agentInput"),
+          branchInput: document.getElementById("branchInput"),
+          reviewerInput: document.getElementById("reviewerInput"),
+          reviewInput: document.getElementById("reviewInput"),
+          shaInput: document.getElementById("shaInput"),
+          reasonInput: document.getElementById("reasonInput"),
+          notesInput: document.getElementById("notesInput"),
+          timeLine: document.getElementById("timeLine"),
+          recommendationList: document.getElementById("recommendationList"),
+          capacity: document.getElementById("capacity"),
+          updatedAt: document.getElementById("updatedAt"),
+          copyReportButton: document.getElementById("copyReportButton"),
+          promptButton: document.getElementById("promptButton"),
+          promptDialog: document.getElementById("promptDialog"),
+          closePromptButton: document.getElementById("closePromptButton"),
+          agentPromptText: document.getElementById("agentPromptText"),
+          copyAgentPromptButton: document.getElementById(
+            "copyAgentPromptButton",
+          ),
+          exportButton: document.getElementById("exportButton"),
+          importButton: document.getElementById("importButton"),
+          importFile: document.getElementById("importFile"),
+          resetButton: document.getElementById("resetButton"),
+          toast: document.getElementById("toast"),
+        };
+
+        function loadState() {
+          const base = Object.fromEntries(
+            TASKS.map((task) => [task.id, emptyRecord()]),
+          );
+          const sidecars = window.COSLASH_CANVAS_TASK_STATUS || {};
+          let saved = null;
+          try {
+            saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+          } catch {
+            saved = null;
+          }
+          for (const id of Object.keys(base)) {
+            const local =
+              saved && saved.version === 1 && saved.tasks
+                ? saved.tasks[id]
+                : null;
+            const file = sidecars[id] || null;
+            const localTime = Date.parse(local && local.updatedAt) || 0;
+            const fileTime = Date.parse(file && file.updatedAt) || 0;
+            const fileWins = Boolean(file) && fileTime >= localTime;
+            base[id] = {
+              ...base[id],
+              ...(fileWins ? local : file),
+              ...(fileWins ? file : local),
+              _source: fileWins
+                ? "agent file"
+                : local
+                  ? "local override"
+                  : "default",
+            };
+          }
+          return {
+            version: 1,
+            tasks: base,
+            updatedAt:
+              TASKS.map((task) => base[task.id].updatedAt)
+                .filter(Boolean)
+                .sort()
+                .at(-1) || "",
+          };
+        }
+
+        function saveState() {
+          state.updatedAt = new Date().toISOString();
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          } catch {
+            // In-memory controls and JSON export still work if file-origin storage is disabled.
+          }
+        }
+
+        function dependenciesComplete(ids) {
+          return ids.every((id) => state.tasks[id].state === "complete");
+        }
+
+        function displayState(task) {
+          const value = state.tasks[task.id].state;
+          if (value !== "untouched") return value;
+          return dependenciesComplete(task.start) ? "ready" : "waiting";
+        }
+
+        function labelFor(value) {
+          return {
+            untouched: "Untouched",
+            ready: "Ready",
+            waiting: "Waiting",
+            claimed: "Claimed",
+            in_progress: "In progress",
+            blocked: "Blocked",
+            review: "Review",
+            changes_requested: "Changes",
+            complete: "Complete",
+            deferred: "Deferred",
+          }[value];
+        }
+
+        function missing(ids) {
+          return ids.filter((id) => state.tasks[id].state !== "complete");
+        }
+
+        function render() {
+          renderWaves();
+          renderSummary();
+          renderTask();
+          renderRecommendations();
+        }
+
+        function renderWaves() {
+          elements.waves.replaceChildren();
+          for (let waveNumber = 0; waveNumber <= 6; waveNumber += 1) {
+            const wave = document.createElement("section");
+            wave.className = "wave";
+            const title = document.createElement("div");
+            title.className = "wave-title";
+            title.textContent = `Wave ${waveNumber}`;
+            wave.append(title);
+            for (const task of TASKS.filter(
+              (item) => item.wave === waveNumber,
+            )) {
+              const current = displayState(task);
+              const button = document.createElement("button");
+              button.type = "button";
+              button.className = `node${task.id === selectedId ? " selected" : ""}`;
+              button.title = `Task ${task.id} · ${labelFor(current)} · starts after ${task.start.join(", ") || "none"}`;
+              button.innerHTML = `<span class="task-id">${task.id}</span><span class="task-title"></span><span class="dot ${current}" aria-label="${labelFor(current)}"></span>`;
+              button.querySelector(".task-title").textContent = task.title;
+              button.addEventListener("click", () => selectTask(task.id));
+              wave.append(button);
+            }
+            elements.waves.append(wave);
+          }
+        }
+
+        function renderSummary() {
+          const current = TASKS.map(displayState);
+          const value = (name) =>
+            current.filter((item) => item === name).length;
+          const active =
+            value("claimed") +
+            value("in_progress") +
+            value("changes_requested");
+          const done = value("complete");
+          const summary = [
+            ["Ready", value("ready")],
+            ["Active", active],
+            ["Review", value("review")],
+            ["Blocked", value("blocked")],
+            ["Waiting", value("waiting")],
+            ["Done", `${done}/${TASKS.length}`],
+          ];
+          elements.counts.innerHTML = summary
+            .map(
+              ([name, count]) =>
+                `<span class="count"><strong>${count}</strong> ${name}</span>`,
+            )
+            .join("");
+          elements.progressBar.style.width = `${(done / TASKS.length) * 100}%`;
+        }
+
+        function renderTask() {
+          const task = TASK_BY_ID[selectedId];
+          const record = state.tasks[selectedId];
+          const current = displayState(task);
+          const startMissing = missing(task.start);
+          const integrationMissing = missing(task.integrate);
+
+          elements.taskHeading.textContent = `Task ${task.id} — ${task.title}`;
+          elements.statusLine.innerHTML = `<span class="status-label ${current}">${labelFor(current)}</span><span class="meta">${record.reason || readinessReason(task, current)}</span>`;
+          elements.briefLink.href = task.brief;
+          elements.taskFacts.innerHTML = [
+            ["Owner", task.owner],
+            ["Location", task.area],
+            ["Status source", record._source || "default"],
+            ["Start blockers", startMissing.join(", ") || "none"],
+            ["Integration blockers", integrationMissing.join(", ") || "none"],
+            ["Started", shortTime(record.startedAt)],
+            ["Completed", shortTime(record.completedAt)],
+          ]
+            .map(
+              ([name, value]) =>
+                `<div class="fact"><b>${name}</b><span>${escapeHtml(value)}</span></div>`,
+            )
+            .join("");
+
+          elements.stateInput.value = record.state;
+          elements.agentInput.value = record.agent;
+          elements.branchInput.value = record.branch;
+          elements.reviewerInput.value = record.reviewer;
+          elements.reviewInput.value = record.review;
+          elements.shaInput.value = record.sha;
+          elements.reasonInput.value = record.reason;
+          elements.notesInput.value = record.notes;
+          elements.timeLine.textContent = record.updatedAt
+            ? `Updated ${shortTime(record.updatedAt)}`
+            : "Not updated";
+          elements.updatedAt.textContent = state.updatedAt
+            ? `Saved ${shortTime(state.updatedAt)}`
+            : "No changes";
+        }
+
+        function readinessReason(task, current) {
+          if (current === "ready")
+            return "All start dependencies complete; available to claim.";
+          if (current === "waiting")
+            return `Waiting for ${missing(task.start).join(", ")}.`;
+          if (current === "complete" && missing(task.integrate).length)
+            return `Built; integration still waits for ${missing(task.integrate).join(", ")}.`;
+          return "Update the status reason or current focus.";
+        }
+
+        function renderRecommendations() {
+          const recommendations = [];
+          const add = (task, text) => recommendations.push({ task, text });
+          const byState = (value) =>
+            TASKS.filter((task) => state.tasks[task.id].state === value);
+
+          byState("review").forEach((task) =>
+            add(
+              task,
+              `Review ${task.id} ${task.title}; approve or request changes.`,
+            ),
+          );
+          byState("changes_requested").forEach((task) =>
+            add(task, `Resolve requested changes on ${task.id} ${task.title}.`),
+          );
+          byState("blocked").forEach((task) =>
+            add(
+              task,
+              `Unblock ${task.id}: ${state.tasks[task.id].reason || "record the blocker and owner"}.`,
+            ),
+          );
+
+          const activeWorkers = TASKS.filter(
+            (task) =>
+              task.owner !== "master" &&
+              ["claimed", "in_progress", "changes_requested"].includes(
+                state.tasks[task.id].state,
+              ),
+          );
+          const availableSlots = Math.max(0, 3 - activeWorkers.length);
+          const ready = TASKS.filter(
+            (task) => displayState(task) === "ready",
+          ).sort((a, b) => a.wave - b.wave || a.id.localeCompare(b.id));
+          ready
+            .filter((task) => task.owner === "master")
+            .slice(0, 1)
+            .forEach((task) =>
+              add(
+                task,
+                `Master: start ${task.id} ${task.title}; its dependencies are complete.`,
+              ),
+            );
+          ready
+            .filter((task) => task.owner !== "master")
+            .slice(0, availableSlots || 1)
+            .forEach((task) =>
+              add(
+                task,
+                `${activeWorkers.length >= 3 ? "Queue" : "Claim"} ${task.id} ${task.title}; its start dependencies are complete.`,
+              ),
+            );
+
+          if (
+            !recommendations.length &&
+            TASKS.every((task) => state.tasks[task.id].state === "complete")
+          ) {
+            recommendations.push({
+              task: TASK_BY_ID["19"],
+              text: "All tasks are complete; preserve the final evidence and human handoff.",
+            });
+          }
+          if (!recommendations.length) {
+            const nextWaiting = TASKS.find(
+              (task) => displayState(task) === "waiting",
+            );
+            if (nextWaiting)
+              add(
+                nextWaiting,
+                `Finish ${missing(nextWaiting.start).join(", ")} to unlock ${nextWaiting.id} ${nextWaiting.title}.`,
+              );
+          }
+
+          elements.recommendationList.replaceChildren();
+          recommendations.slice(0, 6).forEach(({ task, text }) => {
+            const li = document.createElement("li");
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = text;
+            button.addEventListener("click", () => selectTask(task.id));
+            li.append(button);
+            elements.recommendationList.append(li);
+          });
+
+          const masterActive = TASKS.filter(
+            (task) =>
+              task.owner === "master" &&
+              ["claimed", "in_progress"].includes(state.tasks[task.id].state),
+          ).length;
+          elements.capacity.textContent = `Worker capacity: ${activeWorkers.length}/3 · Master tasks active: ${masterActive} · Only “complete” unlocks dependencies.`;
+        }
+
+        function selectTask(id) {
+          selectedId = id;
+          history.replaceState(null, "", `#${id}`);
+          render();
+        }
+
+        function updateSelected(event) {
+          event.preventDefault();
+          const task = TASK_BY_ID[selectedId];
+          const record = state.tasks[selectedId];
+          const nextState = elements.stateInput.value;
+          const agent = elements.agentInput.value.trim();
+          const reviewer = elements.reviewerInput.value.trim();
+          const reason = elements.reasonInput.value.trim();
+          const review = elements.reviewInput.value;
+          const assignedStates = [
+            "claimed",
+            "in_progress",
+            "blocked",
+            "review",
+            "changes_requested",
+            "complete",
+          ];
+
+          if (assignedStates.includes(nextState) && !agent)
+            return showToast("Add the coding agent before assigning work.");
+          if (["blocked", "deferred"].includes(nextState) && !reason)
+            return showToast("Add the blocker or deferral reason.");
+          if (nextState === "complete" && (!reviewer || review !== "approved"))
+            return showToast(
+              "Completion requires a human reviewer and Approved outcome.",
+            );
+          if (
+            nextState === "complete" &&
+            missing(task.start).length &&
+            !confirm(
+              `Start dependencies ${missing(task.start).join(", ")} are not complete. Record this task complete anyway?`,
+            )
+          )
+            return;
+
+          const now = new Date().toISOString();
+          if (assignedStates.includes(nextState) && !record.claimedAt)
+            record.claimedAt = now;
+          if (
+            [
+              "in_progress",
+              "blocked",
+              "review",
+              "changes_requested",
+              "complete",
+            ].includes(nextState) &&
+            !record.startedAt
+          )
+            record.startedAt = now;
+          if (nextState === "complete" && !record.completedAt)
+            record.completedAt = now;
+          if (nextState !== "complete") record.completedAt = "";
+
+          record.state =
+            review === "changes_requested" ? "changes_requested" : nextState;
+          record.agent = agent;
+          record.branch = elements.branchInput.value.trim();
+          record.reviewer = reviewer;
+          record.review = review;
+          record.sha = elements.shaInput.value.trim();
+          record.reason = reason;
+          record.notes = elements.notesInput.value.trim();
+          record.updatedAt = now;
+          record._source = "local override";
+          saveState();
+          formDirty = false;
+          render();
+          showToast(`Task ${selectedId} saved.`);
+        }
+
+        function reportFor(id) {
+          const task = TASK_BY_ID[id];
+          const record = state.tasks[id];
+          return [
+            `task_id: "${id}"`,
+            `task_title: "${yamlText(task.title)}"`,
+            `state: ${record.state}`,
+            `agent_id: "${yamlText(record.agent)}"`,
+            `branch: "${yamlText(record.branch)}"`,
+            `worktree: "${yamlText(record.worktree)}"`,
+            `base_sha: "${yamlText(record.baseSha)}"`,
+            `result_sha: "${yamlText(record.sha)}"`,
+            `claimed_at_utc: "${record.claimedAt}"`,
+            `started_at_utc: "${record.startedAt}"`,
+            `completed_at_utc: "${record.completedAt}"`,
+            `updated_at_utc: "${record.updatedAt}"`,
+            `reviewer: "${yamlText(record.reviewer)}"`,
+            `review_outcome: ${record.review}`,
+            `status_reason: "${yamlText(record.reason)}"`,
+            `post_implementation_notes: "${yamlText(record.notes)}"`,
+            `start_dependencies: [${task.start.map((value) => `"${value}"`).join(", ")}]`,
+            `integration_dependencies: [${task.integrate.map((value) => `"${value}"`).join(", ")}]`,
+          ].join("\n");
+        }
+
+        async function copyReport() {
+          const text = reportFor(selectedId);
+          await copyText(text);
+          showToast(`Task ${selectedId} report copied.`);
+        }
+
+        async function copyText(text) {
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch {
+            const area = document.createElement("textarea");
+            area.value = text;
+            document.body.append(area);
+            area.select();
+            document.execCommand("copy");
+            area.remove();
+          }
+        }
+
+        function exportState() {
+          const blob = new Blob([JSON.stringify(state, null, 2)], {
+            type: "application/json",
+          });
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(blob);
+          link.download = `coslash-canvas-migration-${new Date().toISOString().slice(0, 10)}.json`;
+          link.click();
+          URL.revokeObjectURL(link.href);
+          showToast("Tracker state exported.");
+        }
+
+        async function importState(file) {
+          try {
+            const parsed = JSON.parse(await file.text());
+            if (parsed.version !== 1 || !parsed.tasks)
+              throw new Error("Unsupported tracker schema");
+            const next = Object.fromEntries(
+              TASKS.map((task) => [
+                task.id,
+                { ...emptyRecord(), ...(parsed.tasks[task.id] || {}) },
+              ]),
+            );
+            state = {
+              version: 1,
+              tasks: next,
+              updatedAt: new Date().toISOString(),
+            };
+            saveState();
+            render();
+            showToast("Tracker state imported.");
+          } catch (error) {
+            showToast(`Import failed: ${error.message}`);
+          } finally {
+            elements.importFile.value = "";
+          }
+        }
+
+        function resetState() {
+          if (
+            !confirm(
+              "Reset every local task status, assignment, timestamp, and note? Export first if this state matters.",
+            )
+          )
+            return;
+          try {
+            localStorage.removeItem(STORAGE_KEY);
+          } catch {
+            // Continue with an in-memory reset if file-origin storage is disabled.
+          }
+          state = loadState();
+          selectedId = "00";
+          history.replaceState(null, "", "#00");
+          render();
+          showToast("Local tracker reset.");
+        }
+
+        function showToast(message) {
+          elements.toast.textContent = message;
+          elements.toast.classList.add("show");
+          clearTimeout(showToast.timer);
+          showToast.timer = setTimeout(
+            () => elements.toast.classList.remove("show"),
+            2600,
+          );
+        }
+
+        function shortTime(value) {
+          if (!value) return "—";
+          const date = new Date(value);
+          return Number.isNaN(date.valueOf())
+            ? value
+            : date.toLocaleString([], {
+                dateStyle: "short",
+                timeStyle: "short",
+              });
+        }
+
+        function yamlText(value) {
+          return String(value || "")
+            .replaceAll("\\", "\\\\")
+            .replaceAll('"', '\\"')
+            .replaceAll("\n", "\\n");
+        }
+
+        function escapeHtml(value) {
+          return String(value).replace(
+            /[&<>"']/g,
+            (char) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#039;",
+              })[char],
+          );
+        }
+
+        elements.taskForm.addEventListener("submit", updateSelected);
+        elements.taskForm.addEventListener("input", () => {
+          formDirty = true;
+        });
+        elements.copyReportButton.addEventListener("click", copyReport);
+        elements.promptButton.addEventListener("click", () =>
+          elements.promptDialog.showModal(),
+        );
+        elements.closePromptButton.addEventListener("click", () =>
+          elements.promptDialog.close(),
+        );
+        elements.copyAgentPromptButton.addEventListener("click", async () => {
+          await copyText(elements.agentPromptText.value.trim());
+          showToast("Reusable agent prompt copied.");
+        });
+        elements.exportButton.addEventListener("click", exportState);
+        elements.importButton.addEventListener("click", () =>
+          elements.importFile.click(),
+        );
+        elements.importFile.addEventListener(
+          "change",
+          () =>
+            elements.importFile.files[0] &&
+            importState(elements.importFile.files[0]),
+        );
+        elements.resetButton.addEventListener("click", resetState);
+        window.addEventListener("hashchange", () => {
+          const id = location.hash.slice(1);
+          if (TASK_BY_ID[id]) selectTask(id);
+        });
+
+        setInterval(() => {
+          if (
+            !formDirty &&
+            !elements.promptDialog.open &&
+            document.visibilityState === "visible"
+          ) {
+            location.reload();
+          }
+        }, 15000);
+
+        render();
+      })();
+    </script>
+  </body>
+</html>
