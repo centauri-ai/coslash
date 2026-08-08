@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "revision": 2,
+  "session": {
+    "agent": "codex",
+    "id": "session-1"
+  },
+  "state": {
+    "layout": {},
+    "pins": []
+  },
+  "updatedAt": "2026-08-08T20:00:00Z"
+}

@@ -1,0 +1,7 @@
+{
+  "ok": false,
+  "code": "REVISION_CONFLICT",
+  "error": "the workspace changed in another client",
+  "field": "expectedRevision",
+  "actualRevision": 2
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "board-1",
+  "name": "Migration board",
+  "revision": 3,
+  "createdAt": "2026-08-08T19:00:00Z",
+  "updatedAt": "2026-08-08T20:00:00Z",
+  "board": {
+    "stages": []
+  }
+}
