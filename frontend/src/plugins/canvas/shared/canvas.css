@@ -1,0 +1,392 @@
+/* Shared Canvas board styling.
+ *
+ * Ported from the legacy Fleetlog canvas stylesheet, with every hardcoded hex
+ * swapped for a coSlash theme token so the boards render correctly in both
+ * light and dark. Two legacy colors have no token equivalent and are expressed
+ * as tinted layers over the theme surfaces instead:
+ *   - the dotted stage backdrop (was #f3f5f8 / #cbd3df)
+ *   - the selection halo (was #91a0eb / #dfe4ff), now driven by --color-brand
+ *
+ * Product-specific node classes (terminal, note, turn, segment, comparison)
+ * stay with their owning task; only chrome every board needs lives here.
+ */
+
+.canvas-stage {
+  position: relative;
+  height: 100%;
+  overflow: auto;
+  background-color: var(--muted);
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.canvas-toolbar {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  pointer-events: none;
+}
+
+.canvas-toolbar > * {
+  pointer-events: auto;
+}
+
+.canvas-world-shell {
+  position: relative;
+  z-index: 1;
+  margin: -0.5rem auto 1.5rem;
+  min-width: 42rem;
+}
+
+.canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  transition: transform 160ms ease;
+}
+
+.canvas-wires {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.canvas-wires path {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+}
+
+.canvas-wires .canvas-wire-active {
+  stroke: var(--color-brand);
+  stroke-dasharray: none;
+}
+
+.canvas-node {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  box-shadow: 0 5px 18px rgb(25 38 58 / 7.5%);
+  color: var(--card-foreground);
+  outline: none;
+  transition:
+    box-shadow 150ms ease,
+    transform 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease;
+}
+
+.canvas-node:hover,
+.canvas-node:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 35px rgb(25 38 58 / 11%);
+}
+
+.canvas-node:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.canvas-node-selected {
+  border-color: var(--color-brand);
+  box-shadow:
+    0 0 0 3px color-mix(in oklch, var(--color-brand) 25%, transparent),
+    0 12px 35px rgb(25 38 58 / 11%);
+}
+
+.canvas-node-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--card) 92%, var(--muted));
+  padding: 0.7rem 0.75rem;
+}
+
+.canvas-node-header-draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.canvas-node-header-draggable:active {
+  cursor: grabbing;
+}
+
+.canvas-node-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.canvas-node-actions {
+  display: flex;
+  width: 0;
+  align-items: center;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    width 120ms ease,
+    opacity 120ms ease;
+}
+
+.canvas-node:hover .canvas-node-actions,
+.canvas-node-selected .canvas-node-actions,
+.canvas-node:focus-within .canvas-node-actions {
+  width: 4.5rem;
+  opacity: 1;
+}
+
+.canvas-node-actions button {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  cursor: pointer;
+  place-items: center;
+  border-radius: 0.35rem;
+  color: var(--muted-foreground);
+}
+
+.canvas-node-actions button:hover,
+.canvas-node-actions button:focus-visible {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.canvas-node-actions svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.canvas-node-body {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0.75rem;
+}
+
+.canvas-node-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 1rem;
+  height: 1rem;
+  cursor: nwse-resize;
+  touch-action: none;
+  border-right: 2px solid var(--muted-foreground);
+  border-bottom: 2px solid var(--muted-foreground);
+  border-bottom-right-radius: 0.6rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.canvas-node:hover .canvas-node-resize,
+.canvas-node-selected .canvas-node-resize {
+  opacity: 1;
+}
+
+.canvas-node-collapsed .canvas-node-header {
+  border-bottom: 0;
+}
+
+.canvas-node-muted {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.canvas-node-focused {
+  top: 70px !important;
+  left: 250px !important;
+  z-index: 8;
+  width: 680px !important;
+  height: 540px !important;
+  transform: none !important;
+}
+
+.canvas-node-focused .canvas-node-body {
+  overflow-y: auto;
+}
+
+.canvas-node-focused .canvas-node-scroll {
+  max-height: none;
+}
+
+.canvas-world-has-focus .canvas-wires {
+  opacity: 0;
+}
+
+.canvas-node-scroll {
+  height: 100%;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.canvas-zoom-controls {
+  position: sticky;
+  bottom: 1rem;
+  left: 1rem;
+  z-index: 20;
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--card);
+  padding: 0.15rem;
+  box-shadow: 0 3px 12px rgb(28 45 71 / 10%);
+}
+
+.canvas-tool-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--card);
+  padding: 0.1rem;
+  box-shadow: 0 2px 8px rgb(28 45 71 / 8%);
+}
+
+.canvas-tool-group [data-slot='button'] {
+  position: relative;
+}
+
+.canvas-tool-count {
+  position: absolute;
+  top: -0.2rem;
+  right: -0.15rem;
+  display: grid;
+  min-width: 0.85rem;
+  height: 0.85rem;
+  place-items: center;
+  border: 1px solid var(--card);
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: white;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.canvas-inspector,
+.canvas-side-panel {
+  position: fixed;
+  top: 4.25rem;
+  right: 1rem;
+  max-height: calc(100svh - 6rem);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 12px 35px rgb(25 38 58 / 16%);
+}
+
+.canvas-inspector {
+  z-index: 30;
+  width: 18rem;
+}
+
+.canvas-side-panel {
+  z-index: 31;
+  width: 22rem;
+}
+
+.canvas-inspector-header,
+.canvas-side-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.7rem 0.75rem;
+}
+
+.canvas-inspector-body,
+.canvas-side-panel-body {
+  max-height: calc(100svh - 10rem);
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.canvas-command-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: start center;
+  background: rgb(23 39 66 / 22%);
+  padding-top: 14svh;
+}
+
+.canvas-command-palette {
+  width: min(34rem, calc(100vw - 2rem));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: 0 18px 55px rgb(25 38 58 / 22%);
+}
+
+@media (max-width: 900px) {
+  .canvas-world-shell {
+    margin-right: 1rem;
+    margin-left: 1rem;
+  }
+
+  .canvas-inspector {
+    right: 0.75rem;
+    width: min(18rem, calc(100vw - 1.5rem));
+  }
+
+  .canvas-side-panel {
+    right: 0.75rem;
+    width: min(22rem, calc(100vw - 1.5rem));
+  }
+}
+
+/* Touch and other hover-less pointers never trigger the hover reveal, so the
+   node actions and the resize grip stay visible there. */
+@media (hover: none) {
+  .canvas-node-actions {
+    width: 4.5rem;
+    opacity: 1;
+  }
+
+  .canvas-node-resize {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .canvas-world,
+  .canvas-node,
+  .canvas-node-actions,
+  .canvas-node-resize {
+    transition: none;
+  }
+
+  .canvas-node:hover,
+  .canvas-node:focus-visible {
+    transform: none;
+  }
+}
