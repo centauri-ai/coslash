@@ -1,0 +1,32 @@
+{
+  "agent": "codex",
+  "id": "fixture-shared-id",
+  "turn": {
+    "index": 1,
+    "prompt": "Implement the fixture using only synthetic inputs.",
+    "planText": "Build the payload, run validation, and report the blocked browser capture.",
+    "todos": [{ "text": "Run build", "done": true }],
+    "decision": { "question": "Can the screenshot requirement be inferred?", "answer": null },
+    "fileEdit": "docs/plans/canvas-suite/fixtures/session/codex-detail.json"
+  },
+  "fileEdit": { "path": "docs/plans/canvas-suite/fixtures/session/codex-detail.json", "adds": 64, "dels": 0, "isNew": true },
+  "contextFile": {
+    "path": "docs/reference-contract.md",
+    "partial": true,
+    "capturedContent": true,
+    "combinedReadId": "read-fixture-1",
+    "startLine": 5,
+    "content": "Use composite session identity.\n"
+  },
+  "readGroup": {
+    "id": "read-fixture-1",
+    "command": "sed -n '5,8p' docs/reference-contract.md",
+    "output": "Use composite session identity.\n"
+  },
+  "deferred": {
+    "id": "skill-fixture",
+    "kind": "skill",
+    "name": "fixture-validation",
+    "content": "Validate only synthetic payloads."
+  }
+}
