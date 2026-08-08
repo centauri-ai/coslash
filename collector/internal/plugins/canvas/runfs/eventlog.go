@@ -134,9 +134,13 @@ func (l *EventLog) Append(ctx context.Context, eventType string, data any) (Even
 		if uint64(len(parsed.Events)) >= l.maxEvents {
 			return ErrLogFull
 		}
+		now := l.now().UTC()
+		if now.IsZero() {
+			return fmt.Errorf("runfs: clock returned zero time")
+		}
 		appended = Event{
 			Seq:  uint64(len(parsed.Events)) + 1,
-			At:   l.now().UTC(),
+			At:   now,
 			Type: eventType,
 			Data: payload,
 		}
@@ -311,9 +315,6 @@ func (l *EventLog) withLockedFile(ctx context.Context, operation func(*os.File, 
 		return err
 	}
 	defer file.Close()
-	if err := file.Chmod(l.scope.fileMode); err != nil {
-		return err
-	}
 	if err := l.scope.checkFinalFile(l.name, false); err != nil {
 		return err
 	}
@@ -327,6 +328,9 @@ func (l *EventLog) withLockedFile(ctx context.Context, operation func(*os.File, 
 	}
 	if !os.SameFile(openedInfo, pathInfo) {
 		return fmt.Errorf("%w: event log changed while opening", ErrSymlink)
+	}
+	if err := file.Chmod(l.scope.fileMode); err != nil {
+		return err
 	}
 	if err := lockFile(ctx, file); err != nil {
 		return err
@@ -344,24 +348,53 @@ func parentPath(name string) string {
 }
 
 type processLock struct {
-	token chan struct{}
+	token      chan struct{}
+	references int
 }
 
-var processLocks sync.Map
+var (
+	processLocksMu sync.Mutex
+	processLocks   = make(map[string]*processLock)
+)
 
-func processLockFor(key string) *processLock {
-	created := &processLock{token: make(chan struct{}, 1)}
-	created.token <- struct{}{}
-	actual, _ := processLocks.LoadOrStore(key, created)
-	return actual.(*processLock)
+func retainProcessLock(key string) *processLock {
+	processLocksMu.Lock()
+	defer processLocksMu.Unlock()
+	lock := processLocks[key]
+	if lock == nil {
+		lock = &processLock{token: make(chan struct{}, 1)}
+		lock.token <- struct{}{}
+		processLocks[key] = lock
+	}
+	lock.references++
+	return lock
+}
+
+func releaseProcessLockReference(key string, lock *processLock) {
+	processLocksMu.Lock()
+	defer processLocksMu.Unlock()
+	lock.references--
+	if lock.references == 0 && processLocks[key] == lock {
+		delete(processLocks, key)
+	}
+}
+
+func processLockCount() int {
+	processLocksMu.Lock()
+	defer processLocksMu.Unlock()
+	return len(processLocks)
 }
 
 func acquireProcessLock(ctx context.Context, key string) (func(), error) {
-	lock := processLockFor(key)
+	lock := retainProcessLock(key)
 	select {
 	case <-ctx.Done():
+		releaseProcessLockReference(key, lock)
 		return nil, context.Cause(ctx)
 	case <-lock.token:
-		return func() { lock.token <- struct{}{} }, nil
+		return func() {
+			lock.token <- struct{}{}
+			releaseProcessLockReference(key, lock)
+		}, nil
 	}
 }

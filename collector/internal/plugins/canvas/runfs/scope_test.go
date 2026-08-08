@@ -3,10 +3,12 @@ package runfs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -203,6 +205,36 @@ func TestScopeHonorsCancellation(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "canceled")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("canceled write touched disk: %v", err)
+	}
+}
+
+func TestScopeConcurrentMkdirAllIsIdempotent(t *testing.T) {
+	scope, _ := newTestScope(t, ScopeOptions{})
+	const (
+		directories = 20
+		writers     = 32
+	)
+	for directory := range directories {
+		name := filepath.Join("shared", "parents", fmt.Sprintf("%d", directory))
+		start := make(chan struct{})
+		errorsSeen := make(chan error, writers)
+		var group sync.WaitGroup
+		for range writers {
+			group.Add(1)
+			go func() {
+				defer group.Done()
+				<-start
+				errorsSeen <- scope.MkdirAll(context.Background(), name)
+			}()
+		}
+		close(start)
+		group.Wait()
+		close(errorsSeen)
+		for err := range errorsSeen {
+			if err != nil {
+				t.Fatalf("MkdirAll(%q): %v", name, err)
+			}
+		}
 	}
 }
 

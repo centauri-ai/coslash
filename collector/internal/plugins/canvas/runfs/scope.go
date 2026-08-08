@@ -293,7 +293,23 @@ func (s *Scope) ensureDirectory(ctx context.Context, clean string) error {
 			}
 		case errors.Is(err, fs.ErrNotExist):
 			if err := s.root.Mkdir(next, s.dirMode); err != nil {
-				return err
+				if !errors.Is(err, fs.ErrExist) {
+					return err
+				}
+				// Another scoped operation may have created the same shared
+				// parent after our lstat. Re-inspect it rather than turning an
+				// idempotent MkdirAll into a spurious failure.
+				info, inspectErr := s.root.Lstat(next)
+				if inspectErr != nil {
+					return inspectErr
+				}
+				if info.Mode()&os.ModeSymlink != 0 {
+					return fmt.Errorf("%w: directory component", ErrSymlink)
+				}
+				if !info.IsDir() {
+					return fmt.Errorf("%w: directory component", ErrNotRegular)
+				}
+				break
 			}
 			if err := s.syncDirectory(current); err != nil {
 				return err

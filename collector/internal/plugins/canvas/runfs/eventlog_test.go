@@ -61,6 +61,7 @@ func TestEventLogAppendReadAndIntentOrdering(t *testing.T) {
 }
 
 func TestEventLogConcurrentWritersAllocateGaplessSequences(t *testing.T) {
+	baselineLocks := processLockCount()
 	scope, first, _ := newTestEventLog(t, EventLogOptions{})
 	second, err := NewEventLog(scope, first.name, EventLogOptions{})
 	if err != nil {
@@ -111,6 +112,9 @@ func TestEventLogConcurrentWritersAllocateGaplessSequences(t *testing.T) {
 		if index != worker {
 			t.Fatalf("workers = %v", workers)
 		}
+	}
+	if got := processLockCount(); got != baselineLocks {
+		t.Fatalf("process lock count = %d, want %d", got, baselineLocks)
 	}
 }
 
@@ -250,16 +254,51 @@ func TestEventLogRejectsSymlinks(t *testing.T) {
 }
 
 func TestEventLogCancellationWhileWaitingForWriter(t *testing.T) {
+	baseline := processLockCount()
 	_, log, _ := newTestEventLog(t, EventLogOptions{})
 	release, err := acquireProcessLock(context.Background(), log.lockKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := log.Append(ctx, "event", nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v", err)
+	}
+	release()
+	if got := processLockCount(); got != baseline {
+		t.Fatalf("process lock count = %d, want %d", got, baseline)
+	}
+}
+
+func TestEventLogReleasesProcessLocksForDistinctPaths(t *testing.T) {
+	baseline := processLockCount()
+	scope, _ := newTestScope(t, ScopeOptions{})
+	for index := range 100 {
+		log, err := NewEventLog(scope, fmt.Sprintf("runs/%d/events.jsonl", index), EventLogOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := log.Append(context.Background(), "created", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := processLockCount(); got != baseline {
+		t.Fatalf("process lock count = %d, want %d", got, baseline)
+	}
+}
+
+func TestEventLogRejectsZeroClockWithoutCorruptingLog(t *testing.T) {
+	_, log, _ := newTestEventLog(t, EventLogOptions{Now: func() time.Time { return time.Time{} }})
+	if _, err := log.Append(context.Background(), "created", nil); err == nil {
+		t.Fatal("zero clock was accepted")
+	}
+	result, err := log.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != 0 || result.TornTailBytes != 0 {
+		t.Fatalf("result = %#v", result)
 	}
 }
 
