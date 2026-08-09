@@ -30,6 +30,11 @@ const (
 	RunSucceeded        RunStatus = "succeeded"
 	RunFailed           RunStatus = "failed"
 	RunCanceled         RunStatus = "canceled"
+	// RunInterruptedImport is a run this collector never executed: legacy
+	// history the migration imported. It is terminal by construction — the live
+	// process it described ended in another product, so there is nothing any
+	// control could resume. Atlas defines the same status.
+	RunInterruptedImport RunStatus = "interrupted_migration"
 )
 
 // ComponentStatus is one stage's position.

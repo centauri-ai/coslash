@@ -1,0 +1,25 @@
+{"type":"run_created","projectId":"fixture-project","boardId":"fixture-dagama-board","boardRevision":1,"title":"Synthetic DaGama run","source":{"kind":"text","title":"Fixture change","path":null,"bytes":41,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"seq":1,"at":"2026-08-01T12:00:00.000Z"}
+{"type":"run_root_created","runRoot":"/workspace/canvas-fixture/.runs/dagama-001","branch":"fixture/dagama-001","baseBranch":"main","baseSha":"0123456789abcdef0123456789abcdef01234567","remoteUrl":"https://example.invalid/canvas-fixture.git","seq":2,"at":"2026-08-01T12:00:01.000Z"}
+{"type":"component_ready","componentId":"intake","instance":1,"seq":3,"at":"2026-08-01T12:00:02.000Z"}
+{"type":"component_started","componentId":"intake","instance":1,"seq":4,"at":"2026-08-01T12:00:03.000Z"}
+{"type":"component_succeeded","componentId":"intake","instance":1,"outputs":["PROBLEM.md"],"seq":5,"at":"2026-08-01T12:00:04.000Z"}
+{"type":"component_ready","componentId":"plan","instance":1,"seq":6,"at":"2026-08-01T12:00:05.000Z"}
+{"type":"component_started","componentId":"plan","instance":1,"seq":7,"at":"2026-08-01T12:00:06.000Z"}
+{"type":"attempt_launch_requested","componentId":"plan","instance":1,"seatId":"plan-1","attempt":1,"attemptId":"dagama-plan-1","tmuxName":"fixture-dagama-plan-1","sessionId":"fixture-claude-plan","seq":8,"at":"2026-08-01T12:00:07.000Z"}
+{"type":"attempt_launched","componentId":"plan","instance":1,"seatId":"plan-1","attempt":1,"attemptId":"dagama-plan-1","tmuxName":"fixture-dagama-plan-1","sessionId":"fixture-claude-plan","port":17681,"seq":9,"at":"2026-08-01T12:00:08.000Z"}
+{"type":"attempt_exited","componentId":"plan","instance":1,"seatId":"plan-1","attempt":1,"attemptId":"dagama-plan-1","exitCode":0,"finishedAt":"2026-08-01T12:00:10.000Z","seq":10,"at":"2026-08-01T12:00:10.000Z"}
+{"type":"component_succeeded","componentId":"plan","instance":1,"outputs":["PLAN.md"],"seq":11,"at":"2026-08-01T12:00:11.000Z"}
+{"type":"component_ready","componentId":"build","instance":1,"seq":12,"at":"2026-08-01T12:00:12.000Z"}
+{"type":"component_started","componentId":"build","instance":1,"seq":13,"at":"2026-08-01T12:00:13.000Z"}
+{"type":"component_succeeded","componentId":"build","instance":1,"outputs":["IMPLEMENTATION.md"],"seq":14,"at":"2026-08-01T12:00:16.000Z"}
+{"type":"component_ready","componentId":"verify","instance":1,"seq":15,"at":"2026-08-01T12:00:17.000Z"}
+{"type":"component_started","componentId":"verify","instance":1,"seq":16,"at":"2026-08-01T12:00:18.000Z"}
+{"type":"component_succeeded","componentId":"verify","instance":1,"outputs":["verification.json"],"seq":17,"at":"2026-08-01T12:00:20.000Z"}
+{"type":"component_ready","componentId":"review","instance":1,"seq":18,"at":"2026-08-01T12:00:21.000Z"}
+{"type":"component_started","componentId":"review","instance":1,"seq":19,"at":"2026-08-01T12:00:22.000Z"}
+{"type":"component_succeeded","componentId":"review","instance":1,"outputs":["REVIEW.md","review.json"],"seq":20,"at":"2026-08-01T12:00:25.000Z"}
+{"type":"component_ready","componentId":"publish","instance":1,"seq":21,"at":"2026-08-01T12:00:26.000Z"}
+{"type":"gate_opened","componentId":"publish","instance":1,"reason":"publish_approval","message":"Approve the synthetic revision for publication.","changeRevision":1,"seq":22,"at":"2026-08-01T12:00:27.000Z"}
+{"type":"gate_decided","componentId":"publish","instance":1,"decision":"approved","changeRevision":1,"message":"Approved without external publication.","seq":23,"at":"2026-08-01T12:00:28.000Z"}
+{"type":"component_succeeded","componentId":"publish","instance":1,"outputs":[],"seq":24,"at":"2026-08-01T12:00:29.000Z"}
+{"type":"run_finished","status":"succeeded","reason":"approved_without_publish","message":"Synthetic run approved without external effects.","seq":25,"at":"2026-08-01T12:00:30.000Z"}

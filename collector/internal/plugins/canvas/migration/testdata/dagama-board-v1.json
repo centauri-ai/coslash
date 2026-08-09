@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "instructions": "Use only the synthetic fixture project and keep changes bounded.",
+  "components": {
+    "intake": {
+      "id": "intake",
+      "prompt": "",
+      "seat": null,
+      "checks": [],
+      "publish": null,
+      "box": {
+        "x": 120,
+        "y": 160,
+        "width": 360,
+        "height": 340,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": null,
+      "infoBox": null,
+      "promptDraft": ""
+    },
+    "plan": {
+      "id": "plan",
+      "prompt": "Produce a small implementation plan.",
+      "seat": {
+        "vendor": "claude",
+        "model": "opus",
+        "effort": "high",
+        "permission": "acceptEdits"
+      },
+      "checks": [],
+      "publish": null,
+      "box": {
+        "x": 570,
+        "y": 160,
+        "width": 780,
+        "height": 520,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": {
+        "x": 570,
+        "y": 708,
+        "width": 380,
+        "height": 220,
+        "collapsed": false,
+        "locked": false
+      },
+      "infoBox": {
+        "x": 970,
+        "y": 708,
+        "width": 380,
+        "height": 280,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptDraft": ""
+    },
+    "build": {
+      "id": "build",
+      "prompt": "Implement only the approved plan.",
+      "seat": {
+        "vendor": "claude",
+        "model": "opus",
+        "effort": "high",
+        "permission": "acceptEdits"
+      },
+      "checks": [],
+      "publish": null,
+      "box": {
+        "x": 1440,
+        "y": 160,
+        "width": 780,
+        "height": 520,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": {
+        "x": 1440,
+        "y": 708,
+        "width": 380,
+        "height": 220,
+        "collapsed": false,
+        "locked": false
+      },
+      "infoBox": {
+        "x": 1840,
+        "y": 708,
+        "width": 380,
+        "height": 280,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptDraft": ""
+    },
+    "verify": {
+      "id": "verify",
+      "prompt": "",
+      "seat": null,
+      "checks": [{ "name": "tests", "argv": ["npm", "test", "--", "--run"] }],
+      "publish": null,
+      "box": {
+        "x": 2310,
+        "y": 160,
+        "width": 360,
+        "height": 340,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": null,
+      "infoBox": null,
+      "promptDraft": ""
+    },
+    "review": {
+      "id": "review",
+      "prompt": "Review only the captured changeset.",
+      "seat": {
+        "vendor": "codex",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "permission": "workspace-write"
+      },
+      "checks": [],
+      "publish": null,
+      "box": {
+        "x": 2760,
+        "y": 160,
+        "width": 780,
+        "height": 520,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": {
+        "x": 2760,
+        "y": 708,
+        "width": 380,
+        "height": 220,
+        "collapsed": false,
+        "locked": false
+      },
+      "infoBox": {
+        "x": 3160,
+        "y": 708,
+        "width": 380,
+        "height": 280,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptDraft": ""
+    },
+    "publish": {
+      "id": "publish",
+      "prompt": "",
+      "seat": null,
+      "checks": [],
+      "publish": { "base": "main", "draft": true },
+      "box": {
+        "x": 3630,
+        "y": 160,
+        "width": 360,
+        "height": 340,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": null,
+      "infoBox": null,
+      "promptDraft": ""
+    }
+  },
+  "viewport": { "zoom": 0.55, "panX": 0, "panY": 0 }
+}
