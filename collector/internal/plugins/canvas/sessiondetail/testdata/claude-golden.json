@@ -1,0 +1,35 @@
+{
+  "agent": "claude",
+  "id": "fixture-shared-id",
+  "turnLog": [
+    {
+      "index": 1,
+      "prompt": "Create sanitized migration fixtures.",
+      "planText": "Inspect schemas, write synthetic records, then validate them.",
+      "todos": [{ "text": "Validate JSON", "done": true }],
+      "toolUses": 3,
+      "errors": 0,
+      "decisions": [{ "question": "May fixtures include real paths?", "answer": "No; use /workspace/canvas-fixture." }],
+      "fileEdits": ["docs/plans/canvas-suite/fixtures/README.md"]
+    },
+    {
+      "index": 2,
+      "prompt": "Verify the package.",
+      "planText": null,
+      "todos": [],
+      "toolUses": 1,
+      "errors": 0,
+      "decisions": [],
+      "fileEdits": ["docs/plans/canvas-suite/fixtures/characterization.md"]
+    }
+  ],
+  "fileEdit": { "path": "docs/plans/canvas-suite/fixtures/README.md", "adds": 24, "dels": 0, "isNew": true },
+  "contextFile": {
+    "path": "docs/reference-contract.md",
+    "partial": false,
+    "totalLines": 12,
+    "capturedContent": true,
+    "startLine": 1,
+    "content": "# Synthetic reference contract\n"
+  }
+}
