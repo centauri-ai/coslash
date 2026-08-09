@@ -42,7 +42,9 @@ type WorkspaceRegistrar interface {
 
 type TerminalService interface {
 	Create(context.Context, terminal.Spec) (contracts.TerminalStatus, error)
+	Adopt(context.Context, string, string, string, bool, bool) (contracts.TerminalStatus, error)
 	Status(context.Context, string) (contracts.TerminalStatus, error)
+	Stop(context.Context, string) error
 }
 
 type TerminalAPI interface {

@@ -161,9 +161,21 @@ func (h *Handler) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := stableTerminalID(identity)
-	if status, err := h.terminals.Status(r.Context(), id); err == nil {
-		writeJSON(w, http.StatusOK, terminalResponse{OK: true, Reused: true, Terminal: status})
+	name, err := terminalName("session", identity.Agent, identity.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "TERMINAL_ERROR", "terminal identity could not be created", "")
 		return
+	}
+	requestedWritable := writable(request.Writable)
+	if status, err := h.terminals.Status(r.Context(), id); err == nil {
+		if status.State != "exited" {
+			writeJSON(w, http.StatusOK, terminalResponse{OK: true, Reused: true, Terminal: status})
+			return
+		}
+		if err := h.terminals.Stop(r.Context(), id); err != nil && !errors.Is(err, terminal.ErrNotFound) {
+			writeError(w, http.StatusInternalServerError, "TERMINAL_ERROR", "terminal could not be restarted", "")
+			return
+		}
 	} else if !errors.Is(err, terminal.ErrNotFound) {
 		writeError(w, http.StatusInternalServerError, "TERMINAL_ERROR", "terminal status is unavailable", "")
 		return
@@ -177,9 +189,17 @@ func (h *Handler) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_TERMINAL_REQUEST", "terminal request is invalid", "")
 		return
 	}
-	name, _ := terminal.Name("session", identity.Agent+"\x00"+identity.ID)
+	if status, err := h.terminals.Adopt(
+		r.Context(), id, name, command.Dir, requestedWritable, true,
+	); err == nil {
+		writeJSON(w, http.StatusOK, terminalResponse{OK: true, Reused: true, Terminal: status})
+		return
+	} else if !errors.Is(err, terminal.ErrNotFound) {
+		writeError(w, http.StatusInternalServerError, "TERMINAL_ERROR", "terminal could not be reconnected", "")
+		return
+	}
 	status, err := h.terminals.Create(r.Context(), terminal.Spec{
-		ID: id, TmuxName: name, Command: command, Writable: writable(request.Writable), PreserveOnClose: true,
+		ID: id, TmuxName: name, Command: command, Writable: requestedWritable, PreserveOnClose: true,
 	})
 	if err != nil {
 		writeError(w, http.StatusConflict, "TERMINAL_START_FAILED", "terminal could not be started", "")
@@ -216,7 +236,11 @@ func (h *Handler) handleFork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	terminalID := "experiment-" + strings.ReplaceAll(uuid, "-", "")
-	name, _ := terminal.Name("experiment", identity.Agent+"\x00"+identity.ID+"\x00"+uuid)
+	name, err := terminalName("experiment", identity.Agent, identity.ID, uuid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "FORK_FAILED", "experiment identity could not be created", "")
+		return
+	}
 	status, err := h.terminals.Create(r.Context(), terminal.Spec{
 		ID: terminalID, TmuxName: name, Command: command, Writable: writable(request.Writable), PreserveOnClose: true,
 	})
@@ -330,6 +354,14 @@ func writable(value *bool) bool            { return value == nil || *value }
 func stableTerminalID(identity contracts.SessionIdentity) string {
 	digest := sha256.Sum256([]byte(identity.Agent + "\x00" + identity.ID))
 	return "session-" + hex.EncodeToString(digest[:12])
+}
+
+func terminalName(namespace string, identity ...string) (string, error) {
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	return terminal.Name(namespace, string(encoded))
 }
 
 func randomUUID() (string, error) {

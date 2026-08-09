@@ -74,6 +74,9 @@ func (workspace *fakeWorkspace) Register(mux *http.ServeMux) {
 type fakeTerminals struct {
 	statuses  map[string]contracts.TerminalStatus
 	specs     []terminal.Spec
+	adoptable map[string]bool
+	adopted   []string
+	stopped   []string
 	statusErr error
 	createErr error
 }
@@ -100,6 +103,25 @@ func (terminals *fakeTerminals) Status(_ context.Context, id string) (contracts.
 		return contracts.TerminalStatus{}, terminal.ErrNotFound
 	}
 	return status, nil
+}
+
+func (terminals *fakeTerminals) Adopt(_ context.Context, id, tmuxName, _ string, writable, _ bool) (contracts.TerminalStatus, error) {
+	if !terminals.adoptable[tmuxName] {
+		return contracts.TerminalStatus{}, terminal.ErrNotFound
+	}
+	terminals.adopted = append(terminals.adopted, id)
+	status := contracts.TerminalStatus{TerminalID: id, State: "running", Writable: writable}
+	terminals.statuses[id] = status
+	return status, nil
+}
+
+func (terminals *fakeTerminals) Stop(_ context.Context, id string) error {
+	if _, found := terminals.statuses[id]; !found {
+		return terminal.ErrNotFound
+	}
+	terminals.stopped = append(terminals.stopped, id)
+	delete(terminals.statuses, id)
+	return nil
 }
 
 type fakeTerminalAPI struct{ calls []string }
@@ -252,12 +274,37 @@ func TestTerminalUsesServerKnownSessionAndReusesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.Command.Path != "claude" || !slicesContainPair(spec.Command.Args, "--resume", sharedID) || spec.Command.Dir != wantDir {
+	if spec.TmuxName == "" || spec.Command.Path != "claude" || !slicesContainPair(spec.Command.Args, "--resume", sharedID) || spec.Command.Dir != wantDir {
 		t.Fatalf("unsafe or wrong command: %#v", spec.Command)
 	}
 	response = server.request(http.MethodPost, path, `{}`, true)
 	if response.Code != http.StatusOK || len(server.terminals.specs) != 1 || !strings.Contains(response.Body.String(), `"reused":true`) {
 		t.Fatalf("reuse = %d %s, creates=%d", response.Code, response.Body.String(), len(server.terminals.specs))
+	}
+}
+
+func TestTerminalAdoptsPreservedTmuxAfterCollectorRestart(t *testing.T) {
+	server := newTestServer(t, nil)
+	identity := contracts.SessionIdentity{Agent: "claude", ID: sharedID}
+	name, err := terminalName("session", identity.Agent, identity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.terminals.adoptable = map[string]bool{name: true}
+	response := server.request(http.MethodPost, "/api/canvas/sessions/claude/"+sharedID+"/terminal", `{}`, true)
+	if response.Code != http.StatusOK || len(server.terminals.adopted) != 1 || len(server.terminals.specs) != 0 || !strings.Contains(response.Body.String(), `"reused":true`) {
+		t.Fatalf("adopt = %d %s adopted=%v creates=%d", response.Code, response.Body.String(), server.terminals.adopted, len(server.terminals.specs))
+	}
+}
+
+func TestTerminalRestartsExitedRegistryEntry(t *testing.T) {
+	server := newTestServer(t, nil)
+	identity := contracts.SessionIdentity{Agent: "claude", ID: sharedID}
+	id := stableTerminalID(identity)
+	server.terminals.statuses[id] = contracts.TerminalStatus{TerminalID: id, State: "exited", Writable: true}
+	response := server.request(http.MethodPost, "/api/canvas/sessions/claude/"+sharedID+"/terminal", `{}`, true)
+	if response.Code != http.StatusOK || len(server.terminals.stopped) != 1 || len(server.terminals.specs) != 1 || strings.Contains(response.Body.String(), `"reused":true`) {
+		t.Fatalf("restart = %d %s stopped=%v creates=%d", response.Code, response.Body.String(), server.terminals.stopped, len(server.terminals.specs))
 	}
 }
 
@@ -287,7 +334,7 @@ func TestSameVendorForkUsesNativeArgv(t *testing.T) {
 		t.Fatalf("fork = %d %s", response.Code, response.Body.String())
 	}
 	args := server.terminals.specs[0].Command.Args
-	if !slicesContainPair(args, "--resume", sharedID) || !slicesContain(args, "--fork-session") || slicesContain(args, "sh") || args[len(args)-1] != prompt {
+	if server.terminals.specs[0].TmuxName == "" || !slicesContainPair(args, "--resume", sharedID) || !slicesContain(args, "--fork-session") || slicesContain(args, "sh") || args[len(args)-1] != prompt {
 		t.Fatalf("fork argv = %#v", args)
 	}
 }
