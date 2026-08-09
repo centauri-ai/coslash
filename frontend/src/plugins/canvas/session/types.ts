@@ -15,7 +15,7 @@ export const SESSION_NODE_IDS = [
 
 export type SessionNodeId = (typeof SESSION_NODE_IDS)[number];
 export type SessionNodeLayout = CanvasNodeBox & Record<string, unknown>;
-export type SessionCanvasLayout = Record<SessionNodeId, SessionNodeLayout>;
+export type SessionCanvasLayout = Record<SessionNodeId, SessionNodeLayout> & Record<string, unknown>;
 
 export type CanvasTurnDecision = { question: string; answer: string | null };
 export type CanvasTurn = {
@@ -66,6 +66,7 @@ export type SessionCheckpointSnapshot = {
   deletions: number;
   branch: string | null;
   errors: number;
+  [key: string]: unknown;
 };
 
 export type SessionExperiment = {

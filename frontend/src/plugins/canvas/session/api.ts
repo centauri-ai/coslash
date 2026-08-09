@@ -44,6 +44,22 @@ export async function loadSessionDetail(
   return readJSON(await fetchImpl(sessionDetailPath(identity)));
 }
 
+export type SessionFilePreview = { content: string; contentType: string };
+
+export async function loadSessionFile(
+  identity: CanvasSessionIdentity,
+  path: string,
+  fetchImpl: SessionFetch = apiFetch,
+): Promise<SessionFilePreview> {
+  const query = new URLSearchParams({ path });
+  const response = await fetchImpl(`${sessionDetailPath(identity)}/files?${query}`);
+  if (!response.ok) await readJSON<never>(response);
+  return {
+    content: await response.text(),
+    contentType: response.headers.get('Content-Type') ?? 'text/plain',
+  };
+}
+
 export async function renameSession(
   identity: CanvasSessionIdentity,
   name: string,

@@ -43,32 +43,35 @@ function integer(value: unknown, fallback = 0): number {
 
 export function normalizeSessionLayout(value: unknown): SessionCanvasLayout {
   const source = record(value) ?? {};
-  return Object.fromEntries(
-    SESSION_NODE_IDS.map((id) => {
-      const fallback = DEFAULT_SESSION_LAYOUT[id];
-      const candidate = record(source[id]) ?? {};
-      const width = Math.max(
-        SESSION_NODE_MIN_WIDTH,
-        Math.min(SESSION_CANVAS_WORLD.width, finite(candidate.width, fallback.width)),
-      );
-      const height = Math.max(
-        SESSION_NODE_MIN_HEIGHT,
-        Math.min(SESSION_CANVAS_WORLD.height, finite(candidate.height, fallback.height)),
-      );
-      return [
-        id,
-        {
-          ...candidate,
-          x: Math.max(0, Math.min(SESSION_CANVAS_WORLD.width - width, finite(candidate.x, fallback.x))),
-          y: Math.max(0, Math.min(SESSION_CANVAS_WORLD.height - height, finite(candidate.y, fallback.y))),
-          width,
-          height,
-          collapsed: typeof candidate.collapsed === 'boolean' ? candidate.collapsed : fallback.collapsed,
-          locked: typeof candidate.locked === 'boolean' ? candidate.locked : fallback.locked,
-        },
-      ];
-    }),
-  ) as SessionCanvasLayout;
+  return {
+    ...source,
+    ...Object.fromEntries(
+      SESSION_NODE_IDS.map((id) => {
+        const fallback = DEFAULT_SESSION_LAYOUT[id];
+        const candidate = record(source[id]) ?? {};
+        const width = Math.max(
+          SESSION_NODE_MIN_WIDTH,
+          Math.min(SESSION_CANVAS_WORLD.width, finite(candidate.width, fallback.width)),
+        );
+        const height = Math.max(
+          SESSION_NODE_MIN_HEIGHT,
+          Math.min(SESSION_CANVAS_WORLD.height, finite(candidate.height, fallback.height)),
+        );
+        return [
+          id,
+          {
+            ...candidate,
+            x: Math.max(0, Math.min(SESSION_CANVAS_WORLD.width - width, finite(candidate.x, fallback.x))),
+            y: Math.max(0, Math.min(SESSION_CANVAS_WORLD.height - height, finite(candidate.y, fallback.y))),
+            width,
+            height,
+            collapsed: typeof candidate.collapsed === 'boolean' ? candidate.collapsed : fallback.collapsed,
+            locked: typeof candidate.locked === 'boolean' ? candidate.locked : fallback.locked,
+          },
+        ];
+      }),
+    ),
+  } as SessionCanvasLayout;
 }
 
 function normalizeExperiment(value: unknown, index: number): SessionExperiment | null {
@@ -112,6 +115,7 @@ function normalizeCheckpoint(value: unknown, index: number): SessionCheckpoint |
         : `Checkpoint ${index + 1}`,
     createdAt,
     snapshot: {
+      ...snapshot,
       turns: integer(snapshot.turns),
       summary: typeof snapshot.summary === 'string' ? snapshot.summary : null,
       openTasks: integer(snapshot.openTasks),
@@ -138,6 +142,15 @@ export function defaultSessionWorkspace(): SessionCanvasWorkspace {
     pinIds: [],
     note: '',
   };
+}
+
+export function autoArrangeSessionLayout(layout: SessionCanvasLayout): SessionCanvasLayout {
+  return {
+    ...layout,
+    ...Object.fromEntries(
+      SESSION_NODE_IDS.map((id) => [id, { ...layout[id], ...DEFAULT_SESSION_LAYOUT[id] }]),
+    ),
+  } as SessionCanvasLayout;
 }
 
 export function normalizeSessionWorkspace(value: unknown): SessionCanvasWorkspace {
@@ -248,6 +261,15 @@ export function reduceSessionWorkspace(
       };
     }),
   };
+}
+
+export function reduceWorkspaceForIdentity(
+  currentIdentityKey: string,
+  expectedIdentityKey: string,
+  workspace: SessionCanvasWorkspace,
+  action: SessionWorkspaceAction,
+): SessionCanvasWorkspace | null {
+  return currentIdentityKey === expectedIdentityKey ? reduceSessionWorkspace(workspace, action) : null;
 }
 
 function excerpt(value: string, length = 100): string {

@@ -45,6 +45,39 @@ export type TerminalConnectionOptions = {
   maxReconnects?: number;
 };
 
+export type TerminalKeyDescriptor = {
+  key: string;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  metaKey?: boolean;
+};
+
+export function terminalKeyData(event: TerminalKeyDescriptor): string | null {
+  if (event.metaKey === true) return null;
+  const control: Record<string, string> = {
+    Enter: '\r',
+    Backspace: '\x7f',
+    Tab: '\t',
+    Escape: '\x1b',
+    ArrowUp: '\x1b[A',
+    ArrowDown: '\x1b[B',
+    ArrowRight: '\x1b[C',
+    ArrowLeft: '\x1b[D',
+    Home: '\x1b[H',
+    End: '\x1b[F',
+    Delete: '\x1b[3~',
+    PageUp: '\x1b[5~',
+    PageDown: '\x1b[6~',
+  };
+  if (event.ctrlKey === true && event.key.length === 1) {
+    const code = event.key.toUpperCase().charCodeAt(0);
+    if (code >= 64 && code <= 95) return String.fromCharCode(code - 64);
+    return null;
+  }
+  const data = control[event.key] ?? (event.key.length === 1 ? event.key : null);
+  return data === null || event.altKey !== true ? data : `\x1b${data}`;
+}
+
 export function createTerminalConnection(options: TerminalConnectionOptions): TerminalConnection {
   const location = options.location ?? window.location;
   const token = options.token ?? window.sessionStorage.getItem(TOKEN_STORAGE_KEY) ?? '';
@@ -68,8 +101,9 @@ export function createTerminalConnection(options: TerminalConnectionOptions): Te
   const append = (data: unknown) => {
     let chunk = '';
     if (typeof data === 'string') chunk = data;
-    else if (data instanceof ArrayBuffer) chunk = decoder.decode(new Uint8Array(data));
-    else if (ArrayBuffer.isView(data)) chunk = decoder.decode(data as ArrayBufferView<ArrayBuffer>);
+    else if (data instanceof ArrayBuffer) chunk = decoder.decode(new Uint8Array(data), { stream: true });
+    else if (ArrayBuffer.isView(data))
+      chunk = decoder.decode(data as ArrayBufferView<ArrayBuffer>, { stream: true });
     if (chunk === '') return;
     const output = `${state.output}${chunk}`;
     publish({ output: output.slice(Math.max(0, output.length - maxOutput)) });

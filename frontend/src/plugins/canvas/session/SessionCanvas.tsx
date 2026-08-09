@@ -14,6 +14,7 @@ import {
   BotIcon,
   BracesIcon,
   CheckCircle2Icon,
+  CheckIcon,
   ClipboardListIcon,
   DownloadIcon,
   FileDiffIcon,
@@ -25,6 +26,7 @@ import {
   MapIcon,
   MessageSquareTextIcon,
   MessagesSquareIcon,
+  PencilIcon,
   PinIcon,
   PlayIcon,
   PlusIcon,
@@ -47,11 +49,18 @@ import {
   forkSession,
   launchSessionTerminal,
   loadSessionDetail,
+  loadSessionFile,
   renameSession,
   sendTerminalInput,
+  stopTerminal,
   type SessionFetch,
+  type SessionFilePreview,
 } from '@/plugins/canvas/session/api';
-import { createTerminalConnection, type TerminalConnectionSnapshot } from '@/plugins/canvas/session/terminal';
+import {
+  createTerminalConnection,
+  terminalKeyData,
+  type TerminalConnectionSnapshot,
+} from '@/plugins/canvas/session/terminal';
 import type {
   SessionCanvasDetail,
   SessionCanvasWorkspace,
@@ -61,15 +70,17 @@ import type {
   TurnAnalysis,
 } from '@/plugins/canvas/session/types';
 import {
+  autoArrangeSessionLayout,
   createCheckpoint,
-  DEFAULT_SESSION_LAYOUT,
   defaultSessionWorkspace,
   normalizeSessionWorkspace,
   reduceSessionWorkspace,
+  reduceWorkspaceForIdentity,
   SESSION_CANVAS_WORLD,
   SESSION_NODE_MIN_HEIGHT,
   SESSION_NODE_MIN_WIDTH,
   sessionAttention,
+  sessionKey,
   sessionPinCandidates,
 } from '@/plugins/canvas/session/workspace';
 import {
@@ -99,7 +110,83 @@ function Empty({ children }: { children: ReactNode }) {
   return <div className="session-canvas-empty">{children}</div>;
 }
 
-function SessionOverview({ detail }: { detail: SessionCanvasDetail }) {
+function SessionNameEditor({
+  name,
+  fallback,
+  onRename,
+}: {
+  name: string | null;
+  fallback: string;
+  onRename: (name: string) => void;
+}) {
+  const visibleName = name?.trim() || fallback;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(visibleName);
+
+  useEffect(() => {
+    if (!editing) setDraft(visibleName);
+  }, [editing, visibleName]);
+
+  if (!editing)
+    return (
+      <button
+        type="button"
+        className="session-canvas-name"
+        onClick={(event) => {
+          event.stopPropagation();
+          setEditing(true);
+        }}
+        aria-label="Rename session"
+      >
+        <span>{visibleName}</span>
+        <PencilIcon />
+      </button>
+    );
+
+  return (
+    <form
+      className="session-canvas-name-editor"
+      onClick={(event) => event.stopPropagation()}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const next = draft.trim();
+        if (next !== '' && next !== visibleName) onRename(next);
+        setEditing(false);
+      }}
+    >
+      <input
+        autoFocus
+        value={draft}
+        maxLength={200}
+        onChange={(event) => setDraft(event.target.value)}
+        aria-label="Session name"
+      />
+      <Button type="submit" variant="ghost" size="icon-xs" aria-label="Save session name">
+        <CheckIcon />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        onClick={() => {
+          setDraft(visibleName);
+          setEditing(false);
+        }}
+        aria-label="Cancel session rename"
+      >
+        <XIcon />
+      </Button>
+    </form>
+  );
+}
+
+function SessionOverview({
+  detail,
+  onRename,
+}: {
+  detail: SessionCanvasDetail;
+  onRename: (name: string) => void;
+}) {
   const vendor = getVendor(detail.agent);
   const status = STATUSES[getStatus(detail.status)];
   const context =
@@ -111,7 +198,11 @@ function SessionOverview({ detail }: { detail: SessionCanvasDetail }) {
       <div className="text-muted-foreground truncate font-mono text-[10px]" title={detail.id}>
         {detail.agent}:{detail.id}
       </div>
-      <div className="font-semibold">{detail.name ?? detail.repo ?? 'Untitled session'}</div>
+      <SessionNameEditor
+        name={detail.name}
+        fallback={detail.repo ?? 'Untitled session'}
+        onRename={onRename}
+      />
       <div className="text-muted-foreground truncate text-[11px]">
         {detail.repo ?? 'unknown repo'} / {detail.branch ?? 'no branch'}
       </div>
@@ -184,17 +275,31 @@ function TimelineView({ detail }: { detail: SessionCanvasDetail }) {
   );
 }
 
-function ContextView({ detail }: { detail: SessionCanvasDetail }) {
+function ContextView({
+  detail,
+  onOpenFile,
+}: {
+  detail: SessionCanvasDetail;
+  onOpenFile: (path: string) => void;
+}) {
   if (detail.contextFiles.length === 0 && detail.triggeredContext.length === 0)
     return <Empty>No captured context.</Empty>;
   return (
     <div className="canvas-node-scroll session-canvas-stack">
       {detail.contextFiles.map((file) => (
-        <div className="session-canvas-row" key={file.path}>
+        <button
+          type="button"
+          className="session-canvas-row"
+          key={file.path}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenFile(file.path);
+          }}
+        >
           <FilesIcon />
           <span title={file.path}>{file.path}</span>
           {file.partial && <Badge variant="secondary">partial</Badge>}
-        </div>
+        </button>
       ))}
       {detail.triggeredContext.map((item) => (
         <div className="session-canvas-row" key={`${item.kind}:${item.name}`}>
@@ -207,17 +312,31 @@ function ContextView({ detail }: { detail: SessionCanvasDetail }) {
   );
 }
 
-function ChangesView({ detail }: { detail: SessionCanvasDetail }) {
+function ChangesView({
+  detail,
+  onOpenFile,
+}: {
+  detail: SessionCanvasDetail;
+  onOpenFile: (path: string) => void;
+}) {
   if (detail.fileEdits.length === 0) return <Empty>No worktree changes.</Empty>;
   return (
     <div className="canvas-node-scroll session-canvas-stack">
       {detail.fileEdits.map((file) => (
-        <div className="session-canvas-row" key={file.path}>
+        <button
+          type="button"
+          className="session-canvas-row"
+          key={file.path}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenFile(file.path);
+          }}
+        >
           <FileDiffIcon />
           <span title={file.path}>{file.path}</span>
           <small className="text-success-fg whitespace-nowrap">+{file.adds}</small>
           <small className="text-destructive whitespace-nowrap">−{file.dels}</small>
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -272,10 +391,48 @@ function TurnView({
 function TerminalView({
   terminal,
   onLaunch,
+  onInput,
+  onResize,
+  onReconnect,
+  onStop,
 }: {
   terminal: TerminalConnectionSnapshot | null;
   onLaunch: () => void;
+  onInput: (data: string) => void;
+  onResize: (cols: number, rows: number) => void;
+  onReconnect: () => void;
+  onStop: () => void;
 }) {
+  const [draft, setDraft] = useState('');
+  const outputRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    const output = outputRef.current;
+    if (output !== null) output.scrollTop = output.scrollHeight;
+  }, [terminal?.output]);
+
+  useEffect(() => {
+    const output = outputRef.current;
+    if (terminal?.status !== 'open' || output === null || typeof ResizeObserver === 'undefined') return;
+    let last = '';
+    const publish = (width: number, height: number) => {
+      const cols = Math.max(20, Math.min(500, Math.floor(width / 7.2)));
+      const rows = Math.max(5, Math.min(200, Math.floor(height / 16)));
+      const dimensions = `${cols}:${rows}`;
+      if (dimensions === last) return;
+      last = dimensions;
+      onResize(cols, rows);
+    };
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box !== undefined) publish(box.width, box.height);
+    });
+    observer.observe(output);
+    const box = output.getBoundingClientRect();
+    publish(box.width, box.height);
+    return () => observer.disconnect();
+  }, [onResize, terminal?.status]);
+
   if (terminal === null)
     return (
       <div className="session-canvas-terminal-empty">
@@ -294,8 +451,61 @@ function TerminalView({
         />
         {terminal.status}
         {terminal.attempts > 0 && <span>· reconnect {terminal.attempts}</span>}
+        <span className="session-canvas-terminal-actions">
+          {(terminal.status === 'error' || terminal.status === 'closed') && (
+            <Button variant="ghost" size="xs" onClick={onReconnect}>
+              <RefreshCwIcon /> Retry connection
+            </Button>
+          )}
+          <Button variant="ghost" size="xs" onClick={onStop}>
+            <XIcon /> Stop
+          </Button>
+        </span>
       </div>
-      <pre>{terminal.output || 'Connected. Waiting for terminal output…'}</pre>
+      <pre
+        ref={outputRef}
+        role="log"
+        tabIndex={terminal.status === 'open' ? 0 : -1}
+        aria-label="Interactive terminal output"
+        onKeyDown={(event) => {
+          if (terminal.status !== 'open') return;
+          const data = terminalKeyData(event);
+          if (data === null) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onInput(data);
+        }}
+        onPaste={(event) => {
+          if (terminal.status !== 'open') return;
+          const data = event.clipboardData.getData('text');
+          if (data === '') return;
+          event.preventDefault();
+          onInput(bracketedPaste(data));
+        }}
+      >
+        {terminal.output || 'Connected. Focus this terminal to type, or use the command field below.'}
+      </pre>
+      <form
+        className="session-canvas-terminal-input"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (draft === '' || terminal.status !== 'open') return;
+          onInput(`${draft}\r`);
+          setDraft('');
+        }}
+      >
+        <input
+          value={draft}
+          disabled={terminal.status !== 'open'}
+          maxLength={32_000}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={terminal.status === 'open' ? 'Type a terminal command…' : 'Terminal reconnecting…'}
+          aria-label="Terminal input"
+        />
+        <Button type="submit" size="xs" disabled={terminal.status !== 'open' || draft === ''}>
+          <SendIcon /> Send
+        </Button>
+      </form>
     </div>
   );
 }
@@ -323,7 +533,14 @@ export type SessionCanvasWorkbenchProps = {
   onWorkspaceChange: (workspace: SessionCanvasWorkspace) => void;
   onRename: (name: string) => void;
   onLaunchTerminal: () => void;
+  onTerminalInput: (data: string) => void;
+  onTerminalResize: (cols: number, rows: number) => void;
+  onReconnectTerminal: () => void;
+  onStopTerminal: () => void;
   onSendNote: () => void;
+  onResolvePersistence: () => void;
+  onReloadWorkspace: () => void;
+  onLoadFile: (path: string) => Promise<SessionFilePreview>;
   onAnalyze: (turn: number) => void;
   onFork: (checkpointId: string, prompt: string) => void;
   onPromote: (session: CanvasSessionIdentity, checkpointId: string, experimentId: string) => void;
@@ -340,17 +557,31 @@ export function SessionCanvasWorkbench({
   onWorkspaceChange,
   onRename,
   onLaunchTerminal,
+  onTerminalInput,
+  onTerminalResize,
+  onReconnectTerminal,
+  onStopTerminal,
   onSendNote,
+  onResolvePersistence,
+  onReloadWorkspace,
+  onLoadFile,
   onAnalyze,
   onFork,
   onPromote,
 }: SessionCanvasWorkbenchProps) {
-  const [selected, setSelected] = useState<SessionNodeId>('session');
+  const [selected, setSelected] = useState<SessionNodeId | null>(null);
   const [focused, setFocused] = useState<SessionNodeId | null>(null);
   const [zoom, setZoom] = useState(0.8);
   const [panel, setPanel] = useState<Panel>(null);
   const [commandOpen, setCommandOpen] = useState(false);
   const [experimentPrompt, setExperimentPrompt] = useState('');
+  const [filePreview, setFilePreview] = useState<
+    | { path: string; state: 'loading'; content: ''; contentType: '' }
+    | ({ path: string; state: 'ready' } & SessionFilePreview)
+    | { path: string; state: 'error'; content: string; contentType: '' }
+    | null
+  >(null);
+  const fileRequest = useRef(0);
   const attention = useMemo(() => sessionAttention(detail), [detail]);
   const pins = useMemo(() => sessionPinCandidates(detail), [detail]);
   const selectedCheckpoint = workspace.checkpoints.at(-1) ?? null;
@@ -377,7 +608,13 @@ export function SessionCanvasWorkbench({
     const command = boardCommandFor(event);
     if (command === null) return;
     event.preventDefault();
-    if (command === 'exit-focus') setFocused(null);
+    if (command === 'exit-focus') {
+      setFocused(null);
+      setPanel(null);
+      setSelected(null);
+      fileRequest.current += 1;
+      setFilePreview(null);
+    }
     if (command === 'open-command-palette') setCommandOpen(true);
     if (command === 'zoom-in') setZoom((value) => Math.min(1.25, value + 0.1));
     if (command === 'zoom-out') setZoom((value) => Math.max(0.4, value - 0.1));
@@ -403,7 +640,13 @@ export function SessionCanvasWorkbench({
   const createNewCheckpoint = () => {
     const checkpoint = createCheckpoint(detail, crypto.randomUUID(), Date.now());
     update({ type: 'add-checkpoint', checkpoint });
-    setPanel('checkpoints');
+    showPanel('checkpoints');
+  };
+
+  const showPanel = (next: Exclude<Panel, null>) => {
+    fileRequest.current += 1;
+    setFilePreview(null);
+    setPanel(next);
   };
 
   const exportWorkspace = () => {
@@ -418,6 +661,24 @@ export function SessionCanvasWorkbench({
     link.download = `canvas-${detail.agent}-${detail.id}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
+  };
+
+  const openFile = async (path: string) => {
+    const request = ++fileRequest.current;
+    setPanel(null);
+    setFilePreview({ path, state: 'loading', content: '', contentType: '' });
+    try {
+      const preview = await onLoadFile(path);
+      if (fileRequest.current === request) setFilePreview({ path, state: 'ready', ...preview });
+    } catch (caught) {
+      if (fileRequest.current !== request) return;
+      setFilePreview({
+        path,
+        state: 'error',
+        content: caught instanceof Error ? caught.message : 'File preview is unavailable.',
+        contentType: '',
+      });
+    }
   };
 
   const wires: [SessionNodeId, SessionNodeId][] = [
@@ -444,13 +705,13 @@ export function SessionCanvasWorkbench({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => setPanel('attention')}
+                onClick={() => showPanel('attention')}
                 aria-label="Attention"
               >
                 <BellIcon />
                 {attention.length > 0 && <span className="canvas-tool-count">{attention.length}</span>}
               </Button>
-              <Button variant="ghost" size="icon-sm" onClick={() => setPanel('pins')} aria-label="Pins">
+              <Button variant="ghost" size="icon-sm" onClick={() => showPanel('pins')} aria-label="Pins">
                 <PinIcon />
                 {workspace.pinIds.length > 0 && (
                   <span className="canvas-tool-count">{workspace.pinIds.length}</span>
@@ -459,7 +720,7 @@ export function SessionCanvasWorkbench({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => setPanel('checkpoints')}
+                onClick={() => showPanel('checkpoints')}
                 aria-label="Checkpoints"
               >
                 <GitForkIcon />
@@ -483,7 +744,9 @@ export function SessionCanvasWorkbench({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => onWorkspaceChange({ ...workspace, layout: DEFAULT_SESSION_LAYOUT })}
+                onClick={() =>
+                  onWorkspaceChange({ ...workspace, layout: autoArrangeSessionLayout(workspace.layout) })
+                }
                 aria-label="Auto arrange"
               >
                 <ListRestartIcon />
@@ -501,12 +764,8 @@ export function SessionCanvasWorkbench({
               <path key={`${from}-${to}`} d={triggerWirePath(workspace.layout[from], workspace.layout[to])} />
             ))}
           </CanvasWires>
-          <CanvasNode
-            {...nodeProps('session')}
-            meta={<Badge variant="secondary">{detail.agent}</Badge>}
-            onRename={(_, title) => onRename(title)}
-          >
-            <SessionOverview detail={detail} />
+          <CanvasNode {...nodeProps('session')} meta={<Badge variant="secondary">{detail.agent}</Badge>}>
+            <SessionOverview detail={detail} onRename={onRename} />
           </CanvasNode>
           <CanvasNode {...nodeProps('goal')}>
             <GoalView detail={detail} />
@@ -524,16 +783,23 @@ export function SessionCanvasWorkbench({
             {...nodeProps('context')}
             meta={<Badge variant="secondary">{detail.contextFiles.length}</Badge>}
           >
-            <ContextView detail={detail} />
+            <ContextView detail={detail} onOpenFile={openFile} />
           </CanvasNode>
           <CanvasNode
             {...nodeProps('changes')}
             meta={<Badge variant="secondary">{detail.fileEdits.length}</Badge>}
           >
-            <ChangesView detail={detail} />
+            <ChangesView detail={detail} onOpenFile={openFile} />
           </CanvasNode>
           <CanvasNode {...nodeProps('terminal')} className="session-canvas-terminal-node">
-            <TerminalView terminal={terminal} onLaunch={onLaunchTerminal} />
+            <TerminalView
+              terminal={terminal}
+              onLaunch={onLaunchTerminal}
+              onInput={onTerminalInput}
+              onResize={onTerminalResize}
+              onReconnect={onReconnectTerminal}
+              onStop={onStopTerminal}
+            />
           </CanvasNode>
           <CanvasNode {...nodeProps('note')} className="session-canvas-note-node">
             <div className="session-canvas-note">
@@ -567,14 +833,24 @@ export function SessionCanvasWorkbench({
         />
       </CanvasStage>
 
-      {persistence.error !== null && (
+      {(persistence.error !== null || actionError !== '') && (
         <div className="session-canvas-persistence-error" role="alert">
-          {persistence.error.message}
-        </div>
-      )}
-      {actionError !== '' && (
-        <div className="session-canvas-persistence-error" role="alert">
-          {actionError}
+          {[persistence.error?.message, actionError]
+            .filter((message): message is string => message !== undefined && message !== '')
+            .filter((message, index, messages) => messages.indexOf(message) === index)
+            .map((message) => (
+              <div key={message}>{message}</div>
+            ))}
+          {persistence.error?.isConflict && (
+            <div className="session-canvas-persistence-actions">
+              <Button size="xs" onClick={onResolvePersistence}>
+                Keep local
+              </Button>
+              <Button size="xs" variant="outline" onClick={onReloadWorkspace}>
+                Reload server
+              </Button>
+            </div>
+          )}
         </div>
       )}
       {panel === 'attention' && (
@@ -600,6 +876,28 @@ export function SessionCanvasWorkbench({
                 </span>
               </button>
             ))
+          )}
+        </CanvasSidePanel>
+      )}
+      {filePreview !== null && (
+        <CanvasSidePanel
+          title={filePreview.path}
+          onClose={() => {
+            fileRequest.current += 1;
+            setFilePreview(null);
+          }}
+        >
+          {filePreview.state === 'loading' ? (
+            <Empty>Loading guarded file preview…</Empty>
+          ) : filePreview.state === 'error' ? (
+            <p role="alert" className="text-destructive text-xs">
+              {filePreview.content}
+            </p>
+          ) : (
+            <div className="session-canvas-file-preview">
+              <small>{filePreview.contentType}</small>
+              <pre>{filePreview.content}</pre>
+            </div>
           )}
         </CanvasSidePanel>
       )}
@@ -631,7 +929,7 @@ export function SessionCanvasWorkbench({
             <CheckpointView
               key={checkpoint.id}
               checkpoint={checkpoint}
-              onCompare={() => setPanel('compare')}
+              onCompare={() => showPanel('compare')}
             />
           ))}
           {selectedCheckpoint !== null && (
@@ -664,7 +962,7 @@ export function SessionCanvasWorkbench({
         />
       )}
       {selected !== null && focused === null && (
-        <CanvasInspector title={NODE_META[selected].title} onClose={() => setSelected('session')}>
+        <CanvasInspector title={NODE_META[selected].title} onClose={() => setSelected(null)}>
           <p className="text-muted-foreground text-xs">
             Selected {NODE_META[selected].title.toLowerCase()} node. Double-click it to focus; press C or L on
             its chrome to collapse or lock.
@@ -676,9 +974,13 @@ export function SessionCanvasWorkbench({
           <strong>Canvas commands</strong>
           <div className="session-canvas-command-list">
             <button onClick={createNewCheckpoint}>Create checkpoint</button>
-            <button onClick={() => setPanel('pins')}>Open pins</button>
-            <button onClick={() => setPanel('attention')}>Review attention</button>
-            <button onClick={() => onWorkspaceChange({ ...workspace, layout: DEFAULT_SESSION_LAYOUT })}>
+            <button onClick={() => showPanel('pins')}>Open pins</button>
+            <button onClick={() => showPanel('attention')}>Review attention</button>
+            <button
+              onClick={() =>
+                onWorkspaceChange({ ...workspace, layout: autoArrangeSessionLayout(workspace.layout) })
+              }
+            >
               Auto arrange
             </button>
           </div>
@@ -797,6 +1099,7 @@ export function SessionCanvas({
     error: null,
   });
   const [terminalId, setTerminalId] = useState<string | null>(null);
+  const [terminalEpoch, setTerminalEpoch] = useState(0);
   const [terminal, setTerminal] = useState<TerminalConnectionSnapshot | null>(null);
   const [analyses, setAnalyses] = useState<Map<number, TurnAnalysis | 'loading' | 'disabled' | 'failed'>>(
     new Map(),
@@ -807,9 +1110,16 @@ export function SessionCanvas({
     [fetch, identity],
   );
   const terminalRef = useRef<ReturnType<typeof createTerminalConnection> | null>(null);
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const currentIdentityKey = identity === null ? '' : sessionKey(identity);
+  const activeIdentityKeyRef = useRef(currentIdentityKey);
+  activeIdentityKeyRef.current = currentIdentityKey;
 
   useEffect(() => {
-    setWorkspace(defaultSessionWorkspace());
+    const initialWorkspace = defaultSessionWorkspace();
+    workspaceRef.current = initialWorkspace;
+    setWorkspace(initialWorkspace);
     setPersistence({
       state: null,
       revision: 0,
@@ -819,6 +1129,7 @@ export function SessionCanvas({
       error: null,
     });
     setTerminalId(null);
+    setTerminalEpoch(0);
     setAnalyses(new Map());
   }, [identity]);
 
@@ -857,7 +1168,9 @@ export function SessionCanvas({
       setPersistence(snapshot);
       if (!adopted && snapshot.loaded && snapshot.state !== null) {
         adopted = true;
-        setWorkspace(normalizeSessionWorkspace(snapshot.state));
+        const restored = normalizeSessionWorkspace(snapshot.state);
+        workspaceRef.current = restored;
+        setWorkspace(restored);
       }
     };
     const unsubscribe = workspaceClient.subscribe(publish);
@@ -865,7 +1178,7 @@ export function SessionCanvas({
     publish();
     return () => {
       unsubscribe();
-      workspaceClient.dispose();
+      void workspaceClient.flush().finally(() => workspaceClient.dispose());
     };
   }, [workspaceClient]);
 
@@ -885,7 +1198,7 @@ export function SessionCanvas({
       unsubscribe();
       connection.close();
     };
-  }, [terminalId]);
+  }, [terminalEpoch, terminalId]);
 
   if (identity === null)
     return (
@@ -912,33 +1225,61 @@ export function SessionCanvas({
     );
 
   const commitWorkspace = (next: SessionCanvasWorkspace) => {
+    workspaceRef.current = next;
     setWorkspace(next);
     workspaceClient?.update(next);
   };
+  const applyWorkspaceAction = (
+    action: Parameters<typeof reduceSessionWorkspace>[1],
+    expectedIdentityKey = currentIdentityKey,
+  ) => {
+    const next = reduceWorkspaceForIdentity(
+      activeIdentityKeyRef.current,
+      expectedIdentityKey,
+      workspaceRef.current,
+      action,
+    );
+    if (next === null) return false;
+    commitWorkspace(next);
+    return true;
+  };
   const launchTerminal = async () => {
+    const actionIdentityKey = currentIdentityKey;
     try {
       const response = await launchSessionTerminal(identity, {}, fetch);
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
       setTerminalId(response.terminal.terminalId);
       setError('');
     } catch (caught) {
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
       setError(caught instanceof Error ? caught.message : 'Terminal failed to start.');
     }
   };
   const rename = async (name: string) => {
+    const actionIdentityKey = currentIdentityKey;
     try {
       await renameSession(identity, name, fetch);
-      setDetail((current) => (current === null ? current : { ...current, name }));
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
+      setDetail((current) =>
+        current === null || current.agent !== identity.agent || current.id !== identity.id
+          ? current
+          : { ...current, name },
+      );
       setError('');
     } catch (caught) {
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
       setError(caught instanceof Error ? caught.message : 'Rename failed.');
     }
   };
   const analyze = async (turn: number) => {
+    const actionIdentityKey = currentIdentityKey;
     setAnalyses((current) => new Map(current).set(turn, 'loading'));
     try {
       const response = await analyzeTurn(identity, turn, fetch);
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
       setAnalyses((current) => new Map(current).set(turn, response.analysis));
     } catch (caught: unknown) {
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
       const code =
         typeof caught === 'object' && caught !== null && 'code' in caught ? String(caught.code) : '';
       setAnalyses((current) =>
@@ -948,21 +1289,25 @@ export function SessionCanvas({
   };
   const sendNote = async () => {
     if (terminalId === null || workspace.note.trim() === '') return;
+    const actionIdentityKey = currentIdentityKey;
     try {
       await sendTerminalInput(terminalId, bracketedPaste(workspace.note), fetch);
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
       setError('');
     } catch (caught) {
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
       setError(caught instanceof Error ? caught.message : 'Note delivery failed.');
     }
   };
   const fork = async (checkpointId: string, prompt: string) => {
+    const actionIdentityKey = currentIdentityKey;
     const id = crypto.randomUUID();
     const experiment: SessionExperiment = { id, prompt, createdAt: Date.now(), status: 'launching' };
-    let next = reduceSessionWorkspace(workspace, { type: 'add-experiment', checkpointId, experiment });
-    commitWorkspace(next);
+    applyWorkspaceAction({ type: 'add-experiment', checkpointId, experiment }, actionIdentityKey);
     try {
       const response = await forkSession(identity, { prompt, writable: true }, fetch);
-      next = reduceSessionWorkspace(next, {
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
+      applyWorkspaceAction({
         type: 'finish-experiment',
         checkpointId,
         experimentId: id,
@@ -976,26 +1321,75 @@ export function SessionCanvas({
       });
       setTerminalId(response.terminal.terminalId);
     } catch (caught) {
-      next = reduceSessionWorkspace(next, {
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
+      applyWorkspaceAction({
         type: 'finish-experiment',
         checkpointId,
         experimentId: id,
         patch: { status: 'failed', error: caught instanceof Error ? caught.message : 'Experiment failed.' },
       });
     }
-    commitWorkspace(next);
   };
   const promote = (child: CanvasSessionIdentity, checkpointId: string, experimentId: string) => {
-    commitWorkspace(
-      reduceSessionWorkspace(workspace, {
-        type: 'promote-experiment',
-        checkpointId,
-        experimentId,
-        promotedAt: Date.now(),
-      }),
-    );
+    applyWorkspaceAction({
+      type: 'promote-experiment',
+      checkpointId,
+      experimentId,
+      promotedAt: Date.now(),
+    });
     onInspectSession?.(child);
   };
+  const terminalInput = (data: string) => {
+    try {
+      terminalRef.current?.input(data);
+      setError('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Terminal input failed.');
+    }
+  };
+  const terminalResize = (cols: number, rows: number) => {
+    try {
+      terminalRef.current?.resize(cols, rows);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Terminal resize failed.');
+    }
+  };
+  const reconnectTerminal = () => setTerminalEpoch((current) => current + 1);
+  const stopCurrentTerminal = async () => {
+    if (terminalId === null) return;
+    const actionIdentityKey = currentIdentityKey;
+    try {
+      await stopTerminal(terminalId, fetch);
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
+      setTerminalId(null);
+      setError('');
+    } catch (caught) {
+      if (activeIdentityKeyRef.current !== actionIdentityKey) return;
+      setError(caught instanceof Error ? caught.message : 'Terminal stop failed.');
+    }
+  };
+  const resolvePersistence = async () => {
+    const actionIdentityKey = currentIdentityKey;
+    await workspaceClient?.resolveWithLocal();
+    if (activeIdentityKeyRef.current !== actionIdentityKey) return;
+    const snapshot = workspaceClient?.snapshot();
+    if (snapshot !== undefined) setPersistence(snapshot);
+  };
+  const reloadWorkspace = async () => {
+    const actionIdentityKey = currentIdentityKey;
+    await workspaceClient?.reloadFromServer();
+    if (activeIdentityKeyRef.current !== actionIdentityKey) return;
+    const snapshot = workspaceClient?.snapshot();
+    if (snapshot === undefined) return;
+    setPersistence(snapshot);
+    if (snapshot.error === null) {
+      const restored =
+        snapshot.state === null ? defaultSessionWorkspace() : normalizeSessionWorkspace(snapshot.state);
+      workspaceRef.current = restored;
+      setWorkspace(restored);
+    }
+  };
+  const loadFile = (path: string) => loadSessionFile(identity, path, fetch);
 
   return (
     <SessionCanvasWorkbench
@@ -1009,7 +1403,14 @@ export function SessionCanvas({
       onWorkspaceChange={commitWorkspace}
       onRename={rename}
       onLaunchTerminal={launchTerminal}
+      onTerminalInput={terminalInput}
+      onTerminalResize={terminalResize}
+      onReconnectTerminal={reconnectTerminal}
+      onStopTerminal={stopCurrentTerminal}
       onSendNote={sendNote}
+      onResolvePersistence={resolvePersistence}
+      onReloadWorkspace={reloadWorkspace}
+      onLoadFile={loadFile}
       onAnalyze={analyze}
       onFork={fork}
       onPromote={promote}

@@ -9,6 +9,40 @@
   flex-direction: column;
   gap: 0.55rem;
 }
+.session-canvas-name {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  text-align: left;
+  font-weight: 600;
+}
+.session-canvas-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-canvas-name svg {
+  width: 0.75rem;
+  flex: none;
+  color: var(--muted-foreground);
+}
+.session-canvas-name-editor {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.2rem;
+}
+.session-canvas-name-editor input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  padding: 0.25rem 0.4rem;
+  font-size: 11px;
+  outline: none;
+}
 .session-canvas-metric {
   border-radius: 999px;
   background: var(--muted);
@@ -115,12 +149,15 @@
 }
 .session-canvas-row {
   display: grid;
+  width: 100%;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0.4rem;
   border-bottom: 1px solid var(--border);
   padding-bottom: 0.35rem;
+  background: transparent;
   font-size: 10px;
+  text-align: left;
 }
 .session-canvas-row svg {
   width: 0.8rem;
@@ -193,6 +230,11 @@
   color: #9ca3af;
   font-size: 10px;
 }
+.session-canvas-terminal-actions {
+  display: flex;
+  margin-left: auto;
+  gap: 0.2rem;
+}
 .session-canvas-terminal pre {
   min-height: 0;
   flex: 1;
@@ -200,6 +242,28 @@
   padding: 0.65rem;
   white-space: pre-wrap;
   font-size: 11px;
+}
+.session-canvas-terminal-input {
+  display: flex;
+  gap: 0.4rem;
+  border-top: 1px solid #374151;
+  padding: 0.45rem;
+}
+.session-canvas-terminal-input input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #4b5563;
+  border-radius: 0.35rem;
+  background: #030712;
+  padding: 0.35rem 0.5rem;
+  color: #f9fafb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  outline: none;
+}
+.session-canvas-terminal-input input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 .session-canvas-note {
   display: flex;
@@ -239,6 +303,11 @@
   color: var(--destructive);
   font-size: 11px;
 }
+.session-canvas-persistence-actions {
+  display: flex;
+  gap: 0.4rem;
+  padding-top: 0.55rem;
+}
 .session-canvas-panel-row {
   display: flex;
   width: 100%;
@@ -261,6 +330,27 @@
 }
 .session-canvas-panel-row small {
   color: var(--muted-foreground);
+}
+.session-canvas-file-preview {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.session-canvas-file-preview small {
+  color: var(--muted-foreground);
+  font-size: 9px;
+}
+.session-canvas-file-preview pre {
+  max-height: calc(100vh - 11rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--muted);
+  padding: 0.55rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
 }
 .session-canvas-checkpoint {
   margin-top: 0.65rem;

@@ -4,9 +4,11 @@ import {
   bracketedPaste,
   forkSession,
   loadSessionDetail,
+  loadSessionFile,
   renameSession,
   sendTerminalInput,
   sessionDetailPath,
+  stopTerminal,
 } from '@/plugins/canvas/session/api';
 import { sessionCanvasFixture } from '@/plugins/canvas/session/fixtures';
 
@@ -22,6 +24,23 @@ describe('Session Canvas guarded API client', () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify(detail), { status: 200 }));
     await expect(loadSessionDetail(identity, fetch)).resolves.toEqual(detail);
     expect(fetch).toHaveBeenCalledWith('/api/canvas/sessions/claude%2Fcode/session%20one');
+  });
+
+  it('loads a server-scoped file preview with an encoded path', async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response('preview', {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        }),
+    );
+    await expect(loadSessionFile(identity, 'src/a file.ts', fetch)).resolves.toEqual({
+      content: 'preview',
+      contentType: 'text/plain; charset=utf-8',
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/canvas/sessions/claude%2Fcode/session%20one/files?path=src%2Fa+file.ts',
+    );
   });
 
   it('uses bounded JSON actions for rename, fork, analysis, and terminal input', async () => {
@@ -53,11 +72,13 @@ describe('Session Canvas guarded API client', () => {
     await forkSession(identity, { prompt: 'Try this' }, fetch);
     await analyzeTurn(identity, 3, fetch);
     await sendTerminalInput('terminal/1', 'note', fetch);
+    await stopTerminal('terminal/1', fetch);
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       '/api/canvas/sessions/claude%2Fcode/session%20one/name',
       '/api/canvas/sessions/claude%2Fcode/session%20one/fork',
       '/api/canvas/sessions/claude%2Fcode/session%20one/turns/3/analysis',
       '/api/terminals/terminal%2F1/input',
+      '/api/terminals/terminal%2F1/stop',
     ]);
   });
 

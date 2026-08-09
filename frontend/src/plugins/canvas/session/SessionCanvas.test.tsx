@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { CanvasPersistenceError } from '@/plugins/canvas/api/persistence';
 import { FROZEN_SESSION_CANVAS_FIXTURES } from '@/plugins/canvas/session/fixtures';
 import { SessionCanvas, SessionCanvasWorkbench } from '@/plugins/canvas/session/SessionCanvas';
 import { defaultSessionWorkspace } from '@/plugins/canvas/session/workspace';
@@ -18,7 +19,14 @@ describe('Session Canvas workbench', () => {
         onWorkspaceChange={vi.fn()}
         onRename={vi.fn()}
         onLaunchTerminal={vi.fn()}
+        onTerminalInput={vi.fn()}
+        onTerminalResize={vi.fn()}
+        onReconnectTerminal={vi.fn()}
+        onStopTerminal={vi.fn()}
         onSendNote={vi.fn()}
+        onResolvePersistence={vi.fn()}
+        onReloadWorkspace={vi.fn()}
+        onLoadFile={vi.fn()}
         onAnalyze={vi.fn()}
         onFork={vi.fn()}
         onPromote={vi.fn()}
@@ -40,6 +48,8 @@ describe('Session Canvas workbench', () => {
     expect(html).toContain('claude:shared-id');
     expect(html).toContain('Open terminal');
     expect(html).toContain('Analyze');
+    expect(html).toContain('aria-label="Rename session"');
+    expect(html).not.toContain('Selected session node.');
   });
 
   it('keeps identical Claude and Codex ids visibly distinct', () => {
@@ -54,7 +64,14 @@ describe('Session Canvas workbench', () => {
           onWorkspaceChange={vi.fn()}
           onRename={vi.fn()}
           onLaunchTerminal={vi.fn()}
+          onTerminalInput={vi.fn()}
+          onTerminalResize={vi.fn()}
+          onReconnectTerminal={vi.fn()}
+          onStopTerminal={vi.fn()}
           onSendNote={vi.fn()}
+          onResolvePersistence={vi.fn()}
+          onReloadWorkspace={vi.fn()}
+          onLoadFile={vi.fn()}
           onAnalyze={vi.fn()}
           onFork={vi.fn()}
           onPromote={vi.fn()}
@@ -78,7 +95,14 @@ describe('Session Canvas workbench', () => {
         onWorkspaceChange={vi.fn()}
         onRename={vi.fn()}
         onLaunchTerminal={vi.fn()}
+        onTerminalInput={vi.fn()}
+        onTerminalResize={vi.fn()}
+        onReconnectTerminal={vi.fn()}
+        onStopTerminal={vi.fn()}
         onSendNote={vi.fn()}
+        onResolvePersistence={vi.fn()}
+        onReloadWorkspace={vi.fn()}
+        onLoadFile={vi.fn()}
         onAnalyze={vi.fn()}
         onFork={vi.fn()}
         onPromote={vi.fn()}
@@ -100,7 +124,14 @@ describe('Session Canvas workbench', () => {
         onWorkspaceChange={vi.fn()}
         onRename={vi.fn()}
         onLaunchTerminal={vi.fn()}
+        onTerminalInput={vi.fn()}
+        onTerminalResize={vi.fn()}
+        onReconnectTerminal={vi.fn()}
+        onStopTerminal={vi.fn()}
         onSendNote={vi.fn()}
+        onResolvePersistence={vi.fn()}
+        onReloadWorkspace={vi.fn()}
+        onLoadFile={vi.fn()}
         onAnalyze={vi.fn()}
         onFork={vi.fn()}
         onPromote={vi.fn()}
@@ -108,5 +139,68 @@ describe('Session Canvas workbench', () => {
     );
     expect(html).toContain('role="alert"');
     expect(html).toContain('Note delivery failed safely.');
+  });
+
+  it('renders interactive input for an open native terminal', () => {
+    const html = renderToStaticMarkup(
+      <SessionCanvasWorkbench
+        detail={FROZEN_SESSION_CANVAS_FIXTURES.claude}
+        workspace={defaultSessionWorkspace()}
+        persistence={persistence}
+        terminal={{ status: 'open', output: 'ready', attempts: 0 }}
+        analyses={new Map()}
+        onWorkspaceChange={vi.fn()}
+        onRename={vi.fn()}
+        onLaunchTerminal={vi.fn()}
+        onTerminalInput={vi.fn()}
+        onTerminalResize={vi.fn()}
+        onReconnectTerminal={vi.fn()}
+        onStopTerminal={vi.fn()}
+        onSendNote={vi.fn()}
+        onResolvePersistence={vi.fn()}
+        onReloadWorkspace={vi.fn()}
+        onLoadFile={vi.fn()}
+        onAnalyze={vi.fn()}
+        onFork={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+    expect(html).toContain('aria-label="Terminal input"');
+    expect(html).toContain('ready');
+    expect(html).toContain('Stop');
+  });
+
+  it('offers both safe recovery choices for a workspace revision conflict', () => {
+    const conflict = new CanvasPersistenceError('Workspace changed elsewhere.', 409, {
+      ok: false,
+      code: 'REVISION_CONFLICT',
+      error: 'Workspace changed elsewhere.',
+      actualRevision: 3,
+    });
+    const html = renderToStaticMarkup(
+      <SessionCanvasWorkbench
+        detail={FROZEN_SESSION_CANVAS_FIXTURES.claude}
+        workspace={defaultSessionWorkspace()}
+        persistence={{ status: 'conflict', dirty: true, error: conflict }}
+        terminal={null}
+        analyses={new Map()}
+        onWorkspaceChange={vi.fn()}
+        onRename={vi.fn()}
+        onLaunchTerminal={vi.fn()}
+        onTerminalInput={vi.fn()}
+        onTerminalResize={vi.fn()}
+        onReconnectTerminal={vi.fn()}
+        onStopTerminal={vi.fn()}
+        onSendNote={vi.fn()}
+        onResolvePersistence={vi.fn()}
+        onReloadWorkspace={vi.fn()}
+        onLoadFile={vi.fn()}
+        onAnalyze={vi.fn()}
+        onFork={vi.fn()}
+        onPromote={vi.fn()}
+      />,
+    );
+    expect(html).toContain('Keep local');
+    expect(html).toContain('Reload server');
   });
 });
