@@ -265,6 +265,14 @@ func TestValidateChecksRefusesUnsafeConfiguration(t *testing.T) {
 			{Name: "unit", Argv: []string{"go", "test"}},
 			{Name: "unit", Argv: []string{"go", "vet"}},
 		},
+		"normalized log collision": {
+			{Name: "foo bar", Argv: []string{"go", "test"}},
+			{Name: "foo_bar", Argv: []string{"go", "vet"}},
+		},
+		"case insensitive log collision": {
+			{Name: "Unit", Argv: []string{"go", "test"}},
+			{Name: "unit", Argv: []string{"go", "vet"}},
+		},
 	}
 	for name, checks := range tests {
 		t.Run(name, func(t *testing.T) {

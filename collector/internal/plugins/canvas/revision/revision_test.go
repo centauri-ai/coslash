@@ -761,6 +761,57 @@ func TestHooksDirectoryMustBeEmpty(t *testing.T) {
 	}
 }
 
+func TestAgentControlledLocalConfigCannotExecuteDuringCapture(t *testing.T) {
+	git, runRoot, _ := newRunRoot(t)
+	sentinel := filepath.Join(realPath(t, t.TempDir()), "filter-ran")
+	rawGit(t, runRoot, "config", "--local", "filter.evil.clean", "touch "+sentinel)
+	writeFile(t, filepath.Join(runRoot, ".gitattributes"), "*.txt filter=evil\n")
+	writeFile(t, filepath.Join(runRoot, "payload.txt"), "payload\n")
+
+	_, err := git.CaptureTreeOID(t.Context(), CaptureOptions{
+		RunRoot: runRoot, IndexFile: filepath.Join(realPath(t, t.TempDir()), "index"),
+	})
+	if got := codeOf(t, err); got != CodeGitFailed {
+		t.Fatalf("code = %q, want %q", got, CodeGitFailed)
+	}
+	if _, statErr := os.Stat(sentinel); !os.IsNotExist(statErr) {
+		t.Fatalf("agent-controlled clean filter executed: %v", statErr)
+	}
+}
+
+func TestUnsafeLocalConfigClassification(t *testing.T) {
+	unsafe := map[string]string{
+		"filter.evil.clean":           "touch /tmp/pwned",
+		"core.sshcommand":             "helper",
+		"credential.helper":           "helper",
+		"url.https://evil/.insteadof": "https://github.com/",
+		"http.proxy":                  "https://evil.invalid",
+		"include.path":                "/tmp/agent-config",
+		"diff.agent.textconv":         "helper",
+		"remote.origin.receivepack":   "helper",
+		"submodule.payload.update":    "!helper",
+		"commit.gpgsign":              "true",
+		"interactive.difffilter":      "helper",
+		"core.worktree":               "/unapproved/tree",
+	}
+	for key, value := range unsafe {
+		if !unsafeLocalConfig(key, value) {
+			t.Errorf("%s was not classified as unsafe", key)
+		}
+	}
+	for key, value := range map[string]string{
+		"core.repositoryformatversion": "0",
+		"core.filemode":                "true",
+		"core.bare":                    "false",
+		"remote.origin.url":            "https://github.com/owner/repo.git",
+		"branch.main.merge":            "refs/heads/main",
+	} {
+		if unsafeLocalConfig(key, value) {
+			t.Errorf("%s was classified as unsafe", key)
+		}
+	}
+}
+
 func TestBoundedOutputRefusesOversizedResult(t *testing.T) {
 	git, runRoot, _ := newRunRoot(t)
 	// A tracked file, so the change reaches `git diff HEAD` without staging.

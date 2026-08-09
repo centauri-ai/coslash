@@ -251,6 +251,37 @@ describe('createWorkspaceClient', () => {
     expect(client.snapshot().revision).toBe(5);
   });
 
+  it('does not let a stale load roll back a revision confirmed by a newer save', async () => {
+    const timers = manualTimers();
+    let releaseLoad: (response: Response) => void = () => {};
+    const client = createWorkspaceClient<State>({
+      session,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+      fetch: (_path, init = {}) => {
+        if (init.method === 'PUT') {
+          return Promise.resolve(jsonResponse(document(2, { counter: 2 })));
+        }
+        return new Promise<Response>((resolve) => (releaseLoad = resolve));
+      },
+    });
+
+    const loading = client.load();
+    client.update({ counter: 2 });
+    timers.run();
+    await flushMicrotasks();
+    expect(client.snapshot().revision).toBe(2);
+    expect(client.snapshot().status).toBe('saved');
+
+    releaseLoad(jsonResponse(document(1, { counter: 1 })));
+    await loading;
+    expect(client.snapshot().revision).toBe(2);
+    expect(client.snapshot().state).toEqual({ counter: 2 });
+    expect(client.snapshot().status).toBe('saved');
+    expect(client.snapshot().dirty).toBe(false);
+    client.dispose();
+  });
+
   it('surfaces a conflict without discarding local work', async () => {
     const timers = manualTimers();
     const client = createWorkspaceClient<State>({

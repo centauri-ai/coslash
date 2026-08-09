@@ -9,6 +9,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/runfs"
@@ -26,8 +27,16 @@ const MaxBoardBytes int64 = 256 << 10
 // board identifiers are validated path components and nothing else reaches the
 // filesystem.
 type BoardStore struct {
-	scope *runfs.Scope
-	now   func() time.Time
+	scope   *runfs.Scope
+	now     func() time.Time
+	writers sync.Map
+}
+
+func (s *BoardStore) lockBoard(location string) func() {
+	value, _ := s.writers.LoadOrStore(location, &sync.Mutex{})
+	mutex := value.(*sync.Mutex)
+	mutex.Lock()
+	return mutex.Unlock
 }
 
 // NewBoardStore binds a store to a scope rooted at the boards root.
@@ -104,6 +113,8 @@ func (s *BoardStore) Save(ctx context.Context, board *Board, expectedRevision ui
 	if err != nil {
 		return nil, err
 	}
+	unlock := s.lockBoard(location)
+	defer unlock()
 
 	existing, loadErr := s.loadRaw(ctx, location)
 	switch {

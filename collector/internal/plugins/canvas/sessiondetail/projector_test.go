@@ -200,6 +200,25 @@ func TestProjectRejectsUnknownMissingMalformedAndMismatched(t *testing.T) {
 	}
 }
 
+func TestProjectRejectsNullTranscriptRowsWithoutPanicking(t *testing.T) {
+	for _, test := range []struct {
+		agent      string
+		transcript string
+	}{
+		{agent: "claude", transcript: claudeTranscript(sharedID) + "null\n"},
+		{agent: "codex", transcript: codexTranscript(sharedID) + "null\n"},
+	} {
+		t.Run(test.agent, func(t *testing.T) {
+			path := writeTranscript(t, test.agent+"-null.jsonl", test.transcript)
+			_, err := New(Options{}).ProjectFile(context.Background(),
+				contracts.SessionIdentity{Agent: test.agent, ID: sharedID}, path)
+			if !errors.Is(err, ErrMalformedTranscript) {
+				t.Fatalf("error = %v, want ErrMalformedTranscript", err)
+			}
+		})
+	}
+}
+
 func TestProjectHonorsTranscriptProjectionRowAndCancellationBounds(t *testing.T) {
 	path := writeTranscript(t, sharedID+".jsonl", claudeTranscript(sharedID))
 	if _, err := New(Options{MaxTranscriptBytes: 10}).ProjectFile(context.Background(), contracts.SessionIdentity{Agent: "claude", ID: sharedID}, path); !errors.Is(err, ErrTranscriptTooLarge) {
