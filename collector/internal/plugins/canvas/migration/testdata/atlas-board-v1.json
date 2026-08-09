@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "instructions": "Use synthetic inputs and make no external changes.",
+  "components": {
+    "intake": {},
+    "plan": {
+      "prompt": "Draft a bounded plan.",
+      "seat": {
+        "vendor": "claude",
+        "model": "opus",
+        "effort": "high",
+        "permission": "acceptEdits"
+      }
+    },
+    "build": {
+      "prompt": "Implement the approved plan.",
+      "seat": {
+        "vendor": "claude",
+        "model": "opus",
+        "effort": "high",
+        "permission": "acceptEdits"
+      }
+    },
+    "verify": {
+      "checks": [{ "name": "tests", "argv": ["npm", "test", "--", "--run"] }]
+    },
+    "review": {
+      "prompt": "Review the synthetic changeset.",
+      "seat": {
+        "vendor": "codex",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "permission": "workspace-write"
+      }
+    },
+    "publish": { "publish": { "base": "main", "draft": true } }
+  },
+  "viewport": { "zoom": 0.55, "panX": 0, "panY": 0 }
+}

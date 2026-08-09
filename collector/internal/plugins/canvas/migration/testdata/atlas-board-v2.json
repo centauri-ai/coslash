@@ -1,0 +1,192 @@
+{
+  "kind": "atlas",
+  "schemaVersion": 2,
+  "instructions": "Use synthetic inputs, preserve sibling attribution, and make no external changes.",
+  "systemPrompts": {
+    "plan": "Read the synthetic problem and write PLAN.md.",
+    "build": "Read PLAN.md, implement it, and write IMPLEMENTATION.md.",
+    "review": "Review the captured changes and write REVIEW.md plus review.json.",
+    "planRefine": "Reconcile all draft plans and write one PLAN.md."
+  },
+  "components": [
+    {
+      "id": "plan",
+      "title": "Plan committee",
+      "prompt": "Prefer the smallest safe migration.",
+      "seat": {
+        "vendor": "claude",
+        "model": "opus",
+        "effort": "high",
+        "permission": "acceptEdits"
+      },
+      "seats": [
+        {
+          "id": "plan-main",
+          "role": "main",
+          "vendor": "claude",
+          "model": "opus",
+          "effort": "high",
+          "permission": "acceptEdits"
+        },
+        {
+          "id": "plan-worker-2",
+          "role": "worker",
+          "vendor": "codex",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "permission": "workspace-write"
+        }
+      ],
+      "committee": {
+        "consolidationPrompt": "Resolve disagreements; do not concatenate drafts."
+      },
+      "requiredOutputs": ["PLAN.md"],
+      "box": {
+        "x": 120,
+        "y": 160,
+        "width": 440,
+        "height": 760,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": {
+        "x": 120,
+        "y": 948,
+        "width": 380,
+        "height": 260,
+        "collapsed": false,
+        "locked": false
+      },
+      "infoBox": {
+        "x": 520,
+        "y": 948,
+        "width": 380,
+        "height": 320,
+        "collapsed": false,
+        "locked": false
+      },
+      "legacyRole": "plan"
+    },
+    {
+      "id": "build",
+      "title": "Build",
+      "prompt": "Implement only the refined plan.",
+      "seat": {
+        "vendor": "claude",
+        "model": "opus",
+        "effort": "high",
+        "permission": "acceptEdits"
+      },
+      "seats": [
+        {
+          "id": "build-main",
+          "role": "main",
+          "vendor": "claude",
+          "model": "opus",
+          "effort": "high",
+          "permission": "acceptEdits"
+        }
+      ],
+      "committee": { "consolidationPrompt": "" },
+      "requiredOutputs": ["IMPLEMENTATION.md"],
+      "box": {
+        "x": 650,
+        "y": 160,
+        "width": 440,
+        "height": 760,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": {
+        "x": 650,
+        "y": 948,
+        "width": 380,
+        "height": 260,
+        "collapsed": false,
+        "locked": false
+      },
+      "infoBox": {
+        "x": 1050,
+        "y": 948,
+        "width": 380,
+        "height": 320,
+        "collapsed": false,
+        "locked": false
+      },
+      "legacyRole": "build"
+    },
+    {
+      "id": "review",
+      "title": "Review",
+      "prompt": "Review only the immutable captured revision.",
+      "seat": {
+        "vendor": "codex",
+        "model": "gpt-5.6-terra",
+        "effort": "high",
+        "permission": "workspace-write"
+      },
+      "seats": [
+        {
+          "id": "review-main",
+          "role": "main",
+          "vendor": "codex",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "permission": "workspace-write"
+        }
+      ],
+      "committee": { "consolidationPrompt": "" },
+      "requiredOutputs": ["REVIEW.md", "review.json"],
+      "box": {
+        "x": 1180,
+        "y": 160,
+        "width": 440,
+        "height": 760,
+        "collapsed": false,
+        "locked": false
+      },
+      "promptBox": {
+        "x": 1180,
+        "y": 948,
+        "width": 380,
+        "height": 260,
+        "collapsed": false,
+        "locked": false
+      },
+      "infoBox": {
+        "x": 1580,
+        "y": 948,
+        "width": 380,
+        "height": 320,
+        "collapsed": false,
+        "locked": false
+      },
+      "legacyRole": "review"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-plan-build",
+      "from": "plan",
+      "to": "build",
+      "kind": "trigger",
+      "mode": "auto"
+    },
+    {
+      "id": "edge-build-review",
+      "from": "build",
+      "to": "review",
+      "kind": "trigger",
+      "mode": "manual"
+    },
+    {
+      "id": "edge-review-build",
+      "from": "review",
+      "to": "build",
+      "kind": "feedback",
+      "mode": "auto",
+      "maxRounds": 1
+    }
+  ],
+  "viewport": { "zoom": 0.55, "panX": 0, "panY": 0 }
+}
