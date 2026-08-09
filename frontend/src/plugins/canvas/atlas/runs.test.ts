@@ -22,6 +22,8 @@ import {
   isTerminalRun,
   isWorkerSeat,
   liveAttempts,
+  offBoardGate,
+  offBoardStages,
   publicationUnavailableReason,
   runBlockedReason,
   showsConfiguration,
@@ -247,5 +249,56 @@ describe('Atlas run presentation', () => {
       }),
     ).toBeNull();
     expect(runBlockedReason(base)).toBeNull();
+  });
+});
+
+describe('stages the graph does not own', () => {
+  const graph = ['plan', 'build', 'review'];
+
+  it('surfaces the deterministic stages a v2 board has no node for', () => {
+    // Intake, Verify, and Publish still run. Without this they would be
+    // invisible, and so would the publish gate they carry.
+    const stages = offBoardStages(FROZEN_ATLAS_PUBLISH_GATE_RUN, graph);
+    expect(stages.map((stage) => stage.id)).toEqual(['intake', 'verify', 'publish']);
+  });
+
+  it('orders them the way the pipeline runs them, not the way the map iterates', () => {
+    const scrambled: AtlasRun = {
+      ...FROZEN_ATLAS_PUBLISH_GATE_RUN,
+      components: {
+        publish: FROZEN_ATLAS_PUBLISH_GATE_RUN.components.publish,
+        verify: FROZEN_ATLAS_PUBLISH_GATE_RUN.components.verify,
+        intake: FROZEN_ATLAS_PUBLISH_GATE_RUN.components.intake,
+      },
+    };
+    expect(offBoardStages(scrambled, graph).map((stage) => stage.id)).toEqual([
+      'intake',
+      'verify',
+      'publish',
+    ]);
+  });
+
+  it('claims no stage the graph already renders', () => {
+    expect(offBoardStages(FROZEN_ATLAS_COMMITTEE_RUN, graph).map((stage) => stage.id)).not.toContain('plan');
+    expect(offBoardStages(null, graph)).toHaveLength(0);
+  });
+
+  it('takes the publish gate, which belongs to no seat', () => {
+    const gate = offBoardGate(FROZEN_ATLAS_PUBLISH_GATE_RUN, graph);
+    expect(gate.open).toBe(true);
+    expect(gate.reason).toBe('blocked_by_gate');
+    expect(gate.decidable).toBe(true);
+  });
+
+  it('leaves a gate the graph owns to the seat that owns it', () => {
+    // The trigger gate is on `build`, which is a real node. Offering the same
+    // irreversible decision in two places is the failure this prevents.
+    expect(offBoardGate(FROZEN_ATLAS_TRIGGER_GATE_RUN, graph).open).toBe(false);
+    expect(gateView(FROZEN_ATLAS_TRIGGER_GATE_RUN, 'build').open).toBe(true);
+  });
+
+  it('reports no gate when the run has none', () => {
+    expect(offBoardGate(FROZEN_ATLAS_COMMITTEE_RUN, graph).open).toBe(false);
+    expect(offBoardGate(null, graph).open).toBe(false);
   });
 });

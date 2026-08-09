@@ -10,7 +10,13 @@
 // port (D-004).
 
 import { apiFetch } from '@/pages/coslash/lib/api';
-import { normalizeAtlasBoard, serializeAtlasBoard, type AtlasBoard } from '@/plugins/canvas/atlas/graph';
+import {
+  isUnsupportedAtlasBoard,
+  normalizeAtlasBoard,
+  serializeAtlasBoard,
+  wasMigratedFromLegacy,
+  type AtlasBoard,
+} from '@/plugins/canvas/atlas/graph';
 import type {
   AtlasBoardLoadError,
   AtlasProject,
@@ -141,17 +147,43 @@ export async function listAtlasBoards(
   return { boards: response.boards ?? [], errors: response.errors ?? [] };
 }
 
-export async function readAtlasBoard(
+/**
+ * A board plus the two facts normalization erases.
+ *
+ * `unsupported` and `migrated` are read from the raw graph before it is
+ * repaired, because repairing is exactly what makes an unknown schema look
+ * ordinary. A caller that saves without knowing would rewrite a document whose
+ * meaning it cannot see.
+ */
+export type AtlasBoardRead = {
+  document: AtlasBoardDocument;
+  unsupported: boolean;
+  migrated: boolean;
+};
+
+export async function readAtlasBoardDetailed(
   projectId: string,
   id: string,
   fetchImpl: AtlasFetch = apiFetch,
-): Promise<AtlasBoardDocument> {
+): Promise<AtlasBoardRead> {
   const response = await request<{ ok: true; board: CanvasBoardDocument<unknown> }>(
     `${BASE}/boards/${encodeURIComponent(id)}?${projectQuery(projectId)}`,
     undefined,
     fetchImpl,
   );
-  return adoptDocument(response.board);
+  return {
+    document: adoptDocument(response.board),
+    unsupported: isUnsupportedAtlasBoard(response.board.board),
+    migrated: wasMigratedFromLegacy(response.board.board),
+  };
+}
+
+export async function readAtlasBoard(
+  projectId: string,
+  id: string,
+  fetchImpl: AtlasFetch = apiFetch,
+): Promise<AtlasBoardDocument> {
+  return (await readAtlasBoardDetailed(projectId, id, fetchImpl)).document;
 }
 
 export async function writeAtlasBoard(

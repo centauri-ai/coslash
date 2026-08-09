@@ -23,7 +23,7 @@ import type {
   AtlasRunStatus,
   AtlasRunSummary,
 } from '@/plugins/canvas/atlas/types';
-import { hasSeat } from '@/plugins/canvas/atlas/vocabulary';
+import { ATLAS_COMPONENT_IDS, hasSeat } from '@/plugins/canvas/atlas/vocabulary';
 
 export const ATLAS_RUN_STATUS_LABEL: Record<AtlasRunStatus, string> = {
   preparing: 'Preparing',
@@ -326,4 +326,45 @@ export function publicationUnavailableReason(run: AtlasRun | null): string {
     return 'This project has no git remote, so this run can be approved but not published';
   }
   return '';
+}
+
+// ---------------------------------------------------------------------------
+// Stages the graph does not own
+// ---------------------------------------------------------------------------
+
+/**
+ * The run stages no board component owns.
+ *
+ * Intake, Verify, and Publish are deterministic: the controller runs them, but
+ * the v2 graph has no seat to configure and so no node to render them on. They
+ * are surfaced on the run rail instead. Dropping them would hide the publish
+ * gate — the one decision the operator is required to make.
+ */
+export function offBoardStages(
+  run: AtlasRun | null,
+  boardComponentIds: Iterable<string>,
+): AtlasComponentRunState[] {
+  if (run == null) return [];
+  const owned = new Set(boardComponentIds);
+  const order = (id: string) => {
+    const index = (ATLAS_COMPONENT_IDS as readonly string[]).indexOf(id);
+    return index === -1 ? ATLAS_COMPONENT_IDS.length : index;
+  };
+  return Object.values(run.components ?? {})
+    .filter((component) => !owned.has(component.id))
+    .sort((a, b) => order(a.id) - order(b.id) || a.id.localeCompare(b.id));
+}
+
+/**
+ * The open gate that belongs to no board component, if there is one.
+ *
+ * A gate is rendered exactly once: on its own seat when the graph has one, and
+ * on the run rail when it does not. Rendering it in both places would offer the
+ * same irreversible decision twice.
+ */
+export function offBoardGate(run: AtlasRun | null, boardComponentIds: Iterable<string>): AtlasGateView {
+  const componentId = run?.gate?.componentId ?? null;
+  if (componentId == null) return gateView(run, '');
+  const owned = new Set(boardComponentIds);
+  return owned.has(componentId) ? gateView(run, '') : gateView(run, componentId);
 }
