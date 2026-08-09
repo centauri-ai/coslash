@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -38,7 +38,19 @@ export type SessionCardProps = {
   session: Session;
   onClick?: () => void;
   variant?: SessionCardVariant;
+  /** Slot for a plugin-owned action; nothing renders when it is omitted. */
+  action?: ReactNode;
 };
+
+// Keeps a slot action from also opening the inspector behind it.
+function SessionCardActionSlot({ action }: { action: ReactNode }) {
+  if (action == null) return null;
+  return (
+    <span className="shrink-0" onClick={(event) => event.stopPropagation()}>
+      {action}
+    </span>
+  );
+}
 
 function shortenSessionId(id: string): string {
   const dashIndex = id.indexOf('-');
@@ -140,7 +152,7 @@ function Summary({ session }: { session: Session }) {
   return <div className="text-muted-foreground pt-2 text-xs">{getSessionCardSummary(session)}</div>;
 }
 
-function CompactSessionCard({ session }: { session: Session }) {
+function CompactSessionCard({ session, action }: { session: Session; action?: ReactNode }) {
   return (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -148,11 +160,14 @@ function CompactSessionCard({ session }: { session: Session }) {
           <SessionVendorBadge agent={session.agent} abbreviated />
           <SessionName name={session.name} variant="compact" />
         </div>
-        <span className="text-xs font-semibold whitespace-nowrap">
-          <UnpricedModelWarning tokens={[session.tokens]}>
-            {formatEstimatedCost(getEstimatedCost(session.tokens))}
-          </UnpricedModelWarning>
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-xs font-semibold whitespace-nowrap">
+            <UnpricedModelWarning tokens={[session.tokens]}>
+              {formatEstimatedCost(getEstimatedCost(session.tokens))}
+            </UnpricedModelWarning>
+          </span>
+          <SessionCardActionSlot action={action} />
+        </div>
       </div>
       <div className="text-muted-foreground line-clamp-2 text-xs">{getSessionCardSummary(session)}</div>
       <div className="flex items-center justify-between gap-2">
@@ -165,7 +180,7 @@ function CompactSessionCard({ session }: { session: Session }) {
   );
 }
 
-function DetailedSessionCard({ session }: { session: Session }) {
+function DetailedSessionCard({ session, action }: { session: Session; action?: ReactNode }) {
   const status = STATUSES[getStatus(session.status)];
 
   return (
@@ -177,6 +192,7 @@ function DetailedSessionCard({ session }: { session: Session }) {
           <SessionId id={session.id} />
           <StatusBadge status={status} />
           <Modality session={session} />
+          <SessionCardActionSlot action={action} />
         </div>
         <Summary session={session} />
         <Metadata session={session} />
@@ -436,14 +452,14 @@ function SessionSubagentRail({
   );
 }
 
-export function SessionCard({ session, onClick, variant = 'detailed' }: SessionCardProps) {
+export function SessionCard({ session, onClick, variant = 'detailed', action }: SessionCardProps) {
   return (
     <div className="flex flex-col gap-2">
       <Card className={cn('cursor-pointer', variant === 'compact' ? 'gap-1 p-3' : 'p-4')} onClick={onClick}>
         {variant === 'compact' ? (
-          <CompactSessionCard session={session} />
+          <CompactSessionCard session={session} action={action} />
         ) : (
-          <DetailedSessionCard session={session} />
+          <DetailedSessionCard session={session} action={action} />
         )}
       </Card>
       <SessionSubagentRail subagents={session.subagents} parentName={session.name} variant={variant} />

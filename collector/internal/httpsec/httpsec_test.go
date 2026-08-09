@@ -83,6 +83,128 @@ func TestGuardRequests(t *testing.T) {
 	}
 }
 
+func TestGuardWebSocketSubprotocolToken(t *testing.T) {
+	tests := []struct {
+		name         string
+		upgrade      string
+		connection   string
+		subprotocols []string
+		origin       string
+		want         int
+	}{
+		{
+			name:         "token subprotocol authenticates",
+			upgrade:      "websocket",
+			connection:   "Upgrade",
+			subprotocols: []string{TerminalSubprotocol + ", coslash.token.secret"},
+			want:         http.StatusOK,
+		},
+		{
+			name:         "repeated headers authenticate",
+			upgrade:      "websocket",
+			connection:   "keep-alive, Upgrade",
+			subprotocols: []string{TerminalSubprotocol, "coslash.token.secret"},
+			want:         http.StatusOK,
+		},
+		{
+			name:         "wrong token rejected",
+			upgrade:      "websocket",
+			connection:   "Upgrade",
+			subprotocols: []string{TerminalSubprotocol + ", coslash.token.wrong"},
+			want:         http.StatusUnauthorized,
+		},
+		{
+			name:         "missing token subprotocol rejected",
+			upgrade:      "websocket",
+			connection:   "Upgrade",
+			subprotocols: []string{TerminalSubprotocol},
+			want:         http.StatusUnauthorized,
+		},
+		{
+			name:         "token subprotocol ignored without an upgrade",
+			subprotocols: []string{TerminalSubprotocol + ", coslash.token.secret"},
+			want:         http.StatusUnauthorized,
+		},
+		{
+			name:         "upgrade header without the connection token is not a handshake",
+			upgrade:      "websocket",
+			subprotocols: []string{"coslash.token.secret"},
+			want:         http.StatusUnauthorized,
+		},
+		{
+			name:         "cross origin handshake rejected before the token",
+			upgrade:      "websocket",
+			connection:   "Upgrade",
+			subprotocols: []string{TerminalSubprotocol + ", coslash.token.secret"},
+			origin:       "http://evil.com",
+			want:         http.StatusForbidden,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			called := false
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusOK)
+			})
+			request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8787/api/terminals/t1/ws", nil)
+			request.Host = "127.0.0.1:8787"
+			if test.upgrade != "" {
+				request.Header.Set("Upgrade", test.upgrade)
+			}
+			if test.connection != "" {
+				request.Header.Set("Connection", test.connection)
+			}
+			if test.origin != "" {
+				request.Header.Set("Origin", test.origin)
+			}
+			for _, value := range test.subprotocols {
+				request.Header.Add("Sec-WebSocket-Protocol", value)
+			}
+			response := httptest.NewRecorder()
+
+			Guard{Addr: "127.0.0.1:8787", Token: "secret"}.Wrap(next).ServeHTTP(response, request)
+
+			if response.Code != test.want {
+				t.Fatalf("status = %d, want %d", response.Code, test.want)
+			}
+			if called != (test.want == http.StatusOK) {
+				t.Fatalf("downstream called = %t", called)
+			}
+			// The token must never be echoed back to the client.
+			if echoed := response.Header().Get("Sec-WebSocket-Protocol"); strings.Contains(echoed, "coslash.token.") {
+				t.Fatalf("guard echoed a token-carrying subprotocol %q", echoed)
+			}
+		})
+	}
+}
+
+func TestNegotiateSubprotocolEchoesOnlyTheStaticName(t *testing.T) {
+	tests := []struct {
+		name         string
+		subprotocols []string
+		want         string
+	}{
+		{name: "static offered", subprotocols: []string{TerminalSubprotocol + ", coslash.token.secret"}, want: TerminalSubprotocol},
+		{name: "token only", subprotocols: []string{"coslash.token.secret"}, want: ""},
+		{name: "unknown protocol", subprotocols: []string{"chat"}, want: ""},
+		{name: "nothing offered", want: ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8787/api/terminals/t1/ws", nil)
+			for _, value := range test.subprotocols {
+				request.Header.Add("Sec-WebSocket-Protocol", value)
+			}
+			if got := NegotiateSubprotocol(request); got != test.want {
+				t.Fatalf("NegotiateSubprotocol = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestGuardEmptyTokenFailsClosed(t *testing.T) {
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("unauthenticated request reached downstream handler")

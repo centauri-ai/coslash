@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
+	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
@@ -29,6 +31,10 @@ import (
 var version = "dev"
 
 const defaultPort = 8787
+
+// shutdownTimeout bounds how long in-flight requests may finish after an
+// interrupt before the plugin is closed anyway.
+const shutdownTimeout = 10 * time.Second
 
 type options struct {
 	port        int
@@ -115,15 +121,59 @@ func main() {
 		}
 	}
 	guard := httpsec.Guard{Addr: listener.Addr().String(), Token: token}
-	server := newServer(guard, mgr, settingsStore)
-	if err := server.Serve(listener); err != nil {
+	if err := serve(listener, guard, mgr, settingsStore, canvas.New()); err != nil {
 		log.Fatalf("coslash: %v", err)
 	}
 }
 
-func newServer(guard httpsec.Guard, mgr *synthesis.Manager, settingsStore *settings.Store) *http.Server {
+// serve runs the server until it fails or the process is interrupted, then
+// shuts the server down before the plugin so no handler outlives what it uses.
+func serve(
+	listener net.Listener,
+	guard httpsec.Guard,
+	mgr *synthesis.Manager,
+	settingsStore *settings.Store,
+	plugin canvas.Plugin,
+) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := plugin.Start(ctx); err != nil {
+		return fmt.Errorf("start canvas plugin: %w", err)
+	}
+
+	server := newServer(guard, mgr, settingsStore, plugin)
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+
+	var err error
+	select {
+	case err = <-served:
+	case <-ctx.Done():
+	}
+
+	shutdown, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if shutdownErr := server.Shutdown(shutdown); shutdownErr != nil {
+		log.Printf("shut down server: %v", shutdownErr)
+	}
+	if closeErr := plugin.Close(shutdown); closeErr != nil {
+		log.Printf("close canvas plugin: %v", closeErr)
+	}
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+func newServer(
+	guard httpsec.Guard,
+	mgr *synthesis.Manager,
+	settingsStore *settings.Store,
+	plugin canvas.Plugin,
+) *http.Server {
 	return &http.Server{
-		Handler:           guard.Wrap(routes(mgr, settingsStore)),
+		Handler:           guard.Wrap(routes(mgr, settingsStore, plugin)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -132,7 +182,7 @@ func newServer(guard httpsec.Guard, mgr *synthesis.Manager, settingsStore *setti
 	}
 }
 
-func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMux {
+func routes(mgr *synthesis.Manager, settingsStore *settings.Store, plugin canvas.Plugin) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +203,8 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.Collect(r.Context(), version, false))
 	})
+	// Core routes are registered first, so a plugin pattern can never shadow one.
+	plugin.Register(api)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
 

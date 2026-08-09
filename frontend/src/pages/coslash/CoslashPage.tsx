@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +39,14 @@ import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import { getStatus, type Session } from '@/pages/coslash/lib/session';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
+import {
+  CANVAS_DESTINATION_READINESS,
+  CanvasDestinationNavigation,
+  CanvasDestinationRenderer,
+  CanvasSessionCardAction,
+  type CanvasDestination,
+  type CanvasSessionIdentity,
+} from '@/plugins/canvas';
 
 const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
   'week': 'active this week',
@@ -165,6 +173,7 @@ function CoslashContent({
   diagnosticsLoading,
   diagnosticsLoadFailed,
   onRefreshDiagnostics,
+  renderSessionAction,
 }: {
   loadError: string | null;
   onRetry: () => void;
@@ -178,6 +187,7 @@ function CoslashContent({
   diagnosticsLoading: boolean;
   diagnosticsLoadFailed: boolean;
   onRefreshDiagnostics: () => void;
+  renderSessionAction: (session: Session) => ReactNode;
 }) {
   if (loadError != null) {
     return (
@@ -219,7 +229,11 @@ function CoslashContent({
   return (
     <div className="h-full overflow-y-auto">
       {view === 'board' ? (
-        <SessionBoard sessions={visibleSessions} onSelectSession={onSelectSession} />
+        <SessionBoard
+          sessions={visibleSessions}
+          onSelectSession={onSelectSession}
+          renderSessionAction={renderSessionAction}
+        />
       ) : (
         <div className="bg-background flex flex-col gap-4 px-4 py-2">
           {visibleSessions.map((session) => (
@@ -227,6 +241,7 @@ function CoslashContent({
               key={`${session.agent}:${session.id}`}
               session={session}
               onClick={() => onSelectSession(session)}
+              action={renderSessionAction(session)}
             />
           ))}
         </div>
@@ -251,6 +266,10 @@ export function CoslashPage() {
   const [sortKey, setSortKey] = useState<SortKey>(SortKey.Recency);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  // The plugin selects by {agent,id}; core selection stays keyed by id so Log
+  // behavior is unchanged while every destination is unready.
+  const [canvasSelection, setCanvasSelection] = useState<CanvasSessionIdentity | null>(null);
+  const [destination, setDestination] = useState<CanvasDestination | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const settingsState = useSettings();
@@ -262,7 +281,13 @@ export function CoslashPage() {
   // Held by id, not by value: the inspector must render the freshest record
   // each refresh, and a stored object would freeze at click time. Looked up
   // from the unfiltered list so filters never close an open inspector.
-  const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
+  const canvasSelectedSession = canvasSelection
+    ? (sessions.find(
+        (session) => session.agent === canvasSelection.agent && session.id === canvasSelection.id,
+      ) ?? null)
+    : null;
+  const selectedSession =
+    canvasSelectedSession ?? sessions.find((session) => session.id === selectedSessionId) ?? null;
   const synthesisSettingsKey = settingsState.response
     ? [
         settingsState.response.persisted,
@@ -296,6 +321,17 @@ export function CoslashPage() {
     retrySessions();
     refreshDiagnostics();
   };
+  // A destination only renders once the plugin reports it ready, so an
+  // incomplete Canvas destination can never replace the Log view.
+  const activeDestination =
+    destination != null && CANVAS_DESTINATION_READINESS[destination] ? destination : null;
+  const renderSessionAction = (session: Session): ReactNode => (
+    <CanvasSessionCardAction
+      session={{ agent: session.agent, id: session.id }}
+      selection={canvasSelection}
+      onSelect={setCanvasSelection}
+    />
+  );
 
   return (
     <div className="flex h-svh flex-col">
@@ -318,6 +354,11 @@ export function CoslashPage() {
             <TimeWindowFilterTabMenu value={timeWindow} onValueChange={setTimeWindow} />
             <span className="bg-border h-5 w-px" />
             <ViewingModeTabMenu value={view} onValueChange={setView} />
+            <CanvasDestinationNavigation
+              current={activeDestination}
+              readiness={CANVAS_DESTINATION_READINESS}
+              onSelect={setDestination}
+            />
           </div>
           <SessionSortDropdownMenu
             sortKey={sortKey}
@@ -350,29 +391,42 @@ export function CoslashPage() {
       </div>
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-hidden">
-          <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
-            <CoslashContent
-              loadError={loadError}
-              onRetry={retrySessions}
-              visibleSessions={visibleSessions}
-              hasSessions={sessions.length > 0}
-              searchTerm={searchTerm}
-              timeWindow={timeWindow}
-              view={view}
-              onSelectSession={(session) => setSelectedSessionId(session.id)}
-              diagnostics={diagnostics}
-              diagnosticsLoading={diagnosticsLoading}
-              diagnosticsLoadFailed={diagnosticsLoadFailed}
-              onRefreshDiagnostics={refreshFirstRun}
+          {activeDestination != null ? (
+            <CanvasDestinationRenderer
+              destination={activeDestination}
+              sessions={sessions}
+              freshnessVersion={sessionsVersion}
+              onInspectSession={setCanvasSelection}
             />
-          </LoadingSpinner>
+          ) : (
+            <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
+              <CoslashContent
+                loadError={loadError}
+                onRetry={retrySessions}
+                visibleSessions={visibleSessions}
+                hasSessions={sessions.length > 0}
+                searchTerm={searchTerm}
+                timeWindow={timeWindow}
+                view={view}
+                onSelectSession={(session) => setSelectedSessionId(session.id)}
+                diagnostics={diagnostics}
+                diagnosticsLoading={diagnosticsLoading}
+                diagnosticsLoadFailed={diagnosticsLoadFailed}
+                onRefreshDiagnostics={refreshFirstRun}
+                renderSessionAction={renderSessionAction}
+              />
+            </LoadingSpinner>
+          )}
         </div>
       </div>
       <SessionInspector
         session={selectedSession}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
-        onClose={() => setSelectedSessionId(null)}
+        onClose={() => {
+          setSelectedSessionId(null);
+          setCanvasSelection(null);
+        }}
       />
       <SettingsDialog
         open={settingsDialogMode != null}
