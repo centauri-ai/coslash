@@ -75,9 +75,9 @@ func ComposePrompt(input PromptInput) (string, error) {
 		return "", newError(CodeInvalidState, "the prompt target has no seat")
 	}
 
-	outputs := committee.RequiredOutputs
+	outputs := SeatAuthoredOutputs(committee.ComponentID, committee.RequiredOutputs)
 	if len(outputs) == 0 {
-		return "", policyError("requiredOutputs", "the stage declares no required output")
+		return "", policyError("requiredOutputs", "the stage declares no seat-authored output")
 	}
 	directory := AttemptOutputDirectory(committee.ComponentID, input.SeatID, input.Attempt)
 
@@ -168,6 +168,30 @@ func ComposePrompt(input PromptInput) (string, error) {
 		return "", policyError("prompt", "the assembled prompt is over the size limit")
 	}
 	return builder.String(), nil
+}
+
+// ControllerProducedOutputs are the artifacts the controller writes itself
+// during change capture and verification. A stage may declare them among its
+// required outputs — Build's contract names the changeset it produces — but no
+// agent turn is ever asked to write one, and a stage is never failed for their
+// absence at the moment its seats finish.
+var ControllerProducedOutputs = map[string]bool{
+	"CHANGESET.patch":   true,
+	"change.json":       true,
+	"verification.json": true,
+	"publication.json":  true,
+}
+
+// SeatAuthoredOutputs narrows a stage's declared outputs to the ones an agent
+// turn is actually contracted to write.
+func SeatAuthoredOutputs(component ComponentID, required []string) []string {
+	authored := make([]string, 0, len(required))
+	for _, name := range required {
+		if !ControllerProducedOutputs[name] {
+			authored = append(authored, name)
+		}
+	}
+	return authored
 }
 
 // promotedPromptArtifacts are the upstream outputs a stage may read, in the
