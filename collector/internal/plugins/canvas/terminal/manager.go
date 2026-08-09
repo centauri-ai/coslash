@@ -210,6 +210,7 @@ func (manager *Manager) create(ctx context.Context, spec Spec, tracked bool) (*e
 			_ = manager.runner.Run(ctx, nil, "tmux", []string{"kill-session", "-t", "=" + spec.TmuxName}, "", nil)
 			return nil, errors.New("terminal: could not arm tracked tmux session")
 		}
+		_ = manager.runner.Run(ctx, nil, "tmux", []string{"set-option", "-t", "=" + spec.TmuxName, "history-limit", "50000"}, "", nil)
 		respawn := []string{"respawn-pane", "-k", "-t", paneID, "-c", cwd}
 		for _, value := range spec.Command.Env {
 			respawn = append(respawn, "-e", value)
@@ -240,7 +241,9 @@ func (manager *Manager) create(ctx context.Context, spec Spec, tracked bool) (*e
 		}
 	}
 	_ = manager.runner.Run(ctx, nil, "tmux", []string{"set-option", "-t", "=" + spec.TmuxName, "mouse", "on"}, "", nil)
-	_ = manager.runner.Run(ctx, nil, "tmux", []string{"set-option", "-t", "=" + spec.TmuxName, "history-limit", "50000"}, "", nil)
+	if !tracked {
+		_ = manager.runner.Run(ctx, nil, "tmux", []string{"set-option", "-t", "=" + spec.TmuxName, "history-limit", "50000"}, "", nil)
+	}
 	created := &entry{id: spec.ID, tmuxName: spec.TmuxName, paneID: paneID, cwd: cwd, writable: spec.Writable, preserve: spec.PreserveOnClose, tracked: tracked, clients: map[*Client]struct{}{}}
 	manager.sessions[spec.ID] = created
 	return created, nil

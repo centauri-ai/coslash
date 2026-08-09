@@ -163,7 +163,11 @@ func (g *Git) CaptureRevision(ctx context.Context, options CaptureRevisionOption
 	if _, err := run("read-tree", "HEAD"); err != nil {
 		return CapturedRevision{}, err
 	}
-	if _, err := run("add", "-A", "--", ExcludeDSStore); err != nil {
+	addArgs := []string{"add", "-A", "--", ExcludeDSStore}
+	if options.ExcludeExchangePaths {
+		addArgs = append(addArgs, ExcludeExchange)
+	}
+	if _, err := run(addArgs...); err != nil {
 		return CapturedRevision{}, err
 	}
 	treeOID, err := run("write-tree")
