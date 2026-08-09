@@ -2,6 +2,7 @@ package atlas
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/contracts"
@@ -110,7 +111,10 @@ func (c *Controller) gateTrigger(
 		(component.Status == ComponentSucceeded || component.Status == ComponentRunning) {
 		return state, nil
 	}
-	if state.Gate != nil && state.Gate.Decision == "" && state.Gate.ComponentID == to {
+	if state.Gate != nil && state.Gate.ComponentID == to && state.Gate.Instance == instance {
+		// Already gated here: either still waiting, or decided — and a decided
+		// trigger gate is the operator's go, so re-opening it would park the
+		// run again on the answer it just received.
 		return state, nil
 	}
 	return c.runs.Append(ctx, state.ProjectID, state.RunID, &GateOpened{
@@ -356,6 +360,12 @@ type seatRequest struct {
 	Repair    bool
 }
 
+// errSuperseded reports that the attempt this turn was driving is no longer the
+// controller's to drive: an operator took it over, or the run finished while it
+// was in flight. The caller stops advancing rather than treating it as a
+// failure — the takeover path owns the run from that point.
+var errSuperseded = errors.New("atlas: the attempt was superseded")
+
 // runSeat launches one turn and records its exact outcome.
 //
 // The returned record is the primary artifact the turn was contracted to write,
@@ -436,6 +446,12 @@ func (c *Controller) runSeat(
 	})
 	if err != nil {
 		return state, nil, err
+	}
+	// A turn that finished only because an operator took it over must not also
+	// advance the run: the handback path is driving now, and both continuing
+	// would run the next stage twice.
+	if superseded(state, component, attemptID) {
+		return state, nil, errSuperseded
 	}
 	if attempt := findAttempt(state, component, attemptID); attempt != nil {
 		if releaseErr := c.runtime.Release(ctx, *attempt); releaseErr != nil {
@@ -528,6 +544,31 @@ func parked(state *RunState) bool {
 func verificationFailed(state *RunState) bool {
 	current := state.Component(ComponentVerify)
 	return current != nil && current.Status == ComponentFailed
+}
+
+// settle converts a supersession into a clean stop.
+//
+// Every entry point into the stage machine ends here, so exactly one caller —
+// the one that superseded the attempt — carries the run forward, and the other
+// returns the state it observed without reporting a failure.
+func settle(state *RunState, err error) (*RunState, error) {
+	if errors.Is(err, errSuperseded) {
+		return state, nil
+	}
+	return state, err
+}
+
+// superseded reports that a newer attempt has replaced this one on the same
+// seat, which is what a takeover records.
+func superseded(state *RunState, component ComponentID, attemptID string) bool {
+	current := state.Component(component)
+	if current == nil {
+		return true
+	}
+	if state.IsTerminal() {
+		return true
+	}
+	return current.Attempt != nil && current.Attempt.AttemptID != attemptID
 }
 
 func sessionOrNil(session contracts.SessionIdentity) *contracts.SessionIdentity {

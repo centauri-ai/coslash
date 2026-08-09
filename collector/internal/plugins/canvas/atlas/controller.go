@@ -233,7 +233,7 @@ func (c *Controller) advanceCreatedRun(
 	if err != nil {
 		return state, err
 	}
-	return c.runPipeline(ctx, board, state, source, 1)
+	return settle(c.runPipeline(ctx, board, state, source, 1))
 }
 
 func chooseBase(requested, configured string) string {

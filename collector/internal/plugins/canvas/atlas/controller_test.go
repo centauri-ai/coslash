@@ -41,6 +41,10 @@ type fakeRuntime struct {
 	failSeats map[string]bool
 	// silentSeats names seats that exit cleanly having written nothing.
 	silentSeats map[string]bool
+	// holdSeat blocks one seat's turn until released, so a test can act on a
+	// genuinely live attempt rather than a simulated one.
+	holdSeat string
+	hold     chan struct{}
 	// verdicts is the verification verdict per call, consumed in order.
 	verdicts []verification.Verdict
 	// reviews is the review verdict per review turn, consumed in order.
@@ -57,6 +61,7 @@ func newFakeRuntime(root string, workers int) *fakeRuntime {
 		artifacts:   map[string][]byte{},
 		failSeats:   map[string]bool{},
 		silentSeats: map[string]bool{},
+		hold:        make(chan struct{}),
 	}
 }
 
@@ -116,6 +121,12 @@ func (r *fakeRuntime) Execute(
 	session := contracts.SessionIdentity{Agent: string(request.Seat.Vendor), ID: "session-" + request.SeatID}
 	if err := record(session); err != nil {
 		return AttemptResult{}, err
+	}
+	r.mu.Lock()
+	held := r.holdSeat != "" && r.holdSeat == request.SeatID && request.Attempt == 1
+	r.mu.Unlock()
+	if held {
+		<-r.hold
 	}
 	if fail {
 		return AttemptResult{}, newError(CodeInvalidState, "the seat failed")
@@ -227,11 +238,29 @@ func (r *fakeRuntime) CaptureChange(_ context.Context, _ string, revisionNumber 
 }
 
 func (r *fakeRuntime) Cancel(context.Context, *RunState) (*ArtifactRecord, error) { return nil, nil }
-func (r *fakeRuntime) Takeover(_ context.Context, _ AttemptRequest, prior AttemptState) (AttemptResult, error) {
-	return AttemptResult{ExitCode: 0, FinishedAt: time.Unix(4, 0).UTC()}, nil
+func (r *fakeRuntime) Takeover(_ context.Context, request AttemptRequest, prior AttemptState) (AttemptResult, error) {
+	r.mu.Lock()
+	r.launches = append(r.launches, request)
+	r.mu.Unlock()
+	// A takeover resumes the same provider session rather than opening a new one.
+	session := contracts.SessionIdentity{}
+	if prior.Session != nil {
+		session = *prior.Session
+	}
+	return AttemptResult{ExitCode: 0, FinishedAt: time.Unix(4, 0).UTC(), Session: session}, nil
 }
-func (r *fakeRuntime) Handback(_ context.Context, _ AttemptRequest, _ AttemptState) (AttemptResult, error) {
-	return AttemptResult{ExitCode: 0, FinishedAt: time.Unix(4, 0).UTC()}, nil
+func (r *fakeRuntime) Handback(_ context.Context, request AttemptRequest, _ AttemptState) (AttemptResult, error) {
+	// Releasing the hold lets the original turn finish, which is what a real
+	// handback does: the operator stops typing and the turn ends.
+	r.mu.Lock()
+	holding := r.holdSeat != ""
+	r.holdSeat = ""
+	r.mu.Unlock()
+	if holding {
+		close(r.hold)
+	}
+	outputs := r.writeSeatOutputs(request)
+	return AttemptResult{ExitCode: 0, FinishedAt: time.Unix(4, 0).UTC(), Outputs: outputs}, nil
 }
 func (r *fakeRuntime) Probe(context.Context, *RunState, AttemptState) (ProbeResult, error) {
 	return ProbeResult{State: ProbeMissing}, nil
@@ -305,7 +334,9 @@ func newControllerFixture(t *testing.T, workers int) *controllerFixture {
 	}
 	Normalize(board)
 	document := &BoardDocument{
-		SchemaVersion: BoardSchemaVersion, ID: "board-1", ProjectID: "demo",
+		// The storage envelope and the graph carry separate schema versions;
+		// the document takes the envelope's.
+		SchemaVersion: DocumentSchemaVersion, ID: "board-1", ProjectID: "demo",
 		Name: "Board", Revision: 1, Board: board,
 	}
 
@@ -358,6 +389,122 @@ func (f *controllerFixture) start(t *testing.T) *RunState {
 		t.Fatalf("Start: %v", err)
 	}
 	return state
+}
+
+// startRequest is the standard run this fixture starts.
+func (f *controllerFixture) startRequest(t *testing.T) StartRequest {
+	t.Helper()
+	return StartRequest{
+		ProjectID: "demo", BoardID: "board-1", ProjectPath: t.TempDir(),
+		Source: SourceInput{Kind: "text", Title: "Add a logout button", Text: "Please add one."},
+	}
+}
+
+// setTriggerManual makes one pipeline edge wait for an explicit go.
+func (f *controllerFixture) setTriggerManual(t *testing.T, from, to ComponentID) {
+	t.Helper()
+	board := f.board.Board
+	fromComponent := board.ComponentByLegacyRole(from)
+	toComponent := board.ComponentByLegacyRole(to)
+	if fromComponent == nil || toComponent == nil {
+		t.Fatalf("the board has no %s or %s seat", from, to)
+	}
+	changed := false
+	for index := range board.Edges {
+		edge := &board.Edges[index]
+		if edge.Kind == EdgeTrigger && edge.From == fromComponent.ID && edge.To == toComponent.ID {
+			edge.Mode = TriggerManual
+			changed = true
+		}
+	}
+	if !changed {
+		t.Fatalf("the board has no trigger edge from %s to %s", from, to)
+	}
+	Normalize(board)
+	if board.TriggerModeBetween(from, to) != TriggerManual {
+		t.Fatalf("the %s to %s edge is still automatic", from, to)
+	}
+}
+
+// componentLaunches counts the turns launched for one stage.
+func (f *controllerFixture) componentLaunches(component ComponentID) int {
+	f.runtime.mu.Lock()
+	defer f.runtime.mu.Unlock()
+	count := 0
+	for _, launch := range f.runtime.launches {
+		if launch.Component == component {
+			count++
+		}
+	}
+	return count
+}
+
+type liveAttemptRef struct{ runID, attemptID, seatID string }
+
+// awaitLiveAttempt waits for a held seat to reach a running attempt.
+func (f *controllerFixture) awaitLiveAttempt(t *testing.T, component ComponentID) liveAttemptRef {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		summaries, err := f.controller.ListRuns(f.ctx, "demo")
+		if err == nil && len(summaries) > 0 {
+			state, readErr := f.controller.ReadRun(f.ctx, "demo", summaries[0].RunID)
+			if readErr == nil {
+				if attempt := liveAttemptFor(state, component); attempt != nil &&
+					attempt.Status == AttemptStatusRunning && attempt.Session != nil {
+					return liveAttemptRef{
+						runID: state.RunID, attemptID: attempt.AttemptID, seatID: attempt.SeatID,
+					}
+				}
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no live %s attempt appeared", component)
+	return liveAttemptRef{}
+}
+
+// attemptByOwnership finds a stage's live attempt with a given owner.
+func attemptByOwnership(state *RunState, component ComponentID, ownership Ownership) *AttemptState {
+	current := state.Component(component)
+	if current == nil {
+		return nil
+	}
+	for index := range current.Attempts {
+		attempt := &current.Attempts[index]
+		if attempt.Ownership == ownership && attempt.Status != AttemptStatusExited {
+			return attempt
+		}
+	}
+	return nil
+}
+
+// awaitNoLiveAttempt waits until every attempt on a stage has exited.
+func (f *controllerFixture) awaitNoLiveAttempt(t *testing.T, runID string, component ComponentID) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		state, err := f.controller.ReadRun(f.ctx, "demo", runID)
+		if err == nil && liveAttemptFor(state, component) == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("a %s attempt is still live after handback", component)
+}
+
+// liveAttemptFor returns the stage's attempt that has not exited.
+func liveAttemptFor(state *RunState, component ComponentID) *AttemptState {
+	current := state.Component(component)
+	if current == nil {
+		return nil
+	}
+	for index := range current.Attempts {
+		if current.Attempts[index].Status != AttemptStatusExited {
+			return &current.Attempts[index]
+		}
+	}
+	return nil
 }
 
 func (f *controllerFixture) seatsFor(component ComponentID) []string {
