@@ -8,21 +8,33 @@ import (
 // BoardSchemaVersion is the current durable board schema.
 const BoardSchemaVersion uint64 = 1
 
+// Steering bounds. A prompt card shapes how a stage does its work; it is not a
+// place to paste a corpus, and an unbounded one would push the contract and the
+// evidence out of the assembled prompt's size budget.
+const (
+	MaxInstructionsChars = 8_000
+	MaxPromptChars       = 8_000
+)
+
 // Board is one DaGama pipeline configuration.
 //
 // A board is a JSON file in a project directory. It can be hand-edited,
 // committed, shared, or arrive in a pull request, so it is untrusted input:
 // Normalize repairs, Policy refuses, and the in-memory model stays strict.
 type Board struct {
-	SchemaVersion uint64     `json:"schemaVersion"`
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	ProjectID     string     `json:"projectId"`
-	ProjectPath   string     `json:"projectPath"`
-	Revision      uint64     `json:"revision"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
-	Components    Components `json:"components"`
+	SchemaVersion uint64 `json:"schemaVersion"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	ProjectID     string `json:"projectId"`
+	ProjectPath   string `json:"projectPath"`
+	// Instructions are the project conventions applied to every seat in every
+	// run. Operator-authored steering: it can change how work is done, never
+	// what counts as done.
+	Instructions string     `json:"instructions"`
+	Revision     uint64     `json:"revision"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
+	Components   Components `json:"components"`
 
 	// extra preserves fields written by a newer coSlash so an older one does not
 	// silently drop them on round trip. Without this, opening a board in an older
@@ -63,6 +75,9 @@ type IntakeComponent struct {
 // SeatComponent is a component that drives an agent CLI.
 type SeatComponent struct {
 	Seat Seat `json:"seat"`
+	// Prompt is this stage's operator steering, carried into the assembled
+	// prompt beside the project instructions.
+	Prompt string `json:"prompt"`
 
 	extra map[string]json.RawMessage
 }
@@ -148,13 +163,13 @@ func encodeWithExtra(known any, extra map[string]json.RawMessage) ([]byte, error
 
 var (
 	boardFields = []string{
-		"schemaVersion", "id", "name", "projectId", "projectPath",
+		"schemaVersion", "id", "name", "projectId", "projectPath", "instructions",
 		"revision", "createdAt", "updatedAt", "components",
 	}
 	componentsFields = []string{"intake", "plan", "build", "verify", "review", "publish"}
 	seatFields       = []string{"vendor", "model", "effort", "permission"}
 	intakeFields     = []string{"template"}
-	seatCompFields   = []string{"seat"}
+	seatCompFields   = []string{"seat", "prompt"}
 	verifyFields     = []string{"checks"}
 	checkFields      = []string{"name", "argv"}
 	publishCompField = []string{"publish"}

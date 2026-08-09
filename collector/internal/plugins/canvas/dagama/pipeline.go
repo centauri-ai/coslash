@@ -95,7 +95,11 @@ func (c *Controller) runSeat(ctx context.Context, board *Board, state *RunState,
 	if err != nil {
 		return c.finishFailure(ctx, state, component, instance, "invalid_output", err)
 	}
-	prompt, err := ComposePrompt(PromptInput{Component: component, Instance: instance, Attempt: attempt, Source: source, Artifacts: artifacts, Repair: instance > 1})
+	prompt, err := ComposePrompt(PromptInput{
+		Component: component, Instance: instance, Attempt: attempt,
+		Source: source, Artifacts: artifacts, Repair: instance > 1,
+		Instructions: board.Instructions, Steering: seatPrompt(board, component),
+	})
 	if err != nil {
 		return c.finishFailure(ctx, state, component, instance, "invalid_output", err)
 	}

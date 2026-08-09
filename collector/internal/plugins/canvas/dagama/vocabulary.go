@@ -206,3 +206,18 @@ func ValidArgvToken(value string) bool {
 
 // ValidCheckCommand reports allowlist membership for argv[0].
 func ValidCheckCommand(value string) bool { return slices.Contains(CheckCommands, value) }
+
+// seatPrompt returns the operator steering configured for a seat component.
+// A component without a seat has no prompt card, so it steers nothing.
+func seatPrompt(board *Board, component ComponentID) string {
+	switch component {
+	case ComponentPlan:
+		return board.Components.Plan.Prompt
+	case ComponentBuild:
+		return board.Components.Build.Prompt
+	case ComponentReview:
+		return board.Components.Review.Prompt
+	default:
+		return ""
+	}
+}

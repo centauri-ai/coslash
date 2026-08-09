@@ -63,6 +63,7 @@ func TestBoardSerializationGolden(t *testing.T) {
   "name": "Ship the thing",
   "projectId": "project-1",
   "projectPath": "/Users/dev/project",
+  "instructions": "",
   "revision": 1,
   "createdAt": "2026-08-09T00:00:00Z",
   "updatedAt": "2026-08-09T00:00:00Z",
@@ -74,7 +75,8 @@ func TestBoardSerializationGolden(t *testing.T) {
         "model": "opus",
         "effort": "high",
         "permission": "acceptEdits"
-      }
+      },
+      "prompt": ""
     },
     "build": {
       "seat": {
@@ -82,7 +84,8 @@ func TestBoardSerializationGolden(t *testing.T) {
         "model": "gpt-5.6-sol",
         "effort": "ultra",
         "permission": "workspace-write"
-      }
+      },
+      "prompt": ""
     },
     "verify": {
       "checks": [
@@ -102,7 +105,8 @@ func TestBoardSerializationGolden(t *testing.T) {
         "model": "sonnet",
         "effort": "medium",
         "permission": "acceptEdits"
-      }
+      },
+      "prompt": ""
     },
     "publish": {
       "publish": {

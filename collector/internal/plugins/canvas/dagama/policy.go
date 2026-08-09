@@ -25,6 +25,12 @@ func Normalize(board *Board) {
 	}
 	board.Name = strings.TrimSpace(board.Name)
 	board.ProjectPath = strings.TrimSpace(board.ProjectPath)
+	// Steering is clamped rather than refused: it is prose an operator typed,
+	// and truncating it loses the tail, where refusing would lose the board.
+	board.Instructions = clampSteering(board.Instructions, MaxInstructionsChars)
+	board.Components.Plan.Prompt = clampSteering(board.Components.Plan.Prompt, MaxPromptChars)
+	board.Components.Build.Prompt = clampSteering(board.Components.Build.Prompt, MaxPromptChars)
+	board.Components.Review.Prompt = clampSteering(board.Components.Review.Prompt, MaxPromptChars)
 
 	normalizeSeat(&board.Components.Plan.Seat)
 	normalizeSeat(&board.Components.Build.Seat)
@@ -32,6 +38,18 @@ func Normalize(board *Board) {
 
 	board.Components.Verify.Checks = normalizeChecks(board.Components.Verify.Checks)
 	board.Components.Publish.Publish.Base = strings.TrimSpace(board.Components.Publish.Publish.Base)
+}
+
+// clampSteering bounds operator prose to a rune count, never a byte slice: a
+// byte cut would split a multi-byte character and put invalid UTF-8 into the
+// document and then into an agent's prompt.
+func clampSteering(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
 }
 
 func normalizeSeat(seat *Seat) {
