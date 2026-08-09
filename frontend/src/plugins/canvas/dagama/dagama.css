@@ -1,0 +1,338 @@
+/*
+ * DaGama board surface.
+ *
+ * Node chrome (.canvas-node*), the stage, wires, and the zoom cluster come from
+ * the shared Canvas layer, which this file never redefines. What is added here
+ * is only what the pipeline board needs: the repair and cluster wire treatments,
+ * the per-stage accents, the seat terminal, and the live status accents.
+ *
+ * Every selector is prefixed `.dagama-` on purpose. Session Canvas ships its own
+ * `.session-canvas-*` rules into the same bundle, and the shared layer owns the
+ * unprefixed `.canvas-*` names — an unprefixed rule here would silently restyle
+ * another board depending on load order.
+ *
+ * The legacy stylesheet's hardcoded hexes are replaced with coSlash theme
+ * tokens so the board renders correctly in both light and dark. The seat
+ * terminal keeps a fixed dark palette, matching Session Canvas: a terminal is
+ * reproducing a real TTY's colours, so it is not theme-following.
+ */
+
+.dagama-board {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.dagama-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--card);
+  padding: 0.2rem;
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+
+.dagama-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--card);
+  padding: 0.35rem 0.6rem;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+
+/* Forward flow: the pipeline. Solid, because it is not optional. */
+.dagama-wires .dagama-wire-flow {
+  stroke: var(--border);
+  stroke-dasharray: none;
+  stroke-width: 2;
+}
+
+/* Repair flow: verify/review returning to build. Dashed, and visibly a return. */
+.dagama-wires .dagama-wire-repair {
+  stroke: color-mix(in oklch, var(--color-warning) 80%, var(--border));
+  stroke-dasharray: 6 6;
+  stroke-width: 2;
+}
+
+/* Cluster companions (prompt → terminal → info). Lighter than the pipeline. */
+.dagama-wires .dagama-wire-cluster {
+  stroke: color-mix(in oklch, var(--border) 70%, transparent);
+  stroke-dasharray: 4 4;
+  stroke-width: 1.5;
+}
+
+/* The active edge of a running pipeline. */
+.dagama-wires .dagama-wire-active {
+  stroke: var(--color-brand);
+  stroke-dasharray: none;
+  stroke-width: 3;
+}
+
+/*
+ * Per-component accents. Deterministic components (intake, verify, publish)
+ * read cooler than the model-running ones, so the board shows at a glance where
+ * a model is involved and where the result is mechanical.
+ */
+.dagama-node-kind-intake,
+.dagama-node-kind-verify {
+  border-color: color-mix(in oklch, var(--border) 70%, var(--muted-foreground));
+}
+
+.dagama-node-kind-plan,
+.dagama-node-kind-build,
+.dagama-node-kind-review {
+  border-color: color-mix(in oklch, var(--color-brand) 35%, var(--border));
+}
+
+.dagama-node-kind-publish {
+  border-color: color-mix(in oklch, var(--border) 60%, var(--accent-foreground));
+}
+
+/*
+ * Live run-state accents. Two-class specificity so the status colour wins over
+ * the per-component accent and stays visible when the node is selected, which
+ * only adds a ring.
+ */
+.canvas-node.dagama-node-status-running {
+  border-color: var(--color-brand);
+}
+
+.canvas-node.dagama-node-status-blocked,
+.canvas-node.dagama-node-status-awaiting_approval {
+  border-color: color-mix(in oklch, var(--border) 40%, var(--color-warning));
+}
+
+.canvas-node.dagama-node-status-succeeded {
+  border-color: color-mix(in oklch, var(--border) 30%, var(--color-success));
+}
+
+.canvas-node.dagama-node-status-failed {
+  border-color: var(--destructive);
+}
+
+/* Components that host a terminal or a compose box own their body padding. */
+.dagama-node-seat-terminal .canvas-node-body,
+.dagama-node-seat-prompt .canvas-node-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.dagama-card {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: auto;
+  padding: 0.75rem;
+}
+
+.dagama-purpose {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.dagama-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.dagama-strip-failed {
+  border-color: var(--destructive);
+}
+
+.dagama-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.dagama-outputs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: auto;
+  padding-top: 0.25rem;
+}
+
+.dagama-output {
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.35rem;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+}
+
+button.dagama-output:hover {
+  border-color: var(--color-brand);
+  color: var(--foreground);
+}
+
+.dagama-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dagama-field > span {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.dagama-field input,
+.dagama-field select,
+.dagama-instructions textarea,
+.dagama-prompt textarea {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: transparent;
+  padding: 0.25rem 0.5rem;
+  color: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.dagama-field input:focus,
+.dagama-field select:focus,
+.dagama-instructions textarea:focus,
+.dagama-prompt textarea:focus {
+  border-color: var(--color-brand);
+}
+
+.dagama-prompt {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
+.dagama-prompt textarea {
+  min-height: 0;
+  flex: 1;
+  resize: none;
+}
+
+.dagama-prompt-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 10px;
+}
+
+/* Seat terminal. Fixed dark palette, exactly as the Session Canvas terminal. */
+.dagama-terminal {
+  display: flex;
+  min-height: 0;
+  width: 100%;
+  flex: 1;
+  flex-direction: column;
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.dagama-terminal-status {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-bottom: 1px solid #374151;
+  padding: 0.4rem 0.6rem;
+  color: #9ca3af;
+  font-size: 10px;
+}
+
+.dagama-terminal-actions {
+  display: flex;
+  margin-left: auto;
+  gap: 0.2rem;
+}
+
+.dagama-terminal pre {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 0.65rem;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+
+.dagama-terminal-input {
+  display: flex;
+  gap: 0.4rem;
+  border-top: 1px solid #374151;
+  padding: 0.45rem;
+}
+
+.dagama-terminal-input input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #4b5563;
+  border-radius: 0.35rem;
+  background: #030712;
+  padding: 0.35rem 0.5rem;
+  color: #f9fafb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  outline: none;
+}
+
+.dagama-terminal-input input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.dagama-terminal-empty {
+  display: grid;
+  width: 100%;
+  flex: 1;
+  place-items: center;
+  align-content: center;
+  gap: 0.5rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-align: center;
+}
+
+.dagama-error {
+  color: var(--destructive);
+  font-size: 10px;
+}
+
+.dagama-empty {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  align-content: center;
+  gap: 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-align: center;
+}
