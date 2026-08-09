@@ -1,0 +1,371 @@
+.session-canvas {
+  position: relative;
+  height: 100%;
+  min-height: 36rem;
+}
+.session-canvas-stack {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.session-canvas-metric {
+  border-radius: 999px;
+  background: var(--muted);
+  padding: 0.2rem 0.5rem;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 650;
+}
+.session-canvas-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+.session-canvas-stat-grid > div {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+}
+.session-canvas-stat-grid span {
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.session-canvas-stat-grid strong {
+  padding-top: 0.15rem;
+  font-size: 12px;
+}
+.session-canvas blockquote {
+  border-left: 2px solid var(--color-brand);
+  padding-left: 0.75rem;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.5;
+}
+.session-canvas-callout {
+  border-radius: 0.6rem;
+  background: var(--muted);
+  padding: 0.65rem;
+  font-size: 11px;
+}
+.session-canvas-callout p {
+  padding-top: 0.25rem;
+  color: var(--muted-foreground);
+}
+.session-canvas-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 11px;
+}
+.session-canvas-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.session-canvas-list svg {
+  width: 0.85rem;
+  color: var(--color-success);
+}
+.session-canvas-list-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.2rem;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+.session-canvas-complete {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+.session-canvas-timeline {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(3.8rem, 1fr));
+  gap: 0.3rem;
+  padding-top: 0.5rem;
+}
+.session-canvas-timeline > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  text-align: center;
+}
+.session-canvas-timeline small {
+  color: var(--muted-foreground);
+  font-size: 8px;
+}
+.session-canvas-turn-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid var(--card);
+  border-radius: 50%;
+  background: var(--color-brand);
+  box-shadow: 0 0 0 1px var(--color-brand);
+}
+.session-canvas-turn-error {
+  background: var(--destructive);
+  box-shadow: 0 0 0 1px var(--destructive);
+}
+.session-canvas-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.4rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.35rem;
+  font-size: 10px;
+}
+.session-canvas-row svg {
+  width: 0.8rem;
+  color: var(--muted-foreground);
+}
+.session-canvas-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-canvas-empty {
+  display: grid;
+  min-height: 5rem;
+  place-items: center;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-align: center;
+}
+.session-canvas-turn-card {
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  padding: 0.55rem;
+  font-size: 10px;
+}
+.session-canvas-turn-card p {
+  padding-top: 0.35rem;
+  color: var(--muted-foreground);
+}
+.session-canvas-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.45rem;
+  border-left: 2px solid var(--color-brand);
+  padding-left: 0.5rem;
+}
+.session-canvas-terminal-node,
+.session-canvas-note-node {
+  border-color: color-mix(in oklch, var(--color-brand) 45%, var(--border));
+}
+.session-canvas-terminal-node .canvas-node-body,
+.session-canvas-note-node .canvas-node-body {
+  display: flex;
+  padding: 0;
+}
+.session-canvas-terminal-empty {
+  display: grid;
+  width: 100%;
+  place-items: center;
+  align-content: center;
+  gap: 0.5rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.session-canvas-terminal {
+  display: flex;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  background: #111827;
+  color: #e5e7eb;
+}
+.session-canvas-terminal-status {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-bottom: 1px solid #374151;
+  padding: 0.4rem 0.6rem;
+  color: #9ca3af;
+  font-size: 10px;
+}
+.session-canvas-terminal pre {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 0.65rem;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+.session-canvas-note {
+  display: flex;
+  width: 100%;
+  gap: 0.5rem;
+  padding: 0.6rem;
+}
+.session-canvas-note textarea,
+.session-canvas-experiment-form textarea {
+  min-height: 4rem;
+  min-width: 0;
+  flex: 1;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  padding: 0.5rem;
+  font-size: 11px;
+  outline: none;
+}
+.session-canvas-save-state {
+  padding: 0 0.45rem;
+  color: var(--muted-foreground);
+  font-size: 9px;
+  font-weight: 650;
+}
+.session-canvas-persistence-error {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  max-width: 22rem;
+  border: 1px solid var(--destructive);
+  border-radius: 0.6rem;
+  background: var(--popover);
+  padding: 0.65rem;
+  color: var(--destructive);
+  font-size: 11px;
+}
+.session-canvas-panel-row {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.55rem 0;
+  text-align: left;
+}
+.session-canvas-panel-row > svg {
+  width: 0.9rem;
+  flex: none;
+}
+.session-canvas-panel-row > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 10px;
+}
+.session-canvas-panel-row small {
+  color: var(--muted-foreground);
+}
+.session-canvas-checkpoint {
+  margin-top: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.55rem;
+  font-size: 10px;
+}
+.session-canvas-checkpoint > small {
+  color: var(--muted-foreground);
+}
+.session-canvas-checkpoint > div:last-child {
+  display: flex;
+  gap: 0.25rem;
+  padding-top: 0.4rem;
+}
+.session-canvas-experiment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+.session-canvas-comparison {
+  position: fixed;
+  inset: 4.25rem 1rem 1rem;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--muted);
+  box-shadow: 0 18px 55px rgb(25 38 58 / 20%);
+}
+.session-canvas-comparison > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  padding: 0.65rem 0.75rem;
+}
+.session-canvas-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.75rem;
+  overflow: auto;
+  padding: 0.75rem;
+}
+.session-canvas-comparison-grid article {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--card);
+  padding: 0.7rem;
+}
+.session-canvas-comparison-grid small {
+  color: var(--muted-foreground);
+}
+.session-canvas-command-list {
+  display: flex;
+  flex-direction: column;
+  padding-top: 0.5rem;
+}
+.session-canvas-command-list button {
+  border-radius: 0.4rem;
+  padding: 0.45rem;
+  text-align: left;
+  font-size: 11px;
+}
+.session-canvas-command-list button:hover {
+  background: var(--muted);
+}
+.session-canvas-state {
+  display: grid;
+  height: 100%;
+  min-height: 26rem;
+  place-items: center;
+  align-content: center;
+  gap: 0.55rem;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.session-canvas-state > svg {
+  width: 1.4rem;
+}
+.session-canvas-state > strong {
+  color: var(--foreground);
+}
+.session-canvas-state > p {
+  max-width: 24rem;
+  font-size: 11px;
+}
+@media (max-width: 900px) {
+  .session-canvas-comparison {
+    inset: 4rem 0.5rem 0.5rem;
+  }
+  .session-canvas-note {
+    flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-canvas * {
+    scroll-behavior: auto !important;
+  }
+}
