@@ -1088,6 +1088,7 @@ export function SessionCanvas({
   );
   const [detail, setDetail] = useState<SessionCanvasDetail | null>(null);
   const [workspace, setWorkspace] = useState(defaultSessionWorkspace);
+  const [workspaceFormatError, setWorkspaceFormatError] = useState('');
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [error, setError] = useState('');
   const [persistence, setPersistence] = useState<WorkspaceSnapshot<SessionCanvasWorkspace>>({
@@ -1112,14 +1113,17 @@ export function SessionCanvas({
   const terminalRef = useRef<ReturnType<typeof createTerminalConnection> | null>(null);
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
+  const workspaceWritableRef = useRef(false);
   const currentIdentityKey = identity === null ? '' : sessionKey(identity);
   const activeIdentityKeyRef = useRef(currentIdentityKey);
   activeIdentityKeyRef.current = currentIdentityKey;
 
   useEffect(() => {
     const initialWorkspace = defaultSessionWorkspace();
+    workspaceWritableRef.current = false;
     workspaceRef.current = initialWorkspace;
     setWorkspace(initialWorkspace);
+    setWorkspaceFormatError('');
     setPersistence({
       state: null,
       revision: 0,
@@ -1166,11 +1170,21 @@ export function SessionCanvas({
     const publish = () => {
       const snapshot = workspaceClient.snapshot();
       setPersistence(snapshot);
-      if (!adopted && snapshot.loaded && snapshot.state !== null) {
+      if (!adopted && snapshot.loaded) {
         adopted = true;
-        const restored = normalizeSessionWorkspace(snapshot.state);
-        workspaceRef.current = restored;
-        setWorkspace(restored);
+        try {
+          const restored =
+            snapshot.state === null ? defaultSessionWorkspace() : normalizeSessionWorkspace(snapshot.state);
+          workspaceWritableRef.current = true;
+          workspaceRef.current = restored;
+          setWorkspace(restored);
+          setWorkspaceFormatError('');
+        } catch (caught) {
+          workspaceWritableRef.current = false;
+          setWorkspaceFormatError(
+            caught instanceof Error ? caught.message : 'This Canvas workspace format is unsupported.',
+          );
+        }
       }
     };
     const unsubscribe = workspaceClient.subscribe(publish);
@@ -1223,11 +1237,36 @@ export function SessionCanvas({
         )}
       </div>
     );
+  if (workspaceFormatError !== '')
+    return (
+      <div className="session-canvas-state" role="alert">
+        <AlertTriangleIcon />
+        <strong>Canvas workspace version unsupported</strong>
+        <p>{workspaceFormatError} It remains unchanged on the server.</p>
+      </div>
+    );
+  if (!persistence.loaded)
+    return (
+      <div className="session-canvas-state" role={persistence.error === null ? undefined : 'alert'}>
+        {persistence.error === null ? <LoaderCircleIcon className="animate-spin" /> : <AlertTriangleIcon />}
+        <strong>
+          {persistence.error === null ? 'Restoring Canvas workspace…' : 'Canvas workspace unavailable'}
+        </strong>
+        <p>{persistence.error?.message ?? 'Loading the server-backed layout and workflow state.'}</p>
+        {persistence.error !== null && (
+          <Button size="sm" onClick={() => void workspaceClient?.load()}>
+            <RefreshCwIcon /> Retry workspace
+          </Button>
+        )}
+      </div>
+    );
 
   const commitWorkspace = (next: SessionCanvasWorkspace) => {
+    if (!workspaceWritableRef.current) return false;
     workspaceRef.current = next;
     setWorkspace(next);
     workspaceClient?.update(next);
+    return true;
   };
   const applyWorkspaceAction = (
     action: Parameters<typeof reduceSessionWorkspace>[1],
@@ -1240,8 +1279,7 @@ export function SessionCanvas({
       action,
     );
     if (next === null) return false;
-    commitWorkspace(next);
-    return true;
+    return commitWorkspace(next);
   };
   const launchTerminal = async () => {
     const actionIdentityKey = currentIdentityKey;
@@ -1377,16 +1415,28 @@ export function SessionCanvas({
   };
   const reloadWorkspace = async () => {
     const actionIdentityKey = currentIdentityKey;
+    workspaceWritableRef.current = false;
     await workspaceClient?.reloadFromServer();
     if (activeIdentityKeyRef.current !== actionIdentityKey) return;
     const snapshot = workspaceClient?.snapshot();
     if (snapshot === undefined) return;
     setPersistence(snapshot);
     if (snapshot.error === null) {
-      const restored =
-        snapshot.state === null ? defaultSessionWorkspace() : normalizeSessionWorkspace(snapshot.state);
-      workspaceRef.current = restored;
-      setWorkspace(restored);
+      try {
+        const restored =
+          snapshot.state === null ? defaultSessionWorkspace() : normalizeSessionWorkspace(snapshot.state);
+        workspaceWritableRef.current = true;
+        workspaceRef.current = restored;
+        setWorkspace(restored);
+        setWorkspaceFormatError('');
+      } catch (caught) {
+        workspaceWritableRef.current = false;
+        setWorkspaceFormatError(
+          caught instanceof Error ? caught.message : 'This Canvas workspace format is unsupported.',
+        );
+      }
+    } else {
+      workspaceWritableRef.current = true;
     }
   };
   const loadFile = (path: string) => loadSessionFile(identity, path, fetch);

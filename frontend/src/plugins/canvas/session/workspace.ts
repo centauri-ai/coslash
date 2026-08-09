@@ -15,6 +15,16 @@ export const SESSION_CANVAS_WORLD = { width: 1680, height: 1120 } as const;
 export const SESSION_NODE_MIN_WIDTH = 240;
 export const SESSION_NODE_MIN_HEIGHT = 120;
 
+export class UnsupportedSessionWorkspaceError extends Error {
+  readonly version: unknown;
+
+  constructor(version: unknown) {
+    super(`This Canvas workspace uses unsupported version ${String(version)}.`);
+    this.name = 'UnsupportedSessionWorkspaceError';
+    this.version = version;
+  }
+}
+
 export const DEFAULT_SESSION_LAYOUT: SessionCanvasLayout = {
   session: { x: 16, y: 54, width: 300, height: 260, collapsed: false, locked: false },
   goal: { x: 350, y: 54, width: 320, height: 220, collapsed: false, locked: false },
@@ -155,7 +165,8 @@ export function autoArrangeSessionLayout(layout: SessionCanvasLayout): SessionCa
 
 export function normalizeSessionWorkspace(value: unknown): SessionCanvasWorkspace {
   const candidate = record(value);
-  if (candidate?.version !== 1) return defaultSessionWorkspace();
+  if (candidate === null) return defaultSessionWorkspace();
+  if (candidate.version !== 1) throw new UnsupportedSessionWorkspaceError(candidate.version);
   return {
     ...candidate,
     version: 1,

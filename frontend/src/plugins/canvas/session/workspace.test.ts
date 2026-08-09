@@ -11,6 +11,7 @@ import {
   sessionAttention,
   sessionKey,
   sessionPinCandidates,
+  UnsupportedSessionWorkspaceError,
 } from '@/plugins/canvas/session/workspace';
 
 describe('Session Canvas workspace', () => {
@@ -43,6 +44,12 @@ describe('Session Canvas workspace', () => {
     expect(workspace.pinIds).toEqual(['goal']);
     expect(workspace.note).toBe('remember this');
     expect(Object.keys(workspace.layout)).toHaveLength(10);
+  });
+
+  it('rejects unsupported workspace versions instead of replacing future data', () => {
+    expect(() =>
+      normalizeSessionWorkspace({ version: 2, futureState: { mustRemainOnServer: true } }),
+    ).toThrow(UnsupportedSessionWorkspaceError);
   });
 
   it('keeps duplicate vendor ids distinct', () => {
