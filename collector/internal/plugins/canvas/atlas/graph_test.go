@@ -241,6 +241,32 @@ func TestNormalizeDeduplicatesWorkerIDsAndOutputs(t *testing.T) {
 	}
 }
 
+func TestNormalizeKeepsDerivedAndCollidingIDsValid(t *testing.T) {
+	longID := "a" + strings.Repeat("b", MaxIDLength-1)
+	raw := []byte(`{"kind":"atlas","schemaVersion":2,"components":[{` +
+		`"id":` + string(mustMarshal(t, longID)) + `,` +
+		`"seats":[{"id":` + string(mustMarshal(t, longID)) + `},{"id":` + string(mustMarshal(t, longID)) + `}]` +
+		`},{"id":"target"}],"edges":[` +
+		`{"id":"same","from":` + string(mustMarshal(t, longID)) + `,"to":"target","kind":"trigger"},` +
+		`{"id":"same","from":"target","to":` + string(mustMarshal(t, longID)) + `,"kind":"feedback","maxRounds":1}` +
+		`],"viewport":{"zoom":0.55}}`)
+
+	board, err := DecodeBoard(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AssertPolicy(board); err != nil {
+		t.Fatalf("normalized identifiers violate policy: %v", err)
+	}
+	component := board.ComponentByID(longID)
+	if component == nil || len(component.Seats) != 2 || component.Seats[0].ID == component.Seats[1].ID {
+		t.Fatalf("worker identifiers were not made unique: %+v", component)
+	}
+	if len(component.Seats[1].ID) > MaxIDLength || len(board.Edges[1].ID) > MaxIDLength || board.Edges[0].ID == board.Edges[1].ID {
+		t.Fatalf("derived identifiers are invalid: workers=%+v edges=%+v", component.Seats, board.Edges)
+	}
+}
+
 func TestNormalizeGrowsLegacyCardsExactlyOnce(t *testing.T) {
 	// A pre-cluster card: narrow, no companions.
 	narrow := []byte(`{"kind":"atlas","schemaVersion":2,"components":[{"id":"plan","legacyRole":"plan","box":{"x":40,"y":50,"width":300,"height":200,"locked":true}}],"edges":[],"viewport":{"zoom":0.55}}`)

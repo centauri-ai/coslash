@@ -211,6 +211,12 @@ func (s *BoardStore) loadDocument(ctx context.Context, boardID string) (*BoardDo
 	if document.ProjectID != "" && document.ProjectID != s.projectID {
 		return nil, newError(CodeCorruptDocument, "the board belongs to a different project")
 	}
+	// Older board envelopes predate projectId. Their location inside this
+	// project is authoritative; adopt that ownership in memory so they can be
+	// run immediately and persist it on the next save.
+	if document.ProjectID == "" {
+		document.ProjectID = s.projectID
+	}
 	if document.Revision < 1 {
 		return nil, newError(CodeCorruptDocument, "the board document has no revision")
 	}

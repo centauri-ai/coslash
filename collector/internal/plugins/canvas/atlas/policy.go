@@ -41,9 +41,17 @@ func AssertPolicy(board *Board) error {
 	}
 
 	ids := make(map[string]struct{}, len(board.Components))
+	legacyRoles := make(map[ComponentID]struct{}, len(SeatComponentIDs))
 	for index := range board.Components {
 		if err := assertComponent(index, &board.Components[index], ids); err != nil {
 			return err
+		}
+		role := board.Components[index].LegacyRole
+		if role != nil {
+			if _, duplicate := legacyRoles[*role]; duplicate {
+				return policyError(fmt.Sprintf("components[%d].legacyRole", index), "the run role is assigned to more than one seat")
+			}
+			legacyRoles[*role] = struct{}{}
 		}
 	}
 	if err := assertEdges(board.Edges, ids); err != nil {

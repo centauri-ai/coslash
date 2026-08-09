@@ -2,6 +2,7 @@ package atlas
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -108,6 +109,29 @@ func TestBoardStoreRejectsCorruptionAndSymlinkedStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	location := filepath.Join(root, filepath.FromSlash(BoardsDirectory), "board.json")
+	legacyBytes, err := os.ReadFile(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacyEnvelope map[string]json.RawMessage
+	if err := json.Unmarshal(legacyBytes, &legacyEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	delete(legacyEnvelope, "projectId")
+	legacyBytes, err = json.MarshalIndent(legacyEnvelope, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(location, append(legacyBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := store.Load(context.Background(), "board")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.ProjectID != "project" {
+		t.Fatalf("legacy board project = %q, want project", legacy.ProjectID)
+	}
 	if err := os.WriteFile(location, []byte("{broken\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +188,44 @@ func TestRunStoreRepairsStaleViewAndSerializesTransitions(t *testing.T) {
 	}
 	if read.LastSeq != 2 || read.Component(ComponentPlan).Status != ComponentReady {
 		t.Fatalf("stale view was returned: seq=%d plan=%s", read.LastSeq, read.Component(ComponentPlan).Status)
+	}
+
+	// A view with the current sequence is still only a cache. If it is edited
+	// on disk, the event replay must win and repair it.
+	viewPath := filepath.Join(root, projectID, RunsDirectory, runID, runViewName)
+	forgedBytes, err := os.ReadFile(viewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forged RunState
+	if err := json.Unmarshal(forgedBytes, &forged); err != nil {
+		t.Fatal(err)
+	}
+	forged.Status = RunSucceeded
+	forgedBytes, err = json.MarshalIndent(&forged, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(viewPath, append(forgedBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trusted, err := store.Read(context.Background(), projectID, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trusted.Status == RunSucceeded {
+		t.Fatal("a forged materialized status overrode the event log")
+	}
+	repairedBytes, err := os.ReadFile(viewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repaired RunState
+	if err := json.Unmarshal(repairedBytes, &repaired); err != nil {
+		t.Fatal(err)
+	}
+	if repaired.Status != trusted.Status {
+		t.Fatalf("repaired view status = %q, want %q", repaired.Status, trusted.Status)
 	}
 
 	const writers = 10
@@ -266,8 +328,8 @@ func TestRunStoreReportsDurableLogCorruption(t *testing.T) {
 	requireAtlasCode(t, err, CodeCorruptDocument)
 }
 
-func TestRunStoreRejectsCrossProjectSnapshotAndEvent(t *testing.T) {
-	_, scope := testScope(t)
+func TestRunStoreRejectsMutableAndCrossProjectSnapshotsAndEvents(t *testing.T) {
+	root, scope := testScope(t)
 	store, err := NewRunStore(scope, incrementingClock())
 	if err != nil {
 		t.Fatal(err)
@@ -276,6 +338,34 @@ func TestRunStoreRejectsCrossProjectSnapshotAndEvent(t *testing.T) {
 	foreign := &BoardDocument{ID: "board", Name: "Board", ProjectID: "other", Revision: 1, Board: DefaultBoard()}
 	if err := store.Allocate(context.Background(), "project", runID, foreign, nil); err == nil {
 		t.Fatal("cross-project board snapshot was accepted")
+	}
+	local := &BoardDocument{SchemaVersion: DocumentSchemaVersion, ID: "board", Name: "Board", ProjectID: "project", Revision: 1, Board: DefaultBoard()}
+	if err := store.Allocate(context.Background(), "project", runID, local, map[string]string{"problem": "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Allocate(context.Background(), "project", runID, local, map[string]string{"problem": "second"}); err == nil {
+		t.Fatal("an allocation replaced immutable input snapshots")
+	}
+
+	snapshotPath := filepath.Join(root, "project", RunsDirectory, runID, boardSnapshotName)
+	snapshotBytes, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot BoardDocument
+	if err := json.Unmarshal(snapshotBytes, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.ProjectID = "other"
+	snapshotBytes, err = json.MarshalIndent(&snapshot, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(snapshotPath, append(snapshotBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BoardSnapshot(context.Background(), "project", runID); err == nil {
+		t.Fatal("a cross-project board snapshot was returned")
 	}
 	_, err = store.Append(context.Background(), "project", runID, &RunCreated{ProjectID: "other", BoardID: "board", BoardRevision: 1, Title: "Run"})
 	requireAtlasCode(t, err, CodeInvalidState)

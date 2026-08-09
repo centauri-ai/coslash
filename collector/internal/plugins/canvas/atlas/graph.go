@@ -1,6 +1,7 @@
 package atlas
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -565,7 +566,7 @@ func DefaultCommittee(role *ComponentID) Committee {
 // component and position instead keeps Normalize pure, which is what makes
 // migration idempotent and golden replay reproducible.
 func WorkerSeatID(componentID string, index int) string {
-	return fmt.Sprintf("%s-worker-%d", componentID, index+1)
+	return graphIDWithSuffix(componentID, fmt.Sprintf("-worker-%d", index+1))
 }
 
 // NewAgentSeat builds a seat with role defaults applied.
@@ -797,7 +798,7 @@ func normalizeSeats(seats []WorkerSeat, role *ComponentID, primary Seat, compone
 			id = WorkerSeatID(componentID, index)
 		}
 		if _, duplicate := used[id]; duplicate {
-			id = fmt.Sprintf("%s-%d", id, index+1)
+			id = uniqueGraphID(id, index+1, used)
 		}
 		used[id] = struct{}{}
 		next := WorkerSeat{ID: id, Role: RoleWorker, extra: cloneExtra(worker.extra)}
@@ -940,7 +941,8 @@ func normalizeBox(box NodeBox, fallback NodeBox) NodeBox {
 
 func normalizeEdges(edges []Edge, componentIDs map[string]struct{}) []Edge {
 	normalized := make([]Edge, 0, len(edges))
-	seen := make(map[string]struct{}, len(edges))
+	seenPairs := make(map[string]struct{}, len(edges))
+	seenIDs := make(map[string]struct{}, len(edges))
 	for _, edge := range edges {
 		from := strings.TrimSpace(edge.From)
 		to := strings.TrimSpace(edge.To)
@@ -954,7 +956,7 @@ func normalizeEdges(edges []Edge, componentIDs map[string]struct{}) []Edge {
 			continue
 		}
 		key := from + "->" + to
-		if _, duplicate := seen[key]; duplicate {
+		if _, duplicate := seenPairs[key]; duplicate {
 			continue
 		}
 		// An unknown kind is dropped rather than reinterpreted; an absent kind
@@ -962,11 +964,12 @@ func normalizeEdges(edges []Edge, componentIDs map[string]struct{}) []Edge {
 		if edge.Kind != "" && edge.Kind != EdgeTrigger && edge.Kind != EdgeFeedback {
 			continue
 		}
-		seen[key] = struct{}{}
+		seenPairs[key] = struct{}{}
 		id := strings.TrimSpace(edge.ID)
-		if !ValidGraphID(id) {
-			id = "edge-" + from + "-" + to
+		if _, duplicate := seenIDs[id]; !ValidGraphID(id) || duplicate {
+			id = uniqueEdgeID(from, to, seenIDs)
 		}
+		seenIDs[id] = struct{}{}
 		next := Edge{
 			ID:    id,
 			From:  from,
@@ -1023,8 +1026,12 @@ func ensureLegacyFeedbackEdge(components []AgentComponent, edges []Edge) []Edge 
 	if !hasPlanBuild || !hasBuildReview {
 		return edges
 	}
+	usedIDs := make(map[string]struct{}, len(edges))
+	for _, edge := range edges {
+		usedIDs[edge.ID] = struct{}{}
+	}
 	return append(edges, Edge{
-		ID:        "edge-review-build",
+		ID:        uniqueEdgeID(review.ID, build.ID, usedIDs),
 		From:      review.ID,
 		To:        build.ID,
 		Kind:      EdgeFeedback,
@@ -1263,6 +1270,45 @@ func clampText(value string, limit int) string {
 		trimmed = trimmed[:len(trimmed)-1]
 	}
 	return trimmed
+}
+
+func uniqueGraphID(base string, ordinal int, used map[string]struct{}) string {
+	for {
+		candidate := graphIDWithSuffix(base, fmt.Sprintf("-%d", ordinal))
+		if _, exists := used[candidate]; !exists {
+			return candidate
+		}
+		ordinal++
+	}
+}
+
+func uniqueEdgeID(from, to string, used map[string]struct{}) string {
+	base := "edge-" + from + "-" + to
+	if ValidGraphID(base) {
+		if _, exists := used[base]; !exists {
+			return base
+		}
+	}
+	digest := sha256.Sum256([]byte(from + "\x00" + to))
+	hashSuffix := fmt.Sprintf("-%x", digest[:6])
+	for ordinal := 0; ; ordinal++ {
+		suffix := hashSuffix
+		if ordinal > 0 {
+			suffix += fmt.Sprintf("-%d", ordinal+1)
+		}
+		candidate := graphIDWithSuffix(base, suffix)
+		if _, exists := used[candidate]; !exists {
+			return candidate
+		}
+	}
+}
+
+func graphIDWithSuffix(base, suffix string) string {
+	limit := MaxIDLength - len(suffix)
+	if len(base) > limit {
+		base = base[:limit]
+	}
+	return base + suffix
 }
 
 // isZeroBox reports an absent companion card. A saved Prompt or Info box always

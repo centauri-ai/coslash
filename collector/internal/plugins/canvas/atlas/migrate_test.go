@@ -61,6 +61,10 @@ func TestAssertPolicyRejectsInvalidGraphsBeforeExecution(t *testing.T) {
 		"duplicate worker": func(board *Board) {
 			board.Components[0].Seats = append(board.Components[0].Seats, board.Components[0].Seats[0])
 		},
+		"duplicate legacy role": func(board *Board) {
+			role := ComponentPlan
+			board.Components[1].LegacyRole = &role
+		},
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {

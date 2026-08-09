@@ -3,6 +3,7 @@ package atlas
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"time"
 
@@ -592,7 +593,7 @@ func decodePayload(eventType string, data json.RawMessage) (Payload, error) {
 // "this already happened" conclusions unsound, and leave ordering the
 // controller owns to the controller.
 func ValidateTransition(state *RunState, payload Payload) error {
-	if payload == nil {
+	if payload == nil || (reflect.ValueOf(payload).Kind() == reflect.Pointer && reflect.ValueOf(payload).IsNil()) {
 		return newError(CodeInvalidState, "an event payload is required")
 	}
 	created := state != nil && state.CreatedAt != nil
@@ -620,6 +621,8 @@ func ValidateTransition(state *RunState, payload Payload) error {
 	}
 
 	switch body := payload.(type) {
+	case *RunRootCreated:
+		return nil
 	case *ComponentReadyEvent:
 		return validComponent(body.ComponentID)
 	case *ComponentStartedEvent:
@@ -709,6 +712,8 @@ func ValidateTransition(state *RunState, payload Payload) error {
 			return newError(CodeInvalidState, "publishing needs a captured revision")
 		}
 		return nil
+	case *ArtifactPromoted, *ChangeCaptured:
+		return nil
 
 	case *RunFinished:
 		switch body.Status {
@@ -717,8 +722,9 @@ func ValidateTransition(state *RunState, payload Payload) error {
 		default:
 			return newError(CodeInvalidState, "a run finishes as succeeded, failed, canceled, or interrupted_migration")
 		}
+	default:
+		return newError(CodeInvalidState, "the event payload type is not supported")
 	}
-	return nil
 }
 
 func validComponent(id ComponentID) error {

@@ -10,6 +10,10 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/runfs"
 )
 
+type unsupportedPayload struct{}
+
+func (unsupportedPayload) EventType() string { return EventComponentReady }
+
 func testEvent(t *testing.T, seq uint64, payload Payload) runfs.Event {
 	t.Helper()
 	data, err := json.Marshal(payload)
@@ -77,5 +81,19 @@ func TestReduceKeepsSiblingArtifactsAcrossRetry(t *testing.T) {
 	}
 	if state.Component(ComponentPlan).Instance != 2 || state.Component(ComponentPlan).Status != ComponentReady {
 		t.Fatalf("retry state = %+v", state.Component(ComponentPlan))
+	}
+}
+
+func TestValidateTransitionRejectsUnsupportedAndNilPayloads(t *testing.T) {
+	state := emptyRunState("run-20260809t000000-abcdef12")
+	createdAt := time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)
+	state.CreatedAt = &createdAt
+
+	if err := ValidateTransition(state, unsupportedPayload{}); err == nil {
+		t.Fatal("an unsupported payload implementation bypassed transition validation")
+	}
+	var typedNil *RunCreated
+	if err := ValidateTransition(state, typedNil); err == nil {
+		t.Fatal("a typed-nil payload was accepted")
 	}
 }

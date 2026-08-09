@@ -1,6 +1,7 @@
 package atlas
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -130,6 +131,8 @@ func (s *RunStore) Allocate(ctx context.Context, projectID, runID string, board 
 	if err := AssertPolicy(board.Board); err != nil {
 		return err
 	}
+	unlock := s.lockRun(projectID, runID)
+	defer unlock()
 	// An existing log means this identifier already belongs to another run.
 	// Reusing the directory would append one run's history onto another's.
 	if _, err := s.scope.ReadFile(ctx, path.Join(directory, runEventsName)); err == nil {
@@ -148,13 +151,43 @@ func (s *RunStore) Allocate(ctx context.Context, projectID, runID string, board 
 		return newError(CodeStorageFailed, "the input snapshot could not be encoded").
 			withDetail(err.Error()).withCause(err)
 	}
-	if err := s.scope.AtomicWrite(ctx, path.Join(directory, boardSnapshotName), append(encodedBoard, '\n')); err != nil {
-		return translateStorageError(err, "the board snapshot could not be written")
+	encodedBoard = append(encodedBoard, '\n')
+	encodedInputs = append(encodedInputs, '\n')
+	boardExists, err := s.snapshotMatches(ctx, path.Join(directory, boardSnapshotName), encodedBoard, "board")
+	if err != nil {
+		return err
 	}
-	if err := s.scope.AtomicWrite(ctx, path.Join(directory, inputSnapshotName), append(encodedInputs, '\n')); err != nil {
-		return translateStorageError(err, "the input snapshot could not be written")
+	inputsExist, err := s.snapshotMatches(ctx, path.Join(directory, inputSnapshotName), encodedInputs, "input")
+	if err != nil {
+		return err
+	}
+	if !boardExists {
+		if err := s.scope.AtomicWrite(ctx, path.Join(directory, boardSnapshotName), encodedBoard); err != nil {
+			return translateStorageError(err, "the board snapshot could not be written")
+		}
+	}
+	if !inputsExist {
+		if err := s.scope.AtomicWrite(ctx, path.Join(directory, inputSnapshotName), encodedInputs); err != nil {
+			return translateStorageError(err, "the input snapshot could not be written")
+		}
 	}
 	return nil
+}
+
+// snapshotMatches makes allocation idempotent without allowing a caller to
+// replace another allocation's immutable inputs before run_created is emitted.
+func (s *RunStore) snapshotMatches(ctx context.Context, location string, expected []byte, kind string) (bool, error) {
+	contents, err := s.scope.ReadFile(ctx, location)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, translateStorageError(err, "the "+kind+" snapshot could not be inspected")
+	}
+	if !bytes.Equal(contents, expected) {
+		return false, newError(CodeInvalidState, "the run identifier already has a different "+kind+" snapshot")
+	}
+	return true, nil
 }
 
 // BoardSnapshot returns the board a run was started against.
@@ -179,6 +212,13 @@ func (s *RunStore) BoardSnapshot(ctx context.Context, projectID, runID string) (
 		}
 		return nil, newError(CodeCorruptDocument, "the board snapshot is not valid JSON").
 			withDetail(err.Error()).withCause(err)
+	}
+	if document.SchemaVersion != DocumentSchemaVersion || document.ProjectID != projectID ||
+		!ValidBoardID(document.ID) || document.Revision == 0 || document.Board == nil {
+		return nil, newError(CodeCorruptDocument, "the board snapshot does not belong to this run's project")
+	}
+	if err := AssertPolicy(document.Board); err != nil {
+		return nil, err
 	}
 	return &document, nil
 }
@@ -256,8 +296,9 @@ func (s *RunStore) Read(ctx context.Context, projectID, runID string) (*RunState
 		var view RunState
 		if json.Unmarshal(contents, &view) == nil &&
 			view.SchemaVersion == RunSchemaVersion && view.RunID == runID &&
-			view.ProjectID == replayed.ProjectID && view.LastSeq == replayed.LastSeq {
-			return &view, nil
+			view.ProjectID == replayed.ProjectID && view.LastSeq == replayed.LastSeq &&
+			sameRunState(&view, replayed) {
+			return replayed, nil
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, translateStorageError(err, "the run view could not be read")
@@ -266,6 +307,12 @@ func (s *RunStore) Read(ctx context.Context, projectID, runID string) (*RunState
 		return nil, err
 	}
 	return replayed, nil
+}
+
+func sameRunState(left, right *RunState) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
 }
 
 // Rebuild replays from disk, ignoring the view, and rewrites it.
