@@ -478,13 +478,16 @@ func (manager *Manager) Stop(ctx context.Context, id string) error {
 		manager.mu.Unlock()
 		return ErrNotFound
 	}
+	if err := manager.runner.Run(ctx, nil, "tmux", []string{"kill-session", "-t", "=" + current.tmuxName}, "", nil); err != nil {
+		manager.mu.Unlock()
+		return errors.New("terminal: session shutdown failed")
+	}
 	delete(manager.sessions, id)
 	clients := clientsOf(current)
 	manager.mu.Unlock()
 	for _, client := range clients {
 		_ = client.Close()
 	}
-	_ = manager.runner.Run(ctx, nil, "tmux", []string{"kill-session", "-t", "=" + current.tmuxName}, "", nil)
 	return nil
 }
 

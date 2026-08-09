@@ -79,6 +79,7 @@ type fakeTerminals struct {
 	stopped   []string
 	statusErr error
 	createErr error
+	onCreate  func(terminal.Spec) error
 }
 
 func (terminals *fakeTerminals) Create(_ context.Context, spec terminal.Spec) (contracts.TerminalStatus, error) {
@@ -86,6 +87,11 @@ func (terminals *fakeTerminals) Create(_ context.Context, spec terminal.Spec) (c
 		return contracts.TerminalStatus{}, terminals.createErr
 	}
 	terminals.specs = append(terminals.specs, spec)
+	if terminals.onCreate != nil {
+		if err := terminals.onCreate(spec); err != nil {
+			return contracts.TerminalStatus{}, err
+		}
+	}
 	status := contracts.TerminalStatus{TerminalID: spec.ID, State: "running", Writable: spec.Writable}
 	if terminals.statuses == nil {
 		terminals.statuses = map[string]contracts.TerminalStatus{}
@@ -335,6 +341,40 @@ func TestSameVendorForkUsesNativeArgv(t *testing.T) {
 	}
 	args := server.terminals.specs[0].Command.Args
 	if server.terminals.specs[0].TmuxName == "" || !slicesContainPair(args, "--resume", sharedID) || !slicesContain(args, "--fork-session") || slicesContain(args, "sh") || args[len(args)-1] != prompt {
+		t.Fatalf("fork argv = %#v", args)
+	}
+}
+
+func TestCodexForkReturnsDiscoveredChildIdentity(t *testing.T) {
+	server := newTestServer(t, nil)
+	root := filepath.Join(t.TempDir(), ".codex", "sessions")
+	parentDirectory := filepath.Join(root, "2026", "08", "08")
+	if err := os.MkdirAll(parentDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	parentPath := filepath.Join(parentDirectory, "rollout-2026-08-08T00-00-00-"+sharedID+".jsonl")
+	if err := os.WriteFile(parentPath, []byte(`{"type":"session_meta","payload":{"id":"`+sharedID+`"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity := contracts.SessionIdentity{Agent: "codex", ID: sharedID}
+	resolved := server.resolver.values[identity]
+	resolved.TranscriptPath = parentPath
+	server.resolver.values[identity] = resolved
+	const childID = "33333333-3333-4333-8333-333333333333"
+	server.terminals.onCreate = func(terminal.Spec) error {
+		childDirectory := filepath.Join(root, "2026", "08", "09")
+		if err := os.MkdirAll(childDirectory, 0o700); err != nil {
+			return err
+		}
+		childPath := filepath.Join(childDirectory, "rollout-2026-08-09T00-00-00-"+childID+".jsonl")
+		return os.WriteFile(childPath, []byte(`{"type":"session_meta","payload":{"id":"`+childID+`","forked_from_id":"`+sharedID+`"}}`+"\n"), 0o600)
+	}
+	response := server.request(http.MethodPost, "/api/canvas/sessions/codex/"+sharedID+"/fork", `{"prompt":"try a branch"}`, true)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"childSessionId":"`+childID+`"`) {
+		t.Fatalf("fork = %d %s", response.Code, response.Body.String())
+	}
+	args := server.terminals.specs[0].Command.Args
+	if !slicesContainPair(args, "fork", sharedID) || slicesContain(args, "sh") {
 		t.Fatalf("fork argv = %#v", args)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/agentexec"
@@ -41,6 +42,7 @@ type Handler struct {
 	maxFileBytes   int64
 	maxPromptBytes int
 	cache          *analysisCache
+	codexForkMu    sync.Mutex
 }
 
 func New(options Options) (*Handler, error) {
@@ -222,9 +224,17 @@ func (h *Handler) handleFork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "FORK_FAILED", "experiment could not be created", "")
 		return
 	}
-	childID := ""
-	if identity.Agent == vendors.AgentClaude {
-		childID = uuid
+	childID := uuid
+	var codexSnapshot codexForkSnapshot
+	if identity.Agent == vendors.AgentCodex {
+		h.codexForkMu.Lock()
+		defer h.codexForkMu.Unlock()
+		childID = ""
+		codexSnapshot, err = snapshotCodexFork(resolved.TranscriptPath)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "FORK_FAILED", "experiment identity could not be prepared", "")
+			return
+		}
 	}
 	command, err := agentexec.Build(agentexec.Request{
 		Vendor: vendor(identity.Agent), Mode: agentexec.Fork, CWD: resolved.Session.WorkingDirectory,
@@ -248,11 +258,15 @@ func (h *Handler) handleFork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "FORK_FAILED", "experiment could not be started", "")
 		return
 	}
-	var responseChild *string
-	if childID != "" {
-		responseChild = &childID
+	if identity.Agent == vendors.AgentCodex {
+		childID, err = awaitCodexForkChild(r.Context(), codexSnapshot, identity.ID)
+		if err != nil {
+			stopFailedFork(h.terminals, terminalID)
+			writeError(w, http.StatusBadGateway, "FORK_IDENTITY_FAILED", "experiment identity could not be confirmed", "")
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, terminalResponse{OK: true, Terminal: status, ChildSessionID: responseChild})
+	writeJSON(w, http.StatusOK, terminalResponse{OK: true, Terminal: status, ChildSessionID: &childID})
 }
 
 func (h *Handler) handleAnalysis(w http.ResponseWriter, r *http.Request) {

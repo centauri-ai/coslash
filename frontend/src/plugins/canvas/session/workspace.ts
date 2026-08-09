@@ -158,7 +158,19 @@ export function autoArrangeSessionLayout(layout: SessionCanvasLayout): SessionCa
   return {
     ...layout,
     ...Object.fromEntries(
-      SESSION_NODE_IDS.map((id) => [id, { ...layout[id], ...DEFAULT_SESSION_LAYOUT[id] }]),
+      SESSION_NODE_IDS.map((id) => {
+        const defaults = DEFAULT_SESSION_LAYOUT[id];
+        return [
+          id,
+          {
+            ...layout[id],
+            x: defaults.x,
+            y: defaults.y,
+            width: defaults.width,
+            height: defaults.height,
+          },
+        ];
+      }),
     ),
   } as SessionCanvasLayout;
 }
@@ -219,6 +231,30 @@ export type SessionWorkspaceAction =
       patch: Partial<SessionExperiment>;
     }
   | { type: 'promote-experiment'; checkpointId: string; experimentId: string; promotedAt: number };
+
+export type SessionLayoutUpdate = readonly [
+  SessionNodeId,
+  (layout: SessionCanvasLayout[SessionNodeId]) => SessionCanvasLayout[SessionNodeId],
+];
+
+export function reduceSessionLayoutUpdates(
+  workspace: SessionCanvasWorkspace,
+  updates: ReadonlyArray<SessionLayoutUpdate>,
+): SessionCanvasWorkspace {
+  return updates.reduce(
+    (next, [id, update]) =>
+      reduceSessionWorkspace(next, { type: 'layout', id, layout: update(next.layout[id]) }),
+    workspace,
+  );
+}
+
+export function staleSessionPinIds(
+  pinIds: readonly string[],
+  candidates: readonly SessionPinCandidate[],
+): string[] {
+  const current = new Set(candidates.map((candidate) => candidate.id));
+  return pinIds.filter((id) => !current.has(id));
+}
 
 export function reduceSessionWorkspace(
   workspace: SessionCanvasWorkspace,

@@ -6,11 +6,13 @@ import {
   DEFAULT_SESSION_LAYOUT,
   defaultSessionWorkspace,
   normalizeSessionWorkspace,
+  reduceSessionLayoutUpdates,
   reduceSessionWorkspace,
   reduceWorkspaceForIdentity,
   sessionAttention,
   sessionKey,
   sessionPinCandidates,
+  staleSessionPinIds,
   UnsupportedSessionWorkspaceError,
 } from '@/plugins/canvas/session/workspace';
 
@@ -74,18 +76,50 @@ describe('Session Canvas workspace', () => {
     ).toBe('current');
   });
 
-  it('auto-arranges known nodes without dropping future layout data', () => {
+  it('auto-arranges geometry without dropping future, collapsed, or locked state', () => {
     const layout = normalizeSessionWorkspace({
       version: 1,
       layout: {
-        session: { ...DEFAULT_SESSION_LAYOUT.session, x: 999, future: true },
+        session: {
+          ...DEFAULT_SESSION_LAYOUT.session,
+          x: 999,
+          collapsed: true,
+          locked: true,
+          future: true,
+        },
         futureNode: { x: 8 },
       },
     }).layout;
     const arranged = autoArrangeSessionLayout(layout);
     expect(arranged.session.x).toBe(DEFAULT_SESSION_LAYOUT.session.x);
     expect(arranged.session.future).toBe(true);
+    expect(arranged.session.collapsed).toBe(true);
+    expect(arranged.session.locked).toBe(true);
     expect(arranged.futureNode).toEqual({ x: 8 });
+  });
+
+  it('applies terminal and companion movement in one workspace reduction', () => {
+    const workspace = defaultSessionWorkspace();
+    const next = reduceSessionLayoutUpdates(workspace, [
+      ['terminal', (layout) => ({ ...layout, x: layout.x + 40, y: layout.y + 20 })],
+      ['note', (layout) => ({ ...layout, x: layout.x + 40, y: layout.y + 20 })],
+    ]);
+    expect(next.layout.terminal).toMatchObject({
+      x: workspace.layout.terminal.x + 40,
+      y: workspace.layout.terminal.y + 20,
+    });
+    expect(next.layout.note).toMatchObject({
+      x: workspace.layout.note.x + 40,
+      y: workspace.layout.note.y + 20,
+    });
+    expect(workspace.layout.terminal).toEqual(DEFAULT_SESSION_LAYOUT.terminal);
+  });
+
+  it('keeps vanished pin ids visible for explicit removal', () => {
+    const detail = sessionCanvasFixture();
+    expect(staleSessionPinIds(['goal', 'task:finished'], sessionPinCandidates(detail))).toEqual([
+      'task:finished',
+    ]);
   });
 
   it('runs checkpoint, pin, experiment, and promotion flows immutably', () => {

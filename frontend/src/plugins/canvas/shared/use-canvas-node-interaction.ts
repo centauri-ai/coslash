@@ -19,7 +19,7 @@ export function useCanvasNodeInteraction<Id extends string>({
   minWidth,
   minHeight,
   getLayout,
-  updateLayout,
+  updateLayouts,
   onSelect,
   getCompanions,
 }: {
@@ -29,7 +29,7 @@ export function useCanvasNodeInteraction<Id extends string>({
   minWidth: number;
   minHeight: number;
   getLayout: (id: Id) => CanvasNodeBox;
-  updateLayout: (id: Id, update: (layout: CanvasNodeBox) => CanvasNodeBox) => void;
+  updateLayouts: (updates: ReadonlyArray<readonly [Id, (layout: CanvasNodeBox) => CanvasNodeBox]>) => void;
   onSelect: (id: Id) => void;
   // Optional: ids that should be dragged in lockstep with `id` (e.g. an agent
   // terminal moving its bound note + log). Only consulted for a drag, not a
@@ -65,14 +65,22 @@ export function useCanvasNodeInteraction<Id extends string>({
       const dx = (pointer.clientX - startX) / zoom;
       const dy = (pointer.clientY - startY) / zoom;
       if (exceedsDragThreshold(dx, dy)) movedRef.current = true;
-      updateLayout(id, (layout) =>
-        mode === 'drag'
-          ? applyDrag(world, layout, initial, dx, dy)
-          : applyResize(world, layout, initial, minWidth, minHeight, dx, dy),
-      );
-      for (const [companionId, companionInitial] of companions) {
-        updateLayout(companionId, (layout) => applyDrag(world, layout, companionInitial, dx, dy));
-      }
+      updateLayouts([
+        [
+          id,
+          (layout) =>
+            mode === 'drag'
+              ? applyDrag(world, layout, initial, dx, dy)
+              : applyResize(world, layout, initial, minWidth, minHeight, dx, dy),
+        ],
+        ...companions.map(
+          ([companionId, companionInitial]) =>
+            [
+              companionId,
+              (layout: CanvasNodeBox) => applyDrag(world, layout, companionInitial, dx, dy),
+            ] as const,
+        ),
+      ]);
     };
     const stop = () => {
       window.removeEventListener('pointermove', move);

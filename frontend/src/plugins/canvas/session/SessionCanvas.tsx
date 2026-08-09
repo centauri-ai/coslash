@@ -74,6 +74,7 @@ import {
   createCheckpoint,
   defaultSessionWorkspace,
   normalizeSessionWorkspace,
+  reduceSessionLayoutUpdates,
   reduceSessionWorkspace,
   reduceWorkspaceForIdentity,
   SESSION_CANVAS_WORLD,
@@ -82,6 +83,7 @@ import {
   sessionAttention,
   sessionKey,
   sessionPinCandidates,
+  staleSessionPinIds,
 } from '@/plugins/canvas/session/workspace';
 import {
   boardCommandFor,
@@ -584,6 +586,7 @@ export function SessionCanvasWorkbench({
   const fileRequest = useRef(0);
   const attention = useMemo(() => sessionAttention(detail), [detail]);
   const pins = useMemo(() => sessionPinCandidates(detail), [detail]);
+  const stalePinIds = useMemo(() => staleSessionPinIds(workspace.pinIds, pins), [pins, workspace.pinIds]);
   const selectedCheckpoint = workspace.checkpoints.at(-1) ?? null;
 
   const update = useCallback(
@@ -598,7 +601,7 @@ export function SessionCanvasWorkbench({
     minWidth: SESSION_NODE_MIN_WIDTH,
     minHeight: SESSION_NODE_MIN_HEIGHT,
     getLayout: (id) => workspace.layout[id],
-    updateLayout: (id, updater) => update({ type: 'layout', id, layout: updater(workspace.layout[id]) }),
+    updateLayouts: (updates) => onWorkspaceChange(reduceSessionLayoutUpdates(workspace, updates)),
     onSelect: setSelected,
     getCompanions: (id) => (id === 'terminal' ? ['note'] : []),
   });
@@ -915,6 +918,15 @@ export function SessionCanvasWorkbench({
                   {pin.kind}: {pin.label}
                 </strong>
                 <small>{pin.detail}</small>
+              </span>
+            </label>
+          ))}
+          {stalePinIds.map((id) => (
+            <label className="session-canvas-panel-row" key={id}>
+              <input type="checkbox" checked onChange={() => update({ type: 'toggle-pin', id })} />
+              <span>
+                <strong>Unavailable pin</strong>
+                <small>{id}</small>
               </span>
             </label>
           ))}

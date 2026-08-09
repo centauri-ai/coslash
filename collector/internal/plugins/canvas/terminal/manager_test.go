@@ -27,6 +27,7 @@ type fakeRunner struct {
 	panes    map[string]*fakePane
 	nextPane int
 	calls    []runnerCall
+	failKill bool
 }
 
 type fakePane struct {
@@ -82,6 +83,9 @@ func (runner *fakeRunner) Run(_ context.Context, stdin io.Reader, name string, a
 		pane.exitCode = 0
 		pane.finished = 0
 	case "kill-session":
+		if runner.failKill {
+			return errors.New("kill failed")
+		}
 		name := strings.TrimPrefix(args[len(args)-1], "=")
 		delete(runner.sessions, name)
 		for id, pane := range runner.panes {
@@ -483,6 +487,33 @@ func TestStopAndDisconnectRaceLeavesNoClientOrSession(t *testing.T) {
 	defer manager.mu.Unlock()
 	if len(manager.sessions) != 0 {
 		t.Fatalf("registry leaked after race: %#v", manager.sessions)
+	}
+}
+
+func TestStopReportsKillFailureAndRetainsRecoverableSession(t *testing.T) {
+	runner := newFakeRunner()
+	manager := New(Options{Runner: runner})
+	name, _ := Name("session", "stop-failure")
+	if _, err := manager.Create(context.Background(), Spec{ID: "stop-failure", TmuxName: name, Command: testCommand(t, "")}); err != nil {
+		t.Fatal(err)
+	}
+	runner.mu.Lock()
+	runner.failKill = true
+	runner.mu.Unlock()
+	if err := manager.Stop(context.Background(), "stop-failure"); err == nil || strings.Contains(err.Error(), "kill failed") {
+		t.Fatalf("stop error = %v", err)
+	}
+	if status, err := manager.Status(context.Background(), "stop-failure"); err != nil || status.State != "running" {
+		t.Fatalf("retained status = %#v, err = %v", status, err)
+	}
+	runner.mu.Lock()
+	runner.failKill = false
+	runner.mu.Unlock()
+	if err := manager.Stop(context.Background(), "stop-failure"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Status(context.Background(), "stop-failure"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("status after retry = %v", err)
 	}
 }
 
