@@ -30,6 +30,7 @@ export const DAGAMA_RUN_STATUS_LABEL: Record<DaGamaRunStatus, string> = {
   succeeded: 'Succeeded',
   failed: 'Failed',
   canceled: 'Canceled',
+  interrupted_migration: 'Imported (interrupted)',
 };
 
 export const DAGAMA_COMPONENT_STATUS_LABEL: Record<DaGamaComponentStatus, string> = {
@@ -44,7 +45,15 @@ export const DAGAMA_COMPONENT_STATUS_LABEL: Record<DaGamaComponentStatus, string
 
 /** Statuses after which the controller refuses every further transition. */
 export function isTerminalRun(run: DaGamaRun | null): boolean {
-  return run != null && (run.status === 'succeeded' || run.status === 'failed' || run.status === 'canceled');
+  return (
+    run != null &&
+    (run.status === 'succeeded' ||
+      run.status === 'failed' ||
+      run.status === 'canceled' ||
+      // Imported legacy history. The process it describes ended in another
+      // product, so no control here could resume it.
+      run.status === 'interrupted_migration')
+  );
 }
 
 /** A run the server can still advance, so the board keeps mirroring it. */

@@ -692,3 +692,53 @@ func mustJSON(t *testing.T, value any) string {
 	}
 	return string(encoded)
 }
+
+// An imported legacy run is history, not work. Every DaGama control gates on
+// isTerminal, so a closing status that isTerminal does not recognize would be
+// written verbatim and then read back as a live run — retryable, cancelable,
+// and visible to reconciliation. That is the failure this pins.
+func TestAnImportedRunIsTerminalAndCannotBeAdvanced(t *testing.T) {
+	store, _ := newRunStore(t)
+	runID := seedRun(t, store)
+
+	finished, err := store.Append(t.Context(), "project-1", runID, &RunFinished{
+		Status:  RunInterruptedImport,
+		Reason:  "imported_nonterminal",
+		Message: "the legacy run was still in flight when it was imported",
+	})
+	if err != nil {
+		t.Fatalf("Append RunFinished: %v", err)
+	}
+	if finished.Status != RunInterruptedImport {
+		t.Fatalf("status = %q, want %q", finished.Status, RunInterruptedImport)
+	}
+
+	// Any further event is refused because the run has already finished.
+	if _, err := store.Append(t.Context(), "project-1", runID,
+		&ComponentReady{ComponentInstance: componentRef(ComponentPlan, 1)}); err == nil {
+		t.Fatal("an imported run accepted a further event")
+	}
+	if !isTerminal(finished.Status) {
+		t.Fatal("an imported run is not terminal")
+	}
+}
+
+func TestARunCannotFinishWithAnUnrecognizedStatus(t *testing.T) {
+	// Without this check the store writes the value through, and isTerminal
+	// then reports the finished run as live.
+	store, _ := newRunStore(t)
+	runID := seedRun(t, store)
+
+	if _, err := store.Append(t.Context(), "project-1", runID,
+		&RunFinished{Status: RunStatus("archived"), Reason: "invented"}); err == nil {
+		t.Fatal("an unrecognized closing status was accepted")
+	}
+
+	state, err := store.Read(t.Context(), "project-1", runID)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if state.Status == RunStatus("archived") {
+		t.Fatal("a refused append reached the log")
+	}
+}

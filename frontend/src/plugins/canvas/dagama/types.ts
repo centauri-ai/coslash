@@ -20,7 +20,14 @@ import type {
 export type DaGamaProject = { id: string; name: string; path: string };
 
 export type DaGamaRunStatus =
-  'preparing' | 'running' | 'awaiting_approval' | 'succeeded' | 'failed' | 'canceled';
+  | 'preparing'
+  | 'running'
+  | 'awaiting_approval'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled'
+  // A run imported from legacy data. It is history and never resumes.
+  | 'interrupted_migration';
 
 export type DaGamaComponentStatus =
   'blocked' | 'ready' | 'running' | 'validating' | 'awaiting_approval' | 'succeeded' | 'failed';

@@ -349,12 +349,26 @@ func ValidateTransition(state *RunState, payload Payload) error {
 		// A record pointing outside this run's blob store is either corrupt or a
 		// cross-canvas reference, and a run must not attest either.
 		return AssertArtifactReference(body.Artifact)
+	case *RunFinished:
+		// An unrecognized closing status would be written verbatim and then read
+		// back as non-terminal by isTerminal, leaving a finished run that every
+		// control still offers to advance.
+		switch body.Status {
+		case RunSucceeded, RunFailed, RunCanceled, RunInterruptedImport:
+			return nil
+		default:
+			return newError(CodeInvalidState,
+				"a run finishes as succeeded, failed, canceled, or interrupted_migration")
+		}
 	}
 	return nil
 }
 
 func isTerminal(status RunStatus) bool {
-	return status == RunSucceeded || status == RunFailed || status == RunCanceled
+	return status == RunSucceeded ||
+		status == RunFailed ||
+		status == RunCanceled ||
+		status == RunInterruptedImport
 }
 
 func requireComponentStatus(state *RunState, id ComponentID, allowed ...ComponentStatus) error {
