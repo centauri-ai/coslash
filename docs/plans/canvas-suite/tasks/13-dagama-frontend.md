@@ -16,7 +16,7 @@ This record is the task's pickup lock and current truth. The master changes `rea
 task_id: "13"
 state: untouched # untouched | claimed | in_progress | blocked | review | changes_requested | complete | deferred
 readiness: blocked # blocked | ready
-status_reason: "Waiting for Tasks 07 and 11; final integration also requires Task 12."
+status_reason: "Tasks 07 and 11 are complete. Waiting for Task 12 frozen controller fixtures or merge."
 pickup_condition: "Tasks 07 and 11 are complete; Task 12 may still be active only if frozen controller fixtures are available."
 agent:
   id: null
@@ -30,12 +30,12 @@ base_sha: null
 result_sha: null
 dependencies:
   required: ["07", "11", "12"]
-  satisfied: []
-blockers: ["07", "11", "12"]
+  satisfied: ["07", "11"]
+blockers: ["12"]
 current_focus: null
 next_action: "Wait for the master to mark the pickup condition satisfied."
-last_updated_at_utc: "2026-08-08T18:44:11Z"
-last_updated_by: planning-agent
+last_updated_at_utc: "2026-08-09T02:19:04Z"
+last_updated_by: codex-local-integrator
 verification:
   state: not_run # not_run | running | passed | failed | partial
   commands: []

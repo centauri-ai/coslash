@@ -15,8 +15,8 @@ This record is the task's pickup lock and current truth. The master changes `rea
 ```yaml
 task_id: "12"
 state: untouched # untouched | claimed | in_progress | blocked | review | changes_requested | complete | deferred
-readiness: blocked # blocked | ready
-status_reason: "Waiting for Tasks 04, 05, and 11."
+readiness: ready # blocked | ready
+status_reason: "Ready from exact integration base 01aa158ecc322b3dcf4b71e46d278944147ca7b6; Tasks 04, 05, and 11 are complete and present."
 pickup_condition: "Tasks 04, 05, and 11 are complete and merged into the assigned base SHA."
 agent:
   id: null
@@ -30,12 +30,12 @@ base_sha: null
 result_sha: null
 dependencies:
   required: ["04", "05", "11"]
-  satisfied: []
-blockers: ["04", "05", "11"]
+  satisfied: ["04", "05", "11"]
+blockers: []
 current_focus: null
-next_action: "Wait for the master to mark all dependencies satisfied."
-last_updated_at_utc: "2026-08-08T18:44:11Z"
-last_updated_by: planning-agent
+next_action: "Claim an isolated worktree from 01aa158 and follow the Task 11 file-level handoff."
+last_updated_at_utc: "2026-08-09T02:19:04Z"
+last_updated_by: codex-local-integrator
 verification:
   state: not_run # not_run | running | passed | failed | partial
   commands: []
@@ -90,7 +90,7 @@ No progress reports yet.
 
 ## Owned paths
 
-- DaGama controller, runner, adapter, prompt, intake, reconciliation, cancellation, takeover, handback, and report files explicitly assigned by the master.
+- `controller.go`, `runner.go`, `pipeline.go`, `intake.go`, `prompt.go`, `repair.go`, `reconcile.go`, `takeover.go`, `cancel.go`, `review_outcome.go`, and their tests under `collector/internal/plugins/canvas/dagama/`.
 - Do not modify Task 11 model/store files or shared services.
 
 ## Work

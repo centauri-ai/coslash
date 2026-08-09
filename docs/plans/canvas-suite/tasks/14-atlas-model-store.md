@@ -14,28 +14,28 @@ This record is the task's pickup lock and current truth. The master changes `rea
 
 ```yaml
 task_id: "14"
-state: untouched # untouched | claimed | in_progress | blocked | review | changes_requested | complete | deferred
-readiness: blocked # blocked | ready
-status_reason: "Waiting for Tasks 00, 03, and 05."
+state: in_progress # untouched | claimed | in_progress | blocked | review | changes_requested | complete | deferred
+readiness: ready # blocked | ready
+status_reason: "Master takeover at 2026-08-09T02:17:04Z by explicit operator direction. Preserving the prior owner's substantial uncommitted Atlas implementation and continuing review, repair, and verification in the same isolated worktree."
 pickup_condition: "Tasks 00, 03, and 05 are complete and merged into the assigned base SHA."
 agent:
-  id: null
-  runtime: null
-  claimed_at_utc: null
-  started_at_utc: null
+  id: codex-root-master-task-14
+  runtime: Codex coding agent acting as master
+  claimed_at_utc: "2026-08-09T02:17:04Z"
+  started_at_utc: "2026-08-09T02:17:04Z"
   completed_at_utc: null
-branch: null
-worktree: null
-base_sha: null
+branch: claude/canvas-task-14-atlas-model
+worktree: /Users/helu/code/product/coslash-task-14
+base_sha: 94fe07cad85773683898781ed62cd4f69ae27d75
 result_sha: null
 dependencies:
   required: ["00", "03", "05"]
-  satisfied: []
-blockers: ["00", "03", "05"]
-current_focus: null
-next_action: "Wait for the master to mark all dependencies satisfied."
-last_updated_at_utc: "2026-08-08T18:44:11Z"
-last_updated_by: planning-agent
+  satisfied: ["00", "03", "05"] # satisfied at review; final integration still requires the master's merge
+blockers: []
+current_focus: "Audit and repair the inherited Atlas schema, graph, policy, reducer, and stores before verification."
+next_action: "Compare inherited code to the Task 14 contract and legacy fixtures, run targeted tests, and fix all failures within Task 14 ownership."
+last_updated_at_utc: "2026-08-09T02:17:04Z"
+last_updated_by: codex-root-master-task-14
 verification:
   state: not_run # not_run | running | passed | failed | partial
   commands: []
@@ -82,7 +82,64 @@ Append one entry below for each material checkpoint, blocker, resumed turn, test
 
 ### Progress reports
 
-No progress reports yet.
+```yaml
+- update_id: "14-20260809T021704Z-01"
+  at_utc: "2026-08-09T02:17:04Z"
+  agent_id: "codex-root-master-task-14"
+  state_from: in_progress
+  state_to: in_progress
+  summary: "Operator directed a master takeover after the prior owner stopped reporting checkpoints. All inherited uncommitted Atlas work is preserved in the same isolated branch/worktree."
+  work_completed:
+    - "Reconciled the sidecar, task brief, central status, branch, worktree, and file timestamps."
+    - "Transferred exclusive Task 14 ownership without switching branches or cleaning inherited files."
+  files_changed: []
+  tests: []
+  decisions:
+    - "Continue from the inherited worktree instead of discarding or duplicating the prior implementation."
+  contract_deviations: []
+  issues:
+    - id: null
+      severity: P2
+      status: mitigated
+      summary: "Prior Task 14 status reporting stopped while implementation continued."
+      owner: codex-root-master-task-14
+  blockers: []
+  help_needed: []
+  next_action: "Audit inherited implementation, repair gaps, and run the required race suite."
+```
+
+```yaml
+- update_id: "14-20260809T022137Z-02"
+  at_utc: "2026-08-09T02:21:37Z"
+  agent_id: "codex-root-master-task-14"
+  state_from: in_progress
+  state_to: in_progress
+  summary: "Completed the inherited-code audit, repaired correctness and concurrency gaps, and expanded the Task 14 verification matrix."
+  work_completed:
+    - "Preserved nested unknown fields and valid UTF-8 during normalization."
+    - "Made event-log sequence authoritative over materialized run views."
+    - "Serialized optimistic board writes and reclaimed board/run keyed locks."
+    - "Rejected cross-project board snapshots and run-created events."
+    - "Added v1/v2 migration, graph-policy, reducer, persistence, replay, corruption, symlink, and concurrent-write tests."
+  files_changed:
+    - "collector/internal/plugins/canvas/atlas/{graph,run,boardstore,runstore,keylock}.go"
+    - "collector/internal/plugins/canvas/atlas/{migrate,reducer,store}_test.go"
+  tests:
+    - command: "cd collector && go test ./internal/plugins/canvas/atlas/..."
+      result: passed
+      evidence: "Expanded Atlas package suite passed."
+    - command: "cd collector && go test -race -count=3 ./internal/plugins/canvas/atlas/..."
+      result: passed
+      evidence: "Three repeated race-enabled runs passed."
+  decisions:
+    - "Treat events.jsonl as authoritative on every read; run.json is accepted only at the same sequence."
+    - "Use reference-counted keyed locks for compound read-check-write operations."
+  contract_deviations: []
+  issues: []
+  blockers: []
+  help_needed: []
+  next_action: "Run full collector regression/vet and verify the final owned-path commit."
+```
 
 ## Dependencies
 

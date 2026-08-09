@@ -15,8 +15,8 @@ This record is the task's pickup lock and current truth. The master changes `rea
 ```yaml
 task_id: "10"
 state: untouched # untouched | claimed | in_progress | blocked | review | changes_requested | complete | deferred
-readiness: blocked # blocked | ready
-status_reason: "Waiting for Task 07; final integration also requires Task 09."
+readiness: ready # blocked | ready
+status_reason: "Ready under the frozen-fixture exception from exact base 01aa158ecc322b3dcf4b71e46d278944147ca7b6; Task 07 and frozen Canvas contracts are present."
 pickup_condition: "Task 07 is complete; Task 09 may still be active only if its frozen API fixtures are available."
 agent:
   id: null
@@ -30,12 +30,12 @@ base_sha: null
 result_sha: null
 dependencies:
   required: ["07", "09"]
-  satisfied: []
-blockers: ["07", "09"]
+  satisfied: ["07"]
+blockers: []
 current_focus: null
-next_action: "Wait for the master to mark the pickup condition satisfied."
-last_updated_at_utc: "2026-08-08T18:44:11Z"
-last_updated_by: planning-agent
+next_action: "Claim an isolated worktree from 01aa158 and develop against plugin-local frozen API fixtures; keep final integration gated on Task 09."
+last_updated_at_utc: "2026-08-09T02:19:04Z"
+last_updated_by: codex-local-integrator
 verification:
   state: not_run # not_run | running | passed | failed | partial
   commands: []
