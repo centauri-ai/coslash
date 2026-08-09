@@ -5,6 +5,7 @@ package httpsec
 
 import (
 	"crypto/subtle"
+	"iter"
 	"log"
 	"net"
 	"net/http"
@@ -12,6 +13,17 @@ import (
 )
 
 const documentPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+
+// A browser cannot set request headers on a WebSocket handshake, so the API
+// token rides in Sec-WebSocket-Protocol instead. The client offers the static
+// name plus one token-carrying entry; the server echoes only the static name,
+// keeping the token out of the response and out of proxy logs.
+const (
+	// TerminalSubprotocol is the only subprotocol the server ever echoes.
+	TerminalSubprotocol = "coslash.terminal.v1"
+	// tokenSubprotocolPrefix marks the entry carrying the current API token.
+	tokenSubprotocolPrefix = "coslash.token."
+)
 
 // Guard restricts requests to the loopback listener and its browser origin.
 type Guard struct {
@@ -79,7 +91,62 @@ func (g Guard) allowedToken(r *http.Request) bool {
 			provided = bearer
 		}
 	}
+	// Only a real handshake may fall back to the subprotocol, so an ordinary
+	// request still needs one of the header forms above.
+	if provided == "" && IsWebSocketUpgrade(r) {
+		provided = subprotocolToken(r)
+	}
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(g.Token)) == 1
+}
+
+// IsWebSocketUpgrade reports whether r is a WebSocket handshake.
+func IsWebSocketUpgrade(r *http.Request) bool {
+	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		return false
+	}
+	for _, value := range r.Header.Values("Connection") {
+		for _, part := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// NegotiateSubprotocol returns the subprotocol a terminal handshake may echo,
+// or "" when the client did not offer the static name. The token-carrying entry
+// is deliberately never returned.
+func NegotiateSubprotocol(r *http.Request) string {
+	for entry := range subprotocols(r) {
+		if entry == TerminalSubprotocol {
+			return TerminalSubprotocol
+		}
+	}
+	return ""
+}
+
+func subprotocolToken(r *http.Request) string {
+	for entry := range subprotocols(r) {
+		if token, ok := strings.CutPrefix(entry, tokenSubprotocolPrefix); ok {
+			return token
+		}
+	}
+	return ""
+}
+
+// subprotocols yields each offered subprotocol; the header may repeat or use one
+// comma-separated value.
+func subprotocols(r *http.Request) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, value := range r.Header.Values("Sec-WebSocket-Protocol") {
+			for _, entry := range strings.Split(value, ",") {
+				if !yield(strings.TrimSpace(entry)) {
+					return
+				}
+			}
+		}
+	}
 }
 
 func setSecurityHeaders(header http.Header, requestPath string) {

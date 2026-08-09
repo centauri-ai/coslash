@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
@@ -58,10 +58,12 @@ function SessionCardColumn({
   status,
   sessions,
   onSelectSession,
+  renderSessionAction,
 }: {
   status: string;
   sessions: Session[];
   onSelectSession: (session: Session) => void;
+  renderSessionAction?: (session: Session) => ReactNode;
 }) {
   return (
     <>
@@ -73,6 +75,7 @@ function SessionCardColumn({
             session={session}
             onClick={() => onSelectSession(session)}
             variant="compact"
+            action={renderSessionAction?.(session)}
           />
         ))}
     </>
@@ -84,11 +87,13 @@ function BranchRow({
   sessions,
   visibleStatuses,
   onSelectSession,
+  renderSessionAction,
 }: {
   branch: string;
   sessions: Session[];
   visibleStatuses: [string, Status][];
   onSelectSession: (session: Session) => void;
+  renderSessionAction?: (session: Session) => ReactNode;
 }) {
   return (
     <>
@@ -98,7 +103,12 @@ function BranchRow({
       </div>
       {visibleStatuses.map(([status]) => (
         <div key={status} data-status={status} className="flex flex-col gap-2 border-b border-l p-2">
-          <SessionCardColumn status={status} sessions={sessions} onSelectSession={onSelectSession} />
+          <SessionCardColumn
+            status={status}
+            sessions={sessions}
+            onSelectSession={onSelectSession}
+            renderSessionAction={renderSessionAction}
+          />
         </div>
       ))}
     </>
@@ -108,9 +118,12 @@ function BranchRow({
 export function SessionBoard({
   sessions,
   onSelectSession,
+  renderSessionAction,
 }: {
   sessions: Session[];
   onSelectSession: (session: Session) => void;
+  /** Plugin-owned card action; cards render exactly as before when omitted. */
+  renderSessionAction?: (session: Session) => ReactNode;
 }) {
   const visibleStatuses = Object.entries(STATUSES).filter(([status]) =>
     sessions.some((session) => getStatus(session.status) === status),
@@ -139,6 +152,7 @@ export function SessionBoard({
               sessions={branchSessions}
               visibleStatuses={visibleStatuses}
               onSelectSession={onSelectSession}
+              renderSessionAction={renderSessionAction}
             />
           ))}
         </Fragment>
