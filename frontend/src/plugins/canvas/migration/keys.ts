@@ -163,7 +163,9 @@ export const REFUSED_LEGACY_KEYS: readonly { key: string; prefix: boolean; reaso
 /** The allowlist entry a legacy key matches, or null when it matches none. */
 export function matchAllowedKey(key: string): AllowedKey | null {
   for (const allowed of ALLOWED_LEGACY_KEYS) {
-    if (allowed.prefix ? key.startsWith(allowed.key) && key.length > allowed.key.length : key === allowed.key) {
+    if (
+      allowed.prefix ? key.startsWith(allowed.key) && key.length > allowed.key.length : key === allowed.key
+    ) {
       return allowed;
     }
   }
