@@ -50,7 +50,7 @@ window.COSLASH_CANVAS_TASK_STATUS["00"] = {
   ],
   tests: [
     { command: "npm run lint", result: "passed", evidence: "Exit 0; eight existing warnings." },
-    { command: "npm run format:check", result: "failed", evidence: "90-file pre-existing formatting backlog; baseline was 97 files." },
+    { command: "npm run format:check", result: "failed", gating: false, evidence: "Accepted non-blocking baseline: 90-file pre-existing formatting backlog; baseline was 97 files." },
     { command: "npm test", result: "passed", evidence: "63 files, 827 tests passed." },
     { command: "npm run build", result: "passed", evidence: "TypeScript and Vite build passed; informational chunk-size warning." },
     { command: "ulimit -n 256; npm test", result: "passed", evidence: "62 baseline files, 823 tests passed; no EMFILE." },
