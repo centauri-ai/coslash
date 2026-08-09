@@ -15,10 +15,10 @@ func (c *Controller) Takeover(ctx context.Context, projectID, runID string, comp
 	if err != nil {
 		return nil, err
 	}
-	component := state.Components[componentID]
-	if component == nil || component.Attempt == nil || component.Attempt.Status != AttemptRunning || component.Attempt.SessionID == "" {
-		return nil, newError(CodeInvalidState, "takeover requires a running attempt with a known provider session")
+	if err := CanTakeover(state, componentID); err != nil {
+		return nil, err
 	}
+	component := state.Components[componentID]
 	board, err := c.boardForRun(ctx, state)
 	if err != nil {
 		return nil, err
@@ -62,11 +62,11 @@ func (c *Controller) Handback(ctx context.Context, projectID, runID string, comp
 		unlock()
 		return nil, err
 	}
-	component := state.Components[componentID]
-	if component == nil || component.Attempt == nil || component.Attempt.Ownership != OwnershipHumanControlled || component.Attempt.Status != AttemptRunning {
+	if err := CanHandback(state, componentID); err != nil {
 		unlock()
-		return nil, newError(CodeInvalidState, "handback requires a live human-controlled attempt")
+		return nil, err
 	}
+	component := state.Components[componentID]
 	board, err := c.boardForRun(ctx, state)
 	if err != nil {
 		unlock()

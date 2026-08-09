@@ -230,3 +230,41 @@ func translateStorageError(err error, message string) error {
 		return newError(CodeStorageFailed, message).withDetail(err.Error()).withCause(err)
 	}
 }
+
+// Delete removes a board with the same optimistic revision check Save applies.
+//
+// The revision is required, not optional: a stale tab that still shows an older
+// board must not be able to delete work it never saw. The stored document is
+// read through the scope and the location is re-resolved before removal, so the
+// path that is unlinked is the one the scope already accepted.
+func (s *BoardStore) Delete(ctx context.Context, projectID, boardID string, expectedRevision uint64) error {
+	location, err := boardPath(projectID, boardID)
+	if err != nil {
+		return err
+	}
+	existing, err := s.loadRaw(ctx, location)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return newError(CodeNotFound, "the board was not found")
+	}
+	if existing.Revision != expectedRevision {
+		return (&Error{
+			Code:    CodeRevisionConflict,
+			Message: "the board changed since it was loaded",
+			Field:   "revision",
+		}).withActualRevision(existing.Revision)
+	}
+	resolved, err := s.scope.Resolve(location)
+	if err != nil {
+		return translateStorageError(err, "the board could not be removed")
+	}
+	if err := os.Remove(resolved); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return translateStorageError(err, "the board could not be removed")
+	}
+	return nil
+}

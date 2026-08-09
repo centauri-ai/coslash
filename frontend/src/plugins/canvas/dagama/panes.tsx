@@ -434,6 +434,11 @@ export function PublishGatePane({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // A control is held busy until the run is mirrored again, so the release has
+  // to be driven by the mirrored state rather than by the request finishing.
+  const settled = `${gate.open}:${gate.decidable}:${publication?.commitSha ?? ''}`;
+  useEffect(() => setBusy(false), [settled]);
+
   const open = gate.open;
   useEffect(() => {
     let active = true;
@@ -461,9 +466,13 @@ export function PublishGatePane({
     setError('');
     try {
       await onDecide(decision, options);
+      // Busy is deliberately not cleared on success. The backend accepts the
+      // decision and carries it out in the background, so the gate stays open
+      // in this snapshot until the run is next mirrored — re-enabling the
+      // buttons in that window would invite a second decision the server would
+      // then have to refuse.
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The gate decision failed.');
-    } finally {
       setBusy(false);
     }
   }
@@ -577,6 +586,9 @@ export function RepairGatePane({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const settled = `${gate.open}:${gate.reason}:${gate.decidable}`;
+  useEffect(() => setBusy(false), [settled]);
+
   if (!gate.open || gate.reason !== 'waiting_for_repair') return null;
 
   async function decide(decision: 'approved' | 'rejected') {
@@ -584,9 +596,10 @@ export function RepairGatePane({
     setError('');
     try {
       await onDecide(decision);
+      // Held busy on success for the same reason as the publish gate: the
+      // decision is accepted now and applied in the background.
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The gate decision failed.');
-    } finally {
       setBusy(false);
     }
   }
@@ -953,6 +966,11 @@ export function SeatTerminalPane({
   const attempt = runState?.attempt ?? null;
   const title = SEAT_TITLES[componentId];
 
+  // Same rule as the gates: a seat control is accepted now and applied in the
+  // background, so the buttons re-enable when the run says something changed.
+  const settled = `${runState?.status ?? ''}:${attempt?.attemptId ?? ''}:${attempt?.status ?? ''}:${attempt?.ownership ?? ''}`;
+  useEffect(() => setBusy(false), [settled]);
+
   useEffect(() => {
     const output = outputRef.current;
     if (output !== null) output.scrollTop = output.scrollHeight;
@@ -985,9 +1003,10 @@ export function SeatTerminalPane({
     setError('');
     try {
       await action();
+      // A seat control is accepted synchronously and applied in the background,
+      // so the controls stay disabled until the mirrored run reflects it.
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : fallback);
-    } finally {
       setBusy(false);
     }
   }

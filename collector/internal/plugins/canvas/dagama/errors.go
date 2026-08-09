@@ -11,6 +11,7 @@ const (
 	CodeInvalidRunID     = "INVALID_RUN_ID"
 	CodeInvalidBoardID   = "INVALID_BOARD_ID"
 	CodeInvalidProjectID = "INVALID_PROJECT_ID"
+	CodeProjectNotOpen   = "PROJECT_NOT_OPEN"
 	CodePolicyViolation  = "POLICY_VIOLATION"
 	CodeInvalidState     = "INVALID_STATE"
 	CodeRevisionConflict = "REVISION_CONFLICT"

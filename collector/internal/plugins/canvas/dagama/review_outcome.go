@@ -27,23 +27,42 @@ type ReviewFinding struct {
 	Detail   string  `json:"detail"`
 }
 
+// GateDecisionOptions carries the operator intents an approval can express.
+type GateDecisionOptions struct {
+	// SkipPublication ends an approved publish gate without commit, push, or
+	// pull request. It is a distinct intent, not a variant of approval: the
+	// change is accepted, and the operator has chosen to carry it out
+	// themselves. Publishing anyway would perform an outward-facing action they
+	// explicitly declined.
+	SkipPublication bool
+}
+
+// DecideGate records an operator gate decision and continues the run.
 func (c *Controller) DecideGate(ctx context.Context, projectID, runID string, decision GateDecision, message string) (*RunState, error) {
+	return c.DecideGateWithOptions(ctx, projectID, runID, decision, message, GateDecisionOptions{})
+}
+
+// DecideGateWithOptions is DecideGate with the approval intents spelled out.
+func (c *Controller) DecideGateWithOptions(
+	ctx context.Context,
+	projectID, runID string,
+	decision GateDecision,
+	message string,
+	options GateDecisionOptions,
+) (*RunState, error) {
 	unlock := c.lock(projectID, runID)
 	defer unlock()
 	state, err := c.runs.Read(ctx, projectID, runID)
 	if err != nil {
 		return nil, err
 	}
-	if state.Gate == nil || state.Gate.Decision != "" {
-		return nil, newError(CodeInvalidState, "the run has no undecided gate")
+	if err := CanDecideGate(state); err != nil {
+		return nil, err
 	}
 	var revision *uint64
 	if state.Change != nil {
 		value := state.Change.ChangeRevision
 		revision = &value
-	}
-	if state.Gate.ChangeRevision != nil && revision != nil && *state.Gate.ChangeRevision != *revision {
-		return nil, newError(CodeInvalidState, "the gate approval is stale")
 	}
 	gateComponent, gateInstance := state.Gate.ComponentID, state.Gate.Instance
 	if decision == GateRejected {
@@ -76,7 +95,33 @@ func (c *Controller) DecideGate(ctx context.Context, projectID, runID string, de
 		}
 		return c.runPipeline(ctx, board, state, source, state.Components[ComponentBuild].Instance+1)
 	}
+	if options.SkipPublication {
+		return c.finishWithoutPublication(ctx, state)
+	}
 	return c.publishLocked(ctx, state)
+}
+
+// PublishSkippedMessage is the recorded reason a succeeded run carries no
+// publication record.
+const PublishSkippedMessage = "the operator approved the change without publishing it"
+
+// finishWithoutPublication completes an approved run that the operator chose
+// not to publish. The change stays in the run root exactly as it was verified
+// and reviewed; nothing is committed, pushed, or opened.
+func (c *Controller) finishWithoutPublication(ctx context.Context, state *RunState) (*RunState, error) {
+	state, err := c.runs.Append(ctx, state.ProjectID, state.RunID, &ComponentSucceeded{
+		ComponentInstance: ComponentInstance{ComponentID: ComponentPublish, Instance: 1},
+	})
+	if err != nil {
+		return state, err
+	}
+	state, err = c.writeReport(ctx, state, RunSucceeded)
+	if err != nil {
+		return state, err
+	}
+	return c.runs.Append(ctx, state.ProjectID, state.RunID, &RunFinished{
+		Status: RunSucceeded, Reason: "published_skipped", Message: PublishSkippedMessage,
+	})
 }
 
 func (c *Controller) publishLocked(ctx context.Context, state *RunState) (*RunState, error) {

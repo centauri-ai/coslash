@@ -234,12 +234,7 @@ func (r *ProductionRuntime) Publish(ctx context.Context, request PublishRequest)
 	if state == nil || state.Change == nil {
 		return publication.Record{}, ArtifactRecord{}, newError(CodeInvalidState, "publication requires a current run revision")
 	}
-	files := make([]revision.ChangedFile, len(state.Change.ChangedFiles))
-	for i, file := range state.Change.ChangedFiles {
-		files[i] = revision.ChangedFile{Path: file.Path, Status: revision.FileStatus(file.Status)}
-	}
-	revisionRecord := revision.Revision{ChangeRevision: state.Change.ChangeRevision, TreeOID: state.Change.TreeOID, PatchSha256: state.Change.PatchSha256, PatchBytes: state.Change.PatchBytes, ChangedFiles: files, Insertions: state.Change.Insertions, Deletions: state.Change.Deletions}
-	record, err := r.publisher.Execute(ctx, publication.Request{RunID: state.RunID, RunRoot: state.RunRoot, Branch: state.Branch, BaseBranch: state.BaseBranch, BaseSha: state.BaseSha, RemoteURL: state.RemoteURL, Revision: revisionRecord, Review: publication.ReviewFact{Approved: request.Review.Effective == ReviewApproved, ChangeRevision: request.Review.ChangeRevision}, Verification: &request.Verification, Draft: request.Board.Components.Publish.Publish.Draft, CaptureIndexFile: filepath.Join(filepath.Dir(state.RunRoot), "."+state.RunID+"-publish.index")}, request.Title, request.Body)
+	record, err := r.publisher.Execute(ctx, publishRequestFor(request), request.Title, request.Body)
 	if err != nil {
 		return publication.Record{}, ArtifactRecord{}, err
 	}
@@ -319,5 +314,34 @@ func changeRecord(captured revision.CapturedRevision, baseSha string) ChangeReco
 		ChangeRevision: captured.ChangeRevision, TreeOID: captured.TreeOID, PatchSha256: captured.PatchSha256,
 		PatchBytes: captured.PatchBytes, Insertions: captured.Insertions, Deletions: captured.Deletions,
 		ChangedFiles: files, BaseSha: baseSha,
+	}
+}
+
+// publishRequestFor reduces a run to the facts publication needs.
+//
+// Preflight and publication must be computed from exactly the same request:
+// a preflight that measured a different revision, base, or draft flag than the
+// publication that follows it would report a gate the operator never passed.
+func publishRequestFor(request PublishRequest) publication.Request {
+	state := request.State
+	files := make([]revision.ChangedFile, len(state.Change.ChangedFiles))
+	for i, file := range state.Change.ChangedFiles {
+		files[i] = revision.ChangedFile{Path: file.Path, Status: revision.FileStatus(file.Status)}
+	}
+	return publication.Request{
+		RunID: state.RunID, RunRoot: state.RunRoot, Branch: state.Branch,
+		BaseBranch: state.BaseBranch, BaseSha: state.BaseSha, RemoteURL: state.RemoteURL,
+		Revision: revision.Revision{
+			ChangeRevision: state.Change.ChangeRevision, TreeOID: state.Change.TreeOID,
+			PatchSha256: state.Change.PatchSha256, PatchBytes: state.Change.PatchBytes,
+			ChangedFiles: files, Insertions: state.Change.Insertions, Deletions: state.Change.Deletions,
+		},
+		Review: publication.ReviewFact{
+			Approved:       request.Review.Effective == ReviewApproved,
+			ChangeRevision: request.Review.ChangeRevision,
+		},
+		Verification:     &request.Verification,
+		Draft:            request.Board.Components.Publish.Publish.Draft,
+		CaptureIndexFile: filepath.Join(filepath.Dir(state.RunRoot), "."+state.RunID+"-publish.index"),
 	}
 }

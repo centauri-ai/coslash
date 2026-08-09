@@ -9,8 +9,8 @@ func (c *Controller) Cancel(ctx context.Context, projectID, runID string) (*RunS
 	if err != nil {
 		return nil, err
 	}
-	if isTerminal(state.Status) {
-		return nil, newError(CodeInvalidState, "the run has already finished")
+	if err := CanCancel(state); err != nil {
+		return nil, err
 	}
 	if attempt := liveAttempt(state); attempt != nil {
 		state, err = c.runs.Append(ctx, projectID, runID, &CancelRequested{AttemptRef: refOfAttempt(*attempt)})

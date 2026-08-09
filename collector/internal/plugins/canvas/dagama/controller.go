@@ -98,37 +98,78 @@ func (c *Controller) lock(projectID, runID string) func() {
 	return mutex.Unlock
 }
 
+// Start creates the run and drives it to completion or to its first gate. It
+// blocks for as long as the pipeline runs, so a caller that must answer sooner
+// — an HTTP request, for instance — wants StartAsync.
 func (c *Controller) Start(ctx context.Context, request StartRequest) (*RunState, error) {
+	_, advance, err := c.StartAsync(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return advance(ctx)
+}
+
+// StartAsync creates the run and returns its initial state together with the
+// function that advances the pipeline.
+//
+// The split exists because creating a run is fast and bounded while running one
+// is neither: it waits on agent turns, project checks, and possibly a network
+// push. Everything that can be refused — an invalid identity, an unreadable
+// source, a board that belongs to another project — is refused here, before the
+// run exists, so a caller never has to discover a rejection asynchronously.
+//
+// The returned function takes its own context so the pipeline can outlive the
+// request that started it. It must be called at most once.
+func (c *Controller) StartAsync(
+	ctx context.Context,
+	request StartRequest,
+) (*RunState, func(context.Context) (*RunState, error), error) {
 	if !ValidProjectID(request.ProjectID) || !ValidBoardID(request.BoardID) {
-		return nil, newError(CodeInvalidState, "the run project or board identity is invalid")
+		return nil, nil, newError(CodeInvalidState, "the run project or board identity is invalid")
 	}
 	source, err := CaptureSource(request.Source)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	board, err := c.boards.Load(ctx, request.ProjectID, request.BoardID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if board.ProjectID != request.ProjectID {
-		return nil, newError(CodeInvalidState, "the board belongs to another project")
+		return nil, nil, newError(CodeInvalidState, "the board belongs to another project")
 	}
 	suffix, err := c.suffix()
 	if err != nil {
-		return nil, newError(CodeStorageFailed, "a run identifier could not be allocated").withCause(err)
+		return nil, nil, newError(CodeStorageFailed, "a run identifier could not be allocated").withCause(err)
 	}
 	runID, err := NewRunID(c.now().UTC(), suffix)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return c.startLocked(ctx, board, runID, source, request.BaseBranch)
-}
-
-func (c *Controller) startLocked(ctx context.Context, board *Board, runID string, source CapturedSource, baseBranch string) (*RunState, error) {
 	state, err := c.runs.Append(ctx, board.ProjectID, runID, &RunCreated{
 		ProjectID: board.ProjectID, BoardID: board.ID, BoardRevision: board.Revision,
 		Title: source.Record.Title, Source: source.Record,
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	advance := func(background context.Context) (*RunState, error) {
+		return c.advanceCreatedRun(background, board, runID, source, request.BaseBranch)
+	}
+	return state, advance, nil
+}
+
+// advanceCreatedRun prepares the run root and drives the pipeline for a run
+// that has already been created. It re-reads the state rather than closing over
+// it, so it is correct whether it runs inline or on a background goroutine.
+func (c *Controller) advanceCreatedRun(
+	ctx context.Context,
+	board *Board,
+	runID string,
+	source CapturedSource,
+	baseBranch string,
+) (*RunState, error) {
+	state, err := c.runs.Read(ctx, board.ProjectID, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -315,15 +356,11 @@ func (c *Controller) Retry(ctx context.Context, projectID, runID string, compone
 		unlock()
 		return nil, err
 	}
-	if isTerminal(state.Status) {
+	if err := CanRetry(state, componentID); err != nil {
 		unlock()
-		return nil, newError(CodeInvalidState, "a terminal run cannot be retried")
+		return nil, err
 	}
 	component := state.Components[componentID]
-	if component == nil || component.Status != ComponentFailedStatus || !HasSeat(componentID) {
-		unlock()
-		return nil, newError(CodeInvalidState, "only a failed agent component can be retried")
-	}
 	board, err := c.boardForRun(ctx, state)
 	if err != nil {
 		unlock()

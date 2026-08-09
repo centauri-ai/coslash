@@ -16,6 +16,7 @@ import {
   showsConfiguration,
   showsSeatTerminal,
 } from '@/plugins/canvas/dagama/runs';
+import { attemptSessionIdentity } from '@/plugins/canvas/dagama/types';
 import type { DaGamaRun } from '@/plugins/canvas/dagama/types';
 
 // Each expectation below names the controller guard it mirrors, so a backend
@@ -171,5 +172,54 @@ describe('DaGama run presentation', () => {
     expect(runBlockedReason({ hasProject: true, saveState: 'conflict' })).toContain('conflict');
     expect(runBlockedReason({ hasProject: true, saveState: 'saving' })).toContain('save');
     expect(runBlockedReason({ hasProject: true, saveState: 'saved' })).toBeNull();
+  });
+});
+
+// The collector encodes an absent string as "" where the legacy dev server
+// encoded null. Every consumer must read both as "absent", or a seat whose
+// provider session has not been reported yet would look ready to take over.
+describe('collector encoding conventions', () => {
+  const withSession = (sessionId: string | null): DaGamaRun => ({
+    ...FROZEN_DAGAMA_RUNNING_RUN,
+    components: {
+      ...FROZEN_DAGAMA_RUNNING_RUN.components,
+      build: {
+        ...FROZEN_DAGAMA_RUNNING_RUN.components.build,
+        attempt: { ...FROZEN_DAGAMA_RUNNING_RUN.components.build.attempt!, sessionId },
+      },
+    },
+  });
+
+  it('treats an empty session id the same as a missing one', () => {
+    expect(seatControls(withSession(''), 'build').canTakeControl).toBe(false);
+    expect(seatControls(withSession(null), 'build').canTakeControl).toBe(false);
+    expect(seatControls(withSession('0f9a4d1e-2b3c-4d5e-8f60-112233445566'), 'build').canTakeControl).toBe(
+      true,
+    );
+  });
+
+  it('refuses to compose a session identity without both halves', () => {
+    const attempt = FROZEN_DAGAMA_RUNNING_RUN.components.build.attempt!;
+    expect(attemptSessionIdentity('claude', attempt)).toEqual({
+      agent: 'claude',
+      id: attempt.sessionId,
+    });
+    // An id alone is never a Canvas identity: Claude and Codex ids can collide.
+    expect(attemptSessionIdentity(null, attempt)).toBeNull();
+    expect(attemptSessionIdentity('claude', { ...attempt, sessionId: '' })).toBeNull();
+  });
+
+  it('treats an empty run root or branch as absent rather than as a value', () => {
+    const bare: DaGamaRun = {
+      ...FROZEN_DAGAMA_RUNNING_RUN,
+      status: 'preparing',
+      runRoot: '',
+      branch: '',
+      baseSha: '',
+      remoteUrl: '',
+    };
+    // A run that has not been prepared yet is still live and still mirrored.
+    expect(isLiveRun(bare)).toBe(true);
+    expect(isTerminalRun(bare)).toBe(false);
   });
 });
