@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "runId": "run-1",
+  "projectId": "project-1",
+  "boardId": "board-1",
+  "boardRevision": 4,
+  "title": "Migration run",
+  "status": "running",
+  "sessions": [
+    { "agent": "claude", "id": "shared-id" },
+    { "agent": "codex", "id": "shared-id" }
+  ],
+  "createdAt": "2026-08-08T19:00:00Z",
+  "updatedAt": "2026-08-08T20:00:00Z",
+  "finishedAt": null
+}
