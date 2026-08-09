@@ -20,9 +20,9 @@
 //   recognize.
 
 import {
+  keySuffix,
   matchAllowedKey,
   refusalReason,
-  keySuffix,
   type MigrationKind,
 } from '@/plugins/canvas/migration/keys';
 
