@@ -10,8 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/agentexec"
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/contracts"
@@ -28,12 +30,14 @@ const (
 	MaxRows         = 200
 	MaxInputBytes   = 32 << 10
 	MaxPasteBytes   = 1 << 20
+	MaxCaptureBytes = 8 << 20
 )
 
 var (
 	idPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	tmuxNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 	namespacePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,23}$`)
+	paneIDPattern    = regexp.MustCompile(`^%[0-9]+$`)
 
 	ErrNotFound = errors.New("terminal not found")
 	ErrReadOnly = errors.New("terminal is read-only")
@@ -52,6 +56,22 @@ type Spec struct {
 
 type Runner interface {
 	Run(context.Context, io.Reader, string, []string, string, []string) error
+}
+
+type outputRunner interface {
+	Output(context.Context, string, []string, string, []string, int64) ([]byte, error)
+}
+
+// TrackedStatus is the durable process view for a tmux pane configured with
+// remain-on-exit. ExitCode and FinishedAt are populated only after tmux has
+// observed the child process exit.
+type TrackedStatus struct {
+	TerminalID string
+	TmuxName   string
+	State      string
+	Writable   bool
+	ExitCode   *int
+	FinishedAt *time.Time
 }
 
 type PTY interface {
@@ -81,9 +101,11 @@ type Manager struct {
 type entry struct {
 	id       string
 	tmuxName string
+	paneID   string
 	cwd      string
 	writable bool
 	preserve bool
+	tracked  bool
 	clients  map[*Client]struct{}
 }
 
@@ -121,94 +143,170 @@ func Name(namespace, identity string) (string, error) {
 }
 
 func (manager *Manager) Create(ctx context.Context, spec Spec) (contracts.TerminalStatus, error) {
+	created, err := manager.create(ctx, spec, false)
+	if err != nil {
+		return contracts.TerminalStatus{}, err
+	}
+	return statusOf(created, "running"), nil
+}
+
+// CreateTracked starts the requested command only after tmux is configured to
+// preserve its dead pane. This removes the fast-exit race between process
+// launch and enabling remain-on-exit without introducing a shell wrapper.
+func (manager *Manager) CreateTracked(ctx context.Context, spec Spec) (TrackedStatus, error) {
+	created, err := manager.create(ctx, spec, true)
+	if err != nil {
+		return TrackedStatus{}, err
+	}
+	return manager.TrackedStatus(ctx, created.id)
+}
+
+func (manager *Manager) create(ctx context.Context, spec Spec, tracked bool) (*entry, error) {
 	if !idPattern.MatchString(spec.ID) {
-		return contracts.TerminalStatus{}, errors.New("terminal: invalid terminal id")
+		return nil, errors.New("terminal: invalid terminal id")
 	}
 	if !tmuxNamePattern.MatchString(spec.TmuxName) {
-		return contracts.TerminalStatus{}, errors.New("terminal: invalid tmux name")
+		return nil, errors.New("terminal: invalid tmux name")
 	}
 	if spec.Command.Path != "claude" && spec.Command.Path != "codex" {
-		return contracts.TerminalStatus{}, errors.New("terminal: unsupported program")
+		return nil, errors.New("terminal: unsupported program")
 	}
 	cwd, err := canonicalDirectory(spec.Command.Dir)
 	if err != nil {
-		return contracts.TerminalStatus{}, err
+		return nil, err
 	}
 	cols, rows, err := dimensions(spec.Cols, spec.Rows)
 	if err != nil {
-		return contracts.TerminalStatus{}, err
+		return nil, err
 	}
 
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.closed {
-		return contracts.TerminalStatus{}, ErrClosed
+		return nil, ErrClosed
 	}
 	if existing := manager.sessions[spec.ID]; existing != nil {
-		if existing.tmuxName != spec.TmuxName {
-			return contracts.TerminalStatus{}, errors.New("terminal: terminal id is already bound")
+		if existing.tmuxName != spec.TmuxName || existing.tracked != tracked {
+			return nil, errors.New("terminal: terminal id is already bound")
 		}
-		return statusOf(existing, "running"), nil
+		return existing, nil
 	}
 	if len(manager.sessions) >= manager.capacity {
-		return contracts.TerminalStatus{}, errors.New("terminal: registry capacity reached")
+		return nil, errors.New("terminal: registry capacity reached")
 	}
 	if manager.hasSession(ctx, spec.TmuxName) {
-		return contracts.TerminalStatus{}, errors.New("terminal: tmux session already exists")
+		return nil, errors.New("terminal: tmux session already exists")
 	}
 	args := []string{"new-session", "-d", "-s", spec.TmuxName, "-x", fmt.Sprint(cols), "-y", fmt.Sprint(rows), "-c", cwd}
-	for _, value := range spec.Command.Env {
-		args = append(args, "-e", value)
-	}
-	args = append(args, "--", spec.Command.Path)
-	args = append(args, spec.Command.Args...)
-	if err := manager.runner.Run(ctx, nil, "tmux", args, "", nil); err != nil {
-		return contracts.TerminalStatus{}, errors.New("terminal: could not create tmux session")
+	paneID := ""
+	if tracked {
+		args = append(args, "-P", "-F", "#{pane_id}", "--", "/bin/sleep", "86400")
+		output, outputErr := manager.output(ctx, "tmux", args, "", nil, 128)
+		paneID = strings.TrimSpace(string(output))
+		if outputErr != nil || !paneIDPattern.MatchString(paneID) {
+			return nil, errors.New("terminal: could not create tracked tmux session")
+		}
+		if manager.runner.Run(ctx, nil, "tmux", []string{"set-option", "-p", "-t", paneID, "remain-on-exit", "on"}, "", nil) != nil {
+			_ = manager.runner.Run(ctx, nil, "tmux", []string{"kill-session", "-t", "=" + spec.TmuxName}, "", nil)
+			return nil, errors.New("terminal: could not arm tracked tmux session")
+		}
+		respawn := []string{"respawn-pane", "-k", "-t", paneID, "-c", cwd}
+		for _, value := range spec.Command.Env {
+			respawn = append(respawn, "-e", value)
+		}
+		respawn = append(respawn, "--", spec.Command.Path)
+		respawn = append(respawn, spec.Command.Args...)
+		if manager.runner.Run(ctx, nil, "tmux", respawn, "", nil) != nil {
+			_ = manager.runner.Run(ctx, nil, "tmux", []string{"kill-session", "-t", "=" + spec.TmuxName}, "", nil)
+			return nil, errors.New("terminal: could not launch tracked tmux process")
+		}
+	} else {
+		for _, value := range spec.Command.Env {
+			args = append(args, "-e", value)
+		}
+		args = append(args, "--", spec.Command.Path)
+		args = append(args, spec.Command.Args...)
+		if err := manager.runner.Run(ctx, nil, "tmux", args, "", nil); err != nil {
+			return nil, errors.New("terminal: could not create tmux session")
+		}
 	}
 	if spec.Command.Stdin != "" {
 		buffer := spec.TmuxName + "_prompt"
 		if err := manager.runner.Run(ctx, strings.NewReader(spec.Command.Stdin), "tmux", []string{"load-buffer", "-b", buffer, "-"}, "", nil); err != nil ||
-			manager.runner.Run(ctx, nil, "tmux", []string{"paste-buffer", "-t", "=" + spec.TmuxName, "-b", buffer, "-d"}, "", nil) != nil ||
-			manager.runner.Run(ctx, nil, "tmux", []string{"send-keys", "-t", "=" + spec.TmuxName, "C-d"}, "", nil) != nil {
+			manager.runner.Run(ctx, nil, "tmux", []string{"paste-buffer", "-t", target(spec.TmuxName, paneID), "-b", buffer, "-d"}, "", nil) != nil ||
+			manager.runner.Run(ctx, nil, "tmux", []string{"send-keys", "-t", target(spec.TmuxName, paneID), "C-d"}, "", nil) != nil {
 			_ = manager.runner.Run(ctx, nil, "tmux", []string{"kill-session", "-t", "=" + spec.TmuxName}, "", nil)
-			return contracts.TerminalStatus{}, errors.New("terminal: could not deliver agent input")
+			return nil, errors.New("terminal: could not deliver agent input")
 		}
 	}
 	_ = manager.runner.Run(ctx, nil, "tmux", []string{"set-option", "-t", "=" + spec.TmuxName, "mouse", "on"}, "", nil)
 	_ = manager.runner.Run(ctx, nil, "tmux", []string{"set-option", "-t", "=" + spec.TmuxName, "history-limit", "50000"}, "", nil)
-	created := &entry{id: spec.ID, tmuxName: spec.TmuxName, cwd: cwd, writable: spec.Writable, preserve: spec.PreserveOnClose, clients: map[*Client]struct{}{}}
+	created := &entry{id: spec.ID, tmuxName: spec.TmuxName, paneID: paneID, cwd: cwd, writable: spec.Writable, preserve: spec.PreserveOnClose, tracked: tracked, clients: map[*Client]struct{}{}}
 	manager.sessions[spec.ID] = created
-	return statusOf(created, "running"), nil
+	return created, nil
+}
+
+func target(tmuxName, paneID string) string {
+	if paneID != "" {
+		return paneID
+	}
+	return "=" + tmuxName
 }
 
 func (manager *Manager) Adopt(ctx context.Context, id, tmuxName, cwd string, writable, preserve bool) (contracts.TerminalStatus, error) {
+	created, err := manager.adopt(ctx, id, tmuxName, cwd, writable, preserve, false)
+	if err != nil {
+		return contracts.TerminalStatus{}, err
+	}
+	return statusOf(created, "running"), nil
+}
+
+// AdoptTracked rebuilds registry ownership for a live or dead retained pane
+// after collector restart. It never launches or duplicates agent work.
+func (manager *Manager) AdoptTracked(ctx context.Context, id, tmuxName, cwd string, writable, preserve bool) (TrackedStatus, error) {
+	created, err := manager.adopt(ctx, id, tmuxName, cwd, writable, preserve, true)
+	if err != nil {
+		return TrackedStatus{}, err
+	}
+	return manager.TrackedStatus(ctx, created.id)
+}
+
+func (manager *Manager) adopt(ctx context.Context, id, tmuxName, cwd string, writable, preserve, tracked bool) (*entry, error) {
 	if !idPattern.MatchString(id) || !tmuxNamePattern.MatchString(tmuxName) {
-		return contracts.TerminalStatus{}, errors.New("terminal: invalid identity")
+		return nil, errors.New("terminal: invalid identity")
 	}
 	resolved, err := canonicalDirectory(cwd)
 	if err != nil {
-		return contracts.TerminalStatus{}, err
+		return nil, err
 	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.closed {
-		return contracts.TerminalStatus{}, ErrClosed
+		return nil, ErrClosed
 	}
 	if existing := manager.sessions[id]; existing != nil {
-		if existing.tmuxName != tmuxName {
-			return contracts.TerminalStatus{}, errors.New("terminal: terminal id is already bound")
+		if existing.tmuxName != tmuxName || existing.tracked != tracked {
+			return nil, errors.New("terminal: terminal id is already bound")
 		}
-		return statusOf(existing, "running"), nil
+		return existing, nil
 	}
 	if len(manager.sessions) >= manager.capacity {
-		return contracts.TerminalStatus{}, errors.New("terminal: registry capacity reached")
+		return nil, errors.New("terminal: registry capacity reached")
 	}
 	if !manager.hasSession(ctx, tmuxName) {
-		return contracts.TerminalStatus{}, ErrNotFound
+		return nil, ErrNotFound
 	}
-	created := &entry{id: id, tmuxName: tmuxName, cwd: resolved, writable: writable, preserve: preserve, clients: map[*Client]struct{}{}}
+	paneID := ""
+	if tracked {
+		output, outputErr := manager.output(ctx, "tmux", []string{"list-panes", "-t", "=" + tmuxName, "-F", "#{pane_id}"}, "", nil, 128)
+		paneID = strings.TrimSpace(string(output))
+		if outputErr != nil || !paneIDPattern.MatchString(paneID) {
+			return nil, ErrNotFound
+		}
+	}
+	created := &entry{id: id, tmuxName: tmuxName, paneID: paneID, cwd: resolved, writable: writable, preserve: preserve, tracked: tracked, clients: map[*Client]struct{}{}}
 	manager.sessions[id] = created
-	return statusOf(created, "running"), nil
+	return created, nil
 }
 
 func (manager *Manager) Status(ctx context.Context, id string) (contracts.TerminalStatus, error) {
@@ -218,10 +316,73 @@ func (manager *Manager) Status(ctx context.Context, id string) (contracts.Termin
 	if current == nil {
 		return contracts.TerminalStatus{}, ErrNotFound
 	}
+	if current.tracked {
+		tracked, err := manager.trackedStatusLocked(ctx, current)
+		if err != nil {
+			return contracts.TerminalStatus{}, err
+		}
+		return statusOf(current, tracked.State), nil
+	}
 	if !manager.hasSession(ctx, current.tmuxName) {
 		return statusOf(current, "exited"), nil
 	}
 	return statusOf(current, "running"), nil
+}
+
+// TrackedStatus returns exact tmux-owned completion facts. It fails closed if
+// the retained session or pane cannot be classified.
+func (manager *Manager) TrackedStatus(ctx context.Context, id string) (TrackedStatus, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.sessions[id]
+	if current == nil || !current.tracked {
+		return TrackedStatus{}, ErrNotFound
+	}
+	return manager.trackedStatusLocked(ctx, current)
+}
+
+func (manager *Manager) trackedStatusLocked(ctx context.Context, current *entry) (TrackedStatus, error) {
+	output, err := manager.output(ctx, "tmux", []string{"display-message", "-p", "-t", current.paneID, "#{pane_dead}|#{pane_dead_status}|#{pane_dead_time}"}, "", nil, 256)
+	if err != nil {
+		return TrackedStatus{}, ErrNotFound
+	}
+	fields := strings.Split(strings.TrimSpace(string(output)), "|")
+	status := TrackedStatus{TerminalID: current.id, TmuxName: current.tmuxName, State: "running", Writable: current.writable}
+	if len(fields) != 3 || fields[0] == "" {
+		return TrackedStatus{}, errors.New("terminal: tracked pane status is invalid")
+	}
+	if fields[0] == "0" {
+		return status, nil
+	}
+	if fields[0] != "1" {
+		return TrackedStatus{}, errors.New("terminal: tracked pane status is invalid")
+	}
+	exitCode, exitErr := strconv.Atoi(fields[1])
+	finishedUnix, timeErr := strconv.ParseInt(fields[2], 10, 64)
+	if exitErr != nil || timeErr != nil || finishedUnix <= 0 {
+		return TrackedStatus{}, errors.New("terminal: tracked pane completion is invalid")
+	}
+	finished := time.Unix(finishedUnix, 0).UTC()
+	status.State = "exited"
+	status.ExitCode = &exitCode
+	status.FinishedAt = &finished
+	return status, nil
+}
+
+// Capture returns bounded retained pane text for provider session-id discovery.
+// It is diagnostic protocol data, never completion evidence.
+func (manager *Manager) Capture(ctx context.Context, id string) ([]byte, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	current := manager.sessions[id]
+	if current == nil || !current.tracked {
+		return nil, ErrNotFound
+	}
+	output, err := manager.output(ctx, "tmux", []string{"capture-pane", "-p", "-J", "-S", "-", "-t", current.paneID}, "", nil, MaxCaptureBytes)
+	if err != nil {
+		return nil, errors.New("terminal: could not capture tracked pane")
+	}
+	return output, nil
 }
 
 func (manager *Manager) Attach(ctx context.Context, id string, cols, rows uint16) (*Client, error) {
@@ -435,6 +596,14 @@ func (manager *Manager) hasSession(ctx context.Context, name string) bool {
 	return manager.runner.Run(ctx, nil, "tmux", []string{"has-session", "-t", "=" + name}, "", nil) == nil
 }
 
+func (manager *Manager) output(ctx context.Context, name string, args []string, dir string, env []string, limit int64) ([]byte, error) {
+	runner, ok := manager.runner.(outputRunner)
+	if !ok {
+		return nil, errors.New("terminal: runner does not support bounded output")
+	}
+	return runner.Output(ctx, name, args, dir, env, limit)
+}
+
 type osRunner struct{}
 
 func (osRunner) Run(ctx context.Context, stdin io.Reader, name string, args []string, dir string, env []string) error {
@@ -447,6 +616,38 @@ func (osRunner) Run(ctx context.Context, stdin io.Reader, name string, args []st
 		command.Env = env
 	}
 	return command.Run()
+}
+
+func (osRunner) Output(ctx context.Context, name string, args []string, dir string, env []string, limit int64) ([]byte, error) {
+	if limit <= 0 || limit > MaxCaptureBytes {
+		return nil, errors.New("terminal: output limit is invalid")
+	}
+	command := exec.CommandContext(ctx, name, args...)
+	command.Dir = dir
+	if env != nil {
+		command.Env = env
+	}
+	var output boundedOutput
+	output.limit = limit
+	command.Stdout = &output
+	command.Stderr = io.Discard
+	if err := command.Run(); err != nil {
+		return nil, err
+	}
+	return output.data, nil
+}
+
+type boundedOutput struct {
+	data  []byte
+	limit int64
+}
+
+func (output *boundedOutput) Write(data []byte) (int, error) {
+	if int64(len(output.data)+len(data)) > output.limit {
+		return 0, errors.New("terminal: command output exceeded its limit")
+	}
+	output.data = append(output.data, data...)
+	return len(data), nil
 }
 
 type osPTYFactory struct{}

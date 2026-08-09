@@ -3,12 +3,14 @@ package terminal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/agentexec"
 )
@@ -22,7 +24,18 @@ type runnerCall struct {
 type fakeRunner struct {
 	mu       sync.Mutex
 	sessions map[string]bool
+	panes    map[string]*fakePane
+	nextPane int
 	calls    []runnerCall
+}
+
+type fakePane struct {
+	id       string
+	session  string
+	dead     bool
+	exitCode int
+	finished int64
+	capture  string
 }
 
 type failingRunner struct{}
@@ -31,8 +44,12 @@ func (failingRunner) Run(context.Context, io.Reader, string, []string, string, [
 	return errors.New("secret command output")
 }
 
+func (failingRunner) Output(context.Context, string, []string, string, []string, int64) ([]byte, error) {
+	return nil, errors.New("secret command output")
+}
+
 func newFakeRunner() *fakeRunner {
-	return &fakeRunner{sessions: map[string]bool{}}
+	return &fakeRunner{sessions: map[string]bool{}, panes: map[string]*fakePane{}}
 }
 
 func (runner *fakeRunner) Run(_ context.Context, stdin io.Reader, name string, args []string, _ string, _ []string) error {
@@ -54,18 +71,122 @@ func (runner *fakeRunner) Run(_ context.Context, stdin io.Reader, name string, a
 			return errors.New("missing")
 		}
 	case "new-session":
-		index := slices.Index(args, "-s")
-		if index < 0 || index+1 >= len(args) {
-			return errors.New("missing name")
+		_, err := runner.createSession(args)
+		return err
+	case "respawn-pane":
+		pane := runner.paneTarget(args)
+		if pane == nil {
+			return errors.New("missing pane")
 		}
-		if runner.sessions[args[index+1]] {
-			return errors.New("duplicate")
-		}
-		runner.sessions[args[index+1]] = true
+		pane.dead = false
+		pane.exitCode = 0
+		pane.finished = 0
 	case "kill-session":
-		delete(runner.sessions, strings.TrimPrefix(args[len(args)-1], "="))
+		name := strings.TrimPrefix(args[len(args)-1], "=")
+		delete(runner.sessions, name)
+		for id, pane := range runner.panes {
+			if pane.session == name {
+				delete(runner.panes, id)
+			}
+		}
 	}
 	return nil
+}
+
+func (runner *fakeRunner) Output(_ context.Context, name string, args []string, _ string, _ []string, limit int64) ([]byte, error) {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	runner.calls = append(runner.calls, runnerCall{name: name, args: slices.Clone(args)})
+	if name != "tmux" || len(args) == 0 || limit <= 0 {
+		return nil, errors.New("unexpected command")
+	}
+	var output string
+	switch args[0] {
+	case "new-session":
+		pane, err := runner.createSession(args)
+		if err != nil {
+			return nil, err
+		}
+		output = pane.id + "\n"
+	case "list-panes":
+		name := strings.TrimPrefix(args[slices.Index(args, "-t")+1], "=")
+		for _, pane := range runner.panes {
+			if pane.session == name {
+				output += pane.id + "\n"
+			}
+		}
+		if output == "" {
+			return nil, errors.New("missing")
+		}
+	case "display-message":
+		pane := runner.paneTarget(args)
+		if pane == nil {
+			return nil, errors.New("missing")
+		}
+		if pane.dead {
+			output = fmt.Sprintf("1|%d|%d\n", pane.exitCode, pane.finished)
+		} else {
+			output = "0||\n"
+		}
+	case "capture-pane":
+		pane := runner.paneTarget(args)
+		if pane == nil {
+			return nil, errors.New("missing")
+		}
+		output = pane.capture
+	default:
+		return nil, errors.New("unexpected output command")
+	}
+	if int64(len(output)) > limit {
+		return nil, errors.New("limit")
+	}
+	return []byte(output), nil
+}
+
+func (runner *fakeRunner) createSession(args []string) (*fakePane, error) {
+	index := slices.Index(args, "-s")
+	if index < 0 || index+1 >= len(args) {
+		return nil, errors.New("missing name")
+	}
+	name := args[index+1]
+	if runner.sessions[name] {
+		return nil, errors.New("duplicate")
+	}
+	runner.nextPane++
+	pane := &fakePane{id: fmt.Sprintf("%%%d", runner.nextPane), session: name}
+	runner.sessions[name] = true
+	runner.panes[pane.id] = pane
+	return pane, nil
+}
+
+func (runner *fakeRunner) paneTarget(args []string) *fakePane {
+	index := slices.Index(args, "-t")
+	if index < 0 || index+1 >= len(args) {
+		return nil
+	}
+	return runner.panes[args[index+1]]
+}
+
+func (runner *fakeRunner) finish(session string, exitCode int, finished time.Time) {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	for _, pane := range runner.panes {
+		if pane.session == session {
+			pane.dead = true
+			pane.exitCode = exitCode
+			pane.finished = finished.Unix()
+		}
+	}
+}
+
+func (runner *fakeRunner) setCapture(session, output string) {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	for _, pane := range runner.panes {
+		if pane.session == session {
+			pane.capture = output
+		}
+	}
 }
 
 func (runner *fakeRunner) snapshot() []runnerCall {
@@ -362,5 +483,74 @@ func TestStopAndDisconnectRaceLeavesNoClientOrSession(t *testing.T) {
 	defer manager.mu.Unlock()
 	if len(manager.sessions) != 0 {
 		t.Fatalf("registry leaked after race: %#v", manager.sessions)
+	}
+}
+
+func TestTrackedLifecycleReportsExactExitAndSupportsRestartAdoption(t *testing.T) {
+	runner := newFakeRunner()
+	name, _ := Name("dagama", "attempt-one")
+	dir := t.TempDir()
+	command := testCommand(t, "")
+	command.Dir = dir
+	first := New(Options{Runner: runner})
+	status, err := first.CreateTracked(context.Background(), Spec{ID: "attempt-one", TmuxName: name, Command: command, Writable: true, PreserveOnClose: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "running" || status.ExitCode != nil || status.FinishedAt != nil {
+		t.Fatalf("running status = %#v", status)
+	}
+	runner.setCapture(name, "{\"type\":\"thread.started\",\"thread_id\":\"thread-123\"}\n")
+	captured, err := first.Capture(context.Background(), "attempt-one")
+	if err != nil || !strings.Contains(string(captured), "thread-123") {
+		t.Fatalf("capture = %q, err = %v", captured, err)
+	}
+	if err := first.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	finished := time.Unix(1_786_250_000, 0).UTC()
+	runner.finish(name, 17, finished)
+	second := New(Options{Runner: runner})
+	status, err = second.AdoptTracked(context.Background(), "attempt-one", name, dir, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "exited" || status.ExitCode == nil || *status.ExitCode != 17 || status.FinishedAt == nil || !status.FinishedAt.Equal(finished) {
+		t.Fatalf("completion status = %#v", status)
+	}
+	if err := second.Stop(context.Background(), "attempt-one"); err != nil {
+		t.Fatal(err)
+	}
+	if runner.sessions[name] {
+		t.Fatal("tracked tmux session leaked")
+	}
+}
+
+func TestTrackedLaunchArmsRemainOnExitBeforeDirectRespawn(t *testing.T) {
+	runner := newFakeRunner()
+	manager := New(Options{Runner: runner})
+	name, _ := Name("dagama", "launch-order")
+	command := testCommand(t, "")
+	command.Stdin = "prompt\n"
+	if _, err := manager.CreateTracked(context.Background(), Spec{ID: "launch-order", TmuxName: name, Command: command}); err != nil {
+		t.Fatal(err)
+	}
+	calls := runner.snapshot()
+	indices := map[string]int{}
+	for index, call := range calls {
+		if len(call.args) > 0 {
+			if _, exists := indices[call.args[0]]; !exists {
+				indices[call.args[0]] = index
+			}
+		}
+	}
+	if !(indices["new-session"] < indices["set-option"] && indices["set-option"] < indices["respawn-pane"] && indices["respawn-pane"] < indices["load-buffer"]) {
+		t.Fatalf("unsafe launch order: %#v", calls)
+	}
+	respawn := calls[indices["respawn-pane"]].args
+	separator := slices.Index(respawn, "--")
+	if separator < 0 || separator+1 >= len(respawn) || respawn[separator+1] != "codex" {
+		t.Fatalf("tracked command was not direct argv: %#v", respawn)
 	}
 }
