@@ -193,12 +193,16 @@ export function DaGamaBoardView(props: DaGamaBoardViewProps) {
   const { board, project, run, saveState } = props;
   const components = board.components;
   const [selected, setSelected] = useState<DaGamaNodeId | null>(null);
-  const [zoom, setZoom] = useState(board.viewport.zoom);
   const [projectOpen, setProjectOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [artifact, setArtifact] = useState<{ runId: string; name: string } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+
+  // Zoom is read from the board rather than held locally, so opening a
+  // different workflow shows the zoom that workflow was saved at instead of
+  // silently keeping the previous one.
+  const zoom = board.viewport.zoom;
 
   const interaction = useCanvasNodeInteraction<DaGamaNodeId>({
     zoom,
@@ -215,7 +219,7 @@ export function DaGamaBoardView(props: DaGamaBoardViewProps) {
 
   const setZoomPersisted = (next: number) => {
     const clamped = clampZoom(DAGAMA_ZOOM_BOUNDS, next);
-    setZoom(clamped);
+    if (clamped === zoom) return;
     props.onBoardChange({ ...board, viewport: { ...board.viewport, zoom: clamped } });
   };
 

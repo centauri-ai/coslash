@@ -240,6 +240,15 @@ describe('DaGama board', () => {
     expect(render({ board })).toContain('Claude has no sandbox');
   });
 
+  it('shows the zoom the open workflow was saved at', () => {
+    expect(render()).toContain('55%');
+    const zoomed: DaGamaBoard = {
+      ...defaultDaGamaBoard(),
+      viewport: { zoom: 1.2, panX: 0, panY: 0 },
+    };
+    expect(render({ board: zoomed })).toContain('120%');
+  });
+
   it('draws the forward pipeline, the repair return, and the seat cluster wires', () => {
     const html = render();
     expect(html).toContain('dagama-wire-flow');
