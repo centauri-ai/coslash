@@ -35,6 +35,8 @@ type fakeControllerRuntime struct {
 	cancels         int
 	rearms          int
 	probe           ProbeResult
+	executeStarted  chan struct{}
+	executeRelease  chan struct{}
 }
 
 func newFakeControllerRuntime(root string) *fakeControllerRuntime {
@@ -64,9 +66,8 @@ func (f *fakeControllerRuntime) ReadArtifact(_ context.Context, _ string, record
 	return append([]byte(nil), contents...), nil
 }
 
-func (f *fakeControllerRuntime) Execute(_ context.Context, request AttemptRequest) (AttemptResult, error) {
+func (f *fakeControllerRuntime) Execute(_ context.Context, request AttemptRequest, launched LaunchRecorder) (AttemptResult, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.executions[request.Component]++
 	f.models[request.Component] = request.Seat.Model
 	agent := string(request.Seat.Vendor)
@@ -74,6 +75,19 @@ func (f *fakeControllerRuntime) Execute(_ context.Context, request AttemptReques
 		agent = f.sessionAgent
 	}
 	result := AttemptResult{Session: contracts.SessionIdentity{Agent: agent, ID: "session-" + string(request.Component)}, FinishedAt: time.Unix(20, 0).UTC()}
+	f.mu.Unlock()
+	if err := launched(result.Session); err != nil {
+		return AttemptResult{}, err
+	}
+	if f.executeStarted != nil {
+		select {
+		case f.executeStarted <- struct{}{}:
+		default:
+		}
+		<-f.executeRelease
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.missing[request.Component] {
 		return result, nil
 	}
@@ -102,6 +116,7 @@ func (f *fakeControllerRuntime) Execute(_ context.Context, request AttemptReques
 	}
 	return result, nil
 }
+func (f *fakeControllerRuntime) Release(context.Context, AttemptState) error { return nil }
 
 func (f *fakeControllerRuntime) Verify(_ context.Context, request VerifyRequest) (verification.Document, ArtifactRecord, error) {
 	f.mu.Lock()
@@ -516,6 +531,86 @@ func TestRejectedPublishGateNeverPublishes(t *testing.T) {
 	}
 	if report.Status != RunFailed || report.Gate == nil || report.Gate.Decision != GateRejected || report.Failure == nil || report.Review == nil || report.Verification == nil {
 		t.Fatalf("rejected report is incomplete: %+v", report)
+	}
+}
+
+func TestLiveAttemptDoesNotHoldRunLockAgainstCancellation(t *testing.T) {
+	fixture := newControllerFixture(t)
+	fixture.runtime.executeStarted = make(chan struct{}, 1)
+	fixture.runtime.executeRelease = make(chan struct{})
+	type startResult struct {
+		state *RunState
+		err   error
+	}
+	started := make(chan startResult, 1)
+	go func() {
+		state, err := fixture.controller.Start(fixture.ctx, StartRequest{ProjectID: fixture.board.ProjectID, BoardID: fixture.board.ID, Source: SourceInput{Kind: "text", Title: "Task", Text: "Change README"}})
+		started <- startResult{state: state, err: err}
+	}()
+	select {
+	case <-fixture.runtime.executeStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("attempt did not launch")
+	}
+	runID := "run-19700101t000001-deadbeef"
+	canceled := make(chan startResult, 1)
+	go func() {
+		state, err := fixture.controller.Cancel(fixture.ctx, fixture.board.ProjectID, runID)
+		canceled <- startResult{state: state, err: err}
+	}()
+	select {
+	case result := <-canceled:
+		if result.err != nil || result.state.Status != RunCanceled {
+			t.Fatalf("cancel result = %+v, err = %v", result.state, result.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancel blocked behind the live attempt")
+	}
+	close(fixture.runtime.executeRelease)
+	select {
+	case result := <-started:
+		if result.err != nil || result.state.Status != RunCanceled {
+			t.Fatalf("start result after cancel = %+v, err = %v", result.state, result.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("start did not observe the canceled terminal state")
+	}
+}
+
+func TestLiveAttemptCanBeTakenOverWithoutTheOldCompletionWinning(t *testing.T) {
+	fixture := newControllerFixture(t)
+	fixture.runtime.executeStarted = make(chan struct{}, 1)
+	fixture.runtime.executeRelease = make(chan struct{})
+	type startResult struct {
+		state *RunState
+		err   error
+	}
+	started := make(chan startResult, 1)
+	go func() {
+		state, err := fixture.controller.Start(fixture.ctx, StartRequest{ProjectID: fixture.board.ProjectID, BoardID: fixture.board.ID, Source: SourceInput{Kind: "text", Title: "Task", Text: "Change README"}})
+		started <- startResult{state: state, err: err}
+	}()
+	select {
+	case <-fixture.runtime.executeStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("attempt did not launch")
+	}
+	runID := "run-19700101t000001-deadbeef"
+	taken, err := fixture.controller.Takeover(fixture.ctx, fixture.board.ProjectID, runID, ComponentPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taken.Components[ComponentPlan].Attempt.Ownership != OwnershipHumanControlled || taken.Components[ComponentPlan].Attempt.Attempt != 2 {
+		t.Fatalf("takeover state = %+v", taken.Components[ComponentPlan].Attempt)
+	}
+	close(fixture.runtime.executeRelease)
+	select {
+	case result := <-started:
+		if result.err != nil || result.state.Components[ComponentPlan].Attempt.Ownership != OwnershipHumanControlled {
+			t.Fatalf("old completion overrode takeover: state=%+v err=%v", result.state, result.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("old attempt did not drain after takeover")
 	}
 }
 

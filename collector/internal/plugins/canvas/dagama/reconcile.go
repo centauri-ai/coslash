@@ -24,8 +24,8 @@ func (c *Controller) Reconcile(ctx context.Context, projectID string) (Reconcile
 		}
 		attempt := liveAttempt(state)
 		if attempt == nil {
-			resumed, resumeErr := c.resumeReady(ctx, state)
 			unlock()
+			resumed, resumeErr := c.resumeReady(ctx, state)
 			if resumeErr != nil {
 				return result, resumeErr
 			}
@@ -61,20 +61,29 @@ func (c *Controller) Reconcile(ctx context.Context, projectID string) (Reconcile
 			}
 			state, readErr = c.runs.Append(ctx, projectID, state.RunID, &AttemptExited{AttemptRef: ref, ExitCode: completion.ExitCode, FinishedAt: finished})
 			if readErr == nil {
-				state, readErr = c.finalizeSeatResult(ctx, state, attempt.ComponentID, attempt.Instance, attempt.Attempt, *completion)
+				readErr = c.runtime.Release(ctx, *state.Components[attempt.ComponentID].Attempt)
 			}
 			if readErr == nil {
-				board, loadErr := c.boardForRun(ctx, state)
-				if loadErr == nil {
-					var source CapturedSource
-					source, loadErr = c.sourceForRun(ctx, state)
-					if loadErr == nil {
-						state, loadErr = c.continueAfterAgent(ctx, board, state, source, attempt.ComponentID, attempt.Instance)
-					}
-				}
-				readErr = loadErr
+				state, readErr = c.finalizeSeatResult(ctx, state, attempt.ComponentID, attempt.Instance, attempt.Attempt, *completion)
+			}
+			var board *Board
+			var source CapturedSource
+			if readErr == nil {
+				board, readErr = c.boardForRun(ctx, state)
+			}
+			if readErr == nil {
+				source, readErr = c.sourceForRun(ctx, state)
 			}
 			result.Drained++
+			unlock()
+			if readErr != nil {
+				return result, readErr
+			}
+			_, readErr = c.continueAfterAgent(ctx, board, state, source, attempt.ComponentID, attempt.Instance)
+			if readErr != nil {
+				return result, readErr
+			}
+			continue
 		default:
 			_, readErr = c.runs.Append(ctx, state.ProjectID, state.RunID, &ComponentFailed{
 				ComponentInstance: ComponentInstance{ComponentID: attempt.ComponentID, Instance: attempt.Instance},

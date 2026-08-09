@@ -25,6 +25,7 @@ func ComposePrompt(input PromptInput) (string, error) {
 	fmt.Fprintf(&builder, "# coSlash DaGama controller contract\n\n")
 	fmt.Fprintf(&builder, "You are the %s seat, instance %d. Work only inside the assigned isolated run root.\n", input.Component, input.Instance)
 	fmt.Fprintf(&builder, "Required output: %s. Completion without it is `missing_output`; do not edit .fleetlog outside your attempt output directory.\n", strings.Join(output, ", "))
+	fmt.Fprintf(&builder, "Write required output files beneath `.fleetlog/run/out/%s/%s-1/%d/` relative to the run root.\n", input.Component, input.Component, input.Attempt)
 	if input.Component == ComponentReview {
 		builder.WriteString("Review must not modify project files. The controller compares the tree before and after and fails closed on mutation.\n")
 		builder.WriteString("Write review.json as exactly this agent-authored schema: {\"schemaVersion\":1,\"verdict\":\"approved|changes_requested\",\"summary\":\"...\",\"findings\":[{\"severity\":\"blocking|advisory\",\"file\":null,\"line\":null,\"summary\":\"...\",\"detail\":\"...\"}]}.\n")

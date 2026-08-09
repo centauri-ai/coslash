@@ -12,6 +12,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/publication"
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/revision"
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/runfs"
+	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/terminal"
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/verification"
 )
 
@@ -32,6 +33,7 @@ type AttemptRequest struct {
 	ProjectID string
 	RunID     string
 	RunRoot   string
+	BaseSha   string
 	Component ComponentID
 	Instance  int
 	Attempt   int
@@ -83,11 +85,17 @@ type ProbeResult struct {
 	Completion *AttemptResult
 }
 
+// LaunchRecorder persists the live tmux/session identity before Execute waits
+// for completion. Returning an error aborts the attempt so a launch is never
+// left running without its durable event.
+type LaunchRecorder func(contracts.SessionIdentity) error
+
 type Runtime interface {
 	Prepare(context.Context, PrepareRequest) (PreparedRun, error)
 	RecordControllerArtifact(context.Context, string, string, []byte, ProducerRef) (ArtifactRecord, error)
 	ReadArtifact(context.Context, string, ArtifactRecord) ([]byte, error)
-	Execute(context.Context, AttemptRequest) (AttemptResult, error)
+	Execute(context.Context, AttemptRequest, LaunchRecorder) (AttemptResult, error)
+	Release(context.Context, AttemptState) error
 	Verify(context.Context, VerifyRequest) (verification.Document, ArtifactRecord, error)
 	Publish(context.Context, PublishRequest) (publication.Record, ArtifactRecord, error)
 	Cancel(context.Context, *RunState) (*ArtifactRecord, error)
@@ -109,7 +117,8 @@ type ProducerRef struct {
 // tmux/PTY-backed agent attempt and its exact exit record; the controller owns
 // durable ordering and never infers completion from terminal text.
 type AttemptDriver interface {
-	Execute(context.Context, AttemptRequest) (AttemptResult, error)
+	Execute(context.Context, AttemptRequest, LaunchRecorder) (AttemptResult, error)
+	Release(context.Context, AttemptState) error
 	Cancel(context.Context, *RunState) ([]byte, error)
 	Takeover(context.Context, AttemptRequest, AttemptState) (AttemptResult, error)
 	Handback(context.Context, AttemptRequest, AttemptState) (AttemptResult, error)
@@ -122,6 +131,7 @@ type ProductionRuntimeOptions struct {
 	Git                *revision.Git
 	Publisher          *publication.Publisher
 	Attempts           AttemptDriver
+	Terminals          *terminal.Manager
 	VerificationRunner verification.Runner
 	Now                func() time.Time
 }
@@ -138,6 +148,9 @@ type ProductionRuntime struct {
 }
 
 func NewProductionRuntime(options ProductionRuntimeOptions) (*ProductionRuntime, error) {
+	if options.Attempts == nil && options.Terminals != nil && options.Git != nil {
+		options.Attempts = NewNativeAttemptDriver(NativeAttemptOptions{Terminals: options.Terminals, Git: options.Git, Now: options.Now})
+	}
 	if options.Git == nil || options.Publisher == nil || options.Attempts == nil {
 		return nil, newError(CodeInvalidState, "the production runtime dependencies are incomplete")
 	}
@@ -188,8 +201,11 @@ func (r *ProductionRuntime) ReadArtifact(ctx context.Context, runRoot string, re
 	return store.ReadPromoted(ctx, record.Path)
 }
 
-func (r *ProductionRuntime) Execute(ctx context.Context, request AttemptRequest) (AttemptResult, error) {
-	return r.attempts.Execute(ctx, request)
+func (r *ProductionRuntime) Execute(ctx context.Context, request AttemptRequest, launched LaunchRecorder) (AttemptResult, error) {
+	return r.attempts.Execute(ctx, request, launched)
+}
+func (r *ProductionRuntime) Release(ctx context.Context, attempt AttemptState) error {
+	return r.attempts.Release(ctx, attempt)
 }
 
 func (r *ProductionRuntime) Verify(ctx context.Context, request VerifyRequest) (verification.Document, ArtifactRecord, error) {

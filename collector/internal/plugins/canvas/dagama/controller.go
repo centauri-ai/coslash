@@ -121,8 +121,6 @@ func (c *Controller) Start(ctx context.Context, request StartRequest) (*RunState
 	if err != nil {
 		return nil, err
 	}
-	unlock := c.lock(request.ProjectID, runID)
-	defer unlock()
 	return c.startLocked(ctx, board, runID, source, request.BaseBranch)
 }
 
@@ -312,30 +310,35 @@ func (c *Controller) writeReport(ctx context.Context, state *RunState, finalStat
 
 func (c *Controller) Retry(ctx context.Context, projectID, runID string, componentID ComponentID) (*RunState, error) {
 	unlock := c.lock(projectID, runID)
-	defer unlock()
 	state, err := c.runs.Read(ctx, projectID, runID)
 	if err != nil {
+		unlock()
 		return nil, err
 	}
 	if isTerminal(state.Status) {
+		unlock()
 		return nil, newError(CodeInvalidState, "a terminal run cannot be retried")
 	}
 	component := state.Components[componentID]
 	if component == nil || component.Status != ComponentFailedStatus || !HasSeat(componentID) {
+		unlock()
 		return nil, newError(CodeInvalidState, "only a failed agent component can be retried")
 	}
 	board, err := c.boardForRun(ctx, state)
 	if err != nil {
+		unlock()
 		return nil, err
 	}
 	source, err := c.sourceForRun(ctx, state)
 	if err != nil {
+		unlock()
 		return nil, err
 	}
 	attempt := 1
 	if component.Attempt != nil {
 		attempt = component.Attempt.Attempt + 1
 	}
+	unlock()
 	state, err = c.runSeat(ctx, board, state, source, componentID, component.Instance, attempt, resumeIdentity(board, state, componentID))
 	if err != nil {
 		return state, err

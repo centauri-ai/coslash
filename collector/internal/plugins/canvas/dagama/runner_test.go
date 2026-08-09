@@ -8,15 +8,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/contracts"
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/publication"
 	"github.com/centauri-ai/coslash/collector/internal/plugins/canvas/revision"
 )
 
 type noopAttemptDriver struct{}
 
-func (noopAttemptDriver) Execute(context.Context, AttemptRequest) (AttemptResult, error) {
+func (noopAttemptDriver) Execute(_ context.Context, request AttemptRequest, launched LaunchRecorder) (AttemptResult, error) {
+	if err := launched(contracts.SessionIdentity{Agent: string(request.Seat.Vendor), ID: "session"}); err != nil {
+		return AttemptResult{}, err
+	}
 	return AttemptResult{}, nil
 }
+func (noopAttemptDriver) Release(context.Context, AttemptState) error       { return nil }
 func (noopAttemptDriver) Cancel(context.Context, *RunState) ([]byte, error) { return nil, nil }
 func (noopAttemptDriver) Takeover(context.Context, AttemptRequest, AttemptState) (AttemptResult, error) {
 	return AttemptResult{}, nil

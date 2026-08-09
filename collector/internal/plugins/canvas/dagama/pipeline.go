@@ -17,19 +17,28 @@ func (c *Controller) runPipeline(ctx context.Context, board *Board, state *RunSt
 		if err != nil {
 			return state, err
 		}
+		if isTerminal(state.Status) || !componentSucceeded(state, ComponentPlan, 1) {
+			return state, nil
+		}
 	}
 	for {
 		var err error
 		if !componentSucceeded(state, ComponentBuild, buildInstance) {
-			state, err = c.runSeat(ctx, board, state, source, ComponentBuild, buildInstance, 1, resumeIdentity(board, state, ComponentBuild))
+			state, err = c.runSeat(ctx, board, state, source, ComponentBuild, buildInstance, buildInstance, resumeIdentity(board, state, ComponentBuild))
 			if err != nil {
 				return state, err
+			}
+			if isTerminal(state.Status) || !componentSucceeded(state, ComponentBuild, buildInstance) {
+				return state, nil
 			}
 		}
 		if !componentSucceeded(state, ComponentVerify, buildInstance) {
 			state, err = c.runVerification(ctx, board, state, buildInstance)
 			if err != nil {
 				return state, err
+			}
+			if isTerminal(state.Status) || !componentSucceeded(state, ComponentVerify, buildInstance) {
+				return state, nil
 			}
 		}
 		verificationDocument, err := c.latestVerification(ctx, state)
@@ -44,9 +53,12 @@ func (c *Controller) runPipeline(ctx context.Context, board *Board, state *RunSt
 			return c.openRepairGate(ctx, state, ComponentVerify, buildInstance, "verification failed after the bounded repair rounds")
 		}
 		if !componentSucceeded(state, ComponentReview, buildInstance) {
-			state, err = c.runSeat(ctx, board, state, source, ComponentReview, buildInstance, 1, nil)
+			state, err = c.runSeat(ctx, board, state, source, ComponentReview, buildInstance, buildInstance, nil)
 			if err != nil {
 				return state, err
+			}
+			if isTerminal(state.Status) || !componentSucceeded(state, ComponentReview, buildInstance) {
+				return state, nil
 			}
 		}
 		review, err := c.latestReview(ctx, state)
@@ -106,23 +118,37 @@ func (c *Controller) runSeat(ctx context.Context, board *Board, state *RunState,
 	if err != nil {
 		return state, err
 	}
-	request := AttemptRequest{ProjectID: state.ProjectID, RunID: state.RunID, RunRoot: state.RunRoot, Component: component, Instance: instance, Attempt: attempt, AttemptID: attemptID, SeatID: seatID, Seat: seat, Prompt: prompt, Resume: resume}
-	result, executeErr := c.runtime.Execute(ctx, request)
+	request := AttemptRequest{ProjectID: state.ProjectID, RunID: state.RunID, RunRoot: state.RunRoot, BaseSha: state.BaseSha, Component: component, Instance: instance, Attempt: attempt, AttemptID: attemptID, SeatID: seatID, Seat: seat, Prompt: prompt, Resume: resume}
+	result, executeErr := c.runtime.Execute(ctx, request, func(session contracts.SessionIdentity) error {
+		if session.ID != "" && session.Agent != string(seat.Vendor) {
+			return fmt.Errorf("the attempt returned a cross-vendor session identity")
+		}
+		var appendErr error
+		state, appendErr = c.runs.Append(ctx, state.ProjectID, state.RunID, &AttemptLaunched{AttemptRef: ref, TmuxName: tmuxName, SessionID: session.ID, Ownership: OwnershipAutomated})
+		if appendErr != nil {
+			return appendErr
+		}
+		if session.ID != "" {
+			state, appendErr = c.runs.Append(ctx, state.ProjectID, state.RunID, &AttemptSessionBound{AttemptRef: ref, SessionID: session.ID})
+		}
+		return appendErr
+	})
+	unlock := c.lock(state.ProjectID, state.RunID)
+	defer unlock()
+	latest, readErr := c.runs.Read(ctx, state.ProjectID, state.RunID)
+	if readErr != nil {
+		return state, readErr
+	}
+	state = latest
+	current := state.Components[component]
+	if isTerminal(state.Status) || current == nil || current.Attempt == nil || current.Attempt.AttemptID != attemptID {
+		return state, nil
+	}
 	if executeErr != nil {
 		return c.finishFailure(ctx, state, component, instance, classifyError(executeErr), executeErr)
 	}
-	state, err = c.runs.Append(ctx, state.ProjectID, state.RunID, &AttemptLaunched{AttemptRef: ref, TmuxName: tmuxName, SessionID: result.Session.ID, Ownership: OwnershipAutomated})
-	if err != nil {
-		return state, err
-	}
-	if result.Session.ID != "" {
-		if result.Session.Agent != string(seat.Vendor) {
-			return c.finishFailure(ctx, state, component, instance, "invalid_output", fmt.Errorf("the attempt returned a cross-vendor session identity"))
-		}
-		state, err = c.runs.Append(ctx, state.ProjectID, state.RunID, &AttemptSessionBound{AttemptRef: ref, SessionID: result.Session.ID})
-		if err != nil {
-			return state, err
-		}
+	if result.Session.ID != "" && result.Session.Agent != string(seat.Vendor) {
+		return c.finishFailure(ctx, state, component, instance, "invalid_output", fmt.Errorf("the attempt returned a cross-vendor session identity"))
 	}
 	finishedAt := result.FinishedAt
 	if finishedAt.IsZero() {
@@ -131,6 +157,9 @@ func (c *Controller) runSeat(ctx context.Context, board *Board, state *RunState,
 	state, err = c.runs.Append(ctx, state.ProjectID, state.RunID, &AttemptExited{AttemptRef: ref, ExitCode: result.ExitCode, FinishedAt: finishedAt})
 	if err != nil {
 		return state, err
+	}
+	if releaseErr := c.runtime.Release(ctx, *state.Components[component].Attempt); releaseErr != nil {
+		return c.finishFailure(ctx, state, component, instance, "cleanup_failed", releaseErr)
 	}
 	return c.finalizeSeatResult(ctx, state, component, instance, attempt, result)
 }
