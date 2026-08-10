@@ -23,6 +23,14 @@ const (
 )
 
 type vendorSource struct {
+	name    string
+	collect func(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error)
+	get     func(id string) (*vendors.ParsedTranscript, error)
+	health  func() SourceHealth
+	fork    func(parsed []*vendors.ParsedTranscript)
+}
+
+type fileSource struct {
 	name     string
 	root     func() (string, error)
 	files    func() ([]string, error)
@@ -35,14 +43,16 @@ type vendorSource struct {
 }
 
 var vendorSources = []vendorSource{
-	{
-		vendors.AgentClaude, claude.Root, claude.Files, claude.Scan, claude.IDFromPath,
-		claude.Parse, claude.LoadMetadata, claude.ApplyForkedUsage, claude.FilesSince,
-	},
-	{
-		vendors.AgentCodex, codex.Root, codex.Files, codex.Scan, codex.SessionIDFromRollout,
-		codex.Parse, codex.LoadMetadata, codex.ApplyForkedUsage, codex.FilesSince,
-	},
+	adaptFileVendor(fileSource{
+		name: vendors.AgentClaude, root: claude.Root, files: claude.Files, scan: claude.Scan,
+		id: claude.IDFromPath, parse: claude.Parse, metadata: claude.LoadMetadata,
+		fork: claude.ApplyForkedUsage, window: claude.FilesSince,
+	}),
+	adaptFileVendor(fileSource{
+		name: vendors.AgentCodex, root: codex.Root, files: codex.Files, scan: codex.Scan,
+		id: codex.SessionIDFromRollout, parse: codex.Parse, metadata: codex.LoadMetadata,
+		fork: codex.ApplyForkedUsage, window: codex.FilesSince,
+	}),
 }
 
 type SourceHealth struct {
@@ -55,13 +65,7 @@ type SourceHealth struct {
 func Sources() []SourceHealth {
 	health := make([]SourceHealth, 0, len(vendorSources))
 	for _, source := range vendorSources {
-		root, rootErr := source.root()
-		if rootErr != nil {
-			health = append(health, SourceHealth{Agent: source.name, ScanErr: rootErr})
-			continue
-		}
-		scan, scanErr := source.scan()
-		health = append(health, SourceHealth{Agent: source.name, Root: root, Scan: scan, ScanErr: scanErr})
+		health = append(health, source.health())
 	}
 	return health
 }
@@ -99,12 +103,14 @@ func applyForkedUsage(parsed []*vendors.ParsedTranscript) {
 	}
 }
 
-func collect(since int64) ([]*vendors.ParsedTranscript, map[string]*vendors.SessionMetadata, error) {
+func collect(
+	since int64,
+) ([]*vendors.ParsedTranscript, map[string]*vendors.SessionMetadata, error) {
 	parsed := []*vendors.ParsedTranscript{}
 	metadata := map[string]*vendors.SessionMetadata{}
 	var failures []error
 	for _, source := range vendorSources {
-		vendorParsed, vendorMetadata, err := collectAndParseVendor(source, since)
+		vendorParsed, vendorMetadata, err := source.collect(since)
 		if err != nil {
 			log.Printf("%s session collection failed: %v; serving other vendors", source.name, err)
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
@@ -286,8 +292,8 @@ func deref(value *string) string {
 	return *value
 }
 
-// Get returns one session by id: a directory walk, one file parse, and its
-// probes. No fork pass, no subagents, no name/status resolution — synthesis (BuildInput,
+// Get returns one session by id using the vendor's native lookup and its probes.
+// No fork pass, no subagents, no name/status resolution — synthesis (BuildInput,
 // Eligible) and launch read none of those. Sessions in the synthesis cwd stay
 // invisible, as in the list. Returns nil when the id is unknown.
 func Get(id string) (*session.Session, error) {
@@ -296,24 +302,13 @@ func Get(id string) (*session.Session, error) {
 	}
 	var p *vendors.ParsedTranscript
 	for _, source := range vendorSources {
-		files, err := source.files()
-		if err != nil {
+		var err error
+		if p, err = source.get(id); err != nil {
 			return nil, err
 		}
-		path := ""
-		for _, file := range files {
-			if source.id(file) == id {
-				path = file
-				break
-			}
+		if p != nil {
+			break
 		}
-		if path == "" {
-			continue
-		}
-		if p, err = source.parse(path); err != nil {
-			return nil, err
-		}
-		break
 	}
 	if p == nil {
 		return nil, nil

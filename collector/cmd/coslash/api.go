@@ -55,7 +55,7 @@ func parseSince(value string) (int64, error) {
 }
 
 // /api/synthesis?id=X → cached synthesis for one session, triggering a run
-// when eligible. Parses one file, never the whole machine — Get skips fork,
+// when eligible. Loads one session, never the whole machine — Get skips fork,
 // subagents, and name/status resolution because BuildInput and Eligible read
 // none of those.
 func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
