@@ -33,11 +33,7 @@ func handleList(w http.ResponseWriter, r *http.Request, mgr *synthesis.Manager) 
 		return
 	}
 	for _, session := range sessions {
-		mtime, err := synthesis.TranscriptMtime(session.LogPath)
-		if err != nil || mtime <= 0 {
-			continue
-		}
-		session.Synthesis = mgr.Lookup(session.ID, mtime)
+		session.Synthesis = mgr.Lookup(session.ID, session.LastActivityTime)
 	}
 	writeJSON(w, sessions)
 	log.Printf("list sessions: %d", len(sessions))
@@ -74,14 +70,14 @@ func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
 		SynthesisPending bool                      `json:"synthesisPending"`
 		SynthesisError   string                    `json:"synthesisError,omitempty"`
 	}{}
-	mtime, err := synthesis.TranscriptMtime(found.LogPath)
-	if err == nil && mtime > 0 {
-		response.Synthesis = mgr.Lookup(found.ID, mtime)
-		mgr.Ensure(found, mtime)
+	revision := found.LastActivityTime
+	if revision > 0 {
+		response.Synthesis = mgr.Lookup(found.ID, revision)
+		mgr.Ensure(found, revision)
 		response.SynthesisPending = response.Synthesis == nil && synthesis.Eligible(found) &&
-			!mgr.InCooldown(found.ID, mtime)
+			!mgr.InCooldown(found.ID, revision)
 		if response.Synthesis == nil {
-			response.SynthesisError = mgr.Failure(found.ID, mtime)
+			response.SynthesisError = mgr.Failure(found.ID, revision)
 		}
 	}
 	writeJSON(w, response)

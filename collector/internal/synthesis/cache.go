@@ -12,7 +12,7 @@ import (
 
 type Record struct {
 	SessionID   string                   `json:"sessionId"`
-	Mtime       int64                    `json:"mtime"`
+	Revision    int64                    `json:"mtime"`
 	Model       string                   `json:"model"`
 	GeneratedAt int64                    `json:"generatedAt"`
 	Synthesis   session.SessionSynthesis `json:"synthesis"`
@@ -75,12 +75,12 @@ func (c *Cache) Store(id string, record Record) error {
 	return nil
 }
 
-func (c *Cache) Lookup(id string, mtime int64) *session.SessionSynthesis {
-	if mtime <= 0 {
+func (c *Cache) Lookup(id string, revision int64) *session.SessionSynthesis {
+	if revision <= 0 {
 		return nil
 	}
 	record, err := c.Load(id)
-	if err != nil || record.Mtime != mtime {
+	if err != nil || record.Revision != revision {
 		return nil
 	}
 	synthesis := record.Synthesis
