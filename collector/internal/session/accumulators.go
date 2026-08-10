@@ -29,6 +29,11 @@ func (log *DigestLog) Push(turn int, category, description string) {
 	})
 }
 
+func (log *DigestLog) PushQuestion(turn int, description, answer string) {
+	log.Push(turn, DigestQuestion, description)
+	log.entries[len(log.entries)-1].Answer = Truncate(answer, TruncateTextLimit)
+}
+
 func (log *DigestLog) PushSubagent(turn int, spawnKey string) {
 	log.entries = append(log.entries, DigestEntry{
 		Turn:     max(turn, 1),

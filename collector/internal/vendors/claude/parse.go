@@ -331,14 +331,10 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 			}
 			if result != nil && result.Answers != nil {
 				for _, question := range result.Questions {
-					description := question.Question
-					if answer := result.Answers[question.Question].String(); answer != "" {
-						description = question.Question + " ↳ " + answer
-					}
-					analysis.digest.Push(
+					analysis.digest.PushQuestion(
 						analysis.userPromptCount,
-						session.DigestQuestion,
-						description,
+						question.Question,
+						result.Answers[question.Question].String(),
 					)
 				}
 			}

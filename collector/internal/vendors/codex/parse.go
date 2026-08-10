@@ -243,11 +243,8 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				}
 				if questions := questionsFrom(row.Payload); len(questions) > 0 {
 					for _, question := range questions {
-						description := question.text
-						if answers := questionAnswers[row.Payload.CallID][question.id].Answers; len(answers) > 0 {
-							description += " ↳ " + strings.Join(answers, ", ")
-						}
-						analysis.digest.Push(analysis.prompts, session.DigestQuestion, description)
+						answer := strings.Join(questionAnswers[row.Payload.CallID][question.id].Answers, ", ")
+						analysis.digest.PushQuestion(analysis.prompts, question.text, answer)
 					}
 				}
 				analysis.notePlan(row.Payload)
