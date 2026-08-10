@@ -68,6 +68,7 @@ type DigestEntry struct {
 	Turn        int    `json:"turn"`
 	Category    string `json:"category"`
 	Description string `json:"description"`
+	Answer      string `json:"answer,omitempty"`
 	SubagentID  string `json:"subagentId,omitempty"`
 	SpawnKey    string `json:"-"`
 }

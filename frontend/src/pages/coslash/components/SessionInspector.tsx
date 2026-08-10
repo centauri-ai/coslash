@@ -494,16 +494,13 @@ function DigestRow({ entry }: { entry: DigestEntry }) {
   const [expanded, setExpanded] = useState(false);
   const meta = DIGEST_CATEGORIES[entry.category];
   const collapsible = entry.category === 'recap' && entry.description.length > 120;
-  const answerSeparator = entry.category === 'question' ? entry.description.indexOf(' ↳ ') : -1;
-  const description = answerSeparator < 0 ? entry.description : entry.description.slice(0, answerSeparator);
-  const answer = answerSeparator < 0 ? null : entry.description.slice(answerSeparator + ' ↳ '.length);
 
   return (
     <div className="flex items-baseline gap-2 border-b border-neutral-100 py-1">
       <span className={cn('w-24 shrink-0 text-xs font-bold tracking-wide', meta.fg)}>{meta.label}</span>
       <div className="min-w-0 flex-1">
-        <div className={cn('text-xs', { 'line-clamp-1': collapsible && !expanded })}>{description}</div>
-        {answer != null && <div className="text-xs">↳ {answer}</div>}
+        <div className={cn('text-xs', { 'line-clamp-1': collapsible && !expanded })}>{entry.description}</div>
+        {entry.answer != null && <div className="text-xs">↳ {entry.answer}</div>}
         {collapsible && (
           <div
             className="text-brand flex cursor-pointer items-center gap-1 pt-1 text-xs"

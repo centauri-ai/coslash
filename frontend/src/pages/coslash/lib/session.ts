@@ -76,6 +76,7 @@ export type DigestEntry = {
   turn: number;
   category: 'first_prompt' | 'user' | 'question' | 'todos' | 'compaction' | 'recap' | 'subagent';
   description: string;
+  answer?: string;
   subagentId?: string;
 };
 
