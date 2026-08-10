@@ -2,11 +2,10 @@ package vendors
 
 import "github.com/centauri-ai/coslash/collector/internal/session"
 
-// ParsedTranscript is everything Parse extracts from one transcript file:
-// the servable Session plus the cross-file facts no single file can resolve.
-// Parse may read the file and its own sidecar, nothing else — no cross-file
-// reads, no git, no liveness probes. Parse writes every field; later stages
-// only read them, writing their results into Session.
+// ParsedTranscript is everything a vendor extracts for one session: the
+// servable Session plus facts that later collection stages resolve. Vendor
+// extraction does no git or liveness probes and writes every field; later
+// stages only read them, writing their results into Session.
 type ParsedTranscript struct {
 	Session *session.Session
 

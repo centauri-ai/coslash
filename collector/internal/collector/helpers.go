@@ -12,8 +12,38 @@ import (
 
 const maxParseWorkers = 8
 
-func collectAndParseVendor(
-	source vendorSource,
+func adaptFileVendor(source fileSource) vendorSource {
+	return vendorSource{
+		name: source.name,
+		collect: func(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error) {
+			return collectAndParseFiles(source, since)
+		},
+		get: func(id string) (*vendors.ParsedTranscript, error) {
+			files, err := source.files()
+			if err != nil {
+				return nil, err
+			}
+			for _, file := range files {
+				if source.id(file) == id {
+					return source.parse(file)
+				}
+			}
+			return nil, nil
+		},
+		health: func() SourceHealth {
+			root, err := source.root()
+			if err != nil {
+				return SourceHealth{Agent: source.name, ScanErr: err}
+			}
+			scan, err := source.scan()
+			return SourceHealth{Agent: source.name, Root: root, Scan: scan, ScanErr: err}
+		},
+		fork: source.fork,
+	}
+}
+
+func collectAndParseFiles(
+	source fileSource,
 	since int64,
 ) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error) {
 	files, err := source.files()
