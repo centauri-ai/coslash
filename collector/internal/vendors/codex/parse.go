@@ -241,10 +241,10 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 						analysis.pullRequests++
 					}
 				}
-				if questions, ok := questionsFrom(row.Payload); ok {
+				if questions := questionsFrom(row.Payload); len(questions) > 0 {
 					for _, question := range questions {
 						description := question.text
-						if answers := questionAnswers[row.Payload.CallID][question.id]; len(answers) > 0 {
+						if answers := questionAnswers[row.Payload.CallID][question.id].Answers; len(answers) > 0 {
 							description += " ↳ " + strings.Join(answers, ", ")
 						}
 						analysis.digest.Push(analysis.prompts, session.DigestQuestion, description)
@@ -479,15 +479,15 @@ func unifiedDiffStat(diff string) (additions, deletions int) {
 var execCmdPattern = regexp.MustCompile(
 	`(?:^|[{,]\s*)(?:"cmd"|cmd)\s*:\s*("(?:[^"\\]|\\.)*")`,
 )
+var requestUserInputCallPattern = regexp.MustCompile(`\brequest_user_input\s*\(`)
+var questionIDPattern = regexp.MustCompile(`"id"\s*:\s*("(?:[^"\\]|\\.)*")`)
+var questionPattern = regexp.MustCompile(`"question"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var planStepPattern = regexp.MustCompile(
 	`"?step"?\s*:\s*("(?:[^"\\]|\\.)*")\s*,\s*"?status"?\s*:\s*"(\w+)"`,
 )
 
 func (analysis *codexSessionAnalysis) notePlan(payload codexPayload) {
-	text := payload.Input
-	if text == "" {
-		text = string(payload.Arguments)
-	}
+	text := payloadText(payload)
 	if payload.Name != "update_plan" && !strings.Contains(text, "update_plan") {
 		return
 	}
@@ -519,13 +519,10 @@ type codexQuestion struct {
 	text string
 }
 
-func questionsFrom(payload codexPayload) ([]codexQuestion, bool) {
-	if payload.Name != "request_user_input" {
-		return nil, false
-	}
-	text := string(payload.Arguments)
-	if text == "" {
-		text = payload.Input
+func questionsFrom(payload codexPayload) []codexQuestion {
+	text := payloadText(payload)
+	if payload.Name != "request_user_input" && !requestUserInputCallPattern.MatchString(text) {
+		return nil
 	}
 	var arguments struct {
 		Questions []struct {
@@ -533,24 +530,51 @@ func questionsFrom(payload codexPayload) ([]codexQuestion, bool) {
 			Question string `json:"question"`
 		} `json:"questions"`
 	}
-	if err := json.Unmarshal([]byte(text), &arguments); err != nil || len(arguments.Questions) == 0 {
-		return []codexQuestion{{text: "requested user input"}}, true
+	if err := json.Unmarshal([]byte(text), &arguments); err == nil && len(arguments.Questions) > 0 {
+		questions := make([]codexQuestion, 0, len(arguments.Questions))
+		for _, item := range arguments.Questions {
+			question := item.Question
+			if strings.TrimSpace(question) == "" {
+				question = "requested user input"
+			}
+			questions = append(questions, codexQuestion{id: item.ID, text: question})
+		}
+		return questions
 	}
-	questions := make([]codexQuestion, 0, len(arguments.Questions))
-	for _, item := range arguments.Questions {
-		question := item.Question
+
+	ids := questionIDPattern.FindAllStringSubmatch(text, -1)
+	questionMatches := questionPattern.FindAllStringSubmatch(text, -1)
+	questions := make([]codexQuestion, 0, len(questionMatches))
+	for i, match := range questionMatches {
+		var question string
+		if json.Unmarshal([]byte(match[1]), &question) != nil {
+			continue
+		}
 		if strings.TrimSpace(question) == "" {
 			question = "requested user input"
 		}
-		questions = append(questions, codexQuestion{id: item.ID, text: question})
+		id := ""
+		if i < len(ids) {
+			_ = json.Unmarshal([]byte(ids[i][1]), &id)
+		}
+		questions = append(questions, codexQuestion{id: id, text: question})
 	}
-	return questions, true
+	if len(questions) == 0 {
+		return []codexQuestion{{text: "requested user input"}}
+	}
+	return questions
 }
 
-func questionAnswersByCall(rows []codexRow) map[string]map[string][]string {
-	answersByCall := make(map[string]map[string][]string)
+type codexQuestionAnswer struct {
+	Answers []string `json:"answers"`
+}
+
+func questionAnswersByCall(rows []codexRow) map[string]map[string]codexQuestionAnswer {
+	answersByCall := make(map[string]map[string]codexQuestionAnswer)
 	for _, row := range rows {
-		if row.Type != "response_item" || row.Payload.Type != "function_call_output" || row.Payload.CallID == "" {
+		if row.Type != "response_item" ||
+			(row.Payload.Type != "function_call_output" && row.Payload.Type != "custom_tool_call_output") ||
+			row.Payload.CallID == "" {
 			continue
 		}
 		if answers, ok := questionAnswersFrom(row.Payload.Output); ok {
@@ -560,32 +584,29 @@ func questionAnswersByCall(rows []codexRow) map[string]map[string][]string {
 	return answersByCall
 }
 
-func questionAnswersFrom(output json.RawMessage) (map[string][]string, bool) {
-	body := string(output)
+func questionAnswersFrom(output json.RawMessage) (map[string]codexQuestionAnswer, bool) {
 	var encoded string
-	if err := json.Unmarshal(output, &encoded); err == nil {
-		body = encoded
-	}
-	var result struct {
-		Answers map[string]struct {
-			Answers []string `json:"answers"`
-		} `json:"answers"`
-	}
-	if err := json.Unmarshal([]byte(body), &result); err != nil || result.Answers == nil {
+	if err := json.Unmarshal(output, &encoded); err != nil {
 		return nil, false
 	}
-	answers := make(map[string][]string, len(result.Answers))
-	for id, answer := range result.Answers {
-		answers[id] = answer.Answers
+	var result struct {
+		Answers map[string]codexQuestionAnswer `json:"answers"`
 	}
-	return answers, true
+	if err := json.Unmarshal([]byte(encoded), &result); err != nil || result.Answers == nil {
+		return nil, false
+	}
+	return result.Answers, true
+}
+
+func payloadText(payload codexPayload) string {
+	if payload.Input != "" {
+		return payload.Input
+	}
+	return string(payload.Arguments)
 }
 
 func commandFrom(payload codexPayload) (string, bool) {
-	text := payload.Input
-	if text == "" {
-		text = string(payload.Arguments)
-	}
+	text := payloadText(payload)
 	m := execCmdPattern.FindStringSubmatch(text)
 	if m == nil {
 		return "", false
