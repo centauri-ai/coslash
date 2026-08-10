@@ -243,6 +243,7 @@ func ValidateChecks(checks []Check, policy Policy) error {
 	}
 	allowed := policy.allowed()
 	seen := make(map[string]bool, len(checks))
+	seenLogs := make(map[string]bool, len(checks))
 	for index, check := range checks {
 		if !checkNamePattern.MatchString(check.Name) {
 			return newError(CodePolicyViolation, fmt.Sprintf("check [%d] has an invalid name", index))
@@ -252,6 +253,12 @@ func ValidateChecks(checks []Check, policy Policy) error {
 			return newError(CodePolicyViolation, fmt.Sprintf("check [%d] repeats a check name", index))
 		}
 		seen[check.Name] = true
+		logName := strings.ToLower(logFileName(check.Name))
+		if seenLogs[logName] {
+			return newError(CodePolicyViolation,
+				fmt.Sprintf("check [%d] collides with another verification log name", index))
+		}
+		seenLogs[logName] = true
 		if len(check.Argv) == 0 {
 			return newError(CodePolicyViolation, fmt.Sprintf("check [%d] has an empty argv", index))
 		}

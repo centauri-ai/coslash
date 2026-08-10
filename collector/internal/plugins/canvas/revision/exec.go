@@ -72,21 +72,28 @@ var environmentAllowlist = []string{
 // controller measures, and evidence capture has to be reproducible. LC_ALL
 // fixes git's own message locale so parsing stays stable.
 func hardenedEnvironment(extra []string) []string {
-	environment := make([]string, 0, len(environmentAllowlist)+len(extra)+6)
+	environment := make([]string, 0, len(environmentAllowlist)+len(extra)+12)
 	for _, name := range environmentAllowlist {
 		if value, ok := os.LookupEnv(name); ok {
 			environment = append(environment, name+"="+value)
 		}
 	}
+	environment = append(environment, extra...)
 	environment = append(environment,
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_ASKPASS=",
+		"GIT_SSH_COMMAND=ssh",
+		"GIT_PAGER=cat",
+		"PAGER=cat",
+		"GIT_EDITOR=true",
+		"GIT_SEQUENCE_EDITOR=true",
 		"LC_ALL=C",
 		"LANG=C",
 	)
-	return append(environment, extra...)
+	return environment
 }
 
 // ExecRunner runs the real git binary with an explicit argv and no shell.
@@ -226,10 +233,17 @@ func NewGit(runner Runner, hooksDirectory string) (*Git, error) {
 func (g *Git) HooksDirectory() string { return g.hooksDirectory }
 
 func (g *Git) hardenedArgs(args []string) []string {
-	hardened := make([]string, 0, len(args)+8)
+	hardened := make([]string, 0, len(args)+22)
 	hardened = append(hardened,
 		"-c", "core.hooksPath="+g.hooksDirectory,
 		"-c", "core.attributesFile=/dev/null",
+		"-c", "core.sshCommand=ssh",
+		"-c", "core.fsmonitor=false",
+		"-c", "core.gitProxy=",
+		"-c", "credential.helper=",
+		"-c", "http.proxy=",
+		"-c", "commit.gpgSign=false",
+		"-c", "tag.gpgSign=false",
 		"-c", "push.default=nothing",
 		"-c", "protocol.ext.allow=never",
 	)
@@ -239,8 +253,118 @@ func (g *Git) hardenedArgs(args []string) []string {
 // Run executes a hardened git command and returns its raw result, including
 // non-zero exits.
 func (g *Git) Run(ctx context.Context, command Command) (Result, error) {
+	if err := g.rejectUnsafeLocalConfig(ctx, command); err != nil {
+		return Result{}, err
+	}
 	command.Args = g.hardenedArgs(command.Args)
 	return g.runner.Run(ctx, command)
+}
+
+// rejectUnsafeLocalConfig refuses repository-local configuration that can
+// execute a process, redirect a remote, inject credentials, or retarget the
+// worktree. A run root is agent-writable, including .git/config, so disabling
+// only global/system config and overriding a handful of scalar keys is not
+// enough: filter names and url.* rewrites are dynamic configuration keys.
+//
+// The inspection itself invokes only `git config --includes --show-scope
+// --list`, then examines local and worktree scopes. It runs through the
+// underlying argv-only runner with the same fixed command-line hardening, and
+// therefore cannot recurse through Git.Run.
+func (g *Git) rejectUnsafeLocalConfig(ctx context.Context, command Command) error {
+	repository := commandRepository(command)
+	if repository == "" {
+		return nil
+	}
+	if _, err := os.Lstat(filepath.Join(repository, ".git")); err != nil {
+		return nil
+	}
+
+	inspect := Command{
+		Args: g.hardenedArgs([]string{
+			"-C", repository, "config", "--includes", "--show-scope", "--null", "--list",
+		}),
+		Env:            command.Env,
+		MaxOutputBytes: 1 << 20,
+		Timeout:        command.Timeout,
+	}
+	result, err := g.runner.Run(ctx, inspect)
+	if err != nil {
+		return newError(CodeGitFailed, "repository-local git configuration could not be inspected").
+			withCause(err)
+	}
+	if result.ExitCode != 0 || result.Truncated {
+		return newError(CodeGitFailed, "repository-local git configuration could not be inspected")
+	}
+	records := bytes.Split(result.Stdout, []byte{0})
+	for index := 0; index+1 < len(records); index += 2 {
+		scope := string(records[index])
+		if scope != "local" && scope != "worktree" {
+			continue
+		}
+		record := records[index+1]
+		key, value, _ := strings.Cut(string(record), "\n")
+		if unsafeLocalConfig(strings.ToLower(key), strings.ToLower(value)) {
+			return newError(CodeGitFailed, "repository-local git configuration is unsafe").
+				withDetail(key)
+		}
+	}
+	return nil
+}
+
+func commandRepository(command Command) string {
+	repository := command.Dir
+	for index := 0; index+1 < len(command.Args); index++ {
+		if command.Args[index] == "-C" {
+			repository = command.Args[index+1]
+			index++
+		}
+	}
+	if repository == "" || !filepath.IsAbs(repository) {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		return ""
+	}
+	return resolved
+}
+
+func unsafeLocalConfig(key, value string) bool {
+	if key == "core.bare" && value != "false" {
+		return true
+	}
+	if strings.HasPrefix(key, "filter.") ||
+		strings.HasPrefix(key, "credential.") ||
+		strings.HasPrefix(key, "url.") ||
+		strings.HasPrefix(key, "http.") ||
+		strings.HasPrefix(key, "include.") ||
+		strings.HasPrefix(key, "includeif.") ||
+		strings.HasPrefix(key, "protocol.") ||
+		strings.HasPrefix(key, "pager.") ||
+		strings.HasPrefix(key, "gpg.") {
+		return true
+	}
+	if strings.HasPrefix(key, "diff.") &&
+		(strings.HasSuffix(key, ".command") || strings.HasSuffix(key, ".textconv")) {
+		return true
+	}
+	if strings.HasPrefix(key, "remote.") &&
+		(strings.HasSuffix(key, ".proxy") || strings.HasSuffix(key, ".receivepack") ||
+			strings.HasSuffix(key, ".uploadpack")) {
+		return true
+	}
+	if strings.HasPrefix(key, "submodule.") && strings.HasSuffix(key, ".update") {
+		return true
+	}
+	switch key {
+	case "core.askpass", "core.attributesfile", "core.editor", "core.fsmonitor",
+		"core.gitproxy", "core.hookspath", "core.pager", "core.sshcommand",
+		"core.worktree", "commit.gpgsign", "diff.external", "interactive.difffilter",
+		"sequence.editor", "tag.gpgsign", "user.signingkey":
+		return true
+	default:
+		return false
+	}
 }
 
 // Output runs a command that must succeed and returns its trimmed stdout.

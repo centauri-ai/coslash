@@ -116,6 +116,49 @@ func TestBoardSaveRejectsAStaleRevisionWithoutDamagingTheStoredBoard(t *testing.
 	}
 }
 
+func TestConcurrentBoardSavesElectOneRevisionWinner(t *testing.T) {
+	store, _ := newBoardStore(t)
+	board := validBoard()
+	if _, err := store.Save(t.Context(), board, 0); err != nil {
+		t.Fatalf("create board: %v", err)
+	}
+
+	const writers = 16
+	results := make([]error, writers)
+	var group sync.WaitGroup
+	for index := range writers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			candidate := validBoard()
+			candidate.Name = fmt.Sprintf("writer-%d", index)
+			_, results[index] = store.Save(context.Background(), candidate, 1)
+		}()
+	}
+	group.Wait()
+
+	accepted := 0
+	for _, err := range results {
+		if err == nil {
+			accepted++
+			continue
+		}
+		if got := codeOf(t, err); got != CodeRevisionConflict {
+			t.Fatalf("losing writer code = %q, want %q", got, CodeRevisionConflict)
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("%d concurrent writers succeeded, want exactly 1", accepted)
+	}
+	loaded, err := store.Load(t.Context(), "project-1", "board-1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Revision != 2 {
+		t.Fatalf("Revision = %d, want 2", loaded.Revision)
+	}
+}
+
 func TestBoardCreateRefusesANonZeroExpectedRevision(t *testing.T) {
 	store, _ := newBoardStore(t)
 	board := validBoard()
@@ -332,6 +375,43 @@ func TestRunReadRepairsAStaleView(t *testing.T) {
 	}
 }
 
+func TestRunReadRepairsSameSequenceCorruptView(t *testing.T) {
+	store, root := newRunStore(t)
+	runID := seedRun(t, store)
+	viewPath := filepath.Join(root, "project-1", "runs", runID, runViewName)
+	contents, err := os.ReadFile(viewPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var corrupted RunState
+	if err := json.Unmarshal(contents, &corrupted); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	corrupted.Title = "tampered title"
+	encoded, err := json.Marshal(&corrupted)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if err := os.WriteFile(viewPath, encoded, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	state, err := store.Read(t.Context(), "project-1", runID)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if state.LastSeq != corrupted.LastSeq || state.Title != "Ship it" {
+		t.Fatalf("same-sequence corrupt view was trusted: %+v", state)
+	}
+	repaired, err := os.ReadFile(viewPath)
+	if err != nil {
+		t.Fatalf("ReadFile repaired view: %v", err)
+	}
+	if strings.Contains(string(repaired), "tampered title") {
+		t.Fatal("the corrupt materialized view was not rewritten")
+	}
+}
+
 func TestRunReadRecoversFromATornTail(t *testing.T) {
 	store, root := newRunStore(t)
 	runID := seedRun(t, store)
@@ -384,6 +464,10 @@ func TestRunAppendRejectsUndefinedTransitions(t *testing.T) {
 			invalid: &ComponentStarted{ComponentInstance: componentRef(ComponentPlan, 1)},
 		},
 		{
+			name:    "ready for unknown component",
+			invalid: &ComponentReady{ComponentInstance: componentRef(ComponentID("unknown"), 1)},
+		},
+		{
 			name:    "succeeded before running",
 			invalid: &ComponentSucceeded{ComponentInstance: componentRef(ComponentPlan, 1)},
 		},
@@ -401,6 +485,13 @@ func TestRunAppendRejectsUndefinedTransitions(t *testing.T) {
 		{
 			name:    "gate decided with no open gate",
 			invalid: &GateDecided{ComponentInstance: componentRef(ComponentPublish, 1), Decision: GateApproved},
+		},
+		{
+			name: "second gate opened while one is pending",
+			prepare: []Payload{
+				&GateOpened{ComponentInstance: componentRef(ComponentPublish, 1), Reason: "approval"},
+			},
+			invalid: &GateOpened{ComponentInstance: componentRef(ComponentVerify, 1), Reason: "repair_exhausted"},
 		},
 		{
 			name: "gate decided twice",
@@ -436,6 +527,10 @@ func TestRunAppendRejectsUndefinedTransitions(t *testing.T) {
 			name:    "events after the run finished",
 			prepare: []Payload{&RunFinished{Status: RunCanceled, Reason: "user", Message: "stopped"}},
 			invalid: &ComponentReady{ComponentInstance: componentRef(ComponentPlan, 1)},
+		},
+		{
+			name:    "run finished with nonterminal status",
+			invalid: &RunFinished{Status: RunRunning},
 		},
 		{
 			name: "artifact outside the blob store",

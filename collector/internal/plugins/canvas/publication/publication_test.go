@@ -33,10 +33,14 @@ type fakeGit struct {
 	mutex sync.Mutex
 	calls [][]string
 
-	treeOID    string
-	remoteHead string
-	treePaths  []string
-	headLog    string
+	treeOID              string
+	stagedTreeOID        string
+	remoteHead           string
+	treePaths            []string
+	headLog              string
+	currentBranch        string
+	branchAfterPreflight string
+	symbolicRefCalls     int
 	// stagedDirty controls `diff --cached --quiet`: a non-zero exit means
 	// something is staged.
 	stagedDirty bool
@@ -45,11 +49,13 @@ type fakeGit struct {
 
 func newFakeGit() *fakeGit {
 	return &fakeGit{
-		treeOID:     treeOID,
-		remoteHead:  baseSha,
-		treePaths:   []string{"src/main.go", "README.md"},
-		stagedDirty: true,
-		failures:    map[string]revision.Result{},
+		treeOID:       treeOID,
+		stagedTreeOID: treeOID,
+		remoteHead:    baseSha,
+		treePaths:     []string{"src/main.go", "README.md"},
+		currentBranch: runBranch,
+		stagedDirty:   true,
+		failures:      map[string]revision.Result{},
 	}
 }
 
@@ -83,7 +89,22 @@ func (g *fakeGit) Run(_ context.Context, command revision.Command) (revision.Res
 	case "read-tree", "add", "update-ref", "commit":
 		return revision.Result{}, nil
 	case "write-tree":
-		return revision.Result{Stdout: []byte(g.treeOID + "\n")}, nil
+		for _, value := range command.Env {
+			if strings.HasPrefix(value, "GIT_INDEX_FILE=") {
+				return revision.Result{Stdout: []byte(g.treeOID + "\n")}, nil
+			}
+		}
+		return revision.Result{Stdout: []byte(g.stagedTreeOID + "\n")}, nil
+	case "symbolic-ref":
+		g.symbolicRefCalls++
+		branch := g.currentBranch
+		if g.symbolicRefCalls > 1 && g.branchAfterPreflight != "" {
+			branch = g.branchAfterPreflight
+		}
+		if branch == "" {
+			return revision.Result{ExitCode: 1}, nil
+		}
+		return revision.Result{Stdout: []byte(branch + "\n")}, nil
 	case "rev-parse":
 		return revision.Result{Stdout: []byte(commitSha + "\n")}, nil
 	case "log":
@@ -362,6 +383,16 @@ func TestPreflightGates(t *testing.T) {
 			mutate:  func(_ *fakeGit, r *Request) { r.RemoteURL = "ext::sh -c 'curl evil'" },
 			failing: ItemRemoteSafe,
 		},
+		{
+			name:    "non github remote",
+			mutate:  func(_ *fakeGit, r *Request) { r.RemoteURL = "https://gitlab.com/owner/repo.git" },
+			failing: ItemRemoteSafe,
+		},
+		{
+			name:    "another branch is checked out",
+			mutate:  func(g *fakeGit, _ *Request) { g.currentBranch = "other/branch" },
+			failing: ItemRunBranch,
+		},
 	}
 
 	for _, test := range tests {
@@ -552,6 +583,52 @@ func TestExecuteStopsAtAFailedPreflight(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), ItemRevisionCurrent) {
 		t.Fatalf("the message does not name the failing gate: %q", err.Error())
+	}
+}
+
+func TestExecuteRejectsTreeChangedAfterPreflight(t *testing.T) {
+	git := newFakeGit()
+	git.stagedTreeOID = strings.Repeat("9", 40)
+	publisher := newPublisher(t, git, newFakeGitHub())
+
+	_, err := publisher.Execute(t.Context(), newRequest(t), "Add the thing", "body")
+	if got := codeOf(t, err); got != CodePreflightFailed {
+		t.Fatalf("code = %q, want %q", got, CodePreflightFailed)
+	}
+	if git.called("commit") != 0 || git.called("push") != 0 {
+		t.Fatal("an unapproved staged tree was committed or pushed")
+	}
+}
+
+func TestExecuteRejectsBranchChangedAfterPreflight(t *testing.T) {
+	git := newFakeGit()
+	git.branchAfterPreflight = "other/branch"
+	publisher := newPublisher(t, git, newFakeGitHub())
+
+	_, err := publisher.Execute(t.Context(), newRequest(t), "Add the thing", "body")
+	if got := codeOf(t, err); got != CodePreflightFailed {
+		t.Fatalf("code = %q, want %q", got, CodePreflightFailed)
+	}
+	if git.called("add") != 1 { // Preflight's scratch-index capture only.
+		t.Fatalf("git add ran %d times, want only the read-only preflight capture", git.called("add"))
+	}
+	if git.called("commit") != 0 || git.called("push") != 0 {
+		t.Fatal("a changed checkout branch was committed or pushed")
+	}
+}
+
+func TestExecuteRejectsNonGitHubRemoteBeforeSideEffects(t *testing.T) {
+	git := newFakeGit()
+	publisher := newPublisher(t, git, newFakeGitHub())
+	request := newRequest(t)
+	request.RemoteURL = "https://gitlab.com/owner/repo.git"
+
+	_, err := publisher.Execute(t.Context(), request, "Add the thing", "body")
+	if got := codeOf(t, err); got != CodeNoGitHub {
+		t.Fatalf("code = %q, want %q", got, CodeNoGitHub)
+	}
+	if git.called("add") != 0 || git.called("commit") != 0 || git.called("push") != 0 {
+		t.Fatal("a non-GitHub publication changed local or remote state")
 	}
 }
 

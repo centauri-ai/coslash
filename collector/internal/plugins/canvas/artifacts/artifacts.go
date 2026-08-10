@@ -356,6 +356,9 @@ func JSONObjectValidator(contents []byte) error {
 	if err := json.Unmarshal(contents, &document); err != nil {
 		return fmt.Errorf("artifact is not a JSON object: %w", err)
 	}
+	if document == nil {
+		return fmt.Errorf("artifact is not a JSON object")
+	}
 	return nil
 }
 

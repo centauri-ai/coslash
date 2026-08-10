@@ -143,6 +143,7 @@ export function createWorkspaceClient<State>(options: WorkspaceClientOptions): W
 
   let generation = 0;
   let savedGeneration = 0;
+  let revisionEpoch = 0;
   let timer: unknown = null;
   let running: Promise<void> | null = null;
   let disposed = false;
@@ -199,6 +200,7 @@ export function createWorkspaceClient<State>(options: WorkspaceClientOptions): W
         const document = await saveWorkspace<State>(session, write, fetchImpl);
         if (disposed) return;
         revision = document.revision;
+        revisionEpoch += 1;
         // Only the generation that was actually sent becomes clean. A newer
         // edit made while this request was in flight stays dirty and loops.
         savedGeneration = generationInFlight;
@@ -232,11 +234,20 @@ export function createWorkspaceClient<State>(options: WorkspaceClientOptions): W
   async function fetchDocument(discardLocalEdits: boolean): Promise<void> {
     if (disposed) return;
     const generationAtStart = generation;
+    const revisionEpochAtStart = revisionEpoch;
     status = 'loading';
     publish();
     try {
       const document = await loadWorkspace<State>(session, fetchImpl);
       if (disposed) return;
+      if (revisionEpoch !== revisionEpochAtStart) {
+        // A save that began after this GET has already established newer
+        // server metadata. The stale load may mark the client initialized, but
+        // must not roll revision, state, cleanliness, or status backward.
+        loaded = true;
+        publish();
+        return;
+      }
       revision = document.revision;
       loaded = true;
       error = null;
@@ -287,6 +298,7 @@ export function createWorkspaceClient<State>(options: WorkspaceClientOptions): W
         if (error != null) return;
       } else {
         revision = error.actualRevision;
+        revisionEpoch += 1;
       }
       error = null;
       status = 'idle';

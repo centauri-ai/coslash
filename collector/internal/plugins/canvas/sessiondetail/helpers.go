@@ -206,7 +206,14 @@ func decodeObject(raw json.RawMessage) (map[string]any, error) {
 	if err := decoder.Decode(&object); err != nil {
 		return nil, err
 	}
-	return normalizeNumbers(object).(map[string]any), nil
+	if object == nil {
+		return nil, fmt.Errorf("transcript row is not a JSON object")
+	}
+	normalized, ok := normalizeNumbers(object).(map[string]any)
+	if !ok || normalized == nil {
+		return nil, fmt.Errorf("transcript row is not a JSON object")
+	}
+	return normalized, nil
 }
 
 func normalizeNumbers(value any) any {

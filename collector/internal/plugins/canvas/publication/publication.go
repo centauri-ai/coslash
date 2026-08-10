@@ -262,10 +262,11 @@ func (p *Publisher) Preflight(ctx context.Context, request Request) (PreflightRe
 	})
 
 	remoteErr := revision.ValidateRemoteURL(request.RemoteURL)
-	remoteSafe := remoteErr == nil
+	_, _, githubRemote := ParseGitHubOwnerRepo(request.RemoteURL)
+	remoteSafe := remoteErr == nil && githubRemote
 	remoteDetail := "remote accepted"
 	if !remoteSafe {
-		remoteDetail = "the remote URL is missing or uses an unsupported transport"
+		remoteDetail = "the remote URL is not a supported github.com publication target"
 	}
 	add(ChecklistItem{
 		ID:     ItemRemoteSafe,
@@ -274,12 +275,20 @@ func (p *Publisher) Preflight(ctx context.Context, request Request) (PreflightRe
 		Detail: remoteDetail,
 	})
 
-	branchOK := revision.ValidBranchName(request.Branch)
+	checkedOutBranch, branchErr := p.git.Output(ctx, revision.Command{
+		Args: []string{"-C", request.RunRoot, "symbolic-ref", "--quiet", "--short", "HEAD"},
+	})
+	branchOK := branchErr == nil && revision.ValidBranchName(request.Branch) &&
+		checkedOutBranch == request.Branch
+	branchDetail := request.Branch
+	if branchErr != nil || checkedOutBranch != request.Branch {
+		branchDetail = fmt.Sprintf("requested %s, checked out %s", request.Branch, checkedOutBranch)
+	}
 	add(ChecklistItem{
 		ID:     ItemRunBranch,
 		Label:  "run branch " + request.Branch,
 		OK:     branchOK,
-		Detail: request.Branch,
+		Detail: branchDetail,
 	})
 
 	result.OK = true
@@ -301,6 +310,11 @@ func (p *Publisher) Preflight(ctx context.Context, request Request) (PreflightRe
 // second Execute for the same key therefore updates at most one pull request
 // and never opens another.
 func (p *Publisher) Execute(ctx context.Context, request Request, title, body string) (Record, error) {
+	owner, repository, githubRemote := ParseGitHubOwnerRepo(request.RemoteURL)
+	if !githubRemote {
+		return Record{}, newError(CodeNoGitHub,
+			"publication requires a github.com remote URL to open a pull request")
+	}
 	preflight, err := p.Preflight(ctx, request)
 	if err != nil {
 		return Record{}, err
@@ -334,11 +348,6 @@ func (p *Publisher) Execute(ctx context.Context, request Request, title, body st
 			withDetail(strings.TrimSpace(string(push.Stderr)))
 	}
 
-	owner, repository, ok := ParseGitHubOwnerRepo(request.RemoteURL)
-	if !ok {
-		return Record{}, newError(CodeNoGitHub,
-			"publication requires a github.com remote URL to open a pull request")
-	}
 	slug := owner + "/" + repository
 
 	record := Record{
@@ -389,6 +398,13 @@ func (p *Publisher) commitOnce(
 	request Request,
 	key, title string,
 ) (string, error) {
+	checkedOutBranch, branchErr := p.git.Output(ctx, revision.Command{
+		Args: []string{"-C", request.RunRoot, "symbolic-ref", "--quiet", "--short", "HEAD"},
+	})
+	if branchErr != nil || checkedOutBranch != request.Branch {
+		return "", newError(CodePreflightFailed,
+			"the checked-out branch changed after publication preflight")
+	}
 	head, ok := p.git.Try(ctx, revision.Command{
 		Args: []string{"-C", request.RunRoot, "log", "-1", "--format=%H%n%B"},
 	})
@@ -420,6 +436,22 @@ func (p *Publisher) commitOnce(
 	}
 	if staged.ExitCode == 0 {
 		return "", newError(CodeEmptyChange, "the revision stages no changes to publish")
+	}
+
+	// The worktree was measured during Preflight, but an agent can edit it while
+	// publication is running. Compare the actual staged tree to the reviewed
+	// tree after the final add and immediately before commit; only the approved
+	// content-addressed tree may cross the publication boundary.
+	stagedTree, err := p.git.Output(ctx, revision.Command{
+		Args: []string{"-C", request.RunRoot, "write-tree"},
+	})
+	if err != nil {
+		return "", newError(CodePublishFailed, "the staged revision could not be measured").
+			withCause(err)
+	}
+	if stagedTree != request.Revision.TreeOID {
+		return "", newError(CodePreflightFailed,
+			"the staged revision changed after publication preflight")
 	}
 
 	message := fmt.Sprintf("%s\n\nChange revision %d.\nIdempotency-Key: %s\n",

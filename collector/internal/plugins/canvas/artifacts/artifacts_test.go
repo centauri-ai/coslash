@@ -354,6 +354,11 @@ func TestValidatorRunsAfterGenericGates(t *testing.T) {
 		t.Fatal("a non-object JSON candidate was accepted")
 	}
 
+	writeCandidate(t, root, "review.json", "null\n")
+	if _, err := store.ReadCandidate(t.Context(), options); codeOf(t, err) != CodeInvalidOutput {
+		t.Fatal("a null JSON candidate was accepted as an object")
+	}
+
 	writeCandidate(t, root, "review.json", "not json at all\n")
 	if _, err := store.ReadCandidate(t.Context(), options); codeOf(t, err) != CodeInvalidOutput {
 		t.Fatal("a non-JSON candidate was accepted")

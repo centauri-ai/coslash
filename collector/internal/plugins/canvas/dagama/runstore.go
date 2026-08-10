@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -158,10 +159,12 @@ func (s *RunStore) Read(ctx context.Context, projectID, runID string) (*RunState
 	}
 
 	view, viewErr := s.readView(ctx, directory)
-	if viewErr == nil && view.LastSeq == replayed.LastSeq {
+	if viewErr == nil && reflect.DeepEqual(view, replayed) {
 		return view, nil
 	}
-	// The view is behind or damaged; the log is the authority, so rewrite it.
+	// Sequence equality is not sufficient: a copied or tampered view can carry
+	// the right LastSeq with the wrong identity, status, gate, or title. The log
+	// is authoritative, so only a complete materialized-state match is trusted.
 	if err := s.writeView(ctx, projectID, runID, replayed); err != nil {
 		return nil, err
 	}
@@ -283,11 +286,18 @@ func ValidateTransition(state *RunState, payload Payload) error {
 	if state == nil {
 		return newError(CodeInvalidState, "the run state is missing")
 	}
+	value := reflect.ValueOf(payload)
+	if !value.IsValid() || (value.Kind() == reflect.Pointer && value.IsNil()) {
+		return newError(CodeInvalidState, "an event payload is required")
+	}
 	created := state.LastSeq > 0
 
-	if _, isCreate := payload.(*RunCreated); isCreate {
+	if body, isCreate := payload.(*RunCreated); isCreate {
 		if created {
 			return newError(CodeInvalidState, "the run already exists")
+		}
+		if !ValidProjectID(body.ProjectID) || !ValidBoardID(body.BoardID) || body.BoardRevision == 0 {
+			return newError(CodeInvalidState, "the run creation identity is invalid")
 		}
 		return nil
 	}
@@ -299,22 +309,75 @@ func ValidateTransition(state *RunState, payload Payload) error {
 	}
 
 	switch body := payload.(type) {
+	case *RunRootCreated:
+		if state.RunRoot != "" {
+			return newError(CodeInvalidState, "the run root already exists")
+		}
+		if body.RunRoot == "" || body.Branch == "" || body.BaseBranch == "" || body.BaseSha == "" {
+			return newError(CodeInvalidState, "the run root record is incomplete")
+		}
+		return nil
+	case *ComponentReady:
+		return validateComponentInstance(body.ComponentInstance)
 	case *ComponentStarted:
+		if err := validateComponentInstance(body.ComponentInstance); err != nil {
+			return err
+		}
 		return requireComponentStatus(state, body.ComponentID,
 			ComponentReadyStatus, ComponentRunning, ComponentFailedStatus)
 	case *ComponentSucceeded:
+		if err := validateComponentInstance(body.ComponentInstance); err != nil {
+			return err
+		}
 		return requireComponentStatus(state, body.ComponentID,
 			ComponentRunning, ComponentValidating)
 	case *ComponentFailed:
+		if err := validateComponentInstance(body.ComponentInstance); err != nil {
+			return err
+		}
 		return requireComponentStatus(state, body.ComponentID,
 			ComponentRunning, ComponentValidating, ComponentReadyStatus)
+	case *AttemptLaunchRequested:
+		if err := validateAttemptRef(body.AttemptRef); err != nil {
+			return err
+		}
+		attempt := state.Components[body.ComponentID].Attempt
+		if attempt != nil && attempt.Status != AttemptExitedStatus && !replaces(body.AttemptRef, attempt) {
+			// Two concurrent attempts on one component would each believe they
+			// own the seat's outputs, so a launch while one is live is refused —
+			// except when it is the successor that displaces it, which is what a
+			// takeover is. TakeoverRequested is intent-only in the reducer, so
+			// the attempt being displaced is still live at this point.
+			return newError(CodeInvalidState, "the component already has a live attempt")
+		}
+		return nil
 	case *AttemptLaunched:
+		if err := validateAttemptRef(body.AttemptRef); err != nil {
+			return err
+		}
 		return requireLiveAttempt(state, body.ComponentID, body.AttemptID)
 	case *AttemptSessionBound:
+		if err := validateAttemptRef(body.AttemptRef); err != nil {
+			return err
+		}
 		return requireLiveAttempt(state, body.ComponentID, body.AttemptID)
 	case *AttemptExited:
+		if err := validateAttemptRef(body.AttemptRef); err != nil {
+			return err
+		}
 		return requireLiveAttempt(state, body.ComponentID, body.AttemptID)
+	case *GateOpened:
+		if err := validateComponentInstance(body.ComponentInstance); err != nil {
+			return err
+		}
+		if state.Gate != nil && state.Gate.Decision == "" {
+			return newError(CodeInvalidState, "a gate is already open")
+		}
+		return nil
 	case *GateDecided:
+		if err := validateComponentInstance(body.ComponentInstance); err != nil {
+			return err
+		}
 		gate := state.Gate
 		if gate == nil || gate.ComponentID != body.ComponentID {
 			return newError(CodeInvalidState, "no gate is open for this component")
@@ -334,34 +397,66 @@ func ValidateTransition(state *RunState, payload Payload) error {
 		}
 		return nil
 	case *ChangeCaptured:
+		if body.ChangeRevision == 0 || body.TreeOID == "" || body.PatchSha256 == "" || body.BaseSha == "" {
+			return newError(CodeInvalidState, "the captured change is incomplete")
+		}
 		if state.Change != nil && body.ChangeRevision <= state.Change.ChangeRevision {
 			// Revisions are monotonic; a repeat would let an approval attach to
 			// the wrong tree.
 			return newError(CodeInvalidState, "the change revision must increase")
 		}
 		return nil
-	case *RunRootCreated:
-		if state.RunRoot != "" {
-			return newError(CodeInvalidState, "the run root already exists")
-		}
-		return nil
 	case *ArtifactPromoted:
 		// A record pointing outside this run's blob store is either corrupt or a
 		// cross-canvas reference, and a run must not attest either.
 		return AssertArtifactReference(body.Artifact)
-	case *RunFinished:
-		// An unrecognized closing status would be written verbatim and then read
-		// back as non-terminal by isTerminal, leaving a finished run that every
-		// control still offers to advance.
-		switch body.Status {
-		case RunSucceeded, RunFailed, RunCanceled, RunInterruptedImport:
-			return nil
-		default:
-			return newError(CodeInvalidState,
-				"a run finishes as succeeded, failed, canceled, or interrupted_migration")
+	case *PublishAttempted:
+		if state.Change == nil || body.ChangeRevision != state.Change.ChangeRevision ||
+			body.IdempotencyKey == "" || body.Branch == "" {
+			return newError(CodeInvalidState, "the publication attempt is not bound to the current change")
 		}
+		return nil
+	case *CancelRequested:
+		if err := validateAttemptRef(body.AttemptRef); err != nil {
+			return err
+		}
+		return requireLiveAttempt(state, body.ComponentID, body.AttemptID)
+	case *TakeoverRequested:
+		if err := validateAttemptRef(body.AttemptRef); err != nil {
+			return err
+		}
+		// A takeover ALLOCATES an attempt rather than adopting one: the ref
+		// names the new human-controlled turn, and PriorAttemptID names the
+		// automated one being displaced. So the live-attempt check belongs on
+		// the prior id — checking the new one would reject every takeover,
+		// since the attempt it names does not exist yet.
+		if body.PriorAttemptID == "" {
+			return newError(CodeInvalidState, "the takeover does not name the attempt it displaces")
+		}
+		return requireLiveAttempt(state, body.ComponentID, body.PriorAttemptID)
+	case *HandbackCompleted:
+		if err := validateAttemptRef(body.AttemptRef); err != nil {
+			return err
+		}
+		if err := requireLiveAttempt(state, body.ComponentID, body.AttemptID); err != nil {
+			return err
+		}
+		if state.Components[body.ComponentID].Attempt.Ownership != OwnershipHumanControlled {
+			return newError(CodeInvalidState, "the attempt is not controlled by a human")
+		}
+		return nil
+	case *RunFinished:
+		// isTerminal is the single source of truth for what a finished run may
+		// be. An unrecognized status would otherwise be written verbatim and
+		// then read back as non-terminal, leaving a finished run that every
+		// control still offers to advance.
+		if !isTerminal(body.Status) {
+			return newError(CodeInvalidState, "the run finish status is not terminal")
+		}
+		return nil
+	default:
+		return newError(CodeInvalidState, "the event type is not recognized")
 	}
-	return nil
 }
 
 func isTerminal(status RunStatus) bool {
@@ -384,6 +479,26 @@ func requireComponentStatus(state *RunState, id ComponentID, allowed ...Componen
 	return newError(CodeInvalidState, "the component cannot make this transition from its current status")
 }
 
+func validateComponentInstance(instance ComponentInstance) error {
+	if !ValidComponentID(instance.ComponentID) {
+		return newError(CodeInvalidState, "the component is not part of the pipeline")
+	}
+	if instance.Instance < 1 {
+		return newError(CodeInvalidState, "the component instance is not valid")
+	}
+	return nil
+}
+
+func validateAttemptRef(attempt AttemptRef) error {
+	if err := validateComponentInstance(attempt.ComponentInstance); err != nil {
+		return err
+	}
+	if attempt.SeatID == "" || attempt.Attempt < 1 || attempt.AttemptID == "" {
+		return newError(CodeInvalidState, "the attempt identity is not valid")
+	}
+	return nil
+}
+
 func requireLiveAttempt(state *RunState, id ComponentID, attemptID string) error {
 	if !ValidComponentID(id) {
 		return newError(CodeInvalidState, "the component is not part of the pipeline")
@@ -396,4 +511,15 @@ func requireLiveAttempt(state *RunState, id ComponentID, attemptID string) error
 		return newError(CodeInvalidState, "the attempt has already exited")
 	}
 	return nil
+}
+
+// replaces reports whether a launch is the successor of the attempt currently
+// live on a component: same instance and seat, one attempt later. That is the
+// shape a takeover produces, and the only case in which a component may hold a
+// live attempt while another is launched.
+func replaces(next AttemptRef, live *AttemptState) bool {
+	return live != nil &&
+		next.Instance == live.Instance &&
+		next.SeatID == live.SeatID &&
+		next.Attempt == live.Attempt+1
 }
