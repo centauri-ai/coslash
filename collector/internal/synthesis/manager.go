@@ -22,8 +22,8 @@ const (
 )
 
 type failureKey struct {
-	id    string
-	mtime int64
+	id       string
+	revision int64
 }
 
 type failure struct {
@@ -59,21 +59,21 @@ func NewManager(runner Runner) *Manager {
 	}
 }
 
-func (m *Manager) Lookup(id string, mtime int64) *session.SessionSynthesis {
+func (m *Manager) Lookup(id string, revision int64) *session.SessionSynthesis {
 	if m == nil {
 		return nil
 	}
-	return m.cache.Lookup(id, mtime)
+	return m.cache.Lookup(id, revision)
 }
 
-func (m *Manager) Ensure(s *session.Session, mtime int64) bool {
-	if m == nil || mtime <= 0 || !Eligible(s) {
+func (m *Manager) Ensure(s *session.Session, revision int64) bool {
+	if m == nil || revision <= 0 || !Eligible(s) {
 		return false
 	}
 	if m.currentRunner() == nil {
 		return false
 	}
-	if m.Lookup(s.ID, mtime) != nil || m.InCooldown(s.ID, mtime) {
+	if m.Lookup(s.ID, revision) != nil || m.InCooldown(s.ID, revision) {
 		return false
 	}
 	if _, loaded := m.inFlight.LoadOrStore(s.ID, struct{}{}); loaded {
@@ -92,23 +92,23 @@ func (m *Manager) Ensure(s *session.Session, mtime int64) bool {
 		}
 		result, err := runner.Run(context.Background(), input)
 		if err != nil {
-			m.recordFailure(id, mtime, err)
+			m.recordFailure(id, revision, err)
 			log.Printf("synthesize session %s: %v", id, err)
 			return
 		}
 		record := Record{
 			SessionID:   id,
-			Mtime:       mtime,
+			Revision:    revision,
 			Model:       runnerModel(runner),
 			GeneratedAt: m.now().UnixMilli(),
 			Synthesis:   result,
 		}
 		if err := m.cache.Store(id, record); err != nil {
-			m.recordFailure(id, mtime, err)
+			m.recordFailure(id, revision, err)
 			log.Printf("cache synthesis for session %s: %v", id, err)
 			return
 		}
-		m.failures.Delete(failureKey{id: id, mtime: mtime})
+		m.failures.Delete(failureKey{id: id, revision: revision})
 		m.cliMissingUntil.Store(0)
 	}()
 	return true
@@ -123,7 +123,7 @@ func buildInputWithDetailProbes(s *session.Session) string {
 	return BuildInput(&inputSession)
 }
 
-func (m *Manager) InCooldown(id string, mtime int64) bool {
+func (m *Manager) InCooldown(id string, revision int64) bool {
 	if m == nil {
 		return true
 	}
@@ -135,7 +135,7 @@ func (m *Manager) InCooldown(id string, mtime int64) bool {
 	if until := m.cliMissingUntil.Load(); until > now.UnixNano() {
 		return true
 	}
-	key := failureKey{id: id, mtime: mtime}
+	key := failureKey{id: id, revision: revision}
 	value, ok := m.failures.Load(key)
 	if !ok {
 		return false
@@ -181,11 +181,7 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 		if candidate.Status == nil && candidate.LastActivityTime < startOfToday {
 			continue
 		}
-		mtime, err := TranscriptMtime(candidate.LogPath)
-		if err != nil || mtime <= 0 {
-			continue
-		}
-		if m.Ensure(candidate, mtime) {
+		if m.Ensure(candidate, candidate.LastActivityTime) {
 			initiated++
 			if initiated == m.sweepLimit {
 				return
@@ -194,9 +190,9 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 	}
 }
 
-func (m *Manager) recordFailure(id string, mtime int64, err error) {
+func (m *Manager) recordFailure(id string, revision int64, err error) {
 	now := m.now()
-	m.failures.Store(failureKey{id: id, mtime: mtime}, failure{at: now, message: err.Error()})
+	m.failures.Store(failureKey{id: id, revision: revision}, failure{at: now, message: err.Error()})
 	if errors.Is(err, exec.ErrNotFound) {
 		m.cliMissingUntil.Store(now.Add(m.cliMissingCooldown).UnixNano())
 	}
@@ -216,17 +212,17 @@ func (m *Manager) SetRunner(runner Runner) {
 	})
 }
 
-func (m *Manager) Failure(id string, mtime int64) string {
+func (m *Manager) Failure(id string, revision int64) string {
 	if m == nil {
 		return ""
 	}
-	value, ok := m.failures.Load(failureKey{id: id, mtime: mtime})
+	value, ok := m.failures.Load(failureKey{id: id, revision: revision})
 	if !ok {
 		return ""
 	}
 	failed := value.(failure)
 	if m.now().Sub(failed.at) >= m.failureCooldown {
-		m.failures.Delete(failureKey{id: id, mtime: mtime})
+		m.failures.Delete(failureKey{id: id, revision: revision})
 		return ""
 	}
 	return failed.message

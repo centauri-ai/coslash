@@ -26,11 +26,3 @@ func EnsureDirs() error {
 	}
 	return nil
 }
-
-func TranscriptMtime(logPath string) (int64, error) {
-	info, err := os.Stat(logPath)
-	if err != nil {
-		return 0, err
-	}
-	return info.ModTime().UnixMilli(), nil
-}
