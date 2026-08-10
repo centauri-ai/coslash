@@ -243,7 +243,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				}
 				if questions := questionsFrom(row.Payload); len(questions) > 0 {
 					for _, question := range questions {
-						answer := strings.Join(questionAnswers[row.Payload.CallID][question.id].Answers, ", ")
+						answer := strings.Join(questionAnswers[row.Payload.CallID][question.id].values(), ", ")
 						analysis.digest.PushQuestion(analysis.prompts, question.text, answer)
 					}
 				}
@@ -563,7 +563,27 @@ func questionsFrom(payload codexPayload) []codexQuestion {
 }
 
 type codexQuestionAnswer struct {
-	Answers []string `json:"answers"`
+	Answers  []string `json:"answers"`
+	Selected []string `json:"selected"`
+	Other    string   `json:"other"`
+}
+
+func (answer codexQuestionAnswer) values() []string {
+	values := make([]string, 0, len(answer.Answers)+len(answer.Selected)+1)
+	values = append(values, answer.Answers...)
+	values = append(values, answer.Selected...)
+	if answer.Other != "" {
+		values = append(values, answer.Other)
+	}
+
+	cleaned := values[:0]
+	for _, value := range values {
+		value = strings.TrimSpace(strings.TrimPrefix(value, "user_note:"))
+		if value != "" {
+			cleaned = append(cleaned, value)
+		}
+	}
+	return cleaned
 }
 
 func questionAnswersByCall(rows []codexRow) map[string]map[string]codexQuestionAnswer {
