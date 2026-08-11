@@ -6,7 +6,7 @@ import { TIME_WINDOW_VALUES, TIME_WINDOWS, type TimeWindow } from '@/pages/cosla
 export type AgentVendor = 'all' | VendorKey;
 export type ViewMode = 'list' | 'board';
 
-const AGENT_VENDORS = ['all', 'claude', 'codex'] as const satisfies readonly AgentVendor[];
+const AGENT_VENDORS = ['all', 'claude', 'codex', 'opencode'] as const satisfies readonly AgentVendor[];
 const VIEW_MODES = ['list', 'board'] as const satisfies readonly ViewMode[];
 
 export function AgentVendorFilterTabMenu({
@@ -27,6 +27,9 @@ export function AgentVendorFilterTabMenu({
         </TabsTrigger>
         <TabsTrigger value="codex" className="text-xs font-semibold">
           <span>Codex</span>
+        </TabsTrigger>
+        <TabsTrigger value="opencode" className="text-xs font-semibold">
+          <span>OpenCode</span>
         </TabsTrigger>
       </TabsList>
     </Tabs>
