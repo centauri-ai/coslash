@@ -22,6 +22,13 @@ type SourceScan struct {
 	RootMissing  bool
 }
 
+func (scan *SourceScan) RecordSkipped(path string, err error) {
+	scan.SkippedTotal++
+	if len(scan.Skipped) < maxRecordedSkippedPaths {
+		scan.Skipped = append(scan.Skipped, SkippedPath{Path: path, Error: err.Error()})
+	}
+}
+
 func Scan(root string) (*SourceScan, error) {
 	scan := &SourceScan{Files: []string{}, Skipped: []SkippedPath{}}
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -33,10 +40,7 @@ func Scan(root string) (*SourceScan, error) {
 				}
 				return err
 			}
-			scan.SkippedTotal++
-			if len(scan.Skipped) < maxRecordedSkippedPaths {
-				scan.Skipped = append(scan.Skipped, SkippedPath{Path: path, Error: err.Error()})
-			}
+			scan.RecordSkipped(path, err)
 			return nil
 		}
 		if entry.Type().IsRegular() && strings.HasSuffix(entry.Name(), ".jsonl") {
