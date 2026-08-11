@@ -120,6 +120,8 @@ func AttachCosts(s *Session) {
 		s.UnpricedModels = UnpricedModels(s.Tokens)
 	}
 	for index := range s.Subagents {
-		s.Subagents[index].Cost = EstimatedCost(s.Subagents[index].Tokens)
+		if !s.Subagents[index].CostRecorded {
+			s.Subagents[index].Cost = EstimatedCost(s.Subagents[index].Tokens)
+		}
 	}
 }

@@ -13,6 +13,7 @@ type SourceHealth struct {
 
 type storedSession struct {
 	id           string
+	parentID     sql.NullString
 	directory    string
 	title        string
 	summaryFiles sql.NullInt64
@@ -57,22 +58,26 @@ type storedPart struct {
 		Status string `json:"status"`
 		Title  string `json:"title"`
 		Input  struct {
-			Command   string           `json:"command"`
-			FilePath  string           `json:"filePath"`
-			Content   string           `json:"content"`
-			Questions []storedQuestion `json:"questions"`
-			Todos     []struct {
+			Command      string           `json:"command"`
+			FilePath     string           `json:"filePath"`
+			Content      string           `json:"content"`
+			Description  string           `json:"description"`
+			SubagentType string           `json:"subagent_type"`
+			Questions    []storedQuestion `json:"questions"`
+			Todos        []struct {
 				Content string `json:"content"`
 				Status  string `json:"status"`
 			} `json:"todos"`
 		} `json:"input"`
 		Metadata struct {
-			Answers  [][]string       `json:"answers"`
-			Exists   *bool            `json:"exists"`
-			Exit     *int             `json:"exit"`
-			FileDiff storedToolFile   `json:"filediff"`
-			FilePath string           `json:"filepath"`
-			Files    []storedToolFile `json:"files"`
+			Answers         [][]string       `json:"answers"`
+			Exists          *bool            `json:"exists"`
+			Exit            *int             `json:"exit"`
+			FileDiff        storedToolFile   `json:"filediff"`
+			FilePath        string           `json:"filepath"`
+			Files           []storedToolFile `json:"files"`
+			SessionID       string           `json:"sessionId"`
+			ParentSessionID string           `json:"parentSessionId"`
 		} `json:"metadata"`
 		Time struct {
 			End *int64 `json:"end"`

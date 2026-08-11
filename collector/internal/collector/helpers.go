@@ -114,16 +114,18 @@ func subagentFrom(
 ) session.Subagent {
 	s := child.Session
 	subagent := session.Subagent{
-		ID:         s.ID,
-		Name:       cmp.Or(child.Name, s.ID),
-		Model:      s.Model,
-		Status:     subagentStatus(child, parent, metadata),
-		Task:       session.Truncate(deref(s.FirstPrompt), session.TruncateTextLimit),
-		Result:     session.Truncate(deref(s.Summary), session.TruncateTextLimit),
-		DurationMs: s.DurationMs,
-		ToolUses:   s.ToolUses,
-		Commands:   child.Commands,
-		Tokens:     s.Tokens,
+		ID:           s.ID,
+		Name:         cmp.Or(child.Name, s.ID),
+		Model:        s.Model,
+		Status:       subagentStatus(child, parent, metadata),
+		Task:         session.Truncate(deref(s.FirstPrompt), session.TruncateTextLimit),
+		Result:       session.Truncate(deref(s.Summary), session.TruncateTextLimit),
+		DurationMs:   s.DurationMs,
+		ToolUses:     s.ToolUses,
+		Commands:     child.Commands,
+		Tokens:       s.Tokens,
+		Cost:         s.Cost,
+		CostRecorded: s.CostRecorded,
 	}
 	if turn, ok := parent.SpawnTurns[child.SpawnKey]; ok {
 		subagent.SpawnedAtTurn = &turn
