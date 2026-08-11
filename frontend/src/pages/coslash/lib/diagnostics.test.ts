@@ -27,8 +27,8 @@ function snapshot(): Diagnostics {
         label: 'Claude Code',
         root: '~/.claude/projects',
         state: 'ok',
-        transcripts: 4,
-        sessionFiles: 3,
+        entries: 4,
+        sessions: 3,
         skipped: [],
         skippedTotal: 0,
         error: '',
@@ -39,8 +39,8 @@ function snapshot(): Diagnostics {
         label: 'Codex',
         root: '~/.codex/sessions',
         state: 'missing',
-        transcripts: 0,
-        sessionFiles: 0,
+        entries: 0,
+        sessions: 0,
         skipped: [],
         skippedTotal: 0,
         error: '',
@@ -70,7 +70,7 @@ describe('diagnostics helpers', () => {
     ];
     const output = formatDiagnosticsForCopy(value);
     expect(output).toContain('~/.claude/projects');
-    expect(output).toContain('transcripts=4; session files=3');
+    expect(output).toContain('entries=4; sessions=3');
     expect(output).not.toContain('-Users-alice-private-repo');
     expect(output).not.toContain('/Users/alice');
     expect(output).not.toContain('secret session name');

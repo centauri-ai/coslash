@@ -35,6 +35,7 @@ type fileSource struct {
 	root     func() (string, error)
 	files    func() ([]string, error)
 	scan     func() (*vendors.SourceScan, error)
+	isRoot   func(path string) bool
 	id       func(path string) string // session id without parsing, for Get
 	parse    func(path string) (*vendors.ParsedTranscript, error)
 	metadata func() (*vendors.SessionMetadata, error) // information not extractable from logs alone
@@ -45,21 +46,27 @@ type fileSource struct {
 var vendorSources = []vendorSource{
 	adaptFileVendor(fileSource{
 		name: vendors.AgentClaude, root: claude.Root, files: claude.Files, scan: claude.Scan,
-		id: claude.IDFromPath, parse: claude.Parse, metadata: claude.LoadMetadata,
+		isRoot: func(path string) bool { return claude.ParentIDFromPath(path) == "" },
+		id:     claude.IDFromPath, parse: claude.Parse, metadata: claude.LoadMetadata,
 		fork: claude.ApplyForkedUsage, window: claude.FilesSince,
 	}),
 	adaptFileVendor(fileSource{
 		name: vendors.AgentCodex, root: codex.Root, files: codex.Files, scan: codex.Scan,
-		id: codex.SessionIDFromRollout, parse: codex.Parse, metadata: codex.LoadMetadata,
+		isRoot: codex.IsRootRollout,
+		id:     codex.SessionIDFromRollout, parse: codex.Parse, metadata: codex.LoadMetadata,
 		fork: codex.ApplyForkedUsage, window: codex.FilesSince,
 	}),
 }
 
 type SourceHealth struct {
-	Agent   string
-	Root    string
-	Scan    *vendors.SourceScan
-	ScanErr error
+	Agent        string
+	Root         string
+	Entries      int
+	Sessions     int
+	Missing      bool
+	Skipped      []vendors.SkippedPath
+	SkippedTotal int
+	Err          error
 }
 
 func Sources() []SourceHealth {

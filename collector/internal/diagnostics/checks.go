@@ -13,17 +13,17 @@ func derive(snapshot *Snapshot) []Check {
 			Fix:    "Check that the current user has a valid home directory.",
 		})
 	}
-	noTranscripts := true
+	noEntries := true
 	scanFailed := false
 	for _, source := range snapshot.Sources {
 		checks = append(checks, sourceCheck(source))
-		if source.Transcripts > 0 {
-			noTranscripts = false
+		if source.Entries > 0 {
+			noEntries = false
 		}
 		if source.State == SourceUnreadable {
 			scanFailed = true
 		}
-		if source.Transcripts > 0 && !source.CLI.Found {
+		if source.Entries > 0 && !source.CLI.Found {
 			checks = append(checks, Check{
 				ID:     "cli." + source.Agent,
 				Title:  source.Label + " CLI",
@@ -33,13 +33,13 @@ func derive(snapshot *Snapshot) []Check {
 			})
 		}
 	}
-	if noTranscripts && !scanFailed && snapshot.homeError == "" {
+	if noEntries && !scanFailed && snapshot.homeError == "" {
 		checks = append(checks, Check{
 			ID:     "sources.none",
 			Title:  "Agent sessions",
 			Status: StatusFail,
-			Detail: "No Claude Code or Codex sessions were found on this machine.",
-			Fix:    "Run claude or codex in a repo for one turn, then re-run these checks.",
+			Detail: "No supported agent sessions were found on this machine.",
+			Fix:    "Run a supported agent in a repo for one turn, then re-run these checks.",
 		})
 	}
 	storage := Check{ID: "storage", Title: "coSlash storage", Status: StatusOK, Detail: "Writable at " + snapshot.Storage.Home}
@@ -91,27 +91,27 @@ func sourceCheck(source Source) Check {
 			check.Detail = "Could not locate the session root: " + source.Error
 			check.Fix = "Check that the home directory is available and readable."
 		} else {
-			check.Detail = fmt.Sprintf("Could not fully scan %s: %s", source.Root, source.Error)
+			check.Detail = fmt.Sprintf("Could not inspect %s: %s", source.Root, source.Error)
 			check.Fix = "Run ls -la " + source.Root + " and check ownership."
 		}
 	case source.State == SourceMissing:
 		check.Status = StatusWarn
-		check.Detail = "No " + source.Root + " directory; " + source.Label + " sessions will not appear."
+		check.Detail = "No session source at " + source.Root + "; " + source.Label + " sessions will not appear."
 		check.Fix = "Install " + source.Label + " and run it once in a repo, then re-run these checks."
 	case source.State == SourceEmpty:
 		check.Status = StatusWarn
 		check.Detail = source.Root + " exists, but no sessions have been recorded yet."
 		check.Fix = "Run " + source.CLI.Name + " in a repo for one turn, then re-run these checks."
-	case source.Transcripts > 0 && source.SessionFiles == 0:
+	case source.Entries > 0 && source.Sessions == 0:
 		check.Status = StatusFail
-		check.Detail = fmt.Sprintf("Found %d transcripts in %s, but no root session files.", source.Transcripts, source.Root)
-		check.Fix = "Check transcript formats and whether subagent transcripts still have their parent sessions."
+		check.Detail = fmt.Sprintf("Found %d source entries in %s, but no root sessions.", source.Entries, source.Root)
+		check.Fix = "Check source formats and whether child sessions still have their parent sessions."
 	case source.SkippedTotal > 0:
 		check.Status = StatusWarn
-		check.Detail = fmt.Sprintf("%d session files; skipped %d unreadable paths in %s.", source.SessionFiles, source.SkippedTotal, source.Root)
+		check.Detail = fmt.Sprintf("%d sessions; skipped %d unreadable entries in %s.", source.Sessions, source.SkippedTotal, source.Root)
 		check.Fix = "Run ls -la " + source.Root + " and check ownership."
 	default:
-		check.Detail = fmt.Sprintf("%d session files in %s", source.SessionFiles, source.Root)
+		check.Detail = fmt.Sprintf("%d sessions in %s", source.Sessions, source.Root)
 	}
 	return check
 }

@@ -14,8 +14,8 @@ export type DiagnosticSource = {
   label: string;
   root: string;
   state: DiagnosticSourceState;
-  transcripts: number;
-  sessionFiles: number;
+  entries: number;
+  sessions: number;
   skipped: { path: string; error: string }[];
   skippedTotal: number;
   error: string;
@@ -53,7 +53,7 @@ export function formatDiagnosticsForCopy(snapshot: Diagnostics): string {
   ];
   for (const source of snapshot.sources) {
     lines.push(
-      `- ${source.label}: ${source.state}; root=${source.root}; transcripts=${source.transcripts}; session files=${source.sessionFiles}; skipped=${source.skippedTotal}`,
+      `- ${source.label}: ${source.state}; root=${source.root}; entries=${source.entries}; sessions=${source.sessions}; skipped=${source.skippedTotal}`,
       `  CLI: found=${source.cli.found}; path=${source.cli.path || 'unknown'}; version=${source.cli.version || 'unknown'}`,
     );
     for (const skipped of source.skipped) lines.push(`  Skipped: ${skipped.error}`);

@@ -12,9 +12,6 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
-	"github.com/centauri-ai/coslash/collector/internal/vendors"
-	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
-	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 type Status string
@@ -70,8 +67,8 @@ type Source struct {
 	Label        string        `json:"label"`
 	Root         string        `json:"root"`
 	State        SourceState   `json:"state"`
-	Transcripts  int           `json:"transcripts"`
-	SessionFiles int           `json:"sessionFiles"`
+	Entries      int           `json:"entries"`
+	Sessions     int           `json:"sessions"`
 	Skipped      []SkippedPath `json:"skipped"`
 	SkippedTotal int           `json:"skippedTotal"`
 	Error        string        `json:"error"`
@@ -150,40 +147,37 @@ func collectSource(
 	includeVersion bool,
 ) Source {
 	source := Source{
-		Agent:   health.Agent,
-		Label:   sourceLabel(health.Agent),
-		Root:    displayPath(userHome, health.Root),
-		State:   SourceUnreadable,
-		Skipped: []SkippedPath{},
-		CLI:     CLI{Name: health.Agent},
+		Agent:        health.Agent,
+		Label:        sourceLabel(health.Agent),
+		Root:         displayPath(userHome, health.Root),
+		State:        SourceUnreadable,
+		Entries:      health.Entries,
+		Sessions:     health.Sessions,
+		Skipped:      []SkippedPath{},
+		SkippedTotal: health.SkippedTotal,
+		CLI:          CLI{Name: health.Agent},
 	}
-	if health.ScanErr != nil {
-		source.Error = displayError(userHome, health.ScanErr.Error())
-	} else if health.Scan != nil {
-		source.SkippedTotal = max(health.Scan.SkippedTotal, len(health.Scan.Skipped))
-		switch {
-		case health.Scan.RootMissing:
-			source.State = SourceMissing
-		case len(health.Scan.Files) == 0 && source.SkippedTotal > 0:
-			source.State = SourceUnreadable
-			source.Error = fmt.Sprintf("scan skipped %d unreadable paths", source.SkippedTotal)
-			if len(health.Scan.Skipped) > 0 {
-				source.Error += "; first failure: " + health.Scan.Skipped[0].Error
-			}
-			source.Error = displayError(userHome, source.Error)
-		case len(health.Scan.Files) == 0:
-			source.State = SourceEmpty
-		default:
-			source.State = SourceOK
+	switch {
+	case health.Err != nil:
+		source.Error = displayError(userHome, health.Err.Error())
+	case health.Missing:
+		source.State = SourceMissing
+	case health.Entries == 0 && health.SkippedTotal > 0:
+		source.Error = fmt.Sprintf("source skipped %d unreadable entries", health.SkippedTotal)
+		if len(health.Skipped) > 0 {
+			source.Error += "; first failure: " + health.Skipped[0].Error
 		}
-		source.Transcripts = len(health.Scan.Files)
-		source.SessionFiles = sessionFileCount(health.Agent, health.Scan.Files)
-		for _, skipped := range health.Scan.Skipped {
-			source.Skipped = append(source.Skipped, SkippedPath{
-				Path:  displayPath(userHome, skipped.Path),
-				Error: displayError(userHome, skipped.Error),
-			})
-		}
+		source.Error = displayError(userHome, source.Error)
+	case health.Entries == 0:
+		source.State = SourceEmpty
+	default:
+		source.State = SourceOK
+	}
+	for _, skipped := range health.Skipped {
+		source.Skipped = append(source.Skipped, SkippedPath{
+			Path:  displayPath(userHome, skipped.Path),
+			Error: displayError(userHome, skipped.Error),
+		})
 	}
 	if path, err := exec.LookPath(health.Agent); err == nil {
 		source.CLI.Found = true
@@ -193,23 +187,6 @@ func collectSource(
 		}
 	}
 	return source
-}
-
-func sessionFileCount(agent string, files []string) int {
-	count := 0
-	for _, file := range files {
-		switch agent {
-		case vendors.AgentClaude:
-			if claude.ParentIDFromPath(file) == "" {
-				count++
-			}
-		case vendors.AgentCodex:
-			if codex.SessionIDFromRollout(file) != "" {
-				count++
-			}
-		}
-	}
-	return count
 }
 
 func sourceLabel(agent string) string {
