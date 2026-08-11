@@ -4,6 +4,7 @@ export type ModelTokens = {
   cache_creation_input_tokens: number;
   cache_creation_1h_input_tokens: number;
   cache_read_input_tokens: number;
+  cost?: number;
 };
 
 export type SessionSynthesis = {
@@ -226,7 +227,10 @@ export function getStatus(status: string | null): StatusKey {
   return status !== null && status in STATUSES ? (status as StatusKey) : 'inactive';
 }
 
-export function sumTokens(tokens: Session['tokens'], key: keyof Session['tokens'][string]): number {
+export function sumTokens(
+  tokens: Session['tokens'],
+  key: Exclude<keyof Session['tokens'][string], 'cost'>,
+): number {
   return Object.values(tokens).reduce((sum, modelTokens) => sum + modelTokens[key], 0);
 }
 

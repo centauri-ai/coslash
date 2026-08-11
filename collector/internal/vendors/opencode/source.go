@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -135,7 +136,7 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 		if err := json.Unmarshal([]byte(row.model.String), &model); err != nil {
 			return nil, fmt.Errorf("decode model: %w", err)
 		}
-		modelID = model.ID
+		modelID = modelName(model.ProviderID, model.ID)
 	}
 	messages, err := loadMessages(tx, row.id)
 	if err != nil {
@@ -159,6 +160,7 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 	compactions := 0
 	firstPrompt := ""
 	summary := ""
+	compactionSeed := ""
 	contextTokens := 0
 	hasContext := false
 	activeDuration := int64(0)
@@ -203,7 +205,7 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 		}
 
 		if message.ModelID != "" {
-			modelID = message.ModelID
+			modelID = modelName(message.ProviderID, message.ModelID)
 		}
 		if modelID != "" {
 			used := tokens[modelID]
@@ -211,6 +213,7 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 			used.OutputTokens += message.Tokens.Output + message.Tokens.Reasoning
 			used.CacheReadInputTokens += message.Tokens.Cache.Read
 			used.CacheCreationInputTokens += message.Tokens.Cache.Write
+			used.Cost += message.Cost
 			tokens[modelID] = used
 		}
 		currentContext := session.ContextTokens(
@@ -240,9 +243,10 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 				if part.State.Status == "pending" || part.State.Status == "running" {
 					busy = true
 				}
-				if part.Tool == "bash" && part.State.Input.Command != "" {
+				isShell := part.Tool == "bash" || part.Tool == "shell"
+				if isShell && part.State.Status == "completed" && part.State.Input.Command != "" {
 					commands.Note(part.State.Input.Command, part.State.Title)
-					if part.State.Status == "completed" {
+					if part.State.Metadata.Exit == nil || *part.State.Metadata.Exit == 0 {
 						if message, ok := session.CommitMessage(part.State.Input.Command); ok {
 							commits = append(commits, message)
 						}
@@ -252,6 +256,7 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 					}
 				}
 				if part.State.Status == "completed" {
+					edited := false
 					for _, file := range part.State.Metadata.Files {
 						path := file.RelativePath
 						if path == "" {
@@ -259,14 +264,41 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 						}
 						if path != "" {
 							fileEdits.Add(
-								path,
+								normalizeFilePath(row.directory, path),
 								file.Additions,
 								file.Deletions,
 								file.Type == "add" || file.Type == "added",
 							)
+							edited = true
 						}
 					}
-					if len(part.State.Metadata.Files) > 0 && part.State.Time.End != nil &&
+					if part.Tool == "edit" && len(part.State.Metadata.Files) == 0 {
+						file := part.State.Metadata.FileDiff
+						path := file.File
+						if path == "" {
+							path = part.State.Input.FilePath
+						}
+						if path != "" {
+							fileEdits.Add(normalizeFilePath(row.directory, path), file.Additions, file.Deletions, false)
+							edited = true
+						}
+					}
+					if part.Tool == "write" && len(part.State.Metadata.Files) == 0 {
+						path := part.State.Metadata.FilePath
+						if path == "" {
+							path = part.State.Input.FilePath
+						}
+						if path != "" {
+							isNew := part.State.Metadata.Exists != nil && !*part.State.Metadata.Exists
+							additions := 0
+							if isNew {
+								additions = session.CountLines(part.State.Input.Content)
+							}
+							fileEdits.Add(normalizeFilePath(row.directory, path), additions, 0, isNew)
+							edited = true
+						}
+					}
+					if edited && part.State.Time.End != nil &&
 						(lastEditAt == nil || *part.State.Time.End > *lastEditAt) {
 						endedAt := *part.State.Time.End
 						lastEditAt = &endedAt
@@ -280,10 +312,22 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 							todoStatus[todo.Content] = todo.Status
 						}
 					}
+					if part.Tool == "question" {
+						for index, question := range part.State.Input.Questions {
+							answer := ""
+							if index < len(part.State.Metadata.Answers) {
+								answer = strings.Join(part.State.Metadata.Answers[index], ", ")
+							}
+							digest.PushQuestion(turns, question.Question, answer)
+						}
+					}
 				}
 			}
 		}
 		internalSummary := bytes.Equal(bytes.TrimSpace(message.Summary), []byte("true"))
+		if internalSummary && len(texts) > 0 {
+			compactionSeed = strings.Join(texts, "\n")
+		}
 		if text := strings.Join(texts, "\n"); message.Finish == "stop" && !internalSummary &&
 			text != "" {
 			summary = text
@@ -292,18 +336,19 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 	}
 
 	details := session.SessionDetails{
-		Turns:        turns,
-		ToolUses:     toolUses,
-		Errors:       errorsCount,
-		Compactions:  compactions,
-		Commands:     commands.Raw(),
-		CommandCount: commands.Count(),
-		Commits:      commits,
-		PullRequests: pullRequests,
-		Todos:        todos,
-		Digest:       digest.Entries(),
-		FileEdits:    fileEdits.Edits,
-		LastEditAt:   lastEditAt,
+		Turns:          turns,
+		ToolUses:       toolUses,
+		Errors:         errorsCount,
+		Compactions:    compactions,
+		Commands:       commands.Raw(),
+		CommandCount:   commands.Count(),
+		Commits:        commits,
+		PullRequests:   pullRequests,
+		Todos:          todos,
+		Digest:         digest.Entries(),
+		FileEdits:      fileEdits.Edits,
+		LastEditAt:     lastEditAt,
+		CompactionSeed: compactionSeed,
 	}
 	if firstPrompt != "" {
 		details.FirstPrompt = &firstPrompt
@@ -317,6 +362,9 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 	}
 
 	if len(fileEdits.Edits) == 0 {
+		for index := range summaryEdits {
+			summaryEdits[index].Path = normalizeFilePath(row.directory, summaryEdits[index].Path)
+		}
 		details.FileEdits = summaryEdits
 	}
 	editedFileCount := len(details.FileEdits)
@@ -354,6 +402,25 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 		Completed:  map[string]struct{}{},
 		Commands:   []session.SubagentCommand{},
 	}, nil
+}
+
+func modelName(provider, model string) string {
+	if provider == "" || model == "" {
+		return model
+	}
+	return provider + "/" + model
+}
+
+func normalizeFilePath(cwd, path string) string {
+	path = filepath.Clean(path)
+	if cwd == "" || !filepath.IsAbs(path) {
+		return path
+	}
+	relative, err := filepath.Rel(cwd, path)
+	if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return relative
+	}
+	return path
 }
 
 func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {

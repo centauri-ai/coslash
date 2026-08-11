@@ -1,11 +1,12 @@
 package session
 
 type ModelTokens struct {
-	InputTokens                int `json:"input_tokens"`
-	OutputTokens               int `json:"output_tokens"`
-	CacheCreationInputTokens   int `json:"cache_creation_input_tokens"`
-	CacheCreation1hInputTokens int `json:"cache_creation_1h_input_tokens"`
-	CacheReadInputTokens       int `json:"cache_read_input_tokens"`
+	InputTokens                int     `json:"input_tokens"`
+	OutputTokens               int     `json:"output_tokens"`
+	CacheCreationInputTokens   int     `json:"cache_creation_input_tokens"`
+	CacheCreation1hInputTokens int     `json:"cache_creation_1h_input_tokens"`
+	CacheReadInputTokens       int     `json:"cache_read_input_tokens"`
+	Cost                       float64 `json:"cost,omitempty"`
 }
 
 const TruncateTextLimit = 280

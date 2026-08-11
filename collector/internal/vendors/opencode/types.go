@@ -23,13 +23,15 @@ type storedSession struct {
 }
 
 type storedMessage struct {
-	Role    string          `json:"role"`
-	ModelID string          `json:"modelID"`
-	Finish  string          `json:"finish"`
-	Summary json.RawMessage `json:"summary"`
-	Error   json.RawMessage `json:"error"`
-	Tokens  storedTokens    `json:"tokens"`
-	Time    struct {
+	Role       string          `json:"role"`
+	ProviderID string          `json:"providerID"`
+	ModelID    string          `json:"modelID"`
+	Finish     string          `json:"finish"`
+	Summary    json.RawMessage `json:"summary"`
+	Error      json.RawMessage `json:"error"`
+	Cost       float64         `json:"cost"`
+	Tokens     storedTokens    `json:"tokens"`
+	Time       struct {
 		Created   int64  `json:"created"`
 		Completed *int64 `json:"completed"`
 	} `json:"time"`
@@ -55,14 +57,22 @@ type storedPart struct {
 		Status string `json:"status"`
 		Title  string `json:"title"`
 		Input  struct {
-			Command string `json:"command"`
-			Todos   []struct {
+			Command   string           `json:"command"`
+			FilePath  string           `json:"filePath"`
+			Content   string           `json:"content"`
+			Questions []storedQuestion `json:"questions"`
+			Todos     []struct {
 				Content string `json:"content"`
 				Status  string `json:"status"`
 			} `json:"todos"`
 		} `json:"input"`
 		Metadata struct {
-			Files []storedToolFile `json:"files"`
+			Answers  [][]string       `json:"answers"`
+			Exists   *bool            `json:"exists"`
+			Exit     *int             `json:"exit"`
+			FileDiff storedToolFile   `json:"filediff"`
+			FilePath string           `json:"filepath"`
+			Files    []storedToolFile `json:"files"`
 		} `json:"metadata"`
 		Time struct {
 			End *int64 `json:"end"`
@@ -71,11 +81,16 @@ type storedPart struct {
 }
 
 type storedToolFile struct {
+	File         string `json:"file"`
 	FilePath     string `json:"filePath"`
 	RelativePath string `json:"relativePath"`
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
 	Type         string `json:"type"`
+}
+
+type storedQuestion struct {
+	Question string `json:"question"`
 }
 
 type storedDiff struct {
@@ -86,5 +101,6 @@ type storedDiff struct {
 }
 
 type storedModel struct {
-	ID string `json:"id"`
+	ID         string `json:"id"`
+	ProviderID string `json:"providerID"`
 }

@@ -59,6 +59,12 @@ func modelInfoFor(model string) (modelInfo, bool) {
 	if info, ok := models[key]; ok {
 		return info, true
 	}
+	if _, unqualified, ok := strings.Cut(key, "/"); ok {
+		key = unqualified
+		if info, ok := models[key]; ok {
+			return info, true
+		}
+	}
 	info, ok := models[releaseDateSuffix.ReplaceAllString(key, "")]
 	return info, ok
 }
