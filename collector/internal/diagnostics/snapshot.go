@@ -196,6 +196,9 @@ func sourceLabel(agent string) string {
 	if agent == "codex" {
 		return "Codex"
 	}
+	if agent == "opencode" {
+		return "OpenCode"
+	}
 	return agent
 }
 
