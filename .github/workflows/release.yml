@@ -1,3 +1,6 @@
+# Stable promotion verifies that the accepted RC contains this workflow
+# generation, including the App-created tag guard below.
+# release-dispatch-v1
 name: release
 
 on:
@@ -5,18 +8,245 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to build and smoke-test without publishing, e.g. v0.0.1-test"
+      operation:
+        description: "Release operation"
         required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - publish-rc
+          - promote-stable
+      version:
+        description: "Target version, e.g. v0.0.2-rc.1 or v0.0.2"
+        required: true
+        type: string
+      source_rc:
+        description: "Accepted RC for promote-stable, e.g. v0.0.2-rc.2"
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
+  plan:
+    # A manually dispatched run creates and publishes its tag itself. The tag
+    # push emitted by the release App must not start a second release pipeline.
+    if: github.event_name != 'push' || !endsWith(github.actor, '[bot]')
+    runs-on: ubuntu-latest
+    outputs:
+      create_tag: ${{ steps.plan.outputs.create_tag }}
+      manual_release: ${{ steps.plan.outputs.manual_release }}
+      operation: ${{ steps.plan.outputs.operation }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+      release_version: ${{ steps.plan.outputs.release_version }}
+      should_publish: ${{ steps.plan.outputs.should_publish }}
+      source_rc: ${{ steps.plan.outputs.source_rc }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+      update_homebrew: ${{ steps.plan.outputs.update_homebrew }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - name: Check out coSlash history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and validate release plan
+        id: plan
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_SOURCE_RC: ${{ inputs.source_rc }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'
+          stable_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          rc_pattern='^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$'
+
+          operation=
+          version=
+          source_rc=
+          source_sha=
+          prerelease=false
+          should_publish=false
+          create_tag=false
+          manual_release=false
+          update_homebrew=false
+          mutation_plan="none; build and smoke-test only"
+
+          if [[ "$EVENT_NAME" == push ]]; then
+            operation=tag-push
+            version="${EVENT_REF#refs/tags/}"
+            if [[ ! "$version" =~ $version_pattern ]]; then
+              echo "error: release tag must look like v0.0.2 or v0.0.2-rc.1" >&2
+              exit 1
+            fi
+            source_sha="$(git rev-parse "refs/tags/$version^{commit}")"
+            should_publish=true
+            mutation_plan="publish the human-created tag"
+            if [[ "$version" == *-* ]]; then
+              prerelease=true
+            else
+              update_homebrew=true
+              mutation_plan="$mutation_plan and update Homebrew"
+            fi
+          else
+            operation="$INPUT_OPERATION"
+            version="$INPUT_VERSION"
+            source_rc="$INPUT_SOURCE_RC"
+
+            if [[ ! "$version" =~ $version_pattern ]]; then
+              echo "error: version must look like v0.0.2 or v0.0.2-rc.1" >&2
+              exit 1
+            fi
+
+            case "$operation" in
+              dry-run)
+                if [[ -n "$source_rc" ]]; then
+                  echo "error: source_rc must be empty for dry-run" >&2
+                  exit 1
+                fi
+                source_sha="$(git rev-parse "$EVENT_SHA^{commit}")"
+                ;;
+              publish-rc)
+                if [[ "$EVENT_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+                  echo "error: publish-rc must run from $DEFAULT_BRANCH" >&2
+                  exit 1
+                fi
+                if [[ ! "$version" =~ $rc_pattern ]]; then
+                  echo "error: publish-rc version must look like v0.0.2-rc.1" >&2
+                  exit 1
+                fi
+                if [[ -n "$source_rc" ]]; then
+                  echo "error: source_rc must be empty for publish-rc" >&2
+                  exit 1
+                fi
+                source_sha="$(git rev-parse "$EVENT_SHA^{commit}")"
+                prerelease=true
+                should_publish=true
+                create_tag=true
+                manual_release=true
+                mutation_plan="create or reuse $version at $source_sha and publish a prerelease; skip Homebrew"
+                ;;
+              promote-stable)
+                if [[ "$EVENT_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+                  echo "error: promote-stable must run from $DEFAULT_BRANCH" >&2
+                  exit 1
+                fi
+                if [[ ! "$version" =~ $stable_pattern ]]; then
+                  echo "error: promote-stable version must look like v0.0.2" >&2
+                  exit 1
+                fi
+                if [[ ! "$source_rc" =~ $rc_pattern ]]; then
+                  echo "error: source_rc must look like v0.0.2-rc.1" >&2
+                  exit 1
+                fi
+                if [[ "${source_rc%-rc.*}" != "$version" ]]; then
+                  echo "error: source_rc $source_rc does not belong to $version" >&2
+                  exit 1
+                fi
+
+                source_release="$(gh api "repos/$REPOSITORY/releases/tags/$source_rc")" || {
+                  echo "error: source_rc $source_rc does not have a GitHub release" >&2
+                  exit 1
+                }
+                if [[ "$(jq -r .draft <<<"$source_release")" != false ]] ||
+                  [[ "$(jq -r .prerelease <<<"$source_release")" != true ]] ||
+                  [[ "$(jq -r .tag_name <<<"$source_release")" != "$source_rc" ]]; then
+                  echo "error: source_rc $source_rc must be a public prerelease" >&2
+                  exit 1
+                fi
+                if ! git show-ref --verify --quiet "refs/tags/$source_rc"; then
+                  echo "error: source_rc tag $source_rc does not exist" >&2
+                  exit 1
+                fi
+
+                source_sha="$(git rev-parse "refs/tags/$source_rc^{commit}")"
+                if ! git grep -Fq release-dispatch-v1 "$source_sha" -- .github/workflows/release.yml; then
+                  echo "error: source_rc $source_rc predates the Actions release flow; cut a new RC" >&2
+                  exit 1
+                fi
+                should_publish=true
+                create_tag=true
+                manual_release=true
+                update_homebrew=true
+                mutation_plan="create or reuse $version at $source_sha from $source_rc, publish it as latest, and update Homebrew"
+                ;;
+              *)
+                echo "error: unsupported operation $operation" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          if [[ "$should_publish" == true ]]; then
+            # This read-only token can reject public releases. Draft validation
+            # happens in publish, whose token has push access.
+            release_states="$(
+              gh api --paginate "repos/$REPOSITORY/releases?per_page=100" \
+                --jq ".[] | select(.tag_name == \"$version\") | if .draft then \"draft\" else \"public\" end"
+            )"
+            if [[ "$release_states" == *$'\n'* ]]; then
+              echo "error: found multiple releases for $version" >&2
+              exit 1
+            fi
+            if [[ "$release_states" == public ]]; then
+              echo "error: release $version is already public" >&2
+              exit 1
+            fi
+
+            if git show-ref --verify --quiet "refs/tags/$version"; then
+              existing_sha="$(git rev-parse "refs/tags/$version^{commit}")"
+              if [[ "$existing_sha" != "$source_sha" ]]; then
+                echo "error: tag $version points to $existing_sha, expected $source_sha" >&2
+                exit 1
+              fi
+            elif [[ "$operation" == tag-push ]]; then
+              echo "error: pushed tag $version is missing from the checkout" >&2
+              exit 1
+            fi
+          fi
+
+          {
+            echo "## Release plan"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Operation | \`$operation\` |"
+            echo "| Source commit | \`$source_sha\` |"
+            echo "| Source RC | \`${source_rc:-none}\` |"
+            echo "| Target tag | \`$version\` |"
+            echo "| Mutation | $mutation_plan |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "create_tag=$create_tag"
+            echo "manual_release=$manual_release"
+            echo "operation=$operation"
+            echo "prerelease=$prerelease"
+            echo "release_version=${version#v}"
+            echo "should_publish=$should_publish"
+            echo "source_rc=$source_rc"
+            echo "source_sha=$source_sha"
+            echo "update_homebrew=$update_homebrew"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
   build:
+    needs: plan
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: collector/go.mod
@@ -26,19 +256,11 @@ jobs:
           node-version-file: frontend/.nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Validate version
-        env:
-          VERSION: ${{ inputs.version || github.ref_name }}
-        run: |
-          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
-            echo "error: version must be a tag such as v0.0.1 or v0.0.1-rc.1" >&2
-            exit 1
-          fi
       - name: Test
         run: make -C collector test
       - name: Package
         env:
-          VERSION: ${{ inputs.version || github.ref_name }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: make -C collector dist VERSION="$VERSION"
       - name: Save release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -54,7 +276,7 @@ jobs:
   # scripts/smoke.sh a local `make smoke` runs, so the packaged binary is
   # checked the way a person would check it.
   smoke:
-    needs: build
+    needs: [plan, build]
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +289,8 @@ jobs:
     steps:
       - name: Check out coSlash
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.source_sha }}
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -74,7 +298,7 @@ jobs:
           path: dist
       - name: Smoke-test ${{ matrix.arch }} package
         env:
-          VERSION: ${{ inputs.version || github.ref_name }}
+          VERSION: ${{ needs.plan.outputs.version }}
           ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
@@ -94,9 +318,13 @@ jobs:
           collector/scripts/smoke.sh "$binary" embedded
 
   publish:
-    needs: [build, smoke]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [plan, build, smoke]
+    if: needs.plan.outputs.should_publish == 'true'
     runs-on: macos-15
+    # Manual releases use the protected environment. The fallback tag path
+    # retains its automatic behavior through an unprotected environment.
+    environment:
+      name: ${{ needs.plan.outputs.manual_release == 'true' && 'release' || 'tag-release' }}
     concurrency:
       group: release-draft
       cancel-in-progress: false
@@ -111,57 +339,132 @@ jobs:
           path: dist
       - name: Reject published release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.version }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1 &&
-            [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]]; then
-            echo "error: release $TAG is already public; refusing to replace its assets" >&2
+          set -euo pipefail
+          release_states="$(
+            gh api --paginate "repos/$REPOSITORY/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"$TAG\") | if .draft then \"draft\" else \"public\" end"
+          )"
+          if [[ "$release_states" == *$'\n'* ]]; then
+            echo "error: found multiple releases for $TAG" >&2
             exit 1
           fi
-      - name: Resolve release version
-        id: release_version
+          if [[ "$release_states" == public ]]; then
+            echo "error: release $TAG is already public; refusing to replace it" >&2
+            exit 1
+          fi
+          draft_tags="$(
+            gh api --paginate "repos/$REPOSITORY/releases?per_page=100" \
+              --jq ".[] | select(.draft and (.prerelease == $PRERELEASE)) | .tag_name"
+          )"
+          while IFS= read -r draft_tag; do
+            if [[ -n "$draft_tag" && "$draft_tag" != "$TAG" ]]; then
+              echo "error: release drafter would overwrite the existing $draft_tag draft" >&2
+              exit 1
+            fi
+          done <<<"$draft_tags"
+      - name: Create release App token
+        if: needs.plan.outputs.create_tag == 'true'
+        id: release-app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - name: Create or verify protected tag
+        if: needs.plan.outputs.create_tag == 'true'
         env:
-          TAG: ${{ github.ref_name }}
-        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          TAG: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            existing_sha="$(gh api "repos/$REPOSITORY/commits/$TAG" --jq .sha)"
+            if [[ "$existing_sha" != "$SOURCE_SHA" ]]; then
+              echo "error: tag $TAG points to $existing_sha, expected $SOURCE_SHA" >&2
+              exit 1
+            fi
+            echo "Tag $TAG already points to $SOURCE_SHA; resuming"
+          else
+            gh api --method POST "repos/$REPOSITORY/git/refs" \
+              --field ref="refs/tags/$TAG" \
+              --field sha="$SOURCE_SHA" >/dev/null
+          fi
+      - name: Verify release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+          TAG: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPOSITORY/git/ref/tags/$TAG" >/dev/null
+          actual_sha="$(gh api "repos/$REPOSITORY/commits/$TAG" --jq .sha)"
+          if [[ "$actual_sha" != "$SOURCE_SHA" ]]; then
+            echo "error: tag $TAG points to $actual_sha, expected $SOURCE_SHA" >&2
+            exit 1
+          fi
       - name: Prepare release draft
         uses: release-drafter/release-drafter@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
         with:
-          tag: ${{ github.ref_name }}
-          version: ${{ steps.release_version.outputs.version }}
-          commitish: ${{ github.ref }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag: ${{ needs.plan.outputs.version }}
+          version: ${{ needs.plan.outputs.release_version }}
+          commitish: ${{ needs.plan.outputs.source_sha }}
+          prerelease: ${{ needs.plan.outputs.prerelease }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Upload, verify, and publish
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # This job never checks out, so `gh` has no git remote to infer the
-          # repository from and would fail with "not a git repository".
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           assets=(dist/*.tar.gz dist/checksums.txt)
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          release="$(gh release view "$TAG" --json isDraft,isPrerelease,body,assets)" || {
             echo "error: release drafter did not create release $TAG" >&2
             exit 1
-          fi
-          if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]]; then
+          }
+          if [[ "$(jq -r .isDraft <<<"$release")" != true ]]; then
             echo "error: release $TAG is not a draft" >&2
             exit 1
           fi
-          release_body="$(gh release view "$TAG" --json body --jq .body)"
+          if [[ "$(jq -r .isPrerelease <<<"$release")" != "$PRERELEASE" ]]; then
+            echo "error: release $TAG has the wrong prerelease setting" >&2
+            exit 1
+          fi
+          release_body="$(jq -r .body <<<"$release")"
           if [[ "$release_body" != *"VERSION=$TAG"* ]]; then
             echo "error: release notes do not reference VERSION=$TAG" >&2
             exit 1
           fi
 
+          while IFS= read -r existing_name; do
+            expected=false
+            for asset in "${assets[@]}"; do
+              if [[ "${asset##*/}" == "$existing_name" ]]; then
+                expected=true
+                break
+              fi
+            done
+            if [[ "$expected" != true ]]; then
+              echo "error: draft contains unexpected asset $existing_name" >&2
+              exit 1
+            fi
+          done < <(jq -r '.assets[].name' <<<"$release")
+
           existing_dir="$(mktemp -d)"
           for asset in "${assets[@]}"; do
             name="${asset##*/}"
-            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
+            if jq -r '.assets[].name' <<<"$release" | grep -Fxq "$name"; then
               gh release download "$TAG" --pattern "$name" --dir "$existing_dir"
               if ! cmp -s "$asset" "$existing_dir/$name"; then
                 echo "error: draft already contains a different $name" >&2
@@ -172,20 +475,35 @@ jobs:
             fi
           done
 
+          release="$(gh release view "$TAG" --json assets)"
+          if [[ "$(jq '.assets | length' <<<"$release")" -ne "${#assets[@]}" ]]; then
+            echo "error: release $TAG does not contain exactly the expected assets" >&2
+            exit 1
+          fi
+
           verify_dir="$(mktemp -d)"
           gh release download "$TAG" --pattern '*.tar.gz' --pattern checksums.txt --dir "$verify_dir"
           for asset in "${assets[@]}"; do
             cmp "$asset" "$verify_dir/${asset##*/}"
           done
           (cd "$verify_dir" && shasum -a 256 -c checksums.txt)
-          gh release edit "$TAG" --draft=false
+
+          if [[ "$PRERELEASE" == true ]]; then
+            gh release edit "$TAG" --draft=false --prerelease
+          else
+            gh release edit "$TAG" --draft=false --latest
+          fi
+
+          published="$(gh api "repos/$REPOSITORY/releases/tags/$TAG")"
+          if [[ "$(jq -r .draft <<<"$published")" != false ]] ||
+            [[ "$(jq -r .prerelease <<<"$published")" != "$PRERELEASE" ]]; then
+            echo "error: release $TAG did not publish with the expected settings" >&2
+            exit 1
+          fi
 
   bump-homebrew:
-    needs: publish
-    if: >-
-      github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/tags/') &&
-      !contains(github.ref_name, '-')
+    needs: [plan, publish]
+    if: needs.plan.outputs.update_homebrew == 'true'
     runs-on: macos-15
     concurrency:
       group: homebrew-tap-coslash
@@ -195,11 +513,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: coslash
+          ref: ${{ needs.plan.outputs.source_sha }}
       - name: Check out Homebrew tap
         run: git clone --depth 1 https://github.com/centauri-ai/homebrew-tap.git tap
       - name: Download and verify release assets
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           mkdir downloads
@@ -248,7 +567,7 @@ jobs:
       - name: Commit formula
         working-directory: tap
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.plan.outputs.version }}
         run: |
           set -euo pipefail
           git add Formula/coslash.rb
