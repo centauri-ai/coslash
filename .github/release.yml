@@ -1,0 +1,55 @@
+changelog:
+  categories:
+    - title: Features and improvements
+      labels:
+        - enhancement
+      exclude:
+        labels:
+          - bug
+
+    - title: Bug fixes
+      labels:
+        - bug
+
+    - title: Documentation
+      labels:
+        - documentation
+      exclude:
+        labels:
+          - enhancement
+          - bug
+
+    - title: Refactoring
+      labels:
+        - refactor
+      exclude:
+        labels:
+          - enhancement
+          - bug
+          - documentation
+
+    - title: Tooling and CI
+      labels:
+        - devtools
+        - github_actions
+      exclude:
+        labels:
+          - enhancement
+          - bug
+          - documentation
+          - refactor
+          - dependencies
+
+    - title: Dependencies
+      labels:
+        - dependencies
+      exclude:
+        labels:
+          - enhancement
+          - bug
+          - documentation
+          - refactor
+
+    - title: Other changes
+      labels:
+        - "*"
