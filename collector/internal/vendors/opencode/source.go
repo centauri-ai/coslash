@@ -15,10 +15,48 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-const activeRootsQuery = `
-SELECT id, directory, title, summary_files, summary_diffs, model, cost, time_updated
-FROM session
-WHERE parent_id IS NULL AND time_archived IS NULL`
+const activeFamiliesQuery = `
+WITH selected_roots AS (
+	SELECT root.id,
+		MAX(root.time_updated,
+			COALESCE(MAX(child.time_updated), root.time_updated),
+			COALESCE(MAX(child.time_archived), root.time_updated)) AS family_updated
+	FROM session AS root
+	LEFT JOIN session AS child ON child.parent_id = root.id
+	WHERE root.parent_id IS NULL AND root.time_archived IS NULL
+	GROUP BY root.id
+)
+SELECT member.id, member.parent_id, member.directory, member.title, member.summary_files,
+	member.summary_diffs, member.model, member.cost,
+	CASE WHEN member.id = selected_roots.id THEN selected_roots.family_updated ELSE member.time_updated END
+FROM selected_roots
+JOIN session AS member ON member.id = selected_roots.id OR member.parent_id = selected_roots.id
+WHERE member.time_archived IS NULL`
+
+const activeRootQuery = `
+SELECT root.id, root.parent_id, root.directory, root.title, root.summary_files,
+	root.summary_diffs, root.model, root.cost,
+	MAX(root.time_updated, COALESCE((
+		SELECT MAX(child.time_updated)
+		FROM session AS child
+		WHERE child.parent_id = root.id
+	), root.time_updated), COALESCE((
+		SELECT MAX(child.time_archived)
+		FROM session AS child
+		WHERE child.parent_id = root.id
+	), root.time_updated))
+FROM session AS root
+WHERE root.parent_id IS NULL AND root.time_archived IS NULL`
+
+type taskLink struct {
+	name   string
+	status string
+}
+
+type parsedSession struct {
+	transcript *vendors.ParsedTranscript
+	tasks      map[string]taskLink
+}
 
 func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error) {
 	db, err := open()
@@ -30,13 +68,14 @@ func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata
 	}
 	defer db.Close()
 
-	query := activeRootsQuery
+	query := activeFamiliesQuery
 	var args []any
 	if since > 0 {
-		query += " AND time_updated >= ?"
+		query += " AND selected_roots.family_updated >= ?"
 		args = append(args, since)
 	}
-	query += " ORDER BY time_updated DESC, id"
+	query += ` ORDER BY selected_roots.family_updated DESC,
+		member.parent_id IS NOT NULL, member.time_updated, member.id`
 	parsed, err := load(db, query, args...)
 	return parsed, emptyMetadata(), err
 }
@@ -54,7 +93,7 @@ func Get(id string) (*vendors.ParsedTranscript, error) {
 	}
 	defer db.Close()
 
-	parsed, err := load(db, activeRootsQuery+" AND id = ?", id)
+	parsed, err := load(db, activeRootQuery+" AND root.id = ?", id)
 	if err != nil || len(parsed) == 0 {
 		return nil, err
 	}
@@ -99,7 +138,7 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, e
 	for rows.Next() {
 		var row storedSession
 		if err := rows.Scan(
-			&row.id, &row.directory, &row.title, &row.summaryFiles, &row.summaryDiffs,
+			&row.id, &row.parentID, &row.directory, &row.title, &row.summaryFiles, &row.summaryDiffs,
 			&row.model, &row.cost, &row.updatedAt,
 		); err != nil {
 			rows.Close()
@@ -115,7 +154,7 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, e
 		return nil, err
 	}
 
-	parsed := make([]*vendors.ParsedTranscript, 0, len(stored))
+	parsed := make([]parsedSession, 0, len(stored))
 	for _, row := range stored {
 		item, err := parse(tx, row)
 		if err != nil {
@@ -123,37 +162,61 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, e
 		}
 		parsed = append(parsed, item)
 	}
+	byID := make(map[string]*vendors.ParsedTranscript, len(parsed))
+	for _, item := range parsed {
+		byID[item.transcript.Session.ID] = item.transcript
+	}
+	for _, parent := range parsed {
+		for childID, task := range parent.tasks {
+			child, ok := byID[childID]
+			if !ok || child.ParentID != parent.transcript.Session.ID {
+				continue
+			}
+			child.SpawnKey = childID
+			child.Stopped = task.status == "error"
+			if task.name != "" {
+				child.Name = task.name
+			}
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return parsed, nil
+	transcripts := make([]*vendors.ParsedTranscript, 0, len(parsed))
+	for _, item := range parsed {
+		transcripts = append(transcripts, item.transcript)
+	}
+	return transcripts, nil
 }
 
-func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
+func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	modelID := ""
 	if row.model.Valid {
 		var model storedModel
 		if err := json.Unmarshal([]byte(row.model.String), &model); err != nil {
-			return nil, fmt.Errorf("decode model: %w", err)
+			return parsedSession{}, fmt.Errorf("decode model: %w", err)
 		}
 		modelID = modelName(model.ProviderID, model.ID)
 	}
 	messages, err := loadMessages(tx, row.id)
 	if err != nil {
-		return nil, err
+		return parsedSession{}, err
 	}
 	todos, err := loadTodos(tx, row.id)
 	if err != nil {
-		return nil, err
+		return parsedSession{}, err
 	}
 	summaryEdits, err := loadFileEdits(row.summaryDiffs)
 	if err != nil {
-		return nil, err
+		return parsedSession{}, err
 	}
 
 	tokens := map[string]session.ModelTokens{}
 	var digest session.DigestLog
 	var commands session.CommandLog
+	spawnTurns := map[string]int{}
+	completed := map[string]struct{}{}
+	tasks := map[string]taskLink{}
 	turns := 0
 	toolUses := 0
 	errorsCount := 0
@@ -240,8 +303,32 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 				if part.State.Status == "error" {
 					errorsCount++
 				}
-				if part.State.Status == "pending" || part.State.Status == "running" {
+				if part.Tool != "task" &&
+					(part.State.Status == "pending" || part.State.Status == "running") {
 					busy = true
+				}
+				if part.Tool == "task" {
+					childID := part.State.Metadata.SessionID
+					parentID := part.State.Metadata.ParentSessionID
+					if childID != "" && (parentID == "" || parentID == row.id) {
+						link, exists := tasks[childID]
+						if !exists {
+							spawnTurns[childID] = max(turns, 1)
+							digest.PushSubagent(turns, childID)
+						}
+						if part.State.Input.Description != "" {
+							link.name = part.State.Input.Description
+						} else if link.name == "" {
+							link.name = part.State.Input.SubagentType
+						}
+						link.status = part.State.Status
+						tasks[childID] = link
+						if part.State.Status == "completed" {
+							completed[childID] = struct{}{}
+						} else {
+							delete(completed, childID)
+						}
+					}
 				}
 				isShell := part.Tool == "bash" || part.Tool == "shell"
 				if isShell && part.State.Status == "completed" && part.State.Input.Command != "" {
@@ -334,6 +421,12 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 			digest.Push(turns, session.DigestRecap, text)
 		}
 	}
+	for _, task := range tasks {
+		if task.status == "pending" || task.status == "running" {
+			busy = true
+			break
+		}
+	}
 
 	details := session.SessionDetails{
 		Turns:          turns,
@@ -395,12 +488,17 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 		value := session.Truncate(summary, session.TruncateTextLimit)
 		result.Summary = &value
 	}
-	return &vendors.ParsedTranscript{
-		Session:    result,
-		Name:       row.title,
-		SpawnTurns: map[string]int{},
-		Completed:  map[string]struct{}{},
-		Commands:   []session.SubagentCommand{},
+	return parsedSession{
+		transcript: &vendors.ParsedTranscript{
+			Session:    result,
+			ParentID:   row.parentID.String,
+			Name:       row.title,
+			InTurn:     busy,
+			SpawnTurns: spawnTurns,
+			Completed:  completed,
+			Commands:   commands.Labelled(),
+		},
+		tasks: tasks,
 	}, nil
 }
 

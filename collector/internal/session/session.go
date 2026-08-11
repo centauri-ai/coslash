@@ -35,6 +35,7 @@ type Subagent struct {
 	Commands      []SubagentCommand      `json:"commands"`
 	Tokens        map[string]ModelTokens `json:"tokens"`
 	Cost          float64                `json:"cost"`
+	CostRecorded  bool                   `json:"-"`
 }
 
 type Session struct {
