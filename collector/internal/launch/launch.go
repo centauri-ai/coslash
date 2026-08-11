@@ -36,9 +36,11 @@ Do not act on them, do not begin any work, and do not respond to them. Wait for 
 
 `
 
-var sessionIDPattern = regexp.MustCompile(
+var uuidSessionIDPattern = regexp.MustCompile(
 	`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
 )
+
+var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 
 type terminalAdapter struct {
 	label     string
@@ -112,7 +114,11 @@ func cliCommand(agent, sessionID, mode, handoff string) (string, string, error) 
 		}
 		return handoffCommand(agent, cli, handoff)
 	case ResumeSession:
-		if !sessionIDPattern.MatchString(sessionID) {
+		validSessionID := uuidSessionIDPattern.MatchString(sessionID)
+		if agent == vendors.AgentOpenCode {
+			validSessionID = openCodeSessionIDPattern.MatchString(sessionID)
+		}
+		if !validSessionID {
 			return "", "", fmt.Errorf("launch: %q is not a session id", sessionID)
 		}
 		resume, err := resumeFlag(agent)
@@ -147,6 +153,19 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 		guard := "cat " + shellQuote(path) + " > /dev/null && "
 		override := `"developer_instructions=$(cat ` + shellQuote(path) + `)"`
 		return withCleanup(guard+shellJoin(cli, "-c")+" "+override, path), path, nil
+	case vendors.AgentOpenCode:
+		path, err := writeHandoffFile(context)
+		if err != nil {
+			return "", "", err
+		}
+		config, err := json.Marshal(map[string][]string{"instructions": {path}})
+		if err != nil {
+			os.Remove(path)
+			return "", "", fmt.Errorf("launch: encoding OpenCode handoff config: %w", err)
+		}
+		guard := "cat " + shellQuote(path) + " > /dev/null && "
+		command := guard + "OPENCODE_CONFIG_CONTENT=" + shellQuote(string(config)) + " " + shellJoin(cli)
+		return withCleanup(command, path), path, nil
 	}
 	return "", "", fmt.Errorf("launch: unknown agent %q", agent)
 }
@@ -212,6 +231,8 @@ func cliName(agent string) (string, error) {
 		return "claude", nil
 	case vendors.AgentCodex:
 		return "codex", nil
+	case vendors.AgentOpenCode:
+		return "opencode", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }
@@ -222,6 +243,9 @@ func resumeFlag(agent string) (string, error) {
 	}
 	if agent == vendors.AgentClaude {
 		return "--resume", nil
+	}
+	if agent == vendors.AgentOpenCode {
+		return "--session", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }
