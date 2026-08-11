@@ -1,6 +1,7 @@
 package vendors
 
 const (
-	AgentClaude = "claude"
-	AgentCodex  = "codex"
+	AgentClaude   = "claude"
+	AgentCodex    = "codex"
+	AgentOpenCode = "opencode"
 )
