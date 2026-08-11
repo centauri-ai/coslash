@@ -62,7 +62,7 @@ func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
 				cli += " (" + source.CLI.Version + ")"
 			}
 		}
-		fmt.Fprintf(w, "%s: %s, %d transcript files, %d session files; CLI %s\n", source.Label, source.Root, source.Transcripts, source.SessionFiles, cli)
+		fmt.Fprintf(w, "%s: %s, %d source entries, %d sessions; CLI %s\n", source.Label, source.Root, source.Entries, source.Sessions, cli)
 	}
 	fmt.Fprintf(w, "Storage: %s, writable=%t\n", snapshot.Storage.Home, snapshot.Storage.Writable)
 }

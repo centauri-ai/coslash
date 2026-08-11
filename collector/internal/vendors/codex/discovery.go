@@ -34,6 +34,11 @@ func readHeader(path string) (string, string, bool) {
 	return id, row.Payload.ParentThreadID, true
 }
 
+func IsRootRollout(path string) bool {
+	_, parentID, ok := readHeader(path)
+	return ok && parentID == ""
+}
+
 // root/subagents: ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<session-uuid>.jsonl
 func Root() (string, error) {
 	home, err := os.UserHomeDir()

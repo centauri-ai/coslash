@@ -73,7 +73,7 @@ export function DiagnosticsDialog({
                 </div>
                 {diagnostics.sources.map((source) => (
                   <div key={source.agent}>
-                    {source.label}: {source.sessionFiles} session files in <code>{source.root}</code>
+                    {source.label}: {source.sessions} sessions in <code>{source.root}</code>
                     <br />
                     CLI: {source.cli.found ? source.cli.version || source.cli.path : 'not found'}
                   </div>
