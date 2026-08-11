@@ -18,7 +18,7 @@ type storedSession struct {
 	summaryFiles sql.NullInt64
 	summaryDiffs sql.NullString
 	model        sql.NullString
-	createdAt    int64
+	cost         float64
 	updatedAt    int64
 }
 
@@ -29,7 +29,11 @@ type storedMessage struct {
 	Summary json.RawMessage `json:"summary"`
 	Error   json.RawMessage `json:"error"`
 	Tokens  storedTokens    `json:"tokens"`
-	parts   []storedPart
+	Time    struct {
+		Created   int64  `json:"created"`
+		Completed *int64 `json:"completed"`
+	} `json:"time"`
+	parts []storedPart
 }
 
 type storedTokens struct {
@@ -52,8 +56,26 @@ type storedPart struct {
 		Title  string `json:"title"`
 		Input  struct {
 			Command string `json:"command"`
+			Todos   []struct {
+				Content string `json:"content"`
+				Status  string `json:"status"`
+			} `json:"todos"`
 		} `json:"input"`
+		Metadata struct {
+			Files []storedToolFile `json:"files"`
+		} `json:"metadata"`
+		Time struct {
+			End *int64 `json:"end"`
+		} `json:"time"`
 	} `json:"state"`
+}
+
+type storedToolFile struct {
+	FilePath     string `json:"filePath"`
+	RelativePath string `json:"relativePath"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
+	Type         string `json:"type"`
 }
 
 type storedDiff struct {
