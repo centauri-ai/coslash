@@ -125,7 +125,8 @@ function SessionsStats({
           </span>{' '}
           {WINDOW_ACTIVITY_LABELS[timeWindow]} ·{' '}
           {sessions.filter((session) => session.agent === 'claude').length} Claude Code,{' '}
-          {sessions.filter((session) => session.agent === 'codex').length} Codex ·
+          {sessions.filter((session) => session.agent === 'codex').length} Codex,{' '}
+          {sessions.filter((session) => session.agent === 'opencode').length} OpenCode ·
         </span>
         <UnpricedModelWarning unpriced={sessions.flatMap((session) => session.unpricedModels)}>
           {formatEstimatedCost(sessions.reduce((sum, session) => sum + session.cost, 0))}

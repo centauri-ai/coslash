@@ -149,6 +149,7 @@ const VENDORS = {
     bg: 'bg-claude-bg',
   },
   codex: { label: 'Codex', mono: 'CX', fg: 'text-codex', bg: 'bg-codex-bg' },
+  opencode: { label: 'OpenCode', mono: 'OC', fg: 'text-opencode', bg: 'bg-opencode-bg' },
 } satisfies Record<string, Vendor>;
 
 export type VendorKey = keyof typeof VENDORS;
