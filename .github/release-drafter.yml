@@ -1,0 +1,77 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+categories:
+  - title: Bug fixes
+    exclusive: true
+    when:
+      label: bug
+
+  - title: Features and improvements
+    exclusive: true
+    when:
+      label: enhancement
+
+  - title: Documentation
+    exclusive: true
+    when:
+      label: documentation
+
+  - title: Refactoring
+    exclusive: true
+    when:
+      label: refactor
+
+  - title: Dependencies
+    exclusive: true
+    when:
+      label: dependencies
+
+  - title: Tooling and CI
+    exclusive: true
+    when:
+      labels:
+        - devtools
+        - github_actions
+
+  - title: Other changes
+
+  - type: version-resolver
+    semver-increment: patch
+
+change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
+change-title-escapes: '\<*_&'
+
+template: |
+  ## Install
+
+  ```sh
+  brew install centauri-ai/tap/coslash
+  coslash
+  ```
+
+  Already tapped? `brew upgrade coslash`.
+
+  The `.tar.gz` assets below are for manual installs:
+
+  ```sh
+  VERSION=v$RESOLVED_VERSION
+  ARCH=arm64  # or amd64 on Intel
+  ASSET="coslash_${VERSION}_darwin_${ARCH}.tar.gz"
+  BASE_URL="https://github.com/centauri-ai/coslash/releases/download/${VERSION}"
+  curl -fLO "${BASE_URL}/${ASSET}"
+  curl -fLO "${BASE_URL}/checksums.txt"
+  grep -F "  ${ASSET}" checksums.txt | shasum -a 256 -c -
+  tar -xzf "${ASSET}"
+  "${ASSET%.tar.gz}/coslash"
+  ```
+
+  Substitute the release version and architecture. The binaries are unsigned
+  and unnotarized, so macOS may warn about an archive downloaded through a
+  browser; the Homebrew install above is not affected.
+
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

@@ -97,14 +97,43 @@ jobs:
     needs: [build, smoke]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: macos-15
+    concurrency:
+      group: release-draft
+      cancel-in-progress: false
     permissions:
       contents: write
+      pull-requests: read
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-artifacts
           path: dist
+      - name: Reject published release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1 &&
+            [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]]; then
+            echo "error: release $TAG is already public; refusing to replace its assets" >&2
+            exit 1
+          fi
+      - name: Resolve release version
+        id: release_version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Prepare release draft
+        uses: release-drafter/release-drafter@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
+        with:
+          tag: ${{ github.ref_name }}
+          version: ${{ steps.release_version.outputs.version }}
+          commitish: ${{ github.ref }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -115,51 +144,18 @@ jobs:
         run: |
           set -euo pipefail
           assets=(dist/*.tar.gz dist/checksums.txt)
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]]; then
-              echo "error: release $TAG is already public; refusing to replace its assets" >&2
-              exit 1
-            fi
-          fi
-
-          notes=$(mktemp)
-          cat >"$notes" <<'NOTES'
-          ## Install
-
-          ```sh
-          brew install centauri-ai/tap/coslash
-          coslash
-          ```
-
-          Already tapped? `brew upgrade coslash`.
-
-          The `.tar.gz` assets below are for manual installs:
-
-          ```sh
-          VERSION=__TAG__
-          ARCH=arm64  # or amd64 on Intel
-          ASSET="coslash_${VERSION}_darwin_${ARCH}.tar.gz"
-          BASE_URL="https://github.com/centauri-ai/coslash/releases/download/${VERSION}"
-          curl -fLO "${BASE_URL}/${ASSET}"
-          curl -fLO "${BASE_URL}/checksums.txt"
-          grep -F "  ${ASSET}" checksums.txt | shasum -a 256 -c -
-          tar -xzf "${ASSET}"
-          "${ASSET%.tar.gz}/coslash"
-          ```
-
-          Substitute the release version and architecture. The binaries are
-          unsigned and unnotarized, so macOS may warn about an archive downloaded
-          through a browser; the Homebrew install above is not affected.
-          NOTES
-          sed -i '' "s/__TAG__/$TAG/g" "$notes"
-
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            create=(gh release create "$TAG" --draft
-              --title "$TAG" --notes-file "$notes" --generate-notes)
-            if [[ "$TAG" == *-* ]]; then
-              create+=(--prerelease)
-            fi
-            "${create[@]}"
+            echo "error: release drafter did not create release $TAG" >&2
+            exit 1
+          fi
+          if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]]; then
+            echo "error: release $TAG is not a draft" >&2
+            exit 1
+          fi
+          release_body="$(gh release view "$TAG" --json body --jq .body)"
+          if [[ "$release_body" != *"VERSION=$TAG"* ]]; then
+            echo "error: release notes do not reference VERSION=$TAG" >&2
+            exit 1
           fi
 
           existing_dir="$(mktemp -d)"
