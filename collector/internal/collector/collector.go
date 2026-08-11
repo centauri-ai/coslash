@@ -15,6 +15,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
 const (
@@ -56,6 +57,21 @@ var vendorSources = []vendorSource{
 		id:     codex.SessionIDFromRollout, parse: codex.Parse, metadata: codex.LoadMetadata,
 		fork: codex.ApplyForkedUsage, window: codex.FilesSince,
 	}),
+	{
+		name: vendors.AgentOpenCode, collect: opencode.Collect, get: opencode.Get,
+		health: func() SourceHealth {
+			root, err := opencode.Root()
+			if err != nil {
+				return SourceHealth{Agent: vendors.AgentOpenCode, Err: err}
+			}
+			health, err := opencode.Health()
+			return SourceHealth{
+				Agent: vendors.AgentOpenCode, Root: root, Entries: health.Entries,
+				Sessions: health.Sessions, Missing: health.Missing, Err: err,
+			}
+		},
+		fork: func([]*vendors.ParsedTranscript) {},
+	},
 }
 
 type SourceHealth struct {
