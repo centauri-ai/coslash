@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,26 +18,32 @@ func SessionIDFromRollout(path string) string {
 	return rolloutID.FindString(filepath.Base(path))
 }
 
-func readHeader(path string) (string, string, bool) {
+func readHeader(path string) (string, string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", "", false
+		return "", "", err
 	}
 	defer file.Close()
 	var row codexRow
 	if err := json.NewDecoder(file).Decode(&row); err != nil {
-		return "", "", false
+		return "", "", err
 	}
 	id := SessionIDFromRollout(path)
-	if row.Type != "session_meta" || id == "" || row.Payload.ID != id {
-		return "", "", false
+	if row.Type != "session_meta" {
+		return "", "", fmt.Errorf("first row type %q is not session_meta", row.Type)
 	}
-	return id, row.Payload.ParentThreadID, true
+	if id == "" {
+		return "", "", fmt.Errorf("rollout filename has no session ID")
+	}
+	if row.Payload.ID != id {
+		return "", "", fmt.Errorf("header session ID %q does not match filename ID %q", row.Payload.ID, id)
+	}
+	return id, row.Payload.ParentThreadID, nil
 }
 
-func IsRootRollout(path string) bool {
-	_, parentID, ok := readHeader(path)
-	return ok && parentID == ""
+func IsRootRollout(path string) (bool, error) {
+	_, parentID, err := readHeader(path)
+	return err == nil && parentID == "", err
 }
 
 // root/subagents: ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<session-uuid>.jsonl
@@ -63,8 +70,8 @@ func FilesSince(files []string, live map[string]string, since int64) []string {
 	selected := map[string]struct{}{}
 	queue := []string{}
 	for _, file := range files {
-		id, parentID, ok := readHeader(file)
-		if !ok {
+		id, parentID, err := readHeader(file)
+		if err != nil {
 			selected[file] = struct{}{}
 			continue
 		}

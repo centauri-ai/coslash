@@ -39,20 +39,26 @@ func adaptFileVendor(source fileSource) vendorSource {
 			if err != nil {
 				return SourceHealth{Agent: source.name, Root: root, Err: err}
 			}
-			health := SourceHealth{
+			sessions := 0
+			for _, file := range scan.Files {
+				isRoot, err := source.isRoot(file)
+				if err != nil {
+					scan.RecordSkipped(file, err)
+					continue
+				}
+				if isRoot {
+					sessions++
+				}
+			}
+			return SourceHealth{
 				Agent:        source.name,
 				Root:         root,
 				Entries:      len(scan.Files),
+				Sessions:     sessions,
 				Missing:      scan.RootMissing,
 				Skipped:      scan.Skipped,
 				SkippedTotal: max(scan.SkippedTotal, len(scan.Skipped)),
 			}
-			for _, file := range scan.Files {
-				if source.isRoot(file) {
-					health.Sessions++
-				}
-			}
-			return health
 		},
 		fork: source.fork,
 	}

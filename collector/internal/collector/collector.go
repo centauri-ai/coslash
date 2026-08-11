@@ -35,7 +35,7 @@ type fileSource struct {
 	root     func() (string, error)
 	files    func() ([]string, error)
 	scan     func() (*vendors.SourceScan, error)
-	isRoot   func(path string) bool
+	isRoot   func(path string) (bool, error)
 	id       func(path string) string // session id without parsing, for Get
 	parse    func(path string) (*vendors.ParsedTranscript, error)
 	metadata func() (*vendors.SessionMetadata, error) // information not extractable from logs alone
@@ -46,7 +46,7 @@ type fileSource struct {
 var vendorSources = []vendorSource{
 	adaptFileVendor(fileSource{
 		name: vendors.AgentClaude, root: claude.Root, files: claude.Files, scan: claude.Scan,
-		isRoot: func(path string) bool { return claude.ParentIDFromPath(path) == "" },
+		isRoot: func(path string) (bool, error) { return claude.ParentIDFromPath(path) == "", nil },
 		id:     claude.IDFromPath, parse: claude.Parse, metadata: claude.LoadMetadata,
 		fork: claude.ApplyForkedUsage, window: claude.FilesSince,
 	}),
