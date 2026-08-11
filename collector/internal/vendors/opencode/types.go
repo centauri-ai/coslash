@@ -50,10 +50,11 @@ type storedTokens struct {
 }
 
 type storedPart struct {
-	Type      string `json:"type"`
-	Text      string `json:"text"`
-	Synthetic bool   `json:"synthetic"`
-	Tool      string `json:"tool"`
+	Type      string   `json:"type"`
+	Text      string   `json:"text"`
+	Synthetic bool     `json:"synthetic"`
+	Tool      string   `json:"tool"`
+	Files     []string `json:"files"`
 	State     struct {
 		Status string `json:"status"`
 		Title  string `json:"title"`
@@ -83,6 +84,7 @@ type storedPart struct {
 			End *int64 `json:"end"`
 		} `json:"time"`
 	} `json:"state"`
+	updatedAt int64
 }
 
 type storedToolFile struct {

@@ -231,6 +231,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	commits := []string{}
 	pullRequests := 0
 	fileEdits := session.NewFileEditSet()
+	patchEdits := session.NewFileEditSet()
 	var lastEditAt *int64
 	todoStatus := map[string]string{}
 	for _, message := range messages {
@@ -297,6 +298,21 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			case "text":
 				if text := strings.TrimSpace(part.Text); text != "" {
 					texts = append(texts, text)
+				}
+			case "patch":
+				patched := false
+				for _, path := range part.Files {
+					if strings.TrimSpace(path) == "" {
+						continue
+					}
+					path = normalizeFilePath(row.directory, path)
+					patchEdits.Add(path, 0, 0, false)
+					patched = true
+				}
+				if patched && part.updatedAt > 0 &&
+					(lastEditAt == nil || part.updatedAt > *lastEditAt) {
+					updatedAt := part.updatedAt
+					lastEditAt = &updatedAt
 				}
 			case "tool":
 				toolUses++
@@ -427,6 +443,30 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			break
 		}
 	}
+	seenFiles := make(map[string]struct{}, len(fileEdits.Edits)+len(summaryEdits)+len(patchEdits.Edits))
+	for _, edit := range fileEdits.Edits {
+		seenFiles[edit.Path] = struct{}{}
+	}
+	for _, edit := range summaryEdits {
+		edit.Path = normalizeFilePath(row.directory, edit.Path)
+		if edit.Path == "" {
+			continue
+		}
+		if _, exists := seenFiles[edit.Path]; exists {
+			continue
+		}
+		fileEdits.Add(edit.Path, edit.Additions, edit.Deletions, edit.IsNew)
+		seenFiles[edit.Path] = struct{}{}
+	}
+	for _, edit := range patchEdits.Edits {
+		if _, exists := seenFiles[edit.Path]; exists {
+			continue
+		}
+		for range edit.Edits {
+			fileEdits.Add(edit.Path, 0, 0, false)
+		}
+		seenFiles[edit.Path] = struct{}{}
+	}
 
 	details := session.SessionDetails{
 		Turns:          turns,
@@ -454,12 +494,6 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		details.ContextTokens = &contextTokens
 	}
 
-	if len(fileEdits.Edits) == 0 {
-		for index := range summaryEdits {
-			summaryEdits[index].Path = normalizeFilePath(row.directory, summaryEdits[index].Path)
-		}
-		details.FileEdits = summaryEdits
-	}
 	editedFileCount := len(details.FileEdits)
 	if editedFileCount == 0 && row.summaryFiles.Valid {
 		editedFileCount = int(row.summaryFiles.Int64)
@@ -523,7 +557,7 @@ func normalizeFilePath(cwd, path string) string {
 
 func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 	rows, err := tx.Query(`
-		SELECT message.id, message.data, part.data
+		SELECT message.id, message.data, part.data, part.time_updated
 		FROM message
 		LEFT JOIN part ON part.message_id = message.id
 		WHERE message.session_id = ?
@@ -540,7 +574,8 @@ func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 		var id string
 		var messageJSON string
 		var partJSON sql.NullString
-		if err := rows.Scan(&id, &messageJSON, &partJSON); err != nil {
+		var partUpdatedAt sql.NullInt64
+		if err := rows.Scan(&id, &messageJSON, &partJSON, &partUpdatedAt); err != nil {
 			return nil, fmt.Errorf("read message: %w", err)
 		}
 		if id != lastID {
@@ -556,6 +591,7 @@ func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 			if err := json.Unmarshal([]byte(partJSON.String), &part); err != nil {
 				return nil, fmt.Errorf("decode part for message %q: %w", id, err)
 			}
+			part.updatedAt = partUpdatedAt.Int64
 			messages[len(messages)-1].parts = append(messages[len(messages)-1].parts, part)
 		}
 	}
