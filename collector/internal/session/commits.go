@@ -6,7 +6,7 @@ import (
 )
 
 // git commit as a complete command word, excludes plumbing commands (i.e.  commit-tree)
-var gitCommitCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*git\s+commit(?:$|[\s;&|])`)
+var gitCommitCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*(?:rtk\s+)?git\s+commit(?:$|[\s;&|])`)
 
 // -m, --message, or a combined short flag such as -am, single or double-quoted
 var commitMessage = regexp.MustCompile(`(?:--message|-[a-zA-Z]*m)[=\s]*(?:"([^"]+)"|'([^']+)')`)
@@ -92,7 +92,7 @@ func unwrapMultilineMessage(message string) (string, bool) {
 	return "", false
 }
 
-var prCreateCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*gh\s+pr\s+create\b`)
+var prCreateCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*(?:rtk\s+)?gh\s+pr\s+create\b`)
 var prCreateHelpOrVersionCommand = regexp.MustCompile(
 	`gh\s+pr\s+create\s+(?:-h|--help|--version)\b`,
 )

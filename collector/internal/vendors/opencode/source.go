@@ -15,7 +15,7 @@ import (
 )
 
 const activeRootsQuery = `
-SELECT id, directory, title, summary_files, summary_diffs, model, time_created, time_updated
+SELECT id, directory, title, summary_files, summary_diffs, model, cost, time_updated
 FROM session
 WHERE parent_id IS NULL AND time_archived IS NULL`
 
@@ -99,7 +99,7 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, e
 		var row storedSession
 		if err := rows.Scan(
 			&row.id, &row.directory, &row.title, &row.summaryFiles, &row.summaryDiffs,
-			&row.model, &row.createdAt, &row.updatedAt,
+			&row.model, &row.cost, &row.updatedAt,
 		); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read OpenCode session: %w", err)
@@ -145,7 +145,7 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 	if err != nil {
 		return nil, err
 	}
-	fileEdits, err := loadFileEdits(row.summaryDiffs)
+	summaryEdits, err := loadFileEdits(row.summaryDiffs)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +161,13 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 	summary := ""
 	contextTokens := 0
 	hasContext := false
+	activeDuration := int64(0)
+	busy := false
+	commits := []string{}
+	pullRequests := 0
+	fileEdits := session.NewFileEditSet()
+	var lastEditAt *int64
+	todoStatus := map[string]string{}
 	for _, message := range messages {
 		if message.Role == "user" {
 			for _, part := range message.parts {
@@ -187,6 +194,13 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 		if message.Role != "assistant" {
 			continue
 		}
+		if message.Time.Created > 0 {
+			if message.Time.Completed == nil {
+				busy = true
+			} else if elapsed := *message.Time.Completed - message.Time.Created; elapsed > 0 {
+				activeDuration += elapsed
+			}
+		}
 
 		if message.ModelID != "" {
 			modelID = message.ModelID
@@ -206,7 +220,8 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 			contextTokens = currentContext
 			hasContext = true
 		}
-		if raw := bytes.TrimSpace(message.Error); len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+		if raw := bytes.TrimSpace(message.Error); len(raw) > 0 &&
+			!bytes.Equal(raw, []byte("null")) {
 			errorsCount++
 		}
 
@@ -222,13 +237,55 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 				if part.State.Status == "error" {
 					errorsCount++
 				}
+				if part.State.Status == "pending" || part.State.Status == "running" {
+					busy = true
+				}
 				if part.Tool == "bash" && part.State.Input.Command != "" {
 					commands.Note(part.State.Input.Command, part.State.Title)
+					if part.State.Status == "completed" {
+						if message, ok := session.CommitMessage(part.State.Input.Command); ok {
+							commits = append(commits, message)
+						}
+						if session.IsPullRequestCreate(part.State.Input.Command) {
+							pullRequests++
+						}
+					}
+				}
+				if part.State.Status == "completed" {
+					for _, file := range part.State.Metadata.Files {
+						path := file.RelativePath
+						if path == "" {
+							path = file.FilePath
+						}
+						if path != "" {
+							fileEdits.Add(
+								path,
+								file.Additions,
+								file.Deletions,
+								file.Type == "add" || file.Type == "added",
+							)
+						}
+					}
+					if len(part.State.Metadata.Files) > 0 && part.State.Time.End != nil &&
+						(lastEditAt == nil || *part.State.Time.End > *lastEditAt) {
+						endedAt := *part.State.Time.End
+						lastEditAt = &endedAt
+					}
+					if part.Tool == "todowrite" {
+						for _, todo := range part.State.Input.Todos {
+							if todo.Status == "completed" &&
+								todoStatus[todo.Content] != "completed" {
+								digest.Push(turns, session.DigestTodos, "completed: "+todo.Content)
+							}
+							todoStatus[todo.Content] = todo.Status
+						}
+					}
 				}
 			}
 		}
 		internalSummary := bytes.Equal(bytes.TrimSpace(message.Summary), []byte("true"))
-		if text := strings.Join(texts, "\n"); message.Finish == "stop" && !internalSummary && text != "" {
+		if text := strings.Join(texts, "\n"); message.Finish == "stop" && !internalSummary &&
+			text != "" {
 			summary = text
 			digest.Push(turns, session.DigestRecap, text)
 		}
@@ -241,10 +298,12 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 		Compactions:  compactions,
 		Commands:     commands.Raw(),
 		CommandCount: commands.Count(),
-		Commits:      []string{},
+		Commits:      commits,
+		PullRequests: pullRequests,
 		Todos:        todos,
 		Digest:       digest.Entries(),
-		FileEdits:    fileEdits,
+		FileEdits:    fileEdits.Edits,
+		LastEditAt:   lastEditAt,
 	}
 	if firstPrompt != "" {
 		details.FirstPrompt = &firstPrompt
@@ -257,8 +316,11 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 		details.ContextTokens = &contextTokens
 	}
 
-	editedFileCount := len(fileEdits)
-	if row.summaryFiles.Valid {
+	if len(fileEdits.Edits) == 0 {
+		details.FileEdits = summaryEdits
+	}
+	editedFileCount := len(details.FileEdits)
+	if editedFileCount == 0 && row.summaryFiles.Valid {
 		editedFileCount = int(row.summaryFiles.Int64)
 	}
 	result := &session.Session{
@@ -268,12 +330,18 @@ func parse(tx *sql.Tx, row storedSession) (*vendors.ParsedTranscript, error) {
 		EditedFileCount:  editedFileCount,
 		LastActivityTime: row.updatedAt,
 		Tokens:           tokens,
+		Cost:             row.cost,
+		CostRecorded:     true,
 		Subagents:        []session.Subagent{},
 		SessionDetails:   details,
 	}
-	if duration := row.updatedAt - row.createdAt; duration > 0 {
-		value := int(duration)
+	if activeDuration > 0 {
+		value := int(activeDuration)
 		result.DurationMs = &value
+	}
+	if busy {
+		status := "busy"
+		result.Status = &status
 	}
 	if summary != "" {
 		value := session.Truncate(summary, session.TruncateTextLimit)

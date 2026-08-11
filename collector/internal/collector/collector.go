@@ -253,7 +253,9 @@ func probeEnvironment(roots []*vendors.ParsedTranscript) {
 	wg.Wait()
 	for _, p := range roots {
 		s := p.Session
-		s.LastEditAt = session.LatestFileModificationTime(s.FileEdits)
+		if s.LastEditAt == nil {
+			s.LastEditAt = session.LatestFileModificationTime(s.FileEdits)
+		}
 		s.GitProbed = true // synthesis's lazy probe must not redo this
 		if s.WorkingDirectory == "" {
 			continue

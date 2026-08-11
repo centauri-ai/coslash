@@ -107,8 +107,12 @@ func UnpricedModels(tokens map[string]ModelTokens) []string {
 }
 
 func AttachCosts(s *Session) {
-	s.Cost = EstimatedCost(s.Tokens)
-	s.UnpricedModels = UnpricedModels(s.Tokens)
+	if s.CostRecorded {
+		s.UnpricedModels = []string{}
+	} else {
+		s.Cost = EstimatedCost(s.Tokens)
+		s.UnpricedModels = UnpricedModels(s.Tokens)
+	}
 	for index := range s.Subagents {
 		s.Subagents[index].Cost = EstimatedCost(s.Subagents[index].Tokens)
 	}
