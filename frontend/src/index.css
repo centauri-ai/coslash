@@ -81,6 +81,10 @@
   --color-opencode: #20751c;
   --color-opencode-bg: #e3f3e2;
 
+  /* vendor: OpenCode */
+  --color-opencode: #20751c;
+  --color-opencode-bg: #e3f3e2;
+
   /* subagent rail */
   --color-subagent: var(--subagent);
   --color-subagent-bg: var(--subagent-bg);
