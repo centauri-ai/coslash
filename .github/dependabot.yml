@@ -4,6 +4,8 @@ multi-ecosystem-groups:
   dependencies:
     schedule:
       interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
 
 updates:
   - package-ecosystem: gomod
