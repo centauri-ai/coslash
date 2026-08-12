@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,13 @@ type parsedSession struct {
 	tasks      map[string]taskLink
 }
 
+type skippedFamily struct {
+	id  string
+	err error
+}
+
+var errMalformedSession = errors.New("malformed OpenCode session data")
+
 func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error) {
 	db, err := open()
 	if errors.Is(err, os.ErrNotExist) {
@@ -76,7 +84,10 @@ func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata
 	}
 	query += ` ORDER BY selected_roots.family_updated DESC,
 		member.parent_id IS NOT NULL, member.time_updated, member.id`
-	parsed, err := load(db, query, args...)
+	parsed, skipped, err := load(db, query, args...)
+	for _, family := range skipped {
+		log.Printf("OpenCode session family %q: %v; skipping", family.id, family.err)
+	}
 	return parsed, emptyMetadata(), err
 }
 
@@ -93,8 +104,11 @@ func Get(id string) (*vendors.ParsedTranscript, error) {
 	}
 	defer db.Close()
 
-	parsed, err := load(db, activeRootQuery+" AND root.id = ?", id)
+	parsed, skipped, err := load(db, activeRootQuery+" AND root.id = ?", id)
 	if err != nil || len(parsed) == 0 {
+		if len(skipped) > 0 {
+			return nil, fmt.Errorf("parse OpenCode session family %q: %w", skipped[0].id, skipped[0].err)
+		}
 		return nil, err
 	}
 	return parsed[0], nil
@@ -123,16 +137,16 @@ func emptyMetadata() *vendors.SessionMetadata {
 	return &vendors.SessionMetadata{Names: map[string]string{}, Live: map[string]string{}}
 }
 
-func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, error) {
+func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, []skippedFamily, error) {
 	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer tx.Rollback()
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query OpenCode sessions: %w", err)
+		return nil, nil, fmt.Errorf("query OpenCode sessions: %w", err)
 	}
 	stored := []storedSession{}
 	for rows.Next() {
@@ -142,25 +156,47 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, e
 			&row.model, &row.cost, &row.updatedAt,
 		); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("read OpenCode session: %w", err)
+			return nil, nil, fmt.Errorf("read OpenCode session: %w", err)
 		}
 		stored = append(stored, row)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, fmt.Errorf("read OpenCode sessions: %w", err)
+		return nil, nil, fmt.Errorf("read OpenCode sessions: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	parsed := make([]parsedSession, 0, len(stored))
+	families := map[string][]storedSession{}
+	familyIDs := []string{}
 	for _, row := range stored {
-		item, err := parse(tx, row)
-		if err != nil {
-			return nil, fmt.Errorf("parse OpenCode session %q: %w", row.id, err)
+		familyID := row.id
+		if row.parentID.Valid {
+			familyID = row.parentID.String
 		}
-		parsed = append(parsed, item)
+		if _, exists := families[familyID]; !exists {
+			familyIDs = append(familyIDs, familyID)
+		}
+		families[familyID] = append(families[familyID], row)
+	}
+	parsed := make([]parsedSession, 0, len(stored))
+	skipped := []skippedFamily{}
+	for _, familyID := range familyIDs {
+		family := make([]parsedSession, 0, len(families[familyID]))
+		for _, row := range families[familyID] {
+			item, err := parse(tx, row)
+			if err != nil {
+				if !errors.Is(err, errMalformedSession) {
+					return nil, nil, fmt.Errorf("parse OpenCode session %q: %w", row.id, err)
+				}
+				skipped = append(skipped, skippedFamily{id: familyID, err: err})
+				family = nil
+				break
+			}
+			family = append(family, item)
+		}
+		parsed = append(parsed, family...)
 	}
 	byID := make(map[string]*vendors.ParsedTranscript, len(parsed))
 	for _, item := range parsed {
@@ -180,13 +216,13 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, e
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	transcripts := make([]*vendors.ParsedTranscript, 0, len(parsed))
 	for _, item := range parsed {
 		transcripts = append(transcripts, item.transcript)
 	}
-	return transcripts, nil
+	return transcripts, skipped, nil
 }
 
 func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
@@ -194,7 +230,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	if row.model.Valid {
 		var model storedModel
 		if err := json.Unmarshal([]byte(row.model.String), &model); err != nil {
-			return parsedSession{}, fmt.Errorf("decode model: %w", err)
+			return parsedSession{}, fmt.Errorf("%w: decode model: %w", errMalformedSession, err)
 		}
 		modelID = modelName(model.ProviderID, model.ID)
 	}
@@ -581,7 +617,7 @@ func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 		if id != lastID {
 			var message storedMessage
 			if err := json.Unmarshal([]byte(messageJSON), &message); err != nil {
-				return nil, fmt.Errorf("decode message %q: %w", id, err)
+				return nil, fmt.Errorf("%w: decode message %q: %w", errMalformedSession, id, err)
 			}
 			messages = append(messages, message)
 			lastID = id
@@ -589,7 +625,7 @@ func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 		if partJSON.Valid {
 			var part storedPart
 			if err := json.Unmarshal([]byte(partJSON.String), &part); err != nil {
-				return nil, fmt.Errorf("decode part for message %q: %w", id, err)
+				return nil, fmt.Errorf("%w: decode part for message %q: %w", errMalformedSession, id, err)
 			}
 			part.updatedAt = partUpdatedAt.Int64
 			messages[len(messages)-1].parts = append(messages[len(messages)-1].parts, part)
@@ -635,7 +671,7 @@ func loadFileEdits(raw sql.NullString) ([]session.FileEdit, error) {
 	}
 	var diffs []storedDiff
 	if err := json.Unmarshal([]byte(raw.String), &diffs); err != nil {
-		return nil, fmt.Errorf("decode file summary: %w", err)
+		return nil, fmt.Errorf("%w: decode file summary: %w", errMalformedSession, err)
 	}
 	edits := make([]session.FileEdit, 0, len(diffs))
 	for _, diff := range diffs {
