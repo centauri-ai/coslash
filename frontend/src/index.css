@@ -47,48 +47,72 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* coSlash semantic colors — generates utilities like bg-brand, text-success-fg, bg-warning-bg */
-@theme {
+/* coSlash semantic colors — generates utilities like bg-brand, text-success-fg, bg-warning-bg.
+   Aliases only: the literals live in :root / .dark below, so these follow the theme the same
+   way the shadcn neutrals above do. A literal here would be unreachable from .dark. */
+@theme inline {
   /* brand accent (logo, primary actions) */
-  --color-brand: #3554d1;
+  --color-brand: var(--brand);
 
   /* status: active */
-  --color-success: #2f9e63;
-  --color-success-fg: #2f7d55;
-  --color-success-bg: #e4f2ea;
+  --color-success: var(--success);
+  --color-success-fg: var(--success-fg);
+  --color-success-bg: var(--success-bg);
 
   /* status: idle */
-  --color-info: #6366f1;
-  --color-info-fg: #4f46b5;
-  --color-info-bg: #ecebfb;
+  --color-info: var(--info);
+  --color-info-fg: var(--info-fg);
+  --color-info-bg: var(--info-bg);
 
   /* status: waiting */
-  --color-warning: #c08a2e;
-  --color-warning-fg: #8a6316;
-  --color-warning-bg: #f7efdd;
+  --color-warning: var(--warning);
+  --color-warning-fg: var(--warning-fg);
+  --color-warning-bg: var(--warning-bg);
 
   /* vendor: Claude Code */
-  --color-claude: #a24218;
-  --color-claude-bg: #f6e7de;
+  --color-claude: var(--claude);
+  --color-claude-bg: var(--claude-bg);
 
   /* vendor: Codex */
-  --color-codex: #4f5eea;
-  --color-codex-bg: #e8eaff;
+  --color-codex: var(--codex);
+  --color-codex-bg: var(--codex-bg);
 
   /* subagent rail */
-  --color-subagent: #0b7c91;
-  --color-subagent-bg: #dff4f7;
-  --color-subagent-card: #f2fbfc;
-  --color-subagent-rail: #d5e9ee;
+  --color-subagent: var(--subagent);
+  --color-subagent-bg: var(--subagent-bg);
+  --color-subagent-card: var(--subagent-card);
+  --color-subagent-rail: var(--subagent-rail);
 
   /* digest categories (session drawer ledger); goal reuses success-fg,
      user reuses brand, todos reuses muted-foreground */
-  --color-question: #c2701f;
-  --color-recap: #b5468a;
-  --color-compaction: #b5852f;
+  --color-question: var(--question);
+  --color-recap: var(--recap);
+  --color-compaction: var(--compaction);
 }
 
 :root {
+  --brand: #3554d1;
+  --success: #2f9e63;
+  --success-fg: #2f7d55;
+  --success-bg: #e4f2ea;
+  --info: #6366f1;
+  --info-fg: #4f46b5;
+  --info-bg: #ecebfb;
+  --warning: #c08a2e;
+  --warning-fg: #8a6316;
+  --warning-bg: #f7efdd;
+  --claude: #a24218;
+  --claude-bg: #f6e7de;
+  --codex: #4f5eea;
+  --codex-bg: #e8eaff;
+  --subagent: #0b7c91;
+  --subagent-bg: #dff4f7;
+  --subagent-card: #f2fbfc;
+  --subagent-rail: #d5e9ee;
+  --question: #c2701f;
+  --recap: #b5468a;
+  --compaction: #b5852f;
+
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -124,6 +148,31 @@
 }
 
 .dark {
+  /* Light triples are (solid, darkened-for-text, pale wash). On dark that inverts to
+     (solid slightly brightened, lightened-for-text, deep low-chroma wash). Every -fg
+     clears 5.9:1 on its own -bg. */
+  --brand: #6f89ee;
+  --success: #35b073;
+  --success-fg: #5fd39b;
+  --success-bg: #10291d;
+  --info: #7c7ff5;
+  --info-fg: #a5a6fb;
+  --info-bg: #1d1d3d;
+  --warning: #d69f3f;
+  --warning-fg: #e8bd6b;
+  --warning-bg: #2e2311;
+  --claude: #e88a58;
+  --claude-bg: #2e1509;
+  --codex: #8b95f7;
+  --codex-bg: #1a1d40;
+  --subagent: #38b6cd;
+  --subagent-bg: #0d2b32;
+  --subagent-card: #0c1315;
+  --subagent-rail: #2a94a8;
+  --question: #dd9247;
+  --recap: #d478ae;
+  --compaction: #d2a555;
+
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -175,4 +224,9 @@
 [data-slot='sheet-overlay'] {
   background: rgba(23, 39, 66, 0.28);
   backdrop-filter: none;
+}
+
+/* A light navy scrim does nothing over a near-black page. */
+.dark [data-slot='sheet-overlay'] {
+  background: rgba(0, 0, 0, 0.6);
 }
