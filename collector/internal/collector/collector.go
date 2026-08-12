@@ -201,18 +201,23 @@ func probeEnvironment(roots []*vendors.ParsedTranscript) {
 	// filesystem lookup, per cwd.
 	type driftKey struct{ cwd, branch string }
 	type driftSlot struct{ drift *session.GitDrift }
-	repoByCwd := map[string]string{}
+	type repository struct {
+		name      string
+		localOnly bool
+	}
+	repoByCwd := map[string]repository{}
 	drifts := map[driftKey]*driftSlot{}
 	for _, p := range roots {
 		s := p.Session
 		if s.WorkingDirectory == "" {
 			continue
 		}
-		repoByCwd[s.WorkingDirectory] = ""
+		repoByCwd[s.WorkingDirectory] = repository{}
 		drifts[driftKey{s.WorkingDirectory, deref(s.Branch)}] = &driftSlot{}
 	}
 	for cwd := range repoByCwd {
-		repoByCwd[cwd] = session.CanonicalRepositoryName(cwd)
+		name, localOnly := session.CanonicalRepositoryName(cwd)
+		repoByCwd[cwd] = repository{name: name, localOnly: localOnly}
 	}
 	// BranchDrift waits on git subprocesses, so distinct keys probe
 	// concurrently. Results land through slot pointers — never map writes,
@@ -239,7 +244,8 @@ func probeEnvironment(roots []*vendors.ParsedTranscript) {
 		}
 		s.Git = drifts[driftKey{s.WorkingDirectory, deref(s.Branch)}].drift
 		repo := repoByCwd[s.WorkingDirectory]
-		s.Repository = &repo
+		s.Repository = &repo.name
+		s.RepositoryLocalOnly = repo.localOnly
 	}
 }
 
