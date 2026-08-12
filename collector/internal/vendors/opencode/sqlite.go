@@ -72,7 +72,7 @@ func open() (*sql.DB, error) {
 func validateSchema(db *sql.DB) error {
 	statement, err := db.Prepare(`
 		SELECT s.id, s.parent_id, s.directory, s.title, s.summary_files, s.summary_diffs,
-			s.model, s.cost, s.time_updated, s.time_archived,
+			s.agent, s.model, s.cost, s.time_updated, s.time_archived,
 			m.id, m.session_id, m.time_created, m.data,
 			p.id, p.message_id, p.session_id, p.time_updated, p.data,
 			t.session_id, t.content, t.status, t.position

@@ -212,9 +212,8 @@ func unresolvedSpawn(entry session.DigestEntry) bool {
 }
 
 func probeEnvironment(roots []*vendors.ParsedTranscript) {
-	// Drift is measured for the session's recorded branch against the repo's
-	// base branch, so it memoizes per (cwd, branch); the repo name is a pure
-	// filesystem lookup, per cwd.
+	// Drift is measured for the recorded or best-effort current branch against
+	// the repo's base branch, so it memoizes per (cwd, branch).
 	type driftKey struct{ cwd, branch string }
 	type driftSlot struct{ drift *session.GitDrift }
 	type repository struct {
@@ -222,6 +221,7 @@ func probeEnvironment(roots []*vendors.ParsedTranscript) {
 		localOnly bool
 	}
 	repoByCwd := map[string]repository{}
+	branchByCwd := map[string]*string{}
 	drifts := map[driftKey]*driftSlot{}
 	for _, p := range roots {
 		s := p.Session
@@ -229,11 +229,26 @@ func probeEnvironment(roots []*vendors.ParsedTranscript) {
 			continue
 		}
 		repoByCwd[s.WorkingDirectory] = repository{}
-		drifts[driftKey{s.WorkingDirectory, deref(s.Branch)}] = &driftSlot{}
+		if deref(s.Branch) == "" {
+			branchByCwd[s.WorkingDirectory] = nil
+		}
 	}
 	for cwd := range repoByCwd {
 		name, localOnly := session.CanonicalRepositoryName(cwd)
 		repoByCwd[cwd] = repository{name: name, localOnly: localOnly}
+		if _, missing := branchByCwd[cwd]; missing {
+			branchByCwd[cwd] = session.CurrentBranch(cwd)
+		}
+	}
+	for _, p := range roots {
+		s := p.Session
+		if s.WorkingDirectory == "" {
+			continue
+		}
+		if deref(s.Branch) == "" {
+			s.Branch = branchByCwd[s.WorkingDirectory]
+		}
+		drifts[driftKey{s.WorkingDirectory, deref(s.Branch)}] = &driftSlot{}
 	}
 	// BranchDrift waits on git subprocesses, so distinct keys probe
 	// concurrently. Results land through slot pointers — never map writes,

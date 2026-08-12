@@ -123,6 +123,18 @@ func repositoryRoot(cwd string) string {
 	}
 }
 
+func CurrentBranch(cwd string) *string {
+	out, err := exec.Command("git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
+	if err != nil {
+		return nil
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "" {
+		return nil
+	}
+	return &branch
+}
+
 func BranchDrift(cwd string, recordedBranch *string) *GitDrift {
 	if cwd == "" || recordedBranch == nil {
 		return nil
