@@ -39,6 +39,7 @@ export type Session = {
   cwd: string;
   branch: string | null;
   repo: string | null;
+  repoLocalOnly: boolean;
   files: number;
   durationMs: number | null;
   tokens: Record<string, ModelTokens>;

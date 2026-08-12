@@ -1,6 +1,7 @@
 package session
 
 import (
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,31 +32,36 @@ func FileModificationTime(filePath string) int64 {
 	return info.ModTime().UnixMilli()
 }
 
-func CanonicalRepositoryName(cwd string) string {
+func CanonicalRepositoryName(cwd string) (string, bool) {
 	if cwd == "" {
-		return ""
+		return "", false
 	}
 	fallback := filepath.Base(filepath.Clean(cwd))
 	resolved, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
-		return fallback
+		return fallback, true
 	}
 	root := repositoryRoot(resolved)
 	if root == "" {
-		return fallback
+		return fallback, true
+	}
+	if output, err := exec.Command("git", "-C", root, "remote", "get-url", "origin").Output(); err == nil {
+		if remote := canonicalRemoteName(string(output)); remote != "" {
+			return remote, false
+		}
 	}
 	gitMarker := filepath.Join(root, ".git")
 	info, err := os.Stat(gitMarker)
 	if err == nil && info.IsDir() {
-		return filepath.Base(root)
+		return filepath.Base(root), true
 	}
 	contents, err := os.ReadFile(gitMarker)
 	if err != nil {
-		return filepath.Base(root)
+		return filepath.Base(root), true
 	}
 	gitDirValue := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(contents)), "gitdir:"))
 	if gitDirValue == "" || gitDirValue == strings.TrimSpace(string(contents)) {
-		return filepath.Base(root)
+		return filepath.Base(root), true
 	}
 	gitDir := gitDirValue
 	if !filepath.IsAbs(gitDir) {
@@ -63,7 +69,7 @@ func CanonicalRepositoryName(cwd string) string {
 	}
 	common, err := os.ReadFile(filepath.Join(filepath.Clean(gitDir), "commondir"))
 	if err != nil {
-		return filepath.Base(root)
+		return filepath.Base(root), true
 	}
 	commonDir := strings.TrimSpace(string(common))
 	if !filepath.IsAbs(commonDir) {
@@ -71,9 +77,38 @@ func CanonicalRepositoryName(cwd string) string {
 	}
 	commonDir = filepath.Clean(commonDir)
 	if filepath.Base(commonDir) == ".git" {
-		return filepath.Base(filepath.Dir(commonDir))
+		return filepath.Base(filepath.Dir(commonDir)), true
 	}
-	return filepath.Base(root)
+	return filepath.Base(root), true
+}
+
+func canonicalRemoteName(remote string) string {
+	remote = strings.TrimSpace(remote)
+	if !strings.Contains(remote, "://") {
+		host, path, ok := strings.Cut(remote, ":")
+		if !ok || host == "" || path == "" || strings.ContainsAny(host, `/\\`) {
+			return ""
+		}
+		remote = "ssh://" + host + "/" + strings.TrimPrefix(path, "/")
+	}
+	parsed, err := url.Parse(remote)
+	if err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	path := strings.Trim(parsed.Path, "/")
+	if strings.HasSuffix(strings.ToLower(path), ".git") {
+		path = path[:len(path)-len(".git")]
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return ""
+		}
+	}
+	return strings.ToLower(parsed.Hostname()) + "/" + path
 }
 
 func repositoryRoot(cwd string) string {
