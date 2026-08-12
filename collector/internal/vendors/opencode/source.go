@@ -28,7 +28,7 @@ WITH selected_roots AS (
 	GROUP BY root.id
 )
 SELECT member.id, member.parent_id, member.directory, member.title, member.summary_files,
-	member.summary_diffs, member.model, member.cost,
+	member.summary_diffs, member.agent, member.model, member.cost,
 	CASE WHEN member.id = selected_roots.id THEN selected_roots.family_updated ELSE member.time_updated END
 FROM selected_roots
 JOIN session AS member ON member.id = selected_roots.id OR member.parent_id = selected_roots.id
@@ -36,7 +36,7 @@ WHERE member.time_archived IS NULL`
 
 const activeRootQuery = `
 SELECT root.id, root.parent_id, root.directory, root.title, root.summary_files,
-	root.summary_diffs, root.model, root.cost,
+	root.summary_diffs, root.agent, root.model, root.cost,
 	MAX(root.time_updated, COALESCE((
 		SELECT MAX(child.time_updated)
 		FROM session AS child
@@ -88,7 +88,7 @@ func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata
 	for _, family := range skipped {
 		log.Printf("OpenCode session family %q: %v; skipping", family.id, family.err)
 	}
-	return parsed, emptyMetadata(), err
+	return parsed, loadMetadata(), err
 }
 
 func Get(id string) (*vendors.ParsedTranscript, error) {
@@ -153,7 +153,7 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, [
 		var row storedSession
 		if err := rows.Scan(
 			&row.id, &row.parentID, &row.directory, &row.title, &row.summaryFiles, &row.summaryDiffs,
-			&row.model, &row.cost, &row.updatedAt,
+			&row.agent, &row.model, &row.cost, &row.updatedAt,
 		); err != nil {
 			rows.Close()
 			return nil, nil, fmt.Errorf("read OpenCode session: %w", err)
@@ -383,6 +383,10 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 					}
 				}
 				isShell := part.Tool == "bash" || part.Tool == "shell"
+				if isShell && part.State.Status == "completed" &&
+					part.State.Metadata.Exit != nil && *part.State.Metadata.Exit != 0 {
+					errorsCount++
+				}
 				if isShell && part.State.Status == "completed" && part.State.Input.Command != "" {
 					commands.Note(part.State.Input.Command, part.State.Title)
 					if part.State.Metadata.Exit == nil || *part.State.Metadata.Exit == 0 {
@@ -557,6 +561,10 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	if summary != "" {
 		value := session.Truncate(summary, session.TruncateTextLimit)
 		result.Summary = &value
+	}
+	if row.agent.Valid && strings.TrimSpace(row.agent.String) != "" {
+		value := strings.TrimSpace(row.agent.String)
+		result.Entrypoint = &value
 	}
 	return parsedSession{
 		transcript: &vendors.ParsedTranscript{

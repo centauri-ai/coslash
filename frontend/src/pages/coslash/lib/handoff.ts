@@ -26,6 +26,7 @@ export function handoffBrief(detail: SessionDetail): string {
     ? detail.fileEdits.map((fileEdit) => `- ${fileEdit.path} (+${fileEdit.adds}/-${fileEdit.dels})`)
     : ['- —'];
   const commits = detail.commits.length ? detail.commits.map((commit) => `- ${commit}`) : ['- —'];
+  const costLabel = detail.agent === 'opencode' ? 'Recorded cost' : 'Estimated cost at list API prices';
 
   return [
     `# Handoff — ${detail.name ?? detail.id}`,
@@ -58,7 +59,7 @@ export function handoffBrief(detail: SessionDetail): string {
     `- Working directory: ${detail.cwd}`,
     `- Runtime: ${formatDuration(detail.durationMs)}`,
     `- Tokens: ${formatTokens(getTotalTokens(detail.tokens))}`,
-    `- Estimated cost at list API prices: ${formatEstimatedCost(detail.cost)}`,
+    `- ${costLabel}: ${formatEstimatedCost(detail.cost)}`,
     `- Errors: ${detail.errors}; subagents: ${detail.subagents.length}`,
   ].join('\n');
 }

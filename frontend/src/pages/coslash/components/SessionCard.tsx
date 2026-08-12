@@ -84,8 +84,8 @@ export function SessionId({ id, shortened = false }: { id: string; shortened?: b
   return (
     <CopyableBadge
       value={id}
-      ariaLabel={`Copy session UUID ${id}`}
-      copiedLabel="UUID copied"
+      ariaLabel={`Copy session ID ${id}`}
+      copiedLabel="Session ID copied"
       className="text-muted-foreground font-mono text-xs"
     >
       {shortened ? shortenSessionId(id) : id}

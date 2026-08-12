@@ -18,6 +18,7 @@ type storedSession struct {
 	title        string
 	summaryFiles sql.NullInt64
 	summaryDiffs sql.NullString
+	agent        sql.NullString
 	model        sql.NullString
 	cost         float64
 	updatedAt    int64
