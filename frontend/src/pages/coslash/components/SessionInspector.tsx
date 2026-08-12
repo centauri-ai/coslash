@@ -527,7 +527,7 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <div className="bg-subagent-card border-subagent-rail flex cursor-pointer items-baseline gap-2 rounded-lg border p-2">
+        <div className="bg-subagent-card flex cursor-pointer items-baseline gap-2 rounded-lg border p-2">
           <span className="text-subagent w-24 shrink-0 text-xs font-bold tracking-wide">Subagent</span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
