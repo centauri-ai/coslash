@@ -99,16 +99,12 @@ func canonicalRemoteName(remote string) string {
 	if strings.HasSuffix(strings.ToLower(path), ".git") {
 		path = path[:len(path)-len(".git")]
 	}
-	parts := strings.Split(path, "/")
-	if len(parts) < 2 {
-		return ""
-	}
-	for _, part := range parts {
+	for _, part := range strings.Split(path, "/") {
 		if part == "" || part == "." || part == ".." {
 			return ""
 		}
 	}
-	return strings.ToLower(parsed.Hostname()) + "/" + path
+	return strings.ToLower(parsed.Host) + "/" + path
 }
 
 func repositoryRoot(cwd string) string {
