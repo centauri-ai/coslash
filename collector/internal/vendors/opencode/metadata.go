@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	newSessionWindow     = time.Minute
 	resumedSessionWindow = 3 * time.Minute
 )
 
@@ -229,7 +228,7 @@ func matchLiveSessions(processes []tuiProcess, candidates []liveCandidate) map[s
 		process tuiProcess, candidate liveCandidate,
 	) bool {
 		delta := candidate.createdAt - process.startedAt
-		return delta >= -time.Second.Milliseconds() && delta <= newSessionWindow.Milliseconds()
+		return delta >= -time.Second.Milliseconds()
 	})
 	matchUnique(processes, candidates, matchedProcesses, matchedSessions, func(
 		process tuiProcess, candidate liveCandidate,

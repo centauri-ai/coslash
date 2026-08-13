@@ -168,6 +168,10 @@ func groupSubagents(
 			log.Printf("%s: parent %s not found, dropping child", p.Session.ID, p.ParentID)
 			continue
 		}
+		if deref(p.Session.Status) == "waiting" {
+			status := "waiting"
+			parent.Session.Status = &status
+		}
 		subagent := subagentFrom(
 			p,
 			parent,
@@ -298,6 +302,9 @@ func resolveStatus(
 	now := time.Now().UnixMilli()
 	for _, p := range roots {
 		s := p.Session
+		if deref(s.Status) == "waiting" {
+			continue
+		}
 		if raw, live := metadata[s.Agent].Live[s.ID]; live {
 			status := raw
 			if raw == "interactive" {
