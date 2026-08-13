@@ -58,6 +58,28 @@ func (analysis *codexSessionAnalysis) notePrompt(prompt string) {
 	analysis.digest.Push(analysis.prompts, category, prompt)
 }
 
+func (analysis *codexSessionAnalysis) noteFileChanges(changes codexPatchChanges) {
+	for _, entry := range changes {
+		change := entry.Change
+		isNew := change.Type == "add"
+		additions, deletions := unifiedDiffStat(change.UnifiedDiff)
+		if change.UnifiedDiff == "" && isNew {
+			additions = session.CountLines(change.Content)
+		}
+		analysis.fileEdits.Add(entry.Path, additions, deletions, isNew)
+	}
+}
+
+func completedItemText(item codexItem) string {
+	text := make([]string, 0, len(item.Content))
+	for _, content := range item.Content {
+		if content.Text != "" {
+			text = append(text, content.Text)
+		}
+	}
+	return strings.Join(text, "\n")
+}
+
 // codexFork carries what the fork stage needs: the rollout's cumulative
 // token_count sequence and its fork parent, if any.
 type codexFork struct {
@@ -127,6 +149,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				analysis.branch = &row.Payload.Git.Branch
 			}
 			meta := codexMeta{
+				payloadID:        row.Payload.ID,
 				sessionID:        row.Payload.SessionID,
 				forkedFromID:     row.Payload.ForkedFromID,
 				parentThreadID:   row.Payload.ParentThreadID,
@@ -144,6 +167,21 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 			}
 		case "event_msg":
 			switch row.Payload.Type {
+			case "item_completed":
+				item := row.Payload.Item
+				switch item.Type {
+				case "UserMessage":
+					message := completedItemText(item)
+					if !analysis.inReview && message != "" && !session.IsHarnessWrapped(message) {
+						analysis.notePrompt(message)
+					}
+				case "AgentMessage":
+					if item.Phase == "final_answer" || item.Phase == "" {
+						analysis.turnFinalReply = strings.TrimSpace(completedItemText(item))
+					}
+				case "FileChange":
+					analysis.noteFileChanges(item.Changes)
+				}
 			case "user_message":
 				if analysis.inReview {
 					continue
@@ -213,16 +251,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 					analysis.turnStartTime = nil
 				}
 			case "patch_apply_end":
-				for _, entry := range row.Payload.Changes {
-					path := entry.Path
-					change := entry.Change
-					isNew := change.Type == "add"
-					additions, deletions := unifiedDiffStat(change.UnifiedDiff)
-					if change.UnifiedDiff == "" && isNew {
-						additions = session.CountLines(change.Content)
-					}
-					analysis.fileEdits.Add(path, additions, deletions, isNew)
-				}
+				analysis.noteFileChanges(row.Payload.Changes)
 			}
 		case "response_item":
 			switch row.Payload.Type {
@@ -281,8 +310,9 @@ func ownMeta(metas []codexMeta, ownID string) codexMeta {
 		return codexMeta{}
 	}
 	if ownID != "" {
-		for _, meta := range metas {
-			if meta.sessionID == ownID {
+		for i := len(metas) - 1; i >= 0; i-- {
+			meta := metas[i]
+			if cmp.Or(meta.payloadID, meta.sessionID) == ownID {
 				return meta
 			}
 		}

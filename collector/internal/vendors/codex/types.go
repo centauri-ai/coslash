@@ -39,6 +39,18 @@ type codexPayload struct {
 	AgentNickname  string            `json:"agent_nickname"`
 	AgentThreadID  string            `json:"agent_thread_id"`
 	Kind           string            `json:"kind"`
+	Item           codexItem         `json:"item"`
+}
+
+type codexItem struct {
+	Type    string            `json:"type"`
+	Phase   string            `json:"phase"`
+	Content []codexText       `json:"content"`
+	Changes codexPatchChanges `json:"changes"`
+}
+
+type codexText struct {
+	Text string `json:"text"`
 }
 
 type codexGit struct {
@@ -140,6 +152,7 @@ type codexTokenSample struct {
 // sessionID is the PARENT's id — only payload.id (= the filename uuid) is its
 // own.
 type codexMeta struct {
+	payloadID        string
 	sessionID        string
 	forkedFromID     string
 	parentThreadID   string
