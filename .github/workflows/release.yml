@@ -442,7 +442,7 @@ jobs:
             exit 1
           fi
           release_body="$(jq -r .body <<<"$release")"
-          if [[ "$release_body" != *"VERSION=$TAG"* ]]; then
+          if [[ "$release_body" != *"VERSION=\"$TAG\""* ]]; then
             echo "error: release notes do not reference VERSION=$TAG" >&2
             exit 1
           fi
