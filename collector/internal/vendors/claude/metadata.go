@@ -76,7 +76,7 @@ func loadMetadata(
 	live := map[string]named{}
 	jobs := map[string]named{}
 	desktopTitles := map[string]string{}
-	metadata := &vendors.SessionMetadata{Names: map[string]string{}, Live: map[string]string{}}
+	metadata := vendors.EmptySessionMetadata()
 
 	entries, err := readDirIfExists(paths.sessions)
 	if err != nil {

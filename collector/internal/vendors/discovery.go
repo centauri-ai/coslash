@@ -54,7 +54,7 @@ func Scan(root string) (*SourceScan, error) {
 	return scan, nil
 }
 
-// JSONLFilesUnder keeps the collection hot path compatible while Scan exposes failures to diagnostics.
+// JSONLFilesUnder scans the collection path and logs entries skipped during discovery.
 func JSONLFilesUnder(root string) ([]string, error) {
 	scan, err := Scan(root)
 	if err != nil {

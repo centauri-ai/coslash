@@ -6,12 +6,12 @@ import "github.com/centauri-ai/coslash/collector/internal/session"
 // shared composition and enrichment stages.
 type ParsedSession struct {
 	Session *session.Session
-	LogPath string
+	LogPath string // optional for sources that do not read transcript files
 
 	// consumed while composing parent-child relationships
 	ParentID string                    // "" for a root
-	SpawnKey string                    // key into the parent's Spawns: claude toolUseId, codex agent id
-	Stopped  bool                      // claude meta stoppedByUser, codex lastTurnAborted
+	SpawnKey string                    // key into the parent's Spawns: tool ID or child session ID
+	Stopped  bool                      // source-derived terminal state for aborted children
 	Spawns   map[string]SpawnState     // spawn key → source-derived state
 	Commands []session.SubagentCommand // labelled commands for the child projection
 

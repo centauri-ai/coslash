@@ -34,7 +34,7 @@ func ParseFiles[T any](
 			defer func() { <-workers }()
 			parsed, err := parse(file)
 			if err != nil {
-				log.Printf("%s: skipping unreadable transcript: %v", file, err)
+				log.Printf("%s: transcript parse failed; skipping: %v", file, err)
 				return
 			}
 			results[index] = parsed
@@ -73,12 +73,12 @@ func FileSourceHealth(
 ) SourceHealth {
 	sessions := 0
 	for _, file := range scan.Files {
-		root, err := isRoot(file)
+		isRootSession, err := isRoot(file)
 		if err != nil {
 			scan.RecordSkipped(file, err)
 			continue
 		}
-		if root {
+		if isRootSession {
 			sessions++
 		}
 	}

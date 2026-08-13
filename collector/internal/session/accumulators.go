@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// DigestLog and CommandLog are the accumulators both vendors' parsers keep, so
-// the two parsers speak one vocabulary. Their zero values are ready to use and
+// DigestLog and CommandLog are the accumulators vendor parsers keep, so they
+// speak one vocabulary. Their zero values are ready to use and
 // their getters never return nil — the JSON contract is "[] not null", and
 // centralizing it here keeps each vendor from re-establishing it by hand.
 
