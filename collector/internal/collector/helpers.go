@@ -146,13 +146,16 @@ func subagentStatus(
 	metadata *vendors.SessionMetadata,
 ) string {
 	if child.Session.Agent == vendors.AgentCodex {
-		if _, live := metadata.Live[child.Session.ID]; live {
-			return session.SubagentRunning
-		}
 		if child.Stopped {
 			return session.SubagentAborted
 		}
-		return session.SubagentReturned
+		if !child.InTurn {
+			return session.SubagentReturned
+		}
+		if _, live := metadata.Live[child.Session.ID]; live {
+			return session.SubagentRunning
+		}
+		return session.SubagentAborted
 	}
 	if child.Stopped {
 		return session.SubagentAborted
