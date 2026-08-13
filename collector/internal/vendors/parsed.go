@@ -2,10 +2,8 @@ package vendors
 
 import "github.com/centauri-ai/coslash/collector/internal/session"
 
-// ParsedSession is everything a vendor extracts for one session: the
-// servable Session plus facts that later collection stages resolve. Vendor
-// extraction does no git or liveness probes and writes every field; later
-// stages only read them, writing their results into Session.
+// ParsedSession holds source-derived session data plus facts consumed by
+// shared composition and enrichment stages.
 type ParsedSession struct {
 	Session *session.Session
 
@@ -20,6 +18,8 @@ type ParsedSession struct {
 	Name       string  // from the source: title (roots), description/agentType (children)
 	InTurn     bool    // roots: refines "interactive" to busy/idle. children: still running
 	StatusHint *string // persisted status used when no external live signal exists
+
+	RecordedCost *float64 // authoritative source cost; nil means estimate from tokens
 }
 
 type SpawnState struct {

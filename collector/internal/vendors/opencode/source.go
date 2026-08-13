@@ -542,7 +542,6 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	}
 	if modelID != "" {
 		details.Model = &modelID
-		details.ContextWindow = session.ContextWindowFor(modelID)
 	}
 	if hasContext {
 		details.ContextTokens = &contextTokens
@@ -559,8 +558,6 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		EditedFileCount:  editedFileCount,
 		LastActivityTime: row.updatedAt,
 		Tokens:           tokens,
-		Cost:             row.cost,
-		CostRecorded:     true,
 		Subagents:        []session.Subagent{},
 		SessionDetails:   details,
 	}
@@ -581,12 +578,13 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		result.Entrypoint = &value
 	}
 	parsed := &vendors.ParsedSession{
-		Session:  result,
-		ParentID: row.parentID.String,
-		Name:     row.title,
-		InTurn:   busy || waiting,
-		Spawns:   spawns,
-		Commands: commands.Labelled(),
+		Session:      result,
+		ParentID:     row.parentID.String,
+		Name:         row.title,
+		InTurn:       busy || waiting,
+		Spawns:       spawns,
+		Commands:     commands.Labelled(),
+		RecordedCost: &row.cost,
 	}
 	if busy {
 		status := "busy"

@@ -112,16 +112,12 @@ func UnpricedModels(tokens map[string]ModelTokens) []string {
 	return unpriced
 }
 
-func AttachCosts(s *Session) {
-	if s.CostRecorded {
+func AttachCost(s *Session, recorded *float64) {
+	if recorded != nil {
+		s.Cost = *recorded
 		s.UnpricedModels = []string{}
 	} else {
 		s.Cost = EstimatedCost(s.Tokens)
 		s.UnpricedModels = UnpricedModels(s.Tokens)
-	}
-	for index := range s.Subagents {
-		if !s.Subagents[index].CostRecorded {
-			s.Subagents[index].Cost = EstimatedCost(s.Subagents[index].Tokens)
-		}
 	}
 }

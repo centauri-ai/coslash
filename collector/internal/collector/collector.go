@@ -61,6 +61,7 @@ func List(since int64) ([]*session.Session, error) {
 		return nil, err
 	}
 	composition := composeSessions(parsed)
+	enrichParsedSessions(composition.parsed)
 	enrichSubagents(composition, metadata)
 	roots := composition.roots
 	resolveNames(roots, metadata)
@@ -75,10 +76,22 @@ func List(since int64) ([]*session.Session, error) {
 	probeEnvironment(roots)
 	sessions := make([]*session.Session, 0, len(roots))
 	for _, root := range roots {
-		session.AttachCosts(root.Session)
 		sessions = append(sessions, root.Session)
 	}
 	return sessions, nil
+}
+
+func enrichParsedSessions(parsed []*vendors.ParsedSession) {
+	for _, item := range parsed {
+		s := item.Session
+		if s.LastActivityTime == 0 && s.LogPath != "" {
+			s.LastActivityTime = session.FileModificationTime(s.LogPath)
+		}
+		if s.ContextWindow == nil && s.Model != nil {
+			s.ContextWindow = session.ContextWindowFor(*s.Model)
+		}
+		session.AttachCost(s, item.RecordedCost)
+	}
 }
 
 func collect(
@@ -363,7 +376,7 @@ func Get(id string) (*session.Session, error) {
 	}
 	// No subagents here means no spawn key can resolve
 	p.Session.Digest = slices.DeleteFunc(p.Session.Digest, unresolvedSpawn)
+	enrichParsedSessions([]*vendors.ParsedSession{p})
 	probeEnvironment([]*vendors.ParsedSession{p})
-	session.AttachCosts(p.Session)
 	return p.Session, nil
 }
