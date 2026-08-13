@@ -25,7 +25,7 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	return vendors.FindAndParse(files, id, SessionIDFromRollout, Parse)
+	return vendors.FindAndParse(files, id, SessionIDFromRollout, parseTranscript)
 }
 
 func Health() vendors.SourceHealth {

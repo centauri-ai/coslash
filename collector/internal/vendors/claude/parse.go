@@ -65,7 +65,7 @@ type taskEntry struct {
 	status  string
 }
 
-func Parse(path string) (*vendors.ParsedSession, error) {
+func parseTranscript(path string) (*vendors.ParsedSession, error) {
 	parsed, err := parse(path)
 	if err != nil {
 		return nil, err
