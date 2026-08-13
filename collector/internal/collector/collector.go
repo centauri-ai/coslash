@@ -355,9 +355,6 @@ func deref(value *string) string {
 	return *value
 }
 
-// GetSessionFacts performs a targeted partial lookup for synthesis and launch.
-// It intentionally skips fork normalization, subagents, names, and status.
-// Sessions in the synthesis cwd stay invisible, as in the list.
 func GetSessionFacts(id string) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
