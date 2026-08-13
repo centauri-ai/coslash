@@ -3,8 +3,6 @@ package claude
 import (
 	"log"
 	"os"
-
-	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 // Fork assigns each usage-bearing message.id shared by more than one root
@@ -16,20 +14,20 @@ import (
 //
 // Upstream priority: containment (a fork's ids strictly contain its parent's),
 // then file birthtime, then id count, then a tie yielding no owner.
-func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
+func applyForkedUsage(parsed []*parsedSession) {
 	type entry struct {
-		p     *vendors.ParsedTranscript
+		p     *parsedSession
 		usage map[string]messageUsage
 		ids   map[string]struct{}
 		birth int64
 	}
 	entries := []*entry{}
 	for _, p := range parsed {
-		if p.ParentID != "" {
+		if p.transcript.ParentID != "" {
 			continue // children are never fork-adjusted
 		}
-		usage, ok := p.ForkUsage.(map[string]messageUsage)
-		if !ok || len(usage) == 0 {
+		usage := p.forkUsage
+		if len(usage) == 0 {
 			continue
 		}
 		ids := make(map[string]struct{}, len(usage))
@@ -37,7 +35,7 @@ func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
 			ids[id] = struct{}{}
 		}
 		entries = append(entries, &entry{
-			p: p, usage: usage, ids: ids, birth: fileCreationTime(p.Session.LogPath),
+			p: p, usage: usage, ids: ids, birth: fileCreationTime(p.transcript.Session.LogPath),
 		})
 	}
 
@@ -74,14 +72,14 @@ func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
 			c, ok := owners[id]
 			if !ok {
 				owners[id] = &candidate{
-					path: e.p.Session.LogPath, ids: e.ids, birth: e.birth, count: 1,
+					path: e.p.transcript.Session.LogPath, ids: e.ids, birth: e.birth, count: 1,
 				}
 				continue
 			}
 			c.count++
 			switch upstream(e, c) {
 			case -1:
-				c.path, c.ids, c.birth, c.tie = e.p.Session.LogPath, e.ids, e.birth, false
+				c.path, c.ids, c.birth, c.tie = e.p.transcript.Session.LogPath, e.ids, e.birth, false
 			case 0:
 				c.tie = true
 			}
@@ -91,19 +89,19 @@ func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
 	for _, e := range entries {
 		for id, message := range e.usage {
 			c, ok := owners[id]
-			if !ok || c.count < 2 || c.tie || c.path == e.p.Session.LogPath {
+			if !ok || c.count < 2 || c.tie || c.path == e.p.transcript.Session.LogPath {
 				continue
 			}
 			// Inherited from a forked-from sibling: counted under the owner.
 			usage := message.usage
-			tokens := e.p.Session.Tokens[message.model]
+			tokens := e.p.transcript.Session.Tokens[message.model]
 			tokens.InputTokens -= usage.InputTokens
 			tokens.OutputTokens -= usage.OutputTokens
 			tokens.CacheReadInputTokens -= usage.CacheReadInputTokens
 			tokens.CacheCreation1hInputTokens -= usage.CacheWriteInputTokens.Ephemeral1h
 			tokens.CacheCreationInputTokens -= usage.CacheWriteInputTokens.Ephemeral5m +
 				usage.untieredCacheCreation()
-			e.p.Session.Tokens[message.model] = tokens
+			e.p.transcript.Session.Tokens[message.model] = tokens
 		}
 	}
 }

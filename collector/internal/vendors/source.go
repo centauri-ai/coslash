@@ -19,11 +19,11 @@ type SourceHealth struct {
 }
 
 // ParseFiles parses concurrently while preserving source order.
-func ParseFiles(
+func ParseFiles[T any](
 	files []string,
-	parse func(string) (*ParsedTranscript, error),
-) []*ParsedTranscript {
-	results := make([]*ParsedTranscript, len(files))
+	parse func(string) (*T, error),
+) []*T {
+	results := make([]*T, len(files))
 	workers := make(chan struct{}, maxParseWorkers)
 	var wg sync.WaitGroup
 	for index, file := range files {
@@ -42,7 +42,7 @@ func ParseFiles(
 	}
 	wg.Wait()
 
-	parsed := make([]*ParsedTranscript, 0, len(files))
+	parsed := make([]*T, 0, len(files))
 	for _, result := range results {
 		if result != nil {
 			parsed = append(parsed, result)

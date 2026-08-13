@@ -14,7 +14,13 @@ func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata
 	if since > 0 {
 		files = FilesSince(files, metadata.Live, since)
 	}
-	return vendors.ParseFiles(files, Parse), metadata, nil
+	parsed := vendors.ParseFiles(files, parse)
+	applyForkedUsage(parsed)
+	transcripts := make([]*vendors.ParsedTranscript, 0, len(parsed))
+	for _, item := range parsed {
+		transcripts = append(transcripts, item.transcript)
+	}
+	return transcripts, metadata, nil
 }
 
 func Get(id string) (*vendors.ParsedTranscript, error) {

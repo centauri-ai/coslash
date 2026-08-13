@@ -99,10 +99,23 @@ type codexFork struct {
 	samples      []codexTokenSample
 }
 
+type parsedSession struct {
+	transcript *vendors.ParsedTranscript
+	fork       codexFork
+}
+
 // Parse turns one rollout into a Parsed. Tokens are bucketed with no fork
 // baseline — the fork stage redoes the bucketing against the parent's shared
 // prefix using the Fork payload.
 func Parse(path string) (*vendors.ParsedTranscript, error) {
+	parsed, err := parse(path)
+	if err != nil {
+		return nil, err
+	}
+	return parsed.transcript, nil
+}
+
+func parse(path string) (*parsedSession, error) {
 	analysis, err := analyzeCodexSession(path)
 	if err != nil {
 		return nil, err
@@ -117,7 +130,6 @@ func Parse(path string) (*vendors.ParsedTranscript, error) {
 		Stopped:    analysis.lastTurnAborted,
 		SpawnTurns: analysis.spawnTurns,
 		Commands:   analysis.commands.Labelled(),
-		ForkUsage:  codexFork{forkedFromID: analysis.forkedFromID, samples: analysis.tokenSamples},
 	}
 	if parsed.ParentID != "" {
 		// Codex does not ship agent description
@@ -126,7 +138,10 @@ func Parse(path string) (*vendors.ParsedTranscript, error) {
 	} else {
 		parsed.Name = analysis.firstUserPrompt
 	}
-	return parsed, nil
+	return &parsedSession{
+		transcript: parsed,
+		fork:       codexFork{forkedFromID: analysis.forkedFromID, samples: analysis.tokenSamples},
+	}, nil
 }
 
 func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
