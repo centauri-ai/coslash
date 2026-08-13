@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"database/sql"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -47,11 +48,11 @@ type liveCandidate struct {
 	userMessages []int64
 }
 
-func loadMetadata(db *sql.DB) *vendors.SessionMetadata {
+func loadMetadata(db *sql.DB) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
 	output, err := exec.Command("ps", "-ww", "-axo", "pid=,lstart=,command=").Output()
 	if err != nil {
-		return metadata
+		return nil, fmt.Errorf("list processes: %w", err)
 	}
 	processes := parseTUIProcesses(string(output))
 	for index := range processes {
@@ -70,12 +71,12 @@ func loadMetadata(db *sql.DB) *vendors.SessionMetadata {
 	}
 	candidates, err := loadLiveCandidates(db)
 	if err != nil {
-		return metadata
+		return nil, fmt.Errorf("load live candidates: %w", err)
 	}
 	for id := range matchLiveSessions(processes, candidates) {
 		metadata.Live[id] = "interactive"
 	}
-	return metadata
+	return metadata, nil
 }
 
 func parseTUIProcesses(output string) []tuiProcess {

@@ -59,7 +59,9 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 		return nil, nil, err
 	}
 	defer db.Close()
-	metadata := loadMetadata(db)
+	metadata := vendors.BestEffortMetadata(vendors.AgentOpenCode, func() (*vendors.SessionMetadata, error) {
+		return loadMetadata(db)
+	})
 
 	query := activeFamiliesQuery
 	var args []any
