@@ -203,60 +203,8 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 					}
 				}
 				if part.State.Status == "completed" {
-					edited := false
-					for _, file := range part.State.Metadata.Files {
-						path := file.RelativePath
-						if path == "" {
-							path = file.FilePath
-						}
-						if path != "" {
-							fileEdits.Add(
-								normalizeFilePath(row.directory, path),
-								file.Additions,
-								file.Deletions,
-								file.Type == "add" || file.Type == "added",
-							)
-							edited = true
-						}
-					}
-					if part.Tool == "edit" && len(part.State.Metadata.Files) == 0 {
-						file := part.State.Metadata.FileDiff
-						path := file.File
-						if path == "" {
-							path = part.State.Input.FilePath
-						}
-						if path != "" {
-							fileEdits.Add(
-								normalizeFilePath(row.directory, path),
-								file.Additions,
-								file.Deletions,
-								false,
-							)
-							edited = true
-						}
-					}
-					if part.Tool == "write" && len(part.State.Metadata.Files) == 0 {
-						path := part.State.Metadata.FilePath
-						if path == "" {
-							path = part.State.Input.FilePath
-						}
-						if path != "" {
-							isNew := part.State.Metadata.Exists != nil &&
-								!*part.State.Metadata.Exists
-							additions := 0
-							if isNew {
-								additions = session.CountLines(part.State.Input.Content)
-							}
-							fileEdits.Add(
-								normalizeFilePath(row.directory, path),
-								additions,
-								0,
-								isNew,
-							)
-							edited = true
-						}
-					}
-					if edited && part.State.Time.End != nil &&
+					if addCompletedToolEdits(row.directory, &part, fileEdits) &&
+						part.State.Time.End != nil &&
 						(lastEditAt == nil || *part.State.Time.End > *lastEditAt) {
 						endedAt := *part.State.Time.End
 						lastEditAt = &endedAt
@@ -298,33 +246,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			break
 		}
 	}
-	seenFiles := make(
-		map[string]struct{},
-		len(fileEdits.Edits)+len(summaryEdits)+len(patchEdits.Edits),
-	)
-	for _, edit := range fileEdits.Edits {
-		seenFiles[edit.Path] = struct{}{}
-	}
-	for _, edit := range summaryEdits {
-		edit.Path = normalizeFilePath(row.directory, edit.Path)
-		if edit.Path == "" {
-			continue
-		}
-		if _, exists := seenFiles[edit.Path]; exists {
-			continue
-		}
-		fileEdits.Add(edit.Path, edit.Additions, edit.Deletions, edit.IsNew)
-		seenFiles[edit.Path] = struct{}{}
-	}
-	for _, edit := range patchEdits.Edits {
-		if _, exists := seenFiles[edit.Path]; exists {
-			continue
-		}
-		for range edit.Edits {
-			fileEdits.Add(edit.Path, 0, 0, false)
-		}
-		seenFiles[edit.Path] = struct{}{}
-	}
+	mergeFileEditSources(row.directory, fileEdits, summaryEdits, patchEdits)
 
 	details := session.SessionDetails{
 		Turns:          turns,
@@ -394,6 +316,86 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		parsed.StatusHint = &status
 	}
 	return parsedSession{transcript: parsed, tasks: tasks}, nil
+}
+
+func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEditSet) bool {
+	edited := false
+	for _, file := range part.State.Metadata.Files {
+		path := file.RelativePath
+		if path == "" {
+			path = file.FilePath
+		}
+		if path == "" {
+			continue
+		}
+		edits.Add(
+			normalizeFilePath(cwd, path),
+			file.Additions,
+			file.Deletions,
+			file.Type == "add" || file.Type == "added",
+		)
+		edited = true
+	}
+	if part.Tool == "edit" && len(part.State.Metadata.Files) == 0 {
+		file := part.State.Metadata.FileDiff
+		path := file.File
+		if path == "" {
+			path = part.State.Input.FilePath
+		}
+		if path != "" {
+			edits.Add(normalizeFilePath(cwd, path), file.Additions, file.Deletions, false)
+			edited = true
+		}
+	}
+	if part.Tool == "write" && len(part.State.Metadata.Files) == 0 {
+		path := part.State.Metadata.FilePath
+		if path == "" {
+			path = part.State.Input.FilePath
+		}
+		if path != "" {
+			isNew := part.State.Metadata.Exists != nil && !*part.State.Metadata.Exists
+			additions := 0
+			if isNew {
+				additions = session.CountLines(part.State.Input.Content)
+			}
+			edits.Add(normalizeFilePath(cwd, path), additions, 0, isNew)
+			edited = true
+		}
+	}
+	return edited
+}
+
+func mergeFileEditSources(
+	cwd string,
+	edits *session.FileEditSet,
+	summaryEdits []session.FileEdit,
+	patchEdits *session.FileEditSet,
+) {
+	// Detailed tool metadata takes precedence over summary diffs and patch-only paths.
+	seen := make(map[string]struct{}, len(edits.Edits)+len(summaryEdits)+len(patchEdits.Edits))
+	for _, edit := range edits.Edits {
+		seen[edit.Path] = struct{}{}
+	}
+	for _, edit := range summaryEdits {
+		edit.Path = normalizeFilePath(cwd, edit.Path)
+		if edit.Path == "" {
+			continue
+		}
+		if _, exists := seen[edit.Path]; exists {
+			continue
+		}
+		edits.Add(edit.Path, edit.Additions, edit.Deletions, edit.IsNew)
+		seen[edit.Path] = struct{}{}
+	}
+	for _, edit := range patchEdits.Edits {
+		if _, exists := seen[edit.Path]; exists {
+			continue
+		}
+		for range edit.Edits {
+			edits.Add(edit.Path, 0, 0, false)
+		}
+		seen[edit.Path] = struct{}{}
+	}
 }
 
 func modelName(provider, model string) string {
