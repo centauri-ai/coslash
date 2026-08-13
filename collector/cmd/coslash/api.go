@@ -51,11 +51,11 @@ func parseSince(value string) (int64, error) {
 }
 
 // /api/synthesis?id=X → cached synthesis for one session, triggering a run
-// when eligible. Loads one session, never the whole machine — Get skips fork,
+// when eligible. Loads one session, never the whole machine; GetSessionFacts skips fork,
 // subagents, and name/status resolution because BuildInput and Eligible read
 // none of those.
 func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
-	found, err := collector.Get(id)
+	found, err := collector.GetSessionFacts(id)
 	if err != nil {
 		log.Printf("synthesis: %v", err)
 		http.Error(w, "could not load synthesis", http.StatusInternalServerError)
@@ -102,7 +102,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 		return
 	}
 	query := r.URL.Query()
-	found, err := collector.Get(query.Get("id"))
+	found, err := collector.GetSessionFacts(query.Get("id"))
 	if err != nil {
 		log.Printf("launch: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
@@ -160,10 +160,13 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 	}
 	for _, option := range settings.BackendOptions() {
 		_, err := exec.LookPath(settings.BackendExecutable(option.ID))
-		response.Options.SynthesisBackends = append(response.Options.SynthesisBackends, availableBackend{
-			BackendOption: option,
-			Available:     err == nil,
-		})
+		response.Options.SynthesisBackends = append(
+			response.Options.SynthesisBackends,
+			availableBackend{
+				BackendOption: option,
+				Available:     err == nil,
+			},
+		)
 	}
 	for _, option := range settings.TerminalOptions() {
 		response.Options.Terminals = append(response.Options.Terminals, availableTerminal{
@@ -174,10 +177,19 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 	writeJSON(w, response)
 }
 
-func handleSaveSettings(w http.ResponseWriter, r *http.Request, store *settings.Store, mgr *synthesis.Manager) {
+func handleSaveSettings(
+	w http.ResponseWriter,
+	r *http.Request,
+	store *settings.Store,
+	mgr *synthesis.Manager,
+) {
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSettingsBytes))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("settings exceed %d bytes", maxSettingsBytes), http.StatusBadRequest)
+		http.Error(
+			w,
+			fmt.Sprintf("settings exceed %d bytes", maxSettingsBytes),
+			http.StatusBadRequest,
+		)
 		return
 	}
 	config, err := settings.Decode(data)
@@ -192,7 +204,11 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request, store *settings.
 	}
 	if err := store.Save(config); err != nil {
 		log.Printf("save settings: %v", err)
-		http.Error(w, "could not save settings.json; check ~/.coslash permissions", http.StatusInternalServerError)
+		http.Error(
+			w,
+			"could not save settings.json; check ~/.coslash permissions",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 	mgr.SetRunner(runner)

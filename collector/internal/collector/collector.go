@@ -32,15 +32,15 @@ type vendorSource struct {
 
 var vendorSources = []vendorSource{
 	{
-		name: vendors.AgentClaude, collect: claude.Collect, get: claude.Get,
+		name: vendors.AgentClaude, collect: claude.Collect, get: claude.GetSessionFacts,
 		health: claude.Health,
 	},
 	{
-		name: vendors.AgentCodex, collect: codex.Collect, get: codex.Get,
+		name: vendors.AgentCodex, collect: codex.Collect, get: codex.GetSessionFacts,
 		health: codex.Health,
 	},
 	{
-		name: vendors.AgentOpenCode, collect: opencode.Collect, get: opencode.Get,
+		name: vendors.AgentOpenCode, collect: opencode.Collect, get: opencode.GetSessionFacts,
 		health: opencode.Health,
 	},
 }
@@ -145,7 +145,12 @@ func composeSessions(parsed []*vendors.ParsedSession) sessionComposition {
 		}
 		parent, ok := byID[sessionKey{agent: p.Session.Agent, id: p.ParentID}]
 		if !ok {
-			log.Printf("%s: %s parent %s not found, dropping child", p.Session.Agent, p.Session.ID, p.ParentID)
+			log.Printf(
+				"%s: %s parent %s not found, dropping child",
+				p.Session.Agent,
+				p.Session.ID,
+				p.ParentID,
+			)
 			continue
 		}
 		if deref(p.Session.Status) == "waiting" {
@@ -350,11 +355,10 @@ func deref(value *string) string {
 	return *value
 }
 
-// Get returns one session by id using the vendor's native lookup and its probes.
-// No fork pass, no subagents, no name/status resolution — synthesis (BuildInput,
-// Eligible) and launch read none of those. Sessions in the synthesis cwd stay
-// invisible, as in the list. Returns nil when the id is unknown.
-func Get(id string) (*session.Session, error) {
+// GetSessionFacts performs a targeted partial lookup for synthesis and launch.
+// It intentionally skips fork normalization, subagents, names, and status.
+// Sessions in the synthesis cwd stay invisible, as in the list.
+func GetSessionFacts(id string) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
