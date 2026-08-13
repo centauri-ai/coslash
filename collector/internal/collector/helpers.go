@@ -9,7 +9,7 @@ import (
 )
 
 func subagentFrom(
-	child, parent *vendors.ParsedTranscript,
+	child, parent *vendors.ParsedSession,
 	metadata *vendors.SessionMetadata,
 	claudeWorkflowAgent *claude.WorkflowAgent,
 ) session.Subagent {
@@ -28,8 +28,8 @@ func subagentFrom(
 		Cost:         s.Cost,
 		CostRecorded: s.CostRecorded,
 	}
-	if turn, ok := parent.SpawnTurns[child.SpawnKey]; ok {
-		subagent.SpawnedAtTurn = &turn
+	if spawn, ok := parent.Spawns[child.SpawnKey]; ok {
+		subagent.SpawnedAtTurn = spawn.Turn
 	}
 	if claudeWorkflowAgent != nil {
 		subagent.Name = cmp.Or(claudeWorkflowAgent.Label, subagent.Name)
@@ -43,7 +43,7 @@ func subagentFrom(
 }
 
 func subagentStatus(
-	child, parent *vendors.ParsedTranscript,
+	child, parent *vendors.ParsedSession,
 	metadata *vendors.SessionMetadata,
 ) string {
 	if child.Session.Agent == vendors.AgentCodex {
@@ -64,11 +64,11 @@ func subagentStatus(
 	if child.Session.Agent == vendors.AgentOpenCode && child.InTurn {
 		return session.SubagentRunning
 	}
-	if _, ok := parent.Completed[child.SpawnKey]; ok {
+	if parent.Spawns[child.SpawnKey].Completed {
 		return session.SubagentReturned
 	}
 	// A forked skill is not spawned by a tool call, so its meta.json carries no
-	// toolUseId and it never reaches parent.Completed. Settle it from its own
+	// toolUseId and it never reaches parent.Spawns. Settle it from its own
 	// transcript, which clears InTurn on a terminal stop_reason.
 	if child.SpawnKey == "" {
 		if !child.InTurn {
