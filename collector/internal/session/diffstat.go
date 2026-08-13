@@ -18,5 +18,5 @@ func CountLines(content string) int {
 	if content == "" {
 		return 0
 	}
-	return strings.Count(content, "\n") + 1
+	return len(strings.Split(strings.TrimSuffix(content, "\n"), "\n"))
 }

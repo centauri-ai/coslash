@@ -319,6 +319,36 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 }
 
 func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEditSet) bool {
+	if part.Tool == "write" {
+		file := storedToolFile{}
+		if len(part.State.Metadata.Files) > 0 {
+			file = part.State.Metadata.Files[0]
+		}
+		path := file.RelativePath
+		if path == "" {
+			path = file.FilePath
+		}
+		if path == "" {
+			path = part.State.Metadata.FilePath
+		}
+		if path == "" {
+			path = part.State.Input.FilePath
+		}
+		if path == "" {
+			return false
+		}
+		isNew := file.Type == "add" || file.Type == "added" ||
+			(part.State.Metadata.Exists != nil && !*part.State.Metadata.Exists)
+		additions := file.Additions
+		if isNew && additions == 0 {
+			additions = session.CountLines(part.State.Input.Content)
+		}
+		path = normalizeFilePath(cwd, path)
+		edits.Add(path, additions, file.Deletions, isNew)
+		edits.Write(path, part.State.Input.Content)
+		return true
+	}
+
 	edited := false
 	for _, file := range part.State.Metadata.Files {
 		path := file.RelativePath
@@ -328,12 +358,20 @@ func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEdit
 		if path == "" {
 			continue
 		}
+		path = normalizeFilePath(cwd, path)
 		edits.Add(
-			normalizeFilePath(cwd, path),
+			path,
 			file.Additions,
 			file.Deletions,
 			file.Type == "add" || file.Type == "added",
 		)
+		patch := file.Patch
+		if patch == "" {
+			patch = applyPatchForFile(part.State.Input.PatchText, cwd, path)
+		}
+		if patch != "" {
+			edits.Patch(path, patch)
+		}
 		edited = true
 	}
 	if part.Tool == "edit" && len(part.State.Metadata.Files) == 0 {
@@ -343,26 +381,40 @@ func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEdit
 			path = part.State.Input.FilePath
 		}
 		if path != "" {
-			edits.Add(normalizeFilePath(cwd, path), file.Additions, file.Deletions, false)
-			edited = true
-		}
-	}
-	if part.Tool == "write" && len(part.State.Metadata.Files) == 0 {
-		path := part.State.Metadata.FilePath
-		if path == "" {
-			path = part.State.Input.FilePath
-		}
-		if path != "" {
-			isNew := part.State.Metadata.Exists != nil && !*part.State.Metadata.Exists
-			additions := 0
-			if isNew {
-				additions = session.CountLines(part.State.Input.Content)
-			}
-			edits.Add(normalizeFilePath(cwd, path), additions, 0, isNew)
+			path = normalizeFilePath(cwd, path)
+			edits.Add(path, file.Additions, file.Deletions, false)
+			edits.Change(path, part.State.Input.OldString, part.State.Input.NewString)
 			edited = true
 		}
 	}
 	return edited
+}
+
+func applyPatchForFile(patchText, cwd, path string) string {
+	var patch strings.Builder
+	active := false
+	for rawLine := range strings.Lines(patchText) {
+		line := strings.TrimSuffix(rawLine, "\n")
+		marker, marked := strings.CutPrefix(line, "*** Update File: ")
+		if !marked {
+			marker, marked = strings.CutPrefix(line, "*** Add File: ")
+		}
+		if !marked {
+			marker, marked = strings.CutPrefix(line, "*** Delete File: ")
+		}
+		if marked {
+			active = normalizeFilePath(cwd, marker) == path
+			continue
+		}
+		if strings.HasPrefix(line, "*** ") {
+			active = false
+			continue
+		}
+		if active {
+			patch.WriteString(rawLine)
+		}
+	}
+	return patch.String()
 }
 
 func mergeFileEditSources(

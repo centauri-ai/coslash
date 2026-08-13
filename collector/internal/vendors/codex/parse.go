@@ -68,6 +68,11 @@ func (analysis *codexSessionAnalysis) noteFileChanges(changes codexPatchChanges)
 			additions = session.CountLines(change.Content)
 		}
 		analysis.fileEdits.Add(entry.Path, additions, deletions, isNew)
+		if change.UnifiedDiff != "" {
+			analysis.fileEdits.Patch(entry.Path, change.UnifiedDiff)
+		} else if isNew {
+			analysis.fileEdits.Change(entry.Path, "", change.Content)
+		}
 	}
 }
 

@@ -50,6 +50,40 @@ func parseSince(value string) (int64, error) {
 	return since, nil
 }
 
+func handleDiff(
+	w http.ResponseWriter,
+	r *http.Request,
+	getSession func(string) (*session.Session, error),
+) {
+	query := r.URL.Query()
+	found, err := getSession(query.Get("id"))
+	if err != nil {
+		log.Printf("diff: %v", err)
+		http.Error(w, "could not load diff", http.StatusInternalServerError)
+		return
+	}
+	if found == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	path := query.Get("path")
+	var selected *session.FileEdit
+	for index := range found.FileEdits {
+		edit := &found.FileEdits[index]
+		if edit.Path == path {
+			selected = edit
+			break
+		}
+	}
+	if selected == nil {
+		http.Error(w, "file not found in session", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, struct {
+		Changes []session.FileChange `json:"changes"`
+	}{Changes: selected.Changes()})
+}
+
 // /api/synthesis?id=X → cached synthesis for one session, triggering a run
 // when eligible. Loads one session, never the whole machine; GetSessionFacts skips fork,
 // subagents, and name/status resolution because BuildInput and Eligible read

@@ -17,6 +17,7 @@ import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
+import { DiffList } from '@/pages/coslash/components/DiffList';
 import {
   SessionId,
   SessionName,
@@ -27,6 +28,7 @@ import {
 } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
+import { useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
@@ -50,6 +52,12 @@ type SynthesisResponse = {
   synthesisPending: boolean;
   synthesisError?: string;
 };
+
+/* oxlint-disable react/only-export-components -- exported for focused rendering tests */
+export function filePanelOpen(selection: FileSelection | null, sessionId: string): boolean {
+  return selection?.sessionId === sessionId;
+}
+/* oxlint-enable react/only-export-components */
 
 function useSessionDetail(
   session: Session | null,
@@ -635,7 +643,13 @@ function ArtifactStats({ detail }: { detail: SessionDetail }) {
   );
 }
 
-function FilesChangedList({ detail }: { detail: SessionDetail }) {
+function FilesChangedList({
+  detail,
+  onSelectFile,
+}: {
+  detail: SessionDetail;
+  onSelectFile: (path: string) => void;
+}) {
   if (detail.fileEdits.length === 0) return null;
   const newFiles = detail.fileEdits.filter((fileEdit) => fileEdit.isNew).length;
   return (
@@ -644,14 +658,19 @@ function FilesChangedList({ detail }: { detail: SessionDetail }) {
       <div className="rounded-sm border p-2">
         {detail.fileEdits.map((fileEdit) => (
           <div key={fileEdit.path} className="flex items-center justify-between gap-2 py-1 font-mono text-xs">
-            <span
+            <button
+              type="button"
               title={fileEdit.path}
-              className={cn('text-muted-foreground min-w-0 truncate', {
-                'text-success-fg': fileEdit.isNew,
-              })}
+              className={cn(
+                'text-muted-foreground min-w-0 cursor-pointer truncate text-left hover:underline',
+                {
+                  'text-success-fg': fileEdit.isNew,
+                },
+              )}
+              onClick={() => onSelectFile(fileEdit.path)}
             >
               {fileEdit.path.split('/').pop()}
-            </span>
+            </button>
             <span className="whitespace-nowrap">
               <span className="text-success-fg">+{fileEdit.adds}</span>{' '}
               <span className="text-destructive">−{fileEdit.dels}</span>{' '}
@@ -733,7 +752,13 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
   );
 }
 
-function InspectorBody({ detail }: { detail: SessionDetail }) {
+function InspectorBody({
+  detail,
+  onSelectFile,
+}: {
+  detail: SessionDetail;
+  onSelectFile: (path: string) => void;
+}) {
   // scroll on the outer div, layout on the inner one — flex children of a
   // scroll container shrink to fit instead of overflowing, which collapses
   // the overflow-hidden stat grids
@@ -745,7 +770,7 @@ function InspectorBody({ detail }: { detail: SessionDetail }) {
         <DigestSection detail={detail} />
         <ArtifactStats detail={detail} />
         <CommandsSection detail={detail} />
-        <FilesChangedList detail={detail} />
+        <FilesChangedList detail={detail} onSelectFile={onSelectFile} />
         <CommitsAndTodos detail={detail} />
       </div>
     </div>
@@ -779,13 +804,22 @@ export function SessionInspector({
 }) {
   const { detail, loadError } = useSessionDetail(session, sessionsVersion, synthesisSettingsKey);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [selectedDiff, setSelectedDiff] = useState<FileSelection | null>(null);
+  const {
+    changes: fileChanges,
+    isLoading: fileDiffLoading,
+    loadError: fileDiffError,
+  } = useFileDiff(selectedDiff);
   const isOpen = session != null;
 
   return (
     <Sheet
       open={isOpen}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) {
+          setSelectedDiff(null);
+          onClose();
+        }
       }}
     >
       <SheetContent
@@ -818,11 +852,38 @@ export function SessionInspector({
                 {loadError}
               </div>
             )}
-            <InspectorBody detail={detail} />
+            <InspectorBody
+              detail={detail}
+              onSelectFile={(path) => setSelectedDiff({ sessionId: detail.id, path })}
+            />
             <InspectorFooter detail={detail} />
           </>
         )}
       </SheetContent>
+      <Sheet
+        open={filePanelOpen(selectedDiff, detail?.id ?? '')}
+        onOpenChange={(open) => {
+          if (!open) setSelectedDiff(null);
+        }}
+      >
+        <SheetContent className="w-1/2! max-w-none! gap-0" showCloseButton={true}>
+          {selectedDiff != null && (
+            <>
+              <SheetHeader className="border-b">
+                <div className="flex min-w-0 items-center gap-2 pr-10">
+                  <span className="text-brand shrink-0 text-xs font-semibold tracking-wide">
+                    FILE CHANGES
+                  </span>
+                  <SheetTitle className="min-w-0 flex-1 truncate font-mono text-xs" title={selectedDiff.path}>
+                    {selectedDiff.path}
+                  </SheetTitle>
+                </div>
+              </SheetHeader>
+              <DiffList changes={fileChanges} isLoading={fileDiffLoading} loadError={fileDiffError} />
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </Sheet>
   );
 }
