@@ -123,23 +123,28 @@ func Get(id string) (*vendors.ParsedTranscript, error) {
 	return parsed[0], nil
 }
 
-func Health() (SourceHealth, error) {
+func Health() vendors.SourceHealth {
+	root, rootErr := Root()
+	if rootErr != nil {
+		return vendors.SourceHealth{Agent: vendors.AgentOpenCode, Err: rootErr}
+	}
 	db, err := open()
 	if errors.Is(err, os.ErrNotExist) {
-		return SourceHealth{Missing: true}, nil
+		return vendors.SourceHealth{Agent: vendors.AgentOpenCode, Root: root, Missing: true}
 	}
 	if err != nil {
-		return SourceHealth{}, err
+		return vendors.SourceHealth{Agent: vendors.AgentOpenCode, Root: root, Err: err}
 	}
 	defer db.Close()
 
-	var health SourceHealth
+	health := vendors.SourceHealth{Agent: vendors.AgentOpenCode, Root: root}
 	err = db.QueryRow(`
 		SELECT COUNT(*), COALESCE(SUM(parent_id IS NULL), 0)
 		FROM session
 		WHERE time_archived IS NULL
 	`).Scan(&health.Entries, &health.Sessions)
-	return health, err
+	health.Err = err
+	return health
 }
 
 func emptyMetadata() *vendors.SessionMetadata {

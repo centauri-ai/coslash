@@ -5,12 +5,6 @@ import (
 	"encoding/json"
 )
 
-type SourceHealth struct {
-	Entries  int
-	Sessions int
-	Missing  bool
-}
-
 type storedSession struct {
 	id           string
 	parentID     sql.NullString
