@@ -528,7 +528,6 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		Errors:         errorsCount,
 		Compactions:    compactions,
 		Commands:       commands.Raw(),
-		CommandCount:   commands.Count(),
 		Commits:        commits,
 		PullRequests:   pullRequests,
 		Todos:          todos,

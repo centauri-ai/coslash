@@ -80,6 +80,7 @@ func parse(path string) (*parsedSession, error) {
 	}
 	parsed := &vendors.ParsedSession{
 		Session:  analysis.unifiedSession(path),
+		LogPath:  path,
 		ParentID: ParentIDFromPath(path),
 		Name:     analysis.transcriptName(),
 		InTurn:   analysis.inTurn,
@@ -382,14 +383,12 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		turns = analysis.userPromptCount
 	}
 	unifiedSessionDetails := session.SessionDetails{
-		LogPath:        filePath,
 		Compactions:    max(analysis.compactBoundaries, analysis.compactSummaries),
 		PullRequests:   len(analysis.pullRequests),
 		Turns:          turns,
 		ToolUses:       analysis.toolUseCount,
 		Errors:         analysis.errors,
 		Commands:       analysis.commands.Raw(),
-		CommandCount:   analysis.commands.Count(),
 		Commits:        analysis.commits,
 		FileEdits:      analysis.fileEdits.Edits,
 		Digest:         analysis.digest.Entries(),

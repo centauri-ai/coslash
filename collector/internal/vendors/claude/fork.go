@@ -35,7 +35,7 @@ func applyForkedUsage(parsed []*parsedSession) {
 			ids[id] = struct{}{}
 		}
 		entries = append(entries, &entry{
-			p: p, usage: usage, ids: ids, birth: fileCreationTime(p.transcript.Session.LogPath),
+			p: p, usage: usage, ids: ids, birth: fileCreationTime(p.transcript.LogPath),
 		})
 	}
 
@@ -72,14 +72,14 @@ func applyForkedUsage(parsed []*parsedSession) {
 			c, ok := owners[id]
 			if !ok {
 				owners[id] = &candidate{
-					path: e.p.transcript.Session.LogPath, ids: e.ids, birth: e.birth, count: 1,
+					path: e.p.transcript.LogPath, ids: e.ids, birth: e.birth, count: 1,
 				}
 				continue
 			}
 			c.count++
 			switch upstream(e, c) {
 			case -1:
-				c.path, c.ids, c.birth, c.tie = e.p.transcript.Session.LogPath, e.ids, e.birth, false
+				c.path, c.ids, c.birth, c.tie = e.p.transcript.LogPath, e.ids, e.birth, false
 			case 0:
 				c.tie = true
 			}
@@ -89,7 +89,7 @@ func applyForkedUsage(parsed []*parsedSession) {
 	for _, e := range entries {
 		for id, message := range e.usage {
 			c, ok := owners[id]
-			if !ok || c.count < 2 || c.tie || c.path == e.p.transcript.Session.LogPath {
+			if !ok || c.count < 2 || c.tie || c.path == e.p.transcript.LogPath {
 				continue
 			}
 			// Inherited from a forked-from sibling: counted under the owner.
