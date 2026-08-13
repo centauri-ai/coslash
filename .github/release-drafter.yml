@@ -37,6 +37,16 @@ categories:
   - title: Other changes
 
   - type: version-resolver
+    semver-increment: major
+    when:
+      label: "semver:major"
+
+  - type: version-resolver
+    semver-increment: minor
+    when:
+      label: "semver:minor"
+
+  - type: version-resolver
     semver-increment: patch
 
 change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
