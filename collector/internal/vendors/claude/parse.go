@@ -56,12 +56,25 @@ type messageUsage struct {
 	usage *claudeUsage
 }
 
+type parsedSession struct {
+	transcript *vendors.ParsedTranscript
+	forkUsage  map[string]messageUsage
+}
+
 type taskEntry struct {
 	subject string
 	status  string
 }
 
 func Parse(path string) (*vendors.ParsedTranscript, error) {
+	parsed, err := parse(path)
+	if err != nil {
+		return nil, err
+	}
+	return parsed.transcript, nil
+}
+
+func parse(path string) (*parsedSession, error) {
 	analysis, err := analyzeClaudeSession(path)
 	if err != nil {
 		return nil, err
@@ -74,7 +87,6 @@ func Parse(path string) (*vendors.ParsedTranscript, error) {
 		SpawnTurns: analysis.spawnTurns,
 		Completed:  analysis.completedToolUses,
 		Commands:   analysis.commands.Labelled(),
-		ForkUsage:  analysis.dedupedMessageTokenUsage,
 	}
 	if parsed.ParentID != "" {
 		metaPath := strings.TrimSuffix(path, ".jsonl") + ".meta.json"
@@ -86,7 +98,7 @@ func Parse(path string) (*vendors.ParsedTranscript, error) {
 		parsed.SpawnKey = cmp.Or(workflowRunID(path), meta.ToolUseID)
 		parsed.Stopped = meta.StoppedByUser
 	}
-	return parsed, nil
+	return &parsedSession{transcript: parsed, forkUsage: analysis.dedupedMessageTokenUsage}, nil
 }
 
 func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {

@@ -9,9 +9,6 @@ import "github.com/centauri-ai/coslash/collector/internal/session"
 type ParsedTranscript struct {
 	Session *session.Session
 
-	// consumed at applyForkedUsage
-	ForkUsage any // claude: message.id → usage. codex: cumulative samples.
-
 	// consumed at groupSubagents — the parent↔child linkage
 	ParentID   string                    // "" for a root
 	SpawnKey   string                    // key into the parent's SpawnTurns: claude toolUseId, codex agent id

@@ -16,15 +16,12 @@ import (
 // before the divergence belongs to the parent. An unresolvable or unreadable
 // parent leaves the full cumulative usage in place; over-counting is the
 // deliberate failure mode, never under-counting.
-func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
-	forks := []*vendors.ParsedTranscript{}
+func applyForkedUsage(parsed []*parsedSession) {
+	forks := []*parsedSession{}
 	index := map[string]string{}
 	for _, p := range parsed {
-		f, ok := p.ForkUsage.(codexFork)
-		if !ok {
-			continue
-		}
-		index[p.Session.ID] = p.Session.LogPath
+		f := p.fork
+		index[p.transcript.Session.ID] = p.transcript.Session.LogPath
 		if f.forkedFromID != "" {
 			forks = append(forks, p)
 		}
@@ -50,9 +47,9 @@ func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
 		}
 	}
 	for _, p := range forks {
-		fork := p.ForkUsage.(codexFork)
+		fork := p.fork
 		parentPath := index[fork.forkedFromID]
-		if parentPath == "" || parentPath == p.Session.LogPath {
+		if parentPath == "" || parentPath == p.transcript.Session.LogPath {
 			continue
 		}
 		forkSeq := make([]codexTokenUsage, len(fork.samples))
@@ -63,11 +60,15 @@ func ApplyForkedUsage(parsed []*vendors.ParsedTranscript) {
 		if err != nil {
 			log.Printf(
 				"%s: fork parent %q unreadable; counting full usage: %v",
-				p.Session.LogPath, parentPath, err,
+				p.transcript.Session.LogPath, parentPath, err,
 			)
 			continue
 		}
-		p.Session.Tokens = tokenBuckets(fork.samples, parentUsages, p.Session.LogPath)
+		p.transcript.Session.Tokens = tokenBuckets(
+			fork.samples,
+			parentUsages,
+			p.transcript.Session.LogPath,
+		)
 	}
 }
 

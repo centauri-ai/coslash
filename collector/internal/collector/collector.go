@@ -28,22 +28,20 @@ type vendorSource struct {
 	collect func(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error)
 	get     func(id string) (*vendors.ParsedTranscript, error)
 	health  func() vendors.SourceHealth
-	fork    func(parsed []*vendors.ParsedTranscript)
 }
 
 var vendorSources = []vendorSource{
 	{
 		name: vendors.AgentClaude, collect: claude.Collect, get: claude.Get,
-		health: claude.Health, fork: claude.ApplyForkedUsage,
+		health: claude.Health,
 	},
 	{
 		name: vendors.AgentCodex, collect: codex.Collect, get: codex.Get,
-		health: codex.Health, fork: codex.ApplyForkedUsage,
+		health: codex.Health,
 	},
 	{
 		name: vendors.AgentOpenCode, collect: opencode.Collect, get: opencode.Get,
 		health: opencode.Health,
-		fork:   func([]*vendors.ParsedTranscript) {},
 	},
 }
 
@@ -62,7 +60,6 @@ func List(since int64) ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	applyForkedUsage(parsed)
 	roots := groupSubagents(parsed, metadata)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedTranscript) bool {
@@ -78,16 +75,6 @@ func List(since int64) ([]*session.Session, error) {
 		session.AttachCosts(s)
 	}
 	return sessions, nil
-}
-
-func applyForkedUsage(parsed []*vendors.ParsedTranscript) {
-	byAgent := map[string][]*vendors.ParsedTranscript{}
-	for _, p := range parsed {
-		byAgent[p.Session.Agent] = append(byAgent[p.Session.Agent], p)
-	}
-	for _, source := range vendorSources {
-		source.fork(byAgent[source.name])
-	}
 }
 
 func collect(
