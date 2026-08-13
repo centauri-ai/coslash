@@ -719,7 +719,7 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
         ) : (
           <ChevronRightIcon className="text-muted-foreground size-3" />
         )}
-        <FieldLabel>{`${detail.commandCount} COMMANDS`}</FieldLabel>
+        <FieldLabel>{`${detail.commands.length} COMMANDS`}</FieldLabel>
         <div className="flex-1 border-b" />
       </div>
       {open && (

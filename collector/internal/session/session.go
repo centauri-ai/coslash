@@ -105,7 +105,6 @@ type SessionSynthesis struct {
 }
 
 type SessionDetails struct {
-	LogPath          string            `json:"logPath"`
 	Model            *string           `json:"model"`
 	ContextTokens    *int              `json:"contextTokens"`
 	ContextWindow    *int              `json:"contextWindow"`
@@ -114,7 +113,6 @@ type SessionDetails struct {
 	Errors           int               `json:"errors"`
 	Compactions      int               `json:"compactions"`
 	FirstPrompt      *string           `json:"firstPrompt"`
-	CommandCount     int               `json:"commandCount"`
 	Commands         []string          `json:"commands"`
 	Commits          []string          `json:"commits"`
 	PullRequests     int               `json:"prs"`

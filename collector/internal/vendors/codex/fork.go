@@ -21,7 +21,7 @@ func applyForkedUsage(parsed []*parsedSession) {
 	index := map[string]string{}
 	for _, p := range parsed {
 		f := p.fork
-		index[p.transcript.Session.ID] = p.transcript.Session.LogPath
+		index[p.transcript.Session.ID] = p.transcript.LogPath
 		if f.forkedFromID != "" {
 			forks = append(forks, p)
 		}
@@ -49,7 +49,7 @@ func applyForkedUsage(parsed []*parsedSession) {
 	for _, p := range forks {
 		fork := p.fork
 		parentPath := index[fork.forkedFromID]
-		if parentPath == "" || parentPath == p.transcript.Session.LogPath {
+		if parentPath == "" || parentPath == p.transcript.LogPath {
 			continue
 		}
 		forkSeq := make([]codexTokenUsage, len(fork.samples))
@@ -60,14 +60,14 @@ func applyForkedUsage(parsed []*parsedSession) {
 		if err != nil {
 			log.Printf(
 				"%s: fork parent %q unreadable; counting full usage: %v",
-				p.transcript.Session.LogPath, parentPath, err,
+				p.transcript.LogPath, parentPath, err,
 			)
 			continue
 		}
 		p.transcript.Session.Tokens = tokenBuckets(
 			fork.samples,
 			parentUsages,
-			p.transcript.Session.LogPath,
+			p.transcript.LogPath,
 		)
 	}
 }

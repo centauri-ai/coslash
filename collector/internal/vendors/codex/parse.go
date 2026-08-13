@@ -126,6 +126,7 @@ func parse(path string) (*parsedSession, error) {
 	}
 	parsed := &vendors.ParsedSession{
 		Session:  analysis.unifiedSession(path),
+		LogPath:  path,
 		ParentID: analysis.parentThreadID,
 		InTurn:   analysis.turnDepth > 0,
 		Stopped:  analysis.lastTurnAborted,
@@ -380,13 +381,11 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		sessionID = analysis.sessionID
 	}
 	unifiedSessionDetails := session.SessionDetails{
-		LogPath:      filePath,
 		Turns:        analysis.turns,
 		ToolUses:     analysis.toolUseCount,
 		Compactions:  analysis.compactions,
 		Errors:       0, // Codex does not report exit code (may change in the future)
 		Commands:     analysis.commands.Raw(),
-		CommandCount: analysis.commands.Count(),
 		Commits:      analysis.commits,
 		PullRequests: analysis.pullRequests,
 		FileEdits:    analysis.fileEdits.Edits,

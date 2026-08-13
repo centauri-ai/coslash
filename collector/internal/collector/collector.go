@@ -84,8 +84,8 @@ func List(since int64) ([]*session.Session, error) {
 func enrichParsedSessions(parsed []*vendors.ParsedSession) {
 	for _, item := range parsed {
 		s := item.Session
-		if s.LastActivityTime == 0 && s.LogPath != "" {
-			s.LastActivityTime = session.FileModificationTime(s.LogPath)
+		if s.LastActivityTime == 0 && item.LogPath != "" {
+			s.LastActivityTime = session.FileModificationTime(item.LogPath)
 		}
 		if s.ContextWindow == nil && s.Model != nil {
 			s.ContextWindow = session.ContextWindowFor(*s.Model)

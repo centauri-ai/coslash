@@ -53,7 +53,6 @@ export type Session = {
   synthesisPending: boolean;
   synthesisError?: string;
   declaredGoal: string | null;
-  logPath: string;
   model: string | null;
   contextTokens: number | null;
   contextWindow: number | null;
@@ -62,7 +61,6 @@ export type Session = {
   errors: number;
   compactions: number;
   firstPrompt: string | null;
-  commandCount: number;
   commands: string[];
   commits: string[];
   prs: number;

@@ -42,7 +42,7 @@ func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
 	agents := map[string]*WorkflowAgent{}
 	finished := map[string]bool{}
 	for _, p := range parsed {
-		statePath, ok := workflowStatePath(p.Session.LogPath)
+		statePath, ok := workflowStatePath(p.LogPath)
 		if !ok {
 			continue
 		}
@@ -68,14 +68,14 @@ func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
 	}
 	journals := map[string]map[string]string{}
 	for _, p := range parsed {
-		statePath, ok := workflowStatePath(p.Session.LogPath)
+		statePath, ok := workflowStatePath(p.LogPath)
 		if !ok || agents[p.Session.ID] != nil || !finished[statePath] {
 			continue
 		}
 		results, cached := journals[statePath]
 		if !cached {
 			results = workflowJournalResults(
-				filepath.Join(filepath.Dir(p.Session.LogPath), "journal.jsonl"),
+				filepath.Join(filepath.Dir(p.LogPath), "journal.jsonl"),
 			)
 			journals[statePath] = results
 		}

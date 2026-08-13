@@ -6,6 +6,7 @@ import "github.com/centauri-ai/coslash/collector/internal/session"
 // shared composition and enrichment stages.
 type ParsedSession struct {
 	Session *session.Session
+	LogPath string
 
 	// consumed while composing parent-child relationships
 	ParentID string                    // "" for a root
