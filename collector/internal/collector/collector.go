@@ -27,63 +27,27 @@ type vendorSource struct {
 	name    string
 	collect func(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error)
 	get     func(id string) (*vendors.ParsedTranscript, error)
-	health  func() SourceHealth
+	health  func() vendors.SourceHealth
 	fork    func(parsed []*vendors.ParsedTranscript)
 }
 
-type fileSource struct {
-	name     string
-	root     func() (string, error)
-	files    func() ([]string, error)
-	scan     func() (*vendors.SourceScan, error)
-	isRoot   func(path string) (bool, error)
-	id       func(path string) string // session id without parsing, for Get
-	parse    func(path string) (*vendors.ParsedTranscript, error)
-	metadata func() (*vendors.SessionMetadata, error) // information not extractable from logs alone
-	fork     func(parsed []*vendors.ParsedTranscript)
-	window   func(files []string, live map[string]string, since int64) []string
-}
-
 var vendorSources = []vendorSource{
-	adaptFileVendor(fileSource{
-		name: vendors.AgentClaude, root: claude.Root, files: claude.Files, scan: claude.Scan,
-		isRoot: func(path string) (bool, error) { return claude.ParentIDFromPath(path) == "", nil },
-		id:     claude.IDFromPath, parse: claude.Parse, metadata: claude.LoadMetadata,
-		fork: claude.ApplyForkedUsage, window: claude.FilesSince,
-	}),
-	adaptFileVendor(fileSource{
-		name: vendors.AgentCodex, root: codex.Root, files: codex.Files, scan: codex.Scan,
-		isRoot: codex.IsRootRollout,
-		id:     codex.SessionIDFromRollout, parse: codex.Parse, metadata: codex.LoadMetadata,
-		fork: codex.ApplyForkedUsage, window: codex.FilesSince,
-	}),
+	{
+		name: vendors.AgentClaude, collect: claude.Collect, get: claude.Get,
+		health: claude.Health, fork: claude.ApplyForkedUsage,
+	},
+	{
+		name: vendors.AgentCodex, collect: codex.Collect, get: codex.Get,
+		health: codex.Health, fork: codex.ApplyForkedUsage,
+	},
 	{
 		name: vendors.AgentOpenCode, collect: opencode.Collect, get: opencode.Get,
-		health: func() SourceHealth {
-			root, err := opencode.Root()
-			if err != nil {
-				return SourceHealth{Agent: vendors.AgentOpenCode, Err: err}
-			}
-			health, err := opencode.Health()
-			return SourceHealth{
-				Agent: vendors.AgentOpenCode, Root: root, Entries: health.Entries,
-				Sessions: health.Sessions, Missing: health.Missing, Err: err,
-			}
-		},
-		fork: func([]*vendors.ParsedTranscript) {},
+		health: opencode.Health,
+		fork:   func([]*vendors.ParsedTranscript) {},
 	},
 }
 
-type SourceHealth struct {
-	Agent        string
-	Root         string
-	Entries      int
-	Sessions     int
-	Missing      bool
-	Skipped      []vendors.SkippedPath
-	SkippedTotal int
-	Err          error
-}
+type SourceHealth = vendors.SourceHealth
 
 func Sources() []SourceHealth {
 	health := make([]SourceHealth, 0, len(vendorSources))
