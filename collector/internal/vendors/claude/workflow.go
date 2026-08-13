@@ -46,14 +46,17 @@ func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
 		if !ok {
 			continue
 		}
-		if _, done := finished[statePath]; done {
+		if _, seen := finished[statePath]; seen {
 			continue
 		}
 		finished[statePath] = false
 		var run workflowRun
 		found, err := session.ReadJSONIfValid(statePath, &run)
-		if err != nil || !found {
+		if err != nil {
 			log.Printf("%s: unreadable workflow state: %v", statePath, err)
+			continue
+		}
+		if !found {
 			continue
 		}
 		finished[statePath] = run.DurationMs > 0

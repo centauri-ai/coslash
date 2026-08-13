@@ -27,7 +27,8 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 	if err != nil {
 		return nil, err
 	}
-	metadata := &vendors.SessionMetadata{Names: names, Live: map[string]string{}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Names = names
 	for id := range live {
 		metadata.Live[id] = "interactive"
 	}

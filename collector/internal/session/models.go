@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Neither vendor reports list prices, and Claude does not report its context
+// No vendor reports list prices, and Claude does not report its context
 // window either, so coslash reads both from a table. models.json is a pruned
 // copy of LiteLLM's model_prices_and_context_window.json (MIT licensed), which
 // tracks new releases within days. Refresh it with `make models`.

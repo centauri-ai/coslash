@@ -60,10 +60,13 @@ func List(since int64) ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	applyActivityFallbacks(parsed)
+	enrichModelsAndCosts(parsed)
 	composition := composeSessions(parsed)
-	applyActivityFallbacks(composition.parsed)
-	enrichModelsAndCosts(composition.parsed)
 	enrichSubagents(composition, metadata)
+	for _, p := range composition.parsed {
+		removeUnresolvedSpawnRows(p.Session)
+	}
 	roots := composition.roots
 	resolveNames(roots, metadata)
 	resolveStatus(roots, metadata)
@@ -186,9 +189,6 @@ func enrichSubagents(
 		linkSpawnDigest(parent.Session, p.SpawnKey, subagent)
 		parent.Session.Subagents = append(parent.Session.Subagents, subagent)
 	}
-	for _, p := range composition.parsed {
-		p.Session.Digest = slices.DeleteFunc(p.Session.Digest, unresolvedSpawn)
-	}
 }
 
 func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.Subagent) {
@@ -215,8 +215,10 @@ func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.
 		"showing it in the rail but not the digest", parent.ID, subagent.ID)
 }
 
-func unresolvedSpawn(entry session.DigestEntry) bool {
-	return entry.Category == session.DigestSubagent && entry.SubagentID == ""
+func removeUnresolvedSpawnRows(s *session.Session) {
+	s.Digest = slices.DeleteFunc(s.Digest, func(entry session.DigestEntry) bool {
+		return entry.Category == session.DigestSubagent && entry.SubagentID == ""
+	})
 }
 
 func probeLastEdits(roots []*vendors.ParsedSession) {
@@ -253,7 +255,7 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 	for cwd := range repoByCwd {
 		name, localOnly := session.CanonicalRepositoryName(cwd)
 		repoByCwd[cwd] = repository{name: name, localOnly: localOnly}
-		if _, missing := branchByCwd[cwd]; missing {
+		if _, needsBranchProbe := branchByCwd[cwd]; needsBranchProbe {
 			branchByCwd[cwd] = session.CurrentBranch(cwd)
 		}
 	}
@@ -265,7 +267,7 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 		if deref(s.Branch) == "" {
 			s.Branch = branchByCwd[s.WorkingDirectory]
 		}
-		drifts[driftKey{s.WorkingDirectory, deref(s.Branch)}] = &driftSlot{}
+		drifts[driftKey{cwd: s.WorkingDirectory, branch: deref(s.Branch)}] = &driftSlot{}
 	}
 	// BranchDrift waits on git subprocesses, so distinct keys probe
 	// concurrently. Results land through slot pointers — never map writes,
@@ -289,7 +291,7 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 		if s.WorkingDirectory == "" {
 			continue
 		}
-		s.Git = drifts[driftKey{s.WorkingDirectory, deref(s.Branch)}].drift
+		s.Git = drifts[driftKey{cwd: s.WorkingDirectory, branch: deref(s.Branch)}].drift
 		repo := repoByCwd[s.WorkingDirectory]
 		s.Repository = &repo.name
 		s.RepositoryLocalOnly = repo.localOnly
@@ -395,8 +397,8 @@ func GetSessionFacts(id string) (*session.Session, error) {
 	if filepath.Clean(p.Session.WorkingDirectory) == filepath.Clean(synthesis.SynthesisCwd()) {
 		return nil, nil
 	}
-	// No subagents here means no spawn key can resolve
-	p.Session.Digest = slices.DeleteFunc(p.Session.Digest, unresolvedSpawn)
+	// No subagents here means no spawn key can resolve.
+	removeUnresolvedSpawnRows(p.Session)
 	applyActivityFallbacks([]*vendors.ParsedSession{p})
 	probeGitEnvironment([]*vendors.ParsedSession{p})
 	return p.Session, nil
