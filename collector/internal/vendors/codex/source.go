@@ -20,7 +20,7 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	return transcripts, metadata, nil
 }
 
-func Get(id string) (*vendors.ParsedSession, error) {
+func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	files, err := Files()
 	if err != nil {
 		return nil, err

@@ -100,7 +100,7 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	return parsed, metadata, err
 }
 
-func Get(id string) (*vendors.ParsedSession, error) {
+func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if id == "" {
 		return nil, nil
 	}
@@ -116,7 +116,11 @@ func Get(id string) (*vendors.ParsedSession, error) {
 	parsed, skipped, err := load(db, activeRootQuery+" AND root.id = ?", id)
 	if err != nil || len(parsed) == 0 {
 		if len(skipped) > 0 {
-			return nil, fmt.Errorf("parse OpenCode session family %q: %w", skipped[0].id, skipped[0].err)
+			return nil, fmt.Errorf(
+				"parse OpenCode session family %q: %w",
+				skipped[0].id,
+				skipped[0].err,
+			)
 		}
 		return nil, err
 	}
@@ -147,7 +151,11 @@ func Health() vendors.SourceHealth {
 	return health
 }
 
-func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedSession, []skippedFamily, error) {
+func load(
+	db *sql.DB,
+	query string,
+	args ...any,
+) ([]*vendors.ParsedSession, []skippedFamily, error) {
 	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, nil, err
@@ -436,7 +444,12 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 							path = part.State.Input.FilePath
 						}
 						if path != "" {
-							fileEdits.Add(normalizeFilePath(row.directory, path), file.Additions, file.Deletions, false)
+							fileEdits.Add(
+								normalizeFilePath(row.directory, path),
+								file.Additions,
+								file.Deletions,
+								false,
+							)
 							edited = true
 						}
 					}
@@ -446,12 +459,18 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 							path = part.State.Input.FilePath
 						}
 						if path != "" {
-							isNew := part.State.Metadata.Exists != nil && !*part.State.Metadata.Exists
+							isNew := part.State.Metadata.Exists != nil &&
+								!*part.State.Metadata.Exists
 							additions := 0
 							if isNew {
 								additions = session.CountLines(part.State.Input.Content)
 							}
-							fileEdits.Add(normalizeFilePath(row.directory, path), additions, 0, isNew)
+							fileEdits.Add(
+								normalizeFilePath(row.directory, path),
+								additions,
+								0,
+								isNew,
+							)
 							edited = true
 						}
 					}
@@ -497,7 +516,10 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			break
 		}
 	}
-	seenFiles := make(map[string]struct{}, len(fileEdits.Edits)+len(summaryEdits)+len(patchEdits.Edits))
+	seenFiles := make(
+		map[string]struct{},
+		len(fileEdits.Edits)+len(summaryEdits)+len(patchEdits.Edits),
+	)
 	for _, edit := range fileEdits.Edits {
 		seenFiles[edit.Path] = struct{}{}
 	}
@@ -605,7 +627,8 @@ func normalizeFilePath(cwd, path string) string {
 		return path
 	}
 	relative, err := filepath.Rel(cwd, path)
-	if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	if err == nil && relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return relative
 	}
 	return path
@@ -645,7 +668,12 @@ func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 		if partJSON.Valid {
 			var part storedPart
 			if err := json.Unmarshal([]byte(partJSON.String), &part); err != nil {
-				return nil, fmt.Errorf("%w: decode part for message %q: %w", errMalformedSession, id, err)
+				return nil, fmt.Errorf(
+					"%w: decode part for message %q: %w",
+					errMalformedSession,
+					id,
+					err,
+				)
 			}
 			part.updatedAt = partUpdatedAt.Int64
 			messages[len(messages)-1].parts = append(messages[len(messages)-1].parts, part)
