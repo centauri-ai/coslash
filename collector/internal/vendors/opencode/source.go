@@ -273,6 +273,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	hasContext := false
 	activeDuration := int64(0)
 	busy := false
+	waiting := false
 	commits := []string{}
 	pullRequests := 0
 	fileEdits := session.NewFileEditSet()
@@ -366,7 +367,12 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 				}
 				if part.Tool != "task" &&
 					(part.State.Status == "pending" || part.State.Status == "running") {
-					busy = true
+					if part.Tool == "question" && part.State.Status == "running" &&
+						len(part.State.Input.Questions) > 0 {
+						waiting = true
+					} else {
+						busy = true
+					}
 				}
 				if part.Tool == "task" {
 					childID := part.State.Metadata.SessionID
@@ -567,6 +573,10 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		status := "busy"
 		result.Status = &status
 	}
+	if waiting {
+		status := "waiting"
+		result.Status = &status
+	}
 	if summary != "" {
 		value := session.Truncate(summary, session.TruncateTextLimit)
 		result.Summary = &value
@@ -580,7 +590,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			Session:    result,
 			ParentID:   row.parentID.String,
 			Name:       row.title,
-			InTurn:     busy,
+			InTurn:     busy || waiting,
 			SpawnTurns: spawnTurns,
 			Completed:  completed,
 			Commands:   commands.Labelled(),
