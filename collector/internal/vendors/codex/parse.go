@@ -413,9 +413,6 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 	if duration := analysis.durationMs(); duration > 0 || analysis.timestamps.Latest > 0 {
 		unifiedSession.DurationMs = &duration
 	}
-	if unifiedSession.LastActivityTime == 0 {
-		unifiedSession.LastActivityTime = session.FileModificationTime(filePath)
-	}
 	todos := []session.Todo{}
 	for _, step := range analysis.plan {
 		todos = append(todos, session.Todo{Text: step.step, Done: step.status == "completed"})
@@ -431,8 +428,6 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		if analysis.tokenInfo.ModelContextWindow > 0 {
 			window := analysis.tokenInfo.ModelContextWindow
 			unifiedSession.ContextWindow = &window
-		} else {
-			unifiedSession.ContextWindow = session.ContextWindowFor(analysis.model)
 		}
 	}
 	return &unifiedSession

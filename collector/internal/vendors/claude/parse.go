@@ -394,7 +394,6 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		FileEdits:      analysis.fileEdits.Edits,
 		Digest:         analysis.digest.Entries(),
 		ContextTokens:  contextTokens(analysis.lastUsage),
-		ContextWindow:  session.ContextWindowFor(analysis.model),
 		CompactionSeed: analysis.compactionSeed,
 	}
 	if analysis.firstUserPrompt != "" {
@@ -424,9 +423,6 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		unifiedSession.Summary = &summary
 	}
 	unifiedSession.DurationMs = analysis.elapsedMs()
-	if unifiedSession.LastActivityTime == 0 {
-		unifiedSession.LastActivityTime = session.FileModificationTime(filePath)
-	}
 	if analysis.model != "" {
 		unifiedSession.Model = &analysis.model
 	}

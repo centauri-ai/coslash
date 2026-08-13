@@ -35,7 +35,6 @@ type Subagent struct {
 	Commands      []SubagentCommand      `json:"commands"`
 	Tokens        map[string]ModelTokens `json:"tokens"`
 	Cost          float64                `json:"cost"`
-	CostRecorded  bool                   `json:"-"`
 }
 
 type Session struct {
@@ -52,7 +51,6 @@ type Session struct {
 	DurationMs          *int                   `json:"durationMs"`
 	Tokens              map[string]ModelTokens `json:"tokens"`
 	Cost                float64                `json:"cost"`
-	CostRecorded        bool                   `json:"-"`
 	UnpricedModels      []string               `json:"unpricedModels"`
 	Subagents           []Subagent             `json:"subagents"`
 	LastActivityTime    int64                  `json:"mtime"`
