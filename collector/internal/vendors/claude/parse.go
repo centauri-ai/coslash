@@ -35,8 +35,7 @@ type claudeSessionAnalysis struct {
 	firstUserPrompt          string
 	toolUseCount             int
 	errors                   int
-	completedToolUses        map[string]struct{}
-	spawnTurns               map[string]int
+	spawns                   map[string]vendors.SpawnState
 	editedFiles              map[string]struct{}
 	commands                 session.CommandLog
 	commits                  []string
@@ -57,7 +56,7 @@ type messageUsage struct {
 }
 
 type parsedSession struct {
-	transcript *vendors.ParsedTranscript
+	transcript *vendors.ParsedSession
 	forkUsage  map[string]messageUsage
 }
 
@@ -66,7 +65,7 @@ type taskEntry struct {
 	status  string
 }
 
-func Parse(path string) (*vendors.ParsedTranscript, error) {
+func Parse(path string) (*vendors.ParsedSession, error) {
 	parsed, err := parse(path)
 	if err != nil {
 		return nil, err
@@ -79,14 +78,13 @@ func parse(path string) (*parsedSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	parsed := &vendors.ParsedTranscript{
-		Session:    analysis.unifiedSession(path),
-		ParentID:   ParentIDFromPath(path),
-		Name:       analysis.transcriptName(),
-		InTurn:     analysis.inTurn,
-		SpawnTurns: analysis.spawnTurns,
-		Completed:  analysis.completedToolUses,
-		Commands:   analysis.commands.Labelled(),
+	parsed := &vendors.ParsedSession{
+		Session:  analysis.unifiedSession(path),
+		ParentID: ParentIDFromPath(path),
+		Name:     analysis.transcriptName(),
+		InTurn:   analysis.inTurn,
+		Spawns:   analysis.spawns,
+		Commands: analysis.commands.Labelled(),
 	}
 	if parsed.ParentID != "" {
 		metaPath := strings.TrimSuffix(path, ".jsonl") + ".meta.json"
@@ -112,9 +110,8 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 		// no other prompt row, so nothing else would ever raise this.
 		inTurn:                   ParentIDFromPath(file) != "",
 		dedupedMessageTokenUsage: map[string]messageUsage{},
-		completedToolUses:        map[string]struct{}{},
 		pullRequests:             map[string]struct{}{},
-		spawnTurns:               map[string]int{},
+		spawns:                   map[string]vendors.SpawnState{},
 		editedFiles:              map[string]struct{}{},
 		tokens:                   map[string]session.ModelTokens{},
 		tasks:                    map[string]*taskEntry{},
@@ -233,14 +230,19 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 				if block.Type == "tool_use" {
 					analysis.toolUseCount++
 					if block.ID != "" {
-						analysis.spawnTurns[block.ID] = max(analysis.userPromptCount, 1)
+						turn := max(analysis.userPromptCount, 1)
+						analysis.spawns[block.ID] = vendors.SpawnState{
+							Turn: &turn,
+						}
 						if isSubagentTool(block.Name) {
 							analysis.digest.PushSubagent(analysis.userPromptCount, block.ID)
 						}
 					}
 				}
 				if block.Type == "tool_result" && block.ToolUseID != "" {
-					analysis.completedToolUses[block.ToolUseID] = struct{}{}
+					spawn := analysis.spawns[block.ToolUseID]
+					spawn.Completed = true
+					analysis.spawns[block.ToolUseID] = spawn
 					resultToolUseID = block.ToolUseID
 				}
 				if block.IsError {
@@ -336,8 +338,8 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 				}
 			}
 			if result != nil && result.RunID != "" {
-				if turn, ok := analysis.spawnTurns[resultToolUseID]; ok {
-					analysis.spawnTurns[result.RunID] = turn
+				if spawn, ok := analysis.spawns[resultToolUseID]; ok {
+					analysis.spawns[result.RunID] = vendors.SpawnState{Turn: spawn.Turn}
 				}
 				analysis.digest.PushSubagent(analysis.userPromptCount, result.RunID)
 			}

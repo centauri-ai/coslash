@@ -48,7 +48,7 @@ type liveCandidate struct {
 }
 
 func loadMetadata(db *sql.DB) *vendors.SessionMetadata {
-	metadata := emptyMetadata()
+	metadata := vendors.EmptySessionMetadata()
 	output, err := exec.Command("ps", "-ww", "-axo", "pid=,lstart=,command=").Output()
 	if err != nil {
 		return metadata

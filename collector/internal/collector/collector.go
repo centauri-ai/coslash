@@ -25,8 +25,8 @@ const (
 
 type vendorSource struct {
 	name    string
-	collect func(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error)
-	get     func(id string) (*vendors.ParsedTranscript, error)
+	collect func(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	get     func(id string) (*vendors.ParsedSession, error)
 	health  func() vendors.SourceHealth
 }
 
@@ -60,27 +60,31 @@ func List(since int64) ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	roots := groupSubagents(parsed, metadata)
+	composition := composeSessions(parsed)
+	enrichSubagents(composition, metadata)
+	roots := composition.roots
+	resolveNames(roots, metadata)
+	resolveStatus(roots, metadata)
 	if since > 0 {
-		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedTranscript) bool {
-			_, live := metadata[root.Session.Agent].Live[root.Session.ID]
+		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
+			_, live := sessionMetadata(metadata, root.Session.Agent).Live[root.Session.ID]
 			return !live && root.Session.LastActivityTime < since
 		})
 	}
+	roots = servableRoots(roots)
 	probeEnvironment(roots)
-	resolveNames(roots, metadata)
-	resolveStatus(roots, metadata)
-	sessions := servableRoots(roots)
-	for _, s := range sessions {
-		session.AttachCosts(s)
+	sessions := make([]*session.Session, 0, len(roots))
+	for _, root := range roots {
+		session.AttachCosts(root.Session)
+		sessions = append(sessions, root.Session)
 	}
 	return sessions, nil
 }
 
 func collect(
 	since int64,
-) ([]*vendors.ParsedTranscript, map[string]*vendors.SessionMetadata, error) {
-	parsed := []*vendors.ParsedTranscript{}
+) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata, error) {
+	parsed := []*vendors.ParsedSession{}
 	metadata := map[string]*vendors.SessionMetadata{}
 	var failures []error
 	for _, source := range vendorSources {
@@ -99,43 +103,66 @@ func collect(
 	return parsed, metadata, nil
 }
 
-func groupSubagents(
-	parsed []*vendors.ParsedTranscript,
-	metadata map[string]*vendors.SessionMetadata,
-) []*vendors.ParsedTranscript {
-	byID := make(map[string]*vendors.ParsedTranscript, len(parsed))
+type sessionKey struct {
+	agent string
+	id    string
+}
+
+type childLink struct {
+	child  *vendors.ParsedSession
+	parent *vendors.ParsedSession
+}
+
+type sessionComposition struct {
+	parsed   []*vendors.ParsedSession
+	roots    []*vendors.ParsedSession
+	children []childLink
+}
+
+func composeSessions(parsed []*vendors.ParsedSession) sessionComposition {
+	byID := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
 	for _, p := range parsed {
-		byID[p.Session.ID] = p
+		byID[sessionKey{agent: p.Session.Agent, id: p.Session.ID}] = p
 	}
-	claudeDynamicWorkflows := claude.WorkflowAgents(parsed)
-	roots := []*vendors.ParsedTranscript{}
+	composition := sessionComposition{parsed: parsed, roots: []*vendors.ParsedSession{}}
 	for _, p := range parsed {
 		if p.ParentID == "" {
-			roots = append(roots, p)
+			composition.roots = append(composition.roots, p)
 			continue
 		}
-		parent, ok := byID[p.ParentID]
+		parent, ok := byID[sessionKey{agent: p.Session.Agent, id: p.ParentID}]
 		if !ok {
-			log.Printf("%s: parent %s not found, dropping child", p.Session.ID, p.ParentID)
+			log.Printf("%s: %s parent %s not found, dropping child", p.Session.Agent, p.Session.ID, p.ParentID)
 			continue
 		}
 		if deref(p.Session.Status) == "waiting" {
 			status := "waiting"
 			parent.Session.Status = &status
 		}
+		composition.children = append(composition.children, childLink{child: p, parent: parent})
+	}
+	return composition
+}
+
+func enrichSubagents(
+	composition sessionComposition,
+	metadata map[string]*vendors.SessionMetadata,
+) {
+	claudeDynamicWorkflows := claude.WorkflowAgents(composition.parsed)
+	for _, link := range composition.children {
+		p, parent := link.child, link.parent
 		subagent := subagentFrom(
 			p,
 			parent,
-			metadata[p.Session.Agent],
+			sessionMetadata(metadata, p.Session.Agent),
 			claudeDynamicWorkflows[p.Session.ID],
 		)
 		linkSpawnDigest(parent.Session, p.SpawnKey, subagent)
 		parent.Session.Subagents = append(parent.Session.Subagents, subagent)
 	}
-	for _, p := range parsed {
+	for _, p := range composition.parsed {
 		p.Session.Digest = slices.DeleteFunc(p.Session.Digest, unresolvedSpawn)
 	}
-	return roots
 }
 
 func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.Subagent) {
@@ -166,7 +193,7 @@ func unresolvedSpawn(entry session.DigestEntry) bool {
 	return entry.Category == session.DigestSubagent && entry.SubagentID == ""
 }
 
-func probeEnvironment(roots []*vendors.ParsedTranscript) {
+func probeEnvironment(roots []*vendors.ParsedSession) {
 	// Drift is measured for the recorded or best-effort current branch against
 	// the repo's base branch, so it memoizes per (cwd, branch).
 	type driftKey struct{ cwd, branch string }
@@ -224,7 +251,7 @@ func probeEnvironment(roots []*vendors.ParsedTranscript) {
 	for _, p := range roots {
 		s := p.Session
 		if s.LastEditAt == nil {
-			s.LastEditAt = session.LatestFileModificationTime(s.FileEdits)
+			s.LastEditAt = session.LatestFileModificationTime(s.WorkingDirectory, s.FileEdits)
 		}
 		s.GitProbed = true // synthesis's lazy probe must not redo this
 		if s.WorkingDirectory == "" {
@@ -237,17 +264,17 @@ func probeEnvironment(roots []*vendors.ParsedTranscript) {
 	}
 }
 
-func resolveNames(roots []*vendors.ParsedTranscript, metadata map[string]*vendors.SessionMetadata) {
+func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
 	for _, p := range roots {
 		s := p.Session
-		if name := cmp.Or(metadata[s.Agent].Names[s.ID], p.Name); name != "" {
+		if name := cmp.Or(sessionMetadata(metadata, s.Agent).Names[s.ID], p.Name); name != "" {
 			s.Name = &name
 		}
 	}
 }
 
 func resolveStatus(
-	roots []*vendors.ParsedTranscript,
+	roots []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 ) {
 	now := time.Now().UnixMilli()
@@ -256,22 +283,36 @@ func resolveStatus(
 		if deref(s.Status) == "waiting" {
 			continue
 		}
-		if raw, live := metadata[s.Agent].Live[s.ID]; live {
+		s.Status = nil
+		if raw, live := sessionMetadata(metadata, s.Agent).Live[s.ID]; live {
 			status := raw
 			if raw == "interactive" {
 				status = session.LiveStatus(p.InTurn, s.LastActivityTime, now)
 			}
 			s.Status = &status
+		} else if p.StatusHint != nil {
+			status := *p.StatusHint
+			s.Status = &status
 		}
 	}
+}
+
+func sessionMetadata(
+	metadata map[string]*vendors.SessionMetadata,
+	agent string,
+) *vendors.SessionMetadata {
+	if value := metadata[agent]; value != nil {
+		return value
+	}
+	return vendors.EmptySessionMetadata()
 }
 
 // drop synthesis cli sessions
 // claude: drop /clear stub sessions
 // codex: drop session_meta-only sessions
-func servableRoots(roots []*vendors.ParsedTranscript) []*session.Session {
+func servableRoots(roots []*vendors.ParsedSession) []*vendors.ParsedSession {
 	synthesisCwd := filepath.Clean(synthesis.SynthesisCwd())
-	kept := []*session.Session{}
+	kept := []*vendors.ParsedSession{}
 	for _, p := range roots {
 		s := p.Session
 		if filepath.Clean(s.WorkingDirectory) == synthesisCwd {
@@ -284,7 +325,7 @@ func servableRoots(roots []*vendors.ParsedTranscript) []*session.Session {
 			s.Turns == 0 && s.ToolUses == 0 && len(s.Tokens) == 0 {
 			continue
 		}
-		kept = append(kept, s)
+		kept = append(kept, p)
 	}
 	return kept
 }
@@ -304,7 +345,7 @@ func Get(id string) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
-	var p *vendors.ParsedTranscript
+	var p *vendors.ParsedSession
 	for _, source := range vendorSources {
 		var err error
 		if p, err = source.get(id); err != nil {
@@ -322,7 +363,7 @@ func Get(id string) (*session.Session, error) {
 	}
 	// No subagents here means no spawn key can resolve
 	p.Session.Digest = slices.DeleteFunc(p.Session.Digest, unresolvedSpawn)
-	probeEnvironment([]*vendors.ParsedTranscript{p})
+	probeEnvironment([]*vendors.ParsedSession{p})
 	session.AttachCosts(p.Session)
 	return p.Session, nil
 }

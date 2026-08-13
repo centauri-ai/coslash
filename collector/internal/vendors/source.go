@@ -55,8 +55,8 @@ func FindAndParse(
 	files []string,
 	id string,
 	idFromPath func(string) string,
-	parse func(string) (*ParsedTranscript, error),
-) (*ParsedTranscript, error) {
+	parse func(string) (*ParsedSession, error),
+) (*ParsedSession, error) {
 	for _, file := range files {
 		if idFromPath(file) == id {
 			return parse(file)

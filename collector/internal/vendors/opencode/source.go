@@ -55,7 +55,7 @@ type taskLink struct {
 }
 
 type parsedSession struct {
-	transcript *vendors.ParsedTranscript
+	transcript *vendors.ParsedSession
 	tasks      map[string]taskLink
 }
 
@@ -66,10 +66,10 @@ type skippedFamily struct {
 
 var errMalformedSession = errors.New("malformed OpenCode session data")
 
-func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error) {
+func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	db, err := open()
 	if errors.Is(err, os.ErrNotExist) {
-		return []*vendors.ParsedTranscript{}, emptyMetadata(), nil
+		return []*vendors.ParsedSession{}, vendors.EmptySessionMetadata(), nil
 	}
 	if err != nil {
 		return nil, nil, err
@@ -100,7 +100,7 @@ func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata
 	return parsed, metadata, err
 }
 
-func Get(id string) (*vendors.ParsedTranscript, error) {
+func Get(id string) (*vendors.ParsedSession, error) {
 	if id == "" {
 		return nil, nil
 	}
@@ -147,11 +147,7 @@ func Health() vendors.SourceHealth {
 	return health
 }
 
-func emptyMetadata() *vendors.SessionMetadata {
-	return &vendors.SessionMetadata{Names: map[string]string{}, Live: map[string]string{}}
-}
-
-func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, []skippedFamily, error) {
+func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedSession, []skippedFamily, error) {
 	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, nil, err
@@ -212,7 +208,7 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, [
 		}
 		parsed = append(parsed, family...)
 	}
-	byID := make(map[string]*vendors.ParsedTranscript, len(parsed))
+	byID := make(map[string]*vendors.ParsedSession, len(parsed))
 	for _, item := range parsed {
 		byID[item.transcript.Session.ID] = item.transcript
 	}
@@ -232,7 +228,7 @@ func load(db *sql.DB, query string, args ...any) ([]*vendors.ParsedTranscript, [
 	if err := tx.Commit(); err != nil {
 		return nil, nil, err
 	}
-	transcripts := make([]*vendors.ParsedTranscript, 0, len(parsed))
+	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
 		transcripts = append(transcripts, item.transcript)
 	}
@@ -264,8 +260,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	tokens := map[string]session.ModelTokens{}
 	var digest session.DigestLog
 	var commands session.CommandLog
-	spawnTurns := map[string]int{}
-	completed := map[string]struct{}{}
+	spawns := map[string]vendors.SpawnState{}
 	tasks := map[string]taskLink{}
 	turns := 0
 	toolUses := 0
@@ -385,7 +380,8 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 					if childID != "" && (parentID == "" || parentID == row.id) {
 						link, exists := tasks[childID]
 						if !exists {
-							spawnTurns[childID] = max(turns, 1)
+							turn := max(turns, 1)
+							spawns[childID] = vendors.SpawnState{Turn: &turn}
 							digest.PushSubagent(turns, childID)
 						}
 						if part.State.Input.Description != "" {
@@ -395,11 +391,9 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 						}
 						link.status = part.State.Status
 						tasks[childID] = link
-						if part.State.Status == "completed" {
-							completed[childID] = struct{}{}
-						} else {
-							delete(completed, childID)
-						}
+						spawn := spawns[childID]
+						spawn.Completed = part.State.Status == "completed"
+						spawns[childID] = spawn
 					}
 				}
 				isShell := part.Tool == "bash" || part.Tool == "shell"
@@ -574,10 +568,6 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		value := int(activeDuration)
 		result.DurationMs = &value
 	}
-	if busy {
-		status := "busy"
-		result.Status = &status
-	}
 	if waiting {
 		status := "waiting"
 		result.Status = &status
@@ -590,18 +580,19 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		value := strings.TrimSpace(row.agent.String)
 		result.Entrypoint = &value
 	}
-	return parsedSession{
-		transcript: &vendors.ParsedTranscript{
-			Session:    result,
-			ParentID:   row.parentID.String,
-			Name:       row.title,
-			InTurn:     busy || waiting,
-			SpawnTurns: spawnTurns,
-			Completed:  completed,
-			Commands:   commands.Labelled(),
-		},
-		tasks: tasks,
-	}, nil
+	parsed := &vendors.ParsedSession{
+		Session:  result,
+		ParentID: row.parentID.String,
+		Name:     row.title,
+		InTurn:   busy || waiting,
+		Spawns:   spawns,
+		Commands: commands.Labelled(),
+	}
+	if busy {
+		status := "busy"
+		parsed.StatusHint = &status
+	}
+	return parsedSession{transcript: parsed, tasks: tasks}, nil
 }
 
 func modelName(provider, model string) string {

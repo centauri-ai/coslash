@@ -33,7 +33,7 @@ type codexSessionAnalysis struct {
 	toolUseCount     int
 	compactions      int
 	tokenInfo        *codexTokenInfo
-	spawnTurns       map[string]int
+	spawns           map[string]vendors.SpawnState
 	tokenSamples     []codexTokenSample
 	commands         session.CommandLog
 	commits          []string
@@ -75,10 +75,11 @@ func (analysis *codexSessionAnalysis) noteSubagentStarted(id string) {
 	if id == "" {
 		return
 	}
-	if _, exists := analysis.spawnTurns[id]; exists {
+	if _, exists := analysis.spawns[id]; exists {
 		return
 	}
-	analysis.spawnTurns[id] = max(analysis.prompts, 1)
+	turn := max(analysis.prompts, 1)
+	analysis.spawns[id] = vendors.SpawnState{Turn: &turn}
 	analysis.digest.PushSubagent(analysis.prompts, id)
 }
 
@@ -100,14 +101,14 @@ type codexFork struct {
 }
 
 type parsedSession struct {
-	transcript *vendors.ParsedTranscript
+	transcript *vendors.ParsedSession
 	fork       codexFork
 }
 
 // Parse turns one rollout into a Parsed. Tokens are bucketed with no fork
 // baseline — the fork stage redoes the bucketing against the parent's shared
 // prefix using the Fork payload.
-func Parse(path string) (*vendors.ParsedTranscript, error) {
+func Parse(path string) (*vendors.ParsedSession, error) {
 	parsed, err := parse(path)
 	if err != nil {
 		return nil, err
@@ -123,13 +124,13 @@ func parse(path string) (*parsedSession, error) {
 	if analysis.subagentRole == "guardian" {
 		return nil, nil
 	}
-	parsed := &vendors.ParsedTranscript{
-		Session:    analysis.unifiedSession(path),
-		ParentID:   analysis.parentThreadID,
-		InTurn:     analysis.turnDepth > 0,
-		Stopped:    analysis.lastTurnAborted,
-		SpawnTurns: analysis.spawnTurns,
-		Commands:   analysis.commands.Labelled(),
+	parsed := &vendors.ParsedSession{
+		Session:  analysis.unifiedSession(path),
+		ParentID: analysis.parentThreadID,
+		InTurn:   analysis.turnDepth > 0,
+		Stopped:  analysis.lastTurnAborted,
+		Spawns:   analysis.spawns,
+		Commands: analysis.commands.Labelled(),
 	}
 	if parsed.ParentID != "" {
 		// Codex does not ship agent description
@@ -153,9 +154,9 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 	ownID := SessionIDFromRollout(file)
 	var metas []codexMeta
 	analysis := &codexSessionAnalysis{
-		spawnTurns: map[string]int{},
-		fileEdits:  session.NewFileEditSet(),
-		commits:    []string{},
+		spawns:    map[string]vendors.SpawnState{},
+		fileEdits: session.NewFileEditSet(),
+		commits:   []string{},
 	}
 	for _, row := range rows {
 		var timestamp *int64
@@ -313,7 +314,8 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				analysis.notePlan(row.Payload)
 			case "function_call_output":
 				if id := spawnedAgentID(row.Payload.Output); id != "" {
-					analysis.spawnTurns[id] = max(analysis.prompts, 1)
+					turn := max(analysis.prompts, 1)
+					analysis.spawns[id] = vendors.SpawnState{Turn: &turn}
 					analysis.digest.PushSubagent(analysis.prompts, id)
 				}
 				analysis.notePlan(row.Payload)

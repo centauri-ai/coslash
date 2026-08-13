@@ -38,7 +38,7 @@ type workflowJournalEntry struct {
 }
 
 // WorkflowAgents indexes Dynamic Workflow agents by session id their transcript parses to, "agent-<agentId>".
-func WorkflowAgents(parsed []*vendors.ParsedTranscript) map[string]*WorkflowAgent {
+func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
 	agents := map[string]*WorkflowAgent{}
 	finished := map[string]bool{}
 	for _, p := range parsed {

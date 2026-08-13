@@ -2,28 +2,25 @@ package claude
 
 import "github.com/centauri-ai/coslash/collector/internal/vendors"
 
-func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata, error) {
+func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	files, err := Files()
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata, err := LoadMetadata()
-	if err != nil {
-		return nil, nil, err
-	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentClaude, LoadMetadata)
 	if since > 0 {
 		files = FilesSince(files, metadata.Live, since)
 	}
 	parsed := vendors.ParseFiles(files, parse)
 	applyForkedUsage(parsed)
-	transcripts := make([]*vendors.ParsedTranscript, 0, len(parsed))
+	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
 		transcripts = append(transcripts, item.transcript)
 	}
 	return transcripts, metadata, nil
 }
 
-func Get(id string) (*vendors.ParsedTranscript, error) {
+func Get(id string) (*vendors.ParsedSession, error) {
 	files, err := Files()
 	if err != nil {
 		return nil, err

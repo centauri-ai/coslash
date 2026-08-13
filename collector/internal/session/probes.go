@@ -9,10 +9,14 @@ import (
 	"strings"
 )
 
-func LatestFileModificationTime(fileEdits []FileEdit) *int64 {
+func LatestFileModificationTime(cwd string, fileEdits []FileEdit) *int64 {
 	var newest *int64
 	for _, edit := range fileEdits {
-		info, err := os.Stat(edit.Path)
+		path := edit.Path
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(cwd, path)
+		}
+		info, err := os.Stat(path)
 		if err != nil {
 			continue
 		}
