@@ -75,12 +75,21 @@ func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata
 		return nil, nil, err
 	}
 	defer db.Close()
+	metadata := loadMetadata(db)
 
 	query := activeFamiliesQuery
 	var args []any
 	if since > 0 {
-		query += " AND selected_roots.family_updated >= ?"
+		query += " AND (selected_roots.family_updated >= ?"
 		args = append(args, since)
+		if len(metadata.Live) > 0 {
+			query += " OR selected_roots.id IN (" +
+				strings.TrimSuffix(strings.Repeat("?,", len(metadata.Live)), ",") + ")"
+			for id := range metadata.Live {
+				args = append(args, id)
+			}
+		}
+		query += ")"
 	}
 	query += ` ORDER BY selected_roots.family_updated DESC,
 		member.parent_id IS NOT NULL, member.time_updated, member.id`
@@ -88,7 +97,7 @@ func Collect(since int64) ([]*vendors.ParsedTranscript, *vendors.SessionMetadata
 	for _, family := range skipped {
 		log.Printf("OpenCode session family %q: %v; skipping", family.id, family.err)
 	}
-	return parsed, loadMetadata(), err
+	return parsed, metadata, err
 }
 
 func Get(id string) (*vendors.ParsedTranscript, error) {
