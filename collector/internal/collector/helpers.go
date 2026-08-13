@@ -157,6 +157,9 @@ func subagentStatus(
 	if child.Stopped {
 		return session.SubagentAborted
 	}
+	if child.Session.Agent == vendors.AgentOpenCode && child.InTurn {
+		return session.SubagentRunning
+	}
 	if _, ok := parent.Completed[child.SpawnKey]; ok {
 		return session.SubagentReturned
 	}
