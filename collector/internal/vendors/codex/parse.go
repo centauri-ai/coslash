@@ -105,10 +105,8 @@ type parsedSession struct {
 	fork       codexFork
 }
 
-// Parse turns one rollout into a Parsed. Tokens are bucketed with no fork
-// baseline — the fork stage redoes the bucketing against the parent's shared
-// prefix using the Fork payload.
-func Parse(path string) (*vendors.ParsedSession, error) {
+// parseTranscript returns shared facts without applying fork normalization.
+func parseTranscript(path string) (*vendors.ParsedSession, error) {
 	parsed, err := parse(path)
 	if err != nil {
 		return nil, err
