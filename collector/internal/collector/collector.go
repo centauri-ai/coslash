@@ -61,7 +61,8 @@ func List(since int64) ([]*session.Session, error) {
 		return nil, err
 	}
 	composition := composeSessions(parsed)
-	enrichParsedSessions(composition.parsed)
+	applyActivityFallbacks(composition.parsed)
+	enrichModelsAndCosts(composition.parsed)
 	enrichSubagents(composition, metadata)
 	roots := composition.roots
 	resolveNames(roots, metadata)
@@ -73,7 +74,8 @@ func List(since int64) ([]*session.Session, error) {
 		})
 	}
 	roots = servableRoots(roots)
-	probeEnvironment(roots)
+	probeLastEdits(roots)
+	probeGitEnvironment(roots)
 	sessions := make([]*session.Session, 0, len(roots))
 	for _, root := range roots {
 		sessions = append(sessions, root.Session)
@@ -81,12 +83,18 @@ func List(since int64) ([]*session.Session, error) {
 	return sessions, nil
 }
 
-func enrichParsedSessions(parsed []*vendors.ParsedSession) {
+func applyActivityFallbacks(parsed []*vendors.ParsedSession) {
 	for _, item := range parsed {
 		s := item.Session
 		if s.LastActivityTime == 0 && item.LogPath != "" {
 			s.LastActivityTime = session.FileModificationTime(item.LogPath)
 		}
+	}
+}
+
+func enrichModelsAndCosts(parsed []*vendors.ParsedSession) {
+	for _, item := range parsed {
+		s := item.Session
 		if s.ContextWindow == nil && s.Model != nil {
 			s.ContextWindow = session.ContextWindowFor(*s.Model)
 		}
@@ -211,7 +219,16 @@ func unresolvedSpawn(entry session.DigestEntry) bool {
 	return entry.Category == session.DigestSubagent && entry.SubagentID == ""
 }
 
-func probeEnvironment(roots []*vendors.ParsedSession) {
+func probeLastEdits(roots []*vendors.ParsedSession) {
+	for _, p := range roots {
+		s := p.Session
+		if s.LastEditAt == nil {
+			s.LastEditAt = session.LatestFileModificationTime(s.WorkingDirectory, s.FileEdits)
+		}
+	}
+}
+
+func probeGitEnvironment(roots []*vendors.ParsedSession) {
 	// Drift is measured for the recorded or best-effort current branch against
 	// the repo's base branch, so it memoizes per (cwd, branch).
 	type driftKey struct{ cwd, branch string }
@@ -268,9 +285,6 @@ func probeEnvironment(roots []*vendors.ParsedSession) {
 	wg.Wait()
 	for _, p := range roots {
 		s := p.Session
-		if s.LastEditAt == nil {
-			s.LastEditAt = session.LatestFileModificationTime(s.WorkingDirectory, s.FileEdits)
-		}
 		s.GitProbed = true // synthesis's lazy probe must not redo this
 		if s.WorkingDirectory == "" {
 			continue
@@ -383,7 +397,7 @@ func GetSessionFacts(id string) (*session.Session, error) {
 	}
 	// No subagents here means no spawn key can resolve
 	p.Session.Digest = slices.DeleteFunc(p.Session.Digest, unresolvedSpawn)
-	enrichParsedSessions([]*vendors.ParsedSession{p})
-	probeEnvironment([]*vendors.ParsedSession{p})
+	applyActivityFallbacks([]*vendors.ParsedSession{p})
+	probeGitEnvironment([]*vendors.ParsedSession{p})
 	return p.Session, nil
 }
