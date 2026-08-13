@@ -141,6 +141,9 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 	api.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
 	})
+	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
+		handleDiff(w, r, collector.Get)
+	})
 	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
 		writeSettings(w, settingsStore.State())
 	})

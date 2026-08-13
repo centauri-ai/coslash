@@ -7,6 +7,58 @@ import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-windo
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
 
+export type FileSelection = { sessionId: string; path: string };
+export type FileChange = {
+  kind: 'diff' | 'content';
+  text: string;
+  operation: string;
+  additions: number;
+  deletions: number;
+};
+
+export function diffRequestPath(selection: FileSelection) {
+  return `/api/diff?${new URLSearchParams({ id: selection.sessionId, path: selection.path })}`;
+}
+
+export function useFileDiff(selection: FileSelection | null) {
+  const [loaded, setLoaded] = useState<
+    (FileSelection & { changes: FileChange[] | null; loadError: string | null }) | null
+  >(null);
+
+  useEffect(() => {
+    if (selection == null) return;
+    const controller = new AbortController();
+
+    apiFetch(diffRequestPath(selection), { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Diff request failed (${response.status})`);
+        return response.json() as Promise<{ changes: FileChange[] }>;
+      })
+      .then(({ changes }) => {
+        if (!controller.signal.aborted) setLoaded({ ...selection, changes, loadError: null });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setLoaded({
+            ...selection,
+            changes: null,
+            loadError: 'Could not load this session’s file changes.',
+          });
+        }
+      });
+
+    return () => controller.abort();
+  }, [selection]);
+
+  const isCurrent =
+    selection != null && loaded?.sessionId === selection.sessionId && loaded.path === selection.path;
+  return {
+    changes: isCurrent ? loaded.changes : null,
+    isLoading: selection != null && !isCurrent,
+    loadError: isCurrent ? loaded.loadError : null,
+  };
+}
+
 export function useSessions(timeWindow: TimeWindow) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);

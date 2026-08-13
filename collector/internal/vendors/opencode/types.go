@@ -57,6 +57,9 @@ type storedPart struct {
 			Command      string           `json:"command"`
 			FilePath     string           `json:"filePath"`
 			Content      string           `json:"content"`
+			OldString    string           `json:"oldString"`
+			NewString    string           `json:"newString"`
+			PatchText    string           `json:"patchText"`
 			Description  string           `json:"description"`
 			SubagentType string           `json:"subagent_type"`
 			Questions    []storedQuestion `json:"questions"`
@@ -89,6 +92,7 @@ type storedToolFile struct {
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
 	Type         string `json:"type"`
+	Patch        string `json:"patch"`
 }
 
 type storedQuestion struct {

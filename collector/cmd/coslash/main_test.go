@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 )
@@ -45,6 +47,7 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	}{
 		{method: http.MethodPost, path: "/api/sessions"},
 		{method: http.MethodPost, path: "/api/synthesis"},
+		{method: http.MethodPost, path: "/api/diff"},
 		{method: http.MethodGet, path: "/api/launch"},
 		{method: http.MethodPost, path: "/api/diagnostics"},
 	} {
@@ -125,5 +128,71 @@ func TestWriteTokenPreservesHomePermissions(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o750 {
 		t.Fatalf("home mode = %o, want 750", info.Mode().Perm())
+	}
+}
+
+func TestHandleDiffReturnsRecordedEditsInOrder(t *testing.T) {
+	edits := session.NewFileEditSet()
+	edits.Add("file.txt", 1, 1, false)
+	edits.Change("file.txt", "before\n", "middle\n")
+	edits.Add("file.txt", 1, 1, false)
+	edits.Change("file.txt", "middle\n", "after\n")
+	found := &session.Session{
+		ID: "session-1",
+		SessionDetails: session.SessionDetails{
+			FileEdits: edits.Edits,
+		},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/diff?id=session-1&path=file.txt", nil)
+	response := httptest.NewRecorder()
+
+	handleDiff(response, request, func(id string) (*session.Session, error) {
+		if id != found.ID {
+			t.Fatalf("session id = %q, want %q", id, found.ID)
+		}
+		return found, nil
+	})
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	var body struct {
+		Changes []struct {
+			Kind      string `json:"kind"`
+			Text      string `json:"text"`
+			Operation string `json:"operation"`
+			Additions int    `json:"additions"`
+			Deletions int    `json:"deletions"`
+		} `json:"changes"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Changes) != 2 {
+		t.Fatalf("changes = %#v, want two recorded edits", body.Changes)
+	}
+	if body.Changes[0].Operation != "Edit" ||
+		body.Changes[0].Additions != 1 || body.Changes[0].Deletions != 1 ||
+		!strings.Contains(body.Changes[0].Text, "-before\n+middle") ||
+		!strings.Contains(body.Changes[1].Text, "-middle\n+after") {
+		t.Fatalf("changes = %#v, want recorded edits in transcript order", body.Changes)
+	}
+}
+
+func TestHandleDiffRejectsFilesOutsideTheSession(t *testing.T) {
+	found := &session.Session{
+		ID:               "session-1",
+		WorkingDirectory: t.TempDir(),
+		SessionDetails: session.SessionDetails{
+			FileEdits: []session.FileEdit{{Path: "recorded.txt"}},
+		},
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/diff?id=session-1&path=../secret.txt", nil)
+	response := httptest.NewRecorder()
+
+	handleDiff(response, request, func(string) (*session.Session, error) { return found, nil })
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
 	}
 }

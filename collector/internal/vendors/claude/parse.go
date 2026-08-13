@@ -309,13 +309,13 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 			}
 			if result != nil && result.FilePath != "" {
 				var diffLines []string
+				createdContent := ""
 				for _, patch := range result.StructuredPatch {
 					diffLines = append(diffLines, patch.Lines...)
 				}
 				lineAdditions, lineDeletions := session.DiffStat(diffLines)
 				if len(result.StructuredPatch) == 0 && result.Type == "create" {
-					var content string
-					if err := json.Unmarshal(result.Content, &content); err != nil {
+					if err := json.Unmarshal(result.Content, &createdContent); err != nil {
 						log.Printf(
 							"%s: skipping unreadable new file for %s: %v",
 							file,
@@ -323,12 +323,17 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 							err,
 						)
 					} else {
-						lineAdditions = session.CountLines(content)
+						lineAdditions = session.CountLines(createdContent)
 					}
 				}
 				analysis.fileEdits.Add(
 					result.FilePath, lineAdditions, lineDeletions, result.Type == "create",
 				)
+				if len(diffLines) > 0 {
+					analysis.fileEdits.Patch(result.FilePath, strings.Join(diffLines, "\n"))
+				} else if result.Type == "create" {
+					analysis.fileEdits.Change(result.FilePath, "", createdContent)
+				}
 			}
 			if result != nil && result.Task != nil && result.Task.ID != "" {
 				if _, ok := analysis.tasks[result.Task.ID]; !ok {

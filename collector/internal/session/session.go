@@ -84,6 +84,7 @@ type FileEdit struct {
 	Deletions int    `json:"dels"`
 	Edits     int    `json:"edits"`
 	IsNew     bool   `json:"isNew"`
+	changes   []FileChange
 }
 
 type GitDrift struct {
