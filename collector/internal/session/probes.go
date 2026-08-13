@@ -14,6 +14,9 @@ func LatestFileModificationTime(cwd string, fileEdits []FileEdit) *int64 {
 	for _, edit := range fileEdits {
 		path := edit.Path
 		if !filepath.IsAbs(path) {
+			if cwd == "" {
+				continue
+			}
 			path = filepath.Join(cwd, path)
 		}
 		info, err := os.Stat(path)
