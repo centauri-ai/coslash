@@ -24,23 +24,23 @@ const (
 )
 
 type vendorSource struct {
-	name    string
-	collect func(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
-	get     func(id string) (*vendors.ParsedSession, error)
-	health  func() vendors.SourceHealth
+	name      string
+	collect   func(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	loadFacts func(id string) (*vendors.ParsedSession, error)
+	health    func() vendors.SourceHealth
 }
 
 var vendorSources = []vendorSource{
 	{
-		name: vendors.AgentClaude, collect: claude.Collect, get: claude.GetSessionFacts,
+		name: vendors.AgentClaude, collect: claude.Collect, loadFacts: claude.GetSessionFacts,
 		health: claude.Health,
 	},
 	{
-		name: vendors.AgentCodex, collect: codex.Collect, get: codex.GetSessionFacts,
+		name: vendors.AgentCodex, collect: codex.Collect, loadFacts: codex.GetSessionFacts,
 		health: codex.Health,
 	},
 	{
-		name: vendors.AgentOpenCode, collect: opencode.Collect, get: opencode.GetSessionFacts,
+		name: vendors.AgentOpenCode, collect: opencode.Collect, loadFacts: opencode.GetSessionFacts,
 		health: opencode.Health,
 	},
 }
@@ -360,16 +360,22 @@ func GetSessionFacts(id string) (*session.Session, error) {
 		return nil, nil
 	}
 	var p *vendors.ParsedSession
+	var failures []error
 	for _, source := range vendorSources {
-		var err error
-		if p, err = source.get(id); err != nil {
-			return nil, err
+		candidate, err := source.loadFacts(id)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
+			continue
 		}
-		if p != nil {
+		if candidate != nil && candidate.ParentID == "" {
+			p = candidate
 			break
 		}
 	}
 	if p == nil {
+		if len(failures) > 0 {
+			return nil, errors.Join(failures...)
+		}
 		return nil, nil
 	}
 	if filepath.Clean(p.Session.WorkingDirectory) == filepath.Clean(synthesis.SynthesisCwd()) {
