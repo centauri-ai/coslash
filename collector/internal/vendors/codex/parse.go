@@ -71,6 +71,17 @@ func (analysis *codexSessionAnalysis) noteFileChanges(changes codexPatchChanges)
 	}
 }
 
+func (analysis *codexSessionAnalysis) noteSubagentStarted(id string) {
+	if id == "" {
+		return
+	}
+	if _, exists := analysis.spawnTurns[id]; exists {
+		return
+	}
+	analysis.spawnTurns[id] = max(analysis.prompts, 1)
+	analysis.digest.PushSubagent(analysis.prompts, id)
+}
+
 func completedItemText(item codexItem) string {
 	text := make([]string, 0, len(item.Content))
 	for _, content := range item.Content {
@@ -187,9 +198,8 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				case "FileChange":
 					analysis.noteFileChanges(item.Changes)
 				case "SubAgentActivity":
-					if item.Kind == "started" && item.AgentThreadID != "" {
-						analysis.spawnTurns[item.AgentThreadID] = max(analysis.prompts, 1)
-						analysis.digest.PushSubagent(analysis.prompts, item.AgentThreadID)
+					if item.Kind == "started" {
+						analysis.noteSubagentStarted(item.AgentThreadID)
 					}
 				}
 			case "user_message":
@@ -213,9 +223,8 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 			case "exited_review_mode":
 				analysis.inReview = false
 			case "sub_agent_activity":
-				if row.Payload.Kind == "started" && row.Payload.AgentThreadID != "" {
-					analysis.spawnTurns[row.Payload.AgentThreadID] = max(analysis.prompts, 1)
-					analysis.digest.PushSubagent(analysis.prompts, row.Payload.AgentThreadID)
+				if row.Payload.Kind == "started" {
+					analysis.noteSubagentStarted(row.Payload.AgentThreadID)
 				}
 			case "agent_message":
 				if row.Payload.Phase == "final_answer" || row.Payload.Phase == "" {
