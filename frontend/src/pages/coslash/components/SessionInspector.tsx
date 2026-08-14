@@ -495,7 +495,7 @@ function DigestRow({ entry }: { entry: DigestEntry }) {
   const collapsible = entry.category === 'recap' && entry.description.length > 120;
 
   return (
-    <div className="flex items-baseline gap-2 border-b border-neutral-100 py-1">
+    <div className="border-border flex items-baseline gap-2 border-b py-1">
       <span className={cn('w-24 shrink-0 text-xs font-bold tracking-wide', meta.fg)}>{meta.label}</span>
       <div className="min-w-0 flex-1">
         <div className={cn('text-xs', { 'line-clamp-1': collapsible && !expanded })}>{entry.description}</div>
@@ -708,7 +708,7 @@ function CommitsAndTodos({ detail }: { detail: SessionDetail }) {
 }
 
 function CommandsSection({ detail }: { detail: SessionDetail }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   if (detail.commands.length === 0) return null;
 
   return (
