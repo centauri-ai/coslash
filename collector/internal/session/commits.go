@@ -1,12 +1,13 @@
 package session
 
 import (
+	"os/exec"
 	"regexp"
 	"strings"
 )
 
-// git commit as a complete command word, excludes plumbing commands (i.e.  commit-tree)
-var gitCommitCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*(?:rtk\s+)?git\s+commit(?:$|[\s;&|])`)
+// git commit as complete command words anywhere in a shell segment; excludes commit-tree.
+var gitCommitCommand = regexp.MustCompile(`(?:^|[\n;&|])[^\n;&|]*?(\bgit\s+commit)(?:$|[\s;&|])`)
 
 // -m, --message, or a combined short flag such as -am, single or double-quoted
 var commitMessage = regexp.MustCompile(`(?:--message|-[a-zA-Z]*m)[=\s]*(?:"([^"]+)"|'([^']+)')`)
@@ -16,30 +17,145 @@ var commitFileFlag = regexp.MustCompile(`(?:--file|-[a-zA-Z]*F)[=\s]+(\S+)`)
 
 var commitAmend = regexp.MustCompile(`--amend\b`)
 
+var commitHashToken = regexp.MustCompile(`(?:^|[^0-9a-fA-F])([0-9a-fA-F]{7,64})(?:$|[^0-9a-fA-F])`)
+
 // multilineBlockOpener matches the start of a shell here-document (<<EOF, <<'EOF', <<"EOF", <<-EOF)
 var multilineBlockOpener = regexp.MustCompile(`<<-?\s*['"]?(\w+)['"]?`)
 
-func CommitMessage(command string) (string, bool) {
-	matchIndices := gitCommitCommand.FindStringIndex(command)
-	if matchIndices == nil {
-		return "", false
+type CommitObservation struct {
+	Hash    string
+	Subject string
+	Amend   bool
+}
+
+func ParseCommitObservations(command, output string, succeeded bool) []CommitObservation {
+	invocations := commitInvocations(command)
+	hashes := commitOutputHashes(output)
+	if len(invocations) == len(hashes) {
+		for i := range invocations {
+			invocations[i].Hash = hashes[i]
+		}
+		return invocations
 	}
-	// only match after git commit command, discard everything before
-	tail := command[matchIndices[0]:]
-	if subject := commitSubject(tail); subject != "" {
-		return subject, true
+	if succeeded {
+		return invocations
 	}
-	// the flags of this invocation alone, so that a later `git commit --amend` in
-	// the same script cannot suppress the commit that this one creates. The match
-	// ends on the separator or space after `commit`, so keep that byte.
-	flags := command[matchIndices[1]-1:]
-	if end := strings.IndexAny(flags, ";&|\n"); end >= 0 {
-		flags = flags[:end]
+	return []CommitObservation{}
+}
+
+func commitOutputHashes(output string) []string {
+	hashes := []string{}
+	for _, match := range commitHashToken.FindAllStringSubmatch(output, -1) {
+		hashes = append(hashes, match[1])
 	}
-	if commitAmend.MatchString(flags) {
-		return "", false
+	return hashes
+}
+
+func commitInvocations(command string) []CommitObservation {
+	matches := gitCommitCommand.FindAllStringSubmatchIndex(command, -1)
+	observations := make([]CommitObservation, 0, len(matches))
+	for i, match := range matches {
+		end := len(command)
+		if i+1 < len(matches) {
+			end = matches[i+1][0]
+		}
+		invocation := command[match[2]:end]
+		subject := commitSubject(invocation)
+		if subject == "" {
+			subject = "(commit)"
+		}
+		observations = append(observations, CommitObservation{
+			Subject: subject,
+			Amend:   commitAmend.MatchString(invocation),
+		})
 	}
-	return "(commit)", true
+	return observations
+}
+
+type repositoryCommit struct {
+	hash    string
+	subject string
+}
+
+func ReconcileCommits(observations []CommitObservation, cwd string, branch *string) []string {
+	if len(observations) == 0 {
+		return []string{}
+	}
+	history, ok := repositoryHistory(cwd, branch)
+	if !ok {
+		return fallbackCommitMessages(observations)
+	}
+	resolved := make([]int, len(observations))
+	for i := range resolved {
+		resolved[i] = -1
+	}
+	used := make([]bool, len(history))
+	for i, observation := range observations {
+		if observation.Hash == "" {
+			continue
+		}
+		for j, commit := range history {
+			if !used[j] && strings.HasPrefix(commit.hash, observation.Hash) &&
+				(observation.Subject == "(commit)" || commit.subject == observation.Subject) {
+				resolved[i], used[j] = j, true
+				break
+			}
+		}
+	}
+	for i, observation := range observations {
+		if resolved[i] >= 0 {
+			continue
+		}
+		for j, commit := range history {
+			if !used[j] && commit.subject == observation.Subject {
+				resolved[i], used[j] = j, true
+				break
+			}
+		}
+	}
+	messages := []string{}
+	for _, index := range resolved {
+		if index >= 0 {
+			messages = append(messages, history[index].subject)
+		}
+	}
+	return messages
+}
+
+func repositoryHistory(cwd string, branch *string) ([]repositoryCommit, bool) {
+	if cwd == "" {
+		return nil, false
+	}
+	ref := "HEAD"
+	if branch != nil && strings.TrimSpace(*branch) != "" {
+		ref = strings.TrimSpace(*branch)
+	}
+	output, err := exec.Command(
+		"git", "-C", cwd, "log", "--format=%H%x00%s", ref, "--",
+	).Output()
+	if err != nil {
+		return nil, false
+	}
+	history := []repositoryCommit{}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		hash, subject, found := strings.Cut(line, "\x00")
+		if found && hash != "" {
+			history = append(history, repositoryCommit{hash: hash, subject: subject})
+		}
+	}
+	return history, true
+}
+
+func fallbackCommitMessages(observations []CommitObservation) []string {
+	messages := []string{}
+	for _, observation := range observations {
+		if observation.Amend && len(messages) > 0 {
+			messages[len(messages)-1] = observation.Subject
+			continue
+		}
+		messages = append(messages, observation.Subject)
+	}
+	return messages
 }
 
 func commitSubject(command string) string {
