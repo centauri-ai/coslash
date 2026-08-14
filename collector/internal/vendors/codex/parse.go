@@ -16,6 +16,7 @@ type codexSessionAnalysis struct {
 	sessionID        string
 	forkedFromID     string
 	parentThreadID   string
+	subagentRole     string
 	agentNickname    string
 	taskName         string
 	workingDirectory string
@@ -95,6 +96,9 @@ func Parse(path string) (*vendors.ParsedTranscript, error) {
 	if err != nil {
 		return nil, err
 	}
+	if analysis.subagentRole == "guardian" {
+		return nil, nil
+	}
 	parsed := &vendors.ParsedTranscript{
 		Session:    analysis.unifiedSession(path),
 		ParentID:   analysis.parentThreadID,
@@ -153,6 +157,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				sessionID:        row.Payload.SessionID,
 				forkedFromID:     row.Payload.ForkedFromID,
 				parentThreadID:   row.Payload.ParentThreadID,
+				subagentRole:     subagentRole(row.Payload.Source),
 				agentNickname:    row.Payload.AgentNickname,
 				workingDirectory: row.Payload.Cwd,
 				entrypoint:       row.Payload.Originator,
@@ -181,6 +186,11 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 					}
 				case "FileChange":
 					analysis.noteFileChanges(item.Changes)
+				case "SubAgentActivity":
+					if item.Kind == "started" && item.AgentThreadID != "" {
+						analysis.spawnTurns[item.AgentThreadID] = max(analysis.prompts, 1)
+						analysis.digest.PushSubagent(analysis.prompts, item.AgentThreadID)
+					}
 				}
 			case "user_message":
 				if analysis.inReview {
@@ -292,6 +302,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 	analysis.sessionID = own.sessionID
 	analysis.forkedFromID = own.forkedFromID
 	analysis.parentThreadID = own.parentThreadID
+	analysis.subagentRole = own.subagentRole
 	analysis.agentNickname = own.agentNickname
 	analysis.workingDirectory = own.workingDirectory
 	analysis.branch = nil

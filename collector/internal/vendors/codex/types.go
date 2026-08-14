@@ -36,6 +36,7 @@ type codexPayload struct {
 	Content        json.RawMessage   `json:"content"`
 	ParentThreadID string            `json:"parent_thread_id"`
 	ThreadSource   string            `json:"thread_source"`
+	Source         json.RawMessage   `json:"source"`
 	AgentNickname  string            `json:"agent_nickname"`
 	AgentThreadID  string            `json:"agent_thread_id"`
 	Kind           string            `json:"kind"`
@@ -43,10 +44,24 @@ type codexPayload struct {
 }
 
 type codexItem struct {
-	Type    string            `json:"type"`
-	Phase   string            `json:"phase"`
-	Content []codexText       `json:"content"`
-	Changes codexPatchChanges `json:"changes"`
+	Type          string            `json:"type"`
+	Phase         string            `json:"phase"`
+	Content       []codexText       `json:"content"`
+	Changes       codexPatchChanges `json:"changes"`
+	Kind          string            `json:"kind"`
+	AgentThreadID string            `json:"agent_thread_id"`
+}
+
+func subagentRole(source json.RawMessage) string {
+	var parsed struct {
+		Subagent struct {
+			Other string `json:"other"`
+		} `json:"subagent"`
+	}
+	if json.Unmarshal(source, &parsed) != nil {
+		return ""
+	}
+	return parsed.Subagent.Other
 }
 
 type codexText struct {
@@ -156,6 +171,7 @@ type codexMeta struct {
 	sessionID        string
 	forkedFromID     string
 	parentThreadID   string
+	subagentRole     string
 	agentNickname    string
 	workingDirectory string
 	branch           string
