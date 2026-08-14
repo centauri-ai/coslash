@@ -53,6 +53,7 @@ type storedPart struct {
 	State     struct {
 		Status string `json:"status"`
 		Title  string `json:"title"`
+		Output string `json:"output"`
 		Input  struct {
 			Command      string           `json:"command"`
 			FilePath     string           `json:"filePath"`

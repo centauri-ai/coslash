@@ -38,7 +38,7 @@ type claudeSessionAnalysis struct {
 	spawns                   map[string]vendors.SpawnState
 	editedFiles              map[string]struct{}
 	commands                 session.CommandLog
-	commits                  []string
+	commitLog                []session.CommitObservation
 	dedupedMessageTokenUsage map[string]messageUsage
 	tokens                   map[string]session.ModelTokens
 	fileEdits                *session.FileEditSet
@@ -100,6 +100,56 @@ func parse(path string) (*parsedSession, error) {
 	return &parsedSession{transcript: parsed, forkUsage: analysis.dedupedMessageTokenUsage}, nil
 }
 
+func commitObservationsByToolUse(rows []claudeSessionRecord) []session.CommitObservation {
+	commands := map[string]string{}
+	observations := []session.CommitObservation{}
+	for _, row := range rows {
+		if row.Message == nil {
+			continue
+		}
+		blocks, err := row.Message.contentBlocks()
+		if err != nil {
+			continue
+		}
+		for _, block := range blocks {
+			if block.Type == "tool_use" && block.ID != "" && block.Input.Command != "" {
+				commands[block.ID] = block.Input.Command
+				continue
+			}
+			if block.Type != "tool_result" || block.ToolUseID == "" {
+				continue
+			}
+			command, ok := commands[block.ToolUseID]
+			if !ok {
+				continue
+			}
+			observations = append(observations, session.ParseCommitObservations(
+				command, claudeToolOutput(block.Content), !block.IsError,
+			)...)
+			delete(commands, block.ToolUseID)
+		}
+	}
+	return observations
+}
+
+func claudeToolOutput(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var blocks []contentBlock
+	if json.Unmarshal(raw, &blocks) == nil {
+		parts := make([]string, 0, len(blocks))
+		for _, block := range blocks {
+			if block.Text != "" {
+				parts = append(parts, block.Text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	}
+	return string(raw)
+}
+
 func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 	rows, err := session.ParseJSONL[claudeSessionRecord](file)
 	if err != nil {
@@ -117,7 +167,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 		tokens:                   map[string]session.ModelTokens{},
 		tasks:                    map[string]*taskEntry{},
 		fileEdits:                session.NewFileEditSet(),
-		commits:                  []string{},
+		commitLog:                commitObservationsByToolUse(rows),
 	}
 	pendingAssistantText := ""
 	pendingCommand := ""
@@ -279,9 +329,6 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 				}
 				if block.Input.Command != "" {
 					analysis.commands.Note(block.Input.Command, block.Input.Description)
-					if message, ok := session.CommitMessage(block.Input.Command); ok {
-						analysis.commits = append(analysis.commits, message)
-					}
 				}
 			}
 			if row.Message.ID != "" && row.Message.Usage != nil &&
@@ -403,7 +450,7 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		ToolUses:       analysis.toolUseCount,
 		Errors:         analysis.errors,
 		Commands:       analysis.commands.Raw(),
-		Commits:        analysis.commits,
+		Commits:        session.ReconcileCommits(analysis.commitLog, "", nil),
 		FileEdits:      analysis.fileEdits.Edits,
 		Digest:         analysis.digest.Entries(),
 		ContextTokens:  contextTokens(analysis.lastUsage),
@@ -426,6 +473,7 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		WorkingDirectory: analysis.workingDirectory,
 		Branch:           analysis.branch,
 		Entrypoint:       analysis.entrypoint,
+		CommitLog:        analysis.commitLog,
 		SessionDetails:   unifiedSessionDetails,
 		StartedAt:        analysis.timestamps.Earliest,
 		LastActivityTime: analysis.timestamps.Latest,

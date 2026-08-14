@@ -36,7 +36,7 @@ type codexSessionAnalysis struct {
 	spawns           map[string]vendors.SpawnState
 	tokenSamples     []codexTokenSample
 	commands         session.CommandLog
-	commits          []string
+	commitLog        []session.CommitObservation
 	pullRequests     int
 	fileEdits        *session.FileEditSet
 	digest           session.DigestLog
@@ -168,7 +168,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 	analysis := &codexSessionAnalysis{
 		spawns:    map[string]vendors.SpawnState{},
 		fileEdits: session.NewFileEditSet(),
-		commits:   []string{},
+		commitLog: commitObservationsByCall(rows),
 	}
 	for _, row := range rows {
 		var timestamp *int64
@@ -320,9 +320,6 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				analysis.toolUseCount++
 				if command, ok := commandFrom(row.Payload); ok {
 					analysis.commands.Note(command, "")
-					if message, ok := session.CommitMessage(command); ok {
-						analysis.commits = append(analysis.commits, message)
-					}
 					if session.IsPullRequestCreate(command) {
 						analysis.pullRequests++
 					}
@@ -415,7 +412,7 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		Compactions:  analysis.compactions,
 		Errors:       0, // Codex does not report exit code (may change in the future)
 		Commands:     analysis.commands.Raw(),
-		Commits:      analysis.commits,
+		Commits:      session.ReconcileCommits(analysis.commitLog, "", nil),
 		PullRequests: analysis.pullRequests,
 		FileEdits:    analysis.fileEdits.Edits,
 		Digest:       analysis.digest.Entries(),
@@ -432,6 +429,7 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		WorkingDirectory: analysis.workingDirectory,
 		Branch:           analysis.branch,
 		Entrypoint:       analysis.entrypoint,
+		CommitLog:        analysis.commitLog,
 		StartedAt:        analysis.timestamps.Earliest,
 		LastActivityTime: analysis.timestamps.Latest,
 		EditedFileCount:  len(analysis.fileEdits.Edits),
@@ -694,6 +692,75 @@ func questionAnswersByCall(rows []codexRow) map[string]map[string]codexQuestionA
 		}
 	}
 	return answersByCall
+}
+
+type codexCommandResult struct {
+	output    string
+	succeeded bool
+}
+
+func commitObservationsByCall(rows []codexRow) []session.CommitObservation {
+	commands := map[string]string{}
+	observations := []session.CommitObservation{}
+	for _, row := range rows {
+		if row.Type != "response_item" || row.Payload.CallID == "" {
+			continue
+		}
+		if row.Payload.Type == "function_call" || row.Payload.Type == "custom_tool_call" {
+			if command, ok := commandFrom(row.Payload); ok {
+				commands[row.Payload.CallID] = command
+			}
+			continue
+		}
+		if row.Payload.Type != "function_call_output" && row.Payload.Type != "custom_tool_call_output" {
+			continue
+		}
+		command, ok := commands[row.Payload.CallID]
+		if !ok {
+			continue
+		}
+		result := decodeCodexCommandResult(row.Payload.Output)
+		observations = append(observations, session.ParseCommitObservations(
+			command, result.output, result.succeeded,
+		)...)
+		delete(commands, row.Payload.CallID)
+	}
+	return observations
+}
+
+func decodeCodexCommandResult(raw json.RawMessage) codexCommandResult {
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil && len(blocks) > 0 {
+		parts := make([]string, 0, len(blocks))
+		for _, block := range blocks {
+			if block.Text != "" {
+				parts = append(parts, block.Text)
+			}
+		}
+		return codexCommandResult{
+			output:    strings.Join(parts, "\n"),
+			succeeded: strings.HasPrefix(blocks[0].Text, "Script completed"),
+		}
+	}
+	body := string(raw)
+	var encoded string
+	if json.Unmarshal(raw, &encoded) == nil {
+		body = encoded
+	}
+	var decoded struct {
+		Output   string `json:"output"`
+		ExitCode *int   `json:"exit_code"`
+	}
+	if json.Unmarshal([]byte(body), &decoded) == nil &&
+		(decoded.Output != "" || decoded.ExitCode != nil) {
+		return codexCommandResult{
+			output:    decoded.Output,
+			succeeded: decoded.ExitCode != nil && *decoded.ExitCode == 0,
+		}
+	}
+	return codexCommandResult{output: body}
 }
 
 func questionAnswersFrom(output json.RawMessage) (map[string]codexQuestionAnswer, bool) {

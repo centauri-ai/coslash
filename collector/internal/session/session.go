@@ -56,6 +56,7 @@ type Session struct {
 	StartedAt           int64                  `json:"-"`
 	LastActivityTime    int64                  `json:"mtime"`
 	Entrypoint          *string                `json:"entrypoint"`
+	CommitLog           []CommitObservation    `json:"-"`
 	SessionDetails
 }
 

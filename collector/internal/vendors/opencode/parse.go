@@ -64,7 +64,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	activeDuration := int64(0)
 	busy := false
 	waiting := false
-	commits := []string{}
+	commitLog := []session.CommitObservation{}
 	pullRequests := 0
 	fileEdits := session.NewFileEditSet()
 	patchEdits := session.NewFileEditSet()
@@ -193,10 +193,11 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 				}
 				if isShell && part.State.Status == "completed" && part.State.Input.Command != "" {
 					commands.Note(part.State.Input.Command, part.State.Title)
-					if part.State.Metadata.Exit == nil || *part.State.Metadata.Exit == 0 {
-						if message, ok := session.CommitMessage(part.State.Input.Command); ok {
-							commits = append(commits, message)
-						}
+					succeeded := part.State.Metadata.Exit == nil || *part.State.Metadata.Exit == 0
+					commitLog = append(commitLog, session.ParseCommitObservations(
+						part.State.Input.Command, part.State.Output, succeeded,
+					)...)
+					if succeeded {
 						if session.IsPullRequestCreate(part.State.Input.Command) {
 							pullRequests++
 						}
@@ -254,7 +255,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		Errors:         errorsCount,
 		Compactions:    compactions,
 		Commands:       commands.Raw(),
-		Commits:        commits,
+		Commits:        session.ReconcileCommits(commitLog, "", nil),
 		PullRequests:   pullRequests,
 		Todos:          todos,
 		Digest:         digest.Entries(),
@@ -280,6 +281,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		Agent:            vendors.AgentOpenCode,
 		ID:               row.id,
 		WorkingDirectory: row.directory,
+		CommitLog:        commitLog,
 		EditedFileCount:  editedFileCount,
 		StartedAt:        earliestMessageTime(messages),
 		LastActivityTime: row.updatedAt,
