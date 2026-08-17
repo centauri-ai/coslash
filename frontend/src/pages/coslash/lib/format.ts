@@ -61,18 +61,17 @@ export function formatDigestDateRange(times: number[]): string | null {
 
   const earliest = new Date(Math.min(...filtered));
   const latest = new Date(Math.max(...filtered));
-
-  const fmt = (d: Date) =>
-    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const fmt = (d: Date, withYear: boolean) =>
+    d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      ...(withYear ? { year: 'numeric' } : {}),
+    });
 
   if (earliest.toDateString() === latest.toDateString()) {
-    return `${fmt(earliest)}, ${earliest.getFullYear()} · local time`;
+    return `${fmt(earliest, true)} · local time`;
   }
 
-  const year = earliest.getFullYear();
-  if (earliest.getMonth() === latest.getMonth()) {
-    return `${fmt(earliest)}–${latest.getDate()}, ${year} · local time`;
-  }
-
-  return `${fmt(earliest)} – ${fmt(latest)}, ${year} · local time`;
+  const sameYear = earliest.getFullYear() === latest.getFullYear();
+  return `${fmt(earliest, !sameYear)} – ${fmt(latest, true)} · local time`;
 }
