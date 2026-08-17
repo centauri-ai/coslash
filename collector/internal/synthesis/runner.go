@@ -112,8 +112,11 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			"--model", r.Model,
 			"--output-schema", schemaPath,
 			"--color", "never",
-			systemPrompt,
 		}
+		if r.Model == settings.CodexSynthesisModel {
+			args = append(args, "-c", "model_reasoning_effort=high")
+		}
+		args = append(args, systemPrompt)
 	case settings.BackendOpenCode:
 		label = "OpenCode"
 		parse = func(data []byte) (session.SessionSynthesis, error) {
