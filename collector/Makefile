@@ -9,6 +9,7 @@ ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
 MODELS := internal/session/models.json
 LITELLM_URL := https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
+OPENCODE_MODELS_URL := https://models.opencode.ai/api.json
 
 .PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models
 
@@ -82,13 +83,20 @@ tidy:
 # Rewrites the embedded model table from LiteLLM. The Models workflow runs this
 # daily and opens a pull request; run it by hand for a model LiteLLM just added.
 models:
-	curl -sfL $(LITELLM_URL) | jq -S -f scripts/models.jq > $(MODELS).new
-	@test -s $(MODELS).new || { echo "error: the download produced no model table"; rm -f $(MODELS).new; exit 1; }
-	@jq -e 'length > 50' $(MODELS).new > /dev/null || { \
-		echo "error: $$(jq length $(MODELS).new) models is too few; the upstream format changed"; \
-		rm -f $(MODELS).new; exit 1; }
-	mv $(MODELS).new $(MODELS)
-	@echo "wrote $(MODELS) ($$(jq length $(MODELS)) models)"
+	@set -eu; \
+		trap 'rm -f $(MODELS).new $(MODELS).opencode' EXIT; \
+		curl -sfL $(OPENCODE_MODELS_URL) -o $(MODELS).opencode; \
+		curl -sfL $(LITELLM_URL) | jq -S --slurpfile opencode $(MODELS).opencode -f scripts/models.jq > $(MODELS).new; \
+		test -s $(MODELS).new || { echo "error: the downloads produced no model table"; exit 1; }; \
+		jq -e 'length > 50' $(MODELS).new > /dev/null || { \
+			echo "error: $$(jq length $(MODELS).new) models is too few; an upstream format changed"; exit 1; }; \
+		jq -e --slurpfile opencode $(MODELS).opencode \
+			'. as $$table | all($$opencode[0].opencode.models | keys[]; . as $$id | (($$table | has($$id)) or ($$table | has("opencode/" + $$id))))' \
+			$(MODELS).new > /dev/null || { echo "error: the OpenCode model merge is incomplete"; exit 1; }; \
+		mv $(MODELS).new $(MODELS); \
+		rm -f $(MODELS).opencode; \
+		trap - EXIT; \
+		echo "wrote $(MODELS) ($$(jq length $(MODELS)) models)"
 
 clean: unstage
 	rm -rf bin $(DIST)

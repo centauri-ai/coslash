@@ -1,7 +1,9 @@
 # Prunes LiteLLM's model_prices_and_context_window.json to priced chat models,
-# keeping only the fields coslash reads. Field names stay exactly as LiteLLM
-# publishes them so a refresh diff is auditable against upstream. Run through
+# then adds OpenCode models missing from that table. OpenCode costs are dollars
+# per million tokens; LiteLLM costs are already dollars per token. Run through
 # `make models`.
+def per_token: if . == null then null else . / 1000000 end;
+
 with_entries(
   select(
     (.value.mode == "chat" or .value.mode == "responses")
@@ -19,3 +21,22 @@ with_entries(
       | with_entries(select(.value != null))
     )
 )
+| . as $litellm
+| reduce ($opencode[0].opencode.models | to_entries[]) as $model (
+    .;
+    if ($litellm | has($model.key)) then
+      .
+    else
+      .["opencode/\($model.key)"] = (
+        $model.value
+        | {
+            input_cost_per_token: (.cost.input | per_token),
+            output_cost_per_token: (.cost.output | per_token),
+            cache_creation_input_token_cost: (.cost.cache_write | per_token),
+            cache_read_input_token_cost: (.cost.cache_read | per_token),
+            max_input_tokens: .limit.context,
+          }
+        | with_entries(select(.value != null))
+      )
+    end
+  )
