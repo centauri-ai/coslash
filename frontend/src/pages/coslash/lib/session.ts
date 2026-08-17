@@ -182,6 +182,8 @@ export const STATUSES = {
 
 export type StatusKey = keyof typeof STATUSES;
 
+export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'inactive'];
+
 export type SubagentStatus = { label: string; fg: string; bg: string };
 
 export const SUBAGENT_STATUSES = {
