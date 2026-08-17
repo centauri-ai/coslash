@@ -295,9 +295,10 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 		}()
 	}
 	wg.Wait()
+	reconcileCommits := session.NewCommitReconciler()
 	for _, p := range roots {
 		s := p.Session
-		s.Commits = session.ReconcileCommits(
+		s.Commits = reconcileCommits(
 			s.CommitLog, s.WorkingDirectory, s.Branch,
 		)
 		s.GitProbed = true // synthesis's lazy probe must not redo this
