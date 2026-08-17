@@ -369,8 +369,13 @@ func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEdit
 		if patch == "" {
 			patch = applyPatchForFile(part.State.Input.PatchText, cwd, path)
 		}
+		if patch == "" && part.Tool == "edit" {
+			patch = part.State.Metadata.FileDiff.Patch
+		}
 		if patch != "" {
 			edits.Patch(path, patch)
+		} else if part.Tool == "edit" {
+			edits.Change(path, part.State.Input.OldString, part.State.Input.NewString)
 		}
 		edited = true
 	}
@@ -383,7 +388,11 @@ func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEdit
 		if path != "" {
 			path = normalizeFilePath(cwd, path)
 			edits.Add(path, file.Additions, file.Deletions, false)
-			edits.Change(path, part.State.Input.OldString, part.State.Input.NewString)
+			if file.Patch != "" {
+				edits.Patch(path, file.Patch)
+			} else {
+				edits.Change(path, part.State.Input.OldString, part.State.Input.NewString)
+			}
 			edited = true
 		}
 	}
