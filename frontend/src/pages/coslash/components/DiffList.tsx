@@ -2,11 +2,10 @@ import { LoaderCircleIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FileChange } from '@/pages/coslash/hooks/use-sessions';
 
-type DiffLineKind = 'meta' | 'hunk' | 'addition' | 'deletion' | 'context';
+type DiffLineKind = 'hunk' | 'addition' | 'deletion' | 'context';
 
 /* oxlint-disable react/only-export-components -- exported for focused rendering tests */
 export function diffLineKind(line: string): DiffLineKind {
-  if (line.startsWith('+++') || line.startsWith('---')) return 'meta';
   if (line.startsWith('@@')) return 'hunk';
   if (line.startsWith('+')) return 'addition';
   if (line.startsWith('-')) return 'deletion';
@@ -76,10 +75,9 @@ export function DiffList({
                   <span
                     key={lineIndex}
                     className={cn('block min-w-max px-3', {
-                      'text-muted-foreground': kind === 'meta',
                       'text-brand': kind === 'hunk',
                       'bg-success-bg text-success-fg': kind === 'addition',
-                      'bg-destructive/10 text-destructive': kind === 'deletion',
+                      'text-destructive bg-red-50 dark:bg-red-950': kind === 'deletion',
                     })}
                   >
                     {line || ' '}
