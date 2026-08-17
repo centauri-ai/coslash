@@ -618,8 +618,16 @@ func jsonPointerResolves(value any, pointer string) bool {
 				return false
 			}
 		case []any:
+			if segment == "" || len(segment) > 1 && segment[0] == '0' {
+				return false
+			}
+			for i := range len(segment) {
+				if segment[i] < '0' || segment[i] > '9' {
+					return false
+				}
+			}
 			index, err := strconv.Atoi(segment)
-			if err != nil || index < 0 || index >= len(current) {
+			if err != nil || index >= len(current) {
 				return false
 			}
 			value = current[index]
