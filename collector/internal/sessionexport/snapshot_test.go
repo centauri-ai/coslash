@@ -114,6 +114,44 @@ func TestCredentialPatternsAreRedactedWithoutLeakingMetadata(t *testing.T) {
 	}
 }
 
+func TestUnterminatedCredentialPatternsRedactThroughEndOfText(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{"JSON bearer", `{"Authorization":"Bearer json-first-secret json-second-secret`},
+		{"JSON password", `{"password":"json-first-secret json-second-secret`},
+		{"double-quoted bearer", `Authorization="Bearer auth-first-secret auth-second-secret`},
+		{"single-quoted bearer", `Authorization='Bearer auth-first-secret auth-second-secret`},
+		{"double-quoted password", `password="first-secret second-secret`},
+		{"double-quoted password with dangling escape", `password="first-secret second-secret\`},
+		{"single-quoted token", `token='first-secret second-secret`},
+		{"private key", "-----BEGIN PRIVATE KEY-----\nprivate-first-secret\nprivate-second-secret"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			local := session.Session{
+				Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
+				Summary: &test.value, Tokens: map[string]session.ModelTokens{},
+			}
+			data, err := Marshal(local, BuildOptions{CollectorVersion: "0.1.0"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, secret := range []string{"first-secret", "second-secret"} {
+				if bytes.Contains(data, []byte(secret)) {
+					t.Fatalf("snapshot leaked %q", secret)
+				}
+			}
+			if !bytes.Contains(data, []byte("credential_pattern")) {
+				t.Fatal("credential redaction was not recorded")
+			}
+		})
+	}
+}
+
 func TestBuildResolvesRelativeFileEditsAgainstWorkingDirectory(t *testing.T) {
 	root := filepath.Join(string(filepath.Separator), "repo")
 	repository := "github.com/centauri-ai/coslash"

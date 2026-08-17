@@ -147,11 +147,18 @@ var credentialPatterns = []struct {
 	{regexp.MustCompile(`(?i)(\bauthorization\b\s*[:=]\s*'bearer\s+)[^']*(')`), `${1}[REDACTED]${2}`},
 	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*")(?:\\.|[^"\\])*(")`), `${1}[REDACTED]${2}`},
 	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*')[^']*(')`), `${1}[REDACTED]${2}`},
+	{regexp.MustCompile(`(?i)("authorization"\s*:\s*"bearer\s+)(?:\\.|[^"\\])*\\?\z`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)("(?:password|passwd|token|secret|api[_-]?key)"\s*:\s*")(?:\\.|[^"\\])*\\?\z`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)(\bauthorization\b\s*[:=]\s*"bearer\s+)(?:\\.|[^"\\])*\\?\z`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)(\bauthorization\b\s*[:=]\s*'bearer\s+)[^']*\z`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*")(?:\\.|[^"\\])*\\?\z`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*')[^']*\z`), `${1}[REDACTED]`},
 	{regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[^\s"']+`), `${1}[REDACTED]`},
 	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*)[^\s,;]+`), `${1}[REDACTED]`},
 	{regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9_]{12,}|sk-[A-Za-z0-9_-]{12,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16})\b`), `[REDACTED]`},
 	{regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/@\s]+@`), `${1}[REDACTED]@`},
 	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`), `[REDACTED PRIVATE KEY]`},
+	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*\z`), `[REDACTED PRIVATE KEY]`},
 }
 
 type boundedText struct {
