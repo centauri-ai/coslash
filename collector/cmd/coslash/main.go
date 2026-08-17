@@ -39,7 +39,12 @@ type options struct {
 func parseOptions(arguments []string) (options, error) {
 	flags := flag.NewFlagSet("coslash", flag.ContinueOnError)
 	var opts options
-	flags.IntVar(&opts.port, "port", defaultPort, "port to serve on, loopback only; 0 picks any free port")
+	flags.IntVar(
+		&opts.port,
+		"port",
+		defaultPort,
+		"port to serve on, loopback only; 0 picks any free port",
+	)
 	flags.BoolVar(&opts.noOpen, "no-open", false, "do not open a browser on startup")
 	flags.BoolVar(&opts.showVersion, "version", false, "print the version and exit")
 	if err := flags.Parse(arguments); err != nil {
@@ -121,7 +126,11 @@ func main() {
 	}
 }
 
-func newServer(guard httpsec.Guard, mgr *synthesis.Manager, settingsStore *settings.Store) *http.Server {
+func newServer(
+	guard httpsec.Guard,
+	mgr *synthesis.Manager,
+	settingsStore *settings.Store,
+) *http.Server {
 	return &http.Server{
 		Handler:           guard.Wrap(routes(mgr, settingsStore)),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -142,7 +151,7 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
 	})
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
-		handleDiff(w, r, collector.Get)
+		handleDiff(w, r, collector.GetSessionFacts)
 	})
 	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
 		writeSettings(w, settingsStore.State())
@@ -175,7 +184,10 @@ func listen(port int) (net.Listener, error) {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		if errors.Is(err, syscall.EADDRINUSE) {
-			return nil, fmt.Errorf("port %d is already in use; quit the other process or pass --port", port)
+			return nil, fmt.Errorf(
+				"port %d is already in use; quit the other process or pass --port",
+				port,
+			)
 		}
 		return nil, fmt.Errorf("listen on %s: %w", address, err)
 	}
