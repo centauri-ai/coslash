@@ -75,6 +75,7 @@ type DigestEntry struct {
 	Description string `json:"description"`
 	Answer      string `json:"answer,omitempty"`
 	SubagentID  string `json:"subagentId,omitempty"`
+	Time        int64  `json:"time,omitempty"`
 	SpawnKey    string `json:"-"`
 }
 

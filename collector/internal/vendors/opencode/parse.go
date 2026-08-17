@@ -75,7 +75,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			for _, part := range message.parts {
 				if part.Type == "compaction" {
 					compactions++
-					digest.Push(turns, session.DigestCompaction, "Context compacted")
+					digest.Push(turns, session.DigestCompaction, "Context compacted", message.Time.Created)
 				}
 			}
 			prompt := userText(message.parts)
@@ -90,7 +90,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			if turns == 1 {
 				category = session.DigestFirstPrompt
 			}
-			digest.Push(turns, category, prompt)
+			digest.Push(turns, category, prompt, message.Time.Created)
 			continue
 		}
 		if message.Role != "assistant" {
@@ -172,7 +172,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 						if !exists {
 							turn := max(turns, 1)
 							spawns[childID] = vendors.SpawnState{Turn: &turn}
-							digest.PushSubagent(turns, childID)
+							digest.PushSubagent(turns, childID, message.Time.Created)
 						}
 						if part.State.Input.Description != "" {
 							link.name = part.State.Input.Description
@@ -213,7 +213,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 						for _, todo := range part.State.Input.Todos {
 							if todo.Status == "completed" &&
 								todoStatus[todo.Content] != "completed" {
-								digest.Push(turns, session.DigestTodos, "completed: "+todo.Content)
+								digest.Push(turns, session.DigestTodos, "completed: "+todo.Content, message.Time.Created)
 							}
 							todoStatus[todo.Content] = todo.Status
 						}
@@ -224,7 +224,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 							if index < len(part.State.Metadata.Answers) {
 								answer = strings.Join(part.State.Metadata.Answers[index], ", ")
 							}
-							digest.PushQuestion(turns, question.Question, answer)
+							digest.PushQuestion(turns, question.Question, answer, message.Time.Created)
 						}
 					}
 				}
@@ -237,7 +237,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		if text := strings.Join(texts, "\n"); message.Finish == "stop" && !internalSummary &&
 			text != "" {
 			summary = text
-			digest.Push(turns, session.DigestRecap, text)
+			digest.Push(turns, session.DigestRecap, text, message.Time.Created)
 		}
 	}
 	for _, task := range tasks {

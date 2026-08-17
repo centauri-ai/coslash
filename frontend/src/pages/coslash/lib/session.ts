@@ -87,6 +87,7 @@ export type DigestEntry = {
   description: string;
   answer?: string;
   subagentId?: string;
+  time?: number;
 };
 
 export type SessionDetail = Session;

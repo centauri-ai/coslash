@@ -30,7 +30,7 @@ import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWa
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
 import { useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
-import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
+import { digestDateKey, formatDigestDateDivider, formatDigestDateRange, formatDigestTime, formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import {
   getModality,
@@ -497,13 +497,13 @@ function CategoryChip({
   );
 }
 
-function DigestRow({ entry }: { entry: DigestEntry }) {
+function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const meta = DIGEST_CATEGORIES[entry.category];
   const collapsible = entry.category === 'recap' && entry.description.length > 120;
 
   return (
-    <div className="border-border flex items-baseline gap-2 border-b py-1">
+    <div className={cn('border-border flex items-baseline gap-2 py-1', { 'border-b': !endsDay })}>
       <span className={cn('w-24 shrink-0 text-xs font-bold tracking-wide', meta.fg)}>{meta.label}</span>
       <div className="min-w-0 flex-1">
         <div className={cn('text-xs', { 'line-clamp-1': collapsible && !expanded })}>{entry.description}</div>
@@ -520,8 +520,11 @@ function DigestRow({ entry }: { entry: DigestEntry }) {
           </div>
         )}
       </div>
-      <span className="text-muted-foreground shrink-0 font-mono text-xs whitespace-nowrap">
-        turn {entry.turn}
+      <span className="text-muted-foreground shrink-0 font-mono text-xs whitespace-nowrap flex flex-col items-end">
+        <span>turn {entry.turn}</span>
+        {entry.time != null && entry.time > 0 && (
+          <span className="text-muted-foreground">{formatDigestTime(entry.time)}</span>
+        )}
       </span>
     </div>
   );
@@ -559,6 +562,16 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
   );
 }
 
+function DateDivider({ label }: { label: string }) {
+  return (
+    <div className="text-muted-foreground grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 text-xs font-bold tracking-wide">
+      <span className="bg-border h-px" />
+      <span>{label}</span>
+      <span className="bg-border h-px" />
+    </div>
+  );
+}
+
 function DigestSection({ detail }: { detail: SessionDetail }) {
   const [hiddenCategories, setHiddenCategories] = useState<Set<DigestCategory>>(
     () => new Set(DEFAULT_HIDDEN_CATEGORIES),
@@ -579,6 +592,39 @@ function DigestSection({ detail }: { detail: SessionDetail }) {
   };
 
   const visible = digest.filter((entry) => !hiddenCategories.has(entry.category));
+  const times = digest.map((e) => e.time ?? 0).filter((t) => t > 0);
+  const dateRange = formatDigestDateRange(times);
+
+  const endsDayIndices = new Set<number>();
+  let lastDate = '';
+  for (let i = 0; i < visible.length; i++) {
+    const entryDate = visible[i].time != null && visible[i].time! > 0 ? digestDateKey(visible[i].time!) : '';
+    if (i > 0 && entryDate !== '' && lastDate !== '' && entryDate !== lastDate) {
+      endsDayIndices.add(i - 1);
+    }
+    if (entryDate !== '') {
+      lastDate = entryDate;
+    }
+  }
+
+  let previousDate = '';
+  const rows = visible.map((entry, index) => {
+    const entryDate = entry.time != null && entry.time > 0 ? digestDateKey(entry.time) : '';
+    const showDivider = entryDate !== '' && entryDate !== previousDate;
+    if (entryDate !== '') {
+      previousDate = entryDate;
+    }
+    return (
+      <div key={index}>
+        {showDivider && <DateDivider label={formatDigestDateDivider(entry.time!)} />}
+        {entry.category === 'subagent' ? (
+          <SubagentDigestRow subagentId={entry.subagentId!} detail={detail} />
+        ) : (
+          <DigestRow entry={entry} endsDay={endsDayIndices.has(index) || index === visible.length - 1} />
+        )}
+      </div>
+    );
+  });
 
   return (
     <div>
@@ -587,7 +633,7 @@ function DigestSection({ detail }: { detail: SessionDetail }) {
           <span className="text-muted-foreground text-xs font-semibold tracking-wide">TIMELINE</span>
           <span className="text-muted-foreground text-xs">key events from this session</span>
         </div>
-        <span className="text-muted-foreground text-xs">Click a category to show or hide it.</span>
+        <span className="text-muted-foreground text-xs">{dateRange}</span>
       </div>
       <div className="flex flex-wrap gap-1 pb-2">
         {(Object.keys(DIGEST_CATEGORIES) as DigestCategory[])
@@ -602,15 +648,7 @@ function DigestSection({ detail }: { detail: SessionDetail }) {
             />
           ))}
       </div>
-      <div className="flex flex-col gap-1">
-        {visible.map((entry, index) =>
-          entry.category === 'subagent' ? (
-            <SubagentDigestRow key={index} subagentId={entry.subagentId!} detail={detail} />
-          ) : (
-            <DigestRow key={index} entry={entry} />
-          ),
-        )}
-      </div>
+      <div className="flex flex-col gap-1">{rows}</div>
     </div>
   );
 }

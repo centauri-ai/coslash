@@ -16,8 +16,9 @@ type DigestLog struct {
 }
 
 // Push appends an entry attributed to turn (at least 1). A recap keeps its
-// full text; everything else is truncated for display.
-func (log *DigestLog) Push(turn int, category, description string) {
+// full text; everything else is truncated for display. time is the epoch
+// milliseconds when the event occurred (0 if unknown).
+func (log *DigestLog) Push(turn int, category, description string, time int64) {
 	text := Truncate(description, TruncateTextLimit)
 	if category == DigestRecap {
 		text = strings.TrimSpace(description)
@@ -26,19 +27,21 @@ func (log *DigestLog) Push(turn int, category, description string) {
 		Turn:        max(turn, 1),
 		Category:    category,
 		Description: text,
+		Time:        time,
 	})
 }
 
-func (log *DigestLog) PushQuestion(turn int, description, answer string) {
-	log.Push(turn, DigestQuestion, description)
+func (log *DigestLog) PushQuestion(turn int, description, answer string, time int64) {
+	log.Push(turn, DigestQuestion, description, time)
 	log.entries[len(log.entries)-1].Answer = Truncate(answer, TruncateTextLimit)
 }
 
-func (log *DigestLog) PushSubagent(turn int, spawnKey string) {
+func (log *DigestLog) PushSubagent(turn int, spawnKey string, time int64) {
 	log.entries = append(log.entries, DigestEntry{
 		Turn:     max(turn, 1),
 		Category: DigestSubagent,
 		SpawnKey: spawnKey,
+		Time:     time,
 	})
 }
 
