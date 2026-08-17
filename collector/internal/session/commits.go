@@ -6,8 +6,10 @@ import (
 	"strings"
 )
 
-// git commit as complete command words anywhere in a shell segment; excludes commit-tree.
-var gitCommitCommand = regexp.MustCompile(`(?:^|[\n;&|])[^\n;&|]*?(\bgit\s+commit)(?:$|[\s;&|])`)
+// git commit at shell command position; excludes commit-tree and argument text.
+var gitCommitCommand = regexp.MustCompile(
+	`(?:^|[\n;&|])[ \t]*(?:rtk[ \t]+)?(git[ \t]+commit)(?:$|[ \t][^\n;&|]*)`,
+)
 
 // -m, --message, or a combined short flag such as -am, single or double-quoted
 var commitMessage = regexp.MustCompile(`(?:--message|-[a-zA-Z]*m)[=\s]*(?:"([^"]+)"|'([^']+)')`)
@@ -52,14 +54,10 @@ func commitOutputHashes(output string) []string {
 }
 
 func commitInvocations(command string) []CommitObservation {
-	matches := gitCommitCommand.FindAllStringSubmatchIndex(command, -1)
+	matches := gitCommitCommand.FindAllStringSubmatchIndex(maskQuotedShellText(command), -1)
 	observations := make([]CommitObservation, 0, len(matches))
-	for i, match := range matches {
-		end := len(command)
-		if i+1 < len(matches) {
-			end = matches[i+1][0]
-		}
-		invocation := command[match[2]:end]
+	for _, match := range matches {
+		invocation := command[match[2]:match[1]]
 		subject := commitSubject(invocation)
 		if subject == "" {
 			subject = "(commit)"
@@ -70,6 +68,34 @@ func commitInvocations(command string) []CommitObservation {
 		})
 	}
 	return observations
+}
+
+func maskQuotedShellText(command string) string {
+	masked := []byte(command)
+	var quote byte
+	for i := 0; i < len(masked); i++ {
+		char := masked[i]
+		if quote != '\'' && char == '\\' {
+			masked[i] = ' '
+			i++
+			if i < len(masked) {
+				masked[i] = ' '
+			}
+			continue
+		}
+		if quote != 0 {
+			masked[i] = ' '
+			if char == quote {
+				quote = 0
+			}
+			continue
+		}
+		if char == '\'' || char == '"' {
+			quote = char
+			masked[i] = ' '
+		}
+	}
+	return string(masked)
 }
 
 type repositoryCommit struct {
