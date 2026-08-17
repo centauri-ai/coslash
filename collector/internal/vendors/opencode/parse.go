@@ -281,6 +281,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		ID:               row.id,
 		WorkingDirectory: row.directory,
 		EditedFileCount:  editedFileCount,
+		StartedAt:        earliestMessageTime(messages),
 		LastActivityTime: row.updatedAt,
 		Tokens:           tokens,
 		Subagents:        []session.Subagent{},
@@ -316,6 +317,17 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		parsed.StatusHint = &status
 	}
 	return parsedSession{transcript: parsed, tasks: tasks}, nil
+}
+
+func earliestMessageTime(messages []storedMessage) int64 {
+	earliest := int64(0)
+	for _, message := range messages {
+		created := message.Time.Created
+		if created > 0 && (earliest == 0 || created < earliest) {
+			earliest = created
+		}
+	}
+	return earliest
 }
 
 func addCompletedToolEdits(cwd string, part *storedPart, edits *session.FileEditSet) bool {

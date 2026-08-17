@@ -406,6 +406,7 @@ func (analysis *codexSessionAnalysis) unifiedSession(filePath string) *session.S
 		WorkingDirectory: analysis.workingDirectory,
 		Branch:           analysis.branch,
 		Entrypoint:       analysis.entrypoint,
+		StartedAt:        analysis.timestamps.Earliest,
 		LastActivityTime: analysis.timestamps.Latest,
 		EditedFileCount:  len(analysis.fileEdits.Edits),
 		SessionDetails:   unifiedSessionDetails,

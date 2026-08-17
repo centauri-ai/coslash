@@ -53,6 +53,7 @@ type Session struct {
 	Cost                float64                `json:"cost"`
 	UnpricedModels      []string               `json:"unpricedModels"`
 	Subagents           []Subagent             `json:"subagents"`
+	StartedAt           int64                  `json:"-"`
 	LastActivityTime    int64                  `json:"mtime"`
 	Entrypoint          *string                `json:"entrypoint"`
 	SessionDetails
