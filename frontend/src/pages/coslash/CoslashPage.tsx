@@ -37,7 +37,7 @@ import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
-import { getStatus, type Session } from '@/pages/coslash/lib/session';
+import { getSessionVendors, getStatus, type Session } from '@/pages/coslash/lib/session';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
@@ -298,10 +298,14 @@ export function CoslashPage() {
       })),
     [sessions],
   );
+  const sessionVendors = getSessionVendors(sessions);
 
   useEffect(() => {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
   }, [settingsState.response]);
+  useEffect(() => {
+    if (vendor !== 'all' && !sessions.some((session) => session.agent === vendor)) setVendor('all');
+  }, [sessions, vendor]);
   // Held by id, not by value: the inspector must render the freshest record
   // each refresh, and a stored object would freeze at click time. Looked up
   // from the unfiltered list so filters never close an open inspector.
@@ -355,7 +359,7 @@ export function CoslashPage() {
         <div className="-m-1 flex items-center gap-2 overflow-x-auto p-1">
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
           <div className="flex shrink-0 items-center gap-2">
-            <AgentVendorFilterTabMenu value={vendor} onValueChange={setVendor} />
+            <AgentVendorFilterTabMenu value={vendor} vendors={sessionVendors} onValueChange={setVendor} />
             <span className="bg-border h-5 w-px" />
             <TimeWindowFilterTabMenu value={timeWindow} onValueChange={setTimeWindow} />
             <span className="bg-border h-5 w-px" />

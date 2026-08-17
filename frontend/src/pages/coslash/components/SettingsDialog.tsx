@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import {
+  availableSynthesisBackends,
   initialSettingsDraft,
   modelForBackend,
   requiresFirstRunConsent,
@@ -204,9 +205,8 @@ export function SettingsDialog({
   const initialDraft = response ? initialSettingsDraft(response) : null;
   // Both sides are spreads of the same response.settings, so key order matches.
   const isDirty = JSON.stringify(draft) !== JSON.stringify(initialDraft);
-  const selectedBackend = response?.options.synthesisBackends.find(
-    (option) => option.id === draft?.synthesis.backend,
-  );
+  const synthesisBackends = availableSynthesisBackends(response?.options.synthesisBackends ?? []);
+  const selectedBackend = synthesisBackends.find((option) => option.id === draft?.synthesis.backend);
   const selectedModel = selectedBackend?.models.find((option) => option.id === draft?.synthesis.model);
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
   const synthesisBackendAvailable = draft?.synthesis.enabled !== true || selectedBackend?.available === true;
@@ -297,7 +297,7 @@ export function SettingsDialog({
                           </div>
                         </div>
                         <div className="grid gap-2.5 sm:grid-cols-2">
-                          {response.options.synthesisBackends.map((option) => (
+                          {synthesisBackends.map((option) => (
                             <BackendChoice
                               key={option.id}
                               option={option}

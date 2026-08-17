@@ -44,6 +44,10 @@ export type SettingsResponse = {
   };
 };
 
+export function availableSynthesisBackends(options: readonly BackendOption[]): BackendOption[] {
+  return options.filter((option) => option.available);
+}
+
 export function modelForBackend(response: SettingsResponse, backend: string): string {
   const option = response.options.synthesisBackends.find((candidate) => candidate.id === backend);
   return option?.models.find((model) => model.default)?.id ?? option?.models[0]?.id ?? '';
@@ -53,7 +57,7 @@ export function initialSettingsDraft(response: SettingsResponse): CoslashSetting
   const synthesis = { ...response.settings.synthesis };
 
   if (!response.persisted) {
-    const availableBackend = response.options.synthesisBackends.find((option) => option.available);
+    const availableBackend = availableSynthesisBackends(response.options.synthesisBackends)[0];
     synthesis.enabled = availableBackend != null;
     if (availableBackend) {
       synthesis.backend = availableBackend.id;
