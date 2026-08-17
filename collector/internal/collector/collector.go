@@ -87,10 +87,20 @@ func List(since int64) ([]*session.Session, error) {
 }
 
 func applyActivityFallbacks(parsed []*vendors.ParsedSession) {
+	collectedAt := time.Now().UnixMilli()
 	for _, item := range parsed {
 		s := item.Session
 		if s.LastActivityTime == 0 && item.LogPath != "" {
 			s.LastActivityTime = session.FileModificationTime(item.LogPath)
+		}
+		// The export contract requires a positive start. Prefer last activity,
+		// then collection time when the source and its log provide no timestamp.
+		if s.StartedAt == 0 {
+			s.StartedAt = s.LastActivityTime
+			if s.StartedAt == 0 {
+				s.StartedAt = collectedAt
+				s.LastActivityTime = collectedAt
+			}
 		}
 	}
 }
