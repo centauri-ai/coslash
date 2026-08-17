@@ -169,6 +169,25 @@ func TestMetadataPathsRequireJSONPointerEscaping(t *testing.T) {
 	}
 }
 
+func TestMetadataArrayIndicesUseCanonicalJSONPointerSyntax(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Session.Digest = []Digest{{Category: "user"}, {Category: "assistant"}}
+
+	for _, path := range []string{"/session/digest/0", "/session/digest/1"} {
+		snapshot.Redactions = []Redaction{{Path: path, Reason: "test"}}
+		if _, err := Marshal(snapshot); err != nil {
+			t.Fatalf("canonical array pointer %q rejected: %v", path, err)
+		}
+	}
+
+	for _, path := range []string{"/session/digest/01", "/session/digest/+1"} {
+		snapshot.Redactions = []Redaction{{Path: path, Reason: "test"}}
+		if _, err := Marshal(snapshot); err == nil {
+			t.Fatalf("non-canonical array pointer %q accepted", path)
+		}
+	}
+}
+
 func TestTruncationCountersMustBeNonNegative(t *testing.T) {
 	negative := -1
 	tests := []struct {
