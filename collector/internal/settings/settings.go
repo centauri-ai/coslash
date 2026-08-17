@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 )
 
@@ -16,8 +17,19 @@ const (
 	SchemaURL = "https://raw.githubusercontent.com/centauri-ai/coslash/main/settings.schema.json"
 	Version   = 1
 
-	BackendClaude = "claude-cli"
-	BackendCodex  = "codex_exec"
+	BackendClaude   = "claude-cli"
+	BackendCodex    = "codex_exec"
+	BackendOpenCode = "opencode"
+
+	// OpenCodeDefaultModel passes no model, leaving OpenCode to resolve one:
+	// its configured model key, or failing that the model last selected in
+	// the CLI. That second case can change between runs.
+	OpenCodeDefaultModel = "default"
+
+	// OpenCodeSynthesisModel is the free model coSlash prefers for OpenCode
+	// synthesis. It is the one free model with a reasoning variant worth
+	// turning up, which the runner does.
+	OpenCodeSynthesisModel = "opencode/deepseek-v4-flash-free"
 
 	TerminalApple = "terminal"
 	TerminalITerm = "iterm2"
@@ -124,7 +136,26 @@ func BackendOptions() []BackendOption {
 				{ID: "gpt-5.6-sol", Label: "GPT-5.6 Sol"},
 			},
 		},
+		{
+			// OpenCode models come from the user's own providers, so the
+			// caller fills these in from the CLI rather than a fixed list.
+			ID:     BackendOpenCode,
+			Label:  "OpenCode CLI",
+			Models: []ModelOption{},
+		},
 	}
+}
+
+// openCodeModelPattern matches "provider/model". Routed providers add
+// segments, as in openrouter/anthropic/claude-haiku-4-5. It stays permissive
+// so any provider the user types remains valid.
+var openCodeModelPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+(/[A-Za-z0-9._:-]+)+$`)
+
+func ValidOpenCodeModel(model string) bool {
+	if model == OpenCodeDefaultModel {
+		return true
+	}
+	return len(model) <= 200 && openCodeModelPattern.MatchString(model)
 }
 
 func TerminalOptions() []TerminalOption {
@@ -140,6 +171,8 @@ func BackendExecutable(backend string) string {
 		return "claude"
 	case BackendCodex:
 		return "codex"
+	case BackendOpenCode:
+		return "opencode"
 	default:
 		return ""
 	}
@@ -163,15 +196,21 @@ func Validate(config Config) error {
 	if backend == nil {
 		return fmt.Errorf("unsupported synthesis backend %q", config.Synthesis.Backend)
 	}
-	modelSupported := false
-	for _, option := range backend.Models {
-		if option.ID == config.Synthesis.Model {
-			modelSupported = true
-			break
+	if backend.ID == BackendOpenCode {
+		if !ValidOpenCodeModel(config.Synthesis.Model) {
+			return fmt.Errorf("model %q is not a provider/model id", config.Synthesis.Model)
 		}
-	}
-	if !modelSupported {
-		return fmt.Errorf("model %q is not supported by %q", config.Synthesis.Model, backend.ID)
+	} else {
+		modelSupported := false
+		for _, option := range backend.Models {
+			if option.ID == config.Synthesis.Model {
+				modelSupported = true
+				break
+			}
+		}
+		if !modelSupported {
+			return fmt.Errorf("model %q is not supported by %q", config.Synthesis.Model, backend.ID)
+		}
 	}
 	if config.Appearance.Theme != "light" && config.Appearance.Theme != "dark" {
 		return fmt.Errorf("unsupported theme %q", config.Appearance.Theme)

@@ -183,9 +183,11 @@ Per-model token breakdowns including cache reads and writes, estimated cost at l
 
 Debriefs work without any model: goals, outcomes, timelines, and artifacts are derived deterministically from the transcript. Turning on synthesis sharpens them.
 
-When you enable it, coSlash passes a bounded set of derived facts — goal candidates, digest, todos, filenames, commits, and stats, capped at roughly 12 KB — through your local Claude Code or Codex CLI, using the account that CLI already has. Results are cached under `~/.coslash`. Only substantial sessions qualify (more than five turns, at least one compaction, or a large context), so short throwaway runs never cost you anything.
+When you enable it, coSlash passes a bounded set of derived facts — goal candidates, digest, todos, filenames, commits, and stats, capped at roughly 12 KB — through your local Claude Code, Codex, or OpenCode CLI, using the account that CLI already has. Results are cached under `~/.coslash`. Only substantial sessions qualify (more than five turns, at least one compaction, or a large context), so short throwaway runs never cost you anything.
 
 It is **off until you explicitly enable and save it**.
+
+For OpenCode, the model list offers the free OpenCode Zen models — defaulting to `opencode/deepseek-v4-flash-free`, run at its `high` reasoning variant — plus *Whichever model OpenCode is set to use*. That option passes no model, so OpenCode resolves one itself: the `model` key in `~/.config/opencode/opencode.jsonc` if set, otherwise the model last selected in the OpenCode CLI. It is the way to reach a paid provider, since OpenCode resolves those from ambient credentials and listing them runs to hundreds of entries — but note the model can then change as you switch models in the CLI, and a paid one will bill your account per debrief.
 
 <p align="center">
   <img src="docs/media/settings-synthesis.png" alt="Settings dialog with AI synthesis enabled, OpenCode selected, and What synthesis sends expanded" width="520">

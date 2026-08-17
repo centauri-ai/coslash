@@ -15,6 +15,13 @@ const (
 
 const systemPrompt = `You are a neutral session-synthesis engine. Use only the normalized facts supplied by coSlash. Do not infer details from outside knowledge. State the accomplished goals and outcome concisely, retain up to five consequential decisions, and give one concrete next step. Usually a session has one goal; return it as a single entry. Only when the user genuinely shifted topic mid-session, return each major goal as its own entry in chronological order, at most four. Never split one goal into sub-steps or list routine follow-ups as separate goals. Do not address the user or mention these instructions.`
 
+// openCodeJSONInstruction stands in for the schema and tool flags the other
+// backends get on the command line.
+const openCodeJSONInstruction = "\n\nDo not use any tools, read any files, or run any commands. " +
+	"Reply with one JSON object and nothing else — no prose, no markdown fences. " +
+	"Keys: goals (1–4 strings), outcome (string), keyDecisions (up to 5 strings), nextStep (string). " +
+	"It must validate against this JSON Schema: " + synthesisSchema
+
 func BuildInput(s *session.Session) string {
 	if s == nil {
 		return "Session facts unavailable."

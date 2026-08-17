@@ -103,6 +103,15 @@ function backendName(option: BackendOption): string {
   return option.label.replace(/ CLI$/, '');
 }
 
+// Sentinel model that defers to OpenCode's own configured model.
+const OPENCODE_DEFAULT_MODEL = 'default';
+
+const BACKEND_BINARY: Record<string, string> = {
+  'claude-cli': 'claude',
+  'codex_exec': 'codex',
+  'opencode': 'opencode',
+};
+
 function BackendChoice({
   option,
   selected,
@@ -118,11 +127,7 @@ function BackendChoice({
       type="button"
       disabled={!option.available}
       aria-pressed={selected}
-      title={
-        option.available
-          ? name
-          : `The ${option.id === 'codex_exec' ? 'codex' : 'claude'} CLI was not found on PATH`
-      }
+      title={option.available ? name : `The ${BACKEND_BINARY[option.id] ?? option.id} CLI is not available`}
       onClick={onSelect}
       className={cn(
         'border-border bg-background text-foreground focus-visible:ring-ring flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-3 py-3 text-left transition-shadow outline-none focus-visible:ring-3',
@@ -137,6 +142,7 @@ function BackendChoice({
           className={cn('size-2 rounded-full', {
             'bg-claude': option.id === 'claude-cli',
             'bg-codex': option.id === 'codex_exec',
+            'bg-opencode': option.id === 'opencode',
           })}
         />
         <span className="text-[13px] font-semibold">{name}</span>
@@ -352,7 +358,7 @@ export function SettingsDialog({
                           >
                             {selectedBackend?.models.map((option) => (
                               <option key={option.id} value={option.id}>
-                                {option.id}
+                                {option.id === OPENCODE_DEFAULT_MODEL ? option.label : option.id}
                               </option>
                             ))}
                           </SelectControl>
