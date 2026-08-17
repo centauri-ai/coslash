@@ -121,7 +121,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 	}
 	pendingAssistantText := ""
 	pendingCommand := ""
-	emitPrompt := func(text string) {
+	emitPrompt := func(text string, timestamp int64) {
 		analysis.inTurn = true
 		pendingAssistantText = ""
 		analysis.userPromptCount++
@@ -132,7 +132,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 		if analysis.userPromptCount == 1 {
 			category = session.DigestFirstPrompt
 		}
-		analysis.digest.Push(analysis.userPromptCount, category, text)
+		analysis.digest.Push(analysis.userPromptCount, category, text, timestamp)
 	}
 	for _, row := range rows {
 		if row.SessionID != "" {
@@ -153,12 +153,14 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 			analysis.inTurn = false
 			pendingAssistantText = ""
 		}
+		var rowTimestamp int64
 		if row.Timestamp != "" {
-			timestamp, err := session.RFC3339ToUnixEpoch(row.Timestamp)
+			ts, err := session.RFC3339ToUnixEpoch(row.Timestamp)
 			if err != nil {
 				log.Printf("%s: skipping unparseable timestamp %q: %v", file, row.Timestamp, err)
 			} else {
-				analysis.timestamps.Note(timestamp)
+				rowTimestamp = ts
+				analysis.timestamps.Note(ts)
 			}
 		}
 		if row.Type == "custom-title" && row.CustomTitle != "" {
@@ -181,6 +183,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 			analysis.digest.Push(analysis.userPromptCount,
 				session.DigestCompaction,
 				fmt.Sprintf("context compacted (%d)", analysis.compactBoundaries),
+				rowTimestamp,
 			)
 		}
 		if row.IsCompactSummary && row.Message != nil {
@@ -200,7 +203,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 				pendingCommand = row.commandInvocation()
 			case row.IsMeta:
 				if pendingCommand != "" {
-					emitPrompt(pendingCommand)
+					emitPrompt(pendingCommand, rowTimestamp)
 					pendingCommand = ""
 				}
 			default:
@@ -211,7 +214,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 					analysis.inTurn = false
 					pendingAssistantText = ""
 				case text != "":
-					emitPrompt(text)
+					emitPrompt(text, rowTimestamp)
 				}
 			}
 		}
@@ -236,7 +239,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 							Turn: &turn,
 						}
 						if isSubagentTool(block.Name) {
-							analysis.digest.PushSubagent(analysis.userPromptCount, block.ID)
+							analysis.digest.PushSubagent(analysis.userPromptCount, block.ID, rowTimestamp)
 						}
 					}
 				}
@@ -255,6 +258,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 						analysis.userPromptCount,
 						session.DigestRecap,
 						pendingAssistantText,
+						rowTimestamp,
 					)
 					pendingAssistantText = ""
 				}
@@ -268,7 +272,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 						} else if block.Input.Status != "" {
 							task.status = block.Input.Status
 							if block.Input.Status == "completed" {
-								analysis.digest.Push(analysis.userPromptCount, session.DigestTodos, "completed — "+task.subject)
+								analysis.digest.Push(analysis.userPromptCount, session.DigestTodos, "completed — "+task.subject, rowTimestamp)
 							}
 						}
 					}
@@ -296,7 +300,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 					analysis.inTurn = false
 					reply := strings.TrimSpace(row.Message.textContent())
 					if analysis.userPromptCount > 0 && reply != "" {
-						analysis.digest.Push(analysis.userPromptCount, session.DigestRecap, reply)
+						analysis.digest.Push(analysis.userPromptCount, session.DigestRecap, reply, rowTimestamp)
 					}
 					pendingAssistantText = ""
 				}
@@ -351,7 +355,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 				if spawn, ok := analysis.spawns[resultToolUseID]; ok {
 					analysis.spawns[result.RunID] = vendors.SpawnState{Turn: spawn.Turn}
 				}
-				analysis.digest.PushSubagent(analysis.userPromptCount, result.RunID)
+				analysis.digest.PushSubagent(analysis.userPromptCount, result.RunID, rowTimestamp)
 			}
 			if result != nil && result.Answers != nil {
 				for _, question := range result.Questions {
@@ -359,6 +363,7 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 						analysis.userPromptCount,
 						question.Question,
 						result.Answers[question.Question].String(),
+						rowTimestamp,
 					)
 				}
 			}

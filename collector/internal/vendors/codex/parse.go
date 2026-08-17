@@ -47,7 +47,7 @@ type codexSessionAnalysis struct {
 }
 
 // Review mode's own generated instruction is not a user turn
-func (analysis *codexSessionAnalysis) notePrompt(prompt string) {
+func (analysis *codexSessionAnalysis) notePrompt(prompt string, timestamp *int64) {
 	analysis.prompts++
 	if analysis.firstUserPrompt == "" {
 		analysis.firstUserPrompt = prompt
@@ -56,7 +56,11 @@ func (analysis *codexSessionAnalysis) notePrompt(prompt string) {
 	if analysis.prompts == 1 {
 		category = session.DigestFirstPrompt
 	}
-	analysis.digest.Push(analysis.prompts, category, prompt)
+	ts := int64(0)
+	if timestamp != nil {
+		ts = *timestamp
+	}
+	analysis.digest.Push(analysis.prompts, category, prompt, ts)
 }
 
 func (analysis *codexSessionAnalysis) noteFileChanges(changes codexPatchChanges) {
@@ -76,7 +80,7 @@ func (analysis *codexSessionAnalysis) noteFileChanges(changes codexPatchChanges)
 	}
 }
 
-func (analysis *codexSessionAnalysis) noteSubagentStarted(id string) {
+func (analysis *codexSessionAnalysis) noteSubagentStarted(id string, timestamp *int64) {
 	if id == "" {
 		return
 	}
@@ -85,7 +89,11 @@ func (analysis *codexSessionAnalysis) noteSubagentStarted(id string) {
 	}
 	turn := max(analysis.prompts, 1)
 	analysis.spawns[id] = vendors.SpawnState{Turn: &turn}
-	analysis.digest.PushSubagent(analysis.prompts, id)
+	ts := int64(0)
+	if timestamp != nil {
+		ts = *timestamp
+	}
+	analysis.digest.PushSubagent(analysis.prompts, id, ts)
 }
 
 func completedItemText(item codexItem) string {
@@ -209,7 +217,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				case "UserMessage":
 					message := completedItemText(item)
 					if !analysis.inReview && message != "" && !session.IsHarnessWrapped(message) {
-						analysis.notePrompt(message)
+						analysis.notePrompt(message, timestamp)
 					}
 				case "AgentMessage":
 					if item.Phase == "final_answer" || item.Phase == "" {
@@ -219,7 +227,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 					analysis.noteFileChanges(item.Changes)
 				case "SubAgentActivity":
 					if item.Kind == "started" {
-						analysis.noteSubagentStarted(item.AgentThreadID)
+						analysis.noteSubagentStarted(item.AgentThreadID, timestamp)
 					}
 				}
 			case "user_message":
@@ -231,7 +239,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 					if prompt == "" {
 						prompt = row.Payload.Message
 					}
-					analysis.notePrompt(prompt)
+					analysis.notePrompt(prompt, timestamp)
 				}
 			case "entered_review_mode":
 				analysis.inReview = true
@@ -239,12 +247,12 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				if row.Payload.UserFacingHint != "" {
 					review += " · " + row.Payload.UserFacingHint
 				}
-				analysis.notePrompt(review)
+				analysis.notePrompt(review, timestamp)
 			case "exited_review_mode":
 				analysis.inReview = false
 			case "sub_agent_activity":
 				if row.Payload.Kind == "started" {
-					analysis.noteSubagentStarted(row.Payload.AgentThreadID)
+					analysis.noteSubagentStarted(row.Payload.AgentThreadID, timestamp)
 				}
 			case "agent_message":
 				if row.Payload.Phase == "final_answer" || row.Payload.Phase == "" {
@@ -260,9 +268,14 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				}
 			case "context_compacted":
 				analysis.compactions++
+				ts := int64(0)
+				if timestamp != nil {
+					ts = *timestamp
+				}
 				analysis.digest.Push(analysis.prompts,
 					session.DigestCompaction,
 					fmt.Sprintf("context compacted (%d)", analysis.compactions),
+					ts,
 				)
 			case "task_started":
 				if analysis.turnDepth == 0 {
@@ -274,10 +287,15 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 			case "task_complete", "turn_aborted":
 				if row.Payload.Type == "task_complete" && analysis.turnDepth <= 1 &&
 					analysis.prompts > 0 && analysis.turnFinalReply != "" {
+					ts := int64(0)
+					if timestamp != nil {
+						ts = *timestamp
+					}
 					analysis.digest.Push(
 						analysis.prompts,
 						session.DigestRecap,
 						analysis.turnFinalReply,
+						ts,
 					)
 				}
 				analysis.turnFinalReply = ""
@@ -312,17 +330,25 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				if questions := questionsFrom(row.Payload); len(questions) > 0 {
 					for _, question := range questions {
 						answer := strings.Join(questionAnswers[row.Payload.CallID][question.id].values(), ", ")
-						analysis.digest.PushQuestion(analysis.prompts, question.text, answer)
+						ts := int64(0)
+						if timestamp != nil {
+							ts = *timestamp
+						}
+						analysis.digest.PushQuestion(analysis.prompts, question.text, answer, ts)
 					}
 				}
-				analysis.notePlan(row.Payload)
+				analysis.notePlan(row.Payload, timestamp)
 			case "function_call_output":
 				if id := spawnedAgentID(row.Payload.Output); id != "" {
 					turn := max(analysis.prompts, 1)
 					analysis.spawns[id] = vendors.SpawnState{Turn: &turn}
-					analysis.digest.PushSubagent(analysis.prompts, id)
+					ts := int64(0)
+					if timestamp != nil {
+						ts = *timestamp
+					}
+					analysis.digest.PushSubagent(analysis.prompts, id, ts)
 				}
-				analysis.notePlan(row.Payload)
+				analysis.notePlan(row.Payload, timestamp)
 			}
 		}
 	}
@@ -548,7 +574,7 @@ var planStepPattern = regexp.MustCompile(
 	`"?step"?\s*:\s*("(?:[^"\\]|\\.)*")\s*,\s*"?status"?\s*:\s*"(\w+)"`,
 )
 
-func (analysis *codexSessionAnalysis) notePlan(payload codexPayload) {
+func (analysis *codexSessionAnalysis) notePlan(payload codexPayload, timestamp *int64) {
 	text := payloadText(payload)
 	if payload.Name != "update_plan" && !strings.Contains(text, "update_plan") {
 		return
@@ -570,7 +596,11 @@ func (analysis *codexSessionAnalysis) notePlan(payload codexPayload) {
 		status := m[2]
 		steps = append(steps, planStep{step: text, status: status})
 		if status == "completed" && before[text] != "completed" {
-			analysis.digest.Push(analysis.prompts, session.DigestTodos, "completed — "+text)
+			ts := int64(0)
+			if timestamp != nil {
+				ts = *timestamp
+			}
+			analysis.digest.Push(analysis.prompts, session.DigestTodos, "completed — "+text, ts)
 		}
 	}
 	analysis.plan = steps

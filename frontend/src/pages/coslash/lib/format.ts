@@ -32,3 +32,47 @@ export function formatTimeAgo(mtime: number): string {
     day: 'numeric',
   });
 }
+
+export function formatDigestTime(time: number): string {
+  return new Date(time).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+export function digestDateKey(time: number): string {
+  const d = new Date(time);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function formatDigestDateDivider(time: number): string {
+  return new Date(time)
+    .toLocaleDateString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    })
+    .toUpperCase();
+}
+
+export function formatDigestDateRange(times: number[]): string | null {
+  const filtered = times.filter((t) => t > 0);
+  if (filtered.length === 0) return null;
+
+  const earliest = new Date(Math.min(...filtered));
+  const latest = new Date(Math.max(...filtered));
+
+  const fmt = (d: Date) =>
+    d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  if (earliest.toDateString() === latest.toDateString()) {
+    return `${fmt(earliest)}, ${earliest.getFullYear()} · local time`;
+  }
+
+  const year = earliest.getFullYear();
+  if (earliest.getMonth() === latest.getMonth()) {
+    return `${fmt(earliest)}–${latest.getDate()}, ${year} · local time`;
+  }
+
+  return `${fmt(earliest)} – ${fmt(latest)}, ${year} · local time`;
+}
