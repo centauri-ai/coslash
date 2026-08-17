@@ -9,10 +9,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { assertOneOf } from '@/pages/coslash/lib/narrow';
-import { getTotalTokens, type Session } from '@/pages/coslash/lib/session';
+import { getStatus, getTotalTokens, type Session, type StatusKey } from '@/pages/coslash/lib/session';
 
 export const SortKey = {
   Recency: 'recency',
+  Status: 'status',
   Value: 'value',
   Tokens: 'tokens',
   Duration: 'duration',
@@ -23,15 +24,25 @@ export type SortDir = 'asc' | 'desc';
 
 const SORT_LABELS: Record<SortKey, string> = {
   [SortKey.Recency]: 'Recency',
+  [SortKey.Status]: 'Status',
   [SortKey.Value]: 'Est. cost',
   [SortKey.Tokens]: 'Tokens',
   [SortKey.Duration]: 'Duration',
+};
+
+const STATUS_PRIORITY: Record<StatusKey, number> = {
+  busy: 3,
+  idle: 2,
+  waiting: 1,
+  inactive: 0,
 };
 
 function sortValue(session: Session, key: SortKey): number {
   switch (key) {
     case SortKey.Recency:
       return session.mtime;
+    case SortKey.Status:
+      return STATUS_PRIORITY[getStatus(session.status)];
     case SortKey.Value:
       return session.cost;
     case SortKey.Tokens:
