@@ -173,8 +173,8 @@ func TestHandleDiffReturnsRecordedEditsInOrder(t *testing.T) {
 	}
 	if body.Changes[0].Operation != "Edit" ||
 		body.Changes[0].Additions != 1 || body.Changes[0].Deletions != 1 ||
-		!strings.Contains(body.Changes[0].Text, "-before\n+middle") ||
-		!strings.Contains(body.Changes[1].Text, "-middle\n+after") {
+		body.Changes[0].Text != "@@\n-before\n+middle\n" ||
+		body.Changes[1].Text != "@@\n-middle\n+after\n" {
 		t.Fatalf("changes = %#v, want recorded edits in transcript order", body.Changes)
 	}
 }

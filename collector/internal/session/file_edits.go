@@ -53,7 +53,7 @@ func (s *FileEditSet) Change(path, before, after string) {
 		return
 	}
 	change.Kind = "diff"
-	change.Text = renderChange(path, before, after)
+	change.Text = renderChange(before, after)
 }
 
 func (s *FileEditSet) Write(path, content string) {
@@ -90,9 +90,9 @@ func (s *FileEditSet) pendingChange(path string) *FileChange {
 	return &edit.changes[len(edit.changes)-1]
 }
 
-func renderChange(path, before, after string) string {
+func renderChange(before, after string) string {
 	var output strings.Builder
-	output.WriteString("--- " + path + "\n+++ " + path + "\n@@\n")
+	output.WriteString("@@\n")
 	writeSnippetDiff(&output, before, after)
 	return output.String()
 }
