@@ -27,6 +27,8 @@ type commandSpec struct {
 	args  []string
 	dir   string
 	stdin string
+	// env holds extra KEY=VALUE entries; empty inherits the environment.
+	env []string
 }
 
 type commandExecutor func(context.Context, commandSpec) ([]byte, error)
@@ -35,6 +37,9 @@ func executeCommand(ctx context.Context, spec commandSpec) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, spec.bin, spec.args...)
 	cmd.Dir = spec.dir
 	cmd.Stdin = strings.NewReader(spec.stdin)
+	if len(spec.env) > 0 {
+		cmd.Env = append(os.Environ(), spec.env...)
+	}
 	return cmd.Output()
 }
 
@@ -56,6 +61,8 @@ func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 		runner.Bin = "claude"
 	case settings.BackendCodex:
 		runner.Bin = "codex"
+	case settings.BackendOpenCode:
+		runner.Bin = "opencode"
 	default:
 		return nil, fmt.Errorf("unsupported synthesis backend %q", config.Backend)
 	}
@@ -69,8 +76,16 @@ func (r *CLIRunner) ModelName() string {
 func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynthesis, error) {
 	var label string
 	var args []string
+	var env []string
 	var parse func([]byte) (session.SessionSynthesis, error)
 	var schemaPath string
+	// OpenCode has no ephemeral mode, so its run is deleted afterwards.
+	var openCodeSessionID string
+	defer func() {
+		if openCodeSessionID != "" {
+			deleteOpenCodeSession(ctx, openCodeSessionID)
+		}
+	}()
 	switch r.Backend {
 	case settings.BackendClaude:
 		label = "Claude Code"
@@ -106,6 +121,32 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			"--color", "never",
 			systemPrompt,
 		}
+	case settings.BackendOpenCode:
+		label = "OpenCode"
+		parse = func(data []byte) (session.SessionSynthesis, error) {
+			text, id, err := parseOpenCodeStream(data)
+			openCodeSessionID = id
+			if err != nil {
+				return session.SessionSynthesis{}, err
+			}
+			return parseOpenCodeSynthesis(text)
+		}
+		// OpenCode has no system prompt or schema flag, so the instructions
+		// ride along with the message and the shape is described in prose.
+		args = []string{"run", "--dir", SynthesisCwd()}
+		// Omitting --model lets OpenCode use its own configured model.
+		if r.Model != settings.OpenCodeDefaultModel {
+			args = append(args, "--model", r.Model)
+		}
+		if r.Model == settings.OpenCodeSynthesisModel {
+			args = append(args, "--variant", "high")
+		}
+		args = append(args,
+			"--format", "json",
+			"--pure",
+			systemPrompt+openCodeJSONInstruction,
+		)
+		env = openCodeEnv()
 	default:
 		return session.SessionSynthesis{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
 	}
@@ -120,6 +161,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		args:  args,
 		dir:   SynthesisCwd(),
 		stdin: input,
+		env:   env,
 	})
 	if runCtx.Err() != nil {
 		return session.SessionSynthesis{}, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())

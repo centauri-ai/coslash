@@ -16,21 +16,15 @@
       "required": ["enabled", "backend", "model"],
       "properties": {
         "enabled": { "type": "boolean" },
-        "backend": { "enum": ["claude-cli", "codex_exec"] },
-        "model": {
-          "enum": [
-            "claude-haiku-4-5",
-            "claude-sonnet-5",
-            "claude-opus-5",
-            "gpt-5.6-luna",
-            "gpt-5.6-terra",
-            "gpt-5.6-sol"
-          ]
-        }
+        "backend": { "enum": ["claude-cli", "codex_exec", "opencode"] },
+        "model": { "type": "string", "minLength": 1, "maxLength": 200 }
       },
       "allOf": [
         {
-          "if": { "properties": { "backend": { "const": "claude-cli" } } },
+          "if": {
+            "properties": { "backend": { "const": "claude-cli" } },
+            "required": ["backend"]
+          },
           "then": {
             "properties": {
               "model": {
@@ -40,10 +34,26 @@
           }
         },
         {
-          "if": { "properties": { "backend": { "const": "codex_exec" } } },
+          "if": {
+            "properties": { "backend": { "const": "codex_exec" } },
+            "required": ["backend"]
+          },
           "then": {
             "properties": {
               "model": { "enum": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"] }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "backend": { "const": "opencode" } },
+            "required": ["backend"]
+          },
+          "then": {
+            "properties": {
+              "model": {
+                "pattern": "^(default|[A-Za-z0-9._:-]+(/[A-Za-z0-9._:-]+)+)$"
+              }
             }
           }
         }

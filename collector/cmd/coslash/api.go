@@ -18,6 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
 // /api/sessions → complete session records, optionally limited by an
@@ -232,11 +233,15 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 	}
 	for _, option := range settings.BackendOptions() {
 		_, err := exec.LookPath(settings.BackendExecutable(option.ID))
+		available := err == nil
+		if option.ID == settings.BackendOpenCode && available {
+			option.Models = openCodeModels()
+		}
 		response.Options.SynthesisBackends = append(
 			response.Options.SynthesisBackends,
 			availableBackend{
 				BackendOption: option,
-				Available:     err == nil,
+				Available:     available,
 			},
 		)
 	}
@@ -247,6 +252,33 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 		})
 	}
 	writeJSON(w, response)
+}
+
+// openCodeModels offers the user's own OpenCode model plus the free Zen
+// models. Paid providers are reachable through the default rather than listed,
+// since OpenCode resolves them from ambient credentials and the list runs to
+// hundreds. Every id here passes settings.Validate, so the picker cannot
+// produce a 400 on save.
+func openCodeModels() []settings.ModelOption {
+	models := []settings.ModelOption{{
+		ID:    settings.OpenCodeDefaultModel,
+		Label: "Whichever model OpenCode is set to use",
+	}}
+	preferred := false
+	for _, id := range opencode.SynthesisModels() {
+		if !settings.ValidOpenCodeModel(id) {
+			continue
+		}
+		option := settings.ModelOption{ID: id, Label: id}
+		if id == settings.OpenCodeSynthesisModel {
+			option.Default = true
+			preferred = true
+		}
+		models = append(models, option)
+	}
+	// Fall back to OpenCode's own model when the preferred one is retired.
+	models[0].Default = !preferred
+	return models
 }
 
 func handleSaveSettings(
