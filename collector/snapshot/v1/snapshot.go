@@ -313,6 +313,12 @@ func Validate(s Snapshot, requireHash bool) error {
 		if item.Reason != TruncationReasonTextBudget && item.Reason != TruncationReasonItemBudget && item.Reason != TruncationReasonAggregateBudget {
 			return fmt.Errorf("unknown truncation reason")
 		}
+		if item.OriginalBytes != nil && *item.OriginalBytes < 0 ||
+			item.ExportedBytes != nil && *item.ExportedBytes < 0 ||
+			item.OriginalItems != nil && *item.OriginalItems < 0 ||
+			item.ExportedItems != nil && *item.ExportedItems < 0 {
+			return fmt.Errorf("truncation counters must be non-negative")
+		}
 	}
 	for _, item := range s.Redactions {
 		if !validJSONPointer(item.Path) {

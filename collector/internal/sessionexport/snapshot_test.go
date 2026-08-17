@@ -3,6 +3,7 @@ package sessionexport
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -83,6 +84,9 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 func TestCredentialPatternsAreRedactedWithoutLeakingMetadata(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
 	patterns := `{"Authorization":"Bearer json-bearer-secret","password":"json password secret"} ` +
+		`password="quoted-prefix quoted-shell-tail-9382" token='single-prefix single-shell-tail-4721' ` +
+		`secret="escaped-prefix \"inside\" escaped-shell-tail-2846" ` +
+		`Authorization="Bearer auth-prefix auth-shell-tail-6153" ` +
 		"ghp_1234567890abcdef sk-1234567890abcdef https://person:password@example.com " +
 		"-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----"
 	local := session.Session{
@@ -93,7 +97,14 @@ func TestCredentialPatternsAreRedactedWithoutLeakingMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"json-bearer-secret", "json password secret", "ghp_1234567890abcdef", "sk-1234567890abcdef", "person:password", "private-material"} {
+	for _, secret := range []string{
+		"json-bearer-secret", "json password secret",
+		"quoted-prefix", "quoted-shell-tail-9382",
+		"single-prefix", "single-shell-tail-4721",
+		"escaped-prefix", "inside", "escaped-shell-tail-2846",
+		"auth-prefix", "auth-shell-tail-6153",
+		"ghp_1234567890abcdef", "sk-1234567890abcdef", "person:password", "private-material",
+	} {
 		if bytes.Contains(data, []byte(secret)) {
 			t.Fatalf("snapshot leaked %q", secret)
 		}
@@ -132,23 +143,65 @@ func TestBuildResolvesRelativeFileEditsAgainstWorkingDirectory(t *testing.T) {
 
 func TestBuildKeepsTruncatedPathsValid(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
-	path := strings.Repeat("a/", maxPathBytes/2) + "x"
+	paths := []string{
+		strings.Repeat("a/", maxPathBytes/2) + "x",
+		strings.Repeat("a", maxPathBytes-3) + "/...x",
+	}
+	for _, path := range paths {
+		local := session.Session{
+			Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
+			Tokens:         map[string]session.ModelTokens{},
+			SessionDetails: session.SessionDetails{FileEdits: []session.FileEdit{{Path: path}}},
+		}
+
+		snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := snapshot.Session.FileEdits; len(got) != 1 || strings.HasSuffix(got[0].Path, "/") || strings.HasSuffix(got[0].Path, "/..") || len(got[0].Path) > maxPathBytes {
+			t.Fatalf("truncated file edits = %#v", got)
+		}
+		if _, err := snapshotv1.Marshal(snapshot); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBuildAppliesFileEditBudgetAfterPathRedaction(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "repo")
+	repository := "github.com/centauri-ai/coslash"
+	edits := make([]session.FileEdit, 0, maxFileEditItems*2+1)
+	for range maxFileEditItems {
+		edits = append(edits, session.FileEdit{Path: filepath.Join(string(filepath.Separator), "outside", "secret.go")})
+	}
+	for i := 0; i < maxFileEditItems+1; i++ {
+		edits = append(edits, session.FileEdit{Path: fmt.Sprintf("safe/%04d.go", i), Edits: 1})
+	}
 	local := session.Session{
-		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
-		Tokens:         map[string]session.ModelTokens{},
-		SessionDetails: session.SessionDetails{FileEdits: []session.FileEdit{{Path: path}}},
+		Agent: "opencode", ID: "source", Repository: &repository, StartedAt: 1,
+		WorkingDirectory: root, Tokens: map[string]session.ModelTokens{},
+		SessionDetails: session.SessionDetails{FileEdits: edits},
 	}
 
-	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0", RepositoryRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := snapshot.Session.FileEdits; len(got) != 1 || strings.HasSuffix(got[0].Path, "/") || len(got[0].Path) > maxPathBytes {
-		t.Fatalf("truncated file edits = %#v", got)
+	if got := snapshot.Session.FileEdits; len(got) != maxFileEditItems || got[0].Path != "safe/0000.go" || got[len(got)-1].Path != "safe/1999.go" {
+		t.Fatalf("file edits = first/last/count %#v %#v %d", got[0], got[len(got)-1], len(got))
 	}
-	if _, err := snapshotv1.Marshal(snapshot); err != nil {
-		t.Fatal(err)
+	if len(snapshot.Redactions) != 1 || snapshot.Redactions[0].Path != "/session/fileEdits" || snapshot.Redactions[0].Reason != "outside_repository" {
+		t.Fatalf("file-edit redactions = %#v", snapshot.Redactions)
 	}
+	for _, item := range snapshot.Truncation {
+		if item.Path == "/session/fileEdits" && item.Reason == snapshotv1.TruncationReasonItemBudget {
+			if item.OriginalItems == nil || *item.OriginalItems != maxFileEditItems+1 || item.ExportedItems == nil || *item.ExportedItems != maxFileEditItems {
+				t.Fatalf("file-edit item metadata = %#v", item)
+			}
+			return
+		}
+	}
+	t.Fatal("file-edit item truncation was not recorded")
 }
 
 func TestBuildMergesModelNamesThatCollideAfterTruncation(t *testing.T) {

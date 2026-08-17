@@ -139,15 +139,20 @@ type builder struct {
 	cwd        string
 	truncation []snapshotv1.Truncation
 	redactions []snapshotv1.Redaction
+	redacted   map[string]struct{}
 }
 
 var credentialPatterns = []struct {
 	pattern     *regexp.Regexp
 	replacement string
 }{
-	{regexp.MustCompile(`(?i)("authorization"\s*:\s*"bearer\s+)[^"]*`), `${1}[REDACTED]`},
-	{regexp.MustCompile(`(?i)("(?:password|passwd|token|secret|api[_-]?key)"\s*:\s*")[^"]*`), `${1}[REDACTED]`},
-	{regexp.MustCompile(`(?i)(authorization\s*:\s*bearer\s+)[^\s"']+`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)("authorization"\s*:\s*"bearer\s+)(?:\\.|[^"\\])*(")`), `${1}[REDACTED]${2}`},
+	{regexp.MustCompile(`(?i)("(?:password|passwd|token|secret|api[_-]?key)"\s*:\s*")(?:\\.|[^"\\])*(")`), `${1}[REDACTED]${2}`},
+	{regexp.MustCompile(`(?i)(\bauthorization\b\s*[:=]\s*"bearer\s+)(?:\\.|[^"\\])*(")`), `${1}[REDACTED]${2}`},
+	{regexp.MustCompile(`(?i)(\bauthorization\b\s*[:=]\s*'bearer\s+)[^']*(')`), `${1}[REDACTED]${2}`},
+	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*")(?:\\.|[^"\\])*(")`), `${1}[REDACTED]${2}`},
+	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*')[^']*(')`), `${1}[REDACTED]${2}`},
+	{regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[^\s"']+`), `${1}[REDACTED]`},
 	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*)[^\s,;]+`), `${1}[REDACTED]`},
 	{regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9_]{12,}|sk-[A-Za-z0-9_-]{12,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16})\b`), `[REDACTED]`},
 	{regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/@\s]+@`), `${1}[REDACTED]@`},
@@ -209,6 +214,15 @@ func (b *builder) items(path string, original, limit int) int {
 }
 
 func (b *builder) relativePath(path, omittedPath, value string) *string {
+	relative := b.repositoryRelativePath(omittedPath, value)
+	if relative == nil {
+		return nil
+	}
+	bounded := b.pathText(path, *relative)
+	return &bounded
+}
+
+func (b *builder) repositoryRelativePath(omittedPath, value string) *string {
 	if strings.TrimSpace(value) == "" {
 		return nil
 	}
@@ -230,11 +244,10 @@ func (b *builder) relativePath(path, omittedPath, value string) *string {
 		return nil
 	}
 	clean = filepath.ToSlash(clean)
-	clean = b.pathText(path, clean)
 	return &clean
 }
 
-func (b *builder) fileEditPath(path, value string) *string {
+func (b *builder) normalizeFileEditPath(value string) *string {
 	if strings.TrimSpace(value) == "" {
 		return nil
 	}
@@ -250,16 +263,27 @@ func (b *builder) fileEditPath(path, value string) *string {
 		}
 		clean = filepath.Join(cwd, clean)
 	}
-	return b.relativePath(path, "/session/fileEdits", clean)
+	return b.repositoryRelativePath("/session/fileEdits", clean)
 }
 
 func (b *builder) pathText(path, value string) string {
 	firstTruncation := len(b.truncation)
 	value = b.text(path, value, maxPathBytes)
-	if !strings.HasSuffix(value, "/") {
-		return value
+	for {
+		separator := strings.LastIndex(value, "/")
+		final := value
+		if separator >= 0 {
+			final = value[separator+1:]
+		}
+		if final != "" && final != ".." {
+			break
+		}
+		if separator < 0 {
+			value = strings.TrimRight(value, "/")
+			break
+		}
+		value = strings.TrimRight(value[:separator], "/")
 	}
-	value = strings.TrimRight(value, "/")
 	for i := firstTruncation; i < len(b.truncation); i++ {
 		if b.truncation[i].Path == path && b.truncation[i].ExportedBytes != nil {
 			*b.truncation[i].ExportedBytes = len(value)
@@ -269,6 +293,14 @@ func (b *builder) pathText(path, value string) string {
 }
 
 func (b *builder) redact(path, reason string) {
+	key := path + "\x00" + reason
+	if _, exists := b.redacted[key]; exists {
+		return
+	}
+	if b.redacted == nil {
+		b.redacted = make(map[string]struct{})
+	}
+	b.redacted[key] = struct{}{}
 	b.redactions = append(b.redactions, snapshotv1.Redaction{Path: path, Reason: reason})
 }
 
@@ -303,16 +335,28 @@ func (b *builder) todos(values []session.Todo) []snapshotv1.Todo {
 }
 
 func (b *builder) fileEdits(values []session.FileEdit) []snapshotv1.FileEdit {
-	values = values[:b.items("/session/fileEdits", len(values), maxFileEditItems)]
-	result := make([]snapshotv1.FileEdit, 0, len(values))
+	type candidate struct {
+		edit session.FileEdit
+		path string
+	}
+	candidates := make([]candidate, 0, min(len(values), maxFileEditItems))
+	validItems := 0
 	for _, value := range values {
-		path := fmt.Sprintf("/session/fileEdits/%d/path", len(result))
-		relative := b.fileEditPath(path, value.Path)
+		relative := b.normalizeFileEditPath(value.Path)
 		if relative == nil {
 			continue
 		}
+		validItems++
+		if len(candidates) < maxFileEditItems {
+			candidates = append(candidates, candidate{edit: value, path: *relative})
+		}
+	}
+	b.items("/session/fileEdits", validItems, maxFileEditItems)
+	result := make([]snapshotv1.FileEdit, 0, len(candidates))
+	for _, value := range candidates {
+		path := fmt.Sprintf("/session/fileEdits/%d/path", len(result))
 		result = append(result, snapshotv1.FileEdit{
-			Path: *relative, Additions: value.Additions, Deletions: value.Deletions, Edits: value.Edits, IsNew: value.IsNew,
+			Path: b.pathText(path, value.path), Additions: value.edit.Additions, Deletions: value.edit.Deletions, Edits: value.edit.Edits, IsNew: value.edit.IsNew,
 		})
 	}
 	return result

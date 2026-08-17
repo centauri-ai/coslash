@@ -138,6 +138,30 @@ func TestMetadataPathsRequireJSONPointerEscaping(t *testing.T) {
 	}
 }
 
+func TestTruncationCountersMustBeNonNegative(t *testing.T) {
+	negative := -1
+	tests := []struct {
+		name string
+		set  func(*Truncation)
+	}{
+		{"original bytes", func(item *Truncation) { item.OriginalBytes = &negative }},
+		{"exported bytes", func(item *Truncation) { item.ExportedBytes = &negative }},
+		{"original items", func(item *Truncation) { item.OriginalItems = &negative }},
+		{"exported items", func(item *Truncation) { item.ExportedItems = &negative }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := validSnapshot()
+			item := Truncation{Path: "/session", Reason: TruncationReasonTextBudget}
+			test.set(&item)
+			snapshot.Truncation = []Truncation{item}
+			if _, err := Marshal(snapshot); err == nil {
+				t.Fatal("negative truncation counter accepted")
+			}
+		})
+	}
+}
+
 func validSnapshot() Snapshot {
 	return Snapshot{
 		SchemaVersion:      SchemaVersion,
