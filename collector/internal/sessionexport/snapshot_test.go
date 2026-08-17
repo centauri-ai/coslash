@@ -244,7 +244,7 @@ func TestBuildAppliesFileEditBudgetAfterPathRedaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := snapshot.Session.FileEdits; len(got) != maxFileEditItems || got[0].Path != "safe/0000.go" || got[len(got)-1].Path != "safe/1999.go" {
+	if got := snapshot.Session.FileEdits; len(got) != maxFileEditItems || got[0].Path != "safe/0001.go" || got[len(got)-1].Path != "safe/2000.go" {
 		t.Fatalf("file edits = first/last/count %#v %#v %d", got[0], got[len(got)-1], len(got))
 	}
 	if len(snapshot.Redactions) != 1 || snapshot.Redactions[0].Path != "/session/fileEdits" || snapshot.Redactions[0].Reason != "outside_repository" {

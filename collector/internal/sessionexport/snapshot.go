@@ -406,19 +406,16 @@ func (b *builder) fileEdits(values []session.FileEdit) []snapshotv1.FileEdit {
 		edit session.FileEdit
 		path string
 	}
-	candidates := make([]candidate, 0, min(len(values), maxFileEditItems))
-	validItems := 0
+	candidates := make([]candidate, 0, len(values))
 	for _, value := range values {
 		relative := b.normalizeFileEditPath(value.Path)
 		if relative == nil {
 			continue
 		}
-		validItems++
-		if len(candidates) < maxFileEditItems {
-			candidates = append(candidates, candidate{edit: value, path: *relative})
-		}
+		candidates = append(candidates, candidate{edit: value, path: *relative})
 	}
-	b.items("/session/fileEdits", validItems, maxFileEditItems)
+	retained := b.items("/session/fileEdits", len(candidates), maxFileEditItems)
+	candidates = candidates[len(candidates)-retained:]
 	result := make([]snapshotv1.FileEdit, 0, len(candidates))
 	for _, value := range candidates {
 		path := fmt.Sprintf("/session/fileEdits/%d/path", len(result))

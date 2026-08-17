@@ -109,6 +109,95 @@ func TestMarshalFailsWhenMandatoryCoreCannotFit(t *testing.T) {
 	}
 }
 
+func TestMarshalReducesOptionalSessionMetadataBeforeMandatoryOverflow(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	models := make(map[string]session.ModelTokens, 40)
+	for i := range 40 {
+		prefix := fmt.Sprintf("model-%02d-", i)
+		models[prefix+strings.Repeat("m", maxModelBytes-len(prefix))] = session.ModelTokens{InputTokens: 1}
+	}
+
+	local := aggregateLocal(repository)
+	for i := 0; i < maxSubagentItems; i++ {
+		local.Subagents = append(local.Subagents, session.Subagent{
+			ID: fmt.Sprintf("child-%03d", i), Name: "worker", Status: session.SubagentReturned,
+			Commands: []session.SubagentCommand{}, Tokens: models,
+		})
+		built, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		size, err := snapshotv1.Size(built)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if size > snapshotv1.MaxPayloadBytes {
+			local.Subagents = local.Subagents[:len(local.Subagents)-1]
+			break
+		}
+	}
+	if len(local.Subagents) == 0 {
+		t.Fatal("could not construct a fitting mandatory core")
+	}
+
+	summary := strings.Repeat("s", maxSummaryBytes)
+	goal := strings.Repeat("g", maxGoalBytes)
+	prompt := strings.Repeat("p", maxPromptBytes)
+	local.Summary = &summary
+	local.DeclaredGoal = &goal
+	local.FirstPrompt = &prompt
+	built, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := snapshotv1.Size(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before <= snapshotv1.MaxPayloadBytes {
+		t.Fatalf("optional metadata profile is only %d bytes; want over %d", before, snapshotv1.MaxPayloadBytes)
+	}
+
+	decoded := marshalAggregate(t, local)
+	if len(decoded.Session.Subagents) != len(local.Subagents) {
+		t.Fatal("mandatory subagent usage was reduced")
+	}
+	for _, item := range decoded.Truncation {
+		if item.Path == "/session" && item.Reason == snapshotv1.TruncationReasonAggregateBudget && item.OriginalItems != nil && *item.OriginalItems == 3 && item.ExportedItems != nil && *item.ExportedItems < 3 {
+			return
+		}
+	}
+	t.Fatalf("optional session metadata reduction was not recorded: %#v", decoded.Truncation)
+}
+
+func TestMarshalRetainsMostRecentlyTouchedFileDuringAggregateFitting(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	edits := session.NewFileEditSet()
+	edits.Add("hot.go", 1, 0, false)
+	for i := 0; i < 300; i++ {
+		prefix := fmt.Sprintf("cold-%03d-", i)
+		edits.Add(prefix+strings.Repeat("p", maxPathBytes-len(prefix)), 1, 0, false)
+	}
+	edits.Add("hot.go", 1, 1, false)
+
+	local := aggregateLocal(repository)
+	local.WorkingDirectory = "/repo"
+	local.FileEdits = edits.Edits
+	decoded := marshalAggregateWithOptions(t, local, BuildOptions{CollectorVersion: "0.1.0", RepositoryRoot: "/repo"})
+	if len(decoded.Session.FileEdits) >= len(local.FileEdits) {
+		t.Fatal("test profile did not require file-edit fitting")
+	}
+	for _, edit := range decoded.Session.FileEdits {
+		if edit.Path == "hot.go" {
+			if edit.Edits != 2 || edit.Additions != 2 || edit.Deletions != 1 {
+				t.Fatalf("retained hot edit = %#v", edit)
+			}
+			return
+		}
+	}
+	t.Fatal("most recently touched file was removed as old evidence")
+}
+
 func TestMarshalAppliesAggregateReductionStages(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
 
