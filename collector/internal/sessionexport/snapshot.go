@@ -54,6 +54,10 @@ func Marshal(local session.Session, options BuildOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	snapshot, err = fitAggregate(snapshot)
+	if err != nil {
+		return nil, err
+	}
 	return snapshotv1.Marshal(snapshot)
 }
 
