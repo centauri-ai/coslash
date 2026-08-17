@@ -28,6 +28,9 @@ const (
 	// The one free model with a reasoning variant, which the runner turns up.
 	OpenCodeSynthesisModel = "opencode/deepseek-v4-flash-free"
 
+	// The default Codex model, which the runner runs at high reasoning effort.
+	CodexSynthesisModel = "gpt-5.6-luna"
+
 	TerminalApple = "terminal"
 	TerminalITerm = "iterm2"
 )
