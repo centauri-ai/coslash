@@ -95,6 +95,7 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 		"Description": {true, "bounded digest.description"},
 		"Answer":      {true, "bounded digest.answer"},
 		"SubagentID":  {true, "digest.subagentId"},
+		"Time":        {false, "local timeline timestamp"},
 		"SpawnKey":    {false, "local parser linkage"},
 	},
 	reflect.TypeOf(session.FileEdit{}): {
