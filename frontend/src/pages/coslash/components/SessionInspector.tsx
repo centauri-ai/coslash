@@ -30,7 +30,16 @@ import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWa
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
 import { useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
-import { digestDateKey, formatDigestDateDivider, formatDigestDateRange, formatDigestTime, formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
+import {
+  digestDateKey,
+  formatDigestDateDivider,
+  formatDigestDateRange,
+  formatDigestTime,
+  formatDuration,
+  formatEstimatedCost,
+  formatTimeAgo,
+  formatTokens,
+} from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import {
   getModality,
@@ -520,7 +529,7 @@ function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }
           </div>
         )}
       </div>
-      <span className="text-muted-foreground shrink-0 font-mono text-xs whitespace-nowrap flex flex-col items-end">
+      <span className="text-muted-foreground flex shrink-0 flex-col items-end font-mono text-xs whitespace-nowrap">
         <span>turn {entry.turn}</span>
         {entry.time != null && entry.time > 0 && (
           <span className="text-muted-foreground">{formatDigestTime(entry.time)}</span>
