@@ -3,7 +3,14 @@ import { cn } from '@/lib/utils';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
-import { getStatus, getTotalTokens, STATUSES, type Session, type Status } from '@/pages/coslash/lib/session';
+import {
+  getStatus,
+  getTotalTokens,
+  STATUS_ORDER,
+  STATUSES,
+  type Session,
+  type Status,
+} from '@/pages/coslash/lib/session';
 
 // Preserves insertion order, so sorted input yields groups ordered by their top session.
 function groupBy(sessions: Session[], keyOf: (session: Session) => string): [string, Session[]][] {
@@ -111,9 +118,9 @@ export function SessionBoard({
   sessions: Session[];
   onSelectSession: (session: Session) => void;
 }) {
-  const visibleStatuses = Object.entries(STATUSES).filter(([status]) =>
+  const visibleStatuses = STATUS_ORDER.filter((status) =>
     sessions.some((session) => getStatus(session.status) === status),
-  );
+  ).map((status): [string, Status] => [status, STATUSES[status]]);
 
   return (
     <div

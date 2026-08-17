@@ -17,8 +17,8 @@ describe('sortSessions', () => {
 
     expect(sortSessions(sessions, SortKey.Status, 'desc').map(({ id }) => id)).toEqual([
       'active',
-      'idle',
       'waiting',
+      'idle',
       'inactive',
     ]);
   });
