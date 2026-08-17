@@ -183,6 +183,9 @@ export const STATUSES = {
 
 export type StatusKey = keyof typeof STATUSES;
 
+// Board columns render left to right in this order; status sorting uses the same priority.
+export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'inactive'];
+
 export type SubagentStatus = { label: string; fg: string; bg: string };
 
 export const SUBAGENT_STATUSES = {
