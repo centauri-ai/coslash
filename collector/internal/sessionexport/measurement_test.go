@@ -51,3 +51,19 @@ func TestMeasureCorpusSeparatesDegradationFromRejection(t *testing.T) {
 		t.Fatalf("report = %#v", report)
 	}
 }
+
+func TestMeasureCorpusCountsUnexportableSessionsAsRejected(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	corpus := []session.Session{
+		{Agent: "codex", ID: "valid", Repository: &repository, StartedAt: 1, Tokens: map[string]session.ModelTokens{}},
+		{Agent: "codex", ID: "missing-repository", StartedAt: 1, Tokens: map[string]session.ModelTokens{}},
+	}
+
+	report, err := MeasureCorpus(corpus, func(int) BuildOptions { return BuildOptions{CollectorVersion: "0.1.0"} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Rejected != 1 || report.RejectionRate != 0.5 || report.MaximumBytes == 0 {
+		t.Fatalf("report = %#v", report)
+	}
+}

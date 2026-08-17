@@ -14,7 +14,7 @@ import (
 func TestMarshalDeterministicallyFitsHeavySession(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
 	todoText := strings.Repeat("t", maxTodoTextBytes)
-	label := strings.Repeat("l", maxCommandLabelBytes)
+	label := strings.Repeat("l", maxCommandLabelBytes+1)
 	task := strings.Repeat("q", maxSubagentTextBytes)
 	result := strings.Repeat("r", maxSubagentTextBytes)
 	commands := make([]session.SubagentCommand, maxCommandLabelItems)
@@ -150,6 +150,9 @@ func TestMarshalAppliesAggregateReductionStages(t *testing.T) {
 	t.Run("todos", func(t *testing.T) {
 		local := aggregateLocal(repository)
 		local.Todos = aggregateTodos(maxTodoItems)
+		for i := range local.Todos {
+			local.Todos[i].Text += "x"
+		}
 		decoded := marshalAggregate(t, local)
 		if len(decoded.Session.Todos) >= len(local.Todos) {
 			t.Fatal("todos were not reduced")
@@ -183,6 +186,69 @@ func TestMarshalAppliesAggregateReductionStages(t *testing.T) {
 		}
 		assertFirstAggregatePath(t, decoded, "/session/fileEdits")
 	})
+}
+
+func TestMarshalRetargetsMetadataForRemovedAggregateEvidence(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	local := aggregateLocal(repository)
+	local.Todos = aggregateTodos(115)
+	local.Digest = make([]session.DigestEntry, 10)
+	for i := range local.Digest {
+		local.Digest[i] = session.DigestEntry{
+			Turn: i, Category: session.DigestUser, Description: "d",
+			Answer: strings.Repeat("a", maxDigestTextBytes+1) + ` {"password":"digest-secret"}`,
+		}
+	}
+
+	decoded := marshalAggregate(t, local)
+	if decoded.Session.Digest[0].Answer != nil {
+		t.Fatal("digest answers were not removed")
+	}
+	for i, digest := range decoded.Session.Digest {
+		if digest.Answer != nil {
+			continue
+		}
+		removedAnswer := fmt.Sprintf("/session/digest/%d/answer", i)
+		for _, item := range decoded.Truncation {
+			if item.Path == removedAnswer || strings.HasPrefix(item.Path, removedAnswer+"/") {
+				t.Fatalf("removed answer retained truncation pointer %q", item.Path)
+			}
+		}
+		for _, item := range decoded.Redactions {
+			if item.Path == removedAnswer || strings.HasPrefix(item.Path, removedAnswer+"/") {
+				t.Fatalf("removed answer retained redaction pointer %q", item.Path)
+			}
+		}
+	}
+}
+
+func TestMarshalReindexesMetadataWhenOlderDigestIsRemoved(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	local := aggregateLocal(repository)
+	local.Digest = make([]session.DigestEntry, 80)
+	for i := range local.Digest {
+		local.Digest[i] = session.DigestEntry{
+			Turn: i, Category: session.DigestUser,
+			Description: strings.Repeat("d", maxDigestTextBytes+1),
+		}
+	}
+
+	decoded := marshalAggregate(t, local)
+	if len(decoded.Session.Digest) == 0 || decoded.Session.Digest[0].Turn == 0 {
+		t.Fatal("older digest evidence was not removed")
+	}
+	if !hasMetadataPathPrefix(decoded.Truncation, "/session/digest/0/") {
+		t.Fatalf("retained digest metadata was not reindexed: %#v", decoded.Truncation)
+	}
+}
+
+func hasMetadataPathPrefix(values []snapshotv1.Truncation, prefix string) bool {
+	for _, value := range values {
+		if strings.HasPrefix(value.Path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateLocal(repository string) session.Session {

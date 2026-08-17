@@ -82,6 +82,24 @@ func TestCostMicroUSDFreezesEstimate(t *testing.T) {
 	if _, err := CostMicroUSD(-1); err == nil {
 		t.Fatal("negative cost accepted")
 	}
+	if _, err := CostMicroUSD(float64(^uint64(0)>>1) / 1_000_000); err == nil {
+		t.Fatal("overflow boundary accepted")
+	}
+}
+
+func TestOptionalModelAndWorkingDirectoryMatchSchemaConstraints(t *testing.T) {
+	empty := ""
+	snapshot := validSnapshot()
+	snapshot.Session.Model = &empty
+	if _, err := Marshal(snapshot); err == nil {
+		t.Fatal("empty session model accepted")
+	}
+
+	snapshot = validSnapshot()
+	snapshot.Session.WorkingDirectory = &empty
+	if _, err := Marshal(snapshot); err == nil {
+		t.Fatal("empty working directory accepted")
+	}
 }
 
 func TestAgentIdentifierIsExtensibleAndBounded(t *testing.T) {

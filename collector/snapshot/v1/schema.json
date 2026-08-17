@@ -95,7 +95,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["path", "additions", "deletions", "edits", "isNew"],
       "properties": {
-        "path": {"type": "string", "minLength": 1, "maxLength": 1024, "x-maxUtf8Bytes": 1024, "not": {"pattern": "(^/|(^|/)\\.\\.(/|$)|\\\\)"}},
+        "path": {"type": "string", "minLength": 1, "maxLength": 1024, "x-maxUtf8Bytes": 1024, "not": {"pattern": "(^/|/$|//|(^|/)\\.\\.(/|$)|\\\\)"}},
         "additions": {"$ref": "#/$defs/nonNegativeInteger"}, "deletions": {"$ref": "#/$defs/nonNegativeInteger"},
         "edits": {"$ref": "#/$defs/nonNegativeInteger"}, "isNew": {"type": "boolean"}
       }
@@ -129,7 +129,7 @@
         "name": {"type": "string", "maxLength": 512, "x-maxUtf8Bytes": 512},
         "summary": {"type": "string", "maxLength": 4096, "x-maxUtf8Bytes": 4096},
         "status": {"type": "string", "maxLength": 64, "x-maxUtf8Bytes": 64},
-        "cwd": {"type": "string", "maxLength": 1024, "x-maxUtf8Bytes": 1024, "not": {"pattern": "(^/|(^|/)\\.\\.(/|$)|\\\\)"}},
+        "cwd": {"type": "string", "minLength": 1, "maxLength": 1024, "x-maxUtf8Bytes": 1024, "not": {"pattern": "(^/|/$|//|(^|/)\\.\\.(/|$)|\\\\)"}},
         "branch": {"type": "string", "maxLength": 512, "x-maxUtf8Bytes": 512},
         "entrypoint": {"type": "string", "maxLength": 512, "x-maxUtf8Bytes": 512},
         "durationMs": {"$ref": "#/$defs/nonNegativeInteger"}, "lastActivityAtMs": {"$ref": "#/$defs/nonNegativeInteger"},

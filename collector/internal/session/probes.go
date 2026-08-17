@@ -48,7 +48,7 @@ func CanonicalRepositoryName(cwd string) (string, bool) {
 	if err != nil {
 		return fallback, true
 	}
-	root := repositoryRoot(resolved)
+	root := RepositoryRoot(resolved)
 	if root == "" {
 		return fallback, true
 	}
@@ -114,7 +114,8 @@ func canonicalRemoteName(remote string) string {
 	return strings.ToLower(parsed.Host) + "/" + path
 }
 
-func repositoryRoot(cwd string) string {
+// RepositoryRoot returns the enclosing Git worktree root when one exists.
+func RepositoryRoot(cwd string) string {
 	info, err := os.Stat(cwd)
 	if err != nil || !info.IsDir() {
 		return ""
@@ -128,11 +129,6 @@ func repositoryRoot(cwd string) string {
 			return ""
 		}
 	}
-}
-
-// RepositoryRoot returns the enclosing Git worktree root when one exists.
-func RepositoryRoot(cwd string) string {
-	return repositoryRoot(cwd)
 }
 
 func CurrentBranch(cwd string) *string {

@@ -18,9 +18,10 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 
 	untimed := &vendors.ParsedSession{Session: &session.Session{}, LogPath: logPath}
 	noLog := &vendors.ParsedSession{Session: &session.Session{LastActivityTime: 500}}
+	noTimingData := &vendors.ParsedSession{Session: &session.Session{}}
 	parsed := &vendors.ParsedSession{Session: &session.Session{StartedAt: 100, LastActivityTime: 900}}
 
-	applyActivityFallbacks([]*vendors.ParsedSession{untimed, noLog, parsed})
+	applyActivityFallbacks([]*vendors.ParsedSession{untimed, noLog, noTimingData, parsed})
 
 	if untimed.Session.LastActivityTime != modified || untimed.Session.StartedAt != modified {
 		t.Fatalf("untimed session = start %d, activity %d; want %d for both",
@@ -28,6 +29,9 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 	}
 	if noLog.Session.StartedAt != 500 {
 		t.Fatalf("session without a log path = start %d; want 500", noLog.Session.StartedAt)
+	}
+	if noTimingData.Session.StartedAt <= 0 {
+		t.Fatalf("session without timing data = start %d; want positive collection time", noTimingData.Session.StartedAt)
 	}
 	if parsed.Session.StartedAt != 100 || parsed.Session.LastActivityTime != 900 {
 		t.Fatalf("parsed timestamps were overwritten: start %d, activity %d",

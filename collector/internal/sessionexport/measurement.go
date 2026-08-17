@@ -47,7 +47,8 @@ func MeasureCorpus(corpus []session.Session, options func(int) BuildOptions) (Me
 		}
 		snapshot, err := Build(local, buildOptions)
 		if err != nil {
-			return MeasurementReport{}, fmt.Errorf("measure corpus item %d: %w", i, err)
+			report.Rejected++
+			continue
 		}
 		size, err := snapshotv1.Size(snapshot)
 		if err != nil {
@@ -74,13 +75,15 @@ func MeasureCorpus(corpus []session.Session, options func(int) BuildOptions) (Me
 			report.FittedMaximumBytes = fittedSize
 		}
 	}
-	sort.Ints(sizes)
-	report.P50Bytes = nearestRank(sizes, 50)
-	report.P95Bytes = nearestRank(sizes, 95)
-	report.P99Bytes = nearestRank(sizes, 99)
-	report.MaximumBytes = sizes[len(sizes)-1]
-	report.DegradationRate = float64(report.Degraded) / float64(len(sizes))
-	report.RejectionRate = float64(report.Rejected) / float64(len(sizes))
+	if len(sizes) > 0 {
+		sort.Ints(sizes)
+		report.P50Bytes = nearestRank(sizes, 50)
+		report.P95Bytes = nearestRank(sizes, 95)
+		report.P99Bytes = nearestRank(sizes, 99)
+		report.MaximumBytes = sizes[len(sizes)-1]
+	}
+	report.DegradationRate = float64(report.Degraded) / float64(len(corpus))
+	report.RejectionRate = float64(report.Rejected) / float64(len(corpus))
 	return report, nil
 }
 

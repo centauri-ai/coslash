@@ -82,7 +82,8 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 
 func TestCredentialPatternsAreRedactedWithoutLeakingMetadata(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
-	patterns := "ghp_1234567890abcdef sk-1234567890abcdef https://person:password@example.com " +
+	patterns := `{"Authorization":"Bearer json-bearer-secret","password":"json password secret"} ` +
+		"ghp_1234567890abcdef sk-1234567890abcdef https://person:password@example.com " +
 		"-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----"
 	local := session.Session{
 		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
@@ -92,13 +93,139 @@ func TestCredentialPatternsAreRedactedWithoutLeakingMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"ghp_1234567890abcdef", "sk-1234567890abcdef", "person:password", "private-material"} {
+	for _, secret := range []string{"json-bearer-secret", "json password secret", "ghp_1234567890abcdef", "sk-1234567890abcdef", "person:password", "private-material"} {
 		if bytes.Contains(data, []byte(secret)) {
 			t.Fatalf("snapshot leaked %q", secret)
 		}
 	}
 	if !bytes.Contains(data, []byte("credential_pattern")) {
 		t.Fatal("credential redaction was not recorded")
+	}
+}
+
+func TestBuildResolvesRelativeFileEditsAgainstWorkingDirectory(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "repo")
+	repository := "github.com/centauri-ai/coslash"
+	local := session.Session{
+		Agent: "opencode", ID: "source", Repository: &repository, StartedAt: 1,
+		WorkingDirectory: filepath.Join(root, "pkg"), Tokens: map[string]session.ModelTokens{},
+		SessionDetails: session.SessionDetails{FileEdits: []session.FileEdit{{Path: "main.go"}}},
+	}
+
+	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0", RepositoryRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.Session.FileEdits; len(got) != 1 || got[0].Path != "pkg/main.go" {
+		t.Fatalf("file edits = %#v", got)
+	}
+
+	local.WorkingDirectory = filepath.Join(string(filepath.Separator), "outside")
+	snapshot, err = Build(local, BuildOptions{CollectorVersion: "0.1.0", RepositoryRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Session.FileEdits) != 0 {
+		t.Fatalf("outside-cwd file edits = %#v", snapshot.Session.FileEdits)
+	}
+}
+
+func TestBuildKeepsTruncatedPathsValid(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	path := strings.Repeat("a/", maxPathBytes/2) + "x"
+	local := session.Session{
+		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
+		Tokens:         map[string]session.ModelTokens{},
+		SessionDetails: session.SessionDetails{FileEdits: []session.FileEdit{{Path: path}}},
+	}
+
+	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.Session.FileEdits; len(got) != 1 || strings.HasSuffix(got[0].Path, "/") || len(got[0].Path) > maxPathBytes {
+		t.Fatalf("truncated file edits = %#v", got)
+	}
+	if _, err := snapshotv1.Marshal(snapshot); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBuildMergesModelNamesThatCollideAfterTruncation(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	prefix := strings.Repeat("m", maxModelBytes)
+	first, second := prefix+"-a", prefix+"-b"
+	local := session.Session{
+		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
+		Tokens: map[string]session.ModelTokens{
+			first:  {InputTokens: 2, Cost: 0.25},
+			second: {OutputTokens: 3, Cost: 0.50},
+		},
+		Cost: 0.75, UnpricedModels: []string{first, second},
+	}
+
+	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.Session.Usage.Models; len(got) != 1 || got[0].Model != prefix || got[0].InputTokens != 2 || got[0].OutputTokens != 3 || got[0].EstimatedCostMicroUSD != 750_000 {
+		t.Fatalf("merged usage = %#v", got)
+	}
+	if got := snapshot.Session.Usage.UnpricedModels; len(got) != 1 || got[0] != prefix {
+		t.Fatalf("merged unpriced models = %#v", got)
+	}
+	if _, err := snapshotv1.Marshal(snapshot); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBuildUsesWirePathsForSubagentUsageAndOmitsEmptyModels(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	emptyModel := ""
+	longModel := strings.Repeat("m", maxModelBytes+1)
+	local := session.Session{
+		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
+		Tokens:         map[string]session.ModelTokens{},
+		SessionDetails: session.SessionDetails{Model: &emptyModel},
+		Subagents: []session.Subagent{{
+			ID: "child", Name: "worker", Model: &emptyModel, Status: session.SubagentReturned,
+			Tokens: map[string]session.ModelTokens{longModel: {InputTokens: 1}},
+		}},
+	}
+
+	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Session.Model != nil || snapshot.Session.Subagents[0].Model != nil {
+		t.Fatalf("empty models were exported: session=%v subagent=%v", snapshot.Session.Model, snapshot.Session.Subagents[0].Model)
+	}
+	if got := snapshot.Truncation; len(got) != 1 || got[0].Path != "/session/subagents/0/usage/0/model" {
+		t.Fatalf("subagent usage truncation = %#v", got)
+	}
+	if _, err := snapshotv1.Marshal(snapshot); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBuildRetainsNewestDigestEntriesAtItemBudget(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	digest := make([]session.DigestEntry, maxDigestItems+5)
+	for i := range digest {
+		digest[i] = session.DigestEntry{Turn: i, Category: session.DigestUser, Description: "entry"}
+	}
+	local := session.Session{
+		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
+		Tokens:         map[string]session.ModelTokens{},
+		SessionDetails: session.SessionDetails{Digest: digest},
+	}
+
+	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.Session.Digest; len(got) != maxDigestItems || got[0].Turn != 5 || got[len(got)-1].Turn != maxDigestItems+4 {
+		t.Fatalf("retained digest range = first %d, last %d, count %d", got[0].Turn, got[len(got)-1].Turn, len(got))
 	}
 }
 

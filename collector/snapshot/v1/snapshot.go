@@ -217,9 +217,6 @@ func canonicalBytes(snapshot Snapshot) ([]byte, error) {
 	}
 	sum := sha256.Sum256(unsigned)
 	snapshot.ContentHash = "sha256:" + hex.EncodeToString(sum[:])
-	if err := Validate(snapshot, true); err != nil {
-		return nil, err
-	}
 	data, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("marshal snapshot: %w", err)
@@ -332,20 +329,30 @@ func Validate(s Snapshot, requireHash bool) error {
 }
 
 func validateSession(s Session) error {
-	for name, field := range map[string]struct {
+	fields := []struct {
+		name  string
 		value *string
 		limit int
 	}{
-		"name": {s.Name, MaxNameBytes}, "summary": {s.Summary, MaxSummaryBytes},
-		"status": {s.Status, 64}, "cwd": {s.WorkingDirectory, MaxPathBytes},
-		"branch": {s.Branch, MaxBranchBytes}, "entrypoint": {s.Entrypoint, MaxEntrypointBytes},
-		"model": {s.Model, MaxModelBytes}, "declaredGoal": {s.DeclaredGoal, MaxGoalBytes},
-		"firstPrompt": {s.FirstPrompt, MaxPromptBytes},
-	} {
+		{"name", s.Name, MaxNameBytes},
+		{"summary", s.Summary, MaxSummaryBytes},
+		{"status", s.Status, 64},
+		{"cwd", s.WorkingDirectory, MaxPathBytes},
+		{"branch", s.Branch, MaxBranchBytes},
+		{"entrypoint", s.Entrypoint, MaxEntrypointBytes},
+		{"declaredGoal", s.DeclaredGoal, MaxGoalBytes},
+		{"firstPrompt", s.FirstPrompt, MaxPromptBytes},
+	}
+	for _, field := range fields {
 		if field.value != nil {
-			if err := bounded("session."+name, *field.value, field.limit); err != nil {
+			if err := bounded("session."+field.name, *field.value, field.limit); err != nil {
 				return err
 			}
+		}
+	}
+	if s.Model != nil {
+		if err := boundedRequired("session.model", *s.Model, MaxModelBytes); err != nil {
+			return err
 		}
 	}
 	if s.WorkingDirectory != nil && !validRelativePath(*s.WorkingDirectory) {
@@ -354,14 +361,21 @@ func validateSession(s Session) error {
 	if s.LastActivityAtMs < 0 {
 		return fmt.Errorf("session.lastActivityAtMs must be non-negative")
 	}
-	for name, value := range map[string]int{
-		"editedFiles": s.Counts.EditedFiles, "turns": s.Counts.Turns,
-		"toolUses": s.Counts.ToolUses, "errors": s.Counts.Errors,
-		"compactions": s.Counts.Compactions, "commands": s.Counts.Commands,
-		"pullRequests": s.Counts.PullRequests,
-	} {
-		if value < 0 {
-			return fmt.Errorf("session.counts.%s must be non-negative", name)
+	counts := []struct {
+		name  string
+		value int
+	}{
+		{"editedFiles", s.Counts.EditedFiles},
+		{"turns", s.Counts.Turns},
+		{"toolUses", s.Counts.ToolUses},
+		{"errors", s.Counts.Errors},
+		{"compactions", s.Counts.Compactions},
+		{"commands", s.Counts.Commands},
+		{"pullRequests", s.Counts.PullRequests},
+	}
+	for _, count := range counts {
+		if count.value < 0 {
+			return fmt.Errorf("session.counts.%s must be non-negative", count.name)
 		}
 	}
 	if s.DurationMs != nil && *s.DurationMs < 0 {
@@ -632,7 +646,7 @@ func ensureEOF(decoder *json.Decoder) error {
 
 // CostMicroUSD freezes a floating-point local estimate at the wire boundary.
 func CostMicroUSD(dollars float64) (int64, error) {
-	if math.IsNaN(dollars) || math.IsInf(dollars, 0) || dollars < 0 || dollars > float64(math.MaxInt64)/1_000_000 {
+	if math.IsNaN(dollars) || math.IsInf(dollars, 0) || dollars < 0 || dollars >= float64(math.MaxInt64)/1_000_000 {
 		return 0, fmt.Errorf("estimated cost is not a finite non-negative value")
 	}
 	return int64(math.Round(dollars * 1_000_000)), nil

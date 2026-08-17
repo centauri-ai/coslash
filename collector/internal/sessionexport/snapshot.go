@@ -37,6 +37,9 @@ const (
 	maxCommandLabelItems = snapshotv1.MaxCommandLabelItems
 	maxCommandLabelBytes = snapshotv1.MaxCommandLabelBytes
 	maxUnpricedModels    = snapshotv1.MaxUnpricedModels
+	maxIdentifierBytes   = snapshotv1.MaxIdentifierBytes
+	maxStatusBytes       = 64
+	maxCategoryBytes     = 64
 )
 
 // BuildOptions supplies facts intentionally kept outside the local Session
@@ -65,6 +68,7 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 	}
 	b := builder{
 		root:       cleanRoot(options.RepositoryRoot),
+		cwd:        local.WorkingDirectory,
 		truncation: []snapshotv1.Truncation{},
 		redactions: []snapshotv1.Redaction{},
 	}
@@ -88,14 +92,14 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 		Session: snapshotv1.Session{
 			Name:             b.optionalText("/session/name", local.Name, maxNameBytes),
 			Summary:          b.optionalText("/session/summary", local.Summary, maxSummaryBytes),
-			Status:           b.optionalText("/session/status", local.Status, 64),
+			Status:           b.optionalText("/session/status", local.Status, maxStatusBytes),
 			WorkingDirectory: b.relativePath("/session/cwd", "/session", local.WorkingDirectory),
 			Branch:           b.optionalText("/session/branch", local.Branch, maxBranchBytes),
 			Entrypoint:       b.optionalText("/session/entrypoint", local.Entrypoint, maxEntrypointBytes),
 			DurationMs:       copyIntPointer(local.DurationMs),
 			LastActivityAtMs: local.LastActivityTime,
 			LastEditAtMs:     copyInt64Pointer(local.LastEditAt),
-			Model:            b.optionalText("/session/model", local.Model, maxModelBytes),
+			Model:            b.optionalRequiredText("/session/model", local.Model, maxModelBytes),
 			ContextTokens:    copyIntPointer(local.ContextTokens),
 			ContextWindow:    copyIntPointer(local.ContextWindow),
 			DeclaredGoal:     b.optionalText("/session/declaredGoal", local.DeclaredGoal, maxGoalBytes),
@@ -132,6 +136,7 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 
 type builder struct {
 	root       string
+	cwd        string
 	truncation []snapshotv1.Truncation
 	redactions []snapshotv1.Redaction
 }
@@ -140,6 +145,8 @@ var credentialPatterns = []struct {
 	pattern     *regexp.Regexp
 	replacement string
 }{
+	{regexp.MustCompile(`(?i)("authorization"\s*:\s*"bearer\s+)[^"]*`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)("(?:password|passwd|token|secret|api[_-]?key)"\s*:\s*")[^"]*`), `${1}[REDACTED]`},
 	{regexp.MustCompile(`(?i)(authorization\s*:\s*bearer\s+)[^\s"']+`), `${1}[REDACTED]`},
 	{regexp.MustCompile(`(?i)(\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*)[^\s,;]+`), `${1}[REDACTED]`},
 	{regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9_]{12,}|sk-[A-Za-z0-9_-]{12,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16})\b`), `[REDACTED]`},
@@ -163,7 +170,7 @@ func (b *builder) text(path, value string, limit int) string {
 	}
 	value = value[:limit]
 	b.truncation = append(b.truncation, snapshotv1.Truncation{
-		Path: path, Reason: "text_budget", OriginalBytes: intPointer(original), ExportedBytes: intPointer(len(value)),
+		Path: path, Reason: snapshotv1.TruncationReasonTextBudget, OriginalBytes: intPointer(original), ExportedBytes: intPointer(len(value)),
 	})
 	return value
 }
@@ -184,12 +191,19 @@ func (b *builder) optionalText(path string, value *string, limit int) *string {
 	return &text
 }
 
+func (b *builder) optionalRequiredText(path string, value *string, limit int) *string {
+	if value == nil || *value == "" {
+		return nil
+	}
+	return b.optionalText(path, value, limit)
+}
+
 func (b *builder) items(path string, original, limit int) int {
 	if original <= limit {
 		return original
 	}
 	b.truncation = append(b.truncation, snapshotv1.Truncation{
-		Path: path, Reason: "item_budget", OriginalItems: intPointer(original), ExportedItems: intPointer(limit),
+		Path: path, Reason: snapshotv1.TruncationReasonItemBudget, OriginalItems: intPointer(original), ExportedItems: intPointer(limit),
 	})
 	return limit
 }
@@ -216,8 +230,42 @@ func (b *builder) relativePath(path, omittedPath, value string) *string {
 		return nil
 	}
 	clean = filepath.ToSlash(clean)
-	clean = b.text(path, clean, maxPathBytes)
+	clean = b.pathText(path, clean)
 	return &clean
+}
+
+func (b *builder) fileEditPath(path, value string) *string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	clean := filepath.Clean(value)
+	if !filepath.IsAbs(clean) && strings.TrimSpace(b.cwd) != "" {
+		cwd := filepath.Clean(b.cwd)
+		if !filepath.IsAbs(cwd) {
+			if b.root == "" {
+				b.redact("/session/fileEdits", "repository_root_unavailable")
+				return nil
+			}
+			cwd = filepath.Join(b.root, cwd)
+		}
+		clean = filepath.Join(cwd, clean)
+	}
+	return b.relativePath(path, "/session/fileEdits", clean)
+}
+
+func (b *builder) pathText(path, value string) string {
+	firstTruncation := len(b.truncation)
+	value = b.text(path, value, maxPathBytes)
+	if !strings.HasSuffix(value, "/") {
+		return value
+	}
+	value = strings.TrimRight(value, "/")
+	for i := firstTruncation; i < len(b.truncation); i++ {
+		if b.truncation[i].Path == path && b.truncation[i].ExportedBytes != nil {
+			*b.truncation[i].ExportedBytes = len(value)
+		}
+	}
+	return value
 }
 
 func (b *builder) redact(path, reason string) {
@@ -225,19 +273,20 @@ func (b *builder) redact(path, reason string) {
 }
 
 func (b *builder) digest(values []session.DigestEntry) []snapshotv1.Digest {
-	values = values[:b.items("/session/digest", len(values), maxDigestItems)]
+	retained := b.items("/session/digest", len(values), maxDigestItems)
+	values = values[len(values)-retained:]
 	result := make([]snapshotv1.Digest, 0, len(values))
 	for i, value := range values {
 		base := fmt.Sprintf("/session/digest/%d", i)
 		item := snapshotv1.Digest{
-			Turn: value.Turn, Category: b.text(base+"/category", value.Category, 64),
+			Turn: value.Turn, Category: b.text(base+"/category", value.Category, maxCategoryBytes),
 			Description: b.text(base+"/description", value.Description, maxDigestTextBytes),
 		}
 		if value.Answer != "" {
 			item.Answer = stringPointer(b.text(base+"/answer", value.Answer, maxDigestTextBytes))
 		}
 		if value.SubagentID != "" {
-			item.SubagentID = stringPointer(b.text(base+"/subagentId", value.SubagentID, 512))
+			item.SubagentID = stringPointer(b.text(base+"/subagentId", value.SubagentID, maxIdentifierBytes))
 		}
 		result = append(result, item)
 	}
@@ -258,7 +307,7 @@ func (b *builder) fileEdits(values []session.FileEdit) []snapshotv1.FileEdit {
 	result := make([]snapshotv1.FileEdit, 0, len(values))
 	for _, value := range values {
 		path := fmt.Sprintf("/session/fileEdits/%d/path", len(result))
-		relative := b.relativePath(path, "/session/fileEdits", value.Path)
+		relative := b.fileEditPath(path, value.Path)
 		if relative == nil {
 			continue
 		}
@@ -290,38 +339,80 @@ func (b *builder) usage(tokens map[string]session.ModelTokens, cost float64, unp
 	if err != nil {
 		return snapshotv1.Usage{}, fmt.Errorf("%s: %w", path, err)
 	}
-	models := make([]string, 0, len(tokens))
-	for model := range tokens {
-		models = append(models, model)
-	}
-	sort.Strings(models)
-	models = models[:b.items(path+"/models", len(models), snapshotv1.MaxUsageModels)]
-	usage := make([]snapshotv1.ModelUsage, 0, len(models))
-	for i, model := range models {
-		value := tokens[model]
-		modelCost, err := snapshotv1.CostMicroUSD(value.Cost)
-		if err != nil {
-			return snapshotv1.Usage{}, fmt.Errorf("%s/models/%d: %w", path, i, err)
-		}
-		usage = append(usage, snapshotv1.ModelUsage{
-			Model:       b.text(fmt.Sprintf("%s/models/%d/model", path, i), model, maxModelBytes),
-			InputTokens: value.InputTokens, OutputTokens: value.OutputTokens,
-			CacheCreationInputTokens:   value.CacheCreationInputTokens,
-			CacheCreation1hInputTokens: value.CacheCreation1hInputTokens,
-			CacheReadInputTokens:       value.CacheReadInputTokens, EstimatedCostMicroUSD: modelCost,
-		})
+	usage, err := b.modelUsage(tokens, path+"/models")
+	if err != nil {
+		return snapshotv1.Usage{}, err
 	}
 	unpriced = slices.Clone(unpriced)
 	sort.Strings(unpriced)
 	unpriced = slices.Compact(unpriced)
 	unpriced = unpriced[:b.items(path+"/unpricedModels", len(unpriced), maxUnpricedModels)]
-	for i := range unpriced {
-		unpriced[i] = b.text(fmt.Sprintf("%s/unpricedModels/%d", path, i), unpriced[i], maxModelBytes)
+	boundedUnpriced := make([]string, 0, len(unpriced))
+	for _, model := range unpriced {
+		modelPath := fmt.Sprintf("%s/unpricedModels/%d", path, len(boundedUnpriced))
+		model = b.text(modelPath, model, maxModelBytes)
+		if len(boundedUnpriced) == 0 || boundedUnpriced[len(boundedUnpriced)-1] != model {
+			boundedUnpriced = append(boundedUnpriced, model)
+		} else {
+			b.retargetMetadata(modelPath, fmt.Sprintf("%s/unpricedModels/%d", path, len(boundedUnpriced)-1))
+		}
 	}
-	if unpriced == nil {
-		unpriced = []string{}
+	return snapshotv1.Usage{Models: usage, EstimatedCostMicroUSD: estimated, UnpricedModels: boundedUnpriced}, nil
+}
+
+func (b *builder) modelUsage(tokens map[string]session.ModelTokens, path string) ([]snapshotv1.ModelUsage, error) {
+	models := make([]string, 0, len(tokens))
+	for model := range tokens {
+		models = append(models, model)
 	}
-	return snapshotv1.Usage{Models: usage, EstimatedCostMicroUSD: estimated, UnpricedModels: unpriced}, nil
+	sort.Strings(models)
+	models = models[:b.items(path, len(models), snapshotv1.MaxUsageModels)]
+	usage := make([]snapshotv1.ModelUsage, 0, len(models))
+	for i, model := range models {
+		value := tokens[model]
+		modelCost, err := snapshotv1.CostMicroUSD(value.Cost)
+		if err != nil {
+			return nil, fmt.Errorf("%s/%d: %w", path, i, err)
+		}
+		modelPath := fmt.Sprintf("%s/%d/model", path, len(usage))
+		boundedModel := b.text(modelPath, model, maxModelBytes)
+		boundedUsage := snapshotv1.ModelUsage{
+			Model:       boundedModel,
+			InputTokens: value.InputTokens, OutputTokens: value.OutputTokens,
+			CacheCreationInputTokens:   value.CacheCreationInputTokens,
+			CacheCreation1hInputTokens: value.CacheCreation1hInputTokens,
+			CacheReadInputTokens:       value.CacheReadInputTokens, EstimatedCostMicroUSD: modelCost,
+		}
+		if len(usage) > 0 && usage[len(usage)-1].Model == boundedModel {
+			b.retargetMetadata(modelPath, fmt.Sprintf("%s/%d/model", path, len(usage)-1))
+			mergeModelUsage(&usage[len(usage)-1], boundedUsage)
+			continue
+		}
+		usage = append(usage, boundedUsage)
+	}
+	return usage, nil
+}
+
+func mergeModelUsage(target *snapshotv1.ModelUsage, value snapshotv1.ModelUsage) {
+	target.InputTokens += value.InputTokens
+	target.OutputTokens += value.OutputTokens
+	target.CacheCreationInputTokens += value.CacheCreationInputTokens
+	target.CacheCreation1hInputTokens += value.CacheCreation1hInputTokens
+	target.CacheReadInputTokens += value.CacheReadInputTokens
+	target.EstimatedCostMicroUSD += value.EstimatedCostMicroUSD
+}
+
+func (b *builder) retargetMetadata(path, target string) {
+	for i := range b.truncation {
+		if b.truncation[i].Path == path || strings.HasPrefix(b.truncation[i].Path, path+"/") {
+			b.truncation[i].Path = target
+		}
+	}
+	for i := range b.redactions {
+		if b.redactions[i].Path == path || strings.HasPrefix(b.redactions[i].Path, path+"/") {
+			b.redactions[i].Path = target
+		}
+	}
 }
 
 func (b *builder) subagents(values []session.Subagent) ([]snapshotv1.Subagent, error) {
@@ -330,7 +421,7 @@ func (b *builder) subagents(values []session.Subagent) ([]snapshotv1.Subagent, e
 	commandLabels := 0
 	for i, value := range values {
 		base := fmt.Sprintf("/session/subagents/%d", i)
-		usage, err := b.usage(value.Tokens, value.Cost, nil, base+"/usage")
+		usage, err := b.modelUsage(value.Tokens, base+"/usage")
 		if err != nil {
 			return nil, err
 		}
@@ -363,11 +454,11 @@ func (b *builder) subagents(values []session.Subagent) ([]snapshotv1.Subagent, e
 			return nil, err
 		}
 		result = append(result, snapshotv1.Subagent{
-			ID: b.text(base+"/id", value.ID, 512), Name: b.text(base+"/name", value.Name, maxNameBytes),
-			Model: b.optionalText(base+"/model", value.Model, maxModelBytes), Status: b.text(base+"/status", value.Status, 64),
+			ID: b.text(base+"/id", value.ID, maxIdentifierBytes), Name: b.text(base+"/name", value.Name, maxNameBytes),
+			Model: b.optionalRequiredText(base+"/model", value.Model, maxModelBytes), Status: b.text(base+"/status", value.Status, maxStatusBytes),
 			Task: b.text(base+"/task", value.Task, maxSubagentTextBytes), Result: b.text(base+"/result", value.Result, maxSubagentTextBytes),
 			DurationMs: copyIntPointer(value.DurationMs), SpawnedAtTurn: copyIntPointer(value.SpawnedAtTurn), ToolUses: value.ToolUses,
-			CommandLabels: labels, Usage: usage.Models, EstimatedCostMicroUSD: cost,
+			CommandLabels: labels, Usage: usage, EstimatedCostMicroUSD: cost,
 		})
 	}
 	return result, nil
