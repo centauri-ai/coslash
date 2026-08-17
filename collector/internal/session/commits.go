@@ -176,12 +176,16 @@ func commitSubject(command string) string {
 		return ""
 	}
 	match := commitMessage.FindStringSubmatch(command)
+	doubleQuoted := match[1] != ""
 	message := match[1] // double quote message
 	if message == "" {
 		message = match[2] // single quote message
 	}
 	if body, ok := unwrapMultilineMessage(message); ok {
-		message = body
+		return firstLine(body)
+	}
+	if doubleQuoted && strings.ContainsAny(message, "$`") {
+		return ""
 	}
 	return firstLine(message)
 }
