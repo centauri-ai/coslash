@@ -21,14 +21,11 @@ const (
 	BackendCodex    = "codex_exec"
 	BackendOpenCode = "opencode"
 
-	// OpenCodeDefaultModel passes no model, leaving OpenCode to resolve one:
-	// its configured model key, or failing that the model last selected in
-	// the CLI. That second case can change between runs.
+	// Passes no model, leaving OpenCode to resolve one: its configured model
+	// key, else the model last selected in the CLI, which varies between runs.
 	OpenCodeDefaultModel = "default"
 
-	// OpenCodeSynthesisModel is the free model coSlash prefers for OpenCode
-	// synthesis. It is the one free model with a reasoning variant worth
-	// turning up, which the runner does.
+	// The one free model with a reasoning variant, which the runner turns up.
 	OpenCodeSynthesisModel = "opencode/deepseek-v4-flash-free"
 
 	TerminalApple = "terminal"
@@ -137,8 +134,7 @@ func BackendOptions() []BackendOption {
 			},
 		},
 		{
-			// OpenCode models come from the user's own providers, so the
-			// caller fills these in from the CLI rather than a fixed list.
+			// Filled in from the CLI; OpenCode models depend on the user's providers.
 			ID:     BackendOpenCode,
 			Label:  "OpenCode CLI",
 			Models: []ModelOption{},
@@ -146,17 +142,11 @@ func BackendOptions() []BackendOption {
 	}
 }
 
-// modelPattern accepts bare ids like claude-haiku-4-5 and namespaced ones like
-// openrouter/anthropic/claude-haiku-4-5. The models a CLI can reach depend on
-// the user's own account, provider config, and any API proxy such as
-// ANTHROPIC_BASE_URL, so settings.json may name a model the picker does not
-// list. The leading character must not be "-", or the CLI would read the value
-// as another flag.
+// A leading "-" is excluded, or the CLI would read the value as another flag.
 var modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 
-// ValidSynthesisModel checks the shape of a model id, not membership of a
-// fixed list. BackendOptions drives the picker; this guards what the runner
-// will hand to the CLI.
+// ValidSynthesisModel checks shape, not membership of a fixed list: an API
+// proxy such as ANTHROPIC_BASE_URL can serve models the picker never lists.
 func ValidSynthesisModel(backend, model string) bool {
 	if backend == BackendOpenCode && model == OpenCodeDefaultModel {
 		return true

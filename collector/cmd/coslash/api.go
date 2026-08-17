@@ -254,11 +254,8 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 	writeJSON(w, response)
 }
 
-// openCodeModels offers the user's own OpenCode model plus the free Zen
-// models. Paid providers are reachable through the default rather than listed,
-// since OpenCode resolves them from ambient credentials and the list runs to
-// hundreds. Every id here passes settings.Validate, so the picker cannot
-// produce a 400 on save.
+// Paid providers are reached through OpenCodeDefaultModel rather than listed:
+// OpenCode resolves them from ambient credentials, running to hundreds of ids.
 func openCodeModels() []settings.ModelOption {
 	models := []settings.ModelOption{{
 		ID:    settings.OpenCodeDefaultModel,

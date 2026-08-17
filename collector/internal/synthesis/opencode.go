@@ -30,7 +30,6 @@ func openCodeEnv() []string {
 	}
 }
 
-// openCodeEvent is one line of the --format json stream.
 type openCodeEvent struct {
 	Type      string `json:"type"`
 	SessionID string `json:"sessionID"`
@@ -41,8 +40,6 @@ type openCodeEvent struct {
 	} `json:"part"`
 }
 
-// parseOpenCodeStream reduces the newline-delimited event stream to the
-// assistant text and the session id the run wrote to the OpenCode database.
 func parseOpenCodeStream(data []byte) (string, string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	// Tool events dwarf the default 64K token limit.
@@ -97,8 +94,7 @@ func parseOpenCodeStream(data []byte) (string, string, error) {
 	return strings.Join(parts, "\n"), sessionID, nil
 }
 
-// parseOpenCodeSynthesis tolerates prose around the object because OpenCode
-// cannot enforce an output schema.
+// OpenCode cannot enforce an output schema, so prose around the object is tolerated.
 func parseOpenCodeSynthesis(text string) (session.SessionSynthesis, error) {
 	synthesis, err := parseSynthesis([]byte(text))
 	if err == nil {
@@ -111,7 +107,6 @@ func parseOpenCodeSynthesis(text string) (session.SessionSynthesis, error) {
 	return parseSynthesis([]byte(object))
 }
 
-// extractJSONObject returns the first balanced top-level object in value.
 func extractJSONObject(value string) string {
 	start := strings.IndexByte(value, '{')
 	if start < 0 {
@@ -144,7 +139,6 @@ func extractJSONObject(value string) string {
 	return ""
 }
 
-// deleteOpenCodeSession drops the row the run left in the OpenCode database.
 // Failures are ignored so cleanup never fails an otherwise good synthesis.
 func deleteOpenCodeSession(ctx context.Context, id string) {
 	deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)

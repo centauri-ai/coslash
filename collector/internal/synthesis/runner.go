@@ -131,10 +131,9 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			}
 			return parseOpenCodeSynthesis(text)
 		}
-		// OpenCode has no system prompt or schema flag, so the instructions
-		// ride along with the message and the shape is described in prose.
+		// OpenCode has no system-prompt or schema flag, so both ride along
+		// with the message.
 		args = []string{"run", "--dir", SynthesisCwd()}
-		// Omitting --model lets OpenCode use its own configured model.
 		if r.Model != settings.OpenCodeDefaultModel {
 			args = append(args, "--model", r.Model)
 		}
@@ -259,7 +258,8 @@ func normalize(synthesis *session.SessionSynthesis) error {
 	synthesis.Goals = dedupedLimited(synthesis.Goals, 4, func(goal string) string {
 		return concise(goal, 200)
 	})
-	synthesis.Outcome = concise(synthesis.Outcome, 200)
+	// The inspector shows the outcome in full, so it is only whitespace-collapsed.
+	synthesis.Outcome = strings.Join(strings.Fields(synthesis.Outcome), " ")
 	synthesis.NextStep = concise(synthesis.NextStep, 200)
 	synthesis.KeyDecisions = dedupedLimited(synthesis.KeyDecisions, 5, func(decision string) string {
 		return session.Truncate(strings.TrimSpace(decision), 140)

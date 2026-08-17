@@ -24,15 +24,13 @@ var modelsCache struct {
 	loaded time.Time
 }
 
-// SynthesisModels lists the OpenCode Zen models that cost nothing to run.
-// Paid providers are left out because synthesis should never bill the user
-// without them naming the model; they reach those through their own OpenCode
-// default instead. The result is cached because the CLI call costs about a
-// second and the settings endpoint is polled.
+// SynthesisModels lists the OpenCode Zen models that cost nothing to run, so
+// the picker cannot bill the user for a model they did not name. Results are
+// cached because the CLI call costs about a second and settings are polled.
 func SynthesisModels() []string {
 	modelsCache.mu.Lock()
 	defer modelsCache.mu.Unlock()
-	// An empty result is cached too, so a broken CLI is only paid for once.
+	// Empty results are cached too, so a broken CLI is only paid for once.
 	if !modelsCache.loaded.IsZero() && time.Since(modelsCache.loaded) < modelsTTL {
 		return modelsCache.models
 	}
@@ -41,7 +39,6 @@ func SynthesisModels() []string {
 	return modelsCache.models
 }
 
-// verboseModel is the subset of `opencode models --verbose` we read.
 type verboseModel struct {
 	Cost struct {
 		Input  float64 `json:"input"`
