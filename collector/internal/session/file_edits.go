@@ -34,6 +34,15 @@ func (s *FileEditSet) Add(path string, additions, deletions int, isNew bool) {
 			edit.IsNew = true
 		}
 		edit.changes = append(edit.changes, change)
+		if i != len(s.Edits)-1 {
+			updated := *edit
+			copy(s.Edits[i:], s.Edits[i+1:])
+			s.Edits[len(s.Edits)-1] = updated
+			for shifted := i; shifted < len(s.Edits)-1; shifted++ {
+				s.index[s.Edits[shifted].Path] = shifted
+			}
+			s.index[path] = len(s.Edits) - 1
+		}
 		return
 	}
 	s.index[path] = len(s.Edits)

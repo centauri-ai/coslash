@@ -27,6 +27,7 @@ func fitAggregate(snapshot snapshotv1.Snapshot) (snapshotv1.Snapshot, error) {
 		reduceTodos,
 		reduceCommits,
 		reduceFileEdits,
+		reduceSessionMetadata,
 	}
 	for _, reduce := range reducers {
 		if fits, err := reduce(&snapshot); err != nil {
@@ -136,6 +137,60 @@ func reduceCommits(snapshot *snapshotv1.Snapshot) (bool, error) {
 
 func reduceFileEdits(snapshot *snapshotv1.Snapshot) (bool, error) {
 	return reduceNewest(snapshot, "/session/fileEdits", &snapshot.Session.FileEdits)
+}
+
+// reduceSessionMetadata removes optional envelope fields only after all
+// collection evidence has been exhausted. The aggregate record targets the
+// session object because removed optional properties no longer resolve as JSON
+// Pointer targets.
+func reduceSessionMetadata(snapshot *snapshotv1.Snapshot) (bool, error) {
+	session := &snapshot.Session
+	fields := []struct {
+		path    string
+		present bool
+		clear   func()
+	}{
+		{"/session/firstPrompt", session.FirstPrompt != nil, func() { session.FirstPrompt = nil }},
+		{"/session/declaredGoal", session.DeclaredGoal != nil, func() { session.DeclaredGoal = nil }},
+		{"/session/summary", session.Summary != nil, func() { session.Summary = nil }},
+		{"/session/name", session.Name != nil, func() { session.Name = nil }},
+		{"/session/entrypoint", session.Entrypoint != nil, func() { session.Entrypoint = nil }},
+		{"/session/branch", session.Branch != nil, func() { session.Branch = nil }},
+		{"/session/cwd", session.WorkingDirectory != nil, func() { session.WorkingDirectory = nil }},
+		{"/session/status", session.Status != nil, func() { session.Status = nil }},
+		{"/session/git", session.Git != nil, func() { session.Git = nil }},
+		{"/session/lastEditAtMs", session.LastEditAtMs != nil, func() { session.LastEditAtMs = nil }},
+		{"/session/durationMs", session.DurationMs != nil, func() { session.DurationMs = nil }},
+		{"/session/contextWindow", session.ContextWindow != nil, func() { session.ContextWindow = nil }},
+		{"/session/contextTokens", session.ContextTokens != nil, func() { session.ContextTokens = nil }},
+		{"/session/model", session.Model != nil, func() { session.Model = nil }},
+	}
+
+	original := 0
+	for _, field := range fields {
+		if field.present {
+			original++
+		}
+	}
+	if original == 0 {
+		return false, nil
+	}
+
+	remaining := original
+	upsertAggregateItems(snapshot, "/session", original, remaining)
+	for _, field := range fields {
+		if !field.present {
+			continue
+		}
+		field.clear()
+		removeMetadata(snapshot, field.path)
+		remaining--
+		setAggregateItems(snapshot, "/session", remaining)
+		if fits, err := snapshotFits(snapshot); err != nil || fits {
+			return fits, err
+		}
+	}
+	return false, nil
 }
 
 func reduceTail[T any](snapshot *snapshotv1.Snapshot, path string, values *[]T) (bool, error) {
