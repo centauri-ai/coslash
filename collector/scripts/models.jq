@@ -1,11 +1,10 @@
-# Prunes LiteLLM's model_prices_and_context_window.json to the Anthropic and
-# OpenAI chat models coslash can see, keeping only the fields it reads. Field
-# names stay exactly as LiteLLM publishes them so a refresh diff is auditable
-# against upstream. Run through `make models`.
+# Prunes LiteLLM's model_prices_and_context_window.json to priced chat models,
+# keeping only the fields coslash reads. Field names stay exactly as LiteLLM
+# publishes them so a refresh diff is auditable against upstream. Run through
+# `make models`.
 with_entries(
   select(
-    (.value.litellm_provider == "anthropic" or .value.litellm_provider == "openai")
-    and (.value.mode == "chat" or .value.mode == "responses")
+    (.value.mode == "chat" or .value.mode == "responses")
     and .value.input_cost_per_token != null
   )
   | .value |= (
