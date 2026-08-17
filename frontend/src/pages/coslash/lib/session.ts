@@ -154,6 +154,12 @@ const VENDORS = {
 
 export type VendorKey = keyof typeof VENDORS;
 
+export const VENDOR_KEYS = ['claude', 'codex', 'opencode'] as const satisfies readonly VendorKey[];
+
+export function getSessionVendors(sessions: readonly Pick<Session, 'agent'>[]): VendorKey[] {
+  return VENDOR_KEYS.filter((vendor) => sessions.some((session) => session.agent === vendor));
+}
+
 export const STATUSES = {
   busy: {
     label: 'Active',
