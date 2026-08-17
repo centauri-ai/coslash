@@ -103,11 +103,41 @@ type repositoryCommit struct {
 	subject string
 }
 
+// NewCommitReconciler caches repository history for one reconciliation pass.
+func NewCommitReconciler() func([]CommitObservation, string, *string) []string {
+	type cacheKey struct{ cwd, branch string }
+	type cachedHistory struct {
+		commits []repositoryCommit
+		ok      bool
+	}
+	histories := map[cacheKey]cachedHistory{}
+	return func(observations []CommitObservation, cwd string, branch *string) []string {
+		if len(observations) == 0 {
+			return []string{}
+		}
+		branchName := ""
+		if branch != nil {
+			branchName = strings.TrimSpace(*branch)
+		}
+		key := cacheKey{cwd: cwd, branch: branchName}
+		history, found := histories[key]
+		if !found {
+			history.commits, history.ok = repositoryHistory(cwd, branch)
+			histories[key] = history
+		}
+		return reconcileCommits(observations, history.commits, history.ok)
+	}
+}
+
 func ReconcileCommits(observations []CommitObservation, cwd string, branch *string) []string {
 	if len(observations) == 0 {
 		return []string{}
 	}
 	history, ok := repositoryHistory(cwd, branch)
+	return reconcileCommits(observations, history, ok)
+}
+
+func reconcileCommits(observations []CommitObservation, history []repositoryCommit, ok bool) []string {
 	if !ok {
 		return fallbackCommitMessages(observations)
 	}
