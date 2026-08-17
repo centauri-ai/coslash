@@ -15,6 +15,7 @@ type storedSession struct {
 	agent        sql.NullString
 	model        sql.NullString
 	cost         float64
+	createdAt    int64
 	updatedAt    int64
 }
 

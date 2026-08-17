@@ -413,6 +413,7 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		Branch:           analysis.branch,
 		Entrypoint:       analysis.entrypoint,
 		SessionDetails:   unifiedSessionDetails,
+		StartedAt:        analysis.timestamps.Earliest,
 		LastActivityTime: analysis.timestamps.Latest,
 		EditedFileCount:  len(analysis.editedFiles),
 		Tokens:           analysis.tokens,

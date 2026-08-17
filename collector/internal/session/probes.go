@@ -130,6 +130,11 @@ func repositoryRoot(cwd string) string {
 	}
 }
 
+// RepositoryRoot returns the enclosing Git worktree root when one exists.
+func RepositoryRoot(cwd string) string {
+	return repositoryRoot(cwd)
+}
+
 func CurrentBranch(cwd string) *string {
 	out, err := exec.Command("git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
 	if err != nil {

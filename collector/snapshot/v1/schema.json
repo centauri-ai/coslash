@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coslash.ai/schemas/session-snapshot/v1.json",
+  "title": "coSlash session-snapshot/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "mediaType", "collectorVersion", "agent", "sourceSessionId", "sessionStartedAtMs", "contentHash", "repository", "truncation", "redactions", "session"],
+  "properties": {
+    "schemaVersion": {"const": "session-snapshot/v1"},
+    "mediaType": {"const": "application/vnd.coslash.session-snapshot.v1+json"},
+    "collectorVersion": {"type": "string", "minLength": 1, "maxLength": 64, "x-maxUtf8Bytes": 64},
+    "agent": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$", "maxLength": 64, "x-maxUtf8Bytes": 64},
+    "sourceSessionId": {"$ref": "#/$defs/id"},
+    "sessionStartedAtMs": {"type": "integer", "minimum": 1},
+    "contentHash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "repository": {"$ref": "#/$defs/repository"},
+    "truncation": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/$defs/truncation"}},
+    "redactions": {"type": "array", "maxItems": 5000, "items": {"$ref": "#/$defs/redaction"}},
+    "session": {"$ref": "#/$defs/session"}
+  },
+  "$defs": {
+    "nonNegativeInteger": {"type": "integer", "minimum": 0},
+    "id": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxUtf8Bytes": 512},
+    "model": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxUtf8Bytes": 256},
+    "repository": {
+      "type": "object", "additionalProperties": false,
+      "required": ["canonical", "localOnly"],
+      "properties": {
+        "canonical": {"type": "string", "minLength": 1, "maxLength": 1024, "x-maxUtf8Bytes": 1024},
+        "localOnly": {"type": "boolean"}
+      }
+    },
+    "truncation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^(?:/(?:[^~]|~[01])*)+$"},
+        "reason": {"enum": ["text_budget", "item_budget", "aggregate_budget"]},
+        "originalBytes": {"$ref": "#/$defs/nonNegativeInteger"},
+        "exportedBytes": {"$ref": "#/$defs/nonNegativeInteger"},
+        "originalItems": {"$ref": "#/$defs/nonNegativeInteger"},
+        "exportedItems": {"$ref": "#/$defs/nonNegativeInteger"}
+      }
+    },
+    "redaction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {"path": {"type": "string", "pattern": "^(?:/(?:[^~]|~[01])*)+$"}, "reason": {"type": "string", "minLength": 1}}
+    },
+    "counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["editedFiles", "turns", "toolUses", "errors", "compactions", "commands", "pullRequests"],
+      "properties": {
+        "editedFiles": {"$ref": "#/$defs/nonNegativeInteger"}, "turns": {"$ref": "#/$defs/nonNegativeInteger"},
+        "toolUses": {"$ref": "#/$defs/nonNegativeInteger"}, "errors": {"$ref": "#/$defs/nonNegativeInteger"},
+        "compactions": {"$ref": "#/$defs/nonNegativeInteger"}, "commands": {"$ref": "#/$defs/nonNegativeInteger"},
+        "pullRequests": {"$ref": "#/$defs/nonNegativeInteger"}
+      }
+    },
+    "modelUsage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["model", "inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheCreation1hInputTokens", "cacheReadInputTokens", "estimatedCostMicroUsd"],
+      "properties": {
+        "model": {"$ref": "#/$defs/model"}, "inputTokens": {"$ref": "#/$defs/nonNegativeInteger"},
+        "outputTokens": {"$ref": "#/$defs/nonNegativeInteger"}, "cacheCreationInputTokens": {"$ref": "#/$defs/nonNegativeInteger"},
+        "cacheCreation1hInputTokens": {"$ref": "#/$defs/nonNegativeInteger"}, "cacheReadInputTokens": {"$ref": "#/$defs/nonNegativeInteger"},
+        "estimatedCostMicroUsd": {"$ref": "#/$defs/nonNegativeInteger"}
+      }
+    },
+    "usage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["models", "estimatedCostMicroUsd", "unpricedModels"],
+      "properties": {
+        "models": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/modelUsage"}},
+        "estimatedCostMicroUsd": {"$ref": "#/$defs/nonNegativeInteger"},
+        "unpricedModels": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/model"}}
+      }
+    },
+    "digest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["turn", "category", "description"],
+      "properties": {
+        "turn": {"$ref": "#/$defs/nonNegativeInteger"},
+        "category": {"type": "string", "minLength": 1, "maxLength": 64, "x-maxUtf8Bytes": 64},
+        "description": {"type": "string", "maxLength": 4096, "x-maxUtf8Bytes": 4096},
+        "answer": {"type": "string", "maxLength": 4096, "x-maxUtf8Bytes": 4096},
+        "subagentId": {"$ref": "#/$defs/id"}
+      }
+    },
+    "todo": {
+      "type": "object", "additionalProperties": false, "required": ["text", "done"],
+      "properties": {"text": {"type": "string", "maxLength": 2048, "x-maxUtf8Bytes": 2048}, "done": {"type": "boolean"}}
+    },
+    "fileEdit": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "additions", "deletions", "edits", "isNew"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "maxLength": 1024, "x-maxUtf8Bytes": 1024, "not": {"pattern": "(^/|(^|/)\\.\\.(/|$)|\\\\)"}},
+        "additions": {"$ref": "#/$defs/nonNegativeInteger"}, "deletions": {"$ref": "#/$defs/nonNegativeInteger"},
+        "edits": {"$ref": "#/$defs/nonNegativeInteger"}, "isNew": {"type": "boolean"}
+      }
+    },
+    "git": {
+      "type": "object", "additionalProperties": false, "required": ["baseBranch", "ahead", "behind"],
+      "properties": {
+        "baseBranch": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxUtf8Bytes": 512},
+        "ahead": {"$ref": "#/$defs/nonNegativeInteger"}, "behind": {"$ref": "#/$defs/nonNegativeInteger"}
+      }
+    },
+    "subagent": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "status", "task", "result", "toolUses", "commandLabels", "usage", "estimatedCostMicroUsd"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "name": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxUtf8Bytes": 512},
+        "model": {"$ref": "#/$defs/model"}, "status": {"type": "string", "minLength": 1, "maxLength": 64, "x-maxUtf8Bytes": 64},
+        "task": {"type": "string", "maxLength": 8192, "x-maxUtf8Bytes": 8192},
+        "result": {"type": "string", "maxLength": 8192, "x-maxUtf8Bytes": 8192},
+        "durationMs": {"$ref": "#/$defs/nonNegativeInteger"}, "spawnedAtTurn": {"$ref": "#/$defs/nonNegativeInteger"},
+        "toolUses": {"$ref": "#/$defs/nonNegativeInteger"},
+        "commandLabels": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 512, "x-maxUtf8Bytes": 512}},
+        "usage": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/modelUsage"}},
+        "estimatedCostMicroUsd": {"$ref": "#/$defs/nonNegativeInteger"}
+      }
+    },
+    "session": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lastActivityAtMs", "counts", "usage", "digest", "todos", "fileEdits", "commits", "subagents"],
+      "properties": {
+        "name": {"type": "string", "maxLength": 512, "x-maxUtf8Bytes": 512},
+        "summary": {"type": "string", "maxLength": 4096, "x-maxUtf8Bytes": 4096},
+        "status": {"type": "string", "maxLength": 64, "x-maxUtf8Bytes": 64},
+        "cwd": {"type": "string", "maxLength": 1024, "x-maxUtf8Bytes": 1024, "not": {"pattern": "(^/|(^|/)\\.\\.(/|$)|\\\\)"}},
+        "branch": {"type": "string", "maxLength": 512, "x-maxUtf8Bytes": 512},
+        "entrypoint": {"type": "string", "maxLength": 512, "x-maxUtf8Bytes": 512},
+        "durationMs": {"$ref": "#/$defs/nonNegativeInteger"}, "lastActivityAtMs": {"$ref": "#/$defs/nonNegativeInteger"},
+        "lastEditAtMs": {"$ref": "#/$defs/nonNegativeInteger"}, "model": {"$ref": "#/$defs/model"},
+        "contextTokens": {"$ref": "#/$defs/nonNegativeInteger"}, "contextWindow": {"$ref": "#/$defs/nonNegativeInteger"},
+        "declaredGoal": {"type": "string", "maxLength": 16384, "x-maxUtf8Bytes": 16384},
+        "firstPrompt": {"type": "string", "maxLength": 16384, "x-maxUtf8Bytes": 16384},
+        "counts": {"$ref": "#/$defs/counts"}, "usage": {"$ref": "#/$defs/usage"},
+        "digest": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/digest"}},
+        "todos": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/todo"}},
+        "fileEdits": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/fileEdit"}},
+        "commits": {"type": "array", "maxItems": 200, "items": {"type": "string", "maxLength": 2048, "x-maxUtf8Bytes": 2048}},
+        "git": {"$ref": "#/$defs/git"},
+        "subagents": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/subagent"}}
+      }
+    }
+  }
+}

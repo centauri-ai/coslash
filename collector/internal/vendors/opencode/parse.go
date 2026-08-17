@@ -281,6 +281,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		ID:               row.id,
 		WorkingDirectory: row.directory,
 		EditedFileCount:  editedFileCount,
+		StartedAt:        row.createdAt,
 		LastActivityTime: row.updatedAt,
 		Tokens:           tokens,
 		Subagents:        []session.Subagent{},

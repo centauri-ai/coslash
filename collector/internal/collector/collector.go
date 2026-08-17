@@ -92,6 +92,12 @@ func applyActivityFallbacks(parsed []*vendors.ParsedSession) {
 		if s.LastActivityTime == 0 && item.LogPath != "" {
 			s.LastActivityTime = session.FileModificationTime(item.LogPath)
 		}
+		// A session whose entries carry no parsable timestamp keeps a zero
+		// start. The export contract requires a positive start, so fall back
+		// to last activity rather than making the session unexportable.
+		if s.StartedAt == 0 {
+			s.StartedAt = s.LastActivityTime
+		}
 	}
 }
 

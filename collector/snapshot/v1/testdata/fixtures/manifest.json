@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "session-snapshot/v1",
+  "collectorVersion": "fixturegen/1",
+  "fixtures": [
+    {
+      "path": "valid/codex.json",
+      "sha256": "d1253296bbb4146312971bd771fb8d2cf5088c7e00f1cbcf493aae13f619307d",
+      "valid": true
+    },
+    {
+      "path": "valid/claude.json",
+      "sha256": "6f4be134eb10b7982e1fcecbfdac901ccd5172441b64599c411f12379483c262",
+      "valid": true
+    },
+    {
+      "path": "valid/redaction.json",
+      "sha256": "512f5247dc813e410e1f3f3ccbf5e0e626daa4d54138e137f9785d5ea3fd34f8",
+      "valid": true
+    },
+    {
+      "path": "valid/boundary-metadata.json",
+      "sha256": "6bc5a215e6d65ff08ad0dbf5fdee7fdb67dcfc9a15c99a3505969504bb43f035",
+      "valid": true
+    },
+    {
+      "path": "valid/boundary-work.json",
+      "sha256": "2d87a2c0b53c52503eeb5b7e206f107ce49acbd0a59c5d22c2c890b0f21ed42d",
+      "valid": true
+    },
+    {
+      "path": "valid/boundary-subagent.json",
+      "sha256": "35c4c82694ff745b7d4b3c9335b606535152392c7f787c08c72768775e9ef6ba",
+      "valid": true
+    },
+    {
+      "path": "valid/boundary-items.json",
+      "sha256": "aeae06731df524a73eaccbd4043bf286a7a62e37f9dee860d6388e7a4ff095eb",
+      "valid": true
+    },
+    {
+      "path": "valid/heavy-aggregate.json",
+      "sha256": "4228c845cbd27d6e5397f5ba3575291e346a91e0843b9fa7a021e707503dd1c3",
+      "valid": true
+    },
+    {
+      "path": "invalid/unknown-field.json",
+      "sha256": "aa8a6edf1b7e082b3f8d9abbf90c8c978652e16e52388beb25ec084306350e31",
+      "valid": false,
+      "reason": "unknown field"
+    },
+    {
+      "path": "invalid/negative-count.json",
+      "sha256": "64daec37d7c91c1ba9d9340ebb7ddf7ad372f11200eebd8c1dedb52cb159eff5",
+      "valid": false,
+      "reason": "negative count"
+    },
+    {
+      "path": "invalid/bad-hash.json",
+      "sha256": "9104e27402ef5cd06a3d6a2a34008b5e839c7cf041989c04ff1b345c67fe9dce",
+      "valid": false,
+      "reason": "bad hash"
+    },
+    {
+      "path": "invalid/non-canonical.json",
+      "sha256": "6fe7fffe40b2cc5d2c3754229c1610261fd3c585c98141c860d33ea76be770b9",
+      "valid": false,
+      "reason": "non-canonical JSON"
+    },
+    {
+      "path": "invalid/oversized.json",
+      "sha256": "9408817bc040328d1c403ff97e94cea3dfd3a361b2fb7ecc7af75ff3a5157139",
+      "valid": false,
+      "reason": "aggregate limit"
+    }
+  ]
+}
