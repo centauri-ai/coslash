@@ -3,14 +3,11 @@ package synthesis
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
@@ -20,6 +17,9 @@ const openCodeConfigContent = `{"permission":"deny","autoupdate":false}`
 func openCodeEnv() []string {
 	return []string{
 		"OPENCODE_CONFIG_CONTENT=" + openCodeConfigContent,
+		// OpenCode has no ephemeral mode, so its runs go to a scratch database
+		// rather than the one holding the user's own sessions.
+		"OPENCODE_DB=" + filepath.Join(SynthesisCwd(), "opencode.db"),
 		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
 		"OPENCODE_DISABLE_AUTOUPDATE=1",
 		"OPENCODE_DISABLE_SHARE=1",
@@ -31,21 +31,19 @@ func openCodeEnv() []string {
 }
 
 type openCodeEvent struct {
-	Type      string `json:"type"`
-	SessionID string `json:"sessionID"`
-	Part      struct {
+	Type string `json:"type"`
+	Part struct {
 		ID   string `json:"id"`
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"part"`
 }
 
-func parseOpenCodeStream(data []byte) (string, string, error) {
+func parseOpenCodeStream(data []byte) (string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	// Tool events dwarf the default 64K token limit.
 	scanner.Buffer(make([]byte, 0, 64<<10), 4<<20)
 
-	sessionID := ""
 	events := 0
 	failed := false
 	order := []string{}
@@ -61,9 +59,6 @@ func parseOpenCodeStream(data []byte) (string, string, error) {
 			continue
 		}
 		events++
-		if sessionID == "" {
-			sessionID = event.SessionID
-		}
 		switch event.Type {
 		case "error":
 			failed = true
@@ -80,10 +75,10 @@ func parseOpenCodeStream(data []byte) (string, string, error) {
 		}
 	}
 	if events == 0 {
-		return "", sessionID, errors.New("OpenCode produced no synthesis output")
+		return "", errors.New("OpenCode produced no synthesis output")
 	}
 	if failed {
-		return "", sessionID, errors.New("OpenCode reported an error during synthesis")
+		return "", errors.New("OpenCode reported an error during synthesis")
 	}
 	parts := make([]string, 0, len(order))
 	for _, key := range order {
@@ -91,7 +86,7 @@ func parseOpenCodeStream(data []byte) (string, string, error) {
 			parts = append(parts, text)
 		}
 	}
-	return strings.Join(parts, "\n"), sessionID, nil
+	return strings.Join(parts, "\n"), nil
 }
 
 // OpenCode cannot enforce an output schema, so prose around the object is tolerated.
@@ -137,14 +132,4 @@ func extractJSONObject(value string) string {
 		}
 	}
 	return ""
-}
-
-// Failures are ignored so cleanup never fails an otherwise good synthesis.
-func deleteOpenCodeSession(ctx context.Context, id string) {
-	deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(deleteCtx, "opencode", "session", "delete", id)
-	cmd.Dir = SynthesisCwd()
-	cmd.Env = append(os.Environ(), openCodeEnv()...)
-	_ = cmd.Run()
 }

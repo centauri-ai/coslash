@@ -17,7 +17,7 @@ coSlash reads, but does not modify:
 | `settings.json` | Synthesis, appearance, and terminal preferences. |
 | `token` | Access token for the current server process. |
 | `summaries/` | Cached synthesis results. |
-| `synthesis/` | Temporary synthesis files. |
+| `synthesis/` | Temporary synthesis files and the OpenCode scratch database. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
 
 coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
@@ -26,7 +26,7 @@ coSlash creates the storage directory with mode `0700` and persistent files with
 
 The collector does not upload data itself. If you enable synthesis, it passes a bounded set of session facts—such as prompts or recaps, todos, filenames, commands, and commit text—to your selected local Claude Code, Codex, or OpenCode CLI. That CLI sends the request using its existing authentication, so the selected provider's settings and terms apply.
 
-OpenCode has no ephemeral mode, so coSlash runs it in `~/.coslash/synthesis` and deletes the session it records afterwards. A run that times out can leave one behind; coSlash hides those sessions, and `opencode session delete` removes them.
+OpenCode has no ephemeral mode, so coSlash points it at a scratch database under `~/.coslash/synthesis`. Synthesis runs never enter your own OpenCode history.
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 

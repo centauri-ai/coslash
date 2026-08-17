@@ -79,13 +79,6 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	var env []string
 	var parse func([]byte) (session.SessionSynthesis, error)
 	var schemaPath string
-	// OpenCode has no ephemeral mode, so its run is deleted afterwards.
-	var openCodeSessionID string
-	defer func() {
-		if openCodeSessionID != "" {
-			deleteOpenCodeSession(ctx, openCodeSessionID)
-		}
-	}()
 	switch r.Backend {
 	case settings.BackendClaude:
 		label = "Claude Code"
@@ -124,8 +117,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	case settings.BackendOpenCode:
 		label = "OpenCode"
 		parse = func(data []byte) (session.SessionSynthesis, error) {
-			text, id, err := parseOpenCodeStream(data)
-			openCodeSessionID = id
+			text, err := parseOpenCodeStream(data)
 			if err != nil {
 				return session.SessionSynthesis{}, err
 			}
