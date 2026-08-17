@@ -134,6 +134,10 @@ func repositoryHistory(cwd string, branch *string) ([]repositoryCommit, bool) {
 		"git", "-C", cwd, "log", "--format=%H%x00%s", ref, "--",
 	).Output()
 	if err != nil {
+		if !gitRefExists(cwd, ref) &&
+			exec.Command("git", "-C", cwd, "rev-parse", "--git-dir").Run() == nil {
+			return []repositoryCommit{}, true
+		}
 		return nil, false
 	}
 	history := []repositoryCommit{}
