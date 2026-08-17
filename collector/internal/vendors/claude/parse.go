@@ -311,6 +311,10 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 				var diffLines []string
 				createdContent := ""
 				for _, patch := range result.StructuredPatch {
+					diffLines = append(diffLines, fmt.Sprintf(
+						"@@ -%d,%d +%d,%d @@",
+						patch.OldStart, patch.OldLines, patch.NewStart, patch.NewLines,
+					))
 					diffLines = append(diffLines, patch.Lines...)
 				}
 				lineAdditions, lineDeletions := session.DiffStat(diffLines)

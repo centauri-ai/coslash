@@ -111,7 +111,11 @@ type claudeToolUseResult struct {
 	Type            string          `json:"type"`
 	Content         json.RawMessage `json:"content"`
 	StructuredPatch []struct {
-		Lines []string `json:"lines"`
+		OldStart int      `json:"oldStart"`
+		OldLines int      `json:"oldLines"`
+		NewStart int      `json:"newStart"`
+		NewLines int      `json:"newLines"`
+		Lines    []string `json:"lines"`
 	} `json:"structuredPatch"`
 	Task *struct {
 		ID      string `json:"id"`
