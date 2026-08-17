@@ -146,16 +146,22 @@ func BackendOptions() []BackendOption {
 	}
 }
 
-// openCodeModelPattern matches "provider/model". Routed providers add
-// segments, as in openrouter/anthropic/claude-haiku-4-5. It stays permissive
-// so any provider the user types remains valid.
-var openCodeModelPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+(/[A-Za-z0-9._:-]+)+$`)
+// modelPattern accepts bare ids like claude-haiku-4-5 and namespaced ones like
+// openrouter/anthropic/claude-haiku-4-5. The models a CLI can reach depend on
+// the user's own account, provider config, and any API proxy such as
+// ANTHROPIC_BASE_URL, so settings.json may name a model the picker does not
+// list. The leading character must not be "-", or the CLI would read the value
+// as another flag.
+var modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 
-func ValidOpenCodeModel(model string) bool {
-	if model == OpenCodeDefaultModel {
+// ValidSynthesisModel checks the shape of a model id, not membership of a
+// fixed list. BackendOptions drives the picker; this guards what the runner
+// will hand to the CLI.
+func ValidSynthesisModel(backend, model string) bool {
+	if backend == BackendOpenCode && model == OpenCodeDefaultModel {
 		return true
 	}
-	return len(model) <= 200 && openCodeModelPattern.MatchString(model)
+	return len(model) <= 200 && modelPattern.MatchString(model)
 }
 
 func TerminalOptions() []TerminalOption {
@@ -185,32 +191,18 @@ func Validate(config Config) error {
 	if config.Version != Version {
 		return fmt.Errorf("unsupported settings version %d", config.Version)
 	}
-	var backend *BackendOption
+	known := false
 	for _, option := range BackendOptions() {
 		if option.ID == config.Synthesis.Backend {
-			selected := option
-			backend = &selected
+			known = true
 			break
 		}
 	}
-	if backend == nil {
+	if !known {
 		return fmt.Errorf("unsupported synthesis backend %q", config.Synthesis.Backend)
 	}
-	if backend.ID == BackendOpenCode {
-		if !ValidOpenCodeModel(config.Synthesis.Model) {
-			return fmt.Errorf("model %q is not a provider/model id", config.Synthesis.Model)
-		}
-	} else {
-		modelSupported := false
-		for _, option := range backend.Models {
-			if option.ID == config.Synthesis.Model {
-				modelSupported = true
-				break
-			}
-		}
-		if !modelSupported {
-			return fmt.Errorf("model %q is not supported by %q", config.Synthesis.Model, backend.ID)
-		}
+	if !ValidSynthesisModel(config.Synthesis.Backend, config.Synthesis.Model) {
+		return fmt.Errorf("model %q is not a valid model id", config.Synthesis.Model)
 	}
 	if config.Appearance.Theme != "light" && config.Appearance.Theme != "dark" {
 		return fmt.Errorf("unsupported theme %q", config.Appearance.Theme)

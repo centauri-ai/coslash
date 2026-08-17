@@ -17,47 +17,20 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "backend": { "enum": ["claude-cli", "codex_exec", "opencode"] },
-        "model": { "type": "string", "minLength": 1, "maxLength": 200 }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": { "backend": { "const": "claude-cli" } },
-            "required": ["backend"]
-          },
-          "then": {
-            "properties": {
-              "model": {
-                "enum": ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": { "backend": { "const": "codex_exec" } },
-            "required": ["backend"]
-          },
-          "then": {
-            "properties": {
-              "model": { "enum": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"] }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": { "backend": { "const": "opencode" } },
-            "required": ["backend"]
-          },
-          "then": {
-            "properties": {
-              "model": {
-                "pattern": "^(default|[A-Za-z0-9._:-]+(/[A-Za-z0-9._:-]+)+)$"
-              }
-            }
-          }
+        "model": {
+          "description": "Model id passed to the selected CLI. Settings offers a short list per backend, but any model that CLI can reach is accepted, including models served through an API proxy or a third-party provider. For the opencode backend, \"default\" passes no model and lets OpenCode resolve one.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+          "examples": [
+            "claude-haiku-4-5",
+            "gpt-5.6-luna",
+            "opencode/deepseek-v4-flash-free",
+            "default"
+          ]
         }
-      ]
+      }
     },
     "appearance": {
       "type": "object",
