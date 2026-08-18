@@ -2,12 +2,16 @@ package opencode
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -76,7 +80,58 @@ func loadMetadata(db *sql.DB) (*vendors.SessionMetadata, error) {
 	for id := range matchLiveSessions(processes, candidates) {
 		metadata.Live[id] = "interactive"
 	}
+	markPendingPermissions(db, metadata, permissionStateDir())
 	return metadata, nil
+}
+
+type pendingPermission struct {
+	SessionID string `json:"sessionID"`
+	PID       int    `json:"pid"`
+}
+
+func permissionStateDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".coslash", "opencode-permissions")
+}
+
+func markPendingPermissions(db *sql.DB, metadata *vendors.SessionMetadata, directory string) {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var pending pendingPermission
+		if json.Unmarshal(data, &pending) != nil || pending.SessionID == "" || !processAlive(pending.PID) {
+			os.Remove(path)
+			continue
+		}
+		var rootID string
+		if db.QueryRow(
+			`SELECT COALESCE(parent_id, id) FROM session WHERE id = ? AND time_archived IS NULL`,
+			pending.SessionID,
+		).Scan(&rootID) == nil {
+			metadata.Live[rootID] = "waiting"
+		}
+	}
+}
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func parseTUIProcesses(output string) []tuiProcess {
