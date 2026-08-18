@@ -28,6 +28,26 @@ The collector does not upload data itself. If you enable synthesis, it passes a 
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 
+## Snapshot preview
+
+During an active Share to Hub flow, **See what gets shared** builds a local
+`session-snapshot/v1` preview through the same canonical serializer whose bytes
+a future opt-in upload will use. Local-only session details do not show this
+action. Previewing does not upload or approve anything. If the source revision
+changes, validation fails, or the mandatory snapshot exceeds 256 KiB, approval
+remains blocked.
+
+For opt-in user testing before the Team flow ships, append
+`?team-preview=1` to the local coSlash URL. This reveals a clearly labeled
+preview-only trigger in session details; it does not enable a Team workspace,
+approval, or upload.
+
+The preview can include a bounded `firstPrompt` (up to 16 KiB) after
+credential-pattern redaction; it does not claim that prompt data is always
+excluded. Redaction and truncation records identify affected canonical paths.
+Raw transcripts, assistant reasoning, tool output, file diffs, raw commands,
+credentials, environment variables, and unresolved local paths are excluded.
+
 ## Local server
 
 coSlash listens on IPv4 loopback and protects API requests with a new access token on every start. It rejects unexpected hosts, origins, and cross-site browser requests. The token is stored in `~/.coslash/token` with mode `0600`, so other processes running as your macOS user can still read it and access coSlash. Do not proxy or forward the port.

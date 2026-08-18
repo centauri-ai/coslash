@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coslash.dev/schemas/snapshot-preview-v1.json",
+  "title": "snapshot-preview/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["adapterVersion", "state", "approvalAllowed", "sourceRevision", "maxPayloadBytes"],
+  "properties": {
+    "adapterVersion": { "const": "snapshot-preview/v1" },
+    "state": { "enum": ["ready", "invalid", "unsupported_version", "stale_source", "oversized"] },
+    "approvalAllowed": { "type": "boolean" },
+    "sourceRevision": { "type": "integer", "minimum": 0 },
+    "schemaVersion": { "const": "session-snapshot/v1" },
+    "mediaType": { "const": "application/vnd.coslash.session-snapshot.v1+json" },
+    "payloadBytes": { "type": "integer", "minimum": 1, "maximum": 262144 },
+    "maxPayloadBytes": { "const": 262144 },
+    "canonicalPayloadBase64": { "type": "string", "contentEncoding": "base64" },
+    "snapshot": { "$ref": "../../snapshot/v1/schema.json" },
+    "problem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "action"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "action": { "type": "string" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "ready" } } },
+      "then": {
+        "required": ["schemaVersion", "mediaType", "payloadBytes", "canonicalPayloadBase64", "snapshot"],
+        "properties": { "approvalAllowed": { "const": true } }
+      },
+      "else": {
+        "required": ["problem"],
+        "properties": { "approvalAllowed": { "const": false } }
+      }
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
+  EyeIcon,
   LoaderCircleIcon,
   PlayIcon,
   SquareCheckIcon,
@@ -26,6 +27,7 @@ import {
   SubagentModelBadge,
   TokenBreakdown,
 } from '@/pages/coslash/components/SessionCard';
+import { SnapshotPreviewDialog } from '@/pages/coslash/components/SnapshotPreviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
 import { useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
@@ -41,6 +43,7 @@ import {
   formatTokens,
 } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
+import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
   getModality,
   getSessionOutcome,
@@ -827,6 +830,9 @@ function InspectorBody({
 }
 
 function InspectorFooter({ detail }: { detail: SessionDetail }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const showTeamPreview = teamPreviewEnabled(window.location.search);
+
   return (
     <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
       <div className="flex min-w-0 flex-col">
@@ -835,7 +841,22 @@ function InspectorFooter({ detail }: { detail: SessionDetail }) {
           Reopens this session in {getVendor(detail.agent).label} with its full context.
         </span>
       </div>
-      <ResumeSessionButton detail={detail} />
+      <div className="flex shrink-0 items-center gap-2">
+        {showTeamPreview && (
+          <>
+            <Button variant="outline" onClick={() => setPreviewOpen(true)}>
+              <EyeIcon /> Team sharing preview
+            </Button>
+            <SnapshotPreviewDialog
+              detail={detail}
+              open={previewOpen}
+              onOpenChange={setPreviewOpen}
+              previewOnly
+            />
+          </>
+        )}
+        <ResumeSessionButton detail={detail} />
+      </div>
     </SheetFooter>
   );
 }

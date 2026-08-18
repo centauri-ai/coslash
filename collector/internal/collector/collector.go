@@ -45,6 +45,11 @@ var vendorSources = []vendorSource{
 	},
 }
 
+var previewSessionCache = struct {
+	sync.RWMutex
+	byID map[string]session.Session
+}{byID: map[string]session.Session{}}
+
 type SourceHealth = vendors.SourceHealth
 
 func Sources() []SourceHealth {
@@ -83,7 +88,46 @@ func List(since int64) ([]*session.Session, error) {
 	for _, root := range roots {
 		sessions = append(sessions, root.Session)
 	}
+	cachePreviewSessions(sessions)
 	return sessions, nil
+}
+
+// GetSessionForPreview returns the selected fully composed revision.
+func GetSessionForPreview(id string, expectedRevision int64) (*session.Session, error) {
+	if id == "" {
+		return nil, nil
+	}
+	current, err := GetSessionFacts(id)
+	if err != nil || current == nil {
+		return current, err
+	}
+	if current.LastActivityTime != expectedRevision {
+		return current, nil
+	}
+	previewSessionCache.RLock()
+	cached, ok := previewSessionCache.byID[id]
+	previewSessionCache.RUnlock()
+	if ok && cached.LastActivityTime == current.LastActivityTime {
+		return &cached, nil
+	}
+	sessions, err := List(0)
+	if err != nil {
+		return nil, err
+	}
+	for _, candidate := range sessions {
+		if candidate.ID == id {
+			return candidate, nil
+		}
+	}
+	return nil, nil
+}
+
+func cachePreviewSessions(sessions []*session.Session) {
+	previewSessionCache.Lock()
+	defer previewSessionCache.Unlock()
+	for _, value := range sessions {
+		previewSessionCache.byID[value.ID] = *value
+	}
 }
 
 func applyActivityFallbacks(parsed []*vendors.ParsedSession) {

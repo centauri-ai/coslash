@@ -153,6 +153,9 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
 		handleDiff(w, r, collector.GetSessionFacts)
 	})
+	api.HandleFunc("GET /api/share-preview", func(w http.ResponseWriter, r *http.Request) {
+		handleSharePreview(w, r, collector.GetSessionForPreview, version)
+	})
 	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
 		writeSettings(w, settingsStore.State())
 	})
