@@ -24,8 +24,8 @@ var modelsCache struct {
 	loaded time.Time
 }
 
-// SynthesisModels lists the OpenCode Zen models that cost nothing to run, so
-// the picker cannot bill the user for a model they did not name. Results are
+// SynthesisModels lists the live OpenCode Zen models that cost nothing to run,
+// so the picker cannot bill the user for a model they did not name. Results are
 // cached because the CLI call costs about a second and settings are polled.
 func SynthesisModels() []string {
 	modelsCache.mu.Lock()
@@ -49,12 +49,13 @@ type verboseModel struct {
 			Text bool `json:"text"`
 		} `json:"output"`
 	} `json:"capabilities"`
+	Status string `json:"status"`
 }
 
 func loadModels() []string {
 	ctx, cancel := context.WithTimeout(context.Background(), modelTimeout)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, "opencode", "models", "--verbose").Output()
+	output, err := exec.CommandContext(ctx, "opencode", "models", "opencode", "--verbose").Output()
 	if err != nil {
 		return []string{}
 	}
@@ -98,5 +99,6 @@ func freeZenModel(name, body string) bool {
 	if err := json.Unmarshal([]byte(body), &model); err != nil {
 		return false
 	}
-	return model.Cost.Input == 0 && model.Cost.Output == 0 && model.Capabilities.Output.Text
+	return model.Status != "deprecated" && model.Cost.Input == 0 && model.Cost.Output == 0 &&
+		model.Capabilities.Output.Text
 }
