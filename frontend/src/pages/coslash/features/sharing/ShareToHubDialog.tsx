@@ -15,9 +15,17 @@ import { apiFetch } from '@/pages/coslash/lib/api';
 import {
   canonicalPayloadText,
   formatCanonicalJson,
+  isSnapshotPreview,
   previewRequestPath,
   type SnapshotPreview,
 } from '@/pages/coslash/lib/preview';
+import {
+  beginHubPairing,
+  pollHubPairing,
+  submitHubShare,
+  type HubDestinationResult,
+  type PairingResult,
+} from './api';
 import {
   bindPreviewConsent,
   consentStillCurrent,
@@ -80,13 +88,17 @@ export function ShareToHubDialog({
   candidates,
   destinationResult,
   onOpenSettings,
+  onDestinationRefresh,
+  fixtureMode = false,
   fixtureOutcome = 'success',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   candidates: ShareCandidate[];
-  destinationResult: DestinationResult;
+  destinationResult: HubDestinationResult;
   onOpenSettings: () => void;
+  onDestinationRefresh: () => Promise<HubDestinationResult>;
+  fixtureMode?: boolean;
   fixtureOutcome?: 'success' | 'partial';
 }) {
   const [search, setSearch] = useState('');
@@ -98,6 +110,8 @@ export function ShareToHubDialog({
   const [problem, setProblem] = useState<string | null>(null);
   const [result, setResult] = useState<ShareResult | null>(null);
   const [fixtureAttempt, setFixtureAttempt] = useState(0);
+  const [pairing, setPairing] = useState<PairingResult | null>(null);
+  const [pairingError, setPairingError] = useState<string | null>(null);
   const previewGeneration = useRef(0);
 
   const visible = useMemo(
@@ -138,6 +152,8 @@ export function ShareToHubDialog({
     setProblem(null);
     setResult(null);
     setFixtureAttempt(0);
+    setPairing(null);
+    setPairingError(null);
   }, [open]);
 
   useEffect(() => {
@@ -146,6 +162,34 @@ export function ShareToHubDialog({
       return next.size === current.size ? current : next;
     });
   }, [candidates]);
+
+  useEffect(() => {
+    const pairingId = pairing?.pairingId;
+    if (!open || fixtureMode || pairing?.state !== 'pending' || !pairingId) return;
+    let stopped = false;
+    const interval = globalThis.setInterval(
+      async () => {
+        try {
+          const next = await pollHubPairing(pairingId);
+          if (stopped) return;
+          setPairing((current) => ({ ...current, ...next }));
+          if (next.state === 'paired') {
+            globalThis.clearInterval(interval);
+            await onDestinationRefresh();
+          }
+        } catch (error) {
+          if (!stopped) {
+            setPairingError(error instanceof Error ? error.message : 'Device pairing could not finish.');
+          }
+        }
+      },
+      Math.max(2, pairing.intervalSeconds ?? 2) * 1000,
+    );
+    return () => {
+      stopped = true;
+      globalThis.clearInterval(interval);
+    };
+  }, [fixtureMode, onDestinationRefresh, open, pairing?.intervalSeconds, pairing?.pairingId, pairing?.state]);
 
   useEffect(() => {
     if (phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
@@ -188,7 +232,9 @@ export function ShareToHubDialog({
           }
           const response = await apiFetch(previewRequestPath(session.id, session.mtime));
           if (!response.ok) throw new Error(`Preview request failed (${response.status}).`);
-          const preview = (await response.json()) as SnapshotPreview;
+          const value: unknown = await response.json();
+          if (!isSnapshotPreview(value)) throw new Error('Preview response is outside snapshot-preview/v1.');
+          const preview: SnapshotPreview = value;
           const item = bindPreviewConsent(
             session,
             preview,
@@ -251,6 +297,40 @@ export function ShareToHubDialog({
     setPhase('result');
   };
 
+  const submitReviewed = async () => {
+    if (fixtureMode) {
+      exerciseFixtureResult();
+      return;
+    }
+    if (!reviewed || records.length === 0 || !reviewStillCurrent) return;
+    setPhase('loading');
+    setProblem(null);
+    try {
+      const response = await submitHubShare({
+        contractVersion: HUB_SHARE_VERSION,
+        requestId: crypto.randomUUID(),
+        items: records.map((record) => record.item),
+      });
+      setResult(response);
+      setPhase('result');
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : 'The Hub share request failed.');
+      setPhase('review');
+    }
+  };
+
+  const beginPairing = async () => {
+    setPairingError(null);
+    try {
+      const next = await beginHubPairing();
+      setPairing(next);
+      const target = next.verificationUriComplete || next.verificationUri;
+      if (target) globalThis.open(target, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setPairingError(error instanceof Error ? error.message : 'Device pairing could not start.');
+    }
+  };
+
   const retryPartial = () => {
     if (!result) return;
     const plan = planShareRetry(result);
@@ -279,10 +359,14 @@ export function ShareToHubDialog({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <DialogTitle>Share to Hub</DialogTitle>
-            <Badge variant="secondary">FIXTURE BUILD · NO UPLOAD</Badge>
+            <Badge variant="secondary">
+              {fixtureMode ? 'FIXTURE BUILD · NO UPLOAD' : 'LIVE · EXPLICIT APPROVAL'}
+            </Badge>
           </div>
           <DialogDescription>
-            Select sessions, review C2's exact canonical bytes, and exercise the T2-I4 retry/result states.
+            {fixtureMode
+              ? "Select sessions, review C2's exact canonical bytes, and exercise the T2-I4 retry/result states."
+              : "Select sessions, review C2's exact canonical bytes, then upload only the revisions you approve."}
           </DialogDescription>
         </DialogHeader>
 
@@ -294,9 +378,36 @@ export function ShareToHubDialog({
             <AlertTriangleIcon className="text-warning-fg size-7" />
             <h3 className="mt-3 font-semibold">{eligibility?.title}</h3>
             <p className="text-muted-foreground mt-2 max-w-md text-sm">{eligibility?.detail}</p>
-            <Button className="mt-5" onClick={onOpenSettings}>
-              {eligibility?.action}
-            </Button>
+            {!fixtureMode && pairing?.state === 'pending' ? (
+              <div className="mt-5 rounded-lg border p-4">
+                <p className="text-sm font-semibold">Approve code {pairing.userCode}</p>
+                <p className="text-muted-foreground pt-1 text-xs">
+                  A Hub sign-in window was opened. This page will update after approval.
+                </p>
+                {pairing.verificationUriComplete && (
+                  <a
+                    className="text-info-fg mt-3 inline-block text-sm font-semibold underline"
+                    href={pairing.verificationUriComplete}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open approval page
+                  </a>
+                )}
+              </div>
+            ) : (
+              <Button className="mt-5" onClick={fixtureMode ? onOpenSettings : beginPairing}>
+                {fixtureMode ? eligibility?.action : 'Pair this device'}
+              </Button>
+            )}
+            {pairing?.state === 'expired' && (
+              <p className="text-warning-fg mt-3 text-sm">Pairing expired. Start again.</p>
+            )}
+            {pairingError && (
+              <p className="text-destructive mt-3 text-sm" role="alert">
+                {pairingError}
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
@@ -422,7 +533,9 @@ export function ShareToHubDialog({
 
             {phase === 'loading' && (
               <div role="status" className="grid min-h-72 place-items-center text-sm">
-                Building exact canonical previews…
+                {records.length > 0 && !fixtureMode
+                  ? 'Uploading approved canonical snapshots…'
+                  : 'Building exact canonical previews…'}
               </div>
             )}
 
@@ -484,8 +597,12 @@ export function ShareToHubDialog({
                       <AlertTriangleIcon className="size-4" />
                     )}
                     {result.state === 'succeeded'
-                      ? 'Fixture share accepted'
-                      : 'Fixture batch partially accepted'}
+                      ? fixtureMode
+                        ? 'Fixture share accepted'
+                        : 'Share accepted'
+                      : fixtureMode
+                        ? 'Fixture batch partially accepted'
+                        : 'Share partially accepted'}
                   </div>
                   <p className="pt-2 text-sm">
                     Accepted uploads are visible immediately; their brief remains pending. No synthesis
@@ -522,10 +639,20 @@ export function ShareToHubDialog({
                       <ExternalLinkIcon className="size-4" /> Canonical Hub handoff
                     </div>
                     <div className="text-muted-foreground mt-2 font-mono text-xs break-all">{route.path}</div>
-                    <p className="text-muted-foreground mt-2 text-xs">
-                      The integrated client will navigate to this C3-owned route. This fixture build does not
-                      leave the local app.
-                    </p>
+                    {fixtureMode || !destinationResult.hubUrl ? (
+                      <p className="text-muted-foreground mt-2 text-xs">
+                        The integrated client navigates to this C3-owned route. Fixture mode stays local.
+                      </p>
+                    ) : (
+                      <a
+                        className="text-info-fg mt-3 inline-flex items-center gap-2 text-sm font-semibold underline"
+                        href={new URL(route.path, destinationResult.hubUrl).toString()}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open shared sessions <ExternalLinkIcon className="size-4" />
+                      </a>
+                    )}
                   </div>
                 )}
               </div>
@@ -544,8 +671,8 @@ export function ShareToHubDialog({
               <Button variant="outline" onClick={() => setPhase('select')}>
                 Back to selection
               </Button>
-              <Button onClick={exerciseFixtureResult} disabled={!reviewed}>
-                Exercise fixture result
+              <Button onClick={submitReviewed} disabled={!reviewed}>
+                {fixtureMode ? 'Exercise fixture result' : 'Approve and share'}
               </Button>
             </>
           )}

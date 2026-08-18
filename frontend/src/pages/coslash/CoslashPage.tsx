@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,7 @@ import {
   type AgentVendor,
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
+import { loadHubDestination, type HubDestinationResult } from '@/pages/coslash/features/sharing/api';
 import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
@@ -267,9 +268,9 @@ export function CoslashPage() {
   const [vendor, setVendor] = useState<AgentVendor>('all');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
   const shareParams = new URLSearchParams(window.location.search);
-  const shareBuildEnabled = shareParams.get('team-share') === '1';
+  const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions(
-    shareBuildEnabled ? 'all' : timeWindow,
+    shareFixtureEnabled ? 'all' : timeWindow,
   );
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
@@ -286,9 +287,13 @@ export function CoslashPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [hubDestination, setHubDestination] = useState<HubDestinationResult | null>(null);
   const settingsState = useSettings();
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
-  const shareDestination = fixtureDestination(window.location.search);
+  const shareDestination = shareFixtureEnabled
+    ? ({ ...fixtureDestination(window.location.search), configured: true } as HubDestinationResult)
+    : hubDestination;
+  const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
   const shareCandidates = useMemo(
     () =>
@@ -298,6 +303,17 @@ export function CoslashPage() {
       })),
     [sessions],
   );
+
+  const refreshHubDestination = useCallback(async () => {
+    const destination = await loadHubDestination();
+    setHubDestination(destination);
+    return destination;
+  }, []);
+
+  useEffect(() => {
+    if (shareFixtureEnabled) return;
+    void refreshHubDestination().catch(() => setHubDestination(null));
+  }, [refreshHubDestination, shareFixtureEnabled]);
 
   useEffect(() => {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
@@ -387,7 +403,7 @@ export function CoslashPage() {
               loadFailed={diagnosticsLoadFailed}
               onRefresh={refreshDiagnostics}
             />
-            {shareBuildEnabled && (
+            {shareEnabled && (
               <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
                 Share to Hub
               </Button>
@@ -421,13 +437,15 @@ export function CoslashPage() {
         synthesisSettingsKey={synthesisSettingsKey}
         onClose={() => setSelectedSessionId(null)}
       />
-      {shareBuildEnabled && (
+      {shareEnabled && shareDestination && (
         <ShareToHubDialog
           open={shareDialogOpen}
           onOpenChange={setShareDialogOpen}
           candidates={shareCandidates}
           destinationResult={shareDestination}
+          fixtureMode={shareFixtureEnabled}
           fixtureOutcome={shareFixtureOutcome}
+          onDestinationRefresh={refreshHubDestination}
           onOpenSettings={() => {
             setShareDialogOpen(false);
             setSettingsDialogMode('full-settings');
