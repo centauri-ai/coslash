@@ -55,18 +55,16 @@ func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 	if !config.Enabled {
 		return nil, nil
 	}
-	runner := &CLIRunner{Backend: config.Backend, Model: config.Model, Timeout: 90 * time.Second}
-	switch config.Backend {
-	case settings.BackendClaude:
-		runner.Bin = "claude"
-	case settings.BackendCodex:
-		runner.Bin = "codex"
-	case settings.BackendOpenCode:
-		runner.Bin = "opencode"
-	default:
+	bin := settings.BackendExecutable(config.Backend)
+	if bin == "" {
 		return nil, fmt.Errorf("unsupported synthesis backend %q", config.Backend)
 	}
-	return runner, nil
+	return &CLIRunner{
+		Backend: config.Backend,
+		Bin:     bin,
+		Model:   config.Model,
+		Timeout: 90 * time.Second,
+	}, nil
 }
 
 func (r *CLIRunner) ModelName() string {

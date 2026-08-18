@@ -263,7 +263,7 @@ func openCodeModels() []settings.ModelOption {
 	}}
 	preferred := false
 	for _, id := range opencode.SynthesisModels() {
-		if !settings.ValidSynthesisModel(settings.BackendOpenCode, id) {
+		if !settings.ValidSynthesisModel(id) {
 			continue
 		}
 		option := settings.ModelOption{ID: id, Label: id}
