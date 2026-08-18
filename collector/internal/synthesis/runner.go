@@ -93,6 +93,9 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			"--safe-mode",
 			"--no-session-persistence",
 		}
+		if r.Model == settings.ClaudeSynthesisModel {
+			args = append(args, "--effort", "high")
+		}
 	case settings.BackendCodex:
 		label = "Codex"
 		parse = parseSynthesis

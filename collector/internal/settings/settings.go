@@ -31,6 +31,9 @@ const (
 	// The default Codex model, which the runner runs at high reasoning effort.
 	CodexSynthesisModel = "gpt-5.6-luna"
 
+	// The default Claude model, likewise run at high reasoning effort.
+	ClaudeSynthesisModel = "claude-haiku-4-5"
+
 	TerminalApple = "terminal"
 	TerminalITerm = "iterm2"
 )
