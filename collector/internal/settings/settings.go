@@ -150,10 +150,7 @@ var modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 
 // ValidSynthesisModel checks shape, not membership of a fixed list: an API
 // proxy such as ANTHROPIC_BASE_URL can serve models the picker never lists.
-func ValidSynthesisModel(backend, model string) bool {
-	if backend == BackendOpenCode && model == OpenCodeDefaultModel {
-		return true
-	}
+func ValidSynthesisModel(model string) bool {
 	return len(model) <= 200 && modelPattern.MatchString(model)
 }
 
@@ -194,7 +191,7 @@ func Validate(config Config) error {
 	if !known {
 		return fmt.Errorf("unsupported synthesis backend %q", config.Synthesis.Backend)
 	}
-	if !ValidSynthesisModel(config.Synthesis.Backend, config.Synthesis.Model) {
+	if !ValidSynthesisModel(config.Synthesis.Model) {
 		return fmt.Errorf("model %q is not a valid model id", config.Synthesis.Model)
 	}
 	if config.Appearance.Theme != "light" && config.Appearance.Theme != "dark" {
