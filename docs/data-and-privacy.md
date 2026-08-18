@@ -26,7 +26,7 @@ coSlash creates the storage directory with mode `0700` and persistent files with
 
 The collector does not upload data itself. If you enable synthesis, it passes a bounded set of session facts—such as prompts or recaps, todos, filenames, commands, and commit text—to your selected local Claude Code, Codex, or OpenCode CLI. That CLI sends the request using its existing authentication, so the selected provider's settings and terms apply.
 
-OpenCode has no ephemeral mode, so coSlash points it at a scratch database under `~/.coslash/synthesis`. Synthesis runs never enter your own OpenCode history.
+OpenCode has no ephemeral mode, so coSlash points each run at its own scratch database under `~/.coslash/synthesis`, discarded once the run ends. Synthesis runs never enter your own OpenCode history.
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 

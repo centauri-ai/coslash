@@ -129,6 +129,11 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			}
 			return parseOpenCodeSynthesis(text)
 		}
+		scratchDir, err := openCodeScratchDir()
+		if err != nil {
+			return session.SessionSynthesis{}, err
+		}
+		defer os.RemoveAll(scratchDir)
 		// OpenCode has no system-prompt or schema flag, so both ride along
 		// with the message.
 		args = []string{"run", "--dir", SynthesisCwd()}
@@ -143,7 +148,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			"--pure",
 			systemPrompt+openCodeJSONInstruction,
 		)
-		env = openCodeEnv()
+		env = openCodeEnv(scratchDir)
 	default:
 		return session.SessionSynthesis{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
 	}
