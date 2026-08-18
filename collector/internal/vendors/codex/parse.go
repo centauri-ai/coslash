@@ -342,7 +342,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 					answers, answered := questionAnswers[row.Payload.CallID]
 					_, completed := completedCalls[row.Payload.CallID]
 					analysis.waitingForInput = analysis.waitingForInput ||
-						(!answered && (row.Payload.Name == "request_user_input" || !completed))
+						(!answered && !completed)
 					for _, question := range questions {
 						answer := strings.Join(answers[question.id].values(), ", ")
 						ts := int64(0)
