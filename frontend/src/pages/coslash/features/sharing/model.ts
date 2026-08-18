@@ -3,6 +3,7 @@ import type { Session } from '@/pages/coslash/lib/session';
 
 // C4 contract; provider fixtures live in coslash-server/testdata/hub-share-v1.
 export const HUB_SHARE_VERSION = 'hub-share/v1' as const;
+export const MAX_SHARE_ITEMS = 100;
 
 export type EligibilityState =
   'signed_out' | 'pairing_required' | 'credential_dormant' | 'credential_revoked' | 'ready';
@@ -17,9 +18,17 @@ export type ShareDestination = {
   credentialState: 'paired' | 'dormant' | 'revoked';
 };
 
-export type DestinationResult =
-  | { contractVersion: typeof HUB_SHARE_VERSION; state: 'ready'; destination: ShareDestination }
-  | { contractVersion: typeof HUB_SHARE_VERSION; state: Exclude<EligibilityState, 'ready'> };
+type DestinationBase = {
+  contractVersion: typeof HUB_SHARE_VERSION;
+  configured: boolean;
+  hubUrl?: string;
+};
+
+export type DestinationResult = DestinationBase &
+  (
+    | { state: 'ready'; destination: ShareDestination }
+    | { state: Exclude<EligibilityState, 'ready'>; destination?: never }
+  );
 
 export type ConsentBinding = {
   previewContractVersion: 'snapshot-preview/v1';
@@ -46,6 +55,7 @@ export type ShareError =
   | 'unsupported_snapshot_version'
   | 'snapshot_invalid'
   | 'snapshot_too_large'
+  | 'source_deleted'
   | 'unauthorized'
   | 'credential_dormant'
   | 'credential_revoked'
@@ -97,84 +107,79 @@ export type ShareResult = {
 export type ShareWindow = '7d' | '30d' | 'all';
 export type ShareCandidate = { session: Session; previouslyShared: boolean };
 
-export const RETRY_RULES: Record<ShareError, { retryable: boolean; renewedReview: boolean; action: string }> =
-  {
-    invalid_share_request: {
-      retryable: false,
-      renewedReview: true,
-      action: 'Review the selected sessions again.',
-    },
-    unsupported_snapshot_version: {
-      retryable: false,
-      renewedReview: true,
-      action: 'Update coSlash and build a new preview.',
-    },
-    snapshot_invalid: {
-      retryable: false,
-      renewedReview: true,
-      action: 'Refresh the source and build a new preview.',
-    },
-    snapshot_too_large: {
-      retryable: false,
-      renewedReview: true,
-      action: 'Reduce the source evidence and build a new preview.',
-    },
-    unauthorized: {
-      retryable: true,
-      renewedReview: false,
-      action: 'Sign in or pair again, then retry the unchanged selection.',
-    },
-    credential_dormant: {
-      retryable: true,
-      renewedReview: true,
-      action: 'Select the paired workspace and review the destination again.',
-    },
-    credential_revoked: {
-      retryable: false,
-      renewedReview: true,
-      action: 'Pair this device again before sharing.',
-    },
-    consent_stale: {
-      retryable: true,
-      renewedReview: true,
-      action: 'Review the changed source revision and approve it again.',
-    },
-    destination_changed: {
-      retryable: true,
-      renewedReview: true,
-      action: 'Review the current workspace destination and approve it again.',
-    },
-    idempotency_conflict: {
-      retryable: false,
-      renewedReview: true,
-      action: 'Stop retrying this key and build a new preview.',
-    },
-    rate_limited: {
-      retryable: true,
-      renewedReview: false,
-      action: 'Keep the selection and retry after the server delay.',
-    },
-    network_unavailable: {
-      retryable: true,
-      renewedReview: false,
-      action: 'Keep the selection and retry when the network returns.',
-    },
-    timeout: {
-      retryable: true,
-      renewedReview: false,
-      action: 'Check upload status with the same key before retrying.',
-    },
-    temporary_unavailable: {
-      retryable: true,
-      renewedReview: false,
-      action: 'Keep failed items selected and retry with their original keys.',
-    },
-    share_failed: {
-      retryable: true,
-      renewedReview: false,
-      action: 'Keep failed items selected and retry with their original keys.',
-    },
-  };
+export const RETRY_RULES: Record<
+  ShareError,
+  { renewedReview: boolean; refreshDestination?: boolean; action: string }
+> = {
+  invalid_share_request: {
+    renewedReview: true,
+    action: 'Review the selected sessions again.',
+  },
+  unsupported_snapshot_version: {
+    renewedReview: true,
+    action: 'Update coSlash and build a new preview.',
+  },
+  snapshot_invalid: {
+    renewedReview: true,
+    action: 'Refresh the source and build a new preview.',
+  },
+  snapshot_too_large: {
+    renewedReview: true,
+    action: 'Reduce the source evidence and build a new preview.',
+  },
+  source_deleted: {
+    renewedReview: false,
+    action: 'The source was deleted and cannot be shared.',
+  },
+  unauthorized: {
+    renewedReview: false,
+    refreshDestination: true,
+    action: 'Sign in or pair again, then retry the unchanged selection.',
+  },
+  credential_dormant: {
+    renewedReview: true,
+    refreshDestination: true,
+    action: 'Select the paired workspace and review the destination again.',
+  },
+  credential_revoked: {
+    renewedReview: true,
+    refreshDestination: true,
+    action: 'Pair this device again before sharing.',
+  },
+  consent_stale: {
+    renewedReview: true,
+    action: 'Review the changed source revision and approve it again.',
+  },
+  destination_changed: {
+    renewedReview: true,
+    refreshDestination: true,
+    action: 'Review the current workspace destination and approve it again.',
+  },
+  idempotency_conflict: {
+    renewedReview: true,
+    action: 'Stop retrying this key and build a new preview.',
+  },
+  rate_limited: {
+    renewedReview: false,
+    action: 'Keep the selection and retry after the server delay.',
+  },
+  network_unavailable: {
+    renewedReview: false,
+    action: 'Keep the selection and retry when the network returns.',
+  },
+  timeout: {
+    renewedReview: false,
+    action: 'Check upload status with the same key before retrying.',
+  },
+  temporary_unavailable: {
+    renewedReview: false,
+    action: 'Keep failed items selected and retry with their original keys.',
+  },
+  share_failed: {
+    renewedReview: false,
+    action: 'Keep failed items selected and retry with their original keys.',
+  },
+};
 
 export function localSessionId(session: Pick<Session, 'agent' | 'id'>): string {
   return `${session.agent}:${session.id}`;
@@ -292,31 +297,26 @@ function hubContentHash(preview: SnapshotPreview): string | null {
 export function planShareRetry(result: ShareResult): {
   unchanged: Set<string>;
   renewedReview: Set<string>;
+  refreshDestination: Set<string>;
 } {
-  const plan = { unchanged: new Set<string>(), renewedReview: new Set<string>() };
+  const plan = {
+    unchanged: new Set<string>(),
+    renewedReview: new Set<string>(),
+    refreshDestination: new Set<string>(),
+  };
   for (const item of result.results) {
     if (item.state !== 'failed' || !item.error.retryable) continue;
     const rule = RETRY_RULES[item.error.code];
-    if (!rule.retryable) continue;
     plan[rule.renewedReview ? 'renewedReview' : 'unchanged'].add(item.localSessionId);
+    if (rule.refreshDestination) plan.refreshDestination.add(item.localSessionId);
   }
   return plan;
 }
 
-export function destinationRefreshItems(result: ShareResult): Set<string> {
-  const codes: ShareError[] = [
-    'unauthorized',
-    'credential_dormant',
-    'credential_revoked',
-    'destination_changed',
-  ];
-  return new Set(
-    result.results
-      .filter((item) => item.state === 'failed' && codes.includes(item.error.code))
-      .map((item) => item.localSessionId),
-  );
-}
-
 export function primarySuccessRoute(result: ShareResult): RouteHandoff | null {
   return result.results.find((item) => item.state !== 'failed')?.route ?? null;
+}
+
+export function hubRouteURL(hubURL: string, path: string): string {
+  return new URL(path.replace(/^\/+/, ''), `${hubURL.replace(/\/+$/, '')}/`).toString();
 }

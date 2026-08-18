@@ -1,10 +1,5 @@
 import { apiFetch } from '@/pages/coslash/lib/api';
-import type { DestinationResult, ShareRequest, ShareResult } from './model';
-
-export type HubDestinationResult = DestinationResult & {
-  configured: boolean;
-  hubUrl?: string;
-};
+import { RETRY_RULES, type DestinationResult, type ShareRequest, type ShareResult } from './model';
 
 export type PairingResult = {
   state: 'pending' | 'paired' | 'expired';
@@ -26,7 +21,7 @@ function isOptionalString(value: unknown): boolean {
   return value == null || typeof value === 'string';
 }
 
-function isHubDestination(value: unknown): value is HubDestinationResult {
+function isHubDestination(value: unknown): value is DestinationResult {
   if (
     !isRecord(value) ||
     value.contractVersion !== 'hub-share/v1' ||
@@ -86,6 +81,7 @@ function isShareResult(value: unknown): value is ShareResult {
       return (
         isRecord(item.error) &&
         typeof item.error.code === 'string' &&
+        item.error.code in RETRY_RULES &&
         typeof item.error.retryable === 'boolean'
       );
     }
@@ -112,8 +108,8 @@ async function jsonResponse<T>(response: Response, fallback: string, guard: Guar
   return value;
 }
 
-export async function loadHubDestination(): Promise<HubDestinationResult> {
-  return jsonResponse<HubDestinationResult>(
+export async function loadHubDestination(): Promise<DestinationResult> {
+  return jsonResponse<DestinationResult>(
     await apiFetch('/api/hub/destination'),
     'The Hub destination could not be loaded',
     isHubDestination,

@@ -19,20 +19,15 @@ import {
   previewRequestPath,
   type SnapshotPreview,
 } from '@/pages/coslash/lib/preview';
-import {
-  beginHubPairing,
-  pollHubPairing,
-  submitHubShare,
-  type HubDestinationResult,
-  type PairingResult,
-} from './api';
+import { beginHubPairing, pollHubPairing, submitHubShare, type PairingResult } from './api';
 import {
   bindPreviewConsent,
   consentStillCurrent,
-  destinationRefreshItems,
   filterShareCandidates,
   HUB_SHARE_VERSION,
+  hubRouteURL,
   localSessionId,
+  MAX_SHARE_ITEMS,
   planShareRetry,
   primarySuccessRoute,
   reconcileVisibleSelection,
@@ -96,9 +91,9 @@ export function ShareToHubDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   candidates: ShareCandidate[];
-  destinationResult: HubDestinationResult;
+  destinationResult: DestinationResult;
   onOpenSettings: () => void;
-  onDestinationRefresh: () => Promise<HubDestinationResult>;
+  onDestinationRefresh: () => Promise<DestinationResult>;
   fixtureMode?: boolean;
   fixtureOutcome?: 'success' | 'partial';
 }) {
@@ -113,6 +108,8 @@ export function ShareToHubDialog({
   const [fixtureAttempt, setFixtureAttempt] = useState(0);
   const [pairing, setPairing] = useState<PairingResult | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
+  const [retryReadyAt, setRetryReadyAt] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
   const previewGeneration = useRef(0);
 
   const visible = useMemo(
@@ -155,6 +152,7 @@ export function ShareToHubDialog({
     setFixtureAttempt(0);
     setPairing(null);
     setPairingError(null);
+    setRetryReadyAt(0);
   }, [open]);
 
   useEffect(() => {
@@ -168,29 +166,40 @@ export function ShareToHubDialog({
     const pairingId = pairing?.pairingId;
     if (!open || fixtureMode || pairing?.state !== 'pending' || !pairingId) return;
     let stopped = false;
-    const interval = globalThis.setInterval(
-      async () => {
-        try {
-          const next = await pollHubPairing(pairingId);
-          if (stopped) return;
-          setPairing((current) => ({ ...current, ...next }));
-          if (next.state === 'paired') {
-            globalThis.clearInterval(interval);
-            await onDestinationRefresh();
-          }
-        } catch (error) {
-          if (!stopped) {
-            setPairingError(error instanceof Error ? error.message : 'Device pairing could not finish.');
-          }
+    let timeout = 0;
+    const delay = Math.max(2, pairing.intervalSeconds ?? 2) * 1000;
+    const poll = async () => {
+      let finished = false;
+      try {
+        const next = await pollHubPairing(pairingId);
+        if (stopped) return;
+        setPairing((current) => ({ ...current, ...next }));
+        if (next.state === 'paired') {
+          finished = true;
+          await onDestinationRefresh();
+        } else if (next.state === 'expired') {
+          finished = true;
         }
-      },
-      Math.max(2, pairing.intervalSeconds ?? 2) * 1000,
-    );
+      } catch (error) {
+        if (!stopped) {
+          setPairingError(error instanceof Error ? error.message : 'Device pairing could not finish.');
+        }
+      } finally {
+        if (!stopped && !finished) timeout = globalThis.setTimeout(poll, delay);
+      }
+    };
+    timeout = globalThis.setTimeout(poll, delay);
     return () => {
       stopped = true;
-      globalThis.clearInterval(interval);
+      globalThis.clearTimeout(timeout);
     };
   }, [fixtureMode, onDestinationRefresh, open, pairing?.intervalSeconds, pairing?.pairingId, pairing?.state]);
+
+  useEffect(() => {
+    if (retryReadyAt <= clock) return;
+    const timeout = globalThis.setTimeout(() => setClock(Date.now()), Math.min(1000, retryReadyAt - clock));
+    return () => globalThis.clearTimeout(timeout);
+  }, [clock, retryReadyAt]);
 
   useEffect(() => {
     if (phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
@@ -201,13 +210,15 @@ export function ShareToHubDialog({
   }, [phase, records.length, reviewStillCurrent]);
 
   const replaceSelection = (next: Set<string>) => {
-    setSelected(next);
-    setRecords((current) => current.filter((record) => next.has(record.item.localSessionId)));
+    const limited = new Set([...next].slice(0, MAX_SHARE_ITEMS));
+    setSelected(limited);
+    setRecords((current) => current.filter((record) => limited.has(record.item.localSessionId)));
     setReviewed(false);
     setProblem(null);
     setResult(null);
     setPhase('select');
     setFixtureAttempt(0);
+    setRetryReadyAt(0);
   };
 
   const narrow = (nextSearch: string, nextWindow: ShareWindow) => {
@@ -289,12 +300,25 @@ export function ShareToHubDialog({
         },
       };
     });
-    setResult({
+    showResult({
       contractVersion: HUB_SHARE_VERSION,
       requestId: crypto.randomUUID(),
       state: partial ? 'partial' : 'succeeded',
       results,
     });
+  };
+
+  const showResult = (next: ShareResult) => {
+    const delay = Math.max(
+      0,
+      ...next.results.map((item) =>
+        item.state === 'failed' && item.error.retryable ? (item.error.retryAfterSeconds ?? 0) : 0,
+      ),
+    );
+    const now = Date.now();
+    setResult(next);
+    setClock(now);
+    setRetryReadyAt(now + delay * 1000);
     setPhase('result');
   };
 
@@ -312,8 +336,7 @@ export function ShareToHubDialog({
         requestId: crypto.randomUUID(),
         items: records.map((record) => record.item),
       });
-      setResult(response);
-      setPhase('result');
+      showResult(response);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : 'The Hub share request failed.');
       setPhase('review');
@@ -333,17 +356,12 @@ export function ShareToHubDialog({
   };
 
   const retryFailed = async () => {
-    if (!result) return;
+    if (!result || retryReadyAt > clock) return;
     const plan = planShareRetry(result);
-    const refresh = destinationRefreshItems(result);
-    for (const id of refresh) {
-      plan.unchanged.delete(id);
-      plan.renewedReview.add(id);
-    }
     const retry = new Set([...plan.unchanged, ...plan.renewedReview]);
     if (retry.size === 0) return;
     setProblem(null);
-    if (refresh.size > 0) {
+    if (plan.refreshDestination.size > 0) {
       try {
         await onDestinationRefresh();
       } catch (error) {
@@ -360,6 +378,7 @@ export function ShareToHubDialog({
         : null,
     );
     setResult(null);
+    setRetryReadyAt(0);
     setFixtureAttempt((current) => current + 1);
     setPhase(plan.renewedReview.size > 0 ? 'select' : 'review');
   };
@@ -372,10 +391,8 @@ export function ShareToHubDialog({
   const eligibility = destinationResult.state === 'ready' ? null : ELIGIBILITY_COPY[destinationResult.state];
   const route = result ? primarySuccessRoute(result) : null;
   const retryPlan = result ? planShareRetry(result) : null;
-  const destinationRefresh = result ? destinationRefreshItems(result) : new Set<string>();
-  const retryCount = retryPlan
-    ? new Set([...retryPlan.unchanged, ...retryPlan.renewedReview, ...destinationRefresh]).size
-    : 0;
+  const retryCount = retryPlan ? new Set([...retryPlan.unchanged, ...retryPlan.renewedReview]).size : 0;
+  const retryWait = Math.max(0, Math.ceil((retryReadyAt - clock) / 1000));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -408,10 +425,10 @@ export function ShareToHubDialog({
                 <p className="text-muted-foreground pt-1 text-xs">
                   A Hub sign-in window was opened. This page will update after approval.
                 </p>
-                {pairing.verificationUriComplete && (
+                {(pairing.verificationUriComplete ?? pairing.verificationUri) && (
                   <a
                     className="text-info-fg mt-3 inline-block text-sm font-semibold underline"
-                    href={pairing.verificationUriComplete}
+                    href={pairing.verificationUriComplete ?? pairing.verificationUri}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -483,7 +500,9 @@ export function ShareToHubDialog({
 
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span>
-                    {selectedCandidates.length ? `${selectedCandidates.length} selected` : 'Nothing selected'}
+                    {selectedCandidates.length
+                      ? `${selectedCandidates.length} / ${MAX_SHARE_ITEMS} selected`
+                      : 'Nothing selected'}
                   </span>
                   <Button
                     variant="ghost"
@@ -531,6 +550,9 @@ export function ShareToHubDialog({
                                 type="checkbox"
                                 className="mt-1 size-4"
                                 checked={currentSelection.has(key)}
+                                disabled={
+                                  !currentSelection.has(key) && currentSelection.size >= MAX_SHARE_ITEMS
+                                }
                                 onChange={() => replaceSelection(toggleCandidate(currentSelection, key))}
                               />
                               <span className="min-w-0 flex-1">
@@ -654,7 +676,7 @@ export function ShareToHubDialog({
                       {item.state === 'failed' ? (
                         <Badge variant="secondary">
                           {item.error.code} ·{' '}
-                          {!item.error.retryable || !RETRY_RULES[item.error.code].retryable
+                          {!item.error.retryable
                             ? 'not retryable'
                             : RETRY_RULES[item.error.code].renewedReview
                               ? 'review required'
@@ -681,7 +703,7 @@ export function ShareToHubDialog({
                     ) : (
                       <a
                         className="text-info-fg mt-3 inline-flex items-center gap-2 text-sm font-semibold underline"
-                        href={new URL(route.path, destinationResult.hubUrl).toString()}
+                        href={hubRouteURL(destinationResult.hubUrl, route.path)}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -712,13 +734,15 @@ export function ShareToHubDialog({
             </>
           )}
           {phase === 'result' && result?.state !== 'succeeded' && retryPlan != null && retryCount > 0 && (
-            <Button onClick={retryFailed}>
-              {retryPlan.renewedReview.size + destinationRefresh.size > 0
-                ? 'Review failed sessions again'
-                : 'Retry failed with same key'}
+            <Button onClick={retryFailed} disabled={retryWait > 0}>
+              {retryWait > 0
+                ? `Retry in ${retryWait}s`
+                : retryPlan.renewedReview.size > 0
+                  ? 'Review failed sessions again'
+                  : 'Retry failed with same key'}
             </Button>
           )}
-          {phase === 'result' && result?.state === 'failed' && retryCount === 0 && (
+          {phase === 'result' && result?.state !== 'succeeded' && retryCount === 0 && (
             <Button onClick={restartFailed}>Back to selection</Button>
           )}
           {phase === 'result' && result?.state === 'succeeded' && (

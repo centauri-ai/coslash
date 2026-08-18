@@ -15,7 +15,6 @@ var ErrNotPaired = errors.New("hub device credential is not available")
 type CredentialStore interface {
 	Load(context.Context) (string, error)
 	Save(context.Context, string) error
-	Delete(context.Context) error
 }
 
 type OSKeychain struct {
@@ -61,22 +60,6 @@ func (s OSKeychain) Save(ctx context.Context, credential string) error {
 	}
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("save Hub credential: keychain command failed: %w (%s)", err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-func (s OSKeychain) Delete(ctx context.Context) error {
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		command = exec.CommandContext(ctx, "/usr/bin/security", "delete-generic-password", "-s", s.Service, "-a", s.Account)
-	case "linux":
-		command = exec.CommandContext(ctx, "secret-tool", "clear", "service", s.Service, "account", s.Account)
-	default:
-		return nil
-	}
-	if err := command.Run(); err != nil {
-		return ErrNotPaired
 	}
 	return nil
 }

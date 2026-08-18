@@ -107,6 +107,41 @@ func FilesSince(files []string, live map[string]string, since int64) []string {
 	return result
 }
 
+func FilesForRoot(files []string, rootID string) []string {
+	byID := make(map[string]string, len(files))
+	children := map[string][]string{}
+	for _, file := range files {
+		id, parentID, err := readHeader(file)
+		if err != nil {
+			continue
+		}
+		byID[id] = file
+		children[parentID] = append(children[parentID], id)
+	}
+	selected := map[string]struct{}{}
+	queue := []string{rootID}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		file := byID[id]
+		if file == "" {
+			continue
+		}
+		if _, exists := selected[file]; exists {
+			continue
+		}
+		selected[file] = struct{}{}
+		queue = append(queue, children[id]...)
+	}
+	result := make([]string, 0, len(selected))
+	for _, file := range files {
+		if _, ok := selected[file]; ok {
+			result = append(result, file)
+		}
+	}
+	return result
+}
+
 func Scan() (*vendors.SourceScan, error) {
 	root, err := Root()
 	if err != nil {

@@ -4,8 +4,8 @@ import type { Session } from '@/pages/coslash/lib/session';
 import {
   bindPreviewConsent,
   consentStillCurrent,
-  destinationRefreshItems,
   filterShareCandidates,
+  hubRouteURL,
   localSessionId,
   planShareRetry,
   primarySuccessRoute,
@@ -164,10 +164,10 @@ describe('hub-share/v1 public consumer', () => {
   });
 
   it('publishes a complete retry decision for every stable error', () => {
-    expect(Object.keys(RETRY_RULES)).toHaveLength(15);
-    expect(RETRY_RULES.timeout).toEqual(expect.objectContaining({ retryable: true, renewedReview: false }));
+    expect(Object.keys(RETRY_RULES)).toHaveLength(16);
+    expect(RETRY_RULES.timeout).toEqual(expect.objectContaining({ renewedReview: false }));
     expect(RETRY_RULES.destination_changed).toEqual(expect.objectContaining({ renewedReview: true }));
-    expect(RETRY_RULES.credential_revoked).toEqual(expect.objectContaining({ retryable: false }));
+    expect(RETRY_RULES.source_deleted).toEqual(expect.objectContaining({ renewedReview: false }));
   });
 
   it('refreshes authority before recovering destination and credential failures', () => {
@@ -185,6 +185,12 @@ describe('hub-share/v1 public consumer', () => {
         }),
       ),
     };
-    expect([...destinationRefreshItems(result)]).toEqual(['codex:0', 'codex:1']);
+    expect([...planShareRetry(result).refreshDestination]).toEqual(['codex:0']);
+  });
+
+  it('preserves a path-prefixed Hub URL for route handoffs', () => {
+    expect(hubRouteURL('https://hub.example.test/coSlash', '/repos/one/sessions/week')).toBe(
+      'https://hub.example.test/coSlash/repos/one/sessions/week',
+    );
   });
 });

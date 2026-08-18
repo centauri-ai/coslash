@@ -831,7 +831,7 @@ function InspectorBody({
 
 function InspectorFooter({ detail }: { detail: SessionDetail }) {
   const [previewOpen, setPreviewOpen] = useState(false);
-  const showTeamPreview = teamPreviewEnabled(window.location.search);
+  const showTeamPreview = teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
 
   return (
     <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">

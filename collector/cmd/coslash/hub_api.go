@@ -20,7 +20,8 @@ func hubClientFromEnvironment(collectorVersion string) (*hubclient.Client, error
 		return nil, nil
 	}
 	baseURL, err := url.Parse(rawURL)
-	if err != nil || baseURL.Host == "" || baseURL.User != nil || (baseURL.Scheme != "https" && baseURL.Scheme != "http") {
+	if err != nil || baseURL.Host == "" || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" ||
+		(baseURL.Scheme != "https" && baseURL.Scheme != "http") {
 		return nil, errors.New("COSLASH_HUB_URL must be an absolute HTTP(S) URL without credentials")
 	}
 	if baseURL.Scheme == "http" {

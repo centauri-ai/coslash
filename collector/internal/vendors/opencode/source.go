@@ -113,6 +113,28 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	return parsed[0], nil
 }
 
+func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if id == "" {
+		return nil, vendors.EmptySessionMetadata(), nil
+	}
+	db, err := open()
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, vendors.EmptySessionMetadata(), nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	defer db.Close()
+	metadata := vendors.BestEffortMetadata(vendors.AgentOpenCode, func() (*vendors.SessionMetadata, error) {
+		return loadMetadata(db)
+	})
+	parsed, skipped, err := load(db, activeFamiliesQuery+" AND selected_roots.id = ?", id)
+	if len(skipped) > 0 {
+		return nil, nil, fmt.Errorf("parse OpenCode session family %q: %w", skipped[0].id, skipped[0].err)
+	}
+	return parsed, metadata, err
+}
+
 func Health() vendors.SourceHealth {
 	root, rootErr := Root()
 	if rootErr != nil {

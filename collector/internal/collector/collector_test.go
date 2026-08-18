@@ -39,3 +39,38 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 			parsed.Session.StartedAt, parsed.Session.LastActivityTime)
 	}
 }
+
+func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+	root := &vendors.ParsedSession{Session: &session.Session{
+		Agent: "test", ID: "root", LastActivityTime: 100, StartedAt: 100,
+		Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1},
+	}}
+	child := &vendors.ParsedSession{Session: &session.Session{
+		Agent: "test", ID: "child", LastActivityTime: 200, StartedAt: 150,
+		Tokens: map[string]session.ModelTokens{},
+	}, ParentID: "root"}
+	collected := false
+	vendorSources = []vendorSource{{
+		name: "test",
+		collect: func(int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			collected = true
+			return nil, nil, nil
+		},
+		loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			return []*vendors.ParsedSession{root, child}, vendors.EmptySessionMetadata(), nil
+		},
+	}}
+
+	got, err := GetSessionForPreview("root", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if collected {
+		t.Fatal("preview replayed the full session list")
+	}
+	if got.LastActivityTime != 200 || len(got.Subagents) != 1 {
+		t.Fatalf("revision = %d, subagents = %d; want 200 and 1", got.LastActivityTime, len(got.Subagents))
+	}
+}
