@@ -261,7 +261,6 @@ func normalize(synthesis *session.SessionSynthesis) error {
 	synthesis.Goals = dedupedLimited(synthesis.Goals, 4, func(goal string) string {
 		return concise(goal, 200)
 	})
-	// The inspector shows the outcome in full, so it is only whitespace-collapsed.
 	synthesis.Outcome = strings.Join(strings.Fields(synthesis.Outcome), " ")
 	synthesis.NextStep = concise(synthesis.NextStep, 200)
 	synthesis.KeyDecisions = dedupedLimited(synthesis.KeyDecisions, 5, func(decision string) string {

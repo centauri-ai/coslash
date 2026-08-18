@@ -16,9 +16,10 @@ import (
 
 const openCodeConfigContent = `{"permission":"deny","autoupdate":false}`
 
-// OpenCode instances that overlap in time deadlock during initialization when
-// they share a database, and the manager runs up to four at once, so each run
-// gets its own directory to hold one.
+// OpenCode has no ephemeral mode, so its runs go to a scratch database rather
+// than the one holding the user's own sessions. One per run, not one shared:
+// instances that overlap in time deadlock during init on a shared database,
+// and the manager runs up to four at once.
 func openCodeScratchDir() (string, error) {
 	if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
 		return "", fmt.Errorf("create synthesis directory: %w", err)
@@ -33,8 +34,6 @@ func openCodeScratchDir() (string, error) {
 func openCodeEnv(scratchDir string) []string {
 	return []string{
 		"OPENCODE_CONFIG_CONTENT=" + openCodeConfigContent,
-		// OpenCode has no ephemeral mode, so its runs go to a scratch database
-		// rather than the one holding the user's own sessions.
 		"OPENCODE_DB=" + filepath.Join(scratchDir, "opencode.db"),
 		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
 		"OPENCODE_DISABLE_AUTOUPDATE=1",
@@ -125,8 +124,6 @@ func parseOpenCodeObject(text string) (session.SessionSynthesis, error) {
 	return parseSynthesis([]byte(text))
 }
 
-// The schema only reaches OpenCode as prompt text, so the fields it marks
-// required are checked here rather than by the CLI.
 func requireSynthesisFields(data []byte) error {
 	var fields struct {
 		Goals        []*string `json:"goals"`
