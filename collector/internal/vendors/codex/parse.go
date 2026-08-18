@@ -166,9 +166,10 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 	ownID := SessionIDFromRollout(file)
 	var metas []codexMeta
 	analysis := &codexSessionAnalysis{
-		spawns:    map[string]vendors.SpawnState{},
-		fileEdits: session.NewFileEditSet(),
-		commitLog: commitObservationsByCall(rows),
+		spawns:       map[string]vendors.SpawnState{},
+		fileEdits:    session.NewFileEditSet(),
+		commitLog:    commitObservationsByCall(rows),
+		pullRequests: len(pullRequestURLs(rows)),
 	}
 	for _, row := range rows {
 		var timestamp *int64
@@ -320,9 +321,6 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 				analysis.toolUseCount++
 				if command, ok := commandFrom(row.Payload); ok {
 					analysis.commands.Note(command, "")
-					if session.IsPullRequestCreate(command) {
-						analysis.pullRequests++
-					}
 				}
 				if questions := questionsFrom(row.Payload); len(questions) > 0 {
 					for _, question := range questions {
@@ -565,6 +563,12 @@ func unifiedDiffStat(diff string) (additions, deletions int) {
 var execCmdPattern = regexp.MustCompile(
 	`(?:^|[{,]\s*)(?:"cmd"|cmd)\s*:\s*("(?:[^"\\]|\\.)*")`,
 )
+var pullRequestURLPattern = regexp.MustCompile(
+	`https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+`,
+)
+var pullRequestDirectivePattern = regexp.MustCompile(
+	`::git-create-pr\{[^}\n]*\burl="(https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+)"[^}\n]*\}`,
+)
 var requestUserInputCallPattern = regexp.MustCompile(`\brequest_user_input\s*\(`)
 var questionIDPattern = regexp.MustCompile(`"id"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var questionPattern = regexp.MustCompile(`"question"\s*:\s*("(?:[^"\\]|\\.)*")`)
@@ -697,6 +701,48 @@ func questionAnswersByCall(rows []codexRow) map[string]map[string]codexQuestionA
 type codexCommandResult struct {
 	output    string
 	succeeded bool
+}
+
+func pullRequestURLs(rows []codexRow) map[string]struct{} {
+	pending := map[string]struct{}{}
+	urls := map[string]struct{}{}
+	for _, row := range rows {
+		if row.Type != "response_item" {
+			continue
+		}
+		switch row.Payload.Type {
+		case "message":
+			if row.Payload.Role != "assistant" || row.Payload.Phase != "final_answer" {
+				continue
+			}
+			var content []codexText
+			if json.Unmarshal(row.Payload.Content, &content) != nil {
+				continue
+			}
+			for _, block := range content {
+				for _, match := range pullRequestDirectivePattern.FindAllStringSubmatch(block.Text, -1) {
+					urls[match[1]] = struct{}{}
+				}
+			}
+		case "function_call", "custom_tool_call":
+			if command, ok := commandFrom(row.Payload); ok &&
+				row.Payload.CallID != "" && session.IsPullRequestCreate(command) {
+				pending[row.Payload.CallID] = struct{}{}
+			}
+		case "function_call_output", "custom_tool_call_output":
+			if _, ok := pending[row.Payload.CallID]; !ok {
+				continue
+			}
+			result := decodeCodexCommandResult(row.Payload.Output)
+			if result.succeeded {
+				for _, url := range pullRequestURLPattern.FindAllString(result.output, -1) {
+					urls[url] = struct{}{}
+				}
+			}
+			delete(pending, row.Payload.CallID)
+		}
+	}
+	return urls
 }
 
 func commitObservationsByCall(rows []codexRow) []session.CommitObservation {
