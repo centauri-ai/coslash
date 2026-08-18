@@ -32,7 +32,8 @@ var models = loadModels()
 func loadModels() map[string]modelInfo {
 	loaded := map[string]modelInfo{}
 	if err := json.Unmarshal(modelsJSON, &loaded); err != nil {
-		log.Printf("model table: %v; costs and context windows are unavailable", err)
+		// A type error zeroes one field but still fills the map, so report the count.
+		log.Printf("model table: %v; %d models loaded", err, len(loaded))
 	}
 	// A model that publishes no cache price bills cached tokens as input, and
 	// one that publishes no 1-hour price bills a long write like a short one.

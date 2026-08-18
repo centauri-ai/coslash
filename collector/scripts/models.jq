@@ -5,6 +5,9 @@
 # LiteLLM costs are already dollars per token. Run through `make models`.
 def per_token: if . == null then null else . / 1000000 end;
 
+# LiteLLM writes some context windows as floats (2000000.0); Go decodes an int.
+def whole: if . == null then null else floor end;
+
 with_entries(
   select(
     (.value.mode == "chat" or .value.mode == "responses")
@@ -17,7 +20,7 @@ with_entries(
         cache_creation_input_token_cost,
         cache_creation_input_token_cost_above_1hr,
         cache_read_input_token_cost,
-        max_input_tokens,
+        max_input_tokens: (.max_input_tokens | whole),
       }
       | with_entries(select(.value != null))
     )
@@ -31,7 +34,7 @@ with_entries(
           output_cost_per_token: (.cost.output | per_token),
           cache_creation_input_token_cost: (.cost.cache_write | per_token),
           cache_read_input_token_cost: (.cost.cache_read | per_token),
-          max_input_tokens: .limit.context,
+          max_input_tokens: (.limit.context | whole),
         }
       | with_entries(select(.value != null))
     )
