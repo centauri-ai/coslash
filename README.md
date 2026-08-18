@@ -31,10 +31,6 @@ Everything runs locally. Nothing leaves your machine unless you turn on synthesi
 
 **Early preview · macOS only**
 
-<p align="center">
-  <img src="docs/media/board.png" alt="coSlash board view grouping sessions by repository and branch, with Active and Waiting columns and subagent rails" width="900">
-</p>
-
 <table>
 <tr>
 <td><b>Supported agents</b></td>
@@ -117,12 +113,10 @@ Search by title, repo, or branch. Filter by vendor and by time window (this week
 
 Every session sits in one of four states, and the header keeps a running count of the two that matter:
 
-| State | Meaning |
-| --- | --- |
-| **Active** | The agent is working right now. |
-| **Waiting** | It stopped and needs an answer from you. |
-| **Idle** | The session is live but nothing is happening. |
-| **Inactive** | No live process — this is history you can still mine. |
+- **Active** — the agent is working right now.
+- **Waiting** — it stopped and needs an answer from you.
+- **Idle** — the session is live but nothing is happening.
+- **Inactive** — no live process; this is history you can still mine.
 
 <p align="center">
   <img src="docs/media/attention-header.png" alt="Header strip showing session counts by vendor, estimated cost at list API prices, and Active / Waiting badges" width="900">
@@ -137,9 +131,6 @@ Open any session and you get a reconstruction instead of a log:
 - **Artifacts** — files changed with per-file `+/−` and edit counts, commits, PRs, open and completed todos, and every shell command the session ran.
 - **Header facts** — model (and any model it switched from), turns, tool uses, errors, runtime, token breakdown, and whether the run was interactive or an autonomous SDK/exec run.
 
-<p align="center">
-  <img src="docs/media/inspector.png" alt="Session inspector showing debrief (goal, outcome, key decisions) above a timestamped timeline" width="560">
-</p>
 <p align="center">
   <img src="docs/media/inspector.gif" alt="Toggling timeline category chips to show or hide questions, todos, and other event types" width="560">
 </p>
