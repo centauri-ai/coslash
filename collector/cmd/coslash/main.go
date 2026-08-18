@@ -23,6 +23,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 	"github.com/centauri-ai/coslash/collector/internal/web"
 )
 
@@ -79,6 +80,9 @@ func main() {
 	}
 
 	settingsStore := settings.Open()
+	if err := opencode.EnsureWaitingPlugin(); err != nil {
+		log.Printf("install OpenCode status plugin: %v", err)
+	}
 	settingsState := settingsStore.State()
 	var runner synthesis.Runner
 	if !settingsState.Valid {
