@@ -42,11 +42,6 @@ type codexPayload struct {
 	AgentThreadID  string            `json:"agent_thread_id"`
 	Kind           string            `json:"kind"`
 	Item           codexItem         `json:"item"`
-	ChatMetadata   codexChatMetadata `json:"internal_chat_message_metadata_passthrough"`
-}
-
-type codexChatMetadata struct {
-	TurnID string `json:"turn_id"`
 }
 
 type codexItem struct {
