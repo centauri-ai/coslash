@@ -30,10 +30,11 @@ Then it gets you back in — resume a session in its own terminal with full cont
 Everything runs locally. Nothing leaves your machine unless you turn on synthesis.
 
 **Early preview · macOS only**
-<!-- MEDIA (hero, highest value): the board view with 6–8 sessions across two repos,
-     at least one Active and one Waiting, subagents visible under a parent.
-     Suggested: docs/media/board.png — 2x retina, ~1400px wide, light theme.
-     ![coSlash board view](docs/media/board.png) -->
+
+<p align="center">
+  <img src="docs/media/board.png" alt="coSlash board view grouping sessions by repository and branch, with Active and Waiting columns and subagent rails" width="900">
+</p>
+
 <table>
 <tr>
 <td><b>Supported agents</b></td>
@@ -108,9 +109,9 @@ Claude Code, Codex, and OpenCode sessions land in the same place, whether they c
 
 Search by title, repo, or branch. Filter by vendor and by time window (this week, this month, 7 days, 30 days, all). Sort by recency, estimated cost, tokens, or duration. The list refreshes itself every minute, so statuses and "3 min ago" stay honest without a reload.
 
-<!-- MEDIA: side-by-side or a short GIF toggling List ↔ Board, then typing in the
-     search box to narrow to one repo. This is the fastest way to show scale.
-     Suggested: docs/media/list-and-board.gif — ~6s, no cursor trails -->
+<p align="center">
+  <img src="docs/media/list-and-board.gif" alt="Switching from list view to board view, then searching to filter sessions to one repository" width="900">
+</p>
 
 ### States that tell you where to look
 
@@ -123,9 +124,9 @@ Every session sits in one of four states, and the header keeps a running count o
 | **Idle** | The session is live but nothing is happening. |
 | **Inactive** | No live process — this is history you can still mine. |
 
-<!-- MEDIA: crop of the header strip showing "N sessions active this week · N Claude
-     Code, N Codex, N OpenCode · $X at list API prices" with the active/waiting dots.
-     Suggested: docs/media/attention-header.png -->
+<p align="center">
+  <img src="docs/media/attention-header.png" alt="Header strip showing session counts by vendor, estimated cost at list API prices, and Active / Waiting badges" width="900">
+</p>
 
 ### An inspector that saves you from reading the transcript
 
@@ -136,10 +137,12 @@ Open any session and you get a reconstruction instead of a log:
 - **Artifacts** — files changed with per-file `+/−` and edit counts, commits, PRs, open and completed todos, and every shell command the session ran.
 - **Header facts** — model (and any model it switched from), turns, tool uses, errors, runtime, token breakdown, and whether the run was interactive or an autonomous SDK/exec run.
 
-<!-- MEDIA (second highest value): the inspector open on a meaty session, scrolled to
-     show Debrief + Timeline together. Redact repo/branch names if needed.
-     Suggested: docs/media/inspector.png — tall crop, ~900px wide
-     Optional GIF: clicking category chips to filter the timeline live. -->
+<p align="center">
+  <img src="docs/media/inspector.png" alt="Session inspector showing debrief (goal, outcome, key decisions) above a timestamped timeline" width="560">
+</p>
+<p align="center">
+  <img src="docs/media/inspector.gif" alt="Toggling timeline category chips to show or hide questions, todos, and other event types" width="560">
+</p>
 
 ### Resume readiness, before you commit to resuming
 
@@ -174,17 +177,17 @@ Terminal launches use Apple Terminal or iTerm2, whichever you pick in Settings.
 
 Subagents appear on a rail under the parent that spawned them, with their model, status, tokens, and cost. Open one to see the task it was handed, the commands it ran, and the result it returned to its parent — the part that usually disappears into a single collapsed line in the transcript.
 
-<!-- MEDIA: a session card with 2–3 subagents on the rail, plus the subagent dialog
-     open next to it showing Task → Steps → Result.
-     Suggested: docs/media/subagents.png -->
+<p align="center">
+  <img src="docs/media/subagents.png" alt="Subagent dialog showing the task, steps, and result returned to the parent session" width="640">
+</p>
 
 ### Tokens and cost you can actually audit
 
 Per-model token breakdowns including cache reads and writes, estimated cost at list API prices, and totals rolled up per branch, per repo, and across the whole window. Models with no verified price are excluded from the total and flagged rather than guessed at, so the number is never quietly wrong. OpenCode sessions report their recorded cost instead of an estimate.
 
-<!-- MEDIA: the board with group totals visible per repo/branch row, or the inspector's
-     token breakdown block. Good candidate for a small inline screenshot.
-     Suggested: docs/media/cost.png -->
+<p align="center">
+  <img src="docs/media/cost.png" alt="Board rollup of token and cost totals per repository and branch" width="900">
+</p>
 
 ### Optional AI synthesis
 
@@ -194,10 +197,9 @@ When you enable it, coSlash passes a bounded set of derived facts — goal candi
 
 It is **off until you explicitly enable and save it**.
 
-<!-- MEDIA: the Settings dialog with synthesis enabled, backend + model visible, and the
-     "What synthesis sends" disclosure expanded. This screenshot does real work for
-     trust — it shows the opt-in and the disclosure in one frame.
-     Suggested: docs/media/settings-synthesis.png -->
+<p align="center">
+  <img src="docs/media/settings-synthesis.png" alt="Settings dialog with AI synthesis enabled, OpenCode selected, and What synthesis sends expanded" width="520">
+</p>
 
 ## Settings and data
 
