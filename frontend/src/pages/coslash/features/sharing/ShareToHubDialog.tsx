@@ -29,6 +29,7 @@ import {
 import {
   bindPreviewConsent,
   consentStillCurrent,
+  destinationRefreshItems,
   filterShareCandidates,
   HUB_SHARE_VERSION,
   localSessionId,
@@ -331,11 +332,25 @@ export function ShareToHubDialog({
     }
   };
 
-  const retryPartial = () => {
+  const retryFailed = async () => {
     if (!result) return;
     const plan = planShareRetry(result);
+    const refresh = destinationRefreshItems(result);
+    for (const id of refresh) {
+      plan.unchanged.delete(id);
+      plan.renewedReview.add(id);
+    }
     const retry = new Set([...plan.unchanged, ...plan.renewedReview]);
     if (retry.size === 0) return;
+    setProblem(null);
+    if (refresh.size > 0) {
+      try {
+        await onDestinationRefresh();
+      } catch (error) {
+        setProblem(error instanceof Error ? error.message : 'The Hub destination could not be refreshed.');
+        return;
+      }
+    }
     setSelected(retry);
     setRecords((current) => current.filter((record) => plan.unchanged.has(record.item.localSessionId)));
     setReviewed(plan.renewedReview.size === 0);
@@ -349,9 +364,18 @@ export function ShareToHubDialog({
     setPhase(plan.renewedReview.size > 0 ? 'select' : 'review');
   };
 
+  const restartFailed = () => {
+    replaceSelection(currentSelection);
+    setRecords([]);
+  };
+
   const eligibility = destinationResult.state === 'ready' ? null : ELIGIBILITY_COPY[destinationResult.state];
   const route = result ? primarySuccessRoute(result) : null;
   const retryPlan = result ? planShareRetry(result) : null;
+  const destinationRefresh = result ? destinationRefreshItems(result) : new Set<string>();
+  const retryCount = retryPlan
+    ? new Set([...retryPlan.unchanged, ...retryPlan.renewedReview, ...destinationRefresh]).size
+    : 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -583,6 +607,14 @@ export function ShareToHubDialog({
 
             {phase === 'result' && result && (
               <div className="min-h-0 flex-1 overflow-y-auto">
+                {problem && (
+                  <div
+                    role="alert"
+                    className="bg-warning-bg text-warning-fg mb-3 rounded-lg border p-3 text-sm"
+                  >
+                    {problem}
+                  </div>
+                )}
                 <div
                   className={
                     result.state === 'succeeded'
@@ -600,13 +632,16 @@ export function ShareToHubDialog({
                       ? fixtureMode
                         ? 'Fixture share accepted'
                         : 'Share accepted'
-                      : fixtureMode
-                        ? 'Fixture batch partially accepted'
-                        : 'Share partially accepted'}
+                      : result.state === 'partial'
+                        ? fixtureMode
+                          ? 'Fixture batch partially accepted'
+                          : 'Share partially accepted'
+                        : 'Share failed'}
                   </div>
                   <p className="pt-2 text-sm">
-                    Accepted uploads are visible immediately; their brief remains pending. No synthesis
-                    completion is claimed.
+                    {result.state === 'failed'
+                      ? 'Nothing was uploaded. Resolve the failures before trying again.'
+                      : 'Accepted uploads are visible immediately; their brief remains pending. No synthesis completion is claimed.'}
                   </p>
                 </div>
                 <div className="mt-3 rounded-lg border">
@@ -676,16 +711,16 @@ export function ShareToHubDialog({
               </Button>
             </>
           )}
-          {phase === 'result' &&
-            result?.state === 'partial' &&
-            retryPlan != null &&
-            retryPlan.unchanged.size + retryPlan.renewedReview.size > 0 && (
-              <Button onClick={retryPartial}>
-                {retryPlan.renewedReview.size > 0
-                  ? 'Review failed sessions again'
-                  : 'Retry failed with same key'}
-              </Button>
-            )}
+          {phase === 'result' && result?.state !== 'succeeded' && retryPlan != null && retryCount > 0 && (
+            <Button onClick={retryFailed}>
+              {retryPlan.renewedReview.size + destinationRefresh.size > 0
+                ? 'Review failed sessions again'
+                : 'Retry failed with same key'}
+            </Button>
+          )}
+          {phase === 'result' && result?.state === 'failed' && retryCount === 0 && (
+            <Button onClick={restartFailed}>Back to selection</Button>
+          )}
           {phase === 'result' && result?.state === 'succeeded' && (
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Done
