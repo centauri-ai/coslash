@@ -19,6 +19,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
@@ -123,7 +124,11 @@ func main() {
 		}
 	}
 	guard := httpsec.Guard{Addr: listener.Addr().String(), Token: token}
-	server := newServer(guard, mgr, settingsStore)
+	hub, err := hubClientFromEnvironment(version)
+	if err != nil {
+		log.Printf("Hub integration disabled: %v", err)
+	}
+	server := newServer(guard, mgr, settingsStore, hub)
 	if err := server.Serve(listener); err != nil {
 		log.Fatalf("coslash: %v", err)
 	}
@@ -133,9 +138,10 @@ func newServer(
 	guard httpsec.Guard,
 	mgr *synthesis.Manager,
 	settingsStore *settings.Store,
+	hubClients ...*hubclient.Client,
 ) *http.Server {
 	return &http.Server{
-		Handler:           guard.Wrap(routes(mgr, settingsStore)),
+		Handler:           guard.Wrap(routes(mgr, settingsStore, hubClients...)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -144,7 +150,7 @@ func newServer(
 	}
 }
 
-func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMux {
+func routes(mgr *synthesis.Manager, settingsStore *settings.Store, hubClients ...*hubclient.Client) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +177,11 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store) *http.ServeMu
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.Collect(r.Context(), version, false))
 	})
+	var hub *hubclient.Client
+	if len(hubClients) > 0 {
+		hub = hubClients[0]
+	}
+	registerHubRoutes(api, hub)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
 
