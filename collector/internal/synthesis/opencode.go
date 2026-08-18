@@ -6,15 +6,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
 const openCodeConfigContent = `{"permission":"deny","autoupdate":false}`
+
+const (
+	openCodeScratchPrefix = ".opencode-"
+	// Well past the 90s run timeout, so a sweep cannot take a live run's
+	// directory from a second collector started on another port.
+	OpenCodeScratchMaxAge = time.Hour
+)
 
 // OpenCode has no ephemeral mode, so its runs go to a scratch database rather
 // than the one holding the user's own sessions. One per run, not one shared:
@@ -24,11 +33,39 @@ func openCodeScratchDir() (string, error) {
 	if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
 		return "", fmt.Errorf("create synthesis directory: %w", err)
 	}
-	directory, err := os.MkdirTemp(SynthesisCwd(), ".opencode-*")
+	directory, err := os.MkdirTemp(SynthesisCwd(), openCodeScratchPrefix+"*")
 	if err != nil {
 		return "", fmt.Errorf("create OpenCode scratch directory: %w", err)
 	}
 	return directory, nil
+}
+
+// A crash or SIGKILL skips the defer that removes a run's directory, and that
+// database holds the run's request and response, so abandoned ones are swept
+// rather than kept indefinitely.
+func CleanupOpenCodeScratch() error {
+	entries, err := os.ReadDir(SynthesisCwd())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().Add(-OpenCodeScratchMaxAge)
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), openCodeScratchPrefix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(SynthesisCwd(), entry.Name())); err != nil &&
+			!errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func openCodeEnv(scratchDir string) []string {
@@ -164,29 +201,9 @@ func extractJSONObject(value string) string {
 	if start < 0 {
 		return ""
 	}
-	depth := 0
-	inString := false
-	escaped := false
-	for index := start; index < len(value); index++ {
-		char := value[index]
-		if escaped {
-			escaped = false
-			continue
-		}
-		switch {
-		case char == '\\' && inString:
-			escaped = true
-		case char == '"':
-			inString = !inString
-		case inString:
-		case char == '{':
-			depth++
-		case char == '}':
-			depth--
-			if depth == 0 {
-				return value[start : index+1]
-			}
-		}
+	var object json.RawMessage
+	if err := json.NewDecoder(strings.NewReader(value[start:])).Decode(&object); err != nil {
+		return ""
 	}
-	return ""
+	return string(object)
 }
