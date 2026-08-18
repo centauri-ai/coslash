@@ -49,6 +49,21 @@ affected canonical paths. Raw transcripts, assistant reasoning, tool output,
 file diffs, raw commands, environment variables, and unresolved local paths are
 excluded.
 
+The fixture-backed Share flow is available to source builds with
+`?team-share=1`. It exercises eligibility, destination, selection, exact review,
+partial retry, and Hub route states, but is labeled **NO UPLOAD** and never
+contacts a cloud service. Use `&share-state=signed_out`, `pairing_required`,
+`credential_dormant`, or `credential_revoked` to inspect eligibility states,
+and `&share-result=partial` to inspect retry.
+
+The production flow will bind approval to the source revision, canonical hash
+and byte count, and displayed destination. Failures that require renewed review
+refresh the preview or destination and require explicit approval. Unchanged
+retries retain their idempotency key and canonical bytes; accepted items are
+not sent again. The server derives workspace authority from authenticated state
+or a workspace-bound device credential and never trusts the client assertion to
+select or retarget a workspace.
+
 ## Local server
 
 coSlash listens on IPv4 loopback and protects API requests with a new access token on every start. It rejects unexpected hosts, origins, and cross-site browser requests. The token is stored in `~/.coslash/token` with mode `0600`, so other processes running as your macOS user can still read it and access coSlash. Do not proxy or forward the port.
