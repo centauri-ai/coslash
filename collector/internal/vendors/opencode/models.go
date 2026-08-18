@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -51,10 +52,29 @@ type verboseModel struct {
 	Status string `json:"status"`
 }
 
+// Opening Settings reaches this probe, so it must not inherit the collector's
+// working directory: OpenCode loads project plugins and config from there, and
+// starting coSlash in an untrusted checkout would run repository code. It runs
+// from an empty directory instead, with `--pure` for external plugins and PWD
+// set because OpenCode reads it before cwd. The global config is left alone,
+// since enumerating models needs its providers.
 func loadModels() []string {
+	directory, err := os.MkdirTemp("", "coslash-models-*")
+	if err != nil {
+		return []string{}
+	}
+	defer os.RemoveAll(directory)
 	ctx, cancel := context.WithTimeout(context.Background(), modelTimeout)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, "opencode", "models", "opencode", "--verbose").Output()
+	cmd := exec.CommandContext(ctx, "opencode", "models", "opencode", "--verbose", "--pure")
+	cmd.Dir = directory
+	cmd.Env = append(os.Environ(),
+		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
+		"OPENCODE_DISABLE_AUTOUPDATE=1",
+		"PWD="+directory,
+		"NO_COLOR=1",
+	)
+	output, err := cmd.Output()
 	if err != nil {
 		return []string{}
 	}
