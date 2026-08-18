@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,8 @@ import {
   type AgentVendor,
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
+import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
+import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
@@ -46,6 +48,32 @@ const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
   '30d': 'active in the last 30 days',
   'all': 'across all time',
 };
+
+function fixtureDestination(search: string): DestinationResult {
+  const state = new URLSearchParams(search).get('share-state');
+  if (
+    state === 'signed_out' ||
+    state === 'pairing_required' ||
+    state === 'credential_dormant' ||
+    state === 'credential_revoked'
+  ) {
+    return { contractVersion: HUB_SHARE_VERSION, state };
+  }
+  return {
+    contractVersion: HUB_SHARE_VERSION,
+    state: 'ready',
+    destination: {
+      workspaceId: '10000000-0000-4000-8000-000000000001',
+      workspaceName: 'Compiler Team',
+      currentMemberCount: 2,
+      resultingMemberCount: 2,
+      currentApprovedSessionCount: 3,
+      historyDisclosure:
+        "Sharing this revision makes it visible to the workspace's current members. Membership and approved-session counts are current when viewed.",
+      credentialState: 'paired',
+    },
+  };
+}
 
 function CoslashPageHeader({
   onOpenSettings,
@@ -238,7 +266,11 @@ function CoslashContent({
 export function CoslashPage() {
   const [vendor, setVendor] = useState<AgentVendor>('all');
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
-  const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions(timeWindow);
+  const shareParams = new URLSearchParams(window.location.search);
+  const shareBuildEnabled = shareParams.get('team-share') === '1';
+  const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions(
+    shareBuildEnabled ? 'all' : timeWindow,
+  );
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
   const {
@@ -253,8 +285,19 @@ export function CoslashPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const settingsState = useSettings();
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
+  const shareDestination = fixtureDestination(window.location.search);
+  const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
+  const shareCandidates = useMemo(
+    () =>
+      sessions.map((session, index) => ({
+        session,
+        previouslyShared: index === 0,
+      })),
+    [sessions],
+  );
 
   useEffect(() => {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
@@ -277,8 +320,7 @@ export function CoslashPage() {
       setSettingsDialogMode((current) => current ?? 'synthesis-consent');
     }
   }, [selectedSession, settingsState.response]);
-  // The API returns every session, so the window is applied here — switching it
-  // never refetches. A live session shows regardless of how old its log is.
+  // Keep live sessions visible even when their logs predate the window.
   const windowStart = timeWindowStart(timeWindow);
   const sessionsInWindow =
     windowStart == null
@@ -345,6 +387,11 @@ export function CoslashPage() {
               loadFailed={diagnosticsLoadFailed}
               onRefresh={refreshDiagnostics}
             />
+            {shareBuildEnabled && (
+              <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
+                Share to Hub
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -355,7 +402,7 @@ export function CoslashPage() {
               loadError={loadError}
               onRetry={retrySessions}
               visibleSessions={visibleSessions}
-              hasSessions={sessions.length > 0}
+              hasSessions={sessionsInWindow.length > 0}
               searchTerm={searchTerm}
               timeWindow={timeWindow}
               view={view}
@@ -374,6 +421,19 @@ export function CoslashPage() {
         synthesisSettingsKey={synthesisSettingsKey}
         onClose={() => setSelectedSessionId(null)}
       />
+      {shareBuildEnabled && (
+        <ShareToHubDialog
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+          candidates={shareCandidates}
+          destinationResult={shareDestination}
+          fixtureOutcome={shareFixtureOutcome}
+          onOpenSettings={() => {
+            setShareDialogOpen(false);
+            setSettingsDialogMode('full-settings');
+          }}
+        />
+      )}
       <SettingsDialog
         open={settingsDialogMode != null}
         mode={settingsDialogMode ?? 'full-settings'}
