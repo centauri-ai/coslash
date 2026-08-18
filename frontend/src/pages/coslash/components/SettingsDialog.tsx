@@ -103,7 +103,6 @@ function backendName(option: BackendOption): string {
   return option.label.replace(/ CLI$/, '');
 }
 
-// Sentinel model that defers to OpenCode's own configured model.
 const OPENCODE_DEFAULT_MODEL = 'default';
 
 const BACKEND_BINARY: Record<string, string> = {

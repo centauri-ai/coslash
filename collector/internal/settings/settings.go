@@ -25,14 +25,11 @@ const (
 	// key, else the model last selected in the CLI, which varies between runs.
 	OpenCodeDefaultModel = "default"
 
-	// The one free model with a reasoning variant, which the runner turns up.
+	// Each backend's own default model, which the runner turns up to high
+	// reasoning effort. Changing one of these ids moves that flag with it.
 	OpenCodeSynthesisModel = "opencode/deepseek-v4-flash-free"
-
-	// The default Codex model, which the runner runs at high reasoning effort.
-	CodexSynthesisModel = "gpt-5.6-luna"
-
-	// The default Claude model, likewise run at high reasoning effort.
-	ClaudeSynthesisModel = "claude-haiku-4-5"
+	CodexSynthesisModel    = "gpt-5.6-luna"
+	ClaudeSynthesisModel   = "claude-haiku-4-5"
 
 	TerminalApple = "terminal"
 	TerminalITerm = "iterm2"
