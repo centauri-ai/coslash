@@ -147,11 +147,11 @@ Picking a session back up is not always the cheap option. Before you decide, coS
 
 A session that's 90% full, compacted twice, and 40 commits behind `main` is telling you to start fresh. One that's warm and 30% full is telling you to just resume.
 
-<!-- MEDIA: crop of the 5-cell readiness strip, ideally one with a red context cell
-     and a cold cache so the color coding is legible.
-     Suggested: docs/media/readiness.png -->
+<p align="center">
+  <img src="docs/media/readiness.png" alt="Five-cell resume readiness strip: context used 85% in red, zero compactions, branch 7 ahead of main, working tree, and a cold prompt cache" width="900">
+</p>
 
-### Two ways back in
+### Three ways back in
 
 - **Resume** reopens the exact session in its own CLI, in its working directory, in your terminal of choice, with its full context intact.
 - **Start fresh with handoff** writes a Markdown brief — objective, current state, key decisions, timeline, files, commits, next steps, environment — and opens a new session with it loaded as background context. The brief is explicitly marked as reference, so the new agent waits for your instruction instead of charging off on stale notes.
@@ -159,10 +159,9 @@ A session that's 90% full, compacted twice, and 40 commits behind `main` is tell
 
 Terminal launches use Apple Terminal or iTerm2, whichever you pick in Settings.
 
-<!-- MEDIA (the money shot): GIF of clicking "Start fresh with handoff" and a terminal
-     window opening with the brief already loaded. Keep it under ~8s.
-     Suggested: docs/media/handoff.gif
-     A still of the generated Markdown brief also works well as a companion. -->
+<p align="center">
+  <img src="docs/media/handoff.gif" alt="Clicking Start fresh with handoff opens a new Claude Code terminal with the session brief loaded" width="900">
+</p>
 
 ### Subagents, not just sessions
 
