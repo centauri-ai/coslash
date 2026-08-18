@@ -90,6 +90,9 @@ func main() {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr.SetRunner(nil)
 	}
+	if err := synthesis.CleanupOpenCodeScratch(); err != nil {
+		log.Printf("sweep OpenCode scratch directories: %v", err)
+	}
 	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
 		now := time.Now()
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
