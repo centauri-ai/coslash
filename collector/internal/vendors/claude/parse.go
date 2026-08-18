@@ -25,6 +25,8 @@ type claudeSessionAnalysis struct {
 	customName               string
 	generatedName            string
 	inTurn                   bool
+	waitingForQuestion       bool
+	pendingQuestionToolUseID string
 	awaySummary              string
 	compactionSeed           string
 	declaredGoal             string
@@ -86,6 +88,10 @@ func parse(path string) (*parsedSession, error) {
 		InTurn:   analysis.inTurn,
 		Spawns:   analysis.spawns,
 		Commands: analysis.commands.Labelled(),
+	}
+	if analysis.waitingForQuestion && analysis.inTurn {
+		status := "waiting"
+		parsed.Session.Status = &status
 	}
 	if parsed.ParentID != "" {
 		metaPath := strings.TrimSuffix(path, ".jsonl") + ".meta.json"
@@ -173,6 +179,8 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 	pendingCommand := ""
 	emitPrompt := func(text string, timestamp int64) {
 		analysis.inTurn = true
+		analysis.waitingForQuestion = false
+		analysis.pendingQuestionToolUseID = ""
 		pendingAssistantText = ""
 		analysis.userPromptCount++
 		if analysis.firstUserPrompt == "" {
@@ -292,12 +300,20 @@ func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
 							analysis.digest.PushSubagent(analysis.userPromptCount, block.ID, rowTimestamp)
 						}
 					}
+					if block.Name == "AskUserQuestion" && block.ID != "" {
+						analysis.waitingForQuestion = true
+						analysis.pendingQuestionToolUseID = block.ID
+					}
 				}
 				if block.Type == "tool_result" && block.ToolUseID != "" {
 					spawn := analysis.spawns[block.ToolUseID]
 					spawn.Completed = true
 					analysis.spawns[block.ToolUseID] = spawn
 					resultToolUseID = block.ToolUseID
+					if block.ToolUseID == analysis.pendingQuestionToolUseID {
+						analysis.waitingForQuestion = false
+						analysis.pendingQuestionToolUseID = ""
+					}
 				}
 				if block.IsError {
 					analysis.errors++
