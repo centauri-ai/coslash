@@ -350,10 +350,10 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 						analysis.digest.PushQuestion(analysis.prompts, question.text, answer, ts)
 					}
 				}
-				if prefix, escalated := execApprovalPrefix(row.Payload); escalated {
+				if command, escalated := execApprovalCommand(row.Payload); escalated {
 					_, completed := completedCalls[row.Payload.CallID]
 					analysis.approvalPending = analysis.approvalPending ||
-						(!completed && prefixNeedsApproval(prefix))
+						(!completed && commandNeedsApproval(command, analysis.workingDirectory))
 					if analysis.approvalPending {
 						analysis.approvalTurnID = row.Payload.ChatMetadata.TurnID
 					}
@@ -634,9 +634,6 @@ var requestUserInputCallPattern = regexp.MustCompile(`\brequest_user_input\s*\(`
 var escalatedSandboxPattern = regexp.MustCompile(
 	`(?:"sandbox_permissions"|sandbox_permissions)\s*:\s*"require_escalated"`,
 )
-var prefixRulePattern = regexp.MustCompile(
-	`(?:"prefix_rule"|prefix_rule)\s*:\s*(\[[^]]*\])`,
-)
 var questionIDPattern = regexp.MustCompile(`"id"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var questionPattern = regexp.MustCompile(`"question"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var planStepPattern = regexp.MustCompile(
@@ -777,40 +774,40 @@ func completedCallIDs(rows []codexRow) map[string]struct{} {
 	return completed
 }
 
-func execApprovalPrefix(payload codexPayload) ([]string, bool) {
+func execApprovalCommand(payload codexPayload) (string, bool) {
 	if payload.Name != "exec_command" {
 		text := payloadText(payload)
 		if payload.Name != "exec" || !strings.Contains(text, "tools.exec_command(") ||
 			!escalatedSandboxPattern.MatchString(text) {
-			return nil, false
+			return "", false
 		}
-		var prefix []string
-		if match := prefixRulePattern.FindStringSubmatch(text); len(match) == 2 {
-			_ = json.Unmarshal([]byte(match[1]), &prefix)
-		}
-		return prefix, true
+		command, _ := commandFrom(payload)
+		return command, true
 	}
 	var arguments struct {
-		SandboxPermissions string   `json:"sandbox_permissions"`
-		PrefixRule         []string `json:"prefix_rule"`
+		SandboxPermissions string `json:"sandbox_permissions"`
 	}
 	if json.Unmarshal([]byte(payloadText(payload)), &arguments) != nil ||
 		arguments.SandboxPermissions != "require_escalated" {
-		return nil, false
+		return "", false
 	}
-	return arguments.PrefixRule, true
+	command, _ := commandFrom(payload)
+	return command, true
 }
 
-func prefixNeedsApproval(prefix []string) bool {
-	if len(prefix) == 0 {
+func commandNeedsApproval(command, cwd string) bool {
+	if command == "" {
 		return true
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return true
 	}
-	rules := filepath.Join(home, ".codex", "rules", "default.rules")
-	arguments := append([]string{"execpolicy", "check", "--rules", rules}, prefix...)
+	rules := activeRuleFiles(home, cwd)
+	if len(rules) == 0 {
+		return true
+	}
+	arguments := execPolicyArguments(rules, command)
 	output, err := exec.Command("codex", arguments...).Output()
 	if err != nil {
 		return true
@@ -822,6 +819,44 @@ func prefixNeedsApproval(prefix []string) bool {
 		return true
 	}
 	return result.Decision != "allow" && result.Decision != "forbidden"
+}
+
+func activeRuleFiles(home, cwd string) []string {
+	directories := []string{
+		filepath.Join(home, ".codex", "rules"),
+		filepath.Join(string(filepath.Separator), "etc", "codex", "rules"),
+	}
+	projectDirectories := []string{}
+	for directory := filepath.Clean(cwd); directory != "."; directory = filepath.Dir(directory) {
+		projectDirectories = append(projectDirectories, filepath.Join(directory, ".codex", "rules"))
+		if parent := filepath.Dir(directory); parent == directory {
+			break
+		}
+	}
+	for i := len(projectDirectories) - 1; i >= 0; i-- {
+		directories = append(directories, projectDirectories[i])
+	}
+	files := []string{}
+	seen := map[string]struct{}{}
+	for _, directory := range directories {
+		matches, _ := filepath.Glob(filepath.Join(directory, "*.rules"))
+		for _, match := range matches {
+			if _, exists := seen[match]; exists {
+				continue
+			}
+			seen[match] = struct{}{}
+			files = append(files, match)
+		}
+	}
+	return files
+}
+
+func execPolicyArguments(rules []string, command string) []string {
+	arguments := []string{"execpolicy", "check"}
+	for _, rule := range rules {
+		arguments = append(arguments, "--rules", rule)
+	}
+	return append(arguments, strings.Fields(command)...)
 }
 
 type codexCommandResult struct {
