@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -43,6 +46,7 @@ type codexSessionAnalysis struct {
 	plan             []planStep
 	turnDepth        int
 	waitingForInput  bool
+	approvalPending  bool
 	lastTurnAborted  bool
 	inReview         bool
 }
@@ -50,6 +54,7 @@ type codexSessionAnalysis struct {
 // Review mode's own generated instruction is not a user turn
 func (analysis *codexSessionAnalysis) notePrompt(prompt string, timestamp *int64) {
 	analysis.waitingForInput = false
+	analysis.approvalPending = false
 	analysis.prompts++
 	if analysis.firstUserPrompt == "" {
 		analysis.firstUserPrompt = prompt
@@ -146,7 +151,7 @@ func parse(path string) (*parsedSession, error) {
 		Spawns:   analysis.spawns,
 		Commands: analysis.commands.Labelled(),
 	}
-	if analysis.waitingForInput && parsed.InTurn {
+	if (analysis.waitingForInput || analysis.approvalPending) && parsed.InTurn {
 		status := "waiting"
 		parsed.Session.Status = &status
 	}
@@ -169,6 +174,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 		return nil, err
 	}
 	questionAnswers := questionAnswersByCall(rows)
+	completedCalls := completedCallIDs(rows)
 	ownID := SessionIDFromRollout(file)
 	var metas []codexMeta
 	analysis := &codexSessionAnalysis{
@@ -339,6 +345,11 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 						}
 						analysis.digest.PushQuestion(analysis.prompts, question.text, answer, ts)
 					}
+				}
+				if prefix, escalated := execApprovalPrefix(row.Payload); escalated {
+					_, completed := completedCalls[row.Payload.CallID]
+					analysis.approvalPending = analysis.approvalPending ||
+						(!completed && prefixNeedsApproval(prefix))
 				}
 				analysis.notePlan(row.Payload, timestamp)
 			case "function_call_output":
@@ -578,6 +589,12 @@ var pullRequestDirectivePattern = regexp.MustCompile(
 	`::git-create-pr\{[^}\n]*\burl="(https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+)"[^}\n]*\}`,
 )
 var requestUserInputCallPattern = regexp.MustCompile(`\brequest_user_input\s*\(`)
+var escalatedSandboxPattern = regexp.MustCompile(
+	`(?:"sandbox_permissions"|sandbox_permissions)\s*:\s*"require_escalated"`,
+)
+var prefixRulePattern = regexp.MustCompile(
+	`(?:"prefix_rule"|prefix_rule)\s*:\s*(\[[^]]*\])`,
+)
 var questionIDPattern = regexp.MustCompile(`"id"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var questionPattern = regexp.MustCompile(`"question"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var planStepPattern = regexp.MustCompile(
@@ -704,6 +721,65 @@ func questionAnswersByCall(rows []codexRow) map[string]map[string]codexQuestionA
 		}
 	}
 	return answersByCall
+}
+
+func completedCallIDs(rows []codexRow) map[string]struct{} {
+	completed := make(map[string]struct{})
+	for _, row := range rows {
+		if row.Type == "response_item" &&
+			(row.Payload.Type == "function_call_output" || row.Payload.Type == "custom_tool_call_output") &&
+			row.Payload.CallID != "" {
+			completed[row.Payload.CallID] = struct{}{}
+		}
+	}
+	return completed
+}
+
+func execApprovalPrefix(payload codexPayload) ([]string, bool) {
+	if payload.Name != "exec_command" {
+		text := payloadText(payload)
+		if payload.Name != "exec" || !strings.Contains(text, "tools.exec_command(") ||
+			!escalatedSandboxPattern.MatchString(text) {
+			return nil, false
+		}
+		var prefix []string
+		if match := prefixRulePattern.FindStringSubmatch(text); len(match) == 2 {
+			_ = json.Unmarshal([]byte(match[1]), &prefix)
+		}
+		return prefix, true
+	}
+	var arguments struct {
+		SandboxPermissions string   `json:"sandbox_permissions"`
+		PrefixRule         []string `json:"prefix_rule"`
+	}
+	if json.Unmarshal([]byte(payloadText(payload)), &arguments) != nil ||
+		arguments.SandboxPermissions != "require_escalated" {
+		return nil, false
+	}
+	return arguments.PrefixRule, true
+}
+
+func prefixNeedsApproval(prefix []string) bool {
+	if len(prefix) == 0 {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return true
+	}
+	rules := filepath.Join(home, ".codex", "rules", "default.rules")
+	arguments := append([]string{"execpolicy", "check", "--rules", rules}, prefix...)
+	output, err := exec.Command("codex", arguments...).Output()
+	if err != nil {
+		return true
+	}
+	var result struct {
+		Decision string `json:"decision"`
+	}
+	if json.Unmarshal(output, &result) != nil {
+		return true
+	}
+	return result.Decision != "allow" && result.Decision != "forbidden"
 }
 
 type codexCommandResult struct {
