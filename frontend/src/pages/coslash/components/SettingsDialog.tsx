@@ -206,6 +206,7 @@ export function SettingsDialog({
   // Both sides are spreads of the same response.settings, so key order matches.
   const isDirty = JSON.stringify(draft) !== JSON.stringify(initialDraft);
   const synthesisBackends = availableSynthesisBackends(response?.options.synthesisBackends ?? []);
+  const hasSynthesisBackends = synthesisBackends.length > 0;
   const selectedBackend = synthesisBackends.find((option) => option.id === draft?.synthesis.backend);
   const selectedModel = selectedBackend?.models.find((option) => option.id === draft?.synthesis.model);
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
@@ -314,10 +315,20 @@ export function SettingsDialog({
                               }
                             />
                           ))}
+                          {!hasSynthesisBackends && (
+                            <div className="text-muted-foreground py-2 text-xs sm:col-span-2">
+                              No supported CLI detected
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      <div className="border-border flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div
+                        className={cn(
+                          'border-border flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between',
+                          { hidden: !hasSynthesisBackends },
+                        )}
+                      >
                         <div className="flex min-w-0 flex-col gap-1">
                           <div className="text-[13px] font-semibold">Model</div>
                           <div className="text-muted-foreground text-[11px]">
