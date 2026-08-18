@@ -82,6 +82,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			if prompt == "" {
 				continue
 			}
+			waiting = false
 			turns++
 			if firstPrompt == "" {
 				firstPrompt = prompt
