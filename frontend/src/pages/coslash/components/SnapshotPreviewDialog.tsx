@@ -14,6 +14,7 @@ import {
   canonicalPayloadText,
   formatCanonicalJson,
   frozenCostDisclosure,
+  isSnapshotPreview,
   PREVIEW_PRIVACY_COPY,
   previewNotices,
   previewRequestPath,
@@ -146,9 +147,10 @@ export function SnapshotPreviewDialog({
     apiFetch(previewRequestPath(detail.id, detail.mtime), { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`Preview request failed (${response.status})`);
-        return response.json() as Promise<SnapshotPreview>;
+        return response.json() as Promise<unknown>;
       })
       .then((preview) => {
+        if (!isSnapshotPreview(preview)) throw new Error('Invalid preview response');
         if (!controller.signal.aborted) setLoad({ status: 'loaded', preview });
       })
       .catch(() => {

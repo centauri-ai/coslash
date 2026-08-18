@@ -4,8 +4,11 @@ import {
   canonicalUploadBytes,
   formatCanonicalJson,
   frozenCostDisclosure,
+  isSnapshotPreview,
+  PREVIEW_PRIVACY_COPY,
   previewNotices,
   previewRequestPath,
+  STRUCTURALLY_EXCLUDED,
   teamPreviewEnabled,
   type SnapshotPreview,
 } from '@/pages/coslash/lib/preview';
@@ -38,6 +41,19 @@ describe('snapshot preview adapter', () => {
     });
     expect(new TextDecoder().decode(canonicalUploadBytes(preview))).toBe(canonicalPayloadText(preview));
     expect(canonicalPayloadText(preview)).toContain('github.com/centauri-ai/coslash');
+  });
+
+  it('rejects any displayed snapshot field that differs from the canonical bytes', () => {
+    const preview = ready({
+      schemaVersion: 'session-snapshot/v1',
+      contentHash: 'sha256:test',
+      repository: { canonical: 'github.com/centauri-ai/coslash' },
+    });
+    preview.snapshot = {
+      ...preview.snapshot,
+      repository: { canonical: 'github.com/centauri-ai/other' },
+    };
+    expect(() => canonicalUploadBytes(preview)).toThrow('does not match');
   });
 
   it('blocks bytes for every non-ready state', () => {
@@ -88,5 +104,12 @@ describe('snapshot preview adapter', () => {
     expect(teamPreviewEnabled('?team-preview=1')).toBe(true);
     expect(teamPreviewEnabled('?team-preview=0')).toBe(false);
     expect(teamPreviewEnabled('?other=1')).toBe(false);
+  });
+
+  it('validates preview responses and states the credential limit precisely', () => {
+    expect(isSnapshotPreview(null)).toBe(false);
+    expect(isSnapshotPreview(ready({ schemaVersion: 'session-snapshot/v1' }))).toBe(true);
+    expect(PREVIEW_PRIVACY_COPY).toContain('known credential patterns');
+    expect(STRUCTURALLY_EXCLUDED.join(' ')).not.toContain('Credentials');
   });
 });
