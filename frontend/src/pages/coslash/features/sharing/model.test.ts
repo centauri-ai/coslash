@@ -4,6 +4,7 @@ import type { Session } from '@/pages/coslash/lib/session';
 import {
   bindPreviewConsent,
   consentStillCurrent,
+  destinationRefreshItems,
   filterShareCandidates,
   localSessionId,
   planShareRetry,
@@ -167,5 +168,23 @@ describe('hub-share/v1 public consumer', () => {
     expect(RETRY_RULES.timeout).toEqual(expect.objectContaining({ retryable: true, renewedReview: false }));
     expect(RETRY_RULES.destination_changed).toEqual(expect.objectContaining({ renewedReview: true }));
     expect(RETRY_RULES.credential_revoked).toEqual(expect.objectContaining({ retryable: false }));
+  });
+
+  it('refreshes authority before recovering destination and credential failures', () => {
+    const result: ShareResult = {
+      contractVersion: 'hub-share/v1',
+      requestId: 'request',
+      state: 'failed',
+      results: (['destination_changed', 'credential_revoked', 'consent_stale'] as const).map(
+        (code, index) => ({
+          localSessionId: `codex:${index}`,
+          idempotencyKey: `key-${index}-000000000000`,
+          state: 'failed' as const,
+          deduplicated: false,
+          error: { code, retryable: code !== 'credential_revoked' },
+        }),
+      ),
+    };
+    expect([...destinationRefreshItems(result)]).toEqual(['codex:0', 'codex:1']);
   });
 });

@@ -269,8 +269,10 @@ export function CoslashPage() {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
   const shareParams = new URLSearchParams(window.location.search);
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
+  const [hubDestination, setHubDestination] = useState<HubDestinationResult | null>(null);
+  const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
   const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions(
-    shareFixtureEnabled ? 'all' : timeWindow,
+    shareEnabled ? 'all' : timeWindow,
   );
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
@@ -287,13 +289,11 @@ export function CoslashPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [hubDestination, setHubDestination] = useState<HubDestinationResult | null>(null);
   const settingsState = useSettings();
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
   const shareDestination = shareFixtureEnabled
     ? ({ ...fixtureDestination(window.location.search), configured: true } as HubDestinationResult)
     : hubDestination;
-  const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
   const shareCandidates = useMemo(
     () =>

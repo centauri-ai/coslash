@@ -51,7 +51,8 @@ func (s OSKeychain) Save(ctx context.Context, credential string) error {
 	var command *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		command = exec.CommandContext(ctx, "/usr/bin/security", "add-generic-password", "-U", "-s", s.Service, "-a", s.Account, "-w", credential)
+		command = exec.CommandContext(ctx, "/usr/bin/security", "add-generic-password", "-U", "-s", s.Service, "-a", s.Account, "-w")
+		command.Stdin = bytes.NewBufferString(credential)
 	case "linux":
 		command = exec.CommandContext(ctx, "secret-tool", "store", "--label=coSlash Hub device", "service", s.Service, "account", s.Account)
 		command.Stdin = bytes.NewBufferString(credential)

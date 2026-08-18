@@ -303,6 +303,20 @@ export function planShareRetry(result: ShareResult): {
   return plan;
 }
 
+export function destinationRefreshItems(result: ShareResult): Set<string> {
+  const codes: ShareError[] = [
+    'unauthorized',
+    'credential_dormant',
+    'credential_revoked',
+    'destination_changed',
+  ];
+  return new Set(
+    result.results
+      .filter((item) => item.state === 'failed' && codes.includes(item.error.code))
+      .map((item) => item.localSessionId),
+  );
+}
+
 export function primarySuccessRoute(result: ShareResult): RouteHandoff | null {
   return result.results.find((item) => item.state !== 'failed')?.route ?? null;
 }

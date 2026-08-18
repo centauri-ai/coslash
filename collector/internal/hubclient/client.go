@@ -211,6 +211,16 @@ func (c *Client) Share(ctx context.Context, input ShareRequest) (ShareResult, er
 		return ShareResult{}, errors.New("invalid hub-share/v1 request")
 	}
 	credential, err := c.Credentials.Load(ctx)
+	if errors.Is(err, ErrNotPaired) {
+		result := ShareResult{ContractVersion: ContractVersion, RequestID: input.RequestID, State: "failed"}
+		for _, item := range input.Items {
+			result.Results = append(result.Results, ShareItemResult{
+				LocalSessionID: item.LocalSessionID, IdempotencyKey: item.IdempotencyKey, State: "failed",
+				Error: &ItemError{Code: "unauthorized", Retryable: true},
+			})
+		}
+		return result, nil
+	}
 	if err != nil {
 		return ShareResult{}, err
 	}

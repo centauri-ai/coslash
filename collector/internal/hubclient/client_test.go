@@ -160,6 +160,22 @@ func TestShareRejectsChangedSourceBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestShareReturnsRecoverableFailureWhenCredentialIsMissing(t *testing.T) {
+	client := testClient(&credentialMemory{}, func(*http.Request) (*http.Response, error) {
+		t.Fatal("network called without a credential")
+		return nil, nil
+	})
+	client.LoadSession = func(string, int64) (*session.Session, error) { return nil, nil }
+	result, err := client.Share(context.Background(), ShareRequest{
+		ContractVersion: ContractVersion, RequestID: "request-1",
+		Items: []ShareItemRequest{{LocalSessionID: "codex:source-1", IdempotencyKey: "hub-share/v1:test-key-0001"}},
+	})
+	if err != nil || result.State != "failed" || result.Results[0].Error == nil ||
+		result.Results[0].Error.Code != "unauthorized" || !result.Results[0].Error.Retryable {
+		t.Fatalf("result=%#v error=%v", result, err)
+	}
+}
+
 func TestSharePreservesServerRetryDelay(t *testing.T) {
 	local, preview := shareTestSession(t)
 	client := testClient(&credentialMemory{value: "device-secret"}, func(*http.Request) (*http.Response, error) {
