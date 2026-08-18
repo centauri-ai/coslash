@@ -2,9 +2,11 @@ package codex
 
 import (
 	"cmp"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	_ "modernc.org/sqlite"
 )
 
 type codexSessionAnalysis struct {
@@ -47,6 +50,7 @@ type codexSessionAnalysis struct {
 	turnDepth        int
 	waitingForInput  bool
 	approvalPending  bool
+	approvalTurnID   string
 	lastTurnAborted  bool
 	inReview         bool
 }
@@ -350,6 +354,9 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 					_, completed := completedCalls[row.Payload.CallID]
 					analysis.approvalPending = analysis.approvalPending ||
 						(!completed && prefixNeedsApproval(prefix))
+					if analysis.approvalPending {
+						analysis.approvalTurnID = row.Payload.ChatMetadata.TurnID
+					}
 				}
 				analysis.notePlan(row.Payload, timestamp)
 			case "function_call_output":
@@ -383,7 +390,42 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 	if own.entrypoint != "" {
 		analysis.entrypoint = &own.entrypoint
 	}
+	if analysis.approvalPending && approvalDecisionLogged(
+		approvalLogPath(), analysis.sessionID, analysis.approvalTurnID,
+	) {
+		analysis.approvalPending = false
+	}
 	return analysis, nil
+}
+
+func approvalLogPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".codex", "logs_2.sqlite")
+}
+
+func approvalDecisionLogged(path, sessionID, turnID string) bool {
+	if path == "" || sessionID == "" || turnID == "" {
+		return false
+	}
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro&_query_only=1&_busy_timeout=100"}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	var found bool
+	err = db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM logs
+			WHERE thread_id = ?
+				AND instr(feedback_log_body, 'op: ExecApproval') > 0
+				AND instr(feedback_log_body, 'turn_id: Some("' || ? || '")') > 0
+		)
+	`, sessionID, turnID).Scan(&found)
+	return err == nil && found
 }
 
 func ownMeta(metas []codexMeta, ownID string) codexMeta {
