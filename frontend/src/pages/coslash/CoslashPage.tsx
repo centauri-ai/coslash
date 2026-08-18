@@ -28,7 +28,7 @@ import {
   type AgentVendor,
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
-import { loadHubDestination, type HubDestinationResult } from '@/pages/coslash/features/sharing/api';
+import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
 import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
@@ -58,10 +58,11 @@ function fixtureDestination(search: string): DestinationResult {
     state === 'credential_dormant' ||
     state === 'credential_revoked'
   ) {
-    return { contractVersion: HUB_SHARE_VERSION, state };
+    return { contractVersion: HUB_SHARE_VERSION, state, configured: true };
   }
   return {
     contractVersion: HUB_SHARE_VERSION,
+    configured: true,
     state: 'ready',
     destination: {
       workspaceId: '10000000-0000-4000-8000-000000000001',
@@ -269,7 +270,7 @@ export function CoslashPage() {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
   const shareParams = new URLSearchParams(window.location.search);
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
-  const [hubDestination, setHubDestination] = useState<HubDestinationResult | null>(null);
+  const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
   const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions(
     shareEnabled ? 'all' : timeWindow,
@@ -291,17 +292,15 @@ export function CoslashPage() {
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const settingsState = useSettings();
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
-  const shareDestination = shareFixtureEnabled
-    ? ({ ...fixtureDestination(window.location.search), configured: true } as HubDestinationResult)
-    : hubDestination;
+  const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
   const shareCandidates = useMemo(
     () =>
       sessions.map((session, index) => ({
         session,
-        previouslyShared: index === 0,
+        previouslyShared: shareFixtureEnabled && index === 0,
       })),
-    [sessions],
+    [sessions, shareFixtureEnabled],
   );
 
   const refreshHubDestination = useCallback(async () => {
@@ -312,7 +311,7 @@ export function CoslashPage() {
 
   useEffect(() => {
     if (shareFixtureEnabled) return;
-    void refreshHubDestination().catch(() => setHubDestination(null));
+    void refreshHubDestination().catch(() => undefined);
   }, [refreshHubDestination, shareFixtureEnabled]);
 
   useEffect(() => {

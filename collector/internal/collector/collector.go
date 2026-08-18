@@ -24,24 +24,28 @@ const (
 )
 
 type vendorSource struct {
-	name      string
-	collect   func(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
-	loadFacts func(id string) (*vendors.ParsedSession, error)
-	health    func() vendors.SourceHealth
+	name       string
+	collect    func(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	loadFacts  func(id string) (*vendors.ParsedSession, error)
+	loadFamily func(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	health     func() vendors.SourceHealth
 }
 
 var vendorSources = []vendorSource{
 	{
 		name: vendors.AgentClaude, collect: claude.Collect, loadFacts: claude.GetSessionFacts,
-		health: claude.Health,
+		loadFamily: claude.GetSessionFamily,
+		health:     claude.Health,
 	},
 	{
 		name: vendors.AgentCodex, collect: codex.Collect, loadFacts: codex.GetSessionFacts,
-		health: codex.Health,
+		loadFamily: codex.GetSessionFamily,
+		health:     codex.Health,
 	},
 	{
 		name: vendors.AgentOpenCode, collect: opencode.Collect, loadFacts: opencode.GetSessionFacts,
-		health: opencode.Health,
+		loadFamily: opencode.GetSessionFamily,
+		health:     opencode.Health,
 	},
 }
 
@@ -60,16 +64,7 @@ func List(since int64) ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	applyActivityFallbacks(parsed)
-	enrichModelsAndCosts(parsed)
-	composition := composeSessions(parsed)
-	enrichSubagents(composition, metadata)
-	for _, p := range composition.parsed {
-		removeUnresolvedSpawnRows(p.Session)
-	}
-	roots := composition.roots
-	resolveNames(roots, metadata)
-	resolveStatus(roots, metadata)
+	roots := finalizeSessions(parsed, metadata)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
 			_, live := sessionMetadata(metadata, root.Session.Agent).Live[root.Session.ID]
@@ -86,28 +81,62 @@ func List(since int64) ([]*session.Session, error) {
 	return sessions, nil
 }
 
-// GetSessionForPreview returns the selected fully composed revision.
-func GetSessionForPreview(id string, expectedRevision int64) (*session.Session, error) {
+// GetSessionForPreview returns the selected fully composed session family.
+func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
-	current, err := GetSessionFacts(id)
-	if err != nil || current == nil {
-		return current, err
-	}
-	if current.LastActivityTime != expectedRevision {
-		return current, nil
-	}
-	sessions, err := List(expectedRevision)
-	if err != nil {
-		return nil, err
-	}
-	for _, candidate := range sessions {
-		if candidate.ID == id {
-			return candidate, nil
+	var failures []error
+	for _, source := range vendorSources {
+		parsed, metadata, err := source.loadFamily(id)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
+			continue
+		}
+		roots := servableRoots(finalizeSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}))
+		probeLastEdits(roots)
+		probeGitEnvironment(roots)
+		for _, candidate := range roots {
+			if candidate.Session.ID == id {
+				return candidate.Session, nil
+			}
 		}
 	}
+	if len(failures) > 0 {
+		return nil, errors.Join(failures...)
+	}
 	return nil, nil
+}
+
+func finalizeSessions(
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+) []*vendors.ParsedSession {
+	applyActivityFallbacks(parsed)
+	enrichModelsAndCosts(parsed)
+	composition := composeSessions(parsed)
+	promoteFamilyActivity(composition)
+	enrichSubagents(composition, metadata)
+	for _, p := range composition.parsed {
+		removeUnresolvedSpawnRows(p.Session)
+	}
+	resolveNames(composition.roots, metadata)
+	resolveStatus(composition.roots, metadata)
+	return composition.roots
+}
+
+func promoteFamilyActivity(composition sessionComposition) {
+	parents := make(map[*vendors.ParsedSession]*vendors.ParsedSession, len(composition.children))
+	for _, link := range composition.children {
+		parents[link.child] = link.parent
+	}
+	for child, parent := range parents {
+		activity := child.Session.LastActivityTime
+		for parent != nil {
+			parent.Session.LastActivityTime = max(parent.Session.LastActivityTime, activity)
+			parent = parents[parent]
+		}
+	}
 }
 
 func applyActivityFallbacks(parsed []*vendors.ParsedSession) {

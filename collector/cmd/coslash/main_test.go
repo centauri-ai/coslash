@@ -40,7 +40,7 @@ func TestListenBindsIPv4Loopback(t *testing.T) {
 
 func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil), settings.Open())
+	handler := routes(synthesis.NewManager(nil), settings.Open(), nil)
 	for _, test := range []struct {
 		method string
 		path   string
@@ -68,6 +68,7 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
 		synthesis.NewManager(nil),
 		settings.Open(),
+		nil,
 	)
 	request := httptest.NewRequest(http.MethodGet, "http://evil.example:8787/", nil)
 	response := httptest.NewRecorder()

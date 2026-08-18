@@ -80,4 +80,27 @@ describe('Hub sharing local adapter', () => {
     installBrowser(fetchMock);
     await expect(loadHubDestination()).rejects.toThrow('outside the expected contract');
   });
+
+  it('rejects unknown share error codes before retry planning', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        contractVersion: 'hub-share/v1',
+        requestId: 'request-1',
+        state: 'failed',
+        results: [
+          {
+            localSessionId: 'codex:one',
+            idempotencyKey: 'key-000000000000',
+            state: 'failed',
+            deduplicated: false,
+            error: { code: 'future_error', retryable: true },
+          },
+        ],
+      }),
+    );
+    installBrowser(fetchMock);
+    await expect(
+      submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] }),
+    ).rejects.toThrow('outside the expected contract');
+  });
 });

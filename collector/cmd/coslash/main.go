@@ -135,10 +135,10 @@ func newServer(
 	guard httpsec.Guard,
 	mgr *synthesis.Manager,
 	settingsStore *settings.Store,
-	hubClients ...*hubclient.Client,
+	hub *hubclient.Client,
 ) *http.Server {
 	return &http.Server{
-		Handler:           guard.Wrap(routes(mgr, settingsStore, hubClients...)),
+		Handler:           guard.Wrap(routes(mgr, settingsStore, hub)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -147,7 +147,7 @@ func newServer(
 	}
 }
 
-func routes(mgr *synthesis.Manager, settingsStore *settings.Store, hubClients ...*hubclient.Client) *http.ServeMux {
+func routes(mgr *synthesis.Manager, settingsStore *settings.Store, hub *hubclient.Client) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
@@ -174,10 +174,6 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store, hubClients ..
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.Collect(r.Context(), version, false))
 	})
-	var hub *hubclient.Client
-	if len(hubClients) > 0 {
-		hub = hubClients[0]
-	}
 	registerHubRoutes(api, hub)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)

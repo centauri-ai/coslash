@@ -23,6 +23,8 @@ import (
 
 const snapshotMediaType = "application/vnd.coslash.session-snapshot.v1+json"
 
+const batchTimeout = 150 * time.Second
+
 type SessionLoader func(string, int64) (*session.Session, error)
 
 type Client struct {
@@ -47,14 +49,24 @@ func (c *Client) configured() bool {
 }
 
 func (c *Client) httpClient() *http.Client {
-	if c.HTTP != nil {
-		return c.HTTP
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	copy := *client
+	copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &copy
 }
 
 func (c *Client) endpoint(path string) string {
-	return c.BaseURL.ResolveReference(&url.URL{Path: path}).String()
+	endpoint := *c.BaseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
+	endpoint.RawPath = ""
+	endpoint.RawQuery = ""
+	endpoint.Fragment = ""
+	return endpoint.String()
 }
 
 func (c *Client) Destination(ctx context.Context) (DestinationResult, error) {
@@ -125,7 +137,11 @@ func (c *Client) BeginPairing(ctx context.Context) (PairingResult, error) {
 	if err := decodeBounded(response.Body, &authorization); err != nil {
 		return PairingResult{}, fmt.Errorf("decode Hub pairing: %w", err)
 	}
-	if authorization.ID == "" || authorization.DeviceCode == "" || authorization.UserCode == "" {
+	if authorization.ID == "" || authorization.DeviceCode == "" || authorization.UserCode == "" ||
+		time.Now().After(authorization.ExpiresAt) ||
+		!c.validVerificationURL(authorization.VerificationURI, "") ||
+		authorization.VerificationURIComplete != "" &&
+			!c.validVerificationURL(authorization.VerificationURIComplete, authorization.DeviceCode) {
 		return PairingResult{}, errors.New("decode Hub pairing: incomplete authorization")
 	}
 	c.pairingMu.Lock()
@@ -176,7 +192,8 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 		TokenType  string `json:"tokenType"`
 		Scope      string `json:"scope"`
 	}
-	if err := decodeBounded(response.Body, &token); err != nil || token.Credential == "" {
+	if err := decodeBounded(response.Body, &token); err != nil || token.DeviceID == "" ||
+		token.Credential == "" || token.TokenType != "Device" || token.Scope != "ingest" {
 		return PairingResult{}, errors.New("decode Hub credential: invalid response")
 	}
 	if err := c.Credentials.Save(ctx, token.Credential); err != nil {
@@ -190,6 +207,16 @@ func (c *Client) forgetPairing(id string) {
 	c.pairingMu.Lock()
 	delete(c.pairings, id)
 	c.pairingMu.Unlock()
+}
+
+func (c *Client) validVerificationURL(raw, forbidden string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || !parsed.IsAbs() || parsed.User != nil ||
+		parsed.Scheme != c.BaseURL.Scheme || parsed.Host != c.BaseURL.Host {
+		return false
+	}
+	decoded, _ := url.QueryUnescape(raw)
+	return forbidden == "" || !strings.Contains(raw, forbidden) && !strings.Contains(decoded, forbidden)
 }
 
 type uploadResponse struct {
@@ -224,6 +251,8 @@ func (c *Client) Share(ctx context.Context, input ShareRequest) (ShareResult, er
 	if err != nil {
 		return ShareResult{}, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, batchTimeout)
+	defer cancel()
 	result := ShareResult{ContractVersion: ContractVersion, RequestID: input.RequestID, Results: make([]ShareItemResult, 0, len(input.Items))}
 	accepted := 0
 	for _, item := range input.Items {
@@ -248,6 +277,9 @@ func (c *Client) shareItem(ctx context.Context, credential string, item ShareIte
 	failed := func(code string, retryable bool) ShareItemResult {
 		return ShareItemResult{LocalSessionID: item.LocalSessionID, IdempotencyKey: item.IdempotencyKey,
 			State: "failed", Error: &ItemError{Code: code, Retryable: retryable}}
+	}
+	if ctx.Err() != nil {
+		return failed("timeout", true)
 	}
 	if item.Consent.PreviewContractVersion != PreviewVersion || item.Consent.SourceRevision <= 0 ||
 		item.Consent.PayloadBytes <= 0 || item.Consent.DestinationWorkspaceID == "" ||
@@ -368,7 +400,7 @@ func mapProblem(code string) string {
 		return "credential_dormant"
 	case "device_revoked":
 		return "credential_revoked"
-	case "consent_stale", "destination_changed", "idempotency_conflict", "rate_limited", "snapshot_invalid", "snapshot_too_large", "invalid_share_request", "timeout", "temporary_unavailable":
+	case "consent_stale", "destination_changed", "idempotency_conflict", "rate_limited", "snapshot_invalid", "snapshot_too_large", "invalid_share_request", "source_deleted", "timeout", "temporary_unavailable":
 		return code
 	case "unauthorized":
 		return "unauthorized"
