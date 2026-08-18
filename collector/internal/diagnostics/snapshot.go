@@ -12,6 +12,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
 type Status string
@@ -32,14 +33,16 @@ const (
 )
 
 type Snapshot struct {
-	Version     string    `json:"version"`
-	GeneratedAt int64     `json:"generatedAt"`
-	Platform    Platform  `json:"platform"`
-	Storage     Storage   `json:"storage"`
-	Synthesis   Synthesis `json:"synthesis"`
-	Sources     []Source  `json:"sources"`
-	Checks      []Check   `json:"checks"`
-	homeError   string
+	Version             string    `json:"version"`
+	GeneratedAt         int64     `json:"generatedAt"`
+	Platform            Platform  `json:"platform"`
+	Storage             Storage   `json:"storage"`
+	Synthesis           Synthesis `json:"synthesis"`
+	Sources             []Source  `json:"sources"`
+	Checks              []Check   `json:"checks"`
+	openCodePlugin      opencode.WaitingPluginHealth
+	openCodePluginError string
+	homeError           string
 }
 
 type Platform struct {
@@ -113,6 +116,11 @@ func Collect(ctx context.Context, version string, includeVersions bool) *Snapsho
 	}
 	if userHomeErr != nil {
 		snapshot.homeError = userHomeErr.Error()
+	}
+	snapshot.openCodePlugin = opencode.WaitingPluginDiagnostics()
+	snapshot.openCodePlugin.Path = displayPath(userHome, snapshot.openCodePlugin.Path)
+	if snapshot.openCodePlugin.Err != nil {
+		snapshot.openCodePluginError = displayError(userHome, snapshot.openCodePlugin.Err.Error())
 	}
 
 	storageHome := settings.Home()

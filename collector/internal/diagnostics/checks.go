@@ -69,6 +69,7 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Detail = "Enabled with " + snapshot.Synthesis.Model + "."
 	}
 	checks = append(checks, synthesis)
+	checks = append(checks, openCodePluginCheck(snapshot))
 
 	if !snapshot.Platform.TerminalLaunchSupported {
 		checks = append(checks, Check{
@@ -80,6 +81,35 @@ func derive(snapshot *Snapshot) []Check {
 		})
 	}
 	return checks
+}
+
+func openCodePluginCheck(snapshot *Snapshot) Check {
+	plugin := snapshot.openCodePlugin
+	check := Check{
+		ID:     "opencode.waiting-plugin",
+		Title:  "OpenCode Waiting plugin",
+		Status: StatusOK,
+		Detail: "Installed at " + plugin.Path + ".",
+	}
+	switch {
+	case plugin.Err != nil:
+		check.Status = StatusWarn
+		check.Detail = "coSlash could not inspect the OpenCode Waiting plugin: " + snapshot.openCodePluginError
+		if plugin.Path == "" {
+			check.Fix = "Check that the current user has a valid home directory, then restart coSlash."
+		} else {
+			check.Fix = "Check the permissions for " + plugin.Path + ", then restart coSlash."
+		}
+	case !plugin.Installed:
+		check.Status = StatusWarn
+		check.Detail = "The OpenCode Waiting plugin is not installed. Pending approvals can appear Active."
+		check.Fix = "Restart coSlash to install the plugin, then restart OpenCode."
+	case plugin.RestartRequired:
+		check.Status = StatusWarn
+		check.Detail = "The plugin changed after a running OpenCode session started."
+		check.Fix = "Restart OpenCode to load the current plugin."
+	}
+	return check
 }
 
 func sourceCheck(source Source) Check {
