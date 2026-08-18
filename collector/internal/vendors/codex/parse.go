@@ -42,12 +42,14 @@ type codexSessionAnalysis struct {
 	digest           session.DigestLog
 	plan             []planStep
 	turnDepth        int
+	waitingForInput  bool
 	lastTurnAborted  bool
 	inReview         bool
 }
 
 // Review mode's own generated instruction is not a user turn
 func (analysis *codexSessionAnalysis) notePrompt(prompt string, timestamp *int64) {
+	analysis.waitingForInput = false
 	analysis.prompts++
 	if analysis.firstUserPrompt == "" {
 		analysis.firstUserPrompt = prompt
@@ -143,6 +145,10 @@ func parse(path string) (*parsedSession, error) {
 		Stopped:  analysis.lastTurnAborted,
 		Spawns:   analysis.spawns,
 		Commands: analysis.commands.Labelled(),
+	}
+	if analysis.waitingForInput && parsed.InTurn {
+		status := "waiting"
+		parsed.Session.Status = &status
 	}
 	if parsed.ParentID != "" {
 		// Codex does not ship agent description
@@ -323,8 +329,10 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 					analysis.commands.Note(command, "")
 				}
 				if questions := questionsFrom(row.Payload); len(questions) > 0 {
+					answers, answered := questionAnswers[row.Payload.CallID]
+					analysis.waitingForInput = analysis.waitingForInput || !answered
 					for _, question := range questions {
-						answer := strings.Join(questionAnswers[row.Payload.CallID][question.id].values(), ", ")
+						answer := strings.Join(answers[question.id].values(), ", ")
 						ts := int64(0)
 						if timestamp != nil {
 							ts = *timestamp
