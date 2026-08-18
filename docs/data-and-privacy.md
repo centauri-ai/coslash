@@ -42,11 +42,12 @@ For opt-in user testing before the Team flow ships, append
 preview-only trigger in session details; it does not enable a Team workspace,
 approval, or upload.
 
-The preview can include a bounded `firstPrompt` (up to 16 KiB) after
-credential-pattern redaction; it does not claim that prompt data is always
-excluded. Redaction and truncation records identify affected canonical paths.
-Raw transcripts, assistant reasoning, tool output, file diffs, raw commands,
-credentials, environment variables, and unresolved local paths are excluded.
+The preview can include a bounded `firstPrompt` (up to 16 KiB). Known
+credential patterns are redacted, but other sensitive text can remain, so the
+exact bounded value must be reviewed. Redaction and truncation records identify
+affected canonical paths. Raw transcripts, assistant reasoning, tool output,
+file diffs, raw commands, environment variables, and unresolved local paths are
+excluded.
 
 ## Local server
 

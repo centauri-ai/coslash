@@ -45,11 +45,6 @@ var vendorSources = []vendorSource{
 	},
 }
 
-var previewSessionCache = struct {
-	sync.RWMutex
-	byID map[string]session.Session
-}{byID: map[string]session.Session{}}
-
 type SourceHealth = vendors.SourceHealth
 
 func Sources() []SourceHealth {
@@ -88,7 +83,6 @@ func List(since int64) ([]*session.Session, error) {
 	for _, root := range roots {
 		sessions = append(sessions, root.Session)
 	}
-	cachePreviewSessions(sessions)
 	return sessions, nil
 }
 
@@ -104,13 +98,7 @@ func GetSessionForPreview(id string, expectedRevision int64) (*session.Session, 
 	if current.LastActivityTime != expectedRevision {
 		return current, nil
 	}
-	previewSessionCache.RLock()
-	cached, ok := previewSessionCache.byID[id]
-	previewSessionCache.RUnlock()
-	if ok && cached.LastActivityTime == current.LastActivityTime {
-		return &cached, nil
-	}
-	sessions, err := List(0)
+	sessions, err := List(expectedRevision)
 	if err != nil {
 		return nil, err
 	}
@@ -120,14 +108,6 @@ func GetSessionForPreview(id string, expectedRevision int64) (*session.Session, 
 		}
 	}
 	return nil, nil
-}
-
-func cachePreviewSessions(sessions []*session.Session) {
-	previewSessionCache.Lock()
-	defer previewSessionCache.Unlock()
-	for _, value := range sessions {
-		previewSessionCache.byID[value.ID] = *value
-	}
 }
 
 func applyActivityFallbacks(parsed []*vendors.ParsedSession) {

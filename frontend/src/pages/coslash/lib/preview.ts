@@ -19,14 +19,34 @@ export type SnapshotPreview = {
 };
 
 export const PREVIEW_PRIVACY_COPY =
-  'When present, firstPrompt is shared up to 16 KiB after credential-pattern redaction. Prompt data can therefore be included; this preview shows the exact bounded value.';
+  'When present, firstPrompt is shared up to 16 KiB after known credential patterns are redacted. Other sensitive text can remain; review the exact bounded value below.';
 
 export const STRUCTURALLY_EXCLUDED = [
   'Raw transcripts and assistant reasoning',
   'Tool output and file diffs',
   'Raw top-level and subagent commands',
-  'Credentials, environment variables, and unresolved local paths',
+  'Environment variables and unresolved local paths',
 ] as const;
+
+const PREVIEW_STATES: PreviewState[] = [
+  'ready',
+  'invalid',
+  'unsupported_version',
+  'stale_source',
+  'oversized',
+];
+
+export function isSnapshotPreview(value: unknown): value is SnapshotPreview {
+  if (value == null || Array.isArray(value) || typeof value !== 'object') return false;
+  const preview = value as Record<string, unknown>;
+  return (
+    preview.adapterVersion === 'snapshot-preview/v1' &&
+    PREVIEW_STATES.includes(preview.state as PreviewState) &&
+    typeof preview.approvalAllowed === 'boolean' &&
+    typeof preview.sourceRevision === 'number' &&
+    typeof preview.maxPayloadBytes === 'number'
+  );
+}
 
 export function previewRequestPath(id: string, revision: number): string {
   return `/api/share-preview?${new URLSearchParams({ id, revision: String(revision) })}`;
@@ -52,11 +72,8 @@ export function canonicalUploadBytes(preview: SnapshotPreview): Uint8Array {
     throw new Error('Canonical preview payload length does not match its metadata.');
   }
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  const decoded = JSON.parse(text) as { schemaVersion?: unknown; contentHash?: unknown };
-  if (
-    decoded.schemaVersion !== preview.schemaVersion ||
-    decoded.contentHash !== preview.snapshot.contentHash
-  ) {
+  const decoded: unknown = JSON.parse(text);
+  if (JSON.stringify(decoded) !== JSON.stringify(preview.snapshot)) {
     throw new Error('Canonical preview payload does not match the displayed snapshot.');
   }
   return bytes;
