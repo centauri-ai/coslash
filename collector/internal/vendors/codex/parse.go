@@ -352,10 +352,12 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 						analysis.digest.PushQuestion(analysis.prompts, question.text, answer, ts)
 					}
 				}
-				if command, escalated := execApprovalCommand(row.Payload); escalated {
+				if commands := execApprovalCommands(row.Payload); len(commands) > 0 {
 					_, completed := completedCalls[row.Payload.CallID]
-					analysis.approvalPending = analysis.approvalPending ||
-						(!completed && commandNeedsApproval(command, analysis.workingDirectory))
+					for _, command := range commands {
+						analysis.approvalPending = analysis.approvalPending ||
+							(!completed && commandNeedsApproval(command, analysis.workingDirectory))
+					}
 					if analysis.approvalPending {
 						analysis.approvalTurnID = row.Payload.ChatMetadata.TurnID
 					}
@@ -636,6 +638,7 @@ var requestUserInputCallPattern = regexp.MustCompile(`\brequest_user_input\s*\(`
 var escalatedSandboxPattern = regexp.MustCompile(
 	`(?:"sandbox_permissions"|sandbox_permissions)\s*:\s*"require_escalated"`,
 )
+var execCommandCallPattern = regexp.MustCompile(`\btools\.exec_command\s*\(`)
 var questionIDPattern = regexp.MustCompile(`"id"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var questionPattern = regexp.MustCompile(`"question"\s*:\s*("(?:[^"\\]|\\.)*")`)
 var planStepPattern = regexp.MustCompile(
@@ -776,25 +779,37 @@ func completedCallIDs(rows []codexRow) map[string]struct{} {
 	return completed
 }
 
-func execApprovalCommand(payload codexPayload) (string, bool) {
+func execApprovalCommands(payload codexPayload) []string {
 	if payload.Name != "exec_command" {
-		text := payloadText(payload)
-		if payload.Name != "exec" || !strings.Contains(text, "tools.exec_command(") ||
-			!escalatedSandboxPattern.MatchString(text) {
-			return "", false
+		if payload.Name != "exec" {
+			return nil
 		}
-		command, _ := commandFrom(payload)
-		return command, true
+		text := payloadText(payload)
+		starts := execCommandCallPattern.FindAllStringIndex(text, -1)
+		commands := []string{}
+		for i, start := range starts {
+			end := len(text)
+			if i+1 < len(starts) {
+				end = starts[i+1][0]
+			}
+			segment := text[start[0]:end]
+			if !escalatedSandboxPattern.MatchString(segment) {
+				continue
+			}
+			command, _ := commandFrom(codexPayload{Input: segment})
+			commands = append(commands, command)
+		}
+		return commands
 	}
 	var arguments struct {
 		SandboxPermissions string `json:"sandbox_permissions"`
 	}
 	if json.Unmarshal([]byte(payloadText(payload)), &arguments) != nil ||
 		arguments.SandboxPermissions != "require_escalated" {
-		return "", false
+		return nil
 	}
 	command, _ := commandFrom(payload)
-	return command, true
+	return []string{command}
 }
 
 func commandNeedsApproval(command, cwd string) bool {
