@@ -91,7 +91,7 @@ models:
 		jq -e 'length > 50' $(MODELS).new > /dev/null || { \
 			echo "error: $$(jq length $(MODELS).new) models is too few; an upstream format changed"; exit 1; }; \
 		jq -e --slurpfile opencode $(MODELS).opencode \
-			'. as $$table | all($$opencode[0].opencode.models | keys[]; . as $$id | (($$table | has($$id)) or ($$table | has("opencode/" + $$id))))' \
+			'. as $$table | all($$opencode[0].opencode.models | keys[]; . as $$id | $$table | has("opencode/" + $$id))' \
 			$(MODELS).new > /dev/null || { echo "error: the OpenCode model merge is incomplete"; exit 1; }; \
 		mv $(MODELS).new $(MODELS); \
 		rm -f $(MODELS).opencode; \
