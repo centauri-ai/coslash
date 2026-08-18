@@ -24,9 +24,8 @@ var modelsCache struct {
 	loaded time.Time
 }
 
-// SynthesisModels lists the live OpenCode Zen models that cost nothing to run,
-// so the picker cannot bill the user for a model they did not name. Results are
-// cached because the CLI call costs about a second and settings are polled.
+// SynthesisModels lists the free OpenCode Zen models, so the picker cannot
+// bill the user for a model they did not name.
 func SynthesisModels() []string {
 	modelsCache.mu.Lock()
 	defer modelsCache.mu.Unlock()
@@ -62,8 +61,8 @@ func loadModels() []string {
 	return parseVerboseModels(output)
 }
 
-// parseVerboseModels reads the CLI's "provider/id" header lines followed by a
-// pretty-printed object whose closing brace sits in the first column.
+// The CLI prints a "provider/id" header, then a pretty-printed object whose
+// closing brace sits in the first column.
 func parseVerboseModels(output []byte) []string {
 	models := []string{}
 	scanner := bufio.NewScanner(bytes.NewReader(output))
