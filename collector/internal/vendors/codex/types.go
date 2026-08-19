@@ -45,12 +45,15 @@ type codexPayload struct {
 }
 
 type codexItem struct {
-	Type          string            `json:"type"`
-	Phase         string            `json:"phase"`
-	Content       []codexText       `json:"content"`
-	Changes       codexPatchChanges `json:"changes"`
-	Kind          string            `json:"kind"`
-	AgentThreadID string            `json:"agent_thread_id"`
+	Type             string            `json:"type"`
+	Phase            string            `json:"phase"`
+	Content          []codexText       `json:"content"`
+	Changes          codexPatchChanges `json:"changes"`
+	Kind             string            `json:"kind"`
+	AgentThreadID    string            `json:"agent_thread_id"`
+	Command          []string          `json:"command"`
+	AggregatedOutput string            `json:"aggregated_output"`
+	ExitCode         *int              `json:"exit_code"`
 }
 
 func subagentRole(source json.RawMessage) string {

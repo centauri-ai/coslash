@@ -704,42 +704,33 @@ type codexCommandResult struct {
 }
 
 func pullRequestURLs(rows []codexRow) map[string]struct{} {
-	pending := map[string]struct{}{}
 	urls := map[string]struct{}{}
 	for _, row := range rows {
-		if row.Type != "response_item" {
-			continue
-		}
-		switch row.Payload.Type {
-		case "message":
-			if row.Payload.Role != "assistant" || row.Payload.Phase != "final_answer" {
-				continue
-			}
-			var content []codexText
-			if json.Unmarshal(row.Payload.Content, &content) != nil {
-				continue
-			}
-			for _, block := range content {
-				for _, match := range pullRequestDirectivePattern.FindAllStringSubmatch(block.Text, -1) {
-					urls[match[1]] = struct{}{}
-				}
-			}
-		case "function_call", "custom_tool_call":
-			if command, ok := commandFrom(row.Payload); ok &&
-				row.Payload.CallID != "" && session.IsPullRequestCreate(command) {
-				pending[row.Payload.CallID] = struct{}{}
-			}
-		case "function_call_output", "custom_tool_call_output":
-			if _, ok := pending[row.Payload.CallID]; !ok {
-				continue
-			}
-			result := decodeCodexCommandResult(row.Payload.Output)
-			if result.succeeded {
-				for _, url := range pullRequestURLPattern.FindAllString(result.output, -1) {
+		if row.Type == "event_msg" {
+			item := row.Payload.Item
+			if item.Type == "CommandExecution" && item.ExitCode != nil && *item.ExitCode == 0 &&
+				len(item.Command) > 0 && session.IsPullRequestCreate(item.Command[len(item.Command)-1]) {
+				for _, url := range pullRequestURLPattern.FindAllString(item.AggregatedOutput, -1) {
 					urls[url] = struct{}{}
 				}
 			}
-			delete(pending, row.Payload.CallID)
+			continue
+		}
+		if row.Type != "response_item" {
+			continue
+		}
+		if row.Payload.Type != "message" || row.Payload.Role != "assistant" ||
+			row.Payload.Phase != "final_answer" {
+			continue
+		}
+		var content []codexText
+		if json.Unmarshal(row.Payload.Content, &content) != nil {
+			continue
+		}
+		for _, block := range content {
+			for _, match := range pullRequestDirectivePattern.FindAllStringSubmatch(block.Text, -1) {
+				urls[match[1]] = struct{}{}
+			}
 		}
 	}
 	return urls
