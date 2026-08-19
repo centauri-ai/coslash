@@ -108,6 +108,7 @@ export function ShareToHubDialog({
   const [fixtureAttempt, setFixtureAttempt] = useState(0);
   const [pairing, setPairing] = useState<PairingResult | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
+  const [pairingRefreshRequired, setPairingRefreshRequired] = useState(false);
   const [retryReadyAt, setRetryReadyAt] = useState(0);
   const [clock, setClock] = useState(() => Date.now());
   const previewGeneration = useRef(0);
@@ -152,6 +153,7 @@ export function ShareToHubDialog({
     setFixtureAttempt(0);
     setPairing(null);
     setPairingError(null);
+    setPairingRefreshRequired(false);
     setRetryReadyAt(0);
   }, [open]);
 
@@ -164,7 +166,7 @@ export function ShareToHubDialog({
 
   useEffect(() => {
     const pairingId = pairing?.pairingId;
-    if (!open || fixtureMode || pairing?.state !== 'pending' || !pairingId) return;
+    if (!open || fixtureMode || pairing?.state !== 'pending' || !pairingId || pairingRefreshRequired) return;
     let stopped = false;
     let timeout = 0;
     const delay = Math.max(2, pairing.intervalSeconds ?? 2) * 1000;
@@ -173,12 +175,24 @@ export function ShareToHubDialog({
       try {
         const next = await pollHubPairing(pairingId);
         if (stopped) return;
-        setPairing((current) => ({ ...current, ...next }));
         if (next.state === 'paired') {
           finished = true;
-          await onDestinationRefresh();
+          try {
+            await onDestinationRefresh();
+            if (!stopped) setPairing((current) => ({ ...current, ...next }));
+          } catch (error) {
+            if (!stopped) {
+              setPairingRefreshRequired(true);
+              setPairingError(
+                error instanceof Error ? error.message : 'The Hub destination could not be refreshed.',
+              );
+            }
+          }
         } else if (next.state === 'expired') {
           finished = true;
+          setPairing((current) => ({ ...current, ...next }));
+        } else {
+          setPairing((current) => ({ ...current, ...next }));
         }
       } catch (error) {
         if (!stopped) {
@@ -193,7 +207,15 @@ export function ShareToHubDialog({
       stopped = true;
       globalThis.clearTimeout(timeout);
     };
-  }, [fixtureMode, onDestinationRefresh, open, pairing?.intervalSeconds, pairing?.pairingId, pairing?.state]);
+  }, [
+    fixtureMode,
+    onDestinationRefresh,
+    open,
+    pairing?.intervalSeconds,
+    pairing?.pairingId,
+    pairing?.state,
+    pairingRefreshRequired,
+  ]);
 
   useEffect(() => {
     if (retryReadyAt <= clock) return;
@@ -345,6 +367,7 @@ export function ShareToHubDialog({
 
   const beginPairing = async () => {
     setPairingError(null);
+    setPairingRefreshRequired(false);
     try {
       const next = await beginHubPairing();
       setPairing(next);
@@ -352,6 +375,17 @@ export function ShareToHubDialog({
       if (target) globalThis.open(target, '_blank', 'noopener,noreferrer');
     } catch (error) {
       setPairingError(error instanceof Error ? error.message : 'Device pairing could not start.');
+    }
+  };
+
+  const retryDestinationRefresh = async () => {
+    setPairingError(null);
+    try {
+      await onDestinationRefresh();
+      setPairing((current) => (current ? { ...current, state: 'paired' } : { state: 'paired' }));
+      setPairingRefreshRequired(false);
+    } catch (error) {
+      setPairingError(error instanceof Error ? error.message : 'The Hub destination could not be refreshed.');
     }
   };
 
@@ -421,19 +455,29 @@ export function ShareToHubDialog({
             <p className="text-muted-foreground mt-2 max-w-md text-sm">{eligibility?.detail}</p>
             {!fixtureMode && pairing?.state === 'pending' ? (
               <div className="mt-5 rounded-lg border p-4">
-                <p className="text-sm font-semibold">Approve code {pairing.userCode}</p>
-                <p className="text-muted-foreground pt-1 text-xs">
-                  A Hub sign-in window was opened. This page will update after approval.
+                <p className="text-sm font-semibold">
+                  {pairingRefreshRequired ? 'Pairing approved' : `Approve code ${pairing.userCode}`}
                 </p>
-                {(pairing.verificationUriComplete ?? pairing.verificationUri) && (
-                  <a
-                    className="text-info-fg mt-3 inline-block text-sm font-semibold underline"
-                    href={pairing.verificationUriComplete ?? pairing.verificationUri}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open approval page
-                  </a>
+                <p className="text-muted-foreground pt-1 text-xs">
+                  {pairingRefreshRequired
+                    ? 'Refresh the destination to finish enabling sharing.'
+                    : 'A Hub sign-in window was opened. This page will update after approval.'}
+                </p>
+                {pairingRefreshRequired ? (
+                  <Button className="mt-3" size="sm" onClick={retryDestinationRefresh}>
+                    Retry destination refresh
+                  </Button>
+                ) : (
+                  (pairing.verificationUriComplete ?? pairing.verificationUri) && (
+                    <a
+                      className="text-info-fg mt-3 inline-block text-sm font-semibold underline"
+                      href={pairing.verificationUriComplete ?? pairing.verificationUri}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open approval page
+                    </a>
+                  )
                 )}
               </div>
             ) : (

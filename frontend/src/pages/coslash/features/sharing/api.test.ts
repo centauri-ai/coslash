@@ -81,7 +81,7 @@ describe('Hub sharing local adapter', () => {
     await expect(loadHubDestination()).rejects.toThrow('outside the expected contract');
   });
 
-  it('rejects unknown share error codes before retry planning', async () => {
+  it.each(['future_error', 'toString', '__proto__'])('rejects unknown share error code %s', async (code) => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
         contractVersion: 'hub-share/v1',
@@ -93,7 +93,7 @@ describe('Hub sharing local adapter', () => {
             idempotencyKey: 'key-000000000000',
             state: 'failed',
             deduplicated: false,
-            error: { code: 'future_error', retryable: true },
+            error: { code, retryable: true },
           },
         ],
       }),
