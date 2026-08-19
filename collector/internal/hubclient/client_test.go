@@ -74,6 +74,32 @@ func TestBeginPairingRejectsUntrustedVerificationURL(t *testing.T) {
 	}
 }
 
+func TestBeginPairingRejectsDeviceCodeInVerificationURLs(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		verification string
+		complete     string
+	}{
+		{name: "plain", verification: "https://hub.example/pair?device_code=private"},
+		{name: "complete", verification: "https://hub.example/pair", complete: "https://hub.example/pair?device_code=private"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := `{"id":"pair","deviceCode":"private","userCode":"public","verificationUri":"` + test.verification +
+				`","verificationUriComplete":"` + test.complete + `","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`
+			base, _ := url.Parse("https://hub.example")
+			client := Client{
+				BaseURL: base, Credentials: &memoryCredentials{},
+				HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return response(http.StatusCreated, body), nil
+				})},
+			}
+			if _, err := client.BeginPairing(context.Background()); err == nil {
+				t.Fatal("verification URL containing the device code was accepted")
+			}
+		})
+	}
+}
+
 func TestPollPairingValidatesCredentialMetadata(t *testing.T) {
 	for _, test := range []struct {
 		name string

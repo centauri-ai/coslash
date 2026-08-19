@@ -139,7 +139,7 @@ func (c *Client) BeginPairing(ctx context.Context) (PairingResult, error) {
 	}
 	if authorization.ID == "" || authorization.DeviceCode == "" || authorization.UserCode == "" ||
 		time.Now().After(authorization.ExpiresAt) ||
-		!c.validVerificationURL(authorization.VerificationURI, "") ||
+		!c.validVerificationURL(authorization.VerificationURI, authorization.DeviceCode) ||
 		authorization.VerificationURIComplete != "" &&
 			!c.validVerificationURL(authorization.VerificationURIComplete, authorization.DeviceCode) {
 		return PairingResult{}, errors.New("decode Hub pairing: incomplete authorization")

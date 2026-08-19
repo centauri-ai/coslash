@@ -81,7 +81,7 @@ function isShareResult(value: unknown): value is ShareResult {
       return (
         isRecord(item.error) &&
         typeof item.error.code === 'string' &&
-        item.error.code in RETRY_RULES &&
+        Object.hasOwn(RETRY_RULES, item.error.code) &&
         typeof item.error.retryable === 'boolean'
       );
     }
