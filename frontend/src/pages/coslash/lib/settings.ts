@@ -53,6 +53,46 @@ export function modelForBackend(response: SettingsResponse, backend: string): st
   return option?.models.find((model) => model.default)?.id ?? option?.models[0]?.id ?? '';
 }
 
+/** Turn synthesis on only when a detected CLI exists; otherwise return null. */
+export function enableSynthesisDraft(
+  draft: CoslashSettings,
+  response: SettingsResponse,
+): CoslashSettings | null {
+  const availableBackend = availableSynthesisBackends(response.options.synthesisBackends)[0];
+  if (availableBackend == null) return null;
+  return {
+    ...draft,
+    synthesis: {
+      ...draft.synthesis,
+      enabled: true,
+      backend: availableBackend.id,
+      model: modelForBackend(response, availableBackend.id),
+    },
+  };
+}
+
+/**
+ * Settings that are safe to persist: synthesis stays on only with a detected
+ * backend. Used so first-run consent can always Save instead of getting stuck.
+ */
+export function settingsForSave(draft: CoslashSettings, response: SettingsResponse): CoslashSettings {
+  if (!draft.synthesis.enabled) return draft;
+  const backends = availableSynthesisBackends(response.options.synthesisBackends);
+  const selected = backends.find((option) => option.id === draft.synthesis.backend) ?? backends[0];
+  if (selected == null) {
+    return { ...draft, synthesis: { ...draft.synthesis, enabled: false } };
+  }
+  if (selected.id === draft.synthesis.backend) return draft;
+  return {
+    ...draft,
+    synthesis: {
+      ...draft.synthesis,
+      backend: selected.id,
+      model: modelForBackend(response, selected.id),
+    },
+  };
+}
+
 export function initialSettingsDraft(response: SettingsResponse): CoslashSettings {
   const synthesis = { ...response.settings.synthesis };
 

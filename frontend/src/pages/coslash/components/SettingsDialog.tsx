@@ -6,9 +6,11 @@ import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import {
   availableSynthesisBackends,
+  enableSynthesisDraft,
   initialSettingsDraft,
   modelForBackend,
   requiresFirstRunConsent,
+  settingsForSave,
   type BackendOption,
   type CoslashSettings,
   type SettingsResponse,
@@ -64,17 +66,22 @@ function SelectControl({
 
 function SynthesisPreference({
   enabled,
+  canEnable,
   onChange,
 }: {
   enabled: boolean;
+  canEnable: boolean;
   onChange: (enabled: boolean) => void;
 }) {
+  const enableBlocked = !enabled && !canEnable;
   return (
     <div className="flex items-center justify-between gap-4 p-4">
       <div className="flex min-w-0 flex-col gap-1">
         <div className="text-sm font-semibold">AI synthesis</div>
         <div className="text-muted-foreground text-xs text-pretty">
-          Summarize eligible session transcripts through a local CLI.
+          {enableBlocked
+            ? 'Install a supported CLI (claude, codex, or opencode) to turn this on.'
+            : 'Summarize eligible session transcripts through a local CLI.'}
         </div>
       </div>
       <button
@@ -82,8 +89,14 @@ function SynthesisPreference({
         role="switch"
         aria-label="AI synthesis"
         aria-checked={enabled}
-        onClick={() => onChange(!enabled)}
-        className="bg-input focus-visible:border-ring focus-visible:ring-ring aria-checked:bg-primary relative inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors outline-none focus-visible:ring-3"
+        aria-disabled={enableBlocked}
+        title={enableBlocked ? 'No supported CLI detected on PATH' : undefined}
+        disabled={enableBlocked}
+        onClick={() => {
+          if (enabled) onChange(false);
+          else if (canEnable) onChange(true);
+        }}
+        className="bg-input focus-visible:border-ring focus-visible:ring-ring aria-checked:bg-primary relative inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors outline-none focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span
           className={cn(
@@ -215,13 +228,14 @@ export function SettingsDialog({
   const selectedBackend = synthesisBackends.find((option) => option.id === draft?.synthesis.backend);
   const selectedModel = selectedBackend?.models.find((option) => option.id === draft?.synthesis.model);
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
-  const synthesisBackendAvailable = draft?.synthesis.enabled !== true || selectedBackend?.available === true;
-  const canSave = (isFirstRun || response?.valid === false || isDirty) && synthesisBackendAvailable;
+  // Persist is always allowed: settingsForSave turns synthesis off when no CLI is usable.
+  const canSave = isFirstRun || response?.valid === false || isDirty;
 
   const save = async () => {
-    if (!draft || !synthesisBackendAvailable) return;
-    if (await onSave(draft)) {
-      setTheme(draft.appearance.theme);
+    if (!draft || !response) return;
+    const toSave = settingsForSave(draft, response);
+    if (await onSave(toSave)) {
+      setTheme(toSave.appearance.theme);
       onOpenChange(false);
     }
   };
@@ -235,8 +249,8 @@ export function SettingsDialog({
     ? { label: 'Save failed', className: 'text-destructive' }
     : isSaving
       ? { label: 'Saving…', className: 'text-muted-foreground' }
-      : !synthesisBackendAvailable
-        ? { label: 'Backend unavailable', className: 'text-warning-fg' }
+      : draft?.synthesis.enabled === true && selectedBackend == null
+        ? { label: 'Will save with synthesis off', className: 'text-warning-fg' }
         : response?.valid === false
           ? { label: 'Repair required', className: 'text-warning-fg' }
           : isDirty
@@ -290,7 +304,15 @@ export function SettingsDialog({
                 <div className="border-border bg-card overflow-hidden rounded-xl border">
                   <SynthesisPreference
                     enabled={draft.synthesis.enabled}
-                    onChange={(enabled) => setDraft({ ...draft, synthesis: { ...draft.synthesis, enabled } })}
+                    canEnable={hasSynthesisBackends}
+                    onChange={(enabled) => {
+                      if (!enabled) {
+                        setDraft({ ...draft, synthesis: { ...draft.synthesis, enabled: false } });
+                        return;
+                      }
+                      const next = enableSynthesisDraft(draft, response);
+                      if (next) setDraft(next);
+                    }}
                   />
 
                   {draft.synthesis.enabled ? (
