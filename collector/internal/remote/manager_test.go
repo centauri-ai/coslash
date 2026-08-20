@@ -456,3 +456,60 @@ func TestApplySettingsRollsBackWhenCacheLoadFails(t *testing.T) {
 		return h.State == StateOK && !h.Refreshing
 	})
 }
+
+func TestLoadSettingsSnapshotDoesNotStartRefresh(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("COSLASH_HOME", root)
+	id := "r_0123456789abcdef"
+	cache := NewCache(root)
+	if err := cache.Store(id, CachedSnapshot{
+		View:             sampleView(0, 1000),
+		FetchedAtMs:      1000,
+		ClockOffsetMs:    50,
+		RoundTripMs:      20,
+		CollectorVersion: "dev",
+		SchemaVersion:    remoteviewv1.SchemaVersion,
+		Capabilities:     []string{remoteviewv1.CapabilityRemoteView},
+		LaunchableAgents: []string{remoteviewv1.AgentClaude},
+		HostOS:           "linux",
+		HostArch:         "arm64",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls atomic.Int32
+	mgr := NewManager(Options{
+		Runner: &FakeRunner{Hook: func(FakeCall) (RunResult, error) {
+			calls.Add(1)
+			t.Fatal("LoadSettingsSnapshot must not start SSH")
+			return RunResult{}, nil
+		}},
+		Cache: cache,
+	})
+	cfg := &settings.RemoteSettings{ID: id, SSHAlias: "gpu-server", Enabled: true}
+	if err := mgr.LoadSettingsSnapshot(cfg); err != nil {
+		t.Fatal(err)
+	}
+	health := mgr.DiagnosticsHealth()
+	if health.SourceID != id || health.Label != "gpu-server" || health.State != StateOK {
+		t.Fatalf("health=%+v", health)
+	}
+	if health.CollectorVersion != "dev" || health.RoundTripMs == nil || *health.RoundTripMs != 20 {
+		t.Fatalf("cache facts missing: %+v", health)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("unexpected refresh calls: %d", calls.Load())
+	}
+
+	disabled := *cfg
+	disabled.Enabled = false
+	if err := mgr.LoadSettingsSnapshot(&disabled); err != nil {
+		t.Fatal(err)
+	}
+	if health := mgr.DiagnosticsHealth(); health.State != StateDisabled {
+		t.Fatalf("disabled health=%+v", health)
+	}
+	if _, err := os.Stat(filepath.Join(root, "remotes", id, "snapshot.json")); err != nil {
+		t.Fatalf("cache should remain on disk: %v", err)
+	}
+}

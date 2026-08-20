@@ -280,6 +280,10 @@ func remoteHealthFact(mgr *remote.Manager) *diagnostics.RemoteHealth {
 		HostOS:           health.HostOS,
 		HostArch:         health.HostArch,
 		LastSuccessAtMs:  health.LastSuccessAtMs,
+		CoverageSinceMs:  health.CoverageSinceMs,
+		ClockOffsetMs:    health.ClockOffsetMs,
+		RoundTripMs:      health.RoundTripMs,
+		NextRetryAtMs:    health.NextRetryAtMs,
 		Error:            health.Error,
 		DiagnosticStderr: health.DiagnosticStderr,
 	}

@@ -284,6 +284,65 @@ func (m *Manager) DiagnosticsHealth() Health {
 	return m.healthLocked(m.lastRequestedMs)
 }
 
+// LoadSettingsSnapshot applies configured remote settings and cache for diagnostics
+// without starting SSH refresh work or deleting on-disk cache.
+func (m *Manager) LoadSettingsSnapshot(remote *settings.RemoteSettings) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.cancelLifeLocked()
+	m.refreshing = false
+	m.failures = 0
+	m.nextRetryAt = time.Time{}
+	m.errorCopy = ""
+	m.diagnostic = ""
+	m.probe = nil
+
+	if remote == nil {
+		m.cfg = nil
+		m.cached = nil
+		m.lastSuccessAt = nil
+		m.state = StateDisabled
+		m.reason = reasonPtr(ReasonDisabled)
+		m.complete = true
+		return nil
+	}
+	if !settings.ValidRemoteID(remote.ID) || !settings.ValidSSHAlias(remote.SSHAlias) {
+		return ErrInvalidRemoteSettings
+	}
+
+	copyCfg := *remote
+	m.cfg = &copyCfg
+	if err := m.loadCacheLocked(); err != nil {
+		m.cfg = nil
+		m.cached = nil
+		m.lastSuccessAt = nil
+		return err
+	}
+	if !remote.Enabled {
+		m.state = StateDisabled
+		m.reason = reasonPtr(ReasonDisabled)
+		m.complete = true
+		return nil
+	}
+	if m.cached == nil {
+		m.state = StateConnecting
+		m.reason = reasonPtr(ReasonInitialRefresh)
+		m.complete = false
+		return nil
+	}
+	if m.cached.View.Truncated {
+		m.state = StateLimited
+		m.reason = reasonPtr(ReasonHistoryTruncated)
+		m.complete = false
+		return nil
+	}
+	m.state = StateOK
+	m.reason = nil
+	m.complete = true
+	return nil
+}
+
 // Shutdown cancels in-flight remote work.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
@@ -614,6 +673,9 @@ func (m *Manager) healthLocked(remoteSinceMs int64) Health {
 	if m.state == StateConnecting && m.cached != nil && m.cached.View.CoverageSinceMs > remoteSinceMs {
 		health.Complete = false
 		health.Reason = reasonPtr(ReasonBroaderHistory)
+	}
+	if !m.nextRetryAt.IsZero() {
+		health.NextRetryAtMs = int64Ptr(m.nextRetryAt.UnixMilli())
 	}
 	return health
 }

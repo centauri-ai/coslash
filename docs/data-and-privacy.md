@@ -14,13 +14,27 @@ coSlash reads, but does not modify:
 
 | Path | Contents |
 | --- | --- |
-| `settings.json` | Synthesis, appearance, and terminal preferences. |
+| `settings.json` | Synthesis, appearance, terminal, and optional remote-host preferences. |
 | `token` | Access token for the current server process. |
 | `summaries/` | Cached synthesis results. |
 | `synthesis/` | Temporary synthesis files and the OpenCode scratch database. |
-| `sys-prompts/` | Temporary handoffs for fresh sessions. |
+| `sys-prompts/` | Temporary local handoffs for fresh sessions. |
+| `remotes/<sourceId>/snapshot.json` | Last validated remote session snapshot cached on the Mac. |
 
 coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
+
+## Remote host cache and Linux handoffs
+
+When you enable one SSH host, the Mac stores a secured last-good snapshot under `~/.coslash/remotes/<sourceId>/snapshot.json` (`0700` source directory, `0600` file). The cache holds bounded remote-view facts used by the board and inspector. It does not store transcript text, handoff text, credentials, SSH config, private keys, or resolved remote usernames/hostnames.
+
+| Action | Cache behavior |
+| --- | --- |
+| Disable the host | Stops refresh work and removes its sessions from the current board; retains the secured cache so re-enabling can recover quickly. |
+| Remove the host or change the SSH alias | Deletes that source cache. An alias change is treated as remove-plus-add with a new source ID. |
+
+On the Linux host, Start Fresh stages a short-lived handoff under `~/.coslash/sys-prompts` (`0700` directory, `0600` files). Each record is bound to an agent and session, expires after one hour, and can be claimed once. An abandoned handoff becomes unusable after one hour, but physical deletion happens on the next `handoff` or `launch` invocation on that host.
+
+Diagnostics and **Copy diagnostics** may include the user-entered SSH alias, collector/schema versions, capabilities, launchable agents, platform, coverage and retry timing, round-trip timing, and bounded redacted stderr. They never include resolved host/user, key paths, SSH config contents, private keys, credentials, transcript text, handoff text, or private remote working paths.
 
 ## Outbound data
 
@@ -28,7 +42,7 @@ The collector does not upload data itself. If you enable synthesis, it passes a 
 
 OpenCode has no ephemeral mode, so coSlash points each run at its own scratch database under `~/.coslash/synthesis`, discarded once the run ends. Synthesis runs never enter your own OpenCode history.
 
-Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
+Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool. Remote Resume and Start Fresh open an SSH terminal to the configured alias and run only fixed collector launch commands; they do not place remote paths or free-form handoff text in a shell string.
 
 ## Snapshot preview
 
@@ -74,4 +88,6 @@ coSlash listens on IPv4 loopback and protects API requests with a new access tok
 
 Synthesis is off until you enable and save it in Settings. Disable it there to stop new requests, then delete `~/.coslash/summaries` to remove cached results.
 
-To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names.
+Disable or remove a remote host from Settings → Machines. Disabling retains `~/.coslash/remotes/<sourceId>/`; removing the host deletes it. To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). On a Linux host used only as a remote collector, also delete `~/.coslash` there if you no longer want staged handoffs.
+
+`coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names.

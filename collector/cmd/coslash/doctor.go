@@ -10,6 +10,8 @@ import (
 	"log"
 
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
 func runDoctor(stdout, stderr io.Writer, args []string) int {
@@ -28,7 +30,7 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 	}
 	logOutput := log.Writer()
 	log.SetOutput(io.Discard)
-	snapshot := diagnostics.Collect(context.Background(), version, true)
+	snapshot := collectDoctorSnapshot(context.Background())
 	log.SetOutput(logOutput)
 	if *jsonOutput {
 		if err := json.NewEncoder(stdout).Encode(snapshot); err != nil {
@@ -36,35 +38,22 @@ func runDoctor(stdout, stderr io.Writer, args []string) int {
 			return 2
 		}
 	} else {
-		renderDoctor(stdout, snapshot)
+		fmt.Fprintln(stdout, diagnostics.FormatForCopy(snapshot))
 	}
 	return doctorExitCode(snapshot)
 }
 
-func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
-	fmt.Fprintf(w, "coSlash %s diagnostics\n\nChecks\n", snapshot.Version)
-	for _, check := range snapshot.Checks {
-		marker := string(check.Status)
-		if check.Status == diagnostics.StatusFail {
-			marker = "FAIL"
-		}
-		fmt.Fprintf(w, "[%s] %s: %s\n", marker, check.Title, check.Detail)
-		if check.Fix != "" {
-			fmt.Fprintf(w, "       Fix: %s\n", check.Fix)
+func collectDoctorSnapshot(ctx context.Context) *diagnostics.Snapshot {
+	mgr := remote.NewManager(remote.Options{})
+	defer mgr.Shutdown()
+
+	state := settings.Open().State()
+	if state.Valid {
+		if err := mgr.LoadSettingsSnapshot(state.Config.Remote); err != nil {
+			log.Printf("remote diagnostics: %v", err)
 		}
 	}
-	fmt.Fprintln(w, "\nFacts")
-	for _, source := range snapshot.Sources {
-		cli := "not found"
-		if source.CLI.Found {
-			cli = source.CLI.Path
-			if source.CLI.Version != "" {
-				cli += " (" + source.CLI.Version + ")"
-			}
-		}
-		fmt.Fprintf(w, "%s: %s, %d source entries, %d sessions; CLI %s\n", source.Label, source.Root, source.Entries, source.Sessions, cli)
-	}
-	fmt.Fprintf(w, "Storage: %s, writable=%t\n", snapshot.Storage.Home, snapshot.Storage.Writable)
+	return diagnostics.CollectWithRemote(ctx, version, true, remoteHealthFact(mgr))
 }
 
 func doctorExitCode(snapshot *diagnostics.Snapshot) int {
