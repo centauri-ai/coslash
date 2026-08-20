@@ -246,7 +246,7 @@ func validateRemote(remote *RemoteSettings) error {
 	if remote == nil {
 		return nil
 	}
-	if !ValidRemoteID(remote.ID) {
+	if remote.ID != "" && !ValidRemoteID(remote.ID) {
 		return fmt.Errorf("remote id %q is not a valid source id", remote.ID)
 	}
 	if !ValidSSHAlias(remote.SSHAlias) {
@@ -313,13 +313,15 @@ func Decode(data []byte) (Config, error) {
 		config.Appearance.Theme = *document.Appearance.Theme
 	}
 	if document.Remote != nil {
-		if document.Remote.ID == nil || document.Remote.SSHAlias == nil || document.Remote.Enabled == nil {
-			return Config{}, errors.New("remote must include id, sshAlias, and enabled")
+		if document.Remote.SSHAlias == nil || document.Remote.Enabled == nil {
+			return Config{}, errors.New("remote must include sshAlias and enabled")
 		}
 		config.Remote = &RemoteSettings{
-			ID:       *document.Remote.ID,
 			SSHAlias: *document.Remote.SSHAlias,
 			Enabled:  *document.Remote.Enabled,
+		}
+		if document.Remote.ID != nil {
+			config.Remote.ID = *document.Remote.ID
 		}
 	}
 	if err := Validate(config); err != nil {
@@ -380,6 +382,9 @@ func (store *Store) State() State {
 func (store *Store) Save(config Config) error {
 	if err := Validate(config); err != nil {
 		return err
+	}
+	if config.Remote != nil && !ValidRemoteID(config.Remote.ID) {
+		return fmt.Errorf("remote id %q is not a valid source id", config.Remote.ID)
 	}
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

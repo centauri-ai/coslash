@@ -13,6 +13,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
@@ -21,25 +22,48 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
-// /api/sessions → complete session records, optionally limited by an
-// epoch-millisecond activity cutoff before transcript parsing.
-func handleList(w http.ResponseWriter, r *http.Request, mgr *synthesis.Manager) {
+// /api/sessions → source-aware sessions plus machine health. Never waits on SSH.
+func handleList(w http.ResponseWriter, r *http.Request, mgr *synthesis.Manager, remoteMgr *remote.Manager) {
 	since, err := parseSince(r.URL.Query().Get("since"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	remoteSince := since
+	if raw := r.URL.Query().Get("remoteSince"); raw != "" {
+		remoteSince, err = parseSince(raw)
+		if err != nil {
+			http.Error(w, "invalid 'remoteSince' parameter", http.StatusBadRequest)
+			return
+		}
+	}
+
+	response := sessionsResponse{
+		Sessions: []boardSession{},
+		Machines: []machineFact{localMachineFact()},
+	}
+
 	sessions, err := collector.List(since)
 	if err != nil {
 		log.Printf("list sessions: %v", err)
 		http.Error(w, "could not list sessions", http.StatusInternalServerError)
 		return
 	}
-	for _, session := range sessions {
-		session.Synthesis = mgr.Lookup(session.ID, session.LastActivityTime)
+	for _, item := range sessions {
+		item.Synthesis = mgr.Lookup(item.ID, item.LastActivityTime)
+		response.Sessions = append(response.Sessions, boardLocalSession(item))
 	}
-	writeJSON(w, sessions)
-	log.Printf("list sessions: %d", len(sessions))
+
+	remoteView := remoteMgr.ListView(remoteSince)
+	if remoteView.Health.SourceID != "" {
+		response.Machines = append(response.Machines, machineFromHealth(remoteView.Health))
+		for _, item := range remoteView.Sessions {
+			response.Sessions = append(response.Sessions, boardRemoteSession(item))
+		}
+	}
+
+	writeJSON(w, response)
+	log.Printf("list sessions: %d", len(response.Sessions))
 }
 
 func parseSince(value string) (int64, error) {
@@ -58,6 +82,9 @@ func handleDiff(
 	r *http.Request,
 	getSession func(string) (*session.Session, error),
 ) {
+	if rejectRemoteSource(w, r) {
+		return
+	}
 	query := r.URL.Query()
 	found, err := getSession(query.Get("id"))
 	if err != nil {
@@ -93,6 +120,9 @@ func handleSharePreview(
 	getSession func(string, int64) (*session.Session, error),
 	collectorVersion string,
 ) {
+	if rejectRemoteSource(w, r) {
+		return
+	}
 	revision, err := parseRevision(r.URL.Query().Get("revision"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -123,11 +153,12 @@ func parseRevision(value string) (int64, error) {
 	return revision, nil
 }
 
-// /api/synthesis?id=X → cached synthesis for one session, triggering a run
-// when eligible. Loads one session, never the whole machine; GetSessionFacts skips fork,
-// subagents, and name/status resolution because BuildInput and Eligible read
-// none of those.
-func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
+// /api/synthesis?id=X → cached synthesis for one local session.
+func handleSynthesis(w http.ResponseWriter, r *http.Request, mgr *synthesis.Manager) {
+	if rejectRemoteSource(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("id")
 	found, err := collector.GetSessionFacts(id)
 	if err != nil {
 		log.Printf("synthesis: %v", err)
@@ -168,39 +199,6 @@ func cleanupHandoffs() {
 	}
 }
 
-func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *settings.Store) {
-	state := settingsStore.State()
-	if !state.Valid {
-		http.Error(w, state.Error+"; open Settings to repair it", http.StatusConflict)
-		return
-	}
-	query := r.URL.Query()
-	found, err := collector.GetSessionFacts(query.Get("id"))
-	if err != nil {
-		log.Printf("launch: %v", err)
-		http.Error(w, "could not load session", http.StatusInternalServerError)
-		return
-	}
-	if found == nil {
-		http.Error(w, "session not found", http.StatusNotFound)
-		return
-	}
-	handoff, err := readHandoff(w, r)
-	if err != nil {
-		log.Printf("launch: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	mode := query.Get("mode")
-	if err := launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff); err != nil {
-		log.Printf("launch: %v", err)
-		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("launch %s: %s %s", mode, found.Agent, found.ID)
-	w.WriteHeader(http.StatusNoContent)
-}
-
 const maxSettingsBytes = 64 * 1024
 
 type availableBackend struct {
@@ -219,8 +217,9 @@ type settingsResponse struct {
 	Valid     bool            `json:"valid"`
 	Error     string          `json:"error,omitempty"`
 	Options   struct {
-		SynthesisBackends []availableBackend  `json:"synthesisBackends"`
-		Terminals         []availableTerminal `json:"terminals"`
+		SynthesisBackends           []availableBackend  `json:"synthesisBackends"`
+		Terminals                   []availableTerminal `json:"terminals"`
+		RemoteInstallationGuidePath string              `json:"remoteInstallationGuidePath"`
 	} `json:"options"`
 }
 
@@ -231,6 +230,7 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 		Valid:     state.Valid,
 		Error:     state.Error,
 	}
+	response.Options.RemoteInstallationGuidePath = remoteInstallationGuidePath
 	for _, option := range settings.BackendOptions() {
 		_, err := exec.LookPath(settings.BackendExecutable(option.ID))
 		available := err == nil
@@ -283,6 +283,7 @@ func handleSaveSettings(
 	r *http.Request,
 	store *settings.Store,
 	mgr *synthesis.Manager,
+	remoteMgr *remote.Manager,
 ) {
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSettingsBytes))
 	if err != nil {
@@ -294,6 +295,12 @@ func handleSaveSettings(
 		return
 	}
 	config, err := settings.Decode(data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	previous := store.State().Config.Remote
+	config.Remote, err = normalizeRemoteIdentity(previous, config.Remote)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -313,7 +320,30 @@ func handleSaveSettings(
 		return
 	}
 	mgr.SetRunner(runner)
+	if err := remoteMgr.ApplySettings(config.Remote); err != nil {
+		log.Printf("apply remote settings: %v", err)
+		http.Error(w, "could not apply remote settings", http.StatusInternalServerError)
+		return
+	}
 	writeSettings(w, store.State())
+}
+
+// normalizeRemoteIdentity assigns Mac-owned source IDs. Alias changes always get a new ID.
+func normalizeRemoteIdentity(previous, incoming *settings.RemoteSettings) (*settings.RemoteSettings, error) {
+	if incoming == nil {
+		return nil, nil
+	}
+	out := *incoming
+	if previous != nil && previous.SSHAlias == out.SSHAlias {
+		out.ID = previous.ID
+		return &out, nil
+	}
+	id, err := settings.NewRemoteID()
+	if err != nil {
+		return nil, err
+	}
+	out.ID = id
+	return &out, nil
 }
 
 func readHandoff(w http.ResponseWriter, r *http.Request) (string, error) {

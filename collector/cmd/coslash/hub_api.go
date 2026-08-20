@@ -90,6 +90,9 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client) {
 		writeJSON(w, result)
 	})
 	api.HandleFunc("POST /api/hub/shares", func(w http.ResponseWriter, request *http.Request) {
+		if rejectRemoteSource(w, request) {
+			return
+		}
 		if client == nil {
 			http.Error(w, "Hub server is not configured", http.StatusConflict)
 			return

@@ -39,10 +39,29 @@ type Snapshot struct {
 	Storage             Storage   `json:"storage"`
 	Synthesis           Synthesis `json:"synthesis"`
 	Sources             []Source  `json:"sources"`
+	Remote              *Remote   `json:"remote,omitempty"`
 	Checks              []Check   `json:"checks"`
 	openCodePlugin      opencode.WaitingPluginHealth
 	openCodePluginError string
 	homeError           string
+}
+
+// Remote is the optional SSH host health block for diagnostics.
+type Remote struct {
+	SourceID         string   `json:"sourceId,omitempty"`
+	Label            string   `json:"label,omitempty"`
+	State            string   `json:"state"`
+	Complete         bool     `json:"complete"`
+	Reason           *string  `json:"reason,omitempty"`
+	CollectorVersion string   `json:"collectorVersion,omitempty"`
+	SchemaVersion    string   `json:"schemaVersion,omitempty"`
+	Capabilities     []string `json:"capabilities,omitempty"`
+	LaunchableAgents []string `json:"launchableAgents,omitempty"`
+	HostOS           string   `json:"hostOs,omitempty"`
+	HostArch         string   `json:"hostArch,omitempty"`
+	LastSuccessAtMs  *int64   `json:"lastSuccessAtMs,omitempty"`
+	Error            string   `json:"error,omitempty"`
+	DiagnosticStderr string   `json:"diagnosticStderr,omitempty"`
 }
 
 type Platform struct {
@@ -100,6 +119,53 @@ type Check struct {
 
 // Collect turns every probe failure into data so the diagnostic surface itself remains available.
 func Collect(ctx context.Context, version string, includeVersions bool) *Snapshot {
+	return CollectWithRemote(ctx, version, includeVersions, nil)
+}
+
+// RemoteHealth is the minimal remote manager fact block accepted by diagnostics.
+type RemoteHealth struct {
+	SourceID         string
+	Label            string
+	State            string
+	Complete         bool
+	Reason           *string
+	CollectorVersion string
+	SchemaVersion    string
+	Capabilities     []string
+	LaunchableAgents []string
+	HostOS           string
+	HostArch         string
+	LastSuccessAtMs  *int64
+	Error            string
+	DiagnosticStderr string
+}
+
+// CollectWithRemote includes the optional remote machine health fact block.
+func CollectWithRemote(ctx context.Context, version string, includeVersions bool, remoteHealth *RemoteHealth) *Snapshot {
+	snapshot := collectLocal(ctx, version, includeVersions)
+	if remoteHealth != nil && remoteHealth.SourceID != "" {
+		snapshot.Remote = &Remote{
+			SourceID:         remoteHealth.SourceID,
+			Label:            remoteHealth.Label,
+			State:            remoteHealth.State,
+			Complete:         remoteHealth.Complete,
+			Reason:           remoteHealth.Reason,
+			CollectorVersion: remoteHealth.CollectorVersion,
+			SchemaVersion:    remoteHealth.SchemaVersion,
+			Capabilities:     append([]string(nil), remoteHealth.Capabilities...),
+			LaunchableAgents: append([]string(nil), remoteHealth.LaunchableAgents...),
+			HostOS:           remoteHealth.HostOS,
+			HostArch:         remoteHealth.HostArch,
+			LastSuccessAtMs:  remoteHealth.LastSuccessAtMs,
+			Error:            remoteHealth.Error,
+			DiagnosticStderr: remoteHealth.DiagnosticStderr,
+		}
+		snapshot.Checks = append(snapshot.Checks, remoteCheck(snapshot.Remote))
+	}
+	return snapshot
+}
+
+func collectLocal(ctx context.Context, version string, includeVersions bool) *Snapshot {
 	userHome, userHomeErr := os.UserHomeDir()
 	state := settings.Open().State()
 	config := state.Config.Synthesis

@@ -63,6 +63,19 @@ func TestDecodeRemoteRejectsUnknownAndInvalid(t *testing.T) {
 	}
 }
 
+func TestDecodeRemoteAllowsOmittedID(t *testing.T) {
+	raw := strings.TrimSuffix(validBase(), "}") + `,
+  "remote": {"sshAlias": "gpu-server", "enabled": true}
+}`
+	config, err := Decode([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Remote == nil || config.Remote.ID != "" || config.Remote.SSHAlias != "gpu-server" {
+		t.Fatalf("unexpected remote: %+v", config.Remote)
+	}
+}
+
 func TestNewRemoteIDIsValidAndDistinct(t *testing.T) {
 	a, err := NewRemoteID()
 	if err != nil {

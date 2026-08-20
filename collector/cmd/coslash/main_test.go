@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
@@ -40,7 +41,7 @@ func TestListenBindsIPv4Loopback(t *testing.T) {
 
 func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil), settings.Open(), nil)
+	handler := routes(synthesis.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
 	for _, test := range []struct {
 		method string
 		path   string
@@ -68,6 +69,7 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
 		synthesis.NewManager(nil),
 		settings.Open(),
+		remote.NewManager(remote.Options{}),
 		nil,
 	)
 	request := httptest.NewRequest(http.MethodGet, "http://evil.example:8787/", nil)
