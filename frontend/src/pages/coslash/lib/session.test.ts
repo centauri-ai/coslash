@@ -3,7 +3,10 @@ import { decodeMachineFact } from '@/pages/coslash/lib/machines';
 import {
   environmentFact,
   getSessionVendors,
+  inspectorAllowsFileDiff,
+  inspectorShowsCommands,
   LOCAL_SOURCE_ID,
+  retainedSessionKey,
   sessionKey,
   sessionsForAggregates,
   withLocalSourceDefaults,
@@ -64,6 +67,30 @@ describe('sessionsForAggregates', () => {
         { eligibleForAggregates: true },
       ]),
     ).toEqual([{ eligibleForAggregates: true }, { eligibleForAggregates: true }]);
+  });
+});
+
+describe('retainedSessionKey', () => {
+  it('clears selection when disable/replace/remove drops the remote session', () => {
+    const remote = { sourceId: 'r_0123456789abcdef', agent: 'codex', id: 'abc' };
+    const key = sessionKey(remote);
+    expect(retainedSessionKey(key, [remote])).toBe(key);
+    expect(retainedSessionKey(key, [{ sourceId: LOCAL_SOURCE_ID, agent: 'codex', id: 'abc' }])).toBe(null);
+    expect(retainedSessionKey(key, [])).toBe(null);
+  });
+});
+
+describe('inspector remote surface', () => {
+  it('hides commands and file diffs for remote sessions', () => {
+    const remote = {
+      sourceId: 'r_0123456789abcdef',
+      commands: ['claude --resume'],
+    };
+    const local = { sourceId: LOCAL_SOURCE_ID, commands: ['claude --resume'] };
+    expect(inspectorShowsCommands(remote)).toBe(false);
+    expect(inspectorShowsCommands(local)).toBe(true);
+    expect(inspectorAllowsFileDiff(remote)).toBe(false);
+    expect(inspectorAllowsFileDiff(local)).toBe(true);
   });
 });
 

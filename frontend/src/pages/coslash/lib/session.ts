@@ -97,6 +97,25 @@ export function isLocalSession(session: Pick<Session, 'sourceId'>): boolean {
   return isLocalSource(session.sourceId);
 }
 
+/** Clear inspector selection when disable/replace/remove drops the keyed session. */
+export function retainedSessionKey(
+  selectedKey: string | null,
+  sessions: readonly SessionIdentity[],
+): string | null {
+  if (selectedKey == null) return null;
+  return sessions.some((session) => sessionKey(session) === selectedKey) ? selectedKey : null;
+}
+
+export function inspectorShowsCommands(
+  session: Pick<Session, 'sourceId'> & { commands: readonly string[] },
+): boolean {
+  return isLocalSession(session) && session.commands.length > 0;
+}
+
+export function inspectorAllowsFileDiff(session: Pick<Session, 'sourceId'>): boolean {
+  return isLocalSession(session);
+}
+
 export function sessionsForAggregates<T extends Pick<Session, 'eligibleForAggregates'>>(
   sessions: readonly T[],
 ): T[] {

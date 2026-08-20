@@ -55,6 +55,7 @@ import {
   getStatus,
   isLocalSession,
   LOCAL_SOURCE_ID,
+  retainedSessionKey,
   sessionKey,
   sessionsForAggregates,
   type Session,
@@ -389,10 +390,11 @@ export function CoslashPage() {
   }, [selectedSession, settingsState.response]);
 
   useEffect(() => {
-    if (selectedSessionKey != null && selectedSession == null) {
-      setSelectedSessionKey(null);
+    const next = retainedSessionKey(selectedSessionKey, sessions);
+    if (next !== selectedSessionKey) {
+      setSelectedSessionKey(next);
     }
-  }, [selectedSession, selectedSessionKey]);
+  }, [sessions, selectedSessionKey]);
 
   // Keep live sessions visible even when their logs predate the window.
   const windowStart = timeWindowStart(timeWindow);

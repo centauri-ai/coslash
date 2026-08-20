@@ -45,8 +45,11 @@ func TestSessionsEnvelopeLocalOnly(t *testing.T) {
 
 func TestRemoteSinceIndependentOfSince(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	var lastSince atomic.Int64
 	lastSince.Store(-1)
+	var coverage atomic.Int64
+	coverage.Store(8_000)
 	fake := &remote.FakeRunner{Hook: func(call remote.FakeCall) (remote.RunResult, error) {
 		now := time.Now()
 		result := remote.RunResult{ExitCode: 0, StartedAt: now, FinishedAt: now}
@@ -56,7 +59,8 @@ func TestRemoteSinceIndependentOfSince(t *testing.T) {
 		}
 		since, requestNow := parseSnapshotArgs(t, call.RemoteCommand)
 		lastSince.Store(since)
-		result.Stdout = mustFrame(t, mustMarshalView(t, since, requestNow))
+		covered := coverage.Load()
+		result.Stdout = mustFrame(t, mustMarshalViewCoverage(t, covered, requestNow, covered))
 		return result, nil
 	}}
 	mgr := remote.NewManager(remote.Options{Runner: fake, Cache: remote.NewCache(t.TempDir())})
@@ -67,6 +71,7 @@ func TestRemoteSinceIndependentOfSince(t *testing.T) {
 	waitRemoteOK(t, mgr)
 
 	handler := routes(synthesis.NewManager(nil), settings.Open(), mgr, nil)
+	coverage.Store(5_000)
 	request := httptest.NewRequest(http.MethodGet, "/api/sessions?remoteSince=5000", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -80,7 +85,14 @@ func TestRemoteSinceIndependentOfSince(t *testing.T) {
 	if len(body.Machines) != 2 {
 		t.Fatalf("machines=%d", len(body.Machines))
 	}
-	_ = lastSince.Load()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if lastSince.Load() == 5000 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("remoteSince not applied; last=%d", lastSince.Load())
 }
 
 func TestUnsupportedRemoteActions(t *testing.T) {

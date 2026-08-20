@@ -55,6 +55,8 @@ import {
   getStatus,
   getVendor,
   goalSourceLabel,
+  inspectorAllowsFileDiff,
+  inspectorShowsCommands,
   isLocalSession,
   resolveGoal,
   sessionKey,
@@ -849,7 +851,7 @@ function CommitsAndTodos({ detail }: { detail: SessionDetail }) {
 
 function CommandsSection({ detail }: { detail: SessionDetail }) {
   const [open, setOpen] = useState(false);
-  if (!isLocalSession(detail) || detail.commands.length === 0) return null;
+  if (!inspectorShowsCommands(detail)) return null;
 
   return (
     <div className="pt-4">
@@ -1016,7 +1018,7 @@ export function SessionInspector({
               detail={detail}
               launchGate={launchGate}
               onSelectFile={
-                isLocalSession(detail)
+                inspectorAllowsFileDiff(detail)
                   ? (path) =>
                       setSelectedDiff({
                         sourceId: detail.sourceId,

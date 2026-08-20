@@ -73,8 +73,10 @@ func InteractiveSSHCommand(alias, remoteCommand string) (string, error) {
 	return "ssh -t -- " + alias + " " + shellQuote(remoteCommand), nil
 }
 
-// RemoteTerminal opens the configured Mac terminal with an interactive SSH launch command.
-func RemoteTerminal(terminal, alias, remoteCommand string) error {
+// remoteTerminalOpener opens a Mac terminal for interactive remote launch. Tests may replace it.
+var remoteTerminalOpener = openRemoteTerminal
+
+func openRemoteTerminal(terminal, alias, remoteCommand string) error {
 	if runtime.GOOS != "darwin" {
 		return fmt.Errorf("%w: opening a terminal is not supported on %s", ErrUnsupportedOnHost, runtime.GOOS)
 	}
@@ -97,4 +99,20 @@ func RemoteTerminal(terminal, alias, remoteCommand string) error {
 		return fmt.Errorf("%w: open %s: %v", ErrTerminalOpen, adapter.label, err)
 	}
 	return nil
+}
+
+// RemoteTerminal opens the configured Mac terminal with an interactive SSH launch command.
+func RemoteTerminal(terminal, alias, remoteCommand string) error {
+	return remoteTerminalOpener(terminal, alias, remoteCommand)
+}
+
+// SetRemoteTerminalOpenerForTest replaces the terminal opener; restore with the returned func.
+func SetRemoteTerminalOpenerForTest(fn func(terminal, alias, remoteCommand string) error) func() {
+	previous := remoteTerminalOpener
+	if fn == nil {
+		remoteTerminalOpener = openRemoteTerminal
+	} else {
+		remoteTerminalOpener = fn
+	}
+	return func() { remoteTerminalOpener = previous }
 }
