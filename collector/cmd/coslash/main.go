@@ -69,6 +69,12 @@ func main() {
 	if snapshotDispatched(os.Args) {
 		runSnapshotMain(os.Args)
 	}
+	if launchDispatched(os.Args) {
+		runLaunchMain(os.Args)
+	}
+	if handoffDispatched(os.Args) {
+		runHandoffMain(os.Args)
+	}
 
 	opts, err := parseOptions(os.Args[1:])
 	if err != nil {

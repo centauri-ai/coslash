@@ -30,20 +30,18 @@ func TestRunSnapshotProbeWritesFramedCapabilities(t *testing.T) {
 	if !contains(probe.Capabilities, remoteviewv1.CapabilityRemoteView) {
 		t.Fatalf("capabilities = %#v", probe.Capabilities)
 	}
-	for _, capability := range probe.Capabilities {
-		if capability == remoteviewv1.CapabilityRemoteLaunch {
-			t.Fatal("P1 must not advertise remote-launch before P2")
-		}
+	if !contains(probe.Capabilities, remoteviewv1.CapabilityRemoteLaunch) {
+		t.Fatalf("missing remote-launch capability: %#v", probe.Capabilities)
 	}
 	if probe.HostNowMs <= 0 || probe.Host.OS == "" || probe.Host.Arch == "" {
 		t.Fatalf("probe host facts missing: %#v", probe)
 	}
-	if strings.Contains(stdout.String(), "/") && strings.Contains(strings.ToLower(stdout.String()), "bin") {
-		// Probe must not return executable paths; launchableAgents are bare names.
-		for _, agent := range probe.LaunchableAgents {
-			if strings.Contains(agent, "/") {
-				t.Fatalf("launchable agent leaked a path: %q", agent)
-			}
+	for _, agent := range probe.LaunchableAgents {
+		if strings.Contains(agent, "/") {
+			t.Fatalf("launchable agent leaked a path: %q", agent)
+		}
+		if agent != remoteviewv1.AgentClaude && agent != remoteviewv1.AgentCodex {
+			t.Fatalf("unexpected launchable agent %q", agent)
 		}
 	}
 }

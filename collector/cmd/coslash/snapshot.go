@@ -118,7 +118,7 @@ func writeSnapshot(stdout, stderr io.Writer, sinceMs, requestNowMs int64) int {
 func hostRemoteOptions(hostNowMs, collectedAtMs int64) collector.RemoteViewOptions {
 	return collector.RemoteViewOptions{
 		CollectorVersion: version,
-		Capabilities:     []string{remoteviewv1.CapabilityRemoteView},
+		Capabilities:     []string{remoteviewv1.CapabilityRemoteView, remoteviewv1.CapabilityRemoteLaunch},
 		LaunchableAgents: launchableAgents(),
 		HostNowMs:        hostNowMs,
 		CollectedAtMs:    collectedAtMs,
@@ -175,16 +175,31 @@ func rejectMixedServerFlags(args []string) error {
 		if arg == "--" {
 			return nil
 		}
-		if strings.HasPrefix(arg, "-") &&
-			arg != "--probe" &&
-			!strings.HasPrefix(arg, "--since") &&
-			!strings.HasPrefix(arg, "--request-now") &&
-			!strings.HasPrefix(arg, "--agents") &&
-			arg != "-h" && arg != "--help" {
-			return fmt.Errorf("snapshot does not accept server flag %q", arg)
+		if !strings.HasPrefix(arg, "-") || arg == "-h" || arg == "--help" {
+			continue
 		}
+		if isSubcommandFlag(arg) {
+			continue
+		}
+		return fmt.Errorf("subcommand does not accept server flag %q", arg)
 	}
 	return nil
+}
+
+func isSubcommandFlag(arg string) bool {
+	switch {
+	case arg == "--probe",
+		strings.HasPrefix(arg, "--since"),
+		strings.HasPrefix(arg, "--request-now"),
+		strings.HasPrefix(arg, "--agents"),
+		strings.HasPrefix(arg, "--agent"),
+		strings.HasPrefix(arg, "--session"),
+		strings.HasPrefix(arg, "--mode"),
+		strings.HasPrefix(arg, "--handoff"):
+		return true
+	default:
+		return false
+	}
 }
 
 func runSnapshotMain(args []string) {

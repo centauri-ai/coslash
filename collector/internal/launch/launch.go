@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -200,6 +201,10 @@ func writeHandoffFile(contents string) (string, error) {
 }
 
 func CleanupHandoffs() error {
+	now := time.Now()
+	if err := sweepBoundHandoffs(now); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(handoffDir())
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -207,13 +212,17 @@ func CleanupHandoffs() error {
 	if err != nil {
 		return err
 	}
-	cutoff := time.Now().Add(-HandoffMaxAge)
+	cutoff := now.Add(-HandoffMaxAge)
 	for _, entry := range entries {
+		name := entry.Name()
+		if handoffIDPattern.MatchString(name) || handoffIDPattern.MatchString(strings.TrimSuffix(name, ".claimed")) {
+			continue
+		}
 		info, err := entry.Info()
 		if err != nil || info.ModTime().After(cutoff) {
 			continue
 		}
-		if err := os.Remove(filepath.Join(handoffDir(), entry.Name())); err != nil &&
+		if err := os.Remove(filepath.Join(handoffDir(), name)); err != nil &&
 			!errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
