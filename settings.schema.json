@@ -47,6 +47,24 @@
       "properties": {
         "terminal": { "enum": ["terminal", "iterm2"] }
       }
+    },
+    "remote": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sshAlias", "enabled"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^r_[0-9a-f]{16}$"
+        },
+        "sshAlias": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "enabled": { "type": "boolean" }
+      }
     }
   }
 }

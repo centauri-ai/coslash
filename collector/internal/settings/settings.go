@@ -2,6 +2,8 @@ package settings
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +43,14 @@ type Config struct {
 	Synthesis  SynthesisSettings  `json:"synthesis"`
 	Appearance AppearanceSettings `json:"appearance"`
 	Launch     LaunchSettings     `json:"launch"`
+	Remote     *RemoteSettings    `json:"remote,omitempty"`
+}
+
+// RemoteSettings is the optional one-host SSH configuration.
+type RemoteSettings struct {
+	ID       string `json:"id"`
+	SSHAlias string `json:"sshAlias"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type SynthesisSettings struct {
@@ -148,10 +158,34 @@ func BackendOptions() []BackendOption {
 // A leading "-" is excluded, or the CLI would read the value as another flag.
 var modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 
+var (
+	sshAliasPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	remoteIDPattern = regexp.MustCompile(`^r_[0-9a-f]{16}$`)
+)
+
 // ValidSynthesisModel checks shape, not membership of a fixed list: an API
 // proxy such as ANTHROPIC_BASE_URL can serve models the picker never lists.
 func ValidSynthesisModel(model string) bool {
 	return len(model) <= 200 && modelPattern.MatchString(model)
+}
+
+// ValidSSHAlias reports whether alias is safe as a local ssh argv after `--`.
+func ValidSSHAlias(alias string) bool {
+	return len(alias) > 0 && len(alias) <= 255 && sshAliasPattern.MatchString(alias)
+}
+
+// ValidRemoteID reports whether id is a Mac-generated path-safe source id.
+func ValidRemoteID(id string) bool {
+	return remoteIDPattern.MatchString(id)
+}
+
+// NewRemoteID returns a random path-safe remote source id.
+func NewRemoteID() (string, error) {
+	raw := make([]byte, 8)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return "r_" + hex.EncodeToString(raw), nil
 }
 
 func TerminalOptions() []TerminalOption {
@@ -197,12 +231,28 @@ func Validate(config Config) error {
 	if config.Appearance.Theme != "light" && config.Appearance.Theme != "dark" {
 		return fmt.Errorf("unsupported theme %q", config.Appearance.Theme)
 	}
+	if err := validateRemote(config.Remote); err != nil {
+		return err
+	}
 	for _, option := range TerminalOptions() {
 		if option.ID == config.Launch.Terminal {
 			return nil
 		}
 	}
 	return fmt.Errorf("unsupported terminal %q", config.Launch.Terminal)
+}
+
+func validateRemote(remote *RemoteSettings) error {
+	if remote == nil {
+		return nil
+	}
+	if !ValidRemoteID(remote.ID) {
+		return fmt.Errorf("remote id %q is not a valid source id", remote.ID)
+	}
+	if !ValidSSHAlias(remote.SSHAlias) {
+		return fmt.Errorf("remote sshAlias %q is not a valid SSH alias", remote.SSHAlias)
+	}
+	return nil
 }
 
 func Decode(data []byte) (Config, error) {
@@ -217,12 +267,18 @@ func Decode(data []byte) (Config, error) {
 	type appearanceDocument struct {
 		Theme *string `json:"theme"`
 	}
+	type remoteDocument struct {
+		ID       *string `json:"id"`
+		SSHAlias *string `json:"sshAlias"`
+		Enabled  *bool   `json:"enabled"`
+	}
 	type configDocument struct {
 		Schema     *string             `json:"$schema"`
 		Version    *int                `json:"version"`
 		Synthesis  *synthesisDocument  `json:"synthesis"`
 		Appearance *appearanceDocument `json:"appearance"`
 		Launch     *launchDocument     `json:"launch"`
+		Remote     *remoteDocument     `json:"remote"`
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -255,6 +311,16 @@ func Decode(data []byte) (Config, error) {
 			return Config{}, errors.New("appearance must include theme")
 		}
 		config.Appearance.Theme = *document.Appearance.Theme
+	}
+	if document.Remote != nil {
+		if document.Remote.ID == nil || document.Remote.SSHAlias == nil || document.Remote.Enabled == nil {
+			return Config{}, errors.New("remote must include id, sshAlias, and enabled")
+		}
+		config.Remote = &RemoteSettings{
+			ID:       *document.Remote.ID,
+			SSHAlias: *document.Remote.SSHAlias,
+			Enabled:  *document.Remote.Enabled,
+		}
 	}
 	if err := Validate(config); err != nil {
 		return Config{}, err
