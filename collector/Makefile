@@ -4,7 +4,7 @@ FRONTEND := ../frontend
 STAGED := internal/web/dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 DIST := dist
-PLATFORMS := darwin/arm64 darwin/amd64
+PLATFORMS := darwin/arm64 darwin/amd64 linux/amd64 linux/arm64
 ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
 MODELS := internal/session/models.json

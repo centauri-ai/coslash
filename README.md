@@ -70,6 +70,8 @@ coSlash serves <http://127.0.0.1:8787> and opens your browser with a fresh acces
 
 `brew upgrade coslash` updates it and `brew uninstall coslash` removes the binary. Uninstalling leaves your data in `~/.coslash`; delete that directory separately if you no longer want it.
 
+To monitor Claude Code and Codex on one Linux host over SSH, install the Linux collector manually with [`docs/remote-host-installation.md`](docs/remote-host-installation.md). Homebrew packages remain macOS-only.
+
 <details>
 <summary>Install a release archive manually</summary>
 
@@ -194,13 +196,13 @@ It is **off until you explicitly enable and save it**.
 
 ## Settings and data
 
-Settings live behind the top-right button and are stored machine-wide in `~/.coslash/settings.json` — synthesis backend and model, light or dark theme, and the terminal used for launches (Apple Terminal or iTerm2). See [`settings.schema.json`](settings.schema.json) for the file format.
+Settings live behind the top-right button and are stored machine-wide in `~/.coslash/settings.json` — synthesis backend and model, light or dark theme, the terminal used for launches (Apple Terminal or iTerm2), and an optional SSH host. See [`settings.schema.json`](settings.schema.json) for the file format.
 
 The dialog offers a short model list per backend, but the model is not restricted to it. Editing `settings.json` directly accepts any model the selected CLI can actually reach — including one served through an API proxy such as `ANTHROPIC_BASE_URL`, or a third-party provider — so long as that CLI is set up to resolve it.
 
-Transcripts are read-only; coSlash never modifies them. Cached summaries and temporary handoffs live under `~/.coslash`. The server is loopback-only and protects every API request with an access token minted at start.
+Transcripts are read-only; coSlash never modifies them. Cached summaries and temporary handoffs live under `~/.coslash`. An optional remote host keeps its last good snapshot under `~/.coslash/remotes/<sourceId>/`. The server is loopback-only and protects every API request with an access token minted at start.
 
-Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sensitive transcripts.
+Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sensitive transcripts. For Linux collector setup, see [Remote host installation](docs/remote-host-installation.md). For common remote failures, see [Troubleshooting](docs/troubleshooting.md).
 
 ## Command reference
 

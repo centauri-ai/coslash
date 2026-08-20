@@ -83,3 +83,5 @@ template: |
 
   Substitute the release version and architecture. The binaries are unsigned and unnotarized, so macOS may warn about an archive downloaded through a browser; the Homebrew install above is not affected.
 
+  Linux remote-host archives are also published as `coslash_<tag>_linux_amd64.tar.gz` and `coslash_<tag>_linux_arm64.tar.gz`. Install those with the steps in `docs/remote-host-installation.md`; Homebrew remains macOS-only.
+

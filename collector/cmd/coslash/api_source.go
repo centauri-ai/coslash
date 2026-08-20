@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	remoteviewv1 "github.com/centauri-ai/coslash/collector/remoteview/v1"
@@ -15,14 +16,15 @@ const (
 	localSourceID    = "local"
 	localSourceLabel = "This Mac"
 
-	remoteInstallationGuidePath = "docs/remote-host-installation.md"
-
 	errCodeRemoteUnsupported      = "remote_action_unsupported"
 	errCodeRemoteNotConfigured    = "remote_not_configured"
 	errCodeRemoteDisabled         = "remote_disabled"
 	errCodeRemoteUpgradeRequired  = "remote_upgrade_required"
 	errCodeRemoteAgentUnavailable = "remote_agent_unavailable"
 )
+
+// Keep settings options aligned with the diagnostics/setup guide constant.
+var remoteInstallationGuidePath = diagnostics.RemoteInstallationGuidePath
 
 type apiErrorBody struct {
 	Code  string `json:"code"`

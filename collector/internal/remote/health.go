@@ -55,6 +55,7 @@ type Health struct {
 	Error            string   `json:"error,omitempty"`
 	DiagnosticStderr string   `json:"-"`
 	Refreshing       bool     `json:"-"`
+	NextRetryAtMs    *int64   `json:"-"`
 }
 
 func reasonPtr(r Reason) *Reason { return &r }

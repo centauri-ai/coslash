@@ -147,31 +147,71 @@ func sourceCheck(source Source) Check {
 }
 
 func remoteCheck(remote *Remote) Check {
+	label := remote.Label
+	if label == "" {
+		label = "Remote host"
+	}
 	check := Check{ID: "remote", Title: "Remote SSH host", Status: StatusOK}
+	reason := ""
+	if remote.Reason != nil && *remote.Reason != "" {
+		reason = *remote.Reason
+	}
 	switch remote.State {
 	case "ok":
-		check.Detail = remote.Label + " is connected."
+		check.Detail = label + " is connected."
+		if !remote.Complete {
+			check.Status = StatusWarn
+			check.Detail = label + " is connected but coverage is incomplete."
+		}
 	case "connecting":
 		check.Status = StatusWarn
-		check.Detail = "Connecting to " + remote.Label + "."
-	case "limited", "stale":
+		check.Detail = "Connecting to " + label + "."
+		if reason == "broader_history" {
+			check.Detail = label + " is refreshing a broader history window while showing the previous snapshot."
+		} else if reason == "initial_refresh" {
+			check.Detail = label + " is running its first refresh."
+		}
+	case "limited":
 		check.Status = StatusWarn
-		check.Detail = remote.Label + " is " + remote.State + "."
+		check.Detail = label + " returned a limited history window."
+		if reason != "" {
+			check.Detail += " Reason: " + reason + "."
+		}
 		if remote.Error != "" {
 			check.Detail += " " + remote.Error
 		}
-	case "setup_required", "upgrade_required", "error":
+	case "stale":
+		check.Status = StatusWarn
+		check.Detail = label + " is showing the last good snapshot after a refresh failure."
+		if remote.Error != "" {
+			check.Detail += " " + remote.Error
+		}
+	case "setup_required":
 		check.Status = StatusFail
-		check.Detail = remote.Label + " needs attention."
+		check.Detail = label + " needs the Linux collector installed at ~/.local/bin/coslash."
 		if remote.Error != "" {
 			check.Detail += " " + remote.Error
 		}
-		check.Fix = "Open Machines in Settings and use Test connection or Retry."
+		check.Fix = "Follow " + RemoteInstallationGuidePath + ", then use Test connection in Machines."
+	case "upgrade_required":
+		check.Status = StatusFail
+		check.Detail = label + " needs a newer Linux collector."
+		if remote.Error != "" {
+			check.Detail += " " + remote.Error
+		}
+		check.Fix = "Follow " + RemoteInstallationGuidePath + ", then Retry or Test connection."
+	case "error":
+		check.Status = StatusFail
+		check.Detail = label + " refresh failed."
+		if remote.Error != "" {
+			check.Detail += " " + remote.Error
+		}
+		check.Fix = "Confirm BatchMode SSH for the alias, then Retry from the host strip or Machines."
 	case "disabled":
-		check.Detail = remote.Label + " is disabled."
+		check.Detail = label + " is disabled; its sessions are hidden and its secured cache is retained."
 	default:
 		check.Status = StatusWarn
-		check.Detail = remote.Label + " state is " + remote.State + "."
+		check.Detail = label + " state is " + remote.State + "."
 	}
 	return check
 }

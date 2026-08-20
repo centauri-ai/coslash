@@ -46,6 +46,9 @@ type Snapshot struct {
 	homeError           string
 }
 
+// RemoteInstallationGuidePath is the fixed product path linked for setup/upgrade.
+const RemoteInstallationGuidePath = "docs/remote-host-installation.md"
+
 // Remote is the optional SSH host health block for diagnostics.
 type Remote struct {
 	SourceID         string   `json:"sourceId,omitempty"`
@@ -60,6 +63,10 @@ type Remote struct {
 	HostOS           string   `json:"hostOs,omitempty"`
 	HostArch         string   `json:"hostArch,omitempty"`
 	LastSuccessAtMs  *int64   `json:"lastSuccessAtMs,omitempty"`
+	CoverageSinceMs  *int64   `json:"coverageSinceMs,omitempty"`
+	ClockOffsetMs    *int64   `json:"clockOffsetMs,omitempty"`
+	RoundTripMs      *int64   `json:"roundTripMs,omitempty"`
+	NextRetryAtMs    *int64   `json:"nextRetryAtMs,omitempty"`
 	Error            string   `json:"error,omitempty"`
 	DiagnosticStderr string   `json:"diagnosticStderr,omitempty"`
 }
@@ -136,6 +143,10 @@ type RemoteHealth struct {
 	HostOS           string
 	HostArch         string
 	LastSuccessAtMs  *int64
+	CoverageSinceMs  *int64
+	ClockOffsetMs    *int64
+	RoundTripMs      *int64
+	NextRetryAtMs    *int64
 	Error            string
 	DiagnosticStderr string
 }
@@ -157,6 +168,10 @@ func CollectWithRemote(ctx context.Context, version string, includeVersions bool
 			HostOS:           remoteHealth.HostOS,
 			HostArch:         remoteHealth.HostArch,
 			LastSuccessAtMs:  remoteHealth.LastSuccessAtMs,
+			CoverageSinceMs:  remoteHealth.CoverageSinceMs,
+			ClockOffsetMs:    remoteHealth.ClockOffsetMs,
+			RoundTripMs:      remoteHealth.RoundTripMs,
+			NextRetryAtMs:    remoteHealth.NextRetryAtMs,
 			Error:            remoteHealth.Error,
 			DiagnosticStderr: remoteHealth.DiagnosticStderr,
 		}
