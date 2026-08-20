@@ -12,9 +12,11 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
+import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
+  displayStatusLabel,
   environmentFact,
   getModality,
   getSessionCardSummary,
@@ -25,7 +27,6 @@ import {
   SUBAGENT_STATUSES,
   sumTokens,
   type Session,
-  type Status,
   type Subagent,
   type SubagentCommand,
 } from '@/pages/coslash/lib/session';
@@ -38,6 +39,7 @@ export type SessionCardProps = {
   session: Session;
   onClick?: () => void;
   variant?: SessionCardVariant;
+  showMachineBadge?: boolean;
 };
 
 function shortenSessionId(id: string): string {
@@ -94,11 +96,12 @@ export function SessionId({ id, shortened = false }: { id: string; shortened?: b
   );
 }
 
-function StatusBadge({ status }: { status: Status }) {
+function StatusBadge({ session }: { session: Session }) {
+  const status = STATUSES[getStatus(session.displayStale ? null : session.status)];
   return (
     <Badge className={cn('gap-1 text-xs font-semibold', status.fg, status.bg)}>
-      <span className={cn('size-1 rounded-full', status.dot)} />
-      {status.label}
+      {!session.displayStale && <span className={cn('size-1 rounded-full', status.dot)} />}
+      {displayStatusLabel(session)}
     </Badge>
   );
 }
@@ -140,13 +143,14 @@ function Summary({ session }: { session: Session }) {
   return <div className="text-muted-foreground pt-2 text-xs">{getSessionCardSummary(session)}</div>;
 }
 
-function CompactSessionCard({ session }: { session: Session }) {
+function CompactSessionCard({ session, showMachineBadge }: { session: Session; showMachineBadge: boolean }) {
   return (
     <>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <SessionVendorBadge agent={session.agent} abbreviated />
           <SessionName name={session.name} variant="compact" />
+          {showMachineBadge && <MachineBadge label={session.sourceLabel} />}
         </div>
         <span className="text-xs font-semibold whitespace-nowrap">
           <UnpricedModelWarning unpriced={session.unpricedModels}>
@@ -165,17 +169,16 @@ function CompactSessionCard({ session }: { session: Session }) {
   );
 }
 
-function DetailedSessionCard({ session }: { session: Session }) {
-  const status = STATUSES[getStatus(session.status)];
-
+function DetailedSessionCard({ session, showMachineBadge }: { session: Session; showMachineBadge: boolean }) {
   return (
-    <div className="flex items-start gap-4">
+    <div className={cn('flex items-start gap-4', { 'opacity-75': session.displayStale })}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <SessionVendorBadge agent={session.agent} />
           <SessionName name={session.name} />
           <SessionId id={session.id} />
-          <StatusBadge status={status} />
+          <StatusBadge session={session} />
+          {showMachineBadge && <MachineBadge label={session.sourceLabel} />}
           <Modality session={session} />
         </div>
         <Summary session={session} />
@@ -432,14 +435,19 @@ function SessionSubagentRail({
   );
 }
 
-export function SessionCard({ session, onClick, variant = 'detailed' }: SessionCardProps) {
+export function SessionCard({
+  session,
+  onClick,
+  variant = 'detailed',
+  showMachineBadge = false,
+}: SessionCardProps) {
   return (
     <div className="flex flex-col gap-2">
       <Card className={cn('cursor-pointer', variant === 'compact' ? 'gap-1 p-3' : 'p-4')} onClick={onClick}>
         {variant === 'compact' ? (
-          <CompactSessionCard session={session} />
+          <CompactSessionCard session={session} showMachineBadge={showMachineBadge} />
         ) : (
-          <DetailedSessionCard session={session} />
+          <DetailedSessionCard session={session} showMachineBadge={showMachineBadge} />
         )}
       </Card>
       <SessionSubagentRail subagents={session.subagents} parentName={session.name} variant={variant} />

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { MachinesSettingsSection } from '@/pages/coslash/components/MachinesSettingsSection';
 import {
   availableSynthesisBackends,
   initialSettingsDraft,
@@ -469,6 +470,27 @@ export function SettingsDialog({
                     )}
                   </div>
                 </div>
+              )}
+
+              {showFullSettings && (
+                <MachinesSettingsSection
+                  remote={draft.remote}
+                  installationGuidePath={response.options.remoteInstallationGuidePath}
+                  onChange={(remote) => {
+                    if (remote == null) {
+                      const { remote: _removed, ...rest } = draft;
+                      setDraft({ ...rest, remote: null });
+                      return;
+                    }
+                    // Blank alias with no saved host stays omitted so local-only settings stay unchanged.
+                    if (!remote.sshAlias.trim() && draft.remote == null) {
+                      const { remote: _removed, ...rest } = draft;
+                      setDraft(rest);
+                      return;
+                    }
+                    setDraft({ ...draft, remote: { ...remote, sshAlias: remote.sshAlias.trim() } });
+                  }}
+                />
               )}
 
               {saveError && (

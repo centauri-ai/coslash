@@ -6,6 +6,7 @@ import { setTheme } from '@/lib/theme';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
+import { RemoteHostStrip } from '@/pages/coslash/components/RemoteHostStrip';
 import { SessionBoard } from '@/pages/coslash/components/SessionBoard';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
@@ -40,12 +41,20 @@ import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
+import {
+  hostStripModel,
+  hostStripVisible,
+  remoteConfigured,
+  remoteMachine,
+} from '@/pages/coslash/lib/host-strip';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
+import { retryRemoteRefresh } from '@/pages/coslash/lib/remote-api';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import {
   getSessionVendors,
   getStatus,
   isLocalSession,
+  LOCAL_SOURCE_ID,
   sessionKey,
   sessionsForAggregates,
   type Session,
@@ -204,6 +213,7 @@ function CoslashContent({
   searchTerm,
   timeWindow,
   view,
+  showMachineBadge,
   onSelectSession,
   diagnostics,
   diagnosticsLoading,
@@ -217,6 +227,7 @@ function CoslashContent({
   searchTerm: string;
   timeWindow: TimeWindow;
   view: ViewMode;
+  showMachineBadge: boolean;
   onSelectSession: (session: Session) => void;
   diagnostics: Diagnostics | null;
   diagnosticsLoading: boolean;
@@ -263,7 +274,11 @@ function CoslashContent({
   return (
     <div className="h-full overflow-y-auto">
       {view === 'board' ? (
-        <SessionBoard sessions={visibleSessions} onSelectSession={onSelectSession} />
+        <SessionBoard
+          sessions={visibleSessions}
+          onSelectSession={onSelectSession}
+          showMachineBadge={showMachineBadge}
+        />
       ) : (
         <div className="bg-background flex flex-col gap-4 px-4 py-2">
           {visibleSessions.map((session) => (
@@ -271,6 +286,7 @@ function CoslashContent({
               key={sessionKey(session)}
               session={session}
               onClick={() => onSelectSession(session)}
+              showMachineBadge={showMachineBadge}
             />
           ))}
         </div>
@@ -286,7 +302,7 @@ export function CoslashPage() {
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
-  const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions({
+  const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions } = useSessions({
     localWindow: shareEnabled ? 'all' : timeWindow,
     remoteWindow: timeWindow,
   });
@@ -305,6 +321,7 @@ export function CoslashPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [remoteRetryInFlight, setRemoteRetryInFlight] = useState(false);
   const settingsState = useSettings();
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
@@ -320,6 +337,16 @@ export function CoslashPage() {
     [sessions, shareFixtureEnabled],
   );
   const sessionVendors = getSessionVendors(sessions);
+  const configuredRemote = remoteConfigured(machines);
+  const remoteHost = remoteMachine(machines);
+  const showHostStrip = hostStripVisible(remoteHost);
+  const stripModel =
+    remoteHost != null && showHostStrip
+      ? hostStripModel(remoteHost, { retryInFlight: remoteRetryInFlight })
+      : null;
+  const installationGuidePath =
+    settingsState.response?.options.remoteInstallationGuidePath ?? 'docs/remote-host-installation.md';
+  const remoteSessionCount = sessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
 
   const refreshHubDestination = useCallback(async () => {
     const destination = await loadHubDestination();
@@ -360,6 +387,13 @@ export function CoslashPage() {
       setSettingsDialogMode((current) => current ?? 'synthesis-consent');
     }
   }, [selectedSession, settingsState.response]);
+
+  useEffect(() => {
+    if (selectedSessionKey != null && selectedSession == null) {
+      setSelectedSessionKey(null);
+    }
+  }, [selectedSession, selectedSessionKey]);
+
   // Keep live sessions visible even when their logs predate the window.
   const windowStart = timeWindowStart(timeWindow);
   const sessionsInWindow =
@@ -377,6 +411,24 @@ export function CoslashPage() {
   const refreshFirstRun = () => {
     retrySessions();
     refreshDiagnostics();
+  };
+
+  const handleRemoteRetry = () => {
+    if (remoteRetryInFlight) return;
+    setRemoteRetryInFlight(true);
+    void retryRemoteRefresh()
+      .catch(() => undefined)
+      .finally(() => {
+        setRemoteRetryInFlight(false);
+        retrySessions();
+        if (diagnosticsOpen) refreshDiagnostics();
+      });
+  };
+
+  const saveSettings = async (settings: Parameters<typeof settingsState.save>[0]) => {
+    const ok = await settingsState.save(settings);
+    if (ok) retrySessions();
+    return ok;
   };
 
   return (
@@ -426,6 +478,7 @@ export function CoslashPage() {
               isLoading={diagnosticsLoading}
               loadFailed={diagnosticsLoadFailed}
               onRefresh={refreshDiagnostics}
+              remoteSessionCount={remoteSessionCount}
             />
             {shareEnabled && (
               <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
@@ -435,6 +488,14 @@ export function CoslashPage() {
           </div>
         </div>
       </div>
+      {stripModel && (
+        <RemoteHostStrip
+          model={stripModel}
+          installationGuidePath={installationGuidePath}
+          onRetry={handleRemoteRetry}
+          onOpenDiagnostics={() => setDiagnosticsOpen(true)}
+        />
+      )}
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-hidden">
           <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
@@ -446,6 +507,7 @@ export function CoslashPage() {
               searchTerm={searchTerm}
               timeWindow={timeWindow}
               view={view}
+              showMachineBadge={configuredRemote}
               onSelectSession={(session) => setSelectedSessionKey(sessionKey(session))}
               diagnostics={diagnostics}
               diagnosticsLoading={diagnosticsLoading}
@@ -459,6 +521,8 @@ export function CoslashPage() {
         session={selectedSession}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
+        showMachineBadge={configuredRemote}
+        remoteMachineFact={remoteHost}
         onClose={() => setSelectedSessionKey(null)}
       />
       {shareEnabled && shareDestination && (
@@ -487,7 +551,7 @@ export function CoslashPage() {
         loadError={settingsState.loadError}
         saveError={settingsState.saveError}
         isSaving={settingsState.isSaving}
-        onSave={settingsState.save}
+        onSave={saveSettings}
       />
     </div>
   );

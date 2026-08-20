@@ -286,6 +286,22 @@ export function getStatus(status: string | null): StatusKey {
   return status !== null && status in STATUSES ? (status as StatusKey) : 'inactive';
 }
 
+/** Board column and live status for a card; stale/limited/incomplete sessions are inactive. */
+export function boardStatusKey(session: Pick<Session, 'status' | 'displayStale'>): StatusKey {
+  if (session.displayStale) return 'inactive';
+  return getStatus(session.status);
+}
+
+/** Badge label: live status, or "Last seen …" when the remote snapshot is stale/incomplete. */
+export function displayStatusLabel(
+  session: Pick<Session, 'status' | 'displayStale' | 'lastSeenStatus'>,
+): string {
+  if (!session.displayStale) return STATUSES[getStatus(session.status)].label;
+  const seen = getStatus(session.lastSeenStatus ?? session.status);
+  const label = STATUSES[seen].label.toLowerCase();
+  return `Last seen ${label}`;
+}
+
 export function sumTokens(
   tokens: Session['tokens'],
   key: Exclude<keyof Session['tokens'][string], 'cost'>,

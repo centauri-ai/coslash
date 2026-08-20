@@ -19,6 +19,7 @@ import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/com
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { DiffList } from '@/pages/coslash/components/DiffList';
+import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
 import {
   SessionId,
   SessionName,
@@ -43,8 +44,11 @@ import {
   formatTokens,
 } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
+import { remoteLaunchGate } from '@/pages/coslash/lib/host-strip';
+import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
+  displayStatusLabel,
   environmentFact,
   getModality,
   getSessionOutcome,
@@ -243,8 +247,8 @@ export function SessionModelUsage({
   );
 }
 
-function HeaderMeta({ detail }: { detail: SessionDetail }) {
-  const status = STATUSES[getStatus(detail.status)];
+function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showMachineBadge: boolean }) {
+  const status = STATUSES[getStatus(detail.displayStale ? null : detail.status)];
 
   return (
     <div className="flex flex-col gap-2 pt-2">
@@ -264,6 +268,7 @@ function HeaderMeta({ detail }: { detail: SessionDetail }) {
               <span className="truncate">{detail.branch}</span>
             </CopyableBadge>
           )}
+          {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
         </div>
         <span
           className={cn(
@@ -271,8 +276,8 @@ function HeaderMeta({ detail }: { detail: SessionDetail }) {
             status.fg,
           )}
         >
-          <span className={cn('size-2 rounded-full', status.dot)} />
-          {status.label} · {getModality(detail.entrypoint)}
+          {!detail.displayStale && <span className={cn('size-2 rounded-full', status.dot)} />}
+          {displayStatusLabel(detail)} · {getModality(detail.entrypoint)}
         </span>
       </div>
       <div className="bg-muted rounded-lg border p-2 font-mono text-xs">
@@ -343,8 +348,19 @@ function LaunchError({ message }: { message: string | null }) {
   return <span className="text-destructive text-xs">{message}</span>;
 }
 
-function ResumeSessionButton({ detail }: { detail: SessionDetail }) {
+function ResumeSessionButton({
+  detail,
+  launchGate,
+}: {
+  detail: SessionDetail;
+  launchGate: ReturnType<typeof remoteLaunchGate> | null;
+}) {
   const { launch, launchError } = useLaunchTerminal(detail);
+  const blocked = launchGate != null && !launchGate.allowed;
+
+  if (blocked) {
+    return <span className="text-muted-foreground text-xs">{launchGate.reason}</span>;
+  }
 
   return (
     <div className="flex flex-col gap-1">
@@ -361,12 +377,17 @@ function StartNewSessionButton({
   detail,
   brief,
   onCopy,
+  launchGate,
 }: {
   detail: SessionDetail;
   brief: string;
   onCopy: () => void;
+  launchGate: ReturnType<typeof remoteLaunchGate> | null;
 }) {
   const { launch, launchError } = useLaunchTerminal(detail);
+  const blocked = launchGate != null && !launchGate.allowed;
+
+  if (blocked) return null;
 
   const startNewSession = () => {
     onCopy();
@@ -384,7 +405,13 @@ function StartNewSessionButton({
   );
 }
 
-function HandoffSection({ detail }: { detail: SessionDetail }) {
+function HandoffSection({
+  detail,
+  launchGate,
+}: {
+  detail: SessionDetail;
+  launchGate: ReturnType<typeof remoteLaunchGate> | null;
+}) {
   const [copied, setCopied] = useState(false);
   const contextFill = contextFillReadiness(detail);
   const branchDrift = branchDriftReadiness(detail.git);
@@ -409,13 +436,22 @@ function HandoffSection({ detail }: { detail: SessionDetail }) {
         <PromptCacheCell lastAccessAt={detail.mtime} />
       </div>
 
-      <div className="flex items-center gap-2">
-        <StartNewSessionButton detail={detail} brief={brief} onCopy={copyBrief} />
+      <div className="flex flex-wrap items-center gap-2">
+        <StartNewSessionButton detail={detail} brief={brief} onCopy={copyBrief} launchGate={launchGate} />
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={copyBrief}>
           <span>Copy handoff</span>
         </Button>
         {copied && <span className="text-xs text-neutral-300">copied to clipboard</span>}
       </div>
+      {launchGate != null && !launchGate.allowed && (
+        <div className="text-muted-foreground text-xs">{launchGate.reason}</div>
+      )}
+      {!isLocalSession(detail) && (
+        <div className="text-muted-foreground text-xs">
+          Remote session · Copy handoff uses available remote facts. File diffs, synthesis, Hub sharing, and
+          command history are unavailable.
+        </div>
+      )}
     </div>
   );
 }
@@ -813,7 +849,7 @@ function CommitsAndTodos({ detail }: { detail: SessionDetail }) {
 
 function CommandsSection({ detail }: { detail: SessionDetail }) {
   const [open, setOpen] = useState(false);
-  if (detail.commands.length === 0) return null;
+  if (!isLocalSession(detail) || detail.commands.length === 0) return null;
 
   return (
     <div className="pt-4">
@@ -839,9 +875,11 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
 
 function InspectorBody({
   detail,
+  launchGate,
   onSelectFile,
 }: {
   detail: SessionDetail;
+  launchGate: ReturnType<typeof remoteLaunchGate> | null;
   onSelectFile: ((path: string) => void) | null;
 }) {
   // scroll on the outer div, layout on the inner one — flex children of a
@@ -850,7 +888,7 @@ function InspectorBody({
   return (
     <div className="flex-1 overflow-y-auto pb-2">
       <div className="flex flex-col gap-2 px-4">
-        <HandoffSection detail={detail} />
+        <HandoffSection detail={detail} launchGate={launchGate} />
         <RecapSection detail={detail} />
         <DigestSection detail={detail} />
         <ArtifactStats detail={detail} />
@@ -862,7 +900,13 @@ function InspectorBody({
   );
 }
 
-function InspectorFooter({ detail }: { detail: SessionDetail }) {
+function InspectorFooter({
+  detail,
+  launchGate,
+}: {
+  detail: SessionDetail;
+  launchGate: ReturnType<typeof remoteLaunchGate> | null;
+}) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const showTeamPreview =
     isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
@@ -889,7 +933,7 @@ function InspectorFooter({ detail }: { detail: SessionDetail }) {
             />
           </>
         )}
-        <ResumeSessionButton detail={detail} />
+        <ResumeSessionButton detail={detail} launchGate={launchGate} />
       </div>
     </SheetFooter>
   );
@@ -899,11 +943,15 @@ export function SessionInspector({
   session,
   sessionsVersion,
   synthesisSettingsKey,
+  showMachineBadge = false,
+  remoteMachineFact = null,
   onClose,
 }: {
   session: Session | null;
   sessionsVersion: number;
   synthesisSettingsKey: string;
+  showMachineBadge?: boolean;
+  remoteMachineFact?: MachineFact | null;
   onClose: () => void;
 }) {
   const { detail, loadError } = useSessionDetail(session, sessionsVersion, synthesisSettingsKey);
@@ -916,6 +964,8 @@ export function SessionInspector({
   } = useFileDiff(selectedDiff);
   const isOpen = session != null;
   const openSessionKey = session == null ? null : sessionKey(session);
+  const launchGate =
+    detail != null && !isLocalSession(detail) ? remoteLaunchGate(remoteMachineFact, detail.agent) : null;
 
   useEffect(() => {
     setSelectedDiff(null);
@@ -951,8 +1001,9 @@ export function SessionInspector({
                     <SessionName name={detail.name} variant="inspector" />
                   </SheetTitle>
                   <SessionId id={detail.id} shortened />
+                  {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
                 </div>
-                <HeaderMeta detail={detail} />
+                <HeaderMeta detail={detail} showMachineBadge={false} />
                 <div className="border-b p-1" />
               </div>
             </SheetHeader>
@@ -963,6 +1014,7 @@ export function SessionInspector({
             )}
             <InspectorBody
               detail={detail}
+              launchGate={launchGate}
               onSelectFile={
                 isLocalSession(detail)
                   ? (path) =>
@@ -975,7 +1027,7 @@ export function SessionInspector({
                   : null
               }
             />
-            <InspectorFooter detail={detail} />
+            <InspectorFooter detail={detail} launchGate={launchGate} />
           </>
         )}
       </SheetContent>

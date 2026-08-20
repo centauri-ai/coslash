@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { assertOneOf } from '@/pages/coslash/lib/narrow';
-import { getStatus, getTotalTokens, STATUS_ORDER, type Session } from '@/pages/coslash/lib/session';
+import { boardStatusKey, getTotalTokens, STATUS_ORDER, type Session } from '@/pages/coslash/lib/session';
 
 export const SortKey = {
   Recency: 'recency',
@@ -35,7 +35,7 @@ function sortValue(session: Session, key: SortKey): number {
     case SortKey.Recency:
       return session.mtime;
     case SortKey.Status:
-      return STATUS_ORDER.length - STATUS_ORDER.indexOf(getStatus(session.status));
+      return STATUS_ORDER.length - STATUS_ORDER.indexOf(boardStatusKey(session));
     case SortKey.Value:
       return session.cost;
     case SortKey.Tokens:
@@ -47,6 +47,8 @@ function sortValue(session: Session, key: SortKey): number {
 
 export function sortSessions(sessions: Session[], key: SortKey, dir: SortDir): Session[] {
   return [...sessions].sort((a, b) => {
+    // Stale/limited/incomplete cards always sort after current cards.
+    if (a.displayStale !== b.displayStale) return a.displayStale ? 1 : -1;
     const diff = sortValue(a, key) - sortValue(b, key);
     return dir === 'desc' ? -diff : diff;
   });
