@@ -1,25 +1,35 @@
 import { useState } from 'react';
-import { apiFetch } from '@/pages/coslash/lib/api';
+import { apiFetch, readApiError } from '@/pages/coslash/lib/api';
+import type { SessionIdentity } from '@/pages/coslash/lib/session';
 
 export type LaunchMode = 'resume' | 'new';
 
-async function launchTerminal(sessionId: string, mode: LaunchMode, handoff?: string): Promise<void> {
-  const response = await apiFetch(`/api/launch?id=${sessionId}&mode=${mode}`, {
+export function launchRequestPath(session: SessionIdentity, mode: LaunchMode): string {
+  return `/api/launch?${new URLSearchParams({
+    source: session.sourceId,
+    agent: session.agent,
+    id: session.id,
+    mode,
+  })}`;
+}
+
+async function launchTerminal(session: SessionIdentity, mode: LaunchMode, handoff?: string): Promise<void> {
+  const response = await apiFetch(launchRequestPath(session, mode), {
     method: 'POST',
     body: handoff,
   });
   if (!response.ok) {
-    const reason = (await response.text()).trim();
-    throw new Error(reason || `Launch failed (${response.status})`);
+    const apiError = await readApiError(response);
+    throw new Error(apiError?.error || `Launch failed (${response.status})`);
   }
 }
 
-export function useLaunchTerminal(sessionId: string) {
+export function useLaunchTerminal(session: SessionIdentity) {
   const [launchError, setLaunchError] = useState<string | null>(null);
 
   const launch = (mode: LaunchMode, handoff?: string) => {
     setLaunchError(null);
-    launchTerminal(sessionId, mode, handoff).catch((error: unknown) => {
+    launchTerminal(session, mode, handoff).catch((error: unknown) => {
       setLaunchError(error instanceof Error ? error.message : String(error));
     });
   };

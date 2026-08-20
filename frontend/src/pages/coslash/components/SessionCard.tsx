@@ -15,6 +15,7 @@ import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
+  environmentFact,
   getModality,
   getSessionCardSummary,
   getStatus,
@@ -113,8 +114,8 @@ function Modality({ session }: { session: Session }) {
 
 function Metadata({ session }: { session: Session }) {
   return (
-    <div className="text-muted-foreground pt-2 font-mono text-xs" title={session.cwd}>
-      {session.repo ?? '—'} · {session.branch ?? '—'} · {formatTimeAgo(session.mtime)} ·{' '}
+    <div className="text-muted-foreground pt-2 font-mono text-xs" title={environmentFact(session.cwd)}>
+      {environmentFact(session.repo)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
       {formatDuration(session.durationMs)} · {session.files} files
     </div>
   );

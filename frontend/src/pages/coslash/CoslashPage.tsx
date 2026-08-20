@@ -29,7 +29,11 @@ import {
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
-import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
+import {
+  HUB_SHARE_VERSION,
+  localShareCandidates,
+  type DestinationResult,
+} from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
@@ -38,7 +42,14 @@ import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
-import { getSessionVendors, getStatus, type Session } from '@/pages/coslash/lib/session';
+import {
+  getSessionVendors,
+  getStatus,
+  isLocalSession,
+  sessionKey,
+  sessionsForAggregates,
+  type Session,
+} from '@/pages/coslash/lib/session';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
@@ -143,23 +154,26 @@ function SessionsStats({
 }) {
   if (loadFailed) return null;
 
-  const activeSessions = sessions.filter((session) => getStatus(session.status) === 'busy').length;
-  const waitingSessions = sessions.filter((session) => getStatus(session.status) === 'waiting').length;
+  const aggregateSessions = sessionsForAggregates(sessions);
+  const activeSessions = aggregateSessions.filter((session) => getStatus(session.status) === 'busy').length;
+  const waitingSessions = aggregateSessions.filter(
+    (session) => getStatus(session.status) === 'waiting',
+  ).length;
 
   return (
     <div className="flex w-full min-w-0 items-center justify-between gap-3">
       <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
         <span className="truncate">
           <span className="text-foreground font-semibold">
-            {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
+            {aggregateSessions.length} {aggregateSessions.length === 1 ? 'session' : 'sessions'}
           </span>{' '}
           {WINDOW_ACTIVITY_LABELS[timeWindow]} ·{' '}
-          {sessions.filter((session) => session.agent === 'claude').length} Claude Code,{' '}
-          {sessions.filter((session) => session.agent === 'codex').length} Codex,{' '}
-          {sessions.filter((session) => session.agent === 'opencode').length} OpenCode ·
+          {aggregateSessions.filter((session) => session.agent === 'claude').length} Claude Code,{' '}
+          {aggregateSessions.filter((session) => session.agent === 'codex').length} Codex,{' '}
+          {aggregateSessions.filter((session) => session.agent === 'opencode').length} OpenCode ·
         </span>
-        <UnpricedModelWarning unpriced={sessions.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(sessions.reduce((sum, session) => sum + session.cost, 0))}
+        <UnpricedModelWarning unpriced={aggregateSessions.flatMap((session) => session.unpricedModels)}>
+          {formatEstimatedCost(aggregateSessions.reduce((sum, session) => sum + session.cost, 0))}
         </UnpricedModelWarning>
         <span
           className="shrink-0 cursor-help underline decoration-dotted underline-offset-2"
@@ -254,7 +268,7 @@ function CoslashContent({
         <div className="bg-background flex flex-col gap-4 px-4 py-2">
           {visibleSessions.map((session) => (
             <SessionCard
-              key={`${session.agent}:${session.id}`}
+              key={sessionKey(session)}
               session={session}
               onClick={() => onSelectSession(session)}
             />
@@ -272,9 +286,10 @@ export function CoslashPage() {
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
-  const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions(
-    shareEnabled ? 'all' : timeWindow,
-  );
+  const { sessions, isLoading, loadError, sessionsVersion, retrySessions } = useSessions({
+    localWindow: shareEnabled ? 'all' : timeWindow,
+    remoteWindow: timeWindow,
+  });
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
   const {
@@ -286,7 +301,7 @@ export function CoslashPage() {
   const [view, setView] = useState<ViewMode>('list');
   const [sortKey, setSortKey] = useState<SortKey>(SortKey.Recency);
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -296,10 +311,12 @@ export function CoslashPage() {
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
   const shareCandidates = useMemo(
     () =>
-      sessions.map((session, index) => ({
-        session,
-        previouslyShared: shareFixtureEnabled && index === 0,
-      })),
+      localShareCandidates(
+        sessions.map((session, index) => ({
+          session,
+          previouslyShared: shareFixtureEnabled && index === 0,
+        })),
+      ),
     [sessions, shareFixtureEnabled],
   );
   const sessionVendors = getSessionVendors(sessions);
@@ -321,10 +338,10 @@ export function CoslashPage() {
   useEffect(() => {
     if (vendor !== 'all' && !sessions.some((session) => session.agent === vendor)) setVendor('all');
   }, [sessions, vendor]);
-  // Held by id, not by value: the inspector must render the freshest record
-  // each refresh, and a stored object would freeze at click time. Looked up
+  // Held by source-aware key, not by value: the inspector must render the freshest
+  // record each refresh, and a stored object would freeze at click time. Looked up
   // from the unfiltered list so filters never close an open inspector.
-  const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? null;
+  const selectedSession = sessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
   const synthesisSettingsKey = settingsState.response
     ? [
         settingsState.response.persisted,
@@ -335,7 +352,11 @@ export function CoslashPage() {
     : 'loading';
 
   useEffect(() => {
-    if (shouldPromptForSynthesisConsent(selectedSession, settingsState.response)) {
+    if (
+      selectedSession != null &&
+      isLocalSession(selectedSession) &&
+      shouldPromptForSynthesisConsent(selectedSession, settingsState.response)
+    ) {
       setSettingsDialogMode((current) => current ?? 'synthesis-consent');
     }
   }, [selectedSession, settingsState.response]);
@@ -425,7 +446,7 @@ export function CoslashPage() {
               searchTerm={searchTerm}
               timeWindow={timeWindow}
               view={view}
-              onSelectSession={(session) => setSelectedSessionId(session.id)}
+              onSelectSession={(session) => setSelectedSessionKey(sessionKey(session))}
               diagnostics={diagnostics}
               diagnosticsLoading={diagnosticsLoading}
               diagnosticsLoadFailed={diagnosticsLoadFailed}
@@ -438,7 +459,7 @@ export function CoslashPage() {
         session={selectedSession}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
-        onClose={() => setSelectedSessionId(null)}
+        onClose={() => setSelectedSessionKey(null)}
       />
       {shareEnabled && shareDestination && (
         <ShareToHubDialog

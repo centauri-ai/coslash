@@ -6,12 +6,19 @@ export type SynthesisSettings = {
   model: string;
 };
 
+export type RemoteHostSettings = {
+  id?: string;
+  sshAlias: string;
+  enabled: boolean;
+};
+
 export type CoslashSettings = {
   $schema: string;
   version: number;
   synthesis: SynthesisSettings;
   appearance: { theme: 'light' | 'dark' };
   launch: { terminal: string };
+  remote?: RemoteHostSettings | null;
 };
 
 export type ModelOption = {
@@ -41,8 +48,59 @@ export type SettingsResponse = {
   options: {
     synthesisBackends: BackendOption[];
     terminals: TerminalOption[];
+    remoteInstallationGuidePath: string;
   };
 };
+
+export function decodeRemoteHostSettings(value: unknown): RemoteHostSettings | null {
+  if (value == null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid remote settings');
+  }
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.sshAlias !== 'string' || typeof raw.enabled !== 'boolean') {
+    throw new Error('Invalid remote settings');
+  }
+  const remote: RemoteHostSettings = {
+    sshAlias: raw.sshAlias,
+    enabled: raw.enabled,
+  };
+  if (raw.id != null) {
+    if (typeof raw.id !== 'string') throw new Error('Invalid remote settings');
+    remote.id = raw.id;
+  }
+  return remote;
+}
+
+export function decodeSettingsResponse(value: unknown): SettingsResponse {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid settings response');
+  }
+  const raw = value as Record<string, unknown>;
+  if (raw.settings == null || typeof raw.settings !== 'object' || Array.isArray(raw.settings)) {
+    throw new Error('Invalid settings response');
+  }
+  if (raw.options == null || typeof raw.options !== 'object' || Array.isArray(raw.options)) {
+    throw new Error('Invalid settings response');
+  }
+  const settingsRaw = raw.settings as Record<string, unknown>;
+  const optionsRaw = raw.options as Record<string, unknown>;
+  if (typeof optionsRaw.remoteInstallationGuidePath !== 'string') {
+    throw new Error('Invalid settings response');
+  }
+  const response = value as SettingsResponse;
+  return {
+    ...response,
+    settings: {
+      ...response.settings,
+      remote: decodeRemoteHostSettings(settingsRaw.remote),
+    },
+    options: {
+      ...response.options,
+      remoteInstallationGuidePath: optionsRaw.remoteInstallationGuidePath,
+    },
+  };
+}
 
 export function availableSynthesisBackends(options: readonly BackendOption[]): BackendOption[] {
   return options.filter((option) => option.available);
@@ -70,6 +128,7 @@ export function initialSettingsDraft(response: SettingsResponse): CoslashSetting
     synthesis,
     appearance: { ...response.settings.appearance },
     launch: { ...response.settings.launch },
+    remote: response.settings.remote ? { ...response.settings.remote } : response.settings.remote,
   };
 }
 

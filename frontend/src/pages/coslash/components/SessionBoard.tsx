@@ -6,6 +6,8 @@ import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import {
   getStatus,
   getTotalTokens,
+  sessionKey,
+  sessionsForAggregates,
   STATUS_ORDER,
   STATUSES,
   type Session,
@@ -28,23 +30,25 @@ function groupBy(sessions: Session[], keyOf: (session: Session) => string): [str
 }
 
 function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Session[] }) {
+  const count = sessionsForAggregates(sessions).length;
   return (
     <div className="bg-background sticky top-0 z-10 flex items-center gap-2 border-b border-l px-3 py-2">
       <span className={cn('size-2 rounded-full', status.dot)} />
       <span className={cn('text-xs font-semibold', status.fg)}>{status.label}</span>
-      <span className="text-muted-foreground font-mono text-xs">{sessions.length}</span>
+      <span className="text-muted-foreground font-mono text-xs">{count}</span>
     </div>
   );
 }
 
 function GroupTotals({ sessions }: { sessions: Session[] }) {
-  const tokens = sessions.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
-  const cost = sessions.reduce((sum, session) => sum + session.cost, 0);
+  const aggregate = sessionsForAggregates(sessions);
+  const tokens = aggregate.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
+  const cost = aggregate.reduce((sum, session) => sum + session.cost, 0);
 
   return (
     <span className="text-muted-foreground text-xs">
-      {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
-      <UnpricedModelWarning unpriced={sessions.flatMap((session) => session.unpricedModels)}>
+      {aggregate.length} {aggregate.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
+      <UnpricedModelWarning unpriced={aggregate.flatMap((session) => session.unpricedModels)}>
         {formatEstimatedCost(cost)}
       </UnpricedModelWarning>
     </span>
@@ -75,7 +79,7 @@ function SessionCardColumn({
         .filter((session) => getStatus(session.status) === status)
         .map((session) => (
           <SessionCard
-            key={`${session.agent}:${session.id}`}
+            key={sessionKey(session)}
             session={session}
             onClick={() => onSelectSession(session)}
             variant="compact"

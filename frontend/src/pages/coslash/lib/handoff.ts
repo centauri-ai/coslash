@@ -1,5 +1,6 @@
 import { formatDuration, formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import {
+  environmentFact,
   getTotalTokens,
   getVendor,
   goalSourceLabel,
@@ -54,9 +55,9 @@ export function handoffBrief(detail: SessionDetail): string {
     '',
     '## Environment',
     `- Vendor: ${getVendor(detail.agent).label}`,
-    `- Repository: ${detail.repo ?? '—'}`,
-    `- Branch: ${detail.branch ?? '—'}`,
-    `- Working directory: ${detail.cwd}`,
+    `- Repository: ${environmentFact(detail.repo)}`,
+    `- Branch: ${environmentFact(detail.branch)}`,
+    `- Working directory: ${environmentFact(detail.cwd)}`,
     `- Runtime: ${formatDuration(detail.durationMs)}`,
     `- Tokens: ${formatTokens(getTotalTokens(detail.tokens))}`,
     `- ${costLabel}: ${formatEstimatedCost(detail.cost)}`,
