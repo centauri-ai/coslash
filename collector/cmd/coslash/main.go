@@ -66,6 +66,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "doctor" {
 		os.Exit(runDoctor(os.Stdout, os.Stderr, os.Args[2:]))
 	}
+	if snapshotDispatched(os.Args) {
+		runSnapshotMain(os.Args)
+	}
 
 	opts, err := parseOptions(os.Args[1:])
 	if err != nil {

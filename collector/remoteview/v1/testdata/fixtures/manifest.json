@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "remote-session-view/v1",
+  "fixtures": [
+    {
+      "path": "valid/minimal.json",
+      "sha256": "5dc8e771db215717b3340d7dce09345cc0ed5ab0a414ecb2faf9a1f6b8a22169",
+      "valid": true
+    },
+    {
+      "path": "invalid/unknown-field.json",
+      "sha256": "719108e3b48483fa352aaea2ddc9bef74b673937469f934ab58f7d4cc07dc213",
+      "valid": false
+    }
+  ]
+}

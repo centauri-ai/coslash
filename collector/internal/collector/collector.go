@@ -24,28 +24,26 @@ const (
 )
 
 type vendorSource struct {
-	name       string
-	collect    func(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
-	loadFacts  func(id string) (*vendors.ParsedSession, error)
-	loadFamily func(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
-	health     func() vendors.SourceHealth
+	name           string
+	collect        func(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	collectLimited func(since int64, maxRoots int) ([]*vendors.ParsedSession, *vendors.SessionMetadata, bool, error)
+	loadFacts      func(id string) (*vendors.ParsedSession, error)
+	loadFamily     func(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	health         func() vendors.SourceHealth
 }
 
 var vendorSources = []vendorSource{
 	{
-		name: vendors.AgentClaude, collect: claude.Collect, loadFacts: claude.GetSessionFacts,
-		loadFamily: claude.GetSessionFamily,
-		health:     claude.Health,
+		name: vendors.AgentClaude, collect: claude.Collect, collectLimited: claude.CollectLimited,
+		loadFacts: claude.GetSessionFacts, loadFamily: claude.GetSessionFamily, health: claude.Health,
 	},
 	{
-		name: vendors.AgentCodex, collect: codex.Collect, loadFacts: codex.GetSessionFacts,
-		loadFamily: codex.GetSessionFamily,
-		health:     codex.Health,
+		name: vendors.AgentCodex, collect: codex.Collect, collectLimited: codex.CollectLimited,
+		loadFacts: codex.GetSessionFacts, loadFamily: codex.GetSessionFamily, health: codex.Health,
 	},
 	{
-		name: vendors.AgentOpenCode, collect: opencode.Collect, loadFacts: opencode.GetSessionFacts,
-		loadFamily: opencode.GetSessionFamily,
-		health:     opencode.Health,
+		name: vendors.AgentOpenCode, collect: opencode.Collect,
+		loadFacts: opencode.GetSessionFacts, loadFamily: opencode.GetSessionFamily, health: opencode.Health,
 	},
 }
 
@@ -79,6 +77,40 @@ func List(since int64) ([]*session.Session, error) {
 		sessions = append(sessions, root.Session)
 	}
 	return sessions, nil
+}
+
+// ListResult is the bounded remote collection outcome.
+type ListResult struct {
+	Sessions  []*session.Session
+	Truncated bool
+}
+
+// ListAgents collects only the requested agents with a per-agent discovery cap.
+// Local List remains unchanged and continues to include OpenCode.
+func ListAgents(since int64, agents []string, maxPerAgent int) (ListResult, error) {
+	parsed, metadata, truncated, err := collectAgents(
+		max(0, since-windowContextBuffer.Milliseconds()),
+		agents,
+		maxPerAgent,
+	)
+	if err != nil {
+		return ListResult{}, err
+	}
+	roots := finalizeSessions(parsed, metadata)
+	if since > 0 {
+		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
+			_, live := sessionMetadata(metadata, root.Session.Agent).Live[root.Session.ID]
+			return !live && root.Session.LastActivityTime < since
+		})
+	}
+	roots = servableRoots(roots)
+	probeLastEdits(roots)
+	probeGitEnvironment(roots)
+	sessions := make([]*session.Session, 0, len(roots))
+	for _, root := range roots {
+		sessions = append(sessions, root.Session)
+	}
+	return ListResult{Sessions: sessions, Truncated: truncated}, nil
 }
 
 // GetSessionForPreview returns the selected fully composed session family.
@@ -188,6 +220,48 @@ func collect(
 		return nil, nil, errors.Join(failures...)
 	}
 	return parsed, metadata, nil
+}
+
+func collectAgents(
+	since int64,
+	agents []string,
+	maxPerAgent int,
+) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata, bool, error) {
+	allowed := map[string]struct{}{}
+	for _, agent := range agents {
+		allowed[agent] = struct{}{}
+	}
+	parsed := []*vendors.ParsedSession{}
+	metadata := map[string]*vendors.SessionMetadata{}
+	var failures []error
+	truncated := false
+	matched := 0
+	for _, source := range vendorSources {
+		if _, ok := allowed[source.name]; !ok {
+			continue
+		}
+		matched++
+		if source.collectLimited == nil {
+			failures = append(failures, fmt.Errorf("%s: limited collection is unavailable", source.name))
+			continue
+		}
+		vendorParsed, vendorMetadata, vendorTruncated, err := source.collectLimited(since, maxPerAgent)
+		if err != nil {
+			log.Printf("%s session collection failed: %v; serving other vendors", source.name, err)
+			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
+			continue
+		}
+		truncated = truncated || vendorTruncated
+		metadata[source.name] = vendorMetadata
+		parsed = append(parsed, vendorParsed...)
+	}
+	if matched == 0 {
+		return nil, nil, false, fmt.Errorf("no requested agents")
+	}
+	if len(failures) == matched {
+		return nil, nil, false, errors.Join(failures...)
+	}
+	return parsed, metadata, truncated, nil
 }
 
 type sessionKey struct {
@@ -461,6 +535,36 @@ func GetSessionFacts(id string) (*session.Session, error) {
 		}
 		return nil, nil
 	}
+	return finalizeFacts(p)
+}
+
+// GetSessionFactsByAgent resolves an exact (agent, session ID) pair for remote launch.
+func GetSessionFactsByAgent(agent, id string) (*session.Session, error) {
+	if agent == "" || id == "" {
+		return nil, nil
+	}
+	var failures []error
+	for _, source := range vendorSources {
+		if source.name != agent {
+			continue
+		}
+		candidate, err := source.loadFacts(id)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
+			break
+		}
+		if candidate == nil || candidate.ParentID != "" {
+			return nil, nil
+		}
+		return finalizeFacts(candidate)
+	}
+	if len(failures) > 0 {
+		return nil, errors.Join(failures...)
+	}
+	return nil, nil
+}
+
+func finalizeFacts(p *vendors.ParsedSession) (*session.Session, error) {
 	if filepath.Clean(p.Session.WorkingDirectory) == filepath.Clean(synthesis.SynthesisCwd()) {
 		return nil, nil
 	}

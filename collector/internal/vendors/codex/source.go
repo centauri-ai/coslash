@@ -3,15 +3,40 @@ package codex
 import "github.com/centauri-ai/coslash/collector/internal/vendors"
 
 func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	parsed, metadata, _, err := CollectLimited(since, 0)
+	return parsed, metadata, err
+}
+
+// CollectLimited discovers transcripts newest-first and parses at most maxRoots
+// root sessions. A non-positive maxRoots means no discovery cap.
+func CollectLimited(
+	since int64,
+	maxRoots int,
+) ([]*vendors.ParsedSession, *vendors.SessionMetadata, bool, error) {
 	files, err := Files()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCodex, LoadMetadata)
 	if since > 0 {
 		files = FilesSince(files, metadata.Live, since)
 	}
-	return parseFiles(files), metadata, nil
+	truncated := false
+	if maxRoots > 0 {
+		files, truncated = vendors.LimitRootTranscripts(
+			files,
+			maxRoots,
+			func(path string) string {
+				_, parentID, err := readHeader(path)
+				if err != nil {
+					return ""
+				}
+				return parentID
+			},
+			SessionIDFromRollout,
+		)
+	}
+	return parseFiles(files), metadata, truncated, nil
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
