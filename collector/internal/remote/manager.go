@@ -112,9 +112,9 @@ func (m *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	copyCfg := *remote
 	same := m.cfg != nil && m.cfg.ID == remote.ID
 	wasEnabled := same && m.cfg.Enabled
-	m.cfg = &copyCfg
 
 	if !remote.Enabled {
+		m.cfg = &copyCfg
 		m.cancelLifeLocked()
 		m.refreshing = false
 		m.probe = nil
@@ -126,7 +126,14 @@ func (m *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	}
 
 	if !same || !wasEnabled {
+		previousCfg := m.cfg
+		previousCached := m.cached
+		previousLastSuccess := m.lastSuccessAt
+		m.cfg = &copyCfg
 		if err := m.loadCacheLocked(); err != nil {
+			m.cfg = previousCfg
+			m.cached = previousCached
+			m.lastSuccessAt = previousLastSuccess
 			return err
 		}
 		m.probe = nil
@@ -138,7 +145,10 @@ func (m *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		m.nextRetryAt = time.Time{}
 		cutoff := m.lastRequestedMs
 		m.kickRefreshLocked(cutoff, true)
+		return nil
 	}
+
+	m.cfg = &copyCfg
 	return nil
 }
 

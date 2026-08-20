@@ -16,6 +16,20 @@ export type FileChange = {
   deletions: number;
 };
 
+export function decodeSessionsResponse(body: unknown): Session[] {
+  if (Array.isArray(body)) {
+    return body as Session[];
+  }
+  if (
+    body != null &&
+    typeof body === 'object' &&
+    Array.isArray((body as { sessions?: unknown }).sessions)
+  ) {
+    return (body as { sessions: Session[] }).sessions;
+  }
+  throw new Error('Invalid sessions response');
+}
+
 export function diffRequestPath(selection: FileSelection) {
   return `/api/diff?${new URLSearchParams({ id: selection.sessionId, path: selection.path })}`;
 }
@@ -75,17 +89,19 @@ export function useSessions(timeWindow: TimeWindow) {
         setLoadError(null);
       }
       const since = timeWindowStart(timeWindow);
-      const path = since == null ? '/api/sessions' : `/api/sessions?since=${since}`;
+      const path = since == null
+        ? '/api/sessions'
+        : `/api/sessions?since=${since}&remoteSince=${since}`;
       apiFetch(path, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
             throw new Error(`Sessions request failed (${response.status})`);
           }
-          return response.json() as Promise<Session[]>;
+          return response.json() as Promise<unknown>;
         })
-        .then((loadedSessions) => {
+        .then((body) => {
           if (controller.signal.aborted) return;
-          setSessions(loadedSessions);
+          setSessions(decodeSessionsResponse(body));
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
           setLoadError(null);

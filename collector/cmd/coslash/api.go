@@ -299,8 +299,8 @@ func handleSaveSettings(
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	previous := store.State().Config.Remote
-	config.Remote, err = normalizeRemoteIdentity(previous, config.Remote)
+	previousRemote := cloneRemoteSettings(store.State().Config.Remote)
+	config.Remote, err = normalizeRemoteIdentity(previousRemote, config.Remote)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -310,8 +310,16 @@ func handleSaveSettings(
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := remoteMgr.ApplySettings(config.Remote); err != nil {
+		log.Printf("apply remote settings: %v", err)
+		http.Error(w, "could not apply remote settings", http.StatusInternalServerError)
+		return
+	}
 	if err := store.Save(config); err != nil {
 		log.Printf("save settings: %v", err)
+		if rollbackErr := remoteMgr.ApplySettings(previousRemote); rollbackErr != nil {
+			log.Printf("rollback remote settings: %v", rollbackErr)
+		}
 		http.Error(
 			w,
 			"could not save settings.json; check ~/.coslash permissions",
@@ -320,12 +328,15 @@ func handleSaveSettings(
 		return
 	}
 	mgr.SetRunner(runner)
-	if err := remoteMgr.ApplySettings(config.Remote); err != nil {
-		log.Printf("apply remote settings: %v", err)
-		http.Error(w, "could not apply remote settings", http.StatusInternalServerError)
-		return
-	}
 	writeSettings(w, store.State())
+}
+
+func cloneRemoteSettings(remote *settings.RemoteSettings) *settings.RemoteSettings {
+	if remote == nil {
+		return nil
+	}
+	copy := *remote
+	return &copy
 }
 
 // normalizeRemoteIdentity assigns Mac-owned source IDs. Alias changes always get a new ID.

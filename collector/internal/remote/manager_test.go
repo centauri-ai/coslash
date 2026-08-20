@@ -2,6 +2,8 @@ package remote
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -401,4 +403,56 @@ func TestTestAlias(t *testing.T) {
 	if health.State != StateOK || health.CollectorVersion != "dev" {
 		t.Fatalf("%+v", health)
 	}
+}
+
+func TestApplySettingsRollsBackWhenCacheLoadFails(t *testing.T) {
+	root := t.TempDir()
+	id := "r_0123456789abcdef"
+	if err := os.MkdirAll(filepath.Join(root, "remotes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A file where the source directory should be makes snapshot reads fail.
+	if err := os.WriteFile(filepath.Join(root, "remotes", id), []byte("not-a-directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	fake := &FakeRunner{Hook: func(call FakeCall) (RunResult, error) {
+		calls.Add(1)
+		t.Fatal("refresh must not start after failed ApplySettings")
+		return RunResult{}, nil
+	}}
+	mgr := NewManager(Options{Runner: fake, Cache: NewCache(root)})
+	cfg := &settings.RemoteSettings{ID: id, SSHAlias: "gpu-server", Enabled: true}
+	if err := mgr.ApplySettings(cfg); err == nil {
+		t.Fatal("expected cache load error")
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("unexpected refresh calls: %d", calls.Load())
+	}
+	if health := mgr.DiagnosticsHealth(); health.SourceID != "" {
+		t.Fatalf("expected rolled-back manager, got %+v", health)
+	}
+
+	// A later save with the same settings must still be able to start cleanly.
+	cleanRoot := t.TempDir()
+	mgr = NewManager(Options{
+		Runner: &FakeRunner{Hook: func(call FakeCall) (RunResult, error) {
+			now := time.Now()
+			result := RunResult{ExitCode: 0, StartedAt: now, FinishedAt: now}
+			if call.RemoteCommand == ProbeCommand() {
+				result.Stdout = framedProbe(t)
+				return result, nil
+			}
+			result.Stdout = framedView(t, 0, now.UnixMilli())
+			return result, nil
+		}},
+		Cache: NewCache(cleanRoot),
+	})
+	if err := mgr.ApplySettings(cfg); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		h := mgr.DiagnosticsHealth()
+		return h.State == StateOK && !h.Refreshing
+	})
 }
