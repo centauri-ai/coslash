@@ -20,11 +20,7 @@ export function decodeSessionsResponse(body: unknown): Session[] {
   if (Array.isArray(body)) {
     return body as Session[];
   }
-  if (
-    body != null &&
-    typeof body === 'object' &&
-    Array.isArray((body as { sessions?: unknown }).sessions)
-  ) {
+  if (body != null && typeof body === 'object' && Array.isArray((body as { sessions?: unknown }).sessions)) {
     return (body as { sessions: Session[] }).sessions;
   }
   throw new Error('Invalid sessions response');
@@ -89,9 +85,7 @@ export function useSessions(timeWindow: TimeWindow) {
         setLoadError(null);
       }
       const since = timeWindowStart(timeWindow);
-      const path = since == null
-        ? '/api/sessions'
-        : `/api/sessions?since=${since}&remoteSince=${since}`;
+      const path = since == null ? '/api/sessions' : `/api/sessions?since=${since}&remoteSince=${since}`;
       apiFetch(path, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
