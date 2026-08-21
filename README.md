@@ -42,7 +42,7 @@ Everything runs locally. Nothing leaves your machine unless you turn on synthesi
 </tr>
 <tr>
 <td><b>Reads</b></td>
-<td>Local transcripts, read-only. No account, no daemon, no telemetry.</td>
+<td>Local transcripts and, optionally, one Linux host over read-only SFTP. No account, no daemon, no telemetry.</td>
 </tr>
 </table>
 
@@ -96,6 +96,20 @@ coSlash needs at least one local agent session to read. If it finds none, it say
 <!-- MEDIA: the first-run screen with the diagnostics checklist. Small, but it's the
      first thing a new user sees and it proves nothing is misconfigured.
      Suggested: docs/media/first-run.png -->
+
+### Optional Linux session monitoring
+
+In **Settings → Machines**, add one alias from your Mac's existing OpenSSH
+configuration. coSlash runs the system `ssh` client on the Mac, requests the
+host's SFTP subsystem, and parses Claude Code and Codex files locally. The Linux
+host needs only its SSH server with SFTP enabled and agent files readable by the
+SSH user. Do not install or run coSlash on Linux.
+
+Remote v1 is monitoring-only. Cards, transcript-derived facts, costs, tokens,
+file-edit summaries, and **Copy handoff** are available. Resume, Start Fresh,
+diffs, synthesis, preview, Commands, and sharing remain local-only. A remote
+session can show recent transcript activity while process liveness is unknown;
+coSlash labels those facts separately.
 
 ## What you get
 
@@ -194,11 +208,11 @@ It is **off until you explicitly enable and save it**.
 
 ## Settings and data
 
-Settings live behind the top-right button and are stored machine-wide in `~/.coslash/settings.json` — synthesis backend and model, light or dark theme, and the terminal used for launches (Apple Terminal or iTerm2). See [`settings.schema.json`](settings.schema.json) for the file format.
+Settings live behind the top-right button and are stored machine-wide in `~/.coslash/settings.json` — synthesis backend and model, light or dark theme, the terminal used for local launches (Apple Terminal or iTerm2), and one optional SSH alias. See [`settings.schema.json`](settings.schema.json) for the file format.
 
 The dialog offers a short model list per backend, but the model is not restricted to it. Editing `settings.json` directly accepts any model the selected CLI can actually reach — including one served through an API proxy such as `ANTHROPIC_BASE_URL`, or a third-party provider — so long as that CLI is set up to resolve it.
 
-Transcripts are read-only; coSlash never modifies them. Cached summaries and temporary handoffs live under `~/.coslash`. The server is loopback-only and protects every API request with an access token minted at start.
+Transcripts are read-only; coSlash never modifies local or remote agent data. Cached summaries, temporary local handoffs, and normalized remote facts live under `~/.coslash`. Raw remote transcript bytes are not persisted. The server is loopback-only and protects every API request with an access token minted at start.
 
 Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sensitive transcripts.
 
