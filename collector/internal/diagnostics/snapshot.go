@@ -39,10 +39,37 @@ type Snapshot struct {
 	Storage             Storage   `json:"storage"`
 	Synthesis           Synthesis `json:"synthesis"`
 	Sources             []Source  `json:"sources"`
+	Remote              *Remote   `json:"remote,omitempty"`
 	Checks              []Check   `json:"checks"`
 	openCodePlugin      opencode.WaitingPluginHealth
 	openCodePluginError string
 	homeError           string
+}
+
+type Remote struct {
+	SourceID         string  `json:"sourceId"`
+	Label            string  `json:"label"`
+	State            string  `json:"state"`
+	Complete         bool    `json:"complete"`
+	Reason           *string `json:"reason,omitempty"`
+	LastSuccessAtMs  *int64  `json:"lastSuccessAtMs,omitempty"`
+	CoverageSinceMs  *int64  `json:"coverageSinceMs,omitempty"`
+	RoundTripMs      *int64  `json:"roundTripMs,omitempty"`
+	Error            string  `json:"error,omitempty"`
+	DiagnosticStderr string  `json:"diagnosticStderr,omitempty"`
+}
+
+type RemoteHealth struct {
+	SourceID         string
+	Label            string
+	State            string
+	Complete         bool
+	Reason           *string
+	LastSuccessAtMs  *int64
+	CoverageSinceMs  *int64
+	RoundTripMs      *int64
+	Error            string
+	DiagnosticStderr string
 }
 
 type Platform struct {
@@ -100,6 +127,31 @@ type Check struct {
 
 // Collect turns every probe failure into data so the diagnostic surface itself remains available.
 func Collect(ctx context.Context, version string, includeVersions bool) *Snapshot {
+	return CollectWithRemote(ctx, version, includeVersions, nil)
+}
+
+func CollectWithRemote(
+	ctx context.Context,
+	version string,
+	includeVersions bool,
+	remoteHealth *RemoteHealth,
+) *Snapshot {
+	snapshot := collectLocal(ctx, version, includeVersions)
+	if remoteHealth == nil || remoteHealth.SourceID == "" {
+		return snapshot
+	}
+	snapshot.Remote = &Remote{
+		SourceID: remoteHealth.SourceID, Label: remoteHealth.Label,
+		State: remoteHealth.State, Complete: remoteHealth.Complete, Reason: remoteHealth.Reason,
+		LastSuccessAtMs: remoteHealth.LastSuccessAtMs, CoverageSinceMs: remoteHealth.CoverageSinceMs,
+		RoundTripMs: remoteHealth.RoundTripMs, Error: remoteHealth.Error,
+		DiagnosticStderr: remoteHealth.DiagnosticStderr,
+	}
+	snapshot.Checks = append(snapshot.Checks, remoteCheck(snapshot.Remote))
+	return snapshot
+}
+
+func collectLocal(ctx context.Context, version string, includeVersions bool) *Snapshot {
 	userHome, userHomeErr := os.UserHomeDir()
 	state := settings.Open().State()
 	config := state.Config.Synthesis

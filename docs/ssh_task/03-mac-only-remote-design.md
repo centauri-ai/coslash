@@ -98,8 +98,10 @@ inferred.
 - At most one SFTP refresh is active for the configured host.
 - The first refresh lists bounded directory depth/count and selects recent roots
   before opening transcript content.
-- A fingerprint consists of canonical relative path, size, and modification
-  time. Unchanged files reuse normalized cached facts.
+- A fingerprint consists of an opaque relative-path hash, size, and modification
+  time and is persisted with normalized facts. The bounded first implementation
+  reparses selected files on refresh; fingerprint-based reuse remains a measured
+  follow-up optimization.
 - Changed files are streamed and reparsed under per-file, per-refresh, session,
   and time caps. A truncated refresh is visible as incomplete and does not claim
   full coverage.
@@ -138,9 +140,10 @@ The replacement implementation deletes or does not port:
 - Linux coSlash release archives and remote installation instructions added only
   for this feature.
 
-The source-aware settings, identity, cache lifecycle, API envelope, health UI,
-machine badges, stale fallback, diagnostics, and Copy handoff behavior remain
-useful and should be adapted rather than rebuilt.
+The source-aware settings, identity, cache lifecycle, opt-in API envelope,
+health UI, machine badges, stale fallback, diagnostics, and Copy handoff
+behavior remain useful and should be adapted rather than rebuilt. Callers that
+omit `sourceAware=1` retain the legacy local session array response.
 
 ## Acceptance
 

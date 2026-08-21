@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
@@ -104,6 +106,12 @@ func main() {
 		return collector.List(today.UnixMilli())
 	})
 	go cleanupHandoffs()
+	remoteManager := remote.NewManager(remote.Options{})
+	if settingsState.Valid {
+		if err := remoteManager.ApplySettings(settingsState.Config.Remote); err != nil {
+			log.Printf("remote settings: %v", err)
+		}
+	}
 
 	// Bind before opening the browser, so a port conflict is an error the user
 	// reads rather than a browser tab pointed at nothing.
@@ -132,8 +140,16 @@ func main() {
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
 	}
-	server := newServer(guard, mgr, settingsStore, hub)
-	if err := server.Serve(listener); err != nil {
+	server := newServer(guard, mgr, settingsStore, remoteManager, hub)
+	go func() {
+		signals := make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+		<-signals
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownContext)
+	}()
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", err)
 	}
 }
@@ -142,44 +158,70 @@ func newServer(
 	guard httpsec.Guard,
 	mgr *synthesis.Manager,
 	settingsStore *settings.Store,
+	remoteManager *remote.Manager,
 	hub *hubclient.Client,
 ) *http.Server {
-	return &http.Server{
-		Handler:           guard.Wrap(routes(mgr, settingsStore, hub)),
+	server := &http.Server{
+		Handler:           guard.Wrap(routes(mgr, settingsStore, remoteManager, hub)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 16,
 	}
+	server.RegisterOnShutdown(remoteManager.Shutdown)
+	return server
 }
 
-func routes(mgr *synthesis.Manager, settingsStore *settings.Store, hub *hubclient.Client) *http.ServeMux {
+func routes(
+	mgr *synthesis.Manager,
+	settingsStore *settings.Store,
+	remoteManager *remote.Manager,
+	hub *hubclient.Client,
+) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
-		handleList(w, r, mgr)
+		handleList(w, r, mgr, remoteManager)
 	})
 	api.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRemoteSource(w, r) {
+			return
+		}
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
 	})
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRemoteSource(w, r) {
+			return
+		}
 		handleDiff(w, r, collector.GetSessionFacts)
 	})
 	api.HandleFunc("GET /api/share-preview", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRemoteSource(w, r) {
+			return
+		}
 		handleSharePreview(w, r, collector.GetSessionForPreview, version)
 	})
 	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
 		writeSettings(w, settingsStore.State())
 	})
 	api.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
-		handleSaveSettings(w, r, settingsStore, mgr)
+		handleSaveSettings(w, r, settingsStore, mgr, remoteManager)
 	})
 	api.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
+		if rejectRemoteSource(w, r) {
+			return
+		}
 		handleLaunch(w, r, settingsStore)
 	})
+	api.HandleFunc("POST /api/remote/test", func(w http.ResponseWriter, r *http.Request) {
+		handleRemoteTest(w, r, remoteManager)
+	})
+	api.HandleFunc("POST /api/remote/retry", func(w http.ResponseWriter, r *http.Request) {
+		handleRemoteRetry(w, r, remoteManager)
+	})
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, diagnostics.Collect(r.Context(), version, false))
+		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
 	registerHubRoutes(api, hub)
 	mux.Handle("/api", api)
@@ -194,6 +236,24 @@ func routes(mgr *synthesis.Manager, settingsStore *settings.Store, hub *hubclien
 	}
 	mux.Handle("/", frontend)
 	return mux
+}
+
+func remoteHealthFact(manager *remote.Manager) *diagnostics.RemoteHealth {
+	health := manager.DiagnosticsHealth()
+	if health.SourceID == "" {
+		return nil
+	}
+	var reason *string
+	if health.Reason != nil {
+		value := string(*health.Reason)
+		reason = &value
+	}
+	return &diagnostics.RemoteHealth{
+		SourceID: health.SourceID, Label: health.Label, State: string(health.State),
+		Complete: health.Complete, Reason: reason, LastSuccessAtMs: health.LastSuccessAtMs,
+		CoverageSinceMs: health.CoverageSinceMs, RoundTripMs: health.RoundTripMs,
+		Error: health.Error, DiagnosticStderr: health.DiagnosticStderr,
+	}
 }
 
 func listen(port int) (net.Listener, error) {

@@ -1,5 +1,7 @@
 # P2 — Remote collection manager, cache, and API
 
+Status: done locally on 2026-08-21.
+
 ## Purpose
 
 Replace the Linux snapshot/probe runner with P1's Mac-side SFTP collector while
@@ -57,3 +59,26 @@ go test -race ./internal/remote/...
 
 Freeze the session envelope, machine health states/reasons, settings/test/retry
 requests, unsupported action codes, and copy for partial/unknown facts.
+
+## Implemented locally
+
+- The manager opens the read-only P1 SFTP transport and runs Claude/Codex
+  discovery and parsing on the Mac; it invokes no Linux coSlash command.
+- One-flight refresh, cancellation, bounded backoff, manual retry, stale
+  last-good display, disable/remove, alias replacement, and shutdown are tested.
+- The atomic cache stores a narrow session projection, opaque file
+  fingerprints, coverage, and truncation. A regression test proves transcript
+  text, commands, tool output, working directories, and edited-file paths do
+  not reach disk.
+- The UI opts into a source-aware sessions envelope with machine health and a
+  separate remote history cutoff. The default endpoint retains its legacy local
+  session array for existing callers. SFTP test/retry and remote-only action
+  attempts return stable health and error contracts.
+- Connection testing runs bounded discovery and parsing, distinguishing SSH
+  authentication, host-key verification, SFTP availability, permissions, empty
+  roots, partial agent data, and ready state.
+- Diagnostics include bounded, redacted remote health without collector or
+  Linux installation fields.
+
+Verification completed locally: `gofmt`, `go vet ./...`, `go test ./...`, and
+`go test -race ./internal/remote/...`.

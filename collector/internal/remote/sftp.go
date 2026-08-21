@@ -3,6 +3,7 @@ package remote
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -49,6 +50,30 @@ type OpenOptions struct {
 	command func(context.Context, string, ...string) *exec.Cmd
 }
 
+type sshProcessError struct {
+	err    error
+	stderr string
+}
+
+func (err *sshProcessError) Error() string { return err.err.Error() }
+
+func (err *sshProcessError) Unwrap() error { return err.err }
+
+func wrapSSHError(err error, stderr string) error {
+	if stderr == "" {
+		return err
+	}
+	return &sshProcessError{err: err, stderr: stderr}
+}
+
+func sshErrorStderr(err error) string {
+	var processErr *sshProcessError
+	if errors.As(err, &processErr) {
+		return processErr.stderr
+	}
+	return ""
+}
+
 func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Session, error) {
 	limits := options.Limits.withDefaults()
 	args, err := SSHArgs(alias, int(limits.ConnectTimeout.Seconds()))
@@ -89,7 +114,10 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 		if stderr.overflow {
 			return nil, ErrStderrLimit
 		}
-		return nil, fmt.Errorf("open SFTP subsystem: %w", err)
+		if sessionCtx.Err() != nil {
+			return nil, sessionCtx.Err()
+		}
+		return nil, wrapSSHError(fmt.Errorf("open SFTP subsystem: %w", err), stderr.String())
 	}
 	operations := sftpOperations{
 		realPath: client.RealPath,
@@ -104,7 +132,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 		_ = client.Close()
 		cancel()
 		_ = cmd.Wait()
-		return nil, err
+		return nil, wrapSSHError(err, stderr.String())
 	}
 	return &Session{
 		client: client, source: source, cancel: cancel, cmd: cmd, stderr: stderr,

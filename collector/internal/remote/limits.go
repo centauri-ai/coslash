@@ -13,6 +13,13 @@ const (
 	DefaultMaxEntries     = 10_000
 	DefaultMaxDepth       = 16
 	DefaultMaxStderrBytes = 8 << 10
+
+	FreshnessInterval   = 3 * time.Minute
+	InitialRetryBackoff = 3 * time.Minute
+	MaxRetryBackoff     = 30 * time.Minute
+	ActivityWindowMs    = 2 * 60_000
+	MaxDiagnosticBytes  = 2 << 10
+	MaxErrorCopyBytes   = 256
 )
 
 var (
