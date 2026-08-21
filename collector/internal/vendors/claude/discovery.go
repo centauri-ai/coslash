@@ -16,7 +16,11 @@ func Root() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".claude", "projects"), nil
+	return ProjectsRoot(home), nil
+}
+
+func ProjectsRoot(home string) string {
+	return filepath.Join(home, ".claude", "projects")
 }
 
 func IDFromPath(path string) string {
@@ -37,7 +41,11 @@ func Files() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	files, err := vendors.JSONLFilesUnder(root)
+	return FilesSource(vendors.LocalReadSource, root)
+}
+
+func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
+	files, err := vendors.JSONLFilesUnderSource(source, root)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +57,11 @@ func Scan() (*vendors.SourceScan, error) {
 	if err != nil {
 		return nil, err
 	}
-	scan, err := vendors.Scan(root)
+	return ScanSource(vendors.LocalReadSource, root)
+}
+
+func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
+	scan, err := vendors.ScanSource(source, root)
 	if err != nil {
 		return nil, err
 	}
@@ -71,13 +83,22 @@ func filterWorkflowTranscripts(all []string) []string {
 
 // FilesSince keeps recent/live roots and every subagent file in those sessions.
 func FilesSince(files []string, live map[string]string, since int64) []string {
+	return FilesSinceSource(vendors.LocalReadSource, files, live, since)
+}
+
+func FilesSinceSource(
+	source vendors.ReadSource,
+	files []string,
+	live map[string]string,
+	since int64,
+) []string {
 	selectedRoots := map[string]struct{}{}
 	for _, file := range files {
 		if ParentIDFromPath(file) != "" {
 			continue
 		}
 		id := IDFromPath(file)
-		info, err := os.Stat(file)
+		info, err := source.Stat(file)
 		_, isLive := live[id]
 		if err != nil || isLive || info.ModTime().UnixMilli() >= since {
 			selectedRoots[id] = struct{}{}

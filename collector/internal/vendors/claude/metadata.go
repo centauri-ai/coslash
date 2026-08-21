@@ -41,6 +41,11 @@ type metadataPaths struct {
 	desktop  string
 }
 
+type metadataName struct {
+	name       string
+	nameSource string
+}
+
 // LoadMetadata reads live sessions (~/.claude/sessions, pid-validated), background
 // jobs (~/.claude/jobs), and desktop titles into the shared metadata shape.
 // Names holds the metadata-side winner of the name precedence — live user-name
@@ -64,64 +69,43 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 	}, time.Now(), session.IsProcessAlive)
 }
 
+func LoadRemoteMetadata(
+	source vendors.ReadSource,
+	home string,
+	now time.Time,
+	processAlive func(int) bool,
+) (*vendors.SessionMetadata, error) {
+	return loadRemoteMetadata(source, metadataPaths{
+		sessions: filepath.Join(home, ".claude", "sessions"),
+		jobs:     filepath.Join(home, ".claude", "jobs"),
+	}, now, processAlive)
+}
+
+func loadRemoteMetadata(
+	source vendors.ReadSource,
+	paths metadataPaths,
+	now time.Time,
+	processAlive func(int) bool,
+) (*vendors.SessionMetadata, error) {
+	metadata, live, jobs, err := loadCoreMetadata(source, paths, now, processAlive)
+	if err != nil {
+		return nil, err
+	}
+	resolveMetadataNames(metadata, live, jobs, nil)
+	return metadata, nil
+}
+
 func loadMetadata(
 	paths metadataPaths,
 	now time.Time,
 	processAlive func(int) bool,
 ) (*vendors.SessionMetadata, error) {
-	type named struct {
-		name       string
-		nameSource string
-	}
-	live := map[string]named{}
-	jobs := map[string]named{}
 	desktopTitles := map[string]string{}
-	metadata := vendors.EmptySessionMetadata()
-
-	entries, err := readDirIfExists(paths.sessions)
+	metadata, live, jobs, err := loadCoreMetadata(
+		vendors.LocalReadSource, paths, now, processAlive,
+	)
 	if err != nil {
 		return nil, err
-	}
-	for _, entry := range entries {
-		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		var record liveSessionFile
-		path := filepath.Join(paths.sessions, entry.Name())
-		ok, err := session.ReadJSONIfValid(path, &record)
-		if err != nil {
-			log.Printf("%s: skipping unreadable session metadata: %v", path, err)
-			continue
-		}
-		if !ok || record.SessionID == "" {
-			continue
-		}
-		status, ok := validatedLiveStatus(record, processAlive(record.PID), now)
-		if !ok {
-			continue
-		}
-		metadata.Live[record.SessionID] = status
-		live[record.SessionID] = named{name: record.Name, nameSource: record.NameSource}
-	}
-
-	entries, err = readDirIfExists(paths.jobs)
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		var job jobStateFile
-		path := filepath.Join(paths.jobs, entry.Name(), "state.json")
-		ok, err := session.ReadJSONIfValid(path, &job)
-		if err != nil {
-			log.Printf("%s: skipping unreadable job metadata: %v", path, err)
-			continue
-		}
-		if ok && job.SessionID != "" && job.Name != "" {
-			jobs[job.SessionID] = named{name: job.Name, nameSource: job.NameSource}
-		}
 	}
 
 	err = filepath.WalkDir(
@@ -165,6 +149,73 @@ func loadMetadata(
 		return nil, err
 	}
 
+	resolveMetadataNames(metadata, live, jobs, desktopTitles)
+	return metadata, nil
+}
+
+func loadCoreMetadata(
+	source vendors.ReadSource,
+	paths metadataPaths,
+	now time.Time,
+	processAlive func(int) bool,
+) (*vendors.SessionMetadata, map[string]metadataName, map[string]metadataName, error) {
+	live := map[string]metadataName{}
+	jobs := map[string]metadataName{}
+	metadata := vendors.EmptySessionMetadata()
+	entries, err := readSourceDirIfExists(source, paths.sessions)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		var record liveSessionFile
+		path := filepath.Join(paths.sessions, entry.Name())
+		ok, err := vendors.ReadJSONSource(source, path, &record)
+		if err != nil {
+			log.Printf("%s: skipping unreadable session metadata: %v", path, err)
+			continue
+		}
+		if !ok || record.SessionID == "" {
+			continue
+		}
+		status, ok := validatedLiveStatus(record, processAlive(record.PID), now)
+		if !ok {
+			continue
+		}
+		metadata.Live[record.SessionID] = status
+		live[record.SessionID] = metadataName{name: record.Name, nameSource: record.NameSource}
+	}
+
+	entries, err = readSourceDirIfExists(source, paths.jobs)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		var job jobStateFile
+		path := filepath.Join(paths.jobs, entry.Name(), "state.json")
+		ok, err := vendors.ReadJSONSource(source, path, &job)
+		if err != nil {
+			log.Printf("%s: skipping unreadable job metadata: %v", path, err)
+			continue
+		}
+		if ok && job.SessionID != "" && job.Name != "" {
+			jobs[job.SessionID] = metadataName{name: job.Name, nameSource: job.NameSource}
+		}
+	}
+	return metadata, live, jobs, nil
+}
+
+func resolveMetadataNames(
+	metadata *vendors.SessionMetadata,
+	live map[string]metadataName,
+	jobs map[string]metadataName,
+	desktopTitles map[string]string,
+) {
 	ids := map[string]struct{}{}
 	for id := range live {
 		ids[id] = struct{}{}
@@ -194,7 +245,6 @@ func loadMetadata(
 			metadata.Names[id] = name
 		}
 	}
-	return metadata, nil
 }
 
 func validatedLiveStatus(record liveSessionFile, alive bool, now time.Time) (string, bool) {
@@ -212,8 +262,8 @@ func validatedLiveStatus(record liveSessionFile, alive bool, now time.Time) (str
 	return status, true
 }
 
-func readDirIfExists(dir string) ([]os.DirEntry, error) {
-	entries, err := os.ReadDir(dir)
+func readSourceDirIfExists(source vendors.ReadSource, dir string) ([]fs.DirEntry, error) {
+	entries, err := source.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

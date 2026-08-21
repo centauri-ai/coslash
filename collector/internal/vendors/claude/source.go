@@ -1,6 +1,12 @@
 package claude
 
-import "github.com/centauri-ai/coslash/collector/internal/vendors"
+import (
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+)
 
 func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	files, err := Files()
@@ -12,6 +18,64 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 		files = FilesSince(files, metadata.Live, since)
 	}
 	return parseFiles(files), metadata, nil
+}
+
+func CollectSource(
+	source vendors.ReadSource,
+	root string,
+	since int64,
+	metadata *vendors.SessionMetadata,
+) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	files, err := FilesSource(source, root)
+	if err != nil {
+		return nil, nil, err
+	}
+	if metadata == nil {
+		metadata = vendors.EmptySessionMetadata()
+	}
+	if since > 0 {
+		files = FilesSinceSource(source, files, metadata.Live, since)
+	}
+	return parseFilesSource(source, files), metadata, nil
+}
+
+func CollectRemote(
+	source vendors.ReadSource,
+	home string,
+	since int64,
+	now time.Time,
+) (vendors.RemoteCollection, error) {
+	metadata := vendors.BestEffortMetadata(vendors.AgentClaude, func() (*vendors.SessionMetadata, error) {
+		return LoadRemoteMetadata(source, home, now, func(pid int) bool {
+			if pid <= 0 {
+				return false
+			}
+			_, err := source.Stat(filepath.Join("/proc", strconv.Itoa(pid)))
+			return err == nil
+		})
+	})
+	files, err := FilesSource(source, ProjectsRoot(home))
+	if err != nil {
+		return vendors.RemoteCollection{}, err
+	}
+	candidates := len(files)
+	files, truncated := vendors.LimitNewestSourceFiles(
+		source, files, vendors.MaxCandidateFilesPerAgent,
+	)
+	if since > 0 {
+		files = FilesSinceSource(source, files, metadata.Live, since)
+	}
+	sessions, err := parseFilesSourceStrict(source, files)
+	if err != nil {
+		return vendors.RemoteCollection{}, err
+	}
+	return vendors.RemoteCollection{
+		Sessions:       sessions,
+		Metadata:       metadata,
+		CandidateFiles: candidates,
+		SelectedFiles:  len(files),
+		Truncated:      truncated,
+	}, nil
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
@@ -33,8 +97,30 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 }
 
 func parseFiles(files []string) []*vendors.ParsedSession {
-	parsed := vendors.ParseFiles(files, parse)
-	applyForkedUsage(parsed)
+	return parseFilesSource(vendors.LocalReadSource, files)
+}
+
+func parseFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
+	parsed := vendors.ParseSourceFiles(source, files, parseSource)
+	return finalizeParsedFiles(source, parsed)
+}
+
+func parseFilesSourceStrict(
+	source vendors.ReadSource,
+	files []string,
+) ([]*vendors.ParsedSession, error) {
+	parsed, err := vendors.ParseSourceFilesStrict(source, files, parseSource)
+	if err != nil {
+		return nil, err
+	}
+	return finalizeParsedFiles(source, parsed), nil
+}
+
+func finalizeParsedFiles(
+	source vendors.ReadSource,
+	parsed []*parsedSession,
+) []*vendors.ParsedSession {
+	applyForkedUsageSource(source, parsed)
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
 		transcripts = append(transcripts, item.transcript)
