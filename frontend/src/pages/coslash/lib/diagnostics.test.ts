@@ -68,9 +68,19 @@ describe('diagnostics helpers', () => {
     value.sources[0].skipped = [
       { path: '~/.claude/projects/-Users-alice-private-repo/session.jsonl', error: 'permission denied' },
     ];
+    value.remote = {
+      label: 'gpu-server',
+      state: 'stale',
+      complete: false,
+      nextRetryAtMs: 1_700_000_180_000,
+      error: 'connection failed',
+    };
     const output = formatDiagnosticsForCopy(value);
     expect(output).toContain('~/.claude/projects');
     expect(output).toContain('entries=4; sessions=3');
+    expect(output).toContain('Remote host:');
+    expect(output).toContain('alias=gpu-server');
+    expect(output).toContain('nextRetryAtMs=1700000180000');
     expect(output).not.toContain('-Users-alice-private-repo');
     expect(output).not.toContain('/Users/alice');
     expect(output).not.toContain('secret session name');

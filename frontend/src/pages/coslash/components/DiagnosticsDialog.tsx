@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { DiagnosticsButton } from '@/pages/coslash/components/DiagnosticsButton';
 import { DiagnosticsChecklist } from '@/pages/coslash/components/DiagnosticsChecklist';
 import { formatDiagnosticsForCopy, worstStatus, type Diagnostics } from '@/pages/coslash/lib/diagnostics';
+import { formatRemoteDiagnosticsFacts } from '@/pages/coslash/lib/remote-diagnostics';
 
 export function DiagnosticsDialog({
   open,
@@ -22,6 +23,7 @@ export function DiagnosticsDialog({
   isLoading,
   loadFailed,
   onRefresh,
+  remoteSessionCount,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -29,6 +31,7 @@ export function DiagnosticsDialog({
   isLoading: boolean;
   loadFailed: boolean;
   onRefresh: () => void;
+  remoteSessionCount?: number;
 }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const copyDiagnostics = () => {
@@ -45,6 +48,11 @@ export function DiagnosticsDialog({
     if (!nextOpen) setCopyState('idle');
     onOpenChange(nextOpen);
   };
+
+  const remoteFacts =
+    diagnostics?.remote && diagnostics.remote.state
+      ? formatRemoteDiagnosticsFacts(diagnostics.remote, { sessionCount: remoteSessionCount })
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -78,6 +86,14 @@ export function DiagnosticsDialog({
                     CLI: {source.cli.found ? source.cli.version || source.cli.path : 'not found'}
                   </div>
                 ))}
+                {remoteFacts && (
+                  <div>
+                    <div className="text-foreground pb-1 font-semibold">Remote host</div>
+                    {remoteFacts.map((line) => (
+                      <div key={line}>{line}</div>
+                    ))}
+                  </div>
+                )}
                 <div>
                   Storage: <code>{diagnostics.storage.home}</code>
                 </div>
