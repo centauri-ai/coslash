@@ -112,11 +112,19 @@ func finalizeSessions(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 ) []*vendors.ParsedSession {
+	return finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource)
+}
+
+func finalizeSessionsSource(
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+	source vendors.ReadSource,
+) []*vendors.ParsedSession {
 	applyActivityFallbacks(parsed)
 	enrichModelsAndCosts(parsed)
 	composition := composeSessions(parsed)
 	promoteFamilyActivity(composition)
-	enrichSubagents(composition, metadata)
+	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed))
 	for _, p := range composition.parsed {
 		removeUnresolvedSpawnRows(p.Session)
 	}
@@ -241,8 +249,8 @@ func composeSessions(parsed []*vendors.ParsedSession) sessionComposition {
 func enrichSubagents(
 	composition sessionComposition,
 	metadata map[string]*vendors.SessionMetadata,
+	claudeDynamicWorkflows map[string]*claude.WorkflowAgent,
 ) {
-	claudeDynamicWorkflows := claude.WorkflowAgents(composition.parsed)
 	for _, link := range composition.children {
 		p, parent := link.child, link.parent
 		subagent := subagentFrom(
@@ -254,6 +262,38 @@ func enrichSubagents(
 		linkSpawnDigest(parent.Session, p.SpawnKey, subagent)
 		parent.Session.Subagents = append(parent.Session.Subagents, subagent)
 	}
+}
+
+// ListRemote composes already-read Claude and Codex facts without probing the
+// remote filesystem as if it were local.
+func ListRemote(
+	source vendors.ReadSource,
+	collections map[string]vendors.RemoteCollection,
+	since int64,
+) []*session.Session {
+	parsed := []*vendors.ParsedSession{}
+	metadata := map[string]*vendors.SessionMetadata{}
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
+		collection, ok := collections[agent]
+		if !ok {
+			continue
+		}
+		parsed = append(parsed, collection.Sessions...)
+		metadata[agent] = collection.Metadata
+	}
+	roots := finalizeSessionsSource(parsed, metadata, source)
+	if since > 0 {
+		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
+			_, live := sessionMetadata(metadata, root.Session.Agent).Live[root.Session.ID]
+			return !live && root.Session.LastActivityTime < since
+		})
+	}
+	roots = servableRoots(roots)
+	sessions := make([]*session.Session, 0, len(roots))
+	for _, root := range roots {
+		sessions = append(sessions, root.Session)
+	}
+	return sessions
 }
 
 func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.Subagent) {

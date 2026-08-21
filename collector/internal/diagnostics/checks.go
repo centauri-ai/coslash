@@ -145,3 +145,27 @@ func sourceCheck(source Source) Check {
 	}
 	return check
 }
+
+func remoteCheck(remote *Remote) Check {
+	check := Check{ID: "remote", Title: "Remote SSH host", Status: StatusOK}
+	switch remote.State {
+	case "ok":
+		check.Detail = remote.Label + " is connected over SFTP."
+	case "connecting":
+		check.Status = StatusWarn
+		check.Detail = "Connecting to " + remote.Label + "."
+	case "limited", "stale":
+		check.Status = StatusWarn
+		check.Detail = remote.Label + " is " + remote.State + ". " + remote.Error
+	case "error":
+		check.Status = StatusFail
+		check.Detail = remote.Label + " needs attention. " + remote.Error
+		check.Fix = "Open Machines in Settings and use Test connection or Retry."
+	case "disabled":
+		check.Detail = remote.Label + " is disabled."
+	default:
+		check.Status = StatusWarn
+		check.Detail = remote.Label + " state is " + remote.State + "."
+	}
+	return check
+}

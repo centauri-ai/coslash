@@ -13,6 +13,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
@@ -23,11 +24,24 @@ import (
 
 // /api/sessions → complete session records, optionally limited by an
 // epoch-millisecond activity cutoff before transcript parsing.
-func handleList(w http.ResponseWriter, r *http.Request, mgr *synthesis.Manager) {
+func handleList(
+	w http.ResponseWriter,
+	r *http.Request,
+	mgr *synthesis.Manager,
+	remoteManager *remote.Manager,
+) {
 	since, err := parseSince(r.URL.Query().Get("since"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	remoteSince := since
+	if raw := r.URL.Query().Get("remoteSince"); raw != "" {
+		remoteSince, err = parseSince(raw)
+		if err != nil {
+			http.Error(w, "invalid 'remoteSince' parameter", http.StatusBadRequest)
+			return
+		}
 	}
 	sessions, err := collector.List(since)
 	if err != nil {
@@ -38,8 +52,24 @@ func handleList(w http.ResponseWriter, r *http.Request, mgr *synthesis.Manager) 
 	for _, session := range sessions {
 		session.Synthesis = mgr.Lookup(session.ID, session.LastActivityTime)
 	}
-	writeJSON(w, sessions)
-	log.Printf("list sessions: %d", len(sessions))
+	if r.URL.Query().Get("sourceAware") != "1" {
+		writeJSON(w, sessions)
+		log.Printf("list sessions: %d", len(sessions))
+		return
+	}
+	response := sessionsResponse{Machines: []machineFact{localMachineFact()}}
+	for _, value := range sessions {
+		response.Sessions = append(response.Sessions, boardLocalSession(value))
+	}
+	remoteResult := remoteManager.ListView(remoteSince)
+	if remoteResult.Health.SourceID != "" {
+		response.Machines = append(response.Machines, machineFromHealth(remoteResult.Health))
+		for _, value := range remoteResult.Sessions {
+			response.Sessions = append(response.Sessions, boardRemoteSession(value))
+		}
+	}
+	writeJSON(w, response)
+	log.Printf("list sessions: %d local, %d remote", len(sessions), len(remoteResult.Sessions))
 }
 
 func parseSince(value string) (int64, error) {
@@ -283,6 +313,7 @@ func handleSaveSettings(
 	r *http.Request,
 	store *settings.Store,
 	mgr *synthesis.Manager,
+	remoteManager *remote.Manager,
 ) {
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSettingsBytes))
 	if err != nil {
@@ -313,6 +344,11 @@ func handleSaveSettings(
 		return
 	}
 	mgr.SetRunner(runner)
+	if err := remoteManager.ApplySettings(config.Remote); err != nil {
+		log.Printf("apply remote settings: %v", err)
+		http.Error(w, "could not apply remote settings", http.StatusInternalServerError)
+		return
+	}
 	writeSettings(w, store.State())
 }
 
