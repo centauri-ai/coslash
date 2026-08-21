@@ -39,6 +39,13 @@ type workflowJournalEntry struct {
 
 // WorkflowAgents indexes Dynamic Workflow agents by session id their transcript parses to, "agent-<agentId>".
 func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
+	return WorkflowAgentsSource(vendors.LocalReadSource, parsed)
+}
+
+func WorkflowAgentsSource(
+	source vendors.ReadSource,
+	parsed []*vendors.ParsedSession,
+) map[string]*WorkflowAgent {
 	agents := map[string]*WorkflowAgent{}
 	finished := map[string]bool{}
 	for _, p := range parsed {
@@ -51,7 +58,7 @@ func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
 		}
 		finished[statePath] = false
 		var run workflowRun
-		found, err := session.ReadJSONIfValid(statePath, &run)
+		found, err := vendors.ReadJSONSource(source, statePath, &run)
 		if err != nil {
 			log.Printf("%s: unreadable workflow state: %v", statePath, err)
 			continue
@@ -77,7 +84,8 @@ func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
 		}
 		results, cached := journals[statePath]
 		if !cached {
-			results = workflowJournalResults(
+			results = workflowJournalResultsSource(
+				source,
 				filepath.Join(filepath.Dir(p.LogPath), "journal.jsonl"),
 			)
 			journals[statePath] = results
@@ -96,7 +104,11 @@ func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
 }
 
 func workflowJournalResults(path string) map[string]string {
-	entries, err := session.ParseJSONL[workflowJournalEntry](path)
+	return workflowJournalResultsSource(vendors.LocalReadSource, path)
+}
+
+func workflowJournalResultsSource(source vendors.ReadSource, path string) map[string]string {
+	entries, err := vendors.ParseJSONLSource[workflowJournalEntry](source, path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			log.Printf("%s: unreadable workflow journal: %v", path, err)

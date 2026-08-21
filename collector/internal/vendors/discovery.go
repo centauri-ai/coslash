@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"log"
-	"path/filepath"
 	"strings"
 )
 
@@ -30,8 +29,12 @@ func (scan *SourceScan) RecordSkipped(path string, err error) {
 }
 
 func Scan(root string) (*SourceScan, error) {
+	return ScanSource(LocalReadSource, root)
+}
+
+func ScanSource(source ReadSource, root string) (*SourceScan, error) {
 	scan := &SourceScan{Files: []string{}, Skipped: []SkippedPath{}}
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	err := walkReadSource(source, root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			if path == root {
 				if errors.Is(err, fs.ErrNotExist) {
@@ -56,7 +59,11 @@ func Scan(root string) (*SourceScan, error) {
 
 // JSONLFilesUnder scans the collection path and logs entries skipped during discovery.
 func JSONLFilesUnder(root string) ([]string, error) {
-	scan, err := Scan(root)
+	return JSONLFilesUnderSource(LocalReadSource, root)
+}
+
+func JSONLFilesUnderSource(source ReadSource, root string) ([]string, error) {
+	scan, err := ScanSource(source, root)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,8 @@
 package vendors
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"sync"
 )
@@ -49,6 +51,58 @@ func ParseFiles[T any](
 		}
 	}
 	return parsed
+}
+
+// ParseSourceFiles parses concurrently while preserving source order.
+func ParseSourceFiles[T any](
+	source ReadSource,
+	files []string,
+	parse func(ReadSource, string) (*T, error),
+) []*T {
+	return ParseFiles(files, func(path string) (*T, error) { return parse(source, path) })
+}
+
+// ParseSourceFilesStrict returns every main-file failure to the remote refresh owner.
+func ParseSourceFilesStrict[T any](
+	source ReadSource,
+	files []string,
+	parse func(ReadSource, string) (*T, error),
+) ([]*T, error) {
+	results := make([]*T, len(files))
+	failures := make([]error, len(files))
+	workers := make(chan struct{}, maxParseWorkers)
+	var wg sync.WaitGroup
+	for index, file := range files {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			workers <- struct{}{}
+			defer func() { <-workers }()
+			parsed, err := parse(source, file)
+			if err != nil {
+				failures[index] = fmt.Errorf("%s: %w", file, err)
+				return
+			}
+			results[index] = parsed
+		}()
+	}
+	wg.Wait()
+
+	parsed := make([]*T, 0, len(files))
+	var joined []error
+	for index, result := range results {
+		if failures[index] != nil {
+			joined = append(joined, failures[index])
+			continue
+		}
+		if result != nil {
+			parsed = append(parsed, result)
+		}
+	}
+	if len(joined) > 0 {
+		return nil, errors.Join(joined...)
+	}
+	return parsed, nil
 }
 
 func FindAndParse(

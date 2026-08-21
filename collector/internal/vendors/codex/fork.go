@@ -17,6 +17,19 @@ import (
 // parent leaves the full cumulative usage in place; over-counting is the
 // deliberate failure mode, never under-counting.
 func applyForkedUsage(parsed []*parsedSession) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		applyForkedUsageSource(vendors.LocalReadSource, "", parsed)
+		return
+	}
+	applyForkedUsageSource(vendors.LocalReadSource, filepath.Join(home, ".codex", "archived_sessions"), parsed)
+}
+
+func applyForkedUsageSource(
+	source vendors.ReadSource,
+	archivedDir string,
+	parsed []*parsedSession,
+) {
 	forks := []*parsedSession{}
 	index := map[string]string{}
 	for _, p := range parsed {
@@ -31,12 +44,8 @@ func applyForkedUsage(parsed []*parsedSession) {
 	}
 	// A fork's parent can be archived after the fork. Walked only when a fork
 	// exists; a batch (live) path wins over an archived copy of the same id.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		log.Printf("archived sessions: %v; continuing without archived parents", err)
-	} else {
-		archivedDir := filepath.Join(home, ".codex", "archived_sessions")
-		archived, err := vendors.JSONLFilesUnder(archivedDir)
+	if archivedDir != "" {
+		archived, err := vendors.JSONLFilesUnderSource(source, archivedDir)
 		if err != nil {
 			log.Printf("archived sessions dir %q: %v; continuing without archived parents", archivedDir, err)
 		}
@@ -56,7 +65,7 @@ func applyForkedUsage(parsed []*parsedSession) {
 		for i, sample := range fork.samples {
 			forkSeq[i] = sample.usage
 		}
-		parentUsages, err := parentForkUsages(parentPath, forkSeq)
+		parentUsages, err := parentForkUsagesSource(source, parentPath, forkSeq)
 		if err != nil {
 			log.Printf(
 				"%s: fork parent %q unreadable; counting full usage: %v",
@@ -79,7 +88,15 @@ func applyForkedUsage(parsed []*parsedSession) {
 // fully parsing a parent that may be long-running. The returned slice is enough
 // for tokenBuckets to find the shared prefix.
 func parentForkUsages(path string, forkSeq []codexTokenUsage) ([]codexTokenUsage, error) {
-	file, err := os.Open(path)
+	return parentForkUsagesSource(vendors.LocalReadSource, path, forkSeq)
+}
+
+func parentForkUsagesSource(
+	source vendors.ReadSource,
+	path string,
+	forkSeq []codexTokenUsage,
+) ([]codexTokenUsage, error) {
+	file, err := source.Open(path)
 	if err != nil {
 		return nil, err
 	}

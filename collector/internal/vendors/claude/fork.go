@@ -2,7 +2,8 @@ package claude
 
 import (
 	"log"
-	"os"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 // Fork assigns each usage-bearing message.id shared by more than one root
@@ -15,6 +16,10 @@ import (
 // Upstream priority: containment (a fork's ids strictly contain its parent's),
 // then file birthtime, then id count, then a tie yielding no owner.
 func applyForkedUsage(parsed []*parsedSession) {
+	applyForkedUsageSource(vendors.LocalReadSource, parsed)
+}
+
+func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) {
 	type entry struct {
 		p     *parsedSession
 		usage map[string]messageUsage
@@ -35,7 +40,7 @@ func applyForkedUsage(parsed []*parsedSession) {
 			ids[id] = struct{}{}
 		}
 		entries = append(entries, &entry{
-			p: p, usage: usage, ids: ids, birth: fileCreationTime(p.transcript.LogPath),
+			p: p, usage: usage, ids: ids, birth: fileCreationTime(source, p.transcript.LogPath),
 		})
 	}
 
@@ -118,8 +123,8 @@ func strictSubset(a, b map[string]struct{}) bool {
 	return true
 }
 
-func fileCreationTime(path string) int64 {
-	info, err := os.Stat(path)
+func fileCreationTime(source vendors.ReadSource, path string) int64 {
+	info, err := source.Stat(path)
 	if err != nil {
 		log.Printf("%s: stat for fork ordering failed: %v", path, err)
 		return 0
