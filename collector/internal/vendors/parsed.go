@@ -33,7 +33,14 @@ type SpawnState struct {
 type RemoteCollection struct {
 	Sessions       []*ParsedSession
 	Metadata       *SessionMetadata
+	Fingerprints   []FileFingerprint
 	CandidateFiles int
 	SelectedFiles  int
 	Truncated      bool
+}
+
+type FileFingerprint struct {
+	Key          string `json:"key"`
+	Size         int64  `json:"size"`
+	ModifiedAtMs int64  `json:"modifiedAtMs"`
 }

@@ -59,6 +59,10 @@ func CollectRemote(
 	files, truncated := vendors.LimitNewestSourceFiles(
 		source, files, vendors.MaxCandidateFilesPerAgent,
 	)
+	fingerprints, err := vendors.FingerprintSourceFiles(source, SessionsRoot(home), files)
+	if err != nil {
+		return vendors.RemoteCollection{}, err
+	}
 	if since > 0 {
 		files = FilesSinceSource(source, files, metadata.Live, since)
 	}
@@ -74,6 +78,7 @@ func CollectRemote(
 	return vendors.RemoteCollection{
 		Sessions:       sessions,
 		Metadata:       metadata,
+		Fingerprints:   fingerprints,
 		CandidateFiles: candidates,
 		SelectedFiles:  len(files),
 		Truncated:      truncated,
