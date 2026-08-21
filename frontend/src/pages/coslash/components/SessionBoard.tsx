@@ -4,8 +4,10 @@ import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import {
-  getStatus,
+  boardStatusKey,
   getTotalTokens,
+  sessionKey,
+  sessionsForAggregates,
   STATUS_ORDER,
   STATUSES,
   type Session,
@@ -28,23 +30,25 @@ function groupBy(sessions: Session[], keyOf: (session: Session) => string): [str
 }
 
 function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Session[] }) {
+  const count = sessionsForAggregates(sessions).length;
   return (
     <div className="bg-background sticky top-0 z-10 flex items-center gap-2 border-b border-l px-3 py-2">
       <span className={cn('size-2 rounded-full', status.dot)} />
       <span className={cn('text-xs font-semibold', status.fg)}>{status.label}</span>
-      <span className="text-muted-foreground font-mono text-xs">{sessions.length}</span>
+      <span className="text-muted-foreground font-mono text-xs">{count}</span>
     </div>
   );
 }
 
 function GroupTotals({ sessions }: { sessions: Session[] }) {
-  const tokens = sessions.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
-  const cost = sessions.reduce((sum, session) => sum + session.cost, 0);
+  const aggregate = sessionsForAggregates(sessions);
+  const tokens = aggregate.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
+  const cost = aggregate.reduce((sum, session) => sum + session.cost, 0);
 
   return (
     <span className="text-muted-foreground text-xs">
-      {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
-      <UnpricedModelWarning unpriced={sessions.flatMap((session) => session.unpricedModels)}>
+      {aggregate.length} {aggregate.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
+      <UnpricedModelWarning unpriced={aggregate.flatMap((session) => session.unpricedModels)}>
         {formatEstimatedCost(cost)}
       </UnpricedModelWarning>
     </span>
@@ -63,22 +67,25 @@ function RepoGroupHeader({ repo, sessions }: { repo: string; sessions: Session[]
 function SessionCardColumn({
   status,
   sessions,
+  showMachineBadge,
   onSelectSession,
 }: {
   status: string;
   sessions: Session[];
+  showMachineBadge: boolean;
   onSelectSession: (session: Session) => void;
 }) {
   return (
     <>
       {sessions
-        .filter((session) => getStatus(session.status) === status)
+        .filter((session) => boardStatusKey(session) === status)
         .map((session) => (
           <SessionCard
-            key={`${session.agent}:${session.id}`}
+            key={sessionKey(session)}
             session={session}
             onClick={() => onSelectSession(session)}
             variant="compact"
+            showMachineBadge={showMachineBadge}
           />
         ))}
     </>
@@ -89,11 +96,13 @@ function BranchRow({
   branch,
   sessions,
   visibleStatuses,
+  showMachineBadge,
   onSelectSession,
 }: {
   branch: string;
   sessions: Session[];
   visibleStatuses: [string, Status][];
+  showMachineBadge: boolean;
   onSelectSession: (session: Session) => void;
 }) {
   return (
@@ -104,7 +113,12 @@ function BranchRow({
       </div>
       {visibleStatuses.map(([status]) => (
         <div key={status} data-status={status} className="flex flex-col gap-2 border-b border-l p-2">
-          <SessionCardColumn status={status} sessions={sessions} onSelectSession={onSelectSession} />
+          <SessionCardColumn
+            status={status}
+            sessions={sessions}
+            showMachineBadge={showMachineBadge}
+            onSelectSession={onSelectSession}
+          />
         </div>
       ))}
     </>
@@ -114,12 +128,14 @@ function BranchRow({
 export function SessionBoard({
   sessions,
   onSelectSession,
+  showMachineBadge = false,
 }: {
   sessions: Session[];
   onSelectSession: (session: Session) => void;
+  showMachineBadge?: boolean;
 }) {
   const visibleStatuses = STATUS_ORDER.filter((status) =>
-    sessions.some((session) => getStatus(session.status) === status),
+    sessions.some((session) => boardStatusKey(session) === status),
   ).map((status): [string, Status] => [status, STATUSES[status]]);
 
   return (
@@ -132,7 +148,7 @@ export function SessionBoard({
         <StatusColumnHeader
           key={key}
           status={status}
-          sessions={sessions.filter((session) => getStatus(session.status) === key)}
+          sessions={sessions.filter((session) => boardStatusKey(session) === key)}
         />
       ))}
       {groupBy(sessions, (session) => session.repo ?? '(no repo)').map(([repo, repoSessions]) => (
@@ -144,6 +160,7 @@ export function SessionBoard({
               branch={branch}
               sessions={branchSessions}
               visibleStatuses={visibleStatuses}
+              showMachineBadge={showMachineBadge}
               onSelectSession={onSelectSession}
             />
           ))}

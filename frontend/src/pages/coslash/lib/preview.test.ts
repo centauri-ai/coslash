@@ -88,7 +88,12 @@ describe('snapshot preview adapter', () => {
       { kind: 'truncation', path: '/session/firstPrompt', reason: 'text_budget' },
     ]);
     expect(frozenCostDisclosure(preview)).toBe('$0.00 frozen priced estimate; 1 unpriced model excluded');
-    expect(previewRequestPath('session/id', 42)).toBe('/api/share-preview?id=session%2Fid&revision=42');
+    expect(previewRequestPath({ sourceId: 'local', id: 'session/id' }, 42)).toBe(
+      '/api/share-preview?id=session%2Fid&revision=42',
+    );
+    expect(() => previewRequestPath({ sourceId: 'r_0123456789abcdef', id: 'session/id' }, 42)).toThrow(
+      'remote preview unsupported',
+    );
   });
 
   it('distinguishes a true zero from unpriced models', () => {

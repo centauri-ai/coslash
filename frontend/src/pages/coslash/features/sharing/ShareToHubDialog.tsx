@@ -264,7 +264,7 @@ export function ShareToHubDialog({
           if (existing && consentStillCurrent(existing.item, session, existing.preview, destination)) {
             return existing;
           }
-          const response = await apiFetch(previewRequestPath(session.id, session.mtime));
+          const response = await apiFetch(previewRequestPath(session, session.mtime));
           if (!response.ok) throw new Error(`Preview request failed (${response.status}).`);
           const value: unknown = await response.json();
           if (!isSnapshotPreview(value)) throw new Error('Preview response is outside snapshot-preview/v1.');

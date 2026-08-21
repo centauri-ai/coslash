@@ -7,6 +7,7 @@ import {
   filterShareCandidates,
   hubRouteURL,
   localSessionId,
+  localShareCandidates,
   planShareRetry,
   primarySuccessRoute,
   reconcileVisibleSelection,
@@ -29,6 +30,10 @@ const destination: ShareDestination = {
 
 function session(id: string, repo: string, mtime: number): Session {
   return {
+    sourceId: 'local',
+    sourceLabel: 'This Mac',
+    eligibleForAggregates: true,
+    displayStale: false,
     agent: 'codex',
     id,
     name: `Session ${id}`,
@@ -84,6 +89,17 @@ function preview(sourceRevision: number, hash = `sha256:${'a'.repeat(64)}`): Sna
     snapshot,
   };
 }
+
+describe('localShareCandidates', () => {
+  it('excludes remote sessions before agent:id Hub keying', () => {
+    const local = { session: session('local-1', 'coslash', 10), previouslyShared: false };
+    const remote = {
+      session: { ...session('remote-1', 'coslash', 10), sourceId: 'r_0123456789abcdef', sourceLabel: 'gpu' },
+      previouslyShared: false,
+    };
+    expect(localShareCandidates([local, remote])).toEqual([local]);
+  });
+});
 
 describe('hub-share/v1 public consumer', () => {
   const now = Date.UTC(2026, 7, 18);

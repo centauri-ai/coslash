@@ -31,7 +31,15 @@ export type Subagent = {
   cost: number;
 };
 
+export const LOCAL_SOURCE_ID = 'local';
+export const LOCAL_SOURCE_LABEL = 'This Mac';
+
 export type Session = {
+  sourceId: string;
+  sourceLabel: string;
+  eligibleForAggregates: boolean;
+  displayStale: boolean;
+  lastSeenStatus?: string;
   agent: string;
   id: string;
   name: string | null;
@@ -70,6 +78,49 @@ export type Session = {
   git: GitDrift | null;
   lastEditAt: number | null;
 };
+
+export type SessionIdentity = Pick<Session, 'sourceId' | 'agent' | 'id'>;
+
+export function sessionKey(session: SessionIdentity): string {
+  return `${session.sourceId}:${session.agent}:${session.id}`;
+}
+
+export function sameSession(a: SessionIdentity, b: SessionIdentity): boolean {
+  return a.sourceId === b.sourceId && a.agent === b.agent && a.id === b.id;
+}
+
+export function isLocalSource(sourceId: string): boolean {
+  return sourceId === LOCAL_SOURCE_ID;
+}
+
+export function isLocalSession(session: Pick<Session, 'sourceId'>): boolean {
+  return isLocalSource(session.sourceId);
+}
+
+export function sessionsForAggregates<T extends Pick<Session, 'eligibleForAggregates'>>(
+  sessions: readonly T[],
+): T[] {
+  return sessions.filter((session) => session.eligibleForAggregates);
+}
+
+/** Missing or blank remote env facts render as an em dash, never `undefined`. */
+export function environmentFact(value: string | null | undefined): string {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : '—';
+}
+
+export function withLocalSourceDefaults<T extends { agent: string; id: string }>(
+  session: T,
+): T & Pick<Session, 'sourceId' | 'sourceLabel' | 'eligibleForAggregates' | 'displayStale'> {
+  const record = session as T & Partial<Session>;
+  return {
+    ...session,
+    sourceId: record.sourceId ?? LOCAL_SOURCE_ID,
+    sourceLabel: record.sourceLabel ?? LOCAL_SOURCE_LABEL,
+    eligibleForAggregates: record.eligibleForAggregates ?? true,
+    displayStale: record.displayStale ?? false,
+  };
+}
 
 type FileEdit = {
   path: string;
@@ -233,6 +284,26 @@ export function getVendor(agent: string): Vendor {
 
 export function getStatus(status: string | null): StatusKey {
   return status !== null && status in STATUSES ? (status as StatusKey) : 'inactive';
+}
+
+/** Board column and live status for a card; stale/limited/incomplete sessions are inactive. */
+export function boardStatusKey(session: Pick<Session, 'status' | 'displayStale'>): StatusKey {
+  if (session.displayStale) return 'inactive';
+  return getStatus(session.status);
+}
+
+/** Badge label: live status, or "Last seen …" when the remote snapshot is stale/incomplete. */
+export function displayStatusLabel(
+  session: Pick<Session, 'status' | 'displayStale' | 'lastSeenStatus'> & { sourceId?: string },
+): string {
+  const remoteUnknown = session.sourceId != null && session.sourceId !== LOCAL_SOURCE_ID;
+  if (remoteUnknown && session.status == null && session.lastSeenStatus == null) {
+    return session.displayStale ? 'Liveness unknown · stale view' : 'Liveness unknown';
+  }
+  if (!session.displayStale) return STATUSES[getStatus(session.status)].label;
+  const seen = getStatus(session.lastSeenStatus ?? session.status);
+  const label = STATUSES[seen].label.toLowerCase();
+  return `Last seen ${label}`;
 }
 
 export function sumTokens(

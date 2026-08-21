@@ -1,13 +1,25 @@
 import { useEffect, useState } from 'react';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
-import type { Session } from '@/pages/coslash/lib/session';
+import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
+import {
+  isLocalSource,
+  withLocalSourceDefaults,
+  type Session,
+  type SessionIdentity,
+} from '@/pages/coslash/lib/session';
 import { MINUTE } from '@/pages/coslash/lib/time';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
 
-export type FileSelection = { sessionId: string; path: string };
+export type FileSelection = {
+  sourceId: string;
+  agent: string;
+  sessionId: string;
+  path: string;
+};
+
 export type FileChange = {
   kind: 'diff' | 'content';
   text: string;
@@ -16,8 +28,68 @@ export type FileChange = {
   deletions: number;
 };
 
+export type SessionsPayload = {
+  sessions: Session[];
+  machines: MachineFact[];
+};
+
+export type SessionsQuery = {
+  localWindow: TimeWindow;
+  remoteWindow: TimeWindow;
+};
+
+export function decodeSessionsResponse(body: unknown): SessionsPayload {
+  if (Array.isArray(body)) {
+    return {
+      sessions: body.map((session) => withLocalSourceDefaults(session as Session)),
+      machines: [],
+    };
+  }
+  if (body == null || typeof body !== 'object') {
+    throw new Error('Invalid sessions response');
+  }
+  const sessions = (body as { sessions?: unknown }).sessions;
+  if (!Array.isArray(sessions)) {
+    throw new Error('Invalid sessions response');
+  }
+  const machinesRaw = (body as { machines?: unknown }).machines;
+  return {
+    sessions: sessions.map((session) => withLocalSourceDefaults(session as Session)),
+    machines: machinesRaw === undefined ? [] : decodeMachineFacts(machinesRaw),
+  };
+}
+
+/** Independent local/remote cutoffs; omit local `since` for Hub all-history without widening remote. */
+export function sessionsRequestPath(query: {
+  localSince: number | null;
+  remoteSince: number | null;
+}): string {
+  const params = new URLSearchParams();
+  params.set('sourceAware', '1');
+  if (query.localSince != null) params.set('since', String(query.localSince));
+  if (query.remoteSince != null) params.set('remoteSince', String(query.remoteSince));
+  const encoded = params.toString();
+  return encoded === '' ? '/api/sessions' : `/api/sessions?${encoded}`;
+}
 export function diffRequestPath(selection: FileSelection) {
+  if (!isLocalSource(selection.sourceId)) {
+    throw new Error('remote diff unsupported');
+  }
   return `/api/diff?${new URLSearchParams({ id: selection.sessionId, path: selection.path })}`;
+}
+
+export function synthesisRequestPath(session: SessionIdentity) {
+  if (!isLocalSource(session.sourceId)) {
+    throw new Error('remote synthesis unsupported');
+  }
+  return `/api/synthesis?${new URLSearchParams({ id: session.id })}`;
+}
+
+function sameFileSelection(
+  left: Pick<FileSelection, 'sourceId' | 'sessionId' | 'path'>,
+  right: Pick<FileSelection, 'sourceId' | 'sessionId' | 'path'>,
+): boolean {
+  return left.sourceId === right.sourceId && left.sessionId === right.sessionId && left.path === right.path;
 }
 
 export function useFileDiff(selection: FileSelection | null) {
@@ -27,6 +99,14 @@ export function useFileDiff(selection: FileSelection | null) {
 
   useEffect(() => {
     if (selection == null) return;
+    if (!isLocalSource(selection.sourceId)) {
+      setLoaded({
+        ...selection,
+        changes: null,
+        loadError: 'Remote file diffs are not available.',
+      });
+      return;
+    }
     const controller = new AbortController();
 
     apiFetch(diffRequestPath(selection), { signal: controller.signal })
@@ -50,8 +130,7 @@ export function useFileDiff(selection: FileSelection | null) {
     return () => controller.abort();
   }, [selection]);
 
-  const isCurrent =
-    selection != null && loaded?.sessionId === selection.sessionId && loaded.path === selection.path;
+  const isCurrent = selection != null && loaded != null && sameFileSelection(loaded, selection);
   return {
     changes: isCurrent ? loaded.changes : null,
     isLoading: selection != null && !isCurrent,
@@ -59,8 +138,9 @@ export function useFileDiff(selection: FileSelection | null) {
   };
 }
 
-export function useSessions(timeWindow: TimeWindow) {
+export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [machines, setMachines] = useState<MachineFact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -74,18 +154,22 @@ export function useSessions(timeWindow: TimeWindow) {
         setIsLoading(true);
         setLoadError(null);
       }
-      const since = timeWindowStart(timeWindow);
-      const path = since == null ? '/api/sessions' : `/api/sessions?since=${since}`;
+      const path = sessionsRequestPath({
+        localSince: timeWindowStart(localWindow),
+        remoteSince: timeWindowStart(remoteWindow),
+      });
       apiFetch(path, { signal: controller.signal })
         .then((response) => {
           if (!response.ok) {
             throw new Error(`Sessions request failed (${response.status})`);
           }
-          return response.json() as Promise<Session[]>;
+          return response.json() as Promise<unknown>;
         })
-        .then((loadedSessions) => {
+        .then((body) => {
           if (controller.signal.aborted) return;
-          setSessions(loadedSessions);
+          const payload = decodeSessionsResponse(body);
+          setSessions(payload.sessions);
+          setMachines(payload.machines);
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
           setLoadError(null);
@@ -97,6 +181,7 @@ export function useSessions(timeWindow: TimeWindow) {
           // refresh fails. Authentication failures invalidate that private data.
           if (!background || authenticationFailed) {
             setSessions([]);
+            setMachines([]);
             setIsLoading(false);
             setLoadError(
               authenticationFailed ? error.message : 'CoSlash couldn’t load sessions from the API.',
@@ -112,7 +197,7 @@ export function useSessions(timeWindow: TimeWindow) {
       clearInterval(refresh);
       controller.abort();
     };
-  }, [retryCount, timeWindow]);
+  }, [localWindow, remoteWindow, retryCount]);
 
   const retrySessions = () => {
     setIsLoading(true);
@@ -122,6 +207,7 @@ export function useSessions(timeWindow: TimeWindow) {
 
   return {
     sessions,
+    machines,
     isLoading,
     loadError,
     sessionsVersion,

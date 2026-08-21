@@ -9,6 +9,32 @@ export class ApiAuthenticationError extends Error {
   }
 }
 
+export type ApiErrorBody = {
+  code: string;
+  error: string;
+};
+
+export function decodeApiError(value: unknown): ApiErrorBody {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid API error');
+  }
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.code !== 'string' || typeof raw.error !== 'string') {
+    throw new Error('Invalid API error');
+  }
+  return { code: raw.code, error: raw.error };
+}
+
+export async function readApiError(response: Response): Promise<ApiErrorBody | null> {
+  const text = (await response.text()).trim();
+  if (text === '') return null;
+  try {
+    return decodeApiError(JSON.parse(text) as unknown);
+  } catch {
+    return null;
+  }
+}
+
 function loadToken(): string | null {
   const fragment = new URLSearchParams(window.location.hash.slice(1));
   const suppliedToken = fragment.get('t');
