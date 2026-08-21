@@ -143,7 +143,9 @@ func applyActivityFallbacks(parsed []*vendors.ParsedSession) {
 	collectedAt := time.Now().UnixMilli()
 	for _, item := range parsed {
 		s := item.Session
-		if s.LastActivityTime == 0 && item.LogPath != "" {
+		if s.LastActivityTime == 0 && item.LogModifiedAtMs > 0 {
+			s.LastActivityTime = item.LogModifiedAtMs
+		} else if s.LastActivityTime == 0 && item.LogPath != "" {
 			s.LastActivityTime = session.FileModificationTime(item.LogPath)
 		}
 		// The export contract requires a positive start. Prefer last activity,

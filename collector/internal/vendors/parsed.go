@@ -7,6 +7,8 @@ import "github.com/centauri-ai/coslash/collector/internal/session"
 type ParsedSession struct {
 	Session *session.Session
 	LogPath string // optional for sources that do not read transcript files
+	// LogModifiedAtMs carries source mtime when LogPath is not locally readable.
+	LogModifiedAtMs int64
 
 	// consumed while composing parent-child relationships
 	ParentID string                    // "" for a root
@@ -26,4 +28,12 @@ type ParsedSession struct {
 type SpawnState struct {
 	Turn      *int
 	Completed bool
+}
+
+type RemoteCollection struct {
+	Sessions       []*ParsedSession
+	Metadata       *SessionMetadata
+	CandidateFiles int
+	SelectedFiles  int
+	Truncated      bool
 }
