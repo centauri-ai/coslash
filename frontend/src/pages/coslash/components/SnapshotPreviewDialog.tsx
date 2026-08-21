@@ -144,7 +144,7 @@ export function SnapshotPreviewDialog({
     }
     const controller = new AbortController();
     setLoad({ status: 'loading' });
-    apiFetch(previewRequestPath(detail.id, detail.mtime), { signal: controller.signal })
+    apiFetch(previewRequestPath(detail, detail.mtime), { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`Preview request failed (${response.status})`);
         return response.json() as Promise<unknown>;
@@ -159,7 +159,7 @@ export function SnapshotPreviewDialog({
         }
       });
     return () => controller.abort();
-  }, [detail.id, detail.mtime, open]);
+  }, [detail, open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

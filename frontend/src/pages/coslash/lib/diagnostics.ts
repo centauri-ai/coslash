@@ -22,6 +22,20 @@ export type DiagnosticSource = {
   cli: { name: string; found: boolean; path: string; version: string };
 };
 
+export type RemoteDiagnostics = {
+  sourceId?: string;
+  label?: string;
+  state: string;
+  complete: boolean;
+  reason?: string;
+  lastSuccessAtMs?: number;
+  coverageSinceMs?: number;
+  roundTripMs?: number;
+  nextRetryAtMs?: number;
+  error?: string;
+  diagnosticStderr?: string;
+};
+
 export type Diagnostics = {
   version: string;
   generatedAt: number;
@@ -29,6 +43,7 @@ export type Diagnostics = {
   storage: { home: string; writable: boolean; error: string };
   synthesis: { enabled: boolean; model: string; cliFound: boolean; reason: string; error: string };
   sources: DiagnosticSource[];
+  remote?: RemoteDiagnostics;
   checks: DiagnosticsCheck[];
 };
 
@@ -57,6 +72,16 @@ export function formatDiagnosticsForCopy(snapshot: Diagnostics): string {
       `  CLI: found=${source.cli.found}; path=${source.cli.path || 'unknown'}; version=${source.cli.version || 'unknown'}`,
     );
     for (const skipped of source.skipped) lines.push(`  Skipped: ${skipped.error}`);
+  }
+  if (snapshot.remote) {
+    lines.push('', 'Remote host:');
+    lines.push(
+      `- alias=${snapshot.remote.label ?? 'unknown'}; state=${snapshot.remote.state}; complete=${snapshot.remote.complete}`,
+    );
+    if (snapshot.remote.nextRetryAtMs != null) {
+      lines.push(`  nextRetryAtMs=${snapshot.remote.nextRetryAtMs}`);
+    }
+    if (snapshot.remote.error) lines.push(`  error=${snapshot.remote.error}`);
   }
   lines.push('', 'Checks:');
   for (const check of snapshot.checks) {

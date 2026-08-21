@@ -1,3 +1,5 @@
+import { isLocalSource } from '@/pages/coslash/lib/session';
+
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export type PreviewState = 'ready' | 'invalid' | 'unsupported_version' | 'stale_source' | 'oversized';
@@ -48,8 +50,11 @@ export function isSnapshotPreview(value: unknown): value is SnapshotPreview {
   );
 }
 
-export function previewRequestPath(id: string, revision: number): string {
-  return `/api/share-preview?${new URLSearchParams({ id, revision: String(revision) })}`;
+export function previewRequestPath(session: { sourceId: string; id: string }, revision: number): string {
+  if (!isLocalSource(session.sourceId)) {
+    throw new Error('remote preview unsupported');
+  }
+  return `/api/share-preview?${new URLSearchParams({ id: session.id, revision: String(revision) })}`;
 }
 
 export function teamPreviewEnabled(search: string): boolean {

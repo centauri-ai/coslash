@@ -19,6 +19,7 @@ import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/com
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { DiffList } from '@/pages/coslash/components/DiffList';
+import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
 import {
   SessionId,
   SessionName,
@@ -30,7 +31,7 @@ import {
 import { SnapshotPreviewDialog } from '@/pages/coslash/components/SnapshotPreviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
-import { useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
+import { synthesisRequestPath, useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import {
   digestDateKey,
@@ -45,17 +46,22 @@ import {
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
+  displayStatusLabel,
+  environmentFact,
   getModality,
   getSessionOutcome,
   getStatus,
   getVendor,
   goalSourceLabel,
+  isLocalSession,
   resolveGoal,
+  sessionKey,
   STATUSES,
   SUBAGENT_STATUSES,
   type DigestEntry,
   type Session,
   type SessionDetail,
+  type SessionIdentity,
 } from '@/pages/coslash/lib/session';
 import { HOUR, MINUTE } from '@/pages/coslash/lib/time';
 
@@ -66,8 +72,14 @@ type SynthesisResponse = {
 };
 
 /* oxlint-disable react/only-export-components -- exported for focused rendering tests */
-export function filePanelOpen(selection: FileSelection | null, sessionId: string): boolean {
-  return selection?.sessionId === sessionId;
+export function filePanelOpen(selection: FileSelection | null, session: SessionIdentity | null): boolean {
+  return (
+    selection != null &&
+    session != null &&
+    selection.sourceId === session.sourceId &&
+    selection.agent === session.agent &&
+    selection.sessionId === session.id
+  );
 }
 /* oxlint-enable react/only-export-components */
 
@@ -76,41 +88,53 @@ function useSessionDetail(
   sessionsVersion: number,
   synthesisSettingsKey: string,
 ): { detail: SessionDetail | null; loadError: string | null } {
-  const [loaded, setLoaded] = useState<({ sessionId: string } & SynthesisResponse) | null>(null);
+  const [loaded, setLoaded] = useState<({ key: string } & SynthesisResponse) | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const pollDeadline = useRef<{ sessionId: string; deadline: number } | null>(null);
-  const sessionId = session?.id ?? null;
+  const pollDeadline = useRef<{ key: string; deadline: number } | null>(null);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const key = session == null ? null : sessionKey(session);
 
   useEffect(() => {
-    setLoaded((current) => (current?.sessionId === sessionId ? current : null));
+    const current = sessionRef.current;
+    setLoaded((prev) => (prev?.key === key ? prev : null));
     setLoadError(null);
-    if (sessionId == null) {
+    if (current == null || key == null) {
       pollDeadline.current = null;
       return;
     }
-    if (pollDeadline.current?.sessionId !== sessionId) {
+    if (!isLocalSession(current)) {
+      pollDeadline.current = null;
+      return;
+    }
+    if (pollDeadline.current?.key !== key) {
       pollDeadline.current = null;
     }
+    const identity = {
+      sourceId: current.sourceId,
+      agent: current.agent,
+      id: current.id,
+    };
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
       try {
-        const res = await apiFetch(`/api/synthesis?id=${sessionId}`, {
+        const res = await apiFetch(synthesisRequestPath(identity), {
           signal: controller.signal,
         });
         if (!res.ok) return;
         const result = (await res.json()) as SynthesisResponse;
         if (result.synthesis == null && result.synthesisPending) {
-          pollDeadline.current ??= { sessionId, deadline: Date.now() + 2 * MINUTE };
+          pollDeadline.current ??= { key, deadline: Date.now() + 2 * MINUTE };
           if (Date.now() < pollDeadline.current.deadline) {
             timer = setTimeout(load, 3_000);
-            setLoaded({ sessionId, ...result });
+            setLoaded({ key, ...result });
           } else {
-            setLoaded({ sessionId, ...result, synthesisPending: false });
+            setLoaded({ key, ...result, synthesisPending: false });
           }
         } else {
           pollDeadline.current = null;
-          setLoaded({ sessionId, ...result });
+          setLoaded({ key, ...result });
         }
       } catch (error: unknown) {
         if (!controller.signal.aborted && error instanceof ApiAuthenticationError) {
@@ -123,10 +147,10 @@ function useSessionDetail(
       controller.abort();
       if (timer != null) clearTimeout(timer);
     };
-  }, [sessionId, sessionsVersion, synthesisSettingsKey]);
+  }, [key, sessionsVersion, synthesisSettingsKey]);
 
   if (session == null) return { detail: null, loadError };
-  if (loaded?.sessionId !== session.id) return { detail: session, loadError };
+  if (loaded?.key !== sessionKey(session)) return { detail: session, loadError };
   return {
     detail: {
       ...session,
@@ -221,16 +245,16 @@ export function SessionModelUsage({
   );
 }
 
-function HeaderMeta({ detail }: { detail: SessionDetail }) {
-  const status = STATUSES[getStatus(detail.status)];
+function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showMachineBadge: boolean }) {
+  const status = STATUSES[getStatus(detail.displayStale ? null : detail.status)];
 
   return (
     <div className="flex flex-col gap-2 pt-2">
       <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-xs">
         <div className="flex min-w-40 flex-1 items-center gap-1 overflow-hidden">
-          <Badge variant="secondary">{detail.repo ?? '—'}</Badge>
+          <Badge variant="secondary">{environmentFact(detail.repo)}</Badge>
           <span>/</span>
-          {detail.branch == null ? (
+          {detail.branch == null || detail.branch.trim() === '' ? (
             <Badge variant="secondary">—</Badge>
           ) : (
             <CopyableBadge
@@ -242,6 +266,7 @@ function HeaderMeta({ detail }: { detail: SessionDetail }) {
               <span className="truncate">{detail.branch}</span>
             </CopyableBadge>
           )}
+          {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
         </div>
         <span
           className={cn(
@@ -249,8 +274,8 @@ function HeaderMeta({ detail }: { detail: SessionDetail }) {
             status.fg,
           )}
         >
-          <span className={cn('size-2 rounded-full', status.dot)} />
-          {status.label} · {getModality(detail.entrypoint)}
+          {!detail.displayStale && <span className={cn('size-2 rounded-full', status.dot)} />}
+          {displayStatusLabel(detail)} · {getModality(detail.entrypoint)}
         </span>
       </div>
       <div className="bg-muted rounded-lg border p-2 font-mono text-xs">
@@ -322,7 +347,7 @@ function LaunchError({ message }: { message: string | null }) {
 }
 
 function ResumeSessionButton({ detail }: { detail: SessionDetail }) {
-  const { launch, launchError } = useLaunchTerminal(detail.id);
+  const { launch, launchError } = useLaunchTerminal(detail);
 
   return (
     <div className="flex flex-col gap-1">
@@ -344,7 +369,7 @@ function StartNewSessionButton({
   brief: string;
   onCopy: () => void;
 }) {
-  const { launch, launchError } = useLaunchTerminal(detail.id);
+  const { launch, launchError } = useLaunchTerminal(detail);
 
   const startNewSession = () => {
     onCopy();
@@ -387,13 +412,19 @@ function HandoffSection({ detail }: { detail: SessionDetail }) {
         <PromptCacheCell lastAccessAt={detail.mtime} />
       </div>
 
-      <div className="flex items-center gap-2">
-        <StartNewSessionButton detail={detail} brief={brief} onCopy={copyBrief} />
+      <div className="flex flex-wrap items-center gap-2">
+        {isLocalSession(detail) && <StartNewSessionButton detail={detail} brief={brief} onCopy={copyBrief} />}
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={copyBrief}>
           <span>Copy handoff</span>
         </Button>
         {copied && <span className="text-xs text-neutral-300">copied to clipboard</span>}
       </div>
+      {!isLocalSession(detail) && (
+        <div className="text-muted-foreground text-xs">
+          Monitoring only · Copy handoff uses available remote facts. Resume, Start Fresh, file diffs,
+          synthesis, Hub sharing, and command history are unavailable.
+        </div>
+      )}
     </div>
   );
 }
@@ -700,7 +731,7 @@ function FilesChangedList({
   onSelectFile,
 }: {
   detail: SessionDetail;
-  onSelectFile: (path: string) => void;
+  onSelectFile: ((path: string) => void) | null;
 }) {
   if (detail.fileEdits.length === 0) return null;
   const newFiles = detail.fileEdits.filter((fileEdit) => fileEdit.isNew).length;
@@ -710,19 +741,30 @@ function FilesChangedList({
       <div className="rounded-sm border p-2">
         {detail.fileEdits.map((fileEdit) => (
           <div key={fileEdit.path} className="flex items-center justify-between gap-2 py-1 font-mono text-xs">
-            <button
-              type="button"
-              title={fileEdit.path}
-              className={cn(
-                'text-muted-foreground min-w-0 cursor-pointer truncate text-left hover:underline',
-                {
+            {onSelectFile == null ? (
+              <span
+                title={fileEdit.path}
+                className={cn('text-muted-foreground min-w-0 truncate text-left', {
                   'text-success-fg': fileEdit.isNew,
-                },
-              )}
-              onClick={() => onSelectFile(fileEdit.path)}
-            >
-              {fileEdit.path.split('/').pop()}
-            </button>
+                })}
+              >
+                {fileEdit.path.split('/').pop()}
+              </span>
+            ) : (
+              <button
+                type="button"
+                title={fileEdit.path}
+                className={cn(
+                  'text-muted-foreground min-w-0 cursor-pointer truncate text-left hover:underline',
+                  {
+                    'text-success-fg': fileEdit.isNew,
+                  },
+                )}
+                onClick={() => onSelectFile(fileEdit.path)}
+              >
+                {fileEdit.path.split('/').pop()}
+              </button>
+            )}
             <span className="whitespace-nowrap">
               <span className="text-success-fg">+{fileEdit.adds}</span>{' '}
               <span className="text-destructive">−{fileEdit.dels}</span>{' '}
@@ -780,7 +822,7 @@ function CommitsAndTodos({ detail }: { detail: SessionDetail }) {
 
 function CommandsSection({ detail }: { detail: SessionDetail }) {
   const [open, setOpen] = useState(false);
-  if (detail.commands.length === 0) return null;
+  if (!isLocalSession(detail) || detail.commands.length === 0) return null;
 
   return (
     <div className="pt-4">
@@ -809,7 +851,7 @@ function InspectorBody({
   onSelectFile,
 }: {
   detail: SessionDetail;
-  onSelectFile: (path: string) => void;
+  onSelectFile: ((path: string) => void) | null;
 }) {
   // scroll on the outer div, layout on the inner one — flex children of a
   // scroll container shrink to fit instead of overflowing, which collapses
@@ -821,7 +863,7 @@ function InspectorBody({
         <RecapSection detail={detail} />
         <DigestSection detail={detail} />
         <ArtifactStats detail={detail} />
-        <CommandsSection detail={detail} />
+        {isLocalSession(detail) && <CommandsSection detail={detail} />}
         <FilesChangedList detail={detail} onSelectFile={onSelectFile} />
         <CommitsAndTodos detail={detail} />
       </div>
@@ -831,7 +873,18 @@ function InspectorBody({
 
 function InspectorFooter({ detail }: { detail: SessionDetail }) {
   const [previewOpen, setPreviewOpen] = useState(false);
-  const showTeamPreview = teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
+  const showTeamPreview =
+    isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
+
+  if (!isLocalSession(detail)) {
+    return (
+      <SheetFooter className="bg-muted border-t">
+        <span className="text-muted-foreground text-xs">
+          Remote liveness may be unknown; transcript recency is shown separately.
+        </span>
+      </SheetFooter>
+    );
+  }
 
   return (
     <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
@@ -865,11 +918,13 @@ export function SessionInspector({
   session,
   sessionsVersion,
   synthesisSettingsKey,
+  showMachineBadge = false,
   onClose,
 }: {
   session: Session | null;
   sessionsVersion: number;
   synthesisSettingsKey: string;
+  showMachineBadge?: boolean;
   onClose: () => void;
 }) {
   const { detail, loadError } = useSessionDetail(session, sessionsVersion, synthesisSettingsKey);
@@ -881,6 +936,11 @@ export function SessionInspector({
     loadError: fileDiffError,
   } = useFileDiff(selectedDiff);
   const isOpen = session != null;
+  const openSessionKey = session == null ? null : sessionKey(session);
+
+  useEffect(() => {
+    setSelectedDiff(null);
+  }, [openSessionKey]);
 
   return (
     <Sheet
@@ -912,8 +972,9 @@ export function SessionInspector({
                     <SessionName name={detail.name} variant="inspector" />
                   </SheetTitle>
                   <SessionId id={detail.id} shortened />
+                  {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
                 </div>
-                <HeaderMeta detail={detail} />
+                <HeaderMeta detail={detail} showMachineBadge={false} />
                 <div className="border-b p-1" />
               </div>
             </SheetHeader>
@@ -924,14 +985,24 @@ export function SessionInspector({
             )}
             <InspectorBody
               detail={detail}
-              onSelectFile={(path) => setSelectedDiff({ sessionId: detail.id, path })}
+              onSelectFile={
+                isLocalSession(detail)
+                  ? (path) =>
+                      setSelectedDiff({
+                        sourceId: detail.sourceId,
+                        agent: detail.agent,
+                        sessionId: detail.id,
+                        path,
+                      })
+                  : null
+              }
             />
             <InspectorFooter detail={detail} />
           </>
         )}
       </SheetContent>
       <Sheet
-        open={filePanelOpen(selectedDiff, detail?.id ?? '')}
+        open={filePanelOpen(selectedDiff, detail)}
         onOpenChange={(open) => {
           if (!open) setSelectedDiff(null);
         }}
