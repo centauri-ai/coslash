@@ -127,7 +127,15 @@ type parsedSession struct {
 
 // parseTranscript returns shared facts without applying fork normalization.
 func parseTranscript(path string) (*vendors.ParsedSession, error) {
-	parsed, err := parse(path)
+	return parseTranscriptSource(vendors.LocalReadSource, path, commandNeedsApproval)
+}
+
+func parseTranscriptSource(
+	source vendors.ReadSource,
+	path string,
+	needsApproval func(string, string) bool,
+) (*vendors.ParsedSession, error) {
+	parsed, err := parseSource(source, path, needsApproval)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +143,15 @@ func parseTranscript(path string) (*vendors.ParsedSession, error) {
 }
 
 func parse(path string) (*parsedSession, error) {
-	analysis, err := analyzeCodexSession(path)
+	return parseSource(vendors.LocalReadSource, path, commandNeedsApproval)
+}
+
+func parseSource(
+	source vendors.ReadSource,
+	path string,
+	needsApproval func(string, string) bool,
+) (*parsedSession, error) {
+	analysis, err := analyzeCodexSessionSource(source, path, needsApproval)
 	if err != nil {
 		return nil, err
 	}
@@ -143,13 +159,14 @@ func parse(path string) (*parsedSession, error) {
 		return nil, nil
 	}
 	parsed := &vendors.ParsedSession{
-		Session:  analysis.unifiedSession(path),
-		LogPath:  path,
-		ParentID: analysis.parentThreadID,
-		InTurn:   analysis.turnDepth > 0,
-		Stopped:  analysis.lastTurnAborted,
-		Spawns:   analysis.spawns,
-		Commands: analysis.commands.Labelled(),
+		Session:         analysis.unifiedSession(path),
+		LogPath:         path,
+		LogModifiedAtMs: vendors.SourceModificationTime(source, path),
+		ParentID:        analysis.parentThreadID,
+		InTurn:          analysis.turnDepth > 0,
+		Stopped:         analysis.lastTurnAborted,
+		Spawns:          analysis.spawns,
+		Commands:        analysis.commands.Labelled(),
 	}
 	if (analysis.waitingForInput || analysis.approvalPending) && parsed.InTurn {
 		status := "waiting"
@@ -169,7 +186,15 @@ func parse(path string) (*parsedSession, error) {
 }
 
 func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
-	rows, err := session.ParseJSONL[codexRow](file)
+	return analyzeCodexSessionSource(vendors.LocalReadSource, file, commandNeedsApproval)
+}
+
+func analyzeCodexSessionSource(
+	source vendors.ReadSource,
+	file string,
+	needsApproval func(string, string) bool,
+) (*codexSessionAnalysis, error) {
+	rows, err := vendors.ParseJSONLSource[codexRow](source, file)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +379,7 @@ func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
 					// tool output. Consume serverRequest/resolved if live events are added.
 					for _, command := range commands {
 						analysis.approvalPending = analysis.approvalPending ||
-							(!completed && commandNeedsApproval(command, analysis.workingDirectory))
+							(!completed && needsApproval(command, analysis.workingDirectory))
 					}
 				}
 				analysis.notePlan(row.Payload, timestamp)

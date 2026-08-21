@@ -68,7 +68,11 @@ type taskEntry struct {
 }
 
 func parseTranscript(path string) (*vendors.ParsedSession, error) {
-	parsed, err := parse(path)
+	return parseTranscriptSource(vendors.LocalReadSource, path)
+}
+
+func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
+	parsed, err := parseSource(source, path)
 	if err != nil {
 		return nil, err
 	}
@@ -76,18 +80,23 @@ func parseTranscript(path string) (*vendors.ParsedSession, error) {
 }
 
 func parse(path string) (*parsedSession, error) {
-	analysis, err := analyzeClaudeSession(path)
+	return parseSource(vendors.LocalReadSource, path)
+}
+
+func parseSource(source vendors.ReadSource, path string) (*parsedSession, error) {
+	analysis, err := analyzeClaudeSessionSource(source, path)
 	if err != nil {
 		return nil, err
 	}
 	parsed := &vendors.ParsedSession{
-		Session:  analysis.unifiedSession(path),
-		LogPath:  path,
-		ParentID: ParentIDFromPath(path),
-		Name:     analysis.transcriptName(),
-		InTurn:   analysis.inTurn,
-		Spawns:   analysis.spawns,
-		Commands: analysis.commands.Labelled(),
+		Session:         analysis.unifiedSession(path),
+		LogPath:         path,
+		LogModifiedAtMs: vendors.SourceModificationTime(source, path),
+		ParentID:        ParentIDFromPath(path),
+		Name:            analysis.transcriptName(),
+		InTurn:          analysis.inTurn,
+		Spawns:          analysis.spawns,
+		Commands:        analysis.commands.Labelled(),
 	}
 	if analysis.waitingForQuestion && analysis.inTurn {
 		status := "waiting"
@@ -96,7 +105,7 @@ func parse(path string) (*parsedSession, error) {
 	if parsed.ParentID != "" {
 		metaPath := strings.TrimSuffix(path, ".jsonl") + ".meta.json"
 		var meta subagentMeta
-		if _, err := session.ReadJSONIfValid(metaPath, &meta); err != nil {
+		if _, err := vendors.ReadJSONSource(source, metaPath, &meta); err != nil {
 			log.Printf("%s: unreadable subagent metadata: %v", metaPath, err)
 		}
 		parsed.Name = cmp.Or(meta.Description, meta.AgentType)
@@ -157,7 +166,14 @@ func claudeToolOutput(raw json.RawMessage) string {
 }
 
 func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
-	rows, err := session.ParseJSONL[claudeSessionRecord](file)
+	return analyzeClaudeSessionSource(vendors.LocalReadSource, file)
+}
+
+func analyzeClaudeSessionSource(
+	source vendors.ReadSource,
+	file string,
+) (*claudeSessionAnalysis, error) {
+	rows, err := vendors.ParseJSONLSource[claudeSessionRecord](source, file)
 	if err != nil {
 		return nil, err
 	}

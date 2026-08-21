@@ -77,9 +77,22 @@ func loadThreadNames() (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(home, ".codex", "session_index.jsonl")
+	return loadThreadNamesSource(vendors.LocalReadSource, filepath.Join(home, ".codex", "session_index.jsonl"))
+}
+
+func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.SessionMetadata, error) {
+	names, err := loadThreadNamesSource(source, filepath.Join(home, ".codex", "session_index.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Names = names
+	return metadata, nil
+}
+
+func loadThreadNamesSource(source vendors.ReadSource, path string) (map[string]string, error) {
 	names := map[string]string{}
-	file, err := os.Open(path)
+	file, err := source.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return names, nil
 	}
