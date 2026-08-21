@@ -1,6 +1,8 @@
 package vendors
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +11,30 @@ import (
 	"path/filepath"
 	"sort"
 )
+
+func FingerprintSourceFiles(
+	source ReadSource,
+	root string,
+	files []string,
+) ([]FileFingerprint, error) {
+	fingerprints := make([]FileFingerprint, 0, len(files))
+	for _, file := range files {
+		info, err := source.Stat(file)
+		if err != nil {
+			return nil, err
+		}
+		relative, err := filepath.Rel(root, file)
+		if err != nil {
+			return nil, err
+		}
+		digest := sha256.Sum256([]byte(filepath.ToSlash(relative)))
+		fingerprints = append(fingerprints, FileFingerprint{
+			Key: hex.EncodeToString(digest[:]), Size: info.Size(),
+			ModifiedAtMs: info.ModTime().UnixMilli(),
+		})
+	}
+	return fingerprints, nil
+}
 
 const MaxCandidateFilesPerAgent = 2_000
 
