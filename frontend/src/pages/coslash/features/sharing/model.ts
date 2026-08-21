@@ -1,5 +1,5 @@
 import { canonicalUploadBytes, type SnapshotPreview } from '@/pages/coslash/lib/preview';
-import type { Session } from '@/pages/coslash/lib/session';
+import { isLocalSession, type Session } from '@/pages/coslash/lib/session';
 
 // C4 contract; provider fixtures live in coslash-server/testdata/hub-share-v1.
 export const HUB_SHARE_VERSION = 'hub-share/v1' as const;
@@ -183,6 +183,11 @@ export const RETRY_RULES: Record<
 
 export function localSessionId(session: Pick<Session, 'agent' | 'id'>): string {
   return `${session.agent}:${session.id}`;
+}
+
+/** Hub candidates stay local-only before the existing agent:id sharing key. */
+export function localShareCandidates(candidates: ShareCandidate[]): ShareCandidate[] {
+  return candidates.filter(({ session }) => isLocalSession(session));
 }
 
 export function filterShareCandidates(

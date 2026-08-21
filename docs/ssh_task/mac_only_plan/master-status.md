@@ -38,8 +38,8 @@ coordination later requires one.
 |---|---|---|---|---|
 | P1 | [`01-parser-and-sftp.md`](01-parser-and-sftp.md) | Done locally | — | A tested read-only SFTP source and shared Claude/Codex parser boundary |
 | P2 | [`02-manager-cache-api.md`](02-manager-cache-api.md) | Done locally | P1 | Remote normalized facts flow through cache and source-aware API |
-| P3 | [`03-frontend-monitoring.md`](03-frontend-monitoring.md) | Ready | P2 | Honest monitoring UX with remote launch disabled |
-| P4 | [`04-cleanup-docs-hardening.md`](04-cleanup-docs-hardening.md) | Waiting | P3 | Linux collector surfaces removed and end-to-end behavior verified |
+| P3 | [`03-frontend-monitoring.md`](03-frontend-monitoring.md) | Done locally | P2 | Honest monitoring UX with remote launch disabled |
+| P4 | [`04-cleanup-docs-hardening.md`](04-cleanup-docs-hardening.md) | Ready | P3 | Linux collector surfaces removed and end-to-end behavior verified |
 
 ## Reuse and replacement map
 
@@ -62,7 +62,7 @@ coordination later requires one.
 | G0 — scope locked | Complete: monitoring-first and measurement-driven guardrails approved 2026-08-21 |
 | G1 — safe data plane | Complete locally: P1 proves read-only SFTP, containment, bounded reads, and parser equivalence |
 | G2 — backend complete | Complete locally: P2 proves last-good behavior, cancellation, API identity, and no raw cache |
-| G3 — honest product | P3 never claims unsupported liveness/Git/launch behavior |
+| G3 — honest product | Complete locally: P3 never claims unsupported liveness/Git/launch behavior |
 | G4 — replacement complete | P4 removes Linux install/release paths and passes full local + fake-host checks |
 
 ## Verification baseline
