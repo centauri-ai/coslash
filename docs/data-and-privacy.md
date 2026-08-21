@@ -19,8 +19,30 @@ coSlash reads, but does not modify:
 | `summaries/` | Cached synthesis results. |
 | `synthesis/` | Temporary synthesis files and the OpenCode scratch database. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
+| `remotes/<source-id>/snapshot.json` | Normalized remote session facts, opaque file fingerprints, coverage, and health. No raw transcript rows or remote absolute paths. |
 
 coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
+
+## Optional SSH/SFTP access
+
+When one remote machine is enabled, the Mac's system `ssh` client uses the saved
+OpenSSH alias and requests SFTP. Linux runs no coSlash code and receives no
+coSlash package, cache, handoff, or parser. coSlash may read these paths beneath
+the SSH user's home:
+
+- `.claude/projects`, `.claude/sessions`, and `.claude/jobs`;
+- `.codex/sessions`, `.codex/archived_sessions`, and
+  `.codex/session_index.jsonl`;
+- a numeric `/proc/<pid>` entry only to validate a PID already present in Claude
+  metadata.
+
+The SFTP interface has no write, delete, rename, or chmod operation. It rejects
+symlinks and canonical paths outside the allowlist. Current ceilings are 32 MiB
+per file, 128 MiB per refresh, 2,000 candidate files per agent, 10,000 directory
+entries, depth 16, and 30 seconds per refresh. Raw bytes stay in bounded Mac
+memory only while parsing. The disk cache deliberately omits prompts, transcript
+events, commands, tool output, edited-file paths, working directories, SSH
+configuration, and credentials.
 
 ## Outbound data
 
@@ -73,5 +95,9 @@ coSlash listens on IPv4 loopback and protects API requests with a new access tok
 ## Control and removal
 
 Synthesis is off until you enable and save it in Settings. Disable it there to stop new requests, then delete `~/.coslash/summaries` to remove cached results.
+
+Disabling a remote machine stops refreshes and hides its cards but retains its
+normalized last-good cache. Confirming **Remove host** deletes only that source's
+`~/.coslash/remotes/<source-id>` directory. It does not change files on Linux.
 
 To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names.
