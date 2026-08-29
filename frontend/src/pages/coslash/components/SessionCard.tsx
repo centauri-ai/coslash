@@ -16,11 +16,11 @@ import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
+  boardStatusKey,
   displayStatusLabel,
   environmentFact,
   getModality,
   getSessionCardSummary,
-  getStatus,
   getTotalTokens,
   getVendor,
   STATUSES,
@@ -97,7 +97,7 @@ export function SessionId({ id, shortened = false }: { id: string; shortened?: b
 }
 
 function StatusBadge({ session }: { session: Session }) {
-  const status = STATUSES[getStatus(session.displayStale ? null : session.status)];
+  const status = STATUSES[boardStatusKey(session)];
   return (
     <Badge className={cn('gap-1 text-xs font-semibold', status.fg, status.bg)}>
       {!session.displayStale && <span className={cn('size-1 rounded-full', status.dot)} />}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decodeMachineFact } from '@/pages/coslash/lib/machines';
 import {
+  boardStatusKey,
   environmentFact,
   getSessionVendors,
   LOCAL_SOURCE_ID,
@@ -64,6 +65,19 @@ describe('sessionsForAggregates', () => {
         { eligibleForAggregates: true },
       ]),
     ).toEqual([{ eligibleForAggregates: true }, { eligibleForAggregates: true }]);
+  });
+});
+
+describe('boardStatusKey', () => {
+  it('keeps sessions with unavailable or stale remote liveness out of Inactive', () => {
+    expect(boardStatusKey({ sourceId: 'r_0123456789abcdef', status: null, displayStale: false })).toBe(
+      'unknown',
+    );
+    expect(boardStatusKey({ sourceId: 'local', status: 'busy', displayStale: true })).toBe('unknown');
+  });
+
+  it('uses Inactive only for local sessions with no status', () => {
+    expect(boardStatusKey({ sourceId: 'local', status: null, displayStale: false })).toBe('inactive');
   });
 });
 

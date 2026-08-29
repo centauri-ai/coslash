@@ -46,11 +46,11 @@ import {
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
+  boardStatusKey,
   displayStatusLabel,
   environmentFact,
   getModality,
   getSessionOutcome,
-  getStatus,
   getVendor,
   goalSourceLabel,
   isLocalSession,
@@ -246,7 +246,7 @@ export function SessionModelUsage({
 }
 
 function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showMachineBadge: boolean }) {
-  const status = STATUSES[getStatus(detail.displayStale ? null : detail.status)];
+  const status = STATUSES[boardStatusKey(detail)];
 
   return (
     <div className="flex flex-col gap-2 pt-2">
