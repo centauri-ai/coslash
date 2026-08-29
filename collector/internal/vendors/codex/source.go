@@ -56,12 +56,10 @@ func CollectRemote(
 		return vendors.RemoteCollection{}, err
 	}
 	candidates := len(files)
-	files, truncated := vendors.LimitNewestSourceFiles(
-		source, files, vendors.MaxCandidateFilesPerAgent,
-	)
 	if since > 0 {
 		files = FilesSinceSource(source, files, metadata.Live, since)
 	}
+	files, truncated := limitNewestFamiliesSource(source, files)
 	sessions, err := parseFilesSourceStrict(
 		source,
 		filepath.Join(home, ".codex", "archived_sessions"),
@@ -78,6 +76,42 @@ func CollectRemote(
 		SelectedFiles:  len(files),
 		Truncated:      truncated,
 	}, nil
+}
+
+func limitNewestFamiliesSource(source vendors.ReadSource, files []string) ([]string, bool) {
+	parents := map[string]string{}
+	fileIDs := map[string]string{}
+	for _, file := range files {
+		id, parentID, err := readHeaderSource(source, file)
+		if err != nil {
+			continue
+		}
+		fileIDs[file] = id
+		parents[id] = parentID
+	}
+	rootID := func(id string) string {
+		seen := map[string]struct{}{}
+		for {
+			parentID, ok := parents[id]
+			if !ok || parentID == "" {
+				return id
+			}
+			if _, ok := seen[id]; ok {
+				return id
+			}
+			seen[id] = struct{}{}
+			id = parentID
+		}
+	}
+	return vendors.LimitNewestSourceFileFamilies(
+		source, files, vendors.MaxCandidateFilesPerAgent,
+		func(file string) string {
+			if id := fileIDs[file]; id != "" {
+				return rootID(id)
+			}
+			return file
+		},
+	)
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {

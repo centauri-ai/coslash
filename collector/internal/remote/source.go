@@ -98,11 +98,12 @@ func (source *Source) Open(name string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	return &boundedRemoteFile{
-		ReadCloser: file,
-		path:       name,
-		fileLeft:   source.limits.MaxFileBytes,
-		total:      &source.bytes,
-		totalLimit: source.limits.MaxTotalBytes,
+		ReadCloser:  file,
+		path:        name,
+		fileLeft:    source.limits.MaxFileBytes,
+		contentLeft: info.Size(),
+		total:       &source.bytes,
+		totalLimit:  source.limits.MaxTotalBytes,
 	}, nil
 }
 
@@ -213,28 +214,55 @@ func procPID(name string) bool {
 
 type boundedRemoteFile struct {
 	io.ReadCloser
-	path       string
-	fileLeft   int64
-	total      *atomic.Int64
-	totalLimit int64
-	exhausted  bool
+	path        string
+	fileLeft    int64
+	contentLeft int64
+	total       *atomic.Int64
+	totalLimit  int64
+	exhausted   bool
 }
 
 func (file *boundedRemoteFile) Read(buffer []byte) (int, error) {
+	if len(buffer) == 0 {
+		return 0, nil
+	}
 	if file.exhausted {
 		return 0, fmt.Errorf("%w: %s", ErrFileLimit, file.path)
 	}
-	if int64(len(buffer)) > file.fileLeft+1 {
-		buffer = buffer[:file.fileLeft+1]
+	if file.contentLeft == 0 {
+		return 0, io.EOF
 	}
+	requested := min(int64(len(buffer)), file.fileLeft+1)
+	reserved := file.reserve(requested)
+	if reserved == 0 {
+		return 0, fmt.Errorf("%w: %s", ErrTotalLimit, file.path)
+	}
+	buffer = buffer[:reserved]
 	n, err := file.ReadCloser.Read(buffer)
-	file.fileLeft -= int64(n)
-	if file.total.Add(int64(n)) > file.totalLimit {
-		return n, ErrTotalLimit
+	if int64(n) < reserved {
+		file.total.Add(int64(n) - reserved)
 	}
+	file.fileLeft -= int64(n)
+	file.contentLeft -= int64(n)
 	if file.fileLeft < 0 {
 		file.exhausted = true
 		return n, fmt.Errorf("%w: %s", ErrFileLimit, file.path)
 	}
+	if reserved < requested && file.contentLeft > 0 {
+		return n, fmt.Errorf("%w: %s", ErrTotalLimit, file.path)
+	}
 	return n, err
+}
+
+func (file *boundedRemoteFile) reserve(requested int64) int64 {
+	for {
+		used := file.total.Load()
+		if used >= file.totalLimit {
+			return 0
+		}
+		reserved := min(requested, file.totalLimit-used)
+		if file.total.CompareAndSwap(used, used+reserved) {
+			return reserved
+		}
+	}
 }

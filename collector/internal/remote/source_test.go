@@ -130,6 +130,52 @@ func TestSourceEnforcesFileTotalEntryAndDepthLimits(t *testing.T) {
 	}
 }
 
+func TestSourceReservesTotalBytesAcrossConcurrentReaders(t *testing.T) {
+	root := t.TempDir()
+	projects := filepath.Join(root, ".claude", "projects")
+	writeTestFile(t, filepath.Join(projects, "first.jsonl"), "1234")
+	writeTestFile(t, filepath.Join(projects, "second.jsonl"), "5678")
+	source, err := newSource(localOperations(root), Limits{MaxFileBytes: 8, MaxTotalBytes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make([]io.ReadCloser, 0, 2)
+	for _, name := range []string{"first.jsonl", "second.jsonl"} {
+		file, err := source.Open(filepath.Join(projects, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, file)
+	}
+	errs := make(chan error, len(files))
+	for _, file := range files {
+		go func(file io.ReadCloser) {
+			_, err := io.ReadAll(file)
+			_ = file.Close()
+			errs <- err
+		}(file)
+	}
+	for range files {
+		<-errs
+	}
+	if got := source.bytes.Load(); got > 4 {
+		t.Fatalf("read %d bytes, want at most 4", got)
+	}
+
+	exact, err := newSource(localOperations(root), Limits{MaxFileBytes: 8, MaxTotalBytes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := exact.Open(filepath.Join(projects, "first.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadAll(file); err != nil {
+		t.Fatalf("read at exact total limit: %v", err)
+	}
+	_ = file.Close()
+}
+
 func TestApprovedDefaultFileBoundary(t *testing.T) {
 	root := t.TempDir()
 	name := filepath.Join(root, ".codex", "sessions", "boundary.jsonl")
