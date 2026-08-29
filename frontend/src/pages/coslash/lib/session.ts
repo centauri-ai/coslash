@@ -236,12 +236,18 @@ export const STATUSES = {
     bg: 'bg-muted',
     dot: 'bg-muted-foreground',
   },
+  unknown: {
+    label: 'Unknown',
+    fg: 'text-muted-foreground',
+    bg: 'bg-muted',
+    dot: 'bg-muted-foreground',
+  },
 } satisfies Record<string, Status>;
 
 export type StatusKey = keyof typeof STATUSES;
 
 // Board columns render left to right in this order; status sorting uses the same priority.
-export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'inactive'];
+export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'inactive', 'unknown'];
 
 export type SubagentStatus = { label: string; fg: string; bg: string };
 
@@ -286,9 +292,11 @@ export function getStatus(status: string | null): StatusKey {
   return status !== null && status in STATUSES ? (status as StatusKey) : 'inactive';
 }
 
-/** Board column and live status for a card; stale/limited/incomplete sessions are inactive. */
-export function boardStatusKey(session: Pick<Session, 'status' | 'displayStale'>): StatusKey {
-  if (session.displayStale) return 'inactive';
+/** Board column and live status for a card; stale or unavailable liveness is unknown. */
+export function boardStatusKey(session: Pick<Session, 'sourceId' | 'status' | 'displayStale'>): StatusKey {
+  if (session.displayStale || (isLocalSource(session.sourceId) === false && session.status == null)) {
+    return 'unknown';
+  }
   return getStatus(session.status);
 }
 
