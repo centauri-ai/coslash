@@ -90,3 +90,37 @@ func TestLimitNewestSourceFilesIsDeterministic(t *testing.T) {
 		t.Fatalf("selected = %#v, want %#v", selected, want)
 	}
 }
+
+func TestLimitNewestSourceFileFamiliesKeepsFamilyTogether(t *testing.T) {
+	fsys := fstest.MapFS{
+		"root/session.jsonl":         {Data: []byte("{}\n"), ModTime: time.Unix(1, 0)},
+		"root/session-child.jsonl":   {Data: []byte("{}\n"), ModTime: time.Unix(3, 0)},
+		"root/other-session.jsonl":   {Data: []byte("{}\n"), ModTime: time.Unix(2, 0)},
+		"root/another-session.jsonl": {Data: []byte("{}\n"), ModTime: time.Unix(2, 0)},
+	}
+	source := mapReadSource{fsys: fsys}
+	files := []string{
+		"root/session.jsonl", "root/session-child.jsonl", "root/other-session.jsonl", "root/another-session.jsonl",
+	}
+	selected, truncated := LimitNewestSourceFileFamilies(source, files, 3, func(file string) string {
+		if file == "root/session-child.jsonl" {
+			return "session"
+		}
+		if file == "root/session.jsonl" {
+			return "session"
+		}
+		return file
+	})
+	if !truncated {
+		t.Fatal("expected truncation")
+	}
+	want := []string{"root/session.jsonl", "root/session-child.jsonl", "root/another-session.jsonl"}
+	if len(selected) != len(want) {
+		t.Fatalf("selected = %#v, want %#v", selected, want)
+	}
+	for index := range want {
+		if selected[index] != want[index] {
+			t.Fatalf("selected = %#v, want %#v", selected, want)
+		}
+	}
+}

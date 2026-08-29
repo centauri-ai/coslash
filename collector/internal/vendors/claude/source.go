@@ -59,12 +59,12 @@ func CollectRemote(
 		return vendors.RemoteCollection{}, err
 	}
 	candidates := len(files)
-	files, truncated := vendors.LimitNewestSourceFiles(
-		source, files, vendors.MaxCandidateFilesPerAgent,
-	)
 	if since > 0 {
 		files = FilesSinceSource(source, files, metadata.Live, since)
 	}
+	files, truncated := vendors.LimitNewestSourceFileFamilies(
+		source, files, vendors.MaxCandidateFilesPerAgent, familyIDFromPath,
+	)
 	sessions, err := parseFilesSourceStrict(source, files)
 	if err != nil {
 		return vendors.RemoteCollection{}, err
@@ -76,6 +76,13 @@ func CollectRemote(
 		SelectedFiles:  len(files),
 		Truncated:      truncated,
 	}, nil
+}
+
+func familyIDFromPath(file string) string {
+	if parentID := ParentIDFromPath(file); parentID != "" {
+		return parentID
+	}
+	return IDFromPath(file)
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {

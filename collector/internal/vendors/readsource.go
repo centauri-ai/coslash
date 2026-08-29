@@ -81,6 +81,60 @@ func LimitNewestSourceFiles(
 	return result, true
 }
 
+// LimitNewestSourceFileFamilies keeps whole file families, ordered by their newest member.
+func LimitNewestSourceFileFamilies(
+	source ReadSource,
+	files []string,
+	limit int,
+	familyID func(string) string,
+) ([]string, bool) {
+	if limit <= 0 || len(files) <= limit {
+		return files, false
+	}
+	type family struct {
+		id       string
+		files    map[string]struct{}
+		modified int64
+	}
+	families := map[string]*family{}
+	for _, file := range files {
+		id := familyID(file)
+		item := families[id]
+		if item == nil {
+			item = &family{id: id, files: map[string]struct{}{}}
+			families[id] = item
+		}
+		item.files[file] = struct{}{}
+		item.modified = max(item.modified, SourceModificationTime(source, file))
+	}
+	ordered := make([]*family, 0, len(families))
+	for _, item := range families {
+		ordered = append(ordered, item)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].modified == ordered[j].modified {
+			return ordered[i].id < ordered[j].id
+		}
+		return ordered[i].modified > ordered[j].modified
+	})
+	selected := map[string]struct{}{}
+	for _, item := range ordered {
+		if len(selected) > 0 && len(selected)+len(item.files) > limit {
+			continue
+		}
+		for file := range item.files {
+			selected[file] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(selected))
+	for _, file := range files {
+		if _, ok := selected[file]; ok {
+			result = append(result, file)
+		}
+	}
+	return result, len(result) < len(files)
+}
+
 func walkReadSource(source ReadSource, root string, visit fs.WalkDirFunc) error {
 	info, err := source.Stat(root)
 	if err != nil {
