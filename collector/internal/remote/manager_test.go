@@ -314,6 +314,74 @@ func TestManagerMidRefreshDisconnectPreservesLastGood(t *testing.T) {
 	}
 }
 
+func TestManagerLimitedRefreshPreservesLastGood(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	var calls atomic.Int32
+	manager := NewManager(Options{
+		Cache: cache,
+		Refresh: func(context.Context, string, int64, time.Time) (refreshResult, error) {
+			if calls.Add(1) == 1 {
+				return successfulRefresh(), nil
+			}
+			return refreshResult{
+				Coverage: []AgentCoverage{{Agent: "claude", CandidateFiles: 2, SelectedFiles: 1, Truncated: true}},
+			}, nil
+		},
+	})
+	config := enabledSettings()
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, func() bool { return manager.DiagnosticsHealth().State == StateOK })
+	want, ok, err := cache.Load(config.ID)
+	if err != nil || !ok {
+		t.Fatalf("initial cache ok=%v err=%v", ok, err)
+	}
+
+	manager.Retry()
+	waitUntil(t, func() bool { return manager.DiagnosticsHealth().State == StateLimited })
+	got, ok, err := cache.Load(config.ID)
+	if err != nil || !ok {
+		t.Fatalf("last-good cache ok=%v err=%v", ok, err)
+	}
+	if len(got.Sessions) != len(want.Sessions) || got.FetchedAtMs != want.FetchedAtMs {
+		t.Fatalf("last-good changed: got=%+v want=%+v", got, want)
+	}
+	if sessions := manager.ListView(0).Sessions; len(sessions) != 1 || !sessions[0].DisplayStale {
+		t.Fatalf("limited sessions=%+v", sessions)
+	}
+}
+
+func TestManagerAliasChangeClearsCache(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	config := enabledSettings()
+	if err := cache.Store(config.ID, snapshotForCache(successfulRefresh().Sessions, successfulRefresh().Coverage, nil, 0, 1, 1)); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{
+		Cache: cache,
+		Refresh: func(context.Context, string, int64, time.Time) (refreshResult, error) {
+			return refreshResult{}, errors.New("connection reset")
+		},
+	})
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, func() bool { return manager.DiagnosticsHealth().State == StateStale })
+	changed := *config
+	changed.SSHAlias = "new-host"
+	if err := manager.ApplySettings(&changed); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, func() bool { return manager.DiagnosticsHealth().State == StateError })
+	if _, ok, err := cache.Load(config.ID); err != nil || ok {
+		t.Fatalf("alias change retained cache: ok=%v err=%v", ok, err)
+	}
+	if sessions := manager.ListView(0).Sessions; len(sessions) != 0 {
+		t.Fatalf("alias change retained sessions=%+v", sessions)
+	}
+}
+
 func TestManagerReplacementAndShutdownCancelInflightRefresh(t *testing.T) {
 	t.Run("replacement", func(t *testing.T) {
 		oldStarted := make(chan struct{})
