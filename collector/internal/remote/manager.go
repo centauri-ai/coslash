@@ -132,6 +132,12 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		}
 	}
 	previous := manager.cfg
+	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
+	if aliasChanged {
+		if err := manager.cache.RemoveSource(remote.ID); err != nil {
+			return err
+		}
+	}
 	copyConfig := *remote
 	manager.cfg = &copyConfig
 	if !remote.Enabled {
@@ -337,6 +343,12 @@ func (manager *Manager) runRefresh(
 		return
 	}
 	coverage := slices.Clone(result.Coverage)
+	if reason := limitedResultReason(result); reason != nil {
+		manager.state = StateLimited
+		manager.reason = reason
+		manager.complete = false
+		return
+	}
 	cached := snapshotForCache(
 		result.Sessions, coverage, result.Fingerprints,
 		remoteSinceMs, fetchedAt, result.RoundTrip.Milliseconds(),
@@ -353,14 +365,8 @@ func (manager *Manager) runRefresh(
 	manager.errorCopy = ""
 	manager.diagnostic = ""
 	manager.complete = true
-	if reason := limitedResultReason(result); reason != nil {
-		manager.state = StateLimited
-		manager.reason = reason
-		manager.complete = false
-	} else {
-		manager.state = StateOK
-		manager.reason = nil
-	}
+	manager.state = StateOK
+	manager.reason = nil
 }
 
 func (manager *Manager) applyFailureLocked(reason Reason, stderr string) {
