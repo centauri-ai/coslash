@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	DefaultConnectTimeout = 8 * time.Second
-	DefaultDeadline       = 30 * time.Second
+	DefaultConnectTimeout = 60 * time.Second
+	DefaultDeadline       = 90 * time.Second
 	DefaultMaxFileBytes   = 32 << 20
 	DefaultMaxTotalBytes  = 128 << 20
 	DefaultMaxEntries     = 10_000

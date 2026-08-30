@@ -39,7 +39,7 @@ the SSH user's home:
 The SFTP interface has no write, delete, rename, or chmod operation. It rejects
 symlinks and canonical paths outside the allowlist. Current ceilings are 32 MiB
 per file, 128 MiB per refresh, 2,000 candidate files per agent, 10,000 directory
-entries, depth 16, and 30 seconds per refresh. Raw bytes stay in bounded Mac
+entries, depth 16, and 90 seconds per refresh. Raw bytes stay in bounded Mac
 memory only while parsing. The disk cache deliberately omits prompts, transcript
 events, commands, tool output, edited-file paths, working directories, SSH
 configuration, and credentials.
