@@ -256,12 +256,12 @@ export function SettingsDialog({
       }}
     >
       <DialogContent
-        className="max-h-[calc(100svh-2rem)] gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
+        className="flex max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
         showCloseButton={!requiresConsent}
         onEscapeKeyDown={(event) => requiresConsent && event.preventDefault()}
         onPointerDownOutside={(event) => requiresConsent && event.preventDefault()}
       >
-        <DialogHeader className="gap-1.5 p-4 pr-12 pb-3">
+        <DialogHeader className="shrink-0 gap-1.5 p-4 pr-12 pb-3">
           <DialogTitle>{showFullSettings ? 'Settings' : 'Choose how coSlash handles synthesis'}</DialogTitle>
           <DialogDescription className="flex items-center gap-1.5 text-xs">
             <span>Machine-wide.</span>
@@ -271,7 +271,7 @@ export function SettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-y-auto px-4 pt-1 pb-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-1 pb-4">
           {isLoading ? (
             <div className="text-muted-foreground py-8 text-sm">Loading settings…</div>
           ) : loadError ? (
@@ -501,7 +501,7 @@ export function SettingsDialog({
           ) : null}
         </div>
 
-        <div className="bg-muted flex items-center justify-between gap-4 border-t px-4 py-3">
+        <div className="bg-muted relative z-10 flex shrink-0 items-center justify-between gap-4 border-t px-4 py-3 shadow-[0_-8px_16px_-12px_rgba(0,0,0,0.35)]">
           <div className={cn('flex items-center gap-2 text-xs', status.className)}>
             <span className="size-1.5 rounded-full bg-current" />
             {status.label}
