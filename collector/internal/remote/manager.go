@@ -134,6 +134,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	previous := manager.cfg
 	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
 	if aliasChanged {
+		exitControlMasterBestEffort(previous.SSHAlias)
 		if err := manager.cache.RemoveSource(remote.ID); err != nil {
 			return err
 		}
@@ -147,6 +148,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		manager.reason = reasonPtr(ReasonDisabled)
 		manager.complete = true
 		manager.errorCopy = ""
+		exitControlMasterBestEffort(remote.SSHAlias)
 		return nil
 	}
 	restart := previous == nil || !previous.Enabled || previous.SSHAlias != remote.SSHAlias
@@ -235,16 +237,23 @@ func (manager *Manager) DiagnosticsHealth() Health {
 
 func (manager *Manager) Shutdown() {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	alias := ""
+	if manager.cfg != nil {
+		alias = manager.cfg.SSHAlias
+	}
 	manager.cancelLifeLocked()
 	manager.refreshing = false
+	manager.mu.Unlock()
+	exitControlMasterBestEffort(alias)
 }
 
 func (manager *Manager) removeLocked() error {
 	manager.cancelLifeLocked()
 	var sourceID string
+	var alias string
 	if manager.cfg != nil {
 		sourceID = manager.cfg.ID
+		alias = manager.cfg.SSHAlias
 	}
 	manager.cfg = nil
 	manager.cached = nil
@@ -258,6 +267,7 @@ func (manager *Manager) removeLocked() error {
 	manager.failures = 0
 	manager.nextRetryAt = time.Time{}
 	manager.lastSuccessAt = nil
+	exitControlMasterBestEffort(alias)
 	if sourceID != "" {
 		return manager.cache.RemoveSource(sourceID)
 	}
@@ -490,7 +500,7 @@ func refreshSFTPWithOpen(
 	result.Stderr = connection.Stderr()
 	closeErr := connection.Close()
 	result.RoundTrip = time.Since(started)
-	if closeErr != nil {
+	if closeErr != nil && !benignSessionCloseErr(closeErr) {
 		return result, closeErr
 	}
 	return result, nil

@@ -101,9 +101,11 @@ coSlash needs at least one local agent session to read. If it finds none, it say
 
 In **Settings → Machines**, add one alias from your Mac's existing OpenSSH
 configuration. coSlash runs the system `ssh` client on the Mac, requests the
-host's SFTP subsystem, and parses Claude Code and Codex files locally. The Linux
-host needs only its SSH server with SFTP enabled and agent files readable by the
-SSH user. Do not install or run coSlash on Linux.
+host's SFTP subsystem, and parses Claude Code and Codex files locally. It may
+reuse an OpenSSH multiplexed connection through a control socket under
+`~/.coslash/ssh`; it does not edit your SSH config. The Linux host needs only
+its SSH server with SFTP enabled and agent files readable by the SSH user. Do
+not install or run coSlash on Linux.
 
 Remote v1 is monitoring-only. Cards, transcript-derived facts, costs, tokens,
 file-edit summaries, and **Copy handoff** are available. Resume, Start Fresh,
