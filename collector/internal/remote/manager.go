@@ -218,14 +218,7 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 		health.DiagnosticStderr = redactDiagnostic(diagnostic)
 		return health, nil
 	}
-	if reason := limitedResultReason(result); reason != nil {
-		health.State = StateLimited
-		health.Complete = false
-		health.Reason = reason
-		health.Error = genericErrorCopy(*reason)
-	} else {
-		health.State = StateOK
-	}
+	health.State = StateOK
 	return health, nil
 }
 
