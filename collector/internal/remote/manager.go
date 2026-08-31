@@ -107,8 +107,8 @@ func NewManager(options Options) *Manager {
 	}
 	test := options.Test
 	if test == nil {
-		test = func(ctx context.Context, alias string, _ int64, now time.Time) (refreshResult, error) {
-			return refreshSFTPWithOpen(ctx, alias, now.UnixMilli(), now, open)
+		test = func(ctx context.Context, alias string, _ int64, _ time.Time) (refreshResult, error) {
+			return probeSFTPWithOpen(ctx, alias, open)
 		}
 	}
 	return &Manager{
@@ -448,6 +448,20 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 
 func refreshSFTP(ctx context.Context, alias string, since int64, now time.Time) (refreshResult, error) {
 	return refreshSFTPWithOpen(ctx, alias, since, now, OpenSession)
+}
+
+func probeSFTPWithOpen(ctx context.Context, alias string, open openFunc) (refreshResult, error) {
+	started := time.Now()
+	connection, err := open(ctx, alias, OpenOptions{})
+	if err != nil {
+		return refreshResult{RoundTrip: time.Since(started)}, err
+	}
+	closeErr := connection.Close()
+	result := refreshResult{RoundTrip: time.Since(started), Stderr: connection.Stderr()}
+	if closeErr != nil && !benignSessionCloseErr(closeErr) {
+		return result, closeErr
+	}
+	return result, nil
 }
 
 func refreshSFTPWithOpen(
