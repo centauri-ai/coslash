@@ -16,6 +16,9 @@ const interruptMarker = "[Request interrupted by user"
 
 type claudeSessionAnalysis struct {
 	sessionID                string
+	sessionKind              string
+	rowUUIDs                 map[string]struct{}
+	rowCount                 int
 	workingDirectory         string
 	branch                   *string
 	entrypoint               *string
@@ -60,6 +63,9 @@ type messageUsage struct {
 type parsedSession struct {
 	transcript *vendors.ParsedSession
 	forkUsage  map[string]messageUsage
+	rowUUIDs   map[string]struct{}
+	rowCount   int
+	background bool
 }
 
 type taskEntry struct {
@@ -112,7 +118,13 @@ func parseSource(source vendors.ReadSource, path string) (*parsedSession, error)
 		parsed.SpawnKey = cmp.Or(workflowRunID(path), meta.ToolUseID)
 		parsed.Stopped = meta.StoppedByUser
 	}
-	return &parsedSession{transcript: parsed, forkUsage: analysis.dedupedMessageTokenUsage}, nil
+	return &parsedSession{
+		transcript: parsed,
+		forkUsage:  analysis.dedupedMessageTokenUsage,
+		rowUUIDs:   analysis.rowUUIDs,
+		rowCount:   analysis.rowCount,
+		background: analysis.sessionKind == "bg",
+	}, nil
 }
 
 func commitObservationsByToolUse(rows []claudeSessionRecord) []session.CommitObservation {
@@ -182,6 +194,7 @@ func analyzeClaudeSessionSource(
 		// its task prompt is a meta row that emitPrompt skips. A forked skill has
 		// no other prompt row, so nothing else would ever raise this.
 		inTurn:                   ParentIDFromPath(file) != "",
+		rowUUIDs:                 map[string]struct{}{},
 		dedupedMessageTokenUsage: map[string]messageUsage{},
 		pullRequests:             map[string]struct{}{},
 		spawns:                   map[string]vendors.SpawnState{},
@@ -211,6 +224,17 @@ func analyzeClaudeSessionSource(
 	for _, row := range rows {
 		if row.SessionID != "" {
 			analysis.sessionID = row.SessionID
+		}
+		if row.SessionKind != "" {
+			analysis.sessionKind = row.SessionKind
+		}
+		if row.RowUUID != "" {
+			analysis.rowCount++
+			// Conversation rows only. Both files append their own system and
+			// attachment bookkeeping, which breaks containment on a real pair.
+			if row.Message != nil {
+				analysis.rowUUIDs[row.RowUUID] = struct{}{}
+			}
 		}
 		if row.WorkingDirectory != "" {
 			analysis.workingDirectory = row.WorkingDirectory

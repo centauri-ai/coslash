@@ -3,6 +3,7 @@ package claude
 import (
 	"log"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -111,8 +112,12 @@ func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) 
 	}
 }
 
-func strictSubset(a, b map[string]struct{}) bool {
-	if len(a) >= len(b) {
+func strictSubset[V any](a, b map[string]V) bool {
+	return len(a) < len(b) && subset(a, b)
+}
+
+func subset[V any](a, b map[string]V) bool {
+	if len(a) > len(b) {
 		return false
 	}
 	for id := range a {
@@ -133,4 +138,110 @@ func fileCreationTime(source vendors.ReadSource, path string) int64 {
 		return created
 	}
 	return info.ModTime().UnixMilli()
+}
+
+// collapseBackgroundRehomes drops a root that a background re-home superseded.
+// Claude Code re-homes a terminal session onto its background surface by
+// writing a fresh transcript that copies every row of the original, so both
+// files would otherwise serve as separate cards for one conversation.
+//
+// The successor survives: it holds the newer turns and the session id that is
+// actually live, so Resume targets the real session. applyForkedUsage ran
+// first and made the pair's usage disjoint, so folding tokens in is exact.
+//
+// Containment is measured over conversation rows, not usage: a re-home whose
+// only new rows are a prompt or an aborted turn adds no usage-bearing
+// message.id, so the two files' usage sets come out equal and hide the copy.
+func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
+	roots := []*parsedSession{}
+	for _, p := range parsed {
+		if p.transcript.ParentID == "" && len(p.rowUUIDs) > 0 {
+			roots = append(roots, p)
+		}
+	}
+	// Each re-home supersedes only the root it copied, the latest one it
+	// contains. Claiming every contained root instead would swallow the
+	// ancestors a deliberate `claude --resume` branched from.
+	supersededBy := map[string]*parsedSession{}
+	for _, successor := range roots {
+		if !successor.background {
+			continue
+		}
+		var predecessor *parsedSession
+		for _, candidate := range roots {
+			if !supersedes(candidate, successor) {
+				continue
+			}
+			if predecessor == nil || later(candidate, predecessor) {
+				predecessor = candidate
+			}
+		}
+		if predecessor == nil {
+			continue
+		}
+		id := predecessor.transcript.Session.ID
+		if prior, ok := supersededBy[id]; !ok || later(successor, prior) {
+			supersededBy[id] = successor
+		}
+	}
+	// Chains terminate: supersedes only points at a strictly later file.
+	survivorOf := func(p *parsedSession) *parsedSession {
+		for {
+			next, ok := supersededBy[p.transcript.Session.ID]
+			if !ok {
+				return p
+			}
+			p = next
+		}
+	}
+
+	survivors := make([]*parsedSession, 0, len(parsed))
+	for _, p := range parsed {
+		if successor, ok := supersededBy[p.transcript.Session.ID]; ok {
+			final := survivorOf(successor)
+			log.Printf("%s: superseded by background re-home %s",
+				p.transcript.Session.ID, final.transcript.Session.ID)
+			foldTokens(final.transcript.Session, p.transcript.Session)
+			continue
+		}
+		// Subagent transcripts stay keyed to the predecessor's uuid on disk,
+		// so composeSessions orphans them unless they follow the survivor.
+		if successor, ok := supersededBy[p.transcript.ParentID]; ok {
+			p.transcript.ParentID = survivorOf(successor).transcript.Session.ID
+		}
+		survivors = append(survivors, p)
+	}
+	return survivors
+}
+
+// supersedes reports whether successor is a re-home copy of predecessor. It
+// holds every conversation row of the file it copied, and when the copy lands
+// before the next turn it holds no more than those: then only the larger
+// bookkeeping tail tells the two apart. Row uuids are unique per row, so any
+// sharing at all means one file was copied from the other.
+func supersedes(predecessor, successor *parsedSession) bool {
+	return subset(predecessor.rowUUIDs, successor.rowUUIDs) &&
+		later(successor, predecessor)
+}
+
+// later orders two files by how much of the session they hold: conversation
+// rows first, then bookkeeping to separate copies of one identical
+// conversation. A metadata-only chain ties on the first and needs the second.
+func later(a, b *parsedSession) bool {
+	if len(a.rowUUIDs) != len(b.rowUUIDs) {
+		return len(a.rowUUIDs) > len(b.rowUUIDs)
+	}
+	return a.rowCount > b.rowCount
+}
+
+func foldTokens(into, from *session.Session) {
+	for model, add := range from.Tokens {
+		total := into.Tokens[model]
+		total.InputTokens += add.InputTokens
+		total.OutputTokens += add.OutputTokens
+		total.CacheReadInputTokens += add.CacheReadInputTokens
+		total.CacheCreationInputTokens += add.CacheCreationInputTokens
+		total.CacheCreation1hInputTokens += add.CacheCreation1hInputTokens
+		into.Tokens[model] = total
+	}
 }
