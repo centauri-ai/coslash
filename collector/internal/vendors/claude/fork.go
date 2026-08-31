@@ -140,18 +140,7 @@ func fileCreationTime(source vendors.ReadSource, path string) int64 {
 	return info.ModTime().UnixMilli()
 }
 
-// collapseBackgroundRehomes drops a root that a background re-home superseded.
-// Claude Code re-homes a terminal session onto its background surface by
-// writing a fresh transcript that copies every row of the original, so both
-// files would otherwise serve as separate cards for one conversation.
-//
-// The successor survives: it holds the newer turns and the session id that is
-// actually live, so Resume targets the real session. applyForkedUsage ran
-// first and made the pair's usage disjoint, so folding tokens in is exact.
-//
-// Containment is measured over conversation rows, not usage: a re-home whose
-// only new rows are a prompt or an aborted turn adds no usage-bearing
-// message.id, so the two files' usage sets come out equal and hide the copy.
+// collapseBackgroundRehomes drops a root that a background re-home superseded
 func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
 	roots := []*parsedSession{}
 	for _, p := range parsed {
@@ -159,9 +148,7 @@ func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
 			roots = append(roots, p)
 		}
 	}
-	// Each re-home supersedes only the root it copied, the latest one it
-	// contains. Claiming every contained root instead would swallow the
-	// ancestors a deliberate `claude --resume` branched from.
+	// Each re-home supersedes only the root it copied
 	supersededBy := map[string]*parsedSession{}
 	for _, successor := range roots {
 		if !successor.background {
@@ -184,7 +171,7 @@ func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
 			supersededBy[id] = successor
 		}
 	}
-	// Chains terminate: supersedes only points at a strictly later file.
+
 	survivorOf := func(p *parsedSession) *parsedSession {
 		for {
 			next, ok := supersededBy[p.transcript.Session.ID]
@@ -214,19 +201,12 @@ func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
 	return survivors
 }
 
-// supersedes reports whether successor is a re-home copy of predecessor. It
-// holds every conversation row of the file it copied, and when the copy lands
-// before the next turn it holds no more than those: then only the larger
-// bookkeeping tail tells the two apart. Row uuids are unique per row, so any
-// sharing at all means one file was copied from the other.
 func supersedes(predecessor, successor *parsedSession) bool {
 	return subset(predecessor.rowUUIDs, successor.rowUUIDs) &&
 		later(successor, predecessor)
 }
 
 // later orders two files by how much of the session they hold: conversation
-// rows first, then bookkeeping to separate copies of one identical
-// conversation. A metadata-only chain ties on the first and needs the second.
 func later(a, b *parsedSession) bool {
 	if len(a.rowUUIDs) != len(b.rowUUIDs) {
 		return len(a.rowUUIDs) > len(b.rowUUIDs)
