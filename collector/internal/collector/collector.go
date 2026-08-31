@@ -189,7 +189,10 @@ func collect(
 		vendorParsed, vendorMetadata, err := source.collect(since)
 		if err != nil {
 			log.Printf("%s session collection failed: %v; serving other vendors", source.name, err)
-			observe.Event("issue.collect.vendor_failed", "agent", source.name)
+			observe.Event("issue.collect.vendor_failed",
+				"agent", source.name,
+				"detail", "vendor session collection failed",
+			)
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
 			continue
 		}
@@ -197,7 +200,10 @@ func collect(
 		parsed = append(parsed, vendorParsed...)
 	}
 	if len(failures) == len(vendorSources) {
-		observe.Event("issue.collect.all_failed", "vendors", len(vendorSources))
+		observe.Event("issue.collect.all_failed",
+			"vendors", len(vendorSources),
+			"detail", "all vendor session collectors failed",
+		)
 		return nil, nil, errors.Join(failures...)
 	}
 	return parsed, metadata, nil

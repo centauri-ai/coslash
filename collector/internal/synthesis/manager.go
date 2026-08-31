@@ -199,9 +199,11 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 func (m *Manager) recordFailure(id string, revision int64, err error) {
 	now := m.now()
 	m.failures.Store(failureKey{id: id, revision: revision}, failure{at: now, message: err.Error()})
+	reason := synthesisFailureReason(err)
 	observe.Event("issue.synthesis.failed",
-		"reason", synthesisFailureReason(err),
+		"reason", reason,
 		"backend", runnerModel(m.currentRunner()),
+		"detail", synthesisIssueDetail(reason),
 	)
 	if errors.Is(err, exec.ErrNotFound) {
 		m.cliMissingUntil.Store(now.Add(m.cliMissingCooldown).UnixNano())
@@ -227,6 +229,21 @@ func synthesisFailureReason(err error) string {
 		return "timeout"
 	default:
 		return "other"
+	}
+}
+
+func synthesisIssueDetail(reason string) string {
+	switch reason {
+	case "cli_missing":
+		return "synthesis CLI missing or not on PATH"
+	case "auth_or_model":
+		return "synthesis CLI auth or model failed"
+	case "parse_failed":
+		return "synthesis result could not be parsed"
+	case "timeout":
+		return "synthesis timed out"
+	default:
+		return "synthesis failed"
 	}
 }
 

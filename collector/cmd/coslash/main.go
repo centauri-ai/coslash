@@ -85,25 +85,25 @@ func main() {
 	settingsStore := settings.Open()
 	if err := opencode.EnsureWaitingPlugin(); err != nil {
 		log.Printf("install OpenCode status plugin: %v", err)
-		issue("startup.soft_fail", "component", "opencode_plugin")
+		issue("startup.soft_fail", "component", "opencode_plugin", "detail", "OpenCode status plugin install failed")
 	}
 	settingsState := settingsStore.State()
 	var runner synthesis.Runner
 	if !settingsState.Valid {
 		log.Printf("settings: %s", settingsState.Error)
-		issue("startup.soft_fail", "component", "settings", "reason", "invalid")
+		issue("startup.soft_fail", "component", "settings", "reason", "invalid", "detail", "settings invalid at startup")
 	} else if settingsState.Persisted {
 		runner, _ = synthesis.NewRunner(settingsState.Config.Synthesis)
 	}
 	mgr := synthesis.NewManager(runner)
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
-		issue("startup.soft_fail", "component", "synthesis_cache")
+		issue("startup.soft_fail", "component", "synthesis_cache", "detail", "synthesis cache init failed")
 		mgr.SetRunner(nil)
 	}
 	if err := synthesis.CleanupOpenCodeScratch(); err != nil {
 		log.Printf("sweep OpenCode scratch directories: %v", err)
-		issue("startup.soft_fail", "component", "opencode_scratch")
+		issue("startup.soft_fail", "component", "opencode_scratch", "detail", "OpenCode scratch cleanup failed")
 	}
 	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
 		now := time.Now()
@@ -115,7 +115,7 @@ func main() {
 	if settingsState.Valid {
 		if err := remoteManager.ApplySettings(settingsState.Config.Remote); err != nil {
 			log.Printf("remote settings: %v", err)
-			issue("startup.soft_fail", "component", "remote_settings")
+			issue("startup.soft_fail", "component", "remote_settings", "detail", "remote settings apply failed")
 		}
 	}
 
@@ -131,14 +131,14 @@ func main() {
 	}
 	if err := writeToken(token); err != nil {
 		log.Printf("write API token: %v", err)
-		issue("startup.soft_fail", "component", "api_token")
+		issue("startup.soft_fail", "component", "api_token", "detail", "could not write API token file")
 	}
 	baseURL := "http://" + listener.Addr().String()
 	accessURL := baseURL + "/#t=" + token
 	log.Printf("listening on %s", baseURL)
 	log.Printf("open %s", accessURL)
 	if observe.Enabled() {
-		log.Printf("issue logging on → %s (COSLASH_DEBUG=0 to disable)", observe.LogDir())
+		log.Printf("issue logging on → CLI + %s (COSLASH_DEBUG=0 to disable)", observe.LogDir())
 	}
 	if !opts.noOpen {
 		if err := openBrowser(accessURL); err != nil {
@@ -149,7 +149,7 @@ func main() {
 	hub, err := hubClientFromEnvironment(version)
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
-		issue("startup.soft_fail", "component", "hub", "reason", "bad_config")
+		issue("startup.soft_fail", "component", "hub", "reason", "bad_config", "detail", "Hub integration disabled")
 	}
 	server := newServer(guard, mgr, settingsStore, remoteManager, hub)
 	go func() {

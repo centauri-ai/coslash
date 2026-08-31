@@ -49,7 +49,9 @@ See also [Troubleshooting](troubleshooting.md) for common fixes before escalatin
 
 On `test/observability`, coSlash records concise product issue lines plus remote SSH steps. Logging defaults **on**. Startup should print:
 
-`issue logging on → <COSLASH_HOME>/logs …`
+`issue logging on → CLI + <COSLASH_HOME>/logs …`
+
+Every `issue.*` / failed `issue.operation` / `remote.*` line is printed in the **same terminal where coslash is running** and appended to `$COSLASH_HOME/logs/issues-YYYYMMDD.log`. Watch that CLI while reproducing; you do not need to open the log file first.
 
 ```sh
 COSLASH_DEBUG=0 ./bin/coslash          # disable all issue/remote step logs
@@ -57,7 +59,7 @@ COSLASH_DEBUG=1 ./bin/coslash          # force on
 COSLASH_REMOTE_DEBUG=0 ./bin/coslash   # also disables (fallback if COSLASH_DEBUG unset)
 ```
 
-Lines go to the coSlash terminal and `$COSLASH_HOME/logs/issues-YYYYMMDD.log` (default home `~/.coslash`). Files are mode `0600`, capped at 5 MiB each, and retained for seven days; do not commit them.
+Log files are mode `0600`, capped at 5 MiB each, and retained for seven days; do not commit them.
 
 ```sh
 grep -E 'issue\.|remote\.' ~/.coslash/logs/issues-*.log
@@ -67,18 +69,19 @@ grep -E 'issue\.|remote\.' ~/.coslash/logs/issues-*.log
 
 | Line | Meaning |
 | --- | --- |
-| `issue.api.error route=… reason=… status=…` | API handler returned an error |
+| `issue.api.error route=… reason=… detail=…` | API handler returned an error |
+| `issue.operation operation=http …` | HTTP request failed (status ≥ 400) |
 | `issue.collect.vendor_failed agent=…` | One local vendor failed; others may still serve |
 | `issue.collect.all_failed` | Every vendor failed |
-| `issue.synthesis.failed reason=…` | Debrief CLI/run failed |
-| `issue.launch.failed reason=…` | Resume / Start Fresh failed |
-| `issue.hub.failed action=…` | Hub destination/pairing/share failed |
-| `issue.httpsec.reject reason=…` | Loopback auth/host/origin rejected |
+| `issue.synthesis.failed reason=… detail=…` | Debrief CLI/run failed |
+| `issue.launch.failed reason=… detail=…` | Resume / Start Fresh failed |
+| `issue.hub.failed action=… detail=…` | Hub destination/pairing/share failed |
+| `issue.httpsec.reject reason=… detail=…` | Loopback auth/host/origin rejected |
 | `issue.startup.soft_fail component=…` | Non-fatal startup problem |
 
-Fields stay low-cardinality (reasons, statuses, agent ids) — not session ids, paths, prompts, or tokens.
+Fields stay low-cardinality (reasons, statuses, agent ids, short `detail`) — not session ids, paths, prompts, or tokens.
 
-Slow successful operations and failed server operations also emit `operation` lines with an operation name, outcome, duration, route, and status. They are intended for local performance triage, not request-by-request analytics.
+Slow successful operations emit `operation` lines (not `issue.*`) with duration/route for local performance triage.
 
 ## Remote SSH step logs
 

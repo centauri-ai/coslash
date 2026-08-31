@@ -62,10 +62,13 @@ func LogDir() string {
 	return filepath.Join(settings.Home(), "logs")
 }
 
-// Event emits one structured line (stdout + ~/.coslash/logs/issues-YYYYMMDD.log).
+// Event emits one structured line to the coslash server CLI and
+// ~/.coslash/logs/issues-YYYYMMDD.log. Operators watching the process terminal
+// see the same brief issue context without opening the log file.
+//
 // Use greppable names like "issue.launch.failed" or "remote.refresh".
-// Fields must stay low-cardinality: reasons, timings, statuses — never paths,
-// session ids, aliases, prompts, tokens, or raw stderr hosts.
+// Fields must stay low-cardinality: reasons, timings, statuses, short detail —
+// never paths, session ids, aliases, prompts, tokens, or raw stderr hosts.
 func Event(name string, fields ...any) {
 	if !Enabled() {
 		return
@@ -76,24 +79,31 @@ func Event(name string, fields ...any) {
 		parts = append(parts, fmt.Sprintf("%v=%v", fields[i], fields[i+1]))
 	}
 	line := strings.Join(parts, " ")
+	// Stdlib log defaults to stderr, which is the terminal running coslash.
 	log.Print(line)
 	appendFile(line)
 }
 
 // Operation records failed work and successful work that exceeds the slow threshold.
+// Failures use the issue.operation name so they show up with other issue.* CLI lines.
 func Operation(operation string, started time.Time, outcome string, fields ...any) {
 	duration := time.Since(started)
 	if outcome == "ok" && duration < slowOperation {
 		return
 	}
-	values := make([]any, 0, 6+len(fields))
+	values := make([]any, 0, 8+len(fields))
 	values = append(values,
 		"operation", operation,
 		"outcome", outcome,
 		"duration_ms", duration.Milliseconds(),
 	)
 	values = append(values, fields...)
-	Event("operation", values...)
+	name := "operation"
+	if outcome != "ok" {
+		name = "issue.operation"
+		values = append(values, "detail", operation+" failed")
+	}
+	Event(name, values...)
 }
 
 func appendFile(line string) {

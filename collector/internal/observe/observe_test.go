@@ -44,8 +44,24 @@ func TestOperationRecordsFailuresAndSlowSuccesses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
-	if count := strings.Count(string(body), "operation operation=http"); count != 2 {
-		t.Fatalf("operation lines = %d, want 2: %q", count, body)
+	bodyText := string(body)
+	if count := strings.Count(bodyText, "issue.operation operation=http"); count != 1 {
+		t.Fatalf("error operation lines = %d, want 1: %q", count, bodyText)
+	}
+	okLines := 0
+	for _, line := range strings.Split(bodyText, "\n") {
+		if strings.Contains(line, " operation operation=http ") || strings.HasPrefix(strings.TrimSpace(line), "operation operation=http") {
+			// RFC3339 timestamp prefix then "operation operation=http"
+			if strings.Contains(line, " outcome=ok ") {
+				okLines++
+			}
+		}
+	}
+	if okLines != 1 {
+		t.Fatalf("slow ok operation lines = %d, want 1: %q", okLines, bodyText)
+	}
+	if !strings.Contains(bodyText, "detail=http failed") {
+		t.Fatalf("missing failure detail: %q", bodyText)
 	}
 }
 
