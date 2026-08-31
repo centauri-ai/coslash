@@ -133,6 +133,7 @@ func finalizeParsedFiles(
 	parsed []*parsedSession,
 ) []*vendors.ParsedSession {
 	applyForkedUsageSource(source, parsed)
+	parsed = collapseBackgroundRehomes(parsed)
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
 		transcripts = append(transcripts, item.transcript)
