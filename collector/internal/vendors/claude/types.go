@@ -16,7 +16,7 @@ var (
 
 type claudeSessionRecord struct {
 	SessionID            string          `json:"sessionId"`
-	SessionKind          string          `json:"sessionKind"` // "bg" on the background surface
+	SessionKind          string          `json:"sessionKind"`
 	RowUUID              string          `json:"uuid"`
 	Entrypoint           *string         `json:"entrypoint"`
 	WorkingDirectory     string          `json:"cwd"`

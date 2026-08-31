@@ -230,8 +230,7 @@ func analyzeClaudeSessionSource(
 		}
 		if row.RowUUID != "" {
 			analysis.rowCount++
-			// Conversation rows only. Both files append their own system and
-			// attachment bookkeeping, which breaks containment on a real pair.
+			// Conversation rows only
 			if row.Message != nil {
 				analysis.rowUUIDs[row.RowUUID] = struct{}{}
 			}
@@ -337,7 +336,11 @@ func analyzeClaudeSessionSource(
 							Turn: &turn,
 						}
 						if isSubagentTool(block.Name) {
-							analysis.digest.PushSubagent(analysis.userPromptCount, block.ID, rowTimestamp)
+							analysis.digest.PushSubagent(
+								analysis.userPromptCount,
+								block.ID,
+								rowTimestamp,
+							)
 						}
 					}
 					if block.Name == "AskUserQuestion" && block.ID != "" {
@@ -403,7 +406,12 @@ func analyzeClaudeSessionSource(
 					analysis.inTurn = false
 					reply := strings.TrimSpace(row.Message.textContent())
 					if analysis.userPromptCount > 0 && reply != "" {
-						analysis.digest.Push(analysis.userPromptCount, session.DigestRecap, reply, rowTimestamp)
+						analysis.digest.Push(
+							analysis.userPromptCount,
+							session.DigestRecap,
+							reply,
+							rowTimestamp,
+						)
 					}
 					pendingAssistantText = ""
 				}
