@@ -148,8 +148,10 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
 
   useEffect(() => {
     const controller = new AbortController();
+    let authenticationFailed = false;
 
     const load = (background: boolean) => {
+      if (authenticationFailed) return;
       if (!background) {
         setIsLoading(true);
         setLoadError(null);
@@ -176,7 +178,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
-          const authenticationFailed = error instanceof ApiAuthenticationError;
+          authenticationFailed = error instanceof ApiAuthenticationError;
           // Keep showing the last good list when an ordinary background
           // refresh fails. Authentication failures invalidate that private data.
           if (!background || authenticationFailed) {
