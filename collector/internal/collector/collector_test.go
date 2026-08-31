@@ -40,6 +40,22 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 	}
 }
 
+func TestResolveStatusClearsWaitingForClosedSession(t *testing.T) {
+	waiting := "waiting"
+	root := &vendors.ParsedSession{Session: &session.Session{
+		Agent: "codex", ID: "closed", Status: &waiting,
+	}}
+	metadata := map[string]*vendors.SessionMetadata{
+		"codex": vendors.EmptySessionMetadata(),
+	}
+
+	resolveStatus([]*vendors.ParsedSession{root}, metadata, true)
+
+	if root.Session.Status != nil {
+		t.Fatalf("closed session status = %q; want nil", *root.Session.Status)
+	}
+}
+
 func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 	original := vendorSources
 	t.Cleanup(func() { vendorSources = original })
