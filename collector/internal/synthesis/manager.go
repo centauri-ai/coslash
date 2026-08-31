@@ -6,10 +6,12 @@ import (
 	"log"
 	"os/exec"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/observe"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
@@ -193,8 +195,34 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 func (m *Manager) recordFailure(id string, revision int64, err error) {
 	now := m.now()
 	m.failures.Store(failureKey{id: id, revision: revision}, failure{at: now, message: err.Error()})
+	observe.Event("issue.synthesis.failed",
+		"reason", synthesisFailureReason(err),
+		"backend", runnerModel(m.currentRunner()),
+	)
 	if errors.Is(err, exec.ErrNotFound) {
 		m.cliMissingUntil.Store(now.Add(m.cliMissingCooldown).UnixNano())
+	}
+}
+
+func synthesisFailureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, exec.ErrNotFound) {
+		return "cli_missing"
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "not installed") || strings.Contains(message, "not on path"):
+		return "cli_missing"
+	case strings.Contains(message, "authentication") || strings.Contains(message, "selected model"):
+		return "auth_or_model"
+	case strings.Contains(message, "decode") || strings.Contains(message, "parse") || strings.Contains(message, "envelope"):
+		return "parse_failed"
+	case strings.Contains(message, "timeout") || strings.Contains(message, "deadline"):
+		return "timeout"
+	default:
+		return "other"
 	}
 }
 

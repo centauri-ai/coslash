@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/observe"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -188,6 +189,7 @@ func collect(
 		vendorParsed, vendorMetadata, err := source.collect(since)
 		if err != nil {
 			log.Printf("%s session collection failed: %v; serving other vendors", source.name, err)
+			observe.Event("issue.collect.vendor_failed", "agent", source.name)
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
 			continue
 		}
@@ -195,6 +197,7 @@ func collect(
 		parsed = append(parsed, vendorParsed...)
 	}
 	if len(failures) == len(vendorSources) {
+		observe.Event("issue.collect.all_failed", "vendors", len(vendorSources))
 		return nil, nil, errors.Join(failures...)
 	}
 	return parsed, metadata, nil

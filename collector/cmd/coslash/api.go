@@ -33,6 +33,7 @@ func handleList(
 	since, err := parseSince(r.URL.Query().Get("since"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		issueAPI("sessions", "bad_request", http.StatusBadRequest)
 		return
 	}
 	remoteSince := since
@@ -40,12 +41,14 @@ func handleList(
 		remoteSince, err = parseSince(raw)
 		if err != nil {
 			http.Error(w, "invalid 'remoteSince' parameter", http.StatusBadRequest)
+			issueAPI("sessions", "bad_remote_since", http.StatusBadRequest)
 			return
 		}
 	}
 	sessions, err := collector.List(since)
 	if err != nil {
 		log.Printf("list sessions: %v", err)
+		issueAPI("sessions", "list_failed", http.StatusInternalServerError)
 		http.Error(w, "could not list sessions", http.StatusInternalServerError)
 		return
 	}
@@ -92,10 +95,12 @@ func handleDiff(
 	found, err := getSession(query.Get("id"))
 	if err != nil {
 		log.Printf("diff: %v", err)
+		issueAPI("diff", "load_failed", http.StatusInternalServerError)
 		http.Error(w, "could not load diff", http.StatusInternalServerError)
 		return
 	}
 	if found == nil {
+		issueAPI("diff", "not_found", http.StatusNotFound)
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
@@ -109,6 +114,7 @@ func handleDiff(
 		}
 	}
 	if selected == nil {
+		issueAPI("diff", "file_not_found", http.StatusNotFound)
 		http.Error(w, "file not found in session", http.StatusNotFound)
 		return
 	}
@@ -126,15 +132,18 @@ func handleSharePreview(
 	revision, err := parseRevision(r.URL.Query().Get("revision"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		issueAPI("share_preview", "bad_request", http.StatusBadRequest)
 		return
 	}
 	found, err := getSession(r.URL.Query().Get("id"), revision)
 	if err != nil {
 		log.Printf("share preview: %v", err)
+		issueAPI("share_preview", "load_failed", http.StatusInternalServerError)
 		http.Error(w, "could not load share preview", http.StatusInternalServerError)
 		return
 	}
 	if found == nil {
+		issueAPI("share_preview", "not_found", http.StatusNotFound)
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
@@ -161,10 +170,12 @@ func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
 	found, err := collector.GetSessionFacts(id)
 	if err != nil {
 		log.Printf("synthesis: %v", err)
+		issueAPI("synthesis", "load_failed", http.StatusInternalServerError)
 		http.Error(w, "could not load synthesis", http.StatusInternalServerError)
 		return
 	}
 	if found == nil {
+		issueAPI("synthesis", "not_found", http.StatusNotFound)
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
@@ -201,6 +212,7 @@ func cleanupHandoffs() {
 func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *settings.Store) {
 	state := settingsStore.State()
 	if !state.Valid {
+		issue("launch.failed", "reason", "settings_invalid", "status", http.StatusConflict)
 		http.Error(w, state.Error+"; open Settings to repair it", http.StatusConflict)
 		return
 	}
@@ -208,22 +220,31 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 	found, err := collector.GetSessionFacts(query.Get("id"))
 	if err != nil {
 		log.Printf("launch: %v", err)
+		issueAPI("launch", "load_failed", http.StatusInternalServerError)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
 		return
 	}
 	if found == nil {
+		issueAPI("launch", "not_found", http.StatusNotFound)
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
 	handoff, err := readHandoff(w, r)
 	if err != nil {
 		log.Printf("launch: %v", err)
+		issue("launch.failed", "reason", "bad_handoff", "status", http.StatusBadRequest)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	mode := query.Get("mode")
 	if err := launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff); err != nil {
 		log.Printf("launch: %v", err)
+		issue("launch.failed",
+			"reason", launchIssueReason(err),
+			"mode", mode,
+			"agent", found.Agent,
+			"status", http.StatusInternalServerError,
+		)
 		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
 		return
 	}
@@ -322,20 +343,24 @@ func handleSaveSettings(
 			fmt.Sprintf("settings exceed %d bytes", maxSettingsBytes),
 			http.StatusBadRequest,
 		)
+		issueAPI("settings", "too_large", http.StatusBadRequest)
 		return
 	}
 	config, err := settings.Decode(data)
 	if err != nil {
+		issueAPI("settings", "invalid_json", http.StatusBadRequest)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	runner, err := synthesis.NewRunner(config.Synthesis)
 	if err != nil {
+		issueAPI("settings", "invalid_synthesis", http.StatusBadRequest)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := store.Save(config); err != nil {
 		log.Printf("save settings: %v", err)
+		issueAPI("settings", "save_failed", http.StatusInternalServerError)
 		http.Error(
 			w,
 			"could not save settings.json; check ~/.coslash permissions",
@@ -346,6 +371,7 @@ func handleSaveSettings(
 	mgr.SetRunner(runner)
 	if err := remoteManager.ApplySettings(config.Remote); err != nil {
 		log.Printf("apply remote settings: %v", err)
+		issueAPI("settings", "remote_apply_failed", http.StatusInternalServerError)
 		http.Error(w, "could not apply remote settings", http.StatusInternalServerError)
 		return
 	}

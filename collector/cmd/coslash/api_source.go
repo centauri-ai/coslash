@@ -93,10 +93,12 @@ func parseSourceID(value string) (string, error) {
 func rejectRemoteSource(w http.ResponseWriter, r *http.Request) bool {
 	source, err := parseSourceID(r.URL.Query().Get("source"))
 	if err != nil {
+		issueAPI("remote_action", "invalid_source", http.StatusBadRequest)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return true
 	}
 	if source != localSourceID {
+		issueAPI("remote_action", errCodeRemoteUnsupported, http.StatusConflict)
 		writeAPIError(w, http.StatusConflict, errCodeRemoteUnsupported, "remote action unsupported")
 		return true
 	}

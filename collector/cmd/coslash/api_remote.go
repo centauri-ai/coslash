@@ -20,6 +20,7 @@ func handleRemoteTest(w http.ResponseWriter, request *http.Request, manager *rem
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&body); err != nil || !settings.ValidSSHAlias(body.SSHAlias) {
+		remote.Observe("test", "phase", "reject", "reason", "invalid_request")
 		http.Error(w, "invalid remote test request", http.StatusBadRequest)
 		return
 	}
@@ -27,6 +28,7 @@ func handleRemoteTest(w http.ResponseWriter, request *http.Request, manager *rem
 	defer cancel()
 	health, err := manager.TestAlias(ctx, body.SSHAlias)
 	if err != nil {
+		remote.Observe("test", "phase", "reject", "reason", "invalid_alias")
 		http.Error(w, "invalid sshAlias", http.StatusBadRequest)
 		return
 	}

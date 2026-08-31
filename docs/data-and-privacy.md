@@ -20,6 +20,8 @@ coSlash reads, but does not modify:
 | `synthesis/` | Temporary synthesis files and the OpenCode scratch database. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
 | `remotes/<source-id>/snapshot.json` | Normalized remote session facts, opaque file fingerprints, coverage, and health. No raw transcript rows or remote absolute paths. |
+| `logs/issues-YYYYMMDD.log` | Optional local issue/step logs on the debug branch (see [Debugging and recording issues](debugging.md)). Classified reasons and timings only — no aliases, paths, prompts, tokens, or stderr hosts. |
+| `ssh/` | OpenSSH ControlMaster sockets for remote monitoring. |
 
 coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
 

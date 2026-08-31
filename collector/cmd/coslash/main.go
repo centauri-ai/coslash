@@ -21,6 +21,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/observe"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -84,21 +85,25 @@ func main() {
 	settingsStore := settings.Open()
 	if err := opencode.EnsureWaitingPlugin(); err != nil {
 		log.Printf("install OpenCode status plugin: %v", err)
+		issue("startup.soft_fail", "component", "opencode_plugin")
 	}
 	settingsState := settingsStore.State()
 	var runner synthesis.Runner
 	if !settingsState.Valid {
 		log.Printf("settings: %s", settingsState.Error)
+		issue("startup.soft_fail", "component", "settings", "reason", "invalid")
 	} else if settingsState.Persisted {
 		runner, _ = synthesis.NewRunner(settingsState.Config.Synthesis)
 	}
 	mgr := synthesis.NewManager(runner)
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
+		issue("startup.soft_fail", "component", "synthesis_cache")
 		mgr.SetRunner(nil)
 	}
 	if err := synthesis.CleanupOpenCodeScratch(); err != nil {
 		log.Printf("sweep OpenCode scratch directories: %v", err)
+		issue("startup.soft_fail", "component", "opencode_scratch")
 	}
 	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
 		now := time.Now()
@@ -110,6 +115,7 @@ func main() {
 	if settingsState.Valid {
 		if err := remoteManager.ApplySettings(settingsState.Config.Remote); err != nil {
 			log.Printf("remote settings: %v", err)
+			issue("startup.soft_fail", "component", "remote_settings")
 		}
 	}
 
@@ -125,11 +131,15 @@ func main() {
 	}
 	if err := writeToken(token); err != nil {
 		log.Printf("write API token: %v", err)
+		issue("startup.soft_fail", "component", "api_token")
 	}
 	baseURL := "http://" + listener.Addr().String()
 	accessURL := baseURL + "/#t=" + token
 	log.Printf("listening on %s", baseURL)
 	log.Printf("open %s", accessURL)
+	if observe.Enabled() {
+		log.Printf("issue logging on → %s (COSLASH_DEBUG=0 to disable)", observe.LogDir())
+	}
 	if !opts.noOpen {
 		if err := openBrowser(accessURL); err != nil {
 			log.Printf("could not open a browser (%v); use the URL above", err)
@@ -139,6 +149,7 @@ func main() {
 	hub, err := hubClientFromEnvironment(version)
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
+		issue("startup.soft_fail", "component", "hub", "reason", "bad_config")
 	}
 	server := newServer(guard, mgr, settingsStore, remoteManager, hub)
 	go func() {

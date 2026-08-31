@@ -21,6 +21,10 @@ account connected but lacks file permissions. `No Claude or Codex data found`
 means the allowed roots are absent or empty. A stale banner keeps the last-good
 cards visible; **Retry** starts an immediate bounded refresh.
 
+When **Test connection** hangs or the result is unclear, capture evidence with
+[Debugging and recording issues](debugging.md) (doctor/diagnostics, terminal,
+and `issue.*` / `remote.*` lines under `~/.coslash/logs`).
+
 ## coSlash will not start
 
 A port conflict is reported in the terminal. Stop the other process or run:
@@ -44,6 +48,7 @@ hidden. Use **Copy handoff** and continue manually where appropriate.
 
 ## Report a bug
 
+Follow [Debugging and recording issues](debugging.md) for what to capture.
 [Open an issue](https://github.com/centauri-ai/coslash/issues) with:
 
 - `coslash doctor --json` output or **Copy diagnostics** from the app.

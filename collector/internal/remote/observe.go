@@ -2,21 +2,29 @@ package remote
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
+
+	obslog "github.com/centauri-ai/coslash/collector/internal/observe"
 )
 
-// Testing-branch observability only. Emits local structured logs; no network export.
-// Fields stay low-cardinality: reasons, timings, sizes — never paths, aliases, or stderr hosts.
+// ObserveEnabled reports whether remote/product debug logging is active.
+func ObserveEnabled() bool {
+	return obslog.Enabled()
+}
+
+// LogDir is the shared local log directory under COSLASH_HOME.
+func LogDir() string {
+	return obslog.LogDir()
+}
+
+// Observe emits a remote.* step line through the shared local issue recorder.
+func Observe(event string, fields ...any) {
+	observe(event, fields...)
+}
 
 func observe(event string, fields ...any) {
-	parts := make([]string, 0, 1+len(fields)/2)
-	parts = append(parts, "remote."+event)
-	for i := 0; i+1 < len(fields); i += 2 {
-		parts = append(parts, fmt.Sprintf("%v=%v", fields[i], fields[i+1]))
-	}
-	log.Print(strings.Join(parts, " "))
+	obslog.Event("remote."+event, fields...)
 }
 
 func ms(d time.Duration) int64 {

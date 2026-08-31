@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/centauri-ai/coslash/collector/internal/observe"
 )
 
 const documentPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
@@ -26,6 +28,7 @@ func (g Guard) Wrap(next http.Handler) http.Handler {
 
 		if !g.allowedHost(r.Host) {
 			log.Printf("http security: rejected unexpected host %q", r.Host)
+			observe.Event("issue.httpsec.reject", "reason", "host", "status", http.StatusForbidden)
 			http.Error(w, "request rejected", http.StatusForbidden)
 			return
 		}
@@ -35,17 +38,20 @@ func (g Guard) Wrap(next http.Handler) http.Handler {
 				strings.EqualFold(r.Header.Get("Sec-Fetch-Dest"), "document")
 			if !navigation && !strings.EqualFold(site, "same-origin") && !strings.EqualFold(site, "none") {
 				log.Printf("http security: rejected cross-site request")
+				observe.Event("issue.httpsec.reject", "reason", "cross_site", "status", http.StatusForbidden)
 				http.Error(w, "request rejected", http.StatusForbidden)
 				return
 			}
 		} else if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+g.Addr {
 			log.Printf("http security: rejected unexpected origin %q", origin)
+			observe.Event("issue.httpsec.reject", "reason", "origin", "status", http.StatusForbidden)
 			http.Error(w, "request rejected", http.StatusForbidden)
 			return
 		}
 
 		if strings.HasPrefix(r.URL.Path, "/api/") && !g.allowedToken(r) {
 			log.Printf("http security: rejected unauthenticated API request")
+			observe.Event("issue.httpsec.reject", "reason", "unauthenticated", "status", http.StatusUnauthorized)
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
