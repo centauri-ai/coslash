@@ -92,9 +92,11 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 		if runner == nil {
 			return
 		}
+		started := time.Now()
 		result, err := runner.Run(context.Background(), input)
 		if err != nil {
 			m.recordFailure(id, revision, err)
+			observe.Operation("synthesis.run", started, "error", "reason", synthesisFailureReason(err))
 			log.Printf("synthesize session %s: %v", id, err)
 			return
 		}
@@ -107,9 +109,11 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 		}
 		if err := m.cache.Store(id, record); err != nil {
 			m.recordFailure(id, revision, err)
+			observe.Operation("synthesis.run", started, "error", "reason", "cache_failed")
 			log.Printf("cache synthesis for session %s: %v", id, err)
 			return
 		}
+		observe.Operation("synthesis.run", started, "ok", "backend", runnerModel(runner))
 		m.failures.Delete(failureKey{id: id, revision: revision})
 		m.cliMissingUntil.Store(0)
 	}()

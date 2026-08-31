@@ -47,7 +47,7 @@ See also [Troubleshooting](troubleshooting.md) for common fixes before escalatin
 
 ## Local issue logs (this testing branch)
 
-On `test/remote-ssh-observability`, coSlash records concise product issue lines plus remote SSH steps. Logging defaults **on**. Startup should print:
+On `test/observability`, coSlash records concise product issue lines plus remote SSH steps. Logging defaults **on**. Startup should print:
 
 `issue logging on → <COSLASH_HOME>/logs …`
 
@@ -57,7 +57,7 @@ COSLASH_DEBUG=1 ./bin/coslash          # force on
 COSLASH_REMOTE_DEBUG=0 ./bin/coslash   # also disables (fallback if COSLASH_DEBUG unset)
 ```
 
-Lines go to the coSlash terminal and `$COSLASH_HOME/logs/issues-YYYYMMDD.log` (default home `~/.coslash`). Files are mode `0600`; do not commit them.
+Lines go to the coSlash terminal and `$COSLASH_HOME/logs/issues-YYYYMMDD.log` (default home `~/.coslash`). Files are mode `0600`, capped at 5 MiB each, and retained for seven days; do not commit them.
 
 ```sh
 grep -E 'issue\.|remote\.' ~/.coslash/logs/issues-*.log
@@ -77,6 +77,8 @@ grep -E 'issue\.|remote\.' ~/.coslash/logs/issues-*.log
 | `issue.startup.soft_fail component=…` | Non-fatal startup problem |
 
 Fields stay low-cardinality (reasons, statuses, agent ids) — not session ids, paths, prompts, or tokens.
+
+Slow successful operations and failed server operations also emit `operation` lines with an operation name, outcome, duration, route, and status. They are intended for local performance triage, not request-by-request analytics.
 
 ## Remote SSH step logs
 

@@ -184,6 +184,47 @@ func newServer(
 	return server
 }
 
+type observingResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *observingResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *observingResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func observeHTTP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		observed := &observingResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(observed, r)
+		status := observed.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		outcome := "ok"
+		if status >= http.StatusBadRequest {
+			outcome = "error"
+		}
+		route := r.Pattern
+		if route == "" {
+			route = r.URL.Path
+		}
+		observe.Operation("http", started, outcome, "route", route, "status", status)
+	})
+}
+
 func routes(
 	mgr *synthesis.Manager,
 	settingsStore *settings.Store,
@@ -235,8 +276,8 @@ func routes(
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
 	registerHubRoutes(api, hub)
-	mux.Handle("/api", api)
-	mux.Handle("/api/", api)
+	mux.Handle("/api", observeHTTP(api))
+	mux.Handle("/api/", observeHTTP(api))
 
 	frontend, err := web.Handler()
 	if err != nil {

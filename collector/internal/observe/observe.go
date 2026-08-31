@@ -17,10 +17,17 @@ import (
 // Default on for this testing branch. Flip to false before promoting to main.
 const defaultOn = true
 
+const (
+	logRetentionDays = 7
+	maxLogBytes      = 5 << 20
+	slowOperation    = time.Second
+)
+
 var (
-	fileMu sync.Mutex
-	file   *os.File
-	day    string
+	fileMu   sync.Mutex
+	file     *os.File
+	day      string
+	filePath string
 )
 
 // Enabled reports whether issue / step logging is active.
@@ -73,11 +80,28 @@ func Event(name string, fields ...any) {
 	appendFile(line)
 }
 
+// Operation records failed work and successful work that exceeds the slow threshold.
+func Operation(operation string, started time.Time, outcome string, fields ...any) {
+	duration := time.Since(started)
+	if outcome == "ok" && duration < slowOperation {
+		return
+	}
+	values := make([]any, 0, 6+len(fields))
+	values = append(values,
+		"operation", operation,
+		"outcome", outcome,
+		"duration_ms", duration.Milliseconds(),
+	)
+	values = append(values, fields...)
+	Event("operation", values...)
+}
+
 func appendFile(line string) {
 	fileMu.Lock()
 	defer fileMu.Unlock()
 	today := time.Now().Format("20060102")
-	if file == nil || day != today {
+	path := filepath.Join(LogDir(), "issues-"+today+".log")
+	if file == nil || day != today || filePath != path {
 		if file != nil {
 			_ = file.Close()
 			file = nil
@@ -85,13 +109,38 @@ func appendFile(line string) {
 		if err := os.MkdirAll(LogDir(), 0o700); err != nil {
 			return
 		}
-		path := filepath.Join(LogDir(), "issues-"+today+".log")
+		pruneLogFiles(LogDir(), today)
 		opened, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
 			return
 		}
 		file = opened
 		day = today
+		filePath = path
 	}
-	_, _ = fmt.Fprintf(file, "%s %s\n", time.Now().Format(time.RFC3339), line)
+	record := fmt.Sprintf("%s %s\n", time.Now().Format(time.RFC3339), line)
+	info, err := file.Stat()
+	if err != nil || info.Size()+int64(len(record)) > maxLogBytes {
+		return
+	}
+	_, _ = fmt.Fprint(file, record)
+}
+
+func pruneLogFiles(dir, today string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -(logRetentionDays - 1)).Format("20060102")
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || len(name) != len("issues-YYYYMMDD.log") ||
+			!strings.HasPrefix(name, "issues-") || !strings.HasSuffix(name, ".log") {
+			continue
+		}
+		date := name[len("issues-") : len("issues-")+len("YYYYMMDD")]
+		if date < cutoff && date < today {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
