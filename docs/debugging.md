@@ -14,7 +14,7 @@ Use this when something in coSlash looks wrong — missing sessions, synthesis f
 
    Or in the app: open diagnostics and use **Copy diagnostics**.
 
-4. Grab nearby terminal / log lines (`issue.*` and `remote.*`).
+4. Grab nearby terminal / log lines (`issue.*`, `remote.*`, slow `operation`).
 5. File or share with:
 
    - short reproduction steps
@@ -31,7 +31,7 @@ See also [Troubleshooting](troubleshooting.md) for common fixes before escalatin
 | --- | --- |
 | Version, platform, doctor/diagnostics JSON | Transcripts, prompts, session names |
 | Classified reasons (`connection_failed`, `cli_missing`, timeouts) | SSH aliases that embed secrets or customer hostnames if sensitive |
-| Timings, counts, outcome lines (`issue.*`, `remote.*`) | Tokens, cookies, API keys, raw stderr host banners |
+| Timings, counts, outcome lines (`issue.*`, `remote.*`, `operation`) | Tokens, cookies, API keys, raw stderr host banners |
 | UI copy the user saw | Full remote paths under another user's home |
 
 ## Product areas
@@ -47,41 +47,27 @@ See also [Troubleshooting](troubleshooting.md) for common fixes before escalatin
 
 ## Local issue logs (this testing branch)
 
-On `test/observability`, coSlash records concise product issue lines plus remote SSH steps. Logging defaults **on**. Startup should print:
+On `test/observability`, logging defaults **on** and stays local (no network export). Lines appear in the coslash server terminal and `$COSLASH_HOME/logs/issues-YYYYMMDD.log` (default `~/.coslash`). Files are mode `0600`, capped at 5 MiB, and retained for seven days.
 
-`issue logging on → CLI + <COSLASH_HOME>/logs …`
-
-Every `issue.*` / failed `issue.operation` / `remote.*` line is printed in the **same terminal where coslash is running** and appended to `$COSLASH_HOME/logs/issues-YYYYMMDD.log`. Watch that CLI while reproducing; you do not need to open the log file first.
+Startup prints: `issue logging on → <COSLASH_HOME>/logs …`
 
 ```sh
-COSLASH_DEBUG=0 ./bin/coslash          # disable all issue/remote step logs
+COSLASH_DEBUG=0 ./bin/coslash          # disable
 COSLASH_DEBUG=1 ./bin/coslash          # force on
-COSLASH_REMOTE_DEBUG=0 ./bin/coslash   # also disables (fallback if COSLASH_DEBUG unset)
+COSLASH_REMOTE_DEBUG=0 ./bin/coslash   # also disables if COSLASH_DEBUG unset
 ```
-
-Log files are mode `0600`, capped at 5 MiB each, and retained for seven days; do not commit them.
 
 ```sh
-grep -E 'issue\.|remote\.' ~/.coslash/logs/issues-*.log
+grep -E 'issue\.|remote\.|operation ' ~/.coslash/logs/issues-*.log
 ```
 
-### Useful `issue.*` names
-
-| Line | Meaning |
+| Prefix | Use |
 | --- | --- |
-| `issue.api.error route=… reason=… detail=…` | API handler returned an error |
-| `issue.operation operation=http …` | HTTP request failed (status ≥ 400) |
-| `issue.collect.vendor_failed agent=…` | One local vendor failed; others may still serve |
-| `issue.collect.all_failed` | Every vendor failed |
-| `issue.synthesis.failed reason=… detail=…` | Debrief CLI/run failed |
-| `issue.launch.failed reason=… detail=…` | Resume / Start Fresh failed |
-| `issue.hub.failed action=… detail=…` | Hub destination/pairing/share failed |
-| `issue.httpsec.reject reason=… detail=…` | Loopback auth/host/origin rejected |
-| `issue.startup.soft_fail component=…` | Non-fatal startup problem |
+| `issue.*` | Domain failures (`route`, `reason`, `status`, …) |
+| `remote.*` | Machines / SSH step logs |
+| `operation` | Slow successful operations only (timing triage) |
 
-Fields stay low-cardinality (reasons, statuses, agent ids, short `detail`) — not session ids, paths, prompts, or tokens.
-
-Slow successful operations emit `operation` lines (not `issue.*`) with duration/route for local performance triage.
+Fields stay low-cardinality — not session ids, paths, prompts, or tokens.
 
 ## Remote SSH step logs
 
@@ -105,7 +91,7 @@ Healthy test order:
 
 ## Operations notes (this branch)
 
-- Prefer doctor/diagnostics first; add `issue.*` / `remote.*` logs when reproducing.
-- Delete old `logs/issues-*.log` freely; they are local-only under `COSLASH_HOME`.
-- Before promoting observability to `main`, set `defaultOn` to `false` in `collector/internal/observe/observe.go` so release builds stay quiet unless `COSLASH_DEBUG=1`.
-- Land real product fixes on the merge path to `main`; keep dump-only noise temporary on this branch.
+- Prefer doctor/diagnostics first; add log lines when reproducing.
+- Delete old `logs/issues-*.log` freely.
+- Before promoting to `main`, set `defaultOn` to `false` in `collector/internal/observe/observe.go`.
+- Land product fixes on the merge path to `main`; keep dump-only noise temporary on this branch.

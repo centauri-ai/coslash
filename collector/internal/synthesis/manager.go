@@ -96,7 +96,6 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 		result, err := runner.Run(context.Background(), input)
 		if err != nil {
 			m.recordFailure(id, revision, err)
-			observe.Operation("synthesis.run", started, "error", "reason", synthesisFailureReason(err))
 			log.Printf("synthesize session %s: %v", id, err)
 			return
 		}
@@ -109,7 +108,6 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 		}
 		if err := m.cache.Store(id, record); err != nil {
 			m.recordFailure(id, revision, err)
-			observe.Operation("synthesis.run", started, "error", "reason", "cache_failed")
 			log.Printf("cache synthesis for session %s: %v", id, err)
 			return
 		}
@@ -199,11 +197,9 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 func (m *Manager) recordFailure(id string, revision int64, err error) {
 	now := m.now()
 	m.failures.Store(failureKey{id: id, revision: revision}, failure{at: now, message: err.Error()})
-	reason := synthesisFailureReason(err)
 	observe.Event("issue.synthesis.failed",
-		"reason", reason,
+		"reason", synthesisFailureReason(err),
 		"backend", runnerModel(m.currentRunner()),
-		"detail", synthesisIssueDetail(reason),
 	)
 	if errors.Is(err, exec.ErrNotFound) {
 		m.cliMissingUntil.Store(now.Add(m.cliMissingCooldown).UnixNano())
@@ -229,21 +225,6 @@ func synthesisFailureReason(err error) string {
 		return "timeout"
 	default:
 		return "other"
-	}
-}
-
-func synthesisIssueDetail(reason string) string {
-	switch reason {
-	case "cli_missing":
-		return "synthesis CLI missing or not on PATH"
-	case "auth_or_model":
-		return "synthesis CLI auth or model failed"
-	case "parse_failed":
-		return "synthesis result could not be parsed"
-	case "timeout":
-		return "synthesis timed out"
-	default:
-		return "synthesis failed"
 	}
 }
 

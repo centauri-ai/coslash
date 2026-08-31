@@ -212,11 +212,7 @@ func cleanupHandoffs() {
 func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *settings.Store) {
 	state := settingsStore.State()
 	if !state.Valid {
-		issue("launch.failed",
-			"reason", "settings_invalid",
-			"status", http.StatusConflict,
-			"detail", launchIssueDetail("settings_invalid"),
-		)
+		issue("launch.failed", "reason", "settings_invalid", "status", http.StatusConflict)
 		http.Error(w, state.Error+"; open Settings to repair it", http.StatusConflict)
 		return
 	}
@@ -236,24 +232,18 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 	handoff, err := readHandoff(w, r)
 	if err != nil {
 		log.Printf("launch: %v", err)
-		issue("launch.failed",
-			"reason", "bad_handoff",
-			"status", http.StatusBadRequest,
-			"detail", launchIssueDetail("bad_handoff"),
-		)
+		issue("launch.failed", "reason", "bad_handoff", "status", http.StatusBadRequest)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	mode := query.Get("mode")
 	if err := launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff); err != nil {
 		log.Printf("launch: %v", err)
-		reason := launchIssueReason(err)
 		issue("launch.failed",
-			"reason", reason,
+			"reason", launchIssueReason(err),
 			"mode", mode,
 			"agent", found.Agent,
 			"status", http.StatusInternalServerError,
-			"detail", launchIssueDetail(reason),
 		)
 		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
 		return

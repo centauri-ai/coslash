@@ -29,39 +29,38 @@ func TestEnabledEnv(t *testing.T) {
 	}
 }
 
-func TestOperationRecordsFailuresAndSlowSuccesses(t *testing.T) {
+func TestOperationRecordsSlowSuccessOnly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("COSLASH_DEBUG", "1")
-	Operation("http", time.Now(), "error", "route", "GET /api/sessions")
-	Operation("http", time.Now().Add(-slowOperation), "ok", "route", "GET /api/sessions")
 
+	Operation("http", time.Now(), "error", "route", "GET /api/sessions", "status", 500)
+	Operation("http", time.Now(), "ok", "route", "GET /api/sessions", "status", 200)
+	if entries, _ := os.ReadDir(LogDir()); len(entries) != 0 {
+		t.Fatalf("error/fast success should not write a line, got %v", entries)
+	}
+
+	Operation("http", time.Now().Add(-slowOperation), "ok", "route", "GET /api/sessions", "status", 200)
 	entries, err := os.ReadDir(LogDir())
 	if err != nil {
 		t.Fatalf("read log dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one slow-success log file, got %v", entries)
 	}
 	body, err := os.ReadFile(filepath.Join(LogDir(), entries[0].Name()))
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
-	bodyText := string(body)
-	if count := strings.Count(bodyText, "issue.operation operation=http"); count != 1 {
-		t.Fatalf("error operation lines = %d, want 1: %q", count, bodyText)
+	line := string(body)
+	if strings.Count(strings.TrimSpace(line), "\n")+1 != 1 {
+		t.Fatalf("want one line, got %q", line)
 	}
-	okLines := 0
-	for _, line := range strings.Split(bodyText, "\n") {
-		if strings.Contains(line, " operation operation=http ") || strings.HasPrefix(strings.TrimSpace(line), "operation operation=http") {
-			// RFC3339 timestamp prefix then "operation operation=http"
-			if strings.Contains(line, " outcome=ok ") {
-				okLines++
-			}
-		}
+	if !strings.Contains(line, "operation operation=http outcome=ok") {
+		t.Fatalf("missing slow operation line: %q", line)
 	}
-	if okLines != 1 {
-		t.Fatalf("slow ok operation lines = %d, want 1: %q", okLines, bodyText)
-	}
-	if !strings.Contains(bodyText, "detail=http failed") {
-		t.Fatalf("missing failure detail: %q", bodyText)
+	if strings.Contains(line, "detail=") || strings.Contains(line, "issue.operation") {
+		t.Fatalf("unexpected fields: %q", line)
 	}
 }
 
@@ -84,13 +83,13 @@ func TestPruneLogFilesKeepsRecentIssueLogs(t *testing.T) {
 	}
 }
 
-func TestEventWritesIssuesLog(t *testing.T) {
+func TestEventWritesOneIssueLine(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("COSLASH_DEBUG", "1")
 	t.Setenv("COSLASH_REMOTE_DEBUG", "")
 
-	Event("issue.launch.failed", "reason", "terminal_missing", "mode", "resume")
+	Event("issue.api.error", "route", "settings", "reason", "invalid_json", "status", 400)
 
 	entries, err := os.ReadDir(LogDir())
 	if err != nil {
@@ -103,7 +102,16 @@ func TestEventWritesIssuesLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read log: %v", err)
 	}
-	if !strings.Contains(string(body), "issue.launch.failed reason=terminal_missing mode=resume") {
-		t.Fatalf("missing issue line: %q", body)
+	line := string(body)
+	if strings.Count(strings.TrimSpace(line), "\n")+1 != 1 {
+		t.Fatalf("want one line, got %q", line)
+	}
+	if !strings.Contains(line, "issue.api.error route=settings reason=invalid_json status=400") {
+		t.Fatalf("missing issue line: %q", line)
+	}
+	for _, banned := range []string{"detail=", "password", "token=", "secret", "/Users/"} {
+		if strings.Contains(line, banned) {
+			t.Fatalf("line contains banned content %q: %q", banned, line)
+		}
 	}
 }
