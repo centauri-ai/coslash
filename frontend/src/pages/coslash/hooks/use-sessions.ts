@@ -178,15 +178,16 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
-          authenticationFailed = error instanceof ApiAuthenticationError;
+          const requestAuthenticationFailed = error instanceof ApiAuthenticationError;
+          if (requestAuthenticationFailed) authenticationFailed = true;
           // Keep showing the last good list when an ordinary background
           // refresh fails. Authentication failures invalidate that private data.
-          if (!background || authenticationFailed) {
+          if (!background || requestAuthenticationFailed) {
             setSessions([]);
             setMachines([]);
             setIsLoading(false);
             setLoadError(
-              authenticationFailed ? error.message : 'CoSlash couldn’t load sessions from the API.',
+              requestAuthenticationFailed ? error.message : 'CoSlash couldn’t load sessions from the API.',
             );
           }
           console.error('Failed to load sessions', error);
