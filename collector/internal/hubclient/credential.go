@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"syscall"
 )
 
 var ErrNotPaired = errors.New("hub device credential is not available")
@@ -50,8 +51,7 @@ func (s OSKeychain) Save(ctx context.Context, credential string) error {
 	var command *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		command = exec.CommandContext(ctx, "/usr/bin/security", "add-generic-password", "-U", "-s", s.Service, "-a", s.Account, "-w")
-		command.Stdin = bytes.NewBufferString(credential)
+		command = darwinCredentialCommand(ctx, s, credential)
 	case "linux":
 		command = exec.CommandContext(ctx, "secret-tool", "store", "--label=coSlash Hub device", "service", s.Service, "account", s.Account)
 		command.Stdin = bytes.NewBufferString(credential)
@@ -62,4 +62,15 @@ func (s OSKeychain) Save(ctx context.Context, credential string) error {
 		return fmt.Errorf("save Hub credential: keychain command failed: %w (%s)", err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func darwinCredentialCommand(ctx context.Context, store OSKeychain, credential string) *exec.Cmd {
+	command := exec.CommandContext(ctx, "/usr/bin/security", "add-generic-password", "-U", "-s", store.Service, "-a", store.Account, "-w")
+	command.Stdin = darwinCredentialInput(credential)
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return command
+}
+
+func darwinCredentialInput(credential string) *bytes.Buffer {
+	return bytes.NewBufferString(credential + "\n" + credential + "\n")
 }

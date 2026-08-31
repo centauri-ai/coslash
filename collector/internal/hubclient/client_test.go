@@ -14,6 +14,11 @@ type memoryCredentials struct {
 	saved string
 }
 
+type contextCredentials struct {
+	saved  string
+	cancel context.CancelFunc
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
@@ -29,6 +34,17 @@ func response(status int, body string) *http.Response {
 func (s *memoryCredentials) Load(context.Context) (string, error) { return "credential", nil }
 
 func (s *memoryCredentials) Save(_ context.Context, credential string) error {
+	s.saved = credential
+	return nil
+}
+
+func (s *contextCredentials) Load(context.Context) (string, error) { return "credential", nil }
+
+func (s *contextCredentials) Save(ctx context.Context, credential string) error {
+	s.cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.saved = credential
 	return nil
 }
@@ -129,6 +145,24 @@ func TestPollPairingValidatesCredentialMetadata(t *testing.T) {
 				t.Fatalf("saved = %q, error = %v", credentials.saved, err)
 			}
 		})
+	}
+}
+
+func TestPollPairingSavesCredentialAfterRequestCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	credentials := &contextCredentials{cancel: cancel}
+	base, _ := url.Parse("https://hub.example")
+	client := Client{
+		BaseURL: base, Credentials: credentials,
+		pairings: map[string]pairingSecret{"pair": {deviceCode: "code", expiresAt: time.Now().Add(time.Minute)}},
+		HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return response(http.StatusOK, `{"deviceId":"device","credential":"secret","tokenType":"Device","scope":"ingest"}`), nil
+		})},
+	}
+
+	result, err := client.PollPairing(ctx, "pair")
+	if err != nil || result.State != "paired" || credentials.saved != "secret" {
+		t.Fatalf("result = %#v, saved = %q, error = %v", result, credentials.saved, err)
 	}
 }
 

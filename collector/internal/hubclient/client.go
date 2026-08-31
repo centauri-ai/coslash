@@ -196,7 +196,9 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 		token.Credential == "" || token.TokenType != "Device" || token.Scope != "ingest" {
 		return PairingResult{}, errors.New("decode Hub credential: invalid response")
 	}
-	if err := c.Credentials.Save(ctx, token.Credential); err != nil {
+	saveContext, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancelSave()
+	if err := c.Credentials.Save(saveContext, token.Credential); err != nil {
 		return PairingResult{}, err
 	}
 	c.forgetPairing(pairingID)
