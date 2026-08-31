@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -45,15 +46,18 @@ func CollectRemote(
 	since int64,
 	now time.Time,
 ) (vendors.RemoteCollection, error) {
-	metadata := vendors.BestEffortMetadata(vendors.AgentClaude, func() (*vendors.SessionMetadata, error) {
-		return LoadRemoteMetadata(source, home, now, func(pid int) bool {
-			if pid <= 0 {
-				return false
-			}
-			_, err := source.Stat(filepath.Join("/proc", strconv.Itoa(pid)))
-			return err == nil
-		})
-	})
+	metadata := vendors.BestEffortMetadata(
+		vendors.AgentClaude,
+		func() (*vendors.SessionMetadata, error) {
+			return LoadRemoteMetadata(source, home, now, func(pid int) bool {
+				if pid <= 0 {
+					return false
+				}
+				_, err := source.Stat(filepath.Join("/proc", strconv.Itoa(pid)))
+				return err == nil
+			})
+		},
+	)
 	files, err := FilesSource(source, ProjectsRoot(home))
 	if err != nil {
 		return vendors.RemoteCollection{}, err
@@ -95,17 +99,66 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	if err != nil {
 		return nil, nil, err
 	}
-	selected := files[:0]
+	return parseFiles(familyFiles(vendors.LocalReadSource, files, id)),
+		vendors.BestEffortMetadata(vendors.AgentClaude, LoadMetadata), nil
+}
+
+// picks the transcripts that compose one card: the requested root, its subagents
+// any root a re-home superseded whose subagent directory the re-home did not copy
+func familyFiles(source vendors.ReadSource, files []string, id string) []string {
+	selected, target := []string{}, ""
+	owners := map[string][]string{}
 	for _, file := range files {
-		rootID := ParentIDFromPath(file)
-		if rootID == "" {
-			rootID = IDFromPath(file)
-		}
-		if rootID == id {
+		if familyIDFromPath(file) == id {
 			selected = append(selected, file)
 		}
+		if parent := ParentIDFromPath(file); parent != "" {
+			owners[parent] = append(owners[parent], file)
+		} else if IDFromPath(file) == id {
+			target = file
+		}
 	}
-	return parseFiles(selected), vendors.BestEffortMetadata(vendors.AgentClaude, LoadMetadata), nil
+	if target == "" || len(owners) == 0 {
+		return selected
+	}
+	parsed, err := parseSource(source, target)
+	if err != nil || !parsed.background {
+		return selected
+	}
+	for _, file := range files {
+		root := IDFromPath(file)
+		if root == id || ParentIDFromPath(file) != "" || len(owners[root]) == 0 {
+			continue
+		}
+		if sharesConversation(source, file, parsed.rowUUIDs) {
+			selected = append(selected, file)
+			selected = append(selected, owners[root]...)
+		}
+	}
+	return selected
+}
+
+func sharesConversation(source vendors.ReadSource, path string, want map[string]struct{}) bool {
+	file, err := source.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(file)
+	for {
+		var row struct {
+			UUID    string          `json:"uuid"`
+			Message json.RawMessage `json:"message"`
+		}
+		if decoder.Decode(&row) != nil {
+			return false
+		}
+		if row.UUID == "" || len(row.Message) == 0 {
+			continue
+		}
+		_, ok := want[row.UUID]
+		return ok
+	}
 }
 
 func parseFiles(files []string) []*vendors.ParsedSession {
