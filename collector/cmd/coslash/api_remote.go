@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -22,7 +23,7 @@ func handleRemoteTest(w http.ResponseWriter, request *http.Request, manager *rem
 		http.Error(w, "invalid remote test request", http.StatusBadRequest)
 		return
 	}
-	ctx, cancel := context.WithTimeout(request.Context(), remote.DefaultDeadline)
+	ctx, cancel := context.WithTimeout(request.Context(), remote.DefaultConnectTimeout+5*time.Second)
 	defer cancel()
 	health, err := manager.TestAlias(ctx, body.SSHAlias)
 	if err != nil {
