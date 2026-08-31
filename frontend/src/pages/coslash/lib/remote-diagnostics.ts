@@ -29,6 +29,7 @@ export function formatRemoteDiagnosticsFacts(
     timing.push(`last success ${new Date(remote.lastSuccessAtMs).toISOString()}`);
   }
   if (remote.roundTripMs != null) timing.push(`round trip ${remote.roundTripMs}ms`);
+  if (remote.failures != null && remote.failures > 0) timing.push(`failures ${remote.failures}`);
   if (remote.nextRetryAtMs != null)
     timing.push(`next automatic retry ${formatNextRetry(remote.nextRetryAtMs, nowMs)}`);
   if (timing.length > 0) lines.push(timing.join(' · '));

@@ -56,6 +56,8 @@ type Remote struct {
 	CoverageSinceMs  *int64  `json:"coverageSinceMs,omitempty"`
 	RoundTripMs      *int64  `json:"roundTripMs,omitempty"`
 	Error            string  `json:"error,omitempty"`
+	Failures         int     `json:"failures,omitempty"`
+	NextRetryAtMs    *int64  `json:"nextRetryAtMs,omitempty"`
 	DiagnosticStderr string  `json:"diagnosticStderr,omitempty"`
 }
 
@@ -69,6 +71,8 @@ type RemoteHealth struct {
 	CoverageSinceMs  *int64
 	RoundTripMs      *int64
 	Error            string
+	Failures         int
+	NextRetryAtMs    *int64
 	DiagnosticStderr string
 }
 
@@ -145,6 +149,7 @@ func CollectWithRemote(
 		State: remoteHealth.State, Complete: remoteHealth.Complete, Reason: remoteHealth.Reason,
 		LastSuccessAtMs: remoteHealth.LastSuccessAtMs, CoverageSinceMs: remoteHealth.CoverageSinceMs,
 		RoundTripMs: remoteHealth.RoundTripMs, Error: remoteHealth.Error,
+		Failures: remoteHealth.Failures, NextRetryAtMs: remoteHealth.NextRetryAtMs,
 		DiagnosticStderr: remoteHealth.DiagnosticStderr,
 	}
 	snapshot.Checks = append(snapshot.Checks, remoteCheck(snapshot.Remote))

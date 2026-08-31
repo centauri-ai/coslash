@@ -47,6 +47,8 @@ type refreshResult struct {
 	Fingerprints map[string][]vendors.FileFingerprint
 	Stderr       string
 	RoundTrip    time.Duration
+	BytesRead    int64
+	Entries      int64
 }
 
 type refreshFunc func(context.Context, string, int64, time.Time) (refreshResult, error)
@@ -142,6 +144,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	copyConfig := *remote
 	manager.cfg = &copyConfig
 	if !remote.Enabled {
+		observe("settings", "action", "disable", "source_id", remote.ID)
 		manager.cancelLifeLocked()
 		manager.refreshing = false
 		manager.state = StateDisabled
@@ -153,6 +156,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	}
 	restart := previous == nil || !previous.Enabled || previous.SSHAlias != remote.SSHAlias
 	if restart {
+		observe("settings", "action", "enable", "alias_changed", aliasChanged, "source_id", remote.ID)
 		if err := manager.loadCacheLocked(); err != nil {
 			return err
 		}
@@ -191,6 +195,7 @@ func (manager *Manager) Retry() Health {
 	if manager.cfg == nil || !manager.cfg.Enabled {
 		return manager.healthLocked(manager.lastRequestedMs)
 	}
+	observe("retry", "source_id", manager.cfg.ID, "failures", manager.failures, "manual", true)
 	manager.maybeStartRefreshLocked(manager.lastRequestedMs, true)
 	return manager.healthLocked(manager.lastRequestedMs)
 }
@@ -199,6 +204,7 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 	if !settings.ValidSSHAlias(alias) {
 		return Health{}, ErrInvalidRemoteSettings
 	}
+	observe("test", "phase", "start")
 	now := manager.now()
 	result, err := manager.test(ctx, alias, now.UnixMilli(), now)
 	health := Health{
@@ -216,9 +222,21 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 			diagnostic = sshErrorStderr(err)
 		}
 		health.DiagnosticStderr = redactDiagnostic(diagnostic)
+		observe("test",
+			"outcome", string(health.State), "reason", string(reason),
+			"round_trip_ms", result.RoundTrip.Milliseconds(),
+			"bytes", result.BytesRead, "entries", result.Entries,
+			"coverage", coverageSummary(result.Coverage),
+		)
 		return health, nil
 	}
 	health.State = StateOK
+	observe("test",
+		"outcome", string(health.State), "reason", reasonOrEmpty(health.Reason),
+		"round_trip_ms", result.RoundTrip.Milliseconds(),
+		"bytes", result.BytesRead, "entries", result.Entries,
+		"sessions", len(result.Sessions), "coverage", coverageSummary(result.Coverage),
+	)
 	return health, nil
 }
 
@@ -247,6 +265,9 @@ func (manager *Manager) removeLocked() error {
 	if manager.cfg != nil {
 		sourceID = manager.cfg.ID
 		alias = manager.cfg.SSHAlias
+	}
+	if sourceID != "" {
+		observe("settings", "action", "remove", "source_id", sourceID)
 	}
 	manager.cfg = nil
 	manager.cached = nil
@@ -311,16 +332,20 @@ func (manager *Manager) kickRefreshLocked(remoteSinceMs int64) {
 		return
 	}
 	manager.refreshing = true
+	trigger := "freshness"
 	if manager.cached == nil {
 		manager.state = StateConnecting
 		manager.reason = reasonPtr(ReasonInitialRefresh)
 		manager.complete = false
+		trigger = "initial"
 	} else if manager.cached.CoverageSinceMs > remoteSinceMs {
 		manager.state = StateConnecting
 		manager.reason = reasonPtr(ReasonBroaderHistory)
 		manager.complete = false
+		trigger = "broader_history"
 	}
 	config := *manager.cfg
+	observe("refresh", "phase", "start", "source_id", config.ID, "trigger", trigger)
 	go manager.runRefresh(manager.lifeCtx, config, remoteSinceMs)
 }
 
@@ -335,6 +360,7 @@ func (manager *Manager) runRefresh(
 	defer manager.mu.Unlock()
 	manager.refreshing = false
 	if manager.cfg == nil || manager.cfg.ID != config.ID || !manager.cfg.Enabled || errors.Is(ctx.Err(), context.Canceled) {
+		observe("refresh", "phase", "abort", "source_id", config.ID)
 		return
 	}
 	if err != nil {
@@ -343,6 +369,7 @@ func (manager *Manager) runRefresh(
 			diagnostic = sshErrorStderr(err)
 		}
 		manager.applyFailureLocked(classifyError(err), diagnostic)
+		manager.observeRefreshLocked(result, len(result.Sessions))
 		return
 	}
 	coverage := slices.Clone(result.Coverage)
@@ -350,6 +377,7 @@ func (manager *Manager) runRefresh(
 		manager.state = StateLimited
 		manager.reason = reason
 		manager.complete = false
+		manager.observeRefreshLocked(result, len(result.Sessions))
 		return
 	}
 	cached := snapshotForCache(
@@ -358,6 +386,7 @@ func (manager *Manager) runRefresh(
 	)
 	if err := manager.cache.Store(config.ID, cached); err != nil {
 		manager.applyFailureLocked(ReasonLocalCacheFailed, "")
+		manager.observeRefreshLocked(result, len(result.Sessions))
 		return
 	}
 	manager.cached = &cached
@@ -370,6 +399,31 @@ func (manager *Manager) runRefresh(
 	manager.complete = true
 	manager.state = StateOK
 	manager.reason = nil
+	manager.observeRefreshLocked(result, len(result.Sessions))
+}
+
+func (manager *Manager) observeRefreshLocked(result refreshResult, sessions int) {
+	sourceID := ""
+	if manager.cfg != nil {
+		sourceID = manager.cfg.ID
+	}
+	nextRetryMs := int64(0)
+	if !manager.nextRetryAt.IsZero() {
+		nextRetryMs = max(0, manager.nextRetryAt.Sub(manager.now()).Milliseconds())
+	}
+	observe("refresh",
+		"phase", "complete",
+		"source_id", sourceID,
+		"outcome", string(manager.state),
+		"reason", reasonOrEmpty(manager.reason),
+		"round_trip_ms", result.RoundTrip.Milliseconds(),
+		"sessions", sessions,
+		"bytes", result.BytesRead,
+		"entries", result.Entries,
+		"failures", manager.failures,
+		"next_retry_ms", nextRetryMs,
+		"coverage", coverageSummary(result.Coverage),
+	)
 }
 
 func (manager *Manager) applyFailureLocked(reason Reason, stderr string) {
@@ -417,7 +471,10 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		SourceID: manager.cfg.ID, Label: manager.cfg.SSHAlias, State: manager.state,
 		Complete: manager.complete, Reason: manager.reason, Error: manager.errorCopy,
 		DiagnosticStderr: manager.diagnostic, Refreshing: manager.refreshing,
-		LastSuccessAtMs: manager.lastSuccessAt,
+		LastSuccessAtMs: manager.lastSuccessAt, Failures: manager.failures,
+	}
+	if !manager.nextRetryAt.IsZero() {
+		health.NextRetryAtMs = int64Ptr(manager.nextRetryAt.UnixMilli())
 	}
 	if !manager.cfg.Enabled {
 		health.State = StateDisabled
@@ -467,7 +524,7 @@ func refreshSFTPWithOpen(
 	started := time.Now()
 	connection, err := open(ctx, alias, OpenOptions{})
 	if err != nil {
-		return refreshResult{}, err
+		return refreshResult{RoundTrip: time.Since(started)}, err
 	}
 	source := connection.Source()
 	parseSince := max(0, since-(24*time.Hour).Milliseconds())
@@ -497,6 +554,7 @@ func refreshSFTPWithOpen(
 		result.Fingerprints[vendors.AgentCodex] = codexCollection.Fingerprints
 		result.Coverage = append(result.Coverage, coverageFor(vendors.AgentCodex, codexCollection))
 	}
+	result.BytesRead, result.Entries = source.Stats()
 	if len(result.Failures) == 2 {
 		result.Stderr = connection.Stderr()
 		_ = connection.Close()
@@ -504,6 +562,7 @@ func refreshSFTPWithOpen(
 		return result, errors.Join(result.Failures...)
 	}
 	result.Sessions = collector.ListRemote(source, collections, since)
+	result.BytesRead, result.Entries = source.Stats()
 	result.Stderr = connection.Stderr()
 	closeErr := connection.Close()
 	result.RoundTrip = time.Since(started)

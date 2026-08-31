@@ -252,7 +252,8 @@ func remoteHealthFact(manager *remote.Manager) *diagnostics.RemoteHealth {
 		SourceID: health.SourceID, Label: health.Label, State: string(health.State),
 		Complete: health.Complete, Reason: reason, LastSuccessAtMs: health.LastSuccessAtMs,
 		CoverageSinceMs: health.CoverageSinceMs, RoundTripMs: health.RoundTripMs,
-		Error: health.Error, DiagnosticStderr: health.DiagnosticStderr,
+		Error: health.Error, Failures: health.Failures, NextRetryAtMs: health.NextRetryAtMs,
+		DiagnosticStderr: health.DiagnosticStderr,
 	}
 }
 

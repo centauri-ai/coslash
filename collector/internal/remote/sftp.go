@@ -121,7 +121,9 @@ func ensureControlMaster(ctx context.Context, alias string, options OpenOptions)
 	if err != nil {
 		return err
 	}
+	checkStarted := time.Now()
 	if err := runSSHCommand(ctx, options, checkArgs); err == nil {
+		observe("control_master", "result", "hit", "duration_ms", ms(time.Since(checkStarted)))
 		return nil
 	}
 	limits := options.Limits.withDefaults()
@@ -131,9 +133,12 @@ func ensureControlMaster(ctx context.Context, alias string, options OpenOptions)
 	}
 	startCtx, cancel := context.WithTimeout(ctx, limits.ConnectTimeout)
 	defer cancel()
+	startStarted := time.Now()
 	if err := runSSHCommand(startCtx, options, startArgs); err != nil {
+		observe("control_master", "result", "start_failed", "duration_ms", ms(time.Since(startStarted)))
 		return fmt.Errorf("start SSH control master: %w", err)
 	}
+	observe("control_master", "result", "started", "duration_ms", ms(time.Since(startStarted)))
 	return nil
 }
 
@@ -145,9 +150,12 @@ func ExitControlMaster(alias string, options OpenOptions) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	started := time.Now()
 	if err := runSSHCommand(ctx, options, args); err != nil {
+		observe("control_master", "result", "exit_failed", "duration_ms", ms(time.Since(started)))
 		return fmt.Errorf("exit SSH control master: %w", err)
 	}
+	observe("control_master", "result", "exited", "duration_ms", ms(time.Since(started)))
 	return nil
 }
 
@@ -210,6 +218,7 @@ func sshErrorStderr(err error) string {
 }
 
 func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Session, error) {
+	started := time.Now()
 	limits := options.Limits.withDefaults()
 	args, err := SSHArgs(alias, int(limits.ConnectTimeout.Seconds()))
 	if err != nil {
@@ -218,6 +227,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 	// Injected commands are unit-test fakes; skip real OpenSSH master setup there.
 	if options.command == nil {
 		if err := ensureControlMaster(ctx, alias, options); err != nil {
+			observe("sftp_open", "result", "error", "reason", string(classifyError(err)), "duration_ms", ms(time.Since(started)))
 			return nil, err
 		}
 	} else if err := ensureSSHControlDir(); err != nil {
@@ -247,6 +257,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		cancel()
+		observe("sftp_open", "result", "error", "reason", string(classifyError(err)), "duration_ms", ms(time.Since(started)))
 		return nil, fmt.Errorf("start SSH: %w", err)
 	}
 	client, err := sftp.NewClientPipe(stdout, stdin)
@@ -255,12 +266,16 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 		cancel()
 		_ = cmd.Wait()
 		if stderr.overflow {
+			observe("sftp_open", "result", "error", "reason", "stderr_overflow", "duration_ms", ms(time.Since(started)))
 			return nil, ErrStderrLimit
 		}
 		if sessionCtx.Err() != nil {
+			observe("sftp_open", "result", "error", "reason", string(classifyError(sessionCtx.Err())), "duration_ms", ms(time.Since(started)))
 			return nil, sessionCtx.Err()
 		}
-		return nil, wrapSSHError(fmt.Errorf("open SFTP subsystem: %w", err), stderr.String())
+		openErr := wrapSSHError(fmt.Errorf("open SFTP subsystem: %w", err), stderr.String())
+		observe("sftp_open", "result", "error", "reason", string(classifyError(openErr)), "duration_ms", ms(time.Since(started)))
+		return nil, openErr
 	}
 	operations := sftpOperations{
 		realPath: client.RealPath,
@@ -275,8 +290,11 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 		_ = client.Close()
 		_ = cmd.Wait()
 		cancel()
-		return nil, wrapSSHError(err, stderr.String())
+		openErr := wrapSSHError(err, stderr.String())
+		observe("sftp_open", "result", "error", "reason", string(classifyError(openErr)), "duration_ms", ms(time.Since(started)))
+		return nil, openErr
 	}
+	observe("sftp_open", "result", "ok", "duration_ms", ms(time.Since(started)))
 	return &Session{
 		client: client, source: source, cancel: cancel, cmd: cmd, stderr: stderr,
 	}, nil

@@ -32,6 +32,7 @@ export type RemoteDiagnostics = {
   coverageSinceMs?: number;
   roundTripMs?: number;
   nextRetryAtMs?: number;
+  failures?: number;
   error?: string;
   diagnosticStderr?: string;
 };
@@ -78,6 +79,9 @@ export function formatDiagnosticsForCopy(snapshot: Diagnostics): string {
     lines.push(
       `- alias=${snapshot.remote.label ?? 'unknown'}; state=${snapshot.remote.state}; complete=${snapshot.remote.complete}`,
     );
+    if (snapshot.remote.failures != null && snapshot.remote.failures > 0) {
+      lines.push(`  failures=${snapshot.remote.failures}`);
+    }
     if (snapshot.remote.nextRetryAtMs != null) {
       lines.push(`  nextRetryAtMs=${snapshot.remote.nextRetryAtMs}`);
     }

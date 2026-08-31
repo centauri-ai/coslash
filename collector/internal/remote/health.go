@@ -46,6 +46,8 @@ type Health struct {
 	RoundTripMs      *int64          `json:"roundTripMs,omitempty"`
 	Coverage         []AgentCoverage `json:"coverage,omitempty"`
 	Error            string          `json:"error,omitempty"`
+	Failures         int             `json:"failures,omitempty"`
+	NextRetryAtMs    *int64          `json:"nextRetryAtMs,omitempty"`
 	DiagnosticStderr string          `json:"-"`
 	Refreshing       bool            `json:"-"`
 }

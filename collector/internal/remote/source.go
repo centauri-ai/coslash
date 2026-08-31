@@ -82,6 +82,10 @@ func (source *Source) Home() string {
 	return source.home
 }
 
+func (source *Source) Stats() (bytes, entries int64) {
+	return source.bytes.Load(), source.entries.Load()
+}
+
 func (source *Source) Open(name string) (io.ReadCloser, error) {
 	allowed, info, err := source.validate(name, false)
 	if err != nil {
