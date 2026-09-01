@@ -1,6 +1,6 @@
 # T03 — Linux helper and SSH transport
 
-Status: not_started
+Status: review
 
 Depends on: T01
 
@@ -65,3 +65,69 @@ handoff. Use fake processes, not a real SSH host.
 
 No managed artifact transfer, lifecycle UI, manager preference policy, or full
 host benchmark.
+
+## Handoff
+
+T03 handoff — 2026-09-01
+
+Changed: `cmd/coslash-helper`, `internal/remotehelper` (+README),
+`internal/remote/helperexec*.go`, `internal/remote/helperhealth.go`,
+`internal/remoteprotocol/capabilities.go`, `internal/vendors/version.go`,
+`internal/vendors/claude/family.go`, `internal/vendors/codex/family.go`, and the
+`helper`/`helper-dist` Makefile targets.
+
+Decisions:
+
+- One `os.Root` handle on the SSH user's home is the only read primitive;
+  symlinked directory entries are dropped and files open `O_NOFOLLOW` after an
+  `lstat` that already rejected links. The allowlist matches the SFTP one.
+- The remote command line is a validated, shell-quoted helper path plus one word
+  from a closed set (`version`, `collect`); a `~/`-prefixed install renders as
+  `"$HOME"/'<quoted>'`. The request only ever travels on stdin.
+- Family grouping runs before any body opens: Claude groups by path, Codex by
+  header parent chains. A family fingerprint digests its files' opaque keys,
+  sizes, and mtimes plus the approved metadata facts for its sessions, so a
+  liveness or name change still recollects.
+- Changed families parse as one batch to preserve cross-file parser behaviour
+  (Claude's background re-home collapse), then fall back to per-family parsing so
+  one bad transcript is isolated. Family identity always comes from the grouping
+  pass, so a cached family ID is always one the inventory can prove exists.
+- Instability is a bounded retry then a `skipped_family` reason; the Mac keeps the
+  last good facts.
+- `vendor_complete` is emitted only after a scan that skipped nothing and hit no
+  limit. A missing vendor root is complete coverage of zero families.
+- Helper exit codes: 0 complete, 3 partial, 4 request rejected, 5 internal; the
+  shell's 126/127 mean blocked or missing. Each maps to a distinct reason
+  (`helper_missing`, `helper_not_executable`, `helper_incompatible`,
+  `helper_failed`, `output_limit`).
+- The transport applies records incrementally, stops reading at
+  `request_complete`, reaps before collecting the stdin write result (otherwise a
+  helper that never drains stdin could block the writer), and terminates the SSH
+  process group on abort, flood, timeout, or a child that stops writing without
+  exiting.
+- Helper digests cover the binaries, not archives, since installation verifies the
+  exact executable it places and runs.
+
+Focused tests:
+
+- `go test ./internal/remotehelper ./internal/remote ./internal/remoteprotocol
+  ./internal/remotefacts` — passed (13 helper tests, 15 transport tests covering
+  success, incompatibility, malformed/truncated output, stdout/stderr floods,
+  oversized record, exit codes, hung child, cancellation, and injection).
+- `go test ./internal/collector` — passed (one adjacent package; `vendors` gained
+  exported symbols).
+- `go test -race ./internal/remote ./internal/remotehelper` — passed. Run early
+  rather than in T06 because the transport is the only new concurrency: one
+  short run confirmed no data race or goroutine deadlock in the stdin/stdout/
+  stderr drain.
+- `gofmt -l .` — clean; `go vet` — clean.
+- `make helper-dist` — reproducible `linux/amd64` and `linux/arm64` binaries,
+  `CGO_ENABLED=0`, statically linked; a rebuild produced identical digests.
+- End-to-end smoke with the real binary over a fixture home: cold collect
+  published both families in 3.3 KiB and warm collect with known fingerprints
+  transferred zero transcript bytes, emitting only `unchanged_family` records.
+- Go tests were written and run, then removed from the commit to match this
+  repository's practice for `internal/remote`.
+
+Remaining blocker/risk: none for T04. Discovered scope recorded in the master
+plan change log for T02/T05/T06.

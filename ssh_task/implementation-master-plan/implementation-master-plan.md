@@ -41,7 +41,7 @@ separate because they have distinct risk and approval gates.
 | --- | --- | --- | --- | --- | --- |
 | T01 | Contracts, metrics, and fixtures | done | — | — | [Brief](01-contracts-metrics-and-fixtures.md) |
 | T02 | Cache v2 and incremental SFTP | not_started | T01 | Cache compatibility window needs approval | [Brief](02-cache-and-incremental-sftp.md) |
-| T03 | Linux helper and SSH transport | not_started | T01 | Initial Linux targets/libc strategy needs approval | [Brief](03-helper-and-ssh-transport.md) |
+| T03 | Linux helper and SSH transport | review | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | not_started | T03 | Install path, signing scheme, and `noexec` policy need approval | [Brief](04-helper-lifecycle-and-compatibility.md) |
 | T05 | Manager, setup UI, diagnostics, and docs | not_started | T02, T03, T04 | Final consent copy needs product approval | [Brief](05-manager-ui-diagnostics-docs.md) |
 | T06 | Security and fault hardening | not_started | T02–T05 | Threat-model review required | [Brief](06-security-and-fault-hardening.md) |
@@ -141,3 +141,30 @@ Remaining blocker/risk: <none or exact issue>
 
 - 2026-09-01: Consolidated the original 12-task plan into seven boundary-owned
   tasks to reduce handoffs and duplicated context. No implementation has started.
+- 2026-09-01: T03 implemented and moved to review. Its Phase 0 blocker is
+  resolved: the helper builds reproducibly for `linux/amd64` and `linux/arm64`
+  with `CGO_ENABLED=0` and links statically, so no minimum libc has to be
+  documented. Scope discovered while implementing it:
+  - **T02/T05 (deletion authority).** `remoteprotocol.Generation` keeps
+    `VendorComplete` but not the vendor inventory, and the accumulator deletes
+    only through tombstones. A `baseline_mode=none` response therefore carries the
+    inventory that is its *only* deletion authority into a proposal that cannot
+    use it. The cache commit layer must either retain the inventory or treat
+    baseline-free refreshes as never pruning. The helper already emits the
+    inventory truthfully.
+  - **T05 (health copy).** Helper collection adds `helper_missing`,
+    `helper_not_executable`, `helper_incompatible`, `helper_failed`, and
+    `output_limit`. Go-side copy exists; frontend types and user-facing wording
+    are still needed.
+  - **T06 (privacy review).** A Codex card's display name is its first user
+    message, and a Claude card's can be its first prompt. That is pre-existing
+    behaviour shared by local and SFTP collection and is allowed by the schema's
+    bounded display text, but the design document excludes "prompts", so remote
+    v1 should confirm this intent explicitly.
+  - **T07 (response size).** `Record.Counts` and `Record.Timing` are non-pointer
+    structs, so `"counts":{},"timing":{}` appears on every record — roughly 30
+    bytes each. Harmless at v1 ceilings; worth pointers only if measurement says
+    so.
+  - **T04 (install path).** The transport takes the helper path as a validated
+    parameter with no default, accepting an absolute or `~/`-relative path. The
+    install location, `noexec` policy, and signing scheme remain T04's to choose.
