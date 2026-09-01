@@ -26,7 +26,6 @@ import {
   AgentVendorFilterTabMenu,
   TimeWindowFilterTabMenu,
   ViewingModeTabMenu,
-  type AgentVendor,
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
@@ -39,6 +38,11 @@ import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDia
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
+import {
+  loadBoardFilters,
+  saveBoardFilters,
+  vendorsForFilterMenu,
+} from '@/pages/coslash/lib/board-filters';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import {
@@ -296,8 +300,8 @@ function CoslashContent({
 }
 
 export function CoslashPage() {
-  const [vendor, setVendor] = useState<AgentVendor>('all');
-  const [timeWindow, setTimeWindow] = useState<TimeWindow>('week');
+  const [vendor, setVendor] = useState(() => loadBoardFilters().vendor);
+  const [timeWindow, setTimeWindow] = useState(() => loadBoardFilters().timeWindow);
   const shareParams = new URLSearchParams(window.location.search);
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
@@ -336,7 +340,7 @@ export function CoslashPage() {
       ),
     [sessions, shareFixtureEnabled],
   );
-  const sessionVendors = getSessionVendors(sessions);
+  const sessionVendors = vendorsForFilterMenu(getSessionVendors(sessions), vendor);
   const configuredRemote = remoteConfigured(machines);
   const remoteHost = remoteMachine(machines);
   const showHostStrip = hostStripVisible(remoteHost);
@@ -361,8 +365,8 @@ export function CoslashPage() {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
   }, [settingsState.response]);
   useEffect(() => {
-    if (vendor !== 'all' && !sessions.some((session) => session.agent === vendor)) setVendor('all');
-  }, [sessions, vendor]);
+    saveBoardFilters({ vendor, timeWindow });
+  }, [vendor, timeWindow]);
   // Held by source-aware key, not by value: the inspector must render the freshest
   // record each refresh, and a stored object would freeze at click time. Looked up
   // from the unfiltered list so filters never close an open inspector.
