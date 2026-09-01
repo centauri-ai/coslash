@@ -27,6 +27,7 @@ export type AgentCoverage = {
   selectedFiles: number;
   truncated: boolean;
   error?: string;
+  errorReason?: string;
 };
 
 export type MachineFact = {
@@ -74,6 +75,8 @@ function decodeCoverage(value: unknown): AgentCoverage[] | undefined {
     };
     const error = optionalString(raw.error);
     if (error != null) coverage.error = error;
+    const errorReason = optionalString(raw.errorReason);
+    if (errorReason != null) coverage.errorReason = errorReason;
     return coverage;
   });
 }

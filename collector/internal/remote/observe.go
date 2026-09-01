@@ -6,6 +6,7 @@ import (
 	"time"
 
 	obslog "github.com/centauri-ai/coslash/collector/internal/observe"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
 // ObserveEnabled reports whether remote/product debug logging is active.
@@ -44,10 +45,64 @@ func coverageSummary(coverage []AgentCoverage) string {
 	}
 	parts := make([]string, 0, len(coverage))
 	for _, item := range coverage {
-		parts = append(parts, fmt.Sprintf(
-			"%s:cand=%d,sel=%d,trunc=%t,err=%t",
-			item.Agent, item.CandidateFiles, item.SelectedFiles, item.Truncated, item.Error != "",
-		))
+		part := fmt.Sprintf(
+			"%s:cand=%d,sel=%d,trunc=%t",
+			item.Agent, item.CandidateFiles, item.SelectedFiles, item.Truncated,
+		)
+		if item.ErrorReason != "" {
+			part += ",reason=" + item.ErrorReason
+		} else if item.Error != "" {
+			part += ",reason=error"
+		}
+		parts = append(parts, part)
 	}
 	return strings.Join(parts, ";")
+}
+
+func agentSessionCounts(sessions []*session.Session) string {
+	if len(sessions) == 0 {
+		return ""
+	}
+	counts := map[string]int{}
+	order := make([]string, 0, 2)
+	for _, item := range sessions {
+		if item == nil {
+			continue
+		}
+		if _, seen := counts[item.Agent]; !seen {
+			order = append(order, item.Agent)
+		}
+		counts[item.Agent]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, agent := range order {
+		parts = append(parts, fmt.Sprintf("%s=%d", agent, counts[agent]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func observeCollect(
+	agent string,
+	coverage AgentCoverage,
+	sessionCount int,
+	duration time.Duration,
+	bytes int64,
+	entries int64,
+) {
+	outcome := "ok"
+	if coverage.ErrorReason != "" || coverage.Error != "" {
+		outcome = "error"
+	}
+	observe("collect",
+		"agent", agent,
+		"outcome", outcome,
+		"reason", coverage.ErrorReason,
+		"cand", coverage.CandidateFiles,
+		"sel", coverage.SelectedFiles,
+		"trunc", coverage.Truncated,
+		"sessions", sessionCount,
+		"bytes", bytes,
+		"entries", entries,
+		"duration_ms", ms(duration),
+	)
 }

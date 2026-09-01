@@ -71,7 +71,7 @@ Fields stay low-cardinality — not session ids, paths, prompts, or tokens.
 
 ## Remote SSH step logs
 
-Same switch as above. Use when **Settings → Machines → Test connection** hangs, times out (~95s), or needs phase-by-phase proof.
+Same switch as above. Use when **Settings → Machines → Test connection** hangs, times out (~95s), remote sessions are missing, or the host strip shows limited/error.
 
 Healthy test order:
 
@@ -80,14 +80,24 @@ Healthy test order:
 3. `remote.sftp_open result=ok …`
 4. `remote.test outcome=ok|limited …`
 
+Refresh (board / Machines enable) also emits:
+
+1. `remote.refresh phase=start … since_ms=…`
+2. `remote.collect agent=claude|codex outcome=ok|error …` (cand/sel/sessions/bytes/duration_ms; `reason=` when error)
+3. `remote.refresh phase=complete … cached=true|false … by_agent=… coverage=…`
+
 | Signal | Likely meaning | Next check |
 | --- | --- | --- |
 | UI timeout, few/no `remote.*` lines | Request never hit the handler, or stuck early | Confirm this build is running; watch the terminal while retrying |
 | `phase=start` then silence | Blocked in SSH / ControlMaster / SFTP open | `ssh <alias>` in Terminal; confirm SFTP |
 | `control_master … start_failed` | Master could not start | Host key, auth, `BatchMode`, alias config |
 | `sftp_open … error` | SFTP failed after SSH | Host `Subsystem sftp`; account policy |
+| `collect … outcome=error reason=…` | That agent failed; other agent may still have sessions | Match `reason` (`refresh_timeout`, `permission_denied`, …) |
+| `refresh … outcome=limited cached=false sessions=N` | Sessions were collected but not published | Product bug / partial agent failure; use `by_agent` + `collect` lines |
 | `test outcome=error reason=…` | Classified failure shown in UI | Match reason to [troubleshooting](troubleshooting.md) |
 | `test phase=reject` | Invalid alias/body | Alias format |
+
+For a missing-sessions report, ask only for the `remote.collect` / `remote.refresh phase=complete` lines from `~/.coslash/logs/issues-*.log` after normal use — no mid-refresh diagnostics copy needed.
 
 ## Operations notes (this branch)
 

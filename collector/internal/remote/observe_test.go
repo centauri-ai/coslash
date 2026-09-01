@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
 func TestObserveEnabled(t *testing.T) {
@@ -45,5 +47,29 @@ func TestObserveWritesLogFile(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "remote.test phase=start outcome=ok") {
 		t.Fatalf("missing observe line: %q", body)
+	}
+}
+
+func TestCoverageSummaryIncludesClassifiedReason(t *testing.T) {
+	got := coverageSummary([]AgentCoverage{
+		{Agent: "claude", CandidateFiles: 12, SelectedFiles: 12},
+		{
+			Agent: "codex", Error: "refresh timed out", ErrorReason: string(ReasonRefreshTimeout),
+		},
+	})
+	want := "claude:cand=12,sel=12,trunc=false;codex:cand=0,sel=0,trunc=false,reason=refresh_timeout"
+	if got != want {
+		t.Fatalf("coverageSummary=%q, want %q", got, want)
+	}
+}
+
+func TestAgentSessionCounts(t *testing.T) {
+	got := agentSessionCounts([]*session.Session{
+		{Agent: "claude", ID: "a"},
+		{Agent: "claude", ID: "b"},
+		{Agent: "codex", ID: "c"},
+	})
+	if got != "claude=2,codex=1" {
+		t.Fatalf("agentSessionCounts=%q", got)
 	}
 }

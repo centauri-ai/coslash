@@ -345,7 +345,7 @@ func (manager *Manager) kickRefreshLocked(remoteSinceMs int64) {
 		trigger = "broader_history"
 	}
 	config := *manager.cfg
-	observe("refresh", "phase", "start", "source_id", config.ID, "trigger", trigger)
+	observe("refresh", "phase", "start", "source_id", config.ID, "trigger", trigger, "since_ms", remoteSinceMs)
 	go manager.runRefresh(manager.lifeCtx, config, remoteSinceMs)
 }
 
@@ -369,7 +369,7 @@ func (manager *Manager) runRefresh(
 			diagnostic = sshErrorStderr(err)
 		}
 		manager.applyFailureLocked(classifyError(err), diagnostic)
-		manager.observeRefreshLocked(result, len(result.Sessions))
+		manager.observeRefreshLocked(result, remoteSinceMs, len(result.Sessions), false)
 		return
 	}
 	coverage := slices.Clone(result.Coverage)
@@ -377,7 +377,7 @@ func (manager *Manager) runRefresh(
 		manager.state = StateLimited
 		manager.reason = reason
 		manager.complete = false
-		manager.observeRefreshLocked(result, len(result.Sessions))
+		manager.observeRefreshLocked(result, remoteSinceMs, len(result.Sessions), false)
 		return
 	}
 	cached := snapshotForCache(
@@ -386,7 +386,7 @@ func (manager *Manager) runRefresh(
 	)
 	if err := manager.cache.Store(config.ID, cached); err != nil {
 		manager.applyFailureLocked(ReasonLocalCacheFailed, "")
-		manager.observeRefreshLocked(result, len(result.Sessions))
+		manager.observeRefreshLocked(result, remoteSinceMs, len(result.Sessions), false)
 		return
 	}
 	manager.cached = &cached
@@ -399,10 +399,15 @@ func (manager *Manager) runRefresh(
 	manager.complete = true
 	manager.state = StateOK
 	manager.reason = nil
-	manager.observeRefreshLocked(result, len(result.Sessions))
+	manager.observeRefreshLocked(result, remoteSinceMs, len(result.Sessions), true)
 }
 
-func (manager *Manager) observeRefreshLocked(result refreshResult, sessions int) {
+func (manager *Manager) observeRefreshLocked(
+	result refreshResult,
+	remoteSinceMs int64,
+	sessions int,
+	cached bool,
+) {
 	sourceID := ""
 	if manager.cfg != nil {
 		sourceID = manager.cfg.ID
@@ -416,8 +421,11 @@ func (manager *Manager) observeRefreshLocked(result refreshResult, sessions int)
 		"source_id", sourceID,
 		"outcome", string(manager.state),
 		"reason", reasonOrEmpty(manager.reason),
+		"cached", cached,
+		"since_ms", remoteSinceMs,
 		"round_trip_ms", result.RoundTrip.Milliseconds(),
 		"sessions", sessions,
+		"by_agent", agentSessionCounts(result.Sessions),
 		"bytes", result.BytesRead,
 		"entries", result.Entries,
 		"failures", manager.failures,
@@ -530,29 +538,21 @@ func refreshSFTPWithOpen(
 	parseSince := max(0, since-(24*time.Hour).Milliseconds())
 	collections := map[string]vendors.RemoteCollection{}
 	result := refreshResult{Fingerprints: map[string][]vendors.FileFingerprint{}}
-	claudeCollection, claudeErr := claude.CollectRemote(source, source.Home(), parseSince, now)
+	claudeCoverage, claudeCollection, claudeErr := collectClaudeRemote(source, parseSince, now)
+	result.Coverage = append(result.Coverage, claudeCoverage)
 	if claudeErr != nil {
-		claudeErr = fmt.Errorf("parse Claude remote data: %w", claudeErr)
 		result.Failures = append(result.Failures, claudeErr)
-		result.Coverage = append(result.Coverage, AgentCoverage{
-			Agent: vendors.AgentClaude, Error: genericErrorCopy(classifyError(claudeErr)),
-		})
 	} else {
 		collections[vendors.AgentClaude] = claudeCollection
 		result.Fingerprints[vendors.AgentClaude] = claudeCollection.Fingerprints
-		result.Coverage = append(result.Coverage, coverageFor(vendors.AgentClaude, claudeCollection))
 	}
-	codexCollection, codexErr := codex.CollectRemote(source, source.Home(), parseSince)
+	codexCoverage, codexCollection, codexErr := collectCodexRemote(source, parseSince)
+	result.Coverage = append(result.Coverage, codexCoverage)
 	if codexErr != nil {
-		codexErr = fmt.Errorf("parse Codex remote data: %w", codexErr)
 		result.Failures = append(result.Failures, codexErr)
-		result.Coverage = append(result.Coverage, AgentCoverage{
-			Agent: vendors.AgentCodex, Error: genericErrorCopy(classifyError(codexErr)),
-		})
 	} else {
 		collections[vendors.AgentCodex] = codexCollection
 		result.Fingerprints[vendors.AgentCodex] = codexCollection.Fingerprints
-		result.Coverage = append(result.Coverage, coverageFor(vendors.AgentCodex, codexCollection))
 	}
 	result.BytesRead, result.Entries = source.Stats()
 	if len(result.Failures) == 2 {
@@ -577,6 +577,55 @@ func coverageFor(agent string, collection vendors.RemoteCollection) AgentCoverag
 		Agent: agent, CandidateFiles: collection.CandidateFiles,
 		SelectedFiles: collection.SelectedFiles, Truncated: collection.Truncated,
 	}
+}
+
+func collectClaudeRemote(
+	source *Source,
+	parseSince int64,
+	now time.Time,
+) (AgentCoverage, vendors.RemoteCollection, error) {
+	bytesBefore, entriesBefore := source.Stats()
+	started := time.Now()
+	collection, err := claude.CollectRemote(source, source.Home(), parseSince, now)
+	bytesAfter, entriesAfter := source.Stats()
+	if err != nil {
+		err = fmt.Errorf("parse Claude remote data: %w", err)
+		reason := classifyError(err)
+		coverage := AgentCoverage{
+			Agent: vendors.AgentClaude, Error: genericErrorCopy(reason), ErrorReason: string(reason),
+		}
+		observeCollect(vendors.AgentClaude, coverage, 0, time.Since(started),
+			bytesAfter-bytesBefore, entriesAfter-entriesBefore)
+		return coverage, vendors.RemoteCollection{}, err
+	}
+	coverage := coverageFor(vendors.AgentClaude, collection)
+	observeCollect(vendors.AgentClaude, coverage, len(collection.Sessions), time.Since(started),
+		bytesAfter-bytesBefore, entriesAfter-entriesBefore)
+	return coverage, collection, nil
+}
+
+func collectCodexRemote(
+	source *Source,
+	parseSince int64,
+) (AgentCoverage, vendors.RemoteCollection, error) {
+	bytesBefore, entriesBefore := source.Stats()
+	started := time.Now()
+	collection, err := codex.CollectRemote(source, source.Home(), parseSince)
+	bytesAfter, entriesAfter := source.Stats()
+	if err != nil {
+		err = fmt.Errorf("parse Codex remote data: %w", err)
+		reason := classifyError(err)
+		coverage := AgentCoverage{
+			Agent: vendors.AgentCodex, Error: genericErrorCopy(reason), ErrorReason: string(reason),
+		}
+		observeCollect(vendors.AgentCodex, coverage, 0, time.Since(started),
+			bytesAfter-bytesBefore, entriesAfter-entriesBefore)
+		return coverage, vendors.RemoteCollection{}, err
+	}
+	coverage := coverageFor(vendors.AgentCodex, collection)
+	observeCollect(vendors.AgentCodex, coverage, len(collection.Sessions), time.Since(started),
+		bytesAfter-bytesBefore, entriesAfter-entriesBefore)
+	return coverage, collection, nil
 }
 
 func noSupportedData(coverage []AgentCoverage) bool {
@@ -608,11 +657,13 @@ func classifyError(err error) Reason {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return ReasonRefreshTimeout
-	case errors.Is(err, fs.ErrPermission):
+	case errors.Is(err, fs.ErrPermission), errors.Is(err, ErrPathDenied):
 		return ReasonPermissionDenied
 	case errors.Is(err, ErrFileLimit), errors.Is(err, ErrTotalLimit),
 		errors.Is(err, ErrEntryLimit), errors.Is(err, ErrDepthLimit):
 		return ReasonHistoryTruncated
+	case errors.Is(err, ErrSymlink):
+		return ReasonInvalidData
 	}
 	message := strings.ToLower(err.Error() + " " + sshErrorStderr(err))
 	if strings.Contains(message, "host key verification failed") ||

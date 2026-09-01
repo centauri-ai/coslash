@@ -20,6 +20,7 @@ type AgentCoverage struct {
 	SelectedFiles  int    `json:"selectedFiles"`
 	Truncated      bool   `json:"truncated"`
 	Error          string `json:"error,omitempty"`
+	ErrorReason    string `json:"errorReason,omitempty"`
 }
 
 // CachedSession is intentionally narrower than session.Session so transcript
