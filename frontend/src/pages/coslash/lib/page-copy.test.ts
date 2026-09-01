@@ -16,7 +16,7 @@ describe('sessionsEmptyStateCopy', () => {
       sessionsEmptyStateCopy({
         hasSessions: false,
         searchTerm: '',
-        timeWindow: 'week',
+        timeWindow: '7d',
       }),
     ).toEqual({
       title: 'No sessions in this window.',
@@ -29,7 +29,7 @@ describe('sessionsEmptyStateCopy', () => {
       sessionsEmptyStateCopy({
         hasSessions: true,
         searchTerm: 'api',
-        timeWindow: 'week',
+        timeWindow: '7d',
       }),
     ).toEqual({
       title: 'Nothing matches “api” in this window.',

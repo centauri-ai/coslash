@@ -3,6 +3,7 @@ import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { setTheme } from '@/lib/theme';
+import { cn } from '@/lib/utils';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
@@ -41,12 +42,7 @@ import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import { loadBoardFilters, saveBoardFilters, vendorsForFilterMenu } from '@/pages/coslash/lib/board-filters';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
-import {
-  hostStripModel,
-  hostStripVisible,
-  remoteConfigured,
-  remoteMachine,
-} from '@/pages/coslash/lib/host-strip';
+import { hostStripModel, hostStripVisible, remoteMachine } from '@/pages/coslash/lib/host-strip';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
@@ -57,14 +53,14 @@ import {
   LOCAL_SOURCE_ID,
   sessionKey,
   sessionsForAggregates,
+  sessionsSpanMachines,
   type Session,
 } from '@/pages/coslash/lib/session';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
-  'week': 'active this week',
-  'month': 'active this month',
+  '24h': 'active in the last 24 hours',
   '7d': 'active in the last 7 days',
   '30d': 'active in the last 30 days',
   'all': 'across all time',
@@ -105,13 +101,15 @@ function CoslashPageHeader({
   settingsError: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-4">
-      <div className="flex items-center gap-2">
-        <span aria-label="coSlash">
-          <img src="/brand/coslash-logo.svg" alt="" className="h-12 dark:hidden" />
-          <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden h-12 dark:block" />
+    <div className="flex items-center justify-between gap-3 px-4 py-1.5">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span aria-label="coSlash" className="shrink-0">
+          <img src="/brand/coslash-logo.svg" alt="" className="h-8 dark:hidden" />
+          <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden h-8 dark:block" />
         </span>
-        <span className="text-muted-foreground text-sm font-medium">Run more agents. Lose less context.</span>
+        <span className="text-muted-foreground hidden truncate text-xs font-medium sm:inline">
+          Run more agents. Lose less context.
+        </span>
       </div>
       <SettingsButton onClick={onOpenSettings} hasError={settingsError} />
     </div>
@@ -171,7 +169,7 @@ function SessionsStats({
 
   return (
     <div className="flex w-full min-w-0 items-center justify-between gap-3">
-      <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
+      <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-xs">
         <span className="truncate">
           <span className="text-foreground font-semibold">
             {aggregateSessions.length} {aggregateSessions.length === 1 ? 'session' : 'sessions'}
@@ -196,7 +194,12 @@ function SessionsStats({
           <span className="bg-success size-1.5 animate-pulse rounded-full" />
           {activeSessions} active
         </span>
-        <span className="inline-flex items-center gap-1.5">
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5',
+            waitingSessions > 0 && 'text-warning-fg font-semibold',
+          )}
+        >
           <span className="bg-warning size-1.5 rounded-full" />
           {waitingSessions} waiting on you
         </span>
@@ -280,7 +283,7 @@ function CoslashContent({
           showMachineBadge={showMachineBadge}
         />
       ) : (
-        <div className="bg-background flex flex-col gap-4 px-4 py-2">
+        <div className="bg-background flex flex-col px-1 py-1 sm:px-2">
           {visibleSessions.map((session) => (
             <SessionCard
               key={sessionKey(session)}
@@ -337,7 +340,6 @@ export function CoslashPage() {
     [sessions, shareFixtureEnabled],
   );
   const sessionVendors = vendorsForFilterMenu(getSessionVendors(sessions), vendor);
-  const configuredRemote = remoteConfigured(machines);
   const remoteHost = remoteMachine(machines);
   const showHostStrip = hostStripVisible(remoteHost);
   const stripModel =
@@ -406,6 +408,7 @@ export function CoslashPage() {
     sortKey,
     sortDir,
   );
+  const showMachineBadge = sessionsSpanMachines(visibleSessions);
   const refreshFirstRun = () => {
     retrySessions();
     refreshDiagnostics();
@@ -443,7 +446,7 @@ export function CoslashPage() {
           onOpen={() => setSettingsDialogMode('full-settings')}
         />
       )}
-      <div className="bg-background flex flex-col gap-2 border-b px-4 pb-2">
+      <div className="bg-background flex flex-col gap-1.5 border-b px-4 pb-1.5">
         <div className="-m-1 flex items-center gap-2 overflow-x-auto p-1">
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
           <div className="flex shrink-0 items-center gap-2">
@@ -460,7 +463,7 @@ export function CoslashPage() {
             onSortDirChange={setSortDir}
           />
         </div>
-        <div className="flex min-h-7 items-center">
+        <div className="flex min-h-6 items-center">
           <div className="flex w-full items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <LoadingSpinner isLoading={isLoading}>
@@ -506,7 +509,7 @@ export function CoslashPage() {
               searchTerm={searchTerm}
               timeWindow={timeWindow}
               view={view}
-              showMachineBadge={configuredRemote}
+              showMachineBadge={showMachineBadge}
               onSelectSession={(session) => setSelectedSessionKey(sessionKey(session))}
               diagnostics={diagnostics}
               diagnosticsLoading={diagnosticsLoading}
@@ -520,7 +523,7 @@ export function CoslashPage() {
         session={selectedSession}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
-        showMachineBadge={configuredRemote}
+        showMachineBadge={showMachineBadge}
         onClose={() => setSelectedSessionKey(null)}
       />
       {shareEnabled && shareDestination && (

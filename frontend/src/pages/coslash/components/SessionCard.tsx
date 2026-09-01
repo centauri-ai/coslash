@@ -51,6 +51,7 @@ export function SessionVendorBadge({ agent, abbreviated = false }: { agent: stri
   const vendor = getVendor(agent);
   return (
     <Badge
+      title={abbreviated ? vendor.label : undefined}
       className={cn('text-xs', vendor.fg, vendor.bg, {
         'font-mono font-bold': abbreviated,
         'font-semibold': !abbreviated,
@@ -71,7 +72,7 @@ export function SessionName({
   return (
     <span
       className={cn('min-w-0 truncate', {
-        'max-w-80 text-sm font-semibold': variant === 'detailed',
+        'max-w-96 text-sm font-semibold tracking-tight': variant === 'detailed',
         'text-xs font-semibold': variant === 'compact',
         'block text-sm font-bold': variant === 'inspector',
         'text-muted-foreground font-normal': name == null,
@@ -89,7 +90,7 @@ export function SessionId({ id, shortened = false }: { id: string; shortened?: b
       value={id}
       ariaLabel={`Copy session ID ${id}`}
       copiedLabel="Session ID copied"
-      className="text-muted-foreground font-mono text-xs"
+      className="text-muted-foreground/80 shrink-0 font-mono text-[11px] font-normal"
     >
       {shortened ? shortenSessionId(id) : id}
     </CopyableBadge>
@@ -97,50 +98,56 @@ export function SessionId({ id, shortened = false }: { id: string; shortened?: b
 }
 
 function StatusBadge({ session }: { session: Session }) {
-  const status = STATUSES[boardStatusKey(session)];
+  const key = boardStatusKey(session);
+  const status = STATUSES[key];
+  const label = displayStatusLabel(session);
+  const quiet = key === 'unknown' || key === 'inactive' || key === 'idle';
+  if (quiet) {
+    return (
+      <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-xs">
+        <span className={cn('size-1.5 shrink-0 rounded-full', status.dot)} />
+        {label}
+      </span>
+    );
+  }
   return (
-    <Badge className={cn('gap-1 text-xs font-semibold', status.fg, status.bg)}>
-      {!session.displayStale && <span className={cn('size-1 rounded-full', status.dot)} />}
-      {displayStatusLabel(session)}
+    <Badge
+      className={cn('gap-1.5 text-xs font-semibold', status.fg, status.bg, {
+        'ring-warning/30 ring-1': key === 'waiting',
+      })}
+    >
+      {!session.displayStale && (
+        <span className={cn('size-1.5 rounded-full', status.dot, { 'animate-pulse': key === 'busy' })} />
+      )}
+      {key === 'waiting' ? 'Waiting on you' : label}
     </Badge>
   );
 }
 
 function Modality({ session }: { session: Session }) {
   if (session.entrypoint == null) return null;
+  const modality = getModality(session.entrypoint);
+  if (modality !== 'Autonomous') return null;
   return (
     <Badge variant="secondary" className="text-muted-foreground text-xs font-semibold">
-      {getModality(session.entrypoint)}
+      {modality}
     </Badge>
-  );
-}
-
-function Metadata({ session }: { session: Session }) {
-  return (
-    <div className="text-muted-foreground pt-2 font-mono text-xs" title={environmentFact(session.cwd)}>
-      {environmentFact(session.repo)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
-      {formatDuration(session.durationMs)} · {session.files} files
-    </div>
   );
 }
 
 function TokenUsageAndCost({ session }: { session: Session }) {
   return (
-    <div className="flex-none text-right">
-      <div className="text-base font-bold">
+    <div className="flex w-28 shrink-0 flex-col items-end gap-0.5 text-right">
+      <div className="text-muted-foreground text-sm tabular-nums">
         <UnpricedModelWarning unpriced={session.unpricedModels}>
           {formatEstimatedCost(session.cost)}
         </UnpricedModelWarning>
       </div>
-      <div className="text-muted-foreground pt-1 font-mono text-xs">
+      <div className="text-muted-foreground/80 font-mono text-[11px] tabular-nums">
         {formatTokens(getTotalTokens(session.tokens))} tok
       </div>
     </div>
   );
-}
-
-function Summary({ session }: { session: Session }) {
-  return <div className="text-muted-foreground pt-2 text-xs">{getSessionCardSummary(session)}</div>;
 }
 
 function CompactSessionCard({ session, showMachineBadge }: { session: Session; showMachineBadge: boolean }) {
@@ -152,7 +159,7 @@ function CompactSessionCard({ session, showMachineBadge }: { session: Session; s
           <SessionName name={session.name} variant="compact" />
           {showMachineBadge && <MachineBadge label={session.sourceLabel} />}
         </div>
-        <span className="text-xs font-semibold whitespace-nowrap">
+        <span className="text-muted-foreground text-xs whitespace-nowrap tabular-nums">
           <UnpricedModelWarning unpriced={session.unpricedModels}>
             {formatEstimatedCost(session.cost)}
           </UnpricedModelWarning>
@@ -170,19 +177,41 @@ function CompactSessionCard({ session, showMachineBadge }: { session: Session; s
 }
 
 function DetailedSessionCard({ session, showMachineBadge }: { session: Session; showMachineBadge: boolean }) {
+  const summary = getSessionCardSummary(session);
+  const meta = [
+    environmentFact(session.repo),
+    environmentFact(session.branch),
+    formatTimeAgo(session.mtime),
+    formatDuration(session.durationMs),
+    session.files > 0 ? `${session.files} files` : null,
+  ]
+    .filter((part) => part != null && part !== '—')
+    .join(' · ');
+
   return (
-    <div className={cn('flex items-start gap-4', { 'opacity-75': session.displayStale })}>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+    <div
+      className={cn('grid grid-cols-[minmax(0,1fr)_6.5rem] items-start gap-x-4 gap-y-1', {
+        'opacity-75': session.displayStale,
+      })}
+    >
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <SessionVendorBadge agent={session.agent} />
           <SessionName name={session.name} />
-          <SessionId id={session.id} />
           <StatusBadge session={session} />
-          {showMachineBadge && <MachineBadge label={session.sourceLabel} />}
+          {showMachineBadge && (
+            <span className="text-muted-foreground shrink-0 text-xs">{session.sourceLabel}</span>
+          )}
           <Modality session={session} />
         </div>
-        <Summary session={session} />
-        <Metadata session={session} />
+        <div className="text-muted-foreground mt-1 line-clamp-1 text-xs leading-snug">{summary}</div>
+        <div
+          className="text-muted-foreground/80 mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[11px]"
+          title={environmentFact(session.cwd)}
+        >
+          <span className="min-w-0 truncate">{meta}</span>
+          <SessionId id={session.id} shortened />
+        </div>
       </div>
       <TokenUsageAndCost session={session} />
     </div>
@@ -414,16 +443,49 @@ function SessionSubagentRail({
   const [expanded, setExpanded] = useState(false);
   if (subagents.length === 0) return null;
 
+  if (variant === 'detailed' && !expanded) {
+    return (
+      <div className="px-3 pb-1.5 pl-11">
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-subagent flex w-fit cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors"
+          onClick={(event) => {
+            event.stopPropagation();
+            setExpanded(true);
+          }}
+        >
+          <ChevronRightIcon className="size-3" />
+          <span className="bg-subagent-bg text-subagent rounded-md px-1.5 py-0.5 font-semibold">
+            {subagents.length} {subagents.length === 1 ? 'subagent' : 'subagents'}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
   const visible = expanded ? subagents : subagents.slice(0, SUBAGENT_PREVIEW_COUNT);
   const hiddenCount = subagents.length - visible.length;
 
   return (
-    <div className={cn('flex flex-col', variant === 'compact' ? 'pl-3' : 'pl-20')}>
-      <div className="border-subagent-rail flex flex-col gap-2 border-l-3 pl-4">
+    <div className={cn(variant === 'compact' ? 'pl-3' : 'px-3 pb-2 pl-11')}>
+      <div className="border-subagent-rail flex flex-col gap-1.5 border-l-2 pl-3">
+        {variant === 'detailed' && (
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground flex w-fit cursor-pointer items-center gap-1 text-xs font-medium"
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded(false);
+            }}
+          >
+            <ChevronDownIcon className="size-3" />
+            Hide subagents
+          </button>
+        )}
         {visible.map((subagent) => (
           <SubagentCard key={subagent.id} subagent={subagent} parentName={parentName} variant={variant} />
         ))}
-        {(hiddenCount > 0 || expanded) && (
+        {variant === 'compact' && (hiddenCount > 0 || expanded) && (
           <SubagentExpandToggle
             hiddenCount={hiddenCount}
             expanded={expanded}
@@ -441,15 +503,32 @@ export function SessionCard({
   variant = 'detailed',
   showMachineBadge = false,
 }: SessionCardProps) {
-  return (
-    <div className="flex flex-col gap-2">
-      <Card className={cn('cursor-pointer', variant === 'compact' ? 'gap-1 p-3' : 'p-4')} onClick={onClick}>
-        {variant === 'compact' ? (
+  if (variant === 'compact') {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Card className="cursor-pointer gap-1 p-3" onClick={onClick}>
           <CompactSessionCard session={session} showMachineBadge={showMachineBadge} />
-        ) : (
-          <DetailedSessionCard session={session} showMachineBadge={showMachineBadge} />
-        )}
-      </Card>
+        </Card>
+        <SessionSubagentRail subagents={session.subagents} parentName={session.name} variant={variant} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="hover:bg-muted/40 border-border/70 group border-b transition-colors">
+      <div
+        role="button"
+        tabIndex={0}
+        className="cursor-pointer px-3 py-2.5"
+        onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          onClick?.();
+        }}
+      >
+        <DetailedSessionCard session={session} showMachineBadge={showMachineBadge} />
+      </div>
       <SessionSubagentRail subagents={session.subagents} parentName={session.name} variant={variant} />
     </div>
   );

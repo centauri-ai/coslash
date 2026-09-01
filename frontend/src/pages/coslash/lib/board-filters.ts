@@ -13,7 +13,7 @@ const AGENT_VENDORS = ['all', ...VENDOR_KEYS] as const satisfies readonly AgentV
 
 export const DEFAULT_BOARD_FILTERS: BoardFilters = {
   vendor: 'all',
-  timeWindow: 'week',
+  timeWindow: '7d',
 };
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {

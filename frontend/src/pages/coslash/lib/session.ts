@@ -97,6 +97,16 @@ export function isLocalSession(session: Pick<Session, 'sourceId'>): boolean {
   return isLocalSource(session.sourceId);
 }
 
+/** True when the listed sessions come from more than one machine/source. */
+export function sessionsSpanMachines(sessions: readonly Pick<Session, 'sourceId'>[]): boolean {
+  const sources = new Set<string>();
+  for (const session of sessions) {
+    sources.add(session.sourceId);
+    if (sources.size > 1) return true;
+  }
+  return false;
+}
+
 export function sessionsForAggregates<T extends Pick<Session, 'eligibleForAggregates'>>(
   sessions: readonly T[],
 ): T[] {

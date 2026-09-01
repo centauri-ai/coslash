@@ -7,6 +7,7 @@ import {
   LOCAL_SOURCE_ID,
   sessionKey,
   sessionsForAggregates,
+  sessionsSpanMachines,
   withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
@@ -65,6 +66,13 @@ describe('sessionsForAggregates', () => {
         { eligibleForAggregates: true },
       ]),
     ).toEqual([{ eligibleForAggregates: true }, { eligibleForAggregates: true }]);
+  });
+});
+
+describe('sessionsSpanMachines', () => {
+  it('is false for a single source and true once a second source appears', () => {
+    expect(sessionsSpanMachines([{ sourceId: 'local' }, { sourceId: 'local' }])).toBe(false);
+    expect(sessionsSpanMachines([{ sourceId: 'local' }, { sourceId: 'r_0123456789abcdef' }])).toBe(true);
   });
 });
 
