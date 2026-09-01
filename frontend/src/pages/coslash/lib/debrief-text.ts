@@ -78,7 +78,10 @@ export type DebriefPreview = {
 
 const DEFAULT_PREVIEW_UNITS = 4;
 
-function listPreview(block: Extract<DebriefBlock, { kind: 'list' }>, budget: number): {
+function listPreview(
+  block: Extract<DebriefBlock, { kind: 'list' }>,
+  budget: number,
+): {
   block: DebriefBlock;
   used: number;
   hidden: number;

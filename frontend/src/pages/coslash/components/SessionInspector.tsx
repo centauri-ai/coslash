@@ -34,6 +34,12 @@ import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
 import { synthesisRequestPath, useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import {
+  blocksFromTexts,
+  collapseDebriefBlocks,
+  parseDebriefText,
+  type DebriefBlock,
+} from '@/pages/coslash/lib/debrief-text';
+import {
   digestDateKey,
   formatDigestDateDivider,
   formatDigestDateRange,
@@ -44,12 +50,6 @@ import {
   formatTokens,
 } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
-import {
-  blocksFromTexts,
-  collapseDebriefBlocks,
-  parseDebriefText,
-  type DebriefBlock,
-} from '@/pages/coslash/lib/debrief-text';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
   boardStatusKey,
@@ -470,11 +470,7 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
           synthesisPlaceholder
         ) : (
           <div className="pt-1">
-            <DebriefProse
-              blocks={outcome ? parseDebriefText(outcome) : []}
-              empty="—"
-              tone="outcome"
-            />
+            <DebriefProse blocks={outcome ? parseDebriefText(outcome) : []} empty="—" tone="outcome" />
           </div>
         )}
         <div className="text-muted-foreground pt-3 text-xs">KEY DECISIONS</div>
@@ -564,7 +560,7 @@ function DebriefBlocks({ blocks, tone }: { blocks: DebriefBlock[]; tone: 'goal' 
               className={cn('flex flex-col gap-1.5 text-xs', {
                 'list-decimal pl-4': block.ordered,
                 'list-none': !block.ordered,
-                italic: tone === 'goal',
+                'italic': tone === 'goal',
               })}
             >
               {block.items.map((item, itemIndex) => (

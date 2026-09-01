@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { blocksFromTexts, collapseDebriefBlocks, parseDebriefText, previewDebriefBlocks } from './debrief-text';
+import {
+  blocksFromTexts,
+  collapseDebriefBlocks,
+  parseDebriefText,
+  previewDebriefBlocks,
+} from './debrief-text';
 
 describe('parseDebriefText', () => {
   it('keeps plain prose as paragraphs', () => {
