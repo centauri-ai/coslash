@@ -1,6 +1,6 @@
 # SSH helper implementation master plan
 
-Status: planning complete; implementation not started
+Status: implementation in progress (T01–T02 complete)
 
 Last updated: 2026-09-01
 
@@ -40,7 +40,7 @@ separate because they have distinct risk and approval gates.
 | ID | Task | Status | Depends on | Current blocker | Brief |
 | --- | --- | --- | --- | --- | --- |
 | T01 | Contracts, metrics, and fixtures | done | — | — | [Brief](01-contracts-metrics-and-fixtures.md) |
-| T02 | Cache v2 and incremental SFTP | review | T01 | None; see handoff in brief | [Brief](02-cache-and-incremental-sftp.md) |
+| T02 | Cache v2 and incremental SFTP | done | T01 | — | [Brief](02-cache-and-incremental-sftp.md) |
 | T03 | Linux helper and SSH transport | not_started | T01 | Initial Linux targets/libc strategy needs approval | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | not_started | T03 | Install path, signing scheme, and `noexec` policy need approval | [Brief](04-helper-lifecycle-and-compatibility.md) |
 | T05 | Manager, setup UI, diagnostics, and docs | not_started | T02, T03, T04 | Final consent copy needs product approval | [Brief](05-manager-ui-diagnostics-docs.md) |
@@ -140,7 +140,7 @@ Remaining blocker/risk: <none or exact issue>
 ## Global blockers and change log
 
 - 2026-09-01: Consolidated the original 12-task plan into seven boundary-owned
-  tasks to reduce handoffs and duplicated context. No implementation has started.
+  tasks to reduce handoffs and duplicated context.
 - 2026-09-01: T02 resolved its cache-compatibility blocker by adopting Phase 0
   default #6 as written (v2 written separately; v1 stays visible as stale;
   v1 fingerprints are never reinterpreted as v2 baseline). See T02's brief for
@@ -153,3 +153,9 @@ Remaining blocker/risk: <none or exact issue>
   cache state, or data loss. Fixing it fully would need either persisting
   parse-time rehome-detection state or forcing a full reparse whenever a new
   background rehome is observed; deferred as out of T02's acceptance criteria.
+- 2026-09-01: T02 passed implementation review and moved to `done`. Review
+  follow-ups restored live-path symlink validation, added post-parse stability
+  fingerprints, made family skips visible as partial health, corrected bounded
+  baseline-free recollection, invalidated parser-versioned cache entries, kept
+  timeout identity through close, and bounded cache-v2 loading. See
+  [post-implementation notes](post-implementation-notes.md).

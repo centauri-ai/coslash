@@ -1,6 +1,6 @@
 # T02 — Cache v2 and incremental SFTP
 
-Status: review
+Status: done
 
 Depends on: T01
 
