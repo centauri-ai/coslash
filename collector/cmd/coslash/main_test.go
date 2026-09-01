@@ -79,6 +79,26 @@ func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
 	}
 }
 
+func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
+	manager := remote.NewManager(remote.Options{})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/remote/helper/setup", bytes.NewBufferString(`{"install":true,"upgrade":false}`))
+	response := httptest.NewRecorder()
+	handleRemoteHelperSetup(response, request, manager)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusConflict)
+	}
+	var body helperSetupResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Outcome != "sftp_fallback" || body.Error == "" || body.Machine.State != remote.StateLimited || body.Machine.Complete {
+		t.Fatalf("failed setup response = %#v", body)
+	}
+}
+
 func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	server := newServer(

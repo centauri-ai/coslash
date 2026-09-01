@@ -1,5 +1,23 @@
 import { apiFetch, decodeApiError, readApiError } from '@/pages/coslash/lib/api';
+import { assertOneOf } from '@/pages/coslash/lib/narrow';
 import { decodeMachineFact, type MachineFact } from '@/pages/coslash/lib/machines';
+
+export const HELPER_SETUP_OUTCOMES = [
+  'installed_and_tested',
+  'reused_and_tested',
+  'deprecated_helper_active',
+  'consent_required',
+  'unsupported',
+  'blocked',
+  'incompatible',
+  'revoked',
+  'verification_failed',
+  'installation_failed',
+  'rolled_back',
+  'helper_test_failed',
+  'sftp_fallback',
+] as const;
+export type HelperSetupOutcome = (typeof HELPER_SETUP_OUTCOMES)[number];
 
 export function remoteTestRequestInit(sshAlias: string): RequestInit {
   return {
@@ -41,13 +59,16 @@ export function helperSetupRequestInit(consent: 'install' | 'upgrade'): RequestI
   };
 }
 
-export type HelperSetupResult = { machine: MachineFact; outcome: string; error?: string };
+export type HelperSetupResult = { machine: MachineFact; outcome: HelperSetupOutcome; error?: string };
 
-function decodeHelperSetup(value: unknown): HelperSetupResult {
+export function decodeHelperSetup(value: unknown): HelperSetupResult {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid helper setup result');
   const raw = value as Record<string, unknown>;
   if (typeof raw.outcome !== 'string') throw new Error('Invalid helper setup result');
-  const result: HelperSetupResult = { machine: decodeMachineFact(raw.machine), outcome: raw.outcome };
+  const result: HelperSetupResult = {
+    machine: decodeMachineFact(raw.machine),
+    outcome: assertOneOf(raw.outcome, HELPER_SETUP_OUTCOMES),
+  };
   if (raw.error != null) {
     if (typeof raw.error !== 'string') throw new Error('Invalid helper setup result');
     result.error = raw.error;

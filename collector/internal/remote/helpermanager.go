@@ -37,7 +37,10 @@ type HelperStatus struct {
 	Version    string         `json:"version,omitempty"`
 	Compatible bool           `json:"compatible"`
 	Fallback   bool           `json:"fallback"`
-	Reason     *Reason        `json:"reason,omitempty"`
+	// Reused is true only when the currently selected helper was freshly
+	// re-verified in place rather than uploaded during this lifecycle pass.
+	Reused bool    `json:"reused,omitempty"`
+	Reason *Reason `json:"reason,omitempty"`
 }
 
 // CollectionMetrics are bounded, content-free diagnostics for the last
@@ -76,7 +79,7 @@ const (
 func lifecycleStatus(result LifecycleResult) HelperStatus {
 	status := HelperStatus{
 		State: result.State, Version: result.Artifact.Version,
-		Compatible: result.CanExecute, Fallback: result.Fallback,
+		Compatible: result.CanExecute, Fallback: result.Fallback, Reused: result.Reused,
 	}
 	if result.Reason != nil {
 		status.Reason = reasonPtr(classifyLifecycleError(result.Reason))

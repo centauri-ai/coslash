@@ -31,7 +31,8 @@ export function MachinesSettingsSection({
   const [removeAction, setRemoveAction] = useState<'only' | 'uninstall' | null>(null);
   const [pendingAlias, setPendingAlias] = useState<string | null>(null);
   const displayedAlias = pendingAlias ?? draft.sshAlias;
-  const helperOwned = hostStatus?.helper?.version != null;
+  const helperOwned = hostStatus?.helperOwnershipRecorded === true;
+  const setupFailed = setupResult?.error != null;
 
   useEffect(() => {
     if (!remote?.id) {
@@ -84,6 +85,7 @@ export function MachinesSettingsSection({
     setTesting(true);
     setTestError(null);
     setTestResult(null);
+    setSetupResult(null);
     try {
       setTestResult(await testRemoteAlias(alias));
       try {
@@ -296,6 +298,7 @@ export function MachinesSettingsSection({
               {hostStatus?.helper?.version ? ` · ${hostStatus.helper.version}` : ''}
               {hostStatus?.helper?.reason ? ` · ${hostStatus.helper.reason.replaceAll('_', ' ')}` : ''}
             </div>
+            {helperOwned && <div>Helper ownership is recorded for this SSH alias.</div>}
             {hostStatus?.helperInstallationAvailable === false && <div>Helper installation is unavailable in this build.</div>}
             {testResult?.state !== 'ok' && hostStatus?.helperInstallationAvailable !== false && <div>Test SSH/SFTP before installing or upgrading the helper.</div>}
           </div>
@@ -303,10 +306,10 @@ export function MachinesSettingsSection({
 
         {(testResult != null || testError != null) && (
           <div
-            role={testResult?.state === 'ok' ? 'status' : 'alert'}
+            role={testResult?.state === 'ok' && !setupFailed ? 'status' : 'alert'}
             className={cn('border-t px-4 py-3 text-xs', {
-              'bg-success-bg text-success-fg': testResult?.state === 'ok',
-              'bg-warning-bg text-warning-fg': testResult != null && testResult.state !== 'ok',
+              'bg-success-bg text-success-fg': testResult?.state === 'ok' && !setupFailed,
+              'bg-warning-bg text-warning-fg': (testResult != null && testResult.state !== 'ok') || setupFailed,
               'bg-destructive/10 text-destructive': testError != null,
             })}
           >
@@ -314,7 +317,9 @@ export function MachinesSettingsSection({
             {testResult?.helper && (
               <div className="pt-1">
                 Helper: {testResult.helper.version ? `${testResult.helper.version} · ` : ''}
-                {testResult.helper.state.replaceAll('_', ' ')} · {testResult.helper.compatible ? 'compatible' : 'not ready'}
+                {testResult.helper.state.replaceAll('_', ' ')} · {testResult.helper.compatible ? 'compatible' : 'unavailable'}
+                {testResult.helper.reused ? ' · reused after verification' : ''}
+                {testResult.helper.reason ? ` · ${testResult.helper.reason.replaceAll('_', ' ')}` : ''}
                 {testResult.helper.fallback ? ' · using SFTP fallback' : ''}
               </div>
             )}

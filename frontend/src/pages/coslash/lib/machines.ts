@@ -69,6 +69,7 @@ export type MachineFact = {
   metrics?: CollectionMetrics;
   helperInstallationAvailable?: boolean;
   helperProbeState?: 'unknown' | 'probing' | 'ready' | 'fallback';
+  helperOwnershipRecorded?: boolean;
 };
 
 export type HelperFact = {
@@ -76,6 +77,7 @@ export type HelperFact = {
   version?: string;
   compatible: boolean;
   fallback: boolean;
+  reused?: boolean;
   reason?: MachineReason;
 };
 
@@ -136,6 +138,10 @@ function decodeHelper(value: unknown): HelperFact | undefined {
   };
   const version = optionalString(raw.version);
   if (version != null) helper.version = version;
+  if (raw.reused != null) {
+    if (typeof raw.reused !== 'boolean') throw new Error('Invalid helper state');
+    helper.reused = raw.reused;
+  }
   if (raw.reason != null) {
     if (typeof raw.reason !== 'string') throw new Error('Invalid helper state');
     helper.reason = assertOneOf(raw.reason, MACHINE_REASONS);
@@ -203,6 +209,10 @@ export function decodeMachineFact(value: unknown): MachineFact {
       throw new Error('Invalid machine fact');
     }
     fact.helperProbeState = raw.helperProbeState as MachineFact['helperProbeState'];
+  }
+  if (raw.helperOwnershipRecorded != null) {
+    if (typeof raw.helperOwnershipRecorded !== 'boolean') throw new Error('Invalid machine fact');
+    fact.helperOwnershipRecorded = raw.helperOwnershipRecorded;
   }
   return fact;
 }

@@ -414,6 +414,7 @@ type LifecycleResult struct {
 	Artifact   Artifact
 	CanExecute bool
 	Fallback   bool
+	Reused     bool
 	Reason     error
 }
 
@@ -473,6 +474,7 @@ func (lifecycle Lifecycle) SetupWithLoader(ctx context.Context, document SignedR
 	if currentErr == nil {
 		if err := verifyRemoteFile(current, target, artifact, platform.UID); err == nil {
 			result := lifecycle.capabilityResult(ctx, target, artifact, LifecycleReady)
+			result.Reused = result.CanExecute
 			if result.CanExecute || !errors.Is(result.Reason, ErrHelperIncompatible) {
 				return result
 			}

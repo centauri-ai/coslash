@@ -54,6 +54,7 @@ type machineFact struct {
 	Metrics                     remote.CollectionMetrics `json:"metrics"`
 	HelperInstallationAvailable bool                     `json:"helperInstallationAvailable"`
 	HelperProbeState            string                   `json:"helperProbeState"`
+	HelperOwnershipRecorded     bool                     `json:"helperOwnershipRecorded"`
 }
 
 func localMachineFact() machineFact {
@@ -69,6 +70,7 @@ func machineFromHealth(health remote.Health) machineFact {
 		Transport: health.Transport, Helper: health.Helper, Metrics: health.Metrics,
 		HelperInstallationAvailable: health.HelperInstallationAvailable,
 		HelperProbeState:            health.HelperProbeState,
+		HelperOwnershipRecorded:     health.HelperOwnershipRecorded,
 	}
 }
 

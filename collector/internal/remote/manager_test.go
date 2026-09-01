@@ -302,6 +302,22 @@ func TestHelperOwnershipBlocksAliasChangeUntilExplicitRelease(t *testing.T) {
 	}
 }
 
+func TestHealthReportsRecordedOwnershipEvenWhenNoHelperVersionIsInspectable(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	manager := NewManager(Options{Cache: cache})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := cache.StoreHelperVersion(config.ID, "v1", config.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	health := manager.DiagnosticsHealth()
+	if !health.HelperOwnershipRecorded || health.Helper != nil {
+		t.Fatalf("ownership must not be inferred from an inspectable helper version: %#v", health)
+	}
+}
+
 func TestFailedUninstallRetainsHostAndOwnership(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	manager := NewManager(Options{Cache: cache})

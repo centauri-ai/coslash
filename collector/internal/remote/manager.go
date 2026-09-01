@@ -617,6 +617,7 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		Transport:       manager.transport, Helper: manager.helper, Metrics: manager.metrics,
 		HelperInstallationAvailable: manager.helperInstallationAvailable,
 		HelperProbeState:            string(manager.helperProbe),
+		HelperOwnershipRecorded:     manager.helperVersion != "",
 	}
 	if !manager.cfg.Enabled {
 		health.State = StateDisabled

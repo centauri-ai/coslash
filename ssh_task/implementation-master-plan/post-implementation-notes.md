@@ -47,6 +47,14 @@ one section when each master-plan task reaches `review` or `done`.
   are rejected until the user explicitly uninstalls the exact verified helper
   or releases local ownership while leaving it installed. Failed uninstall
   retains the original settings and ownership for retry.
+- Setup responses distinguish installed-and-tested, reused-and-tested,
+  deprecated-active, consent, compatibility, verification, installation,
+  rollback, helper-test, and SFTP-fallback outcomes. A failed helper action is
+  non-2xx and carries a non-green machine result, even if a prior SFTP refresh
+  was healthy.
+- Ownership is reported separately from the currently inspectable helper
+  version, so a missing or failed helper discovery cannot silently bypass the
+  alias-change confirmation flow.
 
 ### Focused correction validation
 

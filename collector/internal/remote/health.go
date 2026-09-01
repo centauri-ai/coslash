@@ -52,6 +52,10 @@ type Health struct {
 	Metrics                     CollectionMetrics `json:"metrics"`
 	HelperInstallationAvailable bool              `json:"helperInstallationAvailable"`
 	HelperProbeState            string            `json:"helperProbeState"`
+	// HelperOwnershipRecorded is deliberately separate from Helper.Version:
+	// a persisted ownership record survives a failed read-only inspection and
+	// must still prevent a silent alias replacement.
+	HelperOwnershipRecorded bool `json:"helperOwnershipRecorded"`
 }
 
 func reasonPtr(reason Reason) *Reason { return &reason }

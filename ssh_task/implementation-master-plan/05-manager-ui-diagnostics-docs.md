@@ -1,6 +1,6 @@
 # T05 — Manager, setup UI, diagnostics, and documentation
 
-Status: not_started
+Status: in_progress
 
 Depends on: T02, T03, T04
 

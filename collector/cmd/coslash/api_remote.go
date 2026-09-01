@@ -26,6 +26,50 @@ type helperSetupResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+// helperSetupOutcome is separate from machine collection health. A host may
+// have a healthy SFTP cache while a requested helper action has failed; the
+// setup response must never present that operation as a green success.
+func helperSetupOutcome(health remote.Health) (outcome, errorCopy string, succeeded bool) {
+	helper := health.Helper
+	if helper == nil || !helper.Compatible {
+		if helper == nil || helper.Reason == nil {
+			return "sftp_fallback", "helper setup did not complete; SFTP remains active", false
+		}
+		switch *helper.Reason {
+		case remote.ReasonHelperConsent:
+			return "consent_required", genericHelperCopy(*helper.Reason), false
+		case remote.ReasonHelperUnsupported:
+			return "unsupported", genericHelperCopy(*helper.Reason), false
+		case remote.ReasonHelperBlocked:
+			return "blocked", genericHelperCopy(*helper.Reason), false
+		case remote.ReasonHelperIncompatible:
+			return "incompatible", genericHelperCopy(*helper.Reason), false
+		case remote.ReasonHelperUpgrade:
+			return "incompatible", genericHelperCopy(*helper.Reason), false
+		case remote.ReasonHelperRevoked:
+			return "revoked", genericHelperCopy(*helper.Reason), false
+		case remote.ReasonHelperVerification:
+			return "verification_failed", genericHelperCopy(*helper.Reason), false
+		case remote.ReasonHelperInstallation:
+			return "installation_failed", genericHelperCopy(*helper.Reason), false
+		case remote.ReasonHelperRollback:
+			return "rolled_back", genericHelperCopy(*helper.Reason), false
+		default:
+			return "sftp_fallback", genericHelperCopy(*helper.Reason), false
+		}
+	}
+	if health.State != remote.StateOK || !health.Complete {
+		return "helper_test_failed", "helper installed but its collection test did not complete", false
+	}
+	if helper.State == remote.LifecycleDeprecated {
+		return "deprecated_helper_active", "", true
+	}
+	if helper.Reused {
+		return "reused_and_tested", "", true
+	}
+	return "installed_and_tested", "", true
+}
+
 func handleRemoteTest(w http.ResponseWriter, request *http.Request, manager *remote.Manager) {
 	var body remoteTestRequest
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
@@ -87,15 +131,22 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 	if setup.Helper != nil && setup.Helper.Compatible {
 		setup = manager.TestHelper(ctx)
 	}
-	response := helperSetupResponse{Machine: machineFromHealth(setup), Outcome: "sftp_fallback"}
-	if setup.Helper != nil {
-		response.Outcome = string(setup.Helper.State)
-		if setup.Helper.Reason != nil {
-			response.Error = genericHelperCopy(*setup.Helper.Reason)
+	outcome, errorCopy, succeeded := helperSetupOutcome(setup)
+	machine := machineFromHealth(setup)
+	response := helperSetupResponse{Machine: machine, Outcome: outcome, Error: errorCopy}
+	if !succeeded {
+		// This response represents the setup operation, not an ordinary refresh.
+		// Preserve the safe lifecycle reason and SFTP status, but make the failure
+		// unambiguous to every client even if its prior SFTP collection was OK.
+		response.Machine.State = remote.StateLimited
+		response.Machine.Complete = false
+		response.Machine.Error = errorCopy
+		if setup.Helper != nil && setup.Helper.Reason != nil {
+			response.Machine.Reason = setup.Helper.Reason
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if setup.Helper == nil || !setup.Helper.Compatible || setup.State == remote.StateError || setup.State == remote.StateLimited {
+	if !succeeded {
 		w.WriteHeader(http.StatusConflict)
 	}
 	_ = json.NewEncoder(w).Encode(response)
