@@ -11,15 +11,29 @@ uses the Mac's existing OpenSSH configuration, so first run `ssh <alias>` in
 Terminal if the host key or authentication still needs confirmation. The Linux
 SSH server must enable an SFTP subsystem and the SSH user must be able to read
 the Claude/Codex paths listed in [Data and privacy](data-and-privacy.md). No
-coSlash installation or agent CLI is required on Linux. The test performs a
-bounded inspection of both agent roots, so a successful result also confirms
-that supported data is readable.
+coSlash installation or agent CLI is required on Linux for SFTP collection. The
+test performs a bounded inspection of both agent roots, so a successful result
+also confirms that supported data is readable.
+
+The optional **Install helper** action needs explicit consent and installs one
+signed, verified collector owned by the SSH user. If it is unavailable, blocked
+by a `noexec` mount, unsupported, incompatible, revoked, or fails verification,
+coSlash does not execute it and continues with visibly labeled SFTP collection.
+Use **Upgrade helper** or **Install helper** only after reviewing the consent
+copy. Never paste remote stderr into a bug report; **Copy diagnostics** includes
+only bounded structured transport, version, timing, byte-count, and coverage
+facts.
 
 `SFTP subsystem unavailable` means ordinary SSH may work while SFTP is disabled
 by `sshd_config` or account policy. `Agent data is not readable` means the SSH
 account connected but lacks file permissions. `No Claude or Codex data found`
 means the allowed roots are absent or empty. A stale banner keeps the last-good
 cards visible; **Retry** starts an immediate bounded refresh.
+
+To remove a remote host, choose **Remove host only** to leave the optional
+helper installed, or **Uninstall helper and remove**. The latter completes its
+exact remote uninstall before coSlash removes local settings. If it fails, use
+Retry or choose remove-only explicitly.
 
 ## coSlash will not start
 

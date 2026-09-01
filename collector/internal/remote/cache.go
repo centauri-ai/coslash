@@ -2,6 +2,7 @@ package remote
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -119,6 +120,10 @@ func (cached CachedSnapshot) sessions() []*session.Session {
 
 type Cache struct {
 	Root string
+}
+
+type helperOwnership struct {
+	Version string `json:"version"`
 }
 
 func NewCache(root string) *Cache {
@@ -283,6 +288,93 @@ func (c *Cache) snapshotV2Path(sourceID string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "snapshot-v2.json"), nil
+}
+
+func (c *Cache) helperOwnershipPath(sourceID string) (string, error) {
+	dir, err := c.sourceDir(sourceID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "helper.json"), nil
+}
+
+// LoadHelperVersion records local ownership, not executable authority. A
+// loaded version must still pass fresh signed-metadata, remote-file, and
+// capability verification before it becomes a helperTarget.
+func (c *Cache) LoadHelperVersion(sourceID string) (string, bool, error) {
+	path, err := c.helperOwnershipPath(sourceID)
+	if err != nil {
+		return "", false, err
+	}
+	content, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil || len(content) > 256 {
+		return "", false, err
+	}
+	var ownership helperOwnership
+	if json.Unmarshal(content, &ownership) != nil || !helperVersionPattern.MatchString(ownership.Version) {
+		return "", false, nil
+	}
+	return ownership.Version, true, nil
+}
+
+func (c *Cache) StoreHelperVersion(sourceID, version string) error {
+	if !helperVersionPattern.MatchString(version) {
+		return ErrHelperArtifact
+	}
+	dir, err := c.sourceDir(sourceID)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	content, err := json.Marshal(helperOwnership{Version: version})
+	if err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(dir, ".helper-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(content); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	path, err := c.helperOwnershipPath(sourceID)
+	if err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
+}
+
+func (c *Cache) RemoveHelperVersion(sourceID string) error {
+	path, err := c.helperOwnershipPath(sourceID)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // LoadV2 returns ok=false for a missing, corrupt, or out-of-bounds file

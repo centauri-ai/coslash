@@ -52,6 +52,26 @@ function reasonMessage(reason: MachineReason | undefined): string {
       return 'agent data could not be parsed';
     case 'local_cache_failed':
       return 'the Mac cache could not be updated';
+    case 'helper_missing':
+      return 'the optional helper is not installed; using SFTP';
+    case 'helper_not_executable':
+      return 'the helper cannot run; using SFTP';
+    case 'helper_incompatible':
+    case 'helper_upgrade_required':
+      return 'the helper needs an approved upgrade; using SFTP';
+    case 'helper_platform_unsupported':
+      return 'this platform uses SFTP only';
+    case 'helper_verification_failed':
+    case 'helper_revoked':
+      return 'the helper was not trusted and will not run';
+    case 'helper_installation_failed':
+      return 'the helper could not be installed; using SFTP';
+    case 'helper_rolled_back':
+      return 'the helper update was rolled back';
+    case 'output_limit':
+      return 'helper output reached a safety limit';
+    case 'helper_failed':
+      return 'the helper collection failed';
     default:
       return 'the SFTP refresh failed';
   }
@@ -62,7 +82,7 @@ function stripMessage(machine: MachineFact, nowMs: number): string {
     case 'connecting':
       return machine.reason === 'broader_history'
         ? `${machine.label} · refreshing older history · showing the previous view`
-        : `${machine.label} · connecting over SFTP…`;
+        : `${machine.label} · connecting over ${machine.transport === 'helper' ? 'the helper' : 'SFTP'}…`;
     case 'limited':
       return `${machine.label} · ${reasonMessage(machine.reason)}`;
     case 'stale':
@@ -93,7 +113,7 @@ export function hostStripModel(
 }
 
 export function formatTestConnectionResult(machine: MachineFact): string {
-  if (machine.state === 'ok') return 'Connected · SFTP is ready · no Linux coSlash installation needed';
+  if (machine.state === 'ok') return 'Connected · SFTP is ready · optional helper available with your consent';
   return `${machine.label} · ${machine.error || reasonMessage(machine.reason)}`;
 }
 

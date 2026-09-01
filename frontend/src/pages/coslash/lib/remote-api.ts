@@ -27,3 +27,24 @@ export async function retryRemoteRefresh(): Promise<{ status: number; machine: M
   }
   return { status: response.status, machine: decodeMachineFact(body) };
 }
+
+export async function setupRemoteHelper(consent: 'install' | 'upgrade'): Promise<MachineFact> {
+  const response = await apiFetch('/api/remote/helper/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ install: consent === 'install', upgrade: consent === 'upgrade' }),
+  });
+  const body: unknown = await response.json();
+  if (!response.ok) {
+    const apiError = decodeApiError(body);
+    throw Object.assign(new Error(apiError.error), { code: apiError.code, status: response.status });
+  }
+  return decodeMachineFact(body);
+}
+
+export async function uninstallRemoteHelper(): Promise<void> {
+  const response = await apiFetch('/api/remote/helper/uninstall', { method: 'POST' });
+  if (response.ok) return;
+  const apiError = await readApiError(response);
+  throw new Error(apiError?.error || `Helper uninstall failed (${response.status})`);
+}

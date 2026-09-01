@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { firstTimeSshHint, formatTestConnectionResult } from '@/pages/coslash/lib/host-strip';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
-import { testRemoteAlias } from '@/pages/coslash/lib/remote-api';
+import { setupRemoteHelper, testRemoteAlias, uninstallRemoteHelper } from '@/pages/coslash/lib/remote-api';
 import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
 
 export function MachinesSettingsSection({
@@ -18,17 +18,18 @@ export function MachinesSettingsSection({
   const [testResult, setTestResult] = useState<MachineFact | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [helperAction, setHelperAction] = useState<'install' | 'upgrade' | null>(null);
+  const [removeAction, setRemoveAction] = useState<'only' | 'uninstall' | null>(null);
 
   const setAlias = (sshAlias: string) => {
     setTestResult(null);
     setTestError(null);
-    setConfirmRemove(false);
+    setRemoveAction(null);
     onChange({ ...draft, sshAlias });
   };
 
   const setEnabled = (enabled: boolean) => {
-    setConfirmRemove(false);
+    setRemoveAction(null);
     onChange({ ...draft, enabled });
   };
 
@@ -50,12 +51,36 @@ export function MachinesSettingsSection({
     }
   };
 
-  const removeHost = () => {
-    if (!confirmRemove) {
-      setConfirmRemove(true);
+  const setupHelper = async (consent: 'install' | 'upgrade') => {
+    setHelperAction(consent);
+    setTestError(null);
+    try {
+      setTestResult(await setupRemoteHelper(consent));
+    } catch (error: unknown) {
+      setTestError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setHelperAction(null);
+    }
+  };
+
+  const removeHost = async (action: 'only' | 'uninstall') => {
+    if (removeAction !== action) {
+      setRemoveAction(action);
       return;
     }
-    setConfirmRemove(false);
+    if (action === 'uninstall') {
+      setTesting(true);
+      setTestError(null);
+      try {
+        await uninstallRemoteHelper();
+      } catch (error: unknown) {
+        setTestError(error instanceof Error ? error.message : String(error));
+        setTesting(false);
+        return;
+      }
+      setTesting(false);
+    }
+    setRemoveAction(null);
     setTestResult(null);
     setTestError(null);
     onChange(null);
@@ -75,8 +100,8 @@ export function MachinesSettingsSection({
         <div className="flex flex-col gap-1 p-4">
           <div className="text-sm font-semibold">Remote host</div>
           <div className="text-muted-foreground text-xs text-pretty">
-            Monitor Claude Code and Codex through your existing SSH config. Linux only needs SSH/SFTP and
-            readable agent files; do not install coSlash there.
+            Monitor Claude Code and Codex through your existing SSH config. SFTP works without Linux code;
+            you can explicitly install the optional, verified collection helper for faster refreshes.
           </div>
         </div>
 
@@ -100,7 +125,7 @@ export function MachinesSettingsSection({
             <div className="text-muted-foreground text-[11px]">
               {draft.enabled
                 ? 'Monitor this host on the board'
-                : 'Disabled — no remote cards or strip; cache retained'}
+                : 'Disabled — no remote cards or strip; cache and any installed helper are retained'}
             </div>
           </div>
           <button
@@ -136,9 +161,33 @@ export function MachinesSettingsSection({
               {testing ? 'Testing…' : 'Test connection'}
             </Button>
             {hasHost && (
-              <Button type="button" variant="outline" size="sm" onClick={removeHost}>
-                {confirmRemove ? 'Confirm remove' : 'Remove host'}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={testing || helperAction != null}
+                  onClick={() => void setupHelper(testResult?.helper?.state === 'deprecated' ? 'upgrade' : 'install')}
+                >
+                  {helperAction != null
+                    ? 'Setting up helper…'
+                    : testResult?.helper?.state === 'deprecated'
+                      ? 'Upgrade helper'
+                      : 'Install helper'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => void removeHost('only')}>
+                  {removeAction === 'only' ? 'Confirm remove only' : 'Remove host only'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={testing || helperAction != null}
+                  onClick={() => void removeHost('uninstall')}
+                >
+                  {removeAction === 'uninstall' ? 'Confirm uninstall and remove' : 'Uninstall helper and remove'}
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -153,6 +202,13 @@ export function MachinesSettingsSection({
             })}
           >
             {testError ?? (testResult ? formatTestConnectionResult(testResult) : null)}
+            {testResult?.helper && (
+              <div className="pt-1">
+                Helper: {testResult.helper.version ? `${testResult.helper.version} · ` : ''}
+                {testResult.helper.compatible ? 'compatible' : 'not ready'}
+                {testResult.helper.fallback ? ' · using SFTP fallback' : ''}
+              </div>
+            )}
             {showFirstTimeHint && <div className="pt-1">{firstTimeSshHint(draft.sshAlias.trim())}</div>}
           </div>
         )}

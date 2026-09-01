@@ -39,16 +39,19 @@ type boardSession struct {
 }
 
 type machineFact struct {
-	SourceID        string                 `json:"sourceId"`
-	Label           string                 `json:"label"`
-	State           remote.State           `json:"state"`
-	Complete        bool                   `json:"complete"`
-	Reason          *remote.Reason         `json:"reason,omitempty"`
-	LastSuccessAtMs *int64                 `json:"lastSuccessAtMs,omitempty"`
-	CoverageSinceMs *int64                 `json:"coverageSinceMs,omitempty"`
-	RoundTripMs     *int64                 `json:"roundTripMs,omitempty"`
-	Coverage        []remote.AgentCoverage `json:"coverage,omitempty"`
-	Error           string                 `json:"error,omitempty"`
+	SourceID        string                   `json:"sourceId"`
+	Label           string                   `json:"label"`
+	State           remote.State             `json:"state"`
+	Complete        bool                     `json:"complete"`
+	Reason          *remote.Reason           `json:"reason,omitempty"`
+	LastSuccessAtMs *int64                   `json:"lastSuccessAtMs,omitempty"`
+	CoverageSinceMs *int64                   `json:"coverageSinceMs,omitempty"`
+	RoundTripMs     *int64                   `json:"roundTripMs,omitempty"`
+	Coverage        []remote.AgentCoverage   `json:"coverage,omitempty"`
+	Error           string                   `json:"error,omitempty"`
+	Transport       remote.Transport         `json:"transport"`
+	Helper          *remote.HelperStatus     `json:"helper,omitempty"`
+	Metrics         remote.CollectionMetrics `json:"metrics"`
 }
 
 func localMachineFact() machineFact {
@@ -61,6 +64,7 @@ func machineFromHealth(health remote.Health) machineFact {
 		Complete: health.Complete, Reason: health.Reason,
 		LastSuccessAtMs: health.LastSuccessAtMs, CoverageSinceMs: health.CoverageSinceMs,
 		RoundTripMs: health.RoundTripMs, Coverage: health.Coverage, Error: health.Error,
+		Transport: health.Transport, Helper: health.Helper, Metrics: health.Metrics,
 	}
 }
 

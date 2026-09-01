@@ -72,7 +72,7 @@ func ParseFamilyFilesSource(
 	home string,
 	files []string,
 ) ([]*vendors.ParsedSession, error) {
-	parsed, err := parseFilesSourceStrict(
+	parsed, _, err := parseFilesSourceStrict(
 		source,
 		filepath.Join(home, ".codex", "archived_sessions"),
 		files,

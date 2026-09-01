@@ -44,6 +44,8 @@ type refreshOutcome struct {
 	Failures  []error
 	Stderr    string
 	RoundTrip time.Duration
+	Metrics   CollectionMetrics
+	Reason    *Reason
 }
 
 type probeResult struct {
@@ -61,10 +63,13 @@ type openFunc func(context.Context, string, OpenOptions) (*Session, error)
 type Manager struct {
 	mu sync.Mutex
 
-	cache   *Cache
-	now     func() time.Time
-	refresh refreshFunc
-	test    probeFunc
+	cache            *Cache
+	now              func() time.Time
+	refresh          refreshFunc
+	helperRefresh    helperRefreshFunc
+	test             probeFunc
+	releaseProvider  HelperReleaseProvider
+	lifecycleFactory lifecycleFactory
 
 	cfg        *settings.RemoteSettings
 	lifeCtx    context.Context
@@ -87,14 +92,25 @@ type Manager struct {
 	failures        int
 	nextRetryAt     time.Time
 	lastSuccessAt   *int64
+	transport       Transport
+	helper          *HelperStatus
+	helperTarget    *helperTarget
+	helperVersion   string
+	metrics         CollectionMetrics
 }
 
 type Options struct {
 	Cache   *Cache
 	Now     func() time.Time
 	Refresh refreshFunc
-	Test    probeFunc
-	Open    openFunc
+	// HelperRefresh is only invoked after SetupHelper creates a verified target.
+	// Supplying it is useful for deterministic manager tests.
+	HelperRefresh    helperRefreshFunc
+	ReleaseProvider  HelperReleaseProvider
+	LifecycleFactory lifecycleFactory
+	Trust            TrustStore
+	Test             probeFunc
+	Open             openFunc
 }
 
 func NewManager(options Options) *Manager {
@@ -122,9 +138,20 @@ func NewManager(options Options) *Manager {
 			return probeSFTPWithOpen(ctx, alias, open)
 		}
 	}
+	helperRefresh := options.HelperRefresh
+	if helperRefresh == nil {
+		helperRefresh = func(ctx context.Context, alias string, since int64, now time.Time, baseline CachedSnapshotV2, target helperTarget) (refreshOutcome, error) {
+			return helperRefreshWithOpen(ctx, alias, since, now, baseline, target, OpenOptions{})
+		}
+	}
+	factory := options.LifecycleFactory
+	if factory == nil && options.ReleaseProvider != nil {
+		factory = defaultLifecycleFactory(options.Trust)
+	}
 	return &Manager{
-		cache: cache, now: now, refresh: refresh, test: test,
-		state: StateDisabled, complete: true,
+		cache: cache, now: now, refresh: refresh, helperRefresh: helperRefresh, test: test,
+		releaseProvider: options.ReleaseProvider, lifecycleFactory: factory,
+		state: StateDisabled, complete: true, transport: TransportSFTP,
 	}
 }
 
@@ -149,9 +176,20 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		if err := manager.cache.RemoveSource(remote.ID); err != nil {
 			return err
 		}
+		manager.helper = nil
+		manager.helperTarget = nil
 	}
 	copyConfig := *remote
 	manager.cfg = &copyConfig
+	version, ok, err := manager.cache.LoadHelperVersion(remote.ID)
+	if err != nil {
+		return err
+	}
+	if ok {
+		manager.helperVersion = version
+	} else {
+		manager.helperVersion = ""
+	}
 	if !remote.Enabled {
 		manager.cancelLifeLocked()
 		manager.refreshing = false
@@ -159,6 +197,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		manager.reason = reasonPtr(ReasonDisabled)
 		manager.complete = true
 		manager.errorCopy = ""
+		manager.transport = TransportSFTP
 		exitControlMasterBestEffort(remote.SSHAlias)
 		return nil
 	}
@@ -219,6 +258,7 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 	health := Health{
 		Label: alias, Complete: true, Coverage: slices.Clone(result.Coverage),
 		RoundTripMs: int64Ptr(result.RoundTrip.Milliseconds()),
+		Transport:   TransportSFTP,
 	}
 	if err != nil {
 		reason := classifyError(err)
@@ -276,6 +316,11 @@ func (manager *Manager) removeLocked() error {
 	manager.failures = 0
 	manager.nextRetryAt = time.Time{}
 	manager.lastSuccessAt = nil
+	manager.transport = TransportSFTP
+	manager.helper = nil
+	manager.helperTarget = nil
+	manager.helperVersion = ""
+	manager.metrics = CollectionMetrics{}
 	exitControlMasterBestEffort(alias)
 	if sourceID != "" {
 		return manager.cache.RemoveSource(sourceID)
@@ -358,7 +403,12 @@ func (manager *Manager) kickRefreshLocked(remoteSinceMs int64) {
 	}
 	config := *manager.cfg
 	baseline := snapshotOrEmpty(manager.snapshot)
-	go manager.runRefresh(manager.lifeCtx, config, remoteSinceMs, baseline)
+	var helper *helperTarget
+	if manager.helperTarget != nil {
+		copy := *manager.helperTarget
+		helper = &copy
+	}
+	go manager.runRefresh(manager.lifeCtx, config, remoteSinceMs, baseline, helper)
 }
 
 func (manager *Manager) runRefresh(
@@ -366,8 +416,15 @@ func (manager *Manager) runRefresh(
 	config settings.RemoteSettings,
 	remoteSinceMs int64,
 	baseline CachedSnapshotV2,
+	helper *helperTarget,
 ) {
-	result, err := manager.refresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline)
+	var result refreshOutcome
+	var err error
+	if helper != nil {
+		result, err = manager.helperRefresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline, *helper)
+	} else {
+		result, err = manager.refresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline)
+	}
 	fetchedAt := manager.now().UnixMilli()
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -380,10 +437,18 @@ func (manager *Manager) runRefresh(
 		if diagnostic == "" {
 			diagnostic = sshErrorStderr(err)
 		}
-		manager.applyFailureLocked(classifyError(err), diagnostic)
+		reason := classifyError(err)
+		if helper != nil {
+			reason = classifyHelperError(err)
+			manager.metrics = metricsFor(result)
+			manager.transport = TransportHelper
+		}
+		manager.applyFailureLocked(reason, diagnostic)
 		return
 	}
 	if reason := limitedResultReason(result); reason != nil {
+		manager.transport = transportFor(helper)
+		manager.metrics = metricsFor(result)
 		manager.applyLimitedLocked(result, *reason, fetchedAt)
 		return
 	}
@@ -397,6 +462,23 @@ func (manager *Manager) runRefresh(
 	manager.complete = true
 	manager.state = StateOK
 	manager.reason = nil
+	manager.transport = transportFor(helper)
+	manager.metrics = metricsFor(result)
+}
+
+func metricsFor(result refreshOutcome) CollectionMetrics {
+	metrics := result.Metrics
+	if metrics.RoundTripMs == 0 {
+		metrics.RoundTripMs = result.RoundTrip.Milliseconds()
+	}
+	return metrics
+}
+
+func transportFor(helper *helperTarget) Transport {
+	if helper != nil {
+		return TransportHelper
+	}
+	return TransportSFTP
 }
 
 func (manager *Manager) publishSnapshotLocked(result refreshOutcome, fetchedAt int64) bool {
@@ -474,6 +556,7 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		Complete: manager.complete, Reason: manager.reason, Error: manager.errorCopy,
 		DiagnosticStderr: manager.diagnostic, Refreshing: manager.refreshing,
 		LastSuccessAtMs: manager.lastSuccessAt,
+		Transport:       manager.transport, Helper: manager.helper, Metrics: manager.metrics,
 	}
 	if !manager.cfg.Enabled {
 		health.State = StateDisabled
@@ -556,6 +639,8 @@ func noSupportedData(coverage []AgentCoverage) bool {
 
 func limitedResultReason(result refreshOutcome) *Reason {
 	switch {
+	case result.Reason != nil:
+		return result.Reason
 	case len(result.Failures) > 0:
 		return reasonPtr(ReasonPartialAgentData)
 	case slices.ContainsFunc(result.Snapshot.Coverage, func(item AgentCoverage) bool { return item.Truncated }):

@@ -138,6 +138,60 @@ func TestHardFailureFallsBackToStaleWhenCacheExists(t *testing.T) {
 	manager.mu.Unlock()
 }
 
+type fixedHelperRelease struct {
+	document SignedReleaseMetadata
+	content  []byte
+}
+
+func (release fixedHelperRelease) Load(context.Context) (SignedReleaseMetadata, []byte, error) {
+	return release.document, release.content, nil
+}
+
+func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	remote, artifact, content := lifecycleFixture(t)
+	var sftpCalls atomic.Int32
+	var helperCalls atomic.Int32
+	manager := NewManager(Options{
+		Cache: NewCache(filepath.Join(home, "remote-cache")),
+		Now:   time.Now,
+		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+			sftpCalls.Add(1)
+			return refreshOutcome{}, nil
+		},
+		HelperRefresh: func(_ context.Context, _ string, _ int64, _ time.Time, _ CachedSnapshotV2, target helperTarget) (refreshOutcome, error) {
+			helperCalls.Add(1)
+			if target.path == "" || target.version != artifact.Version {
+				t.Fatalf("unverified helper target = %#v", target)
+			}
+			return refreshOutcome{Metrics: CollectionMetrics{RequestBytes: 5, ResponseBytes: 9, Records: 2}}, ErrHelperFailed
+		},
+		ReleaseProvider:  fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory: func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	health := manager.SetupHelper(context.Background(), Consent{Install: true})
+	if health.Helper == nil || !health.Helper.Compatible || health.Helper.Version != artifact.Version {
+		t.Fatalf("setup health = %#v", health)
+	}
+	manager.ListView(time.Now().Add(-time.Hour).UnixMilli())
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return !manager.refreshing
+	})
+	health = manager.DiagnosticsHealth()
+	if helperCalls.Load() != 1 || sftpCalls.Load() != 0 {
+		t.Fatalf("helper calls=%d sftp calls=%d", helperCalls.Load(), sftpCalls.Load())
+	}
+	if health.Transport != TransportHelper || health.Reason == nil || *health.Reason != ReasonHelperFailed {
+		t.Fatalf("failure health = %#v", health)
+	}
+}
+
 func waitUntil(t *testing.T, ready func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

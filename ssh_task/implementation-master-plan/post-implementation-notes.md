@@ -16,7 +16,8 @@ one section when each master-plan task reaches `review` or `done`.
 | T02 — Cache v2 and incremental SFTP | done | Branch `hlu/ssh-mix-02`; commits `bcba054`, `c66217f` |
 | T03 — Linux helper and SSH transport | done | Branch `hlu/t03-helper-and-ssh-transport`; commits `0a9dc20`, `96dac46` |
 | T04 — Helper lifecycle and compatibility | done | Branch `hlu/ssh-mix-04`; amended T04 implementation commit |
-| T05–T07 | not started | Follow the master-plan dependency order |
+| T05 — Manager, setup UI, diagnostics, and docs | in progress | Branch `hlu/ssh-mix-05`; release trust material pending |
+| T06–T07 | not started | Follow the master-plan dependency order |
 
 ## T01 — Contracts, metrics, and fixtures
 

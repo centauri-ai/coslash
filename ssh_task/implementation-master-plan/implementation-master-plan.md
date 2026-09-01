@@ -1,6 +1,6 @@
 # SSH helper implementation master plan
 
-Status: implementation in progress; T01–T04 complete
+Status: implementation in progress; T01–T04 complete, T05 in progress
 
 Last updated: 2026-09-01
 
@@ -45,7 +45,7 @@ separate because they have distinct risk and approval gates.
 | T02 | Cache v2 and incremental SFTP | done | T01 | — | [Brief](02-cache-and-incremental-sftp.md) |
 | T03 | Linux helper and SSH transport | done | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | done | T03 | — | [Brief](04-helper-lifecycle-and-compatibility.md) |
-| T05 | Manager, setup UI, diagnostics, and docs | not_started | T02, T03, T04 | Final consent copy needs product approval | [Brief](05-manager-ui-diagnostics-docs.md) |
+| T05 | Manager, setup UI, diagnostics, and docs | in_progress | T02, T03, T04 | Production signed release key/metadata source still needs approval | [Brief](05-manager-ui-diagnostics-docs.md) |
 | T06 | Security and fault hardening | not_started | T02–T05 | Threat-model review required | [Brief](06-security-and-fault-hardening.md) |
 | T07 | Full validation and rollout gate | not_started | T01–T06 | All implementation tasks must be done | [Brief](07-full-validation-and-rollout.md) |
 
@@ -140,6 +140,15 @@ Remaining blocker/risk: <none or exact issue>
 ```
 
 ## Global blockers and change log
+
+- 2026-09-01: T05 integration began on branch `hlu/ssh-mix-05`. The dependency
+  merge was repaired and focused package tests pass. The manager now has a
+  verified-helper-only collection boundary, explicit SFTP fallback state,
+  helper lifecycle API routes, safe collection metrics, frontend decoders and
+  setup/removal controls, plus aligned documentation. A production
+  `HelperReleaseProvider` still needs the approved embedded trust key, signed
+  metadata endpoint, and artifact source; without it the install control
+  remains visibly unavailable and does not upload or execute code.
 
 - 2026-09-01: T04 completed on branch
   `hlu/ssh-mix-04`. It fixes the optional helper location to

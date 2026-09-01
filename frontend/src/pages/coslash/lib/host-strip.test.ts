@@ -30,9 +30,9 @@ describe('Mac-only remote health copy', () => {
     ['error', 'permission_denied'],
     ['limited', 'no_supported_data'],
     ['error', 'invalid_remote_data'],
-  ] as const)('renders %s / %s without Linux installation guidance', (state, reason) => {
+  ] as const)('renders %s / %s without helper-only guidance', (state, reason) => {
     const model = hostStripModel(machine(state, reason), { nowMs: 10_000 });
-    expect(model.message).not.toMatch(/collector|install|upgrade/i);
+    expect(model.message).not.toMatch(/collector|helper/i);
     expect(model.actions).not.toContain('installation');
   });
 
@@ -42,8 +42,8 @@ describe('Mac-only remote health copy', () => {
     expect(hostStripVisible(machine('limited', 'partial_agent_data'))).toBe(true);
   });
 
-  it('describes SFTP-only setup and first-use SSH guidance', () => {
-    expect(formatTestConnectionResult(machine('ok'))).toContain('no Linux coSlash installation needed');
+  it('describes optional-helper setup and first-use SSH guidance', () => {
+    expect(formatTestConnectionResult(machine('ok'))).toContain('optional helper');
     expect(firstTimeSshHint('gpu-server')).toContain('ssh gpu-server');
   });
 });

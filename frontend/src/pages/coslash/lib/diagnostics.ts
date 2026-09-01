@@ -34,6 +34,15 @@ export type RemoteDiagnostics = {
   nextRetryAtMs?: number;
   error?: string;
   diagnosticStderr?: string;
+  transport?: string;
+  helperState?: string;
+  helperVersion?: string;
+  helperCompatible?: boolean;
+  helperFallback?: boolean;
+  helperReason?: string;
+  requestBytes?: number;
+  responseBytes?: number;
+  records?: number;
 };
 
 export type Diagnostics = {

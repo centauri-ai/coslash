@@ -3,6 +3,7 @@ import { launchRequestPath } from '@/pages/coslash/hooks/use-launch-terminal';
 import { decodeApiError } from '@/pages/coslash/lib/api';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import { remoteTestRequestInit } from '@/pages/coslash/lib/remote-api';
+import { decodeMachineFact } from '@/pages/coslash/lib/machines';
 import { LOCAL_SOURCE_ID, type SessionDetail } from '@/pages/coslash/lib/session';
 import { decodeRemoteHostSettings, decodeSettingsResponse } from '@/pages/coslash/lib/settings';
 
@@ -107,6 +108,25 @@ describe('settings and remote API decoders', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sshAlias: 'gpu-server' }),
+    });
+  });
+
+  it('decodes helper transport, lifecycle, and safe metrics', () => {
+    expect(
+      decodeMachineFact({
+        sourceId: 'r_0123456789abcdef',
+        label: 'gpu-server',
+        state: 'limited',
+        complete: false,
+        reason: 'output_limit',
+        transport: 'helper',
+        helper: { state: 'deprecated', version: 'v1', compatible: true, fallback: false, reason: 'helper_upgrade_required' },
+        metrics: { requestBytes: 120, responseBytes: 456, records: 3, roundTripMs: 40 },
+      }),
+    ).toMatchObject({
+      transport: 'helper',
+      helper: { state: 'deprecated', version: 'v1', compatible: true },
+      metrics: { responseBytes: 456, records: 3 },
     });
   });
 });

@@ -47,7 +47,7 @@ func classifyHelperError(err error) Reason {
 		errors.Is(err, ErrInvalidAlias):
 		return ReasonHelperFailed
 	case errors.Is(err, ErrHelperFailed):
-		return ReasonInvalidData
+		return ReasonHelperFailed
 	default:
 		return classifyError(err)
 	}
@@ -57,6 +57,8 @@ func classifyHelperError(err error) Reason {
 // failures so callers can accurately offer SFTP, consent, or repair actions.
 func classifyLifecycleError(err error) Reason {
 	switch {
+	case errors.Is(err, errHelperReleaseUnavailable):
+		return ReasonHelperMissing
 	case errors.Is(err, ErrUnsupportedHelperPlatform):
 		return ReasonHelperUnsupported
 	case errors.Is(err, ErrHelperMetadata), errors.Is(err, ErrHelperArtifact),

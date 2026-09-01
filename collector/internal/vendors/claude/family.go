@@ -7,13 +7,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// FamilyIDFromPath names the card a transcript belongs to: a subagent joins its
-// parent root, a root names itself. Helper collection groups files this way
-// before it decides which families changed.
-func FamilyIDFromPath(file string) string {
-	return familyIDFromPath(file)
-}
-
 // SessionIDFromPath returns the session a transcript file carries. Subagent
 // files are named agent-<id>.jsonl, so the file basename is the identity for
 // both roots and children.
@@ -28,5 +21,6 @@ func ParseFamilyFilesSource(
 	source vendors.ReadSource,
 	files []string,
 ) ([]*vendors.ParsedSession, error) {
-	return parseFilesSourceStrict(source, files)
+	parsed, _, err := parseFilesSourceStrict(source, files)
+	return parsed, err
 }

@@ -182,3 +182,29 @@ func TestCacheV1RemainsLoadableAlongsideV2(t *testing.T) {
 		t.Fatalf("v1 sessions = %d, want 1", len(v1.Sessions))
 	}
 }
+
+func TestCacheHelperOwnershipPersistsOnlyAValidatedVersion(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	const sourceID = "r_0123456789abcdef"
+	if err := cache.StoreHelperVersion(sourceID, "v1.2.3"); err != nil {
+		t.Fatalf("StoreHelperVersion: %v", err)
+	}
+	version, ok, err := cache.LoadHelperVersion(sourceID)
+	if err != nil || !ok || version != "v1.2.3" {
+		t.Fatalf("LoadHelperVersion = %q, %v, %v", version, ok, err)
+	}
+	path, err := cache.helperOwnershipPath(sourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("helper ownership mode = %v, err=%v", info.Mode(), err)
+	}
+	if err := cache.RemoveHelperVersion(sourceID); err != nil {
+		t.Fatalf("RemoveHelperVersion: %v", err)
+	}
+	if _, ok, err := cache.LoadHelperVersion(sourceID); err != nil || ok {
+		t.Fatalf("removed ownership should be absent: ok=%v err=%v", ok, err)
+	}
+}

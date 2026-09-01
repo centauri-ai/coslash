@@ -36,18 +36,21 @@ const (
 )
 
 type Health struct {
-	SourceID         string          `json:"sourceId"`
-	Label            string          `json:"label"`
-	State            State           `json:"state"`
-	Complete         bool            `json:"complete"`
-	Reason           *Reason         `json:"reason,omitempty"`
-	LastSuccessAtMs  *int64          `json:"lastSuccessAtMs,omitempty"`
-	CoverageSinceMs  *int64          `json:"coverageSinceMs,omitempty"`
-	RoundTripMs      *int64          `json:"roundTripMs,omitempty"`
-	Coverage         []AgentCoverage `json:"coverage,omitempty"`
-	Error            string          `json:"error,omitempty"`
-	DiagnosticStderr string          `json:"-"`
-	Refreshing       bool            `json:"-"`
+	SourceID         string            `json:"sourceId"`
+	Label            string            `json:"label"`
+	State            State             `json:"state"`
+	Complete         bool              `json:"complete"`
+	Reason           *Reason           `json:"reason,omitempty"`
+	LastSuccessAtMs  *int64            `json:"lastSuccessAtMs,omitempty"`
+	CoverageSinceMs  *int64            `json:"coverageSinceMs,omitempty"`
+	RoundTripMs      *int64            `json:"roundTripMs,omitempty"`
+	Coverage         []AgentCoverage   `json:"coverage,omitempty"`
+	Error            string            `json:"error,omitempty"`
+	DiagnosticStderr string            `json:"-"`
+	Refreshing       bool              `json:"-"`
+	Transport        Transport         `json:"transport"`
+	Helper           *HelperStatus     `json:"helper,omitempty"`
+	Metrics          CollectionMetrics `json:"metrics"`
 }
 
 func reasonPtr(reason Reason) *Reason { return &reason }
@@ -104,6 +107,11 @@ func genericErrorCopy(reason Reason) string {
 		return "refresh timed out"
 	case ReasonHistoryTruncated:
 		return "history truncated by safety limits"
+	case ReasonHelperMissing, ReasonHelperBlocked, ReasonHelperIncompatible,
+		ReasonHelperFailed, ReasonOutputLimit, ReasonHelperUnsupported,
+		ReasonHelperVerification, ReasonHelperInstallation, ReasonHelperRevoked,
+		ReasonHelperUpgrade, ReasonHelperRollback:
+		return helperErrorCopy(reason)
 	default:
 		return "remote refresh failed"
 	}
