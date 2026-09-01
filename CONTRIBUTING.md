@@ -16,7 +16,7 @@ The Go collector and local API live in `collector/`; the React, Vite, and Tailwi
 
 ## Develop
 
-Building from source requires **Go 1.26+** and **Node 24+** (see `collector/go.mod` and `frontend/.nvmrc`). End users should install a prebuilt binary instead; see the [README Install section](../README.md#install).
+Building from source requires **Go 1.26+** and **Node 24+** (see `collector/go.mod` and `frontend/.nvmrc`). End users should install a prebuilt binary instead; see the [README Install section](README.md#install).
 
 Build the embedded production binary:
 
