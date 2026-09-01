@@ -44,6 +44,12 @@ import {
   formatTokens,
 } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
+import {
+  blocksFromTexts,
+  collapseDebriefBlocks,
+  parseDebriefText,
+  type DebriefBlock,
+} from '@/pages/coslash/lib/debrief-text';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
   boardStatusKey,
@@ -438,6 +444,7 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
       <span>Synthesizing…</span>
     </div>
   );
+  const outcome = getSessionOutcome(detail);
 
   return (
     <div>
@@ -454,24 +461,21 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
             {goalSourceLabel(goal.source)}
           </Badge>
         </div>
-        {goal.texts.length === 1 ? (
-          <div className="line-clamp-4 pt-2 text-xs italic">{goal.texts[0]}</div>
-        ) : (
-          <div className="flex flex-col gap-1 pt-2">
-            {goal.texts.map((text) => (
-              <div key={text} className="flex items-start gap-2 text-xs italic">
-                <span className="bg-muted-foreground mt-1 size-1 shrink-0 rounded-full" />
-                <span className="line-clamp-2">{text}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="pt-2">
+          <DebriefProse blocks={blocksFromTexts(goal.texts)} tone="goal" />
+        </div>
         <div className="border-b pt-3" />
         <div className="text-muted-foreground pt-3 text-xs">OUTCOME</div>
         {synthesizing ? (
           synthesisPlaceholder
         ) : (
-          <div className="pt-1 text-xs">{getSessionOutcome(detail) ?? '—'}</div>
+          <div className="pt-1">
+            <DebriefProse
+              blocks={outcome ? parseDebriefText(outcome) : []}
+              empty="—"
+              tone="outcome"
+            />
+          </div>
         )}
         <div className="text-muted-foreground pt-3 text-xs">KEY DECISIONS</div>
         {synthesizing ? (
@@ -493,9 +497,105 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
   );
 }
 
+const DEBRIEF_PREVIEW_UNITS = 3;
+
+function DebriefProse({
+  blocks,
+  empty = '—',
+  tone,
+}: {
+  blocks: DebriefBlock[];
+  empty?: string;
+  tone: 'goal' | 'outcome';
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (blocks.length === 0) return <div className="text-xs">{empty}</div>;
+
+  const preview = collapseDebriefBlocks(blocks, DEBRIEF_PREVIEW_UNITS);
+  const canExpand = preview.truncated;
+  const shown = expanded ? blocks : preview.blocks;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        key={expanded ? 'full' : 'preview'}
+        className={cn('border-border border-l-2 pl-3', {
+          'border-l-brand/40': tone === 'goal',
+          'border-l-recap/40': tone === 'outcome',
+        })}
+      >
+        <DebriefBlocks blocks={shown} tone={tone} />
+      </div>
+      {canExpand && (
+        <div
+          className="text-brand flex w-fit cursor-pointer items-center gap-1 text-xs select-none"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
+          <span>
+            {expanded
+              ? 'show less'
+              : preview.hiddenCount > 0
+                ? `show full · ${preview.hiddenCount} more`
+                : 'show full'}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DebriefBlocks({ blocks, tone }: { blocks: DebriefBlock[]; tone: 'goal' | 'outcome' }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {blocks.map((block, index) => {
+        if (block.kind === 'heading') {
+          return (
+            <div key={`h-${index}`} className="text-xs font-semibold tracking-wide">
+              {block.text}
+            </div>
+          );
+        }
+        if (block.kind === 'list') {
+          const ListTag = block.ordered ? 'ol' : 'ul';
+          return (
+            <ListTag
+              key={`l-${index}`}
+              className={cn('flex flex-col gap-1.5 text-xs', {
+                'list-decimal pl-4': block.ordered,
+                'list-none': !block.ordered,
+                italic: tone === 'goal',
+              })}
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`${index}-${itemIndex}`} className="flex items-start gap-2">
+                  {!block.ordered && (
+                    <span className="bg-muted-foreground mt-1.5 size-1 shrink-0 rounded-full" />
+                  )}
+                  <span className="min-w-0 flex-1 leading-relaxed">{item}</span>
+                </li>
+              ))}
+            </ListTag>
+          );
+        }
+        return (
+          <p
+            key={`p-${index}`}
+            className={cn('text-xs leading-relaxed', {
+              italic: tone === 'goal',
+            })}
+          >
+            {block.text}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 type DigestCategory = DigestEntry['category'];
 
-const DEFAULT_HIDDEN_CATEGORIES: DigestCategory[] = ['user', 'compaction'];
+const DEFAULT_HIDDEN_CATEGORIES: DigestCategory[] = [];
 
 const DIGEST_CATEGORIES: Record<DigestCategory, { label: string; fg: string; dot: string }> = {
   first_prompt: { label: 'FIRST PROMPT', fg: 'text-success-fg', dot: 'bg-success-fg' },

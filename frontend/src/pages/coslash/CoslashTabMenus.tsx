@@ -1,9 +1,10 @@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { type AgentVendor } from '@/pages/coslash/lib/board-filters';
 import { assertOneOf } from '@/pages/coslash/lib/narrow';
 import { getVendor, VENDOR_KEYS, type VendorKey } from '@/pages/coslash/lib/session';
 import { TIME_WINDOW_VALUES, TIME_WINDOWS, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
-export type AgentVendor = 'all' | VendorKey;
+export type { AgentVendor };
 export type ViewMode = 'list' | 'board';
 
 const AGENT_VENDORS = ['all', ...VENDOR_KEYS] as const satisfies readonly AgentVendor[];
