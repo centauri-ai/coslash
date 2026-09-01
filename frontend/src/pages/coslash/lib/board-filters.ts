@@ -50,10 +50,7 @@ export function saveBoardFilters(
 }
 
 /** Keep a selected vendor tab mounted even when the current result set has none. */
-export function vendorsForFilterMenu(
-  present: readonly VendorKey[],
-  selected: AgentVendor,
-): VendorKey[] {
+export function vendorsForFilterMenu(present: readonly VendorKey[], selected: AgentVendor): VendorKey[] {
   if (selected === 'all' || present.includes(selected)) return [...present];
   return VENDOR_KEYS.filter((vendor) => present.includes(vendor) || vendor === selected);
 }

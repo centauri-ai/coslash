@@ -28,9 +28,7 @@ describe('board filters', () => {
   });
 
   it('falls back on corrupt or unknown values', () => {
-    expect(loadBoardFilters(memoryStorage({ 'coslash.board-filters': '{' }))).toEqual(
-      DEFAULT_BOARD_FILTERS,
-    );
+    expect(loadBoardFilters(memoryStorage({ 'coslash.board-filters': '{' }))).toEqual(DEFAULT_BOARD_FILTERS);
     expect(
       loadBoardFilters(
         memoryStorage({ 'coslash.board-filters': JSON.stringify({ vendor: 'nope', timeWindow: 7 }) }),

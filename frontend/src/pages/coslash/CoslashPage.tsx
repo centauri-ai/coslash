@@ -38,11 +38,7 @@ import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDia
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
-import {
-  loadBoardFilters,
-  saveBoardFilters,
-  vendorsForFilterMenu,
-} from '@/pages/coslash/lib/board-filters';
+import { loadBoardFilters, saveBoardFilters, vendorsForFilterMenu } from '@/pages/coslash/lib/board-filters';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import {
