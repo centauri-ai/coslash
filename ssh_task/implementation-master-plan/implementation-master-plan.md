@@ -1,10 +1,12 @@
 # SSH helper implementation master plan
 
-Status: planning complete; implementation not started
+Status: implementation in progress; T01 complete
 
 Last updated: 2026-09-01
 
 Source design: `../mix-plan/ssh-helper-design-plan.md`
+
+Implementation record: [post-implementation-notes.md](post-implementation-notes.md)
 
 ## Outcome
 
@@ -139,5 +141,11 @@ Remaining blocker/risk: <none or exact issue>
 
 ## Global blockers and change log
 
+- 2026-09-01: T01 completed in commit `a400074`. The normalized family
+  contract, bounded protocol, merge accumulator, privacy census, deterministic
+  fixtures, and synthetic measurement command are ready for T02 and T03.
+  Real-host performance measurements remain a T07 rollout input. T02 and T03
+  retain the explicit approval gates shown in the work-item table.
 - 2026-09-01: Consolidated the original 12-task plan into seven boundary-owned
-  tasks to reduce handoffs and duplicated context. No implementation has started.
+  tasks to reduce handoffs and duplicated context. At that point implementation
+  had not started.
