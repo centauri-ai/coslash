@@ -243,13 +243,17 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 
 ## Develop
 
-Requires Go 1.26+ and Node 24+. The Go collector and local API live in `collector/`; the React, Vite, and Tailwind UI lives in `frontend/`.
+Building from source requires **Go 1.26+** and **Node 24+** (see `collector/go.mod` and `frontend/.nvmrc`). End users do not need these tools — use [Install](#install) above for a prebuilt binary.
+
+The Go collector and local API live in `collector/`; the React, Vite, and Tailwind UI lives in `frontend/`.
 
 ```sh
 cd collector
 make release
 ./bin/coslash
 ```
+
+If `make release` reports a missing `go` or `npm` command, install the toolchain first or switch to the curl/Homebrew install path.
 
 See [Contributing](CONTRIBUTING.md) for the development loop and checks.
 
