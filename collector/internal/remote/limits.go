@@ -7,7 +7,8 @@ import (
 
 const (
 	DefaultConnectTimeout = 60 * time.Second
-	DefaultDeadline       = 90 * time.Second
+	// Covers Claude and Codex over one SFTP session; large remote trees need headroom.
+	DefaultDeadline       = 3 * time.Minute
 	DefaultMaxFileBytes   = 32 << 20
 	DefaultMaxTotalBytes  = 128 << 20
 	DefaultMaxEntries     = 10_000
