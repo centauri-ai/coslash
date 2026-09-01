@@ -12,6 +12,10 @@ export type RemoteHostSettings = {
   enabled: boolean;
 };
 
+// Request-only intent sent beside a proposed settings replacement. It is not
+// serialized into settings.json.
+export type RemoteOwnershipAction = 'release' | 'uninstall';
+
 export type CoslashSettings = {
   $schema: string;
   version: number;

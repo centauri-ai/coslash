@@ -99,6 +99,89 @@ func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
 	}
 }
 
+func TestHelperSetupOutcomeUsesOperationSuccessNotBoardCoverage(t *testing.T) {
+	health := remote.Health{
+		State: remote.StateOK, Complete: false,
+		Helper: &remote.HelperStatus{State: remote.LifecycleReady, Compatible: true},
+	}
+	outcome, _, succeeded := helperSetupOutcome(health, true)
+	if !succeeded || outcome != "installed_and_tested" {
+		t.Fatalf("outcome = %q, succeeded=%v", outcome, succeeded)
+	}
+}
+
+func TestSettingsSaveCommitsOwnershipReleaseOnlyWithAliasReplacement(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	store := settings.Open()
+	cache := remote.NewCache(t.TempDir())
+	manager := remote.NewManager(remote.Options{Cache: cache})
+	previous := settings.Defaults()
+	previous.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "old-host", Enabled: true}
+	if err := store.Save(previous); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.StoreHelperVersion(previous.Remote.ID, "v1", previous.Remote.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(previous.Remote); err != nil {
+		t.Fatal(err)
+	}
+	next := previous
+	next.Remote = &settings.RemoteSettings{ID: previous.Remote.ID, SSHAlias: "new-host", Enabled: true}
+	body, err := json.Marshal(map[string]any{"settings": next, "remoteOwnershipAction": "release"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
+	response := httptest.NewRecorder()
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil), manager)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if got := store.State().Config.Remote; got == nil || got.SSHAlias != "new-host" {
+		t.Fatalf("saved remote = %#v", got)
+	}
+	if _, owned, err := cache.LoadHelperOwnership(previous.Remote.ID); err != nil || owned {
+		t.Fatalf("ownership was not released with replacement: owned=%v err=%v", owned, err)
+	}
+}
+
+func TestSettingsSaveRestoresOldSettingsWhenOwnershipActionFails(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	store := settings.Open()
+	cache := remote.NewCache(t.TempDir())
+	manager := remote.NewManager(remote.Options{Cache: cache})
+	previous := settings.Defaults()
+	previous.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "old-host", Enabled: true}
+	if err := store.Save(previous); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.StoreHelperVersion(previous.Remote.ID, "v1", previous.Remote.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(previous.Remote); err != nil {
+		t.Fatal(err)
+	}
+	next := previous
+	next.Remote = nil
+	body, err := json.Marshal(map[string]any{"settings": next, "remoteOwnershipAction": "uninstall"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
+	response := httptest.NewRecorder()
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil), manager)
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if got := store.State().Config.Remote; got == nil || got.SSHAlias != previous.Remote.SSHAlias {
+		t.Fatalf("settings were not restored: %#v", got)
+	}
+	if _, owned, err := cache.LoadHelperOwnership(previous.Remote.ID); err != nil || !owned {
+		t.Fatalf("failed uninstall lost ownership: owned=%v err=%v", owned, err)
+	}
+}
+
 func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	server := newServer(

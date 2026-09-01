@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -279,6 +280,40 @@ func TestRestartDiscoversAndReusesVerifiedHelperWithoutInstall(t *testing.T) {
 	}
 }
 
+func TestHelperTestSuccessDoesNotDependOnDurableSnapshotCoverage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	lifecycleRemote, _, content := lifecycleFixture(t)
+	manager := NewManager(Options{
+		Cache: NewCache(filepath.Join(home, "remote-cache")), Now: func() time.Time { return now },
+		ReleaseProvider:             fixedHelperRelease{document: lifecycleRemote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(lifecycleRemote), nil },
+		HelperInstallationAvailable: true,
+		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
+			return refreshOutcome{Snapshot: CachedSnapshotV2{Coverage: []AgentCoverage{{Agent: vendors.AgentClaude, CandidateFiles: 1, SelectedFiles: 1}}}}, nil
+		},
+	})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("setup health = %#v", health)
+	}
+	manager.mu.Lock()
+	manager.snapshot = &CachedSnapshotV2{Version: cacheV2Version, CoverageSinceMs: now.UnixMilli()}
+	manager.lastRequestedMs = 0
+	manager.mu.Unlock()
+	result := manager.TestHelper(context.Background())
+	if !result.Succeeded {
+		t.Fatalf("helper test failed because of unrelated board coverage: %#v", result)
+	}
+	if result.Health.Complete {
+		t.Fatal("fixture must keep board health incomplete to prove operation result is independent")
+	}
+}
+
 func TestHelperOwnershipBlocksAliasChangeUntilExplicitRelease(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	manager := NewManager(Options{Cache: cache})
@@ -315,6 +350,27 @@ func TestHealthReportsRecordedOwnershipEvenWhenNoHelperVersionIsInspectable(t *t
 	health := manager.DiagnosticsHealth()
 	if !health.HelperOwnershipRecorded || health.Helper != nil {
 		t.Fatalf("ownership must not be inferred from an inspectable helper version: %#v", health)
+	}
+}
+
+func TestCorruptOwnershipBlocksAliasReplacement(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	path, err := cache.helperOwnershipPath(config.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":"?"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{Cache: cache})
+	changed := *config
+	changed.SSHAlias = "new-host"
+	if err := manager.ValidateSettingsChange(&changed); !errors.Is(err, ErrHelperOwnershipCorrupt) {
+		t.Fatalf("corrupt ownership replacement error = %v", err)
 	}
 }
 

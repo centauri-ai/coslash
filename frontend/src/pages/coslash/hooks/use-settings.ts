@@ -4,6 +4,7 @@ import {
   decodeSettingsResponse,
   settingsForSave,
   type CoslashSettings,
+  type RemoteOwnershipAction,
   type SettingsResponse,
 } from '@/pages/coslash/lib/settings';
 
@@ -39,14 +40,14 @@ export function useSettings() {
     return () => controller.abort();
   }, []);
 
-  const save = async (settings: CoslashSettings): Promise<boolean> => {
+  const save = async (settings: CoslashSettings, remoteOwnershipAction?: RemoteOwnershipAction): Promise<boolean> => {
     setIsSaving(true);
     setSaveError(null);
     try {
       const result = await apiFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsForSave(settings)),
+        body: JSON.stringify({ settings: settingsForSave(settings), remoteOwnershipAction }),
       });
       if (!result.ok) throw new Error(await readError(result));
       setResponse(decodeSettingsResponse(await result.json()));

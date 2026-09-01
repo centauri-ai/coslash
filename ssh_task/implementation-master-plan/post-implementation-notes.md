@@ -55,6 +55,13 @@ one section when each master-plan task reaches `review` or `done`.
 - Ownership is reported separately from the currently inspectable helper
   version, so a missing or failed helper discovery cannot silently bypass the
   alias-change confirmation flow.
+- Alias replacement and host removal stage their explicit ownership action in
+  the Settings draft. The action is sent with the next settings write, never
+  when a dialog button is clicked; a failed uninstall restores the former
+  settings and leaves ownership intact. Helper collection testing reports its
+  own operation success independently of durable board coverage. Corrupt
+  ownership fails closed, while the prior version-only format is migrated only
+  by binding it to the configured SSH alias.
 
 ### Focused correction validation
 

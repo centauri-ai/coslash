@@ -171,6 +171,19 @@ func NewManager(options Options) *Manager {
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if remote != nil {
+		ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
+		if errors.Is(err, ErrHelperOwnershipLegacy) && owned {
+			// The old record was created while this was the only configured host.
+			// Bind it atomically to the persisted alias before any later alias
+			// comparison can be allowed.
+			if err := manager.cache.StoreHelperVersion(remote.ID, ownership.Version, remote.SSHAlias); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+	}
 	if err := manager.validateSettingsLocked(remote); err != nil {
 		return err
 	}

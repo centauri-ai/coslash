@@ -29,7 +29,7 @@ type helperSetupResponse struct {
 // helperSetupOutcome is separate from machine collection health. A host may
 // have a healthy SFTP cache while a requested helper action has failed; the
 // setup response must never present that operation as a green success.
-func helperSetupOutcome(health remote.Health) (outcome, errorCopy string, succeeded bool) {
+func helperSetupOutcome(health remote.Health, testSucceeded bool) (outcome, errorCopy string, succeeded bool) {
 	helper := health.Helper
 	if helper == nil || !helper.Compatible {
 		if helper == nil || helper.Reason == nil {
@@ -58,7 +58,7 @@ func helperSetupOutcome(health remote.Health) (outcome, errorCopy string, succee
 			return "sftp_fallback", genericHelperCopy(*helper.Reason), false
 		}
 	}
-	if health.State != remote.StateOK || !health.Complete {
+	if !testSucceeded {
 		return "helper_test_failed", "helper installed but its collection test did not complete", false
 	}
 	if helper.State == remote.LifecycleDeprecated {
@@ -128,10 +128,13 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Minute)
 	defer cancel()
 	setup := manager.SetupHelper(ctx, remote.Consent{Install: body.Install, Upgrade: body.Upgrade})
+	testSucceeded := false
 	if setup.Helper != nil && setup.Helper.Compatible {
-		setup = manager.TestHelper(ctx)
+		test := manager.TestHelper(ctx)
+		setup = test.Health
+		testSucceeded = test.Succeeded
 	}
-	outcome, errorCopy, succeeded := helperSetupOutcome(setup)
+	outcome, errorCopy, succeeded := helperSetupOutcome(setup, testSucceeded)
 	machine := machineFromHealth(setup)
 	response := helperSetupResponse{Machine: machine, Outcome: outcome, Error: errorCopy}
 	if !succeeded {
@@ -175,14 +178,6 @@ func handleRemoteHelperUninstall(w http.ResponseWriter, request *http.Request, m
 	defer cancel()
 	if err := manager.UninstallHelper(ctx); err != nil {
 		writeAPIError(w, http.StatusBadGateway, "remote_helper_uninstall_failed", "could not uninstall helper; host settings were kept")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func handleRemoteHelperReleaseOwnership(w http.ResponseWriter, _ *http.Request, manager *remote.Manager) {
-	if err := manager.ReleaseHelperOwnership(); err != nil {
-		writeAPIError(w, http.StatusConflict, "remote_helper_ownership_conflict", "could not release helper ownership")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

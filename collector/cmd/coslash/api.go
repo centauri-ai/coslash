@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,39 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
+
+// decodeSettingsSave accepts the legacy bare settings document and the T05
+// envelope used when a settings replacement also has an explicit helper
+// ownership action. The action never becomes part of settings.json.
+func decodeSettingsSave(data []byte) (settings.Config, remote.OwnershipAction, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return settings.Config{}, "", err
+	}
+	rawSettings, enveloped := fields["settings"]
+	if !enveloped {
+		config, err := settings.Decode(data)
+		return config, remote.OwnershipActionNone, err
+	}
+	if len(fields) > 2 {
+		return settings.Config{}, "", errors.New("settings save contains unknown fields")
+	}
+	var action string
+	if rawAction, ok := fields["remoteOwnershipAction"]; ok {
+		if err := json.Unmarshal(rawAction, &action); err != nil {
+			return settings.Config{}, "", errors.New("invalid remote ownership action")
+		}
+	}
+	config, err := settings.Decode(rawSettings)
+	if err != nil {
+		return settings.Config{}, "", err
+	}
+	parsed := remote.OwnershipAction(action)
+	if parsed != remote.OwnershipActionNone && parsed != remote.OwnershipActionRelease && parsed != remote.OwnershipActionUninstall {
+		return settings.Config{}, "", errors.New("invalid remote ownership action")
+	}
+	return config, parsed, nil
+}
 
 // /api/sessions → complete session records, optionally limited by an
 // epoch-millisecond activity cutoff before transcript parsing.
@@ -328,7 +362,7 @@ func handleSaveSettings(
 		)
 		return
 	}
-	config, err := settings.Decode(data)
+	config, ownershipAction, err := decodeSettingsSave(data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -338,14 +372,24 @@ func handleSaveSettings(
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := remoteManager.ValidateSettingsChange(config.Remote); err != nil {
+	if ownershipAction == remote.OwnershipActionNone {
+		err = remoteManager.ValidateSettingsChange(config.Remote)
+	} else {
+		err = remoteManager.ValidateSettingsChangeWithOwnershipAction(config.Remote, ownershipAction)
+	}
+	if err != nil {
 		if errors.Is(err, remote.ErrHelperOwnershipConflict) {
 			writeAPIError(w, http.StatusConflict, "remote_helper_ownership_conflict", "uninstall or explicitly leave the helper before changing this host")
+			return
+		}
+		if errors.Is(err, remote.ErrHelperOwnershipCorrupt) {
+			writeAPIError(w, http.StatusConflict, "remote_helper_ownership_corrupt", "helper ownership needs explicit recovery before changing this host")
 			return
 		}
 		http.Error(w, "could not validate remote settings", http.StatusInternalServerError)
 		return
 	}
+	previous := store.State().Config
 	if err := store.Save(config); err != nil {
 		log.Printf("save settings: %v", err)
 		http.Error(
@@ -354,6 +398,20 @@ func handleSaveSettings(
 			http.StatusInternalServerError,
 		)
 		return
+	}
+	if ownershipAction != remote.OwnershipActionNone {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		err := remoteManager.ApplyOwnershipAction(ctx, ownershipAction)
+		cancel()
+		if err != nil {
+			// No settings draft is committed if its requested ownership action
+			// cannot complete. The remote manager is still on the old config.
+			if restoreErr := store.Save(previous); restoreErr != nil {
+				log.Printf("restore settings after helper action failure: %v", restoreErr)
+			}
+			writeAPIError(w, http.StatusBadGateway, "remote_helper_action_failed", "could not complete helper action; settings were kept")
+			return
+		}
 	}
 	mgr.SetRunner(runner)
 	if err := remoteManager.ApplySettings(config.Remote); err != nil {

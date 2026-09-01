@@ -1,11 +1,13 @@
 package remote
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -206,5 +208,39 @@ func TestCacheHelperOwnershipPersistsOnlyAValidatedVersion(t *testing.T) {
 	}
 	if _, ok, err := cache.LoadHelperOwnership(sourceID); err != nil || ok {
 		t.Fatalf("removed ownership should be absent: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCacheHelperOwnershipCorruptionFailsClosedAndLegacyMigratesWithConfiguredAlias(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	const sourceID = "r_0123456789abcdef"
+	path, err := cache.helperOwnershipPath(sourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := cache.LoadHelperOwnership(sourceID); ok || !errors.Is(err, ErrHelperOwnershipCorrupt) {
+		t.Fatalf("corrupt ownership = ok:%v err:%v", ok, err)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":"v1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ownership, ok, err := cache.LoadHelperOwnership(sourceID)
+	if !ok || !errors.Is(err, ErrHelperOwnershipLegacy) || ownership.Version != "v1" {
+		t.Fatalf("legacy ownership = %#v, %v, %v", ownership, ok, err)
+	}
+	manager := NewManager(Options{Cache: cache})
+	config := &settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatalf("migrate legacy ownership: %v", err)
+	}
+	ownership, ok, err = cache.LoadHelperOwnership(sourceID)
+	if err != nil || !ok || ownership.Alias != config.SSHAlias {
+		t.Fatalf("migrated ownership = %#v, %v, %v", ownership, ok, err)
 	}
 }

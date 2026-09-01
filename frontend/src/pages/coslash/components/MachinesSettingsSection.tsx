@@ -4,21 +4,21 @@ import { cn } from '@/lib/utils';
 import { firstTimeSshHint, formatTestConnectionResult } from '@/pages/coslash/lib/host-strip';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
-  releaseRemoteHelperOwnership,
   remoteStatus,
   setupRemoteHelper,
   testRemoteAlias,
-  uninstallRemoteHelper,
   type HelperSetupResult,
 } from '@/pages/coslash/lib/remote-api';
-import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
+import type { RemoteHostSettings, RemoteOwnershipAction } from '@/pages/coslash/lib/settings';
 
 export function MachinesSettingsSection({
   remote,
   onChange,
+  onOwnershipActionChange,
 }: {
   remote: RemoteHostSettings | null | undefined;
   onChange: (remote: RemoteHostSettings | null) => void;
+  onOwnershipActionChange: (action: RemoteOwnershipAction | null) => void;
 }) {
   const draft = remote ?? { sshAlias: '', enabled: true };
   const hasHost = remote != null;
@@ -63,6 +63,7 @@ export function MachinesSettingsSection({
     setSetupResult(null);
     setTestError(null);
     setRemoveAction(null);
+    onOwnershipActionChange(null);
     if (hasHost && helperOwned && sshAlias !== draft.sshAlias) {
       setPendingAlias(sshAlias);
       return;
@@ -73,6 +74,7 @@ export function MachinesSettingsSection({
 
   const setEnabled = (enabled: boolean) => {
     setRemoveAction(null);
+    onOwnershipActionChange(null);
     onChange({ ...draft, enabled });
   };
 
@@ -121,50 +123,25 @@ export function MachinesSettingsSection({
       setRemoveAction(action);
       return;
     }
-    if (action === 'uninstall') {
-      setTesting(true);
-      setTestError(null);
-      try {
-        await uninstallRemoteHelper();
-      } catch (error: unknown) {
-        setTestError(error instanceof Error ? error.message : String(error));
-        setTesting(false);
-        return;
-      }
-      setTesting(false);
-    } else {
-      try {
-        await releaseRemoteHelperOwnership();
-      } catch (error: unknown) {
-        setTestError(error instanceof Error ? error.message : String(error));
-        return;
-      }
-    }
+    // Do not mutate helper ownership from an unsaved dialog draft. The action
+    // travels with the next Settings save and is committed by the backend only
+    // for that exact settings replacement.
+    onOwnershipActionChange(action === 'uninstall' ? 'uninstall' : 'release');
     setRemoveAction(null);
     setTestResult(null);
     setTestError(null);
     onChange(null);
   };
 
-  const resolveAliasChange = async (action: 'uninstall' | 'leave' | 'cancel') => {
+  const resolveAliasChange = (action: 'uninstall' | 'leave' | 'cancel') => {
     if (pendingAlias == null) return;
     if (action === 'cancel') {
       setPendingAlias(null);
       return;
     }
-    setTesting(true);
-    setTestError(null);
-    try {
-      if (action === 'uninstall') await uninstallRemoteHelper();
-      else await releaseRemoteHelperOwnership();
-      onChange({ ...draft, sshAlias: pendingAlias });
-      setPendingAlias(null);
-      setHostStatus(null);
-    } catch (error: unknown) {
-      setTestError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setTesting(false);
-    }
+    onOwnershipActionChange(action === 'uninstall' ? 'uninstall' : 'release');
+    onChange({ ...draft, sshAlias: pendingAlias });
+    setPendingAlias(null);
   };
 
   const showFirstTimeHint = testResult?.state === 'error' && testResult.reason === 'connection_failed';

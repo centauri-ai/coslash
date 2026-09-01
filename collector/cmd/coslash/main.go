@@ -236,9 +236,6 @@ func routes(
 	api.HandleFunc("POST /api/remote/helper/uninstall", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteHelperUninstall(w, r, remoteManager)
 	})
-	api.HandleFunc("POST /api/remote/helper/release-ownership", func(w http.ResponseWriter, r *http.Request) {
-		handleRemoteHelperReleaseOwnership(w, r, remoteManager)
-	})
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})

@@ -91,10 +91,3 @@ export async function uninstallRemoteHelper(): Promise<void> {
   const apiError = await readApiError(response);
   throw new Error(apiError?.error || `Helper uninstall failed (${response.status})`);
 }
-
-export async function releaseRemoteHelperOwnership(): Promise<void> {
-  const response = await apiFetch('/api/remote/helper/release-ownership', { method: 'POST' });
-  if (response.ok) return;
-  const apiError = await readApiError(response);
-  throw new Error(apiError?.error || `Could not release helper ownership (${response.status})`);
-}

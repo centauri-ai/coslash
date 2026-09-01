@@ -59,6 +59,17 @@ type HelperReleaseProvider interface {
 	LoadArtifact(context.Context, Artifact) ([]byte, error)
 }
 
+// OwnershipAction is carried with a settings replacement and is deliberately
+// not a standalone UI mutation.  That prevents an abandoned settings draft
+// from forgetting ownership of a still-configured remote helper.
+type OwnershipAction string
+
+const (
+	OwnershipActionNone      OwnershipAction = ""
+	OwnershipActionRelease   OwnershipAction = "release"
+	OwnershipActionUninstall OwnershipAction = "uninstall"
+)
+
 type lifecycleFactory func(alias string) (Lifecycle, error)
 
 type helperTarget struct {
@@ -381,16 +392,26 @@ func (manager *Manager) UninstallHelper(ctx context.Context) error {
 	return nil
 }
 
+// HelperTestResult reports the result of the small setup operation itself.
+// Health remains board/cache health and can be incomplete when its durable
+// snapshot covers a different time window than this non-persisting test.
+type HelperTestResult struct {
+	Health    Health
+	Succeeded bool
+	Reason    *Reason
+}
+
 // TestHelper performs a small, non-persisting collection after setup. It uses
 // the verified target already held by the manager, so a test can never execute
 // a frontend- or response-supplied path. The normal requested-window refresh
 // remains responsible for durable cache commits.
-func (manager *Manager) TestHelper(ctx context.Context) Health {
+func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 	manager.mu.Lock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.helperTarget == nil {
 		health := manager.healthLocked(manager.lastRequestedMs)
 		manager.mu.Unlock()
-		return health
+		reason := ReasonHelperMissing
+		return HelperTestResult{Health: health, Reason: &reason}
 	}
 	config := *manager.cfg
 	target := *manager.helperTarget
@@ -404,27 +425,66 @@ func (manager *Manager) TestHelper(ctx context.Context) Health {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
-		return manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.lastRequestedMs)
+		return HelperTestResult{Health: health, Reason: health.Reason}
 	}
 	manager.transport = TransportHelper
 	manager.metrics = metricsFor(result)
 	if err != nil {
-		manager.applyFailureLocked(classifyHelperError(err), result.Stderr)
-		return manager.healthLocked(manager.lastRequestedMs)
+		reason := classifyHelperError(err)
+		manager.applyFailureLocked(reason, result.Stderr)
+		return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Reason: reasonPtr(reason)}
 	}
 	if reason := limitedResultReason(result); reason != nil {
 		manager.state = StateLimited
 		manager.complete = false
 		manager.reason = reasonPtr(*reason)
 		manager.errorCopy = genericErrorCopy(*reason)
-		return manager.healthLocked(manager.lastRequestedMs)
+		return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Reason: reasonPtr(*reason)}
 	}
 	manager.state = StateOK
 	manager.complete = true
 	manager.reason = nil
 	manager.errorCopy = ""
 	manager.diagnostic = ""
-	return manager.healthLocked(manager.lastRequestedMs)
+	return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Succeeded: true}
+}
+
+// ValidateSettingsChangeWithOwnershipAction permits a replacement only when
+// the requested ownership action is bundled with that replacement.  The
+// caller must subsequently call ApplyOwnershipAction before ApplySettings.
+func (manager *Manager) ValidateSettingsChangeWithOwnershipAction(next *settings.RemoteSettings, action OwnershipAction) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if action != OwnershipActionRelease && action != OwnershipActionUninstall {
+		return ErrHelperOwnershipConflict
+	}
+	if manager.cfg == nil || manager.helperVersion == "" {
+		return ErrHelperOwnershipConflict
+	}
+	if next != nil && manager.cfg.ID == next.ID && manager.cfg.SSHAlias == next.SSHAlias {
+		return ErrHelperOwnershipConflict
+	}
+	// Still validate the proposed settings shape, but ownership is released by
+	// the explicitly requested transaction rather than by this inspection.
+	if next != nil && (!settings.ValidRemoteID(next.ID) || !settings.ValidSSHAlias(next.SSHAlias)) {
+		return ErrInvalidRemoteSettings
+	}
+	return nil
+}
+
+// ApplyOwnershipAction executes the already-authorized operation while the
+// manager still owns the old settings. It is intentionally used only by the
+// settings-save transaction in cmd/coslash.
+func (manager *Manager) ApplyOwnershipAction(ctx context.Context, action OwnershipAction) error {
+	switch action {
+	case OwnershipActionRelease:
+		return manager.ReleaseHelperOwnership()
+	case OwnershipActionUninstall:
+		return manager.UninstallHelper(ctx)
+	default:
+		return ErrHelperOwnershipConflict
+	}
 }
 
 // helperRefreshFunc is kept as a named boundary so manager tests can substitute

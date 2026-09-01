@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,15 @@ import (
 )
 
 const cacheVersion = 1
+
+var (
+	// ErrHelperOwnershipCorrupt is fail-closed: ownership protects remote code
+	// from being silently orphaned and malformed evidence cannot mean "none".
+	ErrHelperOwnershipCorrupt = errors.New("helper ownership record is corrupt")
+	// ErrHelperOwnershipLegacy marks the former {"version":"..."} format.
+	// Manager migrates it only after binding it to the configured SSH alias.
+	ErrHelperOwnershipLegacy = errors.New("helper ownership record needs alias migration")
+)
 
 type AgentCoverage struct {
 	Agent          string `json:"agent"`
@@ -311,14 +321,28 @@ func (c *Cache) LoadHelperOwnership(sourceID string) (helperOwnership, bool, err
 	if errors.Is(err, os.ErrNotExist) {
 		return helperOwnership{}, false, nil
 	}
-	if err != nil || len(content) > 256 {
+	if err != nil {
 		return helperOwnership{}, false, err
 	}
-	var ownership helperOwnership
-	if json.Unmarshal(content, &ownership) != nil || !helperVersionPattern.MatchString(ownership.Version) || !settings.ValidSSHAlias(ownership.Alias) {
-		return helperOwnership{}, false, nil
+	if len(content) == 0 || len(content) > 256 {
+		return helperOwnership{}, false, ErrHelperOwnershipCorrupt
 	}
-	return ownership, true, nil
+	var document struct {
+		Version *string `json:"version"`
+		Alias   *string `json:"alias"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&document) != nil || decoder.Decode(&struct{}{}) != io.EOF || document.Version == nil || !helperVersionPattern.MatchString(*document.Version) {
+		return helperOwnership{}, false, ErrHelperOwnershipCorrupt
+	}
+	if document.Alias == nil {
+		return helperOwnership{Version: *document.Version}, true, ErrHelperOwnershipLegacy
+	}
+	if !settings.ValidSSHAlias(*document.Alias) {
+		return helperOwnership{}, false, ErrHelperOwnershipCorrupt
+	}
+	return helperOwnership{Version: *document.Version, Alias: *document.Alias}, true, nil
 }
 
 func (c *Cache) StoreHelperVersion(sourceID, version, alias string) error {
