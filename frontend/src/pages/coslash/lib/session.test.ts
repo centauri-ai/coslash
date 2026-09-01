@@ -82,6 +82,12 @@ describe('boardStatusKey', () => {
 });
 
 describe('decodeMachineFact', () => {
+  it('accepts the exact local-machine JSON shape without remote-only fields', () => {
+    expect(
+      decodeMachineFact({ sourceId: 'local', label: 'This Mac', state: 'ok', complete: true }),
+    ).toEqual({ sourceId: 'local', label: 'This Mac', state: 'ok', complete: true });
+  });
+
   it('accepts a healthy remote machine fact', () => {
     expect(
       decodeMachineFact({

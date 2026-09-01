@@ -49,11 +49,11 @@ type machineFact struct {
 	RoundTripMs                 *int64                   `json:"roundTripMs,omitempty"`
 	Coverage                    []remote.AgentCoverage   `json:"coverage,omitempty"`
 	Error                       string                   `json:"error,omitempty"`
-	Transport                   remote.Transport         `json:"transport"`
+	Transport                   remote.Transport         `json:"transport,omitempty"`
 	Helper                      *remote.HelperStatus     `json:"helper,omitempty"`
 	Metrics                     remote.CollectionMetrics `json:"metrics"`
 	HelperInstallationAvailable bool                     `json:"helperInstallationAvailable"`
-	HelperProbeState            string                   `json:"helperProbeState"`
+	HelperProbeState            string                   `json:"helperProbeState,omitempty"`
 	HelperOwnershipRecorded     bool                     `json:"helperOwnershipRecorded"`
 	HelperOwnershipCorrupt      bool                     `json:"helperOwnershipCorrupt"`
 }

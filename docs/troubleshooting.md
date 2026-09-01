@@ -12,8 +12,9 @@ Terminal if the host key or authentication still needs confirmation. The Linux
 SSH server must enable an SFTP subsystem and the SSH user must be able to read
 the Claude/Codex paths listed in [Data and privacy](data-and-privacy.md). No
 coSlash installation or agent CLI is required on Linux for SFTP collection. The
-test performs a bounded inspection of both agent roots, so a successful result
-also confirms that supported data is readable.
+test verifies that SSH authentication and the SFTP subsystem can open and close
+successfully. Readability of the allowed Claude/Codex roots is checked during
+the subsequent collection refresh.
 
 The optional **Install helper** action needs explicit consent and installs one
 signed, verified collector owned by the SSH user. If it is unavailable, blocked

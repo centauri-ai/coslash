@@ -64,6 +64,23 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	}
 }
 
+func TestLocalMachineFactOmitsRemoteOnlyEnums(t *testing.T) {
+	encoded, err := json.Marshal(localMachineFact())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := document["transport"]; present {
+		t.Fatalf("local fact serialized empty transport: %s", encoded)
+	}
+	if _, present := document["helperProbeState"]; present {
+		t.Fatalf("local fact serialized empty helper probe state: %s", encoded)
+	}
+}
+
 func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
 	manager := remote.NewManager(remote.Options{})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
