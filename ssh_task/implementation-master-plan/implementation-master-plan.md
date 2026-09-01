@@ -1,6 +1,6 @@
 # SSH helper implementation master plan
 
-Status: implementation in progress; T01–T05 complete; T06 is next
+Status: implementation in progress; T01–T06 complete; T07 is next
 
 Last updated: 2026-09-01
 
@@ -46,7 +46,7 @@ separate because they have distinct risk and approval gates.
 | T03 | Linux helper and SSH transport | done | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | done | T03 | — | [Brief](04-helper-lifecycle-and-compatibility.md) |
 | T05 | Manager, setup UI, diagnostics, and docs | done | T02, T03, T04 | — | [Brief](05-manager-ui-diagnostics-docs.md) |
-| T06 | Security and fault hardening | not_started | T02–T05 | — | [Brief](06-security-and-fault-hardening.md) |
+| T06 | Security and fault hardening | done | T02–T05 | — | [Brief](06-security-and-fault-hardening.md) |
 | T07 | Full validation and rollout gate | not_started | T01–T06 | Approved production signing keys, revocation data, signed metadata publication/endpoint, and artifact source are pending | [Brief](07-full-validation-and-rollout.md) |
 
 ## Dependency path
@@ -140,6 +140,18 @@ Remaining blocker/risk: <none or exact issue>
 ```
 
 ## Global blockers and change log
+
+- 2026-09-01: T06 completed on branch `hlu/ssh-mix-06` in commit `2535517`.
+  The threat model records protocol, SSH, filesystem, lifecycle, cache, and
+  observability boundaries with owner-assigned residual risks. Strict decode
+  rejects incomplete NDJSON; fixed stale-reason codes prevent hostile text from
+  reaching durable cache state; malformed SFTP entry names fail before path
+  construction; and SSH control commands/probes use bounded output plus
+  process-group cancellation and reaping. Lifecycle fault injection covers
+  temporary write, fsync, close, rename, cleanup, install, and uninstall
+  interruption. Focused tests, bounded fuzzing, selected race tests, a native
+  helper build, and `git diff --check` passed. The remaining SFTP final-path
+  TOCTOU limitation and release-trust inputs are T07 validation/rollout gates.
 
 - 2026-09-01: T05 completed on branch
   `hlu/ssh-mix-05` in commits `cd4179f` through `a071c1a`. The manager now

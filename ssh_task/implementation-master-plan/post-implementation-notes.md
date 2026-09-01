@@ -1,6 +1,6 @@
 # SSH helper post-implementation notes
 
-Status: active implementation record; T01–T05 complete; T06 is next
+Status: active implementation record; T01–T06 complete; T07 is next
 
 Last updated: 2026-09-01
 
@@ -17,7 +17,38 @@ one section when each master-plan task reaches `review` or `done`.
 | T03 — Linux helper and SSH transport | done | Branch `hlu/t03-helper-and-ssh-transport`; commits `0a9dc20`, `96dac46` |
 | T04 — Helper lifecycle and compatibility | done | Branch `hlu/ssh-mix-04`; commit `ecbaab6` |
 | T05 — Manager, setup UI, diagnostics, and docs | done | Branch `hlu/ssh-mix-05`; commits `cd4179f`–`a071c1a` |
-| T06–T07 | not started | Follow the master-plan dependency order |
+| T06 — Security and fault hardening | done | Branch `hlu/ssh-mix-06`; commit `2535517` |
+| T07 | not started | Approved release trust material and artifact publication are rollout inputs |
+
+## T06 — Security and fault hardening
+
+Completed: 2026-09-01. Branch: `hlu/ssh-mix-06`. Commit: `2535517`
+(`feat(remote): harden helper security boundaries`).
+
+### What landed
+
+- The strict NDJSON decoder now requires `request_complete`; hostile stale
+  reasons cannot cross protocol, facts, or cache boundaries unless they are
+  one of the fixed content-free codes. Non-stale family facts must carry no
+  stale reason.
+- SSH control-master commands and platform probes cap output, enter a dedicated
+  process group, and kill/reap that group when cancelled. The fault test verifies
+  an output flood cannot leave a spawned child alive.
+- Lifecycle upload cleanup is directly fault-injected at temporary write, fsync,
+  close, rename, and cleanup. Interrupted install/uninstall manager paths retain
+  the prior helper, settings, and ownership for recovery.
+- SFTP rejects malformed remote directory entry names before cached child paths
+  are constructed. The cache rejects corrupt, oversized, and unstructured stale
+  state without treating it as a valid snapshot.
+- [T06 threat model](t06-threat-model.md) documents boundaries, tested
+  mitigations, and the accepted SFTP final-path race and release-trust residuals.
+
+### Validation evidence
+
+Focused `remotefacts`, `remoteprotocol`, `remote`, `remotehelper`, and
+`diagnostics` tests passed. Two 2-second bounded protocol/capability fuzz runs,
+the focused remote race command, a static native helper build, and `git diff
+--check` passed. Exact commands are retained in the T06 brief handoff.
 
 ## T01 — Contracts, metrics, and fixtures
 
