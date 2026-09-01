@@ -1,6 +1,6 @@
 # SSH helper implementation master plan
 
-Status: implementation in progress; T01–T03 complete
+Status: implementation in progress; T01–T04 complete; T05 implementation and review complete, release inputs pending
 
 Last updated: 2026-09-01
 
@@ -44,8 +44,8 @@ separate because they have distinct risk and approval gates.
 | T01 | Contracts, metrics, and fixtures | done | — | — | [Brief](01-contracts-metrics-and-fixtures.md) |
 | T02 | Cache v2 and incremental SFTP | done | T01 | — | [Brief](02-cache-and-incremental-sftp.md) |
 | T03 | Linux helper and SSH transport | done | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
-| T04 | Helper lifecycle and compatibility | not_started | T03 | Install path, signing scheme, and `noexec` policy need approval | [Brief](04-helper-lifecycle-and-compatibility.md) |
-| T05 | Manager, setup UI, diagnostics, and docs | not_started | T02, T03, T04 | Final consent copy needs product approval | [Brief](05-manager-ui-diagnostics-docs.md) |
+| T04 | Helper lifecycle and compatibility | done | T03 | — | [Brief](04-helper-lifecycle-and-compatibility.md) |
+| T05 | Manager, setup UI, diagnostics, and docs | in_progress | T02, T03, T04 | Approved production signing keys, revocation data, signed metadata publication/endpoint, and artifact source are pending | [Brief](05-manager-ui-diagnostics-docs.md) |
 | T06 | Security and fault hardening | not_started | T02–T05 | Threat-model review required | [Brief](06-security-and-fault-hardening.md) |
 | T07 | Full validation and rollout gate | not_started | T01–T06 | All implementation tasks must be done | [Brief](07-full-validation-and-rollout.md) |
 
@@ -140,6 +140,36 @@ Remaining blocker/risk: <none or exact issue>
 ```
 
 ## Global blockers and change log
+
+- 2026-09-01: T05 implementation and review completed on branch
+  `hlu/ssh-mix-05` in commits `cd4179f` through `a071c1a`. The manager now
+  selects only freshly verified compatible helpers, reports explicit SFTP
+  fallback states, preserves per-family stale provenance, and does not mask a
+  helper protocol, data, or output failure with an SFTP retry. Backend APIs and
+  the Machines UI cover setup, reuse, upgrade, testing, uninstall, and explicit
+  remove-only recovery. Alias changes and host removal stage ownership intent
+  until Settings is saved; failed uninstall restores the old settings and
+  ownership. Corrupt ownership fails closed, and legacy version-only ownership
+  migrates only when it can bind to the configured SSH alias. Diagnostics omit
+  remote stderr, and local-machine JSON omits empty remote-only enum fields.
+  Focused Go tests and vet, three frontend Vitest files (31 tests), the frontend
+  production build, and `git diff --check` passed. T05 remains `in_progress`
+  because production helper installation is deliberately feature-gated pending
+  approved signing keys, revocation data, signed metadata publication/endpoint,
+  and an artifact source.
+
+- 2026-09-01: T04 completed on branch
+  `hlu/ssh-mix-04`. It fixes the optional helper location to
+  `~/.local/lib/coslash/helpers/<version>/coslash-helper`, supports static
+  Linux `amd64`/`arm64` ELF artifacts authenticated by canonical signed
+  metadata, and makes initial installation and later upgrades separately
+  consented. Signed expiry and a durable monotonic sequence prevent metadata
+  replay. The production OpenSSH/SFTP adapter performs bounded probing,
+  no-follow owner/mode validation, exclusive temporary upload, fsync, digest
+  verification, `noexec` detection, atomic activation, rollback to a verified
+  previous helper, and authenticated exact-path uninstall. Incompatible,
+  revoked, tampered, or failed helpers are never selected for execution, and
+  transport failures retain their own accurate fallback reasons.
 
 - 2026-09-01: T03 completed on branch
   `hlu/t03-helper-and-ssh-transport` in commits `0a9dc20` and `96dac46`.

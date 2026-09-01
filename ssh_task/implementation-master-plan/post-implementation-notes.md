@@ -1,6 +1,6 @@
 # SSH helper post-implementation notes
 
-Status: active implementation record; T01–T03 complete
+Status: active implementation record; T01–T04 complete; T05 implementation and review complete, release inputs pending
 
 Last updated: 2026-09-01
 
@@ -15,7 +15,9 @@ one section when each master-plan task reaches `review` or `done`.
 | T01 — Contracts, metrics, and fixtures | done | Commit `a400074` |
 | T02 — Cache v2 and incremental SFTP | done | Branch `hlu/ssh-mix-02`; commits `bcba054`, `c66217f` |
 | T03 — Linux helper and SSH transport | done | Branch `hlu/t03-helper-and-ssh-transport`; commits `0a9dc20`, `96dac46` |
-| T04–T07 | not started | Follow the master-plan dependency order |
+| T04 — Helper lifecycle and compatibility | done | Branch `hlu/ssh-mix-04`; commit `ecbaab6` |
+| T05 — Manager, setup UI, diagnostics, and docs | in progress | Branch `hlu/ssh-mix-05`; commits `cd4179f`–`a071c1a`; production release inputs pending |
+| T06–T07 | not started | Follow the master-plan dependency order |
 
 ## T01 — Contracts, metrics, and fixtures
 
@@ -311,3 +313,190 @@ Cross-build validation produced statically linked ELF binaries for
   task boundary. T07 still owns real-host latency, CPU, RSS, and corpus gates.
 - T06 must perform the broader threat-model and fault-injection pass even though
   the T03-specific review findings now have regressions.
+
+## T04 — Helper lifecycle and compatibility
+
+Completed: 2026-09-01. Branch: `hlu/ssh-mix-04`. The T04 implementation commit
+(`feat(remote): add helper lifecycle policy`) was amended after review.
+
+### What landed
+
+- Canonical Ed25519-signed release metadata selects bounded Linux `amd64` and
+  `arm64` artifacts by normalized remote platform and authenticated digest.
+- Release metadata has a signed expiry and monotonic sequence. A private,
+  atomic local high-water-mark store rejects replay of older signed metadata;
+  app-shipped minimum sequences and revoked keys provide release-time recovery.
+- `SSHLifecycleRemote` implements the lifecycle boundary using the existing
+  bounded OpenSSH control connection and SFTP subsystem: fixed platform probe,
+  exact home-relative path resolution, owner/mode/symlink validation, exclusive
+  temporary creation, fsync, SHA-256 verification, `noexec` detection, and
+  atomic OpenSSH POSIX rename.
+- Setup reuses a verified compatible helper without upload. Initial install and
+  later upgrade consent are distinct. A deprecated previous helper remains
+  executable until a current replacement passes digest and capability checks.
+- Failed activation removes the failed current artifact and returns the verified
+  previous helper as a visible deprecated rollback instead of trapping future
+  setup attempts on the failed version.
+- Revoked previous helpers are never executed but do not block installation of
+  a safe current artifact. Capability and SSH transport errors retain distinct
+  classifications.
+- Uninstall verifies fresh signed metadata, probes the host platform, and
+  removes only an exact version present in that authenticated platform manifest.
+  Repetition is harmless; disabling a host performs no lifecycle operation.
+
+### Corrections completed during review
+
+- Replaced the test-only lifecycle boundary with a production SSH/SFTP adapter.
+- Added durable metadata anti-rollback and expiry checks so old signed documents
+  cannot silently undo later artifact revocation.
+- Made activation verification and capability failures roll back to the known
+  previous helper and remove the rejected current artifact.
+- Stopped reporting SSH/authentication/timeouts as unsupported platforms and
+  stopped reporting generic capability transport failures as required upgrades.
+- Required authenticated manifest membership before exact-path uninstall.
+- Replaced host-format-dependent ELF tests with deterministic synthetic Linux
+  ELF fixtures, allowing the Mac package tests to compile on Darwin.
+
+### Validation evidence
+
+The final focused suite passed:
+
+```sh
+GOCACHE=/tmp/coslash-t04-cache go test -count=1 \
+  ./internal/remote ./internal/remoteprotocol ./cmd/coslash-helper
+GOCACHE=/tmp/coslash-t04-cache go test -race ./internal/remote
+GOCACHE=/tmp/coslash-t04-cache go vet \
+  ./internal/remote ./internal/remoteprotocol ./cmd/coslash-helper
+GOCACHE=/tmp/coslash-t04-cache make helper
+```
+
+The native helper was a statically linked Linux `amd64` ELF. The remote package
+and its tests also cross-compiled successfully for Darwin/arm64. `git diff
+--check` passed.
+
+### Guidance for T05 and T06
+
+- T05 must compile the approved release public keys and minimum accepted
+  sequence into the Mac app, create `FileMetadataSequenceStore` in private app
+  state, and provide the fetched signed document and exact artifact bytes.
+- T05 must keep initial-install and upgrade consent separate, present deprecated
+  rollback and degraded-SFTP reasons, and complete uninstall before forgetting
+  host settings when that explicit removal option is chosen.
+- T06 should fault-inject interruption around exclusive upload, fsync, atomic
+  rename, verification, rollback removal, and sequence-state persistence, and
+  repeat adversarial symlink substitution review against supported OpenSSH
+  servers.
+
+### Remaining work and limitations
+
+- Manager/UI wiring, approved release-key material, metadata publication, and
+  host-removal UX belong to T05 and release rollout.
+- The implementation requires the OpenSSH `statvfs@openssh.com`,
+  `fsync@openssh.com`, and `posix-rename@openssh.com` SFTP extensions. Missing
+  extensions produce an installation failure and retain usable SFTP collection;
+  there is no weaker or privileged fallback.
+- Real-host interruption, hostile-race, `noexec`, and extension-compatibility
+  matrices remain T06/T07 validation gates.
+
+## T05 — Manager, setup UI, diagnostics, and documentation
+
+Implementation and review completed: 2026-09-01. Branch: `hlu/ssh-mix-05`.
+Implementation and correction commits: `cd4179f`, `aac30ad`, `2293a75`,
+`544aa86`, `aa88492`, and `a071c1a` (after prerequisite merge `60cec7f`).
+The task remains `in_progress` only because production release trust and
+artifact-publication inputs have not been approved or supplied.
+
+### What landed
+
+- The production manager has one helper/SFTP result boundary and performs
+  read-only discovery on restart. It executes only a freshly authenticated,
+  platform-matched, digest-verified, owner/mode-verified, capability-compatible
+  helper. Compatible verified helpers are reused without uploading again.
+- Missing or declined setup, unsupported platforms, `noexec`/blocked installs,
+  incompatibility or revocation, verification failures, and installation
+  failures retain an explicitly labelled SFTP path. Once a verified helper is
+  selected, helper protocol, data, output-limit, and execution failures remain
+  helper failures and do not silently retry through SFTP.
+- Setup and status responses distinguish consent, installation, reuse, upgrade,
+  deprecated-active rollback, compatibility, verification, helper-test, and
+  SFTP-fallback outcomes. The helper collection test reports its own operation
+  result rather than inferring success from durable snapshot coverage.
+- Helper ownership is persisted with the SSH alias and reported separately from
+  currently discoverable helper state. Setup, status, exact uninstall, and host
+  removal/alias-change flows are exposed through guarded backend APIs and strict
+  frontend decoders.
+- Alias replacement and host removal stage uninstall or release-only ownership
+  intent in the Settings draft. The backend applies it in the same Settings
+  replacement transaction; closing the dialog or a failed save does not mutate
+  ownership, and failed uninstall restores the former settings and ownership.
+- Corrupt ownership records fail closed while retaining a displayable fallback
+  machine state. Explicit transactional release-only removal is the recovery
+  path because an exact trusted version is unavailable for uninstall. Legacy
+  `{version}` records migrate only when they can bind to the configured alias.
+- Machines shows active transport, helper state/version, setup and removal
+  controls, stale/partial coverage, and degraded-SFTP explanations. README,
+  privacy, and troubleshooting documentation now match the implemented consent,
+  connection-test, verification, collection, diagnostics, and removal behavior.
+- Diagnostics expose bounded structured transport/helper facts and per-family
+  stale provenance without remote stderr. The local-machine API omits empty
+  remote-only `transport` and `helperProbeState` enum fields, preserving the
+  backend/frontend machine-response contract.
+
+### Corrections completed during review
+
+- Split release loading into authenticated metadata and selected-architecture
+  artifact retrieval; artifact bytes are fetched only for a consented install
+  or upgrade. Restart discovery and uninstall require metadata but no artifact
+  download.
+- Required fresh lifecycle verification before helper execution instead of
+  treating persisted ownership as proof that an installed helper remains safe.
+- Preserved visible SFTP fallback only for lifecycle states where fallback is
+  valid, and prevented runtime helper failures from being hidden by SFTP.
+- Made ownership changes transactional with Settings replacement and restored
+  the former settings if release/uninstall cannot complete.
+- Added fail-closed corrupt-record recovery and alias-bound migration of the
+  legacy ownership format.
+- Removed remote stderr from exported diagnostics, corrected helper-test success
+  semantics, omitted empty remote-only machine enums, and aligned
+  troubleshooting copy with the actual connection test.
+
+### Validation evidence
+
+The final focused backend checks passed:
+
+```sh
+GOCACHE=/tmp/coslash-review6-gocache go test -count=1 \
+  ./internal/remote ./internal/remoteprotocol ./internal/remotefacts \
+  ./internal/remotehelper ./internal/diagnostics ./cmd/coslash
+GOCACHE=/tmp/coslash-review6-gocache go vet \
+  ./internal/remote ./internal/remoteprotocol ./internal/remotefacts \
+  ./internal/remotehelper ./internal/diagnostics ./cmd/coslash
+```
+
+The final frontend checks passed with 31 tests across three files, followed by
+a successful production build:
+
+```sh
+cd frontend
+npm test -- --run \
+  src/pages/coslash/lib/session.test.ts \
+  src/pages/coslash/lib/handoff.test.ts \
+  src/pages/coslash/lib/host-strip.test.ts
+npm run build
+```
+
+`git diff --check 60cec7f..HEAD` also passed.
+
+### Remaining blocker and downstream handoff
+
+- Production helper installation remains deliberately unavailable until the app
+  has approved embedded signing keys, revocation data and minimum sequence,
+  published signed metadata/endpoint, and a production artifact source. The
+  unavailable provider fails closed and never uploads or executes unverified
+  code.
+- T06 owns interruption/crash-consistency and adversarial lifecycle tests,
+  including Settings replacement, upload/fsync/rename, verification, rollback,
+  ownership persistence, and hostile remote filesystem races.
+- T07 owns real-host and release validation: supported OpenSSH/SFTP extension
+  coverage, `noexec` behavior, Linux architecture artifacts, corpus and resource
+  gates, production metadata/artifact delivery, and rollout approval.
