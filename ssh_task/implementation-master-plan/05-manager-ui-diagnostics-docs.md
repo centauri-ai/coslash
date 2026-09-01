@@ -1,6 +1,6 @@
 # T05 — Manager, setup UI, diagnostics, and documentation
 
-Status: not_started
+Status: done
 
 Depends on: T02, T03, T04
 
@@ -80,6 +80,16 @@ Run table-driven remote manager/API tests with fake transports, touched Vitest
 files, and the TypeScript build only if shared types changed. Do not run complete
 backend/frontend suites.
 
+Completed on branch `hlu/ssh-mix-05` in commits `cd4179f` through `a071c1a`.
+Focused backend tests and vet, touched frontend tests, the TypeScript production
+build, and diff validation passed. See
+[post-implementation notes](post-implementation-notes.md) for the detailed
+handoff and review corrections.
+
 ## Out of scope
 
-No unrelated settings redesign, general multi-host expansion, or rollout enablement.
+No unrelated settings redesign, general multi-host expansion, or rollout
+enablement. Approval and publication of production signing keys, revocation
+data, signed metadata, and helper artifacts are T07 rollout inputs. Until those
+inputs are supplied and validated, the production provider remains visibly
+feature-gated and fails closed while SFTP remains usable.

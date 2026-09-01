@@ -1,6 +1,6 @@
 # SSH helper post-implementation notes
 
-Status: active implementation record; T01–T04 complete; T05 implementation and review complete, release inputs pending
+Status: active implementation record; T01–T05 complete; T06 is next
 
 Last updated: 2026-09-01
 
@@ -16,7 +16,7 @@ one section when each master-plan task reaches `review` or `done`.
 | T02 — Cache v2 and incremental SFTP | done | Branch `hlu/ssh-mix-02`; commits `bcba054`, `c66217f` |
 | T03 — Linux helper and SSH transport | done | Branch `hlu/t03-helper-and-ssh-transport`; commits `0a9dc20`, `96dac46` |
 | T04 — Helper lifecycle and compatibility | done | Branch `hlu/ssh-mix-04`; commit `ecbaab6` |
-| T05 — Manager, setup UI, diagnostics, and docs | in progress | Branch `hlu/ssh-mix-05`; commits `cd4179f`–`a071c1a`; production release inputs pending |
+| T05 — Manager, setup UI, diagnostics, and docs | done | Branch `hlu/ssh-mix-05`; commits `cd4179f`–`a071c1a` |
 | T06–T07 | not started | Follow the master-plan dependency order |
 
 ## T01 — Contracts, metrics, and fixtures
@@ -374,11 +374,12 @@ The native helper was a statically linked Linux `amd64` ELF. The remote package
 and its tests also cross-compiled successfully for Darwin/arm64. `git diff
 --check` passed.
 
-### Guidance for T05 and T06
+### Guidance for T05, T06, and T07
 
-- T05 must compile the approved release public keys and minimum accepted
-  sequence into the Mac app, create `FileMetadataSequenceStore` in private app
-  state, and provide the fetched signed document and exact artifact bytes.
+- T05 creates `FileMetadataSequenceStore` in private app state and provides the
+  production-provider boundary for a fetched signed document and exact artifact
+  bytes. T07 must supply and validate approved release public keys, revoked-key
+  data, minimum accepted sequence, and the production metadata/artifact sources.
 - T05 must keep initial-install and upgrade consent separate, present deprecated
   rollback and degraded-SFTP reasons, and complete uninstall before forgetting
   host settings when that explicit removal option is chosen.
@@ -389,8 +390,9 @@ and its tests also cross-compiled successfully for Darwin/arm64. `git diff
 
 ### Remaining work and limitations
 
-- Manager/UI wiring, approved release-key material, metadata publication, and
-  host-removal UX belong to T05 and release rollout.
+- Manager/UI wiring and host-removal UX belong to T05. Approved release-key
+  material, metadata publication, artifact delivery, and enablement belong to
+  the T07 rollout gate.
 - The implementation requires the OpenSSH `statvfs@openssh.com`,
   `fsync@openssh.com`, and `posix-rename@openssh.com` SFTP extensions. Missing
   extensions produce an installation failure and retain usable SFTP collection;
@@ -400,11 +402,11 @@ and its tests also cross-compiled successfully for Darwin/arm64. `git diff
 
 ## T05 — Manager, setup UI, diagnostics, and documentation
 
-Implementation and review completed: 2026-09-01. Branch: `hlu/ssh-mix-05`.
+Completed: 2026-09-01. Branch: `hlu/ssh-mix-05`.
 Implementation and correction commits: `cd4179f`, `aac30ad`, `2293a75`,
 `544aa86`, `aa88492`, and `a071c1a` (after prerequisite merge `60cec7f`).
-The task remains `in_progress` only because production release trust and
-artifact-publication inputs have not been approved or supplied.
+Production release trust and artifact-publication inputs are T07 rollout gates;
+they are not remaining T05 implementation work.
 
 ### What landed
 
@@ -487,13 +489,13 @@ npm run build
 
 `git diff --check 60cec7f..HEAD` also passed.
 
-### Remaining blocker and downstream handoff
+### Downstream handoff
 
-- Production helper installation remains deliberately unavailable until the app
-  has approved embedded signing keys, revocation data and minimum sequence,
-  published signed metadata/endpoint, and a production artifact source. The
-  unavailable provider fails closed and never uploads or executes unverified
-  code.
+- T07 must provide approved embedded signing keys, revocation data and minimum
+  sequence, published signed metadata/endpoint, and a production artifact
+  source. Until then, the unavailable provider fails closed and never uploads or
+  executes unverified code; this feature gate does not block T05 completion or
+  T06 hardening.
 - T06 owns interruption/crash-consistency and adversarial lifecycle tests,
   including Settings replacement, upload/fsync/rename, verification, rollback,
   ownership persistence, and hostile remote filesystem races.

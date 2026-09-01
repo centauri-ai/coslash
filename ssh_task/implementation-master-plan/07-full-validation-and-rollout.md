@@ -15,6 +15,11 @@ against baseline, and make a go/no-go decision for feature-flag rollout.
 - Master-plan blockers are resolved or explicitly accepted by named owners.
 - Protocol/schema/cache versions and release artifact inputs are frozen for the
   validation candidate.
+- Approved production signing keys, revoked-key data, and minimum accepted
+  metadata sequence are embedded in the validation candidate.
+- Signed release metadata is published at the production endpoint, and the
+  selected Linux `amd64`/`arm64` artifacts are available from the production
+  artifact source with authenticated digests matching that metadata.
 
 ## Full validation matrix
 
@@ -23,6 +28,9 @@ against baseline, and make a go/no-go decision for feature-flag rollout.
 - Race tests for concurrency-sensitive remote packages and sustained bounded
   protocol fuzzing.
 - Reproducible Linux `amd64`/`arm64` helper builds and signature/digest checks.
+- Production-provider tests for key rotation/revocation, metadata expiry and
+  rollback protection, endpoint failure, architecture selection, artifact
+  digest mismatch, and fail-closed behavior before rollout enablement.
 - End-to-end cold, unchanged, changed-family, broader-window, incompatible-helper,
   deprecated/revoked helper, install/upgrade/rollback/uninstall, disable,
   remove-only, remove-and-uninstall, fingerprint-request overflow, fallback,
@@ -58,6 +66,8 @@ response sizes, and per-phase durations.
 ## Rollout gate
 
 - Ship behind an explicit feature flag with installation optional.
+- Enable the production provider only after the approved trust material,
+  metadata endpoint, and artifact source pass the full validation matrix.
 - Prefer helper only on supported, verified hosts after consent.
 - Preserve documented SFTP fallback.
 - Define rollback criteria for correctness, privacy, lifecycle, latency, crash,

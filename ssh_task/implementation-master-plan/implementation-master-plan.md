@@ -1,6 +1,6 @@
 # SSH helper implementation master plan
 
-Status: implementation in progress; T01–T04 complete; T05 implementation and review complete, release inputs pending
+Status: implementation in progress; T01–T05 complete; T06 is next
 
 Last updated: 2026-09-01
 
@@ -45,9 +45,9 @@ separate because they have distinct risk and approval gates.
 | T02 | Cache v2 and incremental SFTP | done | T01 | — | [Brief](02-cache-and-incremental-sftp.md) |
 | T03 | Linux helper and SSH transport | done | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | done | T03 | — | [Brief](04-helper-lifecycle-and-compatibility.md) |
-| T05 | Manager, setup UI, diagnostics, and docs | in_progress | T02, T03, T04 | Approved production signing keys, revocation data, signed metadata publication/endpoint, and artifact source are pending | [Brief](05-manager-ui-diagnostics-docs.md) |
-| T06 | Security and fault hardening | not_started | T02–T05 | Threat-model review required | [Brief](06-security-and-fault-hardening.md) |
-| T07 | Full validation and rollout gate | not_started | T01–T06 | All implementation tasks must be done | [Brief](07-full-validation-and-rollout.md) |
+| T05 | Manager, setup UI, diagnostics, and docs | done | T02, T03, T04 | — | [Brief](05-manager-ui-diagnostics-docs.md) |
+| T06 | Security and fault hardening | not_started | T02–T05 | — | [Brief](06-security-and-fault-hardening.md) |
+| T07 | Full validation and rollout gate | not_started | T01–T06 | Approved production signing keys, revocation data, signed metadata publication/endpoint, and artifact source are pending | [Brief](07-full-validation-and-rollout.md) |
 
 ## Dependency path
 
@@ -141,7 +141,7 @@ Remaining blocker/risk: <none or exact issue>
 
 ## Global blockers and change log
 
-- 2026-09-01: T05 implementation and review completed on branch
+- 2026-09-01: T05 completed on branch
   `hlu/ssh-mix-05` in commits `cd4179f` through `a071c1a`. The manager now
   selects only freshly verified compatible helpers, reports explicit SFTP
   fallback states, preserves per-family stale provenance, and does not mask a
@@ -153,10 +153,11 @@ Remaining blocker/risk: <none or exact issue>
   migrates only when it can bind to the configured SSH alias. Diagnostics omit
   remote stderr, and local-machine JSON omits empty remote-only enum fields.
   Focused Go tests and vet, three frontend Vitest files (31 tests), the frontend
-  production build, and `git diff --check` passed. T05 remains `in_progress`
-  because production helper installation is deliberately feature-gated pending
-  approved signing keys, revocation data, signed metadata publication/endpoint,
-  and an artifact source.
+  production build, and `git diff --check` passed. Production helper
+  installation remains deliberately feature-gated. Approved signing keys,
+  revocation data, signed metadata publication/endpoint, and the artifact source
+  are now explicit T07 rollout inputs rather than T05 implementation work. T06
+  is unblocked and may proceed first.
 
 - 2026-09-01: T04 completed on branch
   `hlu/ssh-mix-04`. It fixes the optional helper location to
