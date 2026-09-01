@@ -462,7 +462,7 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
           </Badge>
         </div>
         <div className="pt-2">
-          <DebriefProse blocks={blocksFromTexts(goal.texts)} tone="goal" />
+          <DebriefProse key={`${sessionKey(detail)}:goal`} blocks={blocksFromTexts(goal.texts)} tone="goal" />
         </div>
         <div className="border-b pt-3" />
         <div className="text-muted-foreground pt-3 text-xs">OUTCOME</div>
@@ -470,7 +470,12 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
           synthesisPlaceholder
         ) : (
           <div className="pt-1">
-            <DebriefProse blocks={outcome ? parseDebriefText(outcome) : []} empty="—" tone="outcome" />
+            <DebriefProse
+              key={`${sessionKey(detail)}:outcome`}
+              blocks={outcome ? parseDebriefText(outcome) : []}
+              empty="—"
+              tone="outcome"
+            />
           </div>
         )}
         <div className="text-muted-foreground pt-3 text-xs">KEY DECISIONS</div>
@@ -553,25 +558,36 @@ function DebriefBlocks({ blocks, tone }: { blocks: DebriefBlock[]; tone: 'goal' 
           );
         }
         if (block.kind === 'list') {
-          const ListTag = block.ordered ? 'ol' : 'ul';
+          if (block.ordered) {
+            return (
+              <ol
+                key={`l-${index}`}
+                className={cn('list-decimal space-y-1.5 pl-4 text-xs', {
+                  italic: tone === 'goal',
+                })}
+              >
+                {block.items.map((item, itemIndex) => (
+                  <li key={`${index}-${itemIndex}`} className="leading-relaxed">
+                    {item}
+                  </li>
+                ))}
+              </ol>
+            );
+          }
           return (
-            <ListTag
+            <ul
               key={`l-${index}`}
-              className={cn('flex flex-col gap-1.5 text-xs', {
-                'list-decimal pl-4': block.ordered,
-                'list-none': !block.ordered,
-                'italic': tone === 'goal',
+              className={cn('flex list-none flex-col gap-1.5 text-xs', {
+                italic: tone === 'goal',
               })}
             >
               {block.items.map((item, itemIndex) => (
                 <li key={`${index}-${itemIndex}`} className="flex items-start gap-2">
-                  {!block.ordered && (
-                    <span className="bg-muted-foreground mt-1.5 size-1 shrink-0 rounded-full" />
-                  )}
+                  <span className="bg-muted-foreground mt-1.5 size-1 shrink-0 rounded-full" />
                   <span className="min-w-0 flex-1 leading-relaxed">{item}</span>
                 </li>
               ))}
-            </ListTag>
+            </ul>
           );
         }
         return (
