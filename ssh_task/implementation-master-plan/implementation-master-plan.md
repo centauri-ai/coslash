@@ -1,6 +1,6 @@
 # SSH helper implementation master plan
 
-Status: implementation in progress; T01 complete
+Status: implementation in progress; T01–T03 complete
 
 Last updated: 2026-09-01
 
@@ -42,8 +42,8 @@ separate because they have distinct risk and approval gates.
 | ID | Task | Status | Depends on | Current blocker | Brief |
 | --- | --- | --- | --- | --- | --- |
 | T01 | Contracts, metrics, and fixtures | done | — | — | [Brief](01-contracts-metrics-and-fixtures.md) |
-| T02 | Cache v2 and incremental SFTP | not_started | T01 | Cache compatibility window needs approval | [Brief](02-cache-and-incremental-sftp.md) |
-| T03 | Linux helper and SSH transport | not_started | T01 | Initial Linux targets/libc strategy needs approval | [Brief](03-helper-and-ssh-transport.md) |
+| T02 | Cache v2 and incremental SFTP | done | T01 | — | [Brief](02-cache-and-incremental-sftp.md) |
+| T03 | Linux helper and SSH transport | done | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | not_started | T03 | Install path, signing scheme, and `noexec` policy need approval | [Brief](04-helper-lifecycle-and-compatibility.md) |
 | T05 | Manager, setup UI, diagnostics, and docs | not_started | T02, T03, T04 | Final consent copy needs product approval | [Brief](05-manager-ui-diagnostics-docs.md) |
 | T06 | Security and fault hardening | not_started | T02–T05 | Threat-model review required | [Brief](06-security-and-fault-hardening.md) |
@@ -141,11 +141,33 @@ Remaining blocker/risk: <none or exact issue>
 
 ## Global blockers and change log
 
+- 2026-09-01: T03 completed on branch
+  `hlu/t03-helper-and-ssh-transport` in commits `0a9dc20` and `96dac46`.
+  The stateless helper, bounded SSH exec transport, static Linux
+  `amd64`/`arm64` builds, warm Codex header reuse, and permanent failure-path
+  tests are ready for T04 and downstream integration. The initial target/libc
+  blocker is resolved: both artifacts build with `CGO_ENABLED=0` and are
+  statically linked. Follow-up boundaries:
+  - **T02 integration:** persist bounded Codex file-header mappings and include
+    them in known helper baselines; request overflow already falls back
+    atomically to `baseline_mode=none`.
+  - **T02/T05 integration:** decide whether baseline-free cache generations
+    retain authoritative inventories or never prune, because the current
+    proposed generation does not preserve the response inventory.
+  - **T05:** add frontend types and copy for helper missing, blocked,
+    incompatible, failed, partial, and output-limit health reasons.
+  - **T06:** retain review of display-field provenance. T03 clears Codex's
+    prompt-derived fallback name before facts cross the helper boundary.
 - 2026-09-01: T01 completed in commit `a400074`. The normalized family
   contract, bounded protocol, merge accumulator, privacy census, deterministic
   fixtures, and synthetic measurement command are ready for T02 and T03.
-  Real-host performance measurements remain a T07 rollout input. T02 and T03
-  retain the explicit approval gates shown in the work-item table.
+  Real-host performance measurements remain a T07 rollout input. The T02 cache
+  and T03 Linux target approval gates were subsequently resolved in their
+  completion records.
 - 2026-09-01: Consolidated the original 12-task plan into seven boundary-owned
   tasks to reduce handoffs and duplicated context. At that point implementation
   had not started.
+- 2026-09-01: T02 completed on branch `hlu/ssh-mix-02` in commits `bcba054`
+  and `c66217f`. Cache v2, incremental SFTP, review corrections, focused tests,
+  and the implementation handoff are complete. See
+  [post-implementation notes](post-implementation-notes.md).

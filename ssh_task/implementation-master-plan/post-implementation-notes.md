@@ -1,6 +1,6 @@
 # SSH helper post-implementation notes
 
-Status: active implementation record; T01 complete
+Status: active implementation record; T01–T03 complete
 
 Last updated: 2026-09-01
 
@@ -13,8 +13,8 @@ one section when each master-plan task reaches `review` or `done`.
 | Task | State | Implementation reference |
 | --- | --- | --- |
 | T01 — Contracts, metrics, and fixtures | done | Commit `a400074` |
-| T02 — Cache v2 and incremental SFTP | not started | Depends on T01; cache compatibility window still needs approval |
-| T03 — Linux helper and SSH transport | not started | Depends on T01; initial Linux target/libc strategy still needs approval |
+| T02 — Cache v2 and incremental SFTP | done | Branch `hlu/ssh-mix-02`; commits `bcba054`, `c66217f` |
+| T03 — Linux helper and SSH transport | done | Branch `hlu/t03-helper-and-ssh-transport`; commits `0a9dc20`, `96dac46` |
 | T04–T07 | not started | Follow the master-plan dependency order |
 
 ## T01 — Contracts, metrics, and fixtures
@@ -127,9 +127,187 @@ not real-host performance claims.
 - The checked-in workload is synthetic and content-free. T07 must collect and
   approve real-host cold, warm, changed-family, first-result, request/response,
   CPU, and peak-RSS evidence before rollout.
-- T02 still needs explicit approval of the cache-v1 compatibility/retention
-  window before its persistence format is finalized.
-- T03 still needs explicit approval of the initial Linux architecture/libc
-  support policy before release artifact work is finalized.
+- T02 is complete. Its one deferred limitation is the Claude background re-home
+  display-convergence case documented below.
+- T03 resolved the initial Linux architecture/libc policy with static
+  `CGO_ENABLED=0` builds for `amd64` and `arm64`.
 - T01 intentionally includes no cache migration, SFTP behavior change, helper
   executable, installer, manager integration, or UI change.
+
+## T02 — Cache v2 and incremental SFTP
+
+Completed: 2026-09-01. Branch: `hlu/ssh-mix-02`. Implementation commit:
+`bcba054` (`feat(remote): add cache v2 and incremental SFTP`). Documentation
+completion commit: `c66217f` (`docs(ssh): record T02 completion`).
+
+### What landed
+
+- Atomic cache-v2 persistence stores normalized family facts, aggregate and
+  contributing fingerprints, stale reasons, per-family last-success time,
+  coverage, generation identity, and versioned Codex header mappings.
+- Valid cache-v1 cards remain visible as stale until the first v2 commit; v1
+  fingerprints are never treated as a v2 baseline.
+- Incremental SFTP uses the shared accumulator for family-level changed,
+  unchanged, skipped, and authorized tombstone records.
+- Claude and Codex have independent byte budgets under one session deadline.
+- Unchanged refreshes transfer no transcript bodies and do not reopen unchanged
+  Codex headers.
+- Initial collection waits for the first `ListView` history window.
+
+### Corrections completed during review
+
+- Live `Open` and nested `ReadDir` operations repeat path validation, preventing
+  post-listing symlink replacement from escaping the allowlist.
+- Changed families receive a fresh post-parse fingerprint and are marked
+  `unstable_file` rather than committed if size or mtime changes.
+- Corrupt, oversized, unstable, and otherwise skipped families preserve valid
+  unrelated facts while making refresh health partial.
+- Parser/schema changes invalidate cached facts and versioned Codex headers.
+- Oversized known-family requests perform true bounded baseline-free
+  recollection; incomplete inventories cannot authorize deletion or coverage.
+- Session deadline identity survives read, EOF, and close processing.
+- Cache-v2 loading validates file size, collection counts, coverage, timestamps,
+  duplicate entries, and normalized family facts before use.
+
+### Validation evidence
+
+The final implementation passed focused remote/vendor/facts/protocol/metrics/
+collector tests, race tests for `internal/remote` and `internal/remoteprotocol`,
+`go build ./...`, `go vet ./...`, and `git diff --check`. All remote collection
+tests use fake SFTP/read sources; no real SSH host is required.
+
+### Known deferred limitation
+
+Claude background-session re-home collapsing only sees families reparsed in the
+same refresh. If the predecessor is unchanged, the new background family may
+temporarily appear separately until the predecessor is reparsed. This is a
+display-convergence issue only; it does not corrupt cache state, authorize an
+unsafe deletion, or lose normalized facts. Persisting re-home detection state or
+deliberately reparsing the predecessor remains outside T02 acceptance criteria.
+
+## T03 — Linux helper and SSH transport
+
+Completed: 2026-09-01. Commits: `0a9dc20`
+(`feat(remote): add the Linux collection helper and SSH exec transport`) and
+`96dac46` (`fix(remote): harden helper transport and warm scans`).
+
+Implementation branch: `hlu/t03-helper-and-ssh-transport`.
+
+### What landed
+
+- `collector/cmd/coslash-helper` provides stateless `version`/`capabilities`
+  and `collect` commands with bounded request decoding and documented exit codes.
+- `collector/internal/remotehelper` owns fixed-root discovery, no-follow reads,
+  bounded enumeration, family grouping, incremental comparison, parsing,
+  stability retries, inventories, tombstones, and streamed NDJSON emission.
+- `collector/internal/remote/helperexec*.go` drives the helper through system
+  SSH using fixed argv construction, bounded concurrent pipes, ControlMaster
+  reuse, incremental protocol accumulation, timeouts, and process-group cleanup.
+- Reproducible `CGO_ENABLED=0` builds target Linux `amd64` and `arm64` without a
+  runtime libc dependency.
+- Permanent helper, transport, protocol, privacy, and command tests cover the
+  acceptance boundary instead of relying on removed or one-off tests.
+
+### Decisions downstream tasks must preserve
+
+- The helper is stateless and reads only its fixed allowlist beneath one
+  `os.Root` handle. Request identifiers and fingerprint keys are comparison data
+  and never become filesystem paths.
+- The remote shell command contains only a narrowly validated helper path and a
+  closed subcommand. Request data travels on bounded stdin and is never
+  interpolated into argv or shell syntax.
+- Directory entries are read in fixed-size batches. The aggregate entry limit
+  is enforced while reading so one directory cannot allocate without a bound
+  before rejection.
+- Codex family facts carry bounded opaque file-key-to-session/parent mappings.
+  A known baseline supplies those mappings so unchanged files avoid header
+  reads; new or changed files reread and validate headers. If mappings or
+  fingerprints exceed request bounds, the entire baseline is discarded.
+- Codex's parser-derived first-prompt fallback is cleared by the helper adapter.
+  Approved session-index metadata names remain available, while prompt text has
+  no intentional helper wire field.
+- A file changing during parse is retried within a fixed budget. A Codex header
+  identity change makes the family unstable rather than publishing facts under
+  stale grouping.
+- `request_complete` is not an early stdout cutoff. The Mac continues a bounded
+  drain through EOF and rejects blank, malformed, excessive, or trailing output.
+- Helper resource-limit exit code 6 maps to the distinct `output_limit` reason;
+  missing, blocked, incompatible, helper failure, SSH failure, partial coverage,
+  timeout, and cancellation remain distinguishable.
+- Completed family records may survive a later interruption only in the pure
+  proposed generation. The caller remains responsible for one atomic durable
+  cache commit.
+
+### Boundary issues fixed during review
+
+- Restored permanent fake-process and helper tests required by the acceptance
+  criteria, including success, incompatibility, malformed/truncated output,
+  stdout/stderr floods, nonzero exits, hung children, cancellation, and input
+  injection.
+- Rejected content after `request_complete` instead of silently accepting it.
+- Replaced unbounded `ReadDir(-1)` allocation with bounded batched enumeration.
+- Added cache-carried Codex header mappings so unchanged warm scans do not need
+  to reopen every rollout header.
+- Prevented Codex first-prompt fallback text from entering helper facts.
+- Added a distinct helper resource-limit exit and transport classification.
+- Required exactly one bounded request line and rejected trailing request data.
+
+### Validation evidence
+
+The final focused suite passed:
+
+```sh
+go test \
+  ./internal/remotehelper \
+  ./internal/remote \
+  ./internal/remoteprotocol \
+  ./internal/remotefacts \
+  ./internal/vendors/codex \
+  ./internal/collector \
+  ./cmd/coslash-helper
+```
+
+Concurrency and static checks passed:
+
+```sh
+go test -race ./internal/remote ./internal/remotehelper
+go vet \
+  ./internal/remotehelper \
+  ./internal/remote \
+  ./internal/remoteprotocol \
+  ./internal/remotefacts \
+  ./internal/vendors/codex \
+  ./cmd/coslash-helper
+```
+
+Cross-build validation produced statically linked ELF binaries for
+`linux/amd64` and `linux/arm64` with `CGO_ENABLED=0`.
+
+### Guidance for T02 integration
+
+- Persist each family's Codex header mappings with its contributing file
+  fingerprints and include them when constructing a bounded known helper
+  baseline.
+- If the known baseline overflows, send no partial mappings or fingerprints;
+  preserve the atomic `baseline_mode=none` fallback.
+- Decide explicitly how a baseline-free authoritative inventory reaches the
+  cache commit boundary. The current accumulator proposal applies tombstones but
+  does not retain the inventory itself.
+
+### Guidance for T04 and T05
+
+- T04 may rely on static Linux `amd64`/`arm64` binaries and the capability
+  handshake. It still owns install paths, signed metadata, digest verification,
+  revocation, upgrades, uninstall, and `noexec` fallback policy.
+- T05 must integrate helper selection and cache commit policy, expose safe timing
+  and byte diagnostics, and add UI copy for every helper health reason.
+
+### Remaining work and limitations
+
+- Managed installation, artifact authentication, compatibility lifecycle,
+  manager selection, settings, UI, and real-host rollout validation remain in
+  T04–T07.
+- T03 uses fake-process transport tests, not a real SSH host, as required by its
+  task boundary. T07 still owns real-host latency, CPU, RSS, and corpus gates.
+- T06 must perform the broader threat-model and fault-injection pass even though
+  the T03-specific review findings now have regressions.
