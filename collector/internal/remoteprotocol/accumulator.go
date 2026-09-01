@@ -11,9 +11,10 @@ import (
 
 type FamilyKey struct{ Vendor, FamilyID string }
 type CachedFamily struct {
-	Facts       remotefacts.Family
-	Fingerprint string
-	StaleReason string
+	Facts           remotefacts.Family
+	Fingerprint     string
+	StaleReason     string
+	LastSuccessAtMs int64
 }
 type Generation struct {
 	BaselineID      string
@@ -97,7 +98,9 @@ func (a *Accumulator) Apply(record Record) error {
 				return fmt.Errorf("new family %s/%s has a prior fingerprint", key.Vendor, key.FamilyID)
 			}
 		}
-		a.proposal.Families[key] = CachedFamily{Facts: *record.Family, Fingerprint: record.Fingerprint}
+		a.proposal.Families[key] = CachedFamily{
+			Facts: *record.Family, Fingerprint: record.Fingerprint, LastSuccessAtMs: a.request.CollectedAtMs,
+		}
 	case RecordUnchanged:
 		current, ok := a.proposal.Families[key]
 		if !ok || current.Fingerprint != record.Fingerprint {

@@ -49,6 +49,36 @@ type ReadSource interface {
 	Stat(string) (fs.FileInfo, error)
 }
 
+// freshStatSource is implemented by remote sources that cache directory
+// metadata. FreshStat bypasses that manifest cache for post-read stability and
+// path-security checks. Local sources can simply use Stat.
+type freshStatSource interface {
+	FreshStat(string) (fs.FileInfo, error)
+}
+
+func FingerprintSourceFilesFresh(source ReadSource, root string, files []string) ([]FileFingerprint, error) {
+	fresh, ok := source.(freshStatSource)
+	if !ok {
+		return FingerprintSourceFiles(source, root, files)
+	}
+	fingerprints := make([]FileFingerprint, 0, len(files))
+	for _, file := range files {
+		info, err := fresh.FreshStat(file)
+		if err != nil {
+			return nil, err
+		}
+		relative, err := filepath.Rel(root, file)
+		if err != nil {
+			return nil, err
+		}
+		digest := sha256.Sum256([]byte(filepath.ToSlash(relative)))
+		fingerprints = append(fingerprints, FileFingerprint{
+			Key: hex.EncodeToString(digest[:]), Size: info.Size(), ModifiedAtMs: info.ModTime().UnixMilli(),
+		})
+	}
+	return fingerprints, nil
+}
+
 type osReadSource struct{}
 
 func (osReadSource) Open(path string) (io.ReadCloser, error) {

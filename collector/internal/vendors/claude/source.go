@@ -3,6 +3,7 @@ package claude
 import (
 	"encoding/json"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
@@ -40,13 +41,10 @@ func CollectSource(
 	return parseFilesSource(source, files), metadata, nil
 }
 
-func CollectRemote(
-	source vendors.ReadSource,
-	home string,
-	since int64,
-	now time.Time,
-) (vendors.RemoteCollection, error) {
-	metadata := vendors.BestEffortMetadata(
+// RemoteMetadata loads best-effort live/name metadata for a remote source
+// without touching any transcript file.
+func RemoteMetadata(source vendors.ReadSource, home string, now time.Time) *vendors.SessionMetadata {
+	return vendors.BestEffortMetadata(
 		vendors.AgentClaude,
 		func() (*vendors.SessionMetadata, error) {
 			return LoadRemoteMetadata(source, home, now, func(pid int) bool {
@@ -58,36 +56,84 @@ func CollectRemote(
 			})
 		},
 	)
-	files, err := FilesSource(source, ProjectsRoot(home))
-	if err != nil {
-		return vendors.RemoteCollection{}, err
-	}
-	candidates := len(files)
-	if since > 0 {
-		files = FilesSinceSource(source, files, metadata.Live, since)
-	}
-	files, truncated := vendors.LimitNewestSourceFileFamilies(
-		source, files, vendors.MaxCandidateFilesPerAgent, familyIDFromPath,
-	)
-	fingerprints, err := vendors.FingerprintSourceFiles(source, ProjectsRoot(home), files)
-	if err != nil {
-		return vendors.RemoteCollection{}, err
-	}
-	sessions, err := parseFilesSourceStrict(source, files)
-	if err != nil {
-		return vendors.RemoteCollection{}, err
-	}
-	return vendors.RemoteCollection{
-		Sessions:       sessions,
-		Metadata:       metadata,
-		Fingerprints:   fingerprints,
-		CandidateFiles: candidates,
-		SelectedFiles:  len(files),
-		Truncated:      truncated,
-	}, nil
 }
 
-func familyIDFromPath(file string) string {
+// RemoteFamily is one family's contributing files and their fingerprints,
+// selected for this refresh's requested window.
+type RemoteFamily struct {
+	Files        []string
+	Fingerprints []vendors.FileFingerprint
+}
+
+// BuildRemoteFamilies discovers, selects, and fingerprints candidate remote
+// files without opening or parsing any of them, grouping the window-selected
+// result by FamilyIDFromPath. allFamilyIDs names every family found by a
+// complete, unfiltered scan of the tree, independent of the requested window
+// or the per-refresh family-count cap, so a caller can use it as
+// deletion-authority inventory even when since narrows what gets selected.
+func BuildRemoteFamilies(
+	source vendors.ReadSource,
+	home string,
+	since int64,
+	live map[string]string,
+) (
+	selected map[string]RemoteFamily,
+	allFamilyIDs []string,
+	candidateFiles int,
+	truncated bool,
+	err error,
+) {
+	root := ProjectsRoot(home)
+	allFiles, err := FilesSource(source, root)
+	if err != nil {
+		return nil, nil, 0, false, err
+	}
+	candidateFiles = len(allFiles)
+	allFamilySet := map[string]struct{}{}
+	for _, file := range allFiles {
+		allFamilySet[FamilyIDFromPath(file)] = struct{}{}
+	}
+	allFamilyIDs = make([]string, 0, len(allFamilySet))
+	for id := range allFamilySet {
+		allFamilyIDs = append(allFamilyIDs, id)
+	}
+	sort.Strings(allFamilyIDs)
+
+	files := allFiles
+	if since > 0 {
+		files = FilesSinceSource(source, files, live, since)
+	}
+	files, truncated = vendors.LimitNewestSourceFileFamilies(
+		source, files, vendors.MaxCandidateFilesPerAgent, FamilyIDFromPath,
+	)
+	fingerprints, err := vendors.FingerprintSourceFiles(source, root, files)
+	if err != nil {
+		return nil, nil, candidateFiles, truncated, err
+	}
+	selected = map[string]RemoteFamily{}
+	for index, file := range files {
+		id := FamilyIDFromPath(file)
+		entry := selected[id]
+		entry.Files = append(entry.Files, file)
+		entry.Fingerprints = append(entry.Fingerprints, fingerprints[index])
+		selected[id] = entry
+	}
+	return selected, allFamilyIDs, candidateFiles, truncated, nil
+}
+
+// ParseRemoteFiles parses exactly the given files (already selected as one or
+// more changed families) and applies the same fork-usage and background-rehome
+// finalization as local collection. A per-file failure is reported alongside
+// every file that parsed successfully so the caller can isolate the failure to
+// that file's family.
+func ParseRemoteFiles(
+	source vendors.ReadSource,
+	files []string,
+) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+	return parseFilesSourceStrict(source, files)
+}
+
+func FamilyIDFromPath(file string) string {
 	if parentID := ParentIDFromPath(file); parentID != "" {
 		return parentID
 	}
@@ -109,7 +155,7 @@ func familyFiles(source vendors.ReadSource, files []string, id string) []string 
 	selected, target := []string{}, ""
 	owners := map[string][]string{}
 	for _, file := range files {
-		if familyIDFromPath(file) == id {
+		if FamilyIDFromPath(file) == id {
 			selected = append(selected, file)
 		}
 		if parent := ParentIDFromPath(file); parent != "" {
@@ -173,12 +219,9 @@ func parseFilesSource(source vendors.ReadSource, files []string) []*vendors.Pars
 func parseFilesSourceStrict(
 	source vendors.ReadSource,
 	files []string,
-) ([]*vendors.ParsedSession, error) {
-	parsed, err := vendors.ParseSourceFilesStrict(source, files, parseSource)
-	if err != nil {
-		return nil, err
-	}
-	return finalizeParsedFiles(source, parsed), nil
+) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
+	parsed, failures, err := vendors.ParseSourceFilesStrict(source, files, parseSource)
+	return finalizeParsedFiles(source, parsed), failures, err
 }
 
 func finalizeParsedFiles(
