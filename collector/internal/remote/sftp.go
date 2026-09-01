@@ -171,6 +171,7 @@ func benignSessionCloseErr(err error) bool {
 type Session struct {
 	client *sftp.Client
 	source *Source
+	ctx    context.Context
 	cancel context.CancelFunc
 	cmd    *exec.Cmd
 	stderr *cappedStderr
@@ -278,7 +279,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 		return nil, wrapSSHError(err, stderr.String())
 	}
 	return &Session{
-		client: client, source: source, cancel: cancel, cmd: cmd, stderr: stderr,
+		client: client, source: source, ctx: sessionCtx, cancel: cancel, cmd: cmd, stderr: stderr,
 	}, nil
 }
 
@@ -294,10 +295,15 @@ func (session *Session) Close() error {
 	session.closeOnce.Do(func() {
 		// Wait before cancel so a clean SFTP close does not SIGKILL the child first.
 		clientErr := session.client.Close()
-		_ = session.cmd.Wait()
+		waitErr := session.cmd.Wait()
+		ctxErr := session.ctx.Err()
 		session.cancel()
-		if !benignSessionCloseErr(clientErr) {
+		if ctxErr != nil {
+			session.closeErr = ctxErr
+		} else if !benignSessionCloseErr(clientErr) {
 			session.closeErr = clientErr
+		} else if waitErr != nil {
+			session.closeErr = wrapSSHError(waitErr, session.stderr.String())
 		}
 		if session.stderr.overflow {
 			session.closeErr = ErrStderrLimit

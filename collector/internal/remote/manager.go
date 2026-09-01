@@ -3,19 +3,15 @@ package remote
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
-	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
-	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 var ErrInvalidRemoteSettings = errors.New("invalid remote settings")
@@ -40,16 +36,26 @@ type ListResult struct {
 	Health   Health
 }
 
-type refreshResult struct {
-	Sessions     []*session.Session
-	Coverage     []AgentCoverage
-	Failures     []error
-	Fingerprints map[string][]vendors.FileFingerprint
-	Stderr       string
-	RoundTrip    time.Duration
+// refreshOutcome is what one incremental SFTP refresh produces: a durable v2
+// snapshot ready to store as-is, and the sessions composed from it.
+type refreshOutcome struct {
+	Snapshot  CachedSnapshotV2
+	Sessions  []*session.Session
+	Failures  []error
+	Stderr    string
+	RoundTrip time.Duration
 }
 
-type refreshFunc func(context.Context, string, int64, time.Time) (refreshResult, error)
+type probeResult struct {
+	Coverage  []AgentCoverage
+	Stderr    string
+	RoundTrip time.Duration
+}
+
+// refreshFunc receives the current cached generation as baseline so it can
+// skip re-collecting families whose fingerprint has not changed.
+type refreshFunc func(ctx context.Context, alias string, since int64, now time.Time, baseline CachedSnapshotV2) (refreshOutcome, error)
+type probeFunc func(ctx context.Context, alias string) (probeResult, error)
 type openFunc func(context.Context, string, OpenOptions) (*Session, error)
 
 type Manager struct {
@@ -58,13 +64,18 @@ type Manager struct {
 	cache   *Cache
 	now     func() time.Time
 	refresh refreshFunc
-	test    refreshFunc
+	test    probeFunc
 
 	cfg        *settings.RemoteSettings
 	lifeCtx    context.Context
 	lifeCancel context.CancelFunc
 
-	cached          *CachedSnapshot
+	// snapshot is nil until a cache (v1 or v2) has been loaded or a refresh has
+	// committed. legacyStale is true while snapshot only carries display fields
+	// inherited from a v1 cache: its Families stay empty so the next refresh
+	// starts from an empty baseline rather than reinterpreting v1 fingerprints.
+	snapshot        *CachedSnapshotV2
+	legacyStale     bool
 	sessions        []*session.Session
 	state           State
 	reason          *Reason
@@ -82,7 +93,7 @@ type Options struct {
 	Cache   *Cache
 	Now     func() time.Time
 	Refresh refreshFunc
-	Test    refreshFunc
+	Test    probeFunc
 	Open    openFunc
 }
 
@@ -101,13 +112,13 @@ func NewManager(options Options) *Manager {
 	}
 	refresh := options.Refresh
 	if refresh == nil {
-		refresh = func(ctx context.Context, alias string, since int64, now time.Time) (refreshResult, error) {
-			return refreshSFTPWithOpen(ctx, alias, since, now, open)
+		refresh = func(ctx context.Context, alias string, since int64, now time.Time, baseline CachedSnapshotV2) (refreshOutcome, error) {
+			return refreshIncrementalWithOpen(ctx, alias, since, now, baseline, open)
 		}
 	}
 	test := options.Test
 	if test == nil {
-		test = func(ctx context.Context, alias string, _ int64, _ time.Time) (refreshResult, error) {
+		test = func(ctx context.Context, alias string) (probeResult, error) {
 			return probeSFTPWithOpen(ctx, alias, open)
 		}
 	}
@@ -157,12 +168,17 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 			return err
 		}
 		manager.startLifeLocked()
-		manager.state = StateConnecting
+		if manager.snapshot != nil {
+			manager.state = StateStale
+		} else {
+			manager.state = StateConnecting
+		}
 		manager.reason = reasonPtr(ReasonInitialRefresh)
 		manager.complete = false
 		manager.failures = 0
 		manager.nextRetryAt = time.Time{}
-		manager.kickRefreshLocked(manager.lastRequestedMs)
+		// Initial collection waits for ListView's first requested window
+		// instead of starting eagerly with since=0.
 	}
 	return nil
 }
@@ -178,8 +194,8 @@ func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
 	if !manager.cfg.Enabled {
 		return ListResult{Health: manager.healthLocked(remoteSinceMs)}
 	}
-	if manager.cached == nil || age(manager.cached.FetchedAtMs, manager.now()) >= FreshnessInterval ||
-		manager.cached.CoverageSinceMs > remoteSinceMs {
+	if manager.snapshot == nil || age(manager.snapshot.FetchedAtMs, manager.now()) >= FreshnessInterval ||
+		manager.snapshot.CoverageSinceMs > remoteSinceMs {
 		manager.maybeStartRefreshLocked(remoteSinceMs, false)
 	}
 	return ListResult{Sessions: manager.sessionsLocked(remoteSinceMs), Health: manager.healthLocked(remoteSinceMs)}
@@ -199,8 +215,7 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 	if !settings.ValidSSHAlias(alias) {
 		return Health{}, ErrInvalidRemoteSettings
 	}
-	now := manager.now()
-	result, err := manager.test(ctx, alias, now.UnixMilli(), now)
+	result, err := manager.test(ctx, alias)
 	health := Health{
 		Label: alias, Complete: true, Coverage: slices.Clone(result.Coverage),
 		RoundTripMs: int64Ptr(result.RoundTrip.Milliseconds()),
@@ -249,7 +264,8 @@ func (manager *Manager) removeLocked() error {
 		alias = manager.cfg.SSHAlias
 	}
 	manager.cfg = nil
-	manager.cached = nil
+	manager.snapshot = nil
+	manager.legacyStale = false
 	manager.sessions = nil
 	manager.state = StateDisabled
 	manager.reason = reasonPtr(ReasonDisabled)
@@ -268,18 +284,38 @@ func (manager *Manager) removeLocked() error {
 }
 
 func (manager *Manager) loadCacheLocked() error {
-	cached, ok, err := manager.cache.Load(manager.cfg.ID)
+	v2, ok, err := manager.cache.LoadV2(manager.cfg.ID)
+	if err != nil {
+		return err
+	}
+	if ok {
+		manager.snapshot = &v2
+		manager.legacyStale = false
+		manager.sessions = composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0)
+		manager.lastSuccessAt = int64Ptr(v2.FetchedAtMs)
+		return nil
+	}
+	legacy, ok, err := manager.cache.Load(manager.cfg.ID)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		manager.cached = nil
+		manager.snapshot = nil
+		manager.legacyStale = false
 		manager.sessions = nil
 		return nil
 	}
-	manager.cached = &cached
-	manager.sessions = cached.sessions()
-	manager.lastSuccessAt = int64Ptr(cached.FetchedAtMs)
+	// A v1 card stays visible as stale display data only: Families and
+	// BaselineID stay empty so the next refresh starts from an empty
+	// generation instead of reinterpreting v1 fingerprints as v2 state.
+	manager.snapshot = &CachedSnapshotV2{
+		Version: cacheV2Version, CoverageSinceMs: legacy.CoverageSinceMs,
+		FetchedAtMs: legacy.FetchedAtMs, RoundTripMs: legacy.RoundTripMs,
+		Coverage: legacy.Coverage,
+	}
+	manager.legacyStale = true
+	manager.sessions = legacy.sessions()
+	manager.lastSuccessAt = int64Ptr(legacy.FetchedAtMs)
 	return nil
 }
 
@@ -311,25 +347,27 @@ func (manager *Manager) kickRefreshLocked(remoteSinceMs int64) {
 		return
 	}
 	manager.refreshing = true
-	if manager.cached == nil {
+	if manager.snapshot == nil {
 		manager.state = StateConnecting
 		manager.reason = reasonPtr(ReasonInitialRefresh)
 		manager.complete = false
-	} else if manager.cached.CoverageSinceMs > remoteSinceMs {
+	} else if manager.snapshot.CoverageSinceMs > remoteSinceMs {
 		manager.state = StateConnecting
 		manager.reason = reasonPtr(ReasonBroaderHistory)
 		manager.complete = false
 	}
 	config := *manager.cfg
-	go manager.runRefresh(manager.lifeCtx, config, remoteSinceMs)
+	baseline := snapshotOrEmpty(manager.snapshot)
+	go manager.runRefresh(manager.lifeCtx, config, remoteSinceMs, baseline)
 }
 
 func (manager *Manager) runRefresh(
 	ctx context.Context,
 	config settings.RemoteSettings,
 	remoteSinceMs int64,
+	baseline CachedSnapshotV2,
 ) {
-	result, err := manager.refresh(ctx, config.SSHAlias, remoteSinceMs, manager.now())
+	result, err := manager.refresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline)
 	fetchedAt := manager.now().UnixMilli()
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -346,10 +384,10 @@ func (manager *Manager) runRefresh(
 		return
 	}
 	if reason := limitedResultReason(result); reason != nil {
-		manager.applyLimitedLocked(result, *reason, remoteSinceMs, fetchedAt)
+		manager.applyLimitedLocked(result, *reason, fetchedAt)
 		return
 	}
-	if !manager.publishSnapshotLocked(result, remoteSinceMs, fetchedAt) {
+	if !manager.publishSnapshotLocked(result, fetchedAt) {
 		return
 	}
 	manager.failures = 0
@@ -361,30 +399,23 @@ func (manager *Manager) runRefresh(
 	manager.reason = nil
 }
 
-func (manager *Manager) publishSnapshotLocked(
-	result refreshResult,
-	remoteSinceMs, fetchedAt int64,
-) bool {
-	cached := snapshotForCache(
-		result.Sessions, slices.Clone(result.Coverage), result.Fingerprints,
-		remoteSinceMs, fetchedAt, result.RoundTrip.Milliseconds(),
-	)
-	if err := manager.cache.Store(manager.cfg.ID, cached); err != nil {
+func (manager *Manager) publishSnapshotLocked(result refreshOutcome, fetchedAt int64) bool {
+	snapshot := result.Snapshot
+	snapshot.FetchedAtMs = fetchedAt
+	snapshot.RoundTripMs = result.RoundTrip.Milliseconds()
+	if err := manager.cache.StoreV2(manager.cfg.ID, snapshot); err != nil {
 		manager.applyFailureLocked(ReasonLocalCacheFailed, "")
 		return false
 	}
-	manager.cached = &cached
+	manager.snapshot = &snapshot
+	manager.legacyStale = false
 	manager.sessions = result.Sessions
 	manager.lastSuccessAt = int64Ptr(fetchedAt)
 	return true
 }
 
-func (manager *Manager) applyLimitedLocked(
-	result refreshResult,
-	reason Reason,
-	remoteSinceMs, fetchedAt int64,
-) {
-	if !manager.publishSnapshotLocked(result, remoteSinceMs, fetchedAt) {
+func (manager *Manager) applyLimitedLocked(result refreshOutcome, reason Reason, fetchedAt int64) {
+	if !manager.publishSnapshotLocked(result, fetchedAt) {
 		return
 	}
 	manager.failures++
@@ -403,7 +434,7 @@ func (manager *Manager) applyFailureLocked(reason Reason, stderr string) {
 	manager.errorCopy = genericErrorCopy(reason)
 	manager.diagnostic = redactDiagnostic(stderr)
 	manager.complete = false
-	if manager.cached != nil {
+	if manager.snapshot != nil {
 		manager.state = StateStale
 	} else {
 		manager.state = StateError
@@ -451,114 +482,64 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		health.Error = ""
 		return health
 	}
-	if manager.cached != nil {
-		health.CoverageSinceMs = int64Ptr(manager.cached.CoverageSinceMs)
-		health.RoundTripMs = int64Ptr(manager.cached.RoundTripMs)
-		health.Coverage = slices.Clone(manager.cached.Coverage)
-		health.Complete = manager.state == StateOK && manager.cached.CoverageSinceMs <= remoteSinceMs
+	if manager.snapshot != nil {
+		health.CoverageSinceMs = int64Ptr(manager.snapshot.CoverageSinceMs)
+		health.RoundTripMs = int64Ptr(manager.snapshot.RoundTripMs)
+		health.Coverage = slices.Clone(manager.snapshot.Coverage)
+		health.Complete = manager.state == StateOK && manager.snapshot.CoverageSinceMs <= remoteSinceMs
 	}
-	if manager.state == StateConnecting && manager.cached != nil && manager.cached.CoverageSinceMs > remoteSinceMs {
+	if manager.state == StateConnecting && manager.snapshot != nil && manager.snapshot.CoverageSinceMs > remoteSinceMs {
 		health.Reason = reasonPtr(ReasonBroaderHistory)
 		health.Complete = false
 	}
 	return health
 }
 
-func refreshSFTP(ctx context.Context, alias string, since int64, now time.Time) (refreshResult, error) {
-	return refreshSFTPWithOpen(ctx, alias, since, now, OpenSession)
-}
-
-func probeSFTPWithOpen(ctx context.Context, alias string, open openFunc) (refreshResult, error) {
+func probeSFTPWithOpen(ctx context.Context, alias string, open openFunc) (probeResult, error) {
 	started := time.Now()
 	connection, err := open(ctx, alias, OpenOptions{})
 	if err != nil {
-		return refreshResult{RoundTrip: time.Since(started)}, err
+		return probeResult{RoundTrip: time.Since(started)}, err
 	}
 	closeErr := connection.Close()
-	result := refreshResult{RoundTrip: time.Since(started), Stderr: connection.Stderr()}
+	result := probeResult{RoundTrip: time.Since(started), Stderr: connection.Stderr()}
 	if closeErr != nil && !benignSessionCloseErr(closeErr) {
 		return result, closeErr
 	}
 	return result, nil
 }
 
-func refreshSFTPWithOpen(
+func refreshIncrementalWithOpen(
 	ctx context.Context,
 	alias string,
 	since int64,
 	now time.Time,
+	baseline CachedSnapshotV2,
 	open openFunc,
-) (refreshResult, error) {
+) (refreshOutcome, error) {
 	started := time.Now()
 	connection, err := open(ctx, alias, OpenOptions{})
 	if err != nil {
-		return refreshResult{}, err
+		return refreshOutcome{}, err
 	}
-	source := connection.Source()
-	parseSince := max(0, since-(24*time.Hour).Milliseconds())
-	collections := map[string]vendors.RemoteCollection{}
-	result := refreshResult{Fingerprints: map[string][]vendors.FileFingerprint{}}
-
-	type agentResult struct {
-		agent      string
-		collection vendors.RemoteCollection
-		err        error
-	}
-	outcomes := make(chan agentResult, 2)
-	go func() {
-		collection, collectErr := claude.CollectRemote(source, source.Home(), parseSince, now)
-		if collectErr != nil {
-			collectErr = fmt.Errorf("collect Claude remote data: %w", collectErr)
+	snapshot, sessions, failures, err := collectIncremental(connection.Source(), since, now, baseline)
+	stderr := connection.Stderr()
+	if err != nil {
+		closeErr := connection.Close()
+		if closeErr != nil && !benignSessionCloseErr(closeErr) {
+			err = closeErr
 		}
-		outcomes <- agentResult{agent: vendors.AgentClaude, collection: collection, err: collectErr}
-	}()
-	go func() {
-		collection, collectErr := codex.CollectRemote(source, source.Home(), parseSince)
-		if collectErr != nil {
-			collectErr = fmt.Errorf("collect Codex remote data: %w", collectErr)
-		}
-		outcomes <- agentResult{agent: vendors.AgentCodex, collection: collection, err: collectErr}
-	}()
-
-	byAgent := map[string]agentResult{}
-	for range 2 {
-		item := <-outcomes
-		byAgent[item.agent] = item
+		return refreshOutcome{Failures: failures, Stderr: stderr, RoundTrip: time.Since(started)}, err
 	}
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
-		item := byAgent[agent]
-		if item.err != nil {
-			result.Failures = append(result.Failures, item.err)
-			result.Coverage = append(result.Coverage, AgentCoverage{
-				Agent: agent, Error: genericErrorCopy(classifyError(item.err)),
-			})
-			continue
-		}
-		collections[agent] = item.collection
-		result.Fingerprints[agent] = item.collection.Fingerprints
-		result.Coverage = append(result.Coverage, coverageFor(agent, item.collection))
-	}
-	if len(result.Failures) == 2 {
-		result.Stderr = connection.Stderr()
-		_ = connection.Close()
-		result.RoundTrip = time.Since(started)
-		return result, errors.Join(result.Failures...)
-	}
-	result.Sessions = collector.ListRemote(source, collections, since)
-	result.Stderr = connection.Stderr()
 	closeErr := connection.Close()
-	result.RoundTrip = time.Since(started)
+	result := refreshOutcome{
+		Snapshot: snapshot, Sessions: sessions, Failures: failures,
+		Stderr: stderr, RoundTrip: time.Since(started),
+	}
 	if closeErr != nil && !benignSessionCloseErr(closeErr) {
 		return result, closeErr
 	}
 	return result, nil
-}
-
-func coverageFor(agent string, collection vendors.RemoteCollection) AgentCoverage {
-	return AgentCoverage{
-		Agent: agent, CandidateFiles: collection.CandidateFiles,
-		SelectedFiles: collection.SelectedFiles, Truncated: collection.Truncated,
-	}
 }
 
 func noSupportedData(coverage []AgentCoverage) bool {
@@ -573,13 +554,13 @@ func noSupportedData(coverage []AgentCoverage) bool {
 	return true
 }
 
-func limitedResultReason(result refreshResult) *Reason {
+func limitedResultReason(result refreshOutcome) *Reason {
 	switch {
 	case len(result.Failures) > 0:
 		return reasonPtr(ReasonPartialAgentData)
-	case slices.ContainsFunc(result.Coverage, func(item AgentCoverage) bool { return item.Truncated }):
+	case slices.ContainsFunc(result.Snapshot.Coverage, func(item AgentCoverage) bool { return item.Truncated }):
 		return reasonPtr(ReasonHistoryTruncated)
-	case noSupportedData(result.Coverage):
+	case noSupportedData(result.Snapshot.Coverage):
 		return reasonPtr(ReasonNoSupportedData)
 	default:
 		return nil

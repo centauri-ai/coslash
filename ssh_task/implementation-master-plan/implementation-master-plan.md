@@ -40,7 +40,7 @@ separate because they have distinct risk and approval gates.
 | ID | Task | Status | Depends on | Current blocker | Brief |
 | --- | --- | --- | --- | --- | --- |
 | T01 | Contracts, metrics, and fixtures | done | — | — | [Brief](01-contracts-metrics-and-fixtures.md) |
-| T02 | Cache v2 and incremental SFTP | not_started | T01 | Cache compatibility window needs approval | [Brief](02-cache-and-incremental-sftp.md) |
+| T02 | Cache v2 and incremental SFTP | review | T01 | None; see handoff in brief | [Brief](02-cache-and-incremental-sftp.md) |
 | T03 | Linux helper and SSH transport | not_started | T01 | Initial Linux targets/libc strategy needs approval | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | not_started | T03 | Install path, signing scheme, and `noexec` policy need approval | [Brief](04-helper-lifecycle-and-compatibility.md) |
 | T05 | Manager, setup UI, diagnostics, and docs | not_started | T02, T03, T04 | Final consent copy needs product approval | [Brief](05-manager-ui-diagnostics-docs.md) |
@@ -141,3 +141,15 @@ Remaining blocker/risk: <none or exact issue>
 
 - 2026-09-01: Consolidated the original 12-task plan into seven boundary-owned
   tasks to reduce handoffs and duplicated context. No implementation has started.
+- 2026-09-01: T02 resolved its cache-compatibility blocker by adopting Phase 0
+  default #6 as written (v2 written separately; v1 stays visible as stale;
+  v1 fingerprints are never reinterpreted as v2 baseline). See T02's brief for
+  the full handoff, including one newly discovered, deliberately deferred edge
+  case: a Claude background session re-home may not immediately fold into its
+  predecessor's family when the predecessor's own transcripts are unchanged,
+  since collapsing that merge requires re-parsing both sides in the same
+  refresh. This produces two display cards instead of one until the
+  predecessor is reprocessed for an unrelated reason — never a crash, invalid
+  cache state, or data loss. Fixing it fully would need either persisting
+  parse-time rehome-detection state or forcing a full reparse whenever a new
+  background rehome is observed; deferred as out of T02's acceptance criteria.
