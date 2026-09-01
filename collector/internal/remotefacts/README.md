@@ -13,7 +13,8 @@ Only these source facts cross the remote boundary:
 - start/activity/duration, in-turn/stopped, bounded counts, token totals, and
   cost converted deterministically to integer micro-USD;
 - spawn completion/turn, human command **labels** (never command text), approved
-  name/live metadata, and opaque file comparison keys with size/mtime.
+  name/live metadata, opaque file comparison keys with size/mtime, and bounded
+  Codex key-to-session/parent header mappings used only for warm discovery.
 
 The adapter excludes by construction: `LogPath`, working directory, repository,
 edited paths, file edit rows, raw commands, prompts, summary, digest/tool output,
@@ -35,6 +36,7 @@ family also requires `stale_reason`. Empty optional strings are omitted.
 | Model | 120 UTF-8 bytes |
 | Sessions/family | 256 |
 | Fingerprints/family | 512 |
+| Codex header mappings/family | 512 |
 | Models/session | 32 |
 | Spawns/session | 256 |
 | Command labels/session | 128 |

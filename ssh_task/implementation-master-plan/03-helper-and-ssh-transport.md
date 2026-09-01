@@ -1,6 +1,6 @@
 # T03 — Linux helper and SSH transport
 
-Status: review
+Status: done
 
 Depends on: T01
 
@@ -100,20 +100,28 @@ Decisions:
   shell's 126/127 mean blocked or missing. Each maps to a distinct reason
   (`helper_missing`, `helper_not_executable`, `helper_incompatible`,
   `helper_failed`, `output_limit`).
-- The transport applies records incrementally, stops reading at
-  `request_complete`, reaps before collecting the stdin write result (otherwise a
-  helper that never drains stdin could block the writer), and terminates the SSH
-  process group on abort, flood, timeout, or a child that stops writing without
-  exiting.
+- The transport applies records incrementally, continues a bounded drain through
+  EOF after `request_complete` so trailing output is rejected, reaps before
+  collecting the stdin write result, and terminates the SSH process group on
+  abort, flood, timeout, or a child that stops writing without exiting.
+- Codex changed-family facts carry bounded opaque file-header mappings. A warm
+  request supplies them with the known baseline, allowing unchanged headers to
+  be reused without reopening transcripts; overflow drops the whole baseline.
+- Directory enumeration reads fixed-size batches and enforces the aggregate
+  entry ceiling while reading, rather than allocating an unbounded directory.
+- Codex prompt-derived fallback names are cleared at the helper-only adapter;
+  approved metadata names remain available without sending prompt text.
 - Helper digests cover the binaries, not archives, since installation verifies the
   exact executable it places and runs.
 
 Focused tests:
 
 - `go test ./internal/remotehelper ./internal/remote ./internal/remoteprotocol
-  ./internal/remotefacts` — passed (13 helper tests, 15 transport tests covering
-  success, incompatibility, malformed/truncated output, stdout/stderr floods,
-  oversized record, exit codes, hung child, cancellation, and injection).
+  ./internal/remotefacts ./internal/vendors/codex ./cmd/coslash-helper` — passed;
+  committed regression tests cover success, incompatibility, malformed/truncated
+  and trailing output, stdout/stderr floods, resource/exit classification, hung
+  child, cancellation, injection, bounded directory reads, warm Codex header
+  reuse, exact one-line requests, and prompt-name exclusion.
 - `go test ./internal/collector` — passed (one adjacent package; `vendors` gained
   exported symbols).
 - `go test -race ./internal/remote ./internal/remotehelper` — passed. Run early
@@ -124,10 +132,11 @@ Focused tests:
 - `make helper-dist` — reproducible `linux/amd64` and `linux/arm64` binaries,
   `CGO_ENABLED=0`, statically linked; a rebuild produced identical digests.
 - End-to-end smoke with the real binary over a fixture home: cold collect
-  published both families in 3.3 KiB and warm collect with known fingerprints
-  transferred zero transcript bytes, emitting only `unchanged_family` records.
-- Go tests were written and run, then removed from the commit to match this
-  repository's practice for `internal/remote`.
+  published both families in 3.3 KiB. The committed warm-header regression uses
+  a deliberately invalid on-disk header and proves the matching cached mapping
+  is reused without opening it.
+- Regression tests are committed with the implementation so the transport and
+  helper safety boundaries remain independently reproducible.
 
 Remaining blocker/risk: none for T04. Discovered scope recorded in the master
 plan change log for T02/T05/T06.

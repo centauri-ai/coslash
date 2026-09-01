@@ -1,6 +1,7 @@
 package remotehelper
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -104,12 +105,27 @@ func (source *Source) ReadDir(name string) ([]fs.DirEntry, error) {
 		return nil, err
 	}
 	defer directory.Close()
-	entries, err := directory.ReadDir(-1)
-	if err != nil {
-		return nil, err
-	}
-	if source.entries.Add(int64(len(entries))) > source.limits.MaxEntries {
-		return nil, ErrEntryLimit
+	entries := []fs.DirEntry{}
+	for {
+		remaining := source.limits.MaxEntries - source.entries.Load()
+		if remaining < 0 {
+			return nil, ErrEntryLimit
+		}
+		batchSize := int64(1024)
+		if remaining+1 < batchSize {
+			batchSize = remaining + 1
+		}
+		batch, readErr := directory.ReadDir(int(batchSize))
+		if source.entries.Add(int64(len(batch))) > source.limits.MaxEntries {
+			return nil, ErrEntryLimit
+		}
+		entries = append(entries, batch...)
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
 	}
 	// Symlinked entries are dropped rather than followed, so a link planted in
 	// an allowlisted tree is never traversed or parsed.

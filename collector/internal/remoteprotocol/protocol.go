@@ -21,6 +21,7 @@ const (
 	MaxResponseBytes     = 32 << 20
 	MaxRecords           = 4096
 	MaxKnownFamilies     = 1024
+	MaxKnownHeaders      = 2048
 	MaxInventoryFamilies = 2048
 )
 
@@ -47,9 +48,17 @@ type Limits struct {
 	MaxInventoryFamilies int `json:"max_inventory_families"`
 }
 type KnownFamily struct {
-	Vendor      string `json:"vendor"`
-	FamilyID    string `json:"family_id"`
-	Fingerprint string `json:"fingerprint"`
+	Vendor      string        `json:"vendor"`
+	FamilyID    string        `json:"family_id"`
+	Fingerprint string        `json:"fingerprint"`
+	Headers     []KnownHeader `json:"headers,omitempty"`
+}
+type KnownHeader struct {
+	Key          string `json:"key"`
+	Size         int64  `json:"size"`
+	ModifiedAtMs int64  `json:"modified_at_ms"`
+	SessionID    string `json:"session_id"`
+	ParentID     string `json:"parent_id,omitempty"`
 }
 type Request struct {
 	RequestID     string        `json:"request_id"`
@@ -69,6 +78,14 @@ type Request struct {
 // complete known set cannot fit. It never sends a partial known baseline.
 func BuildRequest(request Request, known []KnownFamily) (Request, error) {
 	known = append([]KnownFamily(nil), known...)
+	headerCount := 0
+	for index := range known {
+		known[index].Headers = append([]KnownHeader(nil), known[index].Headers...)
+		sort.Slice(known[index].Headers, func(i, j int) bool {
+			return known[index].Headers[i].Key < known[index].Headers[j].Key
+		})
+		headerCount += len(known[index].Headers)
+	}
 	sort.Slice(known, func(i, j int) bool {
 		if known[i].Vendor == known[j].Vendor {
 			return known[i].FamilyID < known[j].FamilyID
@@ -77,7 +94,7 @@ func BuildRequest(request Request, known []KnownFamily) (Request, error) {
 	})
 	request.Known = append([]KnownFamily(nil), known...)
 	request.BaselineMode = BaselineKnown
-	if len(known) > MaxKnownFamilies || encodedSize(request) > MaxRequestBytes {
+	if len(known) > MaxKnownFamilies || headerCount > MaxKnownHeaders || encodedSize(request) > MaxRequestBytes {
 		request.BaselineMode, request.BaselineID, request.Known = BaselineNone, "", []KnownFamily{}
 	}
 	if err := ValidateRequest(request); err != nil {
@@ -113,11 +130,29 @@ func ValidateRequest(r Request) error {
 		previousVendor = vendor
 	}
 	previousKnown := KnownFamily{}
+	headerCount := 0
+	seenHeaderKeys := map[string]bool{}
 	for _, known := range r.Known {
 		if !validVendor(known.Vendor) || !validID(known.FamilyID) || !validID(known.Fingerprint) || known.Vendor < previousKnown.Vendor || (known.Vendor == previousKnown.Vendor && known.FamilyID <= previousKnown.FamilyID) {
 			return errors.New("known families must be valid and uniquely sorted")
 		}
 		previousKnown = known
+		previousKey := ""
+		for _, header := range known.Headers {
+			if known.Vendor != "codex" || !validID(header.Key) || header.Key <= previousKey ||
+				seenHeaderKeys[header.Key] ||
+				header.Size < 0 || header.ModifiedAtMs < 0 ||
+				header.ModifiedAtMs > remotefacts.MaxTimestampMs || !validID(header.SessionID) ||
+				(header.ParentID != "" && !validID(header.ParentID)) {
+				return errors.New("known headers must be valid and uniquely sorted")
+			}
+			previousKey = header.Key
+			seenHeaderKeys[header.Key] = true
+			headerCount++
+		}
+	}
+	if headerCount > MaxKnownHeaders {
+		return errors.New("known header mappings exceed limit")
 	}
 	if r.SinceMs < 0 || r.CollectedAtMs <= 0 || r.SinceMs > r.CollectedAtMs {
 		return errors.New("invalid request window")

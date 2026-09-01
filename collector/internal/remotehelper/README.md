@@ -44,10 +44,12 @@ bandwidth, which is why the per-file bound is far above the SFTP one.
 
 A family is one card's replacement unit. Grouping is cheap and happens before
 any body is opened: Claude groups by transcript path, Codex by the parent chain
-in header rows. Each family's fingerprint is a digest over its files' opaque
-keys, sizes, and modification times, plus the approved metadata facts for its
-sessions — so a session that only changed liveness or name still recollects,
-which a file-only fingerprint would report as unchanged forever.
+in header rows. For Codex, unchanged file size/mtime fingerprints reuse bounded
+opaque key-to-session/parent mappings supplied with the known baseline; only new
+or changed files reread their header. Each family's fingerprint is a digest over
+its files' opaque keys, sizes, and modification times, plus the approved metadata
+facts for its sessions — so a session that only changed liveness or name still
+recollects, which a file-only fingerprint would report as unchanged forever.
 
 A fingerprint that matches the Mac's cached value yields `unchanged_family` and
 no transcript read. Anything else is parsed. Fingerprint equality is an
@@ -78,6 +80,7 @@ delete a cached family — it publishes what it collected and leaves the rest.
 | 3 | ran, but coverage is partial |
 | 4 | the request was rejected |
 | 5 | internal failure |
+| 6 | negotiated output/resource limit reached |
 
 126 and 127 come from the remote shell, not the helper, and mean the executable
 is blocked or missing. The Mac maps each of these to a distinct health reason so
@@ -88,5 +91,5 @@ the UI can offer the right repair.
 Only the facts in `internal/remotefacts` cross the boundary. stdout carries no
 transcript rows, prompts, tool output, absolute paths, working directories, or
 environment values, and stderr is bounded diagnostics that the Mac redacts before
-showing. Card display names are derived from a session's own title or first
-message, which the schema allows as bounded display text.
+showing. Codex's prompt-derived fallback name is cleared at the helper adapter;
+approved session-index names remain available as bounded display text.

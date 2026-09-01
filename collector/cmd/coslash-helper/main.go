@@ -31,6 +31,7 @@ const (
 	exitPartial  = 3
 	exitRequest  = 4
 	exitInternal = 5
+	exitResource = 6
 )
 
 // build is stamped at release time; it is diagnostic identity only, never a
@@ -86,6 +87,9 @@ func runCollect(ctx context.Context, input io.Reader, output io.Writer) int {
 	outcome, err := remotehelper.Collect(ctx, request, remotehelper.Options{}, output)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "coslash-helper: collection stopped: %v\n", err)
+		if errors.Is(err, remotehelper.ErrRecordLimit) {
+			return exitResource
+		}
 		if outcome.Records > 0 {
 			return exitPartial
 		}
@@ -113,6 +117,11 @@ func readRequest(input io.Reader) (remoteprotocol.Request, error) {
 	}
 	if len(line) > remoteprotocol.MaxRequestBytes {
 		return remoteprotocol.Request{}, errors.New("request exceeds byte limit")
+	}
+	if _, trailingErr := reader.ReadByte(); trailingErr == nil {
+		return remoteprotocol.Request{}, errors.New("trailing content after request line")
+	} else if !errors.Is(trailingErr, io.EOF) {
+		return remoteprotocol.Request{}, fmt.Errorf("read request trailer: %w", trailingErr)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(line))
 	decoder.DisallowUnknownFields()

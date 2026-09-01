@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -14,13 +15,15 @@ import (
 // sessions those files carry, and the fingerprint that decides whether the Mac
 // already holds its facts.
 type family struct {
-	id           string
-	files        []string
-	sessionIDs   []string
-	fingerprints []vendors.FileFingerprint
-	fingerprint  string
-	inWindow     bool
-	skipReason   string
+	id               string
+	files            []string
+	sessionIDs       []string
+	fingerprints     []vendors.FileFingerprint
+	headerMappings   []remotefacts.HeaderMapping
+	fingerprint      string
+	inWindow         bool
+	skipReason       string
+	identityUnstable bool
 }
 
 // scan is one vendor's enumeration result. Complete is the deletion gate: it is
@@ -79,6 +82,9 @@ func (s *scan) finish(metadata *vendors.SessionMetadata) {
 			return item.fingerprints[i].Key < item.fingerprints[j].Key
 		})
 		item.fingerprints = dedupeFingerprints(item.fingerprints)
+		sort.Slice(item.headerMappings, func(i, j int) bool {
+			return item.headerMappings[i].Key < item.headerMappings[j].Key
+		})
 		item.sessionIDs = dedupeStrings(item.sessionIDs)
 		item.fingerprint = aggregateFingerprint(item, metadata)
 	}

@@ -72,7 +72,7 @@ func ParseFamilyFilesSource(
 	home string,
 	files []string,
 ) ([]*vendors.ParsedSession, error) {
-	return parseFilesSourceStrict(
+	parsed, err := parseFilesSourceStrict(
 		source,
 		filepath.Join(home, ".codex", "archived_sessions"),
 		files,
@@ -80,4 +80,16 @@ func ParseFamilyFilesSource(
 		// command keeps the approval-required shape both transports agree on.
 		func(string, string) bool { return true },
 	)
+	if err != nil {
+		return nil, err
+	}
+	// Codex currently derives ParsedSession.Name from the first user prompt.
+	// Prompts are outside remote schema v1, so do not let that fallback cross the
+	// helper boundary. Approved session-index metadata remains available.
+	for _, item := range parsed {
+		if item != nil {
+			item.Name = ""
+		}
+	}
+	return parsed, nil
 }

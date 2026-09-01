@@ -1,6 +1,6 @@
 # SSH helper implementation master plan
 
-Status: planning complete; implementation not started
+Status: implementation in progress
 
 Last updated: 2026-09-01
 
@@ -41,7 +41,7 @@ separate because they have distinct risk and approval gates.
 | --- | --- | --- | --- | --- | --- |
 | T01 | Contracts, metrics, and fixtures | done | — | — | [Brief](01-contracts-metrics-and-fixtures.md) |
 | T02 | Cache v2 and incremental SFTP | not_started | T01 | Cache compatibility window needs approval | [Brief](02-cache-and-incremental-sftp.md) |
-| T03 | Linux helper and SSH transport | review | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
+| T03 | Linux helper and SSH transport | done | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | not_started | T03 | Install path, signing scheme, and `noexec` policy need approval | [Brief](04-helper-lifecycle-and-compatibility.md) |
 | T05 | Manager, setup UI, diagnostics, and docs | not_started | T02, T03, T04 | Final consent copy needs product approval | [Brief](05-manager-ui-diagnostics-docs.md) |
 | T06 | Security and fault hardening | not_started | T02–T05 | Threat-model review required | [Brief](06-security-and-fault-hardening.md) |
@@ -156,11 +156,13 @@ Remaining blocker/risk: <none or exact issue>
     `helper_not_executable`, `helper_incompatible`, `helper_failed`, and
     `output_limit`. Go-side copy exists; frontend types and user-facing wording
     are still needed.
-  - **T06 (privacy review).** A Codex card's display name is its first user
-    message, and a Claude card's can be its first prompt. That is pre-existing
-    behaviour shared by local and SFTP collection and is allowed by the schema's
-    bounded display text, but the design document excludes "prompts", so remote
-    v1 should confirm this intent explicitly.
+  - **T02 (Codex warm discovery).** The v1 family/request contract now carries
+    bounded opaque file-header mappings. Cache v2 must persist them and include
+    them in known helper baselines; overflow already falls back atomically to
+    `baseline_mode=none`.
+  - **T06 (privacy review).** The helper adapter clears Codex's prompt-derived
+    fallback name. T06 should retain a regression audit of all display-field
+    provenance, but prompt text is no longer intentionally emitted by T03.
   - **T07 (response size).** `Record.Counts` and `Record.Timing` are non-pointer
     structs, so `"counts":{},"timing":{}` appears on every record — roughly 30
     bytes each. Harmless at v1 ceilings; worth pointers only if measurement says

@@ -13,6 +13,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 // Options are the helper's run inputs. Nothing here comes from the request: the
@@ -127,7 +128,7 @@ func collectVendor(
 	alive func(int) bool,
 ) (vendorResult, error) {
 	started := time.Now()
-	scanned := scanVendor(vendor, source, home, request.SinceMs, now, alive)
+	scanned := scanVendor(vendor, source, home, request, now, alive)
 	if scanned == nil {
 		return vendorResult{}, nil
 	}
@@ -374,7 +375,7 @@ func familyFacts(
 	}
 	return remotefacts.FromParsed(
 		scanned.vendor, item.id, vendors.ParserVersion, state, "",
-		sessions, scanned.metadata, item.fingerprints,
+		sessions, scanned.metadata, item.fingerprints, item.headerMappings,
 	)
 }
 
@@ -382,6 +383,9 @@ func familyFacts(
 // an optimisation, not proof of immutability, so a file that moved under the
 // parser invalidates the facts just produced.
 func restabilize(scanned *vendorScan, item *family) (bool, string) {
+	if item.identityUnstable {
+		return false, "transcript family header changed while it was read"
+	}
 	stable := true
 	for _, file := range item.files {
 		before, ok := scanned.fileFacts[file]
@@ -408,8 +412,28 @@ func restabilize(scanned *vendorScan, item *family) (bool, string) {
 	if stable {
 		return true, ""
 	}
+	if scanned.vendor == vendors.AgentCodex && !codexHeadersStillMatch(scanned, item) {
+		item.identityUnstable = true
+		return false, "transcript family header changed while it was read"
+	}
 	item.fingerprint = aggregateFingerprint(item, scanned.metadata)
 	return false, "transcript changed while it was read"
+}
+
+func codexHeadersStillMatch(scanned *vendorScan, item *family) bool {
+	expected := make(map[string]remotefacts.HeaderMapping, len(item.headerMappings))
+	for _, mapping := range item.headerMappings {
+		expected[mapping.Key] = mapping
+	}
+	for file, header := range codex.HeadersSource(scanned.source, item.files) {
+		fingerprint, ok := scanned.fileFacts[file]
+		mapping, mapped := expected[fingerprint.Key]
+		if !ok || !mapped || header.Err != nil || mapping.SessionID != header.SessionID ||
+			mapping.ParentID != header.ParentID {
+			return false
+		}
+	}
+	return true
 }
 
 func skipFamily(
@@ -464,15 +488,15 @@ func scanVendor(
 	vendor string,
 	source *Source,
 	home string,
-	since int64,
+	request remoteprotocol.Request,
 	now time.Time,
 	alive func(int) bool,
 ) *vendorScan {
 	switch vendor {
 	case vendors.AgentClaude:
-		return scanClaude(source, home, since, now, alive)
+		return scanClaude(source, home, request.SinceMs, now, alive)
 	case vendors.AgentCodex:
-		return scanCodex(source, home, since)
+		return scanCodex(source, home, request)
 	default:
 		return nil
 	}

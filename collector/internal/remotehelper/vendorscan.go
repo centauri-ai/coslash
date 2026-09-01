@@ -4,6 +4,8 @@ import (
 	"io/fs"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
+	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
@@ -81,7 +83,7 @@ func scanClaude(
 	return result
 }
 
-func scanCodex(source *Source, home string, since int64) *vendorScan {
+func scanCodex(source *Source, home string, request remoteprotocol.Request) *vendorScan {
 	metadata := vendors.BestEffortMetadata(
 		vendors.AgentCodex,
 		func() (*vendors.SessionMetadata, error) { return codex.LoadRemoteMetadata(source, home) },
@@ -107,11 +109,30 @@ func scanCodex(source *Source, home string, since int64) *vendorScan {
 		result.scan.incompleteWhy = "some directories or files were unreadable"
 	}
 	result.scan.candidateFiles = len(found.Files)
-	headers := codex.HeadersSource(source, found.Files)
+	known := knownCodexHeaders(request)
+	headers := make(map[string]codex.FileHeader, len(found.Files))
+	fingerprints := make(map[string]vendors.FileFingerprint, len(found.Files))
+	readHeaders := make([]string, 0, len(found.Files))
+	for _, file := range found.Files {
+		items, fingerprintErr := vendors.FingerprintSourceFiles(source, root, []string{file})
+		if fingerprintErr == nil && len(items) == 1 {
+			fingerprints[file] = items[0]
+			if cached, ok := known[items[0].Key]; ok && cached.Size == items[0].Size &&
+				cached.ModifiedAtMs == items[0].ModifiedAtMs &&
+				cached.SessionID == codex.SessionIDFromRollout(file) {
+				headers[file] = codex.FileHeader{SessionID: cached.SessionID, ParentID: cached.ParentID}
+				continue
+			}
+		}
+		readHeaders = append(readHeaders, file)
+	}
+	for file, header := range codex.HeadersSource(source, readHeaders) {
+		headers[file] = header
+	}
 	roots := codex.FamilyRoots(headers)
 	selected := found.Files
-	if since > 0 {
-		selected = codex.FilesSinceSource(source, found.Files, metadata.Live, since)
+	if request.SinceMs > 0 {
+		selected = codex.FilesSinceSource(source, found.Files, metadata.Live, request.SinceMs)
 	}
 	selected, _ = vendors.LimitNewestSourceFileFamilies(
 		source, selected, vendors.MaxCandidateFilesPerAgent,
@@ -138,7 +159,18 @@ func scanCodex(source *Source, home string, since int64) *vendorScan {
 		if sessionID == "" {
 			sessionID = codex.SessionIDFromRollout(file)
 		}
-		result.record(source, root, familyID, sessionID, file, inWindow[file])
+		fingerprint, ok := fingerprints[file]
+		if !ok {
+			result.record(source, root, familyID, sessionID, file, inWindow[file])
+		} else {
+			result.recordFingerprint(familyID, sessionID, file, fingerprint, inWindow[file])
+		}
+		if ok && header.Err == nil && header.SessionID != "" {
+			item := result.scan.family(familyID)
+			item.headerMappings = append(item.headerMappings, remotefacts.HeaderMapping{
+				Key: fingerprint.Key, SessionID: header.SessionID, ParentID: header.ParentID,
+			})
+		}
 		if header.Err != nil {
 			result.scan.family(familyID).skipReason = boundedReason("header unreadable", header.Err)
 		}
@@ -160,8 +192,32 @@ func (v *vendorScan) record(
 		v.scan.family(familyID).skipReason = boundedReason("file became unreadable", err)
 		return
 	}
-	v.fileFacts[file] = fingerprints[0]
-	v.scan.add(familyID, sessionID, fingerprints[0], file, selected)
+	v.recordFingerprint(familyID, sessionID, file, fingerprints[0], selected)
+}
+
+func (v *vendorScan) recordFingerprint(
+	familyID, sessionID, file string,
+	fingerprint vendors.FileFingerprint,
+	selected bool,
+) {
+	v.fileFacts[file] = fingerprint
+	v.scan.add(familyID, sessionID, fingerprint, file, selected)
+}
+
+func knownCodexHeaders(request remoteprotocol.Request) map[string]remoteprotocol.KnownHeader {
+	result := map[string]remoteprotocol.KnownHeader{}
+	if request.BaselineMode != remoteprotocol.BaselineKnown {
+		return result
+	}
+	for _, family := range request.Known {
+		if family.Vendor != vendors.AgentCodex {
+			continue
+		}
+		for _, header := range family.Headers {
+			result[header.Key] = header
+		}
+	}
+	return result
 }
 
 func stringSet(items []string) map[string]bool {

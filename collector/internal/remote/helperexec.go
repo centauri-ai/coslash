@@ -199,11 +199,31 @@ func HelperCollect(
 	}
 	written := process.writeStdin(payload)
 
-	stream := streamRecords(process.stdout, request, accumulator)
-	// Reap before collecting the write result: a helper that answered without
-	// draining stdin would otherwise leave the writer blocked on a full pipe
-	// forever. Reaping closes this side of the pipe and releases it.
-	exitCode, waitErr := process.finish(stream.err != nil || !stream.complete)
+	requestCompleted := make(chan struct{})
+	streamed := make(chan streamOutcome, 1)
+	go func() {
+		streamed <- streamRecords(process.stdout, request, accumulator, requestCompleted)
+	}()
+	var stream streamOutcome
+	var exitCode int
+	var waitErr error
+	select {
+	case stream = <-streamed:
+		// Reap before collecting the write result: a helper that answered without
+		// draining stdin would otherwise leave the writer blocked on a full pipe.
+		exitCode, waitErr = process.finish(stream.err != nil || !stream.complete)
+	case <-requestCompleted:
+		// Keep draining through EOF so trailing output is rejected. Wait and drain
+		// concurrently: Wait closes stdout on exit, while finish's grace timer kills
+		// a child that emitted completion and then hung.
+		finished := make(chan struct{}, 1)
+		go func() {
+			exitCode, waitErr = process.finish(false)
+			finished <- struct{}{}
+		}()
+		stream = <-streamed
+		<-finished
+	}
 	writeErr := <-written
 	result := HelperResult{
 		Proposal: accumulator.Proposal(), Records: stream.records,
@@ -259,6 +279,7 @@ func streamRecords(
 	reader io.Reader,
 	request remoteprotocol.Request,
 	accumulator *remoteprotocol.Accumulator,
+	requestCompleted chan<- struct{},
 ) streamOutcome {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 4096), request.Limits.MaxRecordBytes+1)
@@ -285,11 +306,8 @@ func streamRecords(
 		}
 		outcome.records++
 		if record.Type == remoteprotocol.RecordRequestComplete {
-			// The exchange is over. Reading further would only wait on a helper
-			// that has stopped talking but not exited, and the accumulator
-			// rejects anything after completion anyway.
 			outcome.complete = true
-			return outcome
+			close(requestCompleted)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -445,6 +463,8 @@ func helperProcessError(
 		return ErrHelperBlocked
 	case helperExitBadRequest:
 		return fmt.Errorf("%w: helper rejected the request", ErrHelperIncompatible)
+	case helperExitResource:
+		return ErrHelperOutputLimit
 	case helperExitInternal:
 		return wrapSSHError(ErrHelperFailed, process.stderr.String())
 	case helperExitSSH:
@@ -463,6 +483,7 @@ const (
 	helperExitPartial            = 3
 	helperExitBadRequest         = 4
 	helperExitInternal           = 5
+	helperExitResource           = 6
 	helperExitShellNotExecutable = 126
 	helperExitShellNotFound      = 127
 	helperExitSSH                = 255
