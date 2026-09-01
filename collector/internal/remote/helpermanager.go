@@ -334,13 +334,14 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 func (manager *Manager) ReleaseHelperOwnership() error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	if manager.cfg == nil || manager.helperVersion == "" {
+	if manager.cfg == nil || (manager.helperVersion == "" && !manager.helperOwnershipCorrupt) {
 		return nil
 	}
 	if err := manager.cache.RemoveHelperVersion(manager.cfg.ID); err != nil {
 		return err
 	}
 	manager.helperVersion = ""
+	manager.helperOwnershipCorrupt = false
 	manager.helperTarget = nil
 	status := HelperStatus{State: LifecycleSFTP, Fallback: true, Reason: reasonPtr(ReasonHelperMissing)}
 	manager.helper = &status
@@ -353,6 +354,10 @@ func (manager *Manager) ReleaseHelperOwnership() error {
 // deliberately choose remove-only.
 func (manager *Manager) UninstallHelper(ctx context.Context) error {
 	manager.mu.Lock()
+	if manager.helperOwnershipCorrupt {
+		manager.mu.Unlock()
+		return ErrHelperOwnershipCorrupt
+	}
 	if manager.cfg == nil || (manager.helperTarget == nil && manager.helperVersion == "") {
 		manager.mu.Unlock()
 		return nil
@@ -459,8 +464,11 @@ func (manager *Manager) ValidateSettingsChangeWithOwnershipAction(next *settings
 	if action != OwnershipActionRelease && action != OwnershipActionUninstall {
 		return ErrHelperOwnershipConflict
 	}
-	if manager.cfg == nil || manager.helperVersion == "" {
+	if manager.cfg == nil || (manager.helperVersion == "" && !manager.helperOwnershipCorrupt) {
 		return ErrHelperOwnershipConflict
+	}
+	if manager.helperOwnershipCorrupt && action == OwnershipActionUninstall {
+		return ErrHelperOwnershipCorrupt
 	}
 	if next != nil && manager.cfg.ID == next.ID && manager.cfg.SSHAlias == next.SSHAlias {
 		return ErrHelperOwnershipConflict

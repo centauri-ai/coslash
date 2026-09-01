@@ -70,6 +70,7 @@ export type MachineFact = {
   helperInstallationAvailable?: boolean;
   helperProbeState?: 'unknown' | 'probing' | 'ready' | 'fallback';
   helperOwnershipRecorded?: boolean;
+  helperOwnershipCorrupt?: boolean;
 };
 
 export type HelperFact = {
@@ -213,6 +214,10 @@ export function decodeMachineFact(value: unknown): MachineFact {
   if (raw.helperOwnershipRecorded != null) {
     if (typeof raw.helperOwnershipRecorded !== 'boolean') throw new Error('Invalid machine fact');
     fact.helperOwnershipRecorded = raw.helperOwnershipRecorded;
+  }
+  if (raw.helperOwnershipCorrupt != null) {
+    if (typeof raw.helperOwnershipCorrupt !== 'boolean') throw new Error('Invalid machine fact');
+    fact.helperOwnershipCorrupt = raw.helperOwnershipCorrupt;
   }
   return fact;
 }

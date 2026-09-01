@@ -86,26 +86,27 @@ type Manager struct {
 	// committed. legacyStale is true while snapshot only carries display fields
 	// inherited from a v1 cache: its Families stay empty so the next refresh
 	// starts from an empty baseline rather than reinterpreting v1 fingerprints.
-	snapshot        *CachedSnapshotV2
-	legacyStale     bool
-	sessions        []*session.Session
-	familyStale     map[remoteSessionKey]bool
-	state           State
-	reason          *Reason
-	complete        bool
-	errorCopy       string
-	diagnostic      string
-	refreshing      bool
-	lastRequestedMs int64
-	failures        int
-	nextRetryAt     time.Time
-	lastSuccessAt   *int64
-	transport       Transport
-	helper          *HelperStatus
-	helperTarget    *helperTarget
-	helperVersion   string
-	helperProbe     helperProbeState
-	metrics         CollectionMetrics
+	snapshot               *CachedSnapshotV2
+	legacyStale            bool
+	sessions               []*session.Session
+	familyStale            map[remoteSessionKey]bool
+	state                  State
+	reason                 *Reason
+	complete               bool
+	errorCopy              string
+	diagnostic             string
+	refreshing             bool
+	lastRequestedMs        int64
+	failures               int
+	nextRetryAt            time.Time
+	lastSuccessAt          *int64
+	transport              Transport
+	helper                 *HelperStatus
+	helperTarget           *helperTarget
+	helperVersion          string
+	helperOwnershipCorrupt bool
+	helperProbe            helperProbeState
+	metrics                CollectionMetrics
 }
 
 type Options struct {
@@ -171,6 +172,7 @@ func NewManager(options Options) *Manager {
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	corruptOwnership := false
 	if remote != nil {
 		ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
 		if errors.Is(err, ErrHelperOwnershipLegacy) && owned {
@@ -180,18 +182,28 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 			if err := manager.cache.StoreHelperVersion(remote.ID, ownership.Version, remote.SSHAlias); err != nil {
 				return err
 			}
+		} else if errors.Is(err, ErrHelperOwnershipCorrupt) {
+			corruptOwnership = true
 		} else if err != nil {
 			return err
 		}
 	}
-	if err := manager.validateSettingsLocked(remote); err != nil {
+	if corruptOwnership {
+		if !settings.ValidRemoteID(remote.ID) || !settings.ValidSSHAlias(remote.SSHAlias) {
+			return ErrInvalidRemoteSettings
+		}
+	} else if err := manager.validateSettingsLocked(remote); err != nil {
 		return err
 	}
 	if remote == nil {
 		return manager.removeLocked()
 	}
 	ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
-	if err != nil {
+	if errors.Is(err, ErrHelperOwnershipCorrupt) {
+		corruptOwnership = true
+		ownership = helperOwnership{}
+		owned = false
+	} else if err != nil {
 		return err
 	}
 	if manager.cfg != nil && manager.cfg.ID != remote.ID {
@@ -216,6 +228,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	} else {
 		manager.helperVersion = ""
 	}
+	manager.helperOwnershipCorrupt = corruptOwnership
 	if !remote.Enabled {
 		manager.cancelLifeLocked()
 		manager.refreshing = false
@@ -247,6 +260,14 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		// Initial collection waits for ListView's first requested window
 		// instead of starting eagerly with since=0.
 	}
+	if corruptOwnership {
+		manager.helperTarget = nil
+		manager.helperProbe = helperProbeFallback
+		manager.helper = &HelperStatus{
+			State: LifecycleVerificationError, Fallback: true,
+			Reason: reasonPtr(ReasonHelperVerification),
+		}
+	}
 	return nil
 }
 
@@ -261,7 +282,7 @@ func (manager *Manager) ValidateSettingsChange(remote *settings.RemoteSettings) 
 
 func (manager *Manager) validateSettingsLocked(remote *settings.RemoteSettings) error {
 	if remote == nil {
-		if manager.helperVersion != "" {
+		if manager.helperVersion != "" || manager.helperOwnershipCorrupt {
 			return ErrHelperOwnershipConflict
 		}
 		return nil
@@ -272,6 +293,9 @@ func (manager *Manager) validateSettingsLocked(remote *settings.RemoteSettings) 
 	ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
 	if err != nil {
 		return err
+	}
+	if manager.helperOwnershipCorrupt {
+		return ErrHelperOwnershipCorrupt
 	}
 	if owned && ownership.Alias != remote.SSHAlias {
 		return ErrHelperOwnershipConflict
@@ -385,6 +409,7 @@ func (manager *Manager) removeLocked() error {
 	manager.helper = nil
 	manager.helperTarget = nil
 	manager.helperVersion = ""
+	manager.helperOwnershipCorrupt = false
 	manager.helperProbe = helperProbeFallback
 	manager.metrics = CollectionMetrics{}
 	exitControlMasterBestEffort(alias)
@@ -630,7 +655,8 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		Transport:       manager.transport, Helper: manager.helper, Metrics: manager.metrics,
 		HelperInstallationAvailable: manager.helperInstallationAvailable,
 		HelperProbeState:            string(manager.helperProbe),
-		HelperOwnershipRecorded:     manager.helperVersion != "",
+		HelperOwnershipRecorded:     manager.helperVersion != "" || manager.helperOwnershipCorrupt,
+		HelperOwnershipCorrupt:      manager.helperOwnershipCorrupt,
 	}
 	if !manager.cfg.Enabled {
 		health.State = StateDisabled

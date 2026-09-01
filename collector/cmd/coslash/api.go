@@ -37,8 +37,10 @@ func decodeSettingsSave(data []byte) (settings.Config, remote.OwnershipAction, e
 		config, err := settings.Decode(data)
 		return config, remote.OwnershipActionNone, err
 	}
-	if len(fields) > 2 {
-		return settings.Config{}, "", errors.New("settings save contains unknown fields")
+	for key := range fields {
+		if key != "settings" && key != "remoteOwnershipAction" {
+			return settings.Config{}, "", errors.New("settings save contains unknown fields")
+		}
 	}
 	var action string
 	if rawAction, ok := fields["remoteOwnershipAction"]; ok {

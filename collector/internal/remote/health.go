@@ -56,6 +56,7 @@ type Health struct {
 	// a persisted ownership record survives a failed read-only inspection and
 	// must still prevent a silent alias replacement.
 	HelperOwnershipRecorded bool `json:"helperOwnershipRecorded"`
+	HelperOwnershipCorrupt  bool `json:"helperOwnershipCorrupt"`
 }
 
 func reasonPtr(reason Reason) *Reason { return &reason }

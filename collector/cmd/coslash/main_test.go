@@ -182,6 +182,60 @@ func TestSettingsSaveRestoresOldSettingsWhenOwnershipActionFails(t *testing.T) {
 	}
 }
 
+func TestSettingsSaveCanExplicitlyRecoverCorruptOwnershipByRemovingHost(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	store := settings.Open()
+	cache := remote.NewCache(t.TempDir())
+	manager := remote.NewManager(remote.Options{Cache: cache})
+	previous := settings.Defaults()
+	previous.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "old-host", Enabled: true}
+	if err := store.Save(previous); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cache.Root, "remotes", previous.Remote.ID, "helper.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":"?"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(previous.Remote); err != nil {
+		t.Fatalf("corrupt ownership must retain a displayable host: %v", err)
+	}
+	if health := manager.DiagnosticsHealth(); !health.HelperOwnershipCorrupt || health.Helper == nil {
+		t.Fatalf("corrupt ownership health = %#v", health)
+	}
+	next := previous
+	next.Remote = nil
+	body, err := json.Marshal(map[string]any{"settings": next, "remoteOwnershipAction": "release"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
+	response := httptest.NewRecorder()
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil), manager)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if store.State().Config.Remote != nil {
+		t.Fatalf("recovery did not remove host: %#v", store.State().Config.Remote)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("corrupt ownership record remains: %v", err)
+	}
+}
+
+func TestSettingsSaveEnvelopeRejectsUnknownFields(t *testing.T) {
+	config := settings.Defaults()
+	body, err := json.Marshal(map[string]any{"settings": config, "unexpected": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := decodeSettingsSave(body); err == nil {
+		t.Fatal("unknown envelope field was accepted")
+	}
+}
+
 func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	server := newServer(

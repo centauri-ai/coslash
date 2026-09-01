@@ -62,6 +62,10 @@ one section when each master-plan task reaches `review` or `done`.
   own operation success independently of durable board coverage. Corrupt
   ownership fails closed, while the prior version-only format is migrated only
   by binding it to the configured SSH alias.
+- A corrupt ownership record retains a displayable SFTP-fallback host state and
+  blocks normal changes. The only recovery is the explicit transactional
+  release action paired with a host removal or alias replacement; uninstall is
+  refused because no exact trusted helper version is available.
 
 ### Focused correction validation
 

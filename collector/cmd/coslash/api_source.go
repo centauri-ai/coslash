@@ -55,6 +55,7 @@ type machineFact struct {
 	HelperInstallationAvailable bool                     `json:"helperInstallationAvailable"`
 	HelperProbeState            string                   `json:"helperProbeState"`
 	HelperOwnershipRecorded     bool                     `json:"helperOwnershipRecorded"`
+	HelperOwnershipCorrupt      bool                     `json:"helperOwnershipCorrupt"`
 }
 
 func localMachineFact() machineFact {
@@ -71,6 +72,7 @@ func machineFromHealth(health remote.Health) machineFact {
 		HelperInstallationAvailable: health.HelperInstallationAvailable,
 		HelperProbeState:            health.HelperProbeState,
 		HelperOwnershipRecorded:     health.HelperOwnershipRecorded,
+		HelperOwnershipCorrupt:      health.HelperOwnershipCorrupt,
 	}
 }
 

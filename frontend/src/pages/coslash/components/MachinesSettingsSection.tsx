@@ -32,6 +32,7 @@ export function MachinesSettingsSection({
   const [pendingAlias, setPendingAlias] = useState<string | null>(null);
   const displayedAlias = pendingAlias ?? draft.sshAlias;
   const helperOwned = hostStatus?.helperOwnershipRecorded === true;
+  const helperOwnershipCorrupt = hostStatus?.helperOwnershipCorrupt === true;
   const setupFailed = setupResult?.error != null;
 
   useEffect(() => {
@@ -181,7 +182,7 @@ export function MachinesSettingsSection({
           <div className="border-warning-fg/30 bg-warning-bg text-warning-fg flex flex-col gap-2 border-t p-4 text-xs">
             A helper is owned by {draft.sshAlias}. Choose how to change this host before saving the new alias.
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" disabled={testing} onClick={() => void resolveAliasChange('uninstall')}>
+              <Button type="button" variant="outline" size="sm" disabled={testing || helperOwnershipCorrupt} onClick={() => void resolveAliasChange('uninstall')}>
                 Uninstall helper and change host
               </Button>
               <Button type="button" variant="outline" size="sm" disabled={testing} onClick={() => void resolveAliasChange('leave')}>
@@ -257,7 +258,7 @@ export function MachinesSettingsSection({
                   type="button"
                   variant="destructive"
                   size="sm"
-                  disabled={testing || helperAction != null}
+                  disabled={testing || helperAction != null || helperOwnershipCorrupt}
                   onClick={() => void removeHost('uninstall')}
                 >
                   {removeAction === 'uninstall' ? 'Confirm uninstall and remove' : 'Uninstall helper and remove'}
@@ -276,6 +277,7 @@ export function MachinesSettingsSection({
               {hostStatus?.helper?.reason ? ` · ${hostStatus.helper.reason.replaceAll('_', ' ')}` : ''}
             </div>
             {helperOwned && <div>Helper ownership is recorded for this SSH alias.</div>}
+            {helperOwnershipCorrupt && <div>Helper ownership is corrupt. You can only leave the helper installed while removing or changing this host.</div>}
             {hostStatus?.helperInstallationAvailable === false && <div>Helper installation is unavailable in this build.</div>}
             {testResult?.state !== 'ok' && hostStatus?.helperInstallationAvailable !== false && <div>Test SSH/SFTP before installing or upgrading the helper.</div>}
           </div>
