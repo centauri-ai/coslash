@@ -45,6 +45,14 @@ A port conflict is reported in the terminal. Stop the other process or run:
 coslash --port 8888
 ```
 
+## Building from source fails
+
+`make release` in `collector/` needs both Go and Node installed. It checks for them before building and prints install hints if either is missing.
+
+- **End users** should not build from source. Install a prebuilt binary with `curl -fsSL https://coslash.io/install.sh | bash`, Homebrew, or a release archive (see the README Install section).
+- **Developers** need Go 1.26+ (`brew install go` or https://go.dev/dl/) and Node 24+ (`brew install node` or https://nodejs.org/). Versions are pinned in `collector/go.mod` and `frontend/.nvmrc`.
+- If the binary starts but the UI is missing, it was built with `make build` instead of `make release`. Rebuild with `make release` so the frontend is embedded.
+
 ## Synthesis does not appear
 
 Confirm that synthesis is enabled in Settings and that the selected CLI is installed, authenticated, and supports the selected model. Short sessions may not be eligible. Storage errors, timeouts, and recent failures also prevent a result; opening the inspector surfaces the current error.

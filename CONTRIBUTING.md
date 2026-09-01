@@ -16,7 +16,7 @@ The Go collector and local API live in `collector/`; the React, Vite, and Tailwi
 
 ## Develop
 
-Requires Go 1.26+ and Node 24+.
+Building from source requires **Go 1.26+** and **Node 24+** (see `collector/go.mod` and `frontend/.nvmrc`). End users should install a prebuilt binary instead; see the [README Install section](../README.md#install).
 
 Build the embedded production binary:
 
@@ -25,6 +25,8 @@ cd collector
 make release
 ./bin/coslash
 ```
+
+`make release` checks for `go` and `npm` before building. If either is missing, install the toolchain or use a release archive / Homebrew install.
 
 For UI development, run the API and Vite separately:
 

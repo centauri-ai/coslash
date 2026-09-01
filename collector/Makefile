@@ -16,17 +16,35 @@ EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X github.com/centauri-ai/c
 MODELS := internal/session/models.json
 LITELLM_URL := https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
 OPENCODE_MODELS_URL := https://models.opencode.ai/api.json
+GO_REQUIRED := $(shell sed -n 's/^go //p' go.mod)
+NODE_REQUIRED := $(shell tr -d 'v\n' < $(FRONTEND)/.nvmrc)
 
-.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models \
+.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models check-go check-node \
 	helper helper-dist helper-assets test-embedded-helpers
 
-release: stage helper-assets
+check-go:
+	@command -v go >/dev/null 2>&1 || { \
+		echo "error: Go $(GO_REQUIRED)+ is required to build coSlash from source."; \
+		echo "Install Go from https://go.dev/dl/ or run: brew install go"; \
+		echo "To install a prebuilt binary instead, see the Install section in README.md."; \
+		exit 1; \
+	}
+
+check-node:
+	@command -v npm >/dev/null 2>&1 || { \
+		echo "error: npm (Node $(NODE_REQUIRED)+) is required to build the frontend."; \
+		echo "Install Node from https://nodejs.org/ or run: brew install node"; \
+		echo "To install a prebuilt binary instead, see the Install section in README.md."; \
+		exit 1; \
+	}
+
+release: check-go check-node stage helper-assets
 	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
 		go build -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' -o bin/$(BINARY) $(PKG)
 	@echo "built bin/$(BINARY) $(VERSION)"
 
 # Go cannot embed $(FRONTEND)/dist directly, so copy it into the module first.
-stage:
+stage: check-node
 	npm --prefix $(FRONTEND) ci
 	npm --prefix $(FRONTEND) run build
 	@test -f $(FRONTEND)/dist/index.html || { \
@@ -37,7 +55,7 @@ stage:
 	touch $(STAGED)/.gitkeep
 
 # Cross-compile every shipped platform from one staged frontend build.
-dist: stage helper-assets
+dist: check-go check-node stage helper-assets
 	@test -f $(STAGED)/index.html || { \
 		echo "error: $(STAGED)/index.html is missing; refusing to package a binary with no frontend"; exit 1; }
 	rm -rf $(DIST)
@@ -104,19 +122,19 @@ unstage:
 	@find $(STAGED) -mindepth 1 ! -name .gitkeep -delete
 	@touch $(STAGED)/.gitkeep
 
-build: unstage helper-assets
+build: check-go unstage helper-assets
 	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
 		go build -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' -o bin/$(BINARY) $(PKG)
 
-run: unstage helper-assets
+run: check-go unstage helper-assets
 	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
 		go run -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' $(PKG) --no-open $(ARGS)
 
-test:
+test: check-go
 	go test ./...
 	$(MAKE) test-embedded-helpers
 
-check:
+check: check-go
 	@unformatted=$$(gofmt -l .); \
 		test -z "$$unformatted" || { echo "gofmt needed:"; echo "$$unformatted"; exit 1; }
 	go vet ./...
@@ -129,7 +147,7 @@ smoke:
 smoke-dev:
 	./scripts/smoke.sh bin/$(BINARY) bare
 
-tidy:
+tidy: check-go
 	go mod tidy
 
 # Rewrites the embedded model table from LiteLLM. The Models workflow runs this
