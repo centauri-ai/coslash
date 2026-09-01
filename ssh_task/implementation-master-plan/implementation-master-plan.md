@@ -1,10 +1,12 @@
 # SSH helper implementation master plan
 
-Status: implementation in progress
+Status: implementation in progress; T01–T04 complete
 
 Last updated: 2026-09-01
 
 Source design: `../mix-plan/ssh-helper-design-plan.md`
+
+Implementation record: [post-implementation-notes.md](post-implementation-notes.md)
 
 ## Outcome
 
@@ -40,9 +42,9 @@ separate because they have distinct risk and approval gates.
 | ID | Task | Status | Depends on | Current blocker | Brief |
 | --- | --- | --- | --- | --- | --- |
 | T01 | Contracts, metrics, and fixtures | done | — | — | [Brief](01-contracts-metrics-and-fixtures.md) |
-| T02 | Cache v2 and incremental SFTP | not_started | T01 | Cache compatibility window needs approval | [Brief](02-cache-and-incremental-sftp.md) |
+| T02 | Cache v2 and incremental SFTP | done | T01 | — | [Brief](02-cache-and-incremental-sftp.md) |
 | T03 | Linux helper and SSH transport | done | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
-| T04 | Helper lifecycle and compatibility | not_started | T03 | Install path, signing scheme, and `noexec` policy need approval | [Brief](04-helper-lifecycle-and-compatibility.md) |
+| T04 | Helper lifecycle and compatibility | done | T03 | — | [Brief](04-helper-lifecycle-and-compatibility.md) |
 | T05 | Manager, setup UI, diagnostics, and docs | not_started | T02, T03, T04 | Final consent copy needs product approval | [Brief](05-manager-ui-diagnostics-docs.md) |
 | T06 | Security and fault hardening | not_started | T02–T05 | Threat-model review required | [Brief](06-security-and-fault-hardening.md) |
 | T07 | Full validation and rollout gate | not_started | T01–T06 | All implementation tasks must be done | [Brief](07-full-validation-and-rollout.md) |
@@ -139,34 +141,46 @@ Remaining blocker/risk: <none or exact issue>
 
 ## Global blockers and change log
 
+- 2026-09-01: T04 completed on branch
+  `hlu/ssh-mix-04`. It fixes the optional helper location to
+  `~/.local/lib/coslash/helpers/<version>/coslash-helper`, supports static
+  Linux `amd64`/`arm64` ELF artifacts authenticated by canonical signed
+  metadata, and makes initial installation and later upgrades separately
+  consented. Signed expiry and a durable monotonic sequence prevent metadata
+  replay. The production OpenSSH/SFTP adapter performs bounded probing,
+  no-follow owner/mode validation, exclusive temporary upload, fsync, digest
+  verification, `noexec` detection, atomic activation, rollback to a verified
+  previous helper, and authenticated exact-path uninstall. Incompatible,
+  revoked, tampered, or failed helpers are never selected for execution, and
+  transport failures retain their own accurate fallback reasons.
+
+- 2026-09-01: T03 completed on branch
+  `hlu/t03-helper-and-ssh-transport` in commits `0a9dc20` and `96dac46`.
+  The stateless helper, bounded SSH exec transport, static Linux
+  `amd64`/`arm64` builds, warm Codex header reuse, and permanent failure-path
+  tests are ready for T04 and downstream integration. The initial target/libc
+  blocker is resolved: both artifacts build with `CGO_ENABLED=0` and are
+  statically linked. Follow-up boundaries:
+  - **T02 integration:** persist bounded Codex file-header mappings and include
+    them in known helper baselines; request overflow already falls back
+    atomically to `baseline_mode=none`.
+  - **T02/T05 integration:** decide whether baseline-free cache generations
+    retain authoritative inventories or never prune, because the current
+    proposed generation does not preserve the response inventory.
+  - **T05:** add frontend types and copy for helper missing, blocked,
+    incompatible, failed, partial, and output-limit health reasons.
+  - **T06:** retain review of display-field provenance. T03 clears Codex's
+    prompt-derived fallback name before facts cross the helper boundary.
+- 2026-09-01: T01 completed in commit `a400074`. The normalized family
+  contract, bounded protocol, merge accumulator, privacy census, deterministic
+  fixtures, and synthetic measurement command are ready for T02 and T03.
+  Real-host performance measurements remain a T07 rollout input. The T02 cache
+  and T03 Linux target approval gates were subsequently resolved in their
+  completion records.
 - 2026-09-01: Consolidated the original 12-task plan into seven boundary-owned
-  tasks to reduce handoffs and duplicated context. No implementation has started.
-- 2026-09-01: T03 implemented and moved to review. Its Phase 0 blocker is
-  resolved: the helper builds reproducibly for `linux/amd64` and `linux/arm64`
-  with `CGO_ENABLED=0` and links statically, so no minimum libc has to be
-  documented. Scope discovered while implementing it:
-  - **T02/T05 (deletion authority).** `remoteprotocol.Generation` keeps
-    `VendorComplete` but not the vendor inventory, and the accumulator deletes
-    only through tombstones. A `baseline_mode=none` response therefore carries the
-    inventory that is its *only* deletion authority into a proposal that cannot
-    use it. The cache commit layer must either retain the inventory or treat
-    baseline-free refreshes as never pruning. The helper already emits the
-    inventory truthfully.
-  - **T05 (health copy).** Helper collection adds `helper_missing`,
-    `helper_not_executable`, `helper_incompatible`, `helper_failed`, and
-    `output_limit`. Go-side copy exists; frontend types and user-facing wording
-    are still needed.
-  - **T02 (Codex warm discovery).** The v1 family/request contract now carries
-    bounded opaque file-header mappings. Cache v2 must persist them and include
-    them in known helper baselines; overflow already falls back atomically to
-    `baseline_mode=none`.
-  - **T06 (privacy review).** The helper adapter clears Codex's prompt-derived
-    fallback name. T06 should retain a regression audit of all display-field
-    provenance, but prompt text is no longer intentionally emitted by T03.
-  - **T07 (response size).** `Record.Counts` and `Record.Timing` are non-pointer
-    structs, so `"counts":{},"timing":{}` appears on every record — roughly 30
-    bytes each. Harmless at v1 ceilings; worth pointers only if measurement says
-    so.
-  - **T04 (install path).** The transport takes the helper path as a validated
-    parameter with no default, accepting an absolute or `~/`-relative path. The
-    install location, `noexec` policy, and signing scheme remain T04's to choose.
+  tasks to reduce handoffs and duplicated context. At that point implementation
+  had not started.
+- 2026-09-01: T02 completed on branch `hlu/ssh-mix-02` in commits `bcba054`
+  and `c66217f`. Cache v2, incremental SFTP, review corrections, focused tests,
+  and the implementation handoff are complete. See
+  [post-implementation notes](post-implementation-notes.md).

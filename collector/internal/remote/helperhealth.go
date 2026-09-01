@@ -14,6 +14,12 @@ const (
 	ReasonHelperIncompatible Reason = "helper_incompatible"
 	ReasonHelperFailed       Reason = "helper_failed"
 	ReasonOutputLimit        Reason = "output_limit"
+	ReasonHelperUnsupported  Reason = "helper_platform_unsupported"
+	ReasonHelperVerification Reason = "helper_verification_failed"
+	ReasonHelperInstallation Reason = "helper_installation_failed"
+	ReasonHelperRevoked      Reason = "helper_revoked"
+	ReasonHelperUpgrade      Reason = "helper_upgrade_required"
+	ReasonHelperRollback     Reason = "helper_rolled_back"
 )
 
 // classifyHelperError maps one collect or handshake failure to a stable reason.
@@ -47,6 +53,31 @@ func classifyHelperError(err error) Reason {
 	}
 }
 
+// classifyLifecycleError keeps install/setup outcomes distinct from collection
+// failures so callers can accurately offer SFTP, consent, or repair actions.
+func classifyLifecycleError(err error) Reason {
+	switch {
+	case errors.Is(err, ErrUnsupportedHelperPlatform):
+		return ReasonHelperUnsupported
+	case errors.Is(err, ErrHelperMetadata), errors.Is(err, ErrHelperArtifact),
+		errors.Is(err, ErrHelperVerification):
+		return ReasonHelperVerification
+	case errors.Is(err, ErrHelperNoExec):
+		return ReasonHelperBlocked
+	case errors.Is(err, ErrHelperRevoked):
+		return ReasonHelperRevoked
+	case errors.Is(err, ErrHelperConsentRequired), errors.Is(err, ErrHelperUpgradeRequired),
+		errors.Is(err, ErrHelperIncompatible):
+		return ReasonHelperUpgrade
+	case errors.Is(err, ErrHelperRollback):
+		return ReasonHelperRollback
+	case errors.Is(err, ErrHelperInstallation):
+		return ReasonHelperInstallation
+	default:
+		return classifyHelperError(err)
+	}
+}
+
 func helperErrorCopy(reason Reason) string {
 	switch reason {
 	case ReasonHelperMissing:
@@ -59,6 +90,18 @@ func helperErrorCopy(reason Reason) string {
 		return "collection helper failed"
 	case ReasonOutputLimit:
 		return "helper output exceeded safety limits"
+	case ReasonHelperUnsupported:
+		return "remote platform cannot run the collection helper"
+	case ReasonHelperVerification:
+		return "collection helper could not be verified"
+	case ReasonHelperInstallation:
+		return "collection helper could not be installed"
+	case ReasonHelperRevoked:
+		return "collection helper was revoked and will not run"
+	case ReasonHelperUpgrade:
+		return "collection helper needs an approved upgrade"
+	case ReasonHelperRollback:
+		return "collection helper upgrade was rolled back"
 	default:
 		return genericErrorCopy(reason)
 	}

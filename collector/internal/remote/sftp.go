@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -180,9 +181,10 @@ type Session struct {
 }
 
 type OpenOptions struct {
-	SSHBin  string
-	Limits  Limits
-	command func(context.Context, string, ...string) *exec.Cmd
+	SSHBin        string
+	Limits        Limits
+	command       func(context.Context, string, ...string) *exec.Cmd
+	lifecycleOnly bool
 }
 
 type sshProcessError struct {
@@ -270,7 +272,17 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 			return client.Open(path)
 		},
 	}
-	source, err := newSource(operations, limits)
+	var source *Source
+	if options.lifecycleOnly {
+		home, homeErr := client.RealPath(".")
+		if homeErr != nil {
+			err = fmt.Errorf("resolve SFTP home: %w", homeErr)
+		} else {
+			source = &Source{home: path.Clean(home), limits: limits}
+		}
+	} else {
+		source, err = newSource(operations, limits)
+	}
 	if err != nil {
 		_ = client.Close()
 		_ = cmd.Wait()

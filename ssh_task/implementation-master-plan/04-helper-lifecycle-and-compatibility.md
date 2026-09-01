@@ -1,6 +1,6 @@
 # T04 — Helper lifecycle and compatibility
 
-Status: not_started
+Status: done
 
 Depends on: T03
 
@@ -67,3 +67,52 @@ run the release matrix.
 
 No general package manager, self-update, privileged fallback, manager/UI
 integration, or release rollout.
+
+## Handoff
+
+T04 handoff — 2026-09-01
+
+Changed: lifecycle policy and metadata replay protection, the production
+OpenSSH/SFTP adapter, SFTP lifecycle session support, focused lifecycle tests,
+and helper health classifications.
+
+Decisions:
+
+- Ship only statically linked Linux `amd64` and `arm64` ELF executables.
+- The sole install base is `~/.local/lib/coslash/helpers/<version>/coslash-helper`.
+  A `noexec` mount is classified as a visible SFTP fallback; no privileged or
+  alternate-path installation is attempted.
+- Release metadata is canonicalized and authenticated with an app-embedded
+  Ed25519 trust store. The store supports additive key rotation and compiled
+  key revocation; signed metadata can revoke an artifact. Signed expiry and a
+  durably persisted monotonic release sequence prevent stale signed metadata
+  from undoing a later revocation. Each platform carries exactly a current
+  artifact and, at most, its immediately previous compatible artifact.
+- Initial installation and every later upgrade require separate explicit
+  consent. A deprecated but verified prior helper remains usable while an
+  upgrade prompt is visible. Incompatible or revoked helpers are never run.
+- `SSHLifecycleRemote` implements bounded fixed-command probing and lifecycle
+  operations over the existing OpenSSH/SFTP connection. It validates every
+  directory and file with no-follow metadata, rejects foreign-owned or writable
+  components, creates the exact `.new` sibling exclusively, fsyncs and verifies
+  it, detects `noexec`, and requires OpenSSH atomic POSIX rename for activation.
+- Capability or post-activation verification failure removes the failed current
+  artifact and returns the already verified previous helper as an executable
+  deprecated rollback. Transport failures remain transport failures instead of
+  being mislabeled as platform or compatibility failures.
+- Uninstall reauthenticates release metadata, probes the host platform, and
+  accepts only an exact version present in that authenticated platform manifest.
+
+Focused tests:
+
+- `GOCACHE=/tmp/coslash-go-cache go test ./internal/remote` — passed.
+- `GOCACHE=/tmp/coslash-go-cache go test ./internal/remoteprotocol ./cmd/coslash-helper` — passed.
+- `GOCACHE=/tmp/coslash-go-cache make helper` — passed; built and inspected a
+  static Linux `amd64` ELF helper, then verified its SHA-256.
+- `GOCACHE=/tmp/coslash-go-cache go vet ./internal/remote` — passed.
+- `GOCACHE=/tmp/coslash-go-cache go test -race ./internal/remote` — passed.
+- A Darwin/arm64 remote-package test binary cross-compiled successfully.
+
+Remaining blocker/risk: none within T04. T05 must embed the approved release
+public keys, instantiate the durable sequence store, and wire consent and
+uninstall actions. T06 retains adversarial race and fault-injection review.
