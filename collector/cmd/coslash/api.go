@@ -60,7 +60,10 @@ func handleList(
 		log.Printf("list sessions: %d", len(sessions))
 		return
 	}
-	response := sessionsResponse{Machines: []machineFact{localMachineFact()}}
+	response := sessionsResponse{
+		Sessions: []boardSession{},
+		Machines: []machineFact{localMachineFact()},
+	}
 	for _, value := range sessions {
 		response.Sessions = append(response.Sessions, boardLocalSession(value))
 	}
