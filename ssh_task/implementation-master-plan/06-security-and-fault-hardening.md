@@ -1,6 +1,6 @@
 # T06 — Security and fault hardening
 
-Status: not_started
+Status: done
 
 Depends on: T02–T05
 
@@ -52,3 +52,38 @@ in T07.
 ## Out of scope
 
 No unrelated application security review or SSH server hardening.
+
+## Handoff
+
+T06 handoff — 2026-09-01
+
+Changed: `internal/remotefacts`, `internal/remoteprotocol`, `internal/remote`,
+`internal/remotehelper`, and [t06-threat-model.md](t06-threat-model.md).
+
+Decisions: complete NDJSON requires `request_complete`; cacheable stale state is
+a fixed content-free code rather than remote prose; control-master output has
+the same bounded/cancelled behavior as collection; malformed SFTP directory
+entry names fail closed before path construction. The SFTP final-path TOCTOU
+gap is recorded as an accepted, owner-assigned residual risk.
+
+Focused tests (all passed):
+
+```sh
+GOCACHE=/tmp/coslash-t06-go-cache go test -count=1 \
+  ./internal/remotefacts ./internal/remoteprotocol ./internal/remote \
+  ./internal/remotehelper ./internal/diagnostics
+GOCACHE=/tmp/coslash-t06-go-cache go test -run '^$' \
+  -fuzz '^FuzzDecode$' -fuzztime=2s ./internal/remoteprotocol
+GOCACHE=/tmp/coslash-t06-go-cache go test -run '^$' \
+  -fuzz '^FuzzDecodeCapabilities$' -fuzztime=2s ./internal/remoteprotocol
+GOCACHE=/tmp/coslash-t06-go-cache go test -race \
+  -run 'TestRunSSHCommand(KillsProcessGroupOnOutputFlood|BoundsControlOutput)$|TestHelperCollect(CleansUpChildThatHangsAfterCompletion|HonorsCancellation)$|TestReadDirCacheAvoidsRedundantValidation' \
+  ./internal/remote
+CGO_ENABLED=0 GOCACHE=/tmp/coslash-t06-go-cache \
+  go build -o /tmp/coslash-helper-t06 ./cmd/coslash-helper
+git diff --check
+```
+
+Remaining blocker/risk: production signing material and artifact publication
+remain T07 rollout inputs; accepted SFTP protocol race limitation is in the
+threat model.

@@ -1,6 +1,6 @@
 # SSH helper post-implementation notes
 
-Status: active implementation record; T01–T04 complete
+Status: active implementation record; T01–T06 complete; T07 is next
 
 Last updated: 2026-09-01
 
@@ -15,11 +15,12 @@ one section when each master-plan task reaches `review` or `done`.
 | T01 — Contracts, metrics, and fixtures | done | Commit `a400074` |
 | T02 — Cache v2 and incremental SFTP | done | Branch `hlu/ssh-mix-02`; commits `bcba054`, `c66217f` |
 | T03 — Linux helper and SSH transport | done | Branch `hlu/t03-helper-and-ssh-transport`; commits `0a9dc20`, `96dac46` |
-| T04 — Helper lifecycle and compatibility | done | Branch `hlu/ssh-mix-04`; amended T04 implementation commit |
-| T05 — Manager, setup UI, diagnostics, and docs | in progress | Branch `hlu/ssh-mix-05`; release trust material pending |
-| T06–T07 | not started | Follow the master-plan dependency order |
+| T04 — Helper lifecycle and compatibility | done | Branch `hlu/ssh-mix-04`; commit `ecbaab6` |
+| T05 — Manager, setup UI, diagnostics, and docs | done | Branch `hlu/ssh-mix-05`; commits `cd4179f`–`a071c1a` |
+| T06 — Security and fault hardening | done | Branch `hlu/ssh-mix-06`; see T06 threat model and master-plan handoff |
+| T07 | not started | Approved release trust material and artifact publication are rollout inputs |
 
-## T05 — correction pass (in progress)
+## T05 — correction pass (completed)
 
 ### Current production-release decision
 

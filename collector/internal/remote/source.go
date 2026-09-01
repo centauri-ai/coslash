@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 type sftpOperations struct {
@@ -193,6 +194,9 @@ func (source *Source) ReadDir(name string) ([]fs.DirEntry, error) {
 	clean := path.Clean(name)
 	result := make([]fs.DirEntry, 0, len(entries))
 	for _, entry := range entries {
+		if !validRemoteDirEntryName(entry.Name()) {
+			return nil, ErrPathDenied
+		}
 		result = append(result, fs.FileInfoToDirEntry(entry))
 		if allowedIndex >= 0 && entry.Mode()&fs.ModeSymlink == 0 {
 			childLexical := path.Join(clean, entry.Name())
@@ -204,6 +208,15 @@ func (source *Source) ReadDir(name string) ([]fs.DirEntry, error) {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name() < result[j].Name() })
 	return result, nil
+}
+
+// validRemoteDirEntryName rejects malformed names from an untrusted SFTP
+// server before they are used to build a cached child path. POSIX servers do
+// not normally return separators here, but this boundary must not rely on a
+// compromised server obeying that convention.
+func validRemoteDirEntryName(name string) bool {
+	return utf8.ValidString(name) && name != "" && name != "." && name != ".." && path.Base(name) == name &&
+		!strings.ContainsAny(name, "/\\\x00")
 }
 
 func (source *Source) Stat(name string) (fs.FileInfo, error) {

@@ -43,15 +43,15 @@ func compositeFingerprint(fingerprints []vendors.FileFingerprint) string {
 func familySkipReason(err error) string {
 	switch {
 	case errors.Is(err, ErrFileLimit):
-		return "oversized_file"
+		return remotefacts.StaleReasonOversizedFile
 	case errors.Is(err, ErrTotalLimit):
-		return "vendor_budget_exceeded"
+		return remotefacts.StaleReasonVendorBudgetExceeded
 	case errors.Is(err, ErrSymlink), errors.Is(err, ErrPathDenied):
-		return "path_denied"
+		return remotefacts.StaleReasonPathDenied
 	case errors.Is(err, vendors.ErrInvalidData):
-		return "invalid_data"
+		return remotefacts.StaleReasonInvalidData
 	default:
-		return "read_failed"
+		return remotefacts.StaleReasonReadFailed
 	}
 }
 
@@ -134,7 +134,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	for id, composite := range changed {
 		if unstableFamilies[id] {
 			records = append(records, remoteprotocol.Record{
-				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: "unstable_file",
+				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonUnstableFile,
 			})
 			familyFailures = append(familyFailures, fmt.Errorf("%s family unstable during collection", in.Vendor))
 			continue
@@ -150,7 +150,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		sessions := byFamily[id]
 		if len(sessions) == 0 {
 			records = append(records, remoteprotocol.Record{
-				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: "no_data",
+				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonNoData,
 			})
 			familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: no_data", in.Vendor))
 			continue
@@ -161,7 +161,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		)
 		if err != nil {
 			records = append(records, remoteprotocol.Record{
-				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: "invalid_family_facts",
+				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonInvalidData,
 			})
 			familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_family_facts", in.Vendor))
 			continue

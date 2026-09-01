@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/pkg/sftp"
@@ -55,11 +56,24 @@ func (remote *SSHLifecycleRemote) ProbePlatform(ctx context.Context) (Platform, 
 	runCtx, cancel := context.WithTimeout(ctx, limits.ConnectTimeout)
 	defer cancel()
 	cmd := command(runCtx, bin, args...)
+	configureProcessGroup(cmd)
 	stdout := &boundedCommandOutput{limit: 128, cancel: cancel}
 	stderr := &boundedCommandOutput{limit: limits.MaxStderrBytes, cancel: cancel}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return Platform{}, fmt.Errorf("start helper platform probe: %w", err)
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	var runErr error
+	select {
+	case runErr = <-waited:
+	case <-runCtx.Done():
+		terminateProcessGroup(cmd)
+		runErr = <-waited
+	}
+	if runErr != nil {
 		if stdout.overflow {
 			return Platform{}, fmt.Errorf("%w: platform probe output too long", ErrUnsupportedHelperPlatform)
 		}
@@ -125,11 +139,8 @@ func (remote *SSHLifecycleRemote) Install(ctx context.Context, request InstallRe
 		if err != nil {
 			return fmt.Errorf("create helper temporary: %w", err)
 		}
-		writeErr := writeLifecycleArtifact(file, request.Bytes)
-		closeErr := file.Close()
-		if err := errors.Join(writeErr, closeErr); err != nil {
-			_ = session.client.Remove(temporary)
-			return fmt.Errorf("write helper temporary: %w", err)
+		if err := writeAndCloseLifecycleArtifact(file, request.Bytes, temporary, session.client.Remove); err != nil {
+			return err
 		}
 		temporaryInfo, err := inspectLifecycleFile(session.client, temporary, request.Temporary)
 		if err != nil {
@@ -149,9 +160,8 @@ func (remote *SSHLifecycleRemote) Install(ctx context.Context, request InstallRe
 			_ = session.client.Remove(temporary)
 			return err
 		}
-		if err := session.client.PosixRename(temporary, destination); err != nil {
-			_ = session.client.Remove(temporary)
-			return fmt.Errorf("activate helper atomically: %w", err)
+		if err := activateLifecycleTemporary(session.client.PosixRename, session.client.Remove, temporary, destination); err != nil {
+			return err
 		}
 		installed, err = inspectLifecycleFile(session.client, destination, request.Destination)
 		return err
@@ -328,7 +338,14 @@ func removeStaleLifecycleTemporary(client *sftp.Client, temporary string, uid ui
 	return client.Remove(temporary)
 }
 
-func writeLifecycleArtifact(file *sftp.File, content []byte) error {
+type lifecycleArtifactFile interface {
+	io.Writer
+	Chmod(os.FileMode) error
+	Sync() error
+	Close() error
+}
+
+func writeLifecycleArtifact(file lifecycleArtifactFile, content []byte) error {
 	if _, err := io.Copy(file, bytes.NewReader(content)); err != nil {
 		return err
 	}
@@ -341,7 +358,37 @@ func writeLifecycleArtifact(file *sftp.File, content []byte) error {
 	return nil
 }
 
+// writeAndCloseLifecycleArtifact is the failure-atomic temporary-file step of
+// installation. The callback makes cleanup testable independently from an SSH
+// server and ensures an interrupted write, sync, or close cannot leave a
+// candidate executable behind.
+func writeAndCloseLifecycleArtifact(
+	file lifecycleArtifactFile,
+	content []byte,
+	temporary string,
+	remove func(string) error,
+) error {
+	if err := errors.Join(writeLifecycleArtifact(file, content), file.Close()); err != nil {
+		return fmt.Errorf("write helper temporary: %w", errors.Join(err, remove(temporary)))
+	}
+	return nil
+}
+
+// activateLifecycleTemporary keeps a failed atomic rename from leaving a
+// verified-looking temporary executable behind for a later operation.
+func activateLifecycleTemporary(
+	rename func(string, string) error,
+	remove func(string) error,
+	temporary, destination string,
+) error {
+	if err := rename(temporary, destination); err != nil {
+		return fmt.Errorf("activate helper atomically: %w", errors.Join(err, remove(temporary)))
+	}
+	return nil
+}
+
 type boundedCommandOutput struct {
+	mu       sync.Mutex
 	buffer   bytes.Buffer
 	limit    int
 	overflow bool
@@ -349,6 +396,8 @@ type boundedCommandOutput struct {
 }
 
 func (output *boundedCommandOutput) Write(data []byte) (int, error) {
+	output.mu.Lock()
+	defer output.mu.Unlock()
 	if output.overflow {
 		return len(data), nil
 	}
@@ -365,4 +414,8 @@ func (output *boundedCommandOutput) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func (output *boundedCommandOutput) String() string { return output.buffer.String() }
+func (output *boundedCommandOutput) String() string {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return output.buffer.String()
+}

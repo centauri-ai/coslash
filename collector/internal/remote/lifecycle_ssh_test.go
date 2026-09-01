@@ -101,3 +101,68 @@ func TestResolveLifecyclePathAcceptsOnlyExactKnownLayout(t *testing.T) {
 		}
 	}
 }
+
+func TestLifecycleTemporaryWriteFailuresAreRemoved(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		file lifecycleTestFile
+	}{
+		{name: "write", file: lifecycleTestFile{writeErr: errors.New("write interrupted")}},
+		{name: "sync", file: lifecycleTestFile{syncErr: errors.New("sync interrupted")}},
+		{name: "close", file: lifecycleTestFile{closeErr: errors.New("close interrupted")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			temporaryPresent := true
+			removed := ""
+			err := writeAndCloseLifecycleArtifact(&test.file, []byte("helper"), "temporary", func(path string) error {
+				removed, temporaryPresent = path, false
+				return nil
+			})
+			if err == nil || removed != "temporary" || temporaryPresent {
+				t.Fatalf("failure left temporary helper behind: err=%v removed=%q present=%v", err, removed, temporaryPresent)
+			}
+		})
+	}
+}
+
+func TestLifecycleFailedRenameRemovesTemporaryWithoutActivation(t *testing.T) {
+	temporaryPresent, activated := true, false
+	err := activateLifecycleTemporary(func(_, _ string) error {
+		return errors.New("rename interrupted")
+	}, func(path string) error {
+		if path != "temporary" {
+			t.Fatalf("removed %q, want temporary", path)
+		}
+		temporaryPresent = false
+		return nil
+	}, "temporary", "destination")
+	if err == nil || temporaryPresent || activated {
+		t.Fatalf("rename failure left unsafe state: err=%v temporary=%v activated=%v", err, temporaryPresent, activated)
+	}
+}
+
+func TestLifecycleTemporaryCleanupFailureIsNotHidden(t *testing.T) {
+	cleanupErr := errors.New("remove temporary failed")
+	err := activateLifecycleTemporary(func(_, _ string) error {
+		return errors.New("rename interrupted")
+	}, func(string) error { return cleanupErr }, "temporary", "destination")
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("cleanup failure was hidden: %v", err)
+	}
+}
+
+type lifecycleTestFile struct {
+	writeErr error
+	syncErr  error
+	closeErr error
+}
+
+func (file *lifecycleTestFile) Write(data []byte) (int, error) {
+	if file.writeErr != nil {
+		return 0, file.writeErr
+	}
+	return len(data), nil
+}
+func (*lifecycleTestFile) Chmod(os.FileMode) error { return nil }
+func (file *lifecycleTestFile) Sync() error        { return file.syncErr }
+func (file *lifecycleTestFile) Close() error       { return file.closeErr }

@@ -1,6 +1,6 @@
 # T05 — Manager, setup UI, diagnostics, and documentation
 
-Status: in_progress
+Status: done
 
 Depends on: T02, T03, T04
 
@@ -79,6 +79,10 @@ calls must use `apiFetch`.
 Run table-driven remote manager/API tests with fake transports, touched Vitest
 files, and the TypeScript build only if shared types changed. Do not run complete
 backend/frontend suites.
+
+Completed on branch `hlu/ssh-mix-05` in commits `cd4179f` through `a071c1a`.
+Approved production signing keys, revocation data, signed metadata publication,
+and the artifact source remain feature-gated T07 rollout inputs.
 
 ## Out of scope
 

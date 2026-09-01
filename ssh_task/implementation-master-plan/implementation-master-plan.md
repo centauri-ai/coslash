@@ -1,6 +1,6 @@
 # SSH helper implementation master plan
 
-Status: implementation in progress; T01–T04 complete, T05 in progress
+Status: implementation in progress; T01–T06 complete; T07 is next
 
 Last updated: 2026-09-01
 
@@ -45,9 +45,9 @@ separate because they have distinct risk and approval gates.
 | T02 | Cache v2 and incremental SFTP | done | T01 | — | [Brief](02-cache-and-incremental-sftp.md) |
 | T03 | Linux helper and SSH transport | done | T01 | — | [Brief](03-helper-and-ssh-transport.md) |
 | T04 | Helper lifecycle and compatibility | done | T03 | — | [Brief](04-helper-lifecycle-and-compatibility.md) |
-| T05 | Manager, setup UI, diagnostics, and docs | in_progress | T02, T03, T04 | Production signed release key/metadata source still needs approval | [Brief](05-manager-ui-diagnostics-docs.md) |
-| T06 | Security and fault hardening | not_started | T02–T05 | Threat-model review required | [Brief](06-security-and-fault-hardening.md) |
-| T07 | Full validation and rollout gate | not_started | T01–T06 | All implementation tasks must be done | [Brief](07-full-validation-and-rollout.md) |
+| T05 | Manager, setup UI, diagnostics, and docs | done | T02, T03, T04 | — | [Brief](05-manager-ui-diagnostics-docs.md) |
+| T06 | Security and fault hardening | done | T02–T05 | — | [Brief](06-security-and-fault-hardening.md) |
+| T07 | Full validation and rollout gate | not_started | T01–T06 | Approved production signing keys, revocation data, signed metadata publication/endpoint, and artifact source are pending | [Brief](07-full-validation-and-rollout.md) |
 
 ## Dependency path
 
@@ -140,6 +140,17 @@ Remaining blocker/risk: <none or exact issue>
 ```
 
 ## Global blockers and change log
+
+- 2026-09-01: T06 completed on branch `hlu/ssh-mix-06`. The threat model now
+  records remote/protocol/filesystem trust boundaries, tested mitigations, and
+  owner-assigned residual risks. Strict decode rejects incomplete NDJSON;
+  content-free stale codes prevent hostile error text from becoming durable
+  cache state; malicious SFTP entry names fail before path construction; and
+  SSH control-master output is capped and cancelled like collection output.
+  Focused package tests, bounded protocol/capability fuzzing, selected remote
+  race tests, a native helper build, and `git diff --check` passed. The remaining
+  SFTP final-path TOCTOU limitation and release-trust inputs are explicitly
+  retained for T07 validation and rollout approval.
 
 - 2026-09-01: T05 integration began on branch `hlu/ssh-mix-05`. The dependency
   merge was repaired and focused package tests pass. The manager now has a

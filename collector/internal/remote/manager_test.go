@@ -392,6 +392,35 @@ func TestFailedUninstallRetainsHostAndOwnership(t *testing.T) {
 	}
 }
 
+func TestInterruptedUninstallRetainsHostOwnershipAndHelper(t *testing.T) {
+	home := t.TempDir()
+	remote, artifact, content := lifecycleFixture(t)
+	cache := NewCache(home)
+	manager := NewManager(Options{
+		Cache: cache, ReleaseProvider: fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("setup health = %#v", health)
+	}
+	remote.removeErr = context.DeadlineExceeded
+	if err := manager.UninstallHelper(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("UninstallHelper error = %v, want deadline", err)
+	}
+	path, _ := helperPath(artifact.Version)
+	if manager.cfg == nil || manager.helperVersion != artifact.Version || remote.files[path].Path == "" {
+		t.Fatalf("interrupted uninstall lost recovery state: cfg=%#v version=%q files=%#v", manager.cfg, manager.helperVersion, remote.files)
+	}
+	if ownership, ok, err := cache.LoadHelperOwnership(config.ID); err != nil || !ok || ownership.Version != artifact.Version {
+		t.Fatalf("interrupted uninstall lost ownership: %#v, ok=%v, err=%v", ownership, ok, err)
+	}
+}
+
 func TestProductionManagerHasPrivateSequenceStoreAndFeatureGatedProvider(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)

@@ -58,7 +58,7 @@ func scanClaude(
 	root := claude.ProjectsRoot(home)
 	found, err := claude.ScanSource(source, root)
 	if err != nil {
-		result.scan.incompleteWhy = boundedReason("directory scan failed", err)
+		result.scan.incompleteWhy = boundedReason(err)
 		return result
 	}
 	result.scan.complete = found.SkippedTotal == 0
@@ -101,7 +101,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 	root := codex.SessionsRoot(home)
 	found, err := codex.ScanSource(source, root)
 	if err != nil {
-		result.scan.incompleteWhy = boundedReason("directory scan failed", err)
+		result.scan.incompleteWhy = boundedReason(err)
 		return result
 	}
 	result.scan.complete = found.SkippedTotal == 0
@@ -172,7 +172,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 			})
 		}
 		if header.Err != nil {
-			result.scan.family(familyID).skipReason = boundedReason("header unreadable", header.Err)
+			result.scan.family(familyID).skipReason = boundedReason(header.Err)
 		}
 	}
 	result.scan.finish(metadata)
@@ -189,7 +189,7 @@ func (v *vendorScan) record(
 ) {
 	fingerprints, err := vendors.FingerprintSourceFiles(source, root, []string{file})
 	if err != nil || len(fingerprints) != 1 {
-		v.scan.family(familyID).skipReason = boundedReason("file became unreadable", err)
+		v.scan.family(familyID).skipReason = boundedReason(err)
 		return
 	}
 	v.recordFingerprint(familyID, sessionID, file, fingerprints[0], selected)

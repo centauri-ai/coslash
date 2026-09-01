@@ -463,7 +463,7 @@ func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
 		if family.Fingerprint == "" || len(family.Fingerprint) > remotefacts.MaxIDBytes {
 			return false
 		}
-		if len(family.StaleReason) > remotefacts.MaxDisplayBytes {
+		if family.StaleReason != "" && !remotefacts.ValidStaleReason(family.StaleReason) {
 			return false
 		}
 		if family.LastSuccessAtMs <= 0 || family.LastSuccessAtMs > remotefacts.MaxTimestampMs {

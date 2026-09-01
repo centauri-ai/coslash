@@ -266,7 +266,7 @@ func publishChanged(
 			if singleErr != nil {
 				if skipErr := emitSkipped(
 					emitter, scanned.vendor, item.id,
-					boundedReason("transcript could not be parsed", singleErr),
+					boundedReason(singleErr),
 				); skipErr != nil {
 					return parser, skipErr
 				}
@@ -297,7 +297,7 @@ func publishFamily(
 	for attempt := 0; ; attempt++ {
 		if len(sessions) == 0 {
 			return parser, skipFamily(
-				emitter, scanned, item, counts, "no sessions could be parsed for this family",
+				emitter, scanned, item, counts, remotefacts.StaleReasonNoData,
 			)
 		}
 		if stable, reason := restabilize(scanned, item); !stable {
@@ -310,7 +310,7 @@ func publishFamily(
 			if err != nil {
 				return parser, skipFamily(
 					emitter, scanned, item, counts,
-					boundedReason("transcript could not be parsed", err),
+					boundedReason(err),
 				)
 			}
 			sessions = groupByFamily(reparsed, []*family{item})[item.id]
@@ -320,7 +320,7 @@ func publishFamily(
 		if err != nil {
 			return parser, skipFamily(
 				emitter, scanned, item, counts,
-				boundedReason("family facts failed validation", err),
+				boundedReason(err),
 			)
 		}
 		// A baseline-free response carries no prior fingerprint: the helper was
@@ -384,17 +384,17 @@ func familyFacts(
 // parser invalidates the facts just produced.
 func restabilize(scanned *vendorScan, item *family) (bool, string) {
 	if item.identityUnstable {
-		return false, "transcript family header changed while it was read"
+		return false, remotefacts.StaleReasonUnstableFile
 	}
 	stable := true
 	for _, file := range item.files {
 		before, ok := scanned.fileFacts[file]
 		if !ok {
-			return false, "transcript disappeared while it was read"
+			return false, remotefacts.StaleReasonUnstableFile
 		}
 		info, err := scanned.statFile(file)
 		if err != nil {
-			return false, "transcript disappeared while it was read"
+			return false, remotefacts.StaleReasonUnstableFile
 		}
 		if info.Size() != before.Size || info.ModTime().UnixMilli() != before.ModifiedAtMs {
 			stable = false
@@ -414,10 +414,10 @@ func restabilize(scanned *vendorScan, item *family) (bool, string) {
 	}
 	if scanned.vendor == vendors.AgentCodex && !codexHeadersStillMatch(scanned, item) {
 		item.identityUnstable = true
-		return false, "transcript family header changed while it was read"
+		return false, remotefacts.StaleReasonUnstableFile
 	}
 	item.fingerprint = aggregateFingerprint(item, scanned.metadata)
-	return false, "transcript changed while it was read"
+	return false, remotefacts.StaleReasonUnstableFile
 }
 
 func codexHeadersStillMatch(scanned *vendorScan, item *family) bool {
@@ -549,28 +549,26 @@ func outcomeOf(emitter *emitter, completed []string, requestComplete bool) Outco
 	}
 }
 
-// boundedReason keeps a structured skip reason inside the schema's display bound
-// and never repeats a path or transcript content back to the Mac.
-func boundedReason(reason string, err error) string {
-	if err == nil {
-		return reason
-	}
+// boundedReason converts filesystem and parser failures to fixed codes. Skip
+// reasons are persisted in the Mac cache, so even bounded remote error prose
+// must never cross the helper boundary.
+func boundedReason(err error) string {
 	switch {
 	case errors.Is(err, ErrFileLimit):
-		return reason + ": file exceeds the size limit"
+		return remotefacts.StaleReasonOversizedFile
 	case errors.Is(err, ErrEntryLimit), errors.Is(err, ErrDepthLimit):
-		return reason + ": safety limit reached"
+		return remotefacts.StaleReasonVendorBudgetExceeded
 	case errors.Is(err, ErrSymlink):
-		return reason + ": symlinks are not followed"
+		return remotefacts.StaleReasonPathDenied
 	case errors.Is(err, ErrPathDenied):
-		return reason + ": path is outside the read allowlist"
+		return remotefacts.StaleReasonPathDenied
 	case errors.Is(err, vendors.ErrInvalidData):
-		return reason + ": transcript data is invalid"
+		return remotefacts.StaleReasonInvalidData
 	case errors.Is(err, os.ErrNotExist):
-		return reason + ": file no longer exists"
+		return remotefacts.StaleReasonUnstableFile
 	case errors.Is(err, os.ErrPermission):
-		return reason + ": file is not readable"
+		return remotefacts.StaleReasonReadFailed
 	default:
-		return reason
+		return remotefacts.StaleReasonReadFailed
 	}
 }

@@ -159,6 +159,42 @@ func TestCacheV2LoadRejectsInvalidFamilyFacts(t *testing.T) {
 	}
 }
 
+func TestCacheV2LoadRejectsUnstructuredStaleReason(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	snapshot := CachedSnapshotV2{
+		Version: cacheV2Version, BaselineID: "req-1",
+		Families: []CachedFamilyV2{{
+			Vendor: vendors.AgentClaude, FamilyID: "root-1", Facts: validFamily(t, "root-1"),
+			Fingerprint: "fp-1", StaleReason: "prompt text from hostile helper", LastSuccessAtMs: 1000,
+		}},
+	}
+	if err := cache.StoreV2("r_0123456789abcdef", snapshot); err != nil {
+		t.Fatalf("StoreV2: %v", err)
+	}
+	if _, ok, err := cache.LoadV2("r_0123456789abcdef"); err != nil || ok {
+		t.Fatalf("unstructured stale reason should degrade safely: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCacheV2LoadRejectsFactStaleReasonOutsideStaleState(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	facts := validFamily(t, "root-1")
+	facts.StaleReason = "hostile transcript text"
+	snapshot := CachedSnapshotV2{
+		Version: cacheV2Version, BaselineID: "req-1",
+		Families: []CachedFamilyV2{{
+			Vendor: vendors.AgentClaude, FamilyID: "root-1", Facts: facts,
+			Fingerprint: "fp-1", LastSuccessAtMs: 1000,
+		}},
+	}
+	if err := cache.StoreV2("r_0123456789abcdef", snapshot); err != nil {
+		t.Fatalf("StoreV2: %v", err)
+	}
+	if _, ok, err := cache.LoadV2("r_0123456789abcdef"); err != nil || ok {
+		t.Fatalf("fact stale reason should degrade safely: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestCacheV1RemainsLoadableAlongsideV2(t *testing.T) {
 	root := t.TempDir()
 	cache := NewCache(root)

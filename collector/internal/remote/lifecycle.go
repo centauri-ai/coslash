@@ -598,7 +598,7 @@ func classifyLifecycleInstallError(err error) error {
 	case errors.Is(err, ErrHelperNoExec), errors.Is(err, ErrHelperRollback):
 		return err
 	default:
-		return fmt.Errorf("%w: %v", ErrHelperInstallation, err)
+		return fmt.Errorf("%w: %w", ErrHelperInstallation, err)
 	}
 }
 

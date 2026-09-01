@@ -243,6 +243,9 @@ func Decode(reader io.Reader, request Request) ([]Record, error) {
 	if limited.N <= 0 {
 		return nil, errors.New("response exceeds byte limit")
 	}
+	if !complete {
+		return nil, errors.New("response ended before request_complete")
+	}
 	return records, nil
 }
 
@@ -289,7 +292,7 @@ func validateRecord(r Record, request Request, sequence int) error {
 			return errors.New("invalid unchanged family record")
 		}
 	case RecordSkipped:
-		if !requestedVendor(request, r.Vendor) || !validID(r.FamilyID) || r.Reason == "" || len(r.Reason) > remotefacts.MaxDisplayBytes {
+		if !requestedVendor(request, r.Vendor) || !validID(r.FamilyID) || !remotefacts.ValidStaleReason(r.Reason) {
 			return errors.New("invalid skipped family record")
 		}
 	case RecordTombstone:

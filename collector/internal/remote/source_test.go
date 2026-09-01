@@ -2,6 +2,7 @@ package remote
 
 import (
 	"io"
+	"os"
 	"path"
 	"testing"
 	"time"
@@ -70,6 +71,23 @@ func TestReadDirCacheStillRejectsSymlinkEntries(t *testing.T) {
 	}
 	if _, err := source.Stat(path.Join(dir, "evil.jsonl")); err == nil {
 		t.Fatal("a symlink entry discovered via ReadDir must still be rejected")
+	}
+}
+
+func TestReadDirRejectsMalformedServerEntryNames(t *testing.T) {
+	fs := newFakeFS()
+	dir := path.Join(fakeHome, ".claude/projects/proj")
+	fs.mkdirAll(dir)
+	ops := fs.ops()
+	ops.readDir = func(string) ([]os.FileInfo, error) {
+		return []os.FileInfo{fakeFileInfo{name: "../outside", mode: 0o644}}, nil
+	}
+	source, err := newSource(ops, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.ReadDir(dir); err == nil {
+		t.Fatal("ReadDir accepted an entry name with traversal")
 	}
 }
 

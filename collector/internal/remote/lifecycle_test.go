@@ -113,6 +113,19 @@ func TestLifecycleNoExecAndRollbackStayOnSFTP(t *testing.T) {
 	}
 }
 
+func TestLifecycleInterruptedInstallFailsClosed(t *testing.T) {
+	remote, artifact, content := lifecycleFixture(t)
+	path, _ := helperPath(artifact.Version)
+	remote.installErr = context.DeadlineExceeded
+	result := lifecycleFor(remote).Setup(context.Background(), remote.document, content, Consent{Install: true})
+	if result.CanExecute || !result.Fallback || !errors.Is(result.Reason, context.DeadlineExceeded) {
+		t.Fatalf("interrupted install result = %#v", result)
+	}
+	if _, exists := remote.files[path]; exists {
+		t.Fatalf("interrupted install activated helper: %#v", remote.files)
+	}
+}
+
 func TestLifecyclePlatformAndMetadataAreAuthenticated(t *testing.T) {
 	remote, _, content := lifecycleFixture(t)
 	remote.platform.Arch = "riscv64"
@@ -307,6 +320,7 @@ type fakeLifecycleRemote struct {
 	capabilitiesCalls int
 	probeErr          error
 	capabilityErrors  map[string]error
+	removeErr         error
 	lastRequest       InstallRequest
 	removed           string
 }
@@ -348,6 +362,9 @@ func (remote *fakeLifecycleRemote) Install(_ context.Context, request InstallReq
 }
 func (remote *fakeLifecycleRemote) RemoveExact(_ context.Context, path string) error {
 	remote.removed = path
+	if remote.removeErr != nil {
+		return remote.removeErr
+	}
 	for _, artifact := range remote.document.Metadata.Artifacts {
 		known, _ := helperPath(artifact.Version)
 		if known == path {

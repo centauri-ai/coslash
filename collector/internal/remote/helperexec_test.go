@@ -5,8 +5,10 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -115,6 +117,42 @@ func TestHelperArgsRejectInjection(t *testing.T) {
 	}
 }
 
+func TestRunSSHCommandBoundsControlOutput(t *testing.T) {
+	options := fakeOptions([]byte(strings.Repeat("x", 100)), 0, "", false)
+	options.Limits.MaxStderrBytes = 16
+	err := runSSHCommand(context.Background(), options, []string{"-O", "check", "host"})
+	if !errors.Is(err, ErrStderrLimit) {
+		t.Fatalf("runSSHCommand error = %v, want ErrStderrLimit", err)
+	}
+}
+
+func TestRunSSHCommandKillsProcessGroupOnOutputFlood(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "child-pid")
+	t.Setenv("COSLASH_FAKE_SPAWN_CHILD", "1")
+	t.Setenv("COSLASH_FAKE_CHILD_PID", marker)
+	options := fakeOptions([]byte(strings.Repeat("x", 100)), 0, "", false)
+	options.Limits.MaxStderrBytes = 16
+	if err := runSSHCommand(context.Background(), options, []string{"-O", "check", "host"}); !errors.Is(err, ErrStderrLimit) {
+		t.Fatalf("runSSHCommand error = %v, want ErrStderrLimit", err)
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read child pid: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		t.Fatalf("child pid = %q, error = %v", data, err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("control command left child process %d running", pid)
+}
+
 func completeResponse(t *testing.T) (remoteprotocol.Request, remoteprotocol.Generation, []byte) {
 	t.Helper()
 	request := remoteprotocol.Request{
@@ -158,6 +196,20 @@ func fakeOptions(output []byte, exitCode int, stderr string, hang bool) OpenOpti
 func TestHelperExecProcess(t *testing.T) {
 	if os.Getenv("COSLASH_FAKE_HELPER") != "1" {
 		return
+	}
+	if os.Getenv("COSLASH_FAKE_CHILD") == "1" {
+		time.Sleep(time.Hour)
+		return
+	}
+	if os.Getenv("COSLASH_FAKE_SPAWN_CHILD") == "1" {
+		child := exec.Command(os.Args[0], "-test.run=TestHelperExecProcess", "--")
+		child.Env = append(os.Environ(), "COSLASH_FAKE_CHILD=1")
+		if err := child.Start(); err != nil {
+			os.Exit(97)
+		}
+		if err := os.WriteFile(os.Getenv("COSLASH_FAKE_CHILD_PID"), []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil {
+			os.Exit(98)
+		}
 	}
 	_, _ = os.Stdout.WriteString(os.Getenv("COSLASH_FAKE_OUTPUT"))
 	_, _ = os.Stderr.WriteString(os.Getenv("COSLASH_FAKE_STDERR"))
