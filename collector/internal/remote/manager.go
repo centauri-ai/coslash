@@ -599,6 +599,8 @@ func classifyError(err error) Reason {
 		return ReasonHistoryTruncated
 	case errors.Is(err, ErrSymlink):
 		return ReasonInvalidData
+	case errors.Is(err, vendors.ErrInvalidData):
+		return ReasonInvalidData
 	}
 	message := strings.ToLower(err.Error() + " " + sshErrorStderr(err))
 	if strings.Contains(message, "host key verification failed") ||
