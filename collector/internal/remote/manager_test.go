@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -92,6 +93,29 @@ func TestClassifyErrorTimeoutNotInvalidData(t *testing.T) {
 	}
 	if got := classifyError(errors.New("collect Codex remote data: unexpected EOF")); got != ReasonConnectionFailed {
 		t.Fatalf("classifyError EOF=%s, want connection_failed", got)
+	}
+}
+
+func TestClassifyErrorMalformedTranscript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "malformed.jsonl")
+	if err := os.WriteFile(path, []byte("{x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, parseErr := vendors.ParseJSONLSource[map[string]any](vendors.LocalReadSource, path)
+	if parseErr == nil {
+		t.Fatal("expected malformed transcript error")
+	}
+	tests := []error{
+		fmt.Errorf("collect Codex remote data: %w", parseErr),
+		fmt.Errorf(
+			"collect Codex remote data: %w: first row type %q is not session_meta",
+			vendors.ErrInvalidData, "event_msg",
+		),
+	}
+	for _, err := range tests {
+		if got := classifyError(err); got != ReasonInvalidData {
+			t.Errorf("classifyError(%q)=%s, want invalid_remote_data", err, got)
+		}
 	}
 }
 
