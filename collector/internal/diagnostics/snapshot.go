@@ -56,7 +56,6 @@ type Remote struct {
 	CoverageSinceMs  *int64  `json:"coverageSinceMs,omitempty"`
 	RoundTripMs      *int64  `json:"roundTripMs,omitempty"`
 	Error            string  `json:"error,omitempty"`
-	DiagnosticStderr string  `json:"diagnosticStderr,omitempty"`
 	Transport        string  `json:"transport,omitempty"`
 	HelperState      string  `json:"helperState,omitempty"`
 	HelperVersion    string  `json:"helperVersion,omitempty"`
@@ -78,7 +77,6 @@ type RemoteHealth struct {
 	CoverageSinceMs  *int64
 	RoundTripMs      *int64
 	Error            string
-	DiagnosticStderr string
 	Transport        string
 	HelperState      string
 	HelperVersion    string
@@ -163,8 +161,7 @@ func CollectWithRemote(
 		State: remoteHealth.State, Complete: remoteHealth.Complete, Reason: remoteHealth.Reason,
 		LastSuccessAtMs: remoteHealth.LastSuccessAtMs, CoverageSinceMs: remoteHealth.CoverageSinceMs,
 		RoundTripMs: remoteHealth.RoundTripMs, Error: remoteHealth.Error,
-		DiagnosticStderr: remoteHealth.DiagnosticStderr,
-		Transport:        remoteHealth.Transport, HelperState: remoteHealth.HelperState,
+		Transport: remoteHealth.Transport, HelperState: remoteHealth.HelperState,
 		HelperVersion: remoteHealth.HelperVersion, HelperCompatible: remoteHealth.HelperCompatible,
 		HelperFallback: remoteHealth.HelperFallback, HelperReason: remoteHealth.HelperReason,
 		RequestBytes: remoteHealth.RequestBytes, ResponseBytes: remoteHealth.ResponseBytes,

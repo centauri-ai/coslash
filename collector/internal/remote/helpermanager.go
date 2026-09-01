@@ -2,11 +2,14 @@ package remote
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
 // Transport identifies the collection path that produced the current view.
@@ -17,6 +20,15 @@ const (
 	TransportSFTP   Transport = "sftp"
 	TransportHelper Transport = "helper"
 )
+
+// useSFTPFallbackAfterDiscovery is the complete pre-execution policy. A
+// helper is selected only after it is verified and capability-compatible;
+// every other discovery state retains usable, visibly labelled SFTP. Runtime
+// helper protocol/data/output failures deliberately do not call this policy:
+// they preserve cache and report the helper failure without masking it.
+func useSFTPFallbackAfterDiscovery(result LifecycleResult) bool {
+	return !result.CanExecute
+}
 
 // HelperStatus contains only display-safe lifecycle facts. It never contains
 // stderr, remote paths, release URLs, or an artifact digest.
@@ -40,7 +52,8 @@ type CollectionMetrics struct {
 // HelperReleaseProvider supplies an app-authenticated release document and
 // exact artifact bytes. The frontend never supplies either value.
 type HelperReleaseProvider interface {
-	Load(context.Context) (SignedReleaseMetadata, []byte, error)
+	LoadMetadata(context.Context) (SignedReleaseMetadata, error)
+	LoadArtifact(context.Context, Artifact) ([]byte, error)
 }
 
 type lifecycleFactory func(alias string) (Lifecycle, error)
@@ -50,6 +63,15 @@ type helperTarget struct {
 	version string
 	state   LifecycleState
 }
+
+type helperProbeState string
+
+const (
+	helperProbeUnknown  helperProbeState = "unknown"
+	helperProbeProbing  helperProbeState = "probing"
+	helperProbeReady    helperProbeState = "ready"
+	helperProbeFallback helperProbeState = "fallback"
+)
 
 func lifecycleStatus(result LifecycleResult) HelperStatus {
 	status := HelperStatus{
@@ -122,6 +144,112 @@ func unavailableHelperStatus(err error) HelperStatus {
 
 var errHelperReleaseUnavailable = errors.New("helper release is not configured")
 
+type unavailableReleaseProvider struct{}
+
+func (unavailableReleaseProvider) LoadMetadata(context.Context) (SignedReleaseMetadata, error) {
+	return SignedReleaseMetadata{}, errHelperReleaseUnavailable
+}
+
+func (unavailableReleaseProvider) LoadArtifact(context.Context, Artifact) ([]byte, error) {
+	return nil, errHelperReleaseUnavailable
+}
+
+// NewProductionManager centralizes the production wiring. This build has no
+// approved embedded release keys or publication endpoint yet, so it carries a
+// non-nil, deliberately unavailable provider and disables installation in the
+// API/UI. Replacing the provider and trust constants is a release operation,
+// not a frontend-controlled setting.
+func NewProductionManager() (*Manager, error) {
+	trust := TrustStore{
+		Keys: map[string]ed25519.PublicKey{}, RevokedKeys: map[string]bool{},
+		MinimumSequence: 0,
+		Sequences:       &FileMetadataSequenceStore{Path: filepath.Join(settings.Home(), "helper-release", "sequence")},
+	}
+	return NewManager(Options{
+		ReleaseProvider: unavailableReleaseProvider{}, Trust: trust,
+		HelperInstallationAvailable: false,
+	}), nil
+}
+
+// startHelperDiscoveryLocked starts only a read-only verification pass. The
+// Lifecycle receives empty consent, so it can authenticate metadata, probe the
+// platform, inspect files, and negotiate capabilities but can never upload or
+// modify a remote helper.
+func (manager *Manager) startHelperDiscoveryLocked() {
+	if manager.helperProbe != helperProbeUnknown || manager.cfg == nil || manager.lifeCtx == nil {
+		return
+	}
+	if !manager.helperInstallationAvailable || manager.releaseProvider == nil || manager.lifecycleFactory == nil {
+		status := unavailableHelperStatus(errHelperReleaseUnavailable)
+		manager.helper = &status
+		manager.helperProbe = helperProbeFallback
+		return
+	}
+	manager.helperProbe = helperProbeProbing
+	status := HelperStatus{State: LifecycleSFTP}
+	manager.helper = &status
+	config := *manager.cfg
+	go manager.runHelperDiscovery(manager.lifeCtx, config)
+}
+
+// InspectHelper starts (or reports) the non-mutating discovery pass for the
+// setup screen. It never waits on SSH while holding the manager lock.
+func (manager *Manager) InspectHelper() Health {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.cfg != nil && manager.cfg.Enabled {
+		manager.startHelperDiscoveryLocked()
+	}
+	return manager.healthLocked(manager.lastRequestedMs)
+}
+
+func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.RemoteSettings) {
+	manager.mu.Lock()
+	provider, factory := manager.releaseProvider, manager.lifecycleFactory
+	manager.mu.Unlock()
+	document, err := provider.LoadMetadata(ctx)
+	var result LifecycleResult
+	if err == nil {
+		var lifecycle Lifecycle
+		lifecycle, err = factory(config.SSHAlias)
+		if err == nil {
+			result = lifecycle.SetupWithLoader(ctx, document, Consent{}, provider.LoadArtifact)
+		}
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias || ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		status := unavailableHelperStatus(err)
+		manager.helper = &status
+		manager.helperProbe = helperProbeFallback
+	} else {
+		status := lifecycleStatus(result)
+		manager.helper = &status
+		if !useSFTPFallbackAfterDiscovery(result) {
+			manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State}
+			manager.helperVersion = result.Artifact.Version
+			// This records ownership locally, never remote execution authority.
+			if storeErr := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); storeErr != nil {
+				failed := unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, storeErr))
+				manager.helper = &failed
+				manager.helperTarget = nil
+				manager.helperProbe = helperProbeFallback
+			} else {
+				manager.helperProbe = helperProbeReady
+			}
+		} else {
+			manager.helperTarget = nil
+			manager.helperProbe = helperProbeFallback
+		}
+	}
+	// The first ListView window was retained while discovery ran. Only now may
+	// the normal refresh choose helper or explicit SFTP fallback.
+	manager.maybeStartRefreshLocked(manager.lastRequestedMs, false)
+}
+
 // SetupHelper performs a consented setup or repair. It is the only Manager
 // method that can create a helper target; refreshes only execute that stored,
 // verified target.
@@ -135,7 +263,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 	provider, factory := manager.releaseProvider, manager.lifecycleFactory
 	manager.mu.Unlock()
 
-	if provider == nil || factory == nil {
+	if !manager.helperInstallationAvailable || provider == nil || factory == nil {
 		manager.mu.Lock()
 		status := unavailableHelperStatus(errHelperReleaseUnavailable)
 		manager.helper = &status
@@ -143,7 +271,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 		manager.mu.Unlock()
 		return health
 	}
-	document, bytes, err := provider.Load(ctx)
+	document, err := provider.LoadMetadata(ctx)
 	if err != nil {
 		manager.mu.Lock()
 		status := unavailableHelperStatus(err)
@@ -161,7 +289,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 		manager.mu.Unlock()
 		return health
 	}
-	result := lifecycle.Setup(ctx, document, bytes, consent)
+	result := lifecycle.SetupWithLoader(ctx, document, consent, provider.LoadArtifact)
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
@@ -170,7 +298,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 	status := lifecycleStatus(result)
 	manager.helper = &status
 	if result.CanExecute {
-		if err := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version); err != nil {
+		if err := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); err != nil {
 			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
 			manager.helper = &status
 			manager.helperTarget = nil
@@ -178,10 +306,32 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 		}
 		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State}
 		manager.helperVersion = result.Artifact.Version
+		manager.helperProbe = helperProbeReady
 	} else {
 		manager.helperTarget = nil
+		manager.helperProbe = helperProbeFallback
 	}
 	return manager.healthLocked(manager.lastRequestedMs)
+}
+
+// ReleaseHelperOwnership explicitly forgets local ownership without modifying
+// Linux. It is the only path that permits an alias change while intentionally
+// leaving a helper installed.
+func (manager *Manager) ReleaseHelperOwnership() error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.cfg == nil || manager.helperVersion == "" {
+		return nil
+	}
+	if err := manager.cache.RemoveHelperVersion(manager.cfg.ID); err != nil {
+		return err
+	}
+	manager.helperVersion = ""
+	manager.helperTarget = nil
+	status := HelperStatus{State: LifecycleSFTP, Fallback: true, Reason: reasonPtr(ReasonHelperMissing)}
+	manager.helper = &status
+	manager.helperProbe = helperProbeFallback
+	return nil
 }
 
 // UninstallHelper removes exactly the currently verified artifact. It leaves
@@ -203,7 +353,7 @@ func (manager *Manager) UninstallHelper(ctx context.Context) error {
 	if provider == nil || factory == nil {
 		return errHelperReleaseUnavailable
 	}
-	document, _, err := provider.Load(ctx)
+	document, err := provider.LoadMetadata(ctx)
 	if err != nil {
 		return err
 	}

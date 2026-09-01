@@ -36,6 +36,10 @@ same fixed allowlist below, and streams bounded normalized facts back to the Mac
 No path, command, prompt, transcript row, cache, or handoff supplied by the Mac
 can choose files the helper opens.
 
+Builds without approved embedded release keys and metadata publication disable
+the install action explicitly. They continue using SFTP and never upload an
+unverified helper.
+
 Both collection paths may read these paths beneath the SSH user's home:
 
 - `.claude/projects`, `.claude/sessions`, and `.claude/jobs`;

@@ -19,6 +19,48 @@ one section when each master-plan task reaches `review` or `done`.
 | T05 — Manager, setup UI, diagnostics, and docs | in progress | Branch `hlu/ssh-mix-05`; release trust material pending |
 | T06–T07 | not started | Follow the master-plan dependency order |
 
+## T05 — correction pass (in progress)
+
+### Current production-release decision
+
+- The production manager is constructed through `newProductionRemoteManager`,
+  with a non-nil unavailable release provider and a private
+  `FileMetadataSequenceStore` at `~/.coslash/helper-release/sequence`.
+- No approved public keys, revoked-key list, minimum sequence, signed metadata
+  endpoint, or artifact endpoint has been provided. The production provider is
+  therefore explicitly feature-gated and Machines disables installation with
+  clear copy; it never downloads, uploads, or executes an unverified helper.
+- A future approved provider implements `LoadMetadata(context.Context)` and
+  `LoadArtifact(context.Context, Artifact)`. Lifecycle authenticates metadata,
+  probes the Linux platform, selects the artifact, checks installed files and
+  capability compatibility, and fetches bytes only when consented installation
+  or upgrade is actually needed. Uninstall and discovery load metadata only.
+
+### Fallback and ownership policy
+
+- Missing/declined, unsupported, blocked/noexec, incompatible/revoked,
+  verification failure, and installation failure use visibly labelled SFTP.
+- A verified compatible helper is selected only after fresh restart discovery.
+  Helper protocol, data, or output failures preserve last-good cache and remain
+  helper failures; they do not silently retry over SFTP.
+- Helper ownership persists with its SSH alias. Alias changes or host removal
+  are rejected until the user explicitly uninstalls the exact verified helper
+  or releases local ownership while leaving it installed. Failed uninstall
+  retains the original settings and ownership for retry.
+
+### Focused correction validation
+
+```sh
+GOCACHE=/tmp/coslash-t05-go go test -count=1 \
+  ./internal/remote ./internal/remoteprotocol ./internal/remotefacts \
+  ./internal/remotehelper ./internal/diagnostics ./cmd/coslash
+GOCACHE=/tmp/coslash-t05-go go vet \
+  ./internal/remote ./internal/remoteprotocol ./internal/remotefacts \
+  ./internal/remotehelper ./internal/diagnostics ./cmd/coslash
+cd frontend && npm test -- --run src/pages/coslash/lib/host-strip.test.ts \
+  src/pages/coslash/lib/handoff.test.ts && npm run build
+```
+
 ## T01 — Contracts, metrics, and fixtures
 
 Completed: 2026-09-01. Commit: `a400074`

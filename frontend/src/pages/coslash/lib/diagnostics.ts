@@ -33,7 +33,6 @@ export type RemoteDiagnostics = {
   roundTripMs?: number;
   nextRetryAtMs?: number;
   error?: string;
-  diagnosticStderr?: string;
   transport?: string;
   helperState?: string;
   helperVersion?: string;

@@ -2,11 +2,13 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -143,8 +145,29 @@ type fixedHelperRelease struct {
 	content  []byte
 }
 
-func (release fixedHelperRelease) Load(context.Context) (SignedReleaseMetadata, []byte, error) {
-	return release.document, release.content, nil
+type architectureRelease struct {
+	document  SignedReleaseMetadata
+	content   map[string][]byte
+	requested string
+	loads     int
+}
+
+func (release *architectureRelease) LoadMetadata(context.Context) (SignedReleaseMetadata, error) {
+	return release.document, nil
+}
+
+func (release *architectureRelease) LoadArtifact(_ context.Context, artifact Artifact) ([]byte, error) {
+	release.loads++
+	release.requested = artifact.Arch
+	return release.content[artifact.Arch], nil
+}
+
+func (release fixedHelperRelease) LoadMetadata(context.Context) (SignedReleaseMetadata, error) {
+	return release.document, nil
+}
+
+func (release fixedHelperRelease) LoadArtifact(context.Context, Artifact) ([]byte, error) {
+	return release.content, nil
 }
 
 func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *testing.T) {
@@ -167,8 +190,9 @@ func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *tes
 			}
 			return refreshOutcome{Metrics: CollectionMetrics{RequestBytes: 5, ResponseBytes: 9, Records: 2}}, ErrHelperFailed
 		},
-		ReleaseProvider:  fixedHelperRelease{document: remote.document, content: content},
-		LifecycleFactory: func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		ReleaseProvider:             fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
 	})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatal(err)
@@ -191,6 +215,201 @@ func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *tes
 		t.Fatalf("failure health = %#v", health)
 	}
 }
+
+func TestPartialRefreshMarksOnlyRetainedFailedFamilyStale(t *testing.T) {
+	manager := NewManager(Options{})
+	manager.cfg = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	manager.state = StateLimited
+	manager.complete = false
+	manager.sessions = []*session.Session{
+		{Agent: vendors.AgentClaude, ID: "fresh", Status: strPtr("working")},
+		{Agent: vendors.AgentClaude, ID: "retained", Status: strPtr("idle")},
+	}
+	manager.familyStale = map[remoteSessionKey]bool{{Agent: vendors.AgentClaude, ID: "retained"}: true}
+	view := manager.ListView(0)
+	if len(view.Sessions) != 2 || view.Sessions[0].DisplayStale || !view.Sessions[1].DisplayStale {
+		t.Fatalf("partial stale provenance = %#v", view.Sessions)
+	}
+	if view.Sessions[1].LastSeenStatus == nil || *view.Sessions[1].LastSeenStatus != "idle" {
+		t.Fatalf("retained status = %#v", view.Sessions[1].LastSeenStatus)
+	}
+}
+
+func TestRestartDiscoversAndReusesVerifiedHelperWithoutInstall(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	remote, artifact, content := lifecycleFixture(t)
+	cache := NewCache(filepath.Join(home, "remote-cache"))
+	options := Options{
+		Cache: cache, Now: time.Now,
+		ReleaseProvider:             fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
+			return refreshOutcome{Snapshot: CachedSnapshotV2{Version: cacheV2Version}}, nil
+		},
+	}
+	first := NewManager(options)
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := first.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if health := first.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("initial setup health = %#v", health)
+	}
+	if remote.installs != 1 {
+		t.Fatalf("initial installs = %d, want 1", remote.installs)
+	}
+
+	restarted := NewManager(options)
+	if err := restarted.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	restarted.ListView(time.Now().Add(-time.Hour).UnixMilli())
+	waitUntil(t, func() bool {
+		restarted.mu.Lock()
+		defer restarted.mu.Unlock()
+		return restarted.helperProbe == helperProbeReady && !restarted.refreshing
+	})
+	if remote.installs != 1 {
+		t.Fatalf("restart installed again: installs=%d", remote.installs)
+	}
+	if health := restarted.DiagnosticsHealth(); health.Transport != TransportHelper || health.Helper == nil || !health.Helper.Compatible || health.Helper.Version != artifact.Version {
+		t.Fatalf("restart health = %#v", health)
+	}
+}
+
+func TestHelperOwnershipBlocksAliasChangeUntilExplicitRelease(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	manager := NewManager(Options{Cache: cache})
+	first := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "old-host", Enabled: true}
+	if err := cache.StoreHelperVersion(first.ID, "v1", first.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(first); err != nil {
+		t.Fatal(err)
+	}
+	changed := *first
+	changed.SSHAlias = "new-host"
+	if err := manager.ApplySettings(&changed); !errors.Is(err, ErrHelperOwnershipConflict) {
+		t.Fatalf("alias replacement error = %v", err)
+	}
+	if err := manager.ReleaseHelperOwnership(); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(&changed); err != nil {
+		t.Fatalf("explicit release should allow alias replacement: %v", err)
+	}
+}
+
+func TestFailedUninstallRetainsHostAndOwnership(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	manager := NewManager(Options{Cache: cache})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := cache.StoreHelperVersion(config.ID, "v1", config.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.UninstallHelper(context.Background()); err == nil {
+		t.Fatal("uninstall without a release provider unexpectedly succeeded")
+	}
+	if manager.cfg == nil || manager.cfg.SSHAlias != config.SSHAlias || manager.helperVersion != "v1" {
+		t.Fatalf("failed uninstall lost ownership: cfg=%#v version=%q", manager.cfg, manager.helperVersion)
+	}
+}
+
+func TestProductionManagerHasPrivateSequenceStoreAndFeatureGatedProvider(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	manager, err := NewProductionManager()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manager.releaseProvider == nil || manager.lifecycleFactory == nil || manager.helperInstallationAvailable {
+		t.Fatalf("production manager is not safely feature gated: %#v", manager)
+	}
+	store, ok := manager.trust.Sequences.(*FileMetadataSequenceStore)
+	if !ok || store.Path != filepath.Join(home, "helper-release", "sequence") {
+		t.Fatalf("sequence store = %#v", manager.trust.Sequences)
+	}
+}
+
+func TestSetupFetchesOnlyTheSelectedArchitectureArtifact(t *testing.T) {
+	for _, arch := range []string{"amd64", "arm64"} {
+		t.Run(arch, func(t *testing.T) {
+			remote, _, _ := lifecycleFixture(t)
+			remote.platform.Arch = arch
+			remote.capabilities.Arch = arch
+			content := syntheticELF(arch)
+			artifact := Artifact{Version: "v1", OS: "linux", Arch: arch, Size: int64(len(content)), SHA256: digest(content), Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: 1, Max: 1}, Current: true}
+			remote.document = signDocument(t, ReleaseMetadata{Sequence: 1, ExpiresAtUnix: time.Now().Add(time.Hour).Unix(), Artifacts: []Artifact{artifact}})
+			provider := &architectureRelease{document: remote.document, content: map[string][]byte{arch: content}}
+			manager := NewManager(Options{
+				Cache: NewCache(t.TempDir()), ReleaseProvider: provider,
+				LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+				HelperInstallationAvailable: true,
+			})
+			if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+				t.Fatal(err)
+			}
+			if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+				t.Fatalf("setup health = %#v", health)
+			}
+			if provider.requested != arch {
+				t.Fatalf("requested artifact = %q, want %q", provider.requested, arch)
+			}
+		})
+	}
+}
+
+func TestHelperFallbackPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		result LifecycleResult
+		want   bool
+	}{
+		{"missing", LifecycleResult{State: LifecycleSFTP}, true},
+		{"unsupported", LifecycleResult{State: LifecycleUnsupported}, true},
+		{"blocked", LifecycleResult{State: LifecycleSFTP, Reason: ErrHelperNoExec}, true},
+		{"incompatible", LifecycleResult{State: LifecycleUpgradeRequired, Reason: ErrHelperIncompatible}, true},
+		{"revoked", LifecycleResult{State: LifecycleRevoked, Reason: ErrHelperRevoked}, true},
+		{"verification", LifecycleResult{State: LifecycleVerificationError, Reason: ErrHelperVerification}, true},
+		{"installation", LifecycleResult{State: LifecycleSFTP, Reason: ErrHelperInstallation}, true},
+		{"verified", LifecycleResult{State: LifecycleReady, CanExecute: true}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := useSFTPFallbackAfterDiscovery(test.result); got != test.want {
+				t.Fatalf("useSFTPFallbackAfterDiscovery(%#v) = %v, want %v", test.result, got, test.want)
+			}
+		})
+	}
+}
+
+func TestReadOnlyDiscoveryDoesNotFetchAnArtifact(t *testing.T) {
+	remote, artifact, content := lifecycleFixture(t)
+	provider := &architectureRelease{document: remote.document, content: map[string][]byte{artifact.Arch: content}}
+	manager := NewManager(Options{
+		Cache: NewCache(t.TempDir()), ReleaseProvider: provider,
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(time.Now().Add(-time.Hour).UnixMilli())
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return manager.helperProbe == helperProbeFallback
+	})
+	if provider.loads != 0 {
+		t.Fatalf("read-only discovery downloaded %d artifacts", provider.loads)
+	}
+}
+
+func strPtr(value string) *string { return &value }
 
 func waitUntil(t *testing.T, ready func() bool) {
 	t.Helper()

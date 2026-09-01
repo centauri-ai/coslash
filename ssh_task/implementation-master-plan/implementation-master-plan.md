@@ -150,6 +150,20 @@ Remaining blocker/risk: <none or exact issue>
   metadata endpoint, and artifact source; without it the install control
   remains visibly unavailable and does not upload or execute code.
 
+- 2026-09-01: T05 correction pass split release loading into authenticated
+  metadata followed by selected-architecture artifact bytes, and added
+  read-only helper discovery before first collection. A persisted version is
+  ownership only: fresh metadata, platform, file, digest, mode/owner, and
+  capability checks must succeed on every restart before helper execution.
+  SFTP is the visible fallback for missing/declined, unsupported, blocked,
+  incompatible/revoked, verification, and installation states; a verified
+  helper's runtime protocol/data/output failure never retries through SFTP.
+  Alias changes and removal now require explicit uninstall or ownership-release
+  actions. Public diagnostics no longer serialize stderr. T05 remains
+  `in_progress`: the production provider is deliberately feature-gated until
+  approved embedded public keys, revoked-key data, minimum sequence, signed
+  metadata endpoint, and artifact endpoint are supplied.
+
 - 2026-09-01: T04 completed on branch
   `hlu/ssh-mix-04`. It fixes the optional helper location to
   `~/.local/lib/coslash/helpers/<version>/coslash-helper`, supports static

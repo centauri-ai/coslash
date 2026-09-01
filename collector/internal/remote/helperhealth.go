@@ -20,6 +20,7 @@ const (
 	ReasonHelperRevoked      Reason = "helper_revoked"
 	ReasonHelperUpgrade      Reason = "helper_upgrade_required"
 	ReasonHelperRollback     Reason = "helper_rolled_back"
+	ReasonHelperConsent      Reason = "helper_consent_required"
 )
 
 // classifyHelperError maps one collect or handshake failure to a stable reason.
@@ -68,8 +69,9 @@ func classifyLifecycleError(err error) Reason {
 		return ReasonHelperBlocked
 	case errors.Is(err, ErrHelperRevoked):
 		return ReasonHelperRevoked
-	case errors.Is(err, ErrHelperConsentRequired), errors.Is(err, ErrHelperUpgradeRequired),
-		errors.Is(err, ErrHelperIncompatible):
+	case errors.Is(err, ErrHelperConsentRequired):
+		return ReasonHelperConsent
+	case errors.Is(err, ErrHelperUpgradeRequired), errors.Is(err, ErrHelperIncompatible):
 		return ReasonHelperUpgrade
 	case errors.Is(err, ErrHelperRollback):
 		return ReasonHelperRollback
@@ -102,9 +104,15 @@ func helperErrorCopy(reason Reason) string {
 		return "collection helper was revoked and will not run"
 	case ReasonHelperUpgrade:
 		return "collection helper needs an approved upgrade"
+	case ReasonHelperConsent:
+		return "collection helper installation needs your consent"
 	case ReasonHelperRollback:
 		return "collection helper upgrade was rolled back"
 	default:
 		return genericErrorCopy(reason)
 	}
 }
+
+// HelperErrorCopy exposes only stable, generic user copy for API setup
+// outcomes. It intentionally cannot expose stderr or wrapped remote errors.
+func HelperErrorCopy(reason Reason) string { return helperErrorCopy(reason) }

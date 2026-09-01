@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -335,6 +336,14 @@ func handleSaveSettings(
 	runner, err := synthesis.NewRunner(config.Synthesis)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := remoteManager.ValidateSettingsChange(config.Remote); err != nil {
+		if errors.Is(err, remote.ErrHelperOwnershipConflict) {
+			writeAPIError(w, http.StatusConflict, "remote_helper_ownership_conflict", "uninstall or explicitly leave the helper before changing this host")
+			return
+		}
+		http.Error(w, "could not validate remote settings", http.StatusInternalServerError)
 		return
 	}
 	if err := store.Save(config); err != nil {

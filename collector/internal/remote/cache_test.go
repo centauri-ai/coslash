@@ -186,12 +186,12 @@ func TestCacheV1RemainsLoadableAlongsideV2(t *testing.T) {
 func TestCacheHelperOwnershipPersistsOnlyAValidatedVersion(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	const sourceID = "r_0123456789abcdef"
-	if err := cache.StoreHelperVersion(sourceID, "v1.2.3"); err != nil {
+	if err := cache.StoreHelperVersion(sourceID, "v1.2.3", "agent-box"); err != nil {
 		t.Fatalf("StoreHelperVersion: %v", err)
 	}
-	version, ok, err := cache.LoadHelperVersion(sourceID)
-	if err != nil || !ok || version != "v1.2.3" {
-		t.Fatalf("LoadHelperVersion = %q, %v, %v", version, ok, err)
+	ownership, ok, err := cache.LoadHelperOwnership(sourceID)
+	if err != nil || !ok || ownership.Version != "v1.2.3" || ownership.Alias != "agent-box" {
+		t.Fatalf("LoadHelperOwnership = %#v, %v, %v", ownership, ok, err)
 	}
 	path, err := cache.helperOwnershipPath(sourceID)
 	if err != nil {
@@ -204,7 +204,7 @@ func TestCacheHelperOwnershipPersistsOnlyAValidatedVersion(t *testing.T) {
 	if err := cache.RemoveHelperVersion(sourceID); err != nil {
 		t.Fatalf("RemoveHelperVersion: %v", err)
 	}
-	if _, ok, err := cache.LoadHelperVersion(sourceID); err != nil || ok {
+	if _, ok, err := cache.LoadHelperOwnership(sourceID); err != nil || ok {
 		t.Fatalf("removed ownership should be absent: ok=%v err=%v", ok, err)
 	}
 }

@@ -124,6 +124,7 @@ type Cache struct {
 
 type helperOwnership struct {
 	Version string `json:"version"`
+	Alias   string `json:"alias"`
 }
 
 func NewCache(root string) *Cache {
@@ -301,27 +302,27 @@ func (c *Cache) helperOwnershipPath(sourceID string) (string, error) {
 // LoadHelperVersion records local ownership, not executable authority. A
 // loaded version must still pass fresh signed-metadata, remote-file, and
 // capability verification before it becomes a helperTarget.
-func (c *Cache) LoadHelperVersion(sourceID string) (string, bool, error) {
+func (c *Cache) LoadHelperOwnership(sourceID string) (helperOwnership, bool, error) {
 	path, err := c.helperOwnershipPath(sourceID)
 	if err != nil {
-		return "", false, err
+		return helperOwnership{}, false, err
 	}
 	content, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", false, nil
+		return helperOwnership{}, false, nil
 	}
 	if err != nil || len(content) > 256 {
-		return "", false, err
+		return helperOwnership{}, false, err
 	}
 	var ownership helperOwnership
-	if json.Unmarshal(content, &ownership) != nil || !helperVersionPattern.MatchString(ownership.Version) {
-		return "", false, nil
+	if json.Unmarshal(content, &ownership) != nil || !helperVersionPattern.MatchString(ownership.Version) || !settings.ValidSSHAlias(ownership.Alias) {
+		return helperOwnership{}, false, nil
 	}
-	return ownership.Version, true, nil
+	return ownership, true, nil
 }
 
-func (c *Cache) StoreHelperVersion(sourceID, version string) error {
-	if !helperVersionPattern.MatchString(version) {
+func (c *Cache) StoreHelperVersion(sourceID, version, alias string) error {
+	if !helperVersionPattern.MatchString(version) || !settings.ValidSSHAlias(alias) {
 		return ErrHelperArtifact
 	}
 	dir, err := c.sourceDir(sourceID)
@@ -334,7 +335,7 @@ func (c *Cache) StoreHelperVersion(sourceID, version string) error {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
-	content, err := json.Marshal(helperOwnership{Version: version})
+	content, err := json.Marshal(helperOwnership{Version: version, Alias: alias})
 	if err != nil {
 		return err
 	}

@@ -233,7 +233,7 @@ func TestClassifyLifecycleError(t *testing.T) {
 		{ErrHelperVerification, ReasonHelperVerification},
 		{ErrHelperNoExec, ReasonHelperBlocked},
 		{ErrHelperRevoked, ReasonHelperRevoked},
-		{ErrHelperConsentRequired, ReasonHelperUpgrade},
+		{ErrHelperConsentRequired, ReasonHelperConsent},
 		{ErrHelperRollback, ReasonHelperRollback},
 		{ErrHelperInstallation, ReasonHelperInstallation},
 	} {

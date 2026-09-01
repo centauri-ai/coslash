@@ -14,7 +14,10 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-var ErrInvalidRemoteSettings = errors.New("invalid remote settings")
+var (
+	ErrInvalidRemoteSettings   = errors.New("invalid remote settings")
+	ErrHelperOwnershipConflict = errors.New("helper ownership must be explicitly released or uninstalled before changing SSH alias")
+)
 
 type SessionKey struct {
 	SourceID        string
@@ -30,6 +33,8 @@ type IndexedSession struct {
 	DisplayStale          bool
 	LastSeenStatus        *string
 }
+
+type remoteSessionKey struct{ Agent, ID string }
 
 type ListResult struct {
 	Sessions []IndexedSession
@@ -63,13 +68,15 @@ type openFunc func(context.Context, string, OpenOptions) (*Session, error)
 type Manager struct {
 	mu sync.Mutex
 
-	cache            *Cache
-	now              func() time.Time
-	refresh          refreshFunc
-	helperRefresh    helperRefreshFunc
-	test             probeFunc
-	releaseProvider  HelperReleaseProvider
-	lifecycleFactory lifecycleFactory
+	cache                       *Cache
+	now                         func() time.Time
+	refresh                     refreshFunc
+	helperRefresh               helperRefreshFunc
+	test                        probeFunc
+	releaseProvider             HelperReleaseProvider
+	lifecycleFactory            lifecycleFactory
+	trust                       TrustStore
+	helperInstallationAvailable bool
 
 	cfg        *settings.RemoteSettings
 	lifeCtx    context.Context
@@ -82,6 +89,7 @@ type Manager struct {
 	snapshot        *CachedSnapshotV2
 	legacyStale     bool
 	sessions        []*session.Session
+	familyStale     map[remoteSessionKey]bool
 	state           State
 	reason          *Reason
 	complete        bool
@@ -96,6 +104,7 @@ type Manager struct {
 	helper          *HelperStatus
 	helperTarget    *helperTarget
 	helperVersion   string
+	helperProbe     helperProbeState
 	metrics         CollectionMetrics
 }
 
@@ -105,12 +114,13 @@ type Options struct {
 	Refresh refreshFunc
 	// HelperRefresh is only invoked after SetupHelper creates a verified target.
 	// Supplying it is useful for deterministic manager tests.
-	HelperRefresh    helperRefreshFunc
-	ReleaseProvider  HelperReleaseProvider
-	LifecycleFactory lifecycleFactory
-	Trust            TrustStore
-	Test             probeFunc
-	Open             openFunc
+	HelperRefresh               helperRefreshFunc
+	ReleaseProvider             HelperReleaseProvider
+	LifecycleFactory            lifecycleFactory
+	Trust                       TrustStore
+	HelperInstallationAvailable bool
+	Test                        probeFunc
+	Open                        openFunc
 }
 
 func NewManager(options Options) *Manager {
@@ -151,18 +161,25 @@ func NewManager(options Options) *Manager {
 	return &Manager{
 		cache: cache, now: now, refresh: refresh, helperRefresh: helperRefresh, test: test,
 		releaseProvider: options.ReleaseProvider, lifecycleFactory: factory,
-		state: StateDisabled, complete: true, transport: TransportSFTP,
+		trust:                       options.Trust,
+		helperInstallationAvailable: options.HelperInstallationAvailable,
+		state:                       StateDisabled, complete: true, transport: TransportSFTP,
+		helperProbe: helperProbeFallback,
 	}
 }
 
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if err := manager.validateSettingsLocked(remote); err != nil {
+		return err
+	}
 	if remote == nil {
 		return manager.removeLocked()
 	}
-	if !settings.ValidRemoteID(remote.ID) || !settings.ValidSSHAlias(remote.SSHAlias) {
-		return ErrInvalidRemoteSettings
+	ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
+	if err != nil {
+		return err
 	}
 	if manager.cfg != nil && manager.cfg.ID != remote.ID {
 		if err := manager.removeLocked(); err != nil {
@@ -181,12 +198,8 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	}
 	copyConfig := *remote
 	manager.cfg = &copyConfig
-	version, ok, err := manager.cache.LoadHelperVersion(remote.ID)
-	if err != nil {
-		return err
-	}
-	if ok {
-		manager.helperVersion = version
+	if owned {
+		manager.helperVersion = ownership.Version
 	} else {
 		manager.helperVersion = ""
 	}
@@ -216,8 +229,42 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		manager.complete = false
 		manager.failures = 0
 		manager.nextRetryAt = time.Time{}
+		manager.helperTarget = nil
+		manager.helperProbe = helperProbeUnknown
 		// Initial collection waits for ListView's first requested window
 		// instead of starting eagerly with since=0.
+	}
+	return nil
+}
+
+// ValidateSettingsChange checks remote-helper ownership before settings.json
+// is written, so a rejected alias replacement cannot persist an ambiguous
+// local/remote ownership state.
+func (manager *Manager) ValidateSettingsChange(remote *settings.RemoteSettings) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.validateSettingsLocked(remote)
+}
+
+func (manager *Manager) validateSettingsLocked(remote *settings.RemoteSettings) error {
+	if remote == nil {
+		if manager.helperVersion != "" {
+			return ErrHelperOwnershipConflict
+		}
+		return nil
+	}
+	if !settings.ValidRemoteID(remote.ID) || !settings.ValidSSHAlias(remote.SSHAlias) {
+		return ErrInvalidRemoteSettings
+	}
+	ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
+	if err != nil {
+		return err
+	}
+	if owned && ownership.Alias != remote.SSHAlias {
+		return ErrHelperOwnershipConflict
+	}
+	if manager.cfg != nil && manager.cfg.ID != remote.ID && manager.helperVersion != "" {
+		return ErrHelperOwnershipConflict
 	}
 	return nil
 }
@@ -232,6 +279,12 @@ func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
 	}
 	if !manager.cfg.Enabled {
 		return ListResult{Health: manager.healthLocked(remoteSinceMs)}
+	}
+	if manager.helperProbe == helperProbeUnknown {
+		manager.startHelperDiscoveryLocked()
+	}
+	if manager.helperProbe == helperProbeProbing {
+		return ListResult{Sessions: manager.sessionsLocked(remoteSinceMs), Health: manager.healthLocked(remoteSinceMs)}
 	}
 	if manager.snapshot == nil || age(manager.snapshot.FetchedAtMs, manager.now()) >= FreshnessInterval ||
 		manager.snapshot.CoverageSinceMs > remoteSinceMs {
@@ -266,11 +319,6 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 		health.Complete = false
 		health.Reason = reasonPtr(reason)
 		health.Error = genericErrorCopy(reason)
-		diagnostic := result.Stderr
-		if diagnostic == "" {
-			diagnostic = sshErrorStderr(err)
-		}
-		health.DiagnosticStderr = redactDiagnostic(diagnostic)
 		return health, nil
 	}
 	health.State = StateOK
@@ -296,6 +344,9 @@ func (manager *Manager) Shutdown() {
 }
 
 func (manager *Manager) removeLocked() error {
+	if manager.helperVersion != "" {
+		return ErrHelperOwnershipConflict
+	}
 	manager.cancelLifeLocked()
 	var sourceID string
 	var alias string
@@ -307,6 +358,7 @@ func (manager *Manager) removeLocked() error {
 	manager.snapshot = nil
 	manager.legacyStale = false
 	manager.sessions = nil
+	manager.familyStale = nil
 	manager.state = StateDisabled
 	manager.reason = reasonPtr(ReasonDisabled)
 	manager.complete = true
@@ -320,6 +372,7 @@ func (manager *Manager) removeLocked() error {
 	manager.helper = nil
 	manager.helperTarget = nil
 	manager.helperVersion = ""
+	manager.helperProbe = helperProbeFallback
 	manager.metrics = CollectionMetrics{}
 	exitControlMasterBestEffort(alias)
 	if sourceID != "" {
@@ -337,6 +390,7 @@ func (manager *Manager) loadCacheLocked() error {
 		manager.snapshot = &v2
 		manager.legacyStale = false
 		manager.sessions = composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0)
+		manager.familyStale = staleSessions(v2)
 		manager.lastSuccessAt = int64Ptr(v2.FetchedAtMs)
 		return nil
 	}
@@ -348,6 +402,7 @@ func (manager *Manager) loadCacheLocked() error {
 		manager.snapshot = nil
 		manager.legacyStale = false
 		manager.sessions = nil
+		manager.familyStale = nil
 		return nil
 	}
 	// A v1 card stays visible as stale display data only: Families and
@@ -360,6 +415,7 @@ func (manager *Manager) loadCacheLocked() error {
 	}
 	manager.legacyStale = true
 	manager.sessions = legacy.sessions()
+	manager.familyStale = nil
 	manager.lastSuccessAt = int64Ptr(legacy.FetchedAtMs)
 	return nil
 }
@@ -492,6 +548,7 @@ func (manager *Manager) publishSnapshotLocked(result refreshOutcome, fetchedAt i
 	manager.snapshot = &snapshot
 	manager.legacyStale = false
 	manager.sessions = result.Sessions
+	manager.familyStale = staleSessions(snapshot)
 	manager.lastSuccessAt = int64Ptr(fetchedAt)
 	return true
 }
@@ -528,7 +585,7 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 		return nil
 	}
 	eligible := manager.state == StateOK && manager.complete
-	displayStale := manager.state != StateOK && manager.state != StateLimited
+	globalStale := manager.state != StateOK && manager.state != StateLimited
 	result := []IndexedSession{}
 	for _, item := range manager.sessions {
 		if remoteSinceMs > 0 && item.Status == nil && item.LastActivityTime < remoteSinceMs {
@@ -537,7 +594,8 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 		indexed := IndexedSession{
 			Key:         SessionKey{SourceID: manager.cfg.ID, Agent: item.Agent, SourceSessionID: item.ID},
 			SourceLabel: manager.cfg.SSHAlias, Session: item,
-			EligibleForAggregates: eligible, DisplayStale: displayStale,
+			EligibleForAggregates: eligible,
+			DisplayStale:          globalStale || manager.familyStale[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
 		}
 		if indexed.DisplayStale {
 			indexed.LastSeenStatus = item.Status
@@ -554,9 +612,11 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 	health := Health{
 		SourceID: manager.cfg.ID, Label: manager.cfg.SSHAlias, State: manager.state,
 		Complete: manager.complete, Reason: manager.reason, Error: manager.errorCopy,
-		DiagnosticStderr: manager.diagnostic, Refreshing: manager.refreshing,
+		Refreshing:      manager.refreshing,
 		LastSuccessAtMs: manager.lastSuccessAt,
 		Transport:       manager.transport, Helper: manager.helper, Metrics: manager.metrics,
+		HelperInstallationAvailable: manager.helperInstallationAvailable,
+		HelperProbeState:            string(manager.helperProbe),
 	}
 	if !manager.cfg.Enabled {
 		health.State = StateDisabled

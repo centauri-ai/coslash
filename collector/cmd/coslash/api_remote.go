@@ -20,6 +20,12 @@ type remoteHelperSetupRequest struct {
 	Upgrade bool `json:"upgrade"`
 }
 
+type helperSetupResponse struct {
+	Machine machineFact `json:"machine"`
+	Outcome string      `json:"outcome"`
+	Error   string      `json:"error,omitempty"`
+}
+
 func handleRemoteTest(w http.ResponseWriter, request *http.Request, manager *remote.Manager) {
 	var body remoteTestRequest
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
@@ -58,8 +64,12 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 	var body remoteHelperSetupRequest
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil {
+	if err := decoder.Decode(&body); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		http.Error(w, "invalid helper setup request", http.StatusBadRequest)
+		return
+	}
+	if body.Install == body.Upgrade {
+		http.Error(w, "choose exactly one helper consent action", http.StatusBadRequest)
 		return
 	}
 	health := manager.DiagnosticsHealth()
@@ -77,7 +87,31 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 	if setup.Helper != nil && setup.Helper.Compatible {
 		setup = manager.TestHelper(ctx)
 	}
-	writeJSON(w, machineFromHealth(setup))
+	response := helperSetupResponse{Machine: machineFromHealth(setup), Outcome: "sftp_fallback"}
+	if setup.Helper != nil {
+		response.Outcome = string(setup.Helper.State)
+		if setup.Helper.Reason != nil {
+			response.Error = genericHelperCopy(*setup.Helper.Reason)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if setup.Helper == nil || !setup.Helper.Compatible || setup.State == remote.StateError || setup.State == remote.StateLimited {
+		w.WriteHeader(http.StatusConflict)
+	}
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+func genericHelperCopy(reason remote.Reason) string {
+	return remote.HelperErrorCopy(reason)
+}
+
+func handleRemoteStatus(w http.ResponseWriter, _ *http.Request, manager *remote.Manager) {
+	health := manager.InspectHelper()
+	if health.SourceID == "" {
+		writeAPIError(w, http.StatusNotFound, errCodeRemoteNotConfigured, "remote not configured")
+		return
+	}
+	writeJSON(w, machineFromHealth(health))
 }
 
 func handleRemoteHelperUninstall(w http.ResponseWriter, request *http.Request, manager *remote.Manager) {
@@ -90,6 +124,14 @@ func handleRemoteHelperUninstall(w http.ResponseWriter, request *http.Request, m
 	defer cancel()
 	if err := manager.UninstallHelper(ctx); err != nil {
 		writeAPIError(w, http.StatusBadGateway, "remote_helper_uninstall_failed", "could not uninstall helper; host settings were kept")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleRemoteHelperReleaseOwnership(w http.ResponseWriter, _ *http.Request, manager *remote.Manager) {
+	if err := manager.ReleaseHelperOwnership(); err != nil {
+		writeAPIError(w, http.StatusConflict, "remote_helper_ownership_conflict", "could not release helper ownership")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

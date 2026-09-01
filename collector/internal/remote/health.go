@@ -36,21 +36,22 @@ const (
 )
 
 type Health struct {
-	SourceID         string            `json:"sourceId"`
-	Label            string            `json:"label"`
-	State            State             `json:"state"`
-	Complete         bool              `json:"complete"`
-	Reason           *Reason           `json:"reason,omitempty"`
-	LastSuccessAtMs  *int64            `json:"lastSuccessAtMs,omitempty"`
-	CoverageSinceMs  *int64            `json:"coverageSinceMs,omitempty"`
-	RoundTripMs      *int64            `json:"roundTripMs,omitempty"`
-	Coverage         []AgentCoverage   `json:"coverage,omitempty"`
-	Error            string            `json:"error,omitempty"`
-	DiagnosticStderr string            `json:"-"`
-	Refreshing       bool              `json:"-"`
-	Transport        Transport         `json:"transport"`
-	Helper           *HelperStatus     `json:"helper,omitempty"`
-	Metrics          CollectionMetrics `json:"metrics"`
+	SourceID                    string            `json:"sourceId"`
+	Label                       string            `json:"label"`
+	State                       State             `json:"state"`
+	Complete                    bool              `json:"complete"`
+	Reason                      *Reason           `json:"reason,omitempty"`
+	LastSuccessAtMs             *int64            `json:"lastSuccessAtMs,omitempty"`
+	CoverageSinceMs             *int64            `json:"coverageSinceMs,omitempty"`
+	RoundTripMs                 *int64            `json:"roundTripMs,omitempty"`
+	Coverage                    []AgentCoverage   `json:"coverage,omitempty"`
+	Error                       string            `json:"error,omitempty"`
+	Refreshing                  bool              `json:"-"`
+	Transport                   Transport         `json:"transport"`
+	Helper                      *HelperStatus     `json:"helper,omitempty"`
+	Metrics                     CollectionMetrics `json:"metrics"`
+	HelperInstallationAvailable bool              `json:"helperInstallationAvailable"`
+	HelperProbeState            string            `json:"helperProbeState"`
 }
 
 func reasonPtr(reason Reason) *Reason { return &reason }

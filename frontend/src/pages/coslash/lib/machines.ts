@@ -40,6 +40,7 @@ export const MACHINE_REASONS = [
   'helper_revoked',
   'helper_upgrade_required',
   'helper_rolled_back',
+  'helper_consent_required',
   'disabled',
 ] as const;
 export type MachineReason = (typeof MACHINE_REASONS)[number];
@@ -66,6 +67,8 @@ export type MachineFact = {
   transport?: MachineTransport;
   helper?: HelperFact;
   metrics?: CollectionMetrics;
+  helperInstallationAvailable?: boolean;
+  helperProbeState?: 'unknown' | 'probing' | 'ready' | 'fallback';
 };
 
 export type HelperFact = {
@@ -191,6 +194,16 @@ export function decodeMachineFact(value: unknown): MachineFact {
   if (helper != null) fact.helper = helper;
   const metrics = decodeMetrics(raw.metrics);
   if (metrics != null) fact.metrics = metrics;
+  if (raw.helperInstallationAvailable != null) {
+    if (typeof raw.helperInstallationAvailable !== 'boolean') throw new Error('Invalid machine fact');
+    fact.helperInstallationAvailable = raw.helperInstallationAvailable;
+  }
+  if (raw.helperProbeState != null) {
+    if (!['unknown', 'probing', 'ready', 'fallback'].includes(String(raw.helperProbeState))) {
+      throw new Error('Invalid machine fact');
+    }
+    fact.helperProbeState = raw.helperProbeState as MachineFact['helperProbeState'];
+  }
   return fact;
 }
 

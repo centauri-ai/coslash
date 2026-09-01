@@ -59,6 +59,8 @@ function reasonMessage(reason: MachineReason | undefined): string {
     case 'helper_incompatible':
     case 'helper_upgrade_required':
       return 'the helper needs an approved upgrade; using SFTP';
+    case 'helper_consent_required':
+      return 'the optional helper needs your consent; using SFTP';
     case 'helper_platform_unsupported':
       return 'this platform uses SFTP only';
     case 'helper_verification_failed':

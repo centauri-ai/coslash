@@ -116,6 +116,11 @@ including any stale or partial coverage. An incompatible, revoked, blocked, or
 failed helper never runs silently: coSlash keeps the SFTP fallback visible and
 offers repair or upgrade where available.
 
+The current development build feature-gates helper installation until the
+release signing key and metadata publication are approved. Machines says
+**Helper installation is unavailable in this build** when that gate is active;
+SFTP monitoring remains fully usable.
+
 Remote v1 is monitoring-only. Cards, transcript-derived facts, costs, tokens,
 file-edit summaries, and **Copy handoff** are available. Resume, Start Fresh,
 diffs, synthesis, preview, Commands, and sharing remain local-only. A remote

@@ -388,6 +388,11 @@ type Consent struct {
 	Upgrade bool
 }
 
+// ArtifactLoader is invoked only after authenticated metadata, platform
+// selection, inspection, and the relevant user consent establish that an
+// install or upgrade is actually required.
+type ArtifactLoader func(context.Context, Artifact) ([]byte, error)
+
 type LifecycleState string
 
 const (
@@ -425,7 +430,16 @@ type Lifecycle struct {
 // Setup authenticates metadata before platform lookup or any remote mutation.
 // Consent is per action: initial install and later upgrades are separate, so an
 // old consent cannot silently install fresh executable code.
+// Setup is retained for focused lifecycle tests. Production callers must use
+// SetupWithLoader so an arm64 host never downloads amd64 bytes (or vice versa)
+// before its platform is known.
 func (lifecycle Lifecycle) Setup(ctx context.Context, document SignedReleaseMetadata, artifactBytes []byte, consent Consent) LifecycleResult {
+	return lifecycle.SetupWithLoader(ctx, document, consent, func(context.Context, Artifact) ([]byte, error) {
+		return artifactBytes, nil
+	})
+}
+
+func (lifecycle Lifecycle) SetupWithLoader(ctx context.Context, document SignedReleaseMetadata, consent Consent, load ArtifactLoader) LifecycleResult {
 	metadata, err := lifecycle.Trust.Verify(document)
 	if err != nil {
 		return lifecycleFailure(LifecycleVerificationError, err)
@@ -510,6 +524,13 @@ func (lifecycle Lifecycle) Setup(ctx context.Context, document SignedReleaseMeta
 	initialInstall := errors.Is(currentErr, fs.ErrNotExist) && previous == nil
 	if (initialInstall && !consent.Install) || (!initialInstall && !consent.Upgrade) {
 		return lifecycleFailure(LifecycleUpgradeRequired, ErrHelperConsentRequired)
+	}
+	if load == nil {
+		return lifecycleFailure(LifecycleVerificationError, ErrHelperArtifact)
+	}
+	artifactBytes, err := load(ctx, artifact)
+	if err != nil {
+		return lifecycleFailure(LifecycleVerificationError, fmt.Errorf("%w: download helper artifact", ErrHelperArtifact))
 	}
 	if err := verifyLocalArtifact(artifact, artifactBytes); err != nil {
 		return lifecycleFailure(LifecycleVerificationError, err)

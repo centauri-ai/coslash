@@ -48,6 +48,5 @@ export function formatRemoteDiagnosticsFacts(
   if (metrics.length > 0) lines.push(metrics.join(' · '));
 
   if (remote.error) lines.push(`error: ${remote.error}`);
-  if (remote.diagnosticStderr) lines.push(`stderr: ${remote.diagnosticStderr}`);
   return lines;
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -60,6 +61,21 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 				t.Fatalf("status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 			}
 		})
+	}
+}
+
+func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
+	manager := remote.NewManager(remote.Options{})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"install":false,"upgrade":false}`, `{"install":true,"upgrade":true}`} {
+		request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/remote/helper/setup", bytes.NewBufferString(body))
+		response := httptest.NewRecorder()
+		handleRemoteHelperSetup(response, request, manager)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("body %s: status = %d, want %d", body, response.Code, http.StatusBadRequest)
+		}
 	}
 }
 
