@@ -5,12 +5,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 )
+
+// ErrInvalidData marks transcript content that cannot be parsed or validated.
+var ErrInvalidData = errors.New("invalid transcript data")
 
 func FingerprintSourceFiles(
 	source ReadSource,
@@ -220,7 +224,7 @@ func ParseJSONLSource[T any](source ReadSource, path string) ([]T, error) {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				break
 			}
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", ErrInvalidData, err)
 		}
 		records = append(records, record)
 	}
