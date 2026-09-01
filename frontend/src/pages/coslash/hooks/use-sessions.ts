@@ -49,14 +49,24 @@ export function decodeSessionsResponse(body: unknown): SessionsPayload {
     throw new Error('Invalid sessions response');
   }
   const sessions = (body as { sessions?: unknown }).sessions;
+  if (sessions == null) {
+    return {
+      sessions: [],
+      machines: machinesFromBody(body),
+    };
+  }
   if (!Array.isArray(sessions)) {
     throw new Error('Invalid sessions response');
   }
-  const machinesRaw = (body as { machines?: unknown }).machines;
   return {
     sessions: sessions.map((session) => withLocalSourceDefaults(session as Session)),
-    machines: machinesRaw === undefined ? [] : decodeMachineFacts(machinesRaw),
+    machines: machinesFromBody(body),
   };
+}
+
+function machinesFromBody(body: object): MachineFact[] {
+  const machinesRaw = (body as { machines?: unknown }).machines;
+  return machinesRaw === undefined ? [] : decodeMachineFacts(machinesRaw);
 }
 
 /** Independent local/remote cutoffs; omit local `since` for Hub all-history without widening remote. */
