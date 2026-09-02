@@ -253,7 +253,7 @@ make release
 ./bin/coslash
 ```
 
-If `make release` reports a missing `go` or `npm` command, install the toolchain first or switch to the curl/Homebrew install path.
+If `make release` reports a missing or unsupported Go or Node version, install the toolchain first or switch to the curl/Homebrew install path.
 
 See [Contributing](CONTRIBUTING.md) for the development loop and checks.
 

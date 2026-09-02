@@ -47,7 +47,7 @@ coslash --port 8888
 
 ## Building from source fails
 
-`make release` in `collector/` needs both Go and Node installed. It checks for them before building and prints install hints if either is missing.
+`make release` in `collector/` needs supported Go and Node versions. It checks them before building and prints install hints if either is missing or unsupported.
 
 - **End users** should not build from source. Install a prebuilt binary with `curl -fsSL https://coslash.io/install.sh | bash`, Homebrew, or a release archive (see the README Install section).
 - **Developers** need Go 1.26+ (`brew install go` or https://go.dev/dl/) and Node 24+ (`brew install node` or https://nodejs.org/). Versions are pinned in `collector/go.mod` and `frontend/.nvmrc`.
