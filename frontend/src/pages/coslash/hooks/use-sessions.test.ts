@@ -73,9 +73,17 @@ describe('decodeSessionsResponse', () => {
     expect(decodeSessionsResponse({ sessions, machines })).toEqual({ sessions, machines });
   });
 
+  it('treats a null or missing sessions list as empty', () => {
+    const machines = [{ sourceId: 'local', label: 'This Mac', state: 'ok', complete: true }];
+    expect(decodeSessionsResponse({ sessions: null, machines })).toEqual({ sessions: [], machines });
+    expect(decodeSessionsResponse({ machines })).toEqual({ sessions: [], machines });
+  });
+
   it('rejects invalid bodies and unknown machine enums', () => {
-    expect(() => decodeSessionsResponse({ machines: [] })).toThrow('Invalid sessions response');
     expect(() => decodeSessionsResponse(null)).toThrow('Invalid sessions response');
+    expect(() => decodeSessionsResponse({ sessions: 'nope', machines: [] })).toThrow(
+      'Invalid sessions response',
+    );
     expect(() =>
       decodeSessionsResponse({
         sessions: [],

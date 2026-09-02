@@ -5,12 +5,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 )
+
+// ErrInvalidData marks transcript content that cannot be parsed or validated.
+var ErrInvalidData = errors.New("invalid transcript data")
 
 func FingerprintSourceFiles(
 	source ReadSource,
@@ -43,6 +47,36 @@ type ReadSource interface {
 	Open(string) (io.ReadCloser, error)
 	ReadDir(string) ([]fs.DirEntry, error)
 	Stat(string) (fs.FileInfo, error)
+}
+
+// freshStatSource is implemented by remote sources that cache directory
+// metadata. FreshStat bypasses that manifest cache for post-read stability and
+// path-security checks. Local sources can simply use Stat.
+type freshStatSource interface {
+	FreshStat(string) (fs.FileInfo, error)
+}
+
+func FingerprintSourceFilesFresh(source ReadSource, root string, files []string) ([]FileFingerprint, error) {
+	fresh, ok := source.(freshStatSource)
+	if !ok {
+		return FingerprintSourceFiles(source, root, files)
+	}
+	fingerprints := make([]FileFingerprint, 0, len(files))
+	for _, file := range files {
+		info, err := fresh.FreshStat(file)
+		if err != nil {
+			return nil, err
+		}
+		relative, err := filepath.Rel(root, file)
+		if err != nil {
+			return nil, err
+		}
+		digest := sha256.Sum256([]byte(filepath.ToSlash(relative)))
+		fingerprints = append(fingerprints, FileFingerprint{
+			Key: hex.EncodeToString(digest[:]), Size: info.Size(), ModifiedAtMs: info.ModTime().UnixMilli(),
+		})
+	}
+	return fingerprints, nil
 }
 
 type osReadSource struct{}
@@ -220,7 +254,7 @@ func ParseJSONLSource[T any](source ReadSource, path string) ([]T, error) {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				break
 			}
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", ErrInvalidData, err)
 		}
 		records = append(records, record)
 	}
