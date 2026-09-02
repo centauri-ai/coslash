@@ -425,7 +425,18 @@ export function CoslashPage() {
 
   const saveSettings = async (...args: Parameters<typeof settingsState.save>) => {
     const ok = await settingsState.save(...args);
-    if (ok) retrySessions();
+    if (ok) {
+      // Kick a remote collect immediately after save so SSH recovery is not
+      // stuck behind the previous failure backoff.
+      setRemoteRetryInFlight(true);
+      void retryRemoteRefresh()
+        .catch(() => undefined)
+        .finally(() => {
+          setRemoteRetryInFlight(false);
+          retrySessions();
+          if (diagnosticsOpen) refreshDiagnostics();
+        });
+    }
     return ok;
   };
 
@@ -548,6 +559,7 @@ export function CoslashPage() {
         saveError={settingsState.saveError}
         isSaving={settingsState.isSaving}
         onSave={saveSettings}
+        onRemoteConnectionVerified={handleRemoteRetry}
       />
     </div>
   );

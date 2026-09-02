@@ -15,10 +15,12 @@ export function MachinesSettingsSection({
   remote,
   onChange,
   onOwnershipActionChange,
+  onConnectionVerified,
 }: {
   remote: RemoteHostSettings | null | undefined;
   onChange: (remote: RemoteHostSettings | null) => void;
   onOwnershipActionChange: (action: RemoteOwnershipAction | null) => void;
+  onConnectionVerified?: () => void;
 }) {
   const draft = remote ?? { sshAlias: '', enabled: true };
   const hasHost = remote != null;
@@ -34,6 +36,17 @@ export function MachinesSettingsSection({
   const helperOwned = hostStatus?.helperOwnershipRecorded === true;
   const helperOwnershipCorrupt = hostStatus?.helperOwnershipCorrupt === true;
   const setupFailed = setupResult?.error != null;
+  const connectionOk = testResult?.state === 'ok';
+  const helperNeedsUpgrade = hostStatus?.helper?.state === 'deprecated';
+  const helperInstallAvailable =
+    hasHost &&
+    connectionOk &&
+    hostStatus?.helperInstallationAvailable === true &&
+    hostStatus?.helperProbeState !== 'probing' &&
+    (hostStatus?.helper?.state == null ||
+      hostStatus.helper.state === 'sftp' ||
+      helperNeedsUpgrade ||
+      hostStatus.helper.fallback === true);
 
   useEffect(() => {
     if (!remote?.id) {
@@ -90,13 +103,15 @@ export function MachinesSettingsSection({
     setTestResult(null);
     setSetupResult(null);
     try {
-      setTestResult(await testRemoteAlias(alias));
+      const result = await testRemoteAlias(alias);
+      setTestResult(result);
       try {
         setHostStatus(await remoteStatus());
       } catch {
         // SFTP test success remains useful if the optional helper inspection
         // endpoint is temporarily unavailable.
       }
+      if (result.state === 'ok' && hasHost) onConnectionVerified?.();
     } catch (error: unknown) {
       setTestError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -119,6 +134,7 @@ export function MachinesSettingsSection({
       setSetupResult(result);
       setTestResult(result.machine);
       setHostStatus(result.machine);
+      if (result.error == null) onConnectionVerified?.();
     } catch (error: unknown) {
       setTestError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -152,7 +168,11 @@ export function MachinesSettingsSection({
     setPendingAlias(null);
   };
 
-  const showFirstTimeHint = testResult?.state === 'error' && testResult.reason === 'connection_failed';
+  const showFirstTimeHint =
+    testResult?.state === 'error' &&
+    (testResult.reason === 'connection_failed' ||
+      testResult.reason === 'authentication_failed' ||
+      testResult.reason === 'host_key_failed');
 
   return (
     <div className="flex flex-col gap-2">
@@ -166,8 +186,8 @@ export function MachinesSettingsSection({
         <div className="flex flex-col gap-1 p-4">
           <div className="text-sm font-semibold">Remote host</div>
           <div className="text-muted-foreground text-xs text-pretty">
-            Monitor Claude Code and Codex through your existing SSH config. SFTP works without Linux code; you
-            can explicitly install the optional, verified collection helper for faster refreshes.
+            Monitor Claude Code and Codex through your existing SSH config. Test the connection first; you can
+            install the optional verified helper afterward for faster refreshes.
           </div>
         </div>
 
@@ -250,40 +270,45 @@ export function MachinesSettingsSection({
           </button>
         </div>
 
-        <div className="border-border flex flex-wrap items-center justify-between gap-3 border-t p-4">
+        <div className="border-border flex flex-col gap-3 border-t p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={testing || !draft.sshAlias.trim()}
-              onClick={() => void runTest()}
-            >
-              {testing ? 'Testing…' : 'Test connection'}
-            </Button>
-            {hasHost && (
+            {!helperInstallAvailable ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={testing || helperAction != null || !draft.sshAlias.trim()}
+                onClick={() => void runTest()}
+              >
+                {testing ? 'Testing…' : 'Test connection'}
+              </Button>
+            ) : (
               <>
                 <Button
                   type="button"
-                  variant="outline"
                   size="sm"
-                  disabled={
-                    testing ||
-                    helperAction != null ||
-                    testResult?.state !== 'ok' ||
-                    hostStatus?.helperInstallationAvailable !== true ||
-                    hostStatus?.helperProbeState === 'probing'
-                  }
-                  onClick={() =>
-                    void setupHelper(hostStatus?.helper?.state === 'deprecated' ? 'upgrade' : 'install')
-                  }
+                  disabled={testing || helperAction != null}
+                  onClick={() => void setupHelper(helperNeedsUpgrade ? 'upgrade' : 'install')}
                 >
                   {helperAction != null
                     ? 'Setting up helper…'
-                    : hostStatus?.helper?.state === 'deprecated'
+                    : helperNeedsUpgrade
                       ? 'Upgrade helper'
                       : 'Install helper'}
                 </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={testing || helperAction != null}
+                  onClick={() => void runTest()}
+                >
+                  {testing ? 'Testing…' : 'Retest SSH'}
+                </Button>
+              </>
+            )}
+            {hasHost && (
+              <>
                 <Button type="button" variant="outline" size="sm" onClick={() => void removeHost('only')}>
                   {removeAction === 'only' ? 'Confirm remove only' : 'Remove host only'}
                 </Button>
@@ -301,6 +326,11 @@ export function MachinesSettingsSection({
               </>
             )}
           </div>
+          {helperInstallAvailable && (
+            <div className="text-muted-foreground text-xs text-pretty">
+              Connection works. Install the optional helper for faster refreshes, or keep using SFTP.
+            </div>
+          )}
         </div>
 
         {hasHost && (
@@ -325,9 +355,6 @@ export function MachinesSettingsSection({
             )}
             {hostStatus?.helperInstallationAvailable === false && (
               <div>Helper installation is unavailable in this build.</div>
-            )}
-            {testResult?.state !== 'ok' && hostStatus?.helperInstallationAvailable !== false && (
-              <div>Test SSH/SFTP before installing or upgrading the helper.</div>
             )}
           </div>
         )}

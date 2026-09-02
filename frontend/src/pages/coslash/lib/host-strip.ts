@@ -30,6 +30,15 @@ function snapshotAgeLabel(lastSuccessAtMs: number | undefined, nowMs: number): s
   return `the view from ${minutes}m ago`;
 }
 
+function isFirstTimeSshSetup(machine: MachineFact): boolean {
+  return (
+    machine.lastSuccessAtMs == null &&
+    (machine.reason === 'connection_failed' ||
+      machine.reason === 'authentication_failed' ||
+      machine.reason === 'host_key_failed')
+  );
+}
+
 function reasonMessage(reason: MachineReason | undefined): string {
   switch (reason) {
     case 'sftp_unavailable':
@@ -45,9 +54,11 @@ function reasonMessage(reason: MachineReason | undefined): string {
     case 'refresh_timeout':
       return 'the refresh timed out';
     case 'authentication_failed':
-      return 'SSH authentication failed';
+      return 'SSH login failed — run ssh once in Terminal, then Retry';
     case 'host_key_failed':
-      return 'SSH host key verification failed';
+      return 'SSH host key needs confirmation — run ssh once in Terminal, then Retry';
+    case 'connection_failed':
+      return 'SSH is not reachable yet — check the alias, then Retry';
     case 'invalid_remote_data':
       return 'agent data could not be parsed';
     case 'local_cache_failed':
@@ -75,7 +86,7 @@ function reasonMessage(reason: MachineReason | undefined): string {
     case 'helper_failed':
       return 'the helper collection failed';
     default:
-      return 'the SFTP refresh failed';
+      return 'the remote refresh failed';
   }
 }
 
@@ -84,16 +95,25 @@ function stripMessage(machine: MachineFact, nowMs: number): string {
     case 'connecting':
       return machine.reason === 'broader_history'
         ? `${machine.label} · refreshing older history · showing the previous view`
-        : `${machine.label} · connecting over ${machine.transport === 'helper' ? 'the helper' : 'SFTP'}…`;
+        : `${machine.label} · connecting over ${machine.transport === 'helper' ? 'the helper' : 'SSH'}…`;
     case 'limited':
       return `${machine.label} · ${reasonMessage(machine.reason)}`;
     case 'stale':
-      return `${machine.label} · unreachable · showing ${snapshotAgeLabel(machine.lastSuccessAtMs, nowMs)}`;
+      return isFirstTimeSshSetup(machine)
+        ? `${machine.label} · ${reasonMessage(machine.reason)}`
+        : `${machine.label} · unreachable · showing ${snapshotAgeLabel(machine.lastSuccessAtMs, nowMs)}`;
     case 'error':
       return `${machine.label} · ${reasonMessage(machine.reason)}`;
     default:
       return `${machine.label} · remote host needs attention`;
   }
+}
+
+function stripTone(machine: MachineFact): 'warning' | 'danger' {
+  if (machine.state === 'connecting' || machine.state === 'limited') return 'warning';
+  // First-time SSH setup should feel recoverable, not alarming.
+  if (isFirstTimeSshSetup(machine)) return 'warning';
+  return 'danger';
 }
 
 function stripActions(state: MachineState, reason: MachineReason | undefined): HostStripAction[] {
@@ -110,16 +130,15 @@ export function hostStripModel(
     message: stripMessage(machine, options.nowMs ?? Date.now()),
     actions: stripActions(machine.state, machine.reason),
     retryDisabled: options.retryInFlight === true || machine.state === 'connecting',
-    tone: machine.state === 'error' || machine.state === 'stale' ? 'danger' : 'warning',
+    tone: stripTone(machine),
   };
 }
 
 export function formatTestConnectionResult(machine: MachineFact): string {
-  if (machine.state === 'ok')
-    return 'Connected · SFTP is ready · optional helper available with your consent';
+  if (machine.state === 'ok') return 'Connected · SSH/SFTP is ready';
   return `${machine.label} · ${machine.error || reasonMessage(machine.reason)}`;
 }
 
 export function firstTimeSshHint(alias: string): string {
-  return `Run ssh ${alias} once in Terminal if OpenSSH still needs host-key confirmation or authentication.`;
+  return `Run ssh ${alias} once in Terminal if OpenSSH still needs host-key confirmation or authentication. After it works, Test connection again — the board refreshes automatically.`;
 }

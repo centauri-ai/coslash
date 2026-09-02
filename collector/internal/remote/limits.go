@@ -15,8 +15,10 @@ const (
 	DefaultMaxDepth       = 16
 	DefaultMaxStderrBytes = 8 << 10
 
-	FreshnessInterval   = 3 * time.Minute
-	InitialRetryBackoff = 3 * time.Minute
+	FreshnessInterval = 3 * time.Minute
+	// Short first retry so fixing SSH (keys/host) recovers the board without a
+	// long wait or a manual Retry click; later failures still back off hard.
+	InitialRetryBackoff = 30 * time.Second
 	MaxRetryBackoff     = 30 * time.Minute
 	ActivityWindowMs    = 2 * 60_000
 	MaxDiagnosticBytes  = 2 << 10

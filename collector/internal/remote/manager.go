@@ -390,7 +390,21 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 		return health, nil
 	}
 	health.State = StateOK
+	// A successful settings test of the active host means SSH works again —
+	// clear backoff and collect so the board strip updates without a manual Retry.
+	manager.recoverAfterSuccessfulTest(alias)
 	return health, nil
+}
+
+func (manager *Manager) recoverAfterSuccessfulTest(alias string) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.SSHAlias != alias {
+		return
+	}
+	manager.failures = 0
+	manager.nextRetryAt = time.Time{}
+	manager.maybeStartRefreshLocked(manager.lastRequestedMs, true)
 }
 
 func (manager *Manager) DiagnosticsHealth() Health {
