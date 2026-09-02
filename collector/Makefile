@@ -1,5 +1,9 @@
 BINARY := coslash
 PKG := ./cmd/coslash
+HELPER := coslash-helper
+HELPER_PKG := ./cmd/coslash-helper
+HELPER_PLATFORMS := linux/amd64 linux/arm64
+HELPER_DIST := dist/helper
 FRONTEND := ../frontend
 STAGED := internal/web/dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -11,7 +15,8 @@ MODELS := internal/session/models.json
 LITELLM_URL := https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
 OPENCODE_MODELS_URL := https://models.opencode.ai/api.json
 
-.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models
+.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models \
+	helper helper-dist
 
 release: stage
 	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) $(PKG)
@@ -48,6 +53,29 @@ dist: stage
 		echo "packaged $(DIST)/$$stem.tar.gz"; \
 	done
 	cd $(DIST) && shasum -a 256 *.tar.gz > checksums.txt
+
+# The Linux collection helper, for local iteration on the host platform.
+helper:
+	CGO_ENABLED=0 go build -ldflags '-X main.build=$(VERSION)' -o bin/$(HELPER) $(HELPER_PKG)
+
+# Cross-compiles the shipped helper targets. Reproducible on purpose: -trimpath
+# and no CGO, so rebuilding one commit yields identical binaries and therefore
+# the digests release metadata is signed over. Digests cover the binaries
+# themselves rather than an archive, because installation verifies the exact
+# executable it is about to place and run.
+helper-dist:
+	rm -rf $(HELPER_DIST)
+	mkdir -p $(HELPER_DIST)
+	@for platform in $(HELPER_PLATFORMS); do \
+		goos=$${platform%/*}; goarch=$${platform#*/}; \
+		stem=$(HELPER)_$(VERSION)_$${goos}_$${goarch}; \
+		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch \
+			go build -trimpath -ldflags '-s -w -X main.build=$(VERSION)' \
+			-o $(HELPER_DIST)/$$stem $(HELPER_PKG) || exit 1; \
+		echo "built $(HELPER_DIST)/$$stem"; \
+	done
+	cd $(HELPER_DIST) && shasum -a 256 $(HELPER)_* > checksums.txt
+	@cat $(HELPER_DIST)/checksums.txt
 
 # Without this a build after `make release` would embed that release's frontend.
 unstage:

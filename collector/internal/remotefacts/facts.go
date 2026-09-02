@@ -23,6 +23,7 @@ const (
 	MaxModelBytes       = 120
 	MaxSessions         = 256
 	MaxFingerprints     = 512
+	MaxHeaderMappings   = 512
 	MaxModelsPerSession = 32
 	MaxSpawnsPerSession = 256
 	MaxCommands         = 128
@@ -41,15 +42,16 @@ const (
 // Family is the complete normalized replacement unit. Paths and raw transcript
 // content deliberately have no representation in this type.
 type Family struct {
-	SchemaVersion int           `json:"schema_version"`
-	ParserVersion string        `json:"parser_version"`
-	Vendor        string        `json:"vendor"`
-	FamilyID      string        `json:"family_id"`
-	State         string        `json:"state"`
-	StaleReason   string        `json:"stale_reason,omitempty"`
-	Sessions      []Session     `json:"sessions"`
-	Metadata      Metadata      `json:"metadata"`
-	Fingerprints  []Fingerprint `json:"fingerprints"`
+	SchemaVersion  int             `json:"schema_version"`
+	ParserVersion  string          `json:"parser_version"`
+	Vendor         string          `json:"vendor"`
+	FamilyID       string          `json:"family_id"`
+	State          string          `json:"state"`
+	StaleReason    string          `json:"stale_reason,omitempty"`
+	Sessions       []Session       `json:"sessions"`
+	Metadata       Metadata        `json:"metadata"`
+	Fingerprints   []Fingerprint   `json:"fingerprints"`
+	HeaderMappings []HeaderMapping `json:"header_mappings,omitempty"`
 }
 
 type Session struct {
@@ -118,6 +120,15 @@ type Fingerprint struct {
 	Key          string `json:"key"`
 	Size         int64  `json:"size"`
 	ModifiedAtMs int64  `json:"modified_at_ms"`
+}
+
+// HeaderMapping is the privacy-safe part of a Codex rollout header needed to
+// reconstruct a family without reopening an unchanged transcript. Key is the
+// opaque fingerprint key, never a path.
+type HeaderMapping struct {
+	Key       string `json:"key"`
+	SessionID string `json:"session_id"`
+	ParentID  string `json:"parent_id,omitempty"`
 }
 
 func Validate(f Family) error {
@@ -193,6 +204,7 @@ func Validate(f Family) error {
 		return err
 	}
 	previous := ""
+	fingerprintKeys := map[string]bool{}
 	for i, fp := range f.Fingerprints {
 		if !identifier(fp.Key) || fp.Size < 0 || fp.ModifiedAtMs < 0 || fp.ModifiedAtMs > MaxTimestampMs {
 			return fmt.Errorf("fingerprints[%d] is invalid", i)
@@ -201,6 +213,20 @@ func Validate(f Family) error {
 			return errors.New("fingerprints must be uniquely sorted by key")
 		}
 		previous = fp.Key
+		fingerprintKeys[fp.Key] = true
+	}
+	if len(f.HeaderMappings) > MaxHeaderMappings {
+		return errors.New("header mapping count exceeds limit")
+	}
+	previous = ""
+	for i, mapping := range f.HeaderMappings {
+		if !fingerprintKeys[mapping.Key] || !identifier(mapping.SessionID) ||
+			!seenSessions[mapping.SessionID] ||
+			(mapping.ParentID != "" && (!identifier(mapping.ParentID) || !seenSessions[mapping.ParentID])) ||
+			mapping.Key <= previous {
+			return fmt.Errorf("header_mappings[%d] is invalid or unsorted", i)
+		}
+		previous = mapping.Key
 	}
 	return nil
 }
@@ -311,7 +337,7 @@ func validateOptionalCount(value *int) error {
 // FromParsed creates a deterministic family replacement and applies the wire
 // allowlist. It intentionally drops paths, prompts, digest/tool text, commands,
 // file edits, repository data, environment data, and synthesis.
-func FromParsed(vendor, familyID, parserVersion, state, staleReason string, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata, fingerprints []vendors.FileFingerprint) (Family, error) {
+func FromParsed(vendor, familyID, parserVersion, state, staleReason string, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata, fingerprints []vendors.FileFingerprint, headerMappings ...[]HeaderMapping) (Family, error) {
 	f := Family{SchemaVersion: SchemaVersion, ParserVersion: parserVersion, Vendor: vendor, FamilyID: familyID, State: state, StaleReason: truncate(staleReason, MaxDisplayBytes)}
 	for _, p := range parsed {
 		s := p.Session
@@ -371,6 +397,10 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 		f.Fingerprints = append(f.Fingerprints, Fingerprint{Key: fp.Key, Size: fp.Size, ModifiedAtMs: fp.ModifiedAtMs})
 	}
 	sort.Slice(f.Fingerprints, func(i, j int) bool { return f.Fingerprints[i].Key < f.Fingerprints[j].Key })
+	if len(headerMappings) > 0 {
+		f.HeaderMappings = append([]HeaderMapping(nil), headerMappings[0]...)
+		sort.Slice(f.HeaderMappings, func(i, j int) bool { return f.HeaderMappings[i].Key < f.HeaderMappings[j].Key })
+	}
 	return f, Validate(f)
 }
 
