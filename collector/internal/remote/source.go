@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -26,6 +27,19 @@ type allowedPath struct {
 	tree      bool
 }
 
+// dirCacheEntry records a child discovered by an already-validated ReadDir.
+// Its non-symlink mode bit came from that directory listing (SFTP reports
+// per-entry attributes without following, the same proof a separate lstat
+// would give), and its canonical path is the parent's already-proven
+// canonical prefix plus a single traversal-free name. Reusing it lets
+// validate skip a redundant lstat+realpath round trip for the same session
+// without weakening the symlink or allowlist check.
+type dirCacheEntry struct {
+	allowedIndex int
+	canonical    string
+	info         fs.FileInfo
+}
+
 // Source exposes bounded read-only access to approved agent data.
 type Source struct {
 	ops     sftpOperations
@@ -35,6 +49,8 @@ type Source struct {
 
 	entries atomic.Int64
 	bytes   atomic.Int64
+
+	dirCache sync.Map // cleaned lexical path -> dirCacheEntry
 }
 
 var homeAllowlist = []struct {
@@ -82,8 +98,48 @@ func (source *Source) Home() string {
 	return source.home
 }
 
+// Limits returns the effective (default-filled) limits this Source enforces.
+func (source *Source) Limits() Limits {
+	return source.limits
+}
+
+// vendorBudget is an independent byte allowance so one vendor's large files
+// cannot starve another vendor collecting concurrently through the same
+// Source.
+type vendorBudget struct {
+	used  *atomic.Int64
+	limit int64
+}
+
+// ForVendor returns a view of Source with its own byte budget. Path
+// validation, the directory cache, and the entry-count limit remain shared.
+func (source *Source) ForVendor(maxBytes int64) *VendorSource {
+	if maxBytes <= 0 {
+		maxBytes = source.limits.MaxTotalBytes
+	}
+	return &VendorSource{source: source, budget: &vendorBudget{used: &atomic.Int64{}, limit: maxBytes}}
+}
+
+// VendorSource implements vendors.ReadSource with a private byte budget.
+type VendorSource struct {
+	source *Source
+	budget *vendorBudget
+}
+
+func (v *VendorSource) Open(name string) (io.ReadCloser, error)    { return v.source.open(name, v.budget) }
+func (v *VendorSource) ReadDir(name string) ([]fs.DirEntry, error) { return v.source.ReadDir(name) }
+func (v *VendorSource) Stat(name string) (fs.FileInfo, error)      { return v.source.Stat(name) }
+func (v *VendorSource) FreshStat(name string) (fs.FileInfo, error) { return v.source.freshStat(name) }
+
 func (source *Source) Open(name string) (io.ReadCloser, error) {
-	allowed, info, err := source.validate(name, false)
+	return source.open(name, &vendorBudget{used: &source.bytes, limit: source.limits.MaxTotalBytes})
+}
+
+func (source *Source) open(name string, budget *vendorBudget) (io.ReadCloser, error) {
+	// Opening follows the live remote path, so manifest metadata alone is not
+	// sufficient security proof: re-run lstat+realpath immediately before the
+	// SFTP open to reject a child replaced by a symlink after ReadDir.
+	_, allowed, info, err := source.validateIndexed(name, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -102,13 +158,25 @@ func (source *Source) Open(name string) (io.ReadCloser, error) {
 		path:        name,
 		fileLeft:    source.limits.MaxFileBytes,
 		contentLeft: info.Size(),
-		total:       &source.bytes,
-		totalLimit:  source.limits.MaxTotalBytes,
+		total:       budget.used,
+		totalLimit:  budget.limit,
 	}, nil
 }
 
+// StatSize reports a candidate file's size without opening it, so an
+// oversized file can be skipped before any header or body read is attempted.
+func (source *Source) StatSize(name string) (int64, error) {
+	_, info, err := source.validate(name, false)
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
 func (source *Source) ReadDir(name string) ([]fs.DirEntry, error) {
-	allowed, info, err := source.validate(name, true)
+	// readDir follows the live path too. A cached parent entry may have been
+	// replaced since it was listed, so directories require fresh validation.
+	allowedIndex, allowed, info, err := source.validateIndexed(name, true, false)
 	if err != nil {
 		return nil, err
 	}
@@ -122,9 +190,17 @@ func (source *Source) ReadDir(name string) ([]fs.DirEntry, error) {
 	if source.entries.Add(int64(len(entries))) > source.limits.MaxEntries {
 		return nil, ErrEntryLimit
 	}
+	clean := path.Clean(name)
 	result := make([]fs.DirEntry, 0, len(entries))
 	for _, entry := range entries {
 		result = append(result, fs.FileInfoToDirEntry(entry))
+		if allowedIndex >= 0 && entry.Mode()&fs.ModeSymlink == 0 {
+			childLexical := path.Join(clean, entry.Name())
+			childCanonical := path.Join(allowed, entry.Name())
+			source.dirCache.Store(childLexical, dirCacheEntry{
+				allowedIndex: allowedIndex, canonical: childCanonical, info: entry,
+			})
+		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name() < result[j].Name() })
 	return result, nil
@@ -135,54 +211,77 @@ func (source *Source) Stat(name string) (fs.FileInfo, error) {
 	return info, err
 }
 
+func (source *Source) freshStat(name string) (fs.FileInfo, error) {
+	_, _, info, err := source.validateIndexed(name, false, false)
+	return info, err
+}
+
 func (source *Source) validate(name string, requireTree bool) (string, fs.FileInfo, error) {
+	_, canonical, info, err := source.validateIndexed(name, requireTree, true)
+	return canonical, info, err
+}
+
+func (source *Source) validateIndexed(name string, requireTree, allowCached bool) (int, string, fs.FileInfo, error) {
 	clean := path.Clean(name)
 	if procPID(clean) {
 		info, err := source.ops.lstat(clean)
 		if err != nil {
-			return "", nil, err
+			return -1, "", nil, err
 		}
 		if info.Mode()&fs.ModeSymlink != 0 {
-			return "", nil, fmt.Errorf("%w: %s", ErrSymlink, name)
+			return -1, "", nil, fmt.Errorf("%w: %s", ErrSymlink, name)
 		}
-		return clean, info, nil
+		return -1, clean, info, nil
 	}
-	allowed := source.match(clean, requireTree)
+	// Every cache entry comes from a ReadDir, which only succeeds against a
+	// tree-type allowedPath, so a cache hit always satisfies requireTree.
+	if cached, ok := source.dirCache.Load(clean); allowCached && ok {
+		entry := cached.(dirCacheEntry)
+		allowed := &source.allowed[entry.allowedIndex]
+		if pathDepth(allowed.lexical, clean) > source.limits.MaxDepth {
+			return -1, "", nil, fmt.Errorf("%w: %s", ErrDepthLimit, name)
+		}
+		if allowed.canonical == "" || !within(allowed.canonical, entry.canonical, allowed.tree) {
+			return -1, "", nil, fmt.Errorf("%w: %s", ErrPathDenied, name)
+		}
+		return entry.allowedIndex, entry.canonical, entry.info, nil
+	}
+	allowedIndex, allowed := source.match(clean, requireTree)
 	if allowed == nil {
-		return "", nil, fmt.Errorf("%w: %s", ErrPathDenied, name)
+		return -1, "", nil, fmt.Errorf("%w: %s", ErrPathDenied, name)
 	}
 	if allowed.tree && pathDepth(allowed.lexical, clean) > source.limits.MaxDepth {
-		return "", nil, fmt.Errorf("%w: %s", ErrDepthLimit, name)
+		return -1, "", nil, fmt.Errorf("%w: %s", ErrDepthLimit, name)
 	}
 	info, err := source.ops.lstat(clean)
 	if err != nil {
-		return "", nil, err
+		return -1, "", nil, err
 	}
 	if info.Mode()&fs.ModeSymlink != 0 {
-		return "", nil, fmt.Errorf("%w: %s", ErrSymlink, name)
+		return -1, "", nil, fmt.Errorf("%w: %s", ErrSymlink, name)
 	}
 	canonical, err := source.ops.realPath(clean)
 	if err != nil {
-		return "", nil, err
+		return -1, "", nil, err
 	}
 	canonical = path.Clean(canonical)
 	if allowed.canonical == "" || !within(allowed.canonical, canonical, allowed.tree) {
-		return "", nil, fmt.Errorf("%w: %s", ErrPathDenied, name)
+		return -1, "", nil, fmt.Errorf("%w: %s", ErrPathDenied, name)
 	}
-	return canonical, info, nil
+	return allowedIndex, canonical, info, nil
 }
 
-func (source *Source) match(name string, requireTree bool) *allowedPath {
+func (source *Source) match(name string, requireTree bool) (int, *allowedPath) {
 	for index := range source.allowed {
 		allowed := &source.allowed[index]
 		if requireTree && !allowed.tree {
 			continue
 		}
 		if within(allowed.lexical, name, allowed.tree) {
-			return allowed
+			return index, allowed
 		}
 	}
-	return nil
+	return -1, nil
 }
 
 func within(root, candidate string, tree bool) bool {

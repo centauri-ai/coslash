@@ -30,17 +30,20 @@ func readHeaderSource(source vendors.ReadSource, path string) (string, string, e
 	defer file.Close()
 	var row codexRow
 	if err := json.NewDecoder(file).Decode(&row); err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
 	id := SessionIDFromRollout(path)
 	if row.Type != "session_meta" {
-		return "", "", fmt.Errorf("first row type %q is not session_meta", row.Type)
+		return "", "", fmt.Errorf("%w: first row type %q is not session_meta", vendors.ErrInvalidData, row.Type)
 	}
 	if id == "" {
-		return "", "", fmt.Errorf("rollout filename has no session ID")
+		return "", "", fmt.Errorf("%w: rollout filename has no session ID", vendors.ErrInvalidData)
 	}
 	if row.Payload.ID != id {
-		return "", "", fmt.Errorf("header session ID %q does not match filename ID %q", row.Payload.ID, id)
+		return "", "", fmt.Errorf(
+			"%w: header session ID %q does not match filename ID %q",
+			vendors.ErrInvalidData, row.Payload.ID, id,
+		)
 	}
 	return id, row.Payload.ParentThreadID, nil
 }

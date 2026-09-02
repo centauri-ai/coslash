@@ -62,12 +62,23 @@ func ParseSourceFiles[T any](
 	return ParseFiles(files, func(path string) (*T, error) { return parse(source, path) })
 }
 
-// ParseSourceFilesStrict returns every main-file failure to the remote refresh owner.
+// FileFailure names one file that failed strict parsing, so a caller can map
+// the failure back to the family that file belongs to instead of discarding
+// every other result.
+type FileFailure struct {
+	Path string
+	Err  error
+}
+
+// ParseSourceFilesStrict returns every main-file failure to the remote refresh
+// owner alongside every file that parsed successfully. Callers that need
+// per-family isolation must exclude a failed file's whole family from the
+// returned results themselves; this function does not know about families.
 func ParseSourceFilesStrict[T any](
 	source ReadSource,
 	files []string,
 	parse func(ReadSource, string) (*T, error),
-) ([]*T, error) {
+) ([]*T, []FileFailure, error) {
 	results := make([]*T, len(files))
 	failures := make([]error, len(files))
 	workers := make(chan struct{}, maxParseWorkers)
@@ -80,7 +91,7 @@ func ParseSourceFilesStrict[T any](
 			defer func() { <-workers }()
 			parsed, err := parse(source, file)
 			if err != nil {
-				failures[index] = fmt.Errorf("%s: %w", file, err)
+				failures[index] = err
 				return
 			}
 			results[index] = parsed
@@ -89,10 +100,12 @@ func ParseSourceFilesStrict[T any](
 	wg.Wait()
 
 	parsed := make([]*T, 0, len(files))
+	var fileFailures []FileFailure
 	var joined []error
 	for index, result := range results {
 		if failures[index] != nil {
-			joined = append(joined, failures[index])
+			fileFailures = append(fileFailures, FileFailure{Path: files[index], Err: failures[index]})
+			joined = append(joined, fmt.Errorf("%s: %w", files[index], failures[index]))
 			continue
 		}
 		if result != nil {
@@ -100,9 +113,9 @@ func ParseSourceFilesStrict[T any](
 		}
 	}
 	if len(joined) > 0 {
-		return nil, errors.Join(joined...)
+		return parsed, fileFailures, errors.Join(joined...)
 	}
-	return parsed, nil
+	return parsed, nil, nil
 }
 
 func FindAndParse(

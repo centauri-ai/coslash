@@ -3,10 +3,13 @@ package remote
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
+	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -227,4 +230,230 @@ func age(fetchedAtMs int64, now time.Time) time.Duration {
 		return FreshnessInterval + time.Second
 	}
 	return now.Sub(time.UnixMilli(fetchedAtMs))
+}
+
+// Cache v2 persists normalized per-family facts (remotefacts.Family) instead
+// of composed session cards, so an incremental refresh can skip re-parsing an
+// unchanged family and still reconstruct a displayable snapshot from what
+// changed. It is written to a separate file from the v1 snapshot: a v1 card
+// stays visible (marked stale) until the first v2 generation commits, and a
+// v1 fingerprint is never reinterpreted as v2 baseline state — the first v2
+// refresh always starts from an empty generation.
+const cacheV2Version = 2
+const maxCacheV2Bytes = 64 << 20
+
+// CachedFamilyV2 is one durable family entry. Vendor and FamilyID are stored
+// alongside Facts (rather than only as a map key) so the file round-trips
+// through JSON without a custom marshaler.
+type CachedFamilyV2 struct {
+	Vendor          string             `json:"vendor"`
+	FamilyID        string             `json:"familyId"`
+	Facts           remotefacts.Family `json:"facts"`
+	Fingerprint     string             `json:"fingerprint"`
+	StaleReason     string             `json:"staleReason,omitempty"`
+	LastSuccessAtMs int64              `json:"lastSuccessAtMs"`
+}
+
+// CachedCodexHeader lets an unchanged Codex file's session/parent header be
+// reused without reopening it, keyed by the file's identity fingerprint.
+type CachedCodexHeader struct {
+	Key           string `json:"key"`
+	Size          int64  `json:"size"`
+	ModifiedAtMs  int64  `json:"modifiedAtMs"`
+	ParserVersion string `json:"parserVersion"`
+	SessionID     string `json:"sessionId"`
+	ParentID      string `json:"parentId,omitempty"`
+}
+
+type CachedSnapshotV2 struct {
+	Version         int                 `json:"version"`
+	BaselineID      string              `json:"baselineId"`
+	CoverageSinceMs int64               `json:"coverageSinceMs"`
+	Families        []CachedFamilyV2    `json:"families"`
+	VendorComplete  map[string]bool     `json:"vendorComplete,omitempty"`
+	Coverage        []AgentCoverage     `json:"coverage,omitempty"`
+	FetchedAtMs     int64               `json:"fetchedAtMs"`
+	RoundTripMs     int64               `json:"roundTripMs"`
+	CodexHeaders    []CachedCodexHeader `json:"codexHeaders,omitempty"`
+}
+
+func (c *Cache) snapshotV2Path(sourceID string) (string, error) {
+	dir, err := c.sourceDir(sourceID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "snapshot-v2.json"), nil
+}
+
+// LoadV2 returns ok=false for a missing, corrupt, or out-of-bounds file
+// rather than an error, so a damaged cache degrades to a cold start instead of
+// blocking startup.
+func (c *Cache) LoadV2(sourceID string) (CachedSnapshotV2, bool, error) {
+	path, err := c.snapshotV2Path(sourceID)
+	if err != nil {
+		return CachedSnapshotV2{}, false, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return CachedSnapshotV2{}, false, nil
+		}
+		return CachedSnapshotV2{}, false, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return CachedSnapshotV2{}, false, err
+	}
+	if info.Size() < 0 || info.Size() > maxCacheV2Bytes {
+		return CachedSnapshotV2{}, false, nil
+	}
+	var cached CachedSnapshotV2
+	decoder := json.NewDecoder(io.LimitReader(file, maxCacheV2Bytes+1))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&cached) != nil || decoder.Decode(&struct{}{}) != io.EOF || !validCachedSnapshotV2(cached) {
+		return CachedSnapshotV2{}, false, nil
+	}
+	return cached, true, nil
+}
+
+func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
+	if cached.Version != cacheV2Version || len(cached.BaselineID) > remotefacts.MaxIDBytes ||
+		cached.CoverageSinceMs < 0 || cached.CoverageSinceMs > remotefacts.MaxTimestampMs ||
+		cached.FetchedAtMs < 0 || cached.FetchedAtMs > remotefacts.MaxTimestampMs || cached.RoundTripMs < 0 ||
+		len(cached.Families) > remoteprotocol.MaxRecords || len(cached.CodexHeaders) > DefaultMaxEntries ||
+		len(cached.Coverage) > 2 {
+		return false
+	}
+	seenCoverage := map[string]bool{}
+	for _, coverage := range cached.Coverage {
+		if (coverage.Agent != vendors.AgentClaude && coverage.Agent != vendors.AgentCodex) || seenCoverage[coverage.Agent] ||
+			coverage.CandidateFiles < 0 || coverage.CandidateFiles > remotefacts.MaxCount ||
+			coverage.SelectedFiles < 0 || coverage.SelectedFiles > coverage.CandidateFiles ||
+			len(coverage.Error) > MaxErrorCopyBytes {
+			return false
+		}
+		seenCoverage[coverage.Agent] = true
+	}
+	seen := map[remoteprotocol.FamilyKey]bool{}
+	for _, family := range cached.Families {
+		if family.Vendor != vendors.AgentClaude && family.Vendor != vendors.AgentCodex {
+			return false
+		}
+		if family.FamilyID == "" || family.FamilyID != family.Facts.FamilyID || family.Vendor != family.Facts.Vendor {
+			return false
+		}
+		if family.Fingerprint == "" || len(family.Fingerprint) > remotefacts.MaxIDBytes {
+			return false
+		}
+		if len(family.StaleReason) > remotefacts.MaxDisplayBytes {
+			return false
+		}
+		if family.LastSuccessAtMs <= 0 || family.LastSuccessAtMs > remotefacts.MaxTimestampMs {
+			return false
+		}
+		if remotefacts.Validate(family.Facts) != nil {
+			return false
+		}
+		key := remoteprotocol.FamilyKey{Vendor: family.Vendor, FamilyID: family.FamilyID}
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+	}
+	for vendor := range cached.VendorComplete {
+		if vendor != vendors.AgentClaude && vendor != vendors.AgentCodex {
+			return false
+		}
+	}
+	seenHeaders := map[string]bool{}
+	for _, header := range cached.CodexHeaders {
+		if header.Key == "" || len(header.Key) > remotefacts.MaxIDBytes || header.Size < 0 ||
+			header.ModifiedAtMs < 0 || header.ModifiedAtMs > remotefacts.MaxTimestampMs {
+			return false
+		}
+		if header.SessionID == "" || len(header.SessionID) > remotefacts.MaxIDBytes ||
+			header.ParserVersion == "" || len(header.ParserVersion) > remotefacts.MaxIDBytes ||
+			len(header.ParentID) > remotefacts.MaxIDBytes {
+			return false
+		}
+		if seenHeaders[header.Key] {
+			return false
+		}
+		seenHeaders[header.Key] = true
+	}
+	return true
+}
+
+// StoreV2 writes the snapshot atomically: a temp file is written, synced, and
+// closed before an atomic rename replaces the prior snapshot, and the
+// containing directory is synced afterward where the platform supports it.
+func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
+	cached.Version = cacheV2Version
+	dir, err := c.sourceDir(sourceID)
+	if err != nil {
+		return err
+	}
+	remotes := filepath.Join(c.Root, "remotes")
+	if err := os.MkdirAll(remotes, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(remotes, 0o700); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	data, err := json.Marshal(cached)
+	if err != nil {
+		return err
+	}
+	if len(data) > maxCacheV2Bytes {
+		return fmt.Errorf("cache v2 exceeds %d-byte limit", maxCacheV2Bytes)
+	}
+	temp, err := os.CreateTemp(dir, ".snapshot-v2-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(0o600); err != nil {
+		temp.Close()
+		return err
+	}
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	path, err := c.snapshotV2Path(sourceID)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	syncDirBestEffort(dir)
+	return nil
+}
+
+// syncDirBestEffort fsyncs a directory so a rename inside it is durable. Not
+// every platform supports fsync on a directory descriptor; failure here is
+// deliberately ignored since the rename itself already completed.
+func syncDirBestEffort(dir string) {
+	handle, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	defer handle.Close()
+	_ = handle.Sync()
 }
