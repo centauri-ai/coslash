@@ -2,6 +2,8 @@ package remote
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
 	"path"
 	"sync"
 	"testing"
@@ -274,6 +276,52 @@ func TestCollectIncrementalNeverTombstonesOnHardVendorFailure(t *testing.T) {
 	}
 	if secondSnapshot.CoverageSinceMs != 0 {
 		t.Fatalf("coverage should not advance past the prior baseline on a partial refresh: got %d", secondSnapshot.CoverageSinceMs)
+	}
+}
+
+func TestCollectIncrementalNeverTombstonesAfterSkippedDirectory(t *testing.T) {
+	fake := newFakeFS()
+	retainedID := "aaaaaaaa-0000-0000-0000-000000000011"
+	writeClaudeFixture(fake, "unreadable", retainedID, 1, 1, time.Unix(1000, 0))
+	baseline, _, _, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(2000, 0), CachedSnapshotV2{})
+	if err != nil || len(baseline.Families) != 1 {
+		t.Fatalf("seed refresh: snapshot=%+v err=%v", baseline, err)
+	}
+
+	unreadable := path.Join(fakeHome, ".claude/projects/unreadable")
+	ops := fake.ops()
+	readDir := ops.readDir
+	ops.readDir = func(name string) ([]os.FileInfo, error) {
+		if name == unreadable {
+			return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrPermission}
+		}
+		return readDir(name)
+	}
+	source, err := newSource(ops, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _, failures, err := collectIncremental(source, time.Unix(2500, 0).UnixMilli(), time.Unix(3000, 0), baseline)
+	if err != nil {
+		t.Fatalf("partial refresh: %v", err)
+	}
+	if len(after.Families) != 1 || after.Families[0].FamilyID != retainedID {
+		t.Fatalf("skipped directory tombstoned cached family: %+v", after.Families)
+	}
+	var claudeCoverage *AgentCoverage
+	for index := range after.Coverage {
+		if after.Coverage[index].Agent == vendors.AgentClaude {
+			claudeCoverage = &after.Coverage[index]
+		}
+	}
+	if claudeCoverage == nil || claudeCoverage.SkippedEntries != 1 {
+		t.Fatalf("skipped directory coverage = %+v", claudeCoverage)
+	}
+	if len(failures) == 0 {
+		t.Fatal("skipped directory was not reported as partial collection")
+	}
+	if after.CoverageSinceMs != baseline.CoverageSinceMs {
+		t.Fatalf("incomplete enumeration advanced coverage from %d to %d", baseline.CoverageSinceMs, after.CoverageSinceMs)
 	}
 }
 

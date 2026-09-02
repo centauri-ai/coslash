@@ -103,6 +103,7 @@ type Manager struct {
 	transport              Transport
 	helper                 *HelperStatus
 	helperTarget           *helperTarget
+	helperVerify           helperVerifyFunc
 	helperVersion          string
 	helperOwnershipCorrupt bool
 	helperProbe            helperProbeState
@@ -116,6 +117,7 @@ type Options struct {
 	// HelperRefresh is only invoked after SetupHelper creates a verified target.
 	// Supplying it is useful for deterministic manager tests.
 	HelperRefresh               helperRefreshFunc
+	HelperVerify                helperVerifyFunc
 	ReleaseProvider             HelperReleaseProvider
 	LifecycleFactory            lifecycleFactory
 	Trust                       TrustStore
@@ -159,8 +161,22 @@ func NewManager(options Options) *Manager {
 	if factory == nil && options.ReleaseProvider != nil {
 		factory = defaultLifecycleFactory(options.Trust)
 	}
+	helperVerify := options.HelperVerify
+	if helperVerify == nil {
+		helperVerify = func(ctx context.Context, alias string, target helperTarget) error {
+			if factory == nil {
+				return ErrHelperVerification
+			}
+			lifecycle, err := factory(alias)
+			if err != nil {
+				return err
+			}
+			return lifecycle.VerifyExecution(ctx, target.path, target.artifact)
+		}
+	}
 	return &Manager{
 		cache: cache, now: now, refresh: refresh, helperRefresh: helperRefresh, test: test,
+		helperVerify:    helperVerify,
 		releaseProvider: options.ReleaseProvider, lifecycleFactory: factory,
 		trust:                       options.Trust,
 		helperInstallationAvailable: options.HelperInstallationAvailable,
@@ -515,7 +531,9 @@ func (manager *Manager) runRefresh(
 	var result refreshOutcome
 	var err error
 	if helper != nil {
-		result, err = manager.helperRefresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline, *helper)
+		if err = manager.helperVerify(ctx, config.SSHAlias, *helper); err == nil {
+			result, err = manager.helperRefresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline, *helper)
+		}
 	} else {
 		result, err = manager.refresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline)
 	}

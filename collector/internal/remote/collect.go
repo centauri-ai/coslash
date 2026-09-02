@@ -66,6 +66,7 @@ type vendorFamilyInput struct {
 	FilesOf         map[string][]string
 	AllFamilyIDs    []string
 	CandidateFiles  int
+	SkippedEntries  int
 	Truncated       bool
 	Metadata        *vendors.SessionMetadata
 	Parse           func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error)
@@ -181,7 +182,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	for _, id := range in.AllFamilyIDs {
 		allSet[id] = struct{}{}
 	}
-	inventoryComplete := len(in.AllFamilyIDs) <= remoteprotocol.MaxInventoryFamilies
+	inventoryComplete := in.SkippedEntries == 0 && len(in.AllFamilyIDs) <= remoteprotocol.MaxInventoryFamilies
 	if inventoryComplete {
 		for id := range in.Baseline {
 			if _, present := allSet[id]; !present {
@@ -196,20 +197,26 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		inventory = append([]string(nil), in.AllFamilyIDs...)
 		sort.Strings(inventory)
 	}
-	complete := &remoteprotocol.Record{
-		Type: remoteprotocol.RecordVendorComplete, Vendor: in.Vendor,
-		EnumerationComplete: true, InventoryComplete: inventoryComplete, Inventory: inventory,
+	var complete *remoteprotocol.Record
+	if in.SkippedEntries == 0 {
+		complete = &remoteprotocol.Record{
+			Type: remoteprotocol.RecordVendorComplete, Vendor: in.Vendor,
+			EnumerationComplete: true, InventoryComplete: inventoryComplete, Inventory: inventory,
+		}
+	} else {
+		familyFailures = append(familyFailures, fmt.Errorf("%s enumeration skipped %d entries", in.Vendor, in.SkippedEntries))
 	}
 	coverage := AgentCoverage{
 		Agent: in.Vendor, CandidateFiles: in.CandidateFiles, SelectedFiles: selectedFiles,
-		Truncated: in.Truncated || !inventoryComplete,
+		SkippedEntries: in.SkippedEntries,
+		Truncated:      in.Truncated || len(in.AllFamilyIDs) > remoteprotocol.MaxInventoryFamilies,
 	}
 	return vendorOutcome{Records: records, Complete: complete, Coverage: coverage, Metadata: in.Metadata, Failures: familyFailures}
 }
 
 func collectClaudeVendor(source vendors.ReadSource, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
 	metadata := claude.RemoteMetadata(source, home, now)
-	selectedFamilies, allFamilyIDs, candidateFiles, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.Live)
+	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.Live)
 	if err != nil {
 		return vendorOutcome{Err: fmt.Errorf("collect Claude remote data: %w", err)}
 	}
@@ -222,7 +229,7 @@ func collectClaudeVendor(source vendors.ReadSource, home string, since int64, no
 	return collectVendorFamilies(vendorFamilyInput{
 		Vendor: vendors.AgentClaude, ParserVersion: claudeParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
-		CandidateFiles: candidateFiles, Truncated: truncated, Metadata: metadata,
+		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
 		Parse: func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
 			return claude.ParseRemoteFiles(source, files)
 		},
@@ -238,7 +245,7 @@ func collectCodexVendor(
 	baseline map[string]CachedFamilyV2, cachedHeaders map[string]codex.CachedHeader,
 ) (vendorOutcome, map[string]codex.CachedHeader) {
 	metadata := codex.RemoteMetadata(source, home)
-	selectedFamilies, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, truncated, err := codex.BuildRemoteFamilies(
+	selectedFamilies, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedEntries, truncated, err := codex.BuildRemoteFamilies(
 		source, home, since, metadata.Live, cachedHeaders,
 	)
 	if err != nil {
@@ -269,7 +276,7 @@ func collectCodexVendor(
 	outcome := collectVendorFamilies(vendorFamilyInput{
 		Vendor: vendors.AgentCodex, ParserVersion: codexParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
-		CandidateFiles: candidateFiles, Truncated: truncated, Metadata: metadata,
+		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
 		Parse: func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
 			return codex.ParseRemoteFiles(source, home, files)
 		},
@@ -410,6 +417,11 @@ func collectIncremental(
 			if err := apply(record); err != nil {
 				return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply %s record: %w", vendorName, err)
 			}
+		}
+		if outcome.Complete == nil {
+			allVendorsCompleted = false
+			coverage = append(coverage, outcome.Coverage)
+			continue
 		}
 		// Baseline-free protocol completion requires an authoritative bounded
 		// inventory. If it cannot fit, keep the partial facts but do not claim

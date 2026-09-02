@@ -113,7 +113,8 @@ type RemoteFamily struct {
 // parent-less session. allFamilyIDs names every family found by a complete,
 // unfiltered scan of the tree, independent of the requested window or the
 // per-refresh family-count cap, so a caller can use it as deletion-authority
-// inventory even when since narrows what gets selected for parsing. selected
+// inventory when skippedTotal is zero, even when since narrows what gets
+// selected for parsing. selected
 // applies the since/live window and then caps the result to the newest
 // MaxCandidateFilesPerAgent files by whole family. A file whose header could
 // not be resolved becomes its own singleton family, keyed by its filename
@@ -131,18 +132,21 @@ func BuildRemoteFamilies(
 	updatedHeaders map[string]CachedHeader,
 	headerFailed map[string]error,
 	candidateFiles int,
+	skippedTotal int,
 	truncated bool,
 	err error,
 ) {
 	root := SessionsRoot(home)
-	files, err := FilesSource(source, root)
+	scan, err := ScanSource(source, root)
 	if err != nil {
-		return nil, nil, nil, nil, 0, false, err
+		return nil, nil, nil, nil, 0, 0, false, err
 	}
+	files := scan.Files
+	skippedTotal = scan.SkippedTotal
 	candidateFiles = len(files)
 	fingerprints, err := vendors.FingerprintSourceFiles(source, root, files)
 	if err != nil {
-		return nil, nil, nil, nil, candidateFiles, false, err
+		return nil, nil, nil, nil, candidateFiles, skippedTotal, false, err
 	}
 	headers, updatedHeaders, headerFailed := ResolveHeaders(source, files, fingerprints, cachedHeaders)
 
@@ -216,7 +220,7 @@ func BuildRemoteFamilies(
 		windowed[id] = append(windowed[id], file)
 	}
 	if len(windowed) == 0 {
-		return map[string]RemoteFamily{}, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, false, nil
+		return map[string]RemoteFamily{}, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedTotal, false, nil
 	}
 	newest := map[string]int64{}
 	for id, familyFiles := range windowed {
@@ -243,7 +247,7 @@ func BuildRemoteFamilies(
 		selected[id] = entry
 		total += len(familyFiles)
 	}
-	return selected, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, len(selected) < len(windowed), nil
+	return selected, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedTotal, len(selected) < len(windowed), nil
 }
 
 func sortFamiliesByNewest(ids []string, newest map[string]int64) {
