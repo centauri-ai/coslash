@@ -83,7 +83,7 @@ func (remote *SSHLifecycleRemote) ProbePlatform(ctx context.Context) (Platform, 
 		if runCtx.Err() != nil {
 			return Platform{}, runCtx.Err()
 		}
-		return Platform{}, wrapSSHError(fmt.Errorf("probe helper platform: %w", err), stderr.String())
+		return Platform{}, wrapSSHError(fmt.Errorf("probe helper platform: %w", runErr), stderr.String())
 	}
 	if stdout.overflow {
 		return Platform{}, fmt.Errorf("%w: platform probe output too long", ErrUnsupportedHelperPlatform)

@@ -233,7 +233,11 @@ func canonicalMetadataPayload(metadata ReleaseMetadata) []byte {
 	sort.Slice(artifacts, func(i, j int) bool {
 		return artifactIdentity(artifacts[i]) < artifactIdentity(artifacts[j])
 	})
-	payload, _ := json.Marshal(ReleaseMetadata{Artifacts: artifacts})
+	payload, _ := json.Marshal(ReleaseMetadata{
+		Sequence:      metadata.Sequence,
+		ExpiresAtUnix: metadata.ExpiresAtUnix,
+		Artifacts:     artifacts,
+	})
 	return payload
 }
 
