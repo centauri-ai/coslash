@@ -32,6 +32,7 @@ type AgentCoverage struct {
 	Agent          string `json:"agent"`
 	CandidateFiles int    `json:"candidateFiles"`
 	SelectedFiles  int    `json:"selectedFiles"`
+	SkippedEntries int    `json:"skippedEntries,omitempty"`
 	Truncated      bool   `json:"truncated"`
 	Error          string `json:"error,omitempty"`
 }
