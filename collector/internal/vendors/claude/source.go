@@ -70,7 +70,8 @@ type RemoteFamily struct {
 // result by FamilyIDFromPath. allFamilyIDs names every family found by a
 // complete, unfiltered scan of the tree, independent of the requested window
 // or the per-refresh family-count cap, so a caller can use it as
-// deletion-authority inventory even when since narrows what gets selected.
+// deletion-authority inventory when skippedTotal is zero, even when since
+// narrows what gets selected.
 func BuildRemoteFamilies(
 	source vendors.ReadSource,
 	home string,
@@ -80,14 +81,17 @@ func BuildRemoteFamilies(
 	selected map[string]RemoteFamily,
 	allFamilyIDs []string,
 	candidateFiles int,
+	skippedTotal int,
 	truncated bool,
 	err error,
 ) {
 	root := ProjectsRoot(home)
-	allFiles, err := FilesSource(source, root)
+	scan, err := ScanSource(source, root)
 	if err != nil {
-		return nil, nil, 0, false, err
+		return nil, nil, 0, 0, false, err
 	}
+	allFiles := scan.Files
+	skippedTotal = scan.SkippedTotal
 	candidateFiles = len(allFiles)
 	allFamilySet := map[string]struct{}{}
 	for _, file := range allFiles {
@@ -108,7 +112,7 @@ func BuildRemoteFamilies(
 	)
 	fingerprints, err := vendors.FingerprintSourceFiles(source, root, files)
 	if err != nil {
-		return nil, nil, candidateFiles, truncated, err
+		return nil, nil, candidateFiles, skippedTotal, truncated, err
 	}
 	selected = map[string]RemoteFamily{}
 	for index, file := range files {
@@ -118,7 +122,7 @@ func BuildRemoteFamilies(
 		entry.Fingerprints = append(entry.Fingerprints, fingerprints[index])
 		selected[id] = entry
 	}
-	return selected, allFamilyIDs, candidateFiles, truncated, nil
+	return selected, allFamilyIDs, candidateFiles, skippedTotal, truncated, nil
 }
 
 // ParseRemoteFiles parses exactly the given files (already selected as one or

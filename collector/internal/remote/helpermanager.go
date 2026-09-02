@@ -73,10 +73,13 @@ const (
 type lifecycleFactory func(alias string) (Lifecycle, error)
 
 type helperTarget struct {
-	path    string
-	version string
-	state   LifecycleState
+	path     string
+	version  string
+	state    LifecycleState
+	artifact Artifact
 }
+
+type helperVerifyFunc func(context.Context, string, helperTarget) error
 
 type helperProbeState string
 
@@ -244,7 +247,7 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 		status := lifecycleStatus(result)
 		manager.helper = &status
 		if !useSFTPFallbackAfterDiscovery(result) {
-			manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State}
+			manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
 			manager.helperVersion = result.Artifact.Version
 			// This records ownership locally, never remote execution authority.
 			if storeErr := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); storeErr != nil {
@@ -319,7 +322,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 			manager.helperTarget = nil
 			return manager.healthLocked(manager.lastRequestedMs)
 		}
-		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State}
+		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
 		manager.helperVersion = result.Artifact.Version
 		manager.helperProbe = helperProbeReady
 	} else {
@@ -425,11 +428,16 @@ func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 	target := *manager.helperTarget
 	baseline := snapshotOrEmpty(manager.snapshot)
 	refresh := manager.helperRefresh
+	verify := manager.helperVerify
 	now := manager.now()
 	manager.mu.Unlock()
 
 	since := now.Add(-24 * time.Hour).UnixMilli()
-	result, err := refresh(ctx, config.SSHAlias, since, now, baseline, target)
+	err := verify(ctx, config.SSHAlias, target)
+	var result refreshOutcome
+	if err == nil {
+		result, err = refresh(ctx, config.SSHAlias, since, now, baseline, target)
+	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {

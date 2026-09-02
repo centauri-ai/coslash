@@ -446,6 +446,29 @@ type Lifecycle struct {
 	Trust  TrustStore
 }
 
+// VerifyExecution revalidates all executable-file invariants immediately
+// before a cached helper target is used. Discovery establishes which signed
+// artifact is allowed; this check ensures the pathname still names those exact
+// bytes with the expected owner and mode.
+func (lifecycle Lifecycle) VerifyExecution(ctx context.Context, path string, artifact Artifact) error {
+	if lifecycle.Remote == nil {
+		return ErrHelperVerification
+	}
+	platform, err := lifecycle.Remote.ProbePlatform(ctx)
+	if err != nil {
+		return err
+	}
+	normalized, err := normalizePlatform(platform.OS, platform.Arch)
+	if err != nil || normalized.OS != artifact.OS || normalized.Arch != artifact.Arch {
+		return ErrHelperVerification
+	}
+	file, err := lifecycle.Remote.Inspect(ctx, path)
+	if err != nil {
+		return err
+	}
+	return verifyRemoteFile(file, path, artifact, platform.UID)
+}
+
 // Setup authenticates metadata before platform lookup or any remote mutation.
 // Consent is per action: initial install and later upgrades are separate, so an
 // old consent cannot silently install fresh executable code.

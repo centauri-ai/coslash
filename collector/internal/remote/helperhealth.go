@@ -36,6 +36,8 @@ func classifyHelperError(err error) Reason {
 		return ReasonHelperBlocked
 	case errors.Is(err, ErrHelperIncompatible):
 		return ReasonHelperIncompatible
+	case errors.Is(err, ErrHelperVerification):
+		return ReasonHelperVerification
 	case errors.Is(err, ErrHelperPartial):
 		return ReasonPartialAgentData
 	case errors.Is(err, ErrHelperOutputLimit), errors.Is(err, ErrStderrLimit):

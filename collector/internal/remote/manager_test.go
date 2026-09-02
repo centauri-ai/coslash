@@ -222,6 +222,49 @@ func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *tes
 	}
 }
 
+func TestManagerReverifiesHelperBeforeEveryRefresh(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	remote, artifact, content := lifecycleFixture(t)
+	var helperCalls atomic.Int32
+	manager := NewManager(Options{
+		Cache: NewCache(filepath.Join(home, "remote-cache")), Now: time.Now,
+		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
+			helperCalls.Add(1)
+			return refreshOutcome{}, nil
+		},
+		ReleaseProvider:             fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("setup health = %#v", health)
+	}
+
+	targetPath, _ := helperPath(artifact.Version)
+	modified := remote.files[targetPath]
+	modified.SHA256 = "modified"
+	remote.files[targetPath] = modified
+	manager.ListView(time.Now().Add(-time.Hour).UnixMilli())
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return !manager.refreshing
+	})
+
+	if helperCalls.Load() != 0 {
+		t.Fatalf("modified helper executed %d times", helperCalls.Load())
+	}
+	health := manager.DiagnosticsHealth()
+	if health.Reason == nil || *health.Reason != ReasonHelperVerification {
+		t.Fatalf("modified helper health = %#v", health)
+	}
+}
+
 func TestPartialRefreshMarksOnlyRetainedFailedFamilyStale(t *testing.T) {
 	manager := NewManager(Options{})
 	manager.cfg = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
