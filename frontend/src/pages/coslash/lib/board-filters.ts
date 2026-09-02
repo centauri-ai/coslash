@@ -22,9 +22,9 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback
     : fallback;
 }
 
-export function loadBoardFilters(storage: Pick<Storage, 'getItem'> = sessionStorage): BoardFilters {
+export function loadBoardFilters(storage?: Pick<Storage, 'getItem'>): BoardFilters {
   try {
-    const raw = storage.getItem(STORAGE_KEY);
+    const raw = (storage ?? sessionStorage).getItem(STORAGE_KEY);
     if (raw == null) return DEFAULT_BOARD_FILTERS;
     const parsed: unknown = JSON.parse(raw);
     if (parsed == null || typeof parsed !== 'object') return DEFAULT_BOARD_FILTERS;
@@ -38,12 +38,9 @@ export function loadBoardFilters(storage: Pick<Storage, 'getItem'> = sessionStor
   }
 }
 
-export function saveBoardFilters(
-  filters: BoardFilters,
-  storage: Pick<Storage, 'setItem'> = sessionStorage,
-): void {
+export function saveBoardFilters(filters: BoardFilters, storage?: Pick<Storage, 'setItem'>): void {
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(filters));
+    (storage ?? sessionStorage).setItem(STORAGE_KEY, JSON.stringify(filters));
   } catch {
     // Private mode / quota — filters still work for the current page life.
   }

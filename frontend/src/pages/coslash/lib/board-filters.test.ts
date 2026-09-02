@@ -21,6 +21,24 @@ describe('board filters', () => {
     expect(loadBoardFilters(memoryStorage())).toEqual(DEFAULT_BOARD_FILTERS);
   });
 
+  it('falls back when the browser blocks session storage access', () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      configurable: true,
+      get: () => {
+        throw new DOMException('Blocked by browser settings', 'SecurityError');
+      },
+    });
+
+    try {
+      expect(loadBoardFilters()).toEqual(DEFAULT_BOARD_FILTERS);
+      expect(() => saveBoardFilters(DEFAULT_BOARD_FILTERS)).not.toThrow();
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'sessionStorage', original);
+      else delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+    }
+  });
+
   it('round-trips vendor and timeframe', () => {
     const storage = memoryStorage();
     saveBoardFilters({ vendor: 'codex', timeWindow: 'all' }, storage);

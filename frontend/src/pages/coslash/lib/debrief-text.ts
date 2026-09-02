@@ -128,23 +128,24 @@ export function previewDebriefBlocks(
   return { blocks: visible, hiddenCount: hidden, truncated: hidden > 0 };
 }
 
-export const DEBRIEF_PARAGRAPH_PREVIEW_CHARS = 160;
+export const DEBRIEF_PREVIEW_CHARS = 160;
 
-/** Collapse for display: bound block count and shorten long paragraphs in the source text. */
+/** Collapse for display: bound block count and shorten long text in the source text. */
 export function collapseDebriefBlocks(
   blocks: DebriefBlock[],
   maxUnits = DEFAULT_PREVIEW_UNITS,
-  maxParagraphChars = DEBRIEF_PARAGRAPH_PREVIEW_CHARS,
+  maxTextChars = DEBRIEF_PREVIEW_CHARS,
 ): DebriefPreview {
   const preview = previewDebriefBlocks(blocks, maxUnits);
   let shortened = false;
-  const collapsed = preview.blocks.map((block) => {
-    if (block.kind !== 'paragraph' || block.text.length <= maxParagraphChars) return block;
+  const shorten = (text: string) => {
+    if (text.length <= maxTextChars) return text;
     shortened = true;
-    return {
-      kind: 'paragraph' as const,
-      text: `${block.text.slice(0, Math.max(0, maxParagraphChars - 1)).trimEnd()}…`,
-    };
+    return `${text.slice(0, Math.max(0, maxTextChars - 1)).trimEnd()}…`;
+  };
+  const collapsed = preview.blocks.map((block) => {
+    if (block.kind === 'list') return { ...block, items: block.items.map(shorten) };
+    return { ...block, text: shorten(block.text) };
   });
   return {
     blocks: collapsed,

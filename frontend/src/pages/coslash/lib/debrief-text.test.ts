@@ -62,13 +62,22 @@ describe('previewDebriefBlocks', () => {
 });
 
 describe('collapseDebriefBlocks', () => {
-  it('shortens long paragraphs in the collapsed preview', () => {
+  it('shortens long text in every visible block type', () => {
     const long = 'a'.repeat(200);
-    const collapsed = collapseDebriefBlocks([{ kind: 'paragraph', text: long }], 4, 160);
+    const collapsed = collapseDebriefBlocks(
+      [
+        { kind: 'heading', text: long },
+        { kind: 'list', ordered: false, items: [long] },
+        { kind: 'paragraph', text: long },
+      ],
+      4,
+      160,
+    );
     expect(collapsed.truncated).toBe(true);
-    expect(collapsed.blocks[0]).toEqual({
-      kind: 'paragraph',
-      text: `${'a'.repeat(159)}…`,
-    });
+    expect(collapsed.blocks).toEqual([
+      { kind: 'heading', text: `${'a'.repeat(159)}…` },
+      { kind: 'list', ordered: false, items: [`${'a'.repeat(159)}…`] },
+      { kind: 'paragraph', text: `${'a'.repeat(159)}…` },
+    ]);
   });
 });
