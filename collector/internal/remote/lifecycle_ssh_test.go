@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"testing"
@@ -25,6 +26,21 @@ func TestSSHLifecycleRemoteUsesBoundedFixedPlatformProbe(t *testing.T) {
 	remote.Options = fakeOptions(bytes.Repeat([]byte("x"), 129), 0, "", false)
 	if _, err := remote.ProbePlatform(context.Background()); !errors.Is(err, ErrUnsupportedHelperPlatform) {
 		t.Fatalf("oversized probe error = %v", err)
+	}
+}
+
+func TestSSHLifecycleRemotePreservesPlatformProbeExitError(t *testing.T) {
+	remote, err := NewSSHLifecycleRemote("host", fakeOptions(nil, 23, "probe failed", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = remote.ProbePlatform(context.Background())
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 23 {
+		t.Fatalf("platform probe error = %v, want exit code 23", err)
+	}
+	if got := sshErrorStderr(err); got != "probe failed" {
+		t.Fatalf("platform probe stderr = %q, want %q", got, "probe failed")
 	}
 }
 
