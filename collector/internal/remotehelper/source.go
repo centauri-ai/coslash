@@ -205,8 +205,18 @@ type boundedFile struct {
 }
 
 func (file *boundedFile) Read(buffer []byte) (int, error) {
-	if file.left <= 0 {
-		return 0, fmt.Errorf("%w: %s", ErrFileLimit, file.path)
+	if len(buffer) == 0 {
+		return 0, nil
+	}
+	if file.left == 0 {
+		// Probe for EOF before reporting the limit. A file that is exactly the
+		// configured size is valid; a file that grew after the initial stat is not.
+		var probe [1]byte
+		read, err := file.File.Read(probe[:])
+		if read > 0 {
+			return 0, fmt.Errorf("%w: %s", ErrFileLimit, file.path)
+		}
+		return 0, err
 	}
 	if int64(len(buffer)) > file.left {
 		buffer = buffer[:file.left]

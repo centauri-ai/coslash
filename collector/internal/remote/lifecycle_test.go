@@ -193,6 +193,22 @@ func TestTrustStoreRejectsExpiredAndReplayedMetadata(t *testing.T) {
 	}
 }
 
+func TestTrustStoreRejectsMutatedSignedMetadataFields(t *testing.T) {
+	remote, _, _ := lifecycleFixture(t)
+	for name, mutate := range map[string]func(*ReleaseMetadata){
+		"sequence": func(metadata *ReleaseMetadata) { metadata.Sequence++ },
+		"expiry":   func(metadata *ReleaseMetadata) { metadata.ExpiresAtUnix += 3600 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			document := remote.document
+			mutate(&document.Metadata)
+			if _, err := lifecycleFor(remote).Trust.Verify(document); !errors.Is(err, ErrHelperMetadata) {
+				t.Fatalf("Verify mutated metadata error = %v, want ErrHelperMetadata", err)
+			}
+		})
+	}
+}
+
 func TestLifecycleDoesNotMisclassifyTransportFailureAsUnsupported(t *testing.T) {
 	remote, _, content := lifecycleFixture(t)
 	remote.probeErr = context.DeadlineExceeded
