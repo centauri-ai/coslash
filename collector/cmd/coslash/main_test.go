@@ -96,6 +96,28 @@ func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
 	}
 }
 
+func TestBoardRemoteSessionSerializesCollectionsAsArrays(t *testing.T) {
+	encoded, err := json.Marshal(boardRemoteSession(remote.IndexedSession{
+		Key:     remote.SessionKey{SourceID: "r_0123456789abcdef"},
+		Session: &session.Session{Agent: "codex", ID: "empty"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(encoded, &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"unpricedModels", "subagents", "commands", "commits", "todos", "digest", "fileEdits"} {
+		if value, ok := body[field].([]any); !ok || value == nil {
+			t.Fatalf("%s = %#v, want JSON array", field, body[field])
+		}
+	}
+	if value, ok := body["tokens"].(map[string]any); !ok || value == nil {
+		t.Fatalf("tokens = %#v, want JSON object", body["tokens"])
+	}
+}
+
 func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
 	manager := remote.NewManager(remote.Options{})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {

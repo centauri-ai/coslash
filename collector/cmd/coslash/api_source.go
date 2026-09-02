@@ -79,7 +79,7 @@ func machineFromHealth(health remote.Health) machineFact {
 func boardLocalSession(value *session.Session) boardSession {
 	return boardSession{
 		SourceID: localSourceID, SourceLabel: localSourceLabel,
-		EligibleForAggregates: true, Session: *value,
+		EligibleForAggregates: true, Session: sessionWithJSONCollections(*value),
 	}
 }
 
@@ -88,8 +88,57 @@ func boardRemoteSession(value remote.IndexedSession) boardSession {
 		SourceID: value.Key.SourceID, SourceLabel: value.SourceLabel,
 		EligibleForAggregates: value.EligibleForAggregates,
 		DisplayStale:          value.DisplayStale, LastSeenStatus: value.LastSeenStatus,
-		Session: *value.Session,
+		Session: sessionWithJSONCollections(*value.Session),
 	}
+}
+
+// sessionWithJSONCollections keeps the API's array/object contract stable for
+// sparse normalized remote facts. Go encodes nil slices as null, but the board
+// renders these fields as collections and must receive [] rather than null.
+func sessionWithJSONCollections(value session.Session) session.Session {
+	if value.Tokens == nil {
+		value.Tokens = map[string]session.ModelTokens{}
+	}
+	if value.UnpricedModels == nil {
+		value.UnpricedModels = []string{}
+	}
+	if value.Subagents == nil {
+		value.Subagents = []session.Subagent{}
+	}
+	for index := range value.Subagents {
+		if value.Subagents[index].Commands == nil {
+			value.Subagents[index].Commands = []session.SubagentCommand{}
+		}
+		if value.Subagents[index].Tokens == nil {
+			value.Subagents[index].Tokens = map[string]session.ModelTokens{}
+		}
+	}
+	if value.Commands == nil {
+		value.Commands = []string{}
+	}
+	if value.Commits == nil {
+		value.Commits = []string{}
+	}
+	if value.Todos == nil {
+		value.Todos = []session.Todo{}
+	}
+	if value.Digest == nil {
+		value.Digest = []session.DigestEntry{}
+	}
+	if value.FileEdits == nil {
+		value.FileEdits = []session.FileEdit{}
+	}
+	if value.Synthesis != nil {
+		synthesis := *value.Synthesis
+		if synthesis.Goals == nil {
+			synthesis.Goals = []string{}
+		}
+		if synthesis.KeyDecisions == nil {
+			synthesis.KeyDecisions = []string{}
+		}
+		value.Synthesis = &synthesis
+	}
+	return value
 }
 
 func parseSourceID(value string) (string, error) {

@@ -41,7 +41,7 @@ export type SessionsQuery = {
 export function decodeSessionsResponse(body: unknown): SessionsPayload {
   if (Array.isArray(body)) {
     return {
-      sessions: body.map((session) => withLocalSourceDefaults(session as Session)),
+      sessions: body.map(decodeSession),
       machines: [],
     };
   }
@@ -59,8 +59,42 @@ export function decodeSessionsResponse(body: unknown): SessionsPayload {
     throw new Error('Invalid sessions response');
   }
   return {
-    sessions: sessions.map((session) => withLocalSourceDefaults(session as Session)),
+    sessions: sessions.map(decodeSession),
     machines: machinesFromBody(body),
+  };
+}
+
+function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+// Older caches and sparse remote facts can contain null collection fields.
+// Normalize at the API boundary so one incomplete session cannot crash the
+// whole board while the backend is being upgraded or refreshed.
+function decodeSession(value: unknown): Session {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid session response');
+  }
+  const raw = value as Session;
+  const synthesis =
+    raw.synthesis == null
+      ? null
+      : {
+          ...raw.synthesis,
+          goals: arrayOrEmpty(raw.synthesis.goals),
+          keyDecisions: arrayOrEmpty(raw.synthesis.keyDecisions),
+        };
+  return {
+    ...withLocalSourceDefaults(raw),
+    tokens: raw.tokens != null && typeof raw.tokens === 'object' ? raw.tokens : {},
+    unpricedModels: arrayOrEmpty(raw.unpricedModels),
+    subagents: arrayOrEmpty(raw.subagents),
+    commands: arrayOrEmpty(raw.commands),
+    commits: arrayOrEmpty(raw.commits),
+    todos: arrayOrEmpty(raw.todos),
+    digest: arrayOrEmpty(raw.digest),
+    fileEdits: arrayOrEmpty(raw.fileEdits),
+    synthesis,
   };
 }
 
