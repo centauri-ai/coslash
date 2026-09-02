@@ -18,6 +18,7 @@ LITELLM_URL := https://raw.githubusercontent.com/BerriAI/litellm/main/model_pric
 OPENCODE_MODELS_URL := https://models.opencode.ai/api.json
 GO_REQUIRED := $(shell sed -n 's/^go //p' go.mod)
 NODE_REQUIRED := $(shell tr -d 'v\n' < $(FRONTEND)/.nvmrc)
+VERSION_AT_LEAST = awk -v actual="$(1)" -v required="$(2)" 'BEGIN { if (actual !~ /^[0-9]+(\.[0-9]+)*$$/ || required !~ /^[0-9]+(\.[0-9]+)*$$/) exit 1; actual_count = split(actual, actual_parts, "."); required_count = split(required, required_parts, "."); count = actual_count > required_count ? actual_count : required_count; for (i = 1; i <= count; i++) { actual_part = i <= actual_count ? actual_parts[i] + 0 : 0; required_part = i <= required_count ? required_parts[i] + 0 : 0; if (actual_part > required_part) exit 0; if (actual_part < required_part) exit 1 } }'
 
 .PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models check-go check-node \
 	helper helper-dist helper-assets test-embedded-helpers
@@ -29,10 +30,24 @@ check-go:
 		echo "To install a prebuilt binary instead, see the Install section in README.md."; \
 		exit 1; \
 	}
+	@installed=$$(go version | sed -n 's/^go version go\([0-9][0-9.]*\).*/\1/p'); \
+	$(call VERSION_AT_LEAST,$$installed,$(GO_REQUIRED)) || { \
+		echo "error: Go $$installed is unsupported; Go $(GO_REQUIRED)+ is required to build coSlash from source."; \
+		echo "Install Go from https://go.dev/dl/ or run: brew install go"; \
+		echo "To install a prebuilt binary instead, see the Install section in README.md."; \
+		exit 1; \
+	}
 
 check-node:
-	@command -v npm >/dev/null 2>&1 || { \
-		echo "error: npm (Node $(NODE_REQUIRED)+) is required to build the frontend."; \
+	@command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 || { \
+		echo "error: Node $(NODE_REQUIRED)+ and npm are required to build the frontend."; \
+		echo "Install Node from https://nodejs.org/ or run: brew install node"; \
+		echo "To install a prebuilt binary instead, see the Install section in README.md."; \
+		exit 1; \
+	}
+	@installed=$$(node --version | sed -n 's/^v\([0-9][0-9.]*\).*/\1/p'); \
+	$(call VERSION_AT_LEAST,$$installed,$(NODE_REQUIRED)) || { \
+		echo "error: Node $$installed is unsupported; Node $(NODE_REQUIRED)+ is required to build the frontend."; \
 		echo "Install Node from https://nodejs.org/ or run: brew install node"; \
 		echo "To install a prebuilt binary instead, see the Install section in README.md."; \
 		exit 1; \

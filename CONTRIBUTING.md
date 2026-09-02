@@ -26,7 +26,7 @@ make release
 ./bin/coslash
 ```
 
-`make release` checks for `go` and `npm` before building. If either is missing, install the toolchain or use a release archive / Homebrew install.
+`make release` checks Go and Node versions before building. If either is missing or unsupported, install the toolchain or use a release archive / Homebrew install.
 
 For UI development, run the API and Vite separately:
 
