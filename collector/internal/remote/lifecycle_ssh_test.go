@@ -53,11 +53,27 @@ func TestLifecycleSFTPPrimitivesCreateVerifyAndRejectSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A helper install must not depend on, or mutate, the permissions of the
+	// user's unrelated XDG-style directory tree.
+	local := filepath.Join(root, ".local")
+	if err := os.Mkdir(local, 0o775); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(local, 0o775); err != nil {
+		t.Fatal(err)
+	}
 	uid := uint32(os.Getuid())
 	if err := validateLifecycleDirectories(client, home, "v1", uid, true); err != nil {
 		t.Fatal(err)
 	}
-	absolute := path.Join(home, ".local/lib/coslash/helpers/v1/coslash-helper")
+	info, err := os.Stat(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o775 {
+		t.Fatalf("unrelated .local permissions = %v", info.Mode().Perm())
+	}
+	absolute := path.Join(home, ".coslash/helpers/v1/coslash-helper")
 	file, err := client.OpenFile(absolute, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +92,8 @@ func TestLifecycleSFTPPrimitivesCreateVerifyAndRejectSymlink(t *testing.T) {
 	if err != nil || remoteFile.SHA256 != digest(content) || remoteFile.Mode.Perm() != 0o700 || remoteFile.UID != uid {
 		t.Fatalf("remote file = %#v, error = %v", remoteFile, err)
 	}
-	symlink := filepath.Join(root, ".local/lib/coslash/helpers/symlink")
-	if err := os.Symlink(filepath.Join(root, ".local/lib/coslash/helpers/v1"), symlink); err != nil {
+	symlink := filepath.Join(root, ".coslash/helpers/symlink")
+	if err := os.Symlink(filepath.Join(root, ".coslash/helpers/v1"), symlink); err != nil {
 		t.Fatal(err)
 	}
 	if err := validateLifecycleDirectories(client, home, "symlink", uid, false); !errors.Is(err, ErrHelperVerification) {
@@ -88,13 +104,13 @@ func TestLifecycleSFTPPrimitivesCreateVerifyAndRejectSymlink(t *testing.T) {
 func TestResolveLifecyclePathAcceptsOnlyExactKnownLayout(t *testing.T) {
 	want, _ := helperPath("v1")
 	absolute, version, err := resolveLifecyclePath("/home/user", want)
-	if err != nil || absolute != "/home/user/.local/lib/coslash/helpers/v1/coslash-helper" || version != "v1" {
+	if err != nil || absolute != "/home/user/.coslash/helpers/v1/coslash-helper" || version != "v1" {
 		t.Fatalf("path = %q, version = %q, error = %v", absolute, version, err)
 	}
 	for _, candidate := range []string{
-		"~/.local/lib/coslash/helpers/v1/other",
-		"~/.local/lib/coslash/helpers/v1/coslash-helper.new",
-		"~/.local/lib/coslash/helpers/../coslash-helper",
+		"~/.coslash/helpers/v1/other",
+		"~/.coslash/helpers/v1/coslash-helper.new",
+		"~/.coslash/helpers/../coslash-helper",
 	} {
 		if _, _, err := resolveLifecyclePath("/home/user", candidate); !errors.Is(err, ErrUnknownHelperPath) {
 			t.Fatalf("accepted lifecycle path %q: %v", candidate, err)

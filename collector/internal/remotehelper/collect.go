@@ -396,11 +396,11 @@ func restabilize(scanned *vendorScan, item *family) (bool, string) {
 		if err != nil {
 			return false, remotefacts.StaleReasonUnstableFile
 		}
-		if info.Size() != before.Size || info.ModTime().UnixMilli() != before.ModifiedAtMs {
+		refreshed := sftpCompatibleFingerprint(vendors.FileFingerprint{
+			Key: before.Key, Size: info.Size(), ModifiedAtMs: info.ModTime().UnixMilli(),
+		})
+		if refreshed.Size != before.Size || refreshed.ModifiedAtMs != before.ModifiedAtMs {
 			stable = false
-			refreshed := before
-			refreshed.Size = info.Size()
-			refreshed.ModifiedAtMs = info.ModTime().UnixMilli()
 			scanned.fileFacts[file] = refreshed
 			for index := range item.fingerprints {
 				if item.fingerprints[index].Key == refreshed.Key {

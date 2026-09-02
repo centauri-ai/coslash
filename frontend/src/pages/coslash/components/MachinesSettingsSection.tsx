@@ -159,8 +159,8 @@ export function MachinesSettingsSection({
         <div className="flex flex-col gap-1 p-4">
           <div className="text-sm font-semibold">Remote host</div>
           <div className="text-muted-foreground text-xs text-pretty">
-            Monitor Claude Code and Codex through your existing SSH config. SFTP works without Linux code;
-            you can explicitly install the optional, verified collection helper for faster refreshes.
+            Monitor Claude Code and Codex through your existing SSH config. SFTP works without Linux code; you
+            can explicitly install the optional, verified collection helper for faster refreshes.
           </div>
         </div>
 
@@ -182,13 +182,31 @@ export function MachinesSettingsSection({
           <div className="border-warning-fg/30 bg-warning-bg text-warning-fg flex flex-col gap-2 border-t p-4 text-xs">
             A helper is owned by {draft.sshAlias}. Choose how to change this host before saving the new alias.
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" disabled={testing || helperOwnershipCorrupt} onClick={() => void resolveAliasChange('uninstall')}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={testing || helperOwnershipCorrupt}
+                onClick={() => void resolveAliasChange('uninstall')}
+              >
                 Uninstall helper and change host
               </Button>
-              <Button type="button" variant="outline" size="sm" disabled={testing} onClick={() => void resolveAliasChange('leave')}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={testing}
+                onClick={() => void resolveAliasChange('leave')}
+              >
                 Leave helper installed and change host
               </Button>
-              <Button type="button" variant="ghost" size="sm" disabled={testing} onClick={() => void resolveAliasChange('cancel')}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={testing}
+                onClick={() => void resolveAliasChange('cancel')}
+              >
                 Cancel
               </Button>
             </div>
@@ -242,8 +260,16 @@ export function MachinesSettingsSection({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={testing || helperAction != null || testResult?.state !== 'ok' || hostStatus?.helperInstallationAvailable !== true || hostStatus?.helperProbeState === 'probing'}
-                  onClick={() => void setupHelper(hostStatus?.helper?.state === 'deprecated' ? 'upgrade' : 'install')}
+                  disabled={
+                    testing ||
+                    helperAction != null ||
+                    testResult?.state !== 'ok' ||
+                    hostStatus?.helperInstallationAvailable !== true ||
+                    hostStatus?.helperProbeState === 'probing'
+                  }
+                  onClick={() =>
+                    void setupHelper(hostStatus?.helper?.state === 'deprecated' ? 'upgrade' : 'install')
+                  }
                 >
                   {helperAction != null
                     ? 'Setting up helper…'
@@ -261,7 +287,9 @@ export function MachinesSettingsSection({
                   disabled={testing || helperAction != null || helperOwnershipCorrupt}
                   onClick={() => void removeHost('uninstall')}
                 >
-                  {removeAction === 'uninstall' ? 'Confirm uninstall and remove' : 'Uninstall helper and remove'}
+                  {removeAction === 'uninstall'
+                    ? 'Confirm uninstall and remove'
+                    : 'Uninstall helper and remove'}
                 </Button>
               </>
             )}
@@ -270,16 +298,30 @@ export function MachinesSettingsSection({
 
         {hasHost && (
           <div className="border-border text-muted-foreground flex flex-col gap-1 border-t p-4 text-xs">
-            <div>Active transport: {hostStatus?.transport === 'helper' ? 'Verified helper' : 'SFTP fallback'}</div>
             <div>
-              Helper: {hostStatus?.helperProbeState === 'probing' ? 'Checking installed helper…' : hostStatus?.helper?.state ?? 'Not checked'}
+              Active transport: {hostStatus?.transport === 'helper' ? 'Verified helper' : 'SFTP fallback'}
+            </div>
+            <div>
+              Helper:{' '}
+              {hostStatus?.helperProbeState === 'probing'
+                ? 'Checking installed helper…'
+                : (hostStatus?.helper?.state ?? 'Not checked')}
               {hostStatus?.helper?.version ? ` · ${hostStatus.helper.version}` : ''}
               {hostStatus?.helper?.reason ? ` · ${hostStatus.helper.reason.replaceAll('_', ' ')}` : ''}
             </div>
             {helperOwned && <div>Helper ownership is recorded for this SSH alias.</div>}
-            {helperOwnershipCorrupt && <div>Helper ownership is corrupt. You can only leave the helper installed while removing or changing this host.</div>}
-            {hostStatus?.helperInstallationAvailable === false && <div>Helper installation is unavailable in this build.</div>}
-            {testResult?.state !== 'ok' && hostStatus?.helperInstallationAvailable !== false && <div>Test SSH/SFTP before installing or upgrading the helper.</div>}
+            {helperOwnershipCorrupt && (
+              <div>
+                Helper ownership is corrupt. You can only leave the helper installed while removing or
+                changing this host.
+              </div>
+            )}
+            {hostStatus?.helperInstallationAvailable === false && (
+              <div>Helper installation is unavailable in this build.</div>
+            )}
+            {testResult?.state !== 'ok' && hostStatus?.helperInstallationAvailable !== false && (
+              <div>Test SSH/SFTP before installing or upgrading the helper.</div>
+            )}
           </div>
         )}
 
@@ -288,7 +330,8 @@ export function MachinesSettingsSection({
             role={testResult?.state === 'ok' && !setupFailed ? 'status' : 'alert'}
             className={cn('border-t px-4 py-3 text-xs', {
               'bg-success-bg text-success-fg': testResult?.state === 'ok' && !setupFailed,
-              'bg-warning-bg text-warning-fg': (testResult != null && testResult.state !== 'ok') || setupFailed,
+              'bg-warning-bg text-warning-fg':
+                (testResult != null && testResult.state !== 'ok') || setupFailed,
               'bg-destructive/10 text-destructive': testError != null,
             })}
           >
@@ -296,7 +339,8 @@ export function MachinesSettingsSection({
             {testResult?.helper && (
               <div className="pt-1">
                 Helper: {testResult.helper.version ? `${testResult.helper.version} · ` : ''}
-                {testResult.helper.state.replaceAll('_', ' ')} · {testResult.helper.compatible ? 'compatible' : 'unavailable'}
+                {testResult.helper.state.replaceAll('_', ' ')} ·{' '}
+                {testResult.helper.compatible ? 'compatible' : 'unavailable'}
                 {testResult.helper.reused ? ' · reused after verification' : ''}
                 {testResult.helper.reason ? ` · ${testResult.helper.reason.replaceAll('_', ' ')}` : ''}
                 {testResult.helper.fallback ? ' · using SFTP fallback' : ''}

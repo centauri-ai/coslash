@@ -38,6 +38,50 @@ func writeCodexFixture(fs *fakeFS, id, parentID string, modTime time.Time) strin
 	return filePath
 }
 
+func TestCollectIncrementalHandlesMissingVendorRoots(t *testing.T) {
+	tests := []struct {
+		name         string
+		setup        func(*fakeFS)
+		wantFamilies int
+	}{
+		{name: "neither vendor installed", wantFamilies: 0},
+		{
+			name: "Claude only",
+			setup: func(fs *fakeFS) {
+				writeClaudeFixture(fs, "project", "aaaaaaaa-0000-0000-0000-000000000001", 1, 1, time.Unix(1000, 0))
+			},
+			wantFamilies: 1,
+		},
+		{
+			name: "Codex only",
+			setup: func(fs *fakeFS) {
+				writeCodexFixture(fs, "11111111-2222-3333-4444-555555555555", "", time.Unix(1000, 0))
+			},
+			wantFamilies: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fs := newFakeFS()
+			if test.setup != nil {
+				test.setup(fs)
+			}
+			snapshot, sessions, failures, err := collectIncremental(
+				newFakeSource(fs, Limits{}), 0, time.Unix(2000, 0), CachedSnapshotV2{},
+			)
+			if err != nil {
+				t.Fatalf("collectIncremental: %v", err)
+			}
+			if len(failures) != 0 {
+				t.Fatalf("missing optional vendor root produced failures: %v", failures)
+			}
+			if len(snapshot.Families) != test.wantFamilies || len(sessions) != test.wantFamilies {
+				t.Fatalf("families=%d sessions=%d, want %d", len(snapshot.Families), len(sessions), test.wantFamilies)
+			}
+		})
+	}
+}
+
 func TestCollectIncrementalSkipsUnchangedFamiliesAndHeaders(t *testing.T) {
 	fs := newFakeFS()
 	claudeID := "aaaaaaaa-0000-0000-0000-000000000001"

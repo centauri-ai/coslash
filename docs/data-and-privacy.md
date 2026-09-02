@@ -28,17 +28,17 @@ coSlash creates the storage directory with mode `0700` and persistent files with
 When one remote machine is enabled, the Mac's system `ssh` client uses the saved
 OpenSSH alias and requests SFTP. SFTP collection runs no coSlash code on Linux.
 After a connection test, the user may explicitly consent to install the optional
-collector helper. The Mac verifies signed release metadata and the exact artifact
-digest before it uploads a versioned executable to
-`~/.local/lib/coslash/helpers/<version>/coslash-helper`, owned by the SSH user
-with mode `0700`. The helper has no root access or network access, reads only the
-same fixed allowlist below, and streams bounded normalized facts back to the Mac.
+collector helper. Preview releases authenticate the embedded helper through the
+containing coSlash archive checksum, then verify its exact digest and platform
+before uploading a versioned executable to
+`~/.coslash/helpers/<version>/coslash-helper`, owned by the SSH user with mode
+`0700`. The helper has no root access or network access, reads only the same
+fixed allowlist below, and streams bounded normalized facts back to the Mac.
 No path, command, prompt, transcript row, cache, or handoff supplied by the Mac
 can choose files the helper opens.
 
-Builds without approved embedded release keys and metadata publication disable
-the install action explicitly. They continue using SFTP and never upload an
-unverified helper.
+Builds without authenticated embedded helper assets disable the install action
+explicitly. They continue using SFTP and never upload an unverified helper.
 
 Both collection paths may read these paths beneath the SSH user's home:
 

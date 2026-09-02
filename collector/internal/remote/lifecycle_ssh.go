@@ -232,13 +232,16 @@ func resolveLifecyclePath(home, requested string) (string, string, error) {
 	if !ok || fileName != HelperFileName || !helperVersionPattern.MatchString(version) {
 		return "", "", ErrUnknownHelperPath
 	}
-	return path.Join(home, ".local/lib/coslash/helpers", version, HelperFileName), version, nil
+	return path.Join(home, ".coslash/helpers", version, HelperFileName), version, nil
 }
 
 func validateLifecycleDirectories(client *sftp.Client, home, version string, uid uint32, create bool) error {
 	directories := []string{home}
 	current := home
-	for _, component := range []string{".local", "lib", "coslash", "helpers", version} {
+	// Keep the executable beneath a dedicated, mode-0700 tree. Common Linux
+	// homes may have a group-writable ~/.local; rejecting that ancestor is safe,
+	// but trying to chmod it would unexpectedly mutate unrelated user data.
+	for _, component := range []string{".coslash", "helpers", version} {
 		current = path.Join(current, component)
 		directories = append(directories, current)
 	}

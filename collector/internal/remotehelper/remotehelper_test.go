@@ -33,6 +33,23 @@ func TestSourceEntryLimitIsEnforcedWhileReadingDirectory(t *testing.T) {
 	}
 }
 
+func TestSelectionSinceMatchesSFTPLookback(t *testing.T) {
+	since := (48 * time.Hour).Milliseconds()
+	if got, want := selectionSince(since), (24 * time.Hour).Milliseconds(); got != want {
+		t.Fatalf("selection since = %d, want %d", got, want)
+	}
+	if got := selectionSince((12 * time.Hour).Milliseconds()); got != 0 {
+		t.Fatalf("selection since before epoch = %d, want 0", got)
+	}
+}
+
+func TestSFTPCompatibleFingerprintUsesWholeSecondMtime(t *testing.T) {
+	fingerprint := sftpCompatibleFingerprint(vendors.FileFingerprint{Key: "file", Size: 9, ModifiedAtMs: 1_729_123_456_789})
+	if got, want := fingerprint.ModifiedAtMs, int64(1_729_123_456_000); got != want {
+		t.Fatalf("fingerprint mtime = %d, want %d", got, want)
+	}
+}
+
 func TestCodexScanReusesUnchangedCachedHeader(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".codex", "sessions")
@@ -55,7 +72,7 @@ func TestCodexScanReusesUnchangedCachedHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fp := fingerprints[0]
+	fp := sftpCompatibleFingerprint(fingerprints[0])
 	request := validRequest()
 	request.Known = []remoteprotocol.KnownFamily{{
 		Vendor: "codex", FamilyID: id, Fingerprint: "family-fingerprint",

@@ -115,7 +115,8 @@ export function hostStripModel(
 }
 
 export function formatTestConnectionResult(machine: MachineFact): string {
-  if (machine.state === 'ok') return 'Connected · SFTP is ready · optional helper available with your consent';
+  if (machine.state === 'ok')
+    return 'Connected · SFTP is ready · optional helper available with your consent';
   return `${machine.label} · ${machine.error || reasonMessage(machine.reason)}`;
 }
 

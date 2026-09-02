@@ -42,7 +42,12 @@ func TestApplySettingsWaitsForFirstListViewWindow(t *testing.T) {
 
 	manager.ListView(0)
 	waitUntil(t, func() bool {
-		return started.Load() > 0
+		if started.Load() == 0 {
+			return false
+		}
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return !manager.refreshing
 	})
 }
 
@@ -280,7 +285,7 @@ func TestRestartDiscoversAndReusesVerifiedHelperWithoutInstall(t *testing.T) {
 	}
 }
 
-func TestHelperTestSuccessDoesNotDependOnDurableSnapshotCoverage(t *testing.T) {
+func TestHelperTestAcceptsEmptySuccessfulCollection(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
@@ -291,7 +296,7 @@ func TestHelperTestSuccessDoesNotDependOnDurableSnapshotCoverage(t *testing.T) {
 		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(lifecycleRemote), nil },
 		HelperInstallationAvailable: true,
 		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
-			return refreshOutcome{Snapshot: CachedSnapshotV2{Coverage: []AgentCoverage{{Agent: vendors.AgentClaude, CandidateFiles: 1, SelectedFiles: 1}}}}, nil
+			return refreshOutcome{Snapshot: CachedSnapshotV2{}}, nil
 		},
 	})
 	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
@@ -307,10 +312,10 @@ func TestHelperTestSuccessDoesNotDependOnDurableSnapshotCoverage(t *testing.T) {
 	manager.mu.Unlock()
 	result := manager.TestHelper(context.Background())
 	if !result.Succeeded {
-		t.Fatalf("helper test failed because of unrelated board coverage: %#v", result)
+		t.Fatalf("empty helper test was not successful: %#v", result)
 	}
-	if result.Health.Complete {
-		t.Fatal("fixture must keep board health incomplete to prove operation result is independent")
+	if result.Health.Complete || result.Health.Reason == nil || *result.Health.Reason != ReasonNoSupportedData {
+		t.Fatalf("empty-host board health = %#v", result.Health)
 	}
 }
 

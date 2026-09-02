@@ -25,8 +25,8 @@ import (
 // vendor_complete so request_complete — and any coverage-window advance —
 // never happens for it).
 const (
-	claudeParserVersion        = "claude-sftp/1"
-	codexParserVersion         = "codex-sftp/1"
+	claudeParserVersion        = vendors.ParserVersion
+	codexParserVersion         = vendors.ParserVersion
 	sftpCollectorParserVersion = "sftp-collector.1"
 )
 
@@ -70,6 +70,7 @@ type vendorFamilyInput struct {
 	Metadata        *vendors.SessionMetadata
 	Parse           func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error)
 	Fingerprint     func(files []string) ([]vendors.FileFingerprint, error)
+	HeaderMappings  map[string][]remotefacts.HeaderMapping
 	InitialFailures []vendors.FileFailure
 	FamilyIDOf      func(logPath string) string
 }
@@ -157,7 +158,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		}
 		family, err := remotefacts.FromParsed(
 			in.Vendor, id, in.ParserVersion, remotefacts.StateComplete, "",
-			sessions, in.Metadata, in.Selected[id],
+			sessions, in.Metadata, in.Selected[id], in.HeaderMappings[id],
 		)
 		if err != nil {
 			records = append(records, remoteprotocol.Record{
@@ -246,10 +247,18 @@ func collectCodexVendor(
 	selected := map[string][]vendors.FileFingerprint{}
 	filesOf := map[string][]string{}
 	familyIDOf := map[string]string{}
+	headerMappings := map[string][]remotefacts.HeaderMapping{}
 	var initialFailures []vendors.FileFailure
 	for id, family := range selectedFamilies {
 		selected[id] = family.Fingerprints
 		filesOf[id] = family.Files
+		for _, fingerprint := range family.Fingerprints {
+			if header, ok := updatedHeaders[fingerprint.Key]; ok {
+				headerMappings[id] = append(headerMappings[id], remotefacts.HeaderMapping{
+					Key: fingerprint.Key, SessionID: header.SessionID, ParentID: header.ParentID,
+				})
+			}
+		}
 		for _, file := range family.Files {
 			familyIDOf[file] = id
 		}
@@ -267,6 +276,7 @@ func collectCodexVendor(
 		Fingerprint: func(files []string) ([]vendors.FileFingerprint, error) {
 			return vendors.FingerprintSourceFilesFresh(source, codex.SessionsRoot(home), files)
 		},
+		HeaderMappings:  headerMappings,
 		InitialFailures: initialFailures,
 		FamilyIDOf: func(logPath string) string {
 			if id, ok := familyIDOf[logPath]; ok {

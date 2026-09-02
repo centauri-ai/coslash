@@ -168,20 +168,21 @@ func (unavailableReleaseProvider) LoadArtifact(context.Context, Artifact) ([]byt
 	return nil, errHelperReleaseUnavailable
 }
 
-// NewProductionManager centralizes the production wiring. This build has no
-// approved embedded release keys or publication endpoint yet, so it carries a
-// non-nil, deliberately unavailable provider and disables installation in the
-// API/UI. Replacing the provider and trust constants is a release operation,
-// not a frontend-controlled setting.
+// NewProductionManager centralizes the production wiring. Release builds
+// compile both Linux helpers into the Coslash executable; ordinary go test and
+// go run builds deliberately use the unavailable provider so generated binary
+// assets are never required in the source tree.
 func NewProductionManager() (*Manager, error) {
+	provider, embedded := newProductionHelperReleaseProvider()
 	trust := TrustStore{
 		Keys: map[string]ed25519.PublicKey{}, RevokedKeys: map[string]bool{},
 		MinimumSequence: 0,
 		Sequences:       &FileMetadataSequenceStore{Path: filepath.Join(settings.Home(), "helper-release", "sequence")},
+		AllowEmbedded:   embedded,
 	}
 	return NewManager(Options{
-		ReleaseProvider: unavailableReleaseProvider{}, Trust: trust,
-		HelperInstallationAvailable: false,
+		ReleaseProvider: provider, Trust: trust,
+		HelperInstallationAvailable: embedded,
 	}), nil
 }
 
@@ -445,7 +446,15 @@ func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 		manager.complete = false
 		manager.reason = reasonPtr(*reason)
 		manager.errorCopy = genericErrorCopy(*reason)
-		return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Reason: reasonPtr(*reason)}
+		// An empty host is a valid helper result: the executable completed the
+		// protocol and inspected every supported root, but there is simply no
+		// agent data yet. Keep that useful board state while reporting the setup
+		// operation itself as successful.
+		return HelperTestResult{
+			Health:    manager.healthLocked(manager.lastRequestedMs),
+			Succeeded: *reason == ReasonNoSupportedData,
+			Reason:    reasonPtr(*reason),
+		}
 	}
 	manager.state = StateOK
 	manager.complete = true

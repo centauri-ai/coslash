@@ -32,6 +32,24 @@ func (v *vendorScan) statFile(file string) (fs.FileInfo, error) {
 	return v.source.Stat(file)
 }
 
+// selectionSince matches SFTP collection's one-day lookback. The requested
+// protocol window stays unchanged for coverage reporting; this only retains
+// near-boundary families so local, SFTP, and helper collection produce the
+// same normalized facts.
+func selectionSince(since int64) int64 {
+	return max(0, since-(24*time.Hour).Milliseconds())
+}
+
+// sftpCompatibleFingerprint uses the precision available to the fallback
+// transport. SFTP v3 reports mtimes in whole seconds, while a native helper
+// can see nanoseconds. Keeping the helper's protocol facts at second precision
+// lets a host move between SFTP and helper collection without spurious changed
+// families or a permanently mismatched Codex header baseline.
+func sftpCompatibleFingerprint(fingerprint vendors.FileFingerprint) vendors.FileFingerprint {
+	fingerprint.ModifiedAtMs = fingerprint.ModifiedAtMs / 1000 * 1000
+	return fingerprint
+}
+
 func scanClaude(
 	source *Source,
 	home string,
@@ -68,7 +86,7 @@ func scanClaude(
 	result.scan.candidateFiles = len(found.Files)
 	selected := found.Files
 	if since > 0 {
-		selected = claude.FilesSinceSource(source, found.Files, metadata.Live, since)
+		selected = claude.FilesSinceSource(source, found.Files, metadata.Live, selectionSince(since))
 	}
 	selected, _ = vendors.LimitNewestSourceFileFamilies(
 		source, selected, vendors.MaxCandidateFilesPerAgent, claude.FamilyIDFromPath,
@@ -116,9 +134,9 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 	for _, file := range found.Files {
 		items, fingerprintErr := vendors.FingerprintSourceFiles(source, root, []string{file})
 		if fingerprintErr == nil && len(items) == 1 {
-			fingerprints[file] = items[0]
+			fingerprints[file] = sftpCompatibleFingerprint(items[0])
 			if cached, ok := known[items[0].Key]; ok && cached.Size == items[0].Size &&
-				cached.ModifiedAtMs == items[0].ModifiedAtMs &&
+				cached.ModifiedAtMs == fingerprints[file].ModifiedAtMs &&
 				cached.SessionID == codex.SessionIDFromRollout(file) {
 				headers[file] = codex.FileHeader{SessionID: cached.SessionID, ParentID: cached.ParentID}
 				continue
@@ -132,7 +150,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 	roots := codex.FamilyRoots(headers)
 	selected := found.Files
 	if request.SinceMs > 0 {
-		selected = codex.FilesSinceSource(source, found.Files, metadata.Live, request.SinceMs)
+		selected = codex.FilesSinceSource(source, found.Files, metadata.Live, selectionSince(request.SinceMs))
 	}
 	selected, _ = vendors.LimitNewestSourceFileFamilies(
 		source, selected, vendors.MaxCandidateFilesPerAgent,
@@ -192,7 +210,7 @@ func (v *vendorScan) record(
 		v.scan.family(familyID).skipReason = boundedReason(err)
 		return
 	}
-	v.recordFingerprint(familyID, sessionID, file, fingerprints[0], selected)
+	v.recordFingerprint(familyID, sessionID, file, sftpCompatibleFingerprint(fingerprints[0]), selected)
 }
 
 func (v *vendorScan) recordFingerprint(

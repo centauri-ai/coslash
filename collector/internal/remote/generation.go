@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -162,9 +163,26 @@ func baselineFamilies(snapshot CachedSnapshotV2, vendor string) map[string]Cache
 func knownFamiliesFor(snapshot CachedSnapshotV2) []remoteprotocol.KnownFamily {
 	known := make([]remoteprotocol.KnownFamily, 0, len(snapshot.Families))
 	for _, family := range snapshot.Families {
-		known = append(known, remoteprotocol.KnownFamily{
+		item := remoteprotocol.KnownFamily{
 			Vendor: family.Vendor, FamilyID: family.FamilyID, Fingerprint: family.Fingerprint,
-		})
+		}
+		if family.Vendor == vendors.AgentCodex {
+			fingerprints := make(map[string]remotefacts.Fingerprint, len(family.Facts.Fingerprints))
+			for _, fingerprint := range family.Facts.Fingerprints {
+				fingerprints[fingerprint.Key] = fingerprint
+			}
+			for _, mapping := range family.Facts.HeaderMappings {
+				fingerprint, ok := fingerprints[mapping.Key]
+				if !ok {
+					continue
+				}
+				item.Headers = append(item.Headers, remoteprotocol.KnownHeader{
+					Key: mapping.Key, Size: fingerprint.Size, ModifiedAtMs: fingerprint.ModifiedAtMs,
+					SessionID: mapping.SessionID, ParentID: mapping.ParentID,
+				})
+			}
+		}
+		known = append(known, item)
 	}
 	return known
 }

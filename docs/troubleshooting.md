@@ -16,8 +16,9 @@ test verifies that SSH authentication and the SFTP subsystem can open and close
 successfully. Readability of the allowed Claude/Codex roots is checked during
 the subsequent collection refresh.
 
-The optional **Install helper** action needs explicit consent and installs one
-signed, verified collector owned by the SSH user. If it is unavailable, blocked
+The optional **Install helper** action needs explicit consent and installs the
+digest-verified collector embedded in the coSlash release, owned by the SSH
+user under `~/.coslash/helpers`. If it is unavailable, blocked
 by a `noexec` mount, unsupported, incompatible, revoked, or fails verification,
 coSlash does not execute it and continues with visibly labeled SFTP collection.
 Use **Upgrade helper** or **Install helper** only after reviewing the consent

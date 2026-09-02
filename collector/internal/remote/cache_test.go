@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
+	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -53,6 +54,25 @@ func TestCacheV2StoreLoadRoundTrip(t *testing.T) {
 	}
 	if len(loaded.CodexHeaders) != 1 || loaded.CodexHeaders[0].SessionID != "s1" {
 		t.Fatalf("codex headers did not round-trip: %+v", loaded.CodexHeaders)
+	}
+}
+
+func TestKnownFamiliesIncludeCodexHeaderMappings(t *testing.T) {
+	family := validFamily(t, "root-1")
+	family.Vendor = vendors.AgentCodex
+	family.HeaderMappings = []remotefacts.HeaderMapping{{Key: "file-1", SessionID: "root-1"}}
+	if err := remotefacts.Validate(family); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := CachedSnapshotV2{Families: []CachedFamilyV2{{
+		Vendor: vendors.AgentCodex, FamilyID: "root-1", Fingerprint: "family-1", Facts: family,
+	}}}
+	known := knownFamiliesFor(snapshot)
+	if len(known) != 1 || len(known[0].Headers) != 1 {
+		t.Fatalf("known families = %#v", known)
+	}
+	if got, want := known[0].Headers[0], (remoteprotocol.KnownHeader{Key: "file-1", Size: 10, ModifiedAtMs: 1000, SessionID: "root-1"}); got != want {
+		t.Fatalf("known header = %#v, want %#v", got, want)
 	}
 }
 

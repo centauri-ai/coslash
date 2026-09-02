@@ -108,18 +108,16 @@ its SSH server with SFTP enabled and agent files readable by the SSH user.
 
 SFTP is the compatible fallback. After testing the connection, you can choose
 **Install helper**. That action asks for explicit consent before coSlash uploads
-one signed, verified Linux collector into a versioned directory owned by the
-SSH user. The helper reads only the supported agent paths and returns bounded,
-normalized facts; it has no root access, no network access, and does not run
-your agent CLI. Machines shows whether collection is using the helper or SFTP,
-including any stale or partial coverage. An incompatible, revoked, blocked, or
-failed helper never runs silently: coSlash keeps the SFTP fallback visible and
-offers repair or upgrade where available.
-
-The current development build feature-gates helper installation until the
-release signing key and metadata publication are approved. Machines says
-**Helper installation is unavailable in this build** when that gate is active;
-SFTP monitoring remains fully usable.
+the matching Linux collector embedded in the coSlash release into the SSH
+user's private `~/.coslash/helpers` directory. The app verifies its size,
+digest, platform, owner, and mode before execution. The helper reads only the
+supported agent paths and returns bounded, normalized facts; it has no root
+access, no network access, and does not run your agent CLI. Machines shows
+whether collection is using the helper or SFTP, including any stale or partial
+coverage. An incompatible, blocked, or failed helper never runs silently:
+coSlash keeps the SFTP fallback visible and offers repair or upgrade where
+available. Initial installation and every upgrade require separate consent;
+disabling a machine does not uninstall its helper.
 
 Remote v1 is monitoring-only. Cards, transcript-derived facts, costs, tokens,
 file-edit summaries, and **Copy handoff** are available. Resume, Start Fresh,

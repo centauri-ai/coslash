@@ -56,7 +56,7 @@ func TestLifecycleInstallsOnlyWithConsentAndVerifiesActivation(t *testing.T) {
 	if result.State != LifecycleReady || !result.CanExecute || remote.installs != 1 {
 		t.Fatalf("with consent = %#v, installs = %d", result, remote.installs)
 	}
-	if remote.lastRequest.Destination != "~/.local/lib/coslash/helpers/v1/coslash-helper" || remote.lastRequest.Temporary != remote.lastRequest.Destination+".new" {
+	if remote.lastRequest.Destination != "~/.coslash/helpers/v1/coslash-helper" || remote.lastRequest.Temporary != remote.lastRequest.Destination+".new" {
 		t.Fatalf("install request = %#v", remote.lastRequest)
 	}
 	if _, err := os.Stat(filepath.Join(remote.root, artifact.Version, HelperFileName)); err != nil {

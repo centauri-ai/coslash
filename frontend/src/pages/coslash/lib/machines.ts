@@ -127,9 +127,14 @@ function decodeCoverage(value: unknown): AgentCoverage[] | undefined {
 
 function decodeHelper(value: unknown): HelperFact | undefined {
   if (value === undefined) return undefined;
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid helper state');
+  if (value == null || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid helper state');
   const raw = value as Record<string, unknown>;
-  if (typeof raw.state !== 'string' || typeof raw.compatible !== 'boolean' || typeof raw.fallback !== 'boolean') {
+  if (
+    typeof raw.state !== 'string' ||
+    typeof raw.compatible !== 'boolean' ||
+    typeof raw.fallback !== 'boolean'
+  ) {
     throw new Error('Invalid helper state');
   }
   const helper: HelperFact = {
@@ -152,7 +157,8 @@ function decodeHelper(value: unknown): HelperFact | undefined {
 
 function decodeMetrics(value: unknown): CollectionMetrics | undefined {
   if (value === undefined) return undefined;
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid collection metrics');
+  if (value == null || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid collection metrics');
   const raw = value as Record<string, unknown>;
   const metrics: CollectionMetrics = {};
   for (const key of ['requestBytes', 'responseBytes', 'records', 'roundTripMs'] as const) {

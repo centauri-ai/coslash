@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { launchRequestPath } from '@/pages/coslash/hooks/use-launch-terminal';
 import { decodeApiError } from '@/pages/coslash/lib/api';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
+import { decodeMachineFact, HELPER_STATES, MACHINE_REASONS } from '@/pages/coslash/lib/machines';
 import {
   decodeHelperSetup,
   HELPER_SETUP_OUTCOMES,
   helperSetupRequestInit,
   remoteTestRequestInit,
 } from '@/pages/coslash/lib/remote-api';
-import { decodeMachineFact, HELPER_STATES, MACHINE_REASONS } from '@/pages/coslash/lib/machines';
 import { LOCAL_SOURCE_ID, type SessionDetail } from '@/pages/coslash/lib/session';
 import { decodeRemoteHostSettings, decodeSettingsResponse } from '@/pages/coslash/lib/settings';
 
@@ -125,7 +125,13 @@ describe('settings and remote API decoders', () => {
         complete: false,
         reason: 'output_limit',
         transport: 'helper',
-        helper: { state: 'deprecated', version: 'v1', compatible: true, fallback: false, reason: 'helper_upgrade_required' },
+        helper: {
+          state: 'deprecated',
+          version: 'v1',
+          compatible: true,
+          fallback: false,
+          reason: 'helper_upgrade_required',
+        },
         metrics: { requestBytes: 120, responseBytes: 456, records: 3, roundTripMs: 40 },
       }),
     ).toMatchObject({
@@ -140,8 +146,12 @@ describe('settings and remote API decoders', () => {
       for (const reason of MACHINE_REASONS) {
         expect(
           decodeMachineFact({
-            sourceId: 'r_0123456789abcdef', label: 'gpu-server', state: 'limited', complete: false,
-            transport: 'sftp', helper: { state, compatible: false, fallback: true, reason },
+            sourceId: 'r_0123456789abcdef',
+            label: 'gpu-server',
+            state: 'limited',
+            complete: false,
+            transport: 'sftp',
+            helper: { state, compatible: false, fallback: true, reason },
           }).helper,
         ).toMatchObject({ state, reason });
       }
@@ -159,7 +169,10 @@ describe('settings and remote API decoders', () => {
         decodeHelperSetup({
           outcome,
           machine: {
-            sourceId: 'r_0123456789abcdef', label: 'gpu-server', state: 'limited', complete: false,
+            sourceId: 'r_0123456789abcdef',
+            label: 'gpu-server',
+            state: 'limited',
+            complete: false,
             helperOwnershipRecorded: true,
             helper: { state: 'sftp', compatible: false, fallback: true, reason: 'helper_missing' },
           },

@@ -40,7 +40,10 @@ export function useSettings() {
     return () => controller.abort();
   }, []);
 
-  const save = async (settings: CoslashSettings, remoteOwnershipAction?: RemoteOwnershipAction): Promise<boolean> => {
+  const save = async (
+    settings: CoslashSettings,
+    remoteOwnershipAction?: RemoteOwnershipAction,
+  ): Promise<boolean> => {
     setIsSaving(true);
     setSaveError(null);
     try {

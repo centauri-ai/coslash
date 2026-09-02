@@ -35,7 +35,7 @@ const (
 	// It is user-owned and versioned, so a failed update cannot replace a known
 	// working helper.  A noexec mount is a deliberate SFTP fallback, not a
 	// reason to try a privileged or alternate installation location.
-	HelperInstallBase            = "~/.local/lib/coslash/helpers"
+	HelperInstallBase            = "~/.coslash/helpers"
 	HelperFileName               = "coslash-helper"
 	MaxHelperArtifactBytes int64 = 128 << 20
 )
@@ -141,6 +141,10 @@ type SignedReleaseMetadata struct {
 	KeyID     string          `json:"key_id"`
 	Metadata  ReleaseMetadata `json:"metadata"`
 	Signature string          `json:"signature"`
+	// embedded is set only by the compile-time asset provider. It cannot be
+	// supplied by decoded metadata and makes the containing Coslash binary the
+	// authentication boundary instead of a second runtime signature service.
+	embedded bool
 }
 
 // TrustStore is compiled into the Mac application.  Shipping a replacement
@@ -153,6 +157,7 @@ type TrustStore struct {
 	MinimumSequence uint64
 	Now             func() time.Time
 	Sequences       MetadataSequenceStore
+	AllowEmbedded   bool
 }
 
 // MetadataSequenceStore durably remembers the newest authenticated release
@@ -180,6 +185,15 @@ func (store *MemoryMetadataSequenceStore) Accept(sequence uint64) error {
 }
 
 func (trust TrustStore) Verify(document SignedReleaseMetadata) (ReleaseMetadata, error) {
+	if document.embedded {
+		if !trust.AllowEmbedded || document.KeyID != "" || document.Signature != "" {
+			return ReleaseMetadata{}, ErrHelperMetadata
+		}
+		if err := document.Metadata.Validate(); err != nil {
+			return ReleaseMetadata{}, fmt.Errorf("%w: %v", ErrHelperMetadata, err)
+		}
+		return document.Metadata, nil
+	}
 	if !validMetadataID(document.KeyID) || trust.RevokedKeys[document.KeyID] {
 		return ReleaseMetadata{}, ErrHelperMetadata
 	}
