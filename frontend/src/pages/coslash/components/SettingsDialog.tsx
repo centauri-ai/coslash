@@ -184,6 +184,7 @@ export function SettingsDialog({
   saveError,
   isSaving,
   onSave,
+  onRemoteConnectionVerified,
 }: {
   open: boolean;
   mode: SettingsDialogMode;
@@ -194,6 +195,7 @@ export function SettingsDialog({
   saveError: string | null;
   isSaving: boolean;
   onSave: (settings: CoslashSettings, remoteOwnershipAction?: RemoteOwnershipAction) => Promise<boolean>;
+  onRemoteConnectionVerified?: () => void;
 }) {
   const [draft, setDraft] = useState<CoslashSettings | null>(
     response ? initialSettingsDraft(response) : null,
@@ -493,6 +495,7 @@ export function SettingsDialog({
                     setDraft({ ...draft, remote: { ...remote, sshAlias: remote.sshAlias.trim() } });
                   }}
                   onOwnershipActionChange={setRemoteOwnershipAction}
+                  onConnectionVerified={onRemoteConnectionVerified}
                 />
               )}
 

@@ -92,11 +92,11 @@ func redactDiagnostic(text string) string {
 func genericErrorCopy(reason Reason) string {
 	switch reason {
 	case ReasonAuthentication:
-		return "SSH authentication failed"
+		return "SSH authentication failed — run ssh once in Terminal, then Retry"
 	case ReasonHostKey:
-		return "SSH host key verification failed"
+		return "SSH host key needs confirmation — run ssh once in Terminal, then Retry"
 	case ReasonConnectionFailed:
-		return "connection failed"
+		return "SSH is not reachable yet — check the alias, then Retry"
 	case ReasonSFTPUnavailable:
 		return "SFTP subsystem unavailable"
 	case ReasonPermissionDenied:

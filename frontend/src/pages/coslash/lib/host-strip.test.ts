@@ -43,8 +43,16 @@ describe('Mac-only remote health copy', () => {
   });
 
   it('describes optional-helper setup and first-use SSH guidance', () => {
-    expect(formatTestConnectionResult(machine('ok'))).toContain('optional helper');
+    expect(formatTestConnectionResult(machine('ok'))).toContain('SSH/SFTP is ready');
     expect(firstTimeSshHint('gpu-server')).toContain('ssh gpu-server');
+    expect(firstTimeSshHint('gpu-server')).toContain('Test connection again');
+  });
+
+  it('uses recoverable tone for first-time SSH failures', () => {
+    const model = hostStripModel(machine('error', 'connection_failed'), { nowMs: 10_000 });
+    expect(model.tone).toBe('warning');
+    expect(model.message).toContain('SSH is not reachable yet');
+    expect(model.message).toContain('Retry');
   });
 });
 

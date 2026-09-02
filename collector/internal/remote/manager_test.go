@@ -722,6 +722,58 @@ func TestReadOnlyDiscoveryDoesNotFetchAnArtifact(t *testing.T) {
 	}
 }
 
+func TestSuccessfulAliasTestClearsBackoffAndKicksRefresh(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	refreshed := make(chan struct{}, 1)
+	manager := NewManager(Options{
+		Cache: NewCache(filepath.Join(home, "remote-cache")),
+		Now:   func() time.Time { return now },
+		Test: func(context.Context, string) (probeResult, error) {
+			return probeResult{RoundTrip: 12 * time.Millisecond}, nil
+		},
+		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+			select {
+			case refreshed <- struct{}{}:
+			default:
+			}
+			return refreshOutcome{
+				Snapshot:  CachedSnapshotV2{Version: cacheV2Version, CoverageSinceMs: now.UnixMilli()},
+				RoundTrip: 20 * time.Millisecond,
+			}, nil
+		},
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	manager.state = StateError
+	manager.reason = reasonPtr(ReasonConnectionFailed)
+	manager.failures = 2
+	manager.nextRetryAt = now.Add(30 * time.Minute)
+	manager.lastRequestedMs = now.Add(-time.Hour).UnixMilli()
+	manager.mu.Unlock()
+
+	health, err := manager.TestAlias(context.Background(), "agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.State != StateOK {
+		t.Fatalf("test health = %#v", health)
+	}
+	select {
+	case <-refreshed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("successful test did not kick a board refresh")
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.failures != 0 || !manager.nextRetryAt.IsZero() {
+		t.Fatalf("backoff not cleared: failures=%d nextRetryAt=%v", manager.failures, manager.nextRetryAt)
+	}
+}
+
 func strPtr(value string) *string { return &value }
 
 func waitUntil(t *testing.T, ready func() bool) {
