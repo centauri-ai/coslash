@@ -73,6 +73,31 @@ describe('decodeSessionsResponse', () => {
     expect(decodeSessionsResponse({ sessions, machines })).toEqual({ sessions, machines });
   });
 
+  it('normalizes null remote collections so sparse facts cannot crash the board', () => {
+    const sparse = {
+      ...sampleSession('remote', 'r_0123456789abcdef'),
+      tokens: null,
+      unpricedModels: null,
+      subagents: null,
+      commands: null,
+      commits: null,
+      todos: null,
+      digest: null,
+      fileEdits: null,
+    };
+    const decoded = decodeSessionsResponse({ sessions: [sparse], machines: [] }).sessions[0];
+    expect(decoded).toMatchObject({
+      tokens: {},
+      unpricedModels: [],
+      subagents: [],
+      commands: [],
+      commits: [],
+      todos: [],
+      digest: [],
+      fileEdits: [],
+    });
+  });
+
   it('treats a null or missing sessions list as empty', () => {
     const machines = [{ sourceId: 'local', label: 'This Mac', state: 'ok', complete: true }];
     expect(decodeSessionsResponse({ sessions: null, machines })).toEqual({ sessions: [], machines });
