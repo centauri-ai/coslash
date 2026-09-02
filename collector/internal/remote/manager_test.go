@@ -739,7 +739,13 @@ func TestSuccessfulAliasTestClearsBackoffAndKicksRefresh(t *testing.T) {
 			default:
 			}
 			return refreshOutcome{
-				Snapshot:  CachedSnapshotV2{Version: cacheV2Version, CoverageSinceMs: now.UnixMilli()},
+				Snapshot: CachedSnapshotV2{
+					Version:         cacheV2Version,
+					CoverageSinceMs: now.UnixMilli(),
+					// Non-empty coverage avoids ReasonNoSupportedData, which would
+					// re-arm limited-state backoff and hide the recovery under test.
+					Coverage: []AgentCoverage{{Agent: "claude", CandidateFiles: 1, SelectedFiles: 1}},
+				},
 				RoundTrip: 20 * time.Millisecond,
 			}, nil
 		},
@@ -767,11 +773,11 @@ func TestSuccessfulAliasTestClearsBackoffAndKicksRefresh(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("successful test did not kick a board refresh")
 	}
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	if manager.failures != 0 || !manager.nextRetryAt.IsZero() {
-		t.Fatalf("backoff not cleared: failures=%d nextRetryAt=%v", manager.failures, manager.nextRetryAt)
-	}
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return manager.state == StateOK && manager.failures == 0 && manager.nextRetryAt.IsZero() && !manager.refreshing
+	})
 }
 
 func strPtr(value string) *string { return &value }
