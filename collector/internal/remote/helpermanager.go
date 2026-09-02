@@ -409,8 +409,10 @@ type HelperTestResult struct {
 
 // TestHelper performs a small, non-persisting collection after setup. It uses
 // the verified target already held by the manager, so a test can never execute
-// a frontend- or response-supplied path. The normal requested-window refresh
-// remains responsible for durable cache commits.
+// a frontend- or response-supplied path. Failure must not schedule refresh
+// backoff, flip transport, or rewrite durable board failure state; only a
+// successful probe may advertise helper transport. The normal requested-window
+// refresh remains responsible for durable cache commits and retry policy.
 func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 	manager.mu.Lock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.helperTarget == nil {
@@ -434,13 +436,12 @@ func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 		health := manager.healthLocked(manager.lastRequestedMs)
 		return HelperTestResult{Health: health, Reason: health.Reason}
 	}
-	manager.transport = TransportHelper
-	manager.metrics = metricsFor(result)
 	if err != nil {
 		reason := classifyHelperError(err)
-		manager.applyFailureLocked(reason, result.Stderr)
 		return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Reason: reasonPtr(reason)}
 	}
+	manager.transport = TransportHelper
+	manager.metrics = metricsFor(result)
 	if reason := limitedResultReason(result); reason != nil {
 		manager.state = StateLimited
 		manager.complete = false
