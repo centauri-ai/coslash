@@ -32,6 +32,15 @@ func TestValidateRejectsUnsortedAndUnboundedFacts(t *testing.T) {
 			f.Sessions = append(f.Sessions, Session{ID: "orphan", StartedAtMs: 1, LastActivityAtMs: 2, Usage: []ModelUsage{}, Spawns: []Spawn{}, CommandLabels: []string{}})
 		}},
 		{"negative count", func(f *Family) { f.Sessions[0].Counts.Errors = -1 }},
+		{"unstructured stale reason", func(f *Family) {
+			f.State, f.StaleReason = StateStale, "a transcript-derived failure"
+		}},
+		{"complete family carrying stale reason", func(f *Family) {
+			f.StaleReason = StaleReasonReadFailed
+		}},
+		{"partial family carrying stale reason", func(f *Family) {
+			f.State, f.StaleReason = StatePartial, StaleReasonReadFailed
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

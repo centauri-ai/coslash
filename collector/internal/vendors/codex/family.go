@@ -83,13 +83,6 @@ func ParseFamilyFilesSource(
 	if err != nil {
 		return nil, err
 	}
-	// Codex currently derives ParsedSession.Name from the first user prompt.
-	// Prompts are outside remote schema v1, so do not let that fallback cross the
-	// helper boundary. Approved session-index metadata remains available.
-	for _, item := range parsed {
-		if item != nil {
-			item.Name = ""
-		}
-	}
+	clearPromptDerivedNames(parsed)
 	return parsed, nil
 }

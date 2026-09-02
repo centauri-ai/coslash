@@ -78,6 +78,7 @@ func TestDecodeRejectsUnknownFieldsAndTrailingContent(t *testing.T) {
 	for _, input := range []string{
 		`{"type":"handshake","protocol_version":1,"request_id":"req-1","sequence":1,"baseline_id":"base-1","schema_version":1,"parser_version":"parser-v1","secret":"x"}` + "\n",
 		`{"type":"request_complete","protocol_version":1,"request_id":"req-1","sequence":1}` + "\n{}\n",
+		`{"type":"handshake","protocol_version":1,"request_id":"req-1","sequence":1,"baseline_id":"base-1","schema_version":1,"parser_version":"parser-v1"}` + "\n",
 	} {
 		if _, err := Decode(strings.NewReader(input), r); err == nil {
 			t.Fatalf("accepted %q", input)
@@ -130,7 +131,7 @@ func TestChangedFamilyPublishesBeforeRequestCompletionAndFailedReplacementStaysG
 	if _, ok := a.Proposal().Families[FamilyKey{"codex", "root"}]; !ok {
 		t.Fatal("validated changed family not publishable")
 	}
-	if err := a.Apply(Record{Type: RecordSkipped, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 3, Vendor: "codex", FamilyID: "old", Reason: "unstable_file"}); err != nil {
+	if err := a.Apply(Record{Type: RecordSkipped, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 3, Vendor: "codex", FamilyID: "old", Reason: remotefacts.StaleReasonUnstableFile}); err != nil {
 		t.Fatal(err)
 	}
 	if got := a.Proposal().Families[FamilyKey{"codex", "old"}]; got.Fingerprint != "old" || got.StaleReason != "unstable_file" {
@@ -228,12 +229,44 @@ func TestDecodeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSkippedFamilyRejectsUnstructuredReason(t *testing.T) {
+	r := request()
+	a, err := NewAccumulator(r, Generation{BaselineID: "base-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Apply(handshake(r)); err != nil {
+		t.Fatal(err)
+	}
+	err = a.Apply(Record{Type: RecordSkipped, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 2, Vendor: "codex", FamilyID: "root", Reason: "raw stderr or transcript text"})
+	if err == nil {
+		t.Fatal("accepted an unstructured skip reason")
+	}
+}
+
+func TestChangedFamilyRejectsStaleReasonOutsideStaleState(t *testing.T) {
+	r := request()
+	a, err := NewAccumulator(r, Generation{BaselineID: "base-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Apply(handshake(r)); err != nil {
+		t.Fatal(err)
+	}
+	changed := family()
+	changed.StaleReason = "hostile transcript text"
+	err = a.Apply(Record{Type: RecordChanged, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 2, Vendor: "codex", FamilyID: "root", Fingerprint: "new", Family: &changed})
+	if err == nil {
+		t.Fatal("accepted a non-stale family carrying arbitrary stale reason text")
+	}
+}
+
 func TestAccumulatorEnforcesRequestedVendorLifecycle(t *testing.T) {
 	t.Run("unrequested vendor", func(t *testing.T) {
 		r := request()
 		a, _ := NewAccumulator(r, Generation{BaselineID: "base-1"})
 		_ = a.Apply(handshake(r))
-		record := Record{Type: RecordSkipped, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 2, Vendor: "claude", FamilyID: "root", Reason: "parse_failed"}
+		record := Record{Type: RecordSkipped, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 2, Vendor: "claude", FamilyID: "root", Reason: remotefacts.StaleReasonInvalidData}
 		if err := a.Apply(record); err == nil {
 			t.Fatal("accepted record for unrequested vendor")
 		}
@@ -244,7 +277,7 @@ func TestAccumulatorEnforcesRequestedVendorLifecycle(t *testing.T) {
 		a, _ := NewAccumulator(r, Generation{BaselineID: "base-1"})
 		_ = a.Apply(handshake(r))
 		_ = a.Apply(Record{Type: RecordVendorComplete, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 2, Vendor: "codex", EnumerationComplete: true, InventoryComplete: true, Inventory: []string{}})
-		record := Record{Type: RecordSkipped, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 3, Vendor: "codex", FamilyID: "root", Reason: "parse_failed"}
+		record := Record{Type: RecordSkipped, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 3, Vendor: "codex", FamilyID: "root", Reason: remotefacts.StaleReasonInvalidData}
 		if err := a.Apply(record); err == nil {
 			t.Fatal("accepted family action after vendor completion")
 		}

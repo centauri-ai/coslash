@@ -12,6 +12,7 @@ import {
   requiresFirstRunConsent,
   type BackendOption,
   type CoslashSettings,
+  type RemoteOwnershipAction,
   type SettingsResponse,
 } from '@/pages/coslash/lib/settings';
 
@@ -192,12 +193,13 @@ export function SettingsDialog({
   loadError: string | null;
   saveError: string | null;
   isSaving: boolean;
-  onSave: (settings: CoslashSettings) => Promise<boolean>;
+  onSave: (settings: CoslashSettings, remoteOwnershipAction?: RemoteOwnershipAction) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState<CoslashSettings | null>(
     response ? initialSettingsDraft(response) : null,
   );
   const [disclosureOpen, setDisclosureOpen] = useState(false);
+  const [remoteOwnershipAction, setRemoteOwnershipAction] = useState<RemoteOwnershipAction | null>(null);
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
   const showFullSettings = mode === 'full-settings';
@@ -206,6 +208,7 @@ export function SettingsDialog({
     if (!open || !response) return;
     setDraft(initialSettingsDraft(response));
     setDisclosureOpen(false);
+    setRemoteOwnershipAction(null);
   }, [open, response]);
 
   const initialDraft = response ? initialSettingsDraft(response) : null;
@@ -221,7 +224,7 @@ export function SettingsDialog({
 
   const save = async () => {
     if (!draft || !synthesisBackendAvailable) return;
-    if (await onSave(draft)) {
+    if (await onSave(draft, remoteOwnershipAction ?? undefined)) {
       setTheme(draft.appearance.theme);
       onOpenChange(false);
     }
@@ -489,6 +492,7 @@ export function SettingsDialog({
                     }
                     setDraft({ ...draft, remote: { ...remote, sshAlias: remote.sshAlias.trim() } });
                   }}
+                  onOwnershipActionChange={setRemoteOwnershipAction}
                 />
               )}
 

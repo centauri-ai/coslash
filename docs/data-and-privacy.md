@@ -23,12 +23,24 @@ coSlash reads, but does not modify:
 
 coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
 
-## Optional SSH/SFTP access
+## Optional SSH/SFTP access and helper installation
 
 When one remote machine is enabled, the Mac's system `ssh` client uses the saved
-OpenSSH alias and requests SFTP. Linux runs no coSlash code and receives no
-coSlash package, cache, handoff, or parser. coSlash may read these paths beneath
-the SSH user's home:
+OpenSSH alias and requests SFTP. SFTP collection runs no coSlash code on Linux.
+After a connection test, the user may explicitly consent to install the optional
+collector helper. Preview releases authenticate the embedded helper through the
+containing coSlash archive checksum, then verify its exact digest and platform
+before uploading a versioned executable to
+`~/.coslash/helpers/<version>/coslash-helper`, owned by the SSH user with mode
+`0700`. The helper has no root access or network access, reads only the same
+fixed allowlist below, and streams bounded normalized facts back to the Mac.
+No path, command, prompt, transcript row, cache, or handoff supplied by the Mac
+can choose files the helper opens.
+
+Builds without authenticated embedded helper assets disable the install action
+explicitly. They continue using SFTP and never upload an unverified helper.
+
+Both collection paths may read these paths beneath the SSH user's home:
 
 - `.claude/projects`, `.claude/sessions`, and `.claude/jobs`;
 - `.codex/sessions`, `.codex/archived_sessions`, and
@@ -97,7 +109,12 @@ coSlash listens on IPv4 loopback and protects API requests with a new access tok
 Synthesis is off until you enable and save it in Settings. Disable it there to stop new requests, then delete `~/.coslash/summaries` to remove cached results.
 
 Disabling a remote machine stops refreshes and hides its cards but retains its
-normalized last-good cache. Confirming **Remove host** deletes only that source's
-`~/.coslash/remotes/<source-id>` directory. It does not change files on Linux.
+normalized last-good cache and any optional helper; it does not change Linux.
+**Remove host only** deletes the source's `~/.coslash/remotes/<source-id>`
+directory and deliberately leaves a previously installed helper in place.
+**Uninstall helper and remove** first removes only the exact verified helper
+version, then deletes local host settings and cache. If the remote uninstall
+fails, coSlash keeps the local host configuration so you can retry or explicitly
+choose remove-only; it never silently forgets helper ownership.
 
 To remove all coSlash data, quit coSlash and delete `~/.coslash` (or your `COSLASH_HOME`). `coslash doctor --json` and **Copy diagnostics** exclude transcript contents, prompts, and session names.

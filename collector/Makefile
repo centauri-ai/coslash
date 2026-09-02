@@ -4,6 +4,7 @@ HELPER := coslash-helper
 HELPER_PKG := ./cmd/coslash-helper
 HELPER_PLATFORMS := linux/amd64 linux/arm64
 HELPER_DIST := dist/helper
+HELPER_ASSETS := internal/remote/helperassets
 FRONTEND := ../frontend
 STAGED := internal/web/dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -11,15 +12,17 @@ DIST := dist
 PLATFORMS := darwin/arm64 darwin/amd64
 ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
+EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)
 MODELS := internal/session/models.json
 LITELLM_URL := https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
 OPENCODE_MODELS_URL := https://models.opencode.ai/api.json
 
 .PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models \
-	helper helper-dist
+	helper helper-dist helper-assets test-embedded-helpers
 
-release: stage
-	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) $(PKG)
+release: stage helper-assets
+	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
+		go build -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' -o bin/$(BINARY) $(PKG)
 	@echo "built bin/$(BINARY) $(VERSION)"
 
 # Go cannot embed $(FRONTEND)/dist directly, so copy it into the module first.
@@ -34,17 +37,17 @@ stage:
 	touch $(STAGED)/.gitkeep
 
 # Cross-compile every shipped platform from one staged frontend build.
-dist: stage
+dist: stage helper-assets
 	@test -f $(STAGED)/index.html || { \
 		echo "error: $(STAGED)/index.html is missing; refusing to package a binary with no frontend"; exit 1; }
 	rm -rf $(DIST)
 	mkdir -p $(DIST)
-	@for platform in $(PLATFORMS); do \
+	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; for platform in $(PLATFORMS); do \
 		goos=$${platform%/*}; goarch=$${platform#*/}; \
 		stem=$(BINARY)_$(VERSION)_$${goos}_$${goarch}; \
 		mkdir -p $(DIST)/$$stem; \
 		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch \
-			go build -trimpath -ldflags '-s -w -X main.version=$(VERSION)' \
+			go build -trimpath -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' \
 			-o $(DIST)/$$stem/$(BINARY) $(PKG) || exit 1; \
 		cp ../LICENSE ../README.md $(DIST)/$$stem/; \
 		find $(DIST)/$$stem -exec touch -t 198001010000 {} +; \
@@ -57,6 +60,24 @@ dist: stage
 # The Linux collection helper, for local iteration on the host platform.
 helper:
 	CGO_ENABLED=0 go build -ldflags '-X main.build=$(VERSION)' -o bin/$(HELPER) $(HELPER_PKG)
+
+# Generated immediately before a tagged Coslash build. The release executable
+# embeds these exact bytes; the trap in every consumer removes them afterward.
+helper-assets:
+	rm -rf $(HELPER_ASSETS)
+	mkdir -p $(HELPER_ASSETS)
+	@for platform in $(HELPER_PLATFORMS); do \
+		goos=$${platform%/*}; goarch=$${platform#*/}; \
+		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch \
+			go build -trimpath -ldflags '-s -w -X main.build=$(VERSION)' \
+			-o $(HELPER_ASSETS)/$(HELPER)_$${goos}_$${goarch} $(HELPER_PKG) || exit 1; \
+	done
+
+test-embedded-helpers: helper-assets
+	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
+		go test -tags embedded_helpers \
+		-ldflags '-X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)' \
+		-run '^TestEmbeddedHelperReleaseProvider$$' ./internal/remote
 
 # Cross-compiles the shipped helper targets. Reproducible on purpose: -trimpath
 # and no CGO, so rebuilding one commit yields identical binaries and therefore
@@ -83,14 +104,17 @@ unstage:
 	@find $(STAGED) -mindepth 1 ! -name .gitkeep -delete
 	@touch $(STAGED)/.gitkeep
 
-build: unstage
-	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY) $(PKG)
+build: unstage helper-assets
+	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
+		go build -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' -o bin/$(BINARY) $(PKG)
 
-run: unstage
-	go run -ldflags "$(LDFLAGS)" $(PKG) --no-open $(ARGS)
+run: unstage helper-assets
+	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
+		go run -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' $(PKG) --no-open $(ARGS)
 
 test:
 	go test ./...
+	$(MAKE) test-embedded-helpers
 
 check:
 	@unformatted=$$(gofmt -l .); \

@@ -35,7 +35,7 @@ const (
 	// It is user-owned and versioned, so a failed update cannot replace a known
 	// working helper.  A noexec mount is a deliberate SFTP fallback, not a
 	// reason to try a privileged or alternate installation location.
-	HelperInstallBase            = "~/.local/lib/coslash/helpers"
+	HelperInstallBase            = "~/.coslash/helpers"
 	HelperFileName               = "coslash-helper"
 	MaxHelperArtifactBytes int64 = 128 << 20
 )
@@ -141,6 +141,10 @@ type SignedReleaseMetadata struct {
 	KeyID     string          `json:"key_id"`
 	Metadata  ReleaseMetadata `json:"metadata"`
 	Signature string          `json:"signature"`
+	// embedded is set only by the compile-time asset provider. It cannot be
+	// supplied by decoded metadata and makes the containing Coslash binary the
+	// authentication boundary instead of a second runtime signature service.
+	embedded bool
 }
 
 // TrustStore is compiled into the Mac application.  Shipping a replacement
@@ -153,6 +157,7 @@ type TrustStore struct {
 	MinimumSequence uint64
 	Now             func() time.Time
 	Sequences       MetadataSequenceStore
+	AllowEmbedded   bool
 }
 
 // MetadataSequenceStore durably remembers the newest authenticated release
@@ -180,6 +185,15 @@ func (store *MemoryMetadataSequenceStore) Accept(sequence uint64) error {
 }
 
 func (trust TrustStore) Verify(document SignedReleaseMetadata) (ReleaseMetadata, error) {
+	if document.embedded {
+		if !trust.AllowEmbedded || document.KeyID != "" || document.Signature != "" {
+			return ReleaseMetadata{}, ErrHelperMetadata
+		}
+		if err := document.Metadata.Validate(); err != nil {
+			return ReleaseMetadata{}, fmt.Errorf("%w: %v", ErrHelperMetadata, err)
+		}
+		return document.Metadata, nil
+	}
 	if !validMetadataID(document.KeyID) || trust.RevokedKeys[document.KeyID] {
 		return ReleaseMetadata{}, ErrHelperMetadata
 	}
@@ -392,6 +406,11 @@ type Consent struct {
 	Upgrade bool
 }
 
+// ArtifactLoader is invoked only after authenticated metadata, platform
+// selection, inspection, and the relevant user consent establish that an
+// install or upgrade is actually required.
+type ArtifactLoader func(context.Context, Artifact) ([]byte, error)
+
 type LifecycleState string
 
 const (
@@ -413,6 +432,7 @@ type LifecycleResult struct {
 	Artifact   Artifact
 	CanExecute bool
 	Fallback   bool
+	Reused     bool
 	Reason     error
 }
 
@@ -429,7 +449,16 @@ type Lifecycle struct {
 // Setup authenticates metadata before platform lookup or any remote mutation.
 // Consent is per action: initial install and later upgrades are separate, so an
 // old consent cannot silently install fresh executable code.
+// Setup is retained for focused lifecycle tests. Production callers must use
+// SetupWithLoader so an arm64 host never downloads amd64 bytes (or vice versa)
+// before its platform is known.
 func (lifecycle Lifecycle) Setup(ctx context.Context, document SignedReleaseMetadata, artifactBytes []byte, consent Consent) LifecycleResult {
+	return lifecycle.SetupWithLoader(ctx, document, consent, func(context.Context, Artifact) ([]byte, error) {
+		return artifactBytes, nil
+	})
+}
+
+func (lifecycle Lifecycle) SetupWithLoader(ctx context.Context, document SignedReleaseMetadata, consent Consent, load ArtifactLoader) LifecycleResult {
 	metadata, err := lifecycle.Trust.Verify(document)
 	if err != nil {
 		return lifecycleFailure(LifecycleVerificationError, err)
@@ -463,6 +492,7 @@ func (lifecycle Lifecycle) Setup(ctx context.Context, document SignedReleaseMeta
 	if currentErr == nil {
 		if err := verifyRemoteFile(current, target, artifact, platform.UID); err == nil {
 			result := lifecycle.capabilityResult(ctx, target, artifact, LifecycleReady)
+			result.Reused = result.CanExecute
 			if result.CanExecute || !errors.Is(result.Reason, ErrHelperIncompatible) {
 				return result
 			}
@@ -514,6 +544,13 @@ func (lifecycle Lifecycle) Setup(ctx context.Context, document SignedReleaseMeta
 	initialInstall := errors.Is(currentErr, fs.ErrNotExist) && previous == nil
 	if (initialInstall && !consent.Install) || (!initialInstall && !consent.Upgrade) {
 		return lifecycleFailure(LifecycleUpgradeRequired, ErrHelperConsentRequired)
+	}
+	if load == nil {
+		return lifecycleFailure(LifecycleVerificationError, ErrHelperArtifact)
+	}
+	artifactBytes, err := load(ctx, artifact)
+	if err != nil {
+		return lifecycleFailure(LifecycleVerificationError, fmt.Errorf("%w: download helper artifact", ErrHelperArtifact))
 	}
 	if err := verifyLocalArtifact(artifact, artifactBytes); err != nil {
 		return lifecycleFailure(LifecycleVerificationError, err)
@@ -579,7 +616,7 @@ func classifyLifecycleInstallError(err error) error {
 	case errors.Is(err, ErrHelperNoExec), errors.Is(err, ErrHelperRollback):
 		return err
 	default:
-		return fmt.Errorf("%w: %v", ErrHelperInstallation, err)
+		return fmt.Errorf("%w: %w", ErrHelperInstallation, err)
 	}
 }
 

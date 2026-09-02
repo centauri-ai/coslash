@@ -15,6 +15,7 @@ export function formatRemoteDiagnosticsFacts(
   const nowMs = options.nowMs ?? Date.now();
   const lines: string[] = [];
   const head = [remote.label ?? 'Remote host', remote.state];
+  if (remote.transport) head.push(remote.transport);
   lines.push(head.join(' · '));
 
   const counts: string[] = [];
@@ -33,7 +34,19 @@ export function formatRemoteDiagnosticsFacts(
     timing.push(`next automatic retry ${formatNextRetry(remote.nextRetryAtMs, nowMs)}`);
   if (timing.length > 0) lines.push(timing.join(' · '));
 
+  if (remote.helperState) {
+    const helper = [`helper ${remote.helperState}`];
+    if (remote.helperVersion) helper.push(remote.helperVersion);
+    helper.push(remote.helperCompatible ? 'compatible' : 'not executable');
+    if (remote.helperFallback) helper.push('SFTP fallback');
+    lines.push(helper.join(' · '));
+  }
+  const metrics: string[] = [];
+  if (remote.requestBytes != null) metrics.push(`${remote.requestBytes} request bytes`);
+  if (remote.responseBytes != null) metrics.push(`${remote.responseBytes} response bytes`);
+  if (remote.records != null) metrics.push(`${remote.records} records`);
+  if (metrics.length > 0) lines.push(metrics.join(' · '));
+
   if (remote.error) lines.push(`error: ${remote.error}`);
-  if (remote.diagnosticStderr) lines.push(`stderr: ${remote.diagnosticStderr}`);
   return lines;
 }

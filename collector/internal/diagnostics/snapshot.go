@@ -56,7 +56,15 @@ type Remote struct {
 	CoverageSinceMs  *int64  `json:"coverageSinceMs,omitempty"`
 	RoundTripMs      *int64  `json:"roundTripMs,omitempty"`
 	Error            string  `json:"error,omitempty"`
-	DiagnosticStderr string  `json:"diagnosticStderr,omitempty"`
+	Transport        string  `json:"transport,omitempty"`
+	HelperState      string  `json:"helperState,omitempty"`
+	HelperVersion    string  `json:"helperVersion,omitempty"`
+	HelperCompatible bool    `json:"helperCompatible,omitempty"`
+	HelperFallback   bool    `json:"helperFallback,omitempty"`
+	HelperReason     *string `json:"helperReason,omitempty"`
+	RequestBytes     int     `json:"requestBytes,omitempty"`
+	ResponseBytes    int     `json:"responseBytes,omitempty"`
+	Records          int     `json:"records,omitempty"`
 }
 
 type RemoteHealth struct {
@@ -69,7 +77,15 @@ type RemoteHealth struct {
 	CoverageSinceMs  *int64
 	RoundTripMs      *int64
 	Error            string
-	DiagnosticStderr string
+	Transport        string
+	HelperState      string
+	HelperVersion    string
+	HelperCompatible bool
+	HelperFallback   bool
+	HelperReason     *string
+	RequestBytes     int
+	ResponseBytes    int
+	Records          int
 }
 
 type Platform struct {
@@ -145,7 +161,11 @@ func CollectWithRemote(
 		State: remoteHealth.State, Complete: remoteHealth.Complete, Reason: remoteHealth.Reason,
 		LastSuccessAtMs: remoteHealth.LastSuccessAtMs, CoverageSinceMs: remoteHealth.CoverageSinceMs,
 		RoundTripMs: remoteHealth.RoundTripMs, Error: remoteHealth.Error,
-		DiagnosticStderr: remoteHealth.DiagnosticStderr,
+		Transport: remoteHealth.Transport, HelperState: remoteHealth.HelperState,
+		HelperVersion: remoteHealth.HelperVersion, HelperCompatible: remoteHealth.HelperCompatible,
+		HelperFallback: remoteHealth.HelperFallback, HelperReason: remoteHealth.HelperReason,
+		RequestBytes: remoteHealth.RequestBytes, ResponseBytes: remoteHealth.ResponseBytes,
+		Records: remoteHealth.Records,
 	}
 	snapshot.Checks = append(snapshot.Checks, remoteCheck(snapshot.Remote))
 	return snapshot

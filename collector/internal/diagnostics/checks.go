@@ -150,7 +150,11 @@ func remoteCheck(remote *Remote) Check {
 	check := Check{ID: "remote", Title: "Remote SSH host", Status: StatusOK}
 	switch remote.State {
 	case "ok":
-		check.Detail = remote.Label + " is connected over SFTP."
+		transport := remote.Transport
+		if transport == "" {
+			transport = "SFTP"
+		}
+		check.Detail = remote.Label + " is connected over " + transport + "."
 	case "connecting":
 		check.Status = StatusWarn
 		check.Detail = "Connecting to " + remote.Label + "."

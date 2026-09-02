@@ -39,6 +39,19 @@ const (
 	StateStale    = "stale"
 )
 
+// Stale reasons are codes rather than helper- or filesystem-supplied prose.
+// They are persisted with a last-good family, so accepting arbitrary text here
+// would let hostile protocol output turn the cache into a transcript sink.
+const (
+	StaleReasonOversizedFile        = "oversized_file"
+	StaleReasonVendorBudgetExceeded = "vendor_budget_exceeded"
+	StaleReasonPathDenied           = "path_denied"
+	StaleReasonInvalidData          = "invalid_data"
+	StaleReasonReadFailed           = "read_failed"
+	StaleReasonNoData               = "no_data"
+	StaleReasonUnstableFile         = "unstable_file"
+)
+
 // Family is the complete normalized replacement unit. Paths and raw transcript
 // content deliberately have no representation in this type.
 type Family struct {
@@ -147,8 +160,11 @@ func Validate(f Family) error {
 	if f.State != StateComplete && f.State != StatePartial && f.State != StateStale {
 		return fmt.Errorf("invalid family state %q", f.State)
 	}
-	if f.State == StateStale && (f.StaleReason == "" || !bounded(f.StaleReason, MaxDisplayBytes)) {
-		return errors.New("stale family requires a bounded reason")
+	if f.State == StateStale && !ValidStaleReason(f.StaleReason) {
+		return errors.New("stale family requires a fixed reason code")
+	}
+	if f.State != StateStale && f.StaleReason != "" {
+		return errors.New("non-stale family cannot carry a stale reason")
 	}
 	if len(f.Sessions) == 0 || len(f.Sessions) > MaxSessions {
 		return errors.New("invalid session count")
@@ -325,6 +341,19 @@ func identifier(value string) bool {
 		}
 	}
 	return true
+}
+
+// ValidStaleReason reports whether value is one of the fixed, content-free
+// reasons that may be kept beside a cached family.
+func ValidStaleReason(value string) bool {
+	switch value {
+	case StaleReasonOversizedFile, StaleReasonVendorBudgetExceeded,
+		StaleReasonPathDenied, StaleReasonInvalidData, StaleReasonReadFailed,
+		StaleReasonNoData, StaleReasonUnstableFile:
+		return true
+	default:
+		return false
+	}
 }
 func bounded(value string, limit int) bool { return utf8.ValidString(value) && len(value) <= limit }
 func validateOptionalCount(value *int) error {
