@@ -44,6 +44,14 @@ func TestValidateRejectsUnsortedAndUnboundedFacts(t *testing.T) {
 	}
 }
 
+func TestValidateHeaderMappingsMustReferenceFingerprint(t *testing.T) {
+	f := validFamily()
+	f.HeaderMappings = []HeaderMapping{{Key: "missing", SessionID: "root"}}
+	if err := Validate(f); err == nil {
+		t.Fatal("accepted header mapping without a matching fingerprint")
+	}
+}
+
 func TestParsedRoundTripPreservesApprovedCompositionFacts(t *testing.T) {
 	model, branch, status := "gpt-5", "main", "waiting"
 	cost := 1.25

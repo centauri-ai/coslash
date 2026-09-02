@@ -2,6 +2,7 @@ package remoteprotocol
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -45,8 +46,30 @@ func TestBuildRequestDoesNotMutateKnownInput(t *testing.T) {
 	if _, err := BuildRequest(request(), known); err != nil {
 		t.Fatal(err)
 	}
-	if known[0] != original[0] || known[1] != original[1] {
+	if !reflect.DeepEqual(known, original) {
 		t.Fatalf("BuildRequest mutated input: got %#v want %#v", known, original)
+	}
+}
+
+func TestBuildRequestSortsHeaderMappingsAndFallsBackWhenTheyOverflow(t *testing.T) {
+	known := []KnownFamily{{Vendor: "codex", FamilyID: "root", Fingerprint: "fp", Headers: []KnownHeader{
+		{Key: "z", Size: 1, ModifiedAtMs: 1, SessionID: "z"},
+		{Key: "a", Size: 1, ModifiedAtMs: 1, SessionID: "a"},
+	}}}
+	got, err := BuildRequest(request(), known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Known[0].Headers[0].Key != "a" || known[0].Headers[0].Key != "z" {
+		t.Fatalf("header ordering/input mutation: got %#v input %#v", got.Known, known)
+	}
+	known[0].Headers = make([]KnownHeader, MaxKnownHeaders+1)
+	got, err = BuildRequest(request(), known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BaselineMode != BaselineNone || len(got.Known) != 0 {
+		t.Fatalf("header overflow did not discard baseline: %#v", got)
 	}
 }
 
