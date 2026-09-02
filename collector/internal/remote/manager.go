@@ -858,6 +858,6 @@ func retryBackoff(failures int) time.Duration {
 	if failures <= 1 {
 		return InitialRetryBackoff
 	}
-	delay := InitialRetryBackoff << min(failures-1, 4)
+	delay := InitialRetryBackoff << min(failures-1, 6)
 	return min(delay, MaxRetryBackoff)
 }

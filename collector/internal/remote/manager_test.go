@@ -147,6 +147,15 @@ func TestHardFailureFallsBackToStaleWhenCacheExists(t *testing.T) {
 	manager.mu.Unlock()
 }
 
+func TestRetryBackoffReachesMaximum(t *testing.T) {
+	if got := retryBackoff(7); got != MaxRetryBackoff {
+		t.Fatalf("retryBackoff(7) = %v, want %v", got, MaxRetryBackoff)
+	}
+	if got := retryBackoff(8); got != MaxRetryBackoff {
+		t.Fatalf("retryBackoff(8) = %v, want %v", got, MaxRetryBackoff)
+	}
+}
+
 type fixedHelperRelease struct {
 	document SignedReleaseMetadata
 	content  []byte
