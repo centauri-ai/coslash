@@ -17,6 +17,7 @@ import (
 var (
 	ErrInvalidRemoteSettings   = errors.New("invalid remote settings")
 	ErrHelperOwnershipConflict = errors.New("helper ownership must be explicitly released or uninstalled before changing SSH alias")
+	ErrHelperAliasMismatch     = errors.New("helper setup alias does not match configured SSH alias")
 )
 
 type SessionKey struct {
@@ -381,6 +382,16 @@ func (manager *Manager) DiagnosticsHealth() Health {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	return manager.healthLocked(manager.lastRequestedMs)
+}
+
+// SetupAliasMatches reports whether alias is the currently persisted remote
+// target. SetupHelperForAlias repeats this check while taking its immutable
+// configuration snapshot; this fast check lets the HTTP handler reject an
+// unsaved settings draft before starting any lifecycle work.
+func (manager *Manager) SetupAliasMatches(alias string) bool {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.cfg != nil && manager.cfg.Enabled && manager.cfg.SSHAlias == alias
 }
 
 func (manager *Manager) Shutdown() {

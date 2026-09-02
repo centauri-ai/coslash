@@ -328,7 +328,7 @@ func TestRestartDiscoversAndReusesVerifiedHelperWithoutInstall(t *testing.T) {
 	}
 }
 
-func TestHelperTestAcceptsEmptySuccessfulCollection(t *testing.T) {
+func TestHelperTestAcceptsEmptySuccessfulCollectionWithoutRewritingBoardState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
@@ -351,17 +351,63 @@ func TestHelperTestAcceptsEmptySuccessfulCollection(t *testing.T) {
 	}
 	manager.mu.Lock()
 	manager.snapshot = &CachedSnapshotV2{Version: cacheV2Version, CoverageSinceMs: now.UnixMilli()}
+	manager.sessions = []*session.Session{{Agent: vendors.AgentClaude, ID: "cached"}}
+	manager.state = StateStale
+	manager.reason = reasonPtr(ReasonInitialRefresh)
+	manager.complete = false
+	manager.errorCopy = "prior refresh is stale"
+	manager.transport = TransportSFTP
 	manager.lastRequestedMs = 0
 	manager.mu.Unlock()
 	result := manager.TestHelper(context.Background())
 	if !result.Succeeded {
 		t.Fatalf("empty helper test was not successful: %#v", result)
 	}
-	if result.Health.Complete || result.Health.Reason == nil || *result.Health.Reason != ReasonNoSupportedData {
-		t.Fatalf("empty-host board health = %#v", result.Health)
+	if result.Health.State != StateStale || result.Health.Complete || result.Health.Reason == nil || *result.Health.Reason != ReasonInitialRefresh {
+		t.Fatalf("helper test rewrote board health = %#v", result.Health)
 	}
 	if result.Health.Transport != TransportHelper {
 		t.Fatalf("successful helper test transport = %q, want helper", result.Health.Transport)
+	}
+	if view := manager.ListView(0); len(view.Sessions) != 1 || view.Sessions[0].EligibleForAggregates {
+		t.Fatalf("stale cached session became aggregate eligible: %#v", view.Sessions)
+	}
+}
+
+func TestDiscoveryClearsInMemoryOwnershipWhenOwnershipWriteFails(t *testing.T) {
+	home := t.TempDir()
+	remote, artifact, content := lifecycleFixture(t)
+	cache := NewCache(filepath.Join(home, "remote-cache"))
+	path, err := helperPath(artifact.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote.files[path] = remoteFile(path, artifact, remote.platform.UID)
+	manager := NewManager(Options{
+		Cache: cache, ReleaseProvider: fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	ownershipPath, err := cache.helperOwnershipPath(config.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(ownershipPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(0)
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return manager.helperProbe == helperProbeFallback
+	})
+	health := manager.DiagnosticsHealth()
+	if health.HelperOwnershipRecorded || manager.helperVersion != "" || manager.helperTarget != nil {
+		t.Fatalf("failed ownership write left in-memory ownership: health=%#v version=%q target=%#v", health, manager.helperVersion, manager.helperTarget)
 	}
 }
 

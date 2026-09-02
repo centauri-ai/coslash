@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -16,8 +17,9 @@ type remoteTestRequest struct {
 }
 
 type remoteHelperSetupRequest struct {
-	Install bool `json:"install"`
-	Upgrade bool `json:"upgrade"`
+	SSHAlias string `json:"sshAlias"`
+	Install  bool   `json:"install"`
+	Upgrade  bool   `json:"upgrade"`
 }
 
 type helperSetupResponse struct {
@@ -112,8 +114,8 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 		http.Error(w, "invalid helper setup request", http.StatusBadRequest)
 		return
 	}
-	if body.Install == body.Upgrade {
-		http.Error(w, "choose exactly one helper consent action", http.StatusBadRequest)
+	if !settings.ValidSSHAlias(body.SSHAlias) || body.Install == body.Upgrade {
+		http.Error(w, "invalid helper setup request", http.StatusBadRequest)
 		return
 	}
 	health := manager.DiagnosticsHealth()
@@ -125,9 +127,17 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 		writeAPIError(w, http.StatusConflict, errCodeRemoteDisabled, "remote disabled")
 		return
 	}
+	if !manager.SetupAliasMatches(body.SSHAlias) {
+		writeAPIError(w, http.StatusConflict, "remote_alias_mismatch", "SSH alias changed; save settings and test that host before setting up its helper")
+		return
+	}
 	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Minute)
 	defer cancel()
-	setup := manager.SetupHelper(ctx, remote.Consent{Install: body.Install, Upgrade: body.Upgrade})
+	setup, err := manager.SetupHelperForAlias(ctx, body.SSHAlias, remote.Consent{Install: body.Install, Upgrade: body.Upgrade})
+	if errors.Is(err, remote.ErrHelperAliasMismatch) {
+		writeAPIError(w, http.StatusConflict, "remote_alias_mismatch", "SSH alias changed; save settings and test that host before setting up its helper")
+		return
+	}
 	testSucceeded := false
 	if setup.Helper != nil && setup.Helper.Compatible {
 		test := manager.TestHelper(ctx)

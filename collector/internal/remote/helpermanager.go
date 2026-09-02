@@ -248,14 +248,15 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 		manager.helper = &status
 		if !useSFTPFallbackAfterDiscovery(result) {
 			manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
-			manager.helperVersion = result.Artifact.Version
 			// This records ownership locally, never remote execution authority.
 			if storeErr := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); storeErr != nil {
 				failed := unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, storeErr))
 				manager.helper = &failed
 				manager.helperTarget = nil
+				manager.helperVersion = ""
 				manager.helperProbe = helperProbeFallback
 			} else {
+				manager.helperVersion = result.Artifact.Version
 				manager.helperProbe = helperProbeReady
 			}
 		} else {
@@ -272,10 +273,26 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 // method that can create a helper target; refreshes only execute that stored,
 // verified target.
 func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health {
+	health, _ := manager.setupHelper(ctx, "", consent)
+	return health
+}
+
+// SetupHelperForAlias binds consented setup to the alias the user tested. It
+// rejects an unsaved settings draft before a lifecycle can contact a host.
+func (manager *Manager) SetupHelperForAlias(ctx context.Context, alias string, consent Consent) (Health, error) {
+	return manager.setupHelper(ctx, alias, consent)
+}
+
+func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, consent Consent) (Health, error) {
 	manager.mu.Lock()
 	if manager.cfg == nil {
 		manager.mu.Unlock()
-		return Health{State: StateDisabled, Complete: true, Reason: reasonPtr(ReasonDisabled)}
+		return Health{State: StateDisabled, Complete: true, Reason: reasonPtr(ReasonDisabled)}, nil
+	}
+	if expectedAlias != "" && manager.cfg.SSHAlias != expectedAlias {
+		health := manager.healthLocked(manager.lastRequestedMs)
+		manager.mu.Unlock()
+		return health, ErrHelperAliasMismatch
 	}
 	config := *manager.cfg
 	provider, factory := manager.releaseProvider, manager.lifecycleFactory
@@ -287,7 +304,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 		manager.helper = &status
 		health := manager.healthLocked(manager.lastRequestedMs)
 		manager.mu.Unlock()
-		return health
+		return health, nil
 	}
 	document, err := provider.LoadMetadata(ctx)
 	if err != nil {
@@ -296,7 +313,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 		manager.helper = &status
 		health := manager.healthLocked(manager.lastRequestedMs)
 		manager.mu.Unlock()
-		return health
+		return health, nil
 	}
 	lifecycle, err := factory(config.SSHAlias)
 	if err != nil {
@@ -305,13 +322,13 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 		manager.helper = &status
 		health := manager.healthLocked(manager.lastRequestedMs)
 		manager.mu.Unlock()
-		return health
+		return health, nil
 	}
 	result := lifecycle.SetupWithLoader(ctx, document, consent, provider.LoadArtifact)
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
-		return manager.healthLocked(manager.lastRequestedMs)
+		return manager.healthLocked(manager.lastRequestedMs), nil
 	}
 	status := lifecycleStatus(result)
 	manager.helper = &status
@@ -320,7 +337,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
 			manager.helper = &status
 			manager.helperTarget = nil
-			return manager.healthLocked(manager.lastRequestedMs)
+			return manager.healthLocked(manager.lastRequestedMs), nil
 		}
 		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
 		manager.helperVersion = result.Artifact.Version
@@ -329,7 +346,7 @@ func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health
 		manager.helperTarget = nil
 		manager.helperProbe = helperProbeFallback
 	}
-	return manager.healthLocked(manager.lastRequestedMs)
+	return manager.healthLocked(manager.lastRequestedMs), nil
 }
 
 // ReleaseHelperOwnership explicitly forgets local ownership without modifying
@@ -448,28 +465,19 @@ func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 		reason := classifyHelperError(err)
 		return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Reason: reasonPtr(reason)}
 	}
+	// This is deliberately a non-persisting probe. Do not alter state,
+	// completeness, or sessions: those describe the last durable snapshot and
+	// could otherwise make stale cached data aggregate-eligible. A successful
+	// probe may advertise its verified transport and bounded metrics.
 	manager.transport = TransportHelper
 	manager.metrics = metricsFor(result)
 	if reason := limitedResultReason(result); reason != nil {
-		manager.state = StateLimited
-		manager.complete = false
-		manager.reason = reasonPtr(*reason)
-		manager.errorCopy = genericErrorCopy(*reason)
-		// An empty host is a valid helper result: the executable completed the
-		// protocol and inspected every supported root, but there is simply no
-		// agent data yet. Keep that useful board state while reporting the setup
-		// operation itself as successful.
 		return HelperTestResult{
 			Health:    manager.healthLocked(manager.lastRequestedMs),
 			Succeeded: *reason == ReasonNoSupportedData,
 			Reason:    reasonPtr(*reason),
 		}
 	}
-	manager.state = StateOK
-	manager.complete = true
-	manager.reason = nil
-	manager.errorCopy = ""
-	manager.diagnostic = ""
 	return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Succeeded: true}
 }
 
