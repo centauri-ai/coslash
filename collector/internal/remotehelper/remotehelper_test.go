@@ -3,6 +3,7 @@ package remotehelper
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,6 +31,34 @@ func TestSourceEntryLimitIsEnforcedWhileReadingDirectory(t *testing.T) {
 	defer source.Close()
 	if _, err := source.ReadDir(root); !errors.Is(err, ErrEntryLimit) {
 		t.Fatalf("ReadDir error = %v, want ErrEntryLimit", err)
+	}
+}
+
+func TestSourceReadsFileAtExactByteLimit(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".codex", "session_index.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("four"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := OpenSource(home, Limits{MaxFileBytes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	file, err := source.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	content, err := io.ReadAll(file)
+	if err != nil {
+		t.Fatalf("ReadAll error = %v", err)
+	}
+	if string(content) != "four" {
+		t.Fatalf("content = %q, want %q", content, "four")
 	}
 }
 
