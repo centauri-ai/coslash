@@ -46,6 +46,20 @@ export async function retryRemoteRefresh(): Promise<{ status: number; machine: M
   return { status: response.status, machine: decodeMachineFact(body) };
 }
 
+const REMOTE_REFRESH_POLL_INTERVAL_MS = 400;
+
+// The retry endpoint acknowledges that collection has started, rather than
+// waiting for it to finish. Wait for its terminal health state before callers
+// reload the board, so it does not remain on the transient "connecting" view.
+export async function retryRemoteRefreshAndWait(): Promise<MachineFact> {
+  let { machine } = await retryRemoteRefresh();
+  while (machine.state === 'connecting') {
+    await new Promise<void>((resolve) => setTimeout(resolve, REMOTE_REFRESH_POLL_INTERVAL_MS));
+    machine = await remoteStatus();
+  }
+  return machine;
+}
+
 export async function setupRemoteHelper(
   sshAlias: string,
   consent: 'install' | 'upgrade',

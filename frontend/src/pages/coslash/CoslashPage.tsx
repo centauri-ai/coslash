@@ -48,7 +48,7 @@ import {
   remoteMachine,
 } from '@/pages/coslash/lib/host-strip';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
-import { retryRemoteRefresh } from '@/pages/coslash/lib/remote-api';
+import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import {
   getSessionVendors,
@@ -414,7 +414,7 @@ export function CoslashPage() {
   const handleRemoteRetry = () => {
     if (remoteRetryInFlight) return;
     setRemoteRetryInFlight(true);
-    void retryRemoteRefresh()
+    void retryRemoteRefreshAndWait()
       .catch(() => undefined)
       .finally(() => {
         setRemoteRetryInFlight(false);
@@ -426,16 +426,7 @@ export function CoslashPage() {
   const saveSettings = async (...args: Parameters<typeof settingsState.save>) => {
     const ok = await settingsState.save(...args);
     if (ok) {
-      // Kick a remote collect immediately after save so SSH recovery is not
-      // stuck behind the previous failure backoff.
-      setRemoteRetryInFlight(true);
-      void retryRemoteRefresh()
-        .catch(() => undefined)
-        .finally(() => {
-          setRemoteRetryInFlight(false);
-          retrySessions();
-          if (diagnosticsOpen) refreshDiagnostics();
-        });
+      handleRemoteRetry();
     }
     return ok;
   };
