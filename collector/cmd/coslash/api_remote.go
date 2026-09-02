@@ -138,6 +138,10 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 		writeAPIError(w, http.StatusConflict, "remote_alias_mismatch", "SSH alias changed; save settings and test that host before setting up its helper")
 		return
 	}
+	if errors.Is(err, remote.ErrHelperSetupInProgress) {
+		writeAPIError(w, http.StatusConflict, "remote_helper_setup_in_progress", "helper setup is already running for this host")
+		return
+	}
 	testSucceeded := false
 	if setup.Helper != nil && setup.Helper.Compatible {
 		test := manager.TestHelper(ctx)

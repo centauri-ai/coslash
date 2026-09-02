@@ -18,6 +18,7 @@ var (
 	ErrInvalidRemoteSettings   = errors.New("invalid remote settings")
 	ErrHelperOwnershipConflict = errors.New("helper ownership must be explicitly released or uninstalled before changing SSH alias")
 	ErrHelperAliasMismatch     = errors.New("helper setup alias does not match configured SSH alias")
+	ErrHelperSetupInProgress   = errors.New("helper setup is running for the configured SSH alias")
 )
 
 type SessionKey struct {
@@ -104,6 +105,7 @@ type Manager struct {
 	helper                 *HelperStatus
 	helperTarget           *helperTarget
 	helperVerify           helperVerifyFunc
+	helperSetup            bool
 	helperVersion          string
 	helperOwnershipCorrupt bool
 	helperProbe            helperProbeState
@@ -188,6 +190,9 @@ func NewManager(options Options) *Manager {
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
+		return ErrHelperSetupInProgress
+	}
 	corruptOwnership := false
 	if remote != nil {
 		ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
@@ -297,6 +302,9 @@ func (manager *Manager) ValidateSettingsChange(remote *settings.RemoteSettings) 
 }
 
 func (manager *Manager) validateSettingsLocked(remote *settings.RemoteSettings) error {
+	if manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
+		return ErrHelperSetupInProgress
+	}
 	if remote == nil {
 		if manager.helperVersion != "" || manager.helperOwnershipCorrupt {
 			return ErrHelperOwnershipConflict
@@ -320,6 +328,13 @@ func (manager *Manager) validateSettingsLocked(remote *settings.RemoteSettings) 
 		return ErrHelperOwnershipConflict
 	}
 	return nil
+}
+
+func remoteTargetChanged(current, next *settings.RemoteSettings) bool {
+	if current == nil || next == nil {
+		return current != next
+	}
+	return current.ID != next.ID || current.SSHAlias != next.SSHAlias
 }
 
 func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
