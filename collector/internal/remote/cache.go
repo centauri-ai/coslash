@@ -270,7 +270,6 @@ type CachedSnapshotV2 struct {
 	BaselineID      string              `json:"baselineId"`
 	CoverageSinceMs int64               `json:"coverageSinceMs"`
 	Families        []CachedFamilyV2    `json:"families"`
-	VendorComplete  map[string]bool     `json:"vendorComplete,omitempty"`
 	Coverage        []AgentCoverage     `json:"coverage,omitempty"`
 	FetchedAtMs     int64               `json:"fetchedAtMs"`
 	RoundTripMs     int64               `json:"roundTripMs"`
@@ -360,11 +359,6 @@ func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
 			return false
 		}
 		seen[key] = true
-	}
-	for vendor := range cached.VendorComplete {
-		if vendor != vendors.AgentClaude && vendor != vendors.AgentCodex {
-			return false
-		}
 	}
 	seenHeaders := map[string]bool{}
 	for _, header := range cached.CodexHeaders {

@@ -40,11 +40,8 @@ func fromGeneration(
 ) CachedSnapshotV2 {
 	snapshot := CachedSnapshotV2{
 		Version: cacheV2Version, BaselineID: gen.BaselineID, CoverageSinceMs: gen.CoverageSinceMs,
-		VendorComplete: map[string]bool{}, Coverage: coverage,
+		Coverage:    coverage,
 		FetchedAtMs: fetchedAtMs, RoundTripMs: roundTripMs, CodexHeaders: codexHeaders,
-	}
-	for vendor, complete := range gen.VendorComplete {
-		snapshot.VendorComplete[vendor] = complete
 	}
 	for key, family := range gen.Families {
 		snapshot.Families = append(snapshot.Families, CachedFamilyV2{

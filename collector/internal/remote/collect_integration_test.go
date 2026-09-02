@@ -9,6 +9,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 const testModel = "claude-sonnet-4-20250514"
@@ -36,6 +37,67 @@ func writeCodexFixture(fs *fakeFS, id, parentID string, modTime time.Time) strin
 `, id, id, parent)
 	fs.writeFile(filePath, content, modTime)
 	return filePath
+}
+
+func TestCodexRemoteFamiliesSelectRecentChildOfOldRoot(t *testing.T) {
+	fs := newFakeFS()
+	rootID := "11111111-2222-3333-4444-555555555555"
+	childID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	root := writeCodexFixture(fs, rootID, "", time.Unix(1000, 0))
+	child := writeCodexFixture(fs, childID, rootID, time.Unix(2000, 0))
+
+	families, _, _, _, _, _, err := codex.BuildRemoteFamilies(
+		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(), nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("BuildRemoteFamilies: %v", err)
+	}
+	family, ok := families[rootID]
+	if !ok {
+		t.Fatalf("recent child did not select its old root family: %#v", families)
+	}
+	if len(family.Files) != 2 || family.Files[0] != root || family.Files[1] != child {
+		t.Fatalf("family files = %#v, want root and child", family.Files)
+	}
+}
+
+func TestCodexRemoteFamiliesSelectLiveChildOfOldRoot(t *testing.T) {
+	fs := newFakeFS()
+	rootID := "22222222-3333-4444-5555-666666666666"
+	childID := "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
+	writeCodexFixture(fs, rootID, "", time.Unix(1000, 0))
+	writeCodexFixture(fs, childID, rootID, time.Unix(1000, 0))
+
+	families, _, _, _, _, _, err := codex.BuildRemoteFamilies(
+		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(),
+		map[string]string{childID: "interactive"}, nil,
+	)
+	if err != nil {
+		t.Fatalf("BuildRemoteFamilies: %v", err)
+	}
+	if family, ok := families[rootID]; !ok || len(family.Files) != 2 {
+		t.Fatalf("live child did not select its old root family: %#v", families)
+	}
+}
+
+func TestCodexRemoteFamiliesExcludeOldUnreadableFileOutsideWindow(t *testing.T) {
+	fs := newFakeFS()
+	id := "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+	file := path.Join(fakeHome, ".codex/sessions/2026/08/18", "rollout-2026-08-18T10-00-00-"+id+".jsonl")
+	fs.writeFile(file, "{not valid json", time.Unix(1000, 0))
+
+	families, _, _, failed, _, _, err := codex.BuildRemoteFamilies(
+		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(), nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("BuildRemoteFamilies: %v", err)
+	}
+	if len(failed) != 1 {
+		t.Fatalf("header failures = %#v, want one unreadable file", failed)
+	}
+	if len(families) != 0 {
+		t.Fatalf("old unreadable file bypassed the requested window: %#v", families)
+	}
 }
 
 func TestCollectIncrementalSkipsUnchangedFamiliesAndHeaders(t *testing.T) {

@@ -34,9 +34,8 @@ func TestCacheV2StoreLoadRoundTrip(t *testing.T) {
 		Families: []CachedFamilyV2{{
 			Vendor: vendors.AgentClaude, FamilyID: "root-1", Facts: family, Fingerprint: "fp-1", LastSuccessAtMs: 1000,
 		}},
-		VendorComplete: map[string]bool{vendors.AgentClaude: true},
-		Coverage:       []AgentCoverage{{Agent: vendors.AgentClaude, CandidateFiles: 1, SelectedFiles: 1}},
-		FetchedAtMs:    1000, RoundTripMs: 42,
+		Coverage:    []AgentCoverage{{Agent: vendors.AgentClaude, CandidateFiles: 1, SelectedFiles: 1}},
+		FetchedAtMs: 1000, RoundTripMs: 42,
 		CodexHeaders: []CachedCodexHeader{{Key: "k1", Size: 5, ModifiedAtMs: 100, ParserVersion: codexParserVersion, SessionID: "s1"}},
 	}
 	if err := cache.StoreV2("r_0123456789abcdef", snapshot); err != nil {
