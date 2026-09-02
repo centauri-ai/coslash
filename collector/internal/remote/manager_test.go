@@ -317,6 +317,60 @@ func TestHelperTestAcceptsEmptySuccessfulCollection(t *testing.T) {
 	if result.Health.Complete || result.Health.Reason == nil || *result.Health.Reason != ReasonNoSupportedData {
 		t.Fatalf("empty-host board health = %#v", result.Health)
 	}
+	if result.Health.Transport != TransportHelper {
+		t.Fatalf("successful helper test transport = %q, want helper", result.Health.Transport)
+	}
+}
+
+func TestHelperTestFailureDoesNotPoisonRefreshOrTransport(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	lifecycleRemote, _, content := lifecycleFixture(t)
+	manager := NewManager(Options{
+		Cache: NewCache(filepath.Join(home, "remote-cache")), Now: func() time.Time { return now },
+		ReleaseProvider:             fixedHelperRelease{document: lifecycleRemote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(lifecycleRemote), nil },
+		HelperInstallationAvailable: true,
+		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
+			return refreshOutcome{Stderr: "probe failed"}, context.DeadlineExceeded
+		},
+	})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("setup health = %#v", health)
+	}
+	manager.mu.Lock()
+	manager.snapshot = &CachedSnapshotV2{Version: cacheV2Version, CoverageSinceMs: now.UnixMilli()}
+	manager.state = StateOK
+	manager.complete = true
+	manager.transport = TransportSFTP
+	manager.failures = 0
+	manager.nextRetryAt = time.Time{}
+	manager.lastRequestedMs = 0
+	manager.mu.Unlock()
+
+	result := manager.TestHelper(context.Background())
+	if result.Succeeded || result.Reason == nil {
+		t.Fatalf("failed helper test = %#v", result)
+	}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.failures != 0 || !manager.nextRetryAt.IsZero() {
+		t.Fatalf("setup probe poisoned retry state: failures=%d nextRetryAt=%v", manager.failures, manager.nextRetryAt)
+	}
+	if manager.transport != TransportSFTP {
+		t.Fatalf("failed probe transport = %q, want prior sftp", manager.transport)
+	}
+	if manager.state != StateOK || !manager.complete {
+		t.Fatalf("failed probe rewrote board state: state=%s complete=%v", manager.state, manager.complete)
+	}
+	if result.Health.Transport != TransportSFTP || result.Health.State != StateOK {
+		t.Fatalf("failed probe health = %#v", result.Health)
+	}
 }
 
 func TestHelperOwnershipBlocksAliasChangeUntilExplicitRelease(t *testing.T) {
