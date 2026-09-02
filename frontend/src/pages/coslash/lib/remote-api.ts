@@ -46,16 +46,25 @@ export async function retryRemoteRefresh(): Promise<{ status: number; machine: M
   return { status: response.status, machine: decodeMachineFact(body) };
 }
 
-export async function setupRemoteHelper(consent: 'install' | 'upgrade'): Promise<HelperSetupResult> {
-  const response = await apiFetch('/api/remote/helper/setup', helperSetupRequestInit(consent));
-  return decodeHelperSetup(await response.json());
+export async function setupRemoteHelper(
+  sshAlias: string,
+  consent: 'install' | 'upgrade',
+): Promise<HelperSetupResult> {
+  const response = await apiFetch('/api/remote/helper/setup', helperSetupRequestInit(sshAlias, consent));
+  const body: unknown = await response.json();
+  try {
+    return decodeHelperSetup(body);
+  } catch (error) {
+    if (!response.ok) throw new Error(decodeApiError(body).error);
+    throw error;
+  }
 }
 
-export function helperSetupRequestInit(consent: 'install' | 'upgrade'): RequestInit {
+export function helperSetupRequestInit(sshAlias: string, consent: 'install' | 'upgrade'): RequestInit {
   return {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ install: consent === 'install', upgrade: consent === 'upgrade' }),
+    body: JSON.stringify({ sshAlias, install: consent === 'install', upgrade: consent === 'upgrade' }),
   };
 }
 

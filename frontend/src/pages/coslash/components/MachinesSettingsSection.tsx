@@ -105,10 +105,17 @@ export function MachinesSettingsSection({
   };
 
   const setupHelper = async (consent: 'install' | 'upgrade') => {
+    const alias = draft.sshAlias.trim();
+    if (!alias) {
+      setTestError('Enter an SSH alias first');
+      return;
+    }
     setHelperAction(consent);
     setTestError(null);
     try {
-      const result = await setupRemoteHelper(consent);
+      // The backend binds this request to the persisted alias. It rejects a
+      // tested-but-unsaved draft rather than installing on the saved host.
+      const result = await setupRemoteHelper(alias, consent);
       setSetupResult(result);
       setTestResult(result.machine);
       setHostStatus(result.machine);

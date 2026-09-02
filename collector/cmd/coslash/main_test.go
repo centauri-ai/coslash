@@ -86,7 +86,7 @@ func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	for _, body := range []string{`{"install":false,"upgrade":false}`, `{"install":true,"upgrade":true}`} {
+	for _, body := range []string{`{"sshAlias":"agent-box","install":false,"upgrade":false}`, `{"sshAlias":"agent-box","install":true,"upgrade":true}`} {
 		request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/remote/helper/setup", bytes.NewBufferString(body))
 		response := httptest.NewRecorder()
 		handleRemoteHelperSetup(response, request, manager)
@@ -123,7 +123,7 @@ func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/remote/helper/setup", bytes.NewBufferString(`{"install":true,"upgrade":false}`))
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/remote/helper/setup", bytes.NewBufferString(`{"sshAlias":"agent-box","install":true,"upgrade":false}`))
 	response := httptest.NewRecorder()
 	handleRemoteHelperSetup(response, request, manager)
 	if response.Code != http.StatusConflict {
@@ -135,6 +135,26 @@ func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
 	}
 	if body.Outcome != "sftp_fallback" || body.Error == "" || body.Machine.State != remote.StateLimited || body.Machine.Complete {
 		t.Fatalf("failed setup response = %#v", body)
+	}
+}
+
+func TestHelperSetupRejectsUnsavedAlias(t *testing.T) {
+	manager := remote.NewManager(remote.Options{})
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "saved-host", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/remote/helper/setup", bytes.NewBufferString(`{"sshAlias":"tested-draft","install":true,"upgrade":false}`))
+	response := httptest.NewRecorder()
+	handleRemoteHelperSetup(response, request, manager)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusConflict)
+	}
+	var body apiErrorBody
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "remote_alias_mismatch" {
+		t.Fatalf("error = %#v", body)
 	}
 }
 

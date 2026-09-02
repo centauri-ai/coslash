@@ -159,8 +159,12 @@ describe('settings and remote API decoders', () => {
   });
 
   it('sends one explicit install or upgrade consent', () => {
-    expect(helperSetupRequestInit('install').body).toBe(JSON.stringify({ install: true, upgrade: false }));
-    expect(helperSetupRequestInit('upgrade').body).toBe(JSON.stringify({ install: false, upgrade: true }));
+    expect(helperSetupRequestInit('gpu-server', 'install').body).toBe(
+      JSON.stringify({ sshAlias: 'gpu-server', install: true, upgrade: false }),
+    );
+    expect(helperSetupRequestInit('gpu-server', 'upgrade').body).toBe(
+      JSON.stringify({ sshAlias: 'gpu-server', install: false, upgrade: true }),
+    );
   });
 
   it('exhaustively decodes setup outcomes and recorded helper ownership', () => {
