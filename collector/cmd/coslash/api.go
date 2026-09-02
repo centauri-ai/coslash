@@ -380,6 +380,10 @@ func handleSaveSettings(
 		err = remoteManager.ValidateSettingsChangeWithOwnershipAction(config.Remote, ownershipAction)
 	}
 	if err != nil {
+		if errors.Is(err, remote.ErrHelperSetupInProgress) {
+			writeAPIError(w, http.StatusConflict, "remote_helper_setup_in_progress", "wait for helper setup to finish before changing this host")
+			return
+		}
 		if errors.Is(err, remote.ErrHelperOwnershipConflict) {
 			writeAPIError(w, http.StatusConflict, "remote_helper_ownership_conflict", "uninstall or explicitly leave the helper before changing this host")
 			return
@@ -418,6 +422,13 @@ func handleSaveSettings(
 	mgr.SetRunner(runner)
 	if err := remoteManager.ApplySettings(config.Remote); err != nil {
 		log.Printf("apply remote settings: %v", err)
+		if restoreErr := store.Save(previous); restoreErr != nil {
+			log.Printf("restore settings after remote apply failure: %v", restoreErr)
+		}
+		if errors.Is(err, remote.ErrHelperSetupInProgress) {
+			writeAPIError(w, http.StatusConflict, "remote_helper_setup_in_progress", "wait for helper setup to finish before changing this host")
+			return
+		}
 		http.Error(w, "could not apply remote settings", http.StatusInternalServerError)
 		return
 	}

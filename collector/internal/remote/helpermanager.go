@@ -294,9 +294,24 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.mu.Unlock()
 		return health, ErrHelperAliasMismatch
 	}
+	if manager.helperSetup {
+		health := manager.healthLocked(manager.lastRequestedMs)
+		manager.mu.Unlock()
+		return health, ErrHelperSetupInProgress
+	}
 	config := *manager.cfg
 	provider, factory := manager.releaseProvider, manager.lifecycleFactory
+	// Keep this host identity reserved until setup has either recorded
+	// ownership or finished without installing anything. SetupWithLoader can
+	// release this mutex while uploading the helper, so ApplySettings must not
+	// replace the alias in that interval.
+	manager.helperSetup = true
 	manager.mu.Unlock()
+	defer func() {
+		manager.mu.Lock()
+		manager.helperSetup = false
+		manager.mu.Unlock()
+	}()
 
 	if !manager.helperInstallationAvailable || provider == nil || factory == nil {
 		manager.mu.Lock()
@@ -487,6 +502,9 @@ func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 func (manager *Manager) ValidateSettingsChangeWithOwnershipAction(next *settings.RemoteSettings, action OwnershipAction) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.helperSetup {
+		return ErrHelperSetupInProgress
+	}
 	if action != OwnershipActionRelease && action != OwnershipActionUninstall {
 		return ErrHelperOwnershipConflict
 	}

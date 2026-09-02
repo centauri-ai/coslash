@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -149,6 +150,24 @@ func TestHardFailureFallsBackToStaleWhenCacheExists(t *testing.T) {
 type fixedHelperRelease struct {
 	document SignedReleaseMetadata
 	content  []byte
+}
+
+type blockingHelperRelease struct {
+	document SignedReleaseMetadata
+	content  []byte
+	started  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+}
+
+func (provider *blockingHelperRelease) LoadMetadata(context.Context) (SignedReleaseMetadata, error) {
+	return provider.document, nil
+}
+
+func (provider *blockingHelperRelease) LoadArtifact(context.Context, Artifact) ([]byte, error) {
+	provider.once.Do(func() { close(provider.started) })
+	<-provider.release
+	return provider.content, nil
 }
 
 type architectureRelease struct {
@@ -482,6 +501,51 @@ func TestHelperOwnershipBlocksAliasChangeUntilExplicitRelease(t *testing.T) {
 	}
 	if err := manager.ApplySettings(&changed); err != nil {
 		t.Fatalf("explicit release should allow alias replacement: %v", err)
+	}
+}
+
+func TestSetupBlocksAliasChangeUntilItRecordsOwnership(t *testing.T) {
+	remote, _, content := lifecycleFixture(t)
+	provider := &blockingHelperRelease{
+		document: remote.document, content: content,
+		started: make(chan struct{}), release: make(chan struct{}),
+	}
+	cache := NewCache(t.TempDir())
+	manager := NewManager(Options{
+		Cache: cache, ReleaseProvider: provider,
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "old-host", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	setupDone := make(chan error, 1)
+	go func() {
+		_, err := manager.SetupHelperForAlias(context.Background(), config.SSHAlias, Consent{Install: true})
+		setupDone <- err
+	}()
+	<-provider.started
+
+	changed := *config
+	changed.SSHAlias = "new-host"
+	if err := manager.ValidateSettingsChange(&changed); !errors.Is(err, ErrHelperSetupInProgress) {
+		t.Fatalf("validate alias change during setup = %v, want ErrHelperSetupInProgress", err)
+	}
+	if err := manager.ApplySettings(&changed); !errors.Is(err, ErrHelperSetupInProgress) {
+		t.Fatalf("apply alias change during setup = %v, want ErrHelperSetupInProgress", err)
+	}
+
+	close(provider.release)
+	if err := <-setupDone; err != nil {
+		t.Fatalf("SetupHelperForAlias: %v", err)
+	}
+	ownership, owned, err := cache.LoadHelperOwnership(config.ID)
+	if err != nil || !owned || ownership.Alias != config.SSHAlias {
+		t.Fatalf("ownership after setup = %#v, owned=%v, err=%v", ownership, owned, err)
+	}
+	if err := manager.ApplySettings(&changed); !errors.Is(err, ErrHelperOwnershipConflict) {
+		t.Fatalf("alias change after setup = %v, want ErrHelperOwnershipConflict", err)
 	}
 }
 
