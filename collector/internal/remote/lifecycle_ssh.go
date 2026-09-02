@@ -11,13 +11,13 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 
+	"github.com/centauri-ai/coslash/collector/internal/remoteinstall"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/pkg/sftp"
 )
-
-const linuxStatVFSNoExec = 0x8
 
 // SSHLifecycleRemote is the production helper lifecycle adapter. It uses the
 // same bounded system-SSH and SFTP transport as remote collection.
@@ -103,60 +103,98 @@ func (remote *SSHLifecycleRemote) Install(ctx context.Context, request InstallRe
 	}
 	var installed RemoteFile
 	err = remote.withSession(ctx, func(session *Session) error {
-		destination, version, err := resolveLifecyclePath(session.source.Home(), request.Destination)
+		_, version, err := resolveLifecyclePath(session.source.Home(), request.Destination)
 		if err != nil {
 			return err
 		}
-		temporary := destination + ".new"
-		if err := validateLifecycleDirectories(session.client, session.source.Home(), version, request.OwnerUID, true); err != nil {
+		home := session.source.Home()
+		if err := validateLifecycleHome(session.client, home, request.OwnerUID); err != nil {
 			return err
 		}
-		vfs, err := session.client.StatVFS(path.Dir(destination))
-		if err != nil {
-			return fmt.Errorf("inspect helper filesystem: %w", err)
-		}
-		if vfs.Flag&linuxStatVFSNoExec != 0 {
-			return ErrHelperNoExec
-		}
-		if err := removeStaleLifecycleTemporary(session.client, temporary, request.OwnerUID); err != nil {
+		// The staging path is directly below the already-validated home directory.
+		// Activation itself happens in the staged, authenticated static helper using
+		// descriptor-relative openat/renameat calls; SFTP has no such primitive.
+		staging := path.Join(home, "."+HelperFileName+"-"+version+".stage")
+		if err := removeStaleLifecycleTemporary(session.client, staging, request.OwnerUID); err != nil {
 			return err
 		}
-		file, err := session.client.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+		file, err := session.client.OpenFile(staging, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 		if err != nil {
-			return fmt.Errorf("create helper temporary: %w", err)
+			return fmt.Errorf("create helper staging file: %w", err)
 		}
 		writeErr := writeLifecycleArtifact(file, request.Bytes)
 		closeErr := file.Close()
 		if err := errors.Join(writeErr, closeErr); err != nil {
-			_ = session.client.Remove(temporary)
-			return fmt.Errorf("write helper temporary: %w", err)
+			_ = session.client.Remove(staging)
+			return fmt.Errorf("write helper staging file: %w", err)
 		}
-		temporaryInfo, err := inspectLifecycleFile(session.client, temporary, request.Temporary)
+		stagingInfo, err := inspectLifecycleFile(session.client, staging, staging)
 		if err != nil {
-			_ = session.client.Remove(temporary)
+			_ = session.client.Remove(staging)
 			return err
 		}
-		if err := verifyRemoteFile(temporaryInfo, request.Temporary, request.Artifact, request.OwnerUID); err != nil {
-			_ = session.client.Remove(temporary)
+		if err := verifyRemoteFile(stagingInfo, staging, request.Artifact, request.OwnerUID); err != nil {
+			_ = session.client.Remove(staging)
 			return err
 		}
-		if existing, err := session.client.Lstat(destination); err == nil {
-			if err := validateLifecycleEntry(existing, request.OwnerUID, false); err != nil {
-				_ = session.client.Remove(temporary)
-				return err
-			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			_ = session.client.Remove(temporary)
-			return err
+		installErr := remote.runStagedInstaller(ctx, staging, home, version, request.Artifact.SHA256)
+		_ = session.client.Remove(staging)
+		if errors.Is(installErr, remoteinstall.ErrNoExec) {
+			return ErrHelperNoExec
 		}
-		if err := session.client.PosixRename(temporary, destination); err != nil {
-			_ = session.client.Remove(temporary)
-			return fmt.Errorf("activate helper atomically: %w", err)
+		if installErr != nil {
+			return installErr
 		}
-		installed, err = inspectLifecycleFile(session.client, destination, request.Destination)
-		return err
+		installed = RemoteFile{Path: request.Destination, Size: request.Artifact.Size,
+			SHA256: request.Artifact.SHA256, Mode: 0o700, UID: request.OwnerUID, Regular: true}
+		return nil
 	})
 	return installed, err
+}
+
+func (remote *SSHLifecycleRemote) runStagedInstaller(ctx context.Context, staging, home, version, sha256 string) error {
+	limits := remote.Options.Limits.withDefaults()
+	if remote.Options.command == nil {
+		if err := ensureControlMaster(ctx, remote.Alias, remote.Options); err != nil {
+			return err
+		}
+	}
+	bin := remote.Options.SSHBin
+	if bin == "" {
+		bin = "ssh"
+	}
+	command := remote.Options.command
+	if command == nil {
+		command = exec.CommandContext
+	}
+	runCtx, cancel := context.WithTimeout(ctx, limits.Deadline)
+	defer cancel()
+	args := []string{
+		"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(int(limits.ConnectTimeout.Seconds())),
+		"-o", "ControlMaster=auto", "-o", "ControlPath=" + controlSocketPath(), "-o", "ControlPersist=" + defaultControlPersist,
+		remote.Alias, shellQuote(staging) + " install " + shellQuote(home) + " " + shellQuote(version) + " " + shellQuote(sha256),
+	}
+	cmd := command(runCtx, bin, args...)
+	stdout := &boundedCommandOutput{limit: 128, cancel: cancel}
+	stderr := &boundedCommandOutput{limit: limits.MaxStderrBytes, cancel: cancel}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		if stderr.overflow {
+			return ErrStderrLimit
+		}
+		if runCtx.Err() != nil {
+			return runCtx.Err()
+		}
+		if strings.Contains(stderr.String(), remoteinstall.ErrNoExec.Error()) {
+			return remoteinstall.ErrNoExec
+		}
+		return wrapSSHError(fmt.Errorf("run secure helper installer: %w", err), stderr.String())
+	}
+	if stdout.overflow || stderr.overflow {
+		return ErrStderrLimit
+	}
+	return nil
 }
 
 func (remote *SSHLifecycleRemote) RemoveExact(ctx context.Context, requested string) error {
@@ -256,6 +294,17 @@ func validateLifecycleDirectories(client *sftp.Client, home, version string, uid
 		if err := validateLifecycleEntry(info, uid, true); err != nil {
 			return fmt.Errorf("unsafe helper directory %s: %w", directory, err)
 		}
+	}
+	return nil
+}
+
+func validateLifecycleHome(client *sftp.Client, home string, uid uint32) error {
+	info, err := client.Lstat(home)
+	if err != nil {
+		return err
+	}
+	if err := validateLifecycleEntry(info, uid, true); err != nil {
+		return fmt.Errorf("unsafe helper home %s: %w", home, err)
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remotehelper"
+	"github.com/centauri-ai/coslash/collector/internal/remoteinstall"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -39,15 +40,33 @@ const (
 var build = "dev"
 
 func main() {
-	if len(os.Args) != 2 {
+	if len(os.Args) < 2 {
 		usage()
 		os.Exit(exitUsage)
 	}
 	switch os.Args[1] {
 	case "version", "capabilities":
+		if len(os.Args) != 2 {
+			usage()
+			os.Exit(exitUsage)
+		}
 		os.Exit(runCapabilities(os.Stdout))
 	case "collect":
+		if len(os.Args) != 2 {
+			usage()
+			os.Exit(exitUsage)
+		}
 		os.Exit(runCollect(context.Background(), os.Stdin, os.Stdout))
+	case "install":
+		if len(os.Args) != 5 {
+			usage()
+			os.Exit(exitUsage)
+		}
+		if err := remoteinstall.Install(os.Args[2], os.Args[3], os.Args[4]); err != nil {
+			fmt.Fprintf(os.Stderr, "coslash-helper: secure install: %v\n", err)
+			os.Exit(exitInternal)
+		}
+		os.Exit(exitOK)
 	default:
 		usage()
 		os.Exit(exitUsage)
@@ -55,7 +74,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: coslash-helper version|collect")
+	fmt.Fprintln(os.Stderr, "usage: coslash-helper version|collect|install <home> <version> <sha256>")
 	fmt.Fprintln(os.Stderr, "collect reads one JSON request line on stdin.")
 }
 
