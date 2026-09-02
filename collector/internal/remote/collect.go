@@ -76,7 +76,7 @@ type vendorFamilyInput struct {
 
 type vendorOutcome struct {
 	Records  []remoteprotocol.Record
-	Complete *remoteprotocol.Record
+	Complete remoteprotocol.Record
 	Coverage AgentCoverage
 	Metadata *vendors.SessionMetadata
 	Failures []error
@@ -195,7 +195,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		inventory = append([]string(nil), in.AllFamilyIDs...)
 		sort.Strings(inventory)
 	}
-	complete := &remoteprotocol.Record{
+	complete := remoteprotocol.Record{
 		Type: remoteprotocol.RecordVendorComplete, Vendor: in.Vendor,
 		EnumerationComplete: true, InventoryComplete: inventoryComplete, Inventory: inventory,
 	}
@@ -409,7 +409,7 @@ func collectIncremental(
 			coverage = append(coverage, outcome.Coverage)
 			continue
 		}
-		if err := apply(*outcome.Complete); err != nil {
+		if err := apply(outcome.Complete); err != nil {
 			return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply %s completion: %w", vendorName, err)
 		}
 		coverage = append(coverage, outcome.Coverage)

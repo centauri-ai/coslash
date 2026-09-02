@@ -47,7 +47,6 @@ type refreshOutcome struct {
 }
 
 type probeResult struct {
-	Coverage  []AgentCoverage
 	Stderr    string
 	RoundTrip time.Duration
 }
@@ -217,7 +216,7 @@ func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, er
 	}
 	result, err := manager.test(ctx, alias)
 	health := Health{
-		Label: alias, Complete: true, Coverage: slices.Clone(result.Coverage),
+		Label: alias, Complete: true,
 		RoundTripMs: int64Ptr(result.RoundTrip.Milliseconds()),
 	}
 	if err != nil {

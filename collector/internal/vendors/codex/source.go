@@ -196,24 +196,25 @@ func BuildRemoteFamilies(
 	selectedRoots := map[string]struct{}{}
 	for _, file := range files {
 		header, ok := headers[file]
-		if !ok || header.ParentID != "" {
-			continue
+		sessionID := familyOf[file]
+		if ok {
+			sessionID = header.SessionID
 		}
-		_, isLive := live[header.SessionID]
+		_, isLive := live[sessionID]
+		// A family belongs in the window when any of its members is recent or
+		// live. In particular, a fork can remain active after its root has
+		// aged out. Header failures are subject to the same window before
+		// their singleton fallback family is selected.
 		if isLive || since <= 0 || byFile[file].ModifiedAtMs >= since {
-			selectedRoots[header.SessionID] = struct{}{}
+			selectedRoots[familyOf[file]] = struct{}{}
 		}
 	}
 	windowed := map[string][]string{}
 	for _, file := range files {
-		header, ok := headers[file]
-		if ok {
-			if _, sel := selectedRoots[rootID(header.SessionID)]; !sel {
-				continue
-			}
+		if _, sel := selectedRoots[familyOf[file]]; !sel {
+			continue
 		}
-		id := familyOf[file]
-		windowed[id] = append(windowed[id], file)
+		windowed[familyOf[file]] = append(windowed[familyOf[file]], file)
 	}
 	if len(windowed) == 0 {
 		return map[string]RemoteFamily{}, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, false, nil
