@@ -423,8 +423,8 @@ export function CoslashPage() {
       });
   };
 
-  const saveSettings = async (settings: Parameters<typeof settingsState.save>[0]) => {
-    const ok = await settingsState.save(settings);
+  const saveSettings = async (...args: Parameters<typeof settingsState.save>) => {
+    const ok = await settingsState.save(...args);
     if (ok) retrySessions();
     return ok;
   };

@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { launchRequestPath } from '@/pages/coslash/hooks/use-launch-terminal';
 import { decodeApiError } from '@/pages/coslash/lib/api';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
-import { remoteTestRequestInit } from '@/pages/coslash/lib/remote-api';
+import { decodeMachineFact, HELPER_STATES, MACHINE_REASONS } from '@/pages/coslash/lib/machines';
+import {
+  decodeHelperSetup,
+  HELPER_SETUP_OUTCOMES,
+  helperSetupRequestInit,
+  remoteTestRequestInit,
+} from '@/pages/coslash/lib/remote-api';
 import { LOCAL_SOURCE_ID, type SessionDetail } from '@/pages/coslash/lib/session';
 import { decodeRemoteHostSettings, decodeSettingsResponse } from '@/pages/coslash/lib/settings';
 
@@ -108,5 +114,76 @@ describe('settings and remote API decoders', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sshAlias: 'gpu-server' }),
     });
+  });
+
+  it('decodes helper transport, lifecycle, and safe metrics', () => {
+    expect(
+      decodeMachineFact({
+        sourceId: 'r_0123456789abcdef',
+        label: 'gpu-server',
+        state: 'limited',
+        complete: false,
+        reason: 'output_limit',
+        transport: 'helper',
+        helper: {
+          state: 'deprecated',
+          version: 'v1',
+          compatible: true,
+          fallback: false,
+          reason: 'helper_upgrade_required',
+        },
+        metrics: { requestBytes: 120, responseBytes: 456, records: 3, roundTripMs: 40 },
+      }),
+    ).toMatchObject({
+      transport: 'helper',
+      helper: { state: 'deprecated', version: 'v1', compatible: true },
+      metrics: { responseBytes: 456, records: 3 },
+    });
+  });
+
+  it('exhaustively decodes helper lifecycle states and reasons', () => {
+    for (const state of HELPER_STATES) {
+      for (const reason of MACHINE_REASONS) {
+        expect(
+          decodeMachineFact({
+            sourceId: 'r_0123456789abcdef',
+            label: 'gpu-server',
+            state: 'limited',
+            complete: false,
+            transport: 'sftp',
+            helper: { state, compatible: false, fallback: true, reason },
+          }).helper,
+        ).toMatchObject({ state, reason });
+      }
+    }
+  });
+
+  it('sends one explicit install or upgrade consent', () => {
+    expect(helperSetupRequestInit('install').body).toBe(JSON.stringify({ install: true, upgrade: false }));
+    expect(helperSetupRequestInit('upgrade').body).toBe(JSON.stringify({ install: false, upgrade: true }));
+  });
+
+  it('exhaustively decodes setup outcomes and recorded helper ownership', () => {
+    for (const outcome of HELPER_SETUP_OUTCOMES) {
+      expect(
+        decodeHelperSetup({
+          outcome,
+          machine: {
+            sourceId: 'r_0123456789abcdef',
+            label: 'gpu-server',
+            state: 'limited',
+            complete: false,
+            helperOwnershipRecorded: true,
+            helper: { state: 'sftp', compatible: false, fallback: true, reason: 'helper_missing' },
+          },
+        }),
+      ).toMatchObject({ outcome, machine: { helperOwnershipRecorded: true } });
+    }
+    expect(() =>
+      decodeHelperSetup({
+        outcome: 'green',
+        machine: { sourceId: 'r_0123456789abcdef', label: 'gpu-server', state: 'limited', complete: false },
+      }),
+    ).toThrow('Expected one of');
   });
 });

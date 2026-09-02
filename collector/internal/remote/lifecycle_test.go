@@ -56,7 +56,7 @@ func TestLifecycleInstallsOnlyWithConsentAndVerifiesActivation(t *testing.T) {
 	if result.State != LifecycleReady || !result.CanExecute || remote.installs != 1 {
 		t.Fatalf("with consent = %#v, installs = %d", result, remote.installs)
 	}
-	if remote.lastRequest.Destination != "~/.local/lib/coslash/helpers/v1/coslash-helper" || remote.lastRequest.Temporary != remote.lastRequest.Destination+".new" {
+	if remote.lastRequest.Destination != "~/.coslash/helpers/v1/coslash-helper" || remote.lastRequest.Temporary != remote.lastRequest.Destination+".new" {
 		t.Fatalf("install request = %#v", remote.lastRequest)
 	}
 	if _, err := os.Stat(filepath.Join(remote.root, artifact.Version, HelperFileName)); err != nil {
@@ -110,6 +110,19 @@ func TestLifecycleNoExecAndRollbackStayOnSFTP(t *testing.T) {
 	result = lifecycleFor(remote).Setup(context.Background(), remote.document, content, Consent{Install: true})
 	if result.State != LifecycleSFTP || !errors.Is(result.Reason, ErrHelperRollback) {
 		t.Fatalf("rollback result = %#v", result)
+	}
+}
+
+func TestLifecycleInterruptedInstallFailsClosed(t *testing.T) {
+	remote, artifact, content := lifecycleFixture(t)
+	path, _ := helperPath(artifact.Version)
+	remote.installErr = context.DeadlineExceeded
+	result := lifecycleFor(remote).Setup(context.Background(), remote.document, content, Consent{Install: true})
+	if result.CanExecute || !result.Fallback || !errors.Is(result.Reason, context.DeadlineExceeded) {
+		t.Fatalf("interrupted install result = %#v", result)
+	}
+	if _, exists := remote.files[path]; exists {
+		t.Fatalf("interrupted install activated helper: %#v", remote.files)
 	}
 }
 
@@ -249,7 +262,7 @@ func TestClassifyLifecycleError(t *testing.T) {
 		{ErrHelperVerification, ReasonHelperVerification},
 		{ErrHelperNoExec, ReasonHelperBlocked},
 		{ErrHelperRevoked, ReasonHelperRevoked},
-		{ErrHelperConsentRequired, ReasonHelperUpgrade},
+		{ErrHelperConsentRequired, ReasonHelperConsent},
 		{ErrHelperRollback, ReasonHelperRollback},
 		{ErrHelperInstallation, ReasonHelperInstallation},
 	} {
@@ -323,6 +336,7 @@ type fakeLifecycleRemote struct {
 	capabilitiesCalls int
 	probeErr          error
 	capabilityErrors  map[string]error
+	removeErr         error
 	lastRequest       InstallRequest
 	removed           string
 }
@@ -364,6 +378,9 @@ func (remote *fakeLifecycleRemote) Install(_ context.Context, request InstallReq
 }
 func (remote *fakeLifecycleRemote) RemoveExact(_ context.Context, path string) error {
 	remote.removed = path
+	if remote.removeErr != nil {
+		return remote.removeErr
+	}
 	for _, artifact := range remote.document.Metadata.Artifacts {
 		known, _ := helperPath(artifact.Version)
 		if known == path {

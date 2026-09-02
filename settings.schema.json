@@ -49,6 +49,7 @@
       }
     },
     "remote": {
+      "description": "One optional Linux host monitored through an existing OpenSSH alias. SFTP is always available when permitted; the optional Linux collection helper requires explicit in-app consent before installation.",
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "sshAlias", "enabled"],

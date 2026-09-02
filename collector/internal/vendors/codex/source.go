@@ -265,7 +265,20 @@ func ParseRemoteFiles(
 	home string,
 	files []string,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	return parseFilesSourceStrict(source, ArchivedDir(home), files, func(string, string) bool { return true })
+	parsed, failures, err := parseFilesSourceStrict(source, ArchivedDir(home), files, func(string, string) bool { return true })
+	clearPromptDerivedNames(parsed)
+	return parsed, failures, err
+}
+
+// clearPromptDerivedNames prevents the parser's first-user-prompt fallback
+// from crossing either remote collection boundary. Approved session-index
+// metadata names remain available separately.
+func clearPromptDerivedNames(parsed []*vendors.ParsedSession) {
+	for _, item := range parsed {
+		if item != nil {
+			item.Name = ""
+		}
+	}
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {

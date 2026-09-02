@@ -106,7 +106,10 @@ func main() {
 		return collector.List(today.UnixMilli())
 	})
 	go cleanupHandoffs()
-	remoteManager := remote.NewManager(remote.Options{})
+	remoteManager, err := newProductionRemoteManager()
+	if err != nil {
+		log.Fatalf("remote manager: %v", err)
+	}
 	if settingsState.Valid {
 		if err := remoteManager.ApplySettings(settingsState.Config.Remote); err != nil {
 			log.Printf("remote settings: %v", err)
@@ -152,6 +155,10 @@ func main() {
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", err)
 	}
+}
+
+func newProductionRemoteManager() (*remote.Manager, error) {
+	return remote.NewProductionManager()
 }
 
 func newServer(
@@ -220,6 +227,15 @@ func routes(
 	api.HandleFunc("POST /api/remote/retry", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteRetry(w, r, remoteManager)
 	})
+	api.HandleFunc("GET /api/remote/status", func(w http.ResponseWriter, r *http.Request) {
+		handleRemoteStatus(w, r, remoteManager)
+	})
+	api.HandleFunc("POST /api/remote/helper/setup", func(w http.ResponseWriter, r *http.Request) {
+		handleRemoteHelperSetup(w, r, remoteManager)
+	})
+	api.HandleFunc("POST /api/remote/helper/uninstall", func(w http.ResponseWriter, r *http.Request) {
+		handleRemoteHelperUninstall(w, r, remoteManager)
+	})
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
@@ -248,12 +264,27 @@ func remoteHealthFact(manager *remote.Manager) *diagnostics.RemoteHealth {
 		value := string(*health.Reason)
 		reason = &value
 	}
-	return &diagnostics.RemoteHealth{
+	var helperReason *string
+	if health.Helper != nil && health.Helper.Reason != nil {
+		value := string(*health.Helper.Reason)
+		helperReason = &value
+	}
+	remoteHealth := &diagnostics.RemoteHealth{
 		SourceID: health.SourceID, Label: health.Label, State: string(health.State),
 		Complete: health.Complete, Reason: reason, LastSuccessAtMs: health.LastSuccessAtMs,
 		CoverageSinceMs: health.CoverageSinceMs, RoundTripMs: health.RoundTripMs,
-		Error: health.Error, DiagnosticStderr: health.DiagnosticStderr,
+		Error:     health.Error,
+		Transport: string(health.Transport), RequestBytes: health.Metrics.RequestBytes,
+		ResponseBytes: health.Metrics.ResponseBytes, Records: health.Metrics.Records,
+		HelperReason: helperReason,
 	}
+	if health.Helper != nil {
+		remoteHealth.HelperState = string(health.Helper.State)
+		remoteHealth.HelperVersion = health.Helper.Version
+		remoteHealth.HelperCompatible = health.Helper.Compatible
+		remoteHealth.HelperFallback = health.Helper.Fallback
+	}
+	return remoteHealth
 }
 
 func listen(port int) (net.Listener, error) {

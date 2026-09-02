@@ -33,6 +33,16 @@ func ensureSSHControlDir() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create SSH control directory: %w", err)
 	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("inspect SSH control directory: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("SSH control directory is not a real directory")
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("secure SSH control directory: %w", err)
+	}
 	return nil
 }
 
@@ -106,10 +116,33 @@ func runSSHCommand(ctx context.Context, options OpenOptions, args []string) erro
 	if command == nil {
 		command = exec.CommandContext
 	}
-	cmd := command(ctx, bin, args...)
-	output, err := cmd.CombinedOutput()
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := command(runCtx, bin, args...)
+	configureProcessGroup(cmd)
+	output := &cappedStderr{limit: options.Limits.withDefaults().MaxStderrBytes, cancel: cancel}
+	cmd.Stdout = output
+	cmd.Stderr = output
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start SSH command: %w", err)
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	var err error
+	select {
+	case err = <-waited:
+	case <-runCtx.Done():
+		terminateProcessGroup(cmd)
+		err = <-waited
+	}
+	if output.overflow {
+		return ErrStderrLimit
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
-		return fmt.Errorf("%w: %s", err, bytes.TrimSpace(output))
+		return wrapSSHError(err, output.String())
 	}
 	return nil
 }
@@ -124,6 +157,8 @@ func ensureControlMaster(ctx context.Context, alias string, options OpenOptions)
 	}
 	if err := runSSHCommand(ctx, options, checkArgs); err == nil {
 		return nil
+	} else if errors.Is(err, ErrStderrLimit) || ctx.Err() != nil {
+		return err
 	}
 	limits := options.Limits.withDefaults()
 	startArgs, err := controlMasterStartArgs(alias, int(limits.ConnectTimeout.Seconds()))

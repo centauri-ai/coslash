@@ -1,34 +1,81 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { firstTimeSshHint, formatTestConnectionResult } from '@/pages/coslash/lib/host-strip';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
-import { testRemoteAlias } from '@/pages/coslash/lib/remote-api';
-import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
+import {
+  remoteStatus,
+  setupRemoteHelper,
+  testRemoteAlias,
+  type HelperSetupResult,
+} from '@/pages/coslash/lib/remote-api';
+import type { RemoteHostSettings, RemoteOwnershipAction } from '@/pages/coslash/lib/settings';
 
 export function MachinesSettingsSection({
   remote,
   onChange,
+  onOwnershipActionChange,
 }: {
   remote: RemoteHostSettings | null | undefined;
   onChange: (remote: RemoteHostSettings | null) => void;
+  onOwnershipActionChange: (action: RemoteOwnershipAction | null) => void;
 }) {
   const draft = remote ?? { sshAlias: '', enabled: true };
   const hasHost = remote != null;
   const [testResult, setTestResult] = useState<MachineFact | null>(null);
+  const [hostStatus, setHostStatus] = useState<MachineFact | null>(null);
+  const [setupResult, setSetupResult] = useState<HelperSetupResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [helperAction, setHelperAction] = useState<'install' | 'upgrade' | null>(null);
+  const [removeAction, setRemoveAction] = useState<'only' | 'uninstall' | null>(null);
+  const [pendingAlias, setPendingAlias] = useState<string | null>(null);
+  const displayedAlias = pendingAlias ?? draft.sshAlias;
+  const helperOwned = hostStatus?.helperOwnershipRecorded === true;
+  const helperOwnershipCorrupt = hostStatus?.helperOwnershipCorrupt === true;
+  const setupFailed = setupResult?.error != null;
+
+  useEffect(() => {
+    if (!remote?.id) {
+      setHostStatus(null);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      try {
+        const status = await remoteStatus();
+        if (cancelled) return;
+        setHostStatus(status);
+        if (status.helperProbeState === 'probing') timer = setTimeout(() => void load(), 400);
+      } catch {
+        if (!cancelled) setHostStatus(null);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [remote?.id]);
 
   const setAlias = (sshAlias: string) => {
     setTestResult(null);
+    setSetupResult(null);
     setTestError(null);
-    setConfirmRemove(false);
+    setRemoveAction(null);
+    onOwnershipActionChange(null);
+    if (hasHost && helperOwned && sshAlias !== draft.sshAlias) {
+      setPendingAlias(sshAlias);
+      return;
+    }
+    setPendingAlias(null);
     onChange({ ...draft, sshAlias });
   };
 
   const setEnabled = (enabled: boolean) => {
-    setConfirmRemove(false);
+    setRemoveAction(null);
+    onOwnershipActionChange(null);
     onChange({ ...draft, enabled });
   };
 
@@ -41,8 +88,15 @@ export function MachinesSettingsSection({
     setTesting(true);
     setTestError(null);
     setTestResult(null);
+    setSetupResult(null);
     try {
       setTestResult(await testRemoteAlias(alias));
+      try {
+        setHostStatus(await remoteStatus());
+      } catch {
+        // SFTP test success remains useful if the optional helper inspection
+        // endpoint is temporarily unavailable.
+      }
     } catch (error: unknown) {
       setTestError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -50,15 +104,45 @@ export function MachinesSettingsSection({
     }
   };
 
-  const removeHost = () => {
-    if (!confirmRemove) {
-      setConfirmRemove(true);
+  const setupHelper = async (consent: 'install' | 'upgrade') => {
+    setHelperAction(consent);
+    setTestError(null);
+    try {
+      const result = await setupRemoteHelper(consent);
+      setSetupResult(result);
+      setTestResult(result.machine);
+      setHostStatus(result.machine);
+    } catch (error: unknown) {
+      setTestError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setHelperAction(null);
+    }
+  };
+
+  const removeHost = async (action: 'only' | 'uninstall') => {
+    if (removeAction !== action) {
+      setRemoveAction(action);
       return;
     }
-    setConfirmRemove(false);
+    // Do not mutate helper ownership from an unsaved dialog draft. The action
+    // travels with the next Settings save and is committed by the backend only
+    // for that exact settings replacement.
+    onOwnershipActionChange(action === 'uninstall' ? 'uninstall' : 'release');
+    setRemoveAction(null);
     setTestResult(null);
     setTestError(null);
     onChange(null);
+  };
+
+  const resolveAliasChange = (action: 'uninstall' | 'leave' | 'cancel') => {
+    if (pendingAlias == null) return;
+    if (action === 'cancel') {
+      setPendingAlias(null);
+      return;
+    }
+    onOwnershipActionChange(action === 'uninstall' ? 'uninstall' : 'release');
+    onChange({ ...draft, sshAlias: pendingAlias });
+    setPendingAlias(null);
   };
 
   const showFirstTimeHint = testResult?.state === 'error' && testResult.reason === 'connection_failed';
@@ -75,8 +159,8 @@ export function MachinesSettingsSection({
         <div className="flex flex-col gap-1 p-4">
           <div className="text-sm font-semibold">Remote host</div>
           <div className="text-muted-foreground text-xs text-pretty">
-            Monitor Claude Code and Codex through your existing SSH config. Linux only needs SSH/SFTP and
-            readable agent files; do not install coSlash there.
+            Monitor Claude Code and Codex through your existing SSH config. SFTP works without Linux code; you
+            can explicitly install the optional, verified collection helper for faster refreshes.
           </div>
         </div>
 
@@ -87,12 +171,47 @@ export function MachinesSettingsSection({
           <input
             id="remote-ssh-alias"
             aria-label="SSH alias"
-            value={draft.sshAlias}
+            value={displayedAlias}
             onChange={(event) => setAlias(event.target.value)}
             placeholder="gpu-server"
             className="border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring h-8 w-full rounded-lg border px-2.5 font-mono text-xs outline-none focus-visible:ring-3 sm:max-w-72"
           />
         </div>
+
+        {pendingAlias != null && (
+          <div className="border-warning-fg/30 bg-warning-bg text-warning-fg flex flex-col gap-2 border-t p-4 text-xs">
+            A helper is owned by {draft.sshAlias}. Choose how to change this host before saving the new alias.
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={testing || helperOwnershipCorrupt}
+                onClick={() => void resolveAliasChange('uninstall')}
+              >
+                Uninstall helper and change host
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={testing}
+                onClick={() => void resolveAliasChange('leave')}
+              >
+                Leave helper installed and change host
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={testing}
+                onClick={() => void resolveAliasChange('cancel')}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="border-border flex items-center justify-between gap-4 border-t p-4">
           <div className="flex min-w-0 flex-col gap-1">
@@ -100,7 +219,7 @@ export function MachinesSettingsSection({
             <div className="text-muted-foreground text-[11px]">
               {draft.enabled
                 ? 'Monitor this host on the board'
-                : 'Disabled — no remote cards or strip; cache retained'}
+                : 'Disabled — no remote cards or strip; cache and any installed helper are retained'}
             </div>
           </div>
           <button
@@ -136,23 +255,97 @@ export function MachinesSettingsSection({
               {testing ? 'Testing…' : 'Test connection'}
             </Button>
             {hasHost && (
-              <Button type="button" variant="outline" size="sm" onClick={removeHost}>
-                {confirmRemove ? 'Confirm remove' : 'Remove host'}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    testing ||
+                    helperAction != null ||
+                    testResult?.state !== 'ok' ||
+                    hostStatus?.helperInstallationAvailable !== true ||
+                    hostStatus?.helperProbeState === 'probing'
+                  }
+                  onClick={() =>
+                    void setupHelper(hostStatus?.helper?.state === 'deprecated' ? 'upgrade' : 'install')
+                  }
+                >
+                  {helperAction != null
+                    ? 'Setting up helper…'
+                    : hostStatus?.helper?.state === 'deprecated'
+                      ? 'Upgrade helper'
+                      : 'Install helper'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => void removeHost('only')}>
+                  {removeAction === 'only' ? 'Confirm remove only' : 'Remove host only'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={testing || helperAction != null || helperOwnershipCorrupt}
+                  onClick={() => void removeHost('uninstall')}
+                >
+                  {removeAction === 'uninstall'
+                    ? 'Confirm uninstall and remove'
+                    : 'Uninstall helper and remove'}
+                </Button>
+              </>
             )}
           </div>
         </div>
 
+        {hasHost && (
+          <div className="border-border text-muted-foreground flex flex-col gap-1 border-t p-4 text-xs">
+            <div>
+              Active transport: {hostStatus?.transport === 'helper' ? 'Verified helper' : 'SFTP fallback'}
+            </div>
+            <div>
+              Helper:{' '}
+              {hostStatus?.helperProbeState === 'probing'
+                ? 'Checking installed helper…'
+                : (hostStatus?.helper?.state ?? 'Not checked')}
+              {hostStatus?.helper?.version ? ` · ${hostStatus.helper.version}` : ''}
+              {hostStatus?.helper?.reason ? ` · ${hostStatus.helper.reason.replaceAll('_', ' ')}` : ''}
+            </div>
+            {helperOwned && <div>Helper ownership is recorded for this SSH alias.</div>}
+            {helperOwnershipCorrupt && (
+              <div>
+                Helper ownership is corrupt. You can only leave the helper installed while removing or
+                changing this host.
+              </div>
+            )}
+            {hostStatus?.helperInstallationAvailable === false && (
+              <div>Helper installation is unavailable in this build.</div>
+            )}
+            {testResult?.state !== 'ok' && hostStatus?.helperInstallationAvailable !== false && (
+              <div>Test SSH/SFTP before installing or upgrading the helper.</div>
+            )}
+          </div>
+        )}
+
         {(testResult != null || testError != null) && (
           <div
-            role={testResult?.state === 'ok' ? 'status' : 'alert'}
+            role={testResult?.state === 'ok' && !setupFailed ? 'status' : 'alert'}
             className={cn('border-t px-4 py-3 text-xs', {
-              'bg-success-bg text-success-fg': testResult?.state === 'ok',
-              'bg-warning-bg text-warning-fg': testResult != null && testResult.state !== 'ok',
+              'bg-success-bg text-success-fg': testResult?.state === 'ok' && !setupFailed,
+              'bg-warning-bg text-warning-fg':
+                (testResult != null && testResult.state !== 'ok') || setupFailed,
               'bg-destructive/10 text-destructive': testError != null,
             })}
           >
-            {testError ?? (testResult ? formatTestConnectionResult(testResult) : null)}
+            {testError ?? setupResult?.error ?? (testResult ? formatTestConnectionResult(testResult) : null)}
+            {testResult?.helper && (
+              <div className="pt-1">
+                Helper: {testResult.helper.version ? `${testResult.helper.version} · ` : ''}
+                {testResult.helper.state.replaceAll('_', ' ')} ·{' '}
+                {testResult.helper.compatible ? 'compatible' : 'unavailable'}
+                {testResult.helper.reused ? ' · reused after verification' : ''}
+                {testResult.helper.reason ? ` · ${testResult.helper.reason.replaceAll('_', ' ')}` : ''}
+                {testResult.helper.fallback ? ' · using SFTP fallback' : ''}
+              </div>
+            )}
             {showFirstTimeHint && <div className="pt-1">{firstTimeSshHint(draft.sshAlias.trim())}</div>}
           </div>
         )}

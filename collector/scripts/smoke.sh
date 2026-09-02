@@ -140,6 +140,23 @@ if [[ "$mode" == "embedded" ]]; then
     exit 1
   fi
 
+  # Exercise the provider compiled into the packaged executable, not only the
+  # tagged unit test. The alias need not resolve: availability is determined
+  # entirely by the authenticated embedded release and both helper assets.
+  settings='{"$schema":"https://raw.githubusercontent.com/centauri-ai/coslash/main/settings.schema.json","version":1,"synthesis":{"enabled":false,"backend":"claude-cli","model":"claude-haiku-4-5"},"appearance":{"theme":"light"},"launch":{"terminal":"terminal"},"remote":{"id":"r_0123456789abcdef","sshAlias":"coslash-smoke-invalid","enabled":true}}'
+  actual=$(
+    printf 'header = "X-Coslash-Token: %s"\n' "$token" |
+      curl --config - -sS -o "$response_body" -w '%{http_code}' \
+        -X PUT -H 'Content-Type: application/json' --data "$settings" "$base_url/api/settings"
+  )
+  if [[ "$actual" != 200 ]]; then
+    echo "error: could not configure isolated helper smoke host (HTTP $actual)" >&2
+    cat "$response_body" >&2
+    exit 1
+  fi
+  expect_status /api/remote/status 200
+  assert_contains '"helperInstallationAvailable":true' 'the embedded helper provider'
+
   version=$("$binary" --version)
   echo "version -> $version"
   if [[ -z "$version" || "$version" == "dev" ]]; then

@@ -113,6 +113,7 @@ func shellQuote(value string) string {
 type HelperResult struct {
 	Capabilities    remoteprotocol.Capabilities
 	Proposal        remoteprotocol.Generation
+	Coverage        []AgentCoverage
 	Records         int
 	ResponseBytes   int
 	RequestBytes    int
@@ -227,6 +228,7 @@ func HelperCollect(
 	writeErr := <-written
 	result := HelperResult{
 		Proposal: accumulator.Proposal(), Records: stream.records,
+		Coverage:      stream.coverage,
 		ResponseBytes: stream.bytes, RequestBytes: len(payload),
 		RequestComplete: stream.complete, ExitCode: exitCode,
 		Stderr: process.stderr.String(), RoundTrip: time.Since(started),
@@ -268,6 +270,7 @@ func marshalRequestLine(request remoteprotocol.Request) ([]byte, error) {
 type streamOutcome struct {
 	records  int
 	bytes    int
+	coverage []AgentCoverage
 	complete bool
 	err      error
 }
@@ -303,6 +306,13 @@ func streamRecords(
 		if err := accumulator.Apply(record); err != nil {
 			outcome.err = fmt.Errorf("%w: %w", ErrHelperFailed, err)
 			return outcome
+		}
+		if record.Type == remoteprotocol.RecordVendorComplete {
+			outcome.coverage = append(outcome.coverage, AgentCoverage{
+				Agent: record.Vendor, CandidateFiles: record.Counts.CandidateFiles,
+				SelectedFiles: record.Counts.SelectedFiles,
+				Truncated:     !record.InventoryComplete,
+			})
 		}
 		outcome.records++
 		if record.Type == remoteprotocol.RecordRequestComplete {
