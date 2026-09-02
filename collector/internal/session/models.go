@@ -57,6 +57,8 @@ var releaseDateSuffix = regexp.MustCompile(`-\d{4}-?\d{2}-?\d{2}$`)
 
 func modelInfoFor(model string) (modelInfo, bool) {
 	key := strings.TrimSuffix(model, "[1m]")
+	key = strings.TrimPrefix(key, "openai.")
+
 	if info, ok := models[key]; ok {
 		return info, true
 	}
