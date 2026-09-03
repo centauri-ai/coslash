@@ -21,6 +21,19 @@ func TestRemoteCLICommandUsesRemoteHandoffFile(t *testing.T) {
 	}
 }
 
+func TestRemoteCodexHandoffReadsTemporaryFile(t *testing.T) {
+	command, err := remoteCLICommand(vendors.AgentCodex, "", NewSession, "keep this private")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(command, `developer_instructions=$(cat "$handoff")`) {
+		t.Fatalf("command = %q", command)
+	}
+	if strings.Contains(command, `cat \"$handoff\"`) {
+		t.Fatalf("command quotes the handoff path literally: %q", command)
+	}
+}
+
 func TestRemoteCLICommandResumesValidatedSession(t *testing.T) {
 	command, err := remoteCLICommand(vendors.AgentCodex, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "")
 	if err != nil {
