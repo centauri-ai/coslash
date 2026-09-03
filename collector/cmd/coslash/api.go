@@ -245,6 +245,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 		return
 	}
 	query := r.URL.Query()
+	mode := query.Get("mode")
 	sourceID, err := parseSourceID(query.Get("source"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -260,7 +261,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			return
 		}
 	} else {
-		found, alias, err = remoteManager.LaunchSession(sourceID, query.Get("agent"), query.Get("id"))
+		found, alias, err = remoteManager.LaunchSession(sourceID, query.Get("agent"), query.Get("id"), mode)
 		if errors.Is(err, remote.ErrRemoteSessionActive) {
 			http.Error(w, "remote session is already active", http.StatusConflict)
 			return
@@ -284,7 +285,6 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	mode := query.Get("mode")
 	if sourceID != localSourceID {
 		health, testErr := remoteManager.TestAlias(r.Context(), alias)
 		if testErr != nil || health.State != remote.StateOK {
