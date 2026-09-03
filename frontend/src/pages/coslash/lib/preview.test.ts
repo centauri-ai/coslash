@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   canonicalPayloadText,
   canonicalUploadBytes,
+  fetchSnapshotPreview,
   formatCanonicalJson,
   frozenCostDisclosure,
   isSnapshotPreview,
@@ -12,6 +13,17 @@ import {
   teamPreviewEnabled,
   type SnapshotPreview,
 } from '@/pages/coslash/lib/preview';
+
+function installBrowser(response: Response) {
+  vi.stubGlobal('window', {
+    location: { hash: '', pathname: '/', search: '' },
+    history: { state: null, replaceState: vi.fn() },
+    sessionStorage: { getItem: vi.fn(() => null), setItem: vi.fn() },
+  });
+  const fetchMock = vi.fn().mockResolvedValue(response);
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
 
 function ready(snapshot: Record<string, unknown>): SnapshotPreview {
   const payload = JSON.stringify(snapshot);
@@ -33,6 +45,38 @@ function ready(snapshot: Record<string, unknown>): SnapshotPreview {
 }
 
 describe('snapshot preview adapter', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('fetches and validates a canonical preview through the shared boundary', async () => {
+    const preview = ready({ schemaVersion: 'session-snapshot/v1' });
+    const fetchMock = installBrowser(
+      new Response(JSON.stringify(preview), { headers: { 'Content-Type': 'application/json' } }),
+    );
+    const controller = new AbortController();
+
+    await expect(
+      fetchSnapshotPreview({ sourceId: 'local', id: 'session/id' }, 42, controller.signal),
+    ).resolves.toEqual(preview);
+    expect(fetchMock).toHaveBeenCalledWith('/api/share-preview?id=session%2Fid&revision=42', {
+      headers: expect.any(Headers),
+      signal: controller.signal,
+    });
+  });
+
+  it('rejects failed or malformed preview responses', async () => {
+    installBrowser(new Response(null, { status: 503 }));
+    await expect(fetchSnapshotPreview({ sourceId: 'local', id: 'session' }, 42)).rejects.toThrow(
+      'Preview request failed (503).',
+    );
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+    await expect(fetchSnapshotPreview({ sourceId: 'local', id: 'session' }, 42)).rejects.toThrow(
+      'Preview response is outside snapshot-preview/v1.',
+    );
+  });
+
   it('returns the exact canonical bytes intended for upload', () => {
     const preview = ready({
       schemaVersion: 'session-snapshot/v1',

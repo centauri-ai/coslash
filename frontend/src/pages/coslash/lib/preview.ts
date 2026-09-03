@@ -1,3 +1,4 @@
+import { apiFetch } from '@/pages/coslash/lib/api';
 import { isLocalSource } from '@/pages/coslash/lib/session';
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -55,6 +56,18 @@ export function previewRequestPath(session: { sourceId: string; id: string }, re
     throw new Error('remote preview unsupported');
   }
   return `/api/share-preview?${new URLSearchParams({ id: session.id, revision: String(revision) })}`;
+}
+
+export async function fetchSnapshotPreview(
+  session: { sourceId: string; id: string },
+  revision: number,
+  signal?: AbortSignal,
+): Promise<SnapshotPreview> {
+  const response = await apiFetch(previewRequestPath(session, revision), { signal });
+  if (!response.ok) throw new Error(`Preview request failed (${response.status}).`);
+  const preview: unknown = await response.json();
+  if (!isSnapshotPreview(preview)) throw new Error('Preview response is outside snapshot-preview/v1.');
+  return preview;
 }
 
 export function teamPreviewEnabled(search: string): boolean {

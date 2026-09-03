@@ -11,12 +11,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { apiFetch } from '@/pages/coslash/lib/api';
 import {
   canonicalPayloadText,
+  fetchSnapshotPreview,
   formatCanonicalJson,
-  isSnapshotPreview,
-  previewRequestPath,
   type SnapshotPreview,
 } from '@/pages/coslash/lib/preview';
 import { beginHubPairing, pollHubPairing, submitHubShare, type PairingResult } from './api';
@@ -264,11 +262,7 @@ export function ShareToHubDialog({
           if (existing && consentStillCurrent(existing.item, session, existing.preview, destination)) {
             return existing;
           }
-          const response = await apiFetch(previewRequestPath(session, session.mtime));
-          if (!response.ok) throw new Error(`Preview request failed (${response.status}).`);
-          const value: unknown = await response.json();
-          if (!isSnapshotPreview(value)) throw new Error('Preview response is outside snapshot-preview/v1.');
-          const preview: SnapshotPreview = value;
+          const preview = await fetchSnapshotPreview(session, session.mtime);
           const item = bindPreviewConsent(
             session,
             preview,
