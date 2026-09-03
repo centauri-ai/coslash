@@ -228,7 +228,7 @@ func remoteCLICommand(agent, sessionID, mode, handoff string) (string, error) {
 	case vendors.AgentClaude:
 		return prefix + shellJoin(cli, "--append-system-prompt-file") + " \"$handoff\"" + cleanup, nil
 	case vendors.AgentCodex:
-		return prefix + shellJoin(cli, "-c") + " \"developer_instructions=$(cat \\\"$handoff\\\")\"" + cleanup, nil
+		return prefix + shellJoin(cli, "-c") + " \"developer_instructions=$(cat \"$handoff\")\"" + cleanup, nil
 	case vendors.AgentOpenCode:
 		return prefix + "OPENCODE_CONFIG_CONTENT='{\"instructions\":[\"'\"$handoff\"'\"]}' " + shellJoin(cli) + cleanup, nil
 	}
