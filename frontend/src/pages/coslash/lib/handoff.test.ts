@@ -68,13 +68,13 @@ describe('handoffBrief', () => {
 });
 
 describe('launchRequestPath', () => {
-  it('includes the full local source-aware key and rejects remote launch', () => {
+  it('includes the full source-aware key for local and remote launches', () => {
     expect(launchRequestPath({ sourceId: LOCAL_SOURCE_ID, agent: 'codex', id: 'abc' }, 'resume')).toBe(
       '/api/launch?source=local&agent=codex&id=abc&mode=resume',
     );
-    expect(() =>
-      launchRequestPath({ sourceId: 'r_0123456789abcdef', agent: 'claude', id: 'xyz' }, 'new'),
-    ).toThrow('remote launch unsupported');
+    expect(launchRequestPath({ sourceId: 'r_0123456789abcdef', agent: 'claude', id: 'xyz' }, 'new')).toBe(
+      '/api/launch?source=r_0123456789abcdef&agent=claude&id=xyz&mode=new',
+    );
   });
 });
 

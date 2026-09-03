@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { apiFetch, readApiError } from '@/pages/coslash/lib/api';
-import { isLocalSource, type SessionIdentity } from '@/pages/coslash/lib/session';
+import type { SessionIdentity } from '@/pages/coslash/lib/session';
 
 export type LaunchMode = 'resume' | 'new';
 
 export function launchRequestPath(session: SessionIdentity, mode: LaunchMode): string {
-  if (!isLocalSource(session.sourceId)) throw new Error('remote launch unsupported');
   return `/api/launch?${new URLSearchParams({
     source: session.sourceId,
     agent: session.agent,
