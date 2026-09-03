@@ -42,6 +42,8 @@ type Health struct {
 	Complete                    bool              `json:"complete"`
 	Reason                      *Reason           `json:"reason,omitempty"`
 	LastSuccessAtMs             *int64            `json:"lastSuccessAtMs,omitempty"`
+	LastCheckedAtMs             *int64            `json:"lastCheckedAtMs,omitempty"`
+	SessionCount                int               `json:"sessionCount"`
 	CoverageSinceMs             *int64            `json:"coverageSinceMs,omitempty"`
 	RoundTripMs                 *int64            `json:"roundTripMs,omitempty"`
 	Coverage                    []AgentCoverage   `json:"coverage,omitempty"`

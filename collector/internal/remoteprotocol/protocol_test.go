@@ -10,7 +10,7 @@ import (
 )
 
 func request() Request {
-	r, err := BuildRequest(Request{RequestID: "req-1", Protocol: VersionRange{1, 1}, Schema: VersionRange{1, 1}, ParserVersion: "parser-v1", BaselineID: "base-1", SinceMs: 1, CollectedAtMs: 2, Vendors: []string{"codex"}, Limits: Limits{MaxRecordBytes: MaxRecordBytes, MaxResponseBytes: MaxResponseBytes, MaxRecords: 100, MaxInventoryFamilies: 100}}, []KnownFamily{})
+	r, err := BuildRequest(Request{RequestID: "req-1", Protocol: VersionRange{1, 1}, Schema: VersionRange{remotefacts.SchemaVersion, remotefacts.SchemaVersion}, ParserVersion: "parser-v1", BaselineID: "base-1", SinceMs: 1, CollectedAtMs: 2, Vendors: []string{"codex"}, Limits: Limits{MaxRecordBytes: MaxRecordBytes, MaxResponseBytes: MaxResponseBytes, MaxRecords: 100, MaxInventoryFamilies: 100}}, []KnownFamily{})
 	if err != nil {
 		panic(err)
 	}
@@ -18,11 +18,11 @@ func request() Request {
 }
 
 func family() remotefacts.Family {
-	return remotefacts.Family{SchemaVersion: 1, ParserVersion: "parser-v1", Vendor: "codex", FamilyID: "root", State: "complete", Sessions: []remotefacts.Session{{ID: "root", StartedAtMs: 1, LastActivityAtMs: 2, Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{}}}, Metadata: remotefacts.Metadata{Names: []remotefacts.MetadataName{}, Live: []remotefacts.MetadataLive{}}, Fingerprints: []remotefacts.Fingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}}}
+	return remotefacts.Family{SchemaVersion: remotefacts.SchemaVersion, ParserVersion: "parser-v1", Vendor: "codex", FamilyID: "root", State: "complete", Sessions: []remotefacts.Session{{ID: "root", StartedAtMs: 1, LastActivityAtMs: 2, Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{}}}, Metadata: remotefacts.Metadata{Names: []remotefacts.MetadataName{}, Live: []remotefacts.MetadataLive{}}, Fingerprints: []remotefacts.Fingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}}}
 }
 
 func handshake(r Request) Record {
-	return Record{Type: RecordHandshake, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 1, BaselineID: r.BaselineID, SchemaVersion: 1, ParserVersion: "parser-v1"}
+	return Record{Type: RecordHandshake, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 1, BaselineID: r.BaselineID, SchemaVersion: remotefacts.SchemaVersion, ParserVersion: "parser-v1"}
 }
 
 func TestBuildRequestOverflowUsesNoBaselineWithoutPartialFingerprints(t *testing.T) {

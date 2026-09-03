@@ -13,7 +13,7 @@ import (
 
 func TestInstallKeepsOpenedVersionDirectoryAcrossIntermediateSwap(t *testing.T) {
 	home := t.TempDir()
-	versionDir := filepath.Join(home, ".local", "lib", "coslash", "helpers", "v1")
+	versionDir := filepath.Join(home, ".coslash", "helpers", "v1")
 	// All components exist before the operation begins, just as they do in the
 	// replacement attack.
 	if err := os.MkdirAll(versionDir, 0o700); err != nil {

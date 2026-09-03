@@ -14,9 +14,10 @@ const (
 	localSourceID    = "local"
 	localSourceLabel = "This Mac"
 
-	errCodeRemoteUnsupported   = "remote_action_unsupported"
-	errCodeRemoteNotConfigured = "remote_not_configured"
-	errCodeRemoteDisabled      = "remote_disabled"
+	errCodeRemoteUnsupported    = "remote_action_unsupported"
+	errCodeRemoteNotConfigured  = "remote_not_configured"
+	errCodeRemoteDisabled       = "remote_disabled"
+	errCodeRemoteRetryThrottled = "remote_retry_throttled"
 )
 
 type apiErrorBody struct {
@@ -45,6 +46,8 @@ type machineFact struct {
 	Complete                    bool                     `json:"complete"`
 	Reason                      *remote.Reason           `json:"reason,omitempty"`
 	LastSuccessAtMs             *int64                   `json:"lastSuccessAtMs,omitempty"`
+	LastCheckedAtMs             *int64                   `json:"lastCheckedAtMs,omitempty"`
+	SessionCount                int                      `json:"sessionCount"`
 	CoverageSinceMs             *int64                   `json:"coverageSinceMs,omitempty"`
 	RoundTripMs                 *int64                   `json:"roundTripMs,omitempty"`
 	Coverage                    []remote.AgentCoverage   `json:"coverage,omitempty"`
@@ -56,6 +59,7 @@ type machineFact struct {
 	HelperProbeState            string                   `json:"helperProbeState,omitempty"`
 	HelperOwnershipRecorded     bool                     `json:"helperOwnershipRecorded"`
 	HelperOwnershipCorrupt      bool                     `json:"helperOwnershipCorrupt"`
+	Refreshing                  bool                     `json:"refreshing,omitempty"`
 }
 
 func localMachineFact() machineFact {
@@ -66,13 +70,15 @@ func machineFromHealth(health remote.Health) machineFact {
 	return machineFact{
 		SourceID: health.SourceID, Label: health.Label, State: health.State,
 		Complete: health.Complete, Reason: health.Reason,
-		LastSuccessAtMs: health.LastSuccessAtMs, CoverageSinceMs: health.CoverageSinceMs,
+		LastSuccessAtMs: health.LastSuccessAtMs, LastCheckedAtMs: health.LastCheckedAtMs,
+		SessionCount: health.SessionCount, CoverageSinceMs: health.CoverageSinceMs,
 		RoundTripMs: health.RoundTripMs, Coverage: health.Coverage, Error: health.Error,
 		Transport: health.Transport, Helper: health.Helper, Metrics: health.Metrics,
 		HelperInstallationAvailable: health.HelperInstallationAvailable,
 		HelperProbeState:            health.HelperProbeState,
 		HelperOwnershipRecorded:     health.HelperOwnershipRecorded,
 		HelperOwnershipCorrupt:      health.HelperOwnershipCorrupt,
+		Refreshing:                  health.Refreshing,
 	}
 }
 

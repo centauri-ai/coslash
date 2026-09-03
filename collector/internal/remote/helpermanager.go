@@ -222,16 +222,18 @@ func (manager *Manager) InspectHelper() Health {
 }
 
 func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.RemoteSettings) {
+	probeCtx, cancel := context.WithTimeout(ctx, DefaultConnectTimeout)
+	defer cancel()
 	manager.mu.Lock()
 	provider, factory := manager.releaseProvider, manager.lifecycleFactory
 	manager.mu.Unlock()
-	document, err := provider.LoadMetadata(ctx)
+	document, err := provider.LoadMetadata(probeCtx)
 	var result LifecycleResult
 	if err == nil {
 		var lifecycle Lifecycle
 		lifecycle, err = factory(config.SSHAlias)
 		if err == nil {
-			result = lifecycle.SetupWithLoader(ctx, document, Consent{}, provider.LoadArtifact)
+			result = lifecycle.SetupWithLoader(probeCtx, document, Consent{}, provider.LoadArtifact)
 		}
 	}
 	manager.mu.Lock()
@@ -240,6 +242,14 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 		return
 	}
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || sshErrorStderr(err) != "" {
+			manager.lastCheckedAt = int64Ptr(manager.now().UnixMilli())
+			manager.helperProbe = helperProbeFallback
+			status := unavailableHelperStatus(err)
+			manager.helper = &status
+			manager.applyFailureLocked(classifyError(err), sshErrorStderr(err))
+			return
+		}
 		status := unavailableHelperStatus(err)
 		manager.helper = &status
 		manager.helperProbe = helperProbeFallback
@@ -283,6 +293,12 @@ func (manager *Manager) SetupHelperForAlias(ctx context.Context, alias string, c
 	return manager.setupHelper(ctx, alias, consent)
 }
 
+func (manager *Manager) SetupProgress() SetupProgress {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.setupProgress
+}
+
 func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, consent Consent) (Health, error) {
 	manager.mu.Lock()
 	if manager.cfg == nil {
@@ -300,16 +316,19 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		return health, ErrHelperSetupInProgress
 	}
 	config := *manager.cfg
+	previousVersion := manager.helperVersion
 	provider, factory := manager.releaseProvider, manager.lifecycleFactory
 	// Keep this host identity reserved until setup has either recorded
 	// ownership or finished without installing anything. SetupWithLoader can
 	// release this mutex while uploading the helper, so ApplySettings must not
 	// replace the alias in that interval.
 	manager.helperSetup = true
+	manager.setupProgress = SetupProgressChecking
 	manager.mu.Unlock()
 	defer func() {
 		manager.mu.Lock()
 		manager.helperSetup = false
+		manager.setupProgress = SetupProgressIdle
 		manager.mu.Unlock()
 	}()
 
@@ -339,7 +358,22 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.mu.Unlock()
 		return health, nil
 	}
+	lifecycle.Progress = manager.setSetupProgress
 	result := lifecycle.SetupWithLoader(ctx, document, consent, provider.LoadArtifact)
+	activeLifecycle := lifecycle
+	if retryableSetupTransportFailure(result) {
+		manager.resetControlMaster(config.SSHAlias)
+		if retryLifecycle, retryErr := factory(config.SSHAlias); retryErr == nil {
+			retryLifecycle.Progress = manager.setSetupProgress
+			result = retryLifecycle.SetupWithLoader(ctx, document, consent, provider.LoadArtifact)
+			activeLifecycle = retryLifecycle
+		}
+	}
+	if result.CanExecute && previousVersion != "" && previousVersion != result.Artifact.Version && activeLifecycle.Remote != nil {
+		if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
+			_ = activeLifecycle.Remote.RemoveExact(ctx, previousPath)
+		}
+	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
@@ -362,6 +396,26 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.helperProbe = helperProbeFallback
 	}
 	return manager.healthLocked(manager.lastRequestedMs), nil
+}
+
+func (manager *Manager) setSetupProgress(progress SetupProgress) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.helperSetup {
+		manager.setupProgress = progress
+	}
+}
+
+func retryableSetupTransportFailure(result LifecycleResult) bool {
+	if result.CanExecute || result.State != LifecycleSFTP || result.Reason == nil {
+		return false
+	}
+	if errors.Is(result.Reason, ErrHelperNoExec) || errors.Is(result.Reason, ErrHelperVerification) ||
+		errors.Is(result.Reason, ErrUnsupportedHelperPlatform) {
+		return false
+	}
+	return errors.Is(result.Reason, context.DeadlineExceeded) || sshErrorStderr(result.Reason) != "" ||
+		classifyError(result.Reason) == ReasonConnectionFailed
 }
 
 // ReleaseHelperOwnership explicitly forgets local ownership without modifying
@@ -507,6 +561,9 @@ func (manager *Manager) ValidateSettingsChangeWithOwnershipAction(next *settings
 	}
 	if action != OwnershipActionRelease && action != OwnershipActionUninstall {
 		return ErrHelperOwnershipConflict
+	}
+	if next == nil && action == OwnershipActionRelease {
+		return nil
 	}
 	if manager.cfg == nil || (manager.helperVersion == "" && !manager.helperOwnershipCorrupt) {
 		return ErrHelperOwnershipConflict

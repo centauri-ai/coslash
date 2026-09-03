@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -147,18 +148,103 @@ func TestHardFailureFallsBackToStaleWhenCacheExists(t *testing.T) {
 	manager.mu.Unlock()
 }
 
-func TestRetryBackoffReachesMaximum(t *testing.T) {
-	if got := retryBackoff(7); got != MaxRetryBackoff {
-		t.Fatalf("retryBackoff(7) = %v, want %v", got, MaxRetryBackoff)
+func TestRetryBackoffUsesRemoteRetryInterval(t *testing.T) {
+	if got := retryBackoff(1); got != RemoteRetryInterval {
+		t.Fatalf("retryBackoff(1) = %v, want %v", got, RemoteRetryInterval)
 	}
-	if got := retryBackoff(8); got != MaxRetryBackoff {
-		t.Fatalf("retryBackoff(8) = %v, want %v", got, MaxRetryBackoff)
+	if got := retryBackoff(8); got != RemoteRetryInterval {
+		t.Fatalf("retryBackoff(8) = %v, want %v", got, RemoteRetryInterval)
+	}
+}
+
+func TestRetryAllowsOneRefreshAndThrottlesRapidManualRequests(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	release := make(chan struct{})
+	manager := NewManager(Options{
+		Cache: NewCache(filepath.Join(home, "remote-cache")),
+		Now:   func() time.Time { return now },
+		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+			<-release
+			return refreshOutcome{}, context.DeadlineExceeded
+		},
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{
+		ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, started := manager.Retry(); !started {
+		t.Fatal("first manual retry did not start")
+	}
+	if _, started := manager.Retry(); started {
+		t.Fatal("manual retry started while another refresh was running")
+	}
+	close(release)
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return !manager.refreshing
+	})
+	if _, started := manager.Retry(); started {
+		t.Fatal("manual retry ignored its cooldown")
+	}
+	now = now.Add(ManualRetryCooldown)
+	if _, started := manager.Retry(); !started {
+		t.Fatal("manual retry did not start after cooldown")
+	}
+}
+
+func TestOfflineHelperDiscoveryDoesNotStartSecondRefresh(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	var refreshes atomic.Int32
+	manager := NewManager(Options{
+		Cache:                       NewCache(filepath.Join(home, "remote-cache")),
+		Now:                         func() time.Time { return now },
+		ReleaseProvider:             deadlineHelperRelease{},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return Lifecycle{}, nil },
+		HelperInstallationAvailable: true,
+		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+			refreshes.Add(1)
+			return refreshOutcome{}, nil
+		},
+	})
+	if err := manager.ApplySettings(&settings.RemoteSettings{
+		ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(0)
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return manager.helperProbe == helperProbeFallback && !manager.refreshing
+	})
+	if refreshes.Load() != 0 {
+		t.Fatalf("offline discovery started %d collection refreshes", refreshes.Load())
+	}
+	health := manager.DiagnosticsHealth()
+	if health.State != StateError || health.LastCheckedAtMs == nil {
+		t.Fatalf("offline discovery health = %#v", health)
 	}
 }
 
 type fixedHelperRelease struct {
 	document SignedReleaseMetadata
 	content  []byte
+}
+
+type deadlineHelperRelease struct{}
+
+func (deadlineHelperRelease) LoadMetadata(context.Context) (SignedReleaseMetadata, error) {
+	return SignedReleaseMetadata{}, context.DeadlineExceeded
+}
+
+func (deadlineHelperRelease) LoadArtifact(context.Context, Artifact) ([]byte, error) {
+	return nil, context.DeadlineExceeded
 }
 
 type blockingHelperRelease struct {
@@ -558,6 +644,63 @@ func TestSetupBlocksAliasChangeUntilItRecordsOwnership(t *testing.T) {
 	}
 }
 
+func TestSetupRetriesTransportFailureWithFreshControlMaster(t *testing.T) {
+	first, _, content := lifecycleFixture(t)
+	first.installErr = wrapSSHError(errors.New("install failed"), "Connection reset by peer")
+	second, _, _ := lifecycleFixture(t)
+	var factories, resets int
+	manager := NewManager(Options{
+		Cache: NewCache(t.TempDir()), ReleaseProvider: fixedHelperRelease{document: first.document, content: content},
+		LifecycleFactory: func(string) (Lifecycle, error) {
+			factories++
+			if factories == 1 {
+				return lifecycleFor(first), nil
+			}
+			return lifecycleFor(second), nil
+		},
+		ResetControlMaster:          func(string) { resets++ },
+		HelperInstallationAvailable: true,
+	})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	health, err := manager.SetupHelperForAlias(context.Background(), config.SSHAlias, Consent{Install: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resets != 1 || factories != 2 || health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("resets=%d factories=%d health=%#v", resets, factories, health)
+	}
+}
+
+func TestSetupRemovesPriorOwnedHelperAfterVerification(t *testing.T) {
+	remote, _, content := lifecycleFixture(t)
+	cache := NewCache(t.TempDir())
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := cache.StoreHelperVersion(config.ID, "v0", config.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{
+		Cache: cache, ReleaseProvider: fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	health, err := manager.SetupHelperForAlias(context.Background(), config.SSHAlias, Consent{Install: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("setup health = %#v", health)
+	}
+	if remote.removed != "~/.coslash/helpers/v0/coslash-helper" {
+		t.Fatalf("removed = %q", remote.removed)
+	}
+}
+
 func TestHealthReportsRecordedOwnershipEvenWhenNoHelperVersionIsInspectable(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	manager := NewManager(Options{Cache: cache})
@@ -665,7 +808,7 @@ func TestSetupFetchesOnlyTheSelectedArchitectureArtifact(t *testing.T) {
 			remote.platform.Arch = arch
 			remote.capabilities.Arch = arch
 			content := syntheticELF(arch)
-			artifact := Artifact{Version: "v1", OS: "linux", Arch: arch, Size: int64(len(content)), SHA256: digest(content), Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: 1, Max: 1}, Current: true}
+			artifact := Artifact{Version: "v1", OS: "linux", Arch: arch, Size: int64(len(content)), SHA256: digest(content), Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, Current: true}
 			remote.document = signDocument(t, ReleaseMetadata{Sequence: 1, ExpiresAtUnix: time.Now().Add(time.Hour).Unix(), Artifacts: []Artifact{artifact}})
 			provider := &architectureRelease{document: remote.document, content: map[string][]byte{arch: content}}
 			manager := NewManager(Options{

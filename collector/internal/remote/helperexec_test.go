@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -157,7 +158,7 @@ func completeResponse(t *testing.T) (remoteprotocol.Request, remoteprotocol.Gene
 	t.Helper()
 	request := remoteprotocol.Request{
 		RequestID: "req-1", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
-		Schema: remoteprotocol.VersionRange{Min: 1, Max: 1}, ParserVersion: vendors.ParserVersion,
+		Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, ParserVersion: vendors.ParserVersion,
 		BaselineMode: remoteprotocol.BaselineKnown, BaselineID: "base-1",
 		CollectedAtMs: 1, Vendors: []string{"codex"}, Limits: remoteprotocol.Limits{
 			MaxRecordBytes: 1024, MaxResponseBytes: 4096, MaxRecords: 10, MaxInventoryFamilies: 10,
@@ -165,7 +166,7 @@ func completeResponse(t *testing.T) (remoteprotocol.Request, remoteprotocol.Gene
 	}
 	baseline := remoteprotocol.Generation{BaselineID: "base-1"}
 	records := []remoteprotocol.Record{
-		{Type: remoteprotocol.RecordHandshake, ProtocolVersion: 1, RequestID: "req-1", Sequence: 1, BaselineID: "base-1", SchemaVersion: 1, ParserVersion: vendors.ParserVersion},
+		{Type: remoteprotocol.RecordHandshake, ProtocolVersion: 1, RequestID: "req-1", Sequence: 1, BaselineID: "base-1", SchemaVersion: remotefacts.SchemaVersion, ParserVersion: vendors.ParserVersion},
 		{Type: remoteprotocol.RecordVendorComplete, ProtocolVersion: 1, RequestID: "req-1", Sequence: 2, Vendor: "codex", EnumerationComplete: true, InventoryComplete: true, Inventory: []string{}},
 		{Type: remoteprotocol.RecordRequestComplete, ProtocolVersion: 1, RequestID: "req-1", Sequence: 3},
 	}

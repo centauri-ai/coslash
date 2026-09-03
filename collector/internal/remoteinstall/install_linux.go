@@ -67,7 +67,7 @@ func install(source *os.File, home, release, expectedSHA256 string, beforeWrite 
 	}
 
 	directoryFD := homeFD
-	for _, component := range []string{".local", "lib", "coslash", "helpers", release} {
+	for _, component := range []string{".coslash", "helpers", release} {
 		next, err := openOrCreateDirectory(directoryFD, component, uint32(os.Geteuid()))
 		if directoryFD != homeFD {
 			unix.Close(directoryFD)

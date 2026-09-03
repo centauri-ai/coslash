@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 )
 
@@ -41,7 +42,7 @@ func TestLifecycleDeprecatedHelperIsReusedUntilUpgradeConsent(t *testing.T) {
 	}
 	result = lifecycleFor(remote).Setup(context.Background(), remote.document, content, Consent{Upgrade: true})
 	currentPath, _ := helperPath(current.Version)
-	if result.State != LifecycleReady || remote.files[path].Path == "" || remote.files[currentPath].Path == "" {
+	if result.State != LifecycleReady || remote.files[path].Path != "" || remote.files[currentPath].Path == "" {
 		t.Fatalf("upgrade result = %#v, files = %#v", result, remote.files)
 	}
 }
@@ -276,7 +277,7 @@ func lifecycleFixture(t *testing.T) (*fakeLifecycleRemote, Artifact, []byte) {
 	t.Helper()
 	arch := "amd64"
 	content := syntheticELF(arch)
-	artifact := Artifact{Version: "v1", OS: "linux", Arch: arch, Size: int64(len(content)), SHA256: digest(content), Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: 1, Max: 1}, Current: true}
+	artifact := Artifact{Version: "v1", OS: "linux", Arch: arch, Size: int64(len(content)), SHA256: digest(content), Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, Current: true}
 	capabilities := compatibleCapabilities()
 	capabilities.Arch = arch
 	remote := &fakeLifecycleRemote{root: t.TempDir(), platform: Platform{OS: "linux", Arch: arch, UID: 501}, files: map[string]RemoteFile{}, capabilities: capabilities}
@@ -318,7 +319,7 @@ func lifecycleFor(remote *fakeLifecycleRemote) Lifecycle {
 }
 
 func compatibleCapabilities() remoteprotocol.Capabilities {
-	return remoteprotocol.Capabilities{Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: 1, Max: 1}, ParserVersion: "parsers-1", OS: "linux", Arch: "amd64"}
+	return remoteprotocol.Capabilities{Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, ParserVersion: "parsers-1", OS: "linux", Arch: "amd64"}
 }
 
 func remoteFile(path string, artifact Artifact, uid uint32) RemoteFile {

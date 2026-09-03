@@ -181,7 +181,7 @@ func (remote *SSHLifecycleRemote) runStagedInstaller(ctx context.Context, stagin
 	if command == nil {
 		command = exec.CommandContext
 	}
-	runCtx, cancel := context.WithTimeout(ctx, limits.Deadline)
+	runCtx, cancel := context.WithTimeout(ctx, min(limits.Deadline, DefaultHelperInstallTimeout))
 	defer cancel()
 	args := []string{
 		"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(int(limits.ConnectTimeout.Seconds())),

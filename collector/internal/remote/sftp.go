@@ -155,12 +155,15 @@ func ensureControlMaster(ctx context.Context, alias string, options OpenOptions)
 	if err != nil {
 		return err
 	}
-	if err := runSSHCommand(ctx, options, checkArgs); err == nil {
+	limits := options.Limits.withDefaults()
+	checkCtx, cancelCheck := context.WithTimeout(ctx, limits.ConnectTimeout)
+	err = runSSHCommand(checkCtx, options, checkArgs)
+	cancelCheck()
+	if err == nil {
 		return nil
 	} else if errors.Is(err, ErrStderrLimit) || ctx.Err() != nil {
 		return err
 	}
-	limits := options.Limits.withDefaults()
 	startArgs, err := controlMasterStartArgs(alias, int(limits.ConnectTimeout.Seconds()))
 	if err != nil {
 		return err
@@ -287,7 +290,28 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 		cancel()
 		return nil, fmt.Errorf("start SSH: %w", err)
 	}
-	client, err := sftp.NewClientPipe(stdout, stdin)
+	type clientResult struct {
+		client *sftp.Client
+		err    error
+	}
+	opened := make(chan clientResult, 1)
+	go func() {
+		client, openErr := sftp.NewClientPipe(stdout, stdin)
+		opened <- clientResult{client: client, err: openErr}
+	}()
+	handshakeCtx, cancelHandshake := context.WithTimeout(ctx, limits.ConnectTimeout)
+	var client *sftp.Client
+	select {
+	case result := <-opened:
+		cancelHandshake()
+		client, err = result.client, result.err
+	case <-handshakeCtx.Done():
+		cancelHandshake()
+		_ = stdin.Close()
+		cancel()
+		_ = cmd.Wait()
+		return nil, handshakeCtx.Err()
+	}
 	if err != nil {
 		_ = stdin.Close()
 		cancel()

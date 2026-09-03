@@ -1,27 +1,29 @@
-# Remote family facts v1
+# Remote family facts v2
 
 This package is the transport-independent input to shared session composition.
 It is deliberately separate from both the SSH NDJSON protocol and
 `session-snapshot/v1`.
 
-## Privacy allowlist
+## Remote display data
 
-Only these source facts cross the remote boundary:
+Remote collection carries the session fields used by the local board and
+inspector, including prompts, summaries, commands, todo items, digest entries,
+file-edit summaries, subagent details, repository and working-directory facts,
+and Git status. The local coSlash cache persists these details with mode 0600.
+
+Family identity and incremental-refresh metadata remain separately bounded:
 
 - vendor, family/session IDs, parent ID, and opaque spawn key;
 - bounded name, status hint, branch, entrypoint, and model;
 - start/activity/duration, in-turn/stopped, bounded counts, token totals, and
   cost converted deterministically to integer micro-USD;
-- spawn completion/turn, human command **labels** (never command text), approved
+- spawn completion/turn, command labels and text, approved
   name/live metadata, opaque file comparison keys with size/mtime, and bounded
   Codex key-to-session/parent header mappings used only for warm discovery.
 
-The adapter excludes by construction: `LogPath`, working directory, repository,
-edited paths, file edit rows, raw commands, prompts, summary, digest/tool output,
-todos, commits, environment/git probe facts, synthesis, transcript rows, and
-absolute paths. Fingerprint keys are comparison data; consumers must never open
-them as paths. The reflection test makes additions to the source model require a
-new decision.
+The adapter still excludes `LogPath`, transcript rows, and fingerprint paths.
+Fingerprint keys are comparison data; consumers must never open them as paths.
+The reflection test makes additions to the source model require a new decision.
 
 ## Required fields and bounds
 

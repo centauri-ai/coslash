@@ -28,6 +28,10 @@ type helperSetupResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+type remoteSetupStatusResponse struct {
+	Phase remote.SetupProgress `json:"phase"`
+}
+
 // helperSetupOutcome is separate from machine collection health. A host may
 // have a healthy SFTP cache while a requested helper action has failed; the
 // setup response must never present that operation as a green success.
@@ -100,7 +104,12 @@ func handleRemoteRetry(w http.ResponseWriter, _ *http.Request, manager *remote.M
 		writeAPIError(w, http.StatusConflict, errCodeRemoteDisabled, "remote disabled")
 		return
 	}
-	health = manager.Retry()
+	var started bool
+	health, started = manager.Retry()
+	if !started {
+		writeAPIError(w, http.StatusTooManyRequests, errCodeRemoteRetryThrottled, "remote refresh is already running; try again shortly")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(machineFromHealth(health))
@@ -133,7 +142,9 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Minute)
 	defer cancel()
-	setup, err := manager.SetupHelperForAlias(ctx, body.SSHAlias, remote.Consent{Install: body.Install, Upgrade: body.Upgrade})
+	// The single Add remote host action authorizes replacing a verified older
+	// connector as well as an initial install.
+	setup, err := manager.SetupHelperForAlias(ctx, body.SSHAlias, remote.Consent{Install: body.Install, Upgrade: body.Install || body.Upgrade})
 	if errors.Is(err, remote.ErrHelperAliasMismatch) {
 		writeAPIError(w, http.StatusConflict, "remote_alias_mismatch", "SSH alias changed; save settings and test that host before setting up its helper")
 		return
@@ -182,17 +193,6 @@ func handleRemoteStatus(w http.ResponseWriter, _ *http.Request, manager *remote.
 	writeJSON(w, machineFromHealth(health))
 }
 
-func handleRemoteHelperUninstall(w http.ResponseWriter, request *http.Request, manager *remote.Manager) {
-	health := manager.DiagnosticsHealth()
-	if health.SourceID == "" {
-		writeAPIError(w, http.StatusNotFound, errCodeRemoteNotConfigured, "remote not configured")
-		return
-	}
-	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Minute)
-	defer cancel()
-	if err := manager.UninstallHelper(ctx); err != nil {
-		writeAPIError(w, http.StatusBadGateway, "remote_helper_uninstall_failed", "could not uninstall helper; host settings were kept")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+func handleRemoteSetupStatus(w http.ResponseWriter, _ *http.Request, manager *remote.Manager) {
+	writeJSON(w, remoteSetupStatusResponse{Phase: manager.SetupProgress()})
 }

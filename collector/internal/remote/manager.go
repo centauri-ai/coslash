@@ -100,12 +100,16 @@ type Manager struct {
 	lastRequestedMs        int64
 	failures               int
 	nextRetryAt            time.Time
+	lastManualRetryAt      time.Time
 	lastSuccessAt          *int64
+	lastCheckedAt          *int64
 	transport              Transport
 	helper                 *HelperStatus
 	helperTarget           *helperTarget
 	helperVerify           helperVerifyFunc
+	resetControlMaster     func(string)
 	helperSetup            bool
+	setupProgress          SetupProgress
 	helperVersion          string
 	helperOwnershipCorrupt bool
 	helperProbe            helperProbeState
@@ -120,6 +124,7 @@ type Options struct {
 	// Supplying it is useful for deterministic manager tests.
 	HelperRefresh               helperRefreshFunc
 	HelperVerify                helperVerifyFunc
+	ResetControlMaster          func(string)
 	ReleaseProvider             HelperReleaseProvider
 	LifecycleFactory            lifecycleFactory
 	Trust                       TrustStore
@@ -176,10 +181,15 @@ func NewManager(options Options) *Manager {
 			return lifecycle.VerifyExecution(ctx, target.path, target.artifact)
 		}
 	}
+	resetControlMaster := options.ResetControlMaster
+	if resetControlMaster == nil {
+		resetControlMaster = exitControlMasterBestEffort
+	}
 	return &Manager{
 		cache: cache, now: now, refresh: refresh, helperRefresh: helperRefresh, test: test,
-		helperVerify:    helperVerify,
-		releaseProvider: options.ReleaseProvider, lifecycleFactory: factory,
+		helperVerify:       helperVerify,
+		resetControlMaster: resetControlMaster,
+		releaseProvider:    options.ReleaseProvider, lifecycleFactory: factory,
 		trust:                       options.Trust,
 		helperInstallationAvailable: options.HelperInstallationAvailable,
 		state:                       StateDisabled, complete: true, transport: TransportSFTP,
@@ -276,6 +286,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		manager.complete = false
 		manager.failures = 0
 		manager.nextRetryAt = time.Time{}
+		manager.lastManualRetryAt = time.Time{}
 		manager.helperTarget = nil
 		manager.helperProbe = helperProbeUnknown
 		// Initial collection waits for ListView's first requested window
@@ -361,14 +372,21 @@ func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
 	return ListResult{Sessions: manager.sessionsLocked(remoteSinceMs), Health: manager.healthLocked(remoteSinceMs)}
 }
 
-func (manager *Manager) Retry() Health {
+// Retry starts one manual refresh unless another one is running or the
+// caller retried too recently. The bool reports whether a refresh started.
+func (manager *Manager) Retry() (Health, bool) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled {
-		return manager.healthLocked(manager.lastRequestedMs)
+		return manager.healthLocked(manager.lastRequestedMs), false
 	}
+	if manager.refreshing || (!manager.lastManualRetryAt.IsZero() &&
+		manager.now().Sub(manager.lastManualRetryAt) < ManualRetryCooldown) {
+		return manager.healthLocked(manager.lastRequestedMs), false
+	}
+	manager.lastManualRetryAt = manager.now()
 	manager.maybeStartRefreshLocked(manager.lastRequestedMs, true)
-	return manager.healthLocked(manager.lastRequestedMs)
+	return manager.healthLocked(manager.lastRequestedMs), true
 }
 
 func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, error) {
@@ -404,6 +422,7 @@ func (manager *Manager) recoverAfterSuccessfulTest(alias string) {
 	}
 	manager.failures = 0
 	manager.nextRetryAt = time.Time{}
+	manager.lastManualRetryAt = time.Time{}
 	manager.maybeStartRefreshLocked(manager.lastRequestedMs, true)
 }
 
@@ -460,6 +479,7 @@ func (manager *Manager) removeLocked() error {
 	manager.failures = 0
 	manager.nextRetryAt = time.Time{}
 	manager.lastSuccessAt = nil
+	manager.lastCheckedAt = nil
 	manager.transport = TransportSFTP
 	manager.helper = nil
 	manager.helperTarget = nil
@@ -485,6 +505,7 @@ func (manager *Manager) loadCacheLocked() error {
 		manager.sessions = composeFromGeneration(toGeneration(v2), nullReadSource{}, nil, 0)
 		manager.familyStale = staleSessions(v2)
 		manager.lastSuccessAt = int64Ptr(v2.FetchedAtMs)
+		manager.lastCheckedAt = int64Ptr(v2.FetchedAtMs)
 		return nil
 	}
 	legacy, ok, err := manager.cache.Load(manager.cfg.ID)
@@ -510,6 +531,7 @@ func (manager *Manager) loadCacheLocked() error {
 	manager.sessions = legacy.sessions()
 	manager.familyStale = nil
 	manager.lastSuccessAt = int64Ptr(legacy.FetchedAtMs)
+	manager.lastCheckedAt = int64Ptr(legacy.FetchedAtMs)
 	return nil
 }
 
@@ -580,6 +602,7 @@ func (manager *Manager) runRefresh(
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	manager.refreshing = false
+	manager.lastCheckedAt = int64Ptr(fetchedAt)
 	if manager.cfg == nil || manager.cfg.ID != config.ID || !manager.cfg.Enabled || errors.Is(ctx.Err(), context.Canceled) {
 		return
 	}
@@ -709,6 +732,8 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		Complete: manager.complete, Reason: manager.reason, Error: manager.errorCopy,
 		Refreshing:      manager.refreshing,
 		LastSuccessAtMs: manager.lastSuccessAt,
+		LastCheckedAtMs: manager.lastCheckedAt,
+		SessionCount:    len(manager.sessionsLocked(remoteSinceMs)),
 		Transport:       manager.transport, Helper: manager.helper, Metrics: manager.metrics,
 		HelperInstallationAvailable: manager.helperInstallationAvailable,
 		HelperProbeState:            string(manager.helperProbe),
@@ -855,9 +880,5 @@ func classifyError(err error) Reason {
 }
 
 func retryBackoff(failures int) time.Duration {
-	if failures <= 1 {
-		return InitialRetryBackoff
-	}
-	delay := InitialRetryBackoff << min(failures-1, 6)
-	return min(delay, MaxRetryBackoff)
+	return RemoteRetryInterval
 }

@@ -241,6 +241,35 @@ func TestSettingsSaveRestoresOldSettingsWhenOwnershipActionFails(t *testing.T) {
 	}
 }
 
+func TestSettingsSaveRemovesHostWithoutHelperOwnership(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	store := settings.Open()
+	manager := remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir())})
+	previous := settings.Defaults()
+	previous.Remote = &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "old-host", Enabled: true}
+	if err := store.Save(previous); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ApplySettings(previous.Remote); err != nil {
+		t.Fatal(err)
+	}
+	next := previous
+	next.Remote = nil
+	body, err := json.Marshal(map[string]any{"settings": next, "remoteOwnershipAction": "release"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
+	response := httptest.NewRecorder()
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil), manager)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	if store.State().Config.Remote != nil {
+		t.Fatalf("remote was not removed: %#v", store.State().Config.Remote)
+	}
+}
+
 func TestSettingsSaveCanExplicitlyRecoverCorruptOwnershipByRemovingHost(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	store := settings.Open()
