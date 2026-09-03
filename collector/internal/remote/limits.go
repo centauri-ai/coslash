@@ -11,6 +11,9 @@ const (
 	DefaultConnectTimeout = 7 * time.Second
 	// Helper activation is a small fixed command, unlike collection.
 	DefaultHelperInstallTimeout = 15 * time.Second
+	// A previously approved helper can update in the background after a new
+	// coSlash release. Its SSH handshake remains bounded by DefaultConnectTimeout.
+	DefaultHelperAutoUpdateTimeout = 2 * time.Minute
 	// Covers Claude and Codex over one SFTP session; large remote trees need headroom.
 	DefaultDeadline       = 3 * time.Minute
 	DefaultMaxFileBytes   = 32 << 20
