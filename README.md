@@ -99,25 +99,19 @@ coSlash needs at least one local agent session to read. If it finds none, it say
 
 ### Optional Linux session monitoring
 
-In **Settings → Machines**, add one alias from your Mac's existing OpenSSH
-configuration. coSlash runs the system `ssh` client on the Mac, requests the
-host's SFTP subsystem, and parses Claude Code and Codex files locally. It may
-reuse an OpenSSH multiplexed connection through a control socket under
-`~/.coslash/ssh`; it does not edit your SSH config. The Linux host needs only
-its SSH server with SFTP enabled and agent files readable by the SSH user.
+In **Settings → Machines**, use **Add remote host** with an alias from your
+Mac's existing OpenSSH configuration. coSlash checks SSH and SFTP, then installs
+and verifies the matching Linux collector. The helper lives in the SSH user's
+private `~/.coslash/helpers` directory, has no root or network access, and reads
+only supported agent paths. Future coSlash updates replace a helper that it
+previously installed and verified; first-time setup always requires this action.
 
-SFTP is the compatible fallback. After testing the connection, you can choose
-**Install helper**. That action asks for explicit consent before coSlash uploads
-the matching Linux collector embedded in the coSlash release into the SSH
-user's private `~/.coslash/helpers` directory. The app verifies its size,
-digest, platform, owner, and mode before execution. The helper reads only the
-supported agent paths and returns bounded, normalized facts; it has no root
-access, no network access, and does not run your agent CLI. Machines shows
-whether collection is using the helper or SFTP, including any stale or partial
-coverage. An incompatible, blocked, or failed helper never runs silently:
-coSlash keeps the SFTP fallback visible and offers repair or upgrade where
-available. Initial installation and every upgrade require separate consent;
-disabling a machine does not uninstall its helper.
+coSlash uses the system `ssh` client and may reuse a control socket under
+`~/.coslash/ssh`; it never edits your SSH config. SFTP remains the visible
+fallback if a helper cannot run. An offline host is checked promptly and retried
+in the background; use **Retry setup** for an immediate attempt. **Remove**
+stops monitoring locally even when the host is offline and leaves its helper on
+the remote machine.
 
 Remote v1 is monitoring-only. Cards, transcript-derived facts, costs, tokens,
 file-edit summaries, and **Copy handoff** are available. Resume, Start Fresh,

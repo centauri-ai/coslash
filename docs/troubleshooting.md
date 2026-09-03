@@ -6,25 +6,20 @@ Start with `coslash doctor`. It checks session sources, agent CLIs, and storage.
 
 Create at least one local Claude Code or Codex session, then reload. Run `coslash doctor` for unreadable or missing sources. In the UI, select **All** vendors and time windows and clear search.
 
-For a remote machine, use **Settings → Machines → Test connection**. coSlash
+For a remote machine, choose **Settings → Machines → Add remote host**. coSlash
 uses the Mac's existing OpenSSH configuration, so first run `ssh <alias>` in
 Terminal if the host key or authentication still needs confirmation. The Linux
-SSH server must enable an SFTP subsystem and the SSH user must be able to read
-the Claude/Codex paths listed in [Data and privacy](data-and-privacy.md). No
-coSlash installation or agent CLI is required on Linux for SFTP collection. The
-test verifies that SSH authentication and the SFTP subsystem can open and close
-successfully. Readability of the allowed Claude/Codex roots is checked during
-the subsequent collection refresh.
+SSH server must enable SFTP and the SSH user must be able to read the
+Claude/Codex paths listed in [Data and privacy](data-and-privacy.md). Setup
+checks the connection, installs the digest-verified helper, and verifies it.
 
-The optional **Install helper** action needs explicit consent and installs the
-digest-verified collector embedded in the coSlash release, owned by the SSH
-user under `~/.coslash/helpers`. If it is unavailable, blocked
-by a `noexec` mount, unsupported, incompatible, revoked, or fails verification,
-coSlash does not execute it and continues with visibly labeled SFTP collection.
-Use **Upgrade helper** or **Install helper** only after reviewing the consent
-copy. Never paste remote stderr into a bug report; **Copy diagnostics** includes
-only bounded structured transport, version, timing, byte-count, and coverage
-facts.
+If setup fails, **Retry setup** tries again. A host that does not answer SSH is
+shown offline after a short check and retried in the background. coSlash uses
+SFTP when the helper is unavailable, blocked by a `noexec` mount, unsupported,
+or fails verification. Future coSlash releases automatically update only helpers
+that coSlash previously installed and verified. Never paste remote stderr into a
+bug report; **Copy diagnostics** contains bounded structured transport, version,
+timing, byte-count, and coverage facts.
 
 `SFTP subsystem unavailable` means ordinary SSH may work while SFTP is disabled
 by `sshd_config` or account policy. `Agent data is not readable` means the SSH
@@ -32,10 +27,8 @@ account connected but lacks file permissions. `No Claude or Codex data found`
 means the allowed roots are absent or empty. A stale banner keeps the last-good
 cards visible; **Retry** starts an immediate bounded refresh.
 
-To remove a remote host, choose **Remove host only** to leave the optional
-helper installed, or **Uninstall helper and remove**. The latter completes its
-exact remote uninstall before coSlash removes local settings. If it fails, use
-Retry or choose remove-only explicitly.
+To remove a remote host, choose **Remove**. It stops local monitoring even if
+the host is offline and leaves its optional helper installed on the host.
 
 ## coSlash will not start
 
