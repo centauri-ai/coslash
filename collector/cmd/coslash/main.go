@@ -82,8 +82,8 @@ func main() {
 	}
 
 	settingsStore := settings.Open()
-	if err := opencode.EnsureWaitingPlugin(); err != nil {
-		log.Printf("install OpenCode status plugin: %v", err)
+	if err := opencode.EnsurePlugin(); err != nil {
+		log.Printf("install OpenCode coSlash plugin: %v", err)
 	}
 	settingsState := settingsStore.State()
 	var runner synthesis.Runner
