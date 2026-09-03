@@ -231,7 +231,11 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 			manager.mu.Unlock()
 		}()
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, DefaultConnectTimeout)
+	timeout := DefaultConnectTimeout
+	if autoUpdate {
+		timeout = DefaultHelperAutoUpdateTimeout
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	manager.mu.Lock()
 	provider, factory, previousVersion := manager.releaseProvider, manager.lifecycleFactory, manager.helperVersion

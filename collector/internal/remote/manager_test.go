@@ -577,7 +577,9 @@ func TestHelperTestAcceptsEmptySuccessfulCollectionWithoutRewritingBoardState(t 
 		t.Fatalf("setup health = %#v", health)
 	}
 	manager.mu.Lock()
-	manager.snapshot = &CachedSnapshotV2{Version: cacheV2Version, CoverageSinceMs: now.UnixMilli()}
+	manager.snapshot = &CachedSnapshotV2{
+		Version: cacheV2Version, CoverageSinceMs: now.UnixMilli(), FetchedAtMs: now.UnixMilli(),
+	}
 	manager.sessions = []*session.Session{{Agent: vendors.AgentClaude, ID: "cached"}}
 	manager.state = StateStale
 	manager.reason = reasonPtr(ReasonInitialRefresh)
