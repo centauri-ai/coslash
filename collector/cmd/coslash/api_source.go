@@ -26,8 +26,8 @@ type apiErrorBody struct {
 }
 
 type sessionsResponse struct {
-	Sessions []boardSession `json:"sessions"`
-	Machines []machineFact  `json:"machines"`
+	Sessions []boardSession  `json:"sessions"`
+	Machines []remote.Health `json:"machines"`
 }
 
 type boardSession struct {
@@ -40,47 +40,8 @@ type boardSession struct {
 	session.Session
 }
 
-type machineFact struct {
-	SourceID                    string                   `json:"sourceId"`
-	Label                       string                   `json:"label"`
-	State                       remote.State             `json:"state"`
-	Complete                    bool                     `json:"complete"`
-	Reason                      *remote.Reason           `json:"reason,omitempty"`
-	LastSuccessAtMs             *int64                   `json:"lastSuccessAtMs,omitempty"`
-	LastCheckedAtMs             *int64                   `json:"lastCheckedAtMs,omitempty"`
-	SessionCount                int                      `json:"sessionCount"`
-	CoverageSinceMs             *int64                   `json:"coverageSinceMs,omitempty"`
-	RoundTripMs                 *int64                   `json:"roundTripMs,omitempty"`
-	Coverage                    []remote.AgentCoverage   `json:"coverage,omitempty"`
-	Error                       string                   `json:"error,omitempty"`
-	Transport                   remote.Transport         `json:"transport,omitempty"`
-	Helper                      *remote.HelperStatus     `json:"helper,omitempty"`
-	Metrics                     remote.CollectionMetrics `json:"metrics"`
-	HelperInstallationAvailable bool                     `json:"helperInstallationAvailable"`
-	HelperProbeState            string                   `json:"helperProbeState,omitempty"`
-	HelperOwnershipRecorded     bool                     `json:"helperOwnershipRecorded"`
-	HelperOwnershipCorrupt      bool                     `json:"helperOwnershipCorrupt"`
-	Refreshing                  bool                     `json:"refreshing,omitempty"`
-}
-
-func localMachineFact() machineFact {
-	return machineFact{SourceID: localSourceID, Label: localSourceLabel, State: remote.StateOK, Complete: true}
-}
-
-func machineFromHealth(health remote.Health) machineFact {
-	return machineFact{
-		SourceID: health.SourceID, Label: health.Label, State: health.State,
-		Complete: health.Complete, Reason: health.Reason,
-		LastSuccessAtMs: health.LastSuccessAtMs, LastCheckedAtMs: health.LastCheckedAtMs,
-		SessionCount: health.SessionCount, CoverageSinceMs: health.CoverageSinceMs,
-		RoundTripMs: health.RoundTripMs, Coverage: health.Coverage, Error: health.Error,
-		Transport: health.Transport, Helper: health.Helper, Metrics: health.Metrics,
-		HelperInstallationAvailable: health.HelperInstallationAvailable,
-		HelperProbeState:            health.HelperProbeState,
-		HelperOwnershipRecorded:     health.HelperOwnershipRecorded,
-		HelperOwnershipCorrupt:      health.HelperOwnershipCorrupt,
-		Refreshing:                  health.Refreshing,
-	}
+func localMachineHealth() remote.Health {
+	return remote.Health{SourceID: localSourceID, Label: localSourceLabel, State: remote.StateOK, Complete: true}
 }
 
 func boardLocalSession(value *session.Session) boardSession {

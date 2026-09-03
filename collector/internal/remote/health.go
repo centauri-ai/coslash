@@ -48,12 +48,12 @@ type Health struct {
 	RoundTripMs                 *int64            `json:"roundTripMs,omitempty"`
 	Coverage                    []AgentCoverage   `json:"coverage,omitempty"`
 	Error                       string            `json:"error,omitempty"`
-	Refreshing                  bool              `json:"-"`
-	Transport                   Transport         `json:"transport"`
+	Refreshing                  bool              `json:"refreshing,omitempty"`
+	Transport                   Transport         `json:"transport,omitempty"`
 	Helper                      *HelperStatus     `json:"helper,omitempty"`
 	Metrics                     CollectionMetrics `json:"metrics"`
 	HelperInstallationAvailable bool              `json:"helperInstallationAvailable"`
-	HelperProbeState            string            `json:"helperProbeState"`
+	HelperProbeState            string            `json:"helperProbeState,omitempty"`
 	// HelperOwnershipRecorded is deliberately separate from Helper.Version:
 	// a persisted ownership record survives a failed read-only inspection and
 	// must still prevent a silent alias replacement.

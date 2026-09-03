@@ -89,14 +89,14 @@ func handleList(
 	}
 	response := sessionsResponse{
 		Sessions: []boardSession{},
-		Machines: []machineFact{localMachineFact()},
+		Machines: []remote.Health{localMachineHealth()},
 	}
 	for _, value := range sessions {
 		response.Sessions = append(response.Sessions, boardLocalSession(value))
 	}
 	remoteResult := remoteManager.ListView(remoteSince)
 	if remoteResult.Health.SourceID != "" {
-		response.Machines = append(response.Machines, machineFromHealth(remoteResult.Health))
+		response.Machines = append(response.Machines, remoteResult.Health)
 		for _, value := range remoteResult.Sessions {
 			response.Sessions = append(response.Sessions, boardRemoteSession(value))
 		}

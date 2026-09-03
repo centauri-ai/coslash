@@ -88,8 +88,8 @@ func TestSessionsAlwaysReturnsEnvelope(t *testing.T) {
 	}
 }
 
-func TestLocalMachineFactOmitsRemoteOnlyEnums(t *testing.T) {
-	encoded, err := json.Marshal(localMachineFact())
+func TestLocalMachineHealthOmitsRemoteOnlyEnums(t *testing.T) {
+	encoded, err := json.Marshal(localMachineHealth())
 	if err != nil {
 		t.Fatal(err)
 	}

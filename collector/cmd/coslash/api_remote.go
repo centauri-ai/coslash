@@ -23,9 +23,9 @@ type remoteHelperSetupRequest struct {
 }
 
 type helperSetupResponse struct {
-	Machine machineFact `json:"machine"`
-	Outcome string      `json:"outcome"`
-	Error   string      `json:"error,omitempty"`
+	Machine remote.Health `json:"machine"`
+	Outcome string        `json:"outcome"`
+	Error   string        `json:"error,omitempty"`
 }
 
 // helperSetupOutcome is separate from machine collection health. A host may
@@ -87,7 +87,7 @@ func handleRemoteTest(w http.ResponseWriter, request *http.Request, manager *rem
 		http.Error(w, "invalid sshAlias", http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, machineFromHealth(health))
+	writeJSON(w, health)
 }
 
 func handleRemoteRetry(w http.ResponseWriter, _ *http.Request, manager *remote.Manager) {
@@ -108,7 +108,7 @@ func handleRemoteRetry(w http.ResponseWriter, _ *http.Request, manager *remote.M
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(machineFromHealth(health))
+	_ = json.NewEncoder(w).Encode(health)
 }
 
 func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manager *remote.Manager) {
@@ -156,7 +156,7 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 		testSucceeded = test.Succeeded
 	}
 	outcome, errorCopy, succeeded := helperSetupOutcome(setup, testSucceeded)
-	machine := machineFromHealth(setup)
+	machine := setup
 	response := helperSetupResponse{Machine: machine, Outcome: outcome, Error: errorCopy}
 	if !succeeded {
 		// This response represents the setup operation, not an ordinary refresh.
@@ -186,5 +186,5 @@ func handleRemoteStatus(w http.ResponseWriter, _ *http.Request, manager *remote.
 		writeAPIError(w, http.StatusNotFound, errCodeRemoteNotConfigured, "remote not configured")
 		return
 	}
-	writeJSON(w, machineFromHealth(health))
+	writeJSON(w, health)
 }
