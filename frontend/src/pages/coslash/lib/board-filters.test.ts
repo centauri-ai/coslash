@@ -52,6 +52,13 @@ describe('board filters', () => {
         memoryStorage({ 'coslash.board-filters': JSON.stringify({ vendor: 'nope', timeWindow: 7 }) }),
       ),
     ).toEqual(DEFAULT_BOARD_FILTERS);
+    expect(
+      loadBoardFilters(
+        memoryStorage({
+          'coslash.board-filters': JSON.stringify({ vendor: 'all', timeWindow: 'week' }),
+        }),
+      ),
+    ).toEqual(DEFAULT_BOARD_FILTERS);
   });
 
   it('keeps a selected vendor visible when absent from results', () => {

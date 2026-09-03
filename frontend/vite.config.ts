@@ -12,7 +12,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8787',
+        target: `http://127.0.0.1:${process.env.COSLASH_API_PORT ?? '8787'}`,
         changeOrigin: true,
         configure: (proxy) => {
           let warnedAboutMissingToken = false;
