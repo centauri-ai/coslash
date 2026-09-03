@@ -230,9 +230,6 @@ func routes(
 	api.HandleFunc("POST /api/remote/helper/setup", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteHelperSetup(w, r, remoteManager)
 	})
-	api.HandleFunc("GET /api/remote/setup/status", func(w http.ResponseWriter, r *http.Request) {
-		handleRemoteSetupStatus(w, r, remoteManager)
-	})
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})

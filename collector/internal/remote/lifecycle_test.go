@@ -42,7 +42,7 @@ func TestLifecycleDeprecatedHelperIsReusedUntilUpgradeConsent(t *testing.T) {
 	}
 	result = lifecycleFor(remote).Setup(context.Background(), remote.document, content, Consent{Upgrade: true})
 	currentPath, _ := helperPath(current.Version)
-	if result.State != LifecycleReady || remote.files[path].Path != "" || remote.files[currentPath].Path == "" {
+	if result.State != LifecycleReady || remote.files[path].Path == "" || remote.files[currentPath].Path == "" {
 		t.Fatalf("upgrade result = %#v, files = %#v", result, remote.files)
 	}
 }

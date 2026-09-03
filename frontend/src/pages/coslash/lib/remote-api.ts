@@ -53,7 +53,7 @@ const REMOTE_REFRESH_POLL_INTERVAL_MS = 400;
 // reload the board, so it does not remain on the transient "connecting" view.
 export async function retryRemoteRefreshAndWait(): Promise<MachineFact> {
   let { machine } = await retryRemoteRefresh();
-  while (machine.state === 'connecting') {
+  while (machine.state === 'connecting' || machine.refreshing) {
     await new Promise<void>((resolve) => setTimeout(resolve, REMOTE_REFRESH_POLL_INTERVAL_MS));
     machine = await remoteStatus();
   }
@@ -107,11 +107,4 @@ export async function remoteStatus(): Promise<MachineFact> {
     throw new Error(apiError?.error || `Remote status failed (${response.status})`);
   }
   return decodeMachineFact(await response.json());
-}
-
-export async function uninstallRemoteHelper(): Promise<void> {
-  const response = await apiFetch('/api/remote/helper/uninstall', { method: 'POST' });
-  if (response.ok) return;
-  const apiError = await readApiError(response);
-  throw new Error(apiError?.error || `Helper uninstall failed (${response.status})`);
 }

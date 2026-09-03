@@ -110,7 +110,6 @@ type Manager struct {
 	helperVerify           helperVerifyFunc
 	resetControlMaster     func(string)
 	helperSetup            bool
-	setupProgress          SetupProgress
 	helperVersion          string
 	helperOwnershipCorrupt bool
 	helperProbe            helperProbeState
