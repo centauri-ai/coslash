@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import { TriangleAlertIcon } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 // Wraps a cost figure that excludes a model the pricing table doesn't cover yet
 export function UnpricedModelWarning({ unpriced, children }: { unpriced: string[]; children: ReactNode }) {
@@ -8,16 +8,14 @@ export function UnpricedModelWarning({ unpriced, children }: { unpriced: string[
   if (models.length === 0) return children;
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex items-center gap-1">
-            <TriangleAlertIcon className="text-warning-fg size-4" />
-            {children}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>No pricing info for {models.join(', ')}, excluded from this estimate.</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center gap-1">
+          <TriangleAlertIcon className="text-warning-fg size-4" />
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>No pricing info for {models.join(', ')}, excluded from this estimate.</TooltipContent>
+    </Tooltip>
   );
 }
