@@ -4,6 +4,7 @@
 package launch
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -73,6 +74,33 @@ func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string
 		return fmt.Errorf("launch: open %s: %w", adapter.label, err)
 	}
 	return nil
+}
+
+// RemoteTerminal opens the selected local terminal and runs an agent CLI on a
+// configured SSH host.
+func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, handoff string) error {
+	if alias == "" {
+		return errors.New("launch: SSH alias is required")
+	}
+	if workingDirectory == "" {
+		return fmt.Errorf("launch: session has no working directory")
+	}
+	adapter, err := terminalFor(terminal)
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS != "darwin" {
+		return fmt.Errorf("launch: opening a terminal is not supported on %s", runtime.GOOS)
+	}
+	if err := adapter.available(); err != nil {
+		return fmt.Errorf("launch: %s is not installed or available; choose another terminal in Settings", adapter.label)
+	}
+	command, err := remoteCLICommand(agent, sessionID, mode, handoff)
+	if err != nil {
+		return err
+	}
+	remoteCommand := "cd " + shellQuote(workingDirectory) + " && " + command
+	return adapter.open(".", shellJoin("ssh", "-tt", alias, remoteCommand))
 }
 
 func Available(terminal string) bool {
@@ -168,6 +196,43 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 		return withCleanup(command, path), path, nil
 	}
 	return "", "", fmt.Errorf("launch: unknown agent %q", agent)
+}
+
+func remoteCLICommand(agent, sessionID, mode, handoff string) (string, error) {
+	cli, err := cliName(agent)
+	if err != nil {
+		return "", err
+	}
+	if mode == ResumeSession {
+		command, _, err := cliCommand(agent, sessionID, mode, "")
+		return command, err
+	}
+	if mode != NewSession {
+		return "", fmt.Errorf("launch: unknown mode %q", mode)
+	}
+	if handoff == "" {
+		return shellJoin(cli), nil
+	}
+	contents := handoffPreamble + handoff
+	if agent == vendors.AgentCodex {
+		contentsBytes, err := json.Marshal(contents)
+		if err != nil {
+			return "", fmt.Errorf("launch: encoding handoff context: %w", err)
+		}
+		contents = string(contentsBytes)
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(contents))
+	prefix := "handoff=$(mktemp) || exit 1; printf %s " + shellQuote(encoded) + " | base64 -d > \"$handoff\" || { rm -f \"$handoff\"; exit 1; }; "
+	cleanup := "; rm -f \"$handoff\""
+	switch agent {
+	case vendors.AgentClaude:
+		return prefix + shellJoin(cli, "--append-system-prompt-file") + " \"$handoff\"" + cleanup, nil
+	case vendors.AgentCodex:
+		return prefix + shellJoin(cli, "-c") + " \"developer_instructions=$(cat \\\"$handoff\\\")\"" + cleanup, nil
+	case vendors.AgentOpenCode:
+		return prefix + "OPENCODE_CONFIG_CONTENT='{\"instructions\":[\"'\"$handoff\"'\"]}' " + shellJoin(cli) + cleanup, nil
+	}
+	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }
 
 func handoffDir() string {

@@ -56,8 +56,9 @@ Launching requires macOS, a recorded working directory, the agent CLI, and the t
 
 A fresh agent waiting silently is expected: handoff context is marked as background, and the agent waits for your next message.
 
-Remote sessions are monitoring-only, so Resume and Start Fresh are intentionally
-hidden. Use **Copy handoff** and continue manually where appropriate.
+Remote Resume and Start fresh require a live SSH connection and a recorded
+working directory. They are disabled while the host is offline; wait for it to
+reconnect, then try again.
 
 ## Report a bug
 

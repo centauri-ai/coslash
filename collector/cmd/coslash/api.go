@@ -238,21 +238,36 @@ func cleanupHandoffs() {
 	}
 }
 
-func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *settings.Store) {
+func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *settings.Store, remoteManager *remote.Manager) {
 	state := settingsStore.State()
 	if !state.Valid {
 		http.Error(w, state.Error+"; open Settings to repair it", http.StatusConflict)
 		return
 	}
 	query := r.URL.Query()
-	found, err := collector.GetSessionFacts(query.Get("id"))
+	sourceID, err := parseSourceID(query.Get("source"))
 	if err != nil {
-		log.Printf("launch: %v", err)
-		http.Error(w, "could not load session", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	var found *session.Session
+	alias := ""
+	if sourceID == localSourceID {
+		found, err = collector.GetSessionFacts(query.Get("id"))
+		if err != nil {
+			log.Printf("launch: %v", err)
+			http.Error(w, "could not load session", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		found, alias, _ = remoteManager.LaunchSession(sourceID, query.Get("agent"), query.Get("id"))
+	}
 	if found == nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		if sourceID == localSourceID {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "remote host is offline or this session is no longer available", http.StatusConflict)
 		return
 	}
 	handoff, err := readHandoff(w, r)
@@ -262,7 +277,17 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 		return
 	}
 	mode := query.Get("mode")
-	if err := launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff); err != nil {
+	if sourceID != localSourceID {
+		health, testErr := remoteManager.TestAlias(r.Context(), alias)
+		if testErr != nil || health.State != remote.StateOK {
+			http.Error(w, "remote host is offline; wait for it to reconnect", http.StatusConflict)
+			return
+		}
+		err = launch.RemoteTerminal(state.Config.Launch.Terminal, alias, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
+	} else {
+		err = launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
+	}
+	if err != nil {
 		log.Printf("launch: %v", err)
 		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
 		return

@@ -436,6 +436,24 @@ func (manager *Manager) DiagnosticsHealth() Health {
 	return manager.healthLocked(manager.lastRequestedMs)
 }
 
+// LaunchSession returns the current remote session and SSH alias only while
+// the host's most recent collection completed successfully.
+func (manager *Manager) LaunchSession(sourceID, agent, sessionID string) (*session.Session, string, bool) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID ||
+		(manager.state != StateOK && manager.state != StateLimited) {
+		return nil, "", false
+	}
+	for _, item := range manager.sessions {
+		if item.Agent == agent && item.ID == sessionID && item.WorkingDirectory != "" {
+			copy := *item
+			return &copy, manager.cfg.SSHAlias, true
+		}
+	}
+	return nil, "", false
+}
+
 // SetupAliasMatches reports whether alias is the currently persisted remote
 // target. SetupHelperForAlias repeats this check while taking its immutable
 // configuration snapshot; this fast check lets the HTTP handler reject an
