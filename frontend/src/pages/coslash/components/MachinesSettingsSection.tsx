@@ -53,7 +53,12 @@ export function MachinesSettingsSection({
         .then((status) => {
           if (cancelled) return;
           setMachine(status);
-          if (status.refreshing || status.state === 'connecting' || status.reason === 'initial_refresh') {
+          if (
+            status.refreshing ||
+            status.state === 'connecting' ||
+            status.reason === 'initial_refresh' ||
+            status.helperProbeState === 'probing'
+          ) {
             timer = setTimeout(poll, 400);
           }
         })
