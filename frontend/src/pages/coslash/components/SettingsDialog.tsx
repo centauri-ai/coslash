@@ -551,7 +551,11 @@ export function SettingsDialog({
                 Save settings
               </Button>
             ) : (
-              <Button variant="outline" onClick={close} disabled={remoteOperationInProgress}>
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={remoteOperationInProgress}
+              >
                 Close
               </Button>
             )}

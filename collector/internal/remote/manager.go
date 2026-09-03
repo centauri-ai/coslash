@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -454,7 +455,7 @@ func (manager *Manager) LaunchSession(sourceID, agent, sessionID, mode string) (
 			if item.WorkingDirectory == "" {
 				return nil, "", ErrRemoteSessionUnavailable
 			}
-			if mode == "resume" && item.Status != nil && *item.Status == "busy" {
+			if mode == launch.ResumeSession && item.Status != nil && *item.Status == "busy" {
 				return nil, "", ErrRemoteSessionActive
 			}
 			copy := *item

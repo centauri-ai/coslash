@@ -150,6 +150,7 @@ function SessionSearch({
 
 function SessionsStats({
   sessions,
+  activitySessions,
   machines,
   loadFailed,
   timeWindow,
@@ -157,6 +158,7 @@ function SessionsStats({
   remoteRetryInFlight,
 }: {
   sessions: Session[];
+  activitySessions: Session[];
   machines: MachineFact[];
   loadFailed: boolean;
   timeWindow: TimeWindow;
@@ -190,7 +192,7 @@ function SessionsStats({
       </div>
       <MachineActivity
         machines={machines}
-        sessions={sessions}
+        sessions={activitySessions}
         onRemoteRetry={onRemoteRetry}
         remoteRetryInFlight={remoteRetryInFlight}
       />
@@ -475,6 +477,7 @@ export function CoslashPage() {
               <LoadingSpinner isLoading={isLoading}>
                 <SessionsStats
                   sessions={sessionsForVendor}
+                  activitySessions={sessionsInWindow}
                   machines={machines}
                   loadFailed={loadError != null}
                   timeWindow={timeWindow}

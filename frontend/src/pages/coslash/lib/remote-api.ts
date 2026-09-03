@@ -52,11 +52,29 @@ function remoteRefreshInProgress(machine: MachineFact): boolean {
   return machine.refreshing || machine.state === 'connecting' || machine.reason === 'initial_refresh';
 }
 
-export async function waitForRemoteRefresh(machine?: MachineFact): Promise<MachineFact> {
-  let current = machine ?? (await remoteStatus());
+function waitForAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
+}
+
+export async function waitForRemoteRefresh(
+  machine?: MachineFact,
+  signal?: AbortSignal,
+): Promise<MachineFact> {
+  let current = machine ?? (await remoteStatus(signal));
   while (remoteRefreshInProgress(current)) {
-    await new Promise<void>((resolve) => setTimeout(resolve, REMOTE_REFRESH_POLL_INTERVAL_MS));
-    current = await remoteStatus();
+    await waitForAbort(REMOTE_REFRESH_POLL_INTERVAL_MS, signal);
+    current = await remoteStatus(signal);
   }
   return current;
 }
@@ -109,8 +127,8 @@ export function decodeHelperSetup(value: unknown): HelperSetupResult {
   return result;
 }
 
-export async function remoteStatus(): Promise<MachineFact> {
-  const response = await apiFetch('/api/remote/status');
+export async function remoteStatus(signal?: AbortSignal): Promise<MachineFact> {
+  const response = await apiFetch('/api/remote/status', { signal });
   if (!response.ok) {
     const apiError = await readApiError(response);
     throw new Error(apiError?.error || `Remote status failed (${response.status})`);
