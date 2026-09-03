@@ -261,6 +261,8 @@ export const SUBAGENT_STATUSES = {
 const MODALITIES: Record<string, string> = {
   'cli': 'Interactive',
   'codex-tui': 'Interactive',
+  'opencode-cli': 'CLI',
+  'opencode-desktop': 'Desktop',
   'sdk-cli': 'Autonomous',
   'sdk-ts': 'Autonomous',
   'sdk-py': 'Autonomous',

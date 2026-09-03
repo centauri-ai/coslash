@@ -4,8 +4,25 @@ import os from "node:os"
 import path from "node:path"
 
 const directory = path.join(os.homedir(), ".coslash", "opencode-permissions")
+const clientDirectory = path.join(os.homedir(), ".coslash", "opencode-clients")
 const requestsBySession = new Map()
 let lifecycle = Promise.resolve()
+
+async function recordClient(properties) {
+  if (typeof properties.sessionID !== "string") return
+  const client = process.env.OPENCODE_CLIENT === "desktop" ? "desktop" : "cli"
+  await mkdir(clientDirectory, { recursive: true, mode: 0o700 })
+  await chmod(clientDirectory, 0o700)
+  const target = path.join(clientDirectory, `${properties.sessionID}.json`)
+  const temporary = `${target}.${process.pid}.tmp`
+  await writeFile(temporary, JSON.stringify({ sessionID: properties.sessionID, client }), { mode: 0o600 })
+  await rename(temporary, target)
+}
+
+async function clearClient(properties) {
+  if (typeof properties.sessionID !== "string") return
+  await unlink(path.join(clientDirectory, `${properties.sessionID}.json`)).catch(() => {})
+}
 
 async function record(properties) {
   if (typeof properties.id !== "string" || typeof properties.sessionID !== "string") return
@@ -44,6 +61,10 @@ async function clearSession(properties) {
 export const CoslashWaitingPlugin = async () => ({
   event: ({ event }) => {
     lifecycle = lifecycle.then(async () => {
+      if (["session.created", "session.updated", "message.updated"].includes(event?.type)) {
+        await recordClient(event.properties ?? {})
+      }
+      if (event?.type === "session.deleted") await clearClient(event.properties ?? {})
       if (event?.type === "permission.asked") await record(event.properties ?? {})
       if (event?.type === "permission.replied") await clear(event.properties ?? {})
       if (event?.type === "session.idle") await clearSession(event.properties ?? {})

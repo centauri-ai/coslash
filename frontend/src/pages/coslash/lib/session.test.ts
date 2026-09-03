@@ -3,6 +3,7 @@ import { decodeMachineFact } from '@/pages/coslash/lib/machines';
 import {
   boardStatusKey,
   environmentFact,
+  getModality,
   getSessionVendors,
   LOCAL_SOURCE_ID,
   sessionKey,
@@ -10,6 +11,14 @@ import {
   withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
+
+describe('getModality', () => {
+  it('labels OpenCode client entrypoints without changing the shared CLI modality', () => {
+    expect(getModality('opencode-desktop')).toBe('Desktop');
+    expect(getModality('opencode-cli')).toBe('CLI');
+    expect(getModality('cli')).toBe('Interactive');
+  });
+});
 
 describe('getSessionVendors', () => {
   it('returns only vendors represented by loaded sessions in display order', () => {
