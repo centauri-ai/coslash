@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogTrigger } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { DiffList } from '@/pages/coslash/components/DiffList';
@@ -353,7 +354,21 @@ function LaunchError({ message }: { message: string | null }) {
   return <span className="text-destructive text-xs">{message}</span>;
 }
 
-function ResumeSessionButton({ detail, disabled = false }: { detail: SessionDetail; disabled?: boolean }) {
+function DisabledLaunchTooltip({ hint, children }: { hint?: string; children: ReactNode }) {
+  if (hint == null) return children;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0}>{children}</span>
+        </TooltipTrigger>
+        <TooltipContent>{hint}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; disabledHint?: string }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
 
@@ -372,12 +387,12 @@ function StartNewSessionButton({
   detail,
   brief,
   onCopy,
-  disabled = false,
+  disabledHint,
 }: {
   detail: SessionDetail;
   brief: string;
   onCopy: () => void;
-  disabled?: boolean;
+  disabledHint?: string;
 }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
@@ -398,7 +413,15 @@ function StartNewSessionButton({
   );
 }
 
-function HandoffSection({ detail, remoteLaunchable }: { detail: SessionDetail; remoteLaunchable: boolean }) {
+function HandoffSection({
+  detail,
+  remoteLaunchable,
+  remoteLaunchHint,
+}: {
+  detail: SessionDetail;
+  remoteLaunchable: boolean;
+  remoteLaunchHint?: string;
+}) {
   const [copied, setCopied] = useState(false);
   const contextFill = contextFillReadiness(detail);
   const branchDrift = branchDriftReadiness(detail.git);
@@ -428,7 +451,7 @@ function HandoffSection({ detail, remoteLaunchable }: { detail: SessionDetail; r
           detail={detail}
           brief={brief}
           onCopy={copyBrief}
-          disabled={!isLocalSession(detail) && !remoteLaunchable}
+          disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
         />
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={copyBrief}>
           <span>Copy handoff</span>
@@ -973,10 +996,12 @@ function InspectorBody({
   detail,
   onSelectFile,
   remoteLaunchable,
+  remoteLaunchHint,
 }: {
   detail: SessionDetail;
   onSelectFile: ((path: string) => void) | null;
   remoteLaunchable: boolean;
+  remoteLaunchHint?: string;
 }) {
   // scroll on the outer div, layout on the inner one — flex children of a
   // scroll container shrink to fit instead of overflowing, which collapses
@@ -984,7 +1009,11 @@ function InspectorBody({
   return (
     <div className="flex-1 overflow-y-auto pb-2">
       <div className="flex flex-col gap-2 px-4">
-        <HandoffSection detail={detail} remoteLaunchable={remoteLaunchable} />
+        <HandoffSection
+          detail={detail}
+          remoteLaunchable={remoteLaunchable}
+          remoteLaunchHint={remoteLaunchHint}
+        />
         <RecapSection detail={detail} />
         <DigestSection detail={detail} />
         <ArtifactStats detail={detail} />
@@ -996,7 +1025,15 @@ function InspectorBody({
   );
 }
 
-function InspectorFooter({ detail, remoteLaunchable }: { detail: SessionDetail; remoteLaunchable: boolean }) {
+function InspectorFooter({
+  detail,
+  remoteLaunchable,
+  remoteLaunchHint,
+}: {
+  detail: SessionDetail;
+  remoteLaunchable: boolean;
+  remoteLaunchHint?: string;
+}) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const showTeamPreview =
     isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
@@ -1027,7 +1064,10 @@ function InspectorFooter({ detail, remoteLaunchable }: { detail: SessionDetail; 
             />
           </>
         )}
-        <ResumeSessionButton detail={detail} disabled={!isLocalSession(detail) && !remoteLaunchable} />
+        <ResumeSessionButton
+          detail={detail}
+          disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
+        />
       </div>
     </SheetFooter>
   );
@@ -1066,6 +1106,16 @@ export function SessionInspector({
       (machine) =>
         machine.sourceId === detail.sourceId && (machine.state === 'ok' || machine.state === 'limited'),
     );
+  const remoteMachine =
+    detail == null ? undefined : machines.find((machine) => machine.sourceId === detail.sourceId);
+  const remoteLaunchHint =
+    detail == null || isLocalSession(detail) || remoteLaunchable
+      ? undefined
+      : remoteMachine?.state === 'connecting' || remoteMachine == null
+        ? 'Checking SSH liveness…'
+        : remoteMachine.state === 'ok' || remoteMachine.state === 'limited'
+          ? 'Waiting for remote session details'
+          : 'Remote is offline';
 
   useEffect(() => {
     setSelectedDiff(null);
@@ -1115,6 +1165,7 @@ export function SessionInspector({
             <InspectorBody
               detail={detail}
               remoteLaunchable={remoteLaunchable}
+              remoteLaunchHint={remoteLaunchHint}
               onSelectFile={
                 isLocalSession(detail)
                   ? (path) =>
@@ -1127,7 +1178,11 @@ export function SessionInspector({
                   : null
               }
             />
-            <InspectorFooter detail={detail} remoteLaunchable={remoteLaunchable} />
+            <InspectorFooter
+              detail={detail}
+              remoteLaunchable={remoteLaunchable}
+              remoteLaunchHint={remoteLaunchHint}
+            />
           </>
         )}
       </SheetContent>
