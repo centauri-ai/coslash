@@ -442,7 +442,7 @@ func (manager *Manager) DiagnosticsHealth() Health {
 
 // LaunchSession returns the current remote session and SSH alias only while
 // the host's most recent collection completed successfully.
-func (manager *Manager) LaunchSession(sourceID, agent, sessionID string) (*session.Session, string, error) {
+func (manager *Manager) LaunchSession(sourceID, agent, sessionID, mode string) (*session.Session, string, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID ||
@@ -454,7 +454,7 @@ func (manager *Manager) LaunchSession(sourceID, agent, sessionID string) (*sessi
 			if item.WorkingDirectory == "" {
 				return nil, "", ErrRemoteSessionUnavailable
 			}
-			if item.Status != nil && *item.Status == "busy" {
+			if mode == "resume" && item.Status != nil && *item.Status == "busy" {
 				return nil, "", ErrRemoteSessionActive
 			}
 			copy := *item

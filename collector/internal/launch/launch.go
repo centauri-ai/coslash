@@ -53,25 +53,15 @@ func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string
 	if workingDirectory == "" {
 		return fmt.Errorf("launch: session has no working directory")
 	}
-	adapter, err := terminalFor(terminal)
-	if err != nil {
-		return err
-	}
-	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("launch: opening a terminal is not supported on %s", runtime.GOOS)
-	}
-	if err := adapter.available(); err != nil {
-		return fmt.Errorf("launch: %s is not installed or available; choose another terminal in Settings", adapter.label)
-	}
 	command, handoffPath, err := cliCommand(agent, sessionID, mode, handoff)
 	if err != nil {
 		return err
 	}
-	if err := adapter.open(workingDirectory, command); err != nil {
+	if err := openTerminal(terminal, workingDirectory, command); err != nil {
 		if handoffPath != "" {
 			os.Remove(handoffPath)
 		}
-		return fmt.Errorf("launch: open %s: %w", adapter.label, err)
+		return err
 	}
 	return nil
 }
@@ -85,6 +75,15 @@ func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, h
 	if workingDirectory == "" {
 		return fmt.Errorf("launch: session has no working directory")
 	}
+	command, err := remoteCLICommand(agent, sessionID, mode, handoff)
+	if err != nil {
+		return err
+	}
+	remoteCommand := "cd " + shellQuote(workingDirectory) + " && " + command
+	return openTerminal(terminal, ".", shellJoin("ssh", "-tt", alias, remoteCommand))
+}
+
+func openTerminal(terminal, workingDirectory, command string) error {
 	adapter, err := terminalFor(terminal)
 	if err != nil {
 		return err
@@ -95,12 +94,10 @@ func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, h
 	if err := adapter.available(); err != nil {
 		return fmt.Errorf("launch: %s is not installed or available; choose another terminal in Settings", adapter.label)
 	}
-	command, err := remoteCLICommand(agent, sessionID, mode, handoff)
-	if err != nil {
-		return err
+	if err := adapter.open(workingDirectory, command); err != nil {
+		return fmt.Errorf("launch: open %s: %w", adapter.label, err)
 	}
-	remoteCommand := "cd " + shellQuote(workingDirectory) + " && " + command
-	return adapter.open(".", shellJoin("ssh", "-tt", alias, remoteCommand))
+	return nil
 }
 
 func Available(terminal string) bool {

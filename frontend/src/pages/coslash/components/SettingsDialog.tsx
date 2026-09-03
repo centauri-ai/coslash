@@ -206,7 +206,6 @@ export function SettingsDialog({
   const saveChain = useRef(Promise.resolve());
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
-  const showFullSettings = mode === 'full-settings';
 
   useEffect(() => {
     if (!open) {
@@ -257,8 +256,6 @@ export function SettingsDialog({
     [requiresConsent, saveSettings],
   );
 
-  const setRemoteBusy = useCallback((busy: boolean) => setRemoteOperationInProgress(busy), []);
-
   const addRemoteHost = async (sshAlias: string) => {
     if (!draft) return false;
     const next = { ...draft, remote: { sshAlias, enabled: true } };
@@ -273,10 +270,6 @@ export function SettingsDialog({
     const saved = await saveSettings({ ...next, remote: null }, 'release');
     if (saved) setDraft({ ...next, remote: null });
     return saved;
-  };
-
-  const close = () => {
-    onOpenChange(false);
   };
 
   const status = saveError
@@ -297,7 +290,7 @@ export function SettingsDialog({
       onOpenChange={(next) => {
         if ((requiresConsent || remoteOperationInProgress) && !next) return;
         if (next) onOpenChange(true);
-        else close();
+        else onOpenChange(false);
       }}
     >
       <DialogContent
@@ -309,7 +302,9 @@ export function SettingsDialog({
         }
       >
         <DialogHeader className="shrink-0 gap-1.5 p-4 pr-12 pb-3">
-          <DialogTitle>{showFullSettings ? 'Settings' : 'Choose how coSlash handles synthesis'}</DialogTitle>
+          <DialogTitle>
+            {mode === 'full-settings' ? 'Settings' : 'Choose how coSlash handles synthesis'}
+          </DialogTitle>
           <DialogDescription className="flex items-center gap-1.5 text-xs">
             <span>Machine-wide.</span>
             <code className="bg-muted rounded-md px-1.5 py-0.5 font-mono text-[11px]">
@@ -451,7 +446,7 @@ export function SettingsDialog({
                 </div>
               </div>
 
-              {showFullSettings && (
+              {mode === 'full-settings' && (
                 <div className="flex flex-col gap-2">
                   <SectionLabel>Appearance</SectionLabel>
                   <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
@@ -485,7 +480,7 @@ export function SettingsDialog({
                 </div>
               )}
 
-              {showFullSettings && (
+              {mode === 'full-settings' && (
                 <div className="flex flex-col gap-2">
                   <SectionLabel>Launch</SectionLabel>
                   <div className="border-border bg-card overflow-hidden rounded-xl border">
@@ -526,13 +521,13 @@ export function SettingsDialog({
                 </div>
               )}
 
-              {showFullSettings && (
+              {mode === 'full-settings' && (
                 <MachinesSettingsSection
                   remote={draft.remote}
                   onAddHost={addRemoteHost}
                   onRemoveHost={removeRemoteHost}
                   onConnectionVerified={onRemoteConnectionVerified}
-                  onBusyChange={setRemoteBusy}
+                  onBusyChange={setRemoteOperationInProgress}
                 />
               )}
 

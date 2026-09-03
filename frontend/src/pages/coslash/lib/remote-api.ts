@@ -48,16 +48,25 @@ export async function retryRemoteRefresh(): Promise<{ status: number; machine: M
 
 const REMOTE_REFRESH_POLL_INTERVAL_MS = 400;
 
+function remoteRefreshInProgress(machine: MachineFact): boolean {
+  return machine.refreshing || machine.state === 'connecting' || machine.reason === 'initial_refresh';
+}
+
+export async function waitForRemoteRefresh(machine?: MachineFact): Promise<MachineFact> {
+  let current = machine ?? (await remoteStatus());
+  while (remoteRefreshInProgress(current)) {
+    await new Promise<void>((resolve) => setTimeout(resolve, REMOTE_REFRESH_POLL_INTERVAL_MS));
+    current = await remoteStatus();
+  }
+  return current;
+}
+
 // The retry endpoint acknowledges that collection has started, rather than
 // waiting for it to finish. Wait for its terminal health state before callers
 // reload the board, so it does not remain on the transient "connecting" view.
 export async function retryRemoteRefreshAndWait(): Promise<MachineFact> {
-  let { machine } = await retryRemoteRefresh();
-  while (machine.state === 'connecting' || machine.refreshing) {
-    await new Promise<void>((resolve) => setTimeout(resolve, REMOTE_REFRESH_POLL_INTERVAL_MS));
-    machine = await remoteStatus();
-  }
-  return machine;
+  const { machine } = await retryRemoteRefresh();
+  return waitForRemoteRefresh(machine);
 }
 
 export async function setupRemoteHelper(
