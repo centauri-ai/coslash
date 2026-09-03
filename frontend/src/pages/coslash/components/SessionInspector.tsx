@@ -354,10 +354,11 @@ function LaunchError({ message }: { message: string | null }) {
 
 function ResumeSessionButton({ detail }: { detail: SessionDetail }) {
   const { launch, launchError } = useLaunchTerminal(detail);
+  const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
 
   return (
     <div className="flex flex-col gap-1">
-      <Button className="bg-brand w-fit p-2 text-xs" onClick={() => launch('resume')}>
+      <Button className="bg-brand w-fit p-2 text-xs" onClick={() => launch('resume')} disabled={disabled}>
         <PlayIcon />
         <span>Resume</span>
       </Button>
@@ -376,6 +377,7 @@ function StartNewSessionButton({
   onCopy: () => void;
 }) {
   const { launch, launchError } = useLaunchTerminal(detail);
+  const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
 
   const startNewSession = () => {
     onCopy();
@@ -384,7 +386,7 @@ function StartNewSessionButton({
 
   return (
     <div className="flex flex-col gap-1">
-      <Button className="bg-brand w-fit p-2 text-xs" onClick={startNewSession}>
+      <Button className="bg-brand w-fit p-2 text-xs" onClick={startNewSession} disabled={disabled}>
         <TerminalIcon />
         <span>Start fresh with handoff</span>
       </Button>

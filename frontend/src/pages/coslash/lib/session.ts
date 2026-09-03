@@ -39,6 +39,7 @@ export type Session = {
   sourceLabel: string;
   eligibleForAggregates: boolean;
   displayStale: boolean;
+  launchable?: boolean;
   lastSeenStatus?: string;
   agent: string;
   id: string;

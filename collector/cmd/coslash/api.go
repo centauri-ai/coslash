@@ -265,6 +265,10 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			http.Error(w, "remote session is already active", http.StatusConflict)
 			return
 		}
+		if errors.Is(err, remote.ErrRemoteSessionUnavailable) {
+			http.Error(w, "remote session details are too large to launch", http.StatusConflict)
+			return
+		}
 	}
 	if found == nil {
 		if sourceID == localSourceID {

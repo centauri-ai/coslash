@@ -36,6 +36,7 @@ type boardSession struct {
 	EligibleForAggregates bool    `json:"eligibleForAggregates"`
 	DisplayStale          bool    `json:"displayStale"`
 	LastSeenStatus        *string `json:"lastSeenStatus,omitempty"`
+	Launchable            bool    `json:"launchable"`
 	session.Session
 }
 
@@ -91,7 +92,8 @@ func boardRemoteSession(value remote.IndexedSession) boardSession {
 		SourceID: value.Key.SourceID, SourceLabel: value.SourceLabel,
 		EligibleForAggregates: value.EligibleForAggregates,
 		DisplayStale:          value.DisplayStale, LastSeenStatus: value.LastSeenStatus,
-		Session: sessionWithJSONCollections(*value.Session),
+		Launchable: value.Launchable,
+		Session:    sessionWithJSONCollections(*value.Session),
 	}
 }
 

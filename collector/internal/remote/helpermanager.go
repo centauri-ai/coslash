@@ -207,7 +207,7 @@ func (manager *Manager) startHelperDiscoveryLocked() {
 	config := *manager.cfg
 	autoUpdate := manager.helperVersion != "" && !manager.helperOwnershipCorrupt
 	if autoUpdate {
-		manager.helperSetup = true
+		manager.helperAutoSetup = true
 	}
 	go manager.runHelperDiscovery(manager.lifeCtx, config, autoUpdate)
 }
@@ -227,7 +227,7 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 	if autoUpdate {
 		defer func() {
 			manager.mu.Lock()
-			manager.helperSetup = false
+			manager.helperAutoSetup = false
 			manager.mu.Unlock()
 		}()
 	}
@@ -261,22 +261,26 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 		}
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias || ctx.Err() != nil {
+		manager.mu.Unlock()
 		return
 	}
+	var removeRemote LifecycleRemote
+	removePath := ""
+	refreshAfterDiscovery := true
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || sshErrorStderr(err) != "" {
 			manager.lastCheckedAt = int64Ptr(manager.now().UnixMilli())
 			manager.helperProbe = helperProbeFallback
 			status := unavailableHelperStatus(err)
 			manager.helper = &status
-			manager.applyFailureLocked(classifyError(err), sshErrorStderr(err))
-			return
+			manager.nextHelperProbeAt = manager.now().Add(RemoteRetryInterval)
+			refreshAfterDiscovery = false
+		} else {
+			status := unavailableHelperStatus(err)
+			manager.helper = &status
+			manager.helperProbe = helperProbeFallback
 		}
-		status := unavailableHelperStatus(err)
-		manager.helper = &status
-		manager.helperProbe = helperProbeFallback
 	} else {
 		status := lifecycleStatus(result)
 		manager.helper = &status
@@ -292,9 +296,10 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 			} else {
 				manager.helperVersion = result.Artifact.Version
 				manager.helperProbe = helperProbeReady
+				manager.nextHelperProbeAt = time.Time{}
 				if autoUpdate && previousVersion != "" && previousVersion != result.Artifact.Version && lifecycle.Remote != nil {
 					if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
-						_ = lifecycle.Remote.RemoveExact(probeCtx, previousPath)
+						removeRemote, removePath = lifecycle.Remote, previousPath
 					}
 				}
 			}
@@ -302,10 +307,19 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 			manager.helperTarget = nil
 			manager.helperProbe = helperProbeFallback
 		}
+		if autoUpdate && retryableSetupTransportFailure(result) {
+			manager.nextHelperProbeAt = manager.now().Add(RemoteRetryInterval)
+		}
 	}
 	// The first ListView window was retained while discovery ran. Only now may
 	// the normal refresh choose helper or explicit SFTP fallback.
-	manager.maybeStartRefreshLocked(manager.lastRequestedMs, false)
+	if refreshAfterDiscovery {
+		manager.maybeStartRefreshLocked(manager.lastRequestedMs, false)
+	}
+	manager.mu.Unlock()
+	if removeRemote != nil {
+		_ = removeRemote.RemoveExact(probeCtx, removePath)
+	}
 }
 
 // SetupHelperForAlias binds consented setup to the alias the user tested. It
@@ -325,10 +339,10 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.mu.Unlock()
 		return health, ErrHelperAliasMismatch
 	}
-	if manager.helperSetup {
+	if manager.helperSetup || manager.helperAutoSetup {
 		health := manager.healthLocked(manager.lastRequestedMs)
 		manager.mu.Unlock()
-		return health, ErrHelperSetupInProgress
+		return health, nil
 	}
 	config := *manager.cfg
 	previousVersion := manager.helperVersion
@@ -381,9 +395,10 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		}
 	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
-		return manager.healthLocked(manager.lastRequestedMs), nil
+		health := manager.healthLocked(manager.lastRequestedMs)
+		manager.mu.Unlock()
+		return health, nil
 	}
 	status := lifecycleStatus(result)
 	manager.helper = &status
@@ -392,21 +407,33 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
 			manager.helper = &status
 			manager.helperTarget = nil
-			return manager.healthLocked(manager.lastRequestedMs), nil
+			health := manager.healthLocked(manager.lastRequestedMs)
+			manager.mu.Unlock()
+			return health, nil
 		}
 		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
 		manager.helperVersion = result.Artifact.Version
 		manager.helperProbe = helperProbeReady
+		var removeRemote LifecycleRemote
+		removePath := ""
 		if previousVersion != "" && previousVersion != result.Artifact.Version && activeLifecycle.Remote != nil {
 			if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
-				_ = activeLifecycle.Remote.RemoveExact(ctx, previousPath)
+				removeRemote, removePath = activeLifecycle.Remote, previousPath
 			}
 		}
+		health := manager.healthLocked(manager.lastRequestedMs)
+		manager.mu.Unlock()
+		if removeRemote != nil {
+			_ = removeRemote.RemoveExact(ctx, removePath)
+		}
+		return health, nil
 	} else {
 		manager.helperTarget = nil
 		manager.helperProbe = helperProbeFallback
 	}
-	return manager.healthLocked(manager.lastRequestedMs), nil
+	health := manager.healthLocked(manager.lastRequestedMs)
+	manager.mu.Unlock()
+	return health, nil
 }
 
 func retryableSetupTransportFailure(result LifecycleResult) bool {
