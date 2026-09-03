@@ -50,6 +50,7 @@ import {
   formatTokens,
 } from '@/pages/coslash/lib/format';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
+import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
   boardStatusKey,
@@ -352,7 +353,7 @@ function LaunchError({ message }: { message: string | null }) {
   return <span className="text-destructive text-xs">{message}</span>;
 }
 
-function ResumeSessionButton({ detail }: { detail: SessionDetail }) {
+function ResumeSessionButton({ detail, disabled = false }: { detail: SessionDetail; disabled?: boolean }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
 
@@ -371,10 +372,12 @@ function StartNewSessionButton({
   detail,
   brief,
   onCopy,
+  disabled = false,
 }: {
   detail: SessionDetail;
   brief: string;
   onCopy: () => void;
+  disabled?: boolean;
 }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
@@ -395,7 +398,7 @@ function StartNewSessionButton({
   );
 }
 
-function HandoffSection({ detail }: { detail: SessionDetail }) {
+function HandoffSection({ detail, remoteLaunchable }: { detail: SessionDetail; remoteLaunchable: boolean }) {
   const [copied, setCopied] = useState(false);
   const contextFill = contextFillReadiness(detail);
   const branchDrift = branchDriftReadiness(detail.git);
@@ -421,7 +424,12 @@ function HandoffSection({ detail }: { detail: SessionDetail }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <StartNewSessionButton detail={detail} brief={brief} onCopy={copyBrief} />
+        <StartNewSessionButton
+          detail={detail}
+          brief={brief}
+          onCopy={copyBrief}
+          disabled={!isLocalSession(detail) && !remoteLaunchable}
+        />
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={copyBrief}>
           <span>Copy handoff</span>
         </Button>
@@ -429,8 +437,9 @@ function HandoffSection({ detail }: { detail: SessionDetail }) {
       </div>
       {!isLocalSession(detail) && (
         <div className="text-muted-foreground text-xs">
-          Remote handoffs and launch actions use available remote facts. File diffs, synthesis, Hub sharing,
-          and command history are unavailable.
+          {remoteLaunchable
+            ? 'Remote terminal actions open through SSH. File diffs, synthesis, Hub sharing, and command history remain local-only.'
+            : 'Remote terminal actions are available when SSH reconnects. File diffs, synthesis, Hub sharing, and command history remain local-only.'}
         </div>
       )}
     </div>
@@ -963,9 +972,11 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
 function InspectorBody({
   detail,
   onSelectFile,
+  remoteLaunchable,
 }: {
   detail: SessionDetail;
   onSelectFile: ((path: string) => void) | null;
+  remoteLaunchable: boolean;
 }) {
   // scroll on the outer div, layout on the inner one — flex children of a
   // scroll container shrink to fit instead of overflowing, which collapses
@@ -973,7 +984,7 @@ function InspectorBody({
   return (
     <div className="flex-1 overflow-y-auto pb-2">
       <div className="flex flex-col gap-2 px-4">
-        <HandoffSection detail={detail} />
+        <HandoffSection detail={detail} remoteLaunchable={remoteLaunchable} />
         <RecapSection detail={detail} />
         <DigestSection detail={detail} />
         <ArtifactStats detail={detail} />
@@ -985,33 +996,21 @@ function InspectorBody({
   );
 }
 
-function InspectorFooter({ detail }: { detail: SessionDetail }) {
+function InspectorFooter({ detail, remoteLaunchable }: { detail: SessionDetail; remoteLaunchable: boolean }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const showTeamPreview =
     isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
-
-  if (!isLocalSession(detail)) {
-    return (
-      <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
-        <div className="flex min-w-0 flex-col">
-          <span className="text-xs">Resume this exact remote session</span>
-          <span className="text-muted-foreground text-xs font-light">
-            Reopens this session in {getVendor(detail.agent).label} on {detail.sourceLabel} via SSH.
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <ResumeSessionButton detail={detail} />
-        </div>
-      </SheetFooter>
-    );
-  }
 
   return (
     <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
       <div className="flex min-w-0 flex-col">
         <span className="text-xs">Resume this exact session</span>
         <span className="text-muted-foreground text-xs font-light">
-          Reopens this session in {getVendor(detail.agent).label} with its full context.
+          {isLocalSession(detail)
+            ? `Reopens this session in ${getVendor(detail.agent).label} with its full context.`
+            : remoteLaunchable
+              ? `Opens this session in ${getVendor(detail.agent).label} through SSH.`
+              : 'Available when the remote SSH host is connected.'}
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -1028,7 +1027,7 @@ function InspectorFooter({ detail }: { detail: SessionDetail }) {
             />
           </>
         )}
-        <ResumeSessionButton detail={detail} />
+        <ResumeSessionButton detail={detail} disabled={!isLocalSession(detail) && !remoteLaunchable} />
       </div>
     </SheetFooter>
   );
@@ -1039,12 +1038,14 @@ export function SessionInspector({
   sessionsVersion,
   synthesisSettingsKey,
   showMachineBadge = false,
+  machines,
   onClose,
 }: {
   session: Session | null;
   sessionsVersion: number;
   synthesisSettingsKey: string;
   showMachineBadge?: boolean;
+  machines: MachineFact[];
   onClose: () => void;
 }) {
   const { detail, loadError } = useSessionDetail(session, sessionsVersion, synthesisSettingsKey);
@@ -1057,6 +1058,14 @@ export function SessionInspector({
   } = useFileDiff(selectedDiff);
   const isOpen = session != null;
   const openSessionKey = session == null ? null : sessionKey(session);
+  const remoteLaunchable =
+    detail != null &&
+    !isLocalSession(detail) &&
+    detail.cwd.trim() !== '' &&
+    machines.some(
+      (machine) =>
+        machine.sourceId === detail.sourceId && (machine.state === 'ok' || machine.state === 'limited'),
+    );
 
   useEffect(() => {
     setSelectedDiff(null);
@@ -1105,6 +1114,7 @@ export function SessionInspector({
             )}
             <InspectorBody
               detail={detail}
+              remoteLaunchable={remoteLaunchable}
               onSelectFile={
                 isLocalSession(detail)
                   ? (path) =>
@@ -1117,7 +1127,7 @@ export function SessionInspector({
                   : null
               }
             />
-            <InspectorFooter detail={detail} />
+            <InspectorFooter detail={detail} remoteLaunchable={remoteLaunchable} />
           </>
         )}
       </SheetContent>

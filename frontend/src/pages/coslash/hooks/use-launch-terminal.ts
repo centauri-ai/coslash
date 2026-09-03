@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { apiFetch, readApiError } from '@/pages/coslash/lib/api';
-import type { SessionIdentity } from '@/pages/coslash/lib/session';
+import { type SessionIdentity } from '@/pages/coslash/lib/session';
 
 export type LaunchMode = 'resume' | 'new';
 
