@@ -317,7 +317,7 @@ func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *tes
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	health := manager.SetupHelper(context.Background(), Consent{Install: true})
+	health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true})
 	if health.Helper == nil || !health.Helper.Compatible || health.Helper.Version != artifact.Version {
 		t.Fatalf("setup health = %#v", health)
 	}
@@ -355,7 +355,7 @@ func TestManagerReverifiesHelperBeforeEveryRefresh(t *testing.T) {
 	if err := manager.ApplySettings(config); err != nil {
 		t.Fatal(err)
 	}
-	if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+	if health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 		t.Fatalf("setup health = %#v", health)
 	}
 
@@ -417,7 +417,7 @@ func TestRestartDiscoversAndReusesVerifiedHelperWithoutInstall(t *testing.T) {
 	if err := first.ApplySettings(config); err != nil {
 		t.Fatal(err)
 	}
-	if health := first.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+	if health, _ := first.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 		t.Fatalf("initial setup health = %#v", health)
 	}
 	if remote.installs != 1 {
@@ -461,7 +461,7 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 	if err := first.ApplySettings(config); err != nil {
 		t.Fatal(err)
 	}
-	if health := first.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+	if health, _ := first.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 		t.Fatalf("initial setup health = %#v", health)
 	}
 
@@ -555,7 +555,7 @@ func TestAutomaticUpdateRetriesWhenTheRemoteReturns(t *testing.T) {
 	if err := first.ApplySettings(config); err != nil {
 		t.Fatal(err)
 	}
-	if health := first.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+	if health, _ := first.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 		t.Fatalf("initial setup health = %#v", health)
 	}
 
@@ -614,7 +614,7 @@ func TestHelperTestAcceptsEmptySuccessfulCollectionWithoutRewritingBoardState(t 
 	if err := manager.ApplySettings(config); err != nil {
 		t.Fatal(err)
 	}
-	if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+	if health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 		t.Fatalf("setup health = %#v", health)
 	}
 	manager.mu.Lock()
@@ -699,7 +699,7 @@ func TestHelperTestFailureDoesNotPoisonRefreshOrTransport(t *testing.T) {
 	if err := manager.ApplySettings(config); err != nil {
 		t.Fatal(err)
 	}
-	if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+	if health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 		t.Fatalf("setup health = %#v", health)
 	}
 	manager.mu.Lock()
@@ -925,7 +925,7 @@ func TestInterruptedUninstallRetainsHostOwnershipAndHelper(t *testing.T) {
 	if err := manager.ApplySettings(config); err != nil {
 		t.Fatal(err)
 	}
-	if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+	if health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 		t.Fatalf("setup health = %#v", health)
 	}
 	remote.removeErr = context.DeadlineExceeded
@@ -975,7 +975,7 @@ func TestSetupFetchesOnlyTheSelectedArchitectureArtifact(t *testing.T) {
 			if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 				t.Fatal(err)
 			}
-			if health := manager.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+			if health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 				t.Fatalf("setup health = %#v", health)
 			}
 			if provider.requested != arch {

@@ -28,10 +28,6 @@ type helperSetupResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
-type remoteSetupStatusResponse struct {
-	Phase remote.SetupProgress `json:"phase"`
-}
-
 // helperSetupOutcome is separate from machine collection health. A host may
 // have a healthy SFTP cache while a requested helper action has failed; the
 // setup response must never present that operation as a green success.
@@ -191,8 +187,4 @@ func handleRemoteStatus(w http.ResponseWriter, _ *http.Request, manager *remote.
 		return
 	}
 	writeJSON(w, machineFromHealth(health))
-}
-
-func handleRemoteSetupStatus(w http.ResponseWriter, _ *http.Request, manager *remote.Manager) {
-	writeJSON(w, remoteSetupStatusResponse{Phase: manager.SetupProgress()})
 }

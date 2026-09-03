@@ -260,11 +260,6 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 			}
 		}
 	}
-	if result.CanExecute && autoUpdate && previousVersion != "" && previousVersion != result.Artifact.Version && lifecycle.Remote != nil {
-		if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
-			_ = lifecycle.Remote.RemoveExact(probeCtx, previousPath)
-		}
-	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias || ctx.Err() != nil {
@@ -297,6 +292,11 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 			} else {
 				manager.helperVersion = result.Artifact.Version
 				manager.helperProbe = helperProbeReady
+				if autoUpdate && previousVersion != "" && previousVersion != result.Artifact.Version && lifecycle.Remote != nil {
+					if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
+						_ = lifecycle.Remote.RemoveExact(probeCtx, previousPath)
+					}
+				}
 			}
 		} else {
 			manager.helperTarget = nil
@@ -308,24 +308,10 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 	manager.maybeStartRefreshLocked(manager.lastRequestedMs, false)
 }
 
-// SetupHelper performs a consented setup or repair. It is the only Manager
-// method that can create a helper target; refreshes only execute that stored,
-// verified target.
-func (manager *Manager) SetupHelper(ctx context.Context, consent Consent) Health {
-	health, _ := manager.setupHelper(ctx, "", consent)
-	return health
-}
-
 // SetupHelperForAlias binds consented setup to the alias the user tested. It
 // rejects an unsaved settings draft before a lifecycle can contact a host.
 func (manager *Manager) SetupHelperForAlias(ctx context.Context, alias string, consent Consent) (Health, error) {
 	return manager.setupHelper(ctx, alias, consent)
-}
-
-func (manager *Manager) SetupProgress() SetupProgress {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	return manager.setupProgress
 }
 
 func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, consent Consent) (Health, error) {
@@ -352,12 +338,10 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	// release this mutex while uploading the helper, so ApplySettings must not
 	// replace the alias in that interval.
 	manager.helperSetup = true
-	manager.setupProgress = SetupProgressChecking
 	manager.mu.Unlock()
 	defer func() {
 		manager.mu.Lock()
 		manager.helperSetup = false
-		manager.setupProgress = SetupProgressIdle
 		manager.mu.Unlock()
 	}()
 
@@ -387,20 +371,13 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.mu.Unlock()
 		return health, nil
 	}
-	lifecycle.Progress = manager.setSetupProgress
 	result := lifecycle.SetupWithLoader(ctx, document, consent, provider.LoadArtifact)
 	activeLifecycle := lifecycle
 	if retryableSetupTransportFailure(result) {
 		manager.resetControlMaster(config.SSHAlias)
 		if retryLifecycle, retryErr := factory(config.SSHAlias); retryErr == nil {
-			retryLifecycle.Progress = manager.setSetupProgress
 			result = retryLifecycle.SetupWithLoader(ctx, document, consent, provider.LoadArtifact)
 			activeLifecycle = retryLifecycle
-		}
-	}
-	if result.CanExecute && previousVersion != "" && previousVersion != result.Artifact.Version && activeLifecycle.Remote != nil {
-		if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
-			_ = activeLifecycle.Remote.RemoveExact(ctx, previousPath)
 		}
 	}
 	manager.mu.Lock()
@@ -420,19 +397,16 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
 		manager.helperVersion = result.Artifact.Version
 		manager.helperProbe = helperProbeReady
+		if previousVersion != "" && previousVersion != result.Artifact.Version && activeLifecycle.Remote != nil {
+			if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
+				_ = activeLifecycle.Remote.RemoveExact(ctx, previousPath)
+			}
+		}
 	} else {
 		manager.helperTarget = nil
 		manager.helperProbe = helperProbeFallback
 	}
 	return manager.healthLocked(manager.lastRequestedMs), nil
-}
-
-func (manager *Manager) setSetupProgress(progress SetupProgress) {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	if manager.helperSetup {
-		manager.setupProgress = progress
-	}
 }
 
 func retryableSetupTransportFailure(result LifecycleResult) bool {
