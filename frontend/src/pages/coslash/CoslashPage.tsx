@@ -280,7 +280,7 @@ function CoslashContent({
           showMachineBadge={showMachineBadge}
         />
       ) : (
-        <div className="bg-background flex flex-col gap-4 px-4 py-2">
+        <div className="flex flex-col gap-4 px-4 py-2">
           {visibleSessions.map((session) => (
             <SessionCard
               key={sessionKey(session)}
@@ -443,7 +443,7 @@ export function CoslashPage() {
           onOpen={() => setSettingsDialogMode('full-settings')}
         />
       )}
-      <div className="bg-background flex flex-col gap-2 border-b px-4 pb-2">
+      <div className="flex flex-col gap-2 px-4 pb-2">
         <div className="-m-1 flex items-center gap-2 overflow-x-auto p-1">
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
           <div className="flex shrink-0 items-center gap-2">
