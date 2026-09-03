@@ -408,6 +408,28 @@ func TestBuildAppliesUTF8AndItemBudgetsWithoutSilentTruncation(t *testing.T) {
 	assertMetadataPointersResolve(t, data, snapshot)
 }
 
+func TestBuildExportsOnlyExplicitResolvedCommitSHAs(t *testing.T) {
+	repository := "github.com/centauri-ai/coslash"
+	full := strings.Repeat("a", 40)
+	local := session.Session{
+		Agent: "codex", ID: "source-commit-shas", Repository: &repository, StartedAt: 1,
+		Tokens: map[string]session.ModelTokens{},
+		SessionDetails: session.SessionDetails{
+			// A subject which happens to look like an object ID is still just text.
+			Commits: []string{full},
+		},
+	}
+	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+	if err != nil || len(snapshot.Session.CommitSHAs) != 0 {
+		t.Fatalf("derived commit SHAs=%#v err=%v", snapshot.Session.CommitSHAs, err)
+	}
+	local.CommitSHAs = []string{full}
+	snapshot, err = Build(local, BuildOptions{CollectorVersion: "0.1.0"})
+	if err != nil || len(snapshot.Session.CommitSHAs) != 1 || snapshot.Session.CommitSHAs[0] != full {
+		t.Fatalf("explicit commit SHAs=%#v err=%v", snapshot.Session.CommitSHAs, err)
+	}
+}
+
 func TestMarshalIsStableAcrossTokenMapOrder(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
 	base := session.Session{Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1, Tokens: map[string]session.ModelTokens{}, UnpricedModels: []string{"b", "a"}}

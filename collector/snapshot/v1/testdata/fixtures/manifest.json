@@ -4,7 +4,7 @@
   "fixtures": [
     {
       "path": "valid/codex.json",
-      "sha256": "d1253296bbb4146312971bd771fb8d2cf5088c7e00f1cbcf493aae13f619307d",
+      "sha256": "f25cef3d9aaec1f1dd346e5876042e6f45c24a883aaec583b98d205ee023eaaa",
       "valid": true
     },
     {
@@ -14,12 +14,12 @@
     },
     {
       "path": "valid/redaction.json",
-      "sha256": "512f5247dc813e410e1f3f3ccbf5e0e626daa4d54138e137f9785d5ea3fd34f8",
+      "sha256": "f77d3d03d6df458cf031fd06cc2b3095fa0d076233e43546cdb7ea54fad8d172",
       "valid": true
     },
     {
       "path": "valid/boundary-metadata.json",
-      "sha256": "6bc5a215e6d65ff08ad0dbf5fdee7fdb67dcfc9a15c99a3505969504bb43f035",
+      "sha256": "061b8dbfd753b54aeb10a549725fbc2c212f58889e50a1b8b041dec953d359f6",
       "valid": true
     },
     {
@@ -39,25 +39,25 @@
     },
     {
       "path": "invalid/unknown-field.json",
-      "sha256": "aa8a6edf1b7e082b3f8d9abbf90c8c978652e16e52388beb25ec084306350e31",
+      "sha256": "695ae56965f08dd90609e1bc01cea8b3fdee3b622a47ecbd06734e5318246b00",
       "valid": false,
       "reason": "unknown field"
     },
     {
       "path": "invalid/negative-count.json",
-      "sha256": "64daec37d7c91c1ba9d9340ebb7ddf7ad372f11200eebd8c1dedb52cb159eff5",
+      "sha256": "dbde1acefabf88a76f582b0c6de7ad5780604d85c08b4ced4a32cb21a724eeb0",
       "valid": false,
       "reason": "negative count"
     },
     {
       "path": "invalid/bad-hash.json",
-      "sha256": "9104e27402ef5cd06a3d6a2a34008b5e839c7cf041989c04ff1b345c67fe9dce",
+      "sha256": "99acd3d6a71f750be5f393d0bf1a55040071d230cd0081cf1ffe2a5d32e20212",
       "valid": false,
       "reason": "bad hash"
     },
     {
       "path": "invalid/non-canonical.json",
-      "sha256": "6fe7fffe40b2cc5d2c3754229c1610261fd3c585c98141c860d33ea76be770b9",
+      "sha256": "3dcbda5751211e5e2421903933cea602311aaf41d2a980499ef2e4d5e3bc9210",
       "valid": false,
       "reason": "non-canonical JSON"
     }

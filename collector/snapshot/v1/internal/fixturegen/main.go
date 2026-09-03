@@ -112,13 +112,14 @@ func codex() snapshotv1.Snapshot {
 		Session: snapshotv1.Session{
 			Name: &name, Summary: &summary, WorkingDirectory: &cwd, Branch: &branch, Model: &model,
 			DurationMs: intp(120_000), LastActivityAtMs: 1_700_000_120_000, DeclaredGoal: &goal, FirstPrompt: &prompt,
-			Counts:    snapshotv1.Counts{EditedFiles: 2, Turns: 3, ToolUses: 4, Commands: 2},
-			Usage:     snapshotv1.Usage{Models: []snapshotv1.ModelUsage{{Model: "gpt-5", InputTokens: 1000, OutputTokens: 200, EstimatedCostMicroUSD: 250000}}, EstimatedCostMicroUSD: 250000, UnpricedModels: []string{}},
-			Digest:    []snapshotv1.Digest{{Turn: 1, Category: "user", Description: "Requested a bounded export contract."}},
-			Todos:     []snapshotv1.Todo{{Text: "Run compatibility fixtures", Done: true}},
-			FileEdits: []snapshotv1.FileEdit{{Path: "collector/snapshot/v1/snapshot.go", Additions: 100, Edits: 1, IsNew: true}},
-			Commits:   []string{"feat: add snapshot v1 contract"},
-			Subagents: []snapshotv1.Subagent{},
+			Counts:     snapshotv1.Counts{EditedFiles: 2, Turns: 3, ToolUses: 4, Commands: 2},
+			Usage:      snapshotv1.Usage{Models: []snapshotv1.ModelUsage{{Model: "gpt-5", InputTokens: 1000, OutputTokens: 200, EstimatedCostMicroUSD: 250000}}, EstimatedCostMicroUSD: 250000, UnpricedModels: []string{}},
+			Digest:     []snapshotv1.Digest{{Turn: 1, Category: "user", Description: "Requested a bounded export contract."}},
+			Todos:      []snapshotv1.Todo{{Text: "Run compatibility fixtures", Done: true}},
+			FileEdits:  []snapshotv1.FileEdit{{Path: "collector/snapshot/v1/snapshot.go", Additions: 100, Edits: 1, IsNew: true}},
+			Commits:    []string{"feat: add snapshot v1 contract"},
+			CommitSHAs: []string{strings.Repeat("a", 40)},
+			Subagents:  []snapshotv1.Subagent{},
 		},
 	}
 }

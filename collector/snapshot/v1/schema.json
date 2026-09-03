@@ -142,6 +142,7 @@
         "todos": {"type": "array", "maxItems": 200, "items": {"$ref": "#/$defs/todo"}},
         "fileEdits": {"type": "array", "maxItems": 2000, "items": {"$ref": "#/$defs/fileEdit"}},
         "commits": {"type": "array", "maxItems": 200, "items": {"type": "string", "maxLength": 2048, "x-maxUtf8Bytes": 2048}},
+        "commitShas": {"type": "array", "maxItems": 200, "items": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"}},
         "git": {"$ref": "#/$defs/git"},
         "subagents": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/subagent"}}
       }
