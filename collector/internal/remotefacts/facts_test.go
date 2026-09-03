@@ -120,7 +120,8 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"Model": true, "ContextTokens": true, "ContextWindow": true, "Turns": true,
 		"ToolUses": true, "Errors": true, "Compactions": true, "FirstPrompt": true,
 		"Commands": true, "Commits": true, "PullRequests": true, "Todos": true,
-		"Digest": true, "FileEdits": true, "Git": true, "GitProbed": true,
+		"CommitSHAs": false, // recomputed only from local repository history
+		"Digest":     true, "FileEdits": true, "Git": true, "GitProbed": true,
 		"LastEditAt": true, "Synthesis": true, "SynthesisPending": true,
 		"DeclaredGoal": true, "CompactionSeed": true,
 	})

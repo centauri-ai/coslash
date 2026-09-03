@@ -270,6 +270,31 @@ func TestMarshalAppliesAggregateReductionStages(t *testing.T) {
 		assertFirstAggregatePath(t, decoded, "/session/commits")
 	})
 
+	t.Run("commit SHAs", func(t *testing.T) {
+		local := aggregateLocal(repository)
+		models := make(map[string]session.ModelTokens, 100)
+		for i := range 100 {
+			prefix := fmt.Sprintf("model-%02d-", i)
+			models[prefix+strings.Repeat("m", maxModelBytes-len(prefix))] = session.ModelTokens{InputTokens: 1}
+		}
+		local.Subagents = make([]session.Subagent, 6)
+		for i := range local.Subagents {
+			local.Subagents[i] = session.Subagent{
+				ID: fmt.Sprintf("child-%d", i), Name: "worker", Status: session.SubagentReturned,
+				Commands: []session.SubagentCommand{}, Tokens: models,
+			}
+		}
+		local.CommitSHAs = make([]string, snapshotv1.MaxCommitSHAItems)
+		for i := range local.CommitSHAs {
+			local.CommitSHAs[i] = fmt.Sprintf("%064x", i)
+		}
+		decoded := marshalAggregate(t, local)
+		if len(decoded.Session.CommitSHAs) >= len(local.CommitSHAs) || decoded.Session.CommitSHAs[0] == local.CommitSHAs[0] || decoded.Session.CommitSHAs[len(decoded.Session.CommitSHAs)-1] != local.CommitSHAs[len(local.CommitSHAs)-1] {
+			t.Fatal("commit SHAs were not reduced while retaining the newest")
+		}
+		assertFirstAggregatePath(t, decoded, "/session/commitShas")
+	})
+
 	t.Run("file edits", func(t *testing.T) {
 		local := aggregateLocal(repository)
 		local.FileEdits = make([]session.FileEdit, 300)

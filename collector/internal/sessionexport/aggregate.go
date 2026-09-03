@@ -26,6 +26,7 @@ func fitAggregate(snapshot snapshotv1.Snapshot) (snapshotv1.Snapshot, error) {
 		reduceOlderDigest,
 		reduceTodos,
 		reduceCommits,
+		reduceCommitSHAs,
 		reduceFileEdits,
 		reduceSessionMetadata,
 	}
@@ -133,6 +134,10 @@ func reduceTodos(snapshot *snapshotv1.Snapshot) (bool, error) {
 
 func reduceCommits(snapshot *snapshotv1.Snapshot) (bool, error) {
 	return reduceNewest(snapshot, "/session/commits", &snapshot.Session.Commits)
+}
+
+func reduceCommitSHAs(snapshot *snapshotv1.Snapshot) (bool, error) {
+	return reduceNewest(snapshot, "/session/commitShas", &snapshot.Session.CommitSHAs)
 }
 
 func reduceFileEdits(snapshot *snapshotv1.Snapshot) (bool, error) {
