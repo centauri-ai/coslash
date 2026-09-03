@@ -2,13 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
-import {
-  remoteSetupProgress,
-  remoteStatus,
-  setupRemoteHelper,
-  testRemoteAlias,
-  type SetupProgress,
-} from '@/pages/coslash/lib/remote-api';
+import { remoteStatus, setupRemoteHelper, testRemoteAlias } from '@/pages/coslash/lib/remote-api';
 import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
 
 type SetupStage = 'idle' | 'testing' | 'saving' | 'installing' | 'ready' | 'error' | 'removing';
@@ -17,21 +11,6 @@ function testResultCopy(machine: MachineFact) {
   return machine.state === 'ok'
     ? 'Connected · SSH/SFTP is ready'
     : `${machine.label} · ${machine.error ?? 'Could not connect over SSH'}`;
-}
-
-function setupProgressCopy(progress: SetupProgress) {
-  switch (progress) {
-    case 'checking':
-      return 'Checking SSH…';
-    case 'preparing':
-      return 'Preparing connector…';
-    case 'uploading':
-      return 'Uploading connector…';
-    case 'verifying':
-      return 'Verifying connector…';
-    default:
-      return 'Installing connector…';
-  }
 }
 
 function connectorFailureCopy(machine: MachineFact | null) {
@@ -63,51 +42,45 @@ export function MachinesSettingsSection({
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
   useEffect(() => {
-    if (!remote?.id) {
+    if (!remote?.sshAlias) {
       setMachine(null);
       return;
     }
     let cancelled = false;
-    void remoteStatus()
-      .then((status) => {
-        if (!cancelled) setMachine(status);
-      })
-      .catch(() => {
-        if (!cancelled) setMachine(null);
-      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = () => {
+      void remoteStatus()
+        .then((status) => {
+          if (cancelled) return;
+          setMachine(status);
+          if (status.refreshing || status.state === 'connecting' || status.reason === 'initial_refresh') {
+            timer = setTimeout(poll, 400);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setMachine(null);
+        });
+    };
+    poll();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [remote?.id]);
+  }, [remote?.sshAlias]);
 
   const installConnector = async (sshAlias: string) => {
     setStage('installing');
     setMessage('Installing connector…');
-    let stopped = false;
-    const pollProgress = () => {
-      void remoteSetupProgress()
-        .then((progress) => {
-          if (!stopped) setMessage(setupProgressCopy(progress));
-        })
-        .catch(() => {});
-    };
-    pollProgress();
-    const timer = setInterval(pollProgress, 500);
-    try {
-      const setup = await setupRemoteHelper(sshAlias, 'install');
-      setMachine(setup.machine);
-      if (setup.error != null) {
-        setStage('error');
-        setMessage(`Setup failed: ${setup.error}. Check SSH access and retry.`);
-        return;
-      }
-      setStage('ready');
-      setMessage('Connector installed and verified. SSH monitoring is active.');
-      onConnectionVerified?.();
-    } finally {
-      stopped = true;
-      clearInterval(timer);
+    const setup = await setupRemoteHelper(sshAlias, 'install');
+    setMachine(setup.machine);
+    if (setup.error != null) {
+      setStage('error');
+      setMessage(`Setup failed: ${setup.error}. Check SSH access and retry.`);
+      return;
     }
+    setStage('ready');
+    setMessage('Connector installed and verified. SSH monitoring is active.');
+    onConnectionVerified?.();
   };
 
   const addHost = async () => {

@@ -264,10 +264,10 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
 
   useEffect(() => {
     if (!remoteRefreshing) return;
-    let cancelled = false;
-    void waitForRemoteRefresh()
+    const controller = new AbortController();
+    void waitForRemoteRefresh(undefined, controller.signal)
       .then((machine) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setMachines((current) =>
           current.map((item) => (item.sourceId === machine.sourceId ? machine : item)),
         );
@@ -277,7 +277,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
       })
       .catch(() => {});
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [remoteRefreshing]);
 

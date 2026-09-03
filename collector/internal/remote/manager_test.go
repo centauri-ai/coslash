@@ -516,7 +516,7 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	manager.mu.Lock()
 	manager.sessions = append(manager.sessions, &session.Session{Agent: vendors.AgentCodex, ID: "compacted"})
 	manager.mu.Unlock()
-	if _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "compacted"); !errors.Is(err, ErrRemoteSessionUnavailable) {
+	if _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "compacted", "resume"); !errors.Is(err, ErrRemoteSessionUnavailable) {
 		t.Fatalf("compacted session error = %v", err)
 	}
 	manager.mu.Lock()
