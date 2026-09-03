@@ -68,7 +68,7 @@ describe('handoffBrief', () => {
 });
 
 describe('launchRequestPath', () => {
-  it('includes the full source-aware key for local and remote launches', () => {
+  it('includes the full source-aware key', () => {
     expect(launchRequestPath({ sourceId: LOCAL_SOURCE_ID, agent: 'codex', id: 'abc' }, 'resume')).toBe(
       '/api/launch?source=local&agent=codex&id=abc&mode=resume',
     );

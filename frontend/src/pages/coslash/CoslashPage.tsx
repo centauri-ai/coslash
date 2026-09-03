@@ -526,6 +526,7 @@ export function CoslashPage() {
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}
+        machines={machines}
         onClose={() => setSelectedSessionKey(null)}
       />
       {shareEnabled && shareDestination && (
