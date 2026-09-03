@@ -112,13 +112,14 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 				Commands:     len(local.Commands),
 				PullRequests: local.PullRequests,
 			},
-			Usage:     usage,
-			Digest:    b.digest(local.Digest),
-			Todos:     b.todos(local.Todos),
-			FileEdits: b.fileEdits(local.FileEdits),
-			Commits:   b.strings("/session/commits", local.Commits, maxCommitItems, maxCommitTextBytes),
-			Git:       b.git(local.Git),
-			Subagents: []snapshotv1.Subagent{},
+			Usage:      usage,
+			Digest:     b.digest(local.Digest),
+			Todos:      b.todos(local.Todos),
+			FileEdits:  b.fileEdits(local.FileEdits),
+			Commits:    b.strings("/session/commits", local.Commits, maxCommitItems, maxCommitTextBytes),
+			CommitSHAs: b.commitSHAs(local.CommitSHAs),
+			Git:        b.git(local.Git),
+			Subagents:  []snapshotv1.Subagent{},
 		},
 	}
 	s.Session.Subagents, err = b.subagents(local.Subagents)
@@ -433,6 +434,13 @@ func (b *builder) strings(path string, values []string, maxItems, maxBytes int) 
 		result = append(result, b.text(fmt.Sprintf("%s/%d", path, i), value, maxBytes))
 	}
 	return result
+}
+
+// commitSHAs receives only repository-resolved object IDs from session facts;
+// unlike commit subjects, identifiers are not text redacted or parsed here.
+func (b *builder) commitSHAs(values []string) []string {
+	values = values[:b.items("/session/commitShas", len(values), snapshotv1.MaxCommitSHAItems)]
+	return append([]string(nil), values...)
 }
 
 func (b *builder) git(value *session.GitDrift) *snapshotv1.GitDrift {

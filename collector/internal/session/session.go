@@ -119,6 +119,7 @@ type SessionDetails struct {
 	FirstPrompt      *string           `json:"firstPrompt"`
 	Commands         []string          `json:"commands"`
 	Commits          []string          `json:"commits"`
+	CommitSHAs       []string          `json:"-"`
 	PullRequests     int               `json:"prs"`
 	Todos            []Todo            `json:"todos"`
 	Digest           []DigestEntry     `json:"digest"`

@@ -21,28 +21,31 @@ import (
 )
 
 const (
-	SchemaVersion                   = "session-snapshot/v1"
-	MediaType                       = "application/vnd.coslash.session-snapshot.v1+json"
-	MaxPayloadBytes                 = 256 * 1024
-	MaxCollectorVersionBytes        = 64
-	MaxAgentBytes                   = 64
-	MaxIdentifierBytes              = 512
-	MaxRepositoryBytes              = 1024
-	MaxNameBytes                    = 512
-	MaxSummaryBytes                 = 4 * 1024
-	MaxPathBytes                    = 1024
-	MaxBranchBytes                  = 512
-	MaxEntrypointBytes              = 512
-	MaxModelBytes                   = 256
-	MaxGoalBytes                    = 16 * 1024
-	MaxPromptBytes                  = 16 * 1024
-	MaxDigestItems                  = 200
-	MaxDigestTextBytes              = 4 * 1024
-	MaxTodoItems                    = 200
-	MaxTodoTextBytes                = 2 * 1024
-	MaxFileEditItems                = 2000
-	MaxCommitItems                  = 200
-	MaxCommitTextBytes              = 2 * 1024
+	SchemaVersion            = "session-snapshot/v1"
+	MediaType                = "application/vnd.coslash.session-snapshot.v1+json"
+	MaxPayloadBytes          = 256 * 1024
+	MaxCollectorVersionBytes = 64
+	MaxAgentBytes            = 64
+	MaxIdentifierBytes       = 512
+	MaxRepositoryBytes       = 1024
+	MaxNameBytes             = 512
+	MaxSummaryBytes          = 4 * 1024
+	MaxPathBytes             = 1024
+	MaxBranchBytes           = 512
+	MaxEntrypointBytes       = 512
+	MaxModelBytes            = 256
+	MaxGoalBytes             = 16 * 1024
+	MaxPromptBytes           = 16 * 1024
+	MaxDigestItems           = 200
+	MaxDigestTextBytes       = 4 * 1024
+	MaxTodoItems             = 200
+	MaxTodoTextBytes         = 2 * 1024
+	MaxFileEditItems         = 2000
+	MaxCommitItems           = 200
+	MaxCommitTextBytes       = 2 * 1024
+	// Commit SHAs are deterministic Git object locators, intentionally
+	// distinct from the human-facing commit subjects in Commits.
+	MaxCommitSHAItems               = 200
 	MaxSubagentItems                = 100
 	MaxSubagentTextBytes            = 8 * 1024
 	MaxCommandLabelItems            = 200
@@ -108,8 +111,11 @@ type Session struct {
 	Todos            []Todo     `json:"todos"`
 	FileEdits        []FileEdit `json:"fileEdits"`
 	Commits          []string   `json:"commits"`
-	Git              *GitDrift  `json:"git,omitempty"`
-	Subagents        []Subagent `json:"subagents"`
+	// CommitSHAs is optional for the additive v1 rollout. When supplied, each
+	// value is a resolved lowercase full Git object ID (SHA-1 or SHA-256).
+	CommitSHAs []string   `json:"commitShas,omitempty"`
+	Git        *GitDrift  `json:"git,omitempty"`
+	Subagents  []Subagent `json:"subagents"`
 }
 
 type Counts struct {
@@ -457,6 +463,19 @@ func validateSession(s Session) error {
 			return err
 		}
 	}
+	if len(s.CommitSHAs) > MaxCommitSHAItems {
+		return fmt.Errorf("session.commitShas exceeds item budget")
+	}
+	seenCommitSHAs := make(map[string]struct{}, len(s.CommitSHAs))
+	for i, sha := range s.CommitSHAs {
+		if !validCommitSHA(sha) {
+			return fmt.Errorf("session.commitShas[%d] must be a lowercase full Git object ID", i)
+		}
+		if _, duplicate := seenCommitSHAs[sha]; duplicate {
+			return fmt.Errorf("session.commitShas must be unique")
+		}
+		seenCommitSHAs[sha] = struct{}{}
+	}
 	if s.Git != nil {
 		if err := boundedRequired("session.git.baseBranch", s.Git.BaseBranch, MaxBranchBytes); err != nil {
 			return err
@@ -515,6 +534,18 @@ func validateSession(s Session) error {
 		return fmt.Errorf("subagent command labels exceed item budget")
 	}
 	return nil
+}
+
+func validCommitSHA(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateUsage(u ModelUsage) error {

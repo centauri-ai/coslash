@@ -103,17 +103,34 @@ type repositoryCommit struct {
 	subject string
 }
 
+// CommitFacts keeps human commit subjects and machine Git object IDs on
+// separate paths. Hashes are emitted only when an observed value resolves
+// against local repository history to a full object ID.
+type CommitFacts struct {
+	Subjects []string
+	SHAs     []string
+}
+
 // NewCommitReconciler caches repository history for one reconciliation pass.
 func NewCommitReconciler() func([]CommitObservation, string, *string) []string {
+	facts := NewCommitFactsReconciler()
+	return func(observations []CommitObservation, cwd string, branch *string) []string {
+		return facts(observations, cwd, branch).Subjects
+	}
+}
+
+// NewCommitFactsReconciler caches repository history for one reconciliation
+// pass while retaining resolved full object IDs for the public export mapper.
+func NewCommitFactsReconciler() func([]CommitObservation, string, *string) CommitFacts {
 	type cacheKey struct{ cwd, branch string }
 	type cachedHistory struct {
 		commits []repositoryCommit
 		ok      bool
 	}
 	histories := map[cacheKey]cachedHistory{}
-	return func(observations []CommitObservation, cwd string, branch *string) []string {
+	return func(observations []CommitObservation, cwd string, branch *string) CommitFacts {
 		if len(observations) == 0 {
-			return []string{}
+			return CommitFacts{Subjects: []string{}, SHAs: []string{}}
 		}
 		branchName := ""
 		if branch != nil {
@@ -125,23 +142,32 @@ func NewCommitReconciler() func([]CommitObservation, string, *string) []string {
 			history.commits, history.ok = repositoryHistory(cwd, branch)
 			histories[key] = history
 		}
-		return reconcileCommits(observations, history.commits, history.ok)
+		return reconcileCommitFacts(observations, history.commits, history.ok)
 	}
 }
 
 func ReconcileCommits(observations []CommitObservation, cwd string, branch *string) []string {
+	return ReconcileCommitFacts(observations, cwd, branch).Subjects
+}
+
+func ReconcileCommitFacts(observations []CommitObservation, cwd string, branch *string) CommitFacts {
 	if len(observations) == 0 {
-		return []string{}
+		return CommitFacts{Subjects: []string{}, SHAs: []string{}}
 	}
 	history, ok := repositoryHistory(cwd, branch)
-	return reconcileCommits(observations, history, ok)
+	return reconcileCommitFacts(observations, history, ok)
 }
 
 func reconcileCommits(observations []CommitObservation, history []repositoryCommit, ok bool) []string {
+	return reconcileCommitFacts(observations, history, ok).Subjects
+}
+
+func reconcileCommitFacts(observations []CommitObservation, history []repositoryCommit, ok bool) CommitFacts {
 	if !ok {
-		return fallbackCommitMessages(observations)
+		return CommitFacts{Subjects: fallbackCommitMessages(observations), SHAs: []string{}}
 	}
 	resolved := make([]int, len(observations))
+	hashResolved := make([]bool, len(observations))
 	for i := range resolved {
 		resolved[i] = -1
 	}
@@ -153,7 +179,7 @@ func reconcileCommits(observations []CommitObservation, history []repositoryComm
 		for j, commit := range history {
 			if !used[j] && strings.HasPrefix(commit.hash, observation.Hash) &&
 				(observation.Subject == "(commit)" || commit.subject == observation.Subject) {
-				resolved[i], used[j] = j, true
+				resolved[i], hashResolved[i], used[j] = j, true, true
 				break
 			}
 		}
@@ -169,13 +195,17 @@ func reconcileCommits(observations []CommitObservation, history []repositoryComm
 			}
 		}
 	}
-	messages := []string{}
-	for _, index := range resolved {
+	messages, shas := []string{}, []string{}
+	for i, index := range resolved {
 		if index >= 0 {
 			messages = append(messages, history[index].subject)
+			if hashResolved[i] {
+				// repositoryHistory uses %H, which is always a full object ID.
+				shas = append(shas, history[index].hash)
+			}
 		}
 	}
-	return messages
+	return CommitFacts{Subjects: messages, SHAs: shas}
 }
 
 func repositoryHistory(cwd string, branch *string) ([]repositoryCommit, bool) {

@@ -102,6 +102,21 @@ func TestOptionalModelAndWorkingDirectoryMatchSchemaConstraints(t *testing.T) {
 	}
 }
 
+func TestCommitSHAsRequireResolvedLowercaseFullObjectIDs(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Session.CommitSHAs = []string{strings.Repeat("a", 40), strings.Repeat("b", 64)}
+	if _, err := Marshal(snapshot); err != nil {
+		t.Fatalf("full Git object IDs rejected: %v", err)
+	}
+	for _, invalid := range []string{"abcdef0", strings.Repeat("A", 40), strings.Repeat("g", 40)} {
+		snapshot := validSnapshot()
+		snapshot.Session.CommitSHAs = []string{invalid}
+		if _, err := Marshal(snapshot); err == nil {
+			t.Fatalf("invalid commit SHA %q accepted", invalid)
+		}
+	}
+}
+
 func TestSessionStartMustNotExceedLastActivity(t *testing.T) {
 	snapshot := validSnapshot()
 	snapshot.SessionStartedAtMs = snapshot.Session.LastActivityAtMs + 1
