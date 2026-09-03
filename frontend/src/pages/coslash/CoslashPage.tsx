@@ -24,6 +24,8 @@ import {
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import {
   AgentVendorFilterTabMenu,
+  ALL_MACHINES,
+  MachineFilterTabMenu,
   TimeWindowFilterTabMenu,
   ViewingModeTabMenu,
   type ViewMode,
@@ -41,7 +43,7 @@ import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import { loadBoardFilters, saveBoardFilters, vendorsForFilterMenu } from '@/pages/coslash/lib/board-filters';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
-import type { MachineFact } from '@/pages/coslash/lib/machines';
+import { machinesForSourceFilter, type MachineFact } from '@/pages/coslash/lib/machines';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
@@ -289,6 +291,7 @@ function CoslashContent({
 export function CoslashPage() {
   const [vendor, setVendor] = useState(() => loadBoardFilters().vendor);
   const [timeWindow, setTimeWindow] = useState(() => loadBoardFilters().timeWindow);
+  const [machineFilter, setMachineFilter] = useState(ALL_MACHINES);
   const shareParams = new URLSearchParams(window.location.search);
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
@@ -327,8 +330,14 @@ export function CoslashPage() {
       ),
     [sessions, shareFixtureEnabled],
   );
-  const sessionVendors = vendorsForFilterMenu(getSessionVendors(sessions), vendor);
   const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
+  const filterableRemoteMachines = machinesForSourceFilter(machines);
+  const effectiveMachineFilter =
+    machineFilter === ALL_MACHINES ||
+    machineFilter === LOCAL_SOURCE_ID ||
+    filterableRemoteMachines.some((machine) => machine.sourceId === machineFilter)
+      ? machineFilter
+      : ALL_MACHINES;
   const remoteSessionCount = sessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
 
   const refreshHubDestination = useCallback(async () => {
@@ -383,7 +392,12 @@ export function CoslashPage() {
     windowStart == null
       ? sessions
       : sessions.filter((session) => session.status != null || session.mtime >= windowStart);
-  const sessionsForVendor = sessionsInWindow.filter(
+  const sessionsForMachine =
+    effectiveMachineFilter === ALL_MACHINES
+      ? sessionsInWindow
+      : sessionsInWindow.filter((session) => session.sourceId === effectiveMachineFilter);
+  const sessionVendors = vendorsForFilterMenu(getSessionVendors(sessionsForMachine), vendor);
+  const sessionsForVendor = sessionsForMachine.filter(
     (session) => vendor === 'all' || session.agent === vendor,
   );
   const visibleSessions = sortSessions(
@@ -433,6 +447,16 @@ export function CoslashPage() {
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
           <div className="flex shrink-0 items-center gap-2">
             <AgentVendorFilterTabMenu value={vendor} vendors={sessionVendors} onValueChange={setVendor} />
+            {filterableRemoteMachines.length > 0 && (
+              <>
+                <span className="bg-border h-5 w-px" />
+                <MachineFilterTabMenu
+                  value={effectiveMachineFilter}
+                  machines={filterableRemoteMachines}
+                  onValueChange={setMachineFilter}
+                />
+              </>
+            )}
             <span className="bg-border h-5 w-px" />
             <TimeWindowFilterTabMenu value={timeWindow} onValueChange={setTimeWindow} />
             <span className="bg-border h-5 w-px" />
@@ -483,7 +507,7 @@ export function CoslashPage() {
               loadError={loadError}
               onRetry={retrySessions}
               visibleSessions={visibleSessions}
-              hasSessions={sessionsInWindow.length > 0}
+              hasSessions={sessionsForMachine.length > 0}
               searchTerm={searchTerm}
               timeWindow={timeWindow}
               view={view}
