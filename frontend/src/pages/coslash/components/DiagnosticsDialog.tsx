@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { DiagnosticsButton } from '@/pages/coslash/components/DiagnosticsButton';
 import { DiagnosticsChecklist } from '@/pages/coslash/components/DiagnosticsChecklist';
 import { formatDiagnosticsForCopy, worstStatus, type Diagnostics } from '@/pages/coslash/lib/diagnostics';
@@ -108,23 +108,21 @@ export function DiagnosticsDialog({
             <RefreshCw className={isLoading ? 'animate-spin' : undefined} aria-hidden="true" />
             Re-run checks
           </Button>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button onClick={copyDiagnostics} disabled={!diagnostics}>
-                  <Copy aria-hidden="true" />
-                  {copyState === 'copied'
-                    ? 'Copied'
-                    : copyState === 'failed'
-                      ? 'Copy failed'
-                      : 'Copy diagnostics'}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                Copies paths, counts, versions, and checks — never transcript content or session names.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button onClick={copyDiagnostics} disabled={!diagnostics}>
+                <Copy aria-hidden="true" />
+                {copyState === 'copied'
+                  ? 'Copied'
+                  : copyState === 'failed'
+                    ? 'Copy failed'
+                    : 'Copy diagnostics'}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Copies paths, counts, versions, and checks — never transcript content or session names.
+            </TooltipContent>
+          </Tooltip>
         </DialogFooter>
       </DialogContent>
     </Dialog>
