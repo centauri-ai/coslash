@@ -359,6 +359,10 @@ func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
 	if !manager.cfg.Enabled {
 		return ListResult{Health: manager.healthLocked(remoteSinceMs)}
 	}
+	if manager.helperProbe == helperProbeFallback && manager.helperVersion != "" &&
+		!manager.nextRetryAt.IsZero() && !manager.now().Before(manager.nextRetryAt) {
+		manager.helperProbe = helperProbeUnknown
+	}
 	if manager.helperProbe == helperProbeUnknown {
 		manager.startHelperDiscoveryLocked()
 	}

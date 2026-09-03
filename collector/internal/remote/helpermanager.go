@@ -189,10 +189,8 @@ func NewProductionManager() (*Manager, error) {
 	}), nil
 }
 
-// startHelperDiscoveryLocked starts only a read-only verification pass. The
-// Lifecycle receives empty consent, so it can authenticate metadata, probe the
-// platform, inspect files, and negotiate capabilities but can never upload or
-// modify a remote helper.
+// startHelperDiscoveryLocked verifies a helper or updates one previously
+// installed with this source's recorded ownership.
 func (manager *Manager) startHelperDiscoveryLocked() {
 	if manager.helperProbe != helperProbeUnknown || manager.cfg == nil || manager.lifeCtx == nil {
 		return
@@ -207,11 +205,15 @@ func (manager *Manager) startHelperDiscoveryLocked() {
 	status := HelperStatus{State: LifecycleSFTP}
 	manager.helper = &status
 	config := *manager.cfg
-	go manager.runHelperDiscovery(manager.lifeCtx, config)
+	autoUpdate := manager.helperVersion != "" && !manager.helperOwnershipCorrupt
+	if autoUpdate {
+		manager.helperSetup = true
+	}
+	go manager.runHelperDiscovery(manager.lifeCtx, config, autoUpdate)
 }
 
-// InspectHelper starts (or reports) the non-mutating discovery pass for the
-// setup screen. It never waits on SSH while holding the manager lock.
+// InspectHelper starts (or reports) the background helper check for the setup
+// screen. It never waits on SSH while holding the manager lock.
 func (manager *Manager) InspectHelper() Health {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
@@ -221,19 +223,42 @@ func (manager *Manager) InspectHelper() Health {
 	return manager.healthLocked(manager.lastRequestedMs)
 }
 
-func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.RemoteSettings) {
+func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.RemoteSettings, autoUpdate bool) {
+	if autoUpdate {
+		defer func() {
+			manager.mu.Lock()
+			manager.helperSetup = false
+			manager.mu.Unlock()
+		}()
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, DefaultConnectTimeout)
 	defer cancel()
 	manager.mu.Lock()
-	provider, factory := manager.releaseProvider, manager.lifecycleFactory
+	provider, factory, previousVersion := manager.releaseProvider, manager.lifecycleFactory, manager.helperVersion
 	manager.mu.Unlock()
 	document, err := provider.LoadMetadata(probeCtx)
 	var result LifecycleResult
+	var lifecycle Lifecycle
 	if err == nil {
-		var lifecycle Lifecycle
 		lifecycle, err = factory(config.SSHAlias)
 		if err == nil {
-			result = lifecycle.SetupWithLoader(probeCtx, document, Consent{}, provider.LoadArtifact)
+			consent := Consent{}
+			if autoUpdate {
+				consent = Consent{Install: true, Upgrade: true}
+			}
+			result = lifecycle.SetupWithLoader(probeCtx, document, consent, provider.LoadArtifact)
+			if autoUpdate && retryableSetupTransportFailure(result) {
+				manager.resetControlMaster(config.SSHAlias)
+				if retryLifecycle, retryErr := factory(config.SSHAlias); retryErr == nil {
+					result = retryLifecycle.SetupWithLoader(probeCtx, document, consent, provider.LoadArtifact)
+					lifecycle = retryLifecycle
+				}
+			}
+		}
+	}
+	if result.CanExecute && autoUpdate && previousVersion != "" && previousVersion != result.Artifact.Version && lifecycle.Remote != nil {
+		if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
+			_ = lifecycle.Remote.RemoveExact(probeCtx, previousPath)
 		}
 	}
 	manager.mu.Lock()

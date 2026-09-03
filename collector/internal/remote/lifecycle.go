@@ -487,8 +487,8 @@ func (lifecycle Lifecycle) VerifyExecution(ctx context.Context, path string, art
 }
 
 // Setup authenticates metadata before platform lookup or any remote mutation.
-// Consent is per action: initial install and later upgrades are separate, so an
-// old consent cannot silently install fresh executable code.
+// New hosts require installation consent; a recorded helper owner can consent
+// to its replacement when the app updates.
 // Setup is retained for focused lifecycle tests. Production callers must use
 // SetupWithLoader so an arm64 host never downloads amd64 bytes (or vice versa)
 // before its platform is known.
