@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, ChevronRight, Settings, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -201,39 +201,81 @@ export function SettingsDialog({
     response ? initialSettingsDraft(response) : null,
   );
   const [disclosureOpen, setDisclosureOpen] = useState(false);
-  const [remoteOwnershipAction, setRemoteOwnershipAction] = useState<RemoteOwnershipAction | null>(null);
+  const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
+  const initializedForOpen = useRef(false);
+  const saveChain = useRef(Promise.resolve());
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
   const showFullSettings = mode === 'full-settings';
 
   useEffect(() => {
-    if (!open || !response) return;
+    if (!open) {
+      initializedForOpen.current = false;
+      return;
+    }
+    if (!response || initializedForOpen.current) return;
     setDraft(initialSettingsDraft(response));
     setDisclosureOpen(false);
-    setRemoteOwnershipAction(null);
+    initializedForOpen.current = true;
   }, [open, response]);
 
-  const initialDraft = response ? initialSettingsDraft(response) : null;
-  // Both sides are spreads of the same response.settings, so key order matches.
-  const isDirty = JSON.stringify(draft) !== JSON.stringify(initialDraft);
   const synthesisBackends = availableSynthesisBackends(response?.options.synthesisBackends ?? []);
   const hasSynthesisBackends = synthesisBackends.length > 0;
   const selectedBackend = synthesisBackends.find((option) => option.id === draft?.synthesis.backend);
   const selectedModel = selectedBackend?.models.find((option) => option.id === draft?.synthesis.model);
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
   const synthesisBackendAvailable = draft?.synthesis.enabled !== true || selectedBackend?.available === true;
-  const canSave = (isFirstRun || response?.valid === false || isDirty) && synthesisBackendAvailable;
+
+  const saveSettings = useCallback(
+    (next: CoslashSettings, ownershipAction?: RemoteOwnershipAction) => {
+      const pending = saveChain.current.then(() => onSave(next, ownershipAction));
+      saveChain.current = pending.then(
+        () => undefined,
+        () => undefined,
+      );
+      return pending;
+    },
+    [onSave],
+  );
 
   const save = async () => {
     if (!draft || !synthesisBackendAvailable) return;
-    if (await onSave(draft, remoteOwnershipAction ?? undefined)) {
+    if (await saveSettings(draft)) {
       setTheme(draft.appearance.theme);
       onOpenChange(false);
     }
   };
 
+  const saveChange = useCallback(
+    (next: CoslashSettings) => {
+      setDraft(next);
+      if (requiresConsent) return;
+      void saveSettings(next).then((saved) => {
+        if (saved) setTheme(next.appearance.theme);
+      });
+    },
+    [requiresConsent, saveSettings],
+  );
+
+  const setRemoteBusy = useCallback((busy: boolean) => setRemoteOperationInProgress(busy), []);
+
+  const addRemoteHost = async (sshAlias: string) => {
+    if (!draft) return false;
+    const next = { ...draft, remote: { sshAlias, enabled: true } };
+    const saved = await saveSettings(next);
+    if (saved) setDraft(next);
+    return saved;
+  };
+
+  const removeRemoteHost = async () => {
+    if (!draft) return false;
+    const { remote: _removed, ...next } = draft;
+    const saved = await saveSettings({ ...next, remote: null }, 'release');
+    if (saved) setDraft({ ...next, remote: null });
+    return saved;
+  };
+
   const close = () => {
-    setTheme(response?.settings.appearance.theme ?? 'light');
     onOpenChange(false);
   };
 
@@ -245,26 +287,26 @@ export function SettingsDialog({
         ? { label: 'Backend unavailable', className: 'text-warning-fg' }
         : response?.valid === false
           ? { label: 'Repair required', className: 'text-warning-fg' }
-          : isDirty
-            ? { label: 'Unsaved changes', className: 'text-warning-fg' }
-            : isFirstRun
-              ? { label: 'Not saved yet', className: 'text-warning-fg' }
-              : { label: 'No changes', className: 'text-muted-foreground' };
+          : isFirstRun
+            ? { label: 'Not saved yet', className: 'text-warning-fg' }
+            : { label: 'Saved', className: 'text-muted-foreground' };
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (requiresConsent && !next) return;
+        if ((requiresConsent || remoteOperationInProgress) && !next) return;
         if (next) onOpenChange(true);
         else close();
       }}
     >
       <DialogContent
         className="flex max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
-        showCloseButton={!requiresConsent}
-        onEscapeKeyDown={(event) => requiresConsent && event.preventDefault()}
-        onPointerDownOutside={(event) => requiresConsent && event.preventDefault()}
+        showCloseButton={!requiresConsent && !remoteOperationInProgress}
+        onEscapeKeyDown={(event) => (requiresConsent || remoteOperationInProgress) && event.preventDefault()}
+        onPointerDownOutside={(event) =>
+          (requiresConsent || remoteOperationInProgress) && event.preventDefault()
+        }
       >
         <DialogHeader className="shrink-0 gap-1.5 p-4 pr-12 pb-3">
           <DialogTitle>{showFullSettings ? 'Settings' : 'Choose how coSlash handles synthesis'}</DialogTitle>
@@ -276,7 +318,12 @@ export function SettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-1 pb-4">
+        <div
+          aria-busy={remoteOperationInProgress}
+          className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-1 pb-4', {
+            'pointer-events-none': remoteOperationInProgress,
+          })}
+        >
           {isLoading ? (
             <div className="text-muted-foreground py-8 text-sm">Loading settings…</div>
           ) : loadError ? (
@@ -296,7 +343,9 @@ export function SettingsDialog({
                 <div className="border-border bg-card overflow-hidden rounded-xl border">
                   <SynthesisPreference
                     enabled={draft.synthesis.enabled}
-                    onChange={(enabled) => setDraft({ ...draft, synthesis: { ...draft.synthesis, enabled } })}
+                    onChange={(enabled) =>
+                      saveChange({ ...draft, synthesis: { ...draft.synthesis, enabled } })
+                    }
                   />
 
                   {draft.synthesis.enabled ? (
@@ -315,7 +364,7 @@ export function SettingsDialog({
                               option={option}
                               selected={option.id === draft.synthesis.backend}
                               onSelect={() =>
-                                setDraft({
+                                saveChange({
                                   ...draft,
                                   synthesis: {
                                     ...draft.synthesis,
@@ -358,7 +407,7 @@ export function SettingsDialog({
                             value={draft.synthesis.model}
                             mono
                             onChange={(model) =>
-                              setDraft({ ...draft, synthesis: { ...draft.synthesis, model } })
+                              saveChange({ ...draft, synthesis: { ...draft.synthesis, model } })
                             }
                           >
                             {selectedBackend?.models.map((option) => (
@@ -418,7 +467,7 @@ export function SettingsDialog({
                       onClick={() => {
                         const theme = draft.appearance.theme === 'dark' ? 'light' : 'dark';
                         setTheme(theme);
-                        setDraft({
+                        saveChange({
                           ...draft,
                           appearance: { theme },
                         });
@@ -451,7 +500,7 @@ export function SettingsDialog({
                         id="launch-terminal"
                         label="Terminal for new, resumed, and handoff sessions"
                         value={draft.launch.terminal}
-                        onChange={(terminal) => setDraft({ ...draft, launch: { terminal } })}
+                        onChange={(terminal) => saveChange({ ...draft, launch: { terminal } })}
                       >
                         {response.options.terminals.map((option) => (
                           <option key={option.id} value={option.id} disabled={!option.available}>
@@ -480,22 +529,10 @@ export function SettingsDialog({
               {showFullSettings && (
                 <MachinesSettingsSection
                   remote={draft.remote}
-                  onChange={(remote) => {
-                    if (remote == null) {
-                      const { remote: _removed, ...rest } = draft;
-                      setDraft({ ...rest, remote: null });
-                      return;
-                    }
-                    // Blank alias with no saved host stays omitted so local-only settings stay unchanged.
-                    if (!remote.sshAlias.trim() && draft.remote == null) {
-                      const { remote: _removed, ...rest } = draft;
-                      setDraft(rest);
-                      return;
-                    }
-                    setDraft({ ...draft, remote: { ...remote, sshAlias: remote.sshAlias.trim() } });
-                  }}
-                  onOwnershipActionChange={setRemoteOwnershipAction}
+                  onAddHost={addRemoteHost}
+                  onRemoveHost={removeRemoteHost}
                   onConnectionVerified={onRemoteConnectionVerified}
+                  onBusyChange={setRemoteBusy}
                 />
               )}
 
@@ -514,14 +551,15 @@ export function SettingsDialog({
             {status.label}
           </div>
           <div className="flex items-center gap-2">
-            {!requiresConsent && (
-              <Button variant="outline" onClick={close} disabled={isSaving}>
-                Cancel
+            {requiresConsent ? (
+              <Button onClick={() => void save()} disabled={!draft || isSaving || !synthesisBackendAvailable}>
+                Save settings
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={close} disabled={remoteOperationInProgress}>
+                Close
               </Button>
             )}
-            <Button onClick={() => void save()} disabled={!draft || isSaving || !canSave}>
-              {isFirstRun ? 'Save settings' : 'Save changes'}
-            </Button>
           </div>
         </div>
       </DialogContent>

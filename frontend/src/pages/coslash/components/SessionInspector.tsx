@@ -936,7 +936,7 @@ function CommitsAndTodos({ detail }: { detail: SessionDetail }) {
 
 function CommandsSection({ detail }: { detail: SessionDetail }) {
   const [open, setOpen] = useState(false);
-  if (!isLocalSession(detail) || detail.commands.length === 0) return null;
+  if (detail.commands.length === 0) return null;
 
   return (
     <div className="pt-4">
@@ -977,7 +977,7 @@ function InspectorBody({
         <RecapSection detail={detail} />
         <DigestSection detail={detail} />
         <ArtifactStats detail={detail} />
-        {isLocalSession(detail) && <CommandsSection detail={detail} />}
+        <CommandsSection detail={detail} />
         <FilesChangedList detail={detail} onSelectFile={onSelectFile} />
         <CommitsAndTodos detail={detail} />
       </div>

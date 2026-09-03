@@ -6,7 +6,7 @@ import { setTheme } from '@/lib/theme';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
-import { RemoteHostStrip } from '@/pages/coslash/components/RemoteHostStrip';
+import { MachineActivity } from '@/pages/coslash/components/MachineActivity';
 import { SessionBoard } from '@/pages/coslash/components/SessionBoard';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
@@ -41,18 +41,12 @@ import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import { loadBoardFilters, saveBoardFilters, vendorsForFilterMenu } from '@/pages/coslash/lib/board-filters';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
-import {
-  hostStripModel,
-  hostStripVisible,
-  remoteConfigured,
-  remoteMachine,
-} from '@/pages/coslash/lib/host-strip';
+import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import {
   getSessionVendors,
-  getStatus,
   isLocalSession,
   LOCAL_SOURCE_ID,
   sessionKey,
@@ -154,21 +148,22 @@ function SessionSearch({
 
 function SessionsStats({
   sessions,
+  machines,
   loadFailed,
   timeWindow,
+  onRemoteRetry,
+  remoteRetryInFlight,
 }: {
   sessions: Session[];
+  machines: MachineFact[];
   loadFailed: boolean;
   timeWindow: TimeWindow;
+  onRemoteRetry: () => void;
+  remoteRetryInFlight: boolean;
 }) {
   if (loadFailed) return null;
 
   const aggregateSessions = sessionsForAggregates(sessions);
-  const activeSessions = aggregateSessions.filter((session) => getStatus(session.status) === 'busy').length;
-  const waitingSessions = aggregateSessions.filter(
-    (session) => getStatus(session.status) === 'waiting',
-  ).length;
-
   return (
     <div className="flex w-full min-w-0 items-center justify-between gap-3">
       <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
@@ -191,16 +186,12 @@ function SessionsStats({
           at list API prices
         </span>
       </div>
-      <div className="text-muted-foreground flex shrink-0 items-center gap-3 text-xs">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="bg-success size-1.5 animate-pulse rounded-full" />
-          {activeSessions} active
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="bg-warning size-1.5 rounded-full" />
-          {waitingSessions} waiting on you
-        </span>
-      </div>
+      <MachineActivity
+        machines={machines}
+        sessions={sessions}
+        onRemoteRetry={onRemoteRetry}
+        remoteRetryInFlight={remoteRetryInFlight}
+      />
     </div>
   );
 }
@@ -337,13 +328,7 @@ export function CoslashPage() {
     [sessions, shareFixtureEnabled],
   );
   const sessionVendors = vendorsForFilterMenu(getSessionVendors(sessions), vendor);
-  const configuredRemote = remoteConfigured(machines);
-  const remoteHost = remoteMachine(machines);
-  const showHostStrip = hostStripVisible(remoteHost);
-  const stripModel =
-    remoteHost != null && showHostStrip
-      ? hostStripModel(remoteHost, { retryInFlight: remoteRetryInFlight })
-      : null;
+  const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
   const remoteSessionCount = sessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
 
   const refreshHubDestination = useCallback(async () => {
@@ -466,8 +451,11 @@ export function CoslashPage() {
               <LoadingSpinner isLoading={isLoading}>
                 <SessionsStats
                   sessions={sessionsForVendor}
+                  machines={machines}
                   loadFailed={loadError != null}
                   timeWindow={timeWindow}
+                  onRemoteRetry={handleRemoteRetry}
+                  remoteRetryInFlight={remoteRetryInFlight}
                 />
               </LoadingSpinner>
             </div>
@@ -488,13 +476,6 @@ export function CoslashPage() {
           </div>
         </div>
       </div>
-      {stripModel && (
-        <RemoteHostStrip
-          model={stripModel}
-          onRetry={handleRemoteRetry}
-          onOpenDiagnostics={() => setDiagnosticsOpen(true)}
-        />
-      )}
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-hidden">
           <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
