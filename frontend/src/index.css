@@ -121,23 +121,23 @@
   --recap: #b5468a;
   --compaction: #b5852f;
 
-  --background: oklch(1 0 0);
+  --background: oklch(0.985 0.012 255 / 0.78);
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  --card: oklch(1 0 0 / 0.7);
   --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
+  --popover: oklch(1 0 0 / 0.82);
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
+  --secondary: oklch(0.97 0.01 255 / 0.72);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
+  --muted: oklch(0.96 0.012 255 / 0.64);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.78 0.025 255 / 0.62);
+  --input: oklch(0.9 0.02 255 / 0.65);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -145,11 +145,11 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
+  --sidebar: oklch(0.985 0.012 255 / 0.78);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent: oklch(0.96 0.012 255 / 0.64);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
@@ -181,17 +181,17 @@
   --recap: #d478ae;
   --compaction: #d2a555;
 
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.16 0.025 265 / 0.78);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.23 0.03 265 / 0.72);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.21 0.028 265 / 0.86);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --secondary: oklch(0.3 0.025 265 / 0.68);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
+  --muted: oklch(0.3 0.025 265 / 0.56);
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
@@ -204,11 +204,11 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
+  --sidebar: oklch(0.2 0.028 265 / 0.78);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent: oklch(0.3 0.025 265 / 0.56);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
@@ -220,18 +220,47 @@
   }
   body {
     @apply bg-background text-foreground;
+    min-height: 100vh;
+    background-attachment: fixed;
+    background-image:
+      radial-gradient(circle at 4% 0%, oklch(0.78 0.11 250 / 0.32), transparent 28rem),
+      radial-gradient(circle at 96% 10%, oklch(0.82 0.1 315 / 0.2), transparent 26rem),
+      linear-gradient(145deg, oklch(0.98 0.015 255), oklch(0.93 0.025 245));
   }
   html {
     @apply font-sans;
   }
 }
 
-/* Sheet scrim: faint navy tint per the design mock, and no backdrop blur.
-   The overlay isn't reachable via props on SheetContent, so override its
-   data-slot here instead of editing the vendored sheet.tsx. */
+.dark body {
+  background-image:
+    radial-gradient(circle at 5% 0%, oklch(0.36 0.1 255 / 0.5), transparent 30rem),
+    radial-gradient(circle at 96% 8%, oklch(0.34 0.1 315 / 0.35), transparent 28rem),
+    linear-gradient(145deg, oklch(0.14 0.028 265), oklch(0.11 0.025 245));
+}
+
+/* A deliberately restrained glass layer: existing spacing, hierarchy, and
+   interaction stay intact while shared surfaces pick up translucency and depth. */
+[data-slot='card'],
+[data-slot='dialog-content'],
+[data-slot='sheet-content'] {
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  box-shadow:
+    0 12px 32px oklch(0.3 0.04 255 / 0.1),
+    inset 0 1px oklch(1 0 0 / 0.45);
+}
+
+[data-slot='input'],
+[data-slot='button'][data-variant='outline'] {
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+}
+
+/* Keep the rest of the app visible, but soften it while a glass sheet is open. */
 [data-slot='sheet-overlay'] {
   background: rgba(23, 39, 66, 0.28);
-  backdrop-filter: none;
+  backdrop-filter: blur(4px);
 }
 
 /* A light navy scrim does nothing over a near-black page. */
