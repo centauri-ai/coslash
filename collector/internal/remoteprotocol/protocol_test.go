@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
+	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func request() Request {
@@ -15,6 +17,21 @@ func request() Request {
 		panic(err)
 	}
 	return r
+}
+
+func TestChangedFamilyWithMultipleLargeDisplaysFitsRecordLimit(t *testing.T) {
+	large := strings.Repeat("x", 600<<10)
+	family, err := remotefacts.FromParsed("codex", "root", "parser-v1", remotefacts.StateComplete, "", []*vendors.ParsedSession{
+		{Session: &session.Session{ID: "root", StartedAt: 1, LastActivityTime: 2, Summary: &large}},
+		{Session: &session.Session{ID: "child", StartedAt: 1, LastActivityTime: 2, Summary: &large}, ParentID: "root"},
+	}, vendors.EmptySessionMetadata(), []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := Record{Type: RecordChanged, ProtocolVersion: ProtocolVersion, RequestID: strings.Repeat("r", remotefacts.MaxIDBytes), Sequence: MaxRecords, Vendor: "codex", FamilyID: "root", Fingerprint: strings.Repeat("f", remotefacts.MaxIDBytes), Family: &family}
+	if size := encodedSize(record); size > MaxRecordBytes {
+		t.Fatalf("changed family record is %d bytes, limit is %d", size, MaxRecordBytes)
+	}
 }
 
 func family() remotefacts.Family {

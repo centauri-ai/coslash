@@ -29,6 +29,7 @@ const (
 	MaxSpawnsPerSession = 256
 	MaxCommands         = 128
 	MaxNesting          = 8
+	MaxFamilyBytes      = 900 << 10 // Leaves room for the changed-family record envelope.
 	MaxCount            = 1_000_000_000
 	MaxCostMicroUSD     = int64(1_000_000_000_000_000)
 	MaxTimestampMs      = int64(32_503_680_000_000) // year 3000
@@ -247,6 +248,10 @@ func Validate(f Family) error {
 		}
 		previous = mapping.Key
 	}
+	encoded, err := json.Marshal(f)
+	if err != nil || len(encoded) > MaxFamilyBytes {
+		return errors.New("family exceeds limit")
+	}
 	return nil
 }
 
@@ -436,7 +441,47 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 		f.HeaderMappings = append([]HeaderMapping(nil), headerMappings[0]...)
 		sort.Slice(f.HeaderMappings, func(i, j int) bool { return f.HeaderMappings[i].Key < f.HeaderMappings[j].Key })
 	}
+	compact(&f)
 	return f, Validate(f)
+}
+
+func compact(f *Family) {
+	if familyFits(*f) {
+		return
+	}
+	for i := range f.Sessions {
+		display := &f.Sessions[i].Display
+		display.Summary = nil
+		display.FirstPrompt = nil
+		display.DeclaredGoal = nil
+		display.Synthesis = nil
+		display.Commands = nil
+		display.Commits = nil
+		display.Todos = nil
+		display.Digest = nil
+		display.FileEdits = nil
+		display.Subagents = nil
+		f.Sessions[i].Commands = nil
+	}
+	if familyFits(*f) {
+		return
+	}
+	for i := range f.Sessions {
+		f.Sessions[i].Display = session.Session{}
+		f.Sessions[i].Usage = nil
+		f.Sessions[i].Spawns = nil
+		f.Sessions[i].CommandLabels = nil
+	}
+	if familyFits(*f) {
+		return
+	}
+	f.Metadata = Metadata{}
+	f.HeaderMappings = nil
+}
+
+func familyFits(f Family) bool {
+	encoded, err := json.Marshal(f)
+	return err == nil && len(encoded) <= MaxFamilyBytes
 }
 
 func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {

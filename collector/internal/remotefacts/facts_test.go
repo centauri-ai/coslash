@@ -1,6 +1,7 @@
 package remotefacts
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,6 +17,25 @@ func validFamily() Family {
 		Sessions:     []Session{{ID: "root", StartedAtMs: 1, LastActivityAtMs: 2, Usage: []ModelUsage{}, Spawns: []Spawn{}, CommandLabels: []string{}}},
 		Metadata:     Metadata{Names: []MetadataName{}, Live: []MetadataLive{}},
 		Fingerprints: []Fingerprint{{Key: "opaque-1", Size: 12, ModifiedAtMs: 2}},
+	}
+}
+
+func TestFromParsedCompactsOversizedFamily(t *testing.T) {
+	large := strings.Repeat("x", 600<<10)
+	parsed := []*vendors.ParsedSession{
+		{Session: &session.Session{ID: "root", StartedAt: 1, LastActivityTime: 2, Summary: &large}},
+		{Session: &session.Session{ID: "child", StartedAt: 1, LastActivityTime: 2, Summary: &large}, ParentID: "root"},
+	}
+	f, err := FromParsed("codex", "root", "parser-v1", StateComplete, "", parsed, vendors.EmptySessionMetadata(), []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > MaxFamilyBytes || len(f.Sessions) != 2 {
+		t.Fatalf("family has %d sessions and is %d bytes", len(f.Sessions), len(encoded))
 	}
 }
 
