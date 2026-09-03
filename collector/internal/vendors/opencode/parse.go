@@ -289,6 +289,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		Tokens:           tokens,
 		Subagents:        []session.Subagent{},
 		SessionDetails:   details,
+		Entrypoint:       sessionEntrypoint(row.id, clientStateDir()),
 	}
 	if activeDuration > 0 {
 		value := int(activeDuration)
@@ -301,10 +302,6 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	if summary != "" {
 		value := session.Truncate(summary, session.TruncateTextLimit)
 		result.Summary = &value
-	}
-	if row.agent.Valid && strings.TrimSpace(row.agent.String) != "" {
-		value := strings.TrimSpace(row.agent.String)
-		result.Entrypoint = &value
 	}
 	parsed := &vendors.ParsedSession{
 		Session:      result,

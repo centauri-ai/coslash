@@ -89,12 +89,42 @@ type pendingPermission struct {
 	PID       int    `json:"pid"`
 }
 
+type sessionClientRecord struct {
+	SessionID string `json:"sessionID"`
+	Client    string `json:"client"`
+}
+
 func permissionStateDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
 	return filepath.Join(home, ".coslash", "opencode-permissions")
+}
+
+func clientStateDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".coslash", "opencode-clients")
+}
+
+func sessionEntrypoint(id, directory string) *string {
+	if !sessionIDPattern.MatchString(id) || directory == "" {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(directory, id+".json"))
+	if err != nil {
+		return nil
+	}
+	var record sessionClientRecord
+	if json.Unmarshal(data, &record) != nil || record.SessionID != id ||
+		(record.Client != "desktop" && record.Client != "cli") {
+		return nil
+	}
+	value := "opencode-" + record.Client
+	return &value
 }
 
 func markPendingPermissions(db *sql.DB, metadata *vendors.SessionMetadata, directory string) {
