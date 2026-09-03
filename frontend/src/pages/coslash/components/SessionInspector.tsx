@@ -1028,11 +1028,11 @@ function InspectorBody({
 function InspectorFooter({
   detail,
   remoteLaunchable,
-  remoteLaunchHint,
+  remoteResumeHint,
 }: {
   detail: SessionDetail;
   remoteLaunchable: boolean;
-  remoteLaunchHint?: string;
+  remoteResumeHint?: string;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const showTeamPreview =
@@ -1064,10 +1064,7 @@ function InspectorFooter({
             />
           </>
         )}
-        <ResumeSessionButton
-          detail={detail}
-          disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
-        />
+        <ResumeSessionButton detail={detail} disabledHint={remoteResumeHint} />
       </div>
     </SheetFooter>
   );
@@ -1116,6 +1113,12 @@ export function SessionInspector({
         : remoteMachine.state === 'ok' || remoteMachine.state === 'limited'
           ? 'Waiting for remote session details'
           : 'Remote is offline';
+  const remoteResumeHint =
+    detail != null && !isLocalSession(detail) && remoteLaunchable && boardStatusKey(detail) === 'busy'
+      ? 'This session is already active'
+      : detail != null && !isLocalSession(detail) && !remoteLaunchable
+        ? remoteLaunchHint
+        : undefined;
 
   useEffect(() => {
     setSelectedDiff(null);
@@ -1181,7 +1184,7 @@ export function SessionInspector({
             <InspectorFooter
               detail={detail}
               remoteLaunchable={remoteLaunchable}
-              remoteLaunchHint={remoteLaunchHint}
+              remoteResumeHint={remoteResumeHint}
             />
           </>
         )}
