@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
+import { remoteStatus } from '@/pages/coslash/lib/remote-api';
 import {
   isLocalSource,
   withLocalSourceDefaults,
@@ -12,6 +13,15 @@ import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-windo
 
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
+const REMOTE_REFRESH_POLL_INTERVAL_MS = 1_000;
+
+function remoteRefreshInProgress(machines: MachineFact[]) {
+  return machines.some(
+    (machine) =>
+      !isLocalSource(machine.sourceId) &&
+      (machine.refreshing || machine.state === 'connecting' || machine.reason === 'initial_refresh'),
+  );
+}
 
 export type FileSelection = {
   sourceId: string;
@@ -193,6 +203,11 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   useEffect(() => {
     const controller = new AbortController();
     let authenticationFailed = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleRefresh = () => {
+      refreshTimer = setTimeout(() => load(true), REFRESH_INTERVAL_MS);
+    };
 
     const load = (background: boolean) => {
       if (authenticationFailed) return;
@@ -219,6 +234,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
           setLoadError(null);
+          scheduleRefresh();
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
@@ -235,16 +251,44 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
             );
           }
           console.error('Failed to load sessions', error);
+          scheduleRefresh();
         });
     };
 
     load(false);
-    const refresh = setInterval(() => load(true), REFRESH_INTERVAL_MS);
     return () => {
-      clearInterval(refresh);
+      if (refreshTimer) clearTimeout(refreshTimer);
       controller.abort();
     };
   }, [localWindow, remoteWindow, retryCount]);
+
+  const remoteRefreshing = remoteRefreshInProgress(machines);
+
+  useEffect(() => {
+    if (!remoteRefreshing) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = () => {
+      void remoteStatus()
+        .then((machine) => {
+          if (cancelled) return;
+          setMachines((current) =>
+            current.map((item) => (item.sourceId === machine.sourceId ? machine : item)),
+          );
+          if (machine.refreshing || machine.state === 'connecting' || machine.reason === 'initial_refresh') {
+            timer = setTimeout(poll, REMOTE_REFRESH_POLL_INTERVAL_MS);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) timer = setTimeout(poll, REMOTE_REFRESH_POLL_INTERVAL_MS);
+        });
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [remoteRefreshing]);
 
   const retrySessions = () => {
     setIsLoading(true);

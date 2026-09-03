@@ -60,6 +60,8 @@ export type MachineFact = {
   complete: boolean;
   reason?: MachineReason;
   lastSuccessAtMs?: number;
+  lastCheckedAtMs?: number;
+  sessionCount?: number;
   coverageSinceMs?: number;
   roundTripMs?: number;
   coverage?: AgentCoverage[];
@@ -192,9 +194,15 @@ export function decodeMachineFact(value: unknown): MachineFact {
     if (typeof raw.reason !== 'string') throw new Error('Invalid machine fact');
     fact.reason = assertOneOf(raw.reason, MACHINE_REASONS);
   }
-  for (const key of ['lastSuccessAtMs', 'coverageSinceMs', 'roundTripMs'] as const) {
+  for (const key of ['lastSuccessAtMs', 'lastCheckedAtMs', 'coverageSinceMs', 'roundTripMs'] as const) {
     const number = optionalNumber(raw[key]);
     if (number != null) fact[key] = number;
+  }
+  if (raw.sessionCount != null) {
+    if (typeof raw.sessionCount !== 'number' || !Number.isInteger(raw.sessionCount) || raw.sessionCount < 0) {
+      throw new Error('Invalid machine fact');
+    }
+    fact.sessionCount = raw.sessionCount;
   }
   const coverage = decodeCoverage(raw.coverage);
   if (coverage != null) fact.coverage = coverage;
