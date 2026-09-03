@@ -121,7 +121,7 @@
   --recap: #b5468a;
   --compaction: #b5852f;
 
-  --background: oklch(0.985 0.005 255 / 0.8);
+  --background: oklch(0.99 0.002 250 / 0.82);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0 / 0.7);
   --card-foreground: oklch(0.145 0 0);
@@ -129,15 +129,15 @@
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0.005 255 / 0.72);
+  --secondary: oklch(0.975 0.003 250 / 0.74);
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.96 0.006 255 / 0.64);
+  --muted: oklch(0.965 0.004 250 / 0.66);
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.78 0.012 255 / 0.62);
-  --input: oklch(0.9 0.01 255 / 0.65);
+  --border: oklch(0.82 0.006 250 / 0.64);
+  --input: oklch(0.94 0.004 250 / 0.68);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -145,11 +145,11 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0.005 255 / 0.8);
+  --sidebar: oklch(0.99 0.002 250 / 0.82);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.96 0.006 255 / 0.64);
+  --sidebar-accent: oklch(0.965 0.004 250 / 0.66);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
@@ -223,9 +223,9 @@
     min-height: 100vh;
     background-attachment: fixed;
     background-image:
-      radial-gradient(circle at 4% 0%, oklch(0.78 0.035 250 / 0.18), transparent 28rem),
-      radial-gradient(circle at 96% 10%, oklch(0.82 0.025 315 / 0.1), transparent 26rem),
-      linear-gradient(145deg, oklch(0.98 0.006 255), oklch(0.93 0.012 245));
+      radial-gradient(circle at 4% 0%, oklch(0.86 0.012 250 / 0.14), transparent 28rem),
+      radial-gradient(circle at 96% 10%, oklch(0.9 0.008 275 / 0.08), transparent 26rem),
+      linear-gradient(145deg, oklch(0.995 0.002 250), oklch(0.965 0.005 250));
   }
   html {
     @apply font-sans;
