@@ -419,7 +419,7 @@ function HandoffSection({ detail }: { detail: SessionDetail }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {isLocalSession(detail) && <StartNewSessionButton detail={detail} brief={brief} onCopy={copyBrief} />}
+        <StartNewSessionButton detail={detail} brief={brief} onCopy={copyBrief} />
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={copyBrief}>
           <span>Copy handoff</span>
         </Button>
@@ -427,8 +427,8 @@ function HandoffSection({ detail }: { detail: SessionDetail }) {
       </div>
       {!isLocalSession(detail) && (
         <div className="text-muted-foreground text-xs">
-          Monitoring only · Copy handoff uses available remote facts. Resume, Start Fresh, file diffs,
-          synthesis, Hub sharing, and command history are unavailable.
+          Remote handoffs and launch actions use available remote facts. File diffs, synthesis, Hub sharing,
+          and command history are unavailable.
         </div>
       )}
     </div>
@@ -990,10 +990,16 @@ function InspectorFooter({ detail }: { detail: SessionDetail }) {
 
   if (!isLocalSession(detail)) {
     return (
-      <SheetFooter className="bg-muted border-t">
-        <span className="text-muted-foreground text-xs">
-          Remote liveness may be unknown; transcript recency is shown separately.
-        </span>
+      <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
+        <div className="flex min-w-0 flex-col">
+          <span className="text-xs">Resume this exact remote session</span>
+          <span className="text-muted-foreground text-xs font-light">
+            Reopens this session in {getVendor(detail.agent).label} on {detail.sourceLabel} via SSH.
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <ResumeSessionButton detail={detail} />
+        </div>
       </SheetFooter>
     );
   }
