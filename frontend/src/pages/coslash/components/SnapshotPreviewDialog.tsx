@@ -9,15 +9,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { apiFetch } from '@/pages/coslash/lib/api';
 import {
   canonicalPayloadText,
+  fetchSnapshotPreview,
   formatCanonicalJson,
   frozenCostDisclosure,
-  isSnapshotPreview,
   PREVIEW_PRIVACY_COPY,
   previewNotices,
-  previewRequestPath,
   STRUCTURALLY_EXCLUDED,
   type SnapshotPreview,
 } from '@/pages/coslash/lib/preview';
@@ -144,13 +142,8 @@ export function SnapshotPreviewDialog({
     }
     const controller = new AbortController();
     setLoad({ status: 'loading' });
-    apiFetch(previewRequestPath(detail, detail.mtime), { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Preview request failed (${response.status})`);
-        return response.json() as Promise<unknown>;
-      })
+    fetchSnapshotPreview(detail, detail.mtime, controller.signal)
       .then((preview) => {
-        if (!isSnapshotPreview(preview)) throw new Error('Invalid preview response');
         if (!controller.signal.aborted) setLoad({ status: 'loaded', preview });
       })
       .catch(() => {
