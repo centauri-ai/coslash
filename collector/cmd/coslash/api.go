@@ -24,18 +24,16 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
-// decodeSettingsSave accepts the legacy bare settings document and the T05
-// envelope used when a settings replacement also has an explicit helper
-// ownership action. The action never becomes part of settings.json.
+// decodeSettingsSave separates persisted settings from the optional helper
+// ownership action, which never becomes part of settings.json.
 func decodeSettingsSave(data []byte) (settings.Config, remote.OwnershipAction, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return settings.Config{}, "", err
 	}
-	rawSettings, enveloped := fields["settings"]
-	if !enveloped {
-		config, err := settings.Decode(data)
-		return config, remote.OwnershipActionNone, err
+	rawSettings, ok := fields["settings"]
+	if !ok {
+		return settings.Config{}, "", errors.New("settings save requires settings")
 	}
 	for key := range fields {
 		if key != "settings" && key != "remoteOwnershipAction" {
@@ -88,11 +86,6 @@ func handleList(
 	}
 	for _, session := range sessions {
 		session.Synthesis = mgr.Lookup(session.ID, session.LastActivityTime)
-	}
-	if r.URL.Query().Get("sourceAware") != "1" {
-		writeJSON(w, sessions)
-		log.Printf("list sessions: %d", len(sessions))
-		return
 	}
 	response := sessionsResponse{
 		Sessions: []boardSession{},

@@ -47,13 +47,7 @@ export type SessionsQuery = {
 };
 
 export function decodeSessionsResponse(body: unknown): SessionsPayload {
-  if (Array.isArray(body)) {
-    return {
-      sessions: body.map(decodeSession),
-      machines: [],
-    };
-  }
-  if (body == null || typeof body !== 'object') {
+  if (body == null || typeof body !== 'object' || Array.isArray(body)) {
     throw new Error('Invalid sessions response');
   }
   const sessions = (body as { sessions?: unknown }).sessions;
@@ -117,7 +111,6 @@ export function sessionsRequestPath(query: {
   remoteSince: number | null;
 }): string {
   const params = new URLSearchParams();
-  params.set('sourceAware', '1');
   if (query.localSince != null) params.set('since', String(query.localSince));
   if (query.remoteSince != null) params.set('remoteSince', String(query.remoteSince));
   const encoded = params.toString();

@@ -53,7 +53,7 @@ function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
 }
 
 describe('decodeSessionsResponse', () => {
-  it('accepts the legacy bare array with local source defaults', () => {
+  it('rejects the legacy bare array', () => {
     const {
       sourceId: _s,
       sourceLabel: _l,
@@ -61,10 +61,7 @@ describe('decodeSessionsResponse', () => {
       displayStale: _d,
       ...legacy
     } = sampleSession('a');
-    expect(decodeSessionsResponse([legacy])).toEqual({
-      sessions: [sampleSession('a')],
-      machines: [],
-    });
+    expect(() => decodeSessionsResponse([legacy])).toThrow('Invalid sessions response');
   });
 
   it('accepts the source-aware envelope and preserves machines', () => {
@@ -121,13 +118,13 @@ describe('decodeSessionsResponse', () => {
 describe('sessionsRequestPath', () => {
   it('sends displayed remoteSince while Hub omits local since', () => {
     expect(sessionsRequestPath({ localSince: null, remoteSince: 1_700_000_000_000 })).toBe(
-      '/api/sessions?sourceAware=1&remoteSince=1700000000000',
+      '/api/sessions?remoteSince=1700000000000',
     );
   });
 
   it('sends matching cutoffs for ordinary board refresh', () => {
     expect(sessionsRequestPath({ localSince: 10, remoteSince: 10 })).toBe(
-      '/api/sessions?sourceAware=1&since=10&remoteSince=10',
+      '/api/sessions?since=10&remoteSince=10',
     );
   });
 });

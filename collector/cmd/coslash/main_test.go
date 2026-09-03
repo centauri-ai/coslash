@@ -64,6 +64,30 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	}
 }
 
+func TestSessionsAlwaysReturnsEnvelope(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	handler := routes(synthesis.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/sessions", nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Sessions []json.RawMessage `json:"sessions"`
+		Machines []json.RawMessage `json:"machines"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Sessions == nil || body.Machines == nil {
+		t.Fatalf("response = %s, want sessions and machines arrays", response.Body.String())
+	}
+}
+
 func TestLocalMachineFactOmitsRemoteOnlyEnums(t *testing.T) {
 	encoded, err := json.Marshal(localMachineFact())
 	if err != nil {
@@ -321,6 +345,16 @@ func TestSettingsSaveEnvelopeRejectsUnknownFields(t *testing.T) {
 	}
 	if _, _, err := decodeSettingsSave(body); err == nil {
 		t.Fatal("unknown envelope field was accepted")
+	}
+}
+
+func TestSettingsSaveRejectsLegacyBareSettings(t *testing.T) {
+	body, err := json.Marshal(settings.Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := decodeSettingsSave(body); err == nil {
+		t.Fatal("legacy bare settings were accepted")
 	}
 }
 
