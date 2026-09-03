@@ -442,6 +442,119 @@ func TestRestartDiscoversAndReusesVerifiedHelperWithoutInstall(t *testing.T) {
 	}
 }
 
+func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	remote, current, content := lifecycleFixture(t)
+	cache := NewCache(filepath.Join(home, "remote-cache"))
+	options := Options{
+		Cache: cache, Now: time.Now,
+		ReleaseProvider:             fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
+			return refreshOutcome{Snapshot: CachedSnapshotV2{Version: cacheV2Version}}, nil
+		},
+	}
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	first := NewManager(options)
+	if err := first.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if health := first.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("initial setup health = %#v", health)
+	}
+
+	previous := current
+	previous.Current = false
+	updated := current
+	updated.Version = "v2"
+	remote.document = signDocument(t, ReleaseMetadata{
+		Sequence: 2, ExpiresAtUnix: time.Now().Add(time.Hour).Unix(), Artifacts: []Artifact{updated, previous},
+	})
+	options.ReleaseProvider = fixedHelperRelease{document: remote.document, content: content}
+	restarted := NewManager(options)
+	if err := restarted.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	restarted.ListView(time.Now().Add(-time.Hour).UnixMilli())
+	waitUntil(t, func() bool {
+		restarted.mu.Lock()
+		defer restarted.mu.Unlock()
+		return restarted.helperProbe == helperProbeReady && !restarted.helperSetup
+	})
+	if remote.installs != 2 || remote.removed != "~/.coslash/helpers/v1/coslash-helper" {
+		t.Fatalf("installs=%d removed=%q", remote.installs, remote.removed)
+	}
+	if health := restarted.DiagnosticsHealth(); health.Helper == nil || !health.Helper.Compatible || health.Helper.Version != "v2" {
+		t.Fatalf("updated health = %#v", health)
+	}
+	ownership, owned, err := cache.LoadHelperOwnership(config.ID)
+	if err != nil || !owned || ownership.Version != "v2" {
+		t.Fatalf("ownership = %#v, owned=%v, err=%v", ownership, owned, err)
+	}
+}
+
+func TestAutomaticUpdateRetriesWhenTheRemoteReturns(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	remote, current, content := lifecycleFixture(t)
+	cache := NewCache(filepath.Join(home, "remote-cache"))
+	options := Options{
+		Cache: cache, Now: func() time.Time { return now },
+		ReleaseProvider:             fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+			return refreshOutcome{}, context.DeadlineExceeded
+		},
+	}
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	first := NewManager(options)
+	if err := first.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	if health := first.SetupHelper(context.Background(), Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("initial setup health = %#v", health)
+	}
+
+	previous := current
+	previous.Current = false
+	updated := current
+	updated.Version = "v2"
+	remote.document = signDocument(t, ReleaseMetadata{
+		Sequence: 2, ExpiresAtUnix: time.Now().Add(time.Hour).Unix(), Artifacts: []Artifact{updated, previous},
+	})
+	remote.probeErr = context.DeadlineExceeded
+	options.ReleaseProvider = fixedHelperRelease{document: remote.document, content: content}
+	restarted := NewManager(options)
+	if err := restarted.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	restarted.ListView(0)
+	waitUntil(t, func() bool {
+		restarted.mu.Lock()
+		defer restarted.mu.Unlock()
+		return restarted.helperProbe == helperProbeFallback && !restarted.refreshing
+	})
+	if remote.installs != 1 {
+		t.Fatalf("offline update installs = %d", remote.installs)
+	}
+
+	now = now.Add(RemoteRetryInterval)
+	remote.probeErr = nil
+	restarted.ListView(0)
+	waitUntil(t, func() bool {
+		restarted.mu.Lock()
+		defer restarted.mu.Unlock()
+		return restarted.helperProbe == helperProbeReady && !restarted.helperSetup
+	})
+	if remote.installs != 2 {
+		t.Fatalf("returned remote installs = %d", remote.installs)
+	}
+}
+
 func TestHelperTestAcceptsEmptySuccessfulCollectionWithoutRewritingBoardState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
