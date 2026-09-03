@@ -4,6 +4,7 @@
 package remotefacts
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	SchemaVersion = 1
+	SchemaVersion = 2
 
 	MaxIDBytes          = 200
 	MaxDisplayBytes     = 280
@@ -68,26 +69,28 @@ type Family struct {
 }
 
 type Session struct {
-	ID                 string       `json:"id"`
-	ParentID           string       `json:"parent_id,omitempty"`
-	SpawnKey           string       `json:"spawn_key,omitempty"`
-	Name               string       `json:"name,omitempty"`
-	StatusHint         string       `json:"status_hint,omitempty"`
-	Branch             string       `json:"branch,omitempty"`
-	Entrypoint         string       `json:"entrypoint,omitempty"`
-	StartedAtMs        int64        `json:"started_at_ms"`
-	LastActivityAtMs   int64        `json:"last_activity_at_ms"`
-	DurationMs         *int         `json:"duration_ms,omitempty"`
-	Stopped            bool         `json:"stopped,omitempty"`
-	InTurn             bool         `json:"in_turn,omitempty"`
-	Model              string       `json:"model,omitempty"`
-	ContextTokens      *int         `json:"context_tokens,omitempty"`
-	ContextWindow      *int         `json:"context_window,omitempty"`
-	Counts             Counts       `json:"counts"`
-	Usage              []ModelUsage `json:"usage"`
-	RecordedCostMicros *int64       `json:"recorded_cost_micro_usd,omitempty"`
-	Spawns             []Spawn      `json:"spawns"`
-	CommandLabels      []string     `json:"command_labels"`
+	ID                 string                    `json:"id"`
+	ParentID           string                    `json:"parent_id,omitempty"`
+	SpawnKey           string                    `json:"spawn_key,omitempty"`
+	Name               string                    `json:"name,omitempty"`
+	StatusHint         string                    `json:"status_hint,omitempty"`
+	Branch             string                    `json:"branch,omitempty"`
+	Entrypoint         string                    `json:"entrypoint,omitempty"`
+	StartedAtMs        int64                     `json:"started_at_ms"`
+	LastActivityAtMs   int64                     `json:"last_activity_at_ms"`
+	DurationMs         *int                      `json:"duration_ms,omitempty"`
+	Stopped            bool                      `json:"stopped,omitempty"`
+	InTurn             bool                      `json:"in_turn,omitempty"`
+	Model              string                    `json:"model,omitempty"`
+	ContextTokens      *int                      `json:"context_tokens,omitempty"`
+	ContextWindow      *int                      `json:"context_window,omitempty"`
+	Counts             Counts                    `json:"counts"`
+	Usage              []ModelUsage              `json:"usage"`
+	RecordedCostMicros *int64                    `json:"recorded_cost_micro_usd,omitempty"`
+	Spawns             []Spawn                   `json:"spawns"`
+	CommandLabels      []string                  `json:"command_labels"`
+	Commands           []session.SubagentCommand `json:"commands"`
+	Display            session.Session           `json:"display"`
 }
 
 type Counts struct {
@@ -310,6 +313,10 @@ func validateSession(s Session) error {
 			return errors.New("command label exceeds limit")
 		}
 	}
+	encoded, err := json.Marshal(s)
+	if err != nil || len(encoded) > 900<<10 {
+		return errors.New("session display exceeds limit")
+	}
 	return nil
 }
 
@@ -363,14 +370,12 @@ func validateOptionalCount(value *int) error {
 	return nil
 }
 
-// FromParsed creates a deterministic family replacement and applies the wire
-// allowlist. It intentionally drops paths, prompts, digest/tool text, commands,
-// file edits, repository data, environment data, and synthesis.
+// FromParsed creates a deterministic family replacement for remote display.
 func FromParsed(vendor, familyID, parserVersion, state, staleReason string, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata, fingerprints []vendors.FileFingerprint, headerMappings ...[]HeaderMapping) (Family, error) {
 	f := Family{SchemaVersion: SchemaVersion, ParserVersion: parserVersion, Vendor: vendor, FamilyID: familyID, State: state, StaleReason: truncate(staleReason, MaxDisplayBytes)}
 	for _, p := range parsed {
 		s := p.Session
-		fact := Session{ID: s.ID, ParentID: p.ParentID, SpawnKey: p.SpawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}}
+		fact := Session{ID: s.ID, ParentID: p.ParentID, SpawnKey: p.SpawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, Display: *s}
 		if p.StatusHint != nil {
 			fact.StatusHint = truncate(*p.StatusHint, MaxDisplayBytes)
 		}
@@ -399,6 +404,7 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 		for _, command := range p.Commands {
 			fact.CommandLabels = append(fact.CommandLabels, truncate(command.Label, MaxDisplayBytes))
 		}
+		fact.Commands = append([]session.SubagentCommand(nil), p.Commands...)
 		f.Sessions = append(f.Sessions, fact)
 	}
 	sort.Slice(f.Sessions, func(i, j int) bool { return f.Sessions[i].ID < f.Sessions[j].ID })
@@ -439,7 +445,18 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 	}
 	parsed := make([]*vendors.ParsedSession, 0, len(f.Sessions))
 	for _, fact := range f.Sessions {
-		s := &session.Session{Agent: f.Vendor, ID: fact.ID, Branch: pointer(fact.Branch), DurationMs: cloneInt(fact.DurationMs), Tokens: map[string]session.ModelTokens{}, StartedAt: fact.StartedAtMs, LastActivityTime: fact.LastActivityAtMs, Entrypoint: pointer(fact.Entrypoint), EditedFileCount: fact.Counts.EditedFiles, SessionDetails: session.SessionDetails{Model: pointer(fact.Model), ContextTokens: cloneInt(fact.ContextTokens), ContextWindow: cloneInt(fact.ContextWindow), Turns: fact.Counts.Turns, ToolUses: fact.Counts.ToolUses, Errors: fact.Counts.Errors, Compactions: fact.Counts.Compactions, PullRequests: fact.Counts.PullRequests}}
+		s, err := cloneDisplay(fact.Display)
+		if err != nil {
+			return nil, nil, err
+		}
+		s.Agent, s.ID = f.Vendor, fact.ID
+		s.Branch, s.DurationMs = pointer(fact.Branch), cloneInt(fact.DurationMs)
+		s.StartedAt, s.LastActivityTime = fact.StartedAtMs, fact.LastActivityAtMs
+		s.Entrypoint, s.EditedFileCount = pointer(fact.Entrypoint), fact.Counts.EditedFiles
+		s.Model, s.ContextTokens, s.ContextWindow = pointer(fact.Model), cloneInt(fact.ContextTokens), cloneInt(fact.ContextWindow)
+		s.Turns, s.ToolUses, s.Errors = fact.Counts.Turns, fact.Counts.ToolUses, fact.Counts.Errors
+		s.Compactions, s.PullRequests = fact.Counts.Compactions, fact.Counts.PullRequests
+		s.Tokens = map[string]session.ModelTokens{}
 		for _, usage := range fact.Usage {
 			s.Tokens[usage.Model] = session.ModelTokens{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheCreationInputTokens: usage.CacheCreationInputTokens, CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens, CacheReadInputTokens: usage.CacheReadInputTokens, Cost: float64(usage.CostMicroUSD) / 1_000_000}
 		}
@@ -451,9 +468,7 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 		for _, spawn := range fact.Spawns {
 			p.Spawns[spawn.Key] = vendors.SpawnState{Turn: cloneInt(spawn.Turn), Completed: spawn.Completed}
 		}
-		for _, label := range fact.CommandLabels {
-			p.Commands = append(p.Commands, session.SubagentCommand{Label: label})
-		}
+		p.Commands = append(p.Commands, fact.Commands...)
 		parsed = append(parsed, p)
 	}
 	metadata := vendors.EmptySessionMetadata()
@@ -464,6 +479,18 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 		metadata.Live[value.ID] = value.Status
 	}
 	return parsed, metadata, nil
+}
+
+func cloneDisplay(value session.Session) (*session.Session, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var clone session.Session
+	if err := json.Unmarshal(encoded, &clone); err != nil {
+		return nil, err
+	}
+	return &clone, nil
 }
 
 func truncate(value string, limit int) string {

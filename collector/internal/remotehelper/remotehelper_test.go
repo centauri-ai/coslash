@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -129,7 +130,7 @@ func TestEmitterReportsNegotiatedOutputLimit(t *testing.T) {
 func validRequest() remoteprotocol.Request {
 	return remoteprotocol.Request{
 		RequestID: "req-1", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
-		Schema: remoteprotocol.VersionRange{Min: 1, Max: 1}, ParserVersion: vendors.ParserVersion,
+		Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, ParserVersion: vendors.ParserVersion,
 		BaselineMode: remoteprotocol.BaselineKnown, BaselineID: "base-1",
 		CollectedAtMs: time.Now().UnixMilli(), Vendors: []string{"codex"},
 		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes,

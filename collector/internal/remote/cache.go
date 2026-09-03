@@ -256,7 +256,7 @@ func age(fetchedAtMs int64, now time.Time) time.Duration {
 // stays visible (marked stale) until the first v2 generation commits, and a
 // v1 fingerprint is never reinterpreted as v2 baseline state — the first v2
 // refresh always starts from an empty generation.
-const cacheV2Version = 2
+const cacheV2Version = 3
 const maxCacheV2Bytes = 64 << 20
 
 // CachedFamilyV2 is one durable family entry. Vendor and FamilyID are stored

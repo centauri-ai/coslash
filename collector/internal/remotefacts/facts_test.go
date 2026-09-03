@@ -61,32 +61,28 @@ func TestValidateHeaderMappingsMustReferenceFingerprint(t *testing.T) {
 	}
 }
 
-func TestParsedRoundTripPreservesApprovedCompositionFacts(t *testing.T) {
-	model, branch, status := "gpt-5", "main", "waiting"
+func TestParsedRoundTripPreservesSessionDetails(t *testing.T) {
+	model, branch, status, prompt := "gpt-5", "main", "waiting", "ship the fix"
 	cost := 1.25
 	turn := 3
 	parsed := []*vendors.ParsedSession{{
-		Session: &session.Session{Agent: "codex", ID: "root", Branch: &branch, StartedAt: 10, LastActivityTime: 20, Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 2, OutputTokens: 3, Cost: .5}}, SessionDetails: session.SessionDetails{Model: &model, Turns: 4}},
+		Session: &session.Session{Agent: "codex", ID: "root", Summary: &prompt, WorkingDirectory: "/workspace", Branch: &branch, Repository: &branch, StartedAt: 10, LastActivityTime: 20, Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 2, OutputTokens: 3, Cost: .5}}, SessionDetails: session.SessionDetails{Model: &model, Turns: 4, FirstPrompt: &prompt, Commands: []string{"go test ./..."}, Commits: []string{"abc123 fix"}, Todos: []session.Todo{{Text: "test", Done: true}}, Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestUser, Description: prompt}}, FileEdits: []session.FileEdit{{Path: "main.go", Additions: 1}}}},
 		Name:    "safe name", StatusHint: &status, RecordedCost: &cost, Spawns: map[string]vendors.SpawnState{"spawn": {Turn: &turn, Completed: true}}, Commands: []session.SubagentCommand{{Label: "tests", Command: "SECRET RAW COMMAND"}},
 	}}
 	f, err := FromParsed("codex", "root", "parser-v1", StateComplete, "", parsed, vendors.EmptySessionMetadata(), []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reflect.ValueOf(f).String() == "SECRET RAW COMMAND" {
-		t.Fatal("raw command crossed boundary")
-	}
 	got, _, err := f.Parsed()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].Session.ID != "root" || got[0].Name != "safe name" || got[0].Commands[0].Label != "tests" || got[0].Commands[0].Command != "" || *got[0].RecordedCost != cost {
+	if got[0].Session.ID != "root" || got[0].Session.WorkingDirectory != "/workspace" || *got[0].Session.FirstPrompt != prompt || got[0].Session.Commands[0] != "go test ./..." || got[0].Session.FileEdits[0].Path != "main.go" || got[0].Name != "safe name" || got[0].Commands[0].Label != "tests" || got[0].Commands[0].Command != "SECRET RAW COMMAND" || *got[0].RecordedCost != cost {
 		t.Fatalf("round trip = %#v", got[0])
 	}
 }
 
-// This reviewed census keeps new ParsedSession and Session fields excluded by
-// default until their privacy decision is explicit here and in FromParsed.
+// This reviewed census requires an explicit decision for every source field.
 func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 	assertCensus(t, reflect.TypeOf(vendors.ParsedSession{}), map[string]bool{
 		"Session": true, "LogPath": false, "LogModifiedAtMs": false,
@@ -94,19 +90,19 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"Commands": true, "Name": true, "InTurn": true, "StatusHint": true, "RecordedCost": true,
 	})
 	assertCensus(t, reflect.TypeOf(session.Session{}), map[string]bool{
-		"Agent": true, "ID": true, "Name": false, "Summary": false, "Status": false,
-		"WorkingDirectory": false, "Branch": true, "Repository": false, "RepositoryLocalOnly": false,
-		"EditedFileCount": true, "DurationMs": true, "Tokens": true, "Cost": false,
-		"UnpricedModels": false, "Subagents": false, "StartedAt": true, "LastActivityTime": true,
-		"Entrypoint": true, "CommitLog": false, "SessionDetails": true,
+		"Agent": true, "ID": true, "Name": true, "Summary": true, "Status": true,
+		"WorkingDirectory": true, "Branch": true, "Repository": true, "RepositoryLocalOnly": true,
+		"EditedFileCount": true, "DurationMs": true, "Tokens": true, "Cost": true,
+		"UnpricedModels": true, "Subagents": true, "StartedAt": true, "LastActivityTime": true,
+		"Entrypoint": true, "CommitLog": true, "SessionDetails": true,
 	})
 	assertCensus(t, reflect.TypeOf(session.SessionDetails{}), map[string]bool{
 		"Model": true, "ContextTokens": true, "ContextWindow": true, "Turns": true,
-		"ToolUses": true, "Errors": true, "Compactions": true, "FirstPrompt": false,
-		"Commands": false, "Commits": false, "PullRequests": true, "Todos": false,
-		"Digest": false, "FileEdits": false, "Git": false, "GitProbed": false,
-		"LastEditAt": false, "Synthesis": false, "SynthesisPending": false,
-		"DeclaredGoal": false, "CompactionSeed": false,
+		"ToolUses": true, "Errors": true, "Compactions": true, "FirstPrompt": true,
+		"Commands": true, "Commits": true, "PullRequests": true, "Todos": true,
+		"Digest": true, "FileEdits": true, "Git": true, "GitProbed": true,
+		"LastEditAt": true, "Synthesis": true, "SynthesisPending": true,
+		"DeclaredGoal": true, "CompactionSeed": true,
 	})
 }
 

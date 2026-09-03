@@ -6,7 +6,11 @@ import (
 )
 
 const (
-	DefaultConnectTimeout = 60 * time.Second
+	// A host that cannot complete an SSH handshake promptly is unavailable for
+	// the board. Collection itself retains DefaultDeadline after it connects.
+	DefaultConnectTimeout = 7 * time.Second
+	// Helper activation is a small fixed command, unlike collection.
+	DefaultHelperInstallTimeout = 15 * time.Second
 	// Covers Claude and Codex over one SFTP session; large remote trees need headroom.
 	DefaultDeadline       = 3 * time.Minute
 	DefaultMaxFileBytes   = 32 << 20
@@ -15,11 +19,9 @@ const (
 	DefaultMaxDepth       = 16
 	DefaultMaxStderrBytes = 8 << 10
 
-	FreshnessInterval = 3 * time.Minute
-	// Short first retry so fixing SSH (keys/host) recovers the board without a
-	// long wait or a manual Retry click; later failures still back off hard.
-	InitialRetryBackoff = 30 * time.Second
-	MaxRetryBackoff     = 30 * time.Minute
+	FreshnessInterval   = 3 * time.Minute
+	RemoteRetryInterval = 3 * time.Minute
+	ManualRetryCooldown = 2 * time.Second
 	ActivityWindowMs    = 2 * 60_000
 	MaxDiagnosticBytes  = 2 << 10
 	MaxErrorCopyBytes   = 256

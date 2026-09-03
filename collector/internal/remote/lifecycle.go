@@ -442,8 +442,25 @@ type compatibleHelper struct {
 }
 
 type Lifecycle struct {
-	Remote LifecycleRemote
-	Trust  TrustStore
+	Remote   LifecycleRemote
+	Trust    TrustStore
+	Progress func(SetupProgress)
+}
+
+type SetupProgress string
+
+const (
+	SetupProgressIdle      SetupProgress = "idle"
+	SetupProgressChecking  SetupProgress = "checking"
+	SetupProgressPreparing SetupProgress = "preparing"
+	SetupProgressUploading SetupProgress = "uploading"
+	SetupProgressVerifying SetupProgress = "verifying"
+)
+
+func (lifecycle Lifecycle) reportProgress(progress SetupProgress) {
+	if lifecycle.Progress != nil {
+		lifecycle.Progress(progress)
+	}
 }
 
 // VerifyExecution revalidates all executable-file invariants immediately
@@ -482,6 +499,7 @@ func (lifecycle Lifecycle) Setup(ctx context.Context, document SignedReleaseMeta
 }
 
 func (lifecycle Lifecycle) SetupWithLoader(ctx context.Context, document SignedReleaseMetadata, consent Consent, load ArtifactLoader) LifecycleResult {
+	lifecycle.reportProgress(SetupProgressChecking)
 	metadata, err := lifecycle.Trust.Verify(document)
 	if err != nil {
 		return lifecycleFailure(LifecycleVerificationError, err)
@@ -502,6 +520,7 @@ func (lifecycle Lifecycle) SetupWithLoader(ctx context.Context, document SignedR
 	}
 	normalized.UID = platform.UID
 	platform = normalized
+	lifecycle.reportProgress(SetupProgressPreparing)
 	artifact, err := metadata.Select(platform)
 	if err != nil {
 		state := LifecycleUnsupported
@@ -578,6 +597,7 @@ func (lifecycle Lifecycle) SetupWithLoader(ctx context.Context, document SignedR
 	if err := verifyLocalArtifact(artifact, artifactBytes); err != nil {
 		return lifecycleFailure(LifecycleVerificationError, err)
 	}
+	lifecycle.reportProgress(SetupProgressUploading)
 	temporary, _ := helperTemporaryPath(artifact.Version)
 	installed, err := lifecycle.Remote.Install(ctx, InstallRequest{
 		Artifact: artifact, Bytes: slices.Clone(artifactBytes), Destination: target,
@@ -596,8 +616,12 @@ func (lifecycle Lifecycle) SetupWithLoader(ctx context.Context, document SignedR
 		}
 		return lifecycleFailure(LifecycleVerificationError, err)
 	}
+	lifecycle.reportProgress(SetupProgressVerifying)
 	result := lifecycle.capabilityResult(ctx, target, artifact, LifecycleReady)
 	if result.CanExecute {
+		if previous != nil {
+			_ = lifecycle.Remote.RemoveExact(ctx, previous.path)
+		}
 		return result
 	}
 	_ = lifecycle.Remote.RemoveExact(ctx, target)
