@@ -19,6 +19,7 @@ var (
 	ErrHelperOwnershipConflict = errors.New("helper ownership must be explicitly released or uninstalled before changing SSH alias")
 	ErrHelperAliasMismatch     = errors.New("helper setup alias does not match configured SSH alias")
 	ErrHelperSetupInProgress   = errors.New("helper setup is running for the configured SSH alias")
+	ErrRemoteSessionActive     = errors.New("remote session already has an active writer")
 )
 
 type SessionKey struct {
@@ -438,20 +439,23 @@ func (manager *Manager) DiagnosticsHealth() Health {
 
 // LaunchSession returns the current remote session and SSH alias only while
 // the host's most recent collection completed successfully.
-func (manager *Manager) LaunchSession(sourceID, agent, sessionID string) (*session.Session, string, bool) {
+func (manager *Manager) LaunchSession(sourceID, agent, sessionID string) (*session.Session, string, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID ||
 		(manager.state != StateOK && manager.state != StateLimited) {
-		return nil, "", false
+		return nil, "", nil
 	}
 	for _, item := range manager.sessions {
 		if item.Agent == agent && item.ID == sessionID && item.WorkingDirectory != "" {
+			if item.Status != nil && *item.Status == "busy" {
+				return nil, "", ErrRemoteSessionActive
+			}
 			copy := *item
-			return &copy, manager.cfg.SSHAlias, true
+			return &copy, manager.cfg.SSHAlias, nil
 		}
 	}
-	return nil, "", false
+	return nil, "", nil
 }
 
 // SetupAliasMatches reports whether alias is the currently persisted remote

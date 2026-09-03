@@ -260,7 +260,11 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			return
 		}
 	} else {
-		found, alias, _ = remoteManager.LaunchSession(sourceID, query.Get("agent"), query.Get("id"))
+		found, alias, err = remoteManager.LaunchSession(sourceID, query.Get("agent"), query.Get("id"))
+		if errors.Is(err, remote.ErrRemoteSessionActive) {
+			http.Error(w, "remote session is already active", http.StatusConflict)
+			return
+		}
 	}
 	if found == nil {
 		if sourceID == localSourceID {
