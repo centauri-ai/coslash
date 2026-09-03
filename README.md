@@ -113,11 +113,12 @@ in the background; use **Retry setup** for an immediate attempt. **Remove**
 stops monitoring locally even when the host is offline and leaves its helper on
 the remote machine.
 
-Remote v1 is monitoring-only. Cards, transcript-derived facts, costs, tokens,
-file-edit summaries, and **Copy handoff** are available. Resume, Start Fresh,
-diffs, synthesis, preview, Commands, and sharing remain local-only. A remote
-session can show recent transcript activity while process liveness is unknown;
-coSlash labels those facts separately.
+Remote sessions support **Resume** and **Start fresh with handoff** while their
+SSH host is connected. Cards, transcript-derived facts, costs, tokens,
+file-edit summaries, and **Copy handoff** are also available. Diffs, synthesis,
+preview, Commands, and sharing remain local-only. A remote session can show
+recent transcript activity while process liveness is unknown; coSlash labels
+those facts separately.
 
 ## What you get
 

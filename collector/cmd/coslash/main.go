@@ -216,10 +216,7 @@ func routes(
 		handleSaveSettings(w, r, settingsStore, mgr, remoteManager)
 	})
 	api.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRemoteSource(w, r) {
-			return
-		}
-		handleLaunch(w, r, settingsStore)
+		handleLaunch(w, r, settingsStore, remoteManager)
 	})
 	api.HandleFunc("POST /api/remote/test", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteTest(w, r, remoteManager)

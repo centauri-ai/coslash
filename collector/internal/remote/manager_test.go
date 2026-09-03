@@ -495,6 +495,38 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 	}
 }
 
+func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
+	manager := NewManager(Options{})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	manager.mu.Lock()
+	manager.state = StateOK
+	manager.complete = true
+	manager.sessions = []*session.Session{{Agent: vendors.AgentCodex, ID: "session", WorkingDirectory: "/workspace"}}
+	manager.mu.Unlock()
+	found, alias, ok := manager.LaunchSession(config.ID, vendors.AgentCodex, "session")
+	if !ok || alias != config.SSHAlias || found == nil || found.WorkingDirectory != "/workspace" {
+		t.Fatalf("launch session = %#v, %q, %v", found, alias, ok)
+	}
+	if _, _, ok := manager.LaunchSession(config.ID, vendors.AgentCodex, "missing"); ok {
+		t.Fatal("missing session was launchable")
+	}
+	manager.mu.Lock()
+	manager.state = StateLimited
+	manager.mu.Unlock()
+	if _, _, ok := manager.LaunchSession(config.ID, vendors.AgentCodex, "session"); !ok {
+		t.Fatal("connected limited remote was not launchable")
+	}
+	manager.mu.Lock()
+	manager.state = StateStale
+	manager.mu.Unlock()
+	if _, _, ok := manager.LaunchSession(config.ID, vendors.AgentCodex, "session"); ok {
+		t.Fatal("stale remote was launchable")
+	}
+}
+
 func TestAutomaticUpdateRetriesWhenTheRemoteReturns(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
@@ -569,6 +601,7 @@ func TestHelperTestAcceptsEmptySuccessfulCollectionWithoutRewritingBoardState(t 
 			return refreshOutcome{Snapshot: CachedSnapshotV2{}}, nil
 		},
 	})
+	t.Cleanup(manager.Shutdown)
 	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
 	if err := manager.ApplySettings(config); err != nil {
 		t.Fatal(err)
