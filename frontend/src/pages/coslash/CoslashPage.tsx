@@ -31,11 +31,7 @@ import {
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
-import {
-  HUB_SHARE_VERSION,
-  localShareCandidates,
-  type DestinationResult,
-} from '@/pages/coslash/features/sharing/model';
+import { localShareCandidates, type DestinationResult } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
@@ -65,33 +61,6 @@ const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
   '30d': 'active in the last 30 days',
   'all': 'across all time',
 };
-
-function fixtureDestination(search: string): DestinationResult {
-  const state = new URLSearchParams(search).get('share-state');
-  if (
-    state === 'signed_out' ||
-    state === 'pairing_required' ||
-    state === 'credential_dormant' ||
-    state === 'credential_revoked'
-  ) {
-    return { contractVersion: HUB_SHARE_VERSION, state, configured: true };
-  }
-  return {
-    contractVersion: HUB_SHARE_VERSION,
-    configured: true,
-    state: 'ready',
-    destination: {
-      workspaceId: '10000000-0000-4000-8000-000000000001',
-      workspaceName: 'Compiler Team',
-      currentMemberCount: 2,
-      resultingMemberCount: 2,
-      currentApprovedSessionCount: 3,
-      historyDisclosure:
-        "Sharing this revision makes it visible to the workspace's current members. Membership and approved-session counts are current when viewed.",
-      credentialState: 'paired',
-    },
-  };
-}
 
 function CoslashPageHeader({
   onOpenSettings,
@@ -294,10 +263,8 @@ export function CoslashPage() {
   const [vendor, setVendor] = useState(() => loadBoardFilters().vendor);
   const [timeWindow, setTimeWindow] = useState(() => loadBoardFilters().timeWindow);
   const [machineFilter, setMachineFilter] = useState(ALL_MACHINES);
-  const shareParams = new URLSearchParams(window.location.search);
-  const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
-  const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
+  const shareEnabled = hubDestination?.configured === true;
   const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions } = useSessions({
     localWindow: shareEnabled ? 'all' : timeWindow,
     remoteWindow: timeWindow,
@@ -320,17 +287,9 @@ export function CoslashPage() {
   const [remoteRetryInFlight, setRemoteRetryInFlight] = useState(false);
   const settingsState = useSettings();
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
-  const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
-  const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
   const shareCandidates = useMemo(
-    () =>
-      localShareCandidates(
-        sessions.map((session, index) => ({
-          session,
-          previouslyShared: shareFixtureEnabled && index === 0,
-        })),
-      ),
-    [sessions, shareFixtureEnabled],
+    () => localShareCandidates(sessions.map((session) => ({ session }))),
+    [sessions],
   );
   const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
   const filterableRemoteMachines = machinesForSourceFilter(machines);
@@ -349,9 +308,8 @@ export function CoslashPage() {
   }, []);
 
   useEffect(() => {
-    if (shareFixtureEnabled) return;
     void refreshHubDestination().catch(() => undefined);
-  }, [refreshHubDestination, shareFixtureEnabled]);
+  }, [refreshHubDestination]);
 
   useEffect(() => {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
@@ -532,19 +490,13 @@ export function CoslashPage() {
         machines={machines}
         onClose={() => setSelectedSessionKey(null)}
       />
-      {shareEnabled && shareDestination && (
+      {shareEnabled && hubDestination && (
         <ShareToHubDialog
           open={shareDialogOpen}
           onOpenChange={setShareDialogOpen}
           candidates={shareCandidates}
-          destinationResult={shareDestination}
-          fixtureMode={shareFixtureEnabled}
-          fixtureOutcome={shareFixtureOutcome}
+          destinationResult={hubDestination}
           onDestinationRefresh={refreshHubDestination}
-          onOpenSettings={() => {
-            setShareDialogOpen(false);
-            setSettingsDialogMode('full-settings');
-          }}
         />
       )}
       <SettingsDialog

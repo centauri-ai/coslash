@@ -50,29 +50,25 @@ type Phase = 'select' | 'loading' | 'review' | 'result';
 
 const ELIGIBILITY_COPY: Record<
   Exclude<DestinationResult['state'], 'ready'>,
-  { title: string; detail: string; action: string }
+  { title: string; detail: string }
 > = {
   signed_out: {
     title: 'Sign in to share',
     detail: 'Sharing stays off. Sign in, choose a workspace, and pair this device before selecting sessions.',
-    action: 'Open cloud settings',
   },
   pairing_required: {
     title: 'Pair this device',
     detail:
       'No workspace-bound device credential is available. Pairing must finish before a destination can be approved.',
-    action: 'Open pairing settings',
   },
   credential_dormant: {
     title: 'Paired workspace is not active',
     detail: 'Select the paired workspace, then verify the refreshed destination and member count.',
-    action: 'Open workspace settings',
   },
   credential_revoked: {
     title: 'Device access was revoked',
     detail:
       'This credential cannot be retried. Pair the device again; no selected session has been uploaded.',
-    action: 'Open pairing settings',
   },
 };
 
@@ -81,19 +77,13 @@ export function ShareToHubDialog({
   onOpenChange,
   candidates,
   destinationResult,
-  onOpenSettings,
   onDestinationRefresh,
-  fixtureMode = false,
-  fixtureOutcome = 'success',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   candidates: ShareCandidate[];
   destinationResult: DestinationResult;
-  onOpenSettings: () => void;
   onDestinationRefresh: () => Promise<DestinationResult>;
-  fixtureMode?: boolean;
-  fixtureOutcome?: 'success' | 'partial';
 }) {
   const [search, setSearch] = useState('');
   const [window, setWindow] = useState<ShareWindow>('7d');
@@ -103,7 +93,6 @@ export function ShareToHubDialog({
   const [reviewed, setReviewed] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [result, setResult] = useState<ShareResult | null>(null);
-  const [fixtureAttempt, setFixtureAttempt] = useState(0);
   const [pairing, setPairing] = useState<PairingResult | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [pairingRefreshRequired, setPairingRefreshRequired] = useState(false);
@@ -148,7 +137,6 @@ export function ShareToHubDialog({
     setReviewed(false);
     setProblem(null);
     setResult(null);
-    setFixtureAttempt(0);
     setPairing(null);
     setPairingError(null);
     setPairingRefreshRequired(false);
@@ -164,7 +152,7 @@ export function ShareToHubDialog({
 
   useEffect(() => {
     const pairingId = pairing?.pairingId;
-    if (!open || fixtureMode || pairing?.state !== 'pending' || !pairingId || pairingRefreshRequired) return;
+    if (!open || pairing?.state !== 'pending' || !pairingId || pairingRefreshRequired) return;
     let stopped = false;
     let timeout = 0;
     const delay = Math.max(2, pairing.intervalSeconds ?? 2) * 1000;
@@ -206,7 +194,6 @@ export function ShareToHubDialog({
       globalThis.clearTimeout(timeout);
     };
   }, [
-    fixtureMode,
     onDestinationRefresh,
     open,
     pairing?.intervalSeconds,
@@ -237,7 +224,6 @@ export function ShareToHubDialog({
     setProblem(null);
     setResult(null);
     setPhase('select');
-    setFixtureAttempt(0);
     setRetryReadyAt(0);
   };
 
@@ -283,47 +269,6 @@ export function ShareToHubDialog({
     }
   };
 
-  const exerciseFixtureResult = () => {
-    if (!reviewed || records.length === 0 || !reviewStillCurrent) return;
-    const partial = fixtureOutcome === 'partial' && fixtureAttempt === 0 && records.length > 1;
-    const results: ShareResult['results'] = records.map((record, index) => {
-      if (partial && index === records.length - 1) {
-        return {
-          localSessionId: record.item.localSessionId,
-          idempotencyKey: record.item.idempotencyKey,
-          state: 'failed',
-          deduplicated: false,
-          error: { code: 'temporary_unavailable', retryable: true, retryAfterSeconds: 5 },
-        };
-      }
-      const suffix = String(index + 1).padStart(12, '0');
-      const repositoryId = `80000000-0000-4000-8000-${suffix}`;
-      const alreadyAccepted = record.candidate.previouslyShared;
-      return {
-        localSessionId: record.item.localSessionId,
-        idempotencyKey: record.item.idempotencyKey,
-        state: alreadyAccepted ? 'already_accepted' : 'accepted',
-        sessionId: `60000000-0000-4000-8000-${suffix}`,
-        revisionId: `70000000-0000-4000-8000-${suffix}`,
-        deduplicated: alreadyAccepted,
-        sharedAt: '2026-08-18T18:00:00Z',
-        briefState: 'pending',
-        route: {
-          hubContractVersion: 'hub-read/v1',
-          repositoryId,
-          canonicalWeekStart: '2026-08-17',
-          path: `/repos/${repositoryId}/sessions/2026-08-17`,
-        },
-      };
-    });
-    showResult({
-      contractVersion: HUB_SHARE_VERSION,
-      requestId: crypto.randomUUID(),
-      state: partial ? 'partial' : 'succeeded',
-      results,
-    });
-  };
-
   const showResult = (next: ShareResult) => {
     const delay = Math.max(
       0,
@@ -339,10 +284,6 @@ export function ShareToHubDialog({
   };
 
   const submitReviewed = async () => {
-    if (fixtureMode) {
-      exerciseFixtureResult();
-      return;
-    }
     if (!reviewed || records.length === 0 || !reviewStillCurrent) return;
     setPhase('loading');
     setProblem(null);
@@ -407,7 +348,6 @@ export function ShareToHubDialog({
     );
     setResult(null);
     setRetryReadyAt(0);
-    setFixtureAttempt((current) => current + 1);
     setPhase(plan.renewedReview.size > 0 ? 'select' : 'review');
   };
 
@@ -428,14 +368,10 @@ export function ShareToHubDialog({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <DialogTitle>Share to Hub</DialogTitle>
-            <Badge variant="secondary">
-              {fixtureMode ? 'FIXTURE BUILD · NO UPLOAD' : 'LIVE · EXPLICIT APPROVAL'}
-            </Badge>
+            <Badge variant="secondary">LIVE · EXPLICIT APPROVAL</Badge>
           </div>
           <DialogDescription>
-            {fixtureMode
-              ? "Select sessions, review C2's exact canonical bytes, and exercise the T2-I4 retry/result states."
-              : "Select sessions, review C2's exact canonical bytes, then upload only the revisions you approve."}
+            Select sessions, review C2's exact canonical bytes, then upload only the revisions you approve.
           </DialogDescription>
         </DialogHeader>
 
@@ -447,7 +383,7 @@ export function ShareToHubDialog({
             <AlertTriangleIcon className="text-warning-fg size-7" />
             <h3 className="mt-3 font-semibold">{eligibility?.title}</h3>
             <p className="text-muted-foreground mt-2 max-w-md text-sm">{eligibility?.detail}</p>
-            {!fixtureMode && pairing?.state === 'pending' ? (
+            {pairing?.state === 'pending' ? (
               <div className="mt-5 rounded-lg border p-4">
                 <p className="text-sm font-semibold">
                   {pairingRefreshRequired ? 'Pairing approved' : `Approve code ${pairing.userCode}`}
@@ -475,8 +411,8 @@ export function ShareToHubDialog({
                 )}
               </div>
             ) : (
-              <Button className="mt-5" onClick={fixtureMode ? onOpenSettings : beginPairing}>
-                {fixtureMode ? eligibility?.action : 'Pair this device'}
+              <Button className="mt-5" onClick={beginPairing}>
+                Pair this device
               </Button>
             )}
             {pairing?.state === 'expired' && (
@@ -602,9 +538,6 @@ export function ShareToHubDialog({
                                   revision {candidate.session.mtime}
                                 </span>
                               </span>
-                              {candidate.previouslyShared && (
-                                <Badge variant="secondary">Previously shared · re-share</Badge>
-                              )}
                             </label>
                           );
                         })}
@@ -617,7 +550,7 @@ export function ShareToHubDialog({
 
             {phase === 'loading' && (
               <div role="status" className="grid min-h-72 place-items-center text-sm">
-                {records.length > 0 && !fixtureMode
+                {records.length > 0
                   ? 'Uploading approved canonical snapshots…'
                   : 'Building exact canonical previews…'}
               </div>
@@ -689,13 +622,9 @@ export function ShareToHubDialog({
                       <AlertTriangleIcon className="size-4" />
                     )}
                     {result.state === 'succeeded'
-                      ? fixtureMode
-                        ? 'Fixture share accepted'
-                        : 'Share accepted'
+                      ? 'Share accepted'
                       : result.state === 'partial'
-                        ? fixtureMode
-                          ? 'Fixture batch partially accepted'
-                          : 'Share partially accepted'
+                        ? 'Share partially accepted'
                         : 'Share failed'}
                   </div>
                   <p className="pt-2 text-sm">
@@ -734,9 +663,9 @@ export function ShareToHubDialog({
                       <ExternalLinkIcon className="size-4" /> Canonical Hub handoff
                     </div>
                     <div className="text-muted-foreground mt-2 font-mono text-xs break-all">{route.path}</div>
-                    {fixtureMode || !destinationResult.hubUrl ? (
+                    {!destinationResult.hubUrl ? (
                       <p className="text-muted-foreground mt-2 text-xs">
-                        The integrated client navigates to this C3-owned route. Fixture mode stays local.
+                        The Hub URL is unavailable for this destination.
                       </p>
                     ) : (
                       <a
@@ -767,7 +696,7 @@ export function ShareToHubDialog({
                 Back to selection
               </Button>
               <Button onClick={submitReviewed} disabled={!reviewed}>
-                {fixtureMode ? 'Exercise fixture result' : 'Approve and share'}
+                Approve and share
               </Button>
             </>
           )}

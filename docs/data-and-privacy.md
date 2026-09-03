@@ -84,20 +84,12 @@ affected canonical paths. Raw transcripts, assistant reasoning, tool output,
 file diffs, raw commands, environment variables, and unresolved local paths are
 excluded.
 
-The fixture-backed Share flow is available to source builds with
-`?team-share=1`. It exercises eligibility, destination, selection, exact review,
-partial retry, and Hub route states, but is labeled **NO UPLOAD** and never
-contacts a cloud service. Use `&share-state=signed_out`, `pairing_required`,
-`credential_dormant`, or `credential_revoked` to inspect eligibility states,
-and `&share-result=partial` to inspect retry.
-
-The production flow will bind approval to the source revision, canonical hash
-and byte count, and displayed destination. Failures that require renewed review
-refresh the preview or destination and require explicit approval. Unchanged
-retries retain their idempotency key and canonical bytes; accepted items are
-not sent again. The server derives workspace authority from authenticated state
-or a workspace-bound device credential and never trusts the client assertion to
-select or retarget a workspace.
+The production flow binds approval to the source revision, canonical hash,
+byte count, and displayed destination. Some failures require a new preview or
+destination and explicit approval. Unchanged retries keep their idempotency key
+and canonical bytes. The client does not send accepted items again. The server
+gets workspace authority from authenticated state or a workspace-bound device
+credential. It does not trust the client to select another workspace.
 
 ## Local server
 

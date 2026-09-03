@@ -105,7 +105,7 @@ export type ShareResult = {
 };
 
 export type ShareWindow = '7d' | '30d' | 'all';
-export type ShareCandidate = { session: Session; previouslyShared: boolean };
+export type ShareCandidate = { session: Session };
 
 export const RETRY_RULES: Record<
   ShareError,

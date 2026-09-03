@@ -92,10 +92,9 @@ function preview(sourceRevision: number, hash = `sha256:${'a'.repeat(64)}`): Sna
 
 describe('localShareCandidates', () => {
   it('excludes remote sessions before agent:id Hub keying', () => {
-    const local = { session: session('local-1', 'coslash', 10), previouslyShared: false };
+    const local = { session: session('local-1', 'coslash', 10) };
     const remote = {
       session: { ...session('remote-1', 'coslash', 10), sourceId: 'r_0123456789abcdef', sourceLabel: 'gpu' },
-      previouslyShared: false,
     };
     expect(localShareCandidates([local, remote])).toEqual([local]);
   });
@@ -104,8 +103,8 @@ describe('localShareCandidates', () => {
 describe('hub-share/v1 public consumer', () => {
   const now = Date.UTC(2026, 7, 18);
   const candidates: ShareCandidate[] = [
-    { session: session('new', 'alpha', now - 2 * 86_400_000), previouslyShared: false },
-    { session: session('old', 'beta', now - 20 * 86_400_000), previouslyShared: true },
+    { session: session('new', 'alpha', now - 2 * 86_400_000) },
+    { session: session('old', 'beta', now - 20 * 86_400_000) },
   ];
 
   it('filters deterministically and deselects newly hidden approvals', () => {
