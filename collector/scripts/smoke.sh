@@ -143,7 +143,7 @@ if [[ "$mode" == "embedded" ]]; then
   # Exercise the provider compiled into the packaged executable, not only the
   # tagged unit test. The alias need not resolve: availability is determined
   # entirely by the authenticated embedded release and both helper assets.
-  settings='{"$schema":"https://raw.githubusercontent.com/centauri-ai/coslash/main/settings.schema.json","version":1,"synthesis":{"enabled":false,"backend":"claude-cli","model":"claude-haiku-4-5"},"appearance":{"theme":"light"},"launch":{"terminal":"terminal"},"remote":{"id":"r_0123456789abcdef","sshAlias":"coslash-smoke-invalid","enabled":true}}'
+  settings='{"settings":{"$schema":"https://raw.githubusercontent.com/centauri-ai/coslash/main/settings.schema.json","version":1,"synthesis":{"enabled":false,"backend":"claude-cli","model":"claude-haiku-4-5"},"appearance":{"theme":"light"},"launch":{"terminal":"terminal"},"remote":{"id":"r_0123456789abcdef","sshAlias":"coslash-smoke-invalid","enabled":true}}}'
   actual=$(
     printf 'header = "X-Coslash-Token: %s"\n' "$token" |
       curl --config - -sS -o "$response_body" -w '%{http_code}' \
