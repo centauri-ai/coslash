@@ -86,15 +86,15 @@ func derive(snapshot *Snapshot) []Check {
 func openCodePluginCheck(snapshot *Snapshot) Check {
 	plugin := snapshot.openCodePlugin
 	check := Check{
-		ID:     "opencode.waiting-plugin",
-		Title:  "OpenCode Waiting plugin",
+		ID:     "opencode.plugin",
+		Title:  "OpenCode coSlash plugin",
 		Status: StatusOK,
 		Detail: "Installed at " + plugin.Path + ".",
 	}
 	switch {
 	case plugin.Err != nil:
 		check.Status = StatusWarn
-		check.Detail = "coSlash could not inspect the OpenCode Waiting plugin: " + snapshot.openCodePluginError
+		check.Detail = "coSlash could not inspect the OpenCode plugin: " + snapshot.openCodePluginError
 		if plugin.Path == "" {
 			check.Fix = "Check that the current user has a valid home directory, then restart coSlash."
 		} else {
@@ -102,7 +102,7 @@ func openCodePluginCheck(snapshot *Snapshot) Check {
 		}
 	case !plugin.Installed:
 		check.Status = StatusWarn
-		check.Detail = "The OpenCode Waiting plugin is not installed. Pending approvals can appear Active."
+		check.Detail = "The OpenCode coSlash plugin is not installed. Waiting status and client labels may be unavailable."
 		check.Fix = "Restart coSlash to install the plugin, then restart OpenCode."
 	case plugin.RestartRequired:
 		check.Status = StatusWarn

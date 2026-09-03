@@ -58,7 +58,7 @@ async function clearSession(properties) {
   )
 }
 
-export const CoslashWaitingPlugin = async () => ({
+export const CoslashPlugin = async () => ({
   event: ({ event }) => {
     lifecycle = lifecycle.then(async () => {
       if (["session.created", "session.updated", "message.updated"].includes(event?.type)) {
