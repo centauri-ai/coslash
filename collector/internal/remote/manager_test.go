@@ -227,7 +227,7 @@ func TestOfflineHelperDiscoveryDoesNotStartSecondRefresh(t *testing.T) {
 		t.Fatalf("offline discovery started %d collection refreshes", refreshes.Load())
 	}
 	health := manager.DiagnosticsHealth()
-	if health.State != StateError || health.LastCheckedAtMs == nil {
+	if health.State != StateConnecting || health.LastCheckedAtMs == nil {
 		t.Fatalf("offline discovery health = %#v", health)
 	}
 }
@@ -512,6 +512,12 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	}
 	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "missing"); found != nil || err != nil {
 		t.Fatal("missing session was launchable")
+	}
+	manager.mu.Lock()
+	manager.sessions = append(manager.sessions, &session.Session{Agent: vendors.AgentCodex, ID: "compacted"})
+	manager.mu.Unlock()
+	if _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "compacted"); !errors.Is(err, ErrRemoteSessionUnavailable) {
+		t.Fatalf("compacted session error = %v", err)
 	}
 	manager.mu.Lock()
 	manager.state = StateLimited

@@ -15,11 +15,12 @@ import (
 )
 
 var (
-	ErrInvalidRemoteSettings   = errors.New("invalid remote settings")
-	ErrHelperOwnershipConflict = errors.New("helper ownership must be explicitly released or uninstalled before changing SSH alias")
-	ErrHelperAliasMismatch     = errors.New("helper setup alias does not match configured SSH alias")
-	ErrHelperSetupInProgress   = errors.New("helper setup is running for the configured SSH alias")
-	ErrRemoteSessionActive     = errors.New("remote session already has an active writer")
+	ErrInvalidRemoteSettings    = errors.New("invalid remote settings")
+	ErrHelperOwnershipConflict  = errors.New("helper ownership must be explicitly released or uninstalled before changing SSH alias")
+	ErrHelperAliasMismatch      = errors.New("helper setup alias does not match configured SSH alias")
+	ErrHelperSetupInProgress    = errors.New("helper setup is running for the configured SSH alias")
+	ErrRemoteSessionActive      = errors.New("remote session already has an active writer")
+	ErrRemoteSessionUnavailable = errors.New("remote session details are unavailable")
 )
 
 type SessionKey struct {
@@ -35,6 +36,7 @@ type IndexedSession struct {
 	EligibleForAggregates bool
 	DisplayStale          bool
 	LastSeenStatus        *string
+	Launchable            bool
 }
 
 type remoteSessionKey struct{ Agent, ID string }
@@ -101,6 +103,7 @@ type Manager struct {
 	lastRequestedMs        int64
 	failures               int
 	nextRetryAt            time.Time
+	nextHelperProbeAt      time.Time
 	lastManualRetryAt      time.Time
 	lastSuccessAt          *int64
 	lastCheckedAt          *int64
@@ -110,6 +113,7 @@ type Manager struct {
 	helperVerify           helperVerifyFunc
 	resetControlMaster     func(string)
 	helperSetup            bool
+	helperAutoSetup        bool
 	helperVersion          string
 	helperOwnershipCorrupt bool
 	helperProbe            helperProbeState
@@ -360,7 +364,7 @@ func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
 		return ListResult{Health: manager.healthLocked(remoteSinceMs)}
 	}
 	if manager.helperProbe == helperProbeFallback && manager.helperVersion != "" &&
-		!manager.nextRetryAt.IsZero() && !manager.now().Before(manager.nextRetryAt) {
+		!manager.nextHelperProbeAt.IsZero() && !manager.now().Before(manager.nextHelperProbeAt) {
 		manager.helperProbe = helperProbeUnknown
 	}
 	if manager.helperProbe == helperProbeUnknown {
@@ -446,7 +450,10 @@ func (manager *Manager) LaunchSession(sourceID, agent, sessionID string) (*sessi
 		return nil, "", nil
 	}
 	for _, item := range manager.sessions {
-		if item.Agent == agent && item.ID == sessionID && item.WorkingDirectory != "" {
+		if item.Agent == agent && item.ID == sessionID {
+			if item.WorkingDirectory == "" {
+				return nil, "", ErrRemoteSessionUnavailable
+			}
 			if item.Status != nil && *item.Status == "busy" {
 				return nil, "", ErrRemoteSessionActive
 			}
@@ -739,6 +746,7 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 			SourceLabel: manager.cfg.SSHAlias, Session: item,
 			EligibleForAggregates: eligible,
 			DisplayStale:          globalStale || manager.familyStale[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
+			Launchable:            item.WorkingDirectory != "",
 		}
 		if indexed.DisplayStale {
 			indexed.LastSeenStatus = item.Status
