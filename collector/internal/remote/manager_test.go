@@ -506,24 +506,32 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	manager.complete = true
 	manager.sessions = []*session.Session{{Agent: vendors.AgentCodex, ID: "session", WorkingDirectory: "/workspace"}}
 	manager.mu.Unlock()
-	found, alias, ok := manager.LaunchSession(config.ID, vendors.AgentCodex, "session")
-	if !ok || alias != config.SSHAlias || found == nil || found.WorkingDirectory != "/workspace" {
-		t.Fatalf("launch session = %#v, %q, %v", found, alias, ok)
+	found, alias, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session")
+	if err != nil || alias != config.SSHAlias || found == nil || found.WorkingDirectory != "/workspace" {
+		t.Fatalf("launch session = %#v, %q, %v", found, alias, err)
 	}
-	if _, _, ok := manager.LaunchSession(config.ID, vendors.AgentCodex, "missing"); ok {
+	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "missing"); found != nil || err != nil {
 		t.Fatal("missing session was launchable")
 	}
 	manager.mu.Lock()
 	manager.state = StateLimited
 	manager.mu.Unlock()
-	if _, _, ok := manager.LaunchSession(config.ID, vendors.AgentCodex, "session"); !ok {
+	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session"); found == nil || err != nil {
 		t.Fatal("connected limited remote was not launchable")
 	}
 	manager.mu.Lock()
 	manager.state = StateStale
 	manager.mu.Unlock()
-	if _, _, ok := manager.LaunchSession(config.ID, vendors.AgentCodex, "session"); ok {
+	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session"); found != nil || err != nil {
 		t.Fatal("stale remote was launchable")
+	}
+	busy := "busy"
+	manager.mu.Lock()
+	manager.state = StateOK
+	manager.sessions[0].Status = &busy
+	manager.mu.Unlock()
+	if _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session"); !errors.Is(err, ErrRemoteSessionActive) {
+		t.Fatalf("active session error = %v", err)
 	}
 }
 
