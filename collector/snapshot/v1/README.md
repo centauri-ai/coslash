@@ -41,6 +41,7 @@ byte slice returned by `sessionexport.Marshal`.
 | Todos | 200 entries; 2 KiB text each |
 | File edits | 2,000 entries |
 | Commit subjects | 200 entries; 2 KiB each |
+| Resolved commit object IDs | 200 lowercase full SHA-1 (40) or SHA-256 (64) IDs |
 | Subagents | 100 entries; 8 KiB task/result each |
 | Human subagent command labels | 200 total; 512 bytes each |
 
@@ -70,7 +71,11 @@ silently after review.
 
 The allow-list includes bounded session metadata, aggregate counts, raw token
 counts, frozen estimated costs, digest/planning evidence, todos, file-change
-statistics, commit subjects, git drift, and bounded subagent facts.
+statistics, human-facing commit subjects, resolved commit object IDs, git
+drift, and bounded subagent facts. `session.commits` remains subject text;
+`session.commitShas` is optional during its additive rollout and contains only
+locally resolved lowercase full Git object IDs. Consumers must never parse
+subjects as identifiers.
 
 ## Exclusions and structural redaction
 
