@@ -303,6 +303,29 @@ export function boardStatusKey(session: Pick<Session, 'sourceId' | 'status' | 'd
   return getStatus(session.status);
 }
 
+export function resumeDisabledHint(
+  session: Pick<Session, 'sourceId' | 'agent' | 'status' | 'displayStale'>,
+  remoteLaunchable = false,
+  remoteLaunchHint?: string,
+): string | undefined {
+  if (
+    boardStatusKey(session) === 'busy' &&
+    (isLocalSession(session) ? session.agent === 'codex' : remoteLaunchable)
+  ) {
+    return 'This session is already active';
+  }
+  return !isLocalSession(session) && !remoteLaunchable ? remoteLaunchHint : undefined;
+}
+
+export function resumeDisabled(
+  session: Pick<Session, 'sourceId' | 'displayStale' | 'launchable'>,
+  disabledHint?: string,
+): boolean {
+  return isLocalSession(session)
+    ? disabledHint != null
+    : session.displayStale || session.launchable === false;
+}
+
 /** Badge label: live status, or "Last seen …" when the remote snapshot is stale/incomplete. */
 export function displayStatusLabel(
   session: Pick<Session, 'status' | 'displayStale' | 'lastSeenStatus'> & { sourceId?: string },
