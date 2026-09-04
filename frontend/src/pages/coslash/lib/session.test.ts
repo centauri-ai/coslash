@@ -6,6 +6,8 @@ import {
   getModality,
   getSessionVendors,
   LOCAL_SOURCE_ID,
+  resumeDisabled,
+  resumeDisabledHint,
   sessionKey,
   sessionsForAggregates,
   withLocalSourceDefaults,
@@ -87,6 +89,71 @@ describe('boardStatusKey', () => {
 
   it('uses Inactive only for local sessions with no status', () => {
     expect(boardStatusKey({ sourceId: 'local', status: null, displayStale: false })).toBe('inactive');
+  });
+});
+
+describe('resumeDisabledHint', () => {
+  it('disables Resume for an active local Codex session', () => {
+    expect(
+      resumeDisabledHint({ sourceId: LOCAL_SOURCE_ID, agent: 'codex', status: 'busy', displayStale: false }),
+    ).toBe('This session is already active');
+  });
+
+  it('leaves inactive local and non-Codex sessions resumable', () => {
+    expect(
+      resumeDisabledHint({ sourceId: LOCAL_SOURCE_ID, agent: 'codex', status: 'idle', displayStale: false }),
+    ).toBeUndefined();
+    expect(
+      resumeDisabledHint({ sourceId: LOCAL_SOURCE_ID, agent: 'claude', status: 'busy', displayStale: false }),
+    ).toBeUndefined();
+  });
+
+  it('preserves remote active and unavailable hints', () => {
+    expect(
+      resumeDisabledHint(
+        { sourceId: 'r_0123456789abcdef', agent: 'codex', status: 'busy', displayStale: false },
+        true,
+        'remote hint',
+      ),
+    ).toBe('This session is already active');
+    expect(
+      resumeDisabledHint(
+        { sourceId: 'r_0123456789abcdef', agent: 'codex', status: 'idle', displayStale: false },
+        false,
+        'Remote is offline',
+      ),
+    ).toBe('Remote is offline');
+  });
+});
+
+describe('resumeDisabled', () => {
+  it('disables an active local Codex session but preserves remote launch behavior', () => {
+    expect(
+      resumeDisabled(
+        { sourceId: LOCAL_SOURCE_ID, displayStale: false, launchable: true },
+        'This session is already active',
+      ),
+    ).toBe(true);
+    expect(
+      resumeDisabled(
+        {
+          sourceId: 'r_0123456789abcdef',
+          displayStale: false,
+          launchable: true,
+        },
+        'This session is already active',
+      ),
+    ).toBe(false);
+    expect(
+      resumeDisabled(
+        {
+          sourceId: 'r_0123456789abcdef',
+          displayStale: false,
+          launchable: false,
+        },
+        'Remote is offline',
+      ),
+    ).toBe(true);
   });
 });
 

@@ -63,6 +63,8 @@ import {
   goalSourceLabel,
   isLocalSession,
   resolveGoal,
+  resumeDisabled,
+  resumeDisabledHint,
   sessionKey,
   STATUSES,
   SUBAGENT_STATUSES,
@@ -370,7 +372,7 @@ function DisabledLaunchTooltip({ hint, children }: { hint?: string; children: Re
 
 function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; disabledHint?: string }) {
   const { launch, launchError } = useLaunchTerminal(detail);
-  const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
+  const disabled = resumeDisabled(detail, disabledHint);
 
   return (
     <div className="flex flex-col gap-1">
@@ -1118,11 +1120,7 @@ export function SessionInspector({
           ? 'Waiting for remote session details'
           : 'Remote is offline';
   const remoteResumeHint =
-    detail != null && !isLocalSession(detail) && remoteLaunchable && boardStatusKey(detail) === 'busy'
-      ? 'This session is already active'
-      : detail != null && !isLocalSession(detail) && !remoteLaunchable
-        ? remoteLaunchHint
-        : undefined;
+    detail == null ? undefined : resumeDisabledHint(detail, remoteLaunchable, remoteLaunchHint);
 
   useEffect(() => {
     setSelectedDiff(null);
