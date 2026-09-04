@@ -119,7 +119,7 @@ export function initialSettingsDraft(response: SettingsResponse): CoslashSetting
 
   if (!response.persisted) {
     const availableBackend = availableSynthesisBackends(response.options.synthesisBackends)[0];
-    synthesis.enabled = availableBackend != null;
+    synthesis.enabled = false;
     if (availableBackend) {
       synthesis.backend = availableBackend.id;
       synthesis.model = modelForBackend(response, availableBackend.id);
