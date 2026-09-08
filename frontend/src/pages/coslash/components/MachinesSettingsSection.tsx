@@ -2,10 +2,15 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
-import { remoteStatus, setupRemoteHelper, testRemoteAlias } from '@/pages/coslash/lib/remote-api';
+import {
+  remoteStatus,
+  setupRemoteHelper,
+  testRemoteAlias,
+  waitForRemoteRefresh,
+} from '@/pages/coslash/lib/remote-api';
 import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
 
-type SetupStage = 'idle' | 'testing' | 'saving' | 'installing' | 'ready' | 'error' | 'removing';
+type SetupStage = 'idle' | 'testing' | 'saving' | 'consent' | 'installing' | 'ready' | 'error' | 'removing';
 
 function testResultCopy(machine: MachineFact) {
   return machine.state === 'ok'
@@ -36,7 +41,8 @@ export function MachinesSettingsSection({
   const [machine, setMachine] = useState<MachineFact | null>(null);
   const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
   const setupFailed =
-    stage === 'error' || (machine?.helper?.compatible === false && machine.helper.reason != null);
+    stage === 'error' ||
+    (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
 
   useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
@@ -76,16 +82,22 @@ export function MachinesSettingsSection({
   const installConnector = async (sshAlias: string) => {
     setStage('installing');
     setMessage('Installing connector…');
-    const setup = await setupRemoteHelper(sshAlias, 'install');
-    setMachine(setup.machine);
-    if (setup.error != null) {
+    try {
+      await waitForRemoteRefresh();
+      const setup = await setupRemoteHelper(sshAlias, 'install');
+      setMachine(setup.machine);
+      if (setup.error != null) {
+        setStage('error');
+        setMessage(`Setup failed: ${setup.error}. Check SSH access and retry.`);
+        return;
+      }
+      setStage('ready');
+      setMessage('Connector installed and verified. SSH monitoring is active.');
+      onConnectionVerified?.();
+    } catch (error: unknown) {
       setStage('error');
-      setMessage(`Setup failed: ${setup.error}. Check SSH access and retry.`);
-      return;
+      setMessage(error instanceof Error ? error.message : 'Setup failed. Check SSH access and retry.');
     }
-    setStage('ready');
-    setMessage('Connector installed and verified. SSH monitoring is active.');
-    onConnectionVerified?.();
   };
 
   const addHost = async () => {
@@ -117,21 +129,30 @@ export function MachinesSettingsSection({
         setMessage('Could not add this SSH host.');
         return;
       }
-      await installConnector(sshAlias);
+      if (test.helper?.compatible) {
+        setStage('ready');
+        setMessage('Existing connector verified. SSH monitoring is active.');
+        onConnectionVerified?.();
+        return;
+      }
+      setStage('consent');
+      setMessage('Install a private connector on this host, or continue with SFTP only.');
     } catch (error: unknown) {
       setStage('error');
       setMessage(error instanceof Error ? error.message : 'Could not add this SSH host.');
     }
   };
 
-  const retryConnectorSetup = async () => {
+  const retryConnectorSetup = () => {
     if (remote == null) return;
-    try {
-      await installConnector(remote.sshAlias);
-    } catch (error: unknown) {
-      setStage('error');
-      setMessage(error instanceof Error ? error.message : 'Setup failed. Check SSH access and retry.');
-    }
+    setStage('consent');
+    setMessage('Install a private connector on this host, or continue with SFTP only.');
+  };
+
+  const useSFTPOnly = () => {
+    setStage('ready');
+    setMessage('Using SFTP only. SSH monitoring is active.');
+    onConnectionVerified?.();
   };
 
   const removeHost = async () => {
@@ -178,11 +199,20 @@ export function MachinesSettingsSection({
               </div>
             </div>
             <div className="flex shrink-0 gap-2">
-              {setupFailed && (
-                <Button type="button" size="sm" disabled={busy} onClick={() => void retryConnectorSetup()}>
+              {stage === 'consent' ? (
+                <>
+                  <Button type="button" variant="outline" size="sm" onClick={useSFTPOnly}>
+                    Use SFTP only
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => void installConnector(remote.sshAlias)}>
+                    Install connector
+                  </Button>
+                </>
+              ) : setupFailed ? (
+                <Button type="button" size="sm" disabled={busy} onClick={retryConnectorSetup}>
                   Retry setup
                 </Button>
-              )}
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
@@ -227,7 +257,7 @@ export function MachinesSettingsSection({
           <div
             role={stage === 'error' ? 'alert' : 'status'}
             className={cn('border-t px-4 py-3 text-xs', {
-              'bg-muted text-muted-foreground': busy,
+              'bg-muted text-muted-foreground': busy || stage === 'consent',
               'bg-success-bg text-success-fg': stage === 'ready',
               'bg-destructive/10 text-destructive': stage === 'error',
             })}
