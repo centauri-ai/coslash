@@ -314,13 +314,14 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 	}
 	if err != nil {
 		_ = stdin.Close()
+		sessionErr := sessionCtx.Err()
 		cancel()
 		_ = cmd.Wait()
 		if stderr.overflow {
 			return nil, ErrStderrLimit
 		}
-		if sessionCtx.Err() != nil {
-			return nil, sessionCtx.Err()
+		if sessionErr != nil {
+			return nil, sessionErr
 		}
 		return nil, wrapSSHError(fmt.Errorf("open SFTP subsystem: %w", err), stderr.String())
 	}

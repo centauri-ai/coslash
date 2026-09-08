@@ -898,12 +898,12 @@ func classifyError(err error) Reason {
 	if strings.Contains(message, "i/o timeout") || strings.Contains(message, "deadline exceeded") {
 		return ReasonRefreshTimeout
 	}
+	if strings.Contains(message, "subsystem") || strings.Contains(message, "sftp") {
+		return ReasonSFTPUnavailable
+	}
 	if strings.Contains(message, "broken pipe") || strings.Contains(message, "connection reset") ||
 		strings.Contains(message, "connection refused") || strings.Contains(message, "unexpected eof") {
 		return ReasonConnectionFailed
-	}
-	if strings.Contains(message, "subsystem") || strings.Contains(message, "sftp") {
-		return ReasonSFTPUnavailable
 	}
 	if strings.Contains(message, "json") ||
 		strings.Contains(message, "unmarshal") ||
