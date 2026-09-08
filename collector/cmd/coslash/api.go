@@ -266,8 +266,12 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			http.Error(w, "remote session is already active", http.StatusConflict)
 			return
 		}
+		if errors.Is(err, remote.ErrRemoteSessionOversized) {
+			http.Error(w, "remote session details exceed the collection size limit", http.StatusConflict)
+			return
+		}
 		if errors.Is(err, remote.ErrRemoteSessionUnavailable) {
-			http.Error(w, "remote session details are too large to launch", http.StatusConflict)
+			http.Error(w, "remote session is missing its working directory", http.StatusConflict)
 			return
 		}
 	}

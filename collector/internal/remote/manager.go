@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/launch"
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -22,6 +23,14 @@ var (
 	ErrHelperSetupInProgress    = errors.New("helper setup is running for the configured SSH alias")
 	ErrRemoteSessionActive      = errors.New("remote session already has an active writer")
 	ErrRemoteSessionUnavailable = errors.New("remote session details are unavailable")
+	ErrRemoteSessionOversized   = errors.New("remote session details exceed the collection size limit")
+)
+
+type LaunchBlockReason string
+
+const (
+	LaunchBlockMissingDetails LaunchBlockReason = "missing_details"
+	LaunchBlockOversized      LaunchBlockReason = "oversized"
 )
 
 type SessionKey struct {
@@ -38,6 +47,7 @@ type IndexedSession struct {
 	DisplayStale          bool
 	LastSeenStatus        *string
 	Launchable            bool
+	LaunchBlockReason     LaunchBlockReason
 }
 
 type remoteSessionKey struct{ Agent, ID string }
@@ -452,10 +462,13 @@ func (manager *Manager) LaunchSession(sourceID, agent, sessionID, mode string) (
 	}
 	for _, item := range manager.sessions {
 		if item.Agent == agent && item.ID == sessionID {
-			if item.WorkingDirectory == "" {
+			switch launchBlockReason(manager.snapshot, item) {
+			case LaunchBlockOversized:
+				return nil, "", ErrRemoteSessionOversized
+			case LaunchBlockMissingDetails:
 				return nil, "", ErrRemoteSessionUnavailable
 			}
-			if mode == launch.ResumeSession && item.Status != nil && *item.Status == "busy" {
+			if mode == launch.ResumeSession && item.Status != nil && (*item.Status == "busy" || *item.Status == "idle") {
 				return nil, "", ErrRemoteSessionActive
 			}
 			copy := *item
@@ -742,12 +755,14 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 		if remoteSinceMs > 0 && item.Status == nil && item.LastActivityTime < remoteSinceMs {
 			continue
 		}
+		blockReason := launchBlockReason(manager.snapshot, item)
 		indexed := IndexedSession{
 			Key:         SessionKey{SourceID: manager.cfg.ID, Agent: item.Agent, SourceSessionID: item.ID},
 			SourceLabel: manager.cfg.SSHAlias, Session: item,
 			EligibleForAggregates: eligible,
 			DisplayStale:          globalStale || manager.familyStale[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
-			Launchable:            item.WorkingDirectory != "",
+			Launchable:            blockReason == "",
+			LaunchBlockReason:     blockReason,
 		}
 		if indexed.DisplayStale {
 			indexed.LastSeenStatus = item.Status
@@ -755,6 +770,25 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 		result = append(result, indexed)
 	}
 	return result
+}
+
+func launchBlockReason(snapshot *CachedSnapshotV2, item *session.Session) LaunchBlockReason {
+	if snapshot != nil {
+		for _, family := range snapshot.Families {
+			if family.Vendor != item.Agent || family.StaleReason != remotefacts.StaleReasonOversizedFile {
+				continue
+			}
+			for _, fact := range family.Facts.Sessions {
+				if fact.ID == item.ID {
+					return LaunchBlockOversized
+				}
+			}
+		}
+	}
+	if item.WorkingDirectory != "" {
+		return ""
+	}
+	return LaunchBlockMissingDetails
 }
 
 func (manager *Manager) healthLocked(remoteSinceMs int64) Health {

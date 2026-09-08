@@ -31,12 +31,13 @@ type sessionsResponse struct {
 }
 
 type boardSession struct {
-	SourceID              string  `json:"sourceId"`
-	SourceLabel           string  `json:"sourceLabel"`
-	EligibleForAggregates bool    `json:"eligibleForAggregates"`
-	DisplayStale          bool    `json:"displayStale"`
-	LastSeenStatus        *string `json:"lastSeenStatus,omitempty"`
-	Launchable            bool    `json:"launchable"`
+	SourceID              string                   `json:"sourceId"`
+	SourceLabel           string                   `json:"sourceLabel"`
+	EligibleForAggregates bool                     `json:"eligibleForAggregates"`
+	DisplayStale          bool                     `json:"displayStale"`
+	LastSeenStatus        *string                  `json:"lastSeenStatus,omitempty"`
+	Launchable            bool                     `json:"launchable"`
+	LaunchBlockReason     remote.LaunchBlockReason `json:"launchBlockReason,omitempty"`
 	session.Session
 }
 
@@ -95,8 +96,8 @@ func boardRemoteSession(value remote.IndexedSession) boardSession {
 		SourceID: value.Key.SourceID, SourceLabel: value.SourceLabel,
 		EligibleForAggregates: value.EligibleForAggregates,
 		DisplayStale:          value.DisplayStale, LastSeenStatus: value.LastSeenStatus,
-		Launchable: value.Launchable,
-		Session:    sessionWithJSONCollections(*value.Session),
+		Launchable: value.Launchable, LaunchBlockReason: value.LaunchBlockReason,
+		Session: sessionWithJSONCollections(*value.Session),
 	}
 }
 
