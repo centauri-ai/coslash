@@ -41,7 +41,6 @@ type claudeSessionAnalysis struct {
 	toolUseCount             int
 	errors                   int
 	spawns                   map[string]vendors.SpawnState
-	editedFiles              map[string]struct{}
 	commands                 session.CommandLog
 	commitLog                []session.CommitObservation
 	dedupedMessageTokenUsage map[string]messageUsage
@@ -198,7 +197,6 @@ func analyzeClaudeSessionSource(
 		dedupedMessageTokenUsage: map[string]messageUsage{},
 		pullRequests:             map[string]struct{}{},
 		spawns:                   map[string]vendors.SpawnState{},
-		editedFiles:              map[string]struct{}{},
 		tokens:                   map[string]session.ModelTokens{},
 		tasks:                    map[string]*taskEntry{},
 		fileEdits:                session.NewFileEditSet(),
@@ -238,7 +236,7 @@ func analyzeClaudeSessionSource(
 		if row.WorkingDirectory != "" {
 			analysis.workingDirectory = row.WorkingDirectory
 		}
-		if row.Branch != nil && *row.Branch != "" {
+		if row.Branch != nil && *row.Branch != "" && *row.Branch != "HEAD" {
 			analysis.branch = row.Branch
 		}
 		if row.Entrypoint != nil && *row.Entrypoint != "" {
@@ -370,9 +368,6 @@ func analyzeClaudeSessionSource(
 						rowTimestamp,
 					)
 					pendingAssistantText = ""
-				}
-				if block.Name == "Edit" || block.Name == "Write" {
-					analysis.editedFiles[block.Input.FilePath] = struct{}{}
 				}
 				if block.Name == "TaskUpdate" {
 					if task, ok := analysis.tasks[block.Input.TaskID]; ok {
@@ -541,7 +536,7 @@ func (analysis *claudeSessionAnalysis) unifiedSession(filePath string) *session.
 		SessionDetails:   unifiedSessionDetails,
 		StartedAt:        analysis.timestamps.Earliest,
 		LastActivityTime: analysis.timestamps.Latest,
-		EditedFileCount:  len(analysis.editedFiles),
+		EditedFileCount:  len(analysis.fileEdits.Edits),
 		Tokens:           analysis.tokens,
 		Subagents:        []session.Subagent{},
 	}
