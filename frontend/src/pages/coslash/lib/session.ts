@@ -40,6 +40,7 @@ export type Session = {
   eligibleForAggregates: boolean;
   displayStale: boolean;
   launchable?: boolean;
+  launchBlockReason?: 'missing_details' | 'oversized';
   lastSeenStatus?: string;
   agent: string;
   id: string;
@@ -309,7 +310,8 @@ export function resumeDisabledHint(
   remoteLaunchHint?: string,
 ): string | undefined {
   if (
-    boardStatusKey(session) === 'busy' &&
+    (boardStatusKey(session) === 'busy' ||
+      (!isLocalSession(session) && boardStatusKey(session) === 'idle')) &&
     (isLocalSession(session) ? session.agent === 'codex' : remoteLaunchable)
   ) {
     return 'This session is already active';
@@ -318,12 +320,26 @@ export function resumeDisabledHint(
 }
 
 export function resumeDisabled(
-  session: Pick<Session, 'sourceId' | 'displayStale' | 'launchable'>,
+  session: Pick<Session, 'sourceId' | 'displayStale' | 'launchable'> & Partial<Pick<Session, 'status'>>,
   disabledHint?: string,
 ): boolean {
   return isLocalSession(session)
     ? disabledHint != null
-    : session.displayStale || session.launchable === false;
+    : session.status === 'busy' ||
+        session.status === 'idle' ||
+        session.displayStale ||
+        session.launchable === false;
+}
+
+export function remoteLaunchDisabledHint(
+  machineState: string | undefined,
+  blockReason?: Session['launchBlockReason'],
+): string {
+  if (machineState == null || machineState === 'connecting') return 'Checking SSH liveness…';
+  if (machineState !== 'ok' && machineState !== 'limited') return 'Remote is offline';
+  if (blockReason === 'oversized') return 'Remote session details exceed the collection size limit';
+  if (blockReason === 'missing_details') return 'Remote session is missing its working directory';
+  return 'Waiting for remote session details';
 }
 
 /** Badge label: live status, or "Last seen …" when the remote snapshot is stale/incomplete. */

@@ -62,6 +62,7 @@ import {
   getVendor,
   goalSourceLabel,
   isLocalSession,
+  remoteLaunchDisabledHint,
   resolveGoal,
   resumeDisabled,
   resumeDisabledHint,
@@ -1105,6 +1106,7 @@ export function SessionInspector({
     detail != null &&
     !isLocalSession(detail) &&
     detail.cwd.trim() !== '' &&
+    detail.launchable !== false &&
     machines.some(
       (machine) =>
         machine.sourceId === detail.sourceId && (machine.state === 'ok' || machine.state === 'limited'),
@@ -1114,11 +1116,7 @@ export function SessionInspector({
   const remoteLaunchHint =
     detail == null || isLocalSession(detail) || remoteLaunchable
       ? undefined
-      : remoteMachine?.state === 'connecting' || remoteMachine == null
-        ? 'Checking SSH liveness…'
-        : remoteMachine.state === 'ok' || remoteMachine.state === 'limited'
-          ? 'Waiting for remote session details'
-          : 'Remote is offline';
+      : remoteLaunchDisabledHint(remoteMachine?.state, detail.launchBlockReason);
   const remoteResumeHint =
     detail == null ? undefined : resumeDisabledHint(detail, remoteLaunchable, remoteLaunchHint);
 
