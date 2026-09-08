@@ -256,7 +256,7 @@ func age(fetchedAtMs int64, now time.Time) time.Duration {
 // stays visible (marked stale) until the first v2 generation commits, and a
 // v1 fingerprint is never reinterpreted as v2 baseline state — the first v2
 // refresh always starts from an empty generation.
-const cacheV2Version = 3
+const cacheV2Version = 4
 const maxCacheV2Bytes = 64 << 20
 
 // CachedFamilyV2 is one durable family entry. Vendor and FamilyID are stored
@@ -501,6 +501,7 @@ func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
 // closed before an atomic rename replaces the prior snapshot, and the
 // containing directory is synced afterward where the platform supports it.
 func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
+	cached = privacySafeSnapshot(cached)
 	cached.Version = cacheV2Version
 	dir, err := c.sourceDir(sourceID)
 	if err != nil {
@@ -556,6 +557,31 @@ func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
 	}
 	syncDirBestEffort(dir)
 	return nil
+}
+
+func privacySafeSnapshot(cached CachedSnapshotV2) CachedSnapshotV2 {
+	cached.Families = append([]CachedFamilyV2(nil), cached.Families...)
+	for i := range cached.Families {
+		facts := cached.Families[i].Facts
+		facts.Sessions = append([]remotefacts.Session(nil), facts.Sessions...)
+		for j := range facts.Sessions {
+			display := facts.Sessions[j].Display
+			display.Summary = nil
+			display.FirstPrompt = nil
+			display.DeclaredGoal = nil
+			display.Synthesis = nil
+			display.Commands = nil
+			display.Commits = nil
+			display.Todos = nil
+			display.Digest = nil
+			display.FileEdits = nil
+			display.Subagents = nil
+			facts.Sessions[j].Display = display
+			facts.Sessions[j].Commands = nil
+		}
+		cached.Families[i].Facts = facts
+	}
+	return cached
 }
 
 // syncDirBestEffort fsyncs a directory so a rename inside it is durable. Not
