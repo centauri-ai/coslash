@@ -360,19 +360,6 @@ func familyFacts(
 	if len(sessions) < len(item.sessionIDs) {
 		state = remotefacts.StatePartial
 	}
-	for _, parsed := range sessions {
-		if parsed.Session.ID == item.id {
-			// Within its family the root has no parent, whatever a header claimed.
-			parsed.ParentID, parsed.SpawnKey = "", ""
-			continue
-		}
-		if parsed.ParentID == "" || !present[parsed.ParentID] {
-			// The linking transcript is missing this generation; keep the session
-			// on its own card rather than dropping collected facts.
-			parsed.ParentID = item.id
-			state = remotefacts.StatePartial
-		}
-	}
 	return remotefacts.FromParsed(
 		scanned.vendor, item.id, vendors.ParserVersion, state, "",
 		sessions, scanned.metadata, item.fingerprints, item.headerMappings,

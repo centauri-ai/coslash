@@ -378,9 +378,24 @@ func validateOptionalCount(value *int) error {
 // FromParsed creates a deterministic family replacement for remote display.
 func FromParsed(vendor, familyID, parserVersion, state, staleReason string, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata, fingerprints []vendors.FileFingerprint, headerMappings ...[]HeaderMapping) (Family, error) {
 	f := Family{SchemaVersion: SchemaVersion, ParserVersion: parserVersion, Vendor: vendor, FamilyID: familyID, State: state, StaleReason: truncate(staleReason, MaxDisplayBytes)}
+	present := make(map[string]bool, len(parsed))
+	for _, p := range parsed {
+		present[p.Session.ID] = true
+	}
 	for _, p := range parsed {
 		s := p.Session
-		fact := Session{ID: s.ID, ParentID: p.ParentID, SpawnKey: p.SpawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, Display: *s}
+		display, err := cloneDisplay(*s)
+		if err != nil {
+			return Family{}, err
+		}
+		parentID, spawnKey := p.ParentID, p.SpawnKey
+		if s.ID == familyID {
+			parentID, spawnKey = "", ""
+		} else if parentID == "" || !present[parentID] {
+			parentID = familyID
+			f.State = StatePartial
+		}
+		fact := Session{ID: s.ID, ParentID: parentID, SpawnKey: spawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, Display: *display}
 		if p.StatusHint != nil {
 			fact.StatusHint = truncate(*p.StatusHint, MaxDisplayBytes)
 		}
