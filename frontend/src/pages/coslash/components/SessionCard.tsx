@@ -23,6 +23,7 @@ import {
   getSessionCardSummary,
   getTotalTokens,
   getVendor,
+  sessionLocationFact,
   STATUSES,
   SUBAGENT_STATUSES,
   sumTokens,
@@ -118,7 +119,7 @@ function Modality({ session }: { session: Session }) {
 function Metadata({ session }: { session: Session }) {
   return (
     <div className="text-muted-foreground pt-2 font-mono text-xs" title={environmentFact(session.cwd)}>
-      {environmentFact(session.repo)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
+      {sessionLocationFact(session)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
       {formatDuration(session.durationMs)} · {session.files} files
     </div>
   );
