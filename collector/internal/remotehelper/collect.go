@@ -354,16 +354,20 @@ func familyFacts(
 		present[parsed.Session.ID] = true
 	}
 	if !present[item.id] {
-		return remotefacts.Family{}, errors.New("family root transcript is unavailable")
+		return remotefacts.Family{}, fmt.Errorf("%w: family root transcript is unavailable", vendors.ErrInvalidData)
 	}
 	state := remotefacts.StateComplete
 	if len(sessions) < len(item.sessionIDs) {
 		state = remotefacts.StatePartial
 	}
-	return remotefacts.FromParsed(
+	family, err := remotefacts.FromParsed(
 		scanned.vendor, item.id, vendors.ParserVersion, state, "",
 		sessions, scanned.metadata, item.fingerprints, item.headerMappings,
 	)
+	if err != nil {
+		return remotefacts.Family{}, fmt.Errorf("%w: %v", vendors.ErrInvalidData, err)
+	}
+	return family, nil
 }
 
 // restabilize re-stats a family's files after the parse. Fingerprint equality is
