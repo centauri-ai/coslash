@@ -71,6 +71,8 @@ describe('environmentFact', () => {
 describe('sessionLocationFact', () => {
   it('falls back to the working directory when repository metadata is unavailable', () => {
     expect(sessionLocationFact({ repo: null, cwd: '/tmp' })).toBe('/tmp');
+    expect(sessionLocationFact({ repo: '', cwd: '/tmp' })).toBe('/tmp');
+    expect(sessionLocationFact({ repo: '  ', cwd: '/tmp' })).toBe('/tmp');
   });
 });
 
