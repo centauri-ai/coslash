@@ -20,6 +20,31 @@ func validFamily() Family {
 	}
 }
 
+func TestFromParsedCapsCommandLabels(t *testing.T) {
+	commands := make([]session.SubagentCommand, MaxCommands+8)
+	for i := range commands {
+		commands[i] = session.SubagentCommand{Label: "cmd", Command: "true"}
+	}
+	parsed := []*vendors.ParsedSession{{
+		Session:  &session.Session{ID: "root", StartedAt: 1, LastActivityTime: 2},
+		Commands: commands,
+	}}
+	f, err := FromParsed(
+		"codex", "root", "parser-v1", StateComplete, "", parsed,
+		vendors.EmptySessionMetadata(),
+		[]vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(f.Sessions[0].CommandLabels); got != MaxCommands {
+		t.Fatalf("command labels = %d, want %d", got, MaxCommands)
+	}
+	if got := len(f.Sessions[0].Commands); got != MaxCommands {
+		t.Fatalf("commands = %d, want %d", got, MaxCommands)
+	}
+}
+
 func TestFromParsedCompactsOversizedFamily(t *testing.T) {
 	large := strings.Repeat("x", 600<<10)
 	parsed := []*vendors.ParsedSession{
