@@ -219,6 +219,7 @@ func boundaryItems() snapshotv1.Snapshot {
 		snapshot.Session.FileEdits[i] = snapshotv1.FileEdit{Path: "x"}
 	}
 	snapshot.Session.Commits = make([]string, snapshotv1.MaxCommitItems)
+	snapshot.Session.CommitSHAs = fixtureCommitSHAs(snapshotv1.MaxCommitSHAItems)
 	snapshot.Session.Subagents = make([]snapshotv1.Subagent, snapshotv1.MaxSubagentItems)
 	for i := range snapshot.Session.Subagents {
 		snapshot.Session.Subagents[i] = snapshotv1.Subagent{
@@ -242,6 +243,14 @@ func fixtureStrings(prefix string, n int) []string {
 	result := make([]string, n)
 	for i := range result {
 		result[i] = fmt.Sprintf("%s%05d", prefix, i)
+	}
+	return result
+}
+
+func fixtureCommitSHAs(n int) []string {
+	result := make([]string, n)
+	for i := range result {
+		result[i] = fmt.Sprintf("%040x", i)
 	}
 	return result
 }

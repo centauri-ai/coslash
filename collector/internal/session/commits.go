@@ -111,14 +111,6 @@ type CommitFacts struct {
 	SHAs     []string
 }
 
-// NewCommitReconciler caches repository history for one reconciliation pass.
-func NewCommitReconciler() func([]CommitObservation, string, *string) []string {
-	facts := NewCommitFactsReconciler()
-	return func(observations []CommitObservation, cwd string, branch *string) []string {
-		return facts(observations, cwd, branch).Subjects
-	}
-}
-
 // NewCommitFactsReconciler caches repository history for one reconciliation
 // pass while retaining resolved full object IDs for the public export mapper.
 func NewCommitFactsReconciler() func([]CommitObservation, string, *string) CommitFacts {
@@ -147,19 +139,15 @@ func NewCommitFactsReconciler() func([]CommitObservation, string, *string) Commi
 }
 
 func ReconcileCommits(observations []CommitObservation, cwd string, branch *string) []string {
-	return ReconcileCommitFacts(observations, cwd, branch).Subjects
+	return reconcileCommitFactsFromRepository(observations, cwd, branch).Subjects
 }
 
-func ReconcileCommitFacts(observations []CommitObservation, cwd string, branch *string) CommitFacts {
+func reconcileCommitFactsFromRepository(observations []CommitObservation, cwd string, branch *string) CommitFacts {
 	if len(observations) == 0 {
 		return CommitFacts{Subjects: []string{}, SHAs: []string{}}
 	}
 	history, ok := repositoryHistory(cwd, branch)
 	return reconcileCommitFacts(observations, history, ok)
-}
-
-func reconcileCommits(observations []CommitObservation, history []repositoryCommit, ok bool) []string {
-	return reconcileCommitFacts(observations, history, ok).Subjects
 }
 
 func reconcileCommitFacts(observations []CommitObservation, history []repositoryCommit, ok bool) CommitFacts {

@@ -119,6 +119,7 @@ func TestBoundedWireCollectionsAcceptExactLimitAndRejectOneMore(t *testing.T) {
 			}
 		}},
 		{"commits", MaxCommitItems, func(s *Snapshot, n int) { s.Session.Commits = make([]string, n) }},
+		{"commit SHAs", MaxCommitSHAItems, func(s *Snapshot, n int) { s.Session.CommitSHAs = boundaryCommitSHAs(n) }},
 		{"subagents", MaxSubagentItems, func(s *Snapshot, n int) {
 			s.Session.Subagents = make([]Subagent, n)
 			for i := range s.Session.Subagents {
@@ -181,6 +182,14 @@ func boundaryStrings(prefix string, n int) []string {
 	result := make([]string, n)
 	for i := range result {
 		result[i] = fmt.Sprintf("%s%05d", prefix, i)
+	}
+	return result
+}
+
+func boundaryCommitSHAs(n int) []string {
+	result := make([]string, n)
+	for i := range result {
+		result[i] = fmt.Sprintf("%040x", i)
 	}
 	return result
 }
