@@ -565,6 +565,8 @@ func privacySafeSnapshot(cached CachedSnapshotV2) CachedSnapshotV2 {
 		facts := cached.Families[i].Facts
 		facts.Sessions = append([]remotefacts.Session(nil), facts.Sessions...)
 		for j := range facts.Sessions {
+			facts.Sessions[j].Name = ""
+			facts.Sessions[j].CommandLabels = nil
 			display := facts.Sessions[j].Display
 			display.Summary = nil
 			display.FirstPrompt = nil
