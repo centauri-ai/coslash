@@ -11,6 +11,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -124,6 +125,26 @@ func TestEmitterReportsNegotiatedOutputLimit(t *testing.T) {
 	_, err := Collect(context.Background(), request, Options{Home: t.TempDir()}, &output)
 	if !errors.Is(err, ErrRecordLimit) {
 		t.Fatalf("Collect error = %v, want ErrRecordLimit", err)
+	}
+}
+
+func TestFamilyFactsFailureIsInvalidData(t *testing.T) {
+	item := &family{
+		id: "root", sessionIDs: []string{"root"},
+		fingerprints: []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}},
+	}
+	scanned := &vendorScan{vendor: "codex", metadata: vendors.EmptySessionMetadata()}
+	_, err := familyFacts(scanned, item, []*vendors.ParsedSession{{
+		Session: &session.Session{ID: "root", StartedAt: 0, LastActivityTime: 2},
+	}})
+	if err == nil {
+		t.Fatal("expected family facts to fail")
+	}
+	if !errors.Is(err, vendors.ErrInvalidData) {
+		t.Fatalf("error = %v, want ErrInvalidData", err)
+	}
+	if got := boundedReason(err); got != remotefacts.StaleReasonInvalidData {
+		t.Fatalf("skip reason = %q, want %q", got, remotefacts.StaleReasonInvalidData)
 	}
 }
 
