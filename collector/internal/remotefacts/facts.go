@@ -421,24 +421,24 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 			spawn := p.Spawns[key]
 			fact.Spawns = append(fact.Spawns, Spawn{Key: key, Turn: cloneInt(spawn.Turn), Completed: spawn.Completed})
 		}
-		for _, command := range p.Commands {
+		n := min(len(p.Commands), MaxCommands)
+		for _, command := range p.Commands[:n] {
 			fact.CommandLabels = append(fact.CommandLabels, truncate(command.Label, MaxDisplayBytes))
 		}
-		fact.Commands = append([]session.SubagentCommand(nil), p.Commands...)
-		// Validate rejects over-limit lists. Keep transcript order and drop the tail
-		// so a command-heavy session still publishes instead of vanishing.
+		fact.Commands = append([]session.SubagentCommand(nil), p.Commands[:n]...)
+		fact.Display.Commands = fact.Display.Commands[:min(len(fact.Display.Commands), MaxCommands)]
 		if len(fact.Usage) > MaxModelsPerSession {
+			if fact.RecordedCostMicros == nil {
+				var total int64
+				for _, usage := range fact.Usage {
+					total += usage.CostMicroUSD
+				}
+				total = min(total, MaxCostMicroUSD)
+				fact.RecordedCostMicros = &total
+			}
 			fact.Usage = fact.Usage[:MaxModelsPerSession]
 		}
-		if len(fact.Spawns) > MaxSpawnsPerSession {
-			fact.Spawns = fact.Spawns[:MaxSpawnsPerSession]
-		}
-		if len(fact.CommandLabels) > MaxCommands {
-			fact.CommandLabels = fact.CommandLabels[:MaxCommands]
-		}
-		if len(fact.Commands) > MaxCommands {
-			fact.Commands = fact.Commands[:MaxCommands]
-		}
+		fact.Spawns = capSpawns(fact.Spawns, parsed, s.ID)
 		f.Sessions = append(f.Sessions, fact)
 	}
 	sort.Slice(f.Sessions, func(i, j int) bool { return f.Sessions[i].ID < f.Sessions[j].ID })
@@ -472,6 +472,33 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 	}
 	compact(&f)
 	return f, Validate(f)
+}
+
+func capSpawns(spawns []Spawn, parsed []*vendors.ParsedSession, parentID string) []Spawn {
+	if len(spawns) <= MaxSpawnsPerSession {
+		return spawns
+	}
+	need := map[string]bool{}
+	for _, p := range parsed {
+		if p != nil && p.ParentID == parentID && p.SpawnKey != "" {
+			need[p.SpawnKey] = true
+		}
+	}
+	var kept, extra []Spawn
+	for _, spawn := range spawns {
+		if need[spawn.Key] {
+			kept = append(kept, spawn)
+		} else {
+			extra = append(extra, spawn)
+		}
+	}
+	if len(kept) > MaxSpawnsPerSession {
+		kept = kept[:MaxSpawnsPerSession]
+	} else {
+		kept = append(kept, extra[:min(len(extra), MaxSpawnsPerSession-len(kept))]...)
+	}
+	sort.Slice(kept, func(i, j int) bool { return kept[i].Key < kept[j].Key })
+	return kept
 }
 
 func compact(f *Family) {

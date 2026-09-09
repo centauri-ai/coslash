@@ -2,6 +2,7 @@ package remotefacts
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,28 +21,47 @@ func validFamily() Family {
 	}
 }
 
-func TestFromParsedCapsCommandLabels(t *testing.T) {
-	commands := make([]session.SubagentCommand, MaxCommands+8)
-	for i := range commands {
-		commands[i] = session.SubagentCommand{Label: "cmd", Command: "true"}
+func TestFromParsedCapsOverLimitLists(t *testing.T) {
+	nCmd, nSpawn, nModel := MaxCommands+1, MaxSpawnsPerSession+1, MaxModelsPerSession+1
+	cmds := make([]session.SubagentCommand, nCmd)
+	raw := make([]string, nCmd)
+	spawns := map[string]vendors.SpawnState{}
+	tokens := map[string]session.ModelTokens{}
+	for i := 0; i < nSpawn; i++ {
+		key := fmt.Sprintf("s%03d", i)
+		spawns[key] = vendors.SpawnState{}
+		if i < nCmd {
+			cmds[i] = session.SubagentCommand{Label: "cmd"}
+			raw[i] = "x"
+		}
+		if i < nModel {
+			tokens[key] = session.ModelTokens{Cost: 1}
+		}
 	}
-	parsed := []*vendors.ParsedSession{{
-		Session:  &session.Session{ID: "root", StartedAt: 1, LastActivityTime: 2},
-		Commands: commands,
-	}}
-	f, err := FromParsed(
-		"codex", "root", "parser-v1", StateComplete, "", parsed,
-		vendors.EmptySessionMetadata(),
-		[]vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}},
-	)
+	last := fmt.Sprintf("s%03d", MaxSpawnsPerSession)
+	f, err := FromParsed("claude", "root", "parser-v1", StateComplete, "", []*vendors.ParsedSession{
+		{Session: &session.Session{ID: "root", StartedAt: 1, LastActivityTime: 2, Tokens: tokens, SessionDetails: session.SessionDetails{Commands: raw}}, Commands: cmds, Spawns: spawns},
+		{Session: &session.Session{ID: "child", StartedAt: 1, LastActivityTime: 2}, ParentID: "root", SpawnKey: last},
+	}, vendors.EmptySessionMetadata(), []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(f.Sessions[0].CommandLabels); got != MaxCommands {
-		t.Fatalf("command labels = %d, want %d", got, MaxCommands)
+	s := f.Sessions[0]
+	if s.ID != "root" {
+		s = f.Sessions[1]
 	}
-	if got := len(f.Sessions[0].Commands); got != MaxCommands {
-		t.Fatalf("commands = %d, want %d", got, MaxCommands)
+	if len(s.CommandLabels) != MaxCommands || len(s.Commands) != MaxCommands || len(s.Display.Commands) != MaxCommands {
+		t.Fatalf("commands %d %d %d", len(s.CommandLabels), len(s.Commands), len(s.Display.Commands))
+	}
+	if len(s.Usage) != MaxModelsPerSession || s.RecordedCostMicros == nil || *s.RecordedCostMicros != int64(nModel)*1_000_000 {
+		t.Fatalf("usage %d cost %v", len(s.Usage), s.RecordedCostMicros)
+	}
+	kept := false
+	for _, spawn := range s.Spawns {
+		kept = kept || spawn.Key == last
+	}
+	if len(s.Spawns) != MaxSpawnsPerSession || !kept {
+		t.Fatalf("spawns %d kept %v", len(s.Spawns), kept)
 	}
 }
 
