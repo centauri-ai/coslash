@@ -19,7 +19,7 @@ import (
 // get the "interactive" convention so resolveStatus applies the busy/idle
 // refinement.
 func LoadMetadata() (*vendors.SessionMetadata, error) {
-	live, err := liveSessions()
+	live, err := LoadLiveSessions()
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,8 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 	return metadata, nil
 }
 
-func liveSessions() (map[string]struct{}, error) {
+// LoadLiveSessions returns the Codex session IDs that lsof reports as open.
+func LoadLiveSessions() (map[string]struct{}, error) {
 	openCodexSessions, err := exec.Command("lsof", "-a", "-c", "codex", "-Fn").Output()
 	if err != nil {
 		var exitErr *exec.ExitError

@@ -104,7 +104,20 @@ func scanClaude(
 func scanCodex(source *Source, home string, request remoteprotocol.Request) *vendorScan {
 	metadata := vendors.BestEffortMetadata(
 		vendors.AgentCodex,
-		codex.LoadMetadata,
+		func() (*vendors.SessionMetadata, error) {
+			metadata, err := codex.LoadRemoteMetadata(source, home)
+			if err != nil {
+				return nil, err
+			}
+			live, err := codex.LoadLiveSessions()
+			if err != nil {
+				return nil, err
+			}
+			for id := range live {
+				metadata.Live[id] = "interactive"
+			}
+			return metadata, nil
+		},
 	)
 	result := &vendorScan{
 		vendor:    vendors.AgentCodex,
