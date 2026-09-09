@@ -129,22 +129,12 @@ func TestEmitterReportsNegotiatedOutputLimit(t *testing.T) {
 }
 
 func TestFamilyFactsFailureIsInvalidData(t *testing.T) {
-	item := &family{
+	_, err := familyFacts(&vendorScan{vendor: "codex", metadata: vendors.EmptySessionMetadata()}, &family{
 		id: "root", sessionIDs: []string{"root"},
 		fingerprints: []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}},
-	}
-	scanned := &vendorScan{vendor: "codex", metadata: vendors.EmptySessionMetadata()}
-	_, err := familyFacts(scanned, item, []*vendors.ParsedSession{{
-		Session: &session.Session{ID: "root", StartedAt: 0, LastActivityTime: 2},
-	}})
-	if err == nil {
-		t.Fatal("expected family facts to fail")
-	}
-	if !errors.Is(err, vendors.ErrInvalidData) {
-		t.Fatalf("error = %v, want ErrInvalidData", err)
-	}
-	if got := boundedReason(err); got != remotefacts.StaleReasonInvalidData {
-		t.Fatalf("skip reason = %q, want %q", got, remotefacts.StaleReasonInvalidData)
+	}, []*vendors.ParsedSession{{Session: &session.Session{ID: "root"}}})
+	if !errors.Is(err, vendors.ErrInvalidData) || boundedReason(err) != remotefacts.StaleReasonInvalidData {
+		t.Fatalf("error = %v", err)
 	}
 }
 
