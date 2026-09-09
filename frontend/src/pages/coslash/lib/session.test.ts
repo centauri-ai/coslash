@@ -9,6 +9,7 @@ import {
   resumeDisabled,
   resumeDisabledHint,
   sessionKey,
+  sessionLocationFact,
   sessionsForAggregates,
   withLocalSourceDefaults,
   type Session,
@@ -64,6 +65,12 @@ describe('environmentFact', () => {
     expect(environmentFact('')).toBe('—');
     expect(environmentFact('  ')).toBe('—');
     expect(environmentFact('/home/user/proj')).toBe('/home/user/proj');
+  });
+});
+
+describe('sessionLocationFact', () => {
+  it('falls back to the working directory when repository metadata is unavailable', () => {
+    expect(sessionLocationFact({ repo: null, cwd: '/tmp' })).toBe('/tmp');
   });
 });
 

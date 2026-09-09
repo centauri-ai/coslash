@@ -110,6 +110,10 @@ export function environmentFact(value: string | null | undefined): string {
   return trimmed ? trimmed : '—';
 }
 
+export function sessionLocationFact(session: Pick<Session, 'repo' | 'cwd'>): string {
+  return environmentFact(session.repo ?? session.cwd);
+}
+
 export function withLocalSourceDefaults<T extends { agent: string; id: string }>(
   session: T,
 ): T & Pick<Session, 'sourceId' | 'sourceLabel' | 'eligibleForAggregates' | 'displayStale'> {
