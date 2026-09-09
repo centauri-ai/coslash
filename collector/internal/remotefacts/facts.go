@@ -425,6 +425,20 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 			fact.CommandLabels = append(fact.CommandLabels, truncate(command.Label, MaxDisplayBytes))
 		}
 		fact.Commands = append([]session.SubagentCommand(nil), p.Commands...)
+		// Validate rejects over-limit lists. Keep transcript order and drop the tail
+		// so a command-heavy session still publishes instead of vanishing.
+		if len(fact.Usage) > MaxModelsPerSession {
+			fact.Usage = fact.Usage[:MaxModelsPerSession]
+		}
+		if len(fact.Spawns) > MaxSpawnsPerSession {
+			fact.Spawns = fact.Spawns[:MaxSpawnsPerSession]
+		}
+		if len(fact.CommandLabels) > MaxCommands {
+			fact.CommandLabels = fact.CommandLabels[:MaxCommands]
+		}
+		if len(fact.Commands) > MaxCommands {
+			fact.Commands = fact.Commands[:MaxCommands]
+		}
 		f.Sessions = append(f.Sessions, fact)
 	}
 	sort.Slice(f.Sessions, func(i, j int) bool { return f.Sessions[i].ID < f.Sessions[j].ID })
