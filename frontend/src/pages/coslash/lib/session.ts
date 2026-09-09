@@ -111,7 +111,7 @@ export function environmentFact(value: string | null | undefined): string {
 }
 
 export function sessionLocationFact(session: Pick<Session, 'repo' | 'cwd'>): string {
-  return environmentFact(session.repo ?? session.cwd);
+  return environmentFact(session.repo?.trim() || session.cwd);
 }
 
 export function withLocalSourceDefaults<T extends { agent: string; id: string }>(
