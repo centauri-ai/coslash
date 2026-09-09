@@ -2,12 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
-import {
-  remoteStatus,
-  setupRemoteHelper,
-  testRemoteAlias,
-  waitForRemoteRefresh,
-} from '@/pages/coslash/lib/remote-api';
+import { remoteStatus, setupRemoteHelper, testRemoteAlias } from '@/pages/coslash/lib/remote-api';
 import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
 
 type SetupStage = 'idle' | 'testing' | 'saving' | 'consent' | 'installing' | 'ready' | 'error' | 'removing';
@@ -83,7 +78,6 @@ export function MachinesSettingsSection({
     setStage('installing');
     setMessage('Installing connector…');
     try {
-      await waitForRemoteRefresh();
       const setup = await setupRemoteHelper(sshAlias, 'install');
       setMachine(setup.machine);
       if (setup.error != null) {
@@ -129,14 +123,8 @@ export function MachinesSettingsSection({
         setMessage('Could not add this SSH host.');
         return;
       }
-      if (test.helper?.compatible) {
-        setStage('ready');
-        setMessage('Existing connector verified. SSH monitoring is active.');
-        onConnectionVerified?.();
-        return;
-      }
       setStage('consent');
-      setMessage('Install a private connector on this host, or continue with SFTP only.');
+      setMessage('Install a private connector on this host, or skip installation.');
     } catch (error: unknown) {
       setStage('error');
       setMessage(error instanceof Error ? error.message : 'Could not add this SSH host.');
@@ -146,12 +134,12 @@ export function MachinesSettingsSection({
   const retryConnectorSetup = () => {
     if (remote == null) return;
     setStage('consent');
-    setMessage('Install a private connector on this host, or continue with SFTP only.');
+    setMessage('Install a private connector on this host, or skip installation.');
   };
 
-  const useSFTPOnly = () => {
+  const skipInstallation = () => {
     setStage('ready');
-    setMessage('Using SFTP only. SSH monitoring is active.');
+    setMessage('Connector installation skipped. SSH monitoring is active.');
     onConnectionVerified?.();
   };
 
@@ -201,8 +189,8 @@ export function MachinesSettingsSection({
             <div className="flex shrink-0 gap-2">
               {stage === 'consent' ? (
                 <>
-                  <Button type="button" variant="outline" size="sm" onClick={useSFTPOnly}>
-                    Use SFTP only
+                  <Button type="button" variant="outline" size="sm" onClick={skipInstallation}>
+                    Skip installation
                   </Button>
                   <Button type="button" size="sm" onClick={() => void installConnector(remote.sshAlias)}>
                     Install connector
