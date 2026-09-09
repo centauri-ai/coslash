@@ -75,8 +75,9 @@ counts, frozen estimated costs, digest/planning evidence, todos, file-change
 statistics, human-facing commit subjects, resolved commit object IDs, git
 drift, and bounded subagent facts. `session.commits` remains subject text;
 `session.commitShas` is optional during its additive rollout and contains only
-locally resolved lowercase full Git object IDs. Consumers must never parse
-subjects as identifiers.
+locally resolved lowercase full Git object IDs. It has no positional relation
+to `session.commits`, so consumers must not join the arrays by index. Consumers
+must never parse subjects as identifiers.
 
 ## Exclusions and structural redaction
 
