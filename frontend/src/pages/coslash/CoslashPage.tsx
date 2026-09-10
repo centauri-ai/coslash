@@ -178,7 +178,8 @@ function SessionsStats({
           {WINDOW_ACTIVITY_LABELS[timeWindow]} ·{' '}
           {aggregateSessions.filter((session) => session.agent === 'claude').length} Claude Code,{' '}
           {aggregateSessions.filter((session) => session.agent === 'codex').length} Codex,{' '}
-          {aggregateSessions.filter((session) => session.agent === 'opencode').length} OpenCode ·
+          {aggregateSessions.filter((session) => session.agent === 'opencode').length} OpenCode,{' '}
+          {aggregateSessions.filter((session) => session.agent === 'cursor').length} Cursor ·
         </span>
         <UnpricedModelWarning unpriced={aggregateSessions.flatMap((session) => session.unpricedModels)}>
           {formatEstimatedCost(aggregateSessions.reduce((sum, session) => sum + session.cost, 0))}

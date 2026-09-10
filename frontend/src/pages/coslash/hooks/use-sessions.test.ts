@@ -73,6 +73,20 @@ describe('decodeSessionsResponse', () => {
     expect(decodeSessionsResponse({ sessions, machines })).toEqual({ sessions, machines });
   });
 
+  it('preserves descendants and their immediate parent IDs in local session JSON', () => {
+    const local = {
+      ...sampleSession('root'),
+      subagents: [
+        { id: 'child', parentId: 'root' },
+        { id: 'grandchild', parentId: 'child' },
+      ],
+    };
+    expect(decodeSessionsResponse([local]).sessions[0].subagents).toEqual([
+      { id: 'child', parentId: 'root' },
+      { id: 'grandchild', parentId: 'child' },
+    ]);
+  });
+
   it('normalizes null remote collections so sparse facts cannot crash the board', () => {
     const sparse = {
       ...sampleSession('remote', 'r_0123456789abcdef'),

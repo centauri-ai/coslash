@@ -26,6 +26,7 @@ import {
   sessionLocationFact,
   STATUSES,
   SUBAGENT_STATUSES,
+  subagentParentName,
   sumTokens,
   type Session,
   type Subagent,
@@ -422,7 +423,12 @@ function SessionSubagentRail({
     <div className={cn('flex flex-col', variant === 'compact' ? 'pl-3' : 'pl-20')}>
       <div className="border-subagent-rail flex flex-col gap-2 border-l-3 pl-4">
         {visible.map((subagent) => (
-          <SubagentCard key={subagent.id} subagent={subagent} parentName={parentName} variant={variant} />
+          <SubagentCard
+            key={subagent.id}
+            subagent={subagent}
+            parentName={subagentParentName(subagent, subagents, parentName)}
+            variant={variant}
+          />
         ))}
         {(hiddenCount > 0 || expanded) && (
           <SubagentExpandToggle

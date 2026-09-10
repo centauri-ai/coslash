@@ -11,9 +11,19 @@ import {
   sessionKey,
   sessionLocationFact,
   sessionsForAggregates,
+  subagentParentName,
   withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
+
+describe('subagentParentName', () => {
+  it('uses the immediate parent of a descendant and keeps the root fallback for legacy data', () => {
+    const subagents = [{ id: 'child', name: 'Parser review' }];
+    expect(subagentParentName({ parentId: 'child' }, subagents, 'Root task')).toBe('Parser review');
+    expect(subagentParentName({ parentId: 'root' }, subagents, 'Root task')).toBe('Root task');
+    expect(subagentParentName({}, subagents, 'Root task')).toBe('Root task');
+  });
+});
 
 describe('getModality', () => {
   it('labels OpenCode client entrypoints without changing the shared CLI modality', () => {
@@ -21,18 +31,25 @@ describe('getModality', () => {
     expect(getModality('opencode-cli')).toBe('CLI');
     expect(getModality('cli')).toBe('Interactive');
   });
+
+  it('labels Cursor entrypoints', () => {
+    expect(getModality('cursor-cli')).toBe('CLI');
+    expect(getModality('cursor-sdk')).toBe('SDK');
+    expect(getModality('cursor-ide')).toBe('IDE');
+  });
 });
 
 describe('getSessionVendors', () => {
   it('returns only vendors represented by loaded sessions in display order', () => {
     const sessions = [
       { agent: 'opencode' },
+      { agent: 'cursor' },
       { agent: 'claude' },
       { agent: 'claude' },
       { agent: 'unknown' },
     ] satisfies Pick<Session, 'agent'>[];
 
-    expect(getSessionVendors(sessions)).toEqual(['claude', 'opencode']);
+    expect(getSessionVendors(sessions)).toEqual(['claude', 'opencode', 'cursor']);
   });
 });
 
