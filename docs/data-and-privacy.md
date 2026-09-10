@@ -77,12 +77,11 @@ For opt-in user testing before the Team flow ships, append
 preview-only trigger in session details; it does not enable a Team workspace,
 approval, or upload.
 
-The preview can include a bounded `firstPrompt` (up to 16 KiB). Known
-credential patterns are redacted, but other sensitive text can remain, so the
-exact bounded value must be reviewed. Redaction and truncation records identify
-affected canonical paths. Raw transcripts, assistant reasoning, tool output,
-file diffs, raw commands, environment variables, and unresolved local paths are
-excluded.
+The preview contains metadata and repository-relative file-change statistics.
+Session titles, summaries, declared goals, prompts, digests, todos, commit
+subjects, subagent details, commands, transcripts, assistant reasoning, tool
+output, file diffs, environment variables, and unresolved local paths stay on
+the device. Redaction and truncation records identify affected canonical paths.
 
 The fixture-backed Share flow is available to source builds with
 `?team-share=1`. It exercises eligibility, destination, selection, exact review,

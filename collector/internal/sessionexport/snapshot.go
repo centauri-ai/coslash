@@ -16,29 +16,13 @@ import (
 )
 
 const (
-	maxNameBytes         = snapshotv1.MaxNameBytes
-	maxSummaryBytes      = snapshotv1.MaxSummaryBytes
-	maxPathBytes         = snapshotv1.MaxPathBytes
-	maxBranchBytes       = snapshotv1.MaxBranchBytes
-	maxEntrypointBytes   = snapshotv1.MaxEntrypointBytes
-	maxModelBytes        = snapshotv1.MaxModelBytes
-	maxGoalBytes         = snapshotv1.MaxGoalBytes
-	maxPromptBytes       = snapshotv1.MaxPromptBytes
-	maxDigestItems       = snapshotv1.MaxDigestItems
-	maxDigestTextBytes   = snapshotv1.MaxDigestTextBytes
-	maxTodoItems         = snapshotv1.MaxTodoItems
-	maxTodoTextBytes     = snapshotv1.MaxTodoTextBytes
-	maxFileEditItems     = snapshotv1.MaxFileEditItems
-	maxCommitItems       = snapshotv1.MaxCommitItems
-	maxCommitTextBytes   = snapshotv1.MaxCommitTextBytes
-	maxSubagentItems     = snapshotv1.MaxSubagentItems
-	maxSubagentTextBytes = snapshotv1.MaxSubagentTextBytes
-	maxCommandLabelItems = snapshotv1.MaxCommandLabelItems
-	maxCommandLabelBytes = snapshotv1.MaxCommandLabelBytes
-	maxUnpricedModels    = snapshotv1.MaxUnpricedModels
-	maxIdentifierBytes   = snapshotv1.MaxIdentifierBytes
-	maxStatusBytes       = 64
-	maxCategoryBytes     = 64
+	maxPathBytes       = snapshotv1.MaxPathBytes
+	maxBranchBytes     = snapshotv1.MaxBranchBytes
+	maxEntrypointBytes = snapshotv1.MaxEntrypointBytes
+	maxModelBytes      = snapshotv1.MaxModelBytes
+	maxFileEditItems   = snapshotv1.MaxFileEditItems
+	maxUnpricedModels  = snapshotv1.MaxUnpricedModels
+	maxStatusBytes     = 64
 )
 
 // BuildOptions supplies facts intentionally kept outside the local Session
@@ -89,8 +73,11 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 		Truncation: []snapshotv1.Truncation{},
 		Redactions: []snapshotv1.Redaction{},
 		Session: snapshotv1.Session{
-			Name:             b.optionalText("/session/name", local.Name, maxNameBytes),
-			Summary:          b.optionalText("/session/summary", local.Summary, maxSummaryBytes),
+			// Content-bearing text stays on the device. A session title, summary,
+			// digest, todo, commit subject, and subagent fields can all reproduce
+			// prompt, transcript, command, or tool-output material. The shared
+			// record is deliberately metadata-only until a separately reviewed
+			// product contract introduces safe derived fields.
 			Status:           b.optionalText("/session/status", local.Status, maxStatusBytes),
 			WorkingDirectory: b.relativePath("/session/cwd", "/session", local.WorkingDirectory),
 			Branch:           b.optionalText("/session/branch", local.Branch, maxBranchBytes),
@@ -101,9 +88,6 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 			Model:            b.optionalRequiredText("/session/model", local.Model, maxModelBytes),
 			ContextTokens:    copyIntPointer(local.ContextTokens),
 			ContextWindow:    copyIntPointer(local.ContextWindow),
-			DeclaredGoal:     b.optionalText("/session/declaredGoal", local.DeclaredGoal, maxGoalBytes),
-			// Prompts remain local. Even a bounded/redacted prompt can expose user
-			// intent that is unnecessary for a team handoff.
 			Counts: snapshotv1.Counts{
 				EditedFiles:  local.EditedFileCount,
 				Turns:        local.Turns,
@@ -114,18 +98,14 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 				PullRequests: local.PullRequests,
 			},
 			Usage:      usage,
-			Digest:     b.digest(local.Digest),
-			Todos:      b.todos(local.Todos),
+			Digest:     []snapshotv1.Digest{},
+			Todos:      []snapshotv1.Todo{},
 			FileEdits:  b.fileEdits(local.FileEdits),
-			Commits:    b.strings("/session/commits", local.Commits, maxCommitItems, maxCommitTextBytes),
+			Commits:    []string{},
 			CommitSHAs: b.commitSHAs(local.CommitSHAs),
 			Git:        b.git(local.Git),
 			Subagents:  []snapshotv1.Subagent{},
 		},
-	}
-	s.Session.Subagents, err = b.subagents(local.Subagents)
-	if err != nil {
-		return snapshotv1.Snapshot{}, err
 	}
 	s.Truncation = b.truncation
 	s.Redactions = b.redactions
@@ -373,36 +353,6 @@ func (b *builder) redact(path, reason string) {
 	b.redactions = append(b.redactions, snapshotv1.Redaction{Path: path, Reason: reason})
 }
 
-func (b *builder) digest(values []session.DigestEntry) []snapshotv1.Digest {
-	retained := b.items("/session/digest", len(values), maxDigestItems)
-	values = values[len(values)-retained:]
-	result := make([]snapshotv1.Digest, 0, len(values))
-	for i, value := range values {
-		base := fmt.Sprintf("/session/digest/%d", i)
-		item := snapshotv1.Digest{
-			Turn: value.Turn, Category: b.text(base+"/category", value.Category, maxCategoryBytes),
-			Description: b.text(base+"/description", value.Description, maxDigestTextBytes),
-		}
-		if value.Answer != "" {
-			item.Answer = stringPointer(b.text(base+"/answer", value.Answer, maxDigestTextBytes))
-		}
-		if value.SubagentID != "" {
-			item.SubagentID = stringPointer(b.text(base+"/subagentId", value.SubagentID, maxIdentifierBytes))
-		}
-		result = append(result, item)
-	}
-	return result
-}
-
-func (b *builder) todos(values []session.Todo) []snapshotv1.Todo {
-	values = values[:b.items("/session/todos", len(values), maxTodoItems)]
-	result := make([]snapshotv1.Todo, 0, len(values))
-	for i, value := range values {
-		result = append(result, snapshotv1.Todo{Text: b.text(fmt.Sprintf("/session/todos/%d/text", i), value.Text, maxTodoTextBytes), Done: value.Done})
-	}
-	return result
-}
-
 func (b *builder) fileEdits(values []session.FileEdit) []snapshotv1.FileEdit {
 	type candidate struct {
 		edit session.FileEdit
@@ -424,15 +374,6 @@ func (b *builder) fileEdits(values []session.FileEdit) []snapshotv1.FileEdit {
 		result = append(result, snapshotv1.FileEdit{
 			Path: b.pathText(path, value.path), Additions: value.edit.Additions, Deletions: value.edit.Deletions, Edits: value.edit.Edits, IsNew: value.edit.IsNew,
 		})
-	}
-	return result
-}
-
-func (b *builder) strings(path string, values []string, maxItems, maxBytes int) []string {
-	values = values[:b.items(path, len(values), maxItems)]
-	result := make([]string, 0, len(values))
-	for i, value := range values {
-		result = append(result, b.text(fmt.Sprintf("%s/%d", path, i), value, maxBytes))
 	}
 	return result
 }
@@ -554,55 +495,6 @@ func mergeModelUsage(target *snapshotv1.ModelUsage, value snapshotv1.ModelUsage)
 	target.EstimatedCostMicroUSD += value.EstimatedCostMicroUSD
 }
 
-func (b *builder) subagents(values []session.Subagent) ([]snapshotv1.Subagent, error) {
-	values = values[:b.items("/session/subagents", len(values), maxSubagentItems)]
-	result := make([]snapshotv1.Subagent, 0, len(values))
-	commandLabels := 0
-	for i, value := range values {
-		base := fmt.Sprintf("/session/subagents/%d", i)
-		usage, err := b.modelUsage(value.Tokens, base+"/usage")
-		if err != nil {
-			return nil, err
-		}
-		labels := make([]string, 0, len(value.Commands))
-		candidates := 0
-		rawOmitted := false
-		for _, command := range value.Commands {
-			if strings.TrimSpace(command.Label) == "" || command.Label == command.Command {
-				rawOmitted = true
-				continue
-			}
-			candidates++
-			if commandLabels >= maxCommandLabelItems {
-				continue
-			}
-			labels = append(labels, b.text(fmt.Sprintf("%s/commandLabels/%d", base, len(labels)), command.Label, maxCommandLabelBytes))
-			commandLabels++
-		}
-		if rawOmitted {
-			b.redact(base+"/commandLabels", "raw_command")
-		}
-		if candidates > len(labels) {
-			b.truncation = append(b.truncation, snapshotv1.Truncation{
-				Path: base + "/commandLabels", Reason: snapshotv1.TruncationReasonItemBudget,
-				OriginalItems: intPointer(candidates), ExportedItems: intPointer(len(labels)),
-			})
-		}
-		cost, err := snapshotv1.CostMicroUSD(value.Cost)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, snapshotv1.Subagent{
-			ID: b.text(base+"/id", value.ID, maxIdentifierBytes), Name: b.text(base+"/name", value.Name, maxNameBytes),
-			Model: b.optionalRequiredText(base+"/model", value.Model, maxModelBytes), Status: b.text(base+"/status", value.Status, maxStatusBytes),
-			Task: b.text(base+"/task", value.Task, maxSubagentTextBytes), Result: b.text(base+"/result", value.Result, maxSubagentTextBytes),
-			DurationMs: copyIntPointer(value.DurationMs), SpawnedAtTurn: copyIntPointer(value.SpawnedAtTurn), ToolUses: value.ToolUses,
-			CommandLabels: labels, Usage: usage, EstimatedCostMicroUSD: cost,
-		})
-	}
-	return result, nil
-}
-
 func cleanRoot(root string) string {
 	if root == "" {
 		return ""
@@ -634,5 +526,4 @@ func copyInt64Pointer(value *int64) *int64 {
 	return &copy
 }
 
-func intPointer(value int) *int          { return &value }
-func stringPointer(value string) *string { return &value }
+func intPointer(value int) *int { return &value }

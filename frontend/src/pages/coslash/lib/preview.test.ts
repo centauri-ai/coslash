@@ -158,10 +158,11 @@ describe('snapshot preview adapter', () => {
     expect(teamPreviewEnabled('?other=1')).toBe(false);
   });
 
-  it('validates preview responses and states that prompts remain local', () => {
+  it('validates preview responses and describes the metadata-only boundary', () => {
     expect(isSnapshotPreview(null)).toBe(false);
     expect(isSnapshotPreview(ready({ schemaVersion: 'session-snapshot/v1' }))).toBe(true);
-    expect(PREVIEW_PRIVACY_COPY).toContain('Prompts remain local');
+    expect(PREVIEW_PRIVACY_COPY).toContain('metadata');
     expect(STRUCTURALLY_EXCLUDED.join(' ')).toContain('Credentials');
+    expect(STRUCTURALLY_EXCLUDED.join(' ')).toContain('Session titles');
   });
 });
