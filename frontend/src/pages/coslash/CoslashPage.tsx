@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search, ShieldCheck } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { setTheme } from '@/lib/theme';
@@ -46,7 +47,6 @@ import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { machinesForSourceFilter, type MachineFact } from '@/pages/coslash/lib/machines';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
-import { sessionMatchesSearchTerm } from '@/pages/coslash/lib/search';
 import {
   getSessionVendors,
   isLocalSession,
@@ -55,6 +55,13 @@ import {
   sessionsForAggregates,
   type Session,
 } from '@/pages/coslash/lib/session';
+import {
+  ALL_REPOSITORIES,
+  filterSessionLibrary,
+  latestLogicalSessions,
+  libraryRepositories,
+  type SessionLibraryFilters,
+} from '@/pages/coslash/lib/session-library';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
 import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
@@ -144,6 +151,60 @@ function SessionSearch({
         value={searchTerm}
         onChange={(event) => onSearchTermChange(event.target.value)}
       />
+    </div>
+  );
+}
+
+function LibraryFilters({
+  repository,
+  repositories,
+  shareState,
+  onRepositoryChange,
+  onShareStateChange,
+}: {
+  repository: string;
+  repositories: readonly string[];
+  shareState: SessionLibraryFilters['shareState'];
+  onRepositoryChange: (value: string) => void;
+  onShareStateChange: (value: SessionLibraryFilters['shareState']) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <label className="sr-only" htmlFor="session-repository-filter">
+        Repository
+      </label>
+      <select
+        id="session-repository-filter"
+        value={repository}
+        onChange={(event) => onRepositoryChange(event.target.value)}
+        className="border-input bg-background h-8 max-w-40 rounded-md border px-2 text-xs"
+      >
+        <option value={ALL_REPOSITORIES}>All repositories</option>
+        {repositories.map((value) => (
+          <option key={value} value={value}>
+            {value}
+          </option>
+        ))}
+      </select>
+      <label className="sr-only" htmlFor="session-share-state-filter">
+        Share state
+      </label>
+      <select
+        id="session-share-state-filter"
+        value={shareState}
+        onChange={(event) => onShareStateChange(event.target.value as SessionLibraryFilters['shareState'])}
+        className="border-input bg-background h-8 rounded-md border px-2 text-xs"
+      >
+        <option value="all">All share states</option>
+        <option value="eligible">Eligible</option>
+        <option value="private">Private</option>
+        <option value="running">Running</option>
+        <option value="incomplete">Incomplete</option>
+        <option value="stale">Stale</option>
+        <option value="offline">Offline</option>
+        <option value="failed">Failed</option>
+        <option value="deleted">Deleted</option>
+      </select>
     </div>
   );
 }
@@ -315,6 +376,8 @@ export function CoslashPage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [repository, setRepository] = useState(ALL_REPOSITORIES);
+  const [shareState, setShareState] = useState<SessionLibraryFilters['shareState']>('all');
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [remoteRetryInFlight, setRemoteRetryInFlight] = useState(false);
@@ -332,6 +395,10 @@ export function CoslashPage() {
       ),
     [sessions, shareFixtureEnabled],
   );
+  const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
+  const repositories = useMemo(() => libraryRepositories(librarySessions), [librarySessions]);
+  const effectiveRepository =
+    repository === ALL_REPOSITORIES || repositories.includes(repository) ? repository : ALL_REPOSITORIES;
   const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
   const filterableRemoteMachines = machinesForSourceFilter(machines);
   const effectiveMachineFilter =
@@ -340,7 +407,7 @@ export function CoslashPage() {
     filterableRemoteMachines.some((machine) => machine.sourceId === machineFilter)
       ? machineFilter
       : ALL_MACHINES;
-  const remoteSessionCount = sessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
+  const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
 
   const refreshHubDestination = useCallback(async () => {
     const destination = await loadHubDestination();
@@ -362,7 +429,8 @@ export function CoslashPage() {
   // Held by source-aware key, not by value: the inspector must render the freshest
   // record each refresh, and a stored object would freeze at click time. Looked up
   // from the unfiltered list so filters never close an open inspector.
-  const selectedSession = sessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
+  const selectedSession =
+    librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
   const synthesisSettingsKey = settingsState.response
     ? [
         settingsState.response.persisted,
@@ -392,8 +460,8 @@ export function CoslashPage() {
   const windowStart = timeWindowStart(timeWindow);
   const sessionsInWindow =
     windowStart == null
-      ? sessions
-      : sessions.filter((session) => session.status != null || session.mtime >= windowStart);
+      ? librarySessions
+      : librarySessions.filter((session) => session.status != null || session.mtime >= windowStart);
   const sessionsForMachine =
     effectiveMachineFilter === ALL_MACHINES
       ? sessionsInWindow
@@ -403,7 +471,12 @@ export function CoslashPage() {
     (session) => vendor === 'all' || session.agent === vendor,
   );
   const visibleSessions = sortSessions(
-    sessionsForVendor.filter((session) => sessionMatchesSearchTerm(session, searchTerm)),
+    filterSessionLibrary(sessionsForVendor, {
+      search: searchTerm,
+      repository: effectiveRepository,
+      source: 'all',
+      shareState,
+    }),
     sortKey,
     sortDir,
   );
@@ -449,6 +522,13 @@ export function CoslashPage() {
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
           <div className="flex shrink-0 items-center gap-2">
             <AgentVendorFilterTabMenu value={vendor} vendors={sessionVendors} onValueChange={setVendor} />
+            <LibraryFilters
+              repository={effectiveRepository}
+              repositories={repositories}
+              shareState={shareState}
+              onRepositoryChange={setRepository}
+              onShareStateChange={setShareState}
+            />
             {filterableRemoteMachines.length > 0 && (
               <>
                 <span className="bg-border h-5 w-px" />
@@ -495,6 +575,15 @@ export function CoslashPage() {
               onRefresh={refreshDiagnostics}
               remoteSessionCount={remoteSessionCount}
             />
+            {shareDestination?.state === 'ready' && (
+              <Badge
+                variant="secondary"
+                className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
+              >
+                <ShieldCheck className="size-3.5" aria-hidden="true" />
+                {shareDestination.destination.workspaceName} paired
+              </Badge>
+            )}
             {shareEnabled && (
               <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
                 Share to Hub

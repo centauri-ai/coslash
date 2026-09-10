@@ -17,7 +17,7 @@ function isChecking(machine: MachineFact) {
 }
 
 function machineCopy(machine: MachineFact, checking: boolean) {
-  if (machine.sourceId === LOCAL_SOURCE_ID) return 'This Mac is up to date.';
+  if (machine.sourceId === LOCAL_SOURCE_ID) return 'Local Mac is up to date.';
   const lastChecked = machine.lastCheckedAtMs == null ? 'not yet' : formatTimeAgo(machine.lastCheckedAtMs);
   const savedHistory =
     machine.lastSuccessAtMs == null ? 'no saved history' : formatTimeAgo(machine.lastSuccessAtMs);

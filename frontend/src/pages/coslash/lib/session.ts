@@ -32,11 +32,25 @@ export type Subagent = {
 };
 
 export const LOCAL_SOURCE_ID = 'local';
-export const LOCAL_SOURCE_LABEL = 'This Mac';
+export const LOCAL_SOURCE_LABEL = 'Local Mac';
+export const SSH_SOURCE_LABEL = 'SSH workspace';
+
+export type SourceClass = 'local' | 'ssh_workspace';
+export type SessionCompletion = 'complete' | 'running' | 'incomplete';
+export type SessionPrivacy = 'shareable' | 'private';
+export type ShareEligibility =
+  'eligible' | 'private' | 'running' | 'failed' | 'incomplete' | 'stale' | 'offline' | 'deleted';
 
 export type Session = {
   sourceId: string;
   sourceLabel: string;
+  /** Stable across a remote alias rename. Never contains host or path data. */
+  sourceClass?: SourceClass;
+  logicalSessionId?: string;
+  revision?: number;
+  completion?: SessionCompletion;
+  privacy?: SessionPrivacy;
+  shareEligibility?: ShareEligibility;
   eligibleForAggregates: boolean;
   displayStale: boolean;
   launchable?: boolean;
@@ -99,6 +113,39 @@ export function isLocalSession(session: Pick<Session, 'sourceId'>): boolean {
   return isLocalSource(session.sourceId);
 }
 
+export function sessionLogicalId(
+  session: Pick<Session, 'sourceId' | 'agent' | 'id' | 'logicalSessionId'>,
+): string {
+  return session.logicalSessionId ?? `${session.sourceId}:${session.agent}:${session.id}`;
+}
+
+export function sessionRevision(session: Pick<Session, 'mtime' | 'revision'>): number {
+  return session.revision ?? session.mtime;
+}
+
+export function sessionShareEligibility(
+  session: Pick<
+    Session,
+    'shareEligibility' | 'repoLocalOnly' | 'status' | 'displayStale' | 'eligibleForAggregates'
+  >,
+): ShareEligibility {
+  if (session.shareEligibility != null) return session.shareEligibility;
+  if (session.repoLocalOnly) return 'private';
+  if (session.displayStale) return 'stale';
+  if (!session.eligibleForAggregates) return 'incomplete';
+  if (session.status != null) return 'running';
+  return 'eligible';
+}
+
+export function isEligibleForSharing(
+  session: Pick<
+    Session,
+    'shareEligibility' | 'repoLocalOnly' | 'status' | 'displayStale' | 'eligibleForAggregates'
+  >,
+): boolean {
+  return sessionShareEligibility(session) === 'eligible';
+}
+
 export function sessionsForAggregates<T extends Pick<Session, 'eligibleForAggregates'>>(
   sessions: readonly T[],
 ): T[] {
@@ -117,14 +164,48 @@ export function sessionLocationFact(session: Pick<Session, 'repo' | 'cwd'>): str
 
 export function withLocalSourceDefaults<T extends { agent: string; id: string }>(
   session: T,
-): T & Pick<Session, 'sourceId' | 'sourceLabel' | 'eligibleForAggregates' | 'displayStale'> {
+): T &
+  Pick<
+    Session,
+    | 'sourceId'
+    | 'sourceLabel'
+    | 'sourceClass'
+    | 'logicalSessionId'
+    | 'revision'
+    | 'completion'
+    | 'privacy'
+    | 'shareEligibility'
+    | 'eligibleForAggregates'
+    | 'displayStale'
+  > {
   const record = session as T & Partial<Session>;
+  const sourceId = record.sourceId ?? LOCAL_SOURCE_ID;
+  const sourceClass = record.sourceClass ?? (sourceId === LOCAL_SOURCE_ID ? 'local' : 'ssh_workspace');
+  const sourceLabel =
+    sourceClass === 'ssh_workspace' ? SSH_SOURCE_LABEL : (record.sourceLabel ?? LOCAL_SOURCE_LABEL);
+  const eligibleForAggregates = record.eligibleForAggregates ?? true;
+  const displayStale = record.displayStale ?? false;
+  const shareEligibility = sessionShareEligibility({
+    shareEligibility: record.shareEligibility,
+    repoLocalOnly: record.repoLocalOnly ?? false,
+    status: record.status ?? null,
+    displayStale,
+    eligibleForAggregates,
+  });
   return {
     ...session,
-    sourceId: record.sourceId ?? LOCAL_SOURCE_ID,
-    sourceLabel: record.sourceLabel ?? LOCAL_SOURCE_LABEL,
-    eligibleForAggregates: record.eligibleForAggregates ?? true,
-    displayStale: record.displayStale ?? false,
+    sourceId,
+    sourceLabel,
+    sourceClass,
+    logicalSessionId: record.logicalSessionId ?? `${sourceId}:${session.agent}:${session.id}`,
+    revision: record.revision ?? record.mtime ?? 0,
+    completion:
+      record.completion ??
+      (shareEligibility === 'running' ? 'running' : eligibleForAggregates ? 'complete' : 'incomplete'),
+    privacy: record.privacy ?? (record.repoLocalOnly ? 'private' : 'shareable'),
+    shareEligibility,
+    eligibleForAggregates,
+    displayStale,
   };
 }
 

@@ -118,6 +118,64 @@ func TestBoardRemoteSessionSerializesCollectionsAsArrays(t *testing.T) {
 	}
 }
 
+func TestBoardSessionLibraryNormalizesIdentityEligibilityAndSSHLabel(t *testing.T) {
+	private := true
+	remoteSession := boardRemoteSession(remote.IndexedSession{
+		Key:                   remote.SessionKey{SourceID: "r_0123456789abcdef"},
+		SourceLabel:           "person@private-host",
+		EligibleForAggregates: true,
+		Session: &session.Session{
+			Agent: "codex", ID: "session-1", LastActivityTime: 42,
+			RepositoryLocalOnly: private,
+		},
+	})
+	if remoteSession.SourceClass != "ssh_workspace" || remoteSession.SourceLabel != sshSourceLabel {
+		t.Fatalf("source presentation = %q/%q, want ssh_workspace/%q", remoteSession.SourceClass, remoteSession.SourceLabel, sshSourceLabel)
+	}
+	if remoteSession.LogicalSessionID != "r_0123456789abcdef:codex:session-1" || remoteSession.Revision != 42 {
+		t.Fatalf("logical identity = %q@%d", remoteSession.LogicalSessionID, remoteSession.Revision)
+	}
+	if remoteSession.Privacy != "private" || remoteSession.ShareEligibility != "private" {
+		t.Fatalf("private remote eligibility = %q/%q", remoteSession.Privacy, remoteSession.ShareEligibility)
+	}
+
+	running := "busy"
+	localSession := boardLocalSession(&session.Session{Agent: "claude", ID: "session-2", Status: &running, LastActivityTime: 7})
+	if localSession.SourceClass != "local" || localSession.Completion != "running" || localSession.ShareEligibility != "running" {
+		t.Fatalf("local normalization = %#v", localSession)
+	}
+}
+
+func TestBoardRemoteSessionDoesNotSerializeRemoteOperationalOrContentFields(t *testing.T) {
+	secret := "SECRET-REMOTE-CONTENT"
+	repository := "centauri/coslash"
+	encoded, err := json.Marshal(boardRemoteSession(remote.IndexedSession{
+		Key:                   remote.SessionKey{SourceID: "r_0123456789abcdef"},
+		SourceLabel:           "dev@private-host",
+		EligibleForAggregates: true,
+		Session: &session.Session{
+			Agent: "codex", ID: "session-1", WorkingDirectory: "/private/workspace",
+			Repository: &repository, Summary: &secret,
+			SessionDetails: session.SessionDetails{
+				FirstPrompt: &secret, Commands: []string{secret},
+				Todos:     []session.Todo{{Text: secret}},
+				FileEdits: []session.FileEdit{{Path: "/private/file"}},
+			},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"dev@private-host", "/private/workspace", "/private/file", secret} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("remote board response exposed %q: %s", forbidden, encoded)
+		}
+	}
+	if !strings.Contains(string(encoded), repository) {
+		t.Fatalf("remote board response removed canonical repository: %s", encoded)
+	}
+}
+
 func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
 	manager := remote.NewManager(remote.Options{})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {

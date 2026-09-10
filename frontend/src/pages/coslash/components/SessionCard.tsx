@@ -23,7 +23,7 @@ import {
   getSessionCardSummary,
   getTotalTokens,
   getVendor,
-  sessionLocationFact,
+  sessionShareEligibility,
   STATUSES,
   SUBAGENT_STATUSES,
   sumTokens,
@@ -107,6 +107,27 @@ function StatusBadge({ session }: { session: Session }) {
   );
 }
 
+const SHARE_STATE_COPY = {
+  eligible: null,
+  private: 'Private · not shareable',
+  running: 'Running · not shareable',
+  failed: 'Failed · not shareable',
+  incomplete: 'Incomplete source · not shareable',
+  stale: 'Stale source · not shareable',
+  offline: 'Offline source · not shareable',
+  deleted: 'Deleted source · not shareable',
+} as const;
+
+function ShareStateBadge({ session }: { session: Session }) {
+  const label = SHARE_STATE_COPY[sessionShareEligibility(session)];
+  if (label == null) return null;
+  return (
+    <Badge variant="secondary" className="text-muted-foreground shrink-0 text-xs font-semibold">
+      {label}
+    </Badge>
+  );
+}
+
 function Modality({ session }: { session: Session }) {
   if (session.entrypoint == null) return null;
   return (
@@ -118,8 +139,8 @@ function Modality({ session }: { session: Session }) {
 
 function Metadata({ session }: { session: Session }) {
   return (
-    <div className="text-muted-foreground pt-2 font-mono text-xs" title={environmentFact(session.cwd)}>
-      {sessionLocationFact(session)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
+    <div className="text-muted-foreground pt-2 font-mono text-xs" title={environmentFact(session.repo)}>
+      {environmentFact(session.repo)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
       {formatDuration(session.durationMs)} · {session.files} files
     </div>
   );
@@ -152,6 +173,7 @@ function CompactSessionCard({ session, showMachineBadge }: { session: Session; s
           <SessionVendorBadge agent={session.agent} abbreviated />
           <SessionName name={session.name} variant="compact" />
           {showMachineBadge && <MachineBadge label={session.sourceLabel} />}
+          <ShareStateBadge session={session} />
         </div>
         <span className="text-xs font-semibold whitespace-nowrap">
           <UnpricedModelWarning unpriced={session.unpricedModels}>
@@ -180,6 +202,7 @@ function DetailedSessionCard({ session, showMachineBadge }: { session: Session; 
           <SessionId id={session.id} />
           <StatusBadge session={session} />
           {showMachineBadge && <MachineBadge label={session.sourceLabel} />}
+          <ShareStateBadge session={session} />
           <Modality session={session} />
         </div>
         <Summary session={session} />

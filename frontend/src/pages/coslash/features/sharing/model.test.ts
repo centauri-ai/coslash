@@ -31,7 +31,7 @@ const destination: ShareDestination = {
 function session(id: string, repo: string, mtime: number): Session {
   return {
     sourceId: 'local',
-    sourceLabel: 'This Mac',
+    sourceLabel: 'Local Mac',
     eligibleForAggregates: true,
     displayStale: false,
     agent: 'codex',

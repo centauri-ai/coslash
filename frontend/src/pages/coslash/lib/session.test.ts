@@ -11,6 +11,7 @@ import {
   sessionKey,
   sessionLocationFact,
   sessionsForAggregates,
+  sessionShareEligibility,
   withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
@@ -51,7 +52,13 @@ describe('withLocalSourceDefaults', () => {
       agent: 'codex',
       id: 'abc',
       sourceId: 'local',
-      sourceLabel: 'This Mac',
+      sourceLabel: 'Local Mac',
+      sourceClass: 'local',
+      logicalSessionId: 'local:codex:abc',
+      revision: 0,
+      completion: 'complete',
+      privacy: 'shareable',
+      shareEligibility: 'eligible',
       eligibleForAggregates: true,
       displayStale: false,
     });
@@ -85,6 +92,52 @@ describe('sessionsForAggregates', () => {
         { eligibleForAggregates: true },
       ]),
     ).toEqual([{ eligibleForAggregates: true }, { eligibleForAggregates: true }]);
+  });
+});
+
+describe('sessionShareEligibility', () => {
+  it('fails closed for every non-ready local or SSH source condition', () => {
+    expect(
+      sessionShareEligibility({
+        repoLocalOnly: true,
+        status: null,
+        displayStale: false,
+        eligibleForAggregates: true,
+      }),
+    ).toBe('private');
+    expect(
+      sessionShareEligibility({
+        repoLocalOnly: false,
+        status: 'busy',
+        displayStale: false,
+        eligibleForAggregates: true,
+      }),
+    ).toBe('running');
+    expect(
+      sessionShareEligibility({
+        repoLocalOnly: false,
+        status: null,
+        displayStale: true,
+        eligibleForAggregates: true,
+      }),
+    ).toBe('stale');
+    expect(
+      sessionShareEligibility({
+        repoLocalOnly: false,
+        status: null,
+        displayStale: false,
+        eligibleForAggregates: false,
+      }),
+    ).toBe('incomplete');
+    expect(
+      sessionShareEligibility({
+        shareEligibility: 'offline',
+        repoLocalOnly: false,
+        status: null,
+        displayStale: false,
+        eligibleForAggregates: true,
+      }),
+    ).toBe('offline');
   });
 });
 
@@ -168,12 +221,14 @@ describe('resumeDisabled', () => {
 
 describe('decodeMachineFact', () => {
   it('accepts the exact local-machine JSON shape without remote-only fields', () => {
-    expect(decodeMachineFact({ sourceId: 'local', label: 'This Mac', state: 'ok', complete: true })).toEqual({
-      sourceId: 'local',
-      label: 'This Mac',
-      state: 'ok',
-      complete: true,
-    });
+    expect(decodeMachineFact({ sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true })).toEqual(
+      {
+        sourceId: 'local',
+        label: 'Local Mac',
+        state: 'ok',
+        complete: true,
+      },
+    );
   });
 
   it('accepts a healthy remote machine fact', () => {
@@ -194,7 +249,7 @@ describe('decodeMachineFact', () => {
 
   it('rejects unknown machine states', () => {
     expect(() =>
-      decodeMachineFact({ sourceId: 'local', label: 'This Mac', state: 'weird', complete: true }),
+      decodeMachineFact({ sourceId: 'local', label: 'Local Mac', state: 'weird', complete: true }),
     ).toThrow(/Expected one of/);
   });
 });

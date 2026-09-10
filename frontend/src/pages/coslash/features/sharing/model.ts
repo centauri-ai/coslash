@@ -1,5 +1,5 @@
 import { canonicalUploadBytes, type SnapshotPreview } from '@/pages/coslash/lib/preview';
-import { isLocalSession, type Session } from '@/pages/coslash/lib/session';
+import { isEligibleForSharing, isLocalSession, type Session } from '@/pages/coslash/lib/session';
 
 // C4 contract; provider fixtures live in coslash-server/testdata/hub-share-v1.
 export const HUB_SHARE_VERSION = 'hub-share/v1' as const;
@@ -185,9 +185,14 @@ export function localSessionId(session: Pick<Session, 'agent' | 'id'>): string {
   return `${session.agent}:${session.id}`;
 }
 
-/** Hub candidates stay local-only before the existing agent:id sharing key. */
+/**
+ * Compatibility wrapper for the pre-LB-04 uploader. It must not receive an
+ * ineligible source while its request key is still local-only. LB-04 consumes
+ * eligibleSessionCandidates from lib/session-library instead, where source
+ * identity is retained for both local and SSH workspaces.
+ */
 export function localShareCandidates(candidates: ShareCandidate[]): ShareCandidate[] {
-  return candidates.filter(({ session }) => isLocalSession(session));
+  return candidates.filter(({ session }) => isLocalSession(session) && isEligibleForSharing(session));
 }
 
 export function filterShareCandidates(
