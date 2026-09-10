@@ -10,7 +10,7 @@ import { LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
 function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
   return {
     sourceId,
-    sourceLabel: sourceId === LOCAL_SOURCE_ID ? 'This Mac' : 'gpu-server',
+    sourceLabel: sourceId === LOCAL_SOURCE_ID ? 'Local Mac' : 'gpu-server',
     eligibleForAggregates: true,
     displayStale: false,
     agent: 'codex',
@@ -69,7 +69,7 @@ describe('decodeSessionsResponse', () => {
 
   it('accepts the source-aware envelope and preserves machines', () => {
     const sessions = [sampleSession('a'), sampleSession('b', 'r_0123456789abcdef')];
-    const machines = [{ sourceId: 'local', label: 'This Mac', state: 'ok', complete: true }];
+    const machines = [{ sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true }];
     expect(decodeSessionsResponse({ sessions, machines })).toEqual({ sessions, machines });
   });
 
@@ -99,7 +99,7 @@ describe('decodeSessionsResponse', () => {
   });
 
   it('treats a null or missing sessions list as empty', () => {
-    const machines = [{ sourceId: 'local', label: 'This Mac', state: 'ok', complete: true }];
+    const machines = [{ sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true }];
     expect(decodeSessionsResponse({ sessions: null, machines })).toEqual({ sessions: [], machines });
     expect(decodeSessionsResponse({ machines })).toEqual({ sessions: [], machines });
   });
@@ -112,7 +112,7 @@ describe('decodeSessionsResponse', () => {
     expect(() =>
       decodeSessionsResponse({
         sessions: [],
-        machines: [{ sourceId: 'local', label: 'This Mac', state: 'nope', complete: true }],
+        machines: [{ sourceId: 'local', label: 'Local Mac', state: 'nope', complete: true }],
       }),
     ).toThrow(/Expected one of/);
   });

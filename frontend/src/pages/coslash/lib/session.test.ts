@@ -52,7 +52,7 @@ describe('withLocalSourceDefaults', () => {
       agent: 'codex',
       id: 'abc',
       sourceId: 'local',
-      sourceLabel: 'This Mac',
+      sourceLabel: 'Local Mac',
       sourceClass: 'local',
       logicalSessionId: 'local:codex:abc',
       revision: 0,
@@ -221,12 +221,14 @@ describe('resumeDisabled', () => {
 
 describe('decodeMachineFact', () => {
   it('accepts the exact local-machine JSON shape without remote-only fields', () => {
-    expect(decodeMachineFact({ sourceId: 'local', label: 'This Mac', state: 'ok', complete: true })).toEqual({
-      sourceId: 'local',
-      label: 'This Mac',
-      state: 'ok',
-      complete: true,
-    });
+    expect(decodeMachineFact({ sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true })).toEqual(
+      {
+        sourceId: 'local',
+        label: 'Local Mac',
+        state: 'ok',
+        complete: true,
+      },
+    );
   });
 
   it('accepts a healthy remote machine fact', () => {
@@ -247,7 +249,7 @@ describe('decodeMachineFact', () => {
 
   it('rejects unknown machine states', () => {
     expect(() =>
-      decodeMachineFact({ sourceId: 'local', label: 'This Mac', state: 'weird', complete: true }),
+      decodeMachineFact({ sourceId: 'local', label: 'Local Mac', state: 'weird', complete: true }),
     ).toThrow(/Expected one of/);
   });
 });

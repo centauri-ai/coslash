@@ -14,7 +14,7 @@ import (
 
 const (
 	localSourceID    = "local"
-	localSourceLabel = "This Mac"
+	localSourceLabel = "Local Mac"
 	// Remote aliases are configuration input and may contain a hostname or a
 	// username. They are intentionally never part of the source-aware web
 	// model. The opaque source ID remains available for stable selection and
@@ -111,7 +111,7 @@ func boardRemoteSession(value remote.IndexedSession) boardSession {
 	safeSession := sessionWithJSONCollections(remoteLibrarySession(*value.Session))
 	return boardSession{
 		SourceID: value.Key.SourceID, SourceLabel: sshSourceLabel,
-		SourceClass: "ssh", LogicalSessionID: logicalSessionID(value.Key.SourceID, value.Session),
+		SourceClass: "ssh_workspace", LogicalSessionID: logicalSessionID(value.Key.SourceID, value.Session),
 		Revision:              value.Session.LastActivityTime,
 		Completion:            completionFor(value.Session, value.EligibleForAggregates && !value.DisplayStale),
 		Privacy:               privacyFor(value.Session),

@@ -32,10 +32,10 @@ export type Subagent = {
 };
 
 export const LOCAL_SOURCE_ID = 'local';
-export const LOCAL_SOURCE_LABEL = 'This Mac';
+export const LOCAL_SOURCE_LABEL = 'Local Mac';
 export const SSH_SOURCE_LABEL = 'SSH workspace';
 
-export type SourceClass = 'local' | 'ssh';
+export type SourceClass = 'local' | 'ssh_workspace';
 export type SessionCompletion = 'complete' | 'running' | 'incomplete';
 export type SessionPrivacy = 'shareable' | 'private';
 export type ShareEligibility =
@@ -180,8 +180,9 @@ export function withLocalSourceDefaults<T extends { agent: string; id: string }>
   > {
   const record = session as T & Partial<Session>;
   const sourceId = record.sourceId ?? LOCAL_SOURCE_ID;
-  const sourceClass = record.sourceClass ?? (sourceId === LOCAL_SOURCE_ID ? 'local' : 'ssh');
-  const sourceLabel = sourceClass === 'ssh' ? SSH_SOURCE_LABEL : (record.sourceLabel ?? LOCAL_SOURCE_LABEL);
+  const sourceClass = record.sourceClass ?? (sourceId === LOCAL_SOURCE_ID ? 'local' : 'ssh_workspace');
+  const sourceLabel =
+    sourceClass === 'ssh_workspace' ? SSH_SOURCE_LABEL : (record.sourceLabel ?? LOCAL_SOURCE_LABEL);
   const eligibleForAggregates = record.eligibleForAggregates ?? true;
   const displayStale = record.displayStale ?? false;
   const shareEligibility = sessionShareEligibility({

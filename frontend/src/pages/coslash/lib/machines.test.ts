@@ -15,7 +15,7 @@ describe('machinesForSourceFilter', () => {
   it('shows remote filters only after a connector succeeds or history is cached', () => {
     expect(
       machinesForSourceFilter([
-        machine({ sourceId: 'local', label: 'This Mac' }),
+        machine({ sourceId: 'local', label: 'Local Mac' }),
         machine({ sourceId: 'pending' }),
         machine({ sourceId: 'ready', helper: { state: 'ready', compatible: true, fallback: false } }),
         machine({ sourceId: 'cached', lastSuccessAtMs: 1 }),

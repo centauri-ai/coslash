@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search, ShieldCheck } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { setTheme } from '@/lib/theme';
@@ -574,6 +575,15 @@ export function CoslashPage() {
               onRefresh={refreshDiagnostics}
               remoteSessionCount={remoteSessionCount}
             />
+            {shareDestination?.state === 'ready' && (
+              <Badge
+                variant="secondary"
+                className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
+              >
+                <ShieldCheck className="size-3.5" aria-hidden="true" />
+                {shareDestination.destination.workspaceName} paired
+              </Badge>
+            )}
             {shareEnabled && (
               <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
                 Share to Hub

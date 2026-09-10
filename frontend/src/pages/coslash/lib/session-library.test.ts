@@ -10,7 +10,7 @@ import {
 function session(overrides: Partial<Session> = {}): Session {
   return {
     sourceId: 'local',
-    sourceLabel: 'This Mac',
+    sourceLabel: 'Local Mac',
     sourceClass: 'local',
     logicalSessionId: 'local:codex:one',
     revision: 10,
@@ -66,7 +66,7 @@ describe('session library', () => {
     const ssh = session({
       sourceId: 'r_0123456789abcdef',
       sourceLabel: 'SSH workspace',
-      sourceClass: 'ssh',
+      sourceClass: 'ssh_workspace',
       logicalSessionId: 'r_0123456789abcdef:codex:one',
       name: 'Remote compiler fix',
     });
@@ -105,20 +105,20 @@ describe('session library', () => {
     const ssh = session({
       sourceId: 'r_0123456789abcdef',
       sourceLabel: 'SSH workspace',
-      sourceClass: 'ssh',
+      sourceClass: 'ssh_workspace',
       logicalSessionId: 'r_0123456789abcdef:claude:two',
       agent: 'claude',
       id: 'two',
     });
     const privateRemote = session({
       sourceId: 'r_0123456789abcdef',
-      sourceClass: 'ssh',
+      sourceClass: 'ssh_workspace',
       logicalSessionId: 'r_0123456789abcdef:codex:private',
       shareEligibility: 'private',
     });
     const offlineRemote = session({
       sourceId: 'r_0123456789abcdef',
-      sourceClass: 'ssh',
+      sourceClass: 'ssh_workspace',
       logicalSessionId: 'r_0123456789abcdef:codex:offline',
       shareEligibility: 'offline',
     });

@@ -129,8 +129,8 @@ func TestBoardSessionLibraryNormalizesIdentityEligibilityAndSSHLabel(t *testing.
 			RepositoryLocalOnly: private,
 		},
 	})
-	if remoteSession.SourceLabel != sshSourceLabel {
-		t.Fatalf("source label = %q, want safe SSH label", remoteSession.SourceLabel)
+	if remoteSession.SourceClass != "ssh_workspace" || remoteSession.SourceLabel != sshSourceLabel {
+		t.Fatalf("source presentation = %q/%q, want ssh_workspace/%q", remoteSession.SourceClass, remoteSession.SourceLabel, sshSourceLabel)
 	}
 	if remoteSession.LogicalSessionID != "r_0123456789abcdef:codex:session-1" || remoteSession.Revision != 42 {
 		t.Fatalf("logical identity = %q@%d", remoteSession.LogicalSessionID, remoteSession.Revision)
