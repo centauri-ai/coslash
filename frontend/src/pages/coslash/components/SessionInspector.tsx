@@ -69,6 +69,7 @@ import {
   sessionKey,
   STATUSES,
   SUBAGENT_STATUSES,
+  subagentParentName,
   type DigestEntry,
   type Session,
   type SessionDetail,
@@ -731,7 +732,7 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
   if (!subagent) {
     throw new Error(`digest references subagent ${subagentId}, which is not on the session`);
   }
-  const parentName = detail.name;
+  const parentName = subagentParentName(subagent, detail.subagents, detail.name);
   const status = SUBAGENT_STATUSES[subagent.status].label;
   return (
     <Dialog>
