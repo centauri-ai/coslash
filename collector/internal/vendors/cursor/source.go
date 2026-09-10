@@ -18,6 +18,14 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	if err != nil {
 		return nil, nil, err
 	}
+	files, _ = vendors.LimitNewestSourceFileFamilies(
+		vendors.LocalReadSource, files, vendors.MaxCandidateFilesPerAgent, func(path string) string {
+			if parentID := ParentIDFromPath(path); parentID != "" {
+				return parentID
+			}
+			return IDFromPath(path)
+		},
+	)
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
 	parsed := vendors.ParseSourceFiles(vendors.LocalReadSource, files, parseTranscriptSource)
 	applyRelationships(parsed, metadata)
