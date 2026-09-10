@@ -87,9 +87,25 @@ describe('environmentFact', () => {
 
 describe('sessionLocationFact', () => {
   it('falls back to the working directory when repository metadata is unavailable', () => {
-    expect(sessionLocationFact({ repo: null, cwd: '/tmp' })).toBe('/tmp');
-    expect(sessionLocationFact({ repo: '', cwd: '/tmp' })).toBe('/tmp');
-    expect(sessionLocationFact({ repo: '  ', cwd: '/tmp' })).toBe('/tmp');
+    expect(sessionLocationFact({ repo: null, repoLocalOnly: false, cwd: '/tmp' })).toBe('/tmp');
+    expect(sessionLocationFact({ repo: '', repoLocalOnly: false, cwd: '/tmp' })).toBe('/tmp');
+    expect(sessionLocationFact({ repo: '  ', repoLocalOnly: false, cwd: '/tmp' })).toBe('/tmp');
+  });
+
+  it('shows the full working directory for a local-only repository', () => {
+    expect(sessionLocationFact({ repo: 'ai', repoLocalOnly: true, cwd: '/Users/calvin/centauri/ai' })).toBe(
+      '/Users/calvin/centauri/ai',
+    );
+  });
+
+  it('keeps a canonical repository compact', () => {
+    expect(
+      sessionLocationFact({
+        repo: 'github.com/centauri-ai/centauri-ai',
+        repoLocalOnly: false,
+        cwd: '/Users/calvin/centauri/centauri-ai',
+      }),
+    ).toBe('github.com/centauri-ai/centauri-ai');
   });
 });
 

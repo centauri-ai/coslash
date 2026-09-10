@@ -75,6 +75,7 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 	},
 	reflect.TypeOf(session.Subagent{}): {
 		"ID":            {true, "subagent.id"},
+		"ParentID":      {false, "snapshot v1 stores a flat subagent list without hierarchy"},
 		"Name":          {true, "subagent.name"},
 		"Model":         {true, "subagent.model"},
 		"Status":        {true, "subagent.status"},
