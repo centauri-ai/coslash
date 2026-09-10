@@ -3512,6 +3512,22 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 1.5E-7
   },
+  "composer-2": {
+    "input_cost_per_token": 5E-7,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.0000025
+  },
+  "composer-2-fast": {
+    "input_cost_per_token": 0.0000015,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.0000075
+  },
+  "composer-2.5": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000015
+  },
   "computer-use-preview": {
     "input_cost_per_token": 0.000003,
     "max_input_tokens": 8192,

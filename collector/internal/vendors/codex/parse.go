@@ -613,9 +613,6 @@ func unifiedDiffStat(diff string) (additions, deletions int) {
 var execCmdPattern = regexp.MustCompile(
 	`(?:^|[{,]\s*)(?:"cmd"|cmd)\s*:\s*("(?:[^"\\]|\\.)*")`,
 )
-var pullRequestURLPattern = regexp.MustCompile(
-	`https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+`,
-)
 var pullRequestDirectivePattern = regexp.MustCompile(
 	`::git-create-pr\{[^}\n]*\burl="(https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+)"[^}\n]*\}`,
 )
@@ -873,7 +870,7 @@ func pullRequestURLs(rows []codexRow) map[string]struct{} {
 			item := row.Payload.Item
 			if item.Type == "CommandExecution" && item.ExitCode != nil && *item.ExitCode == 0 &&
 				len(item.Command) > 0 && session.IsPullRequestCreate(item.Command[len(item.Command)-1]) {
-				for _, url := range pullRequestURLPattern.FindAllString(item.AggregatedOutput, -1) {
+				for _, url := range session.PullRequestURLs(item.AggregatedOutput) {
 					urls[url] = struct{}{}
 				}
 			}

@@ -18,6 +18,7 @@ export type SubagentCommand = { label: string; command: string };
 
 export type Subagent = {
   id: string;
+  parentId?: string;
   name: string;
   model: string | null;
   status: 'running' | 'returned' | 'aborted';
@@ -30,6 +31,14 @@ export type Subagent = {
   tokens: Record<string, ModelTokens>;
   cost: number;
 };
+
+export function subagentParentName(
+  subagent: Pick<Subagent, 'parentId'>,
+  subagents: readonly Pick<Subagent, 'id' | 'name'>[],
+  rootName: string | null,
+): string | null {
+  return subagents.find((candidate) => candidate.id === subagent.parentId)?.name ?? rootName;
+}
 
 export const LOCAL_SOURCE_ID = 'local';
 export const LOCAL_SOURCE_LABEL = 'This Mac';
@@ -111,8 +120,8 @@ export function environmentFact(value: string | null | undefined): string {
   return trimmed ? trimmed : '—';
 }
 
-export function sessionLocationFact(session: Pick<Session, 'repo' | 'cwd'>): string {
-  return environmentFact(session.repo?.trim() || session.cwd);
+export function sessionLocationFact(session: Pick<Session, 'repo' | 'repoLocalOnly' | 'cwd'>): string {
+  return environmentFact(session.repoLocalOnly ? session.cwd : session.repo?.trim() || session.cwd);
 }
 
 export function withLocalSourceDefaults<T extends { agent: string; id: string }>(
@@ -207,11 +216,12 @@ const VENDORS = {
   },
   codex: { label: 'Codex', mono: 'CX', fg: 'text-codex', bg: 'bg-codex-bg' },
   opencode: { label: 'OpenCode', mono: 'OC', fg: 'text-opencode', bg: 'bg-opencode-bg' },
+  cursor: { label: 'Cursor', mono: 'CU', fg: 'text-cursor', bg: 'bg-cursor-bg' },
 } satisfies Record<string, Vendor>;
 
 export type VendorKey = keyof typeof VENDORS;
 
-export const VENDOR_KEYS = ['claude', 'codex', 'opencode'] as const satisfies readonly VendorKey[];
+export const VENDOR_KEYS = ['claude', 'codex', 'opencode', 'cursor'] as const satisfies readonly VendorKey[];
 
 export function getSessionVendors(sessions: readonly Pick<Session, 'agent'>[]): VendorKey[] {
   return VENDOR_KEYS.filter((vendor) => sessions.some((session) => session.agent === vendor));
@@ -268,6 +278,9 @@ const MODALITIES: Record<string, string> = {
   'codex-tui': 'Interactive',
   'opencode-cli': 'CLI',
   'opencode-desktop': 'Desktop',
+  'cursor-cli': 'CLI',
+  'cursor-sdk': 'SDK',
+  'cursor-ide': 'IDE',
   'sdk-cli': 'Autonomous',
   'sdk-ts': 'Autonomous',
   'sdk-py': 'Autonomous',
@@ -378,4 +391,8 @@ export function getTotalTokens(tokens: Session['tokens']): number {
       modelTokens.cache_read_input_tokens,
     0,
   );
+}
+
+export function hasTokenUsage(tokens: Session['tokens']): boolean {
+  return Object.keys(tokens).length > 0;
 }

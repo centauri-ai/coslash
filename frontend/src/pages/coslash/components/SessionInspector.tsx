@@ -61,6 +61,7 @@ import {
   getSessionOutcome,
   getVendor,
   goalSourceLabel,
+  hasTokenUsage,
   isLocalSession,
   remoteLaunchDisabledHint,
   resolveGoal,
@@ -69,6 +70,7 @@ import {
   sessionKey,
   STATUSES,
   SUBAGENT_STATUSES,
+  subagentParentName,
   type DigestEntry,
   type Session,
   type SessionDetail,
@@ -294,7 +296,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
           <SessionModelUsage agent={detail.agent} model={detail.model} tokens={detail.tokens} />
           <span className="font-bold">
             <UnpricedModelWarning unpriced={detail.unpricedModels}>
-              {formatEstimatedCost(detail.cost)}
+              {hasTokenUsage(detail.tokens) ? formatEstimatedCost(detail.cost) : '—'}
             </UnpricedModelWarning>
           </span>
         </div>
@@ -731,7 +733,7 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
   if (!subagent) {
     throw new Error(`digest references subagent ${subagentId}, which is not on the session`);
   }
-  const parentName = detail.name;
+  const parentName = subagentParentName(subagent, detail.subagents, detail.name);
   const status = SUBAGENT_STATUSES[subagent.status].label;
   return (
     <Dialog>

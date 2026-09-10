@@ -132,7 +132,7 @@ func TestParsedRoundTripPreservesSessionDetails(t *testing.T) {
 	turn := 3
 	parsed := []*vendors.ParsedSession{{
 		Session: &session.Session{Agent: "codex", ID: "root", Summary: &prompt, WorkingDirectory: "/workspace", Branch: &branch, Repository: &branch, StartedAt: 10, LastActivityTime: 20, Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 2, OutputTokens: 3, Cost: .5}}, SessionDetails: session.SessionDetails{Model: &model, Turns: 4, FirstPrompt: &prompt, Commands: []string{"go test ./..."}, Commits: []string{"abc123 fix"}, Todos: []session.Todo{{Text: "test", Done: true}}, Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestUser, Description: prompt}}, FileEdits: []session.FileEdit{{Path: "main.go", Additions: 1}}}},
-		Name:    "safe name", StatusHint: &status, RecordedCost: &cost, Spawns: map[string]vendors.SpawnState{"spawn": {Turn: &turn, Completed: true}}, Commands: []session.SubagentCommand{{Label: "tests", Command: "SECRET RAW COMMAND"}},
+		Name:    "safe name", StatusHint: &status, RecordedCost: &cost, Result: "bounded assistant result", Spawns: map[string]vendors.SpawnState{"spawn": {Turn: &turn, Completed: true}}, Commands: []session.SubagentCommand{{Label: "tests", Command: "SECRET RAW COMMAND"}},
 	}}
 	f, err := FromParsed("codex", "root", "parser-v1", StateComplete, "", parsed, vendors.EmptySessionMetadata(), []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}})
 	if err != nil {
@@ -142,7 +142,7 @@ func TestParsedRoundTripPreservesSessionDetails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].Session.ID != "root" || got[0].Session.WorkingDirectory != "/workspace" || *got[0].Session.FirstPrompt != prompt || got[0].Session.Commands[0] != "go test ./..." || got[0].Session.FileEdits[0].Path != "main.go" || got[0].Name != "safe name" || got[0].Commands[0].Label != "tests" || got[0].Commands[0].Command != "SECRET RAW COMMAND" || *got[0].RecordedCost != cost {
+	if got[0].Session.ID != "root" || got[0].Session.WorkingDirectory != "/workspace" || *got[0].Session.FirstPrompt != prompt || got[0].Session.Commands[0] != "go test ./..." || got[0].Session.FileEdits[0].Path != "main.go" || got[0].Name != "safe name" || got[0].Result != "bounded assistant result" || got[0].Commands[0].Label != "tests" || got[0].Commands[0].Command != "SECRET RAW COMMAND" || *got[0].RecordedCost != cost {
 		t.Fatalf("round trip = %#v", got[0])
 	}
 }
@@ -152,7 +152,7 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 	assertCensus(t, reflect.TypeOf(vendors.ParsedSession{}), map[string]bool{
 		"Session": true, "LogPath": false, "LogModifiedAtMs": false,
 		"ParentID": true, "SpawnKey": true, "Stopped": true, "Spawns": true,
-		"Commands": true, "Name": true, "InTurn": true, "StatusHint": true, "RecordedCost": true,
+		"Commands": true, "Name": true, "Result": true, "InTurn": true, "StatusHint": true, "RecordedCost": true,
 	})
 	assertCensus(t, reflect.TypeOf(session.Session{}), map[string]bool{
 		"Agent": true, "ID": true, "Name": true, "Summary": true, "Status": true,

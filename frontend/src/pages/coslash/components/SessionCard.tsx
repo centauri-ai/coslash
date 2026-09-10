@@ -23,9 +23,11 @@ import {
   getSessionCardSummary,
   getTotalTokens,
   getVendor,
+  hasTokenUsage,
   sessionLocationFact,
   STATUSES,
   SUBAGENT_STATUSES,
+  subagentParentName,
   sumTokens,
   type Session,
   type Subagent,
@@ -126,15 +128,16 @@ function Metadata({ session }: { session: Session }) {
 }
 
 function TokenUsageAndCost({ session }: { session: Session }) {
+  const hasUsage = hasTokenUsage(session.tokens);
   return (
     <div className="flex-none text-right">
       <div className="text-base font-bold">
         <UnpricedModelWarning unpriced={session.unpricedModels}>
-          {formatEstimatedCost(session.cost)}
+          {hasUsage ? formatEstimatedCost(session.cost) : '—'}
         </UnpricedModelWarning>
       </div>
       <div className="text-muted-foreground pt-1 font-mono text-xs">
-        {formatTokens(getTotalTokens(session.tokens))} tok
+        {hasUsage ? `${formatTokens(getTotalTokens(session.tokens))} tok` : '—'}
       </div>
     </div>
   );
@@ -145,6 +148,7 @@ function Summary({ session }: { session: Session }) {
 }
 
 function CompactSessionCard({ session, showMachineBadge }: { session: Session; showMachineBadge: boolean }) {
+  const hasUsage = hasTokenUsage(session.tokens);
   return (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -155,7 +159,7 @@ function CompactSessionCard({ session, showMachineBadge }: { session: Session; s
         </div>
         <span className="text-xs font-semibold whitespace-nowrap">
           <UnpricedModelWarning unpriced={session.unpricedModels}>
-            {formatEstimatedCost(session.cost)}
+            {hasUsage ? formatEstimatedCost(session.cost) : '—'}
           </UnpricedModelWarning>
         </span>
       </div>
@@ -209,6 +213,7 @@ function SubagentStatusBadge({ status }: { status: Subagent['status'] }) {
 
 // Cache writes fold the 5-minute and 1-hour buckets into one figure.
 export function TokenBreakdown({ tokens }: { tokens: Session['tokens'] }) {
+  if (!hasTokenUsage(tokens)) return <div className="pt-1">—</div>;
   return (
     <div className="text-muted-foreground pt-1">
       in {formatTokens(sumTokens(tokens, 'input_tokens'))} · out{' '}
@@ -224,14 +229,15 @@ export function TokenBreakdown({ tokens }: { tokens: Session['tokens'] }) {
 }
 
 function SubagentTokenSummary({ subagent }: { subagent: Subagent }) {
+  const hasUsage = hasTokenUsage(subagent.tokens);
   return (
     <div className="bg-muted rounded-lg border p-2 font-mono text-xs">
       <div className="flex flex-wrap items-baseline justify-between gap-1">
         <span className="text-muted-foreground">
           {formatDuration(subagent.durationMs)} · {subagent.toolUses} tools ·{' '}
-          {formatTokens(getTotalTokens(subagent.tokens))} tok
+          {hasUsage ? `${formatTokens(getTotalTokens(subagent.tokens))} tok` : '—'}
         </span>
-        <span className="font-bold">{formatEstimatedCost(subagent.cost)}</span>
+        <span className="font-bold">{hasUsage ? formatEstimatedCost(subagent.cost) : '—'}</span>
       </div>
       <TokenBreakdown tokens={subagent.tokens} />
     </div>
@@ -324,6 +330,7 @@ export function SubagentDialogContent({
 }
 
 function DetailedSubagentRow({ subagent }: { subagent: Subagent }) {
+  const hasUsage = hasTokenUsage(subagent.tokens);
   return (
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -333,9 +340,11 @@ function DetailedSubagentRow({ subagent }: { subagent: Subagent }) {
         <SubagentStatusBadge status={subagent.status} />
       </div>
       <div className="flex flex-none items-center gap-2">
-        <span className="text-xs font-light whitespace-nowrap">{formatEstimatedCost(subagent.cost)}</span>
+        <span className="text-xs font-light whitespace-nowrap">
+          {hasUsage ? formatEstimatedCost(subagent.cost) : '—'}
+        </span>
         <span className="text-muted-foreground font-mono text-xs whitespace-nowrap">
-          {formatTokens(getTotalTokens(subagent.tokens))} tok
+          {hasUsage ? `${formatTokens(getTotalTokens(subagent.tokens))} tok` : '—'}
         </span>
       </div>
     </div>
@@ -343,13 +352,16 @@ function DetailedSubagentRow({ subagent }: { subagent: Subagent }) {
 }
 
 function CompactSubagentRow({ subagent }: { subagent: Subagent }) {
+  const hasUsage = hasTokenUsage(subagent.tokens);
   return (
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
         <SubagentBadge />
         <span className="min-w-0 truncate text-xs font-semibold">{subagent.name}</span>
       </div>
-      <span className="text-xs font-light whitespace-nowrap">{formatEstimatedCost(subagent.cost)}</span>
+      <span className="text-xs font-light whitespace-nowrap">
+        {hasUsage ? formatEstimatedCost(subagent.cost) : '—'}
+      </span>
     </div>
   );
 }
@@ -422,7 +434,12 @@ function SessionSubagentRail({
     <div className={cn('flex flex-col', variant === 'compact' ? 'pl-3' : 'pl-20')}>
       <div className="border-subagent-rail flex flex-col gap-2 border-l-3 pl-4">
         {visible.map((subagent) => (
-          <SubagentCard key={subagent.id} subagent={subagent} parentName={parentName} variant={variant} />
+          <SubagentCard
+            key={subagent.id}
+            subagent={subagent}
+            parentName={subagentParentName(subagent, subagents, parentName)}
+            variant={variant}
+          />
         ))}
         {(hiddenCount > 0 || expanded) && (
           <SubagentExpandToggle

@@ -15,6 +15,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
@@ -47,6 +48,11 @@ var vendorSources = []vendorSource{
 		loadFamily: opencode.GetSessionFamily,
 		health:     opencode.Health,
 	},
+	{
+		name: vendors.AgentCursor, collect: cursor.Collect, loadFacts: cursor.GetSessionFacts,
+		loadFamily: cursor.GetSessionFamily,
+		health:     cursor.Health,
+	},
 }
 
 type SourceHealth = vendors.SourceHealth
@@ -64,6 +70,14 @@ func List(since int64) ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	return finalizeList(parsed, metadata, since), nil
+}
+
+func finalizeList(
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+	since int64,
+) []*session.Session {
 	roots := finalizeSessions(parsed, metadata)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
@@ -78,7 +92,7 @@ func List(since int64) ([]*session.Session, error) {
 	for _, root := range roots {
 		sessions = append(sessions, root.Session)
 	}
-	return sessions, nil
+	return sessions
 }
 
 // GetSessionForPreview returns the selected fully composed session family.
@@ -93,19 +107,64 @@ func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
 			continue
 		}
-		roots := servableRoots(finalizeSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}))
+		roots := servableRoots(
+			finalizeSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}),
+		)
 		probeLastEdits(roots)
 		probeGitEnvironment(roots)
-		for _, candidate := range roots {
-			if candidate.Session.ID == id {
-				return candidate.Session, nil
-			}
+		if root := previewRootFor(parsed, roots, id); root != nil {
+			return root.Session, nil
 		}
 	}
 	if len(failures) > 0 {
 		return nil, errors.Join(failures...)
 	}
 	return nil, nil
+}
+
+func previewRootFor(
+	parsed, roots []*vendors.ParsedSession,
+	id string,
+) *vendors.ParsedSession {
+	byID := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
+	for _, item := range parsed {
+		if item != nil && item.Session != nil {
+			byID[sessionKey{agent: item.Session.Agent, id: item.Session.ID}] = item
+		}
+	}
+	selected := []*vendors.ParsedSession{}
+	for _, item := range parsed {
+		if item != nil && item.Session != nil && item.Session.ID == id {
+			selected = append(selected, item)
+		}
+	}
+	for _, item := range selected {
+		root := item
+		seen := map[sessionKey]bool{}
+		for root.ParentID != "" {
+			key := sessionKey{agent: root.Session.Agent, id: root.Session.ID}
+			if seen[key] {
+				root = nil
+				break
+			}
+			seen[key] = true
+			parent, ok := byID[sessionKey{agent: root.Session.Agent, id: root.ParentID}]
+			if !ok {
+				root = nil
+				break
+			}
+			root = parent
+		}
+		if root == nil {
+			continue
+		}
+		for _, candidate := range roots {
+			if candidate.Session.Agent == root.Session.Agent && candidate.Session.ID == root.Session.ID {
+				return candidate
+			}
+		}
+	}
+	return nil
 }
 
 func finalizeSessions(
@@ -121,6 +180,9 @@ func finalizeSessionsSource(
 	source vendors.ReadSource,
 ) []*vendors.ParsedSession {
 	applyActivityFallbacks(parsed)
+	resolveModels(parsed, metadata)
+	resolveUsage(parsed, metadata)
+	resolvePullRequests(parsed, metadata)
 	enrichModelsAndCosts(parsed)
 	composition := composeSessions(parsed)
 	promoteFamilyActivity(composition)
@@ -129,6 +191,7 @@ func finalizeSessionsSource(
 		removeUnresolvedSpawnRows(p.Session)
 	}
 	resolveNames(composition.roots, metadata)
+	resolveSummariesAndEntrypoints(composition.roots, metadata)
 	resolveStatus(composition.roots, metadata, source == vendors.LocalReadSource)
 	return composition.roots
 }
@@ -140,7 +203,9 @@ func promoteFamilyActivity(composition sessionComposition) {
 	}
 	for child, parent := range parents {
 		activity := child.Session.LastActivityTime
-		for parent != nil {
+		seen := map[*vendors.ParsedSession]bool{child: true}
+		for parent != nil && !seen[parent] {
+			seen[parent] = true
 			parent.Session.LastActivityTime = max(parent.Session.LastActivityTime, activity)
 			parent = parents[parent]
 		}
@@ -251,6 +316,10 @@ func enrichSubagents(
 	metadata map[string]*vendors.SessionMetadata,
 	claudeDynamicWorkflows map[string]*claude.WorkflowAgent,
 ) {
+	parents := make(map[*vendors.ParsedSession]*vendors.ParsedSession, len(composition.children))
+	for _, link := range composition.children {
+		parents[link.child] = link.parent
+	}
 	for _, link := range composition.children {
 		p, parent := link.child, link.parent
 		subagent := subagentFrom(
@@ -260,7 +329,14 @@ func enrichSubagents(
 			claudeDynamicWorkflows[p.Session.ID],
 		)
 		linkSpawnDigest(parent.Session, p.SpawnKey, subagent)
-		parent.Session.Subagents = append(parent.Session.Subagents, subagent)
+		// Keep the public list flat, with each descendant's immediate parent
+		// recorded on the projection. Input order must not hide grandchildren.
+		seen := map[*vendors.ParsedSession]bool{p: true}
+		for parent != nil && !seen[parent] {
+			seen[parent] = true
+			parent.Session.Subagents = append(parent.Session.Subagents, subagent)
+			parent = parents[parent]
+		}
 	}
 }
 
@@ -364,6 +440,24 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 			branchByCwd[cwd] = session.CurrentBranch(cwd)
 		}
 	}
+	canonicalByName := map[string]string{}
+	ambiguousNames := map[string]bool{}
+	for _, repo := range repoByCwd {
+		if repo.localOnly || repo.name == "" {
+			continue
+		}
+		name := filepath.Base(repo.name)
+		if existing := canonicalByName[name]; existing != "" && existing != repo.name {
+			ambiguousNames[name] = true
+		} else {
+			canonicalByName[name] = repo.name
+		}
+	}
+	for cwd, repo := range repoByCwd {
+		if canonical := canonicalByName[repo.name]; repo.localOnly && canonical != "" && !ambiguousNames[repo.name] {
+			repoByCwd[cwd] = repository{name: canonical}
+		}
+	}
 	for _, p := range roots {
 		s := p.Session
 		if s.WorkingDirectory == "" {
@@ -411,6 +505,51 @@ func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.S
 		s := p.Session
 		if name := cmp.Or(sessionMetadata(metadata, s.Agent).Names[s.ID], p.Name); name != "" {
 			s.Name = &name
+		}
+	}
+}
+
+func resolveModels(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
+	for _, p := range parsed {
+		if value := sessionMetadata(metadata, p.Session.Agent).Models[p.Session.ID]; value != "" {
+			p.Session.Model = &value
+		}
+	}
+}
+
+func resolveUsage(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
+	for _, p := range parsed {
+		usage := sessionMetadata(metadata, p.Session.Agent).Usage[p.Session.ID]
+		if len(usage.Tokens) > 0 {
+			p.Session.Tokens = usage.Tokens
+		}
+		if usage.ContextTokens != nil {
+			p.Session.ContextTokens = usage.ContextTokens
+		}
+		if usage.ContextWindow != nil {
+			p.Session.ContextWindow = usage.ContextWindow
+		}
+		if usage.RecordedCost != nil {
+			p.RecordedCost = usage.RecordedCost
+		}
+	}
+}
+
+func resolvePullRequests(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
+	for _, p := range parsed {
+		p.Session.PullRequests = max(p.Session.PullRequests, sessionMetadata(metadata, p.Session.Agent).PullRequests[p.Session.ID])
+	}
+}
+
+func resolveSummariesAndEntrypoints(roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
+	for _, p := range roots {
+		s := p.Session
+		m := sessionMetadata(metadata, s.Agent)
+		if value := m.Summaries[s.ID]; value != "" {
+			s.Summary = &value
+		}
+		if value := m.Entrypoints[s.ID]; value != "" {
+			s.Entrypoint = &value
 		}
 	}
 }

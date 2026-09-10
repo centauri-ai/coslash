@@ -44,9 +44,20 @@ func CanonicalRepositoryName(cwd string) (string, bool) {
 		return "", false
 	}
 	fallback := filepath.Base(filepath.Clean(cwd))
-	resolved, err := filepath.EvalSymlinks(cwd)
-	if err != nil {
-		return fallback, true
+	resolved := filepath.Clean(cwd)
+	for {
+		info, err := os.Stat(resolved)
+		if err == nil && info.IsDir() {
+			break
+		}
+		parent := filepath.Dir(resolved)
+		if parent == resolved {
+			return fallback, true
+		}
+		resolved = parent
+	}
+	if evaluated, err := filepath.EvalSymlinks(resolved); err == nil {
+		resolved = evaluated
 	}
 	root := RepositoryRoot(resolved)
 	if root == "" {
