@@ -162,6 +162,6 @@ describe('snapshot preview adapter', () => {
     expect(isSnapshotPreview(null)).toBe(false);
     expect(isSnapshotPreview(ready({ schemaVersion: 'session-snapshot/v1' }))).toBe(true);
     expect(PREVIEW_PRIVACY_COPY).toContain('Prompts remain local');
-    expect(STRUCTURALLY_EXCLUDED.join(' ')).not.toContain('Credentials');
+    expect(STRUCTURALLY_EXCLUDED.join(' ')).toContain('Credentials');
   });
 });

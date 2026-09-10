@@ -109,12 +109,14 @@ function CoslashPageHeader({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <span aria-label="coSlash">
           <img src="/brand/coslash-logo.svg" alt="" className="h-12 dark:hidden" />
           <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden h-12 dark:block" />
         </span>
-        <span className="text-muted-foreground text-sm font-medium">Run more agents. Lose less context.</span>
+        <span className="text-muted-foreground min-w-0 truncate text-sm font-medium">
+          Run more agents. Lose less context.
+        </span>
       </div>
       <SettingsButton onClick={onOpenSettings} hasError={settingsError} />
     </div>
@@ -548,8 +550,8 @@ export function CoslashPage() {
             onSortDirChange={setSortDir}
           />
         </div>
-        <div className="flex min-h-7 items-center">
-          <div className="flex w-full items-center justify-between gap-3">
+        <div className="flex min-h-7 min-w-0 items-center">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <LoadingSpinner isLoading={isLoading}>
                 <SessionsStats

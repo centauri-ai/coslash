@@ -15,6 +15,7 @@ import {
   canonicalPayloadText,
   fetchSnapshotPreview,
   formatCanonicalJson,
+  STRUCTURALLY_EXCLUDED,
   type SnapshotPreview,
 } from '@/pages/coslash/lib/preview';
 import { beginHubPairing, pollHubPairing, submitHubShare, type PairingResult } from './api';
@@ -424,8 +425,8 @@ export function ShareToHubDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[min(56rem,calc(100vw-2rem))] max-w-none! flex-col overflow-hidden">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-none! flex-col overflow-x-hidden overflow-y-hidden sm:w-[min(56rem,calc(100vw-2rem))]">
+        <DialogHeader className="min-w-0">
           <div className="flex items-center gap-2">
             <DialogTitle>Share to Hub</DialogTitle>
             <Badge variant="secondary">
@@ -435,7 +436,7 @@ export function ShareToHubDialog({
           <DialogDescription>
             {fixtureMode
               ? 'Select sessions, review the exact canonical bytes, and exercise retry and result states.'
-              : "Select sessions, review C2's exact canonical bytes, then upload only the revisions you approve."}
+              : 'Select sessions, review the exact canonical bytes, then upload only the revisions you approve.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -629,6 +630,22 @@ export function ShareToHubDialog({
                   Review binds these exact source revisions and payload hashes to {destination.workspaceName}.
                   Any change requires a new review.
                 </div>
+                <section className="mt-3 rounded-lg border p-3" aria-labelledby="share-stays-local">
+                  <h3 id="share-stays-local" className="text-xs font-bold tracking-wide">
+                    STAYS LOCAL
+                  </h3>
+                  <p className="text-muted-foreground pt-1 text-xs">
+                    Only the exact bounded payload shown below is uploaded. These are never included.
+                  </p>
+                  <ul className="text-muted-foreground grid min-w-0 list-disc gap-1 pt-2 pl-4 text-xs sm:grid-cols-2">
+                    {STRUCTURALLY_EXCLUDED.map((item) => (
+                      <li key={item} className="min-w-0 break-words">
+                        {item}
+                      </li>
+                    ))}
+                    <li className="min-w-0 break-words">Unselected or ineligible sessions</li>
+                  </ul>
+                </section>
                 <div className="mt-3 space-y-3">
                   {records.map((record) => (
                     <details
@@ -643,7 +660,7 @@ export function ShareToHubDialog({
                       <div className="text-muted-foreground mt-2 font-mono text-xs break-all">
                         {record.item.consent.contentHash}
                       </div>
-                      <pre className="bg-muted mt-3 max-h-72 overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
+                      <pre className="bg-muted mt-3 max-h-72 max-w-full overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
                         {record.payload}
                       </pre>
                     </details>
@@ -734,9 +751,7 @@ export function ShareToHubDialog({
                     </div>
                     <div className="text-muted-foreground mt-2 font-mono text-xs break-all">{route.path}</div>
                     {fixtureMode || !destinationResult.hubUrl ? (
-                      <p className="text-muted-foreground mt-2 text-xs">
-                        The integrated client navigates to this C3-owned route. Fixture mode stays local.
-                      </p>
+                      <p className="text-muted-foreground mt-2 text-xs">Fixture mode stays local.</p>
                     ) : (
                       <a
                         className="text-info-fg mt-3 inline-flex items-center gap-2 text-sm font-semibold underline"
@@ -744,7 +759,7 @@ export function ShareToHubDialog({
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Open shared sessions <ExternalLinkIcon className="size-4" />
+                        Open in Team Hub <ExternalLinkIcon className="size-4" />
                       </a>
                     )}
                   </div>

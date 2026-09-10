@@ -29,7 +29,8 @@ export const STRUCTURALLY_EXCLUDED = [
   'Raw prompts',
   'Tool output and file diffs',
   'Raw top-level and subagent commands',
-  'Environment variables and unresolved local paths',
+  'Credentials, secrets, and environment variables',
+  'Absolute paths and unrestricted local files',
 ] as const;
 
 const PREVIEW_STATES: PreviewState[] = [
