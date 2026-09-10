@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"unicode"
 
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -13,6 +15,11 @@ import (
 const (
 	localSourceID    = "local"
 	localSourceLabel = "This Mac"
+	// Remote aliases are configuration input and may contain a hostname or a
+	// username. They are intentionally never part of the source-aware web
+	// model. The opaque source ID remains available for stable selection and
+	// routing, while this fixed label is safe to display.
+	sshSourceLabel = "SSH workspace"
 
 	errCodeRemoteUnsupported    = "remote_action_unsupported"
 	errCodeRemoteNotConfigured  = "remote_not_configured"
@@ -33,6 +40,12 @@ type sessionsResponse struct {
 type boardSession struct {
 	SourceID              string                   `json:"sourceId"`
 	SourceLabel           string                   `json:"sourceLabel"`
+	SourceClass           string                   `json:"sourceClass"`
+	LogicalSessionID      string                   `json:"logicalSessionId"`
+	Revision              int64                    `json:"revision"`
+	Completion            string                   `json:"completion"`
+	Privacy               string                   `json:"privacy"`
+	ShareEligibility      string                   `json:"shareEligibility"`
 	EligibleForAggregates bool                     `json:"eligibleForAggregates"`
 	DisplayStale          bool                     `json:"displayStale"`
 	LastSeenStatus        *string                  `json:"lastSeenStatus,omitempty"`
@@ -70,7 +83,7 @@ func localMachineFact() machineFact {
 
 func machineFromHealth(health remote.Health) machineFact {
 	return machineFact{
-		SourceID: health.SourceID, Label: health.Label, State: health.State,
+		SourceID: health.SourceID, Label: safeSourceLabel(health.SourceID), State: health.State,
 		Complete: health.Complete, Reason: health.Reason,
 		LastSuccessAtMs: health.LastSuccessAtMs, LastCheckedAtMs: health.LastCheckedAtMs,
 		SessionCount: health.SessionCount, CoverageSinceMs: health.CoverageSinceMs,
@@ -87,18 +100,122 @@ func machineFromHealth(health remote.Health) machineFact {
 func boardLocalSession(value *session.Session) boardSession {
 	return boardSession{
 		SourceID: localSourceID, SourceLabel: localSourceLabel,
+		SourceClass: "local", LogicalSessionID: logicalSessionID(localSourceID, value),
+		Revision: value.LastActivityTime, Completion: completionFor(value, true),
+		Privacy: privacyFor(value), ShareEligibility: eligibilityFor(value, true, false),
 		EligibleForAggregates: true, Session: sessionWithJSONCollections(*value),
 	}
 }
 
 func boardRemoteSession(value remote.IndexedSession) boardSession {
+	safeSession := sessionWithJSONCollections(remoteLibrarySession(*value.Session))
 	return boardSession{
-		SourceID: value.Key.SourceID, SourceLabel: value.SourceLabel,
+		SourceID: value.Key.SourceID, SourceLabel: sshSourceLabel,
+		SourceClass: "ssh", LogicalSessionID: logicalSessionID(value.Key.SourceID, value.Session),
+		Revision:              value.Session.LastActivityTime,
+		Completion:            completionFor(value.Session, value.EligibleForAggregates && !value.DisplayStale),
+		Privacy:               privacyFor(value.Session),
+		ShareEligibility:      eligibilityFor(value.Session, value.EligibleForAggregates, value.DisplayStale),
 		EligibleForAggregates: value.EligibleForAggregates,
 		DisplayStale:          value.DisplayStale, LastSeenStatus: value.LastSeenStatus,
 		Launchable: value.Launchable, LaunchBlockReason: value.LaunchBlockReason,
-		Session: sessionWithJSONCollections(*value.Session),
+		Session: safeSession,
 	}
+}
+
+// remoteLibrarySession is the explicit browser boundary for SSH collection.
+// Remote facts can contain enough local-only material to resume collection or
+// launch an agent, but none of that makes a safe library card. Keep only the
+// bounded display and numeric fields needed for discovery; details continue to
+// belong to the remote helper/launch paths rather than the web list model.
+func remoteLibrarySession(value session.Session) session.Session {
+	repository := safeRepository(value.Repository)
+	return session.Session{
+		Agent: value.Agent, ID: value.ID, Name: value.Name, Status: value.Status,
+		Branch: value.Branch, Repository: repository, RepositoryLocalOnly: value.RepositoryLocalOnly,
+		EditedFileCount: value.EditedFileCount, DurationMs: value.DurationMs,
+		Tokens: value.Tokens, Cost: value.Cost, UnpricedModels: value.UnpricedModels,
+		StartedAt: value.StartedAt, LastActivityTime: value.LastActivityTime, Entrypoint: value.Entrypoint,
+		SessionDetails: session.SessionDetails{
+			Model: value.Model, ContextTokens: value.ContextTokens, ContextWindow: value.ContextWindow,
+			Turns: value.Turns, ToolUses: value.ToolUses, Errors: value.Errors,
+			Compactions: value.Compactions, PullRequests: value.PullRequests,
+		},
+	}
+}
+
+// A repository name is useful discovery metadata only when it is a relative,
+// normalized identifier. Reject filesystem paths, URLs, shell-looking text,
+// and whitespace rather than allowing a remote implementation detail into a
+// browser response. The LB-00 canonical identity contract may later narrow
+// this further without changing the response shape.
+func safeRepository(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	name := strings.TrimSpace(*value)
+	if name == "" || len(name) > 280 || strings.HasPrefix(name, "/") || strings.HasPrefix(name, "~") ||
+		strings.Contains(name, "\\") || strings.Contains(name, "..") {
+		return nil
+	}
+	for _, r := range name {
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune("._/-", r)) {
+			return nil
+		}
+	}
+	return &name
+}
+
+func safeSourceLabel(sourceID string) string {
+	if sourceID == localSourceID {
+		return localSourceLabel
+	}
+	return sshSourceLabel
+}
+
+// logicalSessionID is deliberately based on the opaque persisted source ID,
+// vendor, and vendor session ID. In particular it does not depend on an SSH
+// alias, path, hostname, or username, so renaming a configured remote does
+// not change a list row's identity.
+func logicalSessionID(sourceID string, value *session.Session) string {
+	return sourceID + ":" + value.Agent + ":" + value.ID
+}
+
+func completionFor(value *session.Session, sourceComplete bool) string {
+	if !sourceComplete {
+		return "incomplete"
+	}
+	if value.Status != nil {
+		return "running"
+	}
+	return "complete"
+}
+
+func privacyFor(value *session.Session) string {
+	if value.RepositoryLocalOnly {
+		return "private"
+	}
+	return "shareable"
+}
+
+// Eligibility is intentionally stricter than aggregate eligibility. A
+// current review may only start from a completed, non-private session whose
+// source is healthy; later share work consumes this display-only signal but
+// must still perform its own snapshot and consent checks.
+func eligibilityFor(value *session.Session, sourceComplete, stale bool) string {
+	if value.RepositoryLocalOnly {
+		return "private"
+	}
+	if stale {
+		return "stale"
+	}
+	if !sourceComplete {
+		return "incomplete"
+	}
+	if value.Status != nil {
+		return "running"
+	}
+	return "eligible"
 }
 
 // sessionWithJSONCollections keeps the API's array/object contract stable for

@@ -11,6 +11,7 @@ import {
   sessionKey,
   sessionLocationFact,
   sessionsForAggregates,
+  sessionShareEligibility,
   withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
@@ -52,6 +53,12 @@ describe('withLocalSourceDefaults', () => {
       id: 'abc',
       sourceId: 'local',
       sourceLabel: 'This Mac',
+      sourceClass: 'local',
+      logicalSessionId: 'local:codex:abc',
+      revision: 0,
+      completion: 'complete',
+      privacy: 'shareable',
+      shareEligibility: 'eligible',
       eligibleForAggregates: true,
       displayStale: false,
     });
@@ -85,6 +92,52 @@ describe('sessionsForAggregates', () => {
         { eligibleForAggregates: true },
       ]),
     ).toEqual([{ eligibleForAggregates: true }, { eligibleForAggregates: true }]);
+  });
+});
+
+describe('sessionShareEligibility', () => {
+  it('fails closed for every non-ready local or SSH source condition', () => {
+    expect(
+      sessionShareEligibility({
+        repoLocalOnly: true,
+        status: null,
+        displayStale: false,
+        eligibleForAggregates: true,
+      }),
+    ).toBe('private');
+    expect(
+      sessionShareEligibility({
+        repoLocalOnly: false,
+        status: 'busy',
+        displayStale: false,
+        eligibleForAggregates: true,
+      }),
+    ).toBe('running');
+    expect(
+      sessionShareEligibility({
+        repoLocalOnly: false,
+        status: null,
+        displayStale: true,
+        eligibleForAggregates: true,
+      }),
+    ).toBe('stale');
+    expect(
+      sessionShareEligibility({
+        repoLocalOnly: false,
+        status: null,
+        displayStale: false,
+        eligibleForAggregates: false,
+      }),
+    ).toBe('incomplete');
+    expect(
+      sessionShareEligibility({
+        shareEligibility: 'offline',
+        repoLocalOnly: false,
+        status: null,
+        displayStale: false,
+        eligibleForAggregates: true,
+      }),
+    ).toBe('offline');
   });
 });
 
