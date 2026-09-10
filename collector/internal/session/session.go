@@ -24,6 +24,7 @@ type SubagentCommand struct {
 
 type Subagent struct {
 	ID            string                 `json:"id"`
+	ParentID      string                 `json:"parentId,omitempty"`
 	Name          string                 `json:"name"`
 	Model         *string                `json:"model"`
 	Status        string                 `json:"status"`

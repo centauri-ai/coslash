@@ -45,6 +45,11 @@ func (log *DigestLog) PushSubagent(turn int, spawnKey string, time int64) {
 	})
 }
 
+func (log *DigestLog) PushSubagentTask(turn int, spawnKey, task string, time int64) {
+	log.PushSubagent(turn, spawnKey, time)
+	log.entries[len(log.entries)-1].Description = Truncate(task, TruncateTextLimit)
+}
+
 func (log *DigestLog) Entries() []DigestEntry {
 	if log.entries == nil {
 		return []DigestEntry{}

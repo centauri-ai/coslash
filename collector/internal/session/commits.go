@@ -45,6 +45,10 @@ func ParseCommitObservations(command, output string, succeeded bool) []CommitObs
 	return []CommitObservation{}
 }
 
+func ParseCommitAttempts(command string) []CommitObservation {
+	return commitInvocations(command)
+}
+
 func commitOutputHashes(output string) []string {
 	hashes := []string{}
 	for _, match := range commitHashToken.FindAllStringSubmatch(output, -1) {
@@ -294,8 +298,15 @@ var prCreateCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*(?:rtk\s+)?gh\s+pr\s+c
 var prCreateHelpOrVersionCommand = regexp.MustCompile(
 	`gh\s+pr\s+create\s+(?:-h|--help|--version)\b`,
 )
+var pullRequestURLPattern = regexp.MustCompile(
+	`https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+`,
+)
 
 func IsPullRequestCreate(command string) bool {
 	return prCreateCommand.MatchString(command) &&
 		!prCreateHelpOrVersionCommand.MatchString(command)
+}
+
+func PullRequestURLs(text string) []string {
+	return pullRequestURLPattern.FindAllString(text, -1)
 }
