@@ -14,6 +14,7 @@ type ParsedSession struct {
 	ParentID string                    // "" for a root
 	SpawnKey string                    // key into the parent's Spawns: tool ID or child session ID
 	Stopped  bool                      // source-derived terminal state for aborted children
+	Result   string                    // last non-empty assistant text from the transcript
 	Spawns   map[string]SpawnState     // spawn key → source-derived state
 	Commands []session.SubagentCommand // labelled commands for the child projection
 
@@ -27,7 +28,9 @@ type ParsedSession struct {
 
 type SpawnState struct {
 	Turn      *int
+	Task      string // full task text for matching; display text may be truncated
 	Completed bool
+	Active    bool
 }
 
 type RemoteCollection struct {
