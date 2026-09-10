@@ -34,6 +34,7 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 	commitLog := []session.CommitObservation{}
 	edits := session.NewFileEditSet()
 	todos := []session.Todo{}
+	todoStatus := map[string]string{}
 	pullRequests := map[string]struct{}{}
 	turns, toolUses, errorsCount := 0, 0, 0
 	firstPrompt, cwd := "", ""
@@ -44,6 +45,8 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 	inTurn := true
 	stopped := false
 	taskCount := 0
+	pendingQuestion, pendingQuestionTime := "", int64(0)
+	pendingQuestionTurn := 0
 
 	for _, record := range records {
 		if (record.Role == "user" || record.Role == "assistant") && record.Message != nil && len(record.Message.Content) > 0 {
@@ -53,6 +56,10 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 			text := firstText(record.Message.Content)
 			if text == "" {
 				continue
+			}
+			if pendingQuestion != "" {
+				digest.PushQuestion(pendingQuestionTurn, pendingQuestion, "", pendingQuestionTime)
+				pendingQuestion = ""
 			}
 			turns++
 			prompt, timestamp := unwrapUserText(text)
@@ -64,13 +71,21 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 				firstPrompt = prompt
 				category = session.DigestFirstPrompt
 			}
-			digest.Push(turns, category, prompt, timestamp)
+			if category == session.DigestUser && strings.HasSuffix(strings.TrimSpace(prompt), "?") {
+				pendingQuestion, pendingQuestionTurn, pendingQuestionTime = prompt, turns, timestamp
+			} else {
+				digest.Push(turns, category, prompt, timestamp)
+			}
 		}
 		if record.Role == "assistant" && record.Message != nil {
 			for _, block := range record.Message.Content {
 				if block.Type == "text" {
 					if text := strings.TrimSpace(block.Text); text != "" {
 						assistantResult = text
+						if pendingQuestion != "" {
+							digest.PushQuestion(pendingQuestionTurn, pendingQuestion, text, pendingQuestionTime)
+							pendingQuestion = ""
+						}
 					}
 					for _, url := range session.PullRequestURLs(block.Text) {
 						pullRequests[url] = struct{}{}
@@ -119,6 +134,16 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 						edits.Patch(patchPath, patch)
 					}
 				case "TodoWrite":
+					for _, item := range input.Todos {
+						text := strings.TrimSpace(item.Content)
+						if text == "" {
+							continue
+						}
+						if item.Status == "completed" && todoStatus[text] != "completed" {
+							digest.Push(max(turns, 1), session.DigestTodos, "completed — "+text, 0)
+						}
+						todoStatus[text] = item.Status
+					}
 					todos = todosFromTool(input.Todos)
 				case "Task":
 					taskCount++
@@ -145,6 +170,9 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 				statusHint = nil
 			}
 		}
+	}
+	if pendingQuestion != "" {
+		digest.PushQuestion(pendingQuestionTurn, pendingQuestion, "", pendingQuestionTime)
 	}
 
 	if cwd == "" {
