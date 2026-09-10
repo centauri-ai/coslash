@@ -22,7 +22,7 @@ export type SnapshotPreview = {
 };
 
 export const PREVIEW_PRIVACY_COPY =
-  'Only the exact bounded payload below can leave this device. Prompts remain local; review the payload before approving it.';
+  'Only the exact metadata and repository-relative change facts below can leave this device. Review the payload before approving it.';
 
 export const STRUCTURALLY_EXCLUDED = [
   'Raw transcripts and assistant reasoning',
@@ -31,6 +31,8 @@ export const STRUCTURALLY_EXCLUDED = [
   'Raw top-level and subagent commands',
   'Credentials, secrets, and environment variables',
   'Absolute paths and unrestricted local files',
+  'Session titles, summaries, goals, digests, todos, and commit subjects',
+  'Subagent details and command labels',
 ] as const;
 
 const PREVIEW_STATES: PreviewState[] = [

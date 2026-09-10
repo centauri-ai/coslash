@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
@@ -20,12 +19,6 @@ func fitAggregate(snapshot snapshotv1.Snapshot) (snapshotv1.Snapshot, error) {
 	}
 
 	reducers := []func(*snapshotv1.Snapshot) (bool, error){
-		reduceCommandLabels,
-		reduceSubagentProse,
-		reduceDigestAnswers,
-		reduceOlderDigest,
-		reduceTodos,
-		reduceCommits,
 		reduceCommitSHAs,
 		reduceFileEdits,
 		reduceSessionMetadata,
@@ -69,73 +62,6 @@ func encodedSnapshotSize(snapshot snapshotv1.Snapshot) (int, error) {
 	return len(data), nil
 }
 
-func reduceCommandLabels(snapshot *snapshotv1.Snapshot) (bool, error) {
-	for i := len(snapshot.Session.Subagents) - 1; i >= 0; i-- {
-		labels := &snapshot.Session.Subagents[i].CommandLabels
-		if len(*labels) == 0 {
-			continue
-		}
-		if fits, err := reduceTail(snapshot, fmt.Sprintf("/session/subagents/%d/commandLabels", i), labels); err != nil || fits {
-			return fits, err
-		}
-	}
-	return false, nil
-}
-
-func reduceSubagentProse(snapshot *snapshotv1.Snapshot) (bool, error) {
-	for i := len(snapshot.Session.Subagents) - 1; i >= 0; i-- {
-		subagent := &snapshot.Session.Subagents[i]
-		if fits, err := reduceRequiredText(snapshot, fmt.Sprintf("/session/subagents/%d/result", i), &subagent.Result); err != nil || fits {
-			return fits, err
-		}
-		if fits, err := reduceRequiredText(snapshot, fmt.Sprintf("/session/subagents/%d/task", i), &subagent.Task); err != nil || fits {
-			return fits, err
-		}
-	}
-	return false, nil
-}
-
-func reduceDigestAnswers(snapshot *snapshotv1.Snapshot) (bool, error) {
-	originalBytes := 0
-	remainingBytes := 0
-	for _, digest := range snapshot.Session.Digest {
-		if digest.Answer != nil {
-			originalBytes += len(*digest.Answer)
-			remainingBytes += len(*digest.Answer)
-		}
-	}
-	if originalBytes == 0 {
-		return false, nil
-	}
-	upsertAggregateBytes(snapshot, "/session/digest", originalBytes, remainingBytes)
-	for i := range snapshot.Session.Digest {
-		answer := snapshot.Session.Digest[i].Answer
-		if answer == nil {
-			continue
-		}
-		remainingBytes -= len(*answer)
-		snapshot.Session.Digest[i].Answer = nil
-		removeMetadata(snapshot, fmt.Sprintf("/session/digest/%d/answer", i))
-		setAggregateBytes(snapshot, "/session/digest", remainingBytes)
-		if fits, err := snapshotFits(snapshot); err != nil || fits {
-			return fits, err
-		}
-	}
-	return false, nil
-}
-
-func reduceOlderDigest(snapshot *snapshotv1.Snapshot) (bool, error) {
-	return reduceNewest(snapshot, "/session/digest", &snapshot.Session.Digest)
-}
-
-func reduceTodos(snapshot *snapshotv1.Snapshot) (bool, error) {
-	return reduceTail(snapshot, "/session/todos", &snapshot.Session.Todos)
-}
-
-func reduceCommits(snapshot *snapshotv1.Snapshot) (bool, error) {
-	return reduceNewest(snapshot, "/session/commits", &snapshot.Session.Commits)
-}
-
 func reduceCommitSHAs(snapshot *snapshotv1.Snapshot) (bool, error) {
 	return reduceNewest(snapshot, "/session/commitShas", &snapshot.Session.CommitSHAs)
 }
@@ -155,10 +81,6 @@ func reduceSessionMetadata(snapshot *snapshotv1.Snapshot) (bool, error) {
 		present bool
 		clear   func()
 	}{
-		{"/session/firstPrompt", session.FirstPrompt != nil, func() { session.FirstPrompt = nil }},
-		{"/session/declaredGoal", session.DeclaredGoal != nil, func() { session.DeclaredGoal = nil }},
-		{"/session/summary", session.Summary != nil, func() { session.Summary = nil }},
-		{"/session/name", session.Name != nil, func() { session.Name = nil }},
 		{"/session/entrypoint", session.Entrypoint != nil, func() { session.Entrypoint = nil }},
 		{"/session/branch", session.Branch != nil, func() { session.Branch = nil }},
 		{"/session/cwd", session.WorkingDirectory != nil, func() { session.WorkingDirectory = nil }},
@@ -196,48 +118,6 @@ func reduceSessionMetadata(snapshot *snapshotv1.Snapshot) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func reduceTail[T any](snapshot *snapshotv1.Snapshot, path string, values *[]T) (bool, error) {
-	if len(*values) == 0 {
-		return false, nil
-	}
-	originalValues := *values
-	original := len(originalValues)
-	upsertAggregateItems(snapshot, path, original, original)
-	metadata := captureMetadata(snapshot)
-	*values = originalValues[:0]
-	metadata.restore(snapshot)
-	retainPrefixMetadata(snapshot, path, 0)
-	setAggregateItems(snapshot, path, 0)
-	zeroFits, err := snapshotFits(snapshot)
-	if err != nil || !zeroFits {
-		return false, err
-	}
-	best := 0
-	low, high := 1, original
-	for low <= high {
-		middle := low + (high-low)/2
-		*values = originalValues[:middle]
-		metadata.restore(snapshot)
-		retainPrefixMetadata(snapshot, path, middle)
-		setAggregateItems(snapshot, path, middle)
-		fits, err := snapshotFits(snapshot)
-		if err != nil {
-			return false, err
-		}
-		if fits {
-			best = middle
-			low = middle + 1
-		} else {
-			high = middle - 1
-		}
-	}
-	*values = originalValues[:best]
-	metadata.restore(snapshot)
-	retainPrefixMetadata(snapshot, path, best)
-	setAggregateItems(snapshot, path, best)
-	return true, nil
 }
 
 func reduceNewest[T any](snapshot *snapshotv1.Snapshot, path string, values *[]T) (bool, error) {
@@ -284,69 +164,6 @@ func reduceNewest[T any](snapshot *snapshotv1.Snapshot, path string, values *[]T
 	return true, nil
 }
 
-func reduceRequiredText(snapshot *snapshotv1.Snapshot, path string, value *string) (bool, error) {
-	if value == nil || *value == "" {
-		return false, nil
-	}
-	original := *value
-	upsertAggregateBytes(snapshot, path, len(original), len(original))
-
-	*value = ""
-	setAggregateBytes(snapshot, path, 0)
-	zeroFits, err := snapshotFits(snapshot)
-	if err != nil || !zeroFits {
-		return false, err
-	}
-
-	best := 0
-	low, high := 1, utf8.RuneCountInString(original)
-	for low <= high {
-		middle := low + (high-low)/2
-		length := byteIndexForRuneCount(original, middle)
-		*value = original[:length]
-		setAggregateBytes(snapshot, path, length)
-		fits, err := snapshotFits(snapshot)
-		if err != nil {
-			return false, err
-		}
-		if fits {
-			best = length
-			low = middle + 1
-		} else {
-			high = middle - 1
-		}
-	}
-	*value = original[:best]
-	setAggregateBytes(snapshot, path, best)
-	return true, nil
-}
-
-func byteIndexForRuneCount(value string, count int) int {
-	seen := 0
-	for index := range value {
-		if seen == count {
-			return index
-		}
-		seen++
-	}
-	return len(value)
-}
-
-func upsertAggregateBytes(snapshot *snapshotv1.Snapshot, path string, original, exported int) {
-	for i := range snapshot.Truncation {
-		item := &snapshot.Truncation[i]
-		if item.Path == path && item.OriginalBytes != nil {
-			item.Reason = snapshotv1.TruncationReasonAggregateBudget
-			item.ExportedBytes = intPointer(exported)
-			return
-		}
-	}
-	snapshot.Truncation = append(snapshot.Truncation, snapshotv1.Truncation{
-		Path: path, Reason: snapshotv1.TruncationReasonAggregateBudget,
-		OriginalBytes: intPointer(original), ExportedBytes: intPointer(exported),
-	})
-}
-
 func upsertAggregateItems(snapshot *snapshotv1.Snapshot, path string, original, exported int) {
 	for i := range snapshot.Truncation {
 		item := &snapshot.Truncation[i]
@@ -360,16 +177,6 @@ func upsertAggregateItems(snapshot *snapshotv1.Snapshot, path string, original, 
 		Path: path, Reason: snapshotv1.TruncationReasonAggregateBudget,
 		OriginalItems: intPointer(original), ExportedItems: intPointer(exported),
 	})
-}
-
-func setAggregateBytes(snapshot *snapshotv1.Snapshot, path string, exported int) {
-	for i := range snapshot.Truncation {
-		item := &snapshot.Truncation[i]
-		if item.Path == path && item.Reason == snapshotv1.TruncationReasonAggregateBudget && item.ExportedBytes != nil {
-			item.ExportedBytes = intPointer(exported)
-			return
-		}
-	}
 }
 
 func setAggregateItems(snapshot *snapshotv1.Snapshot, path string, exported int) {
@@ -420,16 +227,6 @@ func cloneRedactions(values []snapshotv1.Redaction) []snapshotv1.Redaction {
 func removeMetadata(snapshot *snapshotv1.Snapshot, removedPath string) {
 	filterMetadata(snapshot, func(path string) (string, bool) {
 		return path, path != removedPath && !strings.HasPrefix(path, removedPath+"/")
-	})
-}
-
-func retainPrefixMetadata(snapshot *snapshotv1.Snapshot, collection string, retained int) {
-	filterMetadata(snapshot, func(path string) (string, bool) {
-		index, _, ok := indexedMetadataPath(path, collection)
-		if ok && index >= retained {
-			return "", false
-		}
-		return path, true
 	})
 }
 

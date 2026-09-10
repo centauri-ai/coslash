@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
 
 func TestMeasureCorpusReportsSizesWithoutContent(t *testing.T) {
@@ -32,11 +33,11 @@ func TestMeasureCorpusRequiresInput(t *testing.T) {
 	}
 }
 
-func TestMeasureCorpusSeparatesDegradationFromRejection(t *testing.T) {
+func TestMeasureCorpusDoesNotCountOmittedContentAsDegradation(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
-	todos := make([]session.Todo, maxTodoItems)
+	todos := make([]session.Todo, snapshotv1.MaxTodoItems)
 	for i := range todos {
-		todos[i].Text = strings.Repeat("t", maxTodoTextBytes)
+		todos[i].Text = strings.Repeat("t", snapshotv1.MaxTodoTextBytes)
 	}
 	corpus := []session.Session{{
 		Agent: "codex", ID: "heavy", Repository: &repository, StartedAt: 1,
@@ -47,7 +48,7 @@ func TestMeasureCorpusSeparatesDegradationFromRejection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.MaximumBytes <= report.AggregateLimitBytes || report.Degraded != 1 || report.Rejected != 0 || report.FittedMaximumBytes > report.AggregateLimitBytes {
+	if report.MaximumBytes > report.AggregateLimitBytes || report.Degraded != 0 || report.Rejected != 0 || report.FittedMaximumBytes > report.AggregateLimitBytes {
 		t.Fatalf("report = %#v", report)
 	}
 }

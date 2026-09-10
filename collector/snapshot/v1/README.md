@@ -31,19 +31,11 @@ byte slice returned by `sessionexport.Marshal`.
 | Agent identifier | 64 lowercase ASCII characters; starts alphanumeric, then letters, digits, `_`, or `-` |
 | Source IDs | 512 UTF-8 bytes |
 | Canonical repository | 1,024 UTF-8 bytes |
-| Name | 512 UTF-8 bytes |
-| Summary and digest description/answer | 4 KiB each |
 | Repository-relative paths | 1 KiB each |
 | Branch and entrypoint | 512 UTF-8 bytes each |
 | Model names | 256 UTF-8 bytes each; 100 models |
-| Declared goal and first prompt | 16 KiB each |
-| Digest | 200 entries |
-| Todos | 200 entries; 2 KiB text each |
 | File edits | 2,000 entries |
-| Commit subjects | 200 entries; 2 KiB each |
 | Resolved commit object IDs | 200 lowercase full SHA-1 (40) or SHA-256 (64) IDs |
-| Subagents | 100 entries; 8 KiB task/result each |
-| Human subagent command labels | 200 total; 512 bytes each |
 
 Text is normalized to LF and truncated only at a valid UTF-8 boundary. Metadata
 paths are RFC 6901 JSON Pointers that resolve against the exported payload.
@@ -54,14 +46,8 @@ When the individually bounded fields still exceed the aggregate limit,
 `sessionexport.Marshal` deterministically reduces optional evidence in this
 order:
 
-1. subagent command labels;
-2. subagent result and task prose;
-3. digest answers;
-4. older digest entries, retaining the newest entries;
-5. todos;
-6. older commit subjects, retaining the newest subjects;
-7. older resolved commit object IDs, retaining the newest IDs;
-8. older file-edit details, retaining the newest edits.
+1. older resolved commit object IDs, retaining the newest IDs;
+2. older file-edit details, retaining the newest edits.
 
 Every aggregate reduction uses the `aggregate_budget` truncation reason and
 records original/exported bytes or item counts. Repository identity, session
@@ -70,22 +56,20 @@ removed. Export fails only when that mandatory core cannot fit. Preview and
 upload consume the same fitted byte slice, so no smaller payload is created
 silently after review.
 
-The allow-list includes bounded session metadata, aggregate counts, raw token
-counts, frozen estimated costs, digest/planning evidence, todos, file-change
-statistics, human-facing commit subjects, resolved commit object IDs, git
-drift, and bounded subagent facts. `session.commits` remains subject text;
-`session.commitShas` is optional during its additive rollout and contains only
-locally resolved lowercase full Git object IDs. It has no positional relation
-to `session.commits`, so consumers must not join the arrays by index. Consumers
-must never parse subjects as identifiers.
+The allow-list includes non-content session metadata, aggregate counts, raw
+token counts, frozen estimated costs, repository-relative file-change
+statistics, resolved commit object IDs, and git drift. Session titles,
+summaries, declared goals, prompts, digests, todos, commit subjects, and every
+subagent field stay local. `session.commitShas` is optional during its additive
+rollout and contains only locally resolved lowercase full Git object IDs.
 
 ## Exclusions and structural redaction
 
-The mapper never exports raw top-level commands, raw subagent commands, local
-synthesis, synthesis state, compaction seed, parser state, tool output, file
-diffs, raw transcripts, assistant reasoning, log paths, credentials, or
-environment variables. Human command labels are exported only when distinct
-from the raw command fallback.
+The mapper never exports session titles, summaries, goals, prompts, digests,
+todos, commit subjects, subagent data, raw top-level commands, raw subagent
+commands, local synthesis, synthesis state, compaction seed, parser state,
+tool output, file diffs, raw transcripts, assistant reasoning, log paths,
+credentials, or environment variables.
 
 Working directories and edit paths are made repository-relative. Values that
 cannot be proven to be inside the repository are omitted and recorded in

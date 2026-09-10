@@ -16,9 +16,14 @@ import (
 func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 	root := filepath.Join(string(filepath.Separator), "work", "coslash")
 	repository := "github.com/centauri-ai/coslash"
-	name := "Implement export"
+	name := "local-name-secret"
 	summary := "Never retain Authorization: Bearer prose-secret"
 	firstPrompt := "Use TOKEN=prompt-secret only for this local test"
+	goal := "local-goal-secret"
+	commit := "local-commit-secret"
+	todo := "local-todo-secret"
+	digestDescription := "local-digest-description-secret"
+	digestAnswer := "local-digest-answer-secret"
 	model := "gpt-5"
 	local := session.Session{
 		Agent: "codex", ID: "source-1", Name: &name, Summary: &summary,
@@ -27,7 +32,8 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 		Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 12, OutputTokens: 3, Cost: 0.25}},
 		Cost:   0.25,
 		Subagents: []session.Subagent{{
-			ID: "child", Name: "reviewer", Status: session.SubagentReturned,
+			ID: "local-subagent-id-secret", Name: "local-subagent-name-secret", Status: session.SubagentReturned,
+			Task: "local-subagent-task-secret", Result: "local-subagent-result-secret",
 			Commands: []session.SubagentCommand{
 				{Label: "Run unit tests", Command: "go test ./..."},
 				{Label: "cat $TOKEN", Command: "cat $TOKEN"},
@@ -35,8 +41,11 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 			Tokens: map[string]session.ModelTokens{},
 		}},
 		SessionDetails: session.SessionDetails{
-			Model: &model, FirstPrompt: &firstPrompt,
+			Model: &model, FirstPrompt: &firstPrompt, DeclaredGoal: &goal,
 			Commands: []string{"curl -H 'Authorization: Bearer fake-secret'"},
+			Commits:  []string{commit},
+			Todos:    []session.Todo{{Text: todo, Done: true}},
+			Digest:   []session.DigestEntry{{Category: session.DigestUser, Description: digestDescription, Answer: digestAnswer}},
 			FileEdits: []session.FileEdit{
 				{Path: filepath.Join(root, "collector", "main.go"), Additions: 3, Edits: 1},
 				{Path: filepath.Join(string(filepath.Separator), "Users", "person", ".ssh", "config"), Edits: 1},
@@ -57,14 +66,14 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 	if snapshot.SessionStartedAtMs != 7_000 {
 		t.Fatalf("session start = %d", snapshot.SessionStartedAtMs)
 	}
-	if snapshot.Session.FirstPrompt != nil {
-		t.Fatal("raw first prompt crossed the snapshot boundary")
+	if snapshot.Session.Name != nil || snapshot.Session.Summary != nil || snapshot.Session.DeclaredGoal != nil || snapshot.Session.FirstPrompt != nil {
+		t.Fatalf("free-form session text crossed the snapshot boundary: %#v", snapshot.Session)
 	}
 	if len(snapshot.Session.FileEdits) != 1 || snapshot.Session.FileEdits[0].Path != "collector/main.go" {
 		t.Fatalf("file edits = %#v", snapshot.Session.FileEdits)
 	}
-	if got := snapshot.Session.Subagents[0].CommandLabels; len(got) != 1 || got[0] != "Run unit tests" {
-		t.Fatalf("command labels = %#v", got)
+	if len(snapshot.Session.Digest) != 0 || len(snapshot.Session.Todos) != 0 || len(snapshot.Session.Commits) != 0 || len(snapshot.Session.Subagents) != 0 {
+		t.Fatalf("free-form session collections crossed the snapshot boundary: %#v", snapshot.Session)
 	}
 	if snapshot.Session.Counts.Commands != 1 {
 		t.Fatalf("command count = %d", snapshot.Session.Counts.Commands)
@@ -73,7 +82,7 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, excluded := range []string{"fake-secret", "prose-secret", "prompt-secret", "cat $TOKEN", ".ssh", "must stay local", root} {
+	for _, excluded := range []string{"fake-secret", "prose-secret", "prompt-secret", "local-name-secret", "local-goal-secret", "local-commit-secret", "local-todo-secret", "local-digest-description-secret", "local-digest-answer-secret", "local-subagent-id-secret", "local-subagent-name-secret", "local-subagent-task-secret", "local-subagent-result-secret", "Run unit tests", "cat $TOKEN", ".ssh", "must stay local", root} {
 		if bytes.Contains(data, []byte(excluded)) {
 			t.Errorf("serialized snapshot leaked %q", excluded)
 		}
@@ -84,7 +93,7 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 	assertMetadataPointersResolve(t, data, snapshot)
 }
 
-func TestCredentialPatternsAreRedactedWithoutLeakingMetadata(t *testing.T) {
+func TestContentBearingFieldsAreNeverUploaded(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
 	patterns := `{"Authorization":"Bearer json-bearer-secret","password":"json password secret"} ` +
 		`password="quoted-prefix quoted-shell-tail-9382" token='single-prefix single-shell-tail-4721' ` +
@@ -94,7 +103,13 @@ func TestCredentialPatternsAreRedactedWithoutLeakingMetadata(t *testing.T) {
 		"-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----"
 	local := session.Session{
 		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
-		Summary: &patterns, Tokens: map[string]session.ModelTokens{},
+		Name: &patterns, Summary: &patterns, Tokens: map[string]session.ModelTokens{},
+		SessionDetails: session.SessionDetails{
+			DeclaredGoal: &patterns, FirstPrompt: &patterns, Commits: []string{patterns},
+			Todos:  []session.Todo{{Text: patterns}},
+			Digest: []session.DigestEntry{{Category: session.DigestUser, Description: patterns, Answer: patterns}},
+		},
+		Subagents: []session.Subagent{{ID: patterns, Name: patterns, Status: session.SubagentReturned, Task: patterns, Result: patterns, Commands: []session.SubagentCommand{{Label: patterns, Command: patterns}}}},
 	}
 	data, err := Marshal(local, BuildOptions{CollectorVersion: "0.1.0"})
 	if err != nil {
@@ -111,47 +126,6 @@ func TestCredentialPatternsAreRedactedWithoutLeakingMetadata(t *testing.T) {
 		if bytes.Contains(data, []byte(secret)) {
 			t.Fatalf("snapshot leaked %q", secret)
 		}
-	}
-	if !bytes.Contains(data, []byte("credential_pattern")) {
-		t.Fatal("credential redaction was not recorded")
-	}
-}
-
-func TestUnterminatedCredentialPatternsRedactThroughEndOfText(t *testing.T) {
-	repository := "github.com/centauri-ai/coslash"
-	tests := []struct {
-		name  string
-		value string
-	}{
-		{"JSON bearer", `{"Authorization":"Bearer json-first-secret json-second-secret`},
-		{"JSON password", `{"password":"json-first-secret json-second-secret`},
-		{"double-quoted bearer", `Authorization="Bearer auth-first-secret auth-second-secret`},
-		{"single-quoted bearer", `Authorization='Bearer auth-first-secret auth-second-secret`},
-		{"double-quoted password", `password="first-secret second-secret`},
-		{"double-quoted password with dangling escape", `password="first-secret second-secret\`},
-		{"single-quoted token", `token='first-secret second-secret`},
-		{"private key", "-----BEGIN PRIVATE KEY-----\nprivate-first-secret\nprivate-second-secret"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			local := session.Session{
-				Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
-				Summary: &test.value, Tokens: map[string]session.ModelTokens{},
-			}
-			data, err := Marshal(local, BuildOptions{CollectorVersion: "0.1.0"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, secret := range []string{"first-secret", "second-secret"} {
-				if bytes.Contains(data, []byte(secret)) {
-					t.Fatalf("snapshot leaked %q", secret)
-				}
-			}
-			if !bytes.Contains(data, []byte("credential_pattern")) {
-				t.Fatal("credential redaction was not recorded")
-			}
-		})
 	}
 }
 
@@ -329,17 +303,16 @@ func TestBuildSortsAndMergesModelsAfterTransformation(t *testing.T) {
 	}
 }
 
-func TestBuildUsesWirePathsForSubagentUsageAndOmitsEmptyModels(t *testing.T) {
+func TestBuildOmitsSubagentDetails(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
 	emptyModel := ""
-	longModel := strings.Repeat("m", maxModelBytes+1)
 	local := session.Session{
 		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1,
 		Tokens:         map[string]session.ModelTokens{},
 		SessionDetails: session.SessionDetails{Model: &emptyModel},
 		Subagents: []session.Subagent{{
 			ID: "child", Name: "worker", Model: &emptyModel, Status: session.SubagentReturned,
-			Tokens: map[string]session.ModelTokens{longModel: {InputTokens: 1}},
+			Tokens: map[string]session.ModelTokens{"subagent-model-secret": {InputTokens: 1}},
 		}},
 	}
 
@@ -347,20 +320,17 @@ func TestBuildUsesWirePathsForSubagentUsageAndOmitsEmptyModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Session.Model != nil || snapshot.Session.Subagents[0].Model != nil {
-		t.Fatalf("empty models were exported: session=%v subagent=%v", snapshot.Session.Model, snapshot.Session.Subagents[0].Model)
-	}
-	if got := snapshot.Truncation; len(got) != 1 || got[0].Path != "/session/subagents/0/usage/0/model" {
-		t.Fatalf("subagent usage truncation = %#v", got)
+	if snapshot.Session.Model != nil || len(snapshot.Session.Subagents) != 0 {
+		t.Fatalf("subagent details were exported: session=%v subagents=%#v", snapshot.Session.Model, snapshot.Session.Subagents)
 	}
 	if _, err := snapshotv1.Marshal(snapshot); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestBuildRetainsNewestDigestEntriesAtItemBudget(t *testing.T) {
+func TestBuildOmitsDigestEntries(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
-	digest := make([]session.DigestEntry, maxDigestItems+5)
+	digest := make([]session.DigestEntry, snapshotv1.MaxDigestItems+5)
 	for i := range digest {
 		digest[i] = session.DigestEntry{Turn: i, Category: session.DigestUser, Description: "entry"}
 	}
@@ -374,15 +344,15 @@ func TestBuildRetainsNewestDigestEntriesAtItemBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := snapshot.Session.Digest; len(got) != maxDigestItems || got[0].Turn != 5 || got[len(got)-1].Turn != maxDigestItems+4 {
-		t.Fatalf("retained digest range = first %d, last %d, count %d", got[0].Turn, got[len(got)-1].Turn, len(got))
+	if got := snapshot.Session.Digest; len(got) != 0 {
+		t.Fatalf("digest entries = %#v", got)
 	}
 }
 
 func TestBuildAppliesUTF8AndItemBudgetsWithoutSilentTruncation(t *testing.T) {
 	repository := "local-repository"
-	long := strings.Repeat("界", maxNameBytes)
-	commits := make([]string, maxCommitItems+1)
+	long := strings.Repeat("界", snapshotv1.MaxNameBytes)
+	commits := make([]string, snapshotv1.MaxCommitItems+1)
 	for i := range commits {
 		commits[i] = "commit"
 	}
@@ -395,14 +365,8 @@ func TestBuildAppliesUTF8AndItemBudgetsWithoutSilentTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(*snapshot.Session.Name); got > maxNameBytes || !strings.HasPrefix(long, *snapshot.Session.Name) {
-		t.Fatalf("name exported bytes = %d", got)
-	}
-	if len(snapshot.Session.Commits) != maxCommitItems {
-		t.Fatalf("commits = %d", len(snapshot.Session.Commits))
-	}
-	if len(snapshot.Truncation) != 2 {
-		t.Fatalf("truncation = %#v", snapshot.Truncation)
+	if snapshot.Session.Name != nil || len(snapshot.Session.Commits) != 0 || len(snapshot.Truncation) != 0 {
+		t.Fatalf("omitted content produced output or metadata: %#v", snapshot)
 	}
 	data, err := snapshotv1.Marshal(snapshot)
 	if err != nil {
