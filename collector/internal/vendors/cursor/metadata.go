@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"cmp"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -50,6 +51,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 		return id, header.Name, header.Subtitle
 	})
 	loadIDETimes(metadata, filepath.Join(globalStorage, "state.vscdb"))
+	loadIDEDiffs(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadIDEModels(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadIDERelationships(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadCursorRows(metadata, lanes, "", filepath.Join(globalStorage, "conversation-search.db"), `SELECT id, title FROM conversations ORDER BY source = 'local' DESC`, func(id, title string) (string, string, string) {
@@ -107,6 +109,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			delete(metadata.WorkingDirectories, id)
 			delete(metadata.StartedAt, id)
 			delete(metadata.LastActivityAt, id)
+			delete(metadata.FileEdits, id)
 			continue
 		}
 		for lane := range matches {
@@ -114,6 +117,102 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 		}
 	}
 	return metadata, nil
+}
+
+type ideCheckpoint struct {
+	Files []struct {
+		URI struct {
+			FSPath string `json:"_fsPath"`
+			Path   string `json:"path"`
+		} `json:"uri"`
+		Diff []struct {
+			Original struct {
+				Start int `json:"startLineNumber"`
+				End   int `json:"endLineNumberExclusive"`
+			} `json:"original"`
+			Modified []string `json:"modified"`
+		} `json:"originalModelDiffWrtV0"`
+	} `json:"files"`
+	NewResources struct {
+		Files []struct {
+			FSPath string `json:"_fsPath"`
+			Path   string `json:"path"`
+		} `json:"files"`
+	} `json:"inlineDiffNewlyCreatedResources"`
+}
+
+func loadIDEDiffs(metadata *vendors.SessionMetadata, path string) {
+	db, err := openCursorDB(path)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'`)
+	if err != nil {
+		return
+	}
+	checkpoints := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if rows.Scan(&key, &value) != nil {
+			continue
+		}
+		id, ok := strings.CutPrefix(key, "composerData:")
+		var item struct {
+			LatestCheckpointID string `json:"latestCheckpointId"`
+		}
+		if ok && transcriptIDPattern.MatchString(id) && json.Unmarshal([]byte(value), &item) == nil && item.LatestCheckpointID != "" {
+			checkpoints[id] = item.LatestCheckpointID
+		}
+	}
+	rows.Close()
+	for id, checkpointID := range checkpoints {
+		var value string
+		if db.QueryRow(`SELECT value FROM cursorDiskKV WHERE key = ?`, "checkpointId:"+id+":"+checkpointID).Scan(&value) != nil {
+			continue
+		}
+		var checkpoint ideCheckpoint
+		if json.Unmarshal([]byte(value), &checkpoint) != nil {
+			continue
+		}
+		metadata.FileEdits[id] = checkpointFileEdits(checkpoint)
+	}
+}
+
+func checkpointFileEdits(checkpoint ideCheckpoint) []session.FileEdit {
+	newFiles := map[string]bool{}
+	for _, file := range checkpoint.NewResources.Files {
+		path := strings.TrimSpace(cmp.Or(file.FSPath, file.Path))
+		if path != "" {
+			newFiles[path] = true
+		}
+	}
+	edits := session.NewFileEditSet()
+	seen := map[string]bool{}
+	for _, file := range checkpoint.Files {
+		path := strings.TrimSpace(cmp.Or(file.URI.FSPath, file.URI.Path))
+		if path == "" {
+			continue
+		}
+		additions, deletions := 0, 0
+		for _, diff := range file.Diff {
+			if diff.Original.End < diff.Original.Start {
+				continue
+			}
+			additions += len(diff.Modified)
+			deletions += diff.Original.End - diff.Original.Start
+		}
+		edits.Add(path, additions, deletions, newFiles[path])
+		seen[path] = true
+	}
+	for _, file := range checkpoint.NewResources.Files {
+		path := strings.TrimSpace(cmp.Or(file.FSPath, file.Path))
+		if newFiles[path] && !seen[path] {
+			edits.Add(path, 0, 0, true)
+			seen[path] = true
+		}
+	}
+	return edits.Edits
 }
 
 func loadIDETimes(metadata *vendors.SessionMetadata, path string) {
