@@ -116,6 +116,11 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			metadata.Entrypoints[id] = lane
 		}
 	}
+	for id, lane := range loadLiveSessions() {
+		if lane != "" && metadata.Entrypoints[id] == lane {
+			metadata.Live[id] = "interactive"
+		}
+	}
 	return metadata, nil
 }
 
