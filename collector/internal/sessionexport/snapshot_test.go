@@ -57,6 +57,9 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 	if snapshot.SessionStartedAtMs != 7_000 {
 		t.Fatalf("session start = %d", snapshot.SessionStartedAtMs)
 	}
+	if snapshot.Session.FirstPrompt != nil {
+		t.Fatal("raw first prompt crossed the snapshot boundary")
+	}
 	if len(snapshot.Session.FileEdits) != 1 || snapshot.Session.FileEdits[0].Path != "collector/main.go" {
 		t.Fatalf("file edits = %#v", snapshot.Session.FileEdits)
 	}

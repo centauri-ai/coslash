@@ -34,7 +34,6 @@ import {
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
 import {
   HUB_SHARE_VERSION,
-  localShareCandidates,
   type DestinationResult,
 } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
@@ -57,6 +56,7 @@ import {
 } from '@/pages/coslash/lib/session';
 import {
   ALL_REPOSITORIES,
+  eligibleSessionCandidates,
   filterSessionLibrary,
   latestLogicalSessions,
   libraryRepositories,
@@ -385,16 +385,13 @@ export function CoslashPage() {
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
-  const shareCandidates = useMemo(
-    () =>
-      localShareCandidates(
-        sessions.map((session, index) => ({
-          session,
-          previouslyShared: shareFixtureEnabled && index === 0,
-        })),
-      ),
-    [sessions, shareFixtureEnabled],
-  );
+  const shareCandidates = useMemo(() => {
+    const eligible = eligibleSessionCandidates(sessions);
+    return eligible.map((session, index) => ({
+      session,
+      previouslyShared: shareFixtureEnabled && index === 0,
+    }));
+  }, [sessions, shareFixtureEnabled]);
   const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
   const repositories = useMemo(() => libraryRepositories(librarySessions), [librarySessions]);
   const effectiveRepository =

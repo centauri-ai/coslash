@@ -118,6 +118,13 @@ describe('hub-share/v1 public consumer', () => {
     ]);
   });
 
+  it('keeps local and SSH candidates with matching vendor IDs independently bound', () => {
+    const local = session('same-id', 'alpha', now);
+    const ssh = { ...session('same-id', 'alpha', now), sourceId: 'r_0123456789abcdef', sourceLabel: 'SSH workspace' };
+    expect(localSessionId(local)).toBe('local:codex:same-id');
+    expect(localSessionId(ssh)).toBe('r_0123456789abcdef:codex:same-id');
+  });
+
   it('binds approval to exact canonical bytes, source revision, and destination', () => {
     const chosen = candidates[0]!.session;
     const exact = preview(chosen.mtime);

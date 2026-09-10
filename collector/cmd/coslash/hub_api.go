@@ -12,6 +12,8 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
 func hubClientFromEnvironment(collectorVersion string) (*hubclient.Client, error) {
@@ -50,7 +52,19 @@ func hubClientFromEnvironment(collectorVersion string) (*hubclient.Client, error
 	}, nil
 }
 
-func registerHubRoutes(api *http.ServeMux, client *hubclient.Client) {
+func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager) {
+	if client != nil {
+		client.LoadSourceSession = func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
+			if sourceID == localSourceID {
+				found, err := collector.GetSessionForPreview(sessionID, revision)
+				if found == nil || err != nil || found.Agent != agent {
+					return nil, err
+				}
+				return found, nil
+			}
+			return remoteManager.PreviewSession(sourceID, agent, sessionID, revision)
+		}
+	}
 	api.HandleFunc("GET /api/hub/destination", func(w http.ResponseWriter, request *http.Request) {
 		if client == nil {
 			writeJSON(w, hubclient.DestinationResult{ContractVersion: hubclient.ContractVersion, State: "signed_out", Configured: false})

@@ -478,6 +478,35 @@ func (manager *Manager) LaunchSession(sourceID, agent, sessionID, mode string) (
 	return nil, "", nil
 }
 
+// PreviewSession returns one current, complete remote session for the sharing
+// boundary. Unlike LaunchSession it never starts or resumes an agent; callers
+// may only turn the returned private record into the canonical allow-listed
+// snapshot. The SSH alias and any other transport details stay in this package.
+func (manager *Manager) PreviewSession(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if revision <= 0 || manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID ||
+		manager.state != StateOK || !manager.complete {
+		return nil, nil
+	}
+	for _, item := range manager.sessions {
+		if item.Agent != agent || item.ID != sessionID {
+			continue
+		}
+		switch launchBlockReason(manager.snapshot, item) {
+		case LaunchBlockOversized:
+			return nil, ErrRemoteSessionOversized
+		case LaunchBlockMissingDetails:
+			return nil, ErrRemoteSessionUnavailable
+		}
+		copy := *item
+		// Returning the current revision lets sessionpreview produce its stable
+		// stale-source response when the selected revision changed meanwhile.
+		return &copy, nil
+	}
+	return nil, nil
+}
+
 // SetupAliasMatches reports whether alias is the currently persisted remote
 // target. SetupHelperForAlias repeats this check while taking its immutable
 // configuration snapshot; this fast check lets the HTTP handler reject an

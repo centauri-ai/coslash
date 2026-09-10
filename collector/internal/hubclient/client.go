@@ -26,14 +26,16 @@ const snapshotMediaType = "application/vnd.coslash.session-snapshot.v1+json"
 const batchTimeout = 150 * time.Second
 
 type SessionLoader func(string, int64) (*session.Session, error)
+type SourceSessionLoader func(sourceID, agent, sessionID string, revision int64) (*session.Session, error)
 
 type Client struct {
-	BaseURL          *url.URL
-	HTTP             *http.Client
-	Credentials      CredentialStore
-	DeviceName       string
-	CollectorVersion string
-	LoadSession      SessionLoader
+	BaseURL           *url.URL
+	HTTP              *http.Client
+	Credentials       CredentialStore
+	DeviceName        string
+	CollectorVersion  string
+	LoadSession       SessionLoader
+	LoadSourceSession SourceSessionLoader
 
 	pairingMu sync.Mutex
 	pairings  map[string]pairingSecret
@@ -233,7 +235,7 @@ type uploadResponse struct {
 }
 
 func (c *Client) Share(ctx context.Context, input ShareRequest) (ShareResult, error) {
-	if !c.configured() || c.LoadSession == nil {
+	if !c.configured() || (c.LoadSession == nil && c.LoadSourceSession == nil) {
 		return ShareResult{}, errors.New("Hub sharing is not configured")
 	}
 	if input.ContractVersion != ContractVersion || strings.TrimSpace(input.RequestID) == "" || len(input.Items) == 0 || len(input.Items) > 100 {
@@ -288,12 +290,11 @@ func (c *Client) shareItem(ctx context.Context, credential string, item ShareIte
 		len(item.IdempotencyKey) < 16 || len(item.IdempotencyKey) > 200 {
 		return failed("invalid_share_request", false)
 	}
-	separator := strings.IndexByte(item.LocalSessionID, ':')
-	if separator <= 0 || separator == len(item.LocalSessionID)-1 {
+	sourceID, agent, sessionID, ok := parseShareSessionID(item.LocalSessionID)
+	if !ok {
 		return failed("invalid_share_request", false)
 	}
-	agent, sessionID := item.LocalSessionID[:separator], item.LocalSessionID[separator+1:]
-	found, err := c.LoadSession(sessionID, item.Consent.SourceRevision)
+	found, err := c.loadSourceSession(sourceID, agent, sessionID, item.Consent.SourceRevision)
 	if err != nil {
 		return failed("share_failed", true)
 	}
@@ -326,6 +327,9 @@ func (c *Client) shareItem(ctx context.Context, credential string, item ShareIte
 	if err != nil {
 		var networkError net.Error
 		if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &networkError) && networkError.Timeout() {
+			if accepted, ok := c.lookupAcceptedUpload(ctx, credential, item); ok {
+				return accepted
+			}
 			return failed("timeout", true)
 		}
 		return failed("network_unavailable", true)
@@ -341,6 +345,33 @@ func (c *Client) shareItem(ctx context.Context, credential string, item ShareIte
 	if err := decodeBounded(response.Body, &upload); err != nil || upload.SessionID == "" || upload.RevisionID == "" || upload.RepositoryID == "" || upload.CanonicalWeekStart == "" {
 		return failed("share_failed", true)
 	}
+	return acceptedShareItem(item, upload)
+}
+
+func parseShareSessionID(value string) (sourceID, agent, sessionID string, ok bool) {
+	parts := strings.SplitN(value, ":", 3)
+	if len(parts) == 2 {
+		// Accept the original local-only request format during the additive
+		// rollout; all newly built browser requests include their source ID.
+		return "local", parts[0], parts[1], parts[0] != "" && parts[1] != ""
+	}
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", false
+	}
+	return parts[0], parts[1], parts[2], true
+}
+
+func (c *Client) loadSourceSession(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
+	if c.LoadSourceSession != nil {
+		return c.LoadSourceSession(sourceID, agent, sessionID, revision)
+	}
+	if sourceID != "local" || c.LoadSession == nil {
+		return nil, nil
+	}
+	return c.LoadSession(sessionID, revision)
+}
+
+func acceptedShareItem(item ShareItemRequest, upload uploadResponse) ShareItemResult {
 	state := "accepted"
 	if upload.Deduplicated {
 		state = "already_accepted"
@@ -352,6 +383,34 @@ func (c *Client) shareItem(ctx context.Context, credential string, item ShareIte
 		SharedAt: &upload.SharedAt, BriefState: upload.BriefStatus,
 		Route: &RouteHandoff{HubContractVersion: "hub-read/v1", RepositoryID: upload.RepositoryID, CanonicalWeekStart: upload.CanonicalWeekStart, Path: path},
 	}
+}
+
+// lookupAcceptedUpload resolves the ambiguous outcome of a timed-out POST
+// before any caller can retry its idempotency key. A missing record is normal:
+// it leaves the item retryable and preserves the exact binding/key.
+func (c *Client) lookupAcceptedUpload(ctx context.Context, credential string, item ShareItemRequest) (ShareItemResult, bool) {
+	lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(lookupCtx, http.MethodGet, c.endpoint("/v1/uploads/status"), nil)
+	if err != nil {
+		return ShareItemResult{}, false
+	}
+	request.Header.Set("Authorization", "Device "+credential)
+	request.Header.Set("Idempotency-Key", item.IdempotencyKey)
+	response, err := c.httpClient().Do(request)
+	if err != nil {
+		return ShareItemResult{}, false
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return ShareItemResult{}, false
+	}
+	var upload uploadResponse
+	if decodeBounded(response.Body, &upload) != nil || upload.SessionID == "" || upload.RevisionID == "" ||
+		upload.RepositoryID == "" || upload.CanonicalWeekStart == "" {
+		return ShareItemResult{}, false
+	}
+	return acceptedShareItem(item, upload), true
 }
 
 type Problem struct {

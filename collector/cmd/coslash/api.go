@@ -161,6 +161,7 @@ func handleSharePreview(
 	w http.ResponseWriter,
 	r *http.Request,
 	getSession func(string, int64) (*session.Session, error),
+	remoteManager *remote.Manager,
 	collectorVersion string,
 ) {
 	revision, err := parseRevision(r.URL.Query().Get("revision"))
@@ -168,9 +169,24 @@ func handleSharePreview(
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	found, err := getSession(r.URL.Query().Get("id"), revision)
+	sourceID, err := parseSourceID(r.URL.Query().Get("source"))
 	if err != nil {
-		log.Printf("share preview: %v", err)
+		http.Error(w, "invalid source", http.StatusBadRequest)
+		return
+	}
+	var found *session.Session
+	if sourceID == localSourceID {
+		found, err = getSession(r.URL.Query().Get("id"), revision)
+	} else {
+		agent := r.URL.Query().Get("agent")
+		if agent == "" {
+			http.Error(w, "remote preview requires an agent", http.StatusBadRequest)
+			return
+		}
+		found, err = remoteManager.PreviewSession(sourceID, agent, r.URL.Query().Get("id"), revision)
+	}
+	if err != nil {
+		log.Printf("share preview unavailable")
 		http.Error(w, "could not load share preview", http.StatusInternalServerError)
 		return
 	}

@@ -510,6 +510,10 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	if err != nil || alias != config.SSHAlias || found == nil || found.WorkingDirectory != "/workspace" {
 		t.Fatalf("launch session = %#v, %q, %v", found, alias, err)
 	}
+	preview, err := manager.PreviewSession(config.ID, vendors.AgentCodex, "session", 1)
+	if err != nil || preview == nil || preview.WorkingDirectory != "/workspace" {
+		t.Fatalf("preview session = %#v, %v", preview, err)
+	}
 	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "missing", "resume"); found != nil || err != nil {
 		t.Fatal("missing session was launchable")
 	}
@@ -519,11 +523,17 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	if _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "compacted", "resume"); !errors.Is(err, ErrRemoteSessionUnavailable) {
 		t.Fatalf("compacted session error = %v", err)
 	}
+	if _, err := manager.PreviewSession(config.ID, vendors.AgentCodex, "compacted", 1); !errors.Is(err, ErrRemoteSessionUnavailable) {
+		t.Fatalf("compacted preview error = %v", err)
+	}
 	manager.mu.Lock()
 	manager.state = StateLimited
 	manager.mu.Unlock()
 	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume"); found == nil || err != nil {
 		t.Fatal("connected limited remote was not launchable")
+	}
+	if found, err := manager.PreviewSession(config.ID, vendors.AgentCodex, "session", 1); found != nil || err != nil {
+		t.Fatal("limited remote was previewable")
 	}
 	manager.mu.Lock()
 	manager.state = StateStale

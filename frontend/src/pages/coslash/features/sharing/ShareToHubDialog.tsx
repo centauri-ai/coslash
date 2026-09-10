@@ -434,7 +434,7 @@ export function ShareToHubDialog({
           </div>
           <DialogDescription>
             {fixtureMode
-              ? "Select sessions, review C2's exact canonical bytes, and exercise the T2-I4 retry/result states."
+              ? 'Select sessions, review the exact canonical bytes, and exercise retry and result states.'
               : "Select sessions, review C2's exact canonical bytes, then upload only the revisions you approve."}
           </DialogDescription>
         </DialogHeader>
@@ -598,7 +598,7 @@ export function ShareToHubDialog({
                                   {candidate.session.name ?? candidate.session.id}
                                 </span>
                                 <span className="text-muted-foreground block truncate pt-0.5 text-xs">
-                                  {candidate.session.agent} · {candidate.session.branch ?? 'no branch'} ·
+                                  {candidate.session.sourceLabel} · {candidate.session.agent} · {candidate.session.branch ?? 'no branch'} ·
                                   revision {candidate.session.mtime}
                                 </span>
                               </span>
@@ -713,12 +713,11 @@ export function ShareToHubDialog({
                       <span className="min-w-0 truncate font-mono text-xs">{item.localSessionId}</span>
                       {item.state === 'failed' ? (
                         <Badge variant="secondary">
-                          {item.error.code} ·{' '}
                           {!item.error.retryable
-                            ? 'not retryable'
+                            ? 'Cannot retry'
                             : RETRY_RULES[item.error.code].renewedReview
-                              ? 'review required'
-                              : 'retry preserved'}
+                              ? 'New review required'
+                              : 'Ready to retry'}
                         </Badge>
                       ) : (
                         <Badge variant="secondary">
