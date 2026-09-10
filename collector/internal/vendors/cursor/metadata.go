@@ -49,6 +49,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 		}
 		return id, header.Name, header.Subtitle
 	})
+	loadIDETimes(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadIDEModels(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadIDERelationships(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadCursorRows(metadata, lanes, "", filepath.Join(globalStorage, "conversation-search.db"), `SELECT id, title FROM conversations ORDER BY source = 'local' DESC`, func(id, title string) (string, string, string) {
@@ -65,6 +66,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			var item struct {
 				AgentID       string `json:"agentId"`
 				Name          string `json:"name"`
+				CreatedAt     int64  `json:"createdAt"`
 				LastUsedModel string `json:"lastUsedModel"`
 				SubagentInfo  struct {
 					ParentAgentID string `json:"parentAgentId"`
@@ -75,6 +77,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			_ = json.Unmarshal(data, &item)
 			if transcriptIDPattern.MatchString(item.AgentID) {
 				metadata.Models[item.AgentID] = normalizeCursorModel(item.LastUsedModel)
+				setCursorTimes(metadata, item.AgentID, item.CreatedAt, 0)
 			}
 			if transcriptIDPattern.MatchString(item.AgentID) && transcriptIDPattern.MatchString(item.SubagentInfo.ParentAgentID) {
 				metadata.Relationships[item.AgentID] = vendors.SessionRelationship{
@@ -92,6 +95,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 		loadCursorRows(metadata, lanes, entrypointSDK, path, `SELECT agent_id, name FROM agents`, func(id, name string) (string, string, string) {
 			return sdkTranscriptID(id), name, ""
 		})
+		loadSDKTimes(metadata, path)
 		loadSDKUsage(metadata, path)
 	}
 	loadCursorSummaries(metadata, filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db"))
@@ -101,6 +105,8 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			delete(metadata.PullRequests, id)
 			delete(metadata.Usage, id)
 			delete(metadata.WorkingDirectories, id)
+			delete(metadata.StartedAt, id)
+			delete(metadata.LastActivityAt, id)
 			continue
 		}
 		for lane := range matches {
@@ -108,6 +114,65 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 		}
 	}
 	return metadata, nil
+}
+
+func loadIDETimes(metadata *vendors.SessionMetadata, path string) {
+	db, err := openCursorDB(path)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT composerId, createdAt, lastUpdatedAt FROM composerHeaders`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var created, updated sql.NullInt64
+		if rows.Scan(&id, &created, &updated) == nil {
+			setCursorTimes(metadata, id, created.Int64, updated.Int64)
+		}
+	}
+}
+
+func loadSDKTimes(metadata *vendors.SessionMetadata, path string) {
+	db, err := openCursorDB(path)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT agent_id, created_at, updated_at FROM agents`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, created, updated string
+		if rows.Scan(&id, &created, &updated) != nil {
+			continue
+		}
+		var startedAt, lastActivityAt int64
+		if value, ok := parseTimestamp(created); ok {
+			startedAt = value.UnixMilli()
+		}
+		if value, ok := parseTimestamp(updated); ok {
+			lastActivityAt = value.UnixMilli()
+		}
+		setCursorTimes(metadata, sdkTranscriptID(id), startedAt, lastActivityAt)
+	}
+}
+
+func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, lastActivityAt int64) {
+	if !transcriptIDPattern.MatchString(id) {
+		return
+	}
+	if startedAt > 0 {
+		metadata.StartedAt[id] = startedAt
+	}
+	if lastActivityAt > 0 && (startedAt <= 0 || lastActivityAt >= startedAt) {
+		metadata.LastActivityAt[id] = lastActivityAt
+	}
 }
 
 func loadIDERelationships(metadata *vendors.SessionMetadata, path string) {

@@ -60,6 +60,7 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 	for _, item := range parsed {
 		if item != nil && item.Session != nil {
 			byID[item.Session.ID] = item
+			applyMetadataTimes(item.Session, metadata.StartedAt[item.Session.ID], metadata.LastActivityAt[item.Session.ID])
 			if cwd := metadata.WorkingDirectories[item.Session.ID]; cwd != "" {
 				item.Session.WorkingDirectory = cwd
 			}
@@ -134,6 +135,20 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 			parent.Spawns[value.SpawnKey] = spawn
 			break
 		}
+	}
+}
+
+func applyMetadataTimes(value *session.Session, startedAt, lastActivityAt int64) {
+	if startedAt > 0 && (lastActivityAt >= startedAt || lastActivityAt == 0 && value.LastActivityTime >= startedAt) {
+		value.StartedAt = startedAt
+	}
+	if lastActivityAt > 0 && lastActivityAt >= value.StartedAt {
+		value.LastActivityTime = lastActivityAt
+	}
+	value.DurationMs = nil
+	if value.StartedAt > 0 && value.LastActivityTime >= value.StartedAt {
+		duration := int(value.LastActivityTime - value.StartedAt)
+		value.DurationMs = &duration
 	}
 }
 

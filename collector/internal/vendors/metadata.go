@@ -32,6 +32,8 @@ type SessionMetadata struct {
 	Summaries          map[string]string // id → recorded or side-store summary
 	Entrypoints        map[string]string // id → exact source lane
 	WorkingDirectories map[string]string // id → authoritative side-store working directory
+	StartedAt          map[string]int64  // id → authoritative side-store creation time
+	LastActivityAt     map[string]int64  // id → authoritative side-store update time
 	Models             map[string]string // id → last model observed in source data
 	PullRequests       map[string]int    // id → distinct confirmed or reported PR URLs
 	Relationships      map[string]SessionRelationship
@@ -45,6 +47,8 @@ func EmptySessionMetadata() *SessionMetadata {
 		Summaries:          map[string]string{},
 		Entrypoints:        map[string]string{},
 		WorkingDirectories: map[string]string{},
+		StartedAt:          map[string]int64{},
+		LastActivityAt:     map[string]int64{},
 		Models:             map[string]string{},
 		PullRequests:       map[string]int{},
 		Relationships:      map[string]SessionRelationship{},
