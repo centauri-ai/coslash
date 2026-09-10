@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,13 +21,30 @@ func parseTranscript(path string) (*vendors.ParsedSession, error) {
 }
 
 func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
-	if !IsTranscript(path) {
-		return nil, fmt.Errorf("%w: Cursor transcript path %q", vendors.ErrInvalidData, path)
+	return parseTranscriptFragmentsSource(source, []string{path})
+}
+
+func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (*vendors.ParsedSession, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("%w: Cursor transcript has no paths", vendors.ErrInvalidData)
 	}
-	records, err := vendors.ParseJSONLSource[transcriptRecord](source, path)
-	if err != nil {
-		return nil, err
+	paths = append([]string(nil), paths...)
+	sort.SliceStable(paths, func(i, j int) bool {
+		return vendors.SourceModificationTime(source, paths[i]) < vendors.SourceModificationTime(source, paths[j])
+	})
+	id := IDFromPath(paths[0])
+	records := []transcriptRecord{}
+	for _, fragment := range paths {
+		if !IsTranscript(fragment) || IDFromPath(fragment) != id {
+			return nil, fmt.Errorf("%w: invalid Cursor transcript fragment %q", vendors.ErrInvalidData, fragment)
+		}
+		fragmentRecords, err := vendors.ParseJSONLSource[transcriptRecord](source, fragment)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, fragmentRecords...)
 	}
+	path := paths[len(paths)-1]
 
 	modified := vendors.SourceModificationTime(source, path)
 	digest := session.DigestLog{}
@@ -189,7 +207,7 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 		details.FirstPrompt = &firstPrompt
 	}
 	result := &session.Session{
-		Agent: vendors.AgentCursor, ID: IDFromPath(path), WorkingDirectory: cwd,
+		Agent: vendors.AgentCursor, ID: id, WorkingDirectory: cwd,
 		EditedFileCount: len(edits.Edits), StartedAt: startedAt, LastActivityTime: modified,
 		Tokens: map[string]session.ModelTokens{}, UnpricedModels: []string{}, Subagents: []session.Subagent{},
 		CommitLog: commitLog, SessionDetails: details,

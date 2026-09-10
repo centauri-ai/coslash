@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -22,6 +23,7 @@ import (
 const (
 	ResumeSession = "resume"
 	NewSession    = "new"
+	OpenWorkspace = "open"
 )
 
 const MaxHandoffBytes = 64 * 1024
@@ -64,6 +66,22 @@ func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string
 		return err
 	}
 	return nil
+}
+
+// CursorWorkspace opens a working directory in the installed Cursor IDE.
+func CursorWorkspace(workingDirectory string) error {
+	if workingDirectory == "" {
+		return errors.New("launch: session has no working directory")
+	}
+	cursor, err := exec.LookPath("cursor")
+	if err != nil {
+		return errors.New("launch: Cursor command is not installed or available")
+	}
+	command := exec.Command(cursor, "--reuse-window", workingDirectory)
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("launch: open Cursor: %w", err)
+	}
+	return command.Process.Release()
 }
 
 // RemoteTerminal opens the selected local terminal and runs an agent CLI on a
@@ -191,6 +209,10 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 		guard := "cat " + shellQuote(path) + " > /dev/null && "
 		command := guard + "OPENCODE_CONFIG_CONTENT=" + shellQuote(string(config)) + " " + shellJoin(cli)
 		return withCleanup(command, path), path, nil
+	case vendors.AgentCursor:
+		// Cursor CLI has no instruction-file option. The UI copies the handoff
+		// so the user can paste it into the fresh session.
+		return shellJoin(cli), "", nil
 	}
 	return "", "", fmt.Errorf("launch: unknown agent %q", agent)
 }
@@ -295,6 +317,8 @@ func cliName(agent string) (string, error) {
 		return "codex", nil
 	case vendors.AgentOpenCode:
 		return "opencode", nil
+	case vendors.AgentCursor:
+		return "agent", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }
@@ -308,6 +332,9 @@ func resumeFlag(agent string) (string, error) {
 	}
 	if agent == vendors.AgentOpenCode {
 		return "--session", nil
+	}
+	if agent == vendors.AgentCursor {
+		return "--resume", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }

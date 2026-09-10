@@ -21,6 +21,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
@@ -312,7 +313,18 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			return
 		}
 		err = launch.RemoteTerminal(state.Config.Launch.Terminal, alias, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
+	} else if mode == launch.OpenWorkspace {
+		if found.Agent != vendors.AgentCursor || found.Entrypoint == nil || *found.Entrypoint != "cursor-ide" {
+			http.Error(w, "workspace launch is only available for Cursor IDE sessions", http.StatusBadRequest)
+			return
+		}
+		err = launch.CursorWorkspace(found.WorkingDirectory)
 	} else {
+		if found.Agent == vendors.AgentCursor && mode == launch.ResumeSession &&
+			(found.Entrypoint == nil || *found.Entrypoint != "cursor-cli") {
+			http.Error(w, "exact resume is only available for Cursor CLI sessions", http.StatusBadRequest)
+			return
+		}
 		err = launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
 	}
 	if err != nil {

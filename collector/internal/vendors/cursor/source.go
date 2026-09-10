@@ -29,7 +29,7 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 		},
 	)
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
-	parsed := vendors.ParseSourceFiles(vendors.LocalReadSource, files, parseTranscriptSource)
+	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
 	applyRelationships(parsed, metadata)
 	if since > 0 {
 		parsed = familiesSince(parsed, since)
@@ -45,7 +45,25 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	return vendors.FindAndParse(files, id, IDFromPath, parseTranscript)
+	fragments := make([]string, 0, 1)
+	for _, path := range files {
+		if IDFromPath(path) == id {
+			fragments = append(fragments, path)
+		}
+	}
+	if len(fragments) == 0 {
+		return nil, nil
+	}
+	parsed, err := parseTranscriptFragmentsSource(vendors.LocalReadSource, fragments)
+	if err != nil || parsed == nil {
+		return parsed, err
+	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
+	applyRelationships([]*vendors.ParsedSession{parsed}, metadata)
+	if entrypoint := metadata.Entrypoints[id]; entrypoint != "" {
+		parsed.Session.Entrypoint = &entrypoint
+	}
+	return parsed, nil
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
@@ -57,9 +75,24 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		return nil, vendors.EmptySessionMetadata(), err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
-	parsed := vendors.ParseSourceFiles(vendors.LocalReadSource, files, parseTranscriptSource)
+	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
 	applyRelationships(parsed, metadata)
 	return selectFamily(parsed, id), metadata, nil
+}
+
+func parseTranscriptFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
+	groups := make(map[string][]string, len(files))
+	ids := make([]string, 0, len(files))
+	for _, path := range files {
+		id := IDFromPath(path)
+		if _, exists := groups[id]; !exists {
+			ids = append(ids, id)
+		}
+		groups[id] = append(groups[id], path)
+	}
+	return vendors.ParseFiles(ids, func(id string) (*vendors.ParsedSession, error) {
+		return parseTranscriptFragmentsSource(source, groups[id])
+	})
 }
 
 func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {

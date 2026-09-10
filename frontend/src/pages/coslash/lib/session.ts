@@ -403,10 +403,16 @@ export function boardStatusKey(session: Pick<Session, 'sourceId' | 'status' | 'd
 }
 
 export function resumeDisabledHint(
-  session: Pick<Session, 'sourceId' | 'agent' | 'status' | 'displayStale'>,
+  session: Pick<Session, 'sourceId' | 'agent' | 'status' | 'displayStale'> &
+    Partial<Pick<Session, 'entrypoint'>>,
   remoteLaunchable = false,
   remoteLaunchHint?: string,
 ): string | undefined {
+  if (isLocalSession(session) && session.agent === 'cursor') {
+    if (session.entrypoint === 'cursor-ide') return undefined;
+    if (session.entrypoint !== 'cursor-cli') return 'Exact resume is only available for Cursor CLI sessions';
+    if (boardStatusKey(session) === 'busy') return 'This session is already active';
+  }
   if (
     (boardStatusKey(session) === 'busy' ||
       (!isLocalSession(session) && boardStatusKey(session) === 'idle')) &&
