@@ -279,6 +279,9 @@ func sourceLabel(agent string) string {
 	if agent == "opencode" {
 		return "OpenCode"
 	}
+	if agent == "cursor" {
+		return "Cursor"
+	}
 	return agent
 }
 
