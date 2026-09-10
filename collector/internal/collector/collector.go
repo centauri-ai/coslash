@@ -526,6 +526,9 @@ func resolveUsage(parsed []*vendors.ParsedSession, metadata map[string]*vendors.
 		if usage.ContextTokens != nil {
 			p.Session.ContextTokens = usage.ContextTokens
 		}
+		if usage.ContextWindow != nil {
+			p.Session.ContextWindow = usage.ContextWindow
+		}
 		if usage.RecordedCost != nil {
 			p.RecordedCost = usage.RecordedCost
 		}

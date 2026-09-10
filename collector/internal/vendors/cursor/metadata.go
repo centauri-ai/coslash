@@ -408,7 +408,7 @@ func loadIDEModels(metadata *vendors.SessionMetadata, path string) {
 			continue
 		}
 		var item struct {
-			CreatedAt string `json:"createdAt"`
+			CreatedAt any `json:"createdAt"`
 			ModelInfo struct {
 				ModelName string `json:"modelName"`
 			} `json:"modelInfo"`
@@ -422,6 +422,8 @@ func loadIDEModels(metadata *vendors.SessionMetadata, path string) {
 			UsageData map[string]struct {
 				CostInCents *float64 `json:"costInCents"`
 			} `json:"usageData"`
+			ContextTokensUsed *int `json:"contextTokensUsed"`
+			ContextTokenLimit *int `json:"contextTokenLimit"`
 		}
 		if json.Unmarshal([]byte(value), &item) != nil {
 			continue
@@ -429,8 +431,9 @@ func loadIDEModels(metadata *vendors.SessionMetadata, path string) {
 		if parts := strings.SplitN(key, ":", 3); len(parts) == 3 && parts[0] == "bubbleId" && transcriptIDPattern.MatchString(parts[1]) {
 			id := parts[1]
 			model := strings.TrimSpace(item.ModelInfo.ModelName)
-			if model != "" && item.CreatedAt >= bubbles[id].time {
-				bubbles[id] = observed{model: model, time: item.CreatedAt}
+			createdAt, _ := item.CreatedAt.(string)
+			if model != "" && createdAt >= bubbles[id].time {
+				bubbles[id] = observed{model: model, time: createdAt}
 			}
 			if item.ToolFormerData.Status == "completed" {
 				if pullRequests[id] == nil {
@@ -442,6 +445,13 @@ func loadIDEModels(metadata *vendors.SessionMetadata, path string) {
 			}
 		} else if id, ok := strings.CutPrefix(key, "composerData:"); ok && transcriptIDPattern.MatchString(id) {
 			fallbacks[id] = strings.TrimSpace(item.ModelConfig.ModelName)
+			usage := metadata.Usage[id]
+			if item.ContextTokensUsed != nil && *item.ContextTokensUsed >= 0 {
+				usage.ContextTokens = item.ContextTokensUsed
+			}
+			if item.ContextTokenLimit != nil && *item.ContextTokenLimit > 0 {
+				usage.ContextWindow = item.ContextTokenLimit
+			}
 			cost, valid := 0.0, len(item.UsageData) > 0
 			for _, usage := range item.UsageData {
 				if usage.CostInCents == nil || *usage.CostInCents < 0 {
@@ -451,10 +461,9 @@ func loadIDEModels(metadata *vendors.SessionMetadata, path string) {
 				cost += *usage.CostInCents / 100
 			}
 			if valid {
-				value := metadata.Usage[id]
-				value.RecordedCost = &cost
-				metadata.Usage[id] = value
+				usage.RecordedCost = &cost
 			}
+			metadata.Usage[id] = usage
 		}
 	}
 	for id, model := range fallbacks {
@@ -464,6 +473,16 @@ func loadIDEModels(metadata *vendors.SessionMetadata, path string) {
 	}
 	for id, value := range bubbles {
 		metadata.Models[id] = normalizeCursorModel(value.model)
+	}
+	for id, usage := range metadata.Usage {
+		model := metadata.Models[id]
+		if usage.ContextTokens == nil || model == "" || session.ContextWindowFor(model) == nil || len(usage.Tokens) > 0 {
+			continue
+		}
+		usage.Tokens = map[string]session.ModelTokens{
+			model: {InputTokens: *usage.ContextTokens},
+		}
+		metadata.Usage[id] = usage
 	}
 	for id, urls := range pullRequests {
 		metadata.PullRequests[id] = len(urls)

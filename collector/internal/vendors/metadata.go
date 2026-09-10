@@ -9,6 +9,7 @@ import (
 type SessionUsage struct {
 	Tokens        map[string]session.ModelTokens
 	ContextTokens *int
+	ContextWindow *int
 	RecordedCost  *float64
 }
 
