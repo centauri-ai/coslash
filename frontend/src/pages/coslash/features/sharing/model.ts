@@ -181,8 +181,11 @@ export const RETRY_RULES: Record<
   },
 };
 
-export function localSessionId(session: Pick<Session, 'agent' | 'id'>): string {
-  return `${session.agent}:${session.id}`;
+export function localSessionId(session: Pick<Session, 'sourceId' | 'agent' | 'id'>): string {
+  // The opaque source ID is part of the local orchestration identity only. It
+  // lets a local and SSH session with the same vendor ID remain independently
+  // reviewable without putting a host, username, or path in the request.
+  return `${session.sourceId}:${session.agent}:${session.id}`;
 }
 
 /**
@@ -243,7 +246,7 @@ export function toggleCandidateGroup(
 }
 
 export function bindPreviewConsent(
-  session: Pick<Session, 'id' | 'agent' | 'mtime'>,
+  session: Pick<Session, 'sourceId' | 'id' | 'agent' | 'mtime'>,
   preview: SnapshotPreview,
   destination: ShareDestination,
   idempotencyKey: string,
@@ -279,7 +282,7 @@ export function bindPreviewConsent(
 
 export function consentStillCurrent(
   item: ShareItemRequest,
-  session: Pick<Session, 'id' | 'agent' | 'mtime'>,
+  session: Pick<Session, 'sourceId' | 'id' | 'agent' | 'mtime'>,
   preview: SnapshotPreview,
   destination: ShareDestination,
 ): boolean {

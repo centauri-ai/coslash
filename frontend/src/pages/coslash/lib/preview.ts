@@ -22,13 +22,15 @@ export type SnapshotPreview = {
 };
 
 export const PREVIEW_PRIVACY_COPY =
-  'When present, firstPrompt is shared up to 16 KiB after known credential patterns are redacted. Other sensitive text can remain; review the exact bounded value below.';
+  'Only the exact bounded payload below can leave this device. Prompts remain local; review the payload before approving it.';
 
 export const STRUCTURALLY_EXCLUDED = [
   'Raw transcripts and assistant reasoning',
+  'Raw prompts',
   'Tool output and file diffs',
   'Raw top-level and subagent commands',
-  'Environment variables and unresolved local paths',
+  'Credentials, secrets, and environment variables',
+  'Absolute paths and unrestricted local files',
 ] as const;
 
 const PREVIEW_STATES: PreviewState[] = [
@@ -51,15 +53,21 @@ export function isSnapshotPreview(value: unknown): value is SnapshotPreview {
   );
 }
 
-export function previewRequestPath(session: { sourceId: string; id: string }, revision: number): string {
+export function previewRequestPath(
+  session: { sourceId: string; id: string; agent?: string },
+  revision: number,
+): string {
+  const query = new URLSearchParams({ id: session.id, revision: String(revision) });
   if (!isLocalSource(session.sourceId)) {
-    throw new Error('remote preview unsupported');
+    if (!session.agent) throw new Error('remote preview requires the session agent');
+    query.set('source', session.sourceId);
+    query.set('agent', session.agent);
   }
-  return `/api/share-preview?${new URLSearchParams({ id: session.id, revision: String(revision) })}`;
+  return `/api/share-preview?${query}`;
 }
 
 export async function fetchSnapshotPreview(
-  session: { sourceId: string; id: string },
+  session: { sourceId: string; id: string; agent?: string },
   revision: number,
   signal?: AbortSignal,
 ): Promise<SnapshotPreview> {

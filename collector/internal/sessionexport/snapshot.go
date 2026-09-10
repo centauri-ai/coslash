@@ -102,7 +102,8 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 			ContextTokens:    copyIntPointer(local.ContextTokens),
 			ContextWindow:    copyIntPointer(local.ContextWindow),
 			DeclaredGoal:     b.optionalText("/session/declaredGoal", local.DeclaredGoal, maxGoalBytes),
-			FirstPrompt:      b.optionalText("/session/firstPrompt", local.FirstPrompt, maxPromptBytes),
+			// Prompts remain local. Even a bounded/redacted prompt can expose user
+			// intent that is unnecessary for a team handoff.
 			Counts: snapshotv1.Counts{
 				EditedFiles:  local.EditedFileCount,
 				Turns:        local.Turns,

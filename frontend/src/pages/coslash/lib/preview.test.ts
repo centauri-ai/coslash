@@ -135,8 +135,11 @@ describe('snapshot preview adapter', () => {
     expect(previewRequestPath({ sourceId: 'local', id: 'session/id' }, 42)).toBe(
       '/api/share-preview?id=session%2Fid&revision=42',
     );
+    expect(
+      previewRequestPath({ sourceId: 'r_0123456789abcdef', agent: 'codex', id: 'session/id' }, 42),
+    ).toBe('/api/share-preview?id=session%2Fid&revision=42&source=r_0123456789abcdef&agent=codex');
     expect(() => previewRequestPath({ sourceId: 'r_0123456789abcdef', id: 'session/id' }, 42)).toThrow(
-      'remote preview unsupported',
+      'remote preview requires the session agent',
     );
   });
 
@@ -155,10 +158,10 @@ describe('snapshot preview adapter', () => {
     expect(teamPreviewEnabled('?other=1')).toBe(false);
   });
 
-  it('validates preview responses and states the credential limit precisely', () => {
+  it('validates preview responses and states that prompts remain local', () => {
     expect(isSnapshotPreview(null)).toBe(false);
     expect(isSnapshotPreview(ready({ schemaVersion: 'session-snapshot/v1' }))).toBe(true);
-    expect(PREVIEW_PRIVACY_COPY).toContain('known credential patterns');
-    expect(STRUCTURALLY_EXCLUDED.join(' ')).not.toContain('Credentials');
+    expect(PREVIEW_PRIVACY_COPY).toContain('Prompts remain local');
+    expect(STRUCTURALLY_EXCLUDED.join(' ')).toContain('Credentials');
   });
 });

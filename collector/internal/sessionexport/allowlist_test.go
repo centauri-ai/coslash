@@ -46,7 +46,7 @@ var census = map[string]decision{
 	"ToolUses":         {true, "session.counts.toolUses"},
 	"Errors":           {true, "session.counts.errors"},
 	"Compactions":      {true, "session.counts.compactions"},
-	"FirstPrompt":      {true, "bounded session.firstPrompt"},
+	"FirstPrompt":      {false, "raw prompts remain local"},
 	"Commands":         {false, "raw commands never cross; only len() as session.counts.commands"},
 	"CommitLog":        {false, "local commit observations used for git reconciliation"},
 	"Commits":          {true, "bounded commit subjects"},

@@ -163,7 +163,7 @@ func TestMarshalReducesOptionalSessionMetadataBeforeMandatoryOverflow(t *testing
 		t.Fatal("mandatory subagent usage was reduced")
 	}
 	for _, item := range decoded.Truncation {
-		if item.Path == "/session" && item.Reason == snapshotv1.TruncationReasonAggregateBudget && item.OriginalItems != nil && *item.OriginalItems == 3 && item.ExportedItems != nil && *item.ExportedItems < 3 {
+		if item.Path == "/session" && item.Reason == snapshotv1.TruncationReasonAggregateBudget && item.OriginalItems != nil && *item.OriginalItems == 2 && item.ExportedItems != nil && *item.ExportedItems < 2 {
 			return
 		}
 	}

@@ -204,10 +204,7 @@ func routes(
 		handleDiff(w, r, collector.GetSessionFacts)
 	})
 	api.HandleFunc("GET /api/share-preview", func(w http.ResponseWriter, r *http.Request) {
-		if rejectRemoteSource(w, r) {
-			return
-		}
-		handleSharePreview(w, r, collector.GetSessionForPreview, version)
+		handleSharePreview(w, r, collector.GetSessionForPreview, remoteManager, version)
 	})
 	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
 		writeSettings(w, settingsStore.State())
@@ -233,7 +230,7 @@ func routes(
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
-	registerHubRoutes(api, hub)
+	registerHubRoutes(api, hub, remoteManager)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
 

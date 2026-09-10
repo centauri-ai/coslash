@@ -34,7 +34,6 @@ import {
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
 import {
   HUB_SHARE_VERSION,
-  localShareCandidates,
   type DestinationResult,
 } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
@@ -57,6 +56,7 @@ import {
 } from '@/pages/coslash/lib/session';
 import {
   ALL_REPOSITORIES,
+  eligibleSessionCandidates,
   filterSessionLibrary,
   latestLogicalSessions,
   libraryRepositories,
@@ -109,12 +109,14 @@ function CoslashPageHeader({
 }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <span aria-label="coSlash">
           <img src="/brand/coslash-logo.svg" alt="" className="h-12 dark:hidden" />
           <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden h-12 dark:block" />
         </span>
-        <span className="text-muted-foreground text-sm font-medium">Run more agents. Lose less context.</span>
+        <span className="text-muted-foreground min-w-0 truncate text-sm font-medium">
+          Run more agents. Lose less context.
+        </span>
       </div>
       <SettingsButton onClick={onOpenSettings} hasError={settingsError} />
     </div>
@@ -385,16 +387,13 @@ export function CoslashPage() {
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
-  const shareCandidates = useMemo(
-    () =>
-      localShareCandidates(
-        sessions.map((session, index) => ({
-          session,
-          previouslyShared: shareFixtureEnabled && index === 0,
-        })),
-      ),
-    [sessions, shareFixtureEnabled],
-  );
+  const shareCandidates = useMemo(() => {
+    const eligible = eligibleSessionCandidates(sessions);
+    return eligible.map((session, index) => ({
+      session,
+      previouslyShared: shareFixtureEnabled && index === 0,
+    }));
+  }, [sessions, shareFixtureEnabled]);
   const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
   const repositories = useMemo(() => libraryRepositories(librarySessions), [librarySessions]);
   const effectiveRepository =
@@ -551,8 +550,8 @@ export function CoslashPage() {
             onSortDirChange={setSortDir}
           />
         </div>
-        <div className="flex min-h-7 items-center">
-          <div className="flex w-full items-center justify-between gap-3">
+        <div className="flex min-h-7 min-w-0 items-center">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <LoadingSpinner isLoading={isLoading}>
                 <SessionsStats
