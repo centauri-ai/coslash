@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"errors"
 	"io/fs"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -72,6 +74,7 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 			if cwd := metadata.WorkingDirectories[item.Session.ID]; cwd != "" {
 				item.Session.WorkingDirectory = cwd
 			}
+			mergeIDEFileEdits(item.Session, metadata.FileEdits[item.Session.ID])
 			if name := metadata.Names[item.Session.ID]; name != "" {
 				item.Name = name
 			}
@@ -144,6 +147,41 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 			break
 		}
 	}
+}
+
+func mergeIDEFileEdits(value *session.Session, sideStore []session.FileEdit) {
+	if len(sideStore) == 0 {
+		return
+	}
+	byPath := make(map[string]int, len(value.FileEdits))
+	for index, edit := range value.FileEdits {
+		byPath[normalizedEditPath(value.WorkingDirectory, edit.Path)] = index
+	}
+	for _, edit := range sideStore {
+		path := normalizedEditPath(value.WorkingDirectory, edit.Path)
+		if index, ok := byPath[path]; ok {
+			value.FileEdits[index].Additions = edit.Additions
+			value.FileEdits[index].Deletions = edit.Deletions
+			value.FileEdits[index].IsNew = edit.IsNew
+			continue
+		}
+		edit.Path = path
+		value.FileEdits = append(value.FileEdits, edit)
+		byPath[path] = len(value.FileEdits) - 1
+	}
+	value.EditedFileCount = len(value.FileEdits)
+}
+
+func normalizedEditPath(cwd, path string) string {
+	path = filepath.Clean(path)
+	if cwd == "" || !filepath.IsAbs(path) {
+		return path
+	}
+	relative, err := filepath.Rel(cwd, path)
+	if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return relative
+	}
+	return path
 }
 
 func applyMetadataTimes(value *session.Session, startedAt, lastActivityAt int64) {
