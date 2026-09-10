@@ -124,14 +124,14 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 					if patch == "" {
 						patch = rawString
 					}
-					patchPath := input.Path
-					if patchPath == "" {
-						patchPath = pathFromPatch(patch)
+					files := patchFilesFromPatch(patch)
+					if len(files) == 0 && input.Path != "" {
+						files = []patchFile{{path: input.Path, patch: patch}}
 					}
-					if patchPath != "" {
-						adds, dels := patchLineCounts(patch)
-						edits.Add(patchPath, adds, dels, false)
-						edits.Patch(patchPath, patch)
+					for _, file := range files {
+						adds, dels := patchLineCounts(file.patch)
+						edits.Add(file.path, adds, dels, file.isNew)
+						edits.Patch(file.path, file.patch)
 					}
 				case "TodoWrite":
 					for _, item := range input.Todos {
@@ -290,14 +290,51 @@ func todosFromTool(items []todoToolItem) []session.Todo {
 	return result
 }
 
-func pathFromPatch(patch string) string {
-	for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: "} {
-		if _, after, ok := strings.Cut(patch, prefix); ok {
-			value, _, _ := strings.Cut(after, "\n")
-			return strings.TrimSpace(value)
+type patchFile struct {
+	path  string
+	patch string
+	isNew bool
+}
+
+func patchFilesFromPatch(patch string) []patchFile {
+	files := []patchFile{}
+	var current *patchFile
+	var body strings.Builder
+	flush := func() {
+		if current != nil {
+			current.patch = body.String()
+			if current.path != "" {
+				files = append(files, *current)
+			}
+			current = nil
+			body.Reset()
 		}
 	}
-	return ""
+	for rawLine := range strings.Lines(patch) {
+		line := strings.TrimSuffix(rawLine, "\n")
+		path, update := strings.CutPrefix(line, "*** Update File: ")
+		if !update {
+			path, update = strings.CutPrefix(line, "*** Delete File: ")
+		}
+		addPath, add := strings.CutPrefix(line, "*** Add File: ")
+		if update || add {
+			flush()
+			if add {
+				path = addPath
+			}
+			current = &patchFile{path: strings.TrimSpace(path), isNew: add}
+			continue
+		}
+		if strings.HasPrefix(line, "*** ") {
+			flush()
+			continue
+		}
+		if current != nil {
+			body.WriteString(rawLine)
+		}
+	}
+	flush()
+	return files
 }
 
 func patchLineCounts(patch string) (int, int) {
