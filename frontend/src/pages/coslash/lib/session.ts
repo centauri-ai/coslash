@@ -392,3 +392,7 @@ export function getTotalTokens(tokens: Session['tokens']): number {
     0,
   );
 }
+
+export function hasTokenUsage(tokens: Session['tokens']): boolean {
+  return Object.keys(tokens).length > 0;
+}

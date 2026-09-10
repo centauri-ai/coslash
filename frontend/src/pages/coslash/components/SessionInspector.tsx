@@ -61,6 +61,7 @@ import {
   getSessionOutcome,
   getVendor,
   goalSourceLabel,
+  hasTokenUsage,
   isLocalSession,
   remoteLaunchDisabledHint,
   resolveGoal,
@@ -295,7 +296,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
           <SessionModelUsage agent={detail.agent} model={detail.model} tokens={detail.tokens} />
           <span className="font-bold">
             <UnpricedModelWarning unpriced={detail.unpricedModels}>
-              {formatEstimatedCost(detail.cost)}
+              {hasTokenUsage(detail.tokens) ? formatEstimatedCost(detail.cost) : '—'}
             </UnpricedModelWarning>
           </span>
         </div>
