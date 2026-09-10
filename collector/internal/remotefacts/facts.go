@@ -74,6 +74,7 @@ type Session struct {
 	ParentID           string                    `json:"parent_id,omitempty"`
 	SpawnKey           string                    `json:"spawn_key,omitempty"`
 	Name               string                    `json:"name,omitempty"`
+	Result             string                    `json:"result,omitempty"`
 	StatusHint         string                    `json:"status_hint,omitempty"`
 	Branch             string                    `json:"branch,omitempty"`
 	Entrypoint         string                    `json:"entrypoint,omitempty"`
@@ -259,7 +260,7 @@ func validateSession(s Session) error {
 	if !identifier(s.ID) || (s.ParentID != "" && !identifier(s.ParentID)) || (s.SpawnKey != "" && !identifier(s.SpawnKey)) {
 		return errors.New("invalid identity")
 	}
-	for _, value := range []string{s.Name, s.StatusHint, s.Branch, s.Entrypoint} {
+	for _, value := range []string{s.Name, s.Result, s.StatusHint, s.Branch, s.Entrypoint} {
 		if !bounded(value, MaxDisplayBytes) {
 			return errors.New("display field exceeds limit")
 		}
@@ -395,7 +396,7 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 			parentID = familyID
 			f.State = StatePartial
 		}
-		fact := Session{ID: s.ID, ParentID: parentID, SpawnKey: spawnKey, Name: truncate(p.Name, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, Display: *display}
+		fact := Session{ID: s.ID, ParentID: parentID, SpawnKey: spawnKey, Name: truncate(p.Name, MaxDisplayBytes), Result: truncate(p.Result, MaxDisplayBytes), Branch: optional(s.Branch, MaxDisplayBytes), Entrypoint: optional(s.Entrypoint, MaxDisplayBytes), StartedAtMs: s.StartedAt, LastActivityAtMs: s.LastActivityTime, DurationMs: cloneInt(s.DurationMs), Stopped: p.Stopped, InTurn: p.InTurn, Model: optional(s.Model, MaxModelBytes), ContextTokens: cloneInt(s.ContextTokens), ContextWindow: cloneInt(s.ContextWindow), Counts: Counts{EditedFiles: s.EditedFileCount, Turns: s.Turns, ToolUses: s.ToolUses, Errors: s.Errors, Compactions: s.Compactions, PullRequests: s.PullRequests}, Display: *display}
 		if p.StatusHint != nil {
 			fact.StatusHint = truncate(*p.StatusHint, MaxDisplayBytes)
 		}
@@ -561,7 +562,7 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 		for _, usage := range fact.Usage {
 			s.Tokens[usage.Model] = session.ModelTokens{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheCreationInputTokens: usage.CacheCreationInputTokens, CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens, CacheReadInputTokens: usage.CacheReadInputTokens, Cost: float64(usage.CostMicroUSD) / 1_000_000}
 		}
-		p := &vendors.ParsedSession{Session: s, ParentID: fact.ParentID, SpawnKey: fact.SpawnKey, Stopped: fact.Stopped, InTurn: fact.InTurn, Name: fact.Name, StatusHint: pointer(fact.StatusHint), Spawns: map[string]vendors.SpawnState{}}
+		p := &vendors.ParsedSession{Session: s, ParentID: fact.ParentID, SpawnKey: fact.SpawnKey, Stopped: fact.Stopped, InTurn: fact.InTurn, Name: fact.Name, Result: fact.Result, StatusHint: pointer(fact.StatusHint), Spawns: map[string]vendors.SpawnState{}}
 		if fact.RecordedCostMicros != nil {
 			value := float64(*fact.RecordedCostMicros) / 1_000_000
 			p.RecordedCost = &value
