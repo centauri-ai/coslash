@@ -103,6 +103,11 @@ frontend run dev`, `test`, or `build`. Release packaging is owned by
 `collector/Makefile`; generated staged assets and helper binaries are removed
 after their consumers finish.
 
+Transition verification passed on 2026-09-11: the collector command, Hub
+client, export, remote, settings, and vendor packages; 27 focused session
+library/preview/sharing UI tests; and the production frontend build. The
+frontend package audit reported zero vulnerabilities.
+
 ## Deferred, not implemented
 
 - Automatic/continuous sharing and standing repository rules.
