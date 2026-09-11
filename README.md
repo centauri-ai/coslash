@@ -256,6 +256,10 @@ See [Contributing](CONTRIBUTING.md) for the development loop and checks.
 
 coSlash is an early preview built by its maintainers. The source is public for transparency, local builds, and product feedback. Bug reports are welcome through [Issues](https://github.com/centauri-ai/coslash/issues) — please redact transcripts, prompts, and paths first. Unsolicited pull requests are not accepted; see [Contributing](CONTRIBUTING.md).
 
+The [current product baseline](docs/current-product-baseline.md) inventories the
+implemented local capabilities, API, privacy contracts, storage, setup, and
+explicitly deferred work for the next product iteration.
+
 ## Help
 
 - [Troubleshooting](docs/troubleshooting.md)
