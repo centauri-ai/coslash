@@ -108,6 +108,7 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 				item.Session.WorkingDirectory = cwd
 			}
 			mergeIDEFileEdits(item.Session, metadata.FileEdits[item.Session.ID])
+			item.Session.CommitLog = append(item.Session.CommitLog, metadata.CommitObservations[item.Session.ID]...)
 			if name := metadata.Names[item.Session.ID]; name != "" {
 				item.Name = name
 			}

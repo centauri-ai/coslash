@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -52,6 +53,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 	})
 	loadIDETimes(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadIDEDiffs(metadata, filepath.Join(globalStorage, "state.vscdb"))
+	loadIDECommitObservations(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadIDEModels(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadIDERelationships(metadata, filepath.Join(globalStorage, "state.vscdb"))
 	loadCursorRows(metadata, lanes, "", filepath.Join(globalStorage, "conversation-search.db"), `SELECT id, title FROM conversations ORDER BY source = 'local' DESC`, func(id, title string) (string, string, string) {
@@ -110,6 +112,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			delete(metadata.StartedAt, id)
 			delete(metadata.LastActivityAt, id)
 			delete(metadata.FileEdits, id)
+			delete(metadata.CommitObservations, id)
 			continue
 		}
 		for lane := range matches {
@@ -122,6 +125,64 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 		}
 	}
 	return metadata, nil
+}
+
+var fullCommitHash = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)
+
+func loadIDECommitObservations(metadata *vendors.SessionMetadata, path string) {
+	db, err := openCursorDB(path)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	seen := map[string]map[string]bool{}
+	for rows.Next() {
+		var key, value string
+		if rows.Scan(&key, &value) != nil {
+			continue
+		}
+		parts := strings.SplitN(key, ":", 3)
+		if len(parts) != 3 || !transcriptIDPattern.MatchString(parts[1]) {
+			continue
+		}
+		for _, observation := range commitObservationsFromIDEBubble(value) {
+			if seen[parts[1]] == nil {
+				seen[parts[1]] = map[string]bool{}
+			}
+			if !seen[parts[1]][observation.Hash] {
+				seen[parts[1]][observation.Hash] = true
+				metadata.CommitObservations[parts[1]] = append(metadata.CommitObservations[parts[1]], observation)
+			}
+		}
+	}
+}
+
+func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
+	type checkpoint struct {
+		CommitHashesByGitWorkspace map[string]struct {
+			CommitHash string `json:"commitHash"`
+		} `json:"commitHashesByGitWorkspace"`
+	}
+	var bubble struct {
+		Before checkpoint `json:"gitCheckpoint"`
+		After  checkpoint `json:"afterGitCheckpoint"`
+	}
+	if json.Unmarshal([]byte(value), &bubble) != nil {
+		return nil
+	}
+	observations := []session.CommitObservation{}
+	for workspace, after := range bubble.After.CommitHashesByGitWorkspace {
+		before, ok := bubble.Before.CommitHashesByGitWorkspace[workspace]
+		if ok && before.CommitHash != after.CommitHash && fullCommitHash.MatchString(after.CommitHash) {
+			observations = append(observations, session.CommitObservation{Hash: after.CommitHash, Subject: "(commit)"})
+		}
+	}
+	return observations
 }
 
 type ideCheckpoint struct {

@@ -36,6 +36,7 @@ type SessionMetadata struct {
 	StartedAt          map[string]int64  // id → authoritative side-store creation time
 	LastActivityAt     map[string]int64  // id → authoritative side-store update time
 	FileEdits          map[string][]session.FileEdit
+	CommitObservations map[string][]session.CommitObservation
 	Models             map[string]string // id → last model observed in source data
 	PullRequests       map[string]int    // id → distinct confirmed or reported PR URLs
 	Relationships      map[string]SessionRelationship
@@ -52,6 +53,7 @@ func EmptySessionMetadata() *SessionMetadata {
 		StartedAt:          map[string]int64{},
 		LastActivityAt:     map[string]int64{},
 		FileEdits:          map[string][]session.FileEdit{},
+		CommitObservations: map[string][]session.CommitObservation{},
 		Models:             map[string]string{},
 		PullRequests:       map[string]int{},
 		Relationships:      map[string]SessionRelationship{},
