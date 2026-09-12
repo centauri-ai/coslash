@@ -38,6 +38,7 @@ const (
 type Health struct {
 	SourceID                    string            `json:"sourceId"`
 	Label                       string            `json:"label"`
+	PublicationID               string            `json:"publicationId,omitempty"`
 	State                       State             `json:"state"`
 	Complete                    bool              `json:"complete"`
 	Reason                      *Reason           `json:"reason,omitempty"`

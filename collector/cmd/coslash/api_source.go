@@ -57,6 +57,7 @@ type boardSession struct {
 type machineFact struct {
 	SourceID                    string                   `json:"sourceId"`
 	Label                       string                   `json:"label"`
+	PublicationID               string                   `json:"publicationId,omitempty"`
 	State                       remote.State             `json:"state"`
 	Complete                    bool                     `json:"complete"`
 	Reason                      *remote.Reason           `json:"reason,omitempty"`
@@ -84,7 +85,8 @@ func localMachineFact() machineFact {
 func machineFromHealth(health remote.Health) machineFact {
 	return machineFact{
 		SourceID: health.SourceID, Label: safeSourceLabel(health.SourceID), State: health.State,
-		Complete: health.Complete, Reason: health.Reason,
+		PublicationID: health.PublicationID,
+		Complete:      health.Complete, Reason: health.Reason,
 		LastSuccessAtMs: health.LastSuccessAtMs, LastCheckedAtMs: health.LastCheckedAtMs,
 		SessionCount: health.SessionCount, CoverageSinceMs: health.CoverageSinceMs,
 		RoundTripMs: health.RoundTripMs, Coverage: health.Coverage, Error: health.Error,

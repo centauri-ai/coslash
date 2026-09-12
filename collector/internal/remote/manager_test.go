@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -51,6 +52,347 @@ func TestApplySettingsWaitsForFirstListViewWindow(t *testing.T) {
 		defer manager.mu.Unlock()
 		return !manager.refreshing
 	})
+}
+
+func TestColdRefreshPublishesSevenDaysBeforeAllHistory(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	secondWave := make(chan struct{})
+	type call struct {
+		since      int64
+		baselineID string
+	}
+	calls := make(chan call, 2)
+	manager := NewManager(Options{
+		Cache: NewCache(filepath.Join(home, "remote-cache")),
+		Now:   func() time.Time { return now },
+		Refresh: func(_ context.Context, _ string, since int64, _ time.Time, baseline CachedSnapshotV2) (refreshOutcome, error) {
+			calls <- call{since: since, baselineID: baseline.BaselineID}
+			id := "wave-a"
+			if baseline.BaselineID != "" {
+				<-secondWave
+				id = "wave-b"
+			}
+			return refreshOutcome{
+				Snapshot: CachedSnapshotV2{
+					Version: cacheV2Version, BaselineID: id, CoverageSinceMs: since,
+					Coverage: []AgentCoverage{{Agent: vendors.AgentClaude, CandidateFiles: 1, SelectedFiles: 1}},
+				},
+				Sessions: []*session.Session{{
+					Agent: vendors.AgentClaude, ID: "session-1", WorkingDirectory: "/work",
+					LastActivityTime: now.UnixMilli(),
+				}},
+			}, nil
+		},
+	})
+	t.Cleanup(manager.Shutdown)
+	if err := manager.ApplySettings(&settings.RemoteSettings{
+		ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(0)
+
+	first := <-calls
+	wantFirst := now.Add(-coldHistoryWave).UnixMilli()
+	if first.since != wantFirst || first.baselineID != "" {
+		t.Fatalf("first call = %#v, want since=%d with empty baseline", first, wantFirst)
+	}
+	second := <-calls
+	if second.since != 0 || second.baselineID != "wave-a" {
+		t.Fatalf("second call = %#v, want all history from wave-a", second)
+	}
+
+	intermediate := manager.ListView(0)
+	if intermediate.Health.State != StateOK || !intermediate.Health.Refreshing || intermediate.Health.Complete ||
+		intermediate.Health.Reason == nil || *intermediate.Health.Reason != ReasonBroaderHistory {
+		t.Fatalf("intermediate health = %#v", intermediate.Health)
+	}
+	if intermediate.Health.PublicationID == "" || intermediate.Health.CoverageSinceMs == nil ||
+		*intermediate.Health.CoverageSinceMs != wantFirst {
+		t.Fatalf("intermediate publication = %#v", intermediate.Health)
+	}
+	if len(intermediate.Sessions) != 1 || !intermediate.Sessions[0].Launchable || intermediate.Sessions[0].EligibleForAggregates {
+		t.Fatalf("intermediate sessions = %#v", intermediate.Sessions)
+	}
+	narrowerHealth := manager.ListView(now.Add(-24 * time.Hour).UnixMilli()).Health
+	if narrowerHealth.Complete {
+		t.Fatalf("narrower view claimed globally incomplete collection was complete: %#v", narrowerHealth)
+	}
+	launched, _, err := manager.LaunchSession("r_0123456789abcdef", vendors.AgentClaude, "session-1", "")
+	if err != nil || launched == nil {
+		t.Fatalf("launch during second wave: session=%#v err=%v", launched, err)
+	}
+	if preview, err := manager.PreviewSession("r_0123456789abcdef", vendors.AgentClaude, "session-1", now.UnixMilli()); err != nil || preview != nil {
+		t.Fatalf("preview during incomplete coverage: session=%#v err=%v", preview, err)
+	}
+
+	firstPublication := intermediate.Health.PublicationID
+	close(secondWave)
+	waitUntil(t, func() bool { return !manager.DiagnosticsHealth().Refreshing })
+	final := manager.ListView(0)
+	if final.Health.State != StateOK || !final.Health.Complete || final.Health.PublicationID == firstPublication {
+		t.Fatalf("final health = %#v", final.Health)
+	}
+	if len(final.Sessions) != 1 || !final.Sessions[0].EligibleForAggregates {
+		t.Fatalf("final sessions = %#v", final.Sessions)
+	}
+}
+
+func TestNextWaveSincePolicy(t *testing.T) {
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	sevenDays := now.Add(-coldHistoryWave).UnixMilli()
+	older := now.Add(-30 * 24 * time.Hour).UnixMilli()
+	newer := now.Add(-24 * time.Hour).UnixMilli()
+	justOutsideBrowserBoundary := sevenDays - time.Second.Milliseconds()
+	for _, test := range []struct {
+		name      string
+		requested int64
+		baseline  CachedSnapshotV2
+		warm      bool
+		want      int64
+	}{
+		{name: "cold all history", requested: 0, want: sevenDays},
+		{name: "cold newer finite", requested: newer, want: newer},
+		{name: "cold older finite", requested: older, want: sevenDays},
+		{name: "browser seven day boundary", requested: justOutsideBrowserBoundary, want: justOutsideBrowserBoundary},
+		{name: "resume after milestone", requested: older, baseline: CachedSnapshotV2{BaselineID: "wave-a", CoverageSinceMs: sevenDays}, want: older},
+		{name: "warm covered", requested: older, baseline: CachedSnapshotV2{BaselineID: "warm", CoverageSinceMs: 0}, warm: true, want: older},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := nextWaveSince(now, test.requested, test.baseline, test.warm); got != test.want {
+				t.Fatalf("nextWaveSince() = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
+func TestBroaderRequestExtendsActiveRunAndNarrowerRequestDoesNotRegressIt(t *testing.T) {
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	initial := now.Add(-24 * time.Hour).UnixMilli()
+	firstRelease := make(chan struct{})
+	type call struct {
+		since      int64
+		baselineID string
+	}
+	calls := make(chan call, 4)
+	callNumber := 0
+	manager := NewManager(Options{
+		Cache: NewCache(t.TempDir()), Now: func() time.Time { return now },
+		Refresh: func(_ context.Context, _ string, since int64, _ time.Time, baseline CachedSnapshotV2) (refreshOutcome, error) {
+			callNumber++
+			calls <- call{since: since, baselineID: baseline.BaselineID}
+			if callNumber == 1 {
+				<-firstRelease
+			}
+			return refreshOutcome{Snapshot: CachedSnapshotV2{
+				Version: cacheV2Version, BaselineID: fmt.Sprintf("wave-%d", callNumber), CoverageSinceMs: since,
+				Coverage: []AgentCoverage{{Agent: vendors.AgentClaude, CandidateFiles: 1, SelectedFiles: 1}},
+			}}, nil
+		},
+	})
+	t.Cleanup(manager.Shutdown)
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(initial)
+	if first := <-calls; first.since != initial || first.baselineID != "" {
+		t.Fatalf("initial call = %#v", first)
+	}
+	manager.ListView(now.Add(-2 * time.Hour).UnixMilli()) // narrower: must not replace initial
+	manager.ListView(0)                                   // broader: must extend the active run
+	close(firstRelease)
+
+	want := []call{
+		{since: now.Add(-coldHistoryWave).UnixMilli(), baselineID: "wave-1"},
+		{since: 0, baselineID: "wave-2"},
+	}
+	for _, expected := range want {
+		if got := <-calls; got != expected {
+			t.Fatalf("continued call = %#v, want %#v", got, expected)
+		}
+	}
+	waitUntil(t, func() bool { return !manager.DiagnosticsHealth().Refreshing })
+	select {
+	case extra := <-calls:
+		t.Fatalf("unexpected extra call: %#v", extra)
+	default:
+	}
+}
+
+func TestLateResultFromReplacedLifecycleCannotPublish(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	started := make(chan struct{})
+	release := make(chan struct{})
+	returned := make(chan struct{})
+	manager := NewManager(Options{
+		Cache: cache,
+		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+			close(started)
+			<-release // deliberately ignore cancellation to exercise the epoch fence
+			close(returned)
+			return completeRefreshOutcome("late", 0, "late-session"), nil
+		},
+	})
+	first := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "old-host", Enabled: true}
+	if err := manager.ApplySettings(first); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(time.Now().Add(-time.Hour).UnixMilli())
+	<-started
+	replacement := *first
+	replacement.SSHAlias = "new-host"
+	if err := manager.ApplySettings(&replacement); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	<-returned
+	time.Sleep(20 * time.Millisecond)
+	if health := manager.DiagnosticsHealth(); health.PublicationID != "" {
+		t.Fatalf("late lifecycle result published health: %#v", health)
+	}
+	if _, ok, err := cache.LoadV2(first.ID); err != nil || ok {
+		t.Fatalf("late lifecycle result reached cache: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestLaterCacheWriteFailureRetainsPublishedGeneration(t *testing.T) {
+	home := t.TempDir()
+	cacheRoot := filepath.Join(home, "remote-cache")
+	cache := NewCache(cacheRoot)
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	secondStarted := make(chan struct{})
+	secondRelease := make(chan struct{})
+	calls := 0
+	manager := NewManager(Options{
+		Cache: cache, Now: func() time.Time { return now },
+		Refresh: func(_ context.Context, _ string, since int64, _ time.Time, _ CachedSnapshotV2) (refreshOutcome, error) {
+			calls++
+			if calls == 2 {
+				close(secondStarted)
+				<-secondRelease
+			}
+			return completeRefreshOutcome(fmt.Sprintf("wave-%d", calls), since, fmt.Sprintf("session-%d", calls)), nil
+		},
+	})
+	t.Cleanup(manager.Shutdown)
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(0)
+	<-secondStarted
+	before := manager.DiagnosticsHealth()
+	invalidRoot := filepath.Join(home, "not-a-directory")
+	if err := os.WriteFile(invalidRoot, []byte("blocked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cache.Root = invalidRoot
+	close(secondRelease)
+	waitUntil(t, func() bool { return !manager.DiagnosticsHealth().Refreshing })
+	after := manager.ListView(0)
+	if after.Health.State != StateStale || after.Health.Reason == nil || *after.Health.Reason != ReasonLocalCacheFailed {
+		t.Fatalf("cache failure health = %#v", after.Health)
+	}
+	if after.Health.PublicationID != before.PublicationID || len(after.Sessions) != 1 || after.Sessions[0].Session.ID != "session-1" {
+		t.Fatalf("cache failure replaced published generation: before=%#v after=%#v", before, after)
+	}
+	stored, ok, err := NewCache(cacheRoot).LoadV2(config.ID)
+	if err != nil || !ok || stored.BaselineID != "wave-1" {
+		t.Fatalf("durable generation after failed store = %#v, ok=%v err=%v", stored, ok, err)
+	}
+}
+
+func TestLimitedLaterWavePublishesFactsWithoutAdvancingCoverage(t *testing.T) {
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	secondStarted := make(chan struct{})
+	secondRelease := make(chan struct{})
+	calls := 0
+	manager := NewManager(Options{
+		Cache: NewCache(t.TempDir()), Now: func() time.Time { return now },
+		Refresh: func(_ context.Context, _ string, since int64, _ time.Time, _ CachedSnapshotV2) (refreshOutcome, error) {
+			calls++
+			if calls == 1 {
+				return completeRefreshOutcome("wave-1", since, "recent"), nil
+			}
+			close(secondStarted)
+			<-secondRelease
+			limited := completeRefreshOutcome("wave-2", 0, "safe-partial")
+			limited.Failures = []error{context.DeadlineExceeded}
+			return limited, nil
+		},
+	})
+	t.Cleanup(manager.Shutdown)
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	manager.ListView(0)
+	<-secondStarted
+	before := manager.DiagnosticsHealth()
+	close(secondRelease)
+	waitUntil(t, func() bool { return !manager.DiagnosticsHealth().Refreshing })
+	after := manager.ListView(0)
+	if after.Health.State != StateLimited || after.Health.PublicationID == before.PublicationID {
+		t.Fatalf("limited publication health = %#v", after.Health)
+	}
+	if before.CoverageSinceMs == nil || after.Health.CoverageSinceMs == nil || *after.Health.CoverageSinceMs != *before.CoverageSinceMs {
+		t.Fatalf("limited wave advanced coverage: before=%#v after=%#v", before.CoverageSinceMs, after.Health.CoverageSinceMs)
+	}
+	if len(after.Sessions) != 1 || after.Sessions[0].Session.ID != "safe-partial" {
+		t.Fatalf("limited safe facts were not published: %#v", after.Sessions)
+	}
+}
+
+func TestRestartAfterFirstWaveResumesFromDurableCoverage(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	now := time.Date(2026, 9, 11, 12, 0, 0, 0, time.UTC)
+	secondStarted := make(chan struct{})
+	firstCalls := 0
+	first := NewManager(Options{
+		Cache: cache, Now: func() time.Time { return now },
+		Refresh: func(ctx context.Context, _ string, since int64, _ time.Time, _ CachedSnapshotV2) (refreshOutcome, error) {
+			firstCalls++
+			if firstCalls == 2 {
+				close(secondStarted)
+				<-ctx.Done()
+				return refreshOutcome{}, ctx.Err()
+			}
+			return completeRefreshOutcome("wave-1", since, "recent"), nil
+		},
+	})
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := first.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	first.ListView(0)
+	<-secondStarted
+	firstPublication := first.DiagnosticsHealth().PublicationID
+	first.Shutdown()
+
+	type call struct {
+		since      int64
+		baselineID string
+	}
+	called := make(chan call, 1)
+	restarted := NewManager(Options{
+		Cache: cache, Now: func() time.Time { return now },
+		Refresh: func(_ context.Context, _ string, since int64, _ time.Time, baseline CachedSnapshotV2) (refreshOutcome, error) {
+			called <- call{since: since, baselineID: baseline.BaselineID}
+			return completeRefreshOutcome("wave-2", since, "all"), nil
+		},
+	})
+	t.Cleanup(restarted.Shutdown)
+	if err := restarted.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	loaded := restarted.DiagnosticsHealth()
+	if loaded.PublicationID == "" || loaded.PublicationID == firstPublication {
+		t.Fatalf("restart did not assign a fresh cache publication: before=%q after=%q", firstPublication, loaded.PublicationID)
+	}
+	restarted.ListView(0)
+	if got := <-called; got.since != 0 || got.baselineID != "wave-1" {
+		t.Fatalf("restart call = %#v, want all history from wave-1", got)
+	}
 }
 
 func TestApplyLimitedPublishesSessionsAndBacksOff(t *testing.T) {
@@ -447,12 +789,18 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 	t.Setenv("COSLASH_HOME", home)
 	remote, current, content := lifecycleFixture(t)
 	cache := NewCache(filepath.Join(home, "remote-cache"))
+	removeStarted := make(chan struct{}, 1)
+	removeRelease := make(chan struct{})
+	var refreshCalls atomic.Int32
+	remote.removeStarted = removeStarted
+	remote.removeRelease = removeRelease
 	options := Options{
 		Cache: cache, Now: time.Now,
 		ReleaseProvider:             fixedHelperRelease{document: remote.document, content: content},
 		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
 		HelperInstallationAvailable: true,
 		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
+			refreshCalls.Add(1)
 			return refreshOutcome{Snapshot: CachedSnapshotV2{Version: cacheV2Version}}, nil
 		},
 	}
@@ -478,11 +826,17 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	restarted.ListView(time.Now().Add(-time.Hour).UnixMilli())
+	<-removeStarted
+	if refreshCalls.Load() != 0 {
+		t.Fatal("helper refresh started before previous helper removal completed")
+	}
+	close(removeRelease)
 	waitUntil(t, func() bool {
 		restarted.mu.Lock()
 		defer restarted.mu.Unlock()
 		return restarted.helperProbe == helperProbeReady && !restarted.helperSetup
 	})
+	waitUntil(t, func() bool { return refreshCalls.Load() > 0 })
 	if remote.installs != 2 || remote.removed != "~/.coslash/helpers/v1/coslash-helper" {
 		t.Fatalf("installs=%d removed=%q", remote.installs, remote.removed)
 	}
@@ -646,7 +1000,8 @@ func TestHelperTestAcceptsEmptySuccessfulCollectionWithoutRewritingBoardState(t 
 	manager.complete = false
 	manager.errorCopy = "prior refresh is stale"
 	manager.transport = TransportSFTP
-	manager.lastRequestedMs = 0
+	manager.requestedSinceMs = 0
+	manager.requestedSinceSet = true
 	manager.mu.Unlock()
 	result := manager.TestHelper(context.Background())
 	if !result.Succeeded {
@@ -728,7 +1083,8 @@ func TestHelperTestFailureDoesNotPoisonRefreshOrTransport(t *testing.T) {
 	manager.transport = TransportSFTP
 	manager.failures = 0
 	manager.nextRetryAt = time.Time{}
-	manager.lastRequestedMs = 0
+	manager.requestedSinceMs = 0
+	manager.requestedSinceSet = true
 	manager.mu.Unlock()
 
 	result := manager.TestHelper(context.Background())
@@ -1060,7 +1416,7 @@ func TestSuccessfulAliasTestClearsBackoffAndKicksRefresh(t *testing.T) {
 		Test: func(context.Context, string) (probeResult, error) {
 			return probeResult{RoundTrip: 12 * time.Millisecond}, nil
 		},
-		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+		Refresh: func(_ context.Context, _ string, since int64, _ time.Time, _ CachedSnapshotV2) (refreshOutcome, error) {
 			select {
 			case refreshed <- struct{}{}:
 			default:
@@ -1068,7 +1424,7 @@ func TestSuccessfulAliasTestClearsBackoffAndKicksRefresh(t *testing.T) {
 			return refreshOutcome{
 				Snapshot: CachedSnapshotV2{
 					Version:         cacheV2Version,
-					CoverageSinceMs: now.UnixMilli(),
+					CoverageSinceMs: since,
 					// Non-empty coverage avoids ReasonNoSupportedData, which would
 					// re-arm limited-state backoff and hide the recovery under test.
 					Coverage: []AgentCoverage{{Agent: "claude", CandidateFiles: 1, SelectedFiles: 1}},
@@ -1085,7 +1441,8 @@ func TestSuccessfulAliasTestClearsBackoffAndKicksRefresh(t *testing.T) {
 	manager.reason = reasonPtr(ReasonConnectionFailed)
 	manager.failures = 2
 	manager.nextRetryAt = now.Add(30 * time.Minute)
-	manager.lastRequestedMs = now.Add(-time.Hour).UnixMilli()
+	manager.requestedSinceMs = now.Add(-time.Hour).UnixMilli()
+	manager.requestedSinceSet = true
 	manager.mu.Unlock()
 
 	health, err := manager.TestAlias(context.Background(), "agent-box")
@@ -1108,6 +1465,18 @@ func TestSuccessfulAliasTestClearsBackoffAndKicksRefresh(t *testing.T) {
 }
 
 func strPtr(value string) *string { return &value }
+
+func completeRefreshOutcome(baselineID string, since int64, sessionID string) refreshOutcome {
+	return refreshOutcome{
+		Snapshot: CachedSnapshotV2{
+			Version: cacheV2Version, BaselineID: baselineID, CoverageSinceMs: since,
+			Coverage: []AgentCoverage{{Agent: vendors.AgentClaude, CandidateFiles: 1, SelectedFiles: 1}},
+		},
+		Sessions: []*session.Session{{
+			Agent: vendors.AgentClaude, ID: sessionID, WorkingDirectory: "/work", LastActivityTime: time.Now().UnixMilli(),
+		}},
+	}
+}
 
 func waitUntil(t *testing.T, ready func() bool) {
 	t.Helper()

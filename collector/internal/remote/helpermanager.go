@@ -220,7 +220,7 @@ func (manager *Manager) InspectHelper() Health {
 	if manager.cfg != nil && manager.cfg.Enabled {
 		manager.startHelperDiscoveryLocked()
 	}
-	return manager.healthLocked(manager.lastRequestedMs)
+	return manager.healthLocked(manager.requestedSinceLocked())
 }
 
 func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.RemoteSettings, autoUpdate bool) {
@@ -312,13 +312,21 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 		}
 	}
 	// The first ListView window was retained while discovery ran. Only now may
-	// the normal refresh choose helper or explicit SFTP fallback.
-	if refreshAfterDiscovery {
-		manager.maybeStartRefreshLocked(manager.lastRequestedMs, false)
+	// the normal refresh choose helper or explicit SFTP fallback. When an owned
+	// helper was upgraded, remove the previous binary before verification and
+	// collection can touch the new target.
+	if refreshAfterDiscovery && removeRemote == nil {
+		manager.maybeStartRefreshLocked(manager.requestedSinceLocked(), false)
 	}
 	manager.mu.Unlock()
 	if removeRemote != nil {
 		_ = removeRemote.RemoveExact(probeCtx, removePath)
+		manager.mu.Lock()
+		if refreshAfterDiscovery && ctx.Err() == nil && manager.cfg != nil && manager.cfg.Enabled &&
+			manager.cfg.ID == config.ID && manager.cfg.SSHAlias == config.SSHAlias {
+			manager.maybeStartRefreshLocked(manager.requestedSinceLocked(), false)
+		}
+		manager.mu.Unlock()
 	}
 }
 
@@ -335,12 +343,12 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		return Health{State: StateDisabled, Complete: true, Reason: reasonPtr(ReasonDisabled)}, nil
 	}
 	if expectedAlias != "" && manager.cfg.SSHAlias != expectedAlias {
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
 		return health, ErrHelperAliasMismatch
 	}
 	if manager.helperSetup || manager.helperAutoSetup {
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
 		return health, nil
 	}
@@ -363,7 +371,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.mu.Lock()
 		status := unavailableHelperStatus(errHelperReleaseUnavailable)
 		manager.helper = &status
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
 		return health, nil
 	}
@@ -372,7 +380,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.mu.Lock()
 		status := unavailableHelperStatus(err)
 		manager.helper = &status
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
 		return health, nil
 	}
@@ -381,7 +389,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.mu.Lock()
 		status := unavailableHelperStatus(err)
 		manager.helper = &status
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
 		return health, nil
 	}
@@ -396,7 +404,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	}
 	manager.mu.Lock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
 		return health, nil
 	}
@@ -407,7 +415,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
 			manager.helper = &status
 			manager.helperTarget = nil
-			health := manager.healthLocked(manager.lastRequestedMs)
+			health := manager.healthLocked(manager.requestedSinceLocked())
 			manager.mu.Unlock()
 			return health, nil
 		}
@@ -421,7 +429,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 				removeRemote, removePath = activeLifecycle.Remote, previousPath
 			}
 		}
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
 		if removeRemote != nil {
 			_ = removeRemote.RemoveExact(ctx, removePath)
@@ -431,7 +439,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 		manager.helperTarget = nil
 		manager.helperProbe = helperProbeFallback
 	}
-	health := manager.healthLocked(manager.lastRequestedMs)
+	health := manager.healthLocked(manager.requestedSinceLocked())
 	manager.mu.Unlock()
 	return health, nil
 }
@@ -535,7 +543,7 @@ type HelperTestResult struct {
 func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 	manager.mu.Lock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.helperTarget == nil {
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
 		reason := ReasonHelperMissing
 		return HelperTestResult{Health: health, Reason: &reason}
@@ -557,12 +565,12 @@ func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
-		health := manager.healthLocked(manager.lastRequestedMs)
+		health := manager.healthLocked(manager.requestedSinceLocked())
 		return HelperTestResult{Health: health, Reason: health.Reason}
 	}
 	if err != nil {
 		reason := classifyHelperError(err)
-		return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Reason: reasonPtr(reason)}
+		return HelperTestResult{Health: manager.healthLocked(manager.requestedSinceLocked()), Reason: reasonPtr(reason)}
 	}
 	// This is deliberately a non-persisting probe. Do not alter state,
 	// completeness, or sessions: those describe the last durable snapshot and
@@ -572,12 +580,12 @@ func (manager *Manager) TestHelper(ctx context.Context) HelperTestResult {
 	manager.metrics = metricsFor(result)
 	if reason := limitedResultReason(result); reason != nil {
 		return HelperTestResult{
-			Health:    manager.healthLocked(manager.lastRequestedMs),
+			Health:    manager.healthLocked(manager.requestedSinceLocked()),
 			Succeeded: *reason == ReasonNoSupportedData,
 			Reason:    reasonPtr(*reason),
 		}
 	}
-	return HelperTestResult{Health: manager.healthLocked(manager.lastRequestedMs), Succeeded: true}
+	return HelperTestResult{Health: manager.healthLocked(manager.requestedSinceLocked()), Succeeded: true}
 }
 
 // ValidateSettingsChangeWithOwnershipAction permits a replacement only when
