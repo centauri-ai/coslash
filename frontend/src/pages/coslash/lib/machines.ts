@@ -22,7 +22,8 @@ export const MACHINE_REASONS = [
   'history_truncated',
   'refresh_timeout',
   'authentication_failed',
-  'host_key_failed',
+  'host_key_confirmation_required',
+  'host_key_changed',
   'connection_failed',
   'sftp_unavailable',
   'permission_denied',
@@ -46,6 +47,11 @@ export const MACHINE_REASONS = [
 ] as const;
 export type MachineReason = (typeof MACHINE_REASONS)[number];
 
+export const MACHINE_AUTH_STATES = ['not_required', 'required', 'launching', 'waiting', 'ready'] as const;
+export type MachineAuthState = (typeof MACHINE_AUTH_STATES)[number];
+export const MACHINE_ACTIONS = ['authenticate', 'verify_host_key'] as const;
+export type MachineAction = (typeof MACHINE_ACTIONS)[number];
+
 export type AgentCoverage = {
   agent: string;
   candidateFiles: number;
@@ -60,6 +66,8 @@ export type MachineFact = {
   state: MachineState;
   complete: boolean;
   reason?: MachineReason;
+  actionRequired?: MachineAction;
+  authState?: MachineAuthState;
   lastSuccessAtMs?: number;
   lastCheckedAtMs?: number;
   sessionCount?: number;
@@ -202,6 +210,14 @@ export function decodeMachineFact(value: unknown): MachineFact {
   if (raw.reason != null) {
     if (typeof raw.reason !== 'string') throw new Error('Invalid machine fact');
     fact.reason = assertOneOf(raw.reason, MACHINE_REASONS);
+  }
+  if (raw.actionRequired != null) {
+    if (typeof raw.actionRequired !== 'string') throw new Error('Invalid machine fact');
+    fact.actionRequired = assertOneOf(raw.actionRequired, MACHINE_ACTIONS);
+  }
+  if (raw.authState != null) {
+    if (typeof raw.authState !== 'string') throw new Error('Invalid machine fact');
+    fact.authState = assertOneOf(raw.authState, MACHINE_AUTH_STATES);
   }
   for (const key of ['lastSuccessAtMs', 'lastCheckedAtMs', 'coverageSinceMs', 'roundTripMs'] as const) {
     const number = optionalNumber(raw[key]);

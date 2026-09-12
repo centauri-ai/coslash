@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 )
 
@@ -160,6 +161,8 @@ var modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
 
 var (
 	sshAliasPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	sshUserPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	sshHostPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 	remoteIDPattern = regexp.MustCompile(`^r_[0-9a-f]{16}$`)
 )
 
@@ -169,9 +172,42 @@ func ValidSynthesisModel(model string) bool {
 	return len(model) <= 200 && modelPattern.MatchString(model)
 }
 
-// ValidSSHAlias reports whether alias is safe as a local ssh argv after `--`.
+// SSHDestination is the single parsed form used for every SSH invocation.
+// The initial public boundary intentionally supports an SSH-config alias or a
+// simple user@host destination. Ports, IPv6, and ProxyJump remain SSH-config
+// concerns so callers never need to interpret arbitrary ssh syntax.
+type SSHDestination struct {
+	Display string
+	User    string
+	Host    string
+}
+
+func (destination SSHDestination) Args() []string {
+	if destination.User == "" {
+		return []string{destination.Host}
+	}
+	return []string{"-l", destination.User, destination.Host}
+}
+
+func ParseSSHDestination(value string) (SSHDestination, error) {
+	if len(value) == 0 || len(value) > 255 {
+		return SSHDestination{}, errors.New("SSH destination must be 1 to 255 characters")
+	}
+	if sshAliasPattern.MatchString(value) {
+		return SSHDestination{Display: value, Host: value}, nil
+	}
+	user, host, found := strings.Cut(value, "@")
+	if !found || !sshUserPattern.MatchString(user) || !sshHostPattern.MatchString(host) {
+		return SSHDestination{}, errors.New("SSH destination must be an alias or user@host")
+	}
+	return SSHDestination{Display: value, User: user, Host: host}, nil
+}
+
+// ValidSSHAlias is retained for the persisted sshAlias field. Despite the
+// legacy name, it accepts every supported SSH destination.
 func ValidSSHAlias(alias string) bool {
-	return len(alias) > 0 && len(alias) <= 255 && sshAliasPattern.MatchString(alias)
+	_, err := ParseSSHDestination(alias)
+	return err == nil
 }
 
 // ValidRemoteID reports whether id is a Mac-generated path-safe source id.

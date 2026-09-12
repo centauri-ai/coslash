@@ -135,9 +135,9 @@ describe('snapshot preview adapter', () => {
     expect(previewRequestPath({ sourceId: 'local', id: 'session/id' }, 42)).toBe(
       '/api/share-preview?id=session%2Fid&revision=42',
     );
-    expect(
-      previewRequestPath({ sourceId: 'r_0123456789abcdef', agent: 'codex', id: 'session/id' }, 42),
-    ).toBe('/api/share-preview?id=session%2Fid&revision=42&source=r_0123456789abcdef&agent=codex');
+    expect(previewRequestPath({ sourceId: 'r_0123456789abcdef', agent: 'codex', id: 'session/id' }, 42)).toBe(
+      '/api/share-preview?id=session%2Fid&revision=42&source=r_0123456789abcdef&agent=codex',
+    );
     expect(() => previewRequestPath({ sourceId: 'r_0123456789abcdef', id: 'session/id' }, 42)).toThrow(
       'remote preview requires the session agent',
     );

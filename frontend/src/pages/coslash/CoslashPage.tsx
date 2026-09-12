@@ -32,10 +32,7 @@ import {
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
-import {
-  HUB_SHARE_VERSION,
-  type DestinationResult,
-} from '@/pages/coslash/features/sharing/model';
+import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
@@ -218,6 +215,7 @@ function SessionsStats({
   loadFailed,
   timeWindow,
   onRemoteRetry,
+  onRemoteAuthenticate,
   remoteRetryInFlight,
 }: {
   sessions: Session[];
@@ -226,6 +224,7 @@ function SessionsStats({
   loadFailed: boolean;
   timeWindow: TimeWindow;
   onRemoteRetry: () => void;
+  onRemoteAuthenticate: () => void;
   remoteRetryInFlight: boolean;
 }) {
   if (loadFailed) return null;
@@ -257,6 +256,7 @@ function SessionsStats({
         machines={machines}
         sessions={activitySessions}
         onRemoteRetry={onRemoteRetry}
+        onRemoteAuthenticate={onRemoteAuthenticate}
         remoteRetryInFlight={remoteRetryInFlight}
       />
     </div>
@@ -561,6 +561,7 @@ export function CoslashPage() {
                   loadFailed={loadError != null}
                   timeWindow={timeWindow}
                   onRemoteRetry={handleRemoteRetry}
+                  onRemoteAuthenticate={() => setSettingsDialogMode('full-settings')}
                   remoteRetryInFlight={remoteRetryInFlight}
                 />
               </LoadingSpinner>

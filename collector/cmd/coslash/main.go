@@ -65,6 +65,23 @@ func parseOptions(arguments []string) (options, error) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "ssh-auth" {
+		if len(os.Args) != 3 {
+			log.Fatal("coslash ssh-auth requires one attempt ID")
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		defer stop()
+		if err := remote.RunAuthAttempt(ctx, os.Args[2]); err != nil {
+			if errors.Is(ctx.Err(), context.Canceled) {
+				fmt.Fprintln(os.Stderr, "SSH authentication cancelled; return to coSlash.")
+			} else {
+				fmt.Fprintln(os.Stderr, "SSH authentication did not complete; return to coSlash and try again.")
+			}
+			return
+		}
+		fmt.Println("SSH authentication ready; return to coSlash.")
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "doctor" {
 		os.Exit(runDoctor(os.Stdout, os.Stderr, os.Args[2:]))
 	}
@@ -218,6 +235,11 @@ func routes(
 	api.HandleFunc("POST /api/remote/test", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteTest(w, r, remoteManager)
 	})
+	api.HandleFunc("POST /api/remote/auth/start", func(w http.ResponseWriter, r *http.Request) {
+		handleRemoteAuthStart(w, r, remoteManager, settingsStore)
+	})
+	api.HandleFunc("GET /api/remote/auth/status", handleRemoteAuthStatus)
+	api.HandleFunc("POST /api/remote/auth/cancel", handleRemoteAuthCancel)
 	api.HandleFunc("POST /api/remote/retry", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteRetry(w, r, remoteManager)
 	})

@@ -260,6 +260,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	previous := manager.cfg
 	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
 	if aliasChanged {
+		CancelAuthAttemptsForDestination(previous.SSHAlias)
 		exitControlMasterBestEffort(previous.SSHAlias)
 		if err := manager.cache.RemoveSource(remote.ID); err != nil {
 			return err
@@ -283,6 +284,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		manager.complete = true
 		manager.errorCopy = ""
 		manager.transport = TransportSFTP
+		CancelAuthAttemptsForDestination(remote.SSHAlias)
 		exitControlMasterBestEffort(remote.SSHAlias)
 		return nil
 	}
@@ -397,6 +399,9 @@ func (manager *Manager) Retry() (Health, bool) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled {
+		return manager.healthLocked(manager.lastRequestedMs), false
+	}
+	if AuthAttemptActive(manager.cfg.SSHAlias) {
 		return manager.healthLocked(manager.lastRequestedMs), false
 	}
 	if manager.refreshing || (!manager.lastManualRetryAt.IsZero() &&
@@ -526,6 +531,7 @@ func (manager *Manager) Shutdown() {
 	manager.cancelLifeLocked()
 	manager.refreshing = false
 	manager.mu.Unlock()
+	CancelAuthAttemptsForDestination(alias)
 	exitControlMasterBestEffort(alias)
 }
 
@@ -562,6 +568,7 @@ func (manager *Manager) removeLocked() error {
 	manager.helperOwnershipCorrupt = false
 	manager.helperProbe = helperProbeFallback
 	manager.metrics = CollectionMetrics{}
+	CancelAuthAttemptsForDestination(alias)
 	exitControlMasterBestEffort(alias)
 	if sourceID != "" {
 		return manager.cache.RemoveSource(sourceID)
@@ -625,6 +632,9 @@ func (manager *Manager) cancelLifeLocked() {
 
 func (manager *Manager) maybeStartRefreshLocked(remoteSinceMs int64, manual bool) {
 	if manager.refreshing || manager.cfg == nil || !manager.cfg.Enabled || manager.lifeCtx == nil {
+		return
+	}
+	if AuthAttemptActive(manager.cfg.SSHAlias) {
 		return
 	}
 	if !manual && !manager.nextRetryAt.IsZero() && manager.now().Before(manager.nextRetryAt) {
@@ -946,12 +956,15 @@ func classifyError(err error) Reason {
 		return ReasonInvalidData
 	case errors.Is(err, vendors.ErrInvalidData):
 		return ReasonInvalidData
+	case errors.Is(err, ErrAuthAttemptActive):
+		return ReasonAuthentication
 	}
 	message := strings.ToLower(err.Error() + " " + sshErrorStderr(err))
-	if strings.Contains(message, "host key verification failed") ||
-		strings.Contains(message, "remote host identification has changed") ||
-		strings.Contains(message, "no host key is known") {
-		return ReasonHostKey
+	if strings.Contains(message, "remote host identification has changed") || strings.Contains(message, "offending") {
+		return ReasonHostKeyChanged
+	}
+	if strings.Contains(message, "host key verification failed") || strings.Contains(message, "no host key is known") {
+		return ReasonHostKeyConfirmation
 	}
 	if strings.Contains(message, "permission denied (publickey") ||
 		strings.Contains(message, "permission denied, please try again") ||

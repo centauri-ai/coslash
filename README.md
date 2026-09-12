@@ -217,7 +217,7 @@ It is **off until you explicitly enable and save it**.
 
 ## Settings and data
 
-Settings live behind the top-right button and are stored machine-wide in `~/.coslash/settings.json` — synthesis backend and model, light or dark theme, the terminal used for local launches (Apple Terminal or iTerm2), and one optional SSH alias. See [`settings.schema.json`](settings.schema.json) for the file format.
+Settings live behind the top-right button and are stored machine-wide in `~/.coslash/settings.json` — synthesis backend and model, light or dark theme, the terminal used for local launches (Apple Terminal or iTerm2), and one optional SSH alias or simple `user@host` destination. See [`settings.schema.json`](settings.schema.json) for the file format.
 
 The dialog offers a short model list per backend, but the model is not restricted to it. Editing `settings.json` directly accepts any model the selected CLI can actually reach — including one served through an API proxy such as `ANTHROPIC_BASE_URL`, or a third-party provider — so long as that CLI is set up to resolve it.
 
