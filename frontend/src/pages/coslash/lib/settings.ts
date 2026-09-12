@@ -10,7 +10,12 @@ export type RemoteHostSettings = {
   id?: string;
   sshAlias: string;
   enabled: boolean;
+  executables?: RemoteExecutableSettings;
 };
+
+export type RemoteExecutableAgent = 'claude' | 'codex' | 'opencode';
+
+export type RemoteExecutableSettings = Partial<Record<RemoteExecutableAgent, string>>;
 
 // Request-only intent sent beside a proposed settings replacement. It is not
 // serialized into settings.json.
@@ -72,7 +77,45 @@ export function decodeRemoteHostSettings(value: unknown): RemoteHostSettings | n
     if (typeof raw.id !== 'string') throw new Error('Invalid remote settings');
     remote.id = raw.id;
   }
+  if (raw.executables != null) {
+    remote.executables = decodeRemoteExecutableSettings(raw.executables);
+  }
   return remote;
+}
+
+export function decodeRemoteExecutableSettings(value: unknown): RemoteExecutableSettings {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid remote executable settings');
+  }
+  const raw = value as Record<string, unknown>;
+  if (Object.keys(raw).length === 0) {
+    throw new Error('Invalid remote executable settings');
+  }
+  const executables: RemoteExecutableSettings = {};
+  for (const agent of ['claude', 'codex', 'opencode'] as const) {
+    const path = raw[agent];
+    if (path == null) continue;
+    if (typeof path !== 'string' || path === '' || remoteExecutablePathError(path) != null) {
+      throw new Error(`Invalid remote executable path for ${agent}`);
+    }
+    executables[agent] = path;
+  }
+  if (Object.keys(raw).some((key) => !['claude', 'codex', 'opencode'].includes(key))) {
+    throw new Error('Invalid remote executable settings');
+  }
+  return executables;
+}
+
+// A blank draft value means "automatic discovery" and is omitted on save.
+// Nonblank values must follow the same structural contract as the backend.
+export function remoteExecutablePathError(path: string): string | null {
+  if (path === '') return null;
+  if (path.length > 4096 || /[\0\r\n]/.test(path)) {
+    return 'Use an absolute path or a path beginning with ~/.';
+  }
+  return (path.startsWith('/') && path !== '/') || (path.startsWith('~/') && path.length > 2)
+    ? null
+    : 'Use an absolute path or a path beginning with ~/.';
 }
 
 export function decodeSettingsResponse(value: unknown): SettingsResponse {
@@ -99,10 +142,29 @@ export function decodeSettingsResponse(value: unknown): SettingsResponse {
 }
 
 export function settingsForSave(settings: CoslashSettings): CoslashSettings {
-  if (settings.remote == null || settings.remote.id != null) return settings;
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
-  const id = `r_${Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')}`;
-  return { ...settings, remote: { ...settings.remote, id } };
+  if (settings.remote == null) return settings;
+  const entries = Object.entries(settings.remote.executables ?? {}).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '',
+  );
+  const executables = Object.fromEntries(entries) as RemoteExecutableSettings;
+  const includeExecutables = entries.length > 0;
+  const hasNormalizedExecutables =
+    (settings.remote.executables != null) !== includeExecutables ||
+    Object.keys(settings.remote.executables ?? {}).length !== entries.length;
+  if (settings.remote.id != null && !hasNormalizedExecutables) return settings;
+
+  const { executables: _discarded, ...remote } = settings.remote;
+  const id =
+    remote.id ??
+    `r_${Array.from(crypto.getRandomValues(new Uint8Array(8)), (value) => value.toString(16).padStart(2, '0')).join('')}`;
+  return {
+    ...settings,
+    remote: {
+      ...remote,
+      id,
+      ...(includeExecutables ? { executables } : {}),
+    },
+  };
 }
 
 export function availableSynthesisBackends(options: readonly BackendOption[]): BackendOption[] {
@@ -131,7 +193,14 @@ export function initialSettingsDraft(response: SettingsResponse): CoslashSetting
     synthesis,
     appearance: { ...response.settings.appearance },
     launch: { ...response.settings.launch },
-    remote: response.settings.remote ? { ...response.settings.remote } : response.settings.remote,
+    remote: response.settings.remote
+      ? {
+          ...response.settings.remote,
+          ...(response.settings.remote.executables
+            ? { executables: { ...response.settings.remote.executables } }
+            : {}),
+        }
+      : response.settings.remote,
   };
 }
 

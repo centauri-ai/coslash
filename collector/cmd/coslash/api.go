@@ -311,7 +311,16 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			http.Error(w, "remote host is offline; wait for it to reconnect", http.StatusConflict)
 			return
 		}
-		err = launch.RemoteTerminal(state.Config.Launch.Terminal, alias, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
+		err = launch.RemoteTerminal(
+			state.Config.Launch.Terminal,
+			alias,
+			found.Agent,
+			state.Config.Remote.ExecutableForAgent(found.Agent),
+			found.WorkingDirectory,
+			found.ID,
+			mode,
+			handoff,
+		)
 	} else {
 		err = launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
 	}
