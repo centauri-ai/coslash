@@ -100,11 +100,14 @@ coSlash needs at least one local agent session to read. If it finds none, it say
 ### Optional Linux session monitoring
 
 In **Settings → Machines**, use **Add remote host** with an alias from your
-Mac's existing OpenSSH configuration. coSlash checks SSH and SFTP, then installs
-and verifies the matching Linux collector. The helper lives in the SSH user's
-private `~/.coslash/helpers` directory, has no root or network access, and reads
-only supported agent paths. Future coSlash updates replace a helper that it
-previously installed and verified; first-time setup always requires this action.
+Mac's existing OpenSSH configuration or a simple `user@host` destination.
+coSlash checks SSH and SFTP; if native SSH authentication or host-key
+confirmation is needed, choose **Authenticate in Terminal** and setup resumes
+when it succeeds. coSlash then offers to install and verify the matching Linux
+collector. The helper lives in the SSH user's private `~/.coslash/helpers`
+directory, has no root or network access, and reads only supported agent paths.
+Future coSlash updates replace a helper that it previously installed and
+verified; first-time setup always requires this action.
 
 coSlash uses the system `ssh` client and may reuse a control socket under
 `~/.coslash/ssh`; it never edits your SSH config. SFTP remains the visible
