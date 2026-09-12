@@ -64,8 +64,27 @@
           "maxLength": 255,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },
-        "enabled": { "type": "boolean" }
+        "enabled": { "type": "boolean" },
+        "executables": {
+          "description": "Optional per-agent executable overrides for remote launches. Paths are passed as data, never evaluated as shell syntax.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "claude": { "$ref": "#/$defs/remoteExecutablePath" },
+            "codex": { "$ref": "#/$defs/remoteExecutablePath" },
+            "opencode": { "$ref": "#/$defs/remoteExecutablePath" }
+          }
+        }
       }
+    }
+  },
+  "$defs": {
+    "remoteExecutablePath": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 4096,
+      "pattern": "^(?:/|~/).+"
     }
   }
 }
