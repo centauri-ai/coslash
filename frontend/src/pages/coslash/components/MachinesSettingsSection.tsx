@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Check, ChevronRight, LoaderCircle, X } from 'lucide-react';
+import { Check, ChevronRight, Circle, LoaderCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { remoteStatus, setupRemoteHelper, testRemoteAlias } from '@/pages/coslash/lib/remote-api';
+import { sshTestFailureMessage } from '@/pages/coslash/lib/remote-setup-copy';
 import {
   remoteExecutablePathError,
   type RemoteExecutableSettings,
@@ -13,7 +14,25 @@ import {
 type SetupStage = 'idle' | 'testing' | 'saving' | 'consent' | 'installing' | 'ready' | 'error' | 'removing';
 type SetupStep = 1 | 2 | 3 | 4;
 
-const setupStepLabels = ['Verify SSH', 'Save remote host', 'Set up connector', 'Ready'] as const;
+const completedSetupCopy = [
+  'SSH connection verified',
+  'Remote host saved',
+  'Connector installed and verified',
+] as const;
+const failedSetupCopy = [
+  'SSH verification failed',
+  'Could not save remote host',
+  'Connector setup failed',
+  'Setup failed',
+] as const;
+
+function activeSetupCopy(stage: SetupStage, step: SetupStep) {
+  if (step === 1) return 'Verifying SSH connection…';
+  if (step === 2) return 'Saving remote host…';
+  if (step === 3 && stage === 'consent') return 'Connector setup is optional';
+  if (step === 3) return 'Installing and verifying connector…';
+  return 'Remote host ready';
+}
 
 export function SetupProgress({
   stage,
@@ -26,71 +45,53 @@ export function SetupProgress({
 }) {
   const failed = stage === 'error';
   const complete = stage === 'ready';
-  const activeLabel = setupStepLabels[step - 1];
-  const heading = complete
-    ? '4 of 4 · Remote host ready'
+  const running = stage === 'testing' || stage === 'saving' || stage === 'installing';
+  const completedSteps = complete ? [] : completedSetupCopy.slice(0, step - 1);
+  const currentCopy = complete
+    ? 'Remote host ready'
     : failed
-      ? `${step} of 4 · ${activeLabel} failed`
-      : `${step} of 4 · ${activeLabel}`;
+      ? failedSetupCopy[step - 1]
+      : activeSetupCopy(stage, step);
 
   return (
-    <div
-      role={failed ? 'alert' : 'status'}
-      className={cn('border-t px-4 py-3', {
-        'bg-muted text-muted-foreground': !failed && !complete,
-        'bg-success-bg text-success-fg': complete,
-        'bg-muted text-destructive': failed,
-      })}
-    >
-      <div className="flex items-center justify-between gap-3 text-xs font-semibold">
-        <span>{heading}</span>
-        {stage === 'installing' && <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin" />}
+    <div role={failed ? 'alert' : 'status'} className="bg-muted border-t px-4 py-3">
+      <div className="flex flex-col gap-1.5 font-mono text-xs">
+        {completedSteps.map((copy) => (
+          <div key={copy} className="text-success-fg flex items-center gap-2">
+            <Check aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={2.5} />
+            <span>{copy}</span>
+          </div>
+        ))}
+        <div
+          className={cn('flex items-center gap-2', {
+            'text-success-fg': complete,
+            'text-destructive': failed,
+            'text-foreground': !complete && !failed,
+            'animate-pulse': running,
+          })}
+        >
+          {complete ? (
+            <Check aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={2.5} />
+          ) : failed ? (
+            <X aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={2.5} />
+          ) : running ? (
+            <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
+          ) : (
+            <Circle aria-hidden="true" className="size-3.5 shrink-0" />
+          )}
+          <span>{currentCopy}</span>
+        </div>
       </div>
-      <div aria-hidden="true" className="flex items-center py-2">
-        {setupStepLabels.map((label, index) => {
-          const number = index + 1;
-          const stepComplete = complete || number < step;
-          const stepFailed = failed && number === step;
-          const stepActive = !complete && !failed && number === step;
-          return (
-            <div key={label} className={cn('flex items-center', { 'flex-1': number < setupStepLabels.length })}>
-              <div
-                className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border', {
-                  'border-success-fg bg-success-fg text-success-bg': stepComplete,
-                  'border-destructive bg-destructive text-background': stepFailed,
-                  'border-foreground bg-foreground text-background': stepActive,
-                  'border-border bg-background': !stepComplete && !stepFailed && !stepActive,
-                })}
-              >
-                {stepComplete ? (
-                  <Check className="size-3" strokeWidth={3} />
-                ) : stepFailed ? (
-                  <X className="size-3" strokeWidth={3} />
-                ) : (
-                  <span className="size-1.5 rounded-full bg-current" />
-                )}
-              </div>
-              {number < setupStepLabels.length && (
-                <div
-                  className={cn('h-px flex-1', {
-                    'bg-success-fg': complete || number < step,
-                    'bg-border': !complete && number >= step,
-                  })}
-                />
-              )}
-            </div>
-          );
+      <div
+        className={cn('pt-2 text-xs leading-relaxed', {
+          'text-destructive': failed,
+          'text-muted-foreground': !failed,
         })}
+      >
+        {message}
       </div>
-      <div className="text-xs font-normal">{message}</div>
     </div>
   );
-}
-
-function testResultCopy(machine: MachineFact) {
-  return machine.state === 'ok'
-    ? 'Connected · SSH/SFTP is ready'
-    : `${machine.label} · ${machine.error ?? 'Could not connect over SSH'}`;
 }
 
 function connectorFailureCopy(machine: MachineFact | null) {
@@ -201,7 +202,7 @@ export function MachinesSettingsSection({
   const installConnector = async (sshAlias: string) => {
     setSetupStep(3);
     setStage('installing');
-    setMessage('Installing and verifying the connector. This can take a minute.');
+    setMessage('This can take a minute.');
     try {
       const setup = await setupRemoteHelper(sshAlias, 'install');
       setMachine(setup.machine);
@@ -212,7 +213,7 @@ export function MachinesSettingsSection({
       }
       setStage('ready');
       setSetupStep(4);
-      setMessage('Connector installed and verified. SSH monitoring is active.');
+      setMessage('SSH monitoring is active.');
       onConnectionVerified?.();
     } catch (error: unknown) {
       setStage('error');
@@ -228,24 +229,18 @@ export function MachinesSettingsSection({
       return;
     }
     setSetupStep(1);
-    setMessage('Checking SSH connection…');
+    setMessage('Waiting for the remote host to respond.');
     setStage('testing');
     try {
       const test = await testRemoteAlias(sshAlias);
       if (test.state !== 'ok') {
         setStage('error');
-        const hint =
-          test.reason === 'connection_failed' ||
-          test.reason === 'authentication_failed' ||
-          test.reason === 'host_key_failed'
-            ? ` Run ssh ${sshAlias} once in Terminal, complete any prompt, then try again.`
-            : '';
-        setMessage(`${testResultCopy(test)}.${hint}`);
+        setMessage(sshTestFailureMessage(test, sshAlias));
         return;
       }
       setSetupStep(2);
       setStage('saving');
-      setMessage('Connection succeeded. Adding SSH monitoring…');
+      setMessage('SSH is ready. Saving this host to coSlash.');
       if (!(await onAddHost(sshAlias))) {
         setStage('error');
         setMessage('Could not add this SSH host.');
@@ -270,7 +265,7 @@ export function MachinesSettingsSection({
   const skipInstallation = () => {
     setSetupStep(4);
     setStage('ready');
-    setMessage('Connector installation skipped. SSH monitoring is active.');
+    setMessage('Connector skipped. SSH monitoring is active.');
     onConnectionVerified?.();
   };
 
