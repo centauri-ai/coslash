@@ -1,9 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  RemoteExecutableField,
-  SetupProgress,
-} from '@/pages/coslash/components/MachinesSettingsSection';
+import { RemoteExecutableField, SetupProgress } from '@/pages/coslash/components/MachinesSettingsSection';
+import type { MachineFact } from '@/pages/coslash/lib/machines';
+import { sshTestFailureMessage } from '@/pages/coslash/lib/remote-setup-copy';
 
 describe('RemoteExecutableField', () => {
   it('shows inline validation before an invalid root path can be saved', () => {
@@ -17,7 +16,7 @@ describe('RemoteExecutableField', () => {
 });
 
 describe('SetupProgress', () => {
-  it('shows the active milestone without inventing a percentage', () => {
+  it('shows completed work and the active task like a command log', () => {
     const markup = renderToStaticMarkup(
       <SetupProgress
         stage="installing"
@@ -26,7 +25,9 @@ describe('SetupProgress', () => {
       />,
     );
 
-    expect(markup).toContain('3 of 4 · Set up connector');
+    expect(markup).toContain('SSH connection verified');
+    expect(markup).toContain('Remote host saved');
+    expect(markup).toContain('Installing and verifying connector…');
     expect(markup).toContain('animate-spin');
     expect(markup).not.toContain('%');
   });
@@ -36,7 +37,8 @@ describe('SetupProgress', () => {
       <SetupProgress stage="error" step={1} message="Authentication failed." />,
     );
 
-    expect(markup).toContain('1 of 4 · Verify SSH failed');
+    expect(markup).toContain('SSH verification failed');
+    expect(markup).toContain('Authentication failed.');
     expect(markup).toContain('role="alert"');
   });
 
@@ -45,7 +47,30 @@ describe('SetupProgress', () => {
       <SetupProgress stage="ready" step={4} message="SSH monitoring is active." />,
     );
 
-    expect(markup).toContain('4 of 4 · Remote host ready');
-    expect(markup).toContain('bg-success-bg');
+    expect(markup).toContain('Remote host ready');
+    expect(markup).toContain('text-success-fg');
+  });
+});
+
+describe('sshTestFailureMessage', () => {
+  const machine = (reason: MachineFact['reason']): MachineFact => ({
+    sourceId: 'remote',
+    label: 'SSH workspace',
+    state: 'error',
+    complete: false,
+    reason,
+  });
+
+  it.each([
+    ['refresh_timeout', 'did not respond before the connection timed out', 'network or VPN'],
+    ['authentication_failed', 'authentication was rejected', 'key, agent, or login prompt'],
+    ['host_key_failed', 'host key is not trusted', 'confirm the host key'],
+    ['connection_failed', 'could not reach the SSH host', 'alias, network or VPN, and SSH port'],
+    ['sftp_unavailable', 'SFTP subsystem is unavailable', 'sftp dev-box'],
+  ] as const)('explains and mitigates %s', (reason, cause, mitigation) => {
+    const message = sshTestFailureMessage(machine(reason), 'dev-box');
+
+    expect(message).toContain(cause);
+    expect(message).toContain(mitigation);
   });
 });
