@@ -178,20 +178,9 @@ func CancelAuthAttempt(id string) error {
 	}
 	_, err = updateAuthAttemptIfWaiting(id, AuthCancelled)
 	if err == nil {
-		removeAuthAttempt(id)
 		exitAuthControlMaster(attempt.Destination)
 	}
 	return err
-}
-
-// removeAuthAttempt removes only the validated record path. The single
-// coordinator lock is retained because unlinking a live advisory lock could
-// let another process create a different inode and bypass synchronization.
-func removeAuthAttempt(id string) {
-	path, err := authAttemptPath(id)
-	if err == nil {
-		_ = os.Remove(path)
-	}
 }
 
 // CancelAuthAttemptsForDestination prevents a removed host from gaining a
@@ -216,7 +205,10 @@ func CancelAuthAttemptsForDestination(destination string) {
 			if _, err := authAttemptPath(attempt.ID); err != nil {
 				continue
 			}
-			removeAuthAttempt(attempt.ID)
+			attempt.State = AuthCancelled
+			if err := writeAuthAttempt(attempt); err != nil {
+				return err
+			}
 			removed = true
 		}
 		return nil
@@ -334,6 +326,12 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 		if err != nil {
 			return err
 		}
+		if latest.State == AuthReady {
+			// A status poll may see the new socket before this terminal process
+			// reacquires the coordinator. That is a successful attempt, not a
+			// cancellation, so the shared master must remain available.
+			return nil
+		}
 		if latest.State != AuthWaiting {
 			closeMaster = true
 			return nil
@@ -360,7 +358,6 @@ func AuthAttemptState(ctx context.Context, id string) (AuthState, error) {
 		return "", err
 	}
 	if attempt.State != AuthWaiting {
-		removeAuthAttempt(id)
 		return attempt.State, nil
 	}
 	if time.Since(attempt.CreatedAt) > AuthAttemptTTL {
@@ -368,7 +365,6 @@ func AuthAttemptState(ctx context.Context, id string) (AuthState, error) {
 		if updateErr != nil {
 			return "", updateErr
 		}
-		removeAuthAttempt(id)
 		return state, nil
 	}
 	args, err := controlCheckArgs(attempt.Destination)
@@ -382,7 +378,6 @@ func AuthAttemptState(ctx context.Context, id string) (AuthState, error) {
 		if updateErr != nil {
 			return "", updateErr
 		}
-		removeAuthAttempt(id)
 		return state, nil
 	}
 	return AuthWaiting, nil

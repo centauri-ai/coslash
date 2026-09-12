@@ -162,6 +162,32 @@ func TestRunAuthAttemptClosesMasterAfterCancellation(t *testing.T) {
 	}
 }
 
+func TestRunAuthAttemptKeepsMasterWhenStatusAlreadyMarkedReady(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalRun := runInteractiveSSH
+	originalExit := exitAuthControlMaster
+	t.Cleanup(func() {
+		runInteractiveSSH = originalRun
+		exitAuthControlMaster = originalExit
+	})
+	id, err := CreateAuthAttempt("agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exited := false
+	exitAuthControlMaster = func(string) { exited = true }
+	runInteractiveSSH = func(context.Context, []string) error {
+		_, err := updateAuthAttemptIfWaiting(id, AuthReady)
+		return err
+	}
+	if err := RunAuthAttempt(context.Background(), id); err != nil {
+		t.Fatalf("RunAuthAttempt: %v", err)
+	}
+	if exited {
+		t.Fatal("successful master was closed after status marked the attempt ready")
+	}
+}
+
 func TestDestinationCoordinatorCoversControlMasterStart(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	startedMaster := make(chan struct{})

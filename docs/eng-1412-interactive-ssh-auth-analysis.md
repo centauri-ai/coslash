@@ -254,15 +254,16 @@ Only one authentication attempt should be active for a destination. While it is 
 - Allow repeated status checks without extending the attempt forever.
 - Let the user cancel waiting.
 - Treat closing the terminal before readiness as cancelled or failed once observable.
-- Remove short-lived attempt metadata after success, cancellation, or timeout.
+- Expire short-lived attempt metadata conservatively while retaining terminal
+  outcomes long enough to distinguish a ready master from a cancellation.
 - Close a healthy coSlash control master when a host is removed.
 - Clean up stale socket files conservatively; never delete an unverified arbitrary path.
 
 The first release uses a five-minute attempt timeout. Cancellation records a
-safe cancelled outcome, then removes the short-lived record; it does not
-terminate the user-owned terminal SSH process. Failed and timed-out terminal
-commands durably record their outcome until the next status response consumes
-it (or expiry cleanup), so the browser never mistakes them for a long wait.
+safe cancelled outcome and closes any coSlash control master, but does not
+terminate the user-owned terminal SSH process. Terminal outcomes remain until
+expiry cleanup so a status poll and the terminal process cannot mistake a
+ready master for a cancelled attempt.
 
 ### 7. Minimize diagnostics at the source
 
