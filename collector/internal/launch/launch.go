@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -68,14 +69,14 @@ func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string
 
 // RemoteTerminal opens the selected local terminal and runs an agent CLI on a
 // configured SSH host.
-func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, handoff string) error {
+func RemoteTerminal(terminal, alias, agent, executable, workingDirectory, sessionID, mode, handoff string) error {
 	if alias == "" {
 		return errors.New("launch: SSH alias is required")
 	}
 	if workingDirectory == "" {
 		return fmt.Errorf("launch: session has no working directory")
 	}
-	command, err := remoteCLICommand(agent, sessionID, mode, handoff)
+	command, err := remoteCLICommand(agent, executable, sessionID, mode, handoff)
 	if err != nil {
 		return err
 	}
@@ -195,20 +196,34 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 	return "", "", fmt.Errorf("launch: unknown agent %q", agent)
 }
 
-func remoteCLICommand(agent, sessionID, mode, handoff string) (string, error) {
+func remoteCLICommand(agent, executable, sessionID, mode, handoff string) (string, error) {
 	cli, err := cliName(agent)
 	if err != nil {
 		return "", err
 	}
+	resolver, err := remoteExecutableResolver(agent, cli, executable)
+	if err != nil {
+		return "", err
+	}
 	if mode == ResumeSession {
-		command, _, err := cliCommand(agent, sessionID, mode, "")
-		return command, err
+		validSessionID := uuidSessionIDPattern.MatchString(sessionID)
+		if agent == vendors.AgentOpenCode {
+			validSessionID = openCodeSessionIDPattern.MatchString(sessionID)
+		}
+		if !validSessionID {
+			return "", fmt.Errorf("launch: %q is not a session id", sessionID)
+		}
+		resume, err := resumeFlag(agent)
+		if err != nil {
+			return "", err
+		}
+		return resolver + remoteInvocation(resume, sessionID), nil
 	}
 	if mode != NewSession {
 		return "", fmt.Errorf("launch: unknown mode %q", mode)
 	}
 	if handoff == "" {
-		return shellJoin(cli), nil
+		return resolver + remoteInvocation(), nil
 	}
 	contents := handoffPreamble + handoff
 	if agent == vendors.AgentCodex {
@@ -223,13 +238,69 @@ func remoteCLICommand(agent, sessionID, mode, handoff string) (string, error) {
 	cleanup := "; rm -f \"$handoff\""
 	switch agent {
 	case vendors.AgentClaude:
-		return prefix + shellJoin(cli, "--append-system-prompt-file") + " \"$handoff\"" + cleanup, nil
+		return resolver + prefix + remoteInvocation("--append-system-prompt-file") + " \"$handoff\"" + cleanup, nil
 	case vendors.AgentCodex:
-		return prefix + shellJoin(cli, "-c") + " \"developer_instructions=$(cat \"$handoff\")\"" + cleanup, nil
+		return resolver + prefix + remoteInvocation("-c") + " \"developer_instructions=$(cat \"$handoff\")\"" + cleanup, nil
 	case vendors.AgentOpenCode:
-		return prefix + "OPENCODE_CONFIG_CONTENT='{\"instructions\":[\"'\"$handoff\"'\"]}' " + shellJoin(cli) + cleanup, nil
+		return resolver + prefix + "OPENCODE_CONFIG_CONTENT='{\"instructions\":[\"'\"$handoff\"'\"]}' " + remoteInvocation() + cleanup, nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
+}
+
+func remoteInvocation(arguments ...string) string {
+	invocation := "\"$coslash_agent\""
+	for _, argument := range arguments {
+		invocation += " " + shellQuote(argument)
+	}
+	return invocation
+}
+
+// remoteExecutableResolver emits only fixed shell syntax plus safely quoted
+// settings data. It resolves in the SSH command that invokes the CLI, so the
+// lookup and execution share the remote account and non-interactive environment.
+func remoteExecutableResolver(agent, cli, override string) (string, error) {
+	if override != "" && !settings.ValidRemoteExecutablePath(override) {
+		return "", fmt.Errorf("launch: remote executable override for %s must be an absolute or ~/ path", agent)
+	}
+	failure := "printf '%s\\n' " + shellQuote("coSlash: could not find an executable for "+agent+" on this remote host") + " >&2; exit 127"
+	var command strings.Builder
+	command.WriteString(`coslash_agent=''
+coslash_candidate=''
+coslash_set_agent() {
+  [ -f "$coslash_candidate" ] && [ -x "$coslash_candidate" ] || return 1
+  case "$coslash_candidate" in
+    */*) ;;
+    *) return 1 ;;
+  esac
+  coslash_dir=${coslash_candidate%/*}
+  coslash_base=${coslash_candidate##*/}
+  [ -n "$coslash_dir" ] || coslash_dir=/
+  case "$coslash_dir" in
+    /*) ;;
+    *) coslash_dir=./$coslash_dir ;;
+  esac
+  coslash_dir=$(cd -P "$coslash_dir" >/dev/null && pwd -P) || return 1
+  coslash_agent=$coslash_dir/$coslash_base
+}
+`)
+	if override != "" {
+		command.WriteString(remoteCandidateAssignment(override))
+		command.WriteString("\ncoslash_set_agent || { " + failure + "; }\n")
+		return command.String(), nil
+	}
+	command.WriteString("coslash_candidate=$(command -v " + shellQuote(cli) + " 2>/dev/null) && coslash_set_agent || true\n")
+	for _, directory := range []string{".toolbox/bin", ".local/bin", "bin"} {
+		command.WriteString("if [ -z \"$coslash_agent\" ]; then coslash_candidate=\"$HOME/" + directory + "/" + cli + "\"; coslash_set_agent || true; fi\n")
+	}
+	command.WriteString("[ -n \"$coslash_agent\" ] || { " + failure + "; }\n")
+	return command.String(), nil
+}
+
+func remoteCandidateAssignment(override string) string {
+	if strings.HasPrefix(override, "~/") {
+		return "coslash_candidate=\"$HOME\"/" + shellQuote(strings.TrimPrefix(override, "~/"))
+	}
+	return "coslash_candidate=" + shellQuote(override)
 }
 
 func handoffDir() string {
