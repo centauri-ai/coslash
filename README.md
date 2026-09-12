@@ -120,6 +120,10 @@ preview, Commands, and sharing remain local-only. A remote session can show
 recent transcript activity while process liveness is unknown; coSlash labels
 those facts separately.
 
+If an agent CLI is outside the remote command `PATH`, expand **Remote agent
+executables** under the configured SSH host and set an absolute or `~/` path;
+leave it blank for automatic discovery.
+
 ## What you get
 
 ### One board for every agent
