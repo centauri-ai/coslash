@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { remoteAuthenticationStatus, retryRemoteRefreshAndWait, startRemoteAuthentication } from './remote-api';
+import {
+  remoteAuthenticationStatus,
+  retryRemoteRefreshAndWait,
+  startRemoteAuthentication,
+} from './remote-api';
 
 const connectingMachine = {
   sourceId: 'r_0123456789abcdef',
@@ -74,7 +78,10 @@ describe('terminal authentication API', () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ id: 'a'.repeat(32), state: 'waiting' }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(startRemoteAuthentication('jane@host')).resolves.toEqual({ id: 'a'.repeat(32), state: 'waiting' });
+    await expect(startRemoteAuthentication('jane@host')).resolves.toEqual({
+      id: 'a'.repeat(32),
+      state: 'waiting',
+    });
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/remote/auth/start');
   });
 

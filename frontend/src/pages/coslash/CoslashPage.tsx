@@ -32,10 +32,7 @@ import {
   type ViewMode,
 } from '@/pages/coslash/CoslashTabMenus';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
-import {
-  HUB_SHARE_VERSION,
-  type DestinationResult,
-} from '@/pages/coslash/features/sharing/model';
+import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';

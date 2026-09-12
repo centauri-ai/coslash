@@ -77,12 +77,8 @@ export function MachinesSettingsSection({
   const [authAttemptID, setAuthAttemptID] = useState<string | null>(null);
   const [authReconnect, setAuthReconnect] = useState(false);
   const authenticationRun = useRef<AuthenticationRun | null>(null);
-  const busy =
-    stage === 'testing' ||
-    stage === 'authenticating' ||
-    stage === 'saving' ||
-    stage === 'installing' ||
-    stage === 'removing';
+  const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
+  const removeDisabled = busy || stage === 'authenticating';
   const setupFailed =
     stage === 'error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
@@ -193,7 +189,9 @@ export function MachinesSettingsSection({
           if (authenticationRun.current !== run || run.cancelled) return;
           setMachine(refreshed);
           setStage(refreshed.state === 'ok' ? 'ready' : 'error');
-          setMessage(refreshed.state === 'ok' ? 'SSH monitoring reconnected.' : `${testResultCopy(refreshed)}.`);
+          setMessage(
+            refreshed.state === 'ok' ? 'SSH monitoring reconnected.' : `${testResultCopy(refreshed)}.`,
+          );
           if (refreshed.state === 'ok') onConnectionVerified?.();
           return;
         }
@@ -215,7 +213,9 @@ export function MachinesSettingsSection({
       if (authenticationRun.current !== run || run.cancelled) return;
       setAuthAttemptID(null);
       setStage('error');
-      setMessage(error instanceof Error ? error.message : 'Authentication status could not be checked. Try again.');
+      setMessage(
+        error instanceof Error ? error.message : 'Authentication status could not be checked. Try again.',
+      );
     }
   };
 
@@ -349,10 +349,10 @@ export function MachinesSettingsSection({
                       : machine?.actionRequired === 'verify_host_key'
                         ? 'Host key changed · Verify host identity'
                         : machine?.state === 'stale' || machine?.state === 'error'
-                      ? 'Offline'
-                      : machine?.state === 'ok' && machine.sessionCount === 0
-                        ? 'Connected · no recent agent sessions found'
-                        : 'Connected'}
+                          ? 'Offline'
+                          : machine?.state === 'ok' && machine.sessionCount === 0
+                            ? 'Connected · no recent agent sessions found'
+                            : 'Connected'}
               </div>
             </div>
             <div className="flex shrink-0 gap-2">
@@ -379,7 +379,7 @@ export function MachinesSettingsSection({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={busy}
+                disabled={removeDisabled}
                 onClick={() => void removeHost()}
               >
                 {stage === 'removing' ? 'Removing…' : 'Remove'}
@@ -424,14 +424,22 @@ export function MachinesSettingsSection({
               'bg-destructive/10 text-destructive': stage === 'error',
             })}
           >
-            <span className={cn({ 'animate-pulse': stage === 'installing' || stage === 'authenticating' })}>{message}</span>
+            <span className={cn({ 'animate-pulse': stage === 'installing' || stage === 'authenticating' })}>
+              {message}
+            </span>
             {stage === 'authentication_required' && (
               <Button type="button" size="sm" className="ml-3" onClick={() => void authenticateInTerminal()}>
                 Authenticate in Terminal
               </Button>
             )}
             {stage === 'authenticating' && (
-              <Button type="button" variant="outline" size="sm" className="ml-3" onClick={() => void cancelAuthentication()}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="ml-3"
+                onClick={() => void cancelAuthentication()}
+              >
                 Cancel
               </Button>
             )}

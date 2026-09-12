@@ -44,7 +44,11 @@ function machineCopy(machine: MachineFact, checking: boolean) {
 }
 
 function needsAttention(machine: MachineFact) {
-  return machine.reason === 'authentication_failed' || machine.reason === 'host_key_confirmation_required' || machine.reason === 'host_key_changed';
+  return (
+    machine.reason === 'authentication_failed' ||
+    machine.reason === 'host_key_confirmation_required' ||
+    machine.reason === 'host_key_changed'
+  );
 }
 
 function connectorFailed(machine: MachineFact) {
@@ -93,7 +97,8 @@ export function MachineActivity({
             machine.sourceId !== LOCAL_SOURCE_ID &&
             machine.actionRequired == null &&
             (machine.state === 'stale' || machine.state === 'error' || connectorFailed(machine));
-          const authenticationRequired = machine.sourceId !== LOCAL_SOURCE_ID && machine.actionRequired === 'authenticate';
+          const authenticationRequired =
+            machine.sourceId !== LOCAL_SOURCE_ID && machine.actionRequired === 'authenticate';
           const offline =
             machine.sourceId !== LOCAL_SOURCE_ID &&
             !refreshing &&
@@ -104,10 +109,18 @@ export function MachineActivity({
                 <span>
                   <button
                     type="button"
-                    onClick={authenticationRequired ? onRemoteAuthenticate : retryable ? onRemoteRetry : undefined}
+                    onClick={
+                      authenticationRequired ? onRemoteAuthenticate : retryable ? onRemoteRetry : undefined
+                    }
                     disabled={(!retryable && !authenticationRequired) || remoteRetryInFlight}
                     className="bg-muted/60 hover:bg-muted text-muted-foreground disabled:hover:bg-muted/60 inline-flex items-center gap-2 rounded-md px-2 py-1 text-left transition-colors disabled:cursor-help"
-                    aria-label={authenticationRequired ? `Reconnect ${machine.label}` : retryable ? `Retry ${machine.label}` : undefined}
+                    aria-label={
+                      authenticationRequired
+                        ? `Reconnect ${machine.label}`
+                        : retryable
+                          ? `Retry ${machine.label}`
+                          : undefined
+                    }
                   >
                     {refreshing ? (
                       <LoaderCircleIcon className="text-info size-3 animate-spin" aria-label="Refreshing" />

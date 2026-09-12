@@ -42,38 +42,56 @@ export type RemoteAuthAttempt = {
 };
 
 function decodeRemoteAuthAttempt(value: unknown): RemoteAuthAttempt {
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid authentication status');
+  if (value == null || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid authentication status');
   const raw = value as Record<string, unknown>;
-  if (typeof raw.id !== 'string' || !['waiting', 'ready', 'timed_out', 'cancelled', 'failed'].includes(String(raw.state))) {
+  if (
+    typeof raw.id !== 'string' ||
+    !['waiting', 'ready', 'timed_out', 'cancelled', 'failed'].includes(String(raw.state))
+  ) {
     throw new Error('Invalid authentication status');
   }
   return { id: raw.id, state: raw.state as RemoteAuthAttempt['state'] };
 }
 
-export async function startRemoteAuthentication(sshAlias: string, signal?: AbortSignal): Promise<RemoteAuthAttempt> {
+export async function startRemoteAuthentication(
+  sshAlias: string,
+  signal?: AbortSignal,
+): Promise<RemoteAuthAttempt> {
   const response = await apiFetch('/api/remote/auth/start', { ...remoteTestRequestInit(sshAlias), signal });
   const body: unknown = await response.json();
   if (!response.ok) throw new Error(decodeApiError(body).error);
   return decodeRemoteAuthAttempt(body);
 }
 
-export async function remoteAuthenticationStatus(id: string, signal?: AbortSignal): Promise<RemoteAuthAttempt> {
+export async function remoteAuthenticationStatus(
+  id: string,
+  signal?: AbortSignal,
+): Promise<RemoteAuthAttempt> {
   const response = await apiFetch(`/api/remote/auth/status?id=${encodeURIComponent(id)}`, { signal });
   const body: unknown = await response.json();
   if (!response.ok) throw new Error(decodeApiError(body).error);
   return decodeRemoteAuthAttempt(body);
 }
 
-export async function cancelRemoteAuthentication(id: string, signal?: AbortSignal): Promise<RemoteAuthAttempt> {
+export async function cancelRemoteAuthentication(
+  id: string,
+  signal?: AbortSignal,
+): Promise<RemoteAuthAttempt> {
   const response = await apiFetch('/api/remote/auth/cancel', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }), signal,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+    signal,
   });
   const body: unknown = await response.json();
   if (!response.ok) throw new Error(decodeApiError(body).error);
   return decodeRemoteAuthAttempt(body);
 }
 
-export async function retryRemoteRefresh(signal?: AbortSignal): Promise<{ status: number; machine: MachineFact }> {
+export async function retryRemoteRefresh(
+  signal?: AbortSignal,
+): Promise<{ status: number; machine: MachineFact }> {
   const response = await apiFetch('/api/remote/retry', { method: 'POST', signal });
   const body: unknown = await response.json();
   if (!response.ok) {
