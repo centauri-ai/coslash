@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { Check, ChevronRight, LoaderCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
@@ -11,6 +11,81 @@ import {
 } from '@/pages/coslash/lib/settings';
 
 type SetupStage = 'idle' | 'testing' | 'saving' | 'consent' | 'installing' | 'ready' | 'error' | 'removing';
+type SetupStep = 1 | 2 | 3 | 4;
+
+const setupStepLabels = ['Verify SSH', 'Save remote host', 'Set up connector', 'Ready'] as const;
+
+export function SetupProgress({
+  stage,
+  step,
+  message,
+}: {
+  stage: SetupStage;
+  step: SetupStep;
+  message: string;
+}) {
+  const failed = stage === 'error';
+  const complete = stage === 'ready';
+  const activeLabel = setupStepLabels[step - 1];
+  const heading = complete
+    ? '4 of 4 · Remote host ready'
+    : failed
+      ? `${step} of 4 · ${activeLabel} failed`
+      : `${step} of 4 · ${activeLabel}`;
+
+  return (
+    <div
+      role={failed ? 'alert' : 'status'}
+      className={cn('border-t px-4 py-3', {
+        'bg-muted text-muted-foreground': !failed && !complete,
+        'bg-success-bg text-success-fg': complete,
+        'bg-muted text-destructive': failed,
+      })}
+    >
+      <div className="flex items-center justify-between gap-3 text-xs font-semibold">
+        <span>{heading}</span>
+        {stage === 'installing' && <LoaderCircle aria-hidden="true" className="size-4 shrink-0 animate-spin" />}
+      </div>
+      <div aria-hidden="true" className="flex items-center py-2">
+        {setupStepLabels.map((label, index) => {
+          const number = index + 1;
+          const stepComplete = complete || number < step;
+          const stepFailed = failed && number === step;
+          const stepActive = !complete && !failed && number === step;
+          return (
+            <div key={label} className={cn('flex items-center', { 'flex-1': number < setupStepLabels.length })}>
+              <div
+                className={cn('flex size-5 shrink-0 items-center justify-center rounded-full border', {
+                  'border-success-fg bg-success-fg text-success-bg': stepComplete,
+                  'border-destructive bg-destructive text-background': stepFailed,
+                  'border-foreground bg-foreground text-background': stepActive,
+                  'border-border bg-background': !stepComplete && !stepFailed && !stepActive,
+                })}
+              >
+                {stepComplete ? (
+                  <Check className="size-3" strokeWidth={3} />
+                ) : stepFailed ? (
+                  <X className="size-3" strokeWidth={3} />
+                ) : (
+                  <span className="size-1.5 rounded-full bg-current" />
+                )}
+              </div>
+              {number < setupStepLabels.length && (
+                <div
+                  className={cn('h-px flex-1', {
+                    'bg-success-fg': complete || number < step,
+                    'bg-border': !complete && number >= step,
+                  })}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-xs font-normal">{message}</div>
+    </div>
+  );
+}
 
 function testResultCopy(machine: MachineFact) {
   return machine.state === 'ok'
@@ -79,6 +154,7 @@ export function MachinesSettingsSection({
 }) {
   const [alias, setAlias] = useState('');
   const [stage, setStage] = useState<SetupStage>('idle');
+  const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [machine, setMachine] = useState<MachineFact | null>(null);
   const [executablesOpen, setExecutablesOpen] = useState(false);
@@ -123,8 +199,9 @@ export function MachinesSettingsSection({
   }, [remote?.sshAlias]);
 
   const installConnector = async (sshAlias: string) => {
+    setSetupStep(3);
     setStage('installing');
-    setMessage('Installing connector…');
+    setMessage('Installing and verifying the connector. This can take a minute.');
     try {
       const setup = await setupRemoteHelper(sshAlias, 'install');
       setMachine(setup.machine);
@@ -134,6 +211,7 @@ export function MachinesSettingsSection({
         return;
       }
       setStage('ready');
+      setSetupStep(4);
       setMessage('Connector installed and verified. SSH monitoring is active.');
       onConnectionVerified?.();
     } catch (error: unknown) {
@@ -149,6 +227,7 @@ export function MachinesSettingsSection({
       setMessage('Enter an SSH alias first.');
       return;
     }
+    setSetupStep(1);
     setMessage('Checking SSH connection…');
     setStage('testing');
     try {
@@ -164,6 +243,7 @@ export function MachinesSettingsSection({
         setMessage(`${testResultCopy(test)}.${hint}`);
         return;
       }
+      setSetupStep(2);
       setStage('saving');
       setMessage('Connection succeeded. Adding SSH monitoring…');
       if (!(await onAddHost(sshAlias))) {
@@ -171,6 +251,7 @@ export function MachinesSettingsSection({
         setMessage('Could not add this SSH host.');
         return;
       }
+      setSetupStep(3);
       setStage('consent');
       setMessage('Install a private connector on this host, or skip installation.');
     } catch (error: unknown) {
@@ -181,17 +262,20 @@ export function MachinesSettingsSection({
 
   const retryConnectorSetup = () => {
     if (remote == null) return;
+    setSetupStep(3);
     setStage('consent');
     setMessage('Install a private connector on this host, or skip installation.');
   };
 
   const skipInstallation = () => {
+    setSetupStep(4);
     setStage('ready');
     setMessage('Connector installation skipped. SSH monitoring is active.');
     onConnectionVerified?.();
   };
 
   const removeHost = async () => {
+    setSetupStep(null);
     setStage('removing');
     setMessage('Removing SSH monitoring…');
     try {
@@ -335,7 +419,10 @@ export function MachinesSettingsSection({
             </div>
           </div>
         )}
-        {message != null && (
+        {message != null && setupStep != null && (
+          <SetupProgress stage={stage} step={setupStep} message={message} />
+        )}
+        {message != null && setupStep == null && (
           <div
             role={stage === 'error' ? 'alert' : 'status'}
             className={cn('border-t px-4 py-3 text-xs', {
