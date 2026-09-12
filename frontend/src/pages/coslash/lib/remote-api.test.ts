@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { retryRemoteRefreshAndWait } from './remote-api';
+import type { MachineFact } from './machines';
+import { retryRemoteRefreshAndWait, waitForRemoteRefresh } from './remote-api';
 
-const connectingMachine = {
+const connectingMachine: MachineFact = {
   sourceId: 'r_0123456789abcdef',
   label: 'gpu-server',
   state: 'connecting',
   complete: false,
 };
 
-const readyMachine = { ...connectingMachine, state: 'ok', complete: true };
+const readyMachine: MachineFact = { ...connectingMachine, state: 'ok', complete: true };
 const refreshingMachine = { ...readyMachine, refreshing: true };
 
 describe('retryRemoteRefreshAndWait', () => {
@@ -57,5 +58,32 @@ describe('retryRemoteRefreshAndWait', () => {
 
     await expect(result).resolves.toEqual(readyMachine);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports each durable publication while polling', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', {
+      location: { hash: '', pathname: '/', search: '' },
+      history: { state: null, replaceState: vi.fn() },
+      sessionStorage: { getItem: vi.fn(() => null), setItem: vi.fn() },
+    });
+    const publicationA = { ...refreshingMachine, publicationId: 'publication-a' };
+    const publicationB = { ...readyMachine, publicationId: 'publication-b' };
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(publicationA))
+        .mockResolvedValueOnce(Response.json(publicationB)),
+    );
+    const observed: string[] = [];
+
+    const result = waitForRemoteRefresh(connectingMachine, undefined, (machine) => {
+      if (machine.publicationId != null) observed.push(machine.publicationId);
+    });
+    await vi.advanceTimersByTimeAsync(800);
+
+    await expect(result).resolves.toEqual(publicationB);
+    expect(observed).toEqual(['publication-a', 'publication-b']);
   });
 });

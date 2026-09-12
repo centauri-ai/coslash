@@ -338,6 +338,8 @@ type fakeLifecycleRemote struct {
 	probeErr          error
 	capabilityErrors  map[string]error
 	removeErr         error
+	removeStarted     chan struct{}
+	removeRelease     chan struct{}
 	lastRequest       InstallRequest
 	removed           string
 }
@@ -379,6 +381,15 @@ func (remote *fakeLifecycleRemote) Install(_ context.Context, request InstallReq
 }
 func (remote *fakeLifecycleRemote) RemoveExact(_ context.Context, path string) error {
 	remote.removed = path
+	if remote.removeStarted != nil {
+		select {
+		case remote.removeStarted <- struct{}{}:
+		default:
+		}
+	}
+	if remote.removeRelease != nil {
+		<-remote.removeRelease
+	}
 	if remote.removeErr != nil {
 		return remote.removeErr
 	}

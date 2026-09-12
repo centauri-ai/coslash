@@ -599,8 +599,9 @@ export function ShareToHubDialog({
                                   {candidate.session.name ?? candidate.session.id}
                                 </span>
                                 <span className="text-muted-foreground block truncate pt-0.5 text-xs">
-                                  {candidate.session.sourceLabel} · {candidate.session.agent} · {candidate.session.branch ?? 'no branch'} ·
-                                  revision {candidate.session.mtime}
+                                  {candidate.session.sourceLabel} · {candidate.session.agent} ·{' '}
+                                  {candidate.session.branch ?? 'no branch'} · revision{' '}
+                                  {candidate.session.mtime}
                                 </span>
                               </span>
                               {candidate.previouslyShared && (

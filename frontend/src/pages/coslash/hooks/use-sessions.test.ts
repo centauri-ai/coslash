@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   decodeSessionsResponse,
   diffRequestPath,
+  PublicationReloadTracker,
   sessionsRequestPath,
   synthesisRequestPath,
 } from '@/pages/coslash/hooks/use-sessions';
@@ -10,7 +11,13 @@ import { LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
 function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
   return {
     sourceId,
-    sourceLabel: sourceId === LOCAL_SOURCE_ID ? 'Local Mac' : 'gpu-server',
+    sourceLabel: sourceId === LOCAL_SOURCE_ID ? 'Local Mac' : 'SSH workspace',
+    sourceClass: sourceId === LOCAL_SOURCE_ID ? 'local' : 'ssh_workspace',
+    logicalSessionId: `${sourceId}:codex:${id}`,
+    revision: 1,
+    completion: 'complete',
+    privacy: 'shareable',
+    shareEligibility: 'eligible',
     eligibleForAggregates: true,
     displayStale: false,
     agent: 'codex',
@@ -129,6 +136,35 @@ describe('sessionsRequestPath', () => {
     expect(sessionsRequestPath({ localSince: 10, remoteSince: 10 })).toBe(
       '/api/sessions?sourceAware=1&since=10&remoteSince=10',
     );
+  });
+});
+
+describe('PublicationReloadTracker', () => {
+  it('coalesces repeated publications and closes the publication-during-fetch race', () => {
+    const tracker = new PublicationReloadTracker();
+    expect(tracker.beginRequest()).toBe(true);
+    expect(tracker.observe('publication-a')).toBe(false);
+    expect(tracker.observe('publication-a')).toBe(false);
+    expect(tracker.accept(undefined)).toBe(true);
+
+    expect(tracker.beginRequest()).toBe(true);
+    expect(tracker.observe('publication-b')).toBe(false);
+    expect(tracker.observe('publication-b')).toBe(false);
+    expect(tracker.accept('publication-a')).toBe(true);
+
+    expect(tracker.beginRequest()).toBe(true);
+    expect(tracker.accept('publication-b')).toBe(false);
+    expect(tracker.observe('publication-b')).toBe(false);
+  });
+
+  it('accepts a sessions publication newer than the status that triggered it', () => {
+    const tracker = new PublicationReloadTracker();
+    expect(tracker.observe('publication-b')).toBe(true);
+    expect(tracker.beginRequest()).toBe(true);
+    expect(tracker.accept('publication-c')).toBe(false);
+    expect(tracker.observe('publication-b')).toBe(true);
+    expect(tracker.beginRequest()).toBe(true);
+    expect(tracker.accept('publication-c')).toBe(false);
   });
 });
 

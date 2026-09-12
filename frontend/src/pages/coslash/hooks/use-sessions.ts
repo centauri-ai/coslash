@@ -46,6 +46,68 @@ export type SessionsQuery = {
   remoteWindow: TimeWindow;
 };
 
+export class PublicationReloadTracker {
+  private loaded?: string;
+  private latest?: string;
+  private requested?: string;
+  private inFlight = false;
+  private pending = false;
+  private observation = 0;
+  private requestObservation = 0;
+
+  beginRequest() {
+    if (this.inFlight) {
+      this.pending = true;
+      return false;
+    }
+    this.inFlight = true;
+    this.pending = false;
+    this.requestObservation = this.observation;
+    return true;
+  }
+
+  observe(publicationId: string | undefined) {
+    if (publicationId !== this.latest) this.observation += 1;
+    this.latest = publicationId;
+    if (publicationId == null || publicationId === this.loaded || publicationId === this.requested) {
+      return false;
+    }
+    this.requested = publicationId;
+    if (this.inFlight) {
+      this.pending = true;
+      return false;
+    }
+    return true;
+  }
+
+  accept(publicationId: string | undefined) {
+    this.loaded = publicationId;
+    // If no status publication arrived after this request began, the sessions
+    // response is the newest authority we have. This matters because opaque
+    // publication IDs cannot be ordered: a response containing C supersedes
+    // the B that triggered it. A status observed during the request still wins
+    // until a subsequent sessions response accepts that generation.
+    if (this.observation <= this.requestObservation) {
+      this.latest = publicationId;
+      this.requested = publicationId;
+    }
+    this.inFlight = false;
+    if (this.latest != null && this.latest !== this.loaded) this.pending = true;
+    const reload = this.pending;
+    this.pending = false;
+    return reload;
+  }
+
+  fail() {
+    this.inFlight = false;
+    this.pending = false;
+  }
+
+  allowRetry() {
+    this.requested = undefined;
+  }
+}
+
 export function decodeSessionsResponse(body: unknown): SessionsPayload {
   if (Array.isArray(body)) {
     return {
@@ -202,13 +264,21 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     const controller = new AbortController();
     let authenticationFailed = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let pollingRemote = false;
+    const publicationReload = new PublicationReloadTracker();
 
     const scheduleRefresh = () => {
-      refreshTimer = setTimeout(() => load(true), REFRESH_INTERVAL_MS);
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        publicationReload.allowRetry();
+        load(true);
+      }, REFRESH_INTERVAL_MS);
     };
 
-    const load = (background: boolean) => {
+    function load(background: boolean) {
       if (authenticationFailed) return;
+      if (!publicationReload.beginRequest()) return;
+      if (refreshTimer) clearTimeout(refreshTimer);
       if (!background) {
         setIsLoading(true);
         setLoadError(null);
@@ -227,12 +297,15 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         .then((body) => {
           if (controller.signal.aborted) return;
           const payload = decodeSessionsResponse(body);
+          const remoteMachine = payload.machines.find((machine) => !isLocalSource(machine.sourceId));
           setSessions(payload.sessions);
           setMachines(payload.machines);
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
           setLoadError(null);
-          scheduleRefresh();
+          if (remoteMachine != null) startRemotePoll(remoteMachine);
+          if (publicationReload.accept(remoteMachine?.publicationId)) load(true);
+          else scheduleRefresh();
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
@@ -249,9 +322,29 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
             );
           }
           console.error('Failed to load sessions', error);
+          publicationReload.fail();
           scheduleRefresh();
         });
-    };
+    }
+
+    function requestPublication(publicationId: string | undefined) {
+      if (publicationReload.observe(publicationId)) load(true);
+    }
+
+    function acceptRemoteStatus(machine: MachineFact) {
+      setMachines((current) => current.map((item) => (item.sourceId === machine.sourceId ? machine : item)));
+      requestPublication(machine.publicationId);
+    }
+
+    function startRemotePoll(machine: MachineFact) {
+      if (pollingRemote || !remoteRefreshInProgress([machine])) return;
+      pollingRemote = true;
+      void waitForRemoteRefresh(machine, controller.signal, acceptRemoteStatus)
+        .catch(() => {})
+        .finally(() => {
+          pollingRemote = false;
+        });
+    }
 
     load(false);
     return () => {
@@ -259,27 +352,6 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
       controller.abort();
     };
   }, [localWindow, remoteWindow, retryCount]);
-
-  const remoteRefreshing = remoteRefreshInProgress(machines);
-
-  useEffect(() => {
-    if (!remoteRefreshing) return;
-    const controller = new AbortController();
-    void waitForRemoteRefresh(undefined, controller.signal)
-      .then((machine) => {
-        if (controller.signal.aborted) return;
-        setMachines((current) =>
-          current.map((item) => (item.sourceId === machine.sourceId ? machine : item)),
-        );
-        // Remote collection has reached a final state, so reload its sessions
-        // rather than waiting for the normal background refresh.
-        setRetryCount((count) => count + 1);
-      })
-      .catch(() => {});
-    return () => {
-      controller.abort();
-    };
-  }, [remoteRefreshing]);
 
   const retrySessions = () => {
     setIsLoading(true);

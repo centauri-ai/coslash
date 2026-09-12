@@ -2,6 +2,8 @@ package remote
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"slices"
@@ -111,7 +113,10 @@ type Manager struct {
 	errorCopy              string
 	diagnostic             string
 	refreshing             bool
-	lastRequestedMs        int64
+	requestedSinceMs       int64
+	requestedSinceSet      bool
+	lifecycleEpoch         uint64
+	publicationID          string
 	failures               int
 	nextRetryAt            time.Time
 	nextHelperProbeAt      time.Time
@@ -288,6 +293,11 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	}
 	restart := previous == nil || !previous.Enabled || previous.SSHAlias != remote.SSHAlias
 	if restart {
+		// Results from the preceding lifecycle are fenced by its canceled context
+		// and epoch. Clear its scheduling flag so the new source identity can start.
+		manager.refreshing = false
+		manager.requestedSinceMs = 0
+		manager.requestedSinceSet = false
 		if err := manager.loadCacheLocked(); err != nil {
 			return err
 		}
@@ -367,7 +377,7 @@ func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	remoteSinceMs = max(0, remoteSinceMs)
-	manager.lastRequestedMs = remoteSinceMs
+	manager.recordRequestedSinceLocked(remoteSinceMs)
 	if manager.cfg == nil {
 		return ListResult{Health: Health{State: StateDisabled, Complete: true, Reason: reasonPtr(ReasonDisabled)}}
 	}
@@ -397,15 +407,15 @@ func (manager *Manager) Retry() (Health, bool) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled {
-		return manager.healthLocked(manager.lastRequestedMs), false
+		return manager.healthLocked(manager.requestedSinceLocked()), false
 	}
 	if manager.refreshing || (!manager.lastManualRetryAt.IsZero() &&
 		manager.now().Sub(manager.lastManualRetryAt) < ManualRetryCooldown) {
-		return manager.healthLocked(manager.lastRequestedMs), false
+		return manager.healthLocked(manager.requestedSinceLocked()), false
 	}
 	manager.lastManualRetryAt = manager.now()
-	manager.maybeStartRefreshLocked(manager.lastRequestedMs, true)
-	return manager.healthLocked(manager.lastRequestedMs), true
+	manager.maybeStartRefreshLocked(manager.requestedSinceLocked(), true)
+	return manager.healthLocked(manager.requestedSinceLocked()), true
 }
 
 func (manager *Manager) TestAlias(ctx context.Context, alias string) (Health, error) {
@@ -442,13 +452,13 @@ func (manager *Manager) recoverAfterSuccessfulTest(alias string) {
 	manager.failures = 0
 	manager.nextRetryAt = time.Time{}
 	manager.lastManualRetryAt = time.Time{}
-	manager.maybeStartRefreshLocked(manager.lastRequestedMs, true)
+	manager.maybeStartRefreshLocked(manager.requestedSinceLocked(), true)
 }
 
 func (manager *Manager) DiagnosticsHealth() Health {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	return manager.healthLocked(manager.lastRequestedMs)
+	return manager.healthLocked(manager.requestedSinceLocked())
 }
 
 // LaunchSession returns the current remote session and SSH alias only while
@@ -525,6 +535,9 @@ func (manager *Manager) Shutdown() {
 	}
 	manager.cancelLifeLocked()
 	manager.refreshing = false
+	manager.requestedSinceMs = 0
+	manager.requestedSinceSet = false
+	manager.publicationID = ""
 	manager.mu.Unlock()
 	exitControlMasterBestEffort(alias)
 }
@@ -581,6 +594,7 @@ func (manager *Manager) loadCacheLocked() error {
 		manager.familyStale = staleSessions(v2)
 		manager.lastSuccessAt = int64Ptr(v2.FetchedAtMs)
 		manager.lastCheckedAt = int64Ptr(v2.FetchedAtMs)
+		manager.publicationID = newPublicationID()
 		return nil
 	}
 	legacy, ok, err := manager.cache.Load(manager.cfg.ID)
@@ -592,6 +606,7 @@ func (manager *Manager) loadCacheLocked() error {
 		manager.legacyStale = false
 		manager.sessions = nil
 		manager.familyStale = nil
+		manager.publicationID = ""
 		return nil
 	}
 	// A v1 card stays visible as stale display data only: Families and
@@ -607,17 +622,20 @@ func (manager *Manager) loadCacheLocked() error {
 	manager.familyStale = nil
 	manager.lastSuccessAt = int64Ptr(legacy.FetchedAtMs)
 	manager.lastCheckedAt = int64Ptr(legacy.FetchedAtMs)
+	manager.publicationID = newPublicationID()
 	return nil
 }
 
 func (manager *Manager) startLifeLocked() {
 	manager.cancelLifeLocked()
+	manager.lifecycleEpoch++
 	manager.lifeCtx, manager.lifeCancel = context.WithCancel(context.Background())
 }
 
 func (manager *Manager) cancelLifeLocked() {
 	if manager.lifeCancel != nil {
 		manager.lifeCancel()
+		manager.lifecycleEpoch++
 		manager.lifeCancel = nil
 		manager.lifeCtx = nil
 	}
@@ -643,76 +661,131 @@ func (manager *Manager) kickRefreshLocked(remoteSinceMs int64) {
 		manager.reason = reasonPtr(ReasonInitialRefresh)
 		manager.complete = false
 	} else if manager.snapshot.CoverageSinceMs > remoteSinceMs {
-		manager.state = StateConnecting
 		manager.reason = reasonPtr(ReasonBroaderHistory)
 		manager.complete = false
 	}
 	config := *manager.cfg
 	baseline := snapshotOrEmpty(manager.snapshot)
+	planNow := manager.now()
+	epoch := manager.lifecycleEpoch
+	warmCovered := manager.snapshot != nil && !manager.legacyStale && manager.snapshot.CoverageSinceMs <= remoteSinceMs
 	var helper *helperTarget
 	if manager.helperTarget != nil {
 		copy := *manager.helperTarget
 		helper = &copy
 	}
-	go manager.runRefresh(manager.lifeCtx, config, remoteSinceMs, baseline, helper)
+	go manager.runRefreshLoop(manager.lifeCtx, epoch, config, planNow, remoteSinceMs, baseline, warmCovered, helper)
 }
 
-func (manager *Manager) runRefresh(
+const (
+	coldHistoryWave           = 7 * 24 * time.Hour
+	coldWaveBoundaryTolerance = time.Minute
+)
+
+func (manager *Manager) runRefreshLoop(
 	ctx context.Context,
+	epoch uint64,
 	config settings.RemoteSettings,
-	remoteSinceMs int64,
+	planNow time.Time,
+	requestedSinceMs int64,
 	baseline CachedSnapshotV2,
+	warmCovered bool,
 	helper *helperTarget,
 ) {
-	var result refreshOutcome
-	var err error
-	if helper != nil {
-		if err = manager.helperVerify(ctx, config.SSHAlias, *helper); err == nil {
-			result, err = manager.helperRefresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline, *helper)
-		}
-	} else {
-		result, err = manager.refresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline)
-	}
-	fetchedAt := manager.now().UnixMilli()
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	manager.refreshing = false
-	manager.lastCheckedAt = int64Ptr(fetchedAt)
-	if manager.cfg == nil || manager.cfg.ID != config.ID || !manager.cfg.Enabled || errors.Is(ctx.Err(), context.Canceled) {
-		return
-	}
-	if err != nil {
-		diagnostic := result.Stderr
-		if diagnostic == "" {
-			diagnostic = sshErrorStderr(err)
-		}
-		reason := classifyError(err)
+	firstWave := true
+	for {
+		waveSinceMs := nextWaveSince(planNow, requestedSinceMs, baseline, warmCovered && firstWave)
+		var result refreshOutcome
+		var err error
 		if helper != nil {
-			reason = classifyHelperError(err)
-			manager.metrics = metricsFor(result)
-			manager.transport = TransportHelper
+			if err = manager.helperVerify(ctx, config.SSHAlias, *helper); err == nil {
+				result, err = manager.helperRefresh(ctx, config.SSHAlias, waveSinceMs, manager.now(), baseline, *helper)
+			}
+		} else {
+			result, err = manager.refresh(ctx, config.SSHAlias, waveSinceMs, manager.now(), baseline)
 		}
-		manager.applyFailureLocked(reason, diagnostic)
-		return
-	}
-	if reason := limitedResultReason(result); reason != nil {
+		fetchedAt := manager.now().UnixMilli()
+		manager.mu.Lock()
+		if !manager.refreshIdentityMatchesLocked(ctx, epoch, config) {
+			manager.mu.Unlock()
+			return
+		}
+		manager.lastCheckedAt = int64Ptr(fetchedAt)
+		if err != nil {
+			diagnostic := result.Stderr
+			if diagnostic == "" {
+				diagnostic = sshErrorStderr(err)
+			}
+			reason := classifyError(err)
+			if helper != nil {
+				reason = classifyHelperError(err)
+				manager.transport = TransportHelper
+			}
+			manager.refreshing = false
+			manager.applyFailureLocked(reason, diagnostic)
+			manager.mu.Unlock()
+			return
+		}
+		if reason := limitedResultReason(result); reason != nil {
+			// A limited proposal may publish safe facts, but it cannot claim
+			// broader authority than the durable generation it used as baseline.
+			if baseline.BaselineID != "" && (result.Snapshot.CoverageSinceMs == 0 ||
+				result.Snapshot.CoverageSinceMs < baseline.CoverageSinceMs) {
+				result.Snapshot.CoverageSinceMs = baseline.CoverageSinceMs
+			}
+			manager.refreshing = false
+			if manager.applyLimitedLocked(result, *reason, fetchedAt) {
+				manager.transport = transportFor(helper)
+				manager.metrics = metricsFor(result)
+			}
+			manager.mu.Unlock()
+			return
+		}
+		if !manager.publishSnapshotLocked(result, fetchedAt) {
+			manager.refreshing = false
+			manager.mu.Unlock()
+			return
+		}
+		manager.failures = 0
+		manager.nextRetryAt = time.Time{}
+		manager.errorCopy = ""
+		manager.diagnostic = ""
+		manager.state = StateOK
 		manager.transport = transportFor(helper)
 		manager.metrics = metricsFor(result)
-		manager.applyLimitedLocked(result, *reason, fetchedAt)
-		return
+		baseline = *manager.snapshot
+		requestedSinceMs = manager.requestedSinceLocked()
+		if baseline.CoverageSinceMs <= requestedSinceMs {
+			manager.complete = true
+			manager.reason = nil
+			manager.refreshing = false
+			manager.mu.Unlock()
+			return
+		}
+		manager.complete = false
+		manager.reason = reasonPtr(ReasonBroaderHistory)
+		manager.mu.Unlock()
+		firstWave = false
 	}
-	if !manager.publishSnapshotLocked(result, fetchedAt) {
-		return
+}
+
+func nextWaveSince(planNow time.Time, requestedSinceMs int64, baseline CachedSnapshotV2, warmCovered bool) int64 {
+	if warmCovered {
+		return requestedSinceMs
 	}
-	manager.failures = 0
-	manager.nextRetryAt = time.Time{}
-	manager.errorCopy = ""
-	manager.diagnostic = ""
-	manager.complete = true
-	manager.state = StateOK
-	manager.reason = nil
-	manager.transport = transportFor(helper)
-	manager.metrics = metricsFor(result)
+	milestone := max(0, planNow.Add(-coldHistoryWave).UnixMilli())
+	if requestedSinceMs > 0 && requestedSinceMs >= milestone-coldWaveBoundaryTolerance.Milliseconds() {
+		return requestedSinceMs
+	}
+	if baseline.BaselineID == "" || baseline.CoverageSinceMs > milestone {
+		return milestone
+	}
+	return requestedSinceMs
+}
+
+func (manager *Manager) refreshIdentityMatchesLocked(ctx context.Context, epoch uint64, config settings.RemoteSettings) bool {
+	return ctx.Err() == nil && manager.lifecycleEpoch == epoch && manager.cfg != nil && manager.cfg.Enabled &&
+		manager.cfg.ID == config.ID && manager.cfg.SSHAlias == config.SSHAlias
 }
 
 func metricsFor(result refreshOutcome) CollectionMetrics {
@@ -743,12 +816,13 @@ func (manager *Manager) publishSnapshotLocked(result refreshOutcome, fetchedAt i
 	manager.sessions = result.Sessions
 	manager.familyStale = staleSessions(snapshot)
 	manager.lastSuccessAt = int64Ptr(fetchedAt)
+	manager.publicationID = newPublicationID()
 	return true
 }
 
-func (manager *Manager) applyLimitedLocked(result refreshOutcome, reason Reason, fetchedAt int64) {
+func (manager *Manager) applyLimitedLocked(result refreshOutcome, reason Reason, fetchedAt int64) bool {
 	if !manager.publishSnapshotLocked(result, fetchedAt) {
-		return
+		return false
 	}
 	manager.failures++
 	manager.nextRetryAt = manager.now().Add(retryBackoff(manager.failures))
@@ -757,6 +831,7 @@ func (manager *Manager) applyLimitedLocked(result refreshOutcome, reason Reason,
 	manager.complete = false
 	manager.errorCopy = genericErrorCopy(reason)
 	manager.diagnostic = ""
+	return true
 }
 
 func (manager *Manager) applyFailureLocked(reason Reason, stderr string) {
@@ -826,7 +901,8 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 	}
 	health := Health{
 		SourceID: manager.cfg.ID, Label: manager.cfg.SSHAlias, State: manager.state,
-		Complete: manager.complete, Reason: manager.reason, Error: manager.errorCopy,
+		PublicationID: manager.publicationID,
+		Complete:      manager.complete, Reason: manager.reason, Error: manager.errorCopy,
 		Refreshing:      manager.refreshing,
 		LastSuccessAtMs: manager.lastSuccessAt,
 		LastCheckedAtMs: manager.lastCheckedAt,
@@ -848,13 +924,35 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		health.CoverageSinceMs = int64Ptr(manager.snapshot.CoverageSinceMs)
 		health.RoundTripMs = int64Ptr(manager.snapshot.RoundTripMs)
 		health.Coverage = slices.Clone(manager.snapshot.Coverage)
-		health.Complete = manager.state == StateOK && manager.snapshot.CoverageSinceMs <= remoteSinceMs
+		health.Complete = manager.complete && manager.state == StateOK && manager.snapshot.CoverageSinceMs <= remoteSinceMs
 	}
-	if manager.state == StateConnecting && manager.snapshot != nil && manager.snapshot.CoverageSinceMs > remoteSinceMs {
+	if manager.refreshing && manager.snapshot != nil && manager.snapshot.CoverageSinceMs > remoteSinceMs {
 		health.Reason = reasonPtr(ReasonBroaderHistory)
 		health.Complete = false
 	}
 	return health
+}
+
+func (manager *Manager) recordRequestedSinceLocked(requested int64) {
+	if !manager.requestedSinceSet || requested < manager.requestedSinceMs {
+		manager.requestedSinceMs = requested
+		manager.requestedSinceSet = true
+	}
+}
+
+func (manager *Manager) requestedSinceLocked() int64 {
+	if !manager.requestedSinceSet {
+		return 0
+	}
+	return manager.requestedSinceMs
+}
+
+func newPublicationID() string {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		panic("remote publication identity entropy unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(value[:])
 }
 
 func probeSFTPWithOpen(ctx context.Context, alias string, open openFunc) (probeResult, error) {

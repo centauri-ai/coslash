@@ -81,6 +81,16 @@ func TestLocalMachineFactOmitsRemoteOnlyEnums(t *testing.T) {
 	}
 }
 
+func TestMachineFromHealthPublishesOpaqueGenerationWithSafeLabel(t *testing.T) {
+	fact := machineFromHealth(remote.Health{
+		SourceID: "r_0123456789abcdef", Label: "user@private-host",
+		PublicationID: "publication-a", State: remote.StateOK, Complete: true,
+	})
+	if fact.Label != sshSourceLabel || fact.PublicationID != "publication-a" {
+		t.Fatalf("machine fact = %#v", fact)
+	}
+}
+
 func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
 	manager := remote.NewManager(remote.Options{})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
