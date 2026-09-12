@@ -1,6 +1,10 @@
 import { LoaderCircleIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatTimeAgo } from '@/pages/coslash/lib/format';
+import {
+  connectorFailed,
+  isLoadingEarlierHistory,
+  machineActivityCopy,
+} from '@/pages/coslash/lib/machine-activity';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { getStatus, LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
 
@@ -16,41 +20,8 @@ function isChecking(machine: MachineFact) {
   return machine.refreshing || machine.reason === 'initial_refresh' || machine.state === 'connecting';
 }
 
-function machineCopy(machine: MachineFact, checking: boolean) {
-  if (machine.sourceId === LOCAL_SOURCE_ID) return 'Local Mac is up to date.';
-  const lastChecked = machine.lastCheckedAtMs == null ? 'not yet' : formatTimeAgo(machine.lastCheckedAtMs);
-  const savedHistory =
-    machine.lastSuccessAtMs == null ? 'no saved history' : formatTimeAgo(machine.lastSuccessAtMs);
-  if (checking) {
-    return `Checking SSH. Last checked ${lastChecked}. Saved history from ${savedHistory}.`;
-  }
-  if (connectorFailed(machine))
-    return `Setup failed: ${connectorFailureCopy(machine)}. Open Settings to retry.`;
-  if (machine.state === 'stale') {
-    return `Offline. Last checked ${lastChecked}. Saved history from ${savedHistory}.`;
-  }
-  if (machine.state === 'limited') return 'Showing the available remote history.';
-  if (machine.state === 'error') return 'Connection needs attention.';
-  if (machine.state === 'disabled') return 'Remote collection is disabled.';
-  if (machine.sessionCount === 0)
-    return `Connected. Last checked ${lastChecked}. No recent agent sessions found.`;
-  return `Synced ${savedHistory} over SSH. Last checked ${lastChecked}.`;
-}
-
 function needsAttention(machine: MachineFact) {
   return machine.reason === 'authentication_failed' || machine.reason === 'host_key_failed';
-}
-
-function connectorFailed(machine: MachineFact) {
-  return (
-    machine.sourceId !== LOCAL_SOURCE_ID &&
-    machine.helper?.compatible === false &&
-    machine.helper.reason != null
-  );
-}
-
-function connectorFailureCopy(machine: MachineFact) {
-  return machine.helper?.reason?.replaceAll('_', ' ') ?? 'connector setup failed';
 }
 
 function tone(machine: MachineFact) {
@@ -109,7 +80,9 @@ export function MachineActivity({
                       <span className="text-muted-foreground">SSH</span>
                     )}
                     {machine.sourceId !== LOCAL_SOURCE_ID && refreshing ? (
-                      <span className="text-muted-foreground">Checking</span>
+                      <span className="text-muted-foreground">
+                        {isLoadingEarlierHistory(machine) ? 'Loading earlier history' : 'Checking'}
+                      </span>
                     ) : connectorFailed(machine) ? (
                       <span className="text-destructive">Setup failed</span>
                     ) : offline ? (
@@ -122,7 +95,7 @@ export function MachineActivity({
                   </button>
                 </span>
               </TooltipTrigger>
-              <TooltipContent>{machineCopy(machine, refreshing)}</TooltipContent>
+              <TooltipContent>{machineActivityCopy(machine, refreshing)}</TooltipContent>
             </Tooltip>
           );
         })}

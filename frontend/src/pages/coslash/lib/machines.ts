@@ -57,6 +57,7 @@ export type AgentCoverage = {
 export type MachineFact = {
   sourceId: string;
   label: string;
+  publicationId?: string;
   state: MachineState;
   complete: boolean;
   reason?: MachineReason;
@@ -199,6 +200,12 @@ export function decodeMachineFact(value: unknown): MachineFact {
     state: assertOneOf(raw.state, MACHINE_STATES),
     complete: raw.complete,
   };
+  if (raw.publicationId != null) {
+    if (typeof raw.publicationId !== 'string' || raw.publicationId.length === 0) {
+      throw new Error('Invalid machine fact');
+    }
+    fact.publicationId = raw.publicationId;
+  }
   if (raw.reason != null) {
     if (typeof raw.reason !== 'string') throw new Error('Invalid machine fact');
     fact.reason = assertOneOf(raw.reason, MACHINE_REASONS);

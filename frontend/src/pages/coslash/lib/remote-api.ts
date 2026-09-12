@@ -75,11 +75,14 @@ function waitForAbort(ms: number, signal?: AbortSignal): Promise<void> {
 export async function waitForRemoteRefresh(
   machine?: MachineFact,
   signal?: AbortSignal,
+  onStatus?: (machine: MachineFact) => void,
 ): Promise<MachineFact> {
   let current = machine ?? (await remoteStatus(signal));
+  onStatus?.(current);
   while (remoteRefreshInProgress(current)) {
     await waitForAbort(REMOTE_REFRESH_POLL_INTERVAL_MS, signal);
     current = await remoteStatus(signal);
+    onStatus?.(current);
   }
   return current;
 }

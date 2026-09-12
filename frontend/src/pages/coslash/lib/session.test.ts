@@ -238,11 +238,13 @@ describe('decodeMachineFact', () => {
         label: 'gpu-server',
         state: 'ok',
         complete: true,
+        publicationId: 'publication-a',
         coverage: [{ agent: 'claude', candidateFiles: 2, selectedFiles: 2, truncated: false }],
       }),
     ).toMatchObject({
       sourceId: 'r_0123456789abcdef',
       state: 'ok',
+      publicationId: 'publication-a',
       coverage: [{ agent: 'claude', candidateFiles: 2 }],
     });
   });
