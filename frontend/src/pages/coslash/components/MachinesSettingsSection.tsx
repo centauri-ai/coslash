@@ -78,7 +78,9 @@ export function MachinesSettingsSection({
   const [authReconnect, setAuthReconnect] = useState(false);
   const authenticationRun = useRef<AuthenticationRun | null>(null);
   const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
-  const removeDisabled = busy || stage === 'authenticating';
+  // Authentication must not use the dialog-wide busy state because that
+  // disables Cancel. Lock competing setup actions locally instead.
+  const setupActionsLocked = busy || stage === 'authenticating';
   const setupFailed =
     stage === 'error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
@@ -220,7 +222,7 @@ export function MachinesSettingsSection({
   };
 
   const authenticateInTerminal = async () => {
-    if (authAlias == null) return;
+    if (authAlias == null || authenticationRun.current != null) return;
     const run: AuthenticationRun = { cancelled: false, controller: new AbortController(), attemptID: null };
     authenticationRun.current = run;
     setStage('authenticating');
@@ -267,6 +269,7 @@ export function MachinesSettingsSection({
   };
 
   const addHost = async () => {
+    if (authenticationRun.current != null) return;
     const sshAlias = alias.trim();
     if (!sshAlias) {
       setStage('error');
@@ -379,7 +382,7 @@ export function MachinesSettingsSection({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={removeDisabled}
+                disabled={setupActionsLocked}
                 onClick={() => void removeHost()}
               >
                 {stage === 'removing' ? 'Removing…' : 'Remove'}
@@ -398,12 +401,12 @@ export function MachinesSettingsSection({
               <input
                 aria-label="SSH alias"
                 value={alias}
-                disabled={busy}
+                disabled={setupActionsLocked}
                 onChange={(event) => setAlias(event.target.value)}
                 placeholder="agent-box"
                 className="border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring h-8 min-w-0 flex-1 rounded-lg border px-2.5 font-mono text-xs outline-none focus-visible:ring-3 disabled:opacity-50"
               />
-              <Button type="button" size="sm" disabled={busy} onClick={() => void addHost()}>
+              <Button type="button" size="sm" disabled={setupActionsLocked} onClick={() => void addHost()}>
                 {stage === 'testing'
                   ? 'Checking SSH…'
                   : stage === 'saving'
