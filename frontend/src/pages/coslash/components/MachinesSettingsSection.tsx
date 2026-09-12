@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { remoteStatus, setupRemoteHelper, testRemoteAlias } from '@/pages/coslash/lib/remote-api';
-import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
+import {
+  remoteExecutablePathError,
+  type RemoteExecutableSettings,
+  type RemoteHostSettings,
+} from '@/pages/coslash/lib/settings';
 
 type SetupStage = 'idle' | 'testing' | 'saving' | 'consent' | 'installing' | 'ready' | 'error' | 'removing';
 
@@ -17,23 +22,66 @@ function connectorFailureCopy(machine: MachineFact | null) {
   return machine?.helper?.reason?.replaceAll('_', ' ') ?? 'connector setup failed';
 }
 
+export function RemoteExecutableField({
+  agent,
+  path,
+  disabled,
+  onChange,
+  onBlur,
+}: {
+  agent: 'claude' | 'codex';
+  path: string;
+  disabled: boolean;
+  onChange: (path: string) => void;
+  onBlur: () => void;
+}) {
+  const name = agent === 'claude' ? 'Claude' : 'Codex';
+  const error = remoteExecutablePathError(path);
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[13px] font-semibold">{name}</span>
+      <input
+        aria-label={`${name} remote executable`}
+        aria-invalid={error != null}
+        value={path}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={onBlur}
+        placeholder="Automatic discovery"
+        className={cn(
+          'border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring h-8 rounded-lg border px-2.5 font-mono text-xs outline-none focus-visible:ring-3 disabled:opacity-50',
+          { 'border-destructive': error != null },
+        )}
+      />
+      {error && <span className="text-destructive text-[11px]">{error}</span>}
+    </label>
+  );
+}
+
 export function MachinesSettingsSection({
   remote,
   onAddHost,
   onRemoveHost,
   onConnectionVerified,
   onBusyChange,
+  executables,
+  onExecutablesChange,
+  onExecutablesCommit,
 }: {
   remote: RemoteHostSettings | null | undefined;
   onAddHost: (sshAlias: string) => Promise<boolean>;
   onRemoveHost: () => Promise<boolean>;
   onConnectionVerified?: () => void;
   onBusyChange: (busy: boolean) => void;
+  executables: RemoteExecutableSettings | undefined;
+  onExecutablesChange: (executables: RemoteExecutableSettings) => void;
+  onExecutablesCommit: (executables: RemoteExecutableSettings) => void;
 }) {
   const [alias, setAlias] = useState('');
   const [stage, setStage] = useState<SetupStage>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [machine, setMachine] = useState<MachineFact | null>(null);
+  const [executablesOpen, setExecutablesOpen] = useState(false);
   const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
   const setupFailed =
     stage === 'error' ||
@@ -161,6 +209,15 @@ export function MachinesSettingsSection({
     }
   };
 
+  const setExecutable = (agent: 'claude' | 'codex', path: string) => {
+    onExecutablesChange({ ...executables, [agent]: path });
+  };
+
+  const commitExecutables = () => {
+    if (Object.values(executables ?? {}).some((path) => remoteExecutablePathError(path) != null)) return;
+    onExecutablesCommit(executables ?? {});
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-0.5">
@@ -171,47 +228,84 @@ export function MachinesSettingsSection({
       </div>
       <div className="border-border bg-card overflow-hidden rounded-xl border">
         {remote ? (
-          <div className="flex items-center justify-between gap-4 p-4">
-            <div className="flex min-w-0 flex-col gap-1">
-              <div className="text-sm font-semibold">{remote.sshAlias} · SSH</div>
-              <div className="text-muted-foreground text-xs">
-                {setupFailed
-                  ? 'Setup failed'
-                  : machine?.refreshing || machine?.state === 'connecting'
-                    ? 'Checking'
-                    : machine?.state === 'stale' || machine?.state === 'error'
-                      ? 'Offline'
-                      : machine?.state === 'ok' && machine.sessionCount === 0
-                        ? 'Connected · no recent agent sessions found'
-                        : 'Connected'}
+          <>
+            <div className="flex items-center justify-between gap-4 p-4">
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="text-sm font-semibold">{remote.sshAlias} · SSH</div>
+                <div className="text-muted-foreground text-xs">
+                  {setupFailed
+                    ? 'Setup failed'
+                    : machine?.refreshing || machine?.state === 'connecting'
+                      ? 'Checking'
+                      : machine?.state === 'stale' || machine?.state === 'error'
+                        ? 'Offline'
+                        : machine?.state === 'ok' && machine.sessionCount === 0
+                          ? 'Connected · no recent agent sessions found'
+                          : 'Connected'}
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                {stage === 'consent' ? (
+                  <>
+                    <Button type="button" variant="outline" size="sm" onClick={skipInstallation}>
+                      Skip installation
+                    </Button>
+                    <Button type="button" size="sm" onClick={() => void installConnector(remote.sshAlias)}>
+                      Install connector
+                    </Button>
+                  </>
+                ) : setupFailed ? (
+                  <Button type="button" size="sm" disabled={busy} onClick={retryConnectorSetup}>
+                    Retry setup
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => void removeHost()}
+                >
+                  {stage === 'removing' ? 'Removing…' : 'Remove'}
+                </Button>
               </div>
             </div>
-            <div className="flex shrink-0 gap-2">
-              {stage === 'consent' ? (
-                <>
-                  <Button type="button" variant="outline" size="sm" onClick={skipInstallation}>
-                    Skip installation
-                  </Button>
-                  <Button type="button" size="sm" onClick={() => void installConnector(remote.sshAlias)}>
-                    Install connector
-                  </Button>
-                </>
-              ) : setupFailed ? (
-                <Button type="button" size="sm" disabled={busy} onClick={retryConnectorSetup}>
-                  Retry setup
-                </Button>
-              ) : null}
-              <Button
+            <div className="border-t px-4 py-3">
+              <button
                 type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={() => void removeHost()}
+                aria-expanded={executablesOpen}
+                onClick={() => setExecutablesOpen((open) => !open)}
+                className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold"
               >
-                {stage === 'removing' ? 'Removing…' : 'Remove'}
-              </Button>
+                <ChevronRight
+                  aria-hidden="true"
+                  className={cn('size-3 transition-transform', { 'rotate-90': executablesOpen })}
+                  strokeWidth={2.5}
+                />
+                Remote agent executables
+              </button>
+              {executablesOpen && (
+                <div className="mt-3 flex flex-col gap-3">
+                  <div className="text-muted-foreground text-[11px] leading-relaxed">
+                    Optional advanced overrides. Leave blank to discover the executable on this host.
+                  </div>
+                  {(['claude', 'codex'] as const).map((agent) => {
+                    const path = executables?.[agent] ?? '';
+                    return (
+                      <RemoteExecutableField
+                        key={agent}
+                        agent={agent}
+                        path={path}
+                        disabled={busy}
+                        onChange={(value) => setExecutable(agent, value)}
+                        onBlur={commitExecutables}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
+          </>
         ) : (
           <div className="flex flex-col gap-3 p-4">
             <div>
