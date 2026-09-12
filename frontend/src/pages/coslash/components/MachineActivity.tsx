@@ -26,6 +26,12 @@ function machineCopy(machine: MachineFact, checking: boolean) {
   }
   if (connectorFailed(machine))
     return `Setup failed: ${connectorFailureCopy(machine)}. Open Settings to retry.`;
+  if (machine.reason === 'authentication_failed') {
+    return `Authentication required. Saved history from ${savedHistory}. Open Settings to reconnect.`;
+  }
+  if (machine.reason === 'host_key_changed') {
+    return `SSH host key changed. Verify the host identity before reconnecting. Saved history from ${savedHistory}.`;
+  }
   if (machine.state === 'stale') {
     return `Offline. Last checked ${lastChecked}. Saved history from ${savedHistory}.`;
   }
@@ -38,7 +44,7 @@ function machineCopy(machine: MachineFact, checking: boolean) {
 }
 
 function needsAttention(machine: MachineFact) {
-  return machine.reason === 'authentication_failed' || machine.reason === 'host_key_failed';
+  return machine.reason === 'authentication_failed' || machine.reason === 'host_key_confirmation_required' || machine.reason === 'host_key_changed';
 }
 
 function connectorFailed(machine: MachineFact) {
@@ -67,11 +73,13 @@ export function MachineActivity({
   machines,
   sessions,
   onRemoteRetry,
+  onRemoteAuthenticate,
   remoteRetryInFlight,
 }: {
   machines: MachineFact[];
   sessions: Session[];
   onRemoteRetry: () => void;
+  onRemoteAuthenticate: () => void;
   remoteRetryInFlight: boolean;
 }) {
   return (
@@ -83,7 +91,9 @@ export function MachineActivity({
             isChecking(machine) || (machine.sourceId !== LOCAL_SOURCE_ID && remoteRetryInFlight);
           const retryable =
             machine.sourceId !== LOCAL_SOURCE_ID &&
+            machine.actionRequired == null &&
             (machine.state === 'stale' || machine.state === 'error' || connectorFailed(machine));
+          const authenticationRequired = machine.sourceId !== LOCAL_SOURCE_ID && machine.actionRequired === 'authenticate';
           const offline =
             machine.sourceId !== LOCAL_SOURCE_ID &&
             !refreshing &&
@@ -94,10 +104,10 @@ export function MachineActivity({
                 <span>
                   <button
                     type="button"
-                    onClick={retryable ? onRemoteRetry : undefined}
-                    disabled={!retryable || remoteRetryInFlight}
+                    onClick={authenticationRequired ? onRemoteAuthenticate : retryable ? onRemoteRetry : undefined}
+                    disabled={(!retryable && !authenticationRequired) || remoteRetryInFlight}
                     className="bg-muted/60 hover:bg-muted text-muted-foreground disabled:hover:bg-muted/60 inline-flex items-center gap-2 rounded-md px-2 py-1 text-left transition-colors disabled:cursor-help"
-                    aria-label={retryable ? `Retry ${machine.label}` : undefined}
+                    aria-label={authenticationRequired ? `Reconnect ${machine.label}` : retryable ? `Retry ${machine.label}` : undefined}
                   >
                     {refreshing ? (
                       <LoaderCircleIcon className="text-info size-3 animate-spin" aria-label="Refreshing" />
@@ -112,6 +122,10 @@ export function MachineActivity({
                       <span className="text-muted-foreground">Checking</span>
                     ) : connectorFailed(machine) ? (
                       <span className="text-destructive">Setup failed</span>
+                    ) : authenticationRequired ? (
+                      <span className="text-warning-fg">Authentication required · Reconnect</span>
+                    ) : machine.reason === 'host_key_changed' ? (
+                      <span className="text-destructive">Host key changed</span>
                     ) : offline ? (
                       <span className="text-muted-foreground">Offline</span>
                     ) : (

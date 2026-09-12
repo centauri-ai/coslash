@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,9 +19,15 @@ import (
 	"github.com/pkg/sftp"
 )
 
-var aliasPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
 const defaultControlPersist = "10m"
+
+func parseDestination(value string) (settings.SSHDestination, error) {
+	destination, err := settings.ParseSSHDestination(value)
+	if err != nil {
+		return settings.SSHDestination{}, ErrInvalidAlias
+	}
+	return destination, nil
+}
 
 func controlSocketPath() string {
 	return filepath.Join(settings.Home(), "ssh", "cm-%C")
@@ -47,55 +52,59 @@ func ensureSSHControlDir() error {
 }
 
 func SSHArgs(alias string, connectTimeoutSeconds int) ([]string, error) {
-	if !aliasPattern.MatchString(alias) {
-		return nil, ErrInvalidAlias
+	destination, err := parseDestination(alias)
+	if err != nil {
+		return nil, err
 	}
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
-	return []string{
+	args := []string{
 		"-T",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
 		"-o", "ControlMaster=auto",
 		"-o", "ControlPath=" + controlSocketPath(),
 		"-o", "ControlPersist=" + defaultControlPersist,
-		alias,
-		"-s", "sftp",
-	}, nil
+	}
+	args = append(args, destination.Args()...)
+	return append(args, "-s", "sftp"), nil
 }
 
 func ControlExitArgs(alias string) ([]string, error) {
-	if !aliasPattern.MatchString(alias) {
-		return nil, ErrInvalidAlias
+	destination, err := parseDestination(alias)
+	if err != nil {
+		return nil, err
 	}
-	return []string{
+	args := []string{
 		"-O", "exit",
 		"-o", "ControlPath=" + controlSocketPath(),
-		alias,
-	}, nil
+	}
+	return append(args, destination.Args()...), nil
 }
 
 func controlCheckArgs(alias string) ([]string, error) {
-	if !aliasPattern.MatchString(alias) {
-		return nil, ErrInvalidAlias
+	destination, err := parseDestination(alias)
+	if err != nil {
+		return nil, err
 	}
-	return []string{
+	args := []string{
 		"-O", "check",
 		"-o", "ControlPath=" + controlSocketPath(),
-		alias,
-	}, nil
+	}
+	return append(args, destination.Args()...), nil
 }
 
 func controlMasterStartArgs(alias string, connectTimeoutSeconds int) ([]string, error) {
-	if !aliasPattern.MatchString(alias) {
-		return nil, ErrInvalidAlias
+	destination, err := parseDestination(alias)
+	if err != nil {
+		return nil, err
 	}
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
 	// -f -N leaves a background master so later SFTP clients can die without the tunnel.
-	return []string{
+	args := []string{
 		"-f",
 		"-N",
 		"-o", "BatchMode=yes",
@@ -103,8 +112,8 @@ func controlMasterStartArgs(alias string, connectTimeoutSeconds int) ([]string, 
 		"-o", "ControlMaster=yes",
 		"-o", "ControlPath=" + controlSocketPath(),
 		"-o", "ControlPersist=" + defaultControlPersist,
-		alias,
-	}, nil
+	}
+	return append(args, destination.Args()...), nil
 }
 
 func runSSHCommand(ctx context.Context, options OpenOptions, args []string) error {
@@ -148,32 +157,37 @@ func runSSHCommand(ctx context.Context, options OpenOptions, args []string) erro
 }
 
 func ensureControlMaster(ctx context.Context, alias string, options OpenOptions) error {
-	if err := ensureSSHControlDir(); err != nil {
+	if _, err := parseDestination(alias); err != nil {
 		return err
 	}
-	checkArgs, err := controlCheckArgs(alias)
-	if err != nil {
-		return err
-	}
-	limits := options.Limits.withDefaults()
-	checkCtx, cancelCheck := context.WithTimeout(ctx, limits.ConnectTimeout)
-	err = runSSHCommand(checkCtx, options, checkArgs)
-	cancelCheck()
-	if err == nil {
+	return withDestinationCoordinator(alias, func() error {
+		if AuthAttemptActive(alias) {
+			return ErrAuthAttemptActive
+		}
+		checkArgs, err := controlCheckArgs(alias)
+		if err != nil {
+			return err
+		}
+		limits := options.Limits.withDefaults()
+		checkCtx, cancelCheck := context.WithTimeout(ctx, limits.ConnectTimeout)
+		err = runSSHCommand(checkCtx, options, checkArgs)
+		cancelCheck()
+		if err == nil {
+			return nil
+		} else if errors.Is(err, ErrStderrLimit) || ctx.Err() != nil {
+			return err
+		}
+		startArgs, err := controlMasterStartArgs(alias, int(limits.ConnectTimeout.Seconds()))
+		if err != nil {
+			return err
+		}
+		startCtx, cancel := context.WithTimeout(ctx, limits.ConnectTimeout)
+		defer cancel()
+		if err := runSSHCommand(startCtx, options, startArgs); err != nil {
+			return fmt.Errorf("start SSH control master: %w", err)
+		}
 		return nil
-	} else if errors.Is(err, ErrStderrLimit) || ctx.Err() != nil {
-		return err
-	}
-	startArgs, err := controlMasterStartArgs(alias, int(limits.ConnectTimeout.Seconds()))
-	if err != nil {
-		return err
-	}
-	startCtx, cancel := context.WithTimeout(ctx, limits.ConnectTimeout)
-	defer cancel()
-	if err := runSSHCommand(startCtx, options, startArgs); err != nil {
-		return fmt.Errorf("start SSH control master: %w", err)
-	}
-	return nil
+	})
 }
 
 // ExitControlMaster asks OpenSSH to drop coSlash's multiplexed master for alias.

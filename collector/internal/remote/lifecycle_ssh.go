@@ -28,7 +28,7 @@ type SSHLifecycleRemote struct {
 }
 
 func NewSSHLifecycleRemote(alias string, options OpenOptions) (*SSHLifecycleRemote, error) {
-	if !aliasPattern.MatchString(alias) {
+	if _, err := parseDestination(alias); err != nil {
 		return nil, ErrInvalidAlias
 	}
 	return &SSHLifecycleRemote{Alias: alias, Options: options}, nil
@@ -183,11 +183,16 @@ func (remote *SSHLifecycleRemote) runStagedInstaller(ctx context.Context, stagin
 	}
 	runCtx, cancel := context.WithTimeout(ctx, min(limits.Deadline, DefaultHelperInstallTimeout))
 	defer cancel()
+	destination, err := parseDestination(remote.Alias)
+	if err != nil {
+		return err
+	}
 	args := []string{
 		"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(int(limits.ConnectTimeout.Seconds())),
 		"-o", "ControlMaster=auto", "-o", "ControlPath=" + controlSocketPath(), "-o", "ControlPersist=" + defaultControlPersist,
-		remote.Alias, shellQuote(staging) + " install " + shellQuote(home) + " " + shellQuote(version) + " " + shellQuote(sha256),
 	}
+	args = append(args, destination.Args()...)
+	args = append(args, shellQuote(staging)+" install "+shellQuote(home)+" "+shellQuote(version)+" "+shellQuote(sha256))
 	cmd := command(runCtx, bin, args...)
 	stdout := &boundedCommandOutput{limit: 128, cancel: cancel}
 	stderr := &boundedCommandOutput{limit: limits.MaxStderrBytes, cancel: cancel}

@@ -218,6 +218,7 @@ function SessionsStats({
   loadFailed,
   timeWindow,
   onRemoteRetry,
+  onRemoteAuthenticate,
   remoteRetryInFlight,
 }: {
   sessions: Session[];
@@ -226,6 +227,7 @@ function SessionsStats({
   loadFailed: boolean;
   timeWindow: TimeWindow;
   onRemoteRetry: () => void;
+  onRemoteAuthenticate: () => void;
   remoteRetryInFlight: boolean;
 }) {
   if (loadFailed) return null;
@@ -257,6 +259,7 @@ function SessionsStats({
         machines={machines}
         sessions={activitySessions}
         onRemoteRetry={onRemoteRetry}
+        onRemoteAuthenticate={onRemoteAuthenticate}
         remoteRetryInFlight={remoteRetryInFlight}
       />
     </div>
@@ -561,6 +564,7 @@ export function CoslashPage() {
                   loadFailed={loadError != null}
                   timeWindow={timeWindow}
                   onRemoteRetry={handleRemoteRetry}
+                  onRemoteAuthenticate={() => setSettingsDialogMode('full-settings')}
                   remoteRetryInFlight={remoteRetryInFlight}
                 />
               </LoadingSpinner>
