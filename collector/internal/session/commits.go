@@ -31,7 +31,7 @@ type CommitObservation struct {
 }
 
 func ParseCommitObservations(command, output string, succeeded bool) []CommitObservation {
-	invocations := commitInvocations(command)
+	invocations := ParseCommitAttempts(command)
 	hashes := commitOutputHashes(output)
 	if len(invocations) == len(hashes) {
 		for i := range invocations {
@@ -46,18 +46,6 @@ func ParseCommitObservations(command, output string, succeeded bool) []CommitObs
 }
 
 func ParseCommitAttempts(command string) []CommitObservation {
-	return commitInvocations(command)
-}
-
-func commitOutputHashes(output string) []string {
-	hashes := []string{}
-	for _, match := range commitHashToken.FindAllStringSubmatch(output, -1) {
-		hashes = append(hashes, match[1])
-	}
-	return hashes
-}
-
-func commitInvocations(command string) []CommitObservation {
 	matches := gitCommitCommand.FindAllStringSubmatchIndex(maskQuotedShellText(command), -1)
 	observations := make([]CommitObservation, 0, len(matches))
 	for _, match := range matches {
@@ -72,6 +60,14 @@ func commitInvocations(command string) []CommitObservation {
 		})
 	}
 	return observations
+}
+
+func commitOutputHashes(output string) []string {
+	hashes := []string{}
+	for _, match := range commitHashToken.FindAllStringSubmatch(output, -1) {
+		hashes = append(hashes, match[1])
+	}
+	return hashes
 }
 
 func maskQuotedShellText(command string) string {
