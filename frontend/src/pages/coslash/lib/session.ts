@@ -77,8 +77,7 @@ export type Session = {
   files: number;
   durationMs: number | null;
   tokens: Record<string, ModelTokens>;
-  cost: number;
-  costKnown?: boolean;
+  cost: number | null;
   unpricedModels: string[];
   subagents: Subagent[];
   mtime: number;
@@ -483,8 +482,4 @@ export function getTotalTokens(tokens: Session['tokens']): number {
 
 export function hasTokenUsage(tokens: Session['tokens']): boolean {
   return Object.keys(tokens).length > 0;
-}
-
-export function costIsAvailable(session: Pick<Session, 'costKnown' | 'tokens'>): boolean {
-  return session.costKnown === true || hasTokenUsage(session.tokens);
 }

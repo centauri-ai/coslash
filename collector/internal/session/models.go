@@ -116,12 +116,16 @@ func UnpricedModels(tokens map[string]ModelTokens) []string {
 }
 
 func AttachCost(s *Session, recorded *float64) {
-	s.CostKnown = recorded != nil
 	if recorded != nil {
-		s.Cost = *recorded
+		cost := *recorded
+		s.Cost = &cost
 		s.UnpricedModels = []string{}
-	} else {
-		s.Cost = EstimatedCost(s.Tokens)
+	} else if len(s.Tokens) > 0 {
+		cost := EstimatedCost(s.Tokens)
+		s.Cost = &cost
 		s.UnpricedModels = UnpricedModels(s.Tokens)
+	} else {
+		s.Cost = nil
+		s.UnpricedModels = []string{}
 	}
 }

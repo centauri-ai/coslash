@@ -30,7 +30,7 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 		WorkingDirectory: filepath.Join(root, "collector"),
 		Repository:       &repository, StartedAt: 7_000, LastActivityTime: 10_000, DurationMs: intPointerForTest(2_000),
 		Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 12, OutputTokens: 3, Cost: 0.25}},
-		Cost:   0.25,
+		Cost:   float64Pointer(0.25),
 		Subagents: []session.Subagent{{
 			ID: "local-subagent-id-secret", Name: "local-subagent-name-secret", Status: session.SubagentReturned,
 			Task: "local-subagent-task-secret", Result: "local-subagent-result-secret",
@@ -248,7 +248,7 @@ func TestBuildMergesModelNamesThatCollideAfterTruncation(t *testing.T) {
 			first:  {InputTokens: 2, Cost: 0.25},
 			second: {OutputTokens: 3, Cost: 0.50},
 		},
-		Cost: 0.75, UnpricedModels: []string{first, second},
+		Cost: float64Pointer(0.75), UnpricedModels: []string{first, second},
 	}
 
 	snapshot, err := Build(local, BuildOptions{CollectorVersion: "0.1.0"})
@@ -463,7 +463,8 @@ func TestMetadataPointersUseExportedStructure(t *testing.T) {
 	}
 }
 
-func intPointerForTest(value int) *int { return &value }
+func intPointerForTest(value int) *int      { return &value }
+func float64Pointer(value float64) *float64 { return &value }
 
 func assertMetadataPointersResolve(t *testing.T, data []byte, snapshot snapshotv1.Snapshot) {
 	t.Helper()

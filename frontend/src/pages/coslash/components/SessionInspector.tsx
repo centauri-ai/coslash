@@ -55,7 +55,6 @@ import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
   boardStatusKey,
-  costIsAvailable,
   displayStatusLabel,
   environmentFact,
   getModality,
@@ -296,7 +295,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
           <SessionModelUsage agent={detail.agent} model={detail.model} tokens={detail.tokens} />
           <span className="font-bold">
             <UnpricedModelWarning unpriced={detail.unpricedModels}>
-              {costIsAvailable(detail) ? formatEstimatedCost(detail.cost) : '—'}
+              {detail.cost == null ? '—' : formatEstimatedCost(detail.cost)}
             </UnpricedModelWarning>
           </span>
         </div>

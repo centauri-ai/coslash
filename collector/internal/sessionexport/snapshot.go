@@ -55,7 +55,11 @@ func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, er
 		truncation: []snapshotv1.Truncation{},
 		redactions: []snapshotv1.Redaction{},
 	}
-	usage, err := b.usage(local.Tokens, local.Cost, local.UnpricedModels, "/session/usage")
+	cost := 0.0
+	if local.Cost != nil {
+		cost = *local.Cost
+	}
+	usage, err := b.usage(local.Tokens, cost, local.UnpricedModels, "/session/usage")
 	if err != nil {
 		return snapshotv1.Snapshot{}, err
 	}

@@ -14,19 +14,23 @@ func subagentFrom(
 	claudeWorkflowAgent *claude.WorkflowAgent,
 ) session.Subagent {
 	s := child.Session
+	cost := 0.0
+	if s.Cost != nil {
+		cost = *s.Cost
+	}
 	subagent := session.Subagent{
 		ID:         s.ID,
 		ParentID:   parent.Session.ID,
 		Name:       cmp.Or(child.Name, s.ID),
 		Model:      s.Model,
 		Status:     subagentStatus(child, parent, metadata),
-		Task:       session.Truncate(cmp.Or(metadata.Relationships[s.ID].Task, deref(s.FirstPrompt)), session.TruncateTextLimit),
+		Task:       session.Truncate(cmp.Or(metadata.Session(s.ID).Relationship.Task, deref(s.FirstPrompt)), session.TruncateTextLimit),
 		Result:     session.Truncate(cmp.Or(child.Result, deref(s.Summary)), session.TruncateTextLimit),
 		DurationMs: s.DurationMs,
 		ToolUses:   s.ToolUses,
 		Commands:   child.Commands,
 		Tokens:     s.Tokens,
-		Cost:       s.Cost,
+		Cost:       cost,
 	}
 	if spawn, ok := parent.Spawns[child.SpawnKey]; ok {
 		subagent.SpawnedAtTurn = spawn.Turn
@@ -66,7 +70,7 @@ func subagentStatus(
 		if !child.InTurn {
 			return session.SubagentReturned
 		}
-		if _, live := metadata.Live[child.Session.ID]; live {
+		if metadata.Session(child.Session.ID).Live != "" {
 			return session.SubagentRunning
 		}
 		return session.SubagentAborted
@@ -88,7 +92,7 @@ func subagentStatus(
 			return session.SubagentReturned
 		}
 		// The transcript stops mid-turn when the run dies with its parent.
-		if _, live := metadata.Live[parent.Session.ID]; !live {
+		if metadata.Session(parent.Session.ID).Live == "" {
 			return session.SubagentAborted
 		}
 	}

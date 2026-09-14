@@ -47,8 +47,7 @@ type CachedSession struct {
 	Branch           *string                        `json:"branch,omitempty"`
 	DurationMs       *int                           `json:"durationMs,omitempty"`
 	Tokens           map[string]session.ModelTokens `json:"tokens,omitempty"`
-	Cost             float64                        `json:"cost,omitempty"`
-	CostKnown        bool                           `json:"costKnown,omitempty"`
+	Cost             *float64                       `json:"cost,omitempty"`
 	UnpricedModels   []string                       `json:"unpricedModels,omitempty"`
 	StartedAt        int64                          `json:"startedAt"`
 	LastActivityTime int64                          `json:"lastActivityAt"`
@@ -85,7 +84,7 @@ func (cached CachedSnapshot) sessions() []*session.Session {
 		result = append(result, &session.Session{
 			Agent: item.Agent, ID: item.ID, Name: item.Name, Status: item.Status,
 			Branch: item.Branch, DurationMs: item.DurationMs, Tokens: tokens,
-			Cost: item.Cost, CostKnown: item.CostKnown, UnpricedModels: append([]string{}, item.UnpricedModels...),
+			Cost: item.Cost, UnpricedModels: append([]string{}, item.UnpricedModels...),
 			Subagents: []session.Subagent{},
 			StartedAt: item.StartedAt, LastActivityTime: item.LastActivityTime,
 			Entrypoint: item.Entrypoint, EditedFileCount: item.EditedFileCount,

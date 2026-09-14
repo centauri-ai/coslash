@@ -60,7 +60,7 @@ export function handoffBrief(detail: SessionDetail): string {
     `- Working directory: ${environmentFact(detail.cwd)}`,
     `- Runtime: ${formatDuration(detail.durationMs)}`,
     `- Tokens: ${formatTokens(getTotalTokens(detail.tokens))}`,
-    `- ${costLabel}: ${formatEstimatedCost(detail.cost)}`,
+    `- ${costLabel}: ${detail.cost == null ? 'unknown' : formatEstimatedCost(detail.cost)}`,
     `- Errors: ${detail.errors}; subagents: ${detail.subagents.length}`,
   ].join('\n');
 }

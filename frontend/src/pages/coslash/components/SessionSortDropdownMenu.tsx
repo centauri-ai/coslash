@@ -37,7 +37,7 @@ function sortValue(session: Session, key: SortKey): number {
     case SortKey.Status:
       return STATUS_ORDER.length - STATUS_ORDER.indexOf(boardStatusKey(session));
     case SortKey.Value:
-      return session.cost;
+      return session.cost ?? 0;
     case SortKey.Tokens:
       return getTotalTokens(session.tokens);
     case SortKey.Duration:

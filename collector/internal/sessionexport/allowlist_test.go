@@ -32,7 +32,6 @@ var census = map[string]decision{
 	"DurationMs":          {true, "session.durationMs"},
 	"Tokens":              {true, "session.usage.models, sorted by model"},
 	"Cost":                {true, "session.usage.estimatedCostMicroUsd, frozen as integer"},
-	"CostKnown":           {false, "display-only distinction between unknown and recorded zero cost"},
 	"UnpricedModels":      {true, "session.usage.unpricedModels"},
 	"Subagents":           {false, "subagent task, result, and command details remain local"},
 	"StartedAt":           {true, "envelope sessionStartedAtMs"},

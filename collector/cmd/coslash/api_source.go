@@ -134,7 +134,7 @@ func remoteLibrarySession(value session.Session) session.Session {
 		Agent: value.Agent, ID: value.ID, Name: value.Name, Status: value.Status,
 		Branch: value.Branch, Repository: repository, RepositoryLocalOnly: value.RepositoryLocalOnly,
 		EditedFileCount: value.EditedFileCount, DurationMs: value.DurationMs,
-		Tokens: value.Tokens, Cost: value.Cost, CostKnown: value.CostKnown, UnpricedModels: value.UnpricedModels,
+		Tokens: value.Tokens, Cost: value.Cost, UnpricedModels: value.UnpricedModels,
 		StartedAt: value.StartedAt, LastActivityTime: value.LastActivityTime, Entrypoint: value.Entrypoint,
 		SessionDetails: session.SessionDetails{
 			Model: value.Model, ContextTokens: value.ContextTokens, ContextWindow: value.ContextWindow,
