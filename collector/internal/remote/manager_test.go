@@ -358,6 +358,11 @@ func TestManagerReverifiesHelperBeforeEveryRefresh(t *testing.T) {
 	if health, _ := manager.setupHelper(context.Background(), "", Consent{Install: true}); health.Helper == nil || !health.Helper.Compatible {
 		t.Fatalf("setup health = %#v", health)
 	}
+	waitUntil(t, func() bool {
+		manager.mu.Lock()
+		defer manager.mu.Unlock()
+		return !manager.refreshing
+	})
 
 	targetPath, _ := helperPath(artifact.Version)
 	modified := remote.files[targetPath]
