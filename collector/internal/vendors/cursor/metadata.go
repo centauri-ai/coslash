@@ -35,27 +35,35 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
 	lanes := map[string]map[string]bool{}
 	globalStorage := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage")
-	loadCursorRows(metadata, lanes, entrypointIDE, filepath.Join(globalStorage, "state.vscdb"), `SELECT composerId, value FROM composerHeaders`, func(id, value string) (string, string, string) {
-		var header struct {
-			Name                string `json:"name"`
-			Subtitle            string `json:"subtitle"`
-			WorkspaceIdentifier struct {
-				URI struct {
-					FSPath string `json:"fsPath"`
-				} `json:"uri"`
-			} `json:"workspaceIdentifier"`
-		}
-		_ = json.Unmarshal([]byte(value), &header)
-		if cwd := strings.TrimSpace(header.WorkspaceIdentifier.URI.FSPath); cwd != "" {
-			metadata.WorkingDirectories[id] = cwd
-		}
-		return id, header.Name, header.Subtitle
-	})
-	loadIDETimes(metadata, filepath.Join(globalStorage, "state.vscdb"))
-	loadIDEDiffs(metadata, filepath.Join(globalStorage, "state.vscdb"))
-	loadIDECommitObservations(metadata, filepath.Join(globalStorage, "state.vscdb"))
-	loadIDEModels(metadata, filepath.Join(globalStorage, "state.vscdb"))
-	loadIDERelationships(metadata, filepath.Join(globalStorage, "state.vscdb"))
+	statePath := filepath.Join(globalStorage, "state.vscdb")
+	stateDB, stateErr := openCursorDB(statePath)
+	if stateErr != nil && !os.IsNotExist(stateErr) {
+		log.Printf("Cursor metadata %q: %v", statePath, stateErr)
+	}
+	if stateDB != nil {
+		defer stateDB.Close()
+		loadCursorRowsDB(metadata, lanes, entrypointIDE, statePath, stateDB, `SELECT composerId, value FROM composerHeaders`, func(id, value string) (string, string, string) {
+			var header struct {
+				Name                string `json:"name"`
+				Subtitle            string `json:"subtitle"`
+				WorkspaceIdentifier struct {
+					URI struct {
+						FSPath string `json:"fsPath"`
+					} `json:"uri"`
+				} `json:"workspaceIdentifier"`
+			}
+			_ = json.Unmarshal([]byte(value), &header)
+			if cwd := strings.TrimSpace(header.WorkspaceIdentifier.URI.FSPath); cwd != "" {
+				metadata.WorkingDirectories[id] = cwd
+			}
+			return id, header.Name, header.Subtitle
+		})
+		loadIDETimes(metadata, stateDB)
+		loadIDEDiffs(metadata, stateDB)
+		loadIDECommitObservations(metadata, stateDB)
+		loadIDEModelsDB(metadata, stateDB)
+		loadIDERelationships(metadata, stateDB)
+	}
 	loadCursorRows(metadata, lanes, "", filepath.Join(globalStorage, "conversation-search.db"), `SELECT id, title FROM conversations ORDER BY source = 'local' DESC`, func(id, title string) (string, string, string) {
 		return id, title, ""
 	})
@@ -129,12 +137,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 
 var fullCommitHash = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)
 
-func loadIDECommitObservations(metadata *vendors.SessionMetadata, path string) {
-	db, err := openCursorDB(path)
-	if err != nil {
-		return
-	}
-	defer db.Close()
+func loadIDECommitObservations(metadata *vendors.SessionMetadata, db *sql.DB) {
 	rows, err := db.Query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'`)
 	if err != nil {
 		return
@@ -207,12 +210,7 @@ type ideCheckpoint struct {
 	} `json:"inlineDiffNewlyCreatedResources"`
 }
 
-func loadIDEDiffs(metadata *vendors.SessionMetadata, path string) {
-	db, err := openCursorDB(path)
-	if err != nil {
-		return
-	}
-	defer db.Close()
+func loadIDEDiffs(metadata *vendors.SessionMetadata, db *sql.DB) {
 	rows, err := db.Query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'`)
 	if err != nil {
 		return
@@ -281,12 +279,7 @@ func checkpointFileEdits(checkpoint ideCheckpoint) []session.FileEdit {
 	return edits.Edits
 }
 
-func loadIDETimes(metadata *vendors.SessionMetadata, path string) {
-	db, err := openCursorDB(path)
-	if err != nil {
-		return
-	}
-	defer db.Close()
+func loadIDETimes(metadata *vendors.SessionMetadata, db *sql.DB) {
 	rows, err := db.Query(`SELECT composerId, createdAt, lastUpdatedAt FROM composerHeaders`)
 	if err != nil {
 		return
@@ -340,12 +333,7 @@ func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, las
 	}
 }
 
-func loadIDERelationships(metadata *vendors.SessionMetadata, path string) {
-	db, err := openCursorDB(path)
-	if err != nil {
-		return
-	}
-	defer db.Close()
+func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB) {
 
 	headers, err := db.Query(`SELECT composerId, value FROM composerHeaders`)
 	if err != nil {
@@ -451,6 +439,10 @@ func loadIDEModels(metadata *vendors.SessionMetadata, path string) {
 		return
 	}
 	defer db.Close()
+	loadIDEModelsDB(metadata, db)
+}
+
+func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB) {
 	rows, err := db.Query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' OR key LIKE 'composerData:%'`)
 	if err != nil {
 		return
@@ -641,6 +633,10 @@ func loadCursorRows(metadata *vendors.SessionMetadata, lanes map[string]map[stri
 		return
 	}
 	defer db.Close()
+	loadCursorRowsDB(metadata, lanes, lane, path, db, query, decode)
+}
+
+func loadCursorRowsDB(metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path string, db *sql.DB, query string, decode func(string, string) (string, string, string)) {
 	rows, err := db.Query(query)
 	if err != nil {
 		log.Printf("Cursor metadata %q: %v", path, err)
