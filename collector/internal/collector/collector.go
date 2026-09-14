@@ -70,14 +70,6 @@ func List(since int64) ([]*session.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	return finalizeList(parsed, metadata, since), nil
-}
-
-func finalizeList(
-	parsed []*vendors.ParsedSession,
-	metadata map[string]*vendors.SessionMetadata,
-	since int64,
-) []*session.Session {
 	roots := finalizeSessions(parsed, metadata)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
@@ -92,7 +84,7 @@ func finalizeList(
 	for _, root := range roots {
 		sessions = append(sessions, root.Session)
 	}
-	return sessions
+	return sessions, nil
 }
 
 // GetSessionForPreview returns the selected fully composed session family.
