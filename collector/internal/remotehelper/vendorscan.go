@@ -86,7 +86,7 @@ func scanClaude(
 	result.scan.candidateFiles = len(found.Files)
 	selected := found.Files
 	if since > 0 {
-		selected = claude.FilesSinceSource(source, found.Files, metadata.Live, selectionSince(since))
+		selected = claude.FilesSinceSource(source, found.Files, metadata.LiveSessions(), selectionSince(since))
 	}
 	selected, _ = vendors.LimitNewestSourceFileFamilies(
 		source, selected, vendors.MaxCandidateFilesPerAgent, claude.FamilyIDFromPath,
@@ -114,7 +114,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 				return nil, err
 			}
 			for id := range live {
-				metadata.Live[id] = "interactive"
+				metadata.Session(id).Live = "interactive"
 			}
 			return metadata, nil
 		},
@@ -163,7 +163,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 	roots := codex.FamilyRoots(headers)
 	selected := found.Files
 	if request.SinceMs > 0 {
-		selected = codex.FilesSinceSource(source, found.Files, metadata.Live, selectionSince(request.SinceMs))
+		selected = codex.FilesSinceSource(source, found.Files, metadata.LiveSessions(), selectionSince(request.SinceMs))
 	}
 	selected, _ = vendors.LimitNewestSourceFileFamilies(
 		source, selected, vendors.MaxCandidateFilesPerAgent,

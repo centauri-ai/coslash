@@ -43,7 +43,7 @@ func TestLoadIDEModelsKeepsContextSeparateFromTokenUsage(t *testing.T) {
 
 	metadata := vendors.EmptySessionMetadata()
 	loadIDEModels(metadata, path)
-	usage := metadata.Usage[id]
+	usage := metadata.Session(id).Usage
 	if len(usage.Tokens) != 0 {
 		t.Fatalf("context usage fabricated token buckets: %#v", usage.Tokens)
 	}

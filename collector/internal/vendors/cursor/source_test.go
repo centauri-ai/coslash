@@ -49,8 +49,8 @@ func TestSelectCursorFilesKeepsLiveSideStoreFamilyAtCap(t *testing.T) {
 	modifications[childPath] = 5000
 
 	metadata := vendors.EmptySessionMetadata()
-	metadata.Live[child] = "interactive"
-	metadata.Relationships[child] = vendors.SessionRelationship{ParentID: root}
+	metadata.Session(child).Live = "interactive"
+	metadata.Session(child).Relationship = vendors.SessionRelationship{ParentID: root}
 	got := selectCursorFilesSource(newCursorSelectionSource(modifications), files, 2000, metadata)
 
 	if len(got) != vendors.MaxCandidateFilesPerAgent {

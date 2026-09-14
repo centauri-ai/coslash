@@ -73,7 +73,7 @@ func List(since int64) ([]*session.Session, error) {
 	roots := finalizeSessions(parsed, metadata)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
-			_, live := sessionMetadata(metadata, root.Session.Agent).Live[root.Session.ID]
+			live := sessionMetadata(metadata, root.Session.Agent).Session(root.Session.ID).Live != ""
 			return !live && root.Session.LastActivityTime < since
 		})
 	}
@@ -309,7 +309,7 @@ func ListRemote(
 	roots := finalizeSessionsSource(parsed, metadata, source)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
-			_, live := sessionMetadata(metadata, root.Session.Agent).Live[root.Session.ID]
+			live := sessionMetadata(metadata, root.Session.Agent).Session(root.Session.ID).Live != ""
 			return !live && root.Session.LastActivityTime < since
 		})
 	}
@@ -452,7 +452,7 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
 	for _, p := range roots {
 		s := p.Session
-		if name := cmp.Or(sessionMetadata(metadata, s.Agent).Names[s.ID], p.Name); name != "" {
+		if name := cmp.Or(sessionMetadata(metadata, s.Agent).Session(s.ID).Name, p.Name); name != "" {
 			s.Name = &name
 		}
 	}
@@ -460,7 +460,7 @@ func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.S
 
 func resolveModels(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
 	for _, p := range parsed {
-		if value := sessionMetadata(metadata, p.Session.Agent).Models[p.Session.ID]; value != "" {
+		if value := sessionMetadata(metadata, p.Session.Agent).Session(p.Session.ID).Model; value != "" {
 			p.Session.Model = &value
 		}
 	}
@@ -468,7 +468,7 @@ func resolveModels(parsed []*vendors.ParsedSession, metadata map[string]*vendors
 
 func resolveUsage(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
 	for _, p := range parsed {
-		usage := sessionMetadata(metadata, p.Session.Agent).Usage[p.Session.ID]
+		usage := sessionMetadata(metadata, p.Session.Agent).Session(p.Session.ID).Usage
 		if len(usage.Tokens) > 0 {
 			p.Session.Tokens = usage.Tokens
 		}
@@ -486,7 +486,7 @@ func resolveUsage(parsed []*vendors.ParsedSession, metadata map[string]*vendors.
 
 func resolvePullRequests(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
 	for _, p := range parsed {
-		p.Session.PullRequests = max(p.Session.PullRequests, sessionMetadata(metadata, p.Session.Agent).PullRequests[p.Session.ID])
+		p.Session.PullRequests = max(p.Session.PullRequests, sessionMetadata(metadata, p.Session.Agent).Session(p.Session.ID).PullRequests)
 	}
 }
 
@@ -494,10 +494,10 @@ func resolveSummariesAndEntrypoints(roots []*vendors.ParsedSession, metadata map
 	for _, p := range roots {
 		s := p.Session
 		m := sessionMetadata(metadata, s.Agent)
-		if value := m.Summaries[s.ID]; value != "" {
+		if value := m.Session(s.ID).Summary; value != "" {
 			s.Summary = &value
 		}
-		if value := m.Entrypoints[s.ID]; value != "" {
+		if value := m.Session(s.ID).Entrypoint; value != "" {
 			s.Entrypoint = &value
 		}
 	}
@@ -511,7 +511,8 @@ func resolveStatus(
 	now := time.Now().UnixMilli()
 	for _, p := range roots {
 		s := p.Session
-		raw, live := sessionMetadata(metadata, s.Agent).Live[s.ID]
+		raw := sessionMetadata(metadata, s.Agent).Session(s.ID).Live
+		live := raw != ""
 		if deref(s.Status) == "waiting" && (!livenessAuthoritative || live) {
 			continue
 		}

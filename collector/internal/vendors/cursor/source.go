@@ -50,7 +50,7 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
 	applyRelationships([]*vendors.ParsedSession{parsed}, metadata)
-	if entrypoint := metadata.Entrypoints[id]; entrypoint != "" {
+	if entrypoint := metadata.Session(id).Entrypoint; entrypoint != "" {
 		parsed.Session.Entrypoint = &entrypoint
 	}
 	return parsed, nil
@@ -93,13 +93,13 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 	for _, item := range parsed {
 		if item != nil && item.Session != nil {
 			byID[item.Session.ID] = item
-			applyMetadataTimes(item.Session, metadata.StartedAt[item.Session.ID], metadata.LastActivityAt[item.Session.ID])
-			if cwd := metadata.WorkingDirectories[item.Session.ID]; cwd != "" {
+			applyMetadataTimes(item.Session, metadata.Session(item.Session.ID).StartedAt, metadata.Session(item.Session.ID).LastActivityAt)
+			if cwd := metadata.Session(item.Session.ID).WorkingDirectory; cwd != "" {
 				item.Session.WorkingDirectory = cwd
 			}
-			mergeIDEFileEdits(item.Session, metadata.FileEdits[item.Session.ID])
-			item.Session.CommitLog = append(item.Session.CommitLog, metadata.CommitObservations[item.Session.ID]...)
-			if name := metadata.Names[item.Session.ID]; name != "" {
+			mergeIDEFileEdits(item.Session, metadata.Session(item.Session.ID).FileEdits)
+			item.Session.CommitLog = append(item.Session.CommitLog, metadata.Session(item.Session.ID).CommitObservations...)
+			if name := metadata.Session(item.Session.ID).Name; name != "" {
 				item.Name = name
 			}
 		}
@@ -108,8 +108,12 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 		childID string
 		value   vendors.SessionRelationship
 	}
-	relationships := make([]relationship, 0, len(metadata.Relationships))
-	for childID, value := range metadata.Relationships {
+	relationships := make([]relationship, 0, len(metadata.Sessions))
+	for childID, enrichment := range metadata.Sessions {
+		value := enrichment.Relationship
+		if value.ParentID == "" {
+			continue
+		}
 		if _, ok := byID[childID]; ok {
 			relationships = append(relationships, relationship{childID: childID, value: value})
 		}
@@ -232,7 +236,8 @@ func selectCursorFilesSource(
 			union.union(id, parentID)
 		}
 	}
-	for childID, relationship := range metadata.Relationships {
+	for childID, enrichment := range metadata.Sessions {
+		relationship := enrichment.Relationship
 		if relationship.ParentID != "" {
 			union.union(childID, relationship.ParentID)
 		}
@@ -250,10 +255,10 @@ func selectCursorFilesSource(
 			continue
 		}
 		modifiedAt := modified.ModTime().UnixMilli()
-		if since <= 0 || modifiedAt >= since || metadata.StartedAt[id] >= since || metadata.LastActivityAt[id] >= since {
+		if since <= 0 || modifiedAt >= since || metadata.Session(id).StartedAt >= since || metadata.Session(id).LastActivityAt >= since {
 			eligibleFamilies[familyID] = true
 		}
-		if _, live := metadata.Live[id]; live {
+		if metadata.Session(id).Live != "" {
 			eligibleFamilies[familyID] = true
 		}
 	}

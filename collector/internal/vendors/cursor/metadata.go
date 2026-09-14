@@ -54,7 +54,7 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			}
 			_ = json.Unmarshal([]byte(value), &header)
 			if cwd := strings.TrimSpace(header.WorkspaceIdentifier.URI.FSPath); cwd != "" {
-				metadata.WorkingDirectories[id] = cwd
+				metadata.Session(id).WorkingDirectory = cwd
 			}
 			return id, header.Name, header.Subtitle
 		})
@@ -88,11 +88,11 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			}
 			_ = json.Unmarshal(data, &item)
 			if transcriptIDPattern.MatchString(item.AgentID) {
-				metadata.Models[item.AgentID] = normalizeCursorModel(item.LastUsedModel)
+				metadata.Session(item.AgentID).Model = normalizeCursorModel(item.LastUsedModel)
 				setCursorTimes(metadata, item.AgentID, item.CreatedAt, 0)
 			}
 			if transcriptIDPattern.MatchString(item.AgentID) && transcriptIDPattern.MatchString(item.SubagentInfo.ParentAgentID) {
-				metadata.Relationships[item.AgentID] = vendors.SessionRelationship{
+				metadata.Session(item.AgentID).Relationship = vendors.SessionRelationship{
 					ParentID: item.SubagentInfo.ParentAgentID,
 					SpawnKey: item.SubagentInfo.ToolCallID,
 					Task:     item.SubagentInfo.TypeName,
@@ -113,23 +113,20 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 	loadCursorSummaries(metadata, filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db"))
 	for id, matches := range lanes {
 		if len(matches) != 1 {
-			delete(metadata.Models, id)
-			delete(metadata.PullRequests, id)
-			delete(metadata.Usage, id)
-			delete(metadata.WorkingDirectories, id)
-			delete(metadata.StartedAt, id)
-			delete(metadata.LastActivityAt, id)
-			delete(metadata.FileEdits, id)
-			delete(metadata.CommitObservations, id)
+			entry := metadata.Session(id)
+			entry.Model, entry.WorkingDirectory = "", ""
+			entry.PullRequests, entry.StartedAt, entry.LastActivityAt = 0, 0, 0
+			entry.Usage = vendors.SessionUsage{}
+			entry.FileEdits, entry.CommitObservations = nil, nil
 			continue
 		}
 		for lane := range matches {
-			metadata.Entrypoints[id] = lane
+			metadata.Session(id).Entrypoint = lane
 		}
 	}
 	for id, lane := range loadLiveSessions() {
-		if lane != "" && metadata.Entrypoints[id] == lane {
-			metadata.Live[id] = "interactive"
+		if lane != "" && metadata.Session(id).Entrypoint == lane {
+			metadata.Session(id).Live = "interactive"
 		}
 	}
 	return metadata, nil
@@ -159,7 +156,8 @@ func loadIDECommitObservations(metadata *vendors.SessionMetadata, db *sql.DB) {
 			}
 			if !seen[parts[1]][observation.Hash] {
 				seen[parts[1]][observation.Hash] = true
-				metadata.CommitObservations[parts[1]] = append(metadata.CommitObservations[parts[1]], observation)
+				entry := metadata.Session(parts[1])
+				entry.CommitObservations = append(entry.CommitObservations, observation)
 			}
 		}
 	}
@@ -239,7 +237,7 @@ func loadIDEDiffs(metadata *vendors.SessionMetadata, db *sql.DB) {
 		if json.Unmarshal([]byte(value), &checkpoint) != nil {
 			continue
 		}
-		metadata.FileEdits[id] = checkpointFileEdits(checkpoint)
+		metadata.Session(id).FileEdits = checkpointFileEdits(checkpoint)
 	}
 }
 
@@ -326,10 +324,10 @@ func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, las
 		return
 	}
 	if startedAt > 0 {
-		metadata.StartedAt[id] = startedAt
+		metadata.Session(id).StartedAt = startedAt
 	}
 	if lastActivityAt > 0 && (startedAt <= 0 || lastActivityAt >= startedAt) {
-		metadata.LastActivityAt[id] = lastActivityAt
+		metadata.Session(id).LastActivityAt = lastActivityAt
 	}
 }
 
@@ -353,7 +351,7 @@ func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB) {
 		if json.Unmarshal([]byte(value), &header) != nil || !transcriptIDPattern.MatchString(header.SubagentInfo.ParentComposerID) {
 			continue
 		}
-		metadata.Relationships[childID] = vendors.SessionRelationship{
+		metadata.Session(childID).Relationship = vendors.SessionRelationship{
 			ParentID: header.SubagentInfo.ParentComposerID,
 			SpawnKey: header.SubagentInfo.ToolCallID,
 		}
@@ -405,7 +403,8 @@ func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB) {
 			if bubble.ToolFormerData.Status != "running" || bubble.ToolFormerData.ToolCallID == "" {
 				continue
 			}
-			for childID, candidate := range metadata.Relationships {
+			for childID, entry := range metadata.Sessions {
+				candidate := entry.Relationship
 				if candidate.ParentID != parts[1] || candidate.SpawnKey != bubble.ToolFormerData.ToolCallID {
 					continue
 				}
@@ -419,8 +418,8 @@ func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB) {
 		if !transcriptIDPattern.MatchString(result.AgentID) {
 			continue
 		}
-		relationship, ok := metadata.Relationships[result.AgentID]
-		if !ok || relationship.ParentID != parts[1] || relationship.SpawnKey != bubble.ToolFormerData.ToolCallID {
+		relationship := metadata.Session(result.AgentID).Relationship
+		if relationship.ParentID != parts[1] || relationship.SpawnKey != bubble.ToolFormerData.ToolCallID {
 			continue
 		}
 		relationship.Task = params.Description
@@ -429,7 +428,7 @@ func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB) {
 		}
 		relationship.Completed = bubble.ToolFormerData.Status == "completed"
 		relationship.Active = bubble.ToolFormerData.Status == "running"
-		metadata.Relationships[result.AgentID] = relationship
+		metadata.Session(result.AgentID).Relationship = relationship
 	}
 }
 
@@ -498,7 +497,7 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB) {
 			}
 		} else if id, ok := strings.CutPrefix(key, "composerData:"); ok && transcriptIDPattern.MatchString(id) {
 			fallbacks[id] = strings.TrimSpace(item.ModelConfig.ModelName)
-			usage := metadata.Usage[id]
+			usage := metadata.Session(id).Usage
 			if item.ContextTokensUsed != nil && *item.ContextTokensUsed >= 0 {
 				usage.ContextTokens = item.ContextTokensUsed
 			}
@@ -516,19 +515,19 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB) {
 			if valid {
 				usage.RecordedCost = &cost
 			}
-			metadata.Usage[id] = usage
+			metadata.Session(id).Usage = usage
 		}
 	}
 	for id, model := range fallbacks {
 		if bubbles[id].model == "" && model != "" {
-			metadata.Models[id] = normalizeCursorModel(model)
+			metadata.Session(id).Model = normalizeCursorModel(model)
 		}
 	}
 	for id, value := range bubbles {
-		metadata.Models[id] = normalizeCursorModel(value.model)
+		metadata.Session(id).Model = normalizeCursorModel(value.model)
 	}
 	for id, urls := range pullRequests {
-		metadata.PullRequests[id] = len(urls)
+		metadata.Session(id).PullRequests = len(urls)
 	}
 }
 
@@ -556,7 +555,7 @@ func loadSDKUsage(metadata *vendors.SessionMetadata, path string) {
 		rawModel := strings.TrimSpace(model)
 		model = normalizeCursorModel(rawModel)
 		if rawModel != "" {
-			metadata.Models[id] = model
+			metadata.Session(id).Model = model
 		}
 		var usage struct {
 			Input      int `json:"inputTokens"`
@@ -567,7 +566,7 @@ func loadSDKUsage(metadata *vendors.SessionMetadata, path string) {
 		if !raw.Valid || json.Unmarshal([]byte(raw.String), &usage) != nil || usage.Input < 0 || usage.Output < 0 || usage.CacheRead < 0 || usage.CacheWrite < 0 {
 			continue
 		}
-		value := metadata.Usage[id]
+		value := metadata.Session(id).Usage
 		context := session.ContextTokens(usage.Input, usage.CacheRead, usage.CacheWrite)
 		value.ContextTokens = &context
 		if model != "" {
@@ -581,7 +580,7 @@ func loadSDKUsage(metadata *vendors.SessionMetadata, path string) {
 			tokens.CacheCreationInputTokens += usage.CacheWrite
 			value.Tokens[model] = tokens
 		}
-		metadata.Usage[id] = value
+		metadata.Session(id).Usage = value
 	}
 }
 
@@ -660,13 +659,13 @@ func loadCursorRowsDB(metadata *vendors.SessionMetadata, lanes map[string]map[st
 		if !transcriptIDPattern.MatchString(id) {
 			continue
 		}
-		if summary != "" && metadata.Summaries[id] == "" {
-			metadata.Summaries[id] = summary
+		if summary != "" && metadata.Session(id).Summary == "" {
+			metadata.Session(id).Summary = summary
 		}
-		if name == "" || strings.EqualFold(name, "New Agent") || metadata.Names[id] != "" {
+		if name == "" || strings.EqualFold(name, "New Agent") || metadata.Session(id).Name != "" {
 			continue
 		}
-		metadata.Names[id] = name
+		metadata.Session(id).Name = name
 	}
 }
 
@@ -693,9 +692,9 @@ func loadCursorSummaries(metadata *vendors.SessionMetadata, path string) {
 			continue
 		}
 		if summary := strings.TrimSpace(tldr.String); tldr.Valid && summary != "" {
-			metadata.Summaries[id] = summary
+			metadata.Session(id).Summary = summary
 		} else if summary := strings.TrimSpace(overview.String); overview.Valid && summary != "" {
-			metadata.Summaries[id] = summary
+			metadata.Session(id).Summary = summary
 		}
 	}
 }

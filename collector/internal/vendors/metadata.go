@@ -27,38 +27,39 @@ type SessionRelationship struct {
 // A Live value of "interactive" gets the busy/idle refinement; anything else
 // passes through. Absent means there is no external live signal; parsed data
 // may still provide a persisted or derived status hint.
+type SessionEnrichment struct {
+	Name, Live, Summary, Entrypoint, WorkingDirectory, Model string
+	StartedAt, LastActivityAt                                int64
+	FileEdits                                                []session.FileEdit
+	CommitObservations                                       []session.CommitObservation
+	PullRequests                                             int
+	Relationship                                             SessionRelationship
+	Usage                                                    SessionUsage
+}
+
 type SessionMetadata struct {
-	Names              map[string]string // id → externally-assigned name; Parsed.Name is the fallback
-	Live               map[string]string // id → raw status
-	Summaries          map[string]string // id → recorded or side-store summary
-	Entrypoints        map[string]string // id → exact source lane
-	WorkingDirectories map[string]string // id → authoritative side-store working directory
-	StartedAt          map[string]int64  // id → authoritative side-store creation time
-	LastActivityAt     map[string]int64  // id → authoritative side-store update time
-	FileEdits          map[string][]session.FileEdit
-	CommitObservations map[string][]session.CommitObservation
-	Models             map[string]string // id → last model observed in source data
-	PullRequests       map[string]int    // id → distinct confirmed or reported PR URLs
-	Relationships      map[string]SessionRelationship
-	Usage              map[string]SessionUsage
+	Sessions map[string]*SessionEnrichment
 }
 
 func EmptySessionMetadata() *SessionMetadata {
-	return &SessionMetadata{
-		Names:              map[string]string{},
-		Live:               map[string]string{},
-		Summaries:          map[string]string{},
-		Entrypoints:        map[string]string{},
-		WorkingDirectories: map[string]string{},
-		StartedAt:          map[string]int64{},
-		LastActivityAt:     map[string]int64{},
-		FileEdits:          map[string][]session.FileEdit{},
-		CommitObservations: map[string][]session.CommitObservation{},
-		Models:             map[string]string{},
-		PullRequests:       map[string]int{},
-		Relationships:      map[string]SessionRelationship{},
-		Usage:              map[string]SessionUsage{},
+	return &SessionMetadata{Sessions: map[string]*SessionEnrichment{}}
+}
+
+func (m *SessionMetadata) Session(id string) *SessionEnrichment {
+	if m.Sessions[id] == nil {
+		m.Sessions[id] = &SessionEnrichment{}
 	}
+	return m.Sessions[id]
+}
+
+func (m *SessionMetadata) LiveSessions() map[string]string {
+	live := map[string]string{}
+	for id, value := range m.Sessions {
+		if value.Live != "" {
+			live[id] = value.Live
+		}
+	}
+	return live
 }
 
 func BestEffortMetadata(
