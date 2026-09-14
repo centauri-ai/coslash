@@ -1,0 +1,445 @@
+package cursor
+
+import (
+	"cmp"
+	"errors"
+	"io/fs"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+)
+
+func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	files, err := Files()
+	if errors.Is(err, fs.ErrNotExist) {
+		return []*vendors.ParsedSession{}, vendors.EmptySessionMetadata(), nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
+	files = selectCursorFilesSource(vendors.LocalReadSource, files, since, metadata)
+	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
+	applyRelationships(parsed, metadata)
+	return parsed, metadata, nil
+}
+
+func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
+	if id == "" {
+		return nil, nil
+	}
+	files, err := Files()
+	if err != nil {
+		return nil, err
+	}
+	fragments := make([]string, 0, 1)
+	for _, path := range files {
+		if IDFromPath(path) == id {
+			fragments = append(fragments, path)
+		}
+	}
+	if len(fragments) == 0 {
+		return nil, nil
+	}
+	parsed, err := parseTranscriptFragmentsSource(vendors.LocalReadSource, fragments)
+	if err != nil || parsed == nil {
+		return parsed, err
+	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
+	applyRelationships([]*vendors.ParsedSession{parsed}, metadata)
+	if entrypoint := metadata.Session(id).Entrypoint; entrypoint != "" {
+		parsed.Session.Entrypoint = &entrypoint
+	}
+	return parsed, nil
+}
+
+func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if id == "" {
+		return nil, vendors.EmptySessionMetadata(), nil
+	}
+	files, err := Files()
+	if err != nil {
+		return nil, vendors.EmptySessionMetadata(), err
+	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
+	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
+	applyRelationships(parsed, metadata)
+	return selectFamily(parsed, id), metadata, nil
+}
+
+func parseTranscriptFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
+	groups := make(map[string][]string, len(files))
+	ids := make([]string, 0, len(files))
+	for _, path := range files {
+		id := IDFromPath(path)
+		if _, exists := groups[id]; !exists {
+			ids = append(ids, id)
+		}
+		groups[id] = append(groups[id], path)
+	}
+	return vendors.ParseFiles(ids, func(id string) (*vendors.ParsedSession, error) {
+		return parseTranscriptFragmentsSource(source, groups[id])
+	})
+}
+
+func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
+	if metadata == nil {
+		metadata = vendors.EmptySessionMetadata()
+	}
+	byID := make(map[string]*vendors.ParsedSession, len(parsed))
+	for _, item := range parsed {
+		if item != nil && item.Session != nil {
+			byID[item.Session.ID] = item
+			applyMetadataTimes(item.Session, metadata.Session(item.Session.ID).StartedAt, metadata.Session(item.Session.ID).LastActivityAt)
+			if cwd := metadata.Session(item.Session.ID).WorkingDirectory; cwd != "" {
+				item.Session.WorkingDirectory = cwd
+			}
+			mergeIDEFileEdits(item.Session, metadata.Session(item.Session.ID).FileEdits)
+			item.Session.CommitLog = append(item.Session.CommitLog, metadata.Session(item.Session.ID).CommitObservations...)
+			if name := metadata.Session(item.Session.ID).Name; name != "" {
+				item.Name = name
+			}
+		}
+	}
+	type relationship struct {
+		childID string
+		value   vendors.SessionRelationship
+	}
+	relationships := make([]relationship, 0, len(metadata.Sessions))
+	for childID, enrichment := range metadata.Sessions {
+		value := enrichment.Relationship
+		if value.ParentID == "" {
+			continue
+		}
+		if _, ok := byID[childID]; ok {
+			relationships = append(relationships, relationship{childID: childID, value: value})
+		}
+	}
+	sort.Slice(relationships, func(i, j int) bool {
+		left, right := relationships[i], relationships[j]
+		if left.value.ParentID != right.value.ParentID {
+			return left.value.ParentID < right.value.ParentID
+		}
+		if left.value.Time != right.value.Time {
+			return left.value.Time < right.value.Time
+		}
+		return left.childID < right.childID
+	})
+
+	// Resolve the final graph before rejecting cycles, including path edges.
+	// Skipping cyclic metadata alone can leave a path cycle behind.
+	for _, relationship := range relationships {
+		child := byID[relationship.childID]
+		child.ParentID, child.SpawnKey = relationship.value.ParentID, relationship.value.SpawnKey
+	}
+	cyclic := cyclicRelationshipIDs(byID)
+	for id := range cyclic {
+		byID[id].ParentID, byID[id].SpawnKey = "", ""
+	}
+	claimed := map[string]map[int]bool{}
+	for _, relationship := range relationships {
+		if cyclic[relationship.childID] {
+			continue
+		}
+		value := relationship.value
+
+		parent, ok := byID[value.ParentID]
+		if !ok || parent.Session == nil {
+			continue
+		}
+		if parent.Spawns == nil {
+			parent.Spawns = map[string]vendors.SpawnState{}
+		}
+		spawn := parent.Spawns[value.SpawnKey]
+		spawn.Completed = value.Completed
+		spawn.Active = value.Active
+		parent.Spawns[value.SpawnKey] = spawn
+
+		for index, entry := range parent.Session.Digest {
+			task := cmp.Or(parent.Spawns[entry.SpawnKey].Task, entry.Description)
+			matches := entry.SpawnKey == value.SpawnKey || task == value.Task
+			if entry.Category != session.DigestSubagent || !matches || claimed[parent.Session.ID][index] {
+				continue
+			}
+			if claimed[parent.Session.ID] == nil {
+				claimed[parent.Session.ID] = map[int]bool{}
+			}
+			claimed[parent.Session.ID][index] = true
+			spawn := parent.Spawns[entry.SpawnKey]
+			spawn.Completed = value.Completed
+			spawn.Active = value.Active
+			delete(parent.Spawns, entry.SpawnKey)
+			parent.Session.Digest[index].SpawnKey = value.SpawnKey
+			parent.Spawns[value.SpawnKey] = spawn
+			if task != "" {
+				enrichment := metadata.Session(relationship.childID)
+				enrichment.Relationship.Task = task
+			}
+			break
+		}
+	}
+}
+
+func mergeIDEFileEdits(value *session.Session, sideStore []session.FileEdit) {
+	if len(sideStore) == 0 {
+		return
+	}
+	byPath := make(map[string]int, len(value.FileEdits))
+	for index, edit := range value.FileEdits {
+		byPath[normalizedEditPath(value.WorkingDirectory, edit.Path)] = index
+	}
+	for _, edit := range sideStore {
+		path := normalizedEditPath(value.WorkingDirectory, edit.Path)
+		if index, ok := byPath[path]; ok {
+			value.FileEdits[index].Additions = edit.Additions
+			value.FileEdits[index].Deletions = edit.Deletions
+			value.FileEdits[index].IsNew = edit.IsNew
+			continue
+		}
+		edit.Path = path
+		value.FileEdits = append(value.FileEdits, edit)
+		byPath[path] = len(value.FileEdits) - 1
+	}
+	value.EditedFileCount = len(value.FileEdits)
+}
+
+func normalizedEditPath(cwd, path string) string {
+	path = filepath.Clean(path)
+	if cwd == "" || !filepath.IsAbs(path) {
+		return path
+	}
+	relative, err := filepath.Rel(cwd, path)
+	if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return relative
+	}
+	return path
+}
+
+// selectCursorFilesSource admits complete Cursor families before parsing. A
+// family can be identified by transcript path, by side-store relationships, or
+// by both when the two sources describe the same session tree.
+func selectCursorFilesSource(
+	source vendors.ReadSource,
+	files []string,
+	since int64,
+	metadata *vendors.SessionMetadata,
+) []string {
+	if len(files) == 0 {
+		return nil
+	}
+	if metadata == nil {
+		metadata = vendors.EmptySessionMetadata()
+	}
+
+	union := newCursorFamilyUnion()
+	for _, path := range files {
+		id := IDFromPath(path)
+		union.add(id)
+		if parentID := ParentIDFromPath(path); parentID != "" {
+			union.union(id, parentID)
+		}
+	}
+	for childID, enrichment := range metadata.Sessions {
+		relationship := enrichment.Relationship
+		if relationship.ParentID != "" {
+			union.union(childID, relationship.ParentID)
+		}
+	}
+
+	eligibleFamilies := map[string]bool{}
+	for _, path := range files {
+		id := IDFromPath(path)
+		familyID := union.find(id)
+		modified, err := source.Stat(path)
+		if err != nil {
+			// A file that disappears during discovery is retained so the
+			// existing parser error handling can report it consistently.
+			eligibleFamilies[familyID] = true
+			continue
+		}
+		modifiedAt := modified.ModTime().UnixMilli()
+		if since <= 0 || modifiedAt >= since || metadata.Session(id).StartedAt >= since || metadata.Session(id).LastActivityAt >= since {
+			eligibleFamilies[familyID] = true
+		}
+		if metadata.Session(id).Live != "" {
+			eligibleFamilies[familyID] = true
+		}
+	}
+	eligible := make([]string, 0, len(files))
+	for _, path := range files {
+		if eligibleFamilies[union.find(IDFromPath(path))] {
+			eligible = append(eligible, path)
+		}
+	}
+	selected, _ := vendors.LimitNewestSourceFileFamilies(
+		source, eligible, vendors.MaxCandidateFilesPerAgent,
+		func(path string) string { return union.find(IDFromPath(path)) },
+	)
+	return selected
+}
+
+type cursorFamilyUnion struct {
+	parents map[string]string
+}
+
+func newCursorFamilyUnion() *cursorFamilyUnion {
+	return &cursorFamilyUnion{parents: map[string]string{}}
+}
+
+func (u *cursorFamilyUnion) add(id string) {
+	if _, ok := u.parents[id]; !ok {
+		u.parents[id] = id
+	}
+}
+
+func (u *cursorFamilyUnion) find(id string) string {
+	u.add(id)
+	parent := u.parents[id]
+	if parent == id {
+		return id
+	}
+	u.parents[id] = u.find(parent)
+	return u.parents[id]
+}
+
+func (u *cursorFamilyUnion) union(left, right string) {
+	leftRoot, rightRoot := u.find(left), u.find(right)
+	if leftRoot == rightRoot {
+		return
+	}
+	if leftRoot < rightRoot {
+		u.parents[rightRoot] = leftRoot
+	} else {
+		u.parents[leftRoot] = rightRoot
+	}
+}
+
+func applyMetadataTimes(value *session.Session, startedAt, lastActivityAt int64) {
+	if startedAt > 0 && (lastActivityAt >= startedAt || lastActivityAt == 0 && value.LastActivityTime >= startedAt) {
+		value.StartedAt = startedAt
+	}
+	if lastActivityAt > 0 && lastActivityAt >= value.StartedAt {
+		value.LastActivityTime = lastActivityAt
+	}
+	value.DurationMs = nil
+	if value.StartedAt > 0 && value.LastActivityTime >= value.StartedAt {
+		duration := int(value.LastActivityTime - value.StartedAt)
+		value.DurationMs = &duration
+	}
+}
+
+func cyclicRelationshipIDs(byID map[string]*vendors.ParsedSession) map[string]bool {
+	parents := map[string]string{}
+	for id, item := range byID {
+		if item.ParentID != "" {
+			if _, ok := byID[item.ParentID]; ok {
+				parents[id] = item.ParentID
+			}
+		}
+	}
+	ids := make([]string, 0, len(parents))
+	for id := range parents {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	cyclic := map[string]bool{}
+	state := map[string]int{}
+	stack := []string{}
+	position := map[string]int{}
+	var visit func(string)
+	visit = func(id string) {
+		state[id] = 1
+		position[id] = len(stack)
+		stack = append(stack, id)
+		if parentID, ok := parents[id]; ok {
+			switch state[parentID] {
+			case 0:
+				visit(parentID)
+			case 1:
+				for _, member := range stack[position[parentID]:] {
+					cyclic[member] = true
+				}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		delete(position, id)
+		state[id] = 2
+	}
+	for _, id := range ids {
+		if state[id] == 0 {
+			visit(id)
+		}
+	}
+	return cyclic
+}
+
+func selectFamily(parsed []*vendors.ParsedSession, id string) []*vendors.ParsedSession {
+	byID := make(map[string]*vendors.ParsedSession, len(parsed))
+	for _, item := range parsed {
+		if item != nil && item.Session != nil {
+			byID[item.Session.ID] = item
+		}
+	}
+	root, ok := byID[id]
+	if !ok {
+		return nil
+	}
+	seenAncestors := map[string]bool{}
+	for root.ParentID != "" {
+		if seenAncestors[root.Session.ID] {
+			return nil
+		}
+		seenAncestors[root.Session.ID] = true
+		parent, ok := byID[root.ParentID]
+		if !ok {
+			return nil
+		}
+		root = parent
+	}
+
+	children := map[string][]*vendors.ParsedSession{}
+	for _, item := range parsed {
+		if item == nil || item.Session == nil || item.ParentID == "" {
+			continue
+		}
+		if _, ok := byID[item.ParentID]; ok {
+			children[item.ParentID] = append(children[item.ParentID], item)
+		}
+	}
+	for _, entries := range children {
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Session.ID < entries[j].Session.ID
+		})
+	}
+	family := []*vendors.ParsedSession{}
+	seen := map[string]bool{}
+	var visit func(*vendors.ParsedSession)
+	visit = func(item *vendors.ParsedSession) {
+		if seen[item.Session.ID] {
+			return
+		}
+		seen[item.Session.ID] = true
+		family = append(family, item)
+		for _, child := range children[item.Session.ID] {
+			visit(child)
+		}
+	}
+	visit(root)
+	return family
+}
+
+func Health() vendors.SourceHealth {
+	root, err := Root()
+	if err != nil {
+		return vendors.SourceHealth{Agent: vendors.AgentCursor, Err: err}
+	}
+	scan, err := Scan()
+	if err != nil {
+		return vendors.SourceHealth{Agent: vendors.AgentCursor, Root: root, Err: err}
+	}
+	return vendors.FileSourceHealth(vendors.AgentCursor, root, scan, func(string) (bool, error) { return true, nil })
+}

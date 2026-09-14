@@ -81,6 +81,10 @@
   --color-opencode: #20751c;
   --color-opencode-bg: #e3f3e2;
 
+  /* vendor: Cursor */
+  --color-cursor: var(--cursor);
+  --color-cursor-bg: var(--cursor-bg);
+
   /* vendor: OpenCode */
   --color-opencode: #20751c;
   --color-opencode-bg: #e3f3e2;
@@ -113,6 +117,8 @@
   --claude-bg: #f6e7de;
   --codex: #4f5eea;
   --codex-bg: #e8eaff;
+  --cursor: #242424;
+  --cursor-bg: #e8e8e8;
   --subagent: #0b7c91;
   --subagent-bg: #dff4f7;
   --subagent-card: #f2fbfc;
@@ -173,6 +179,8 @@
   --claude-bg: #2e1509;
   --codex: #8b95f7;
   --codex-bg: #1a1d40;
+  --cursor: #ededed;
+  --cursor-bg: #303030;
   --subagent: #38b6cd;
   --subagent-bg: #0d2b32;
   --subagent-card: #0c1315;

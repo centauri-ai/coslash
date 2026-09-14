@@ -84,6 +84,12 @@ export function DiagnosticsDialog({
                     {source.label}: {source.sessions} sessions in <code>{source.root}</code>
                     <br />
                     CLI: {source.cli.found ? source.cli.version || source.cli.path : 'not found'}
+                    {source.ide && (
+                      <>
+                        <br />
+                        IDE: {source.ide.found ? source.ide.version || source.ide.path : 'not found'}
+                      </>
+                    )}
                   </div>
                 ))}
                 {remoteFacts && (

@@ -47,7 +47,7 @@ type CachedSession struct {
 	Branch           *string                        `json:"branch,omitempty"`
 	DurationMs       *int                           `json:"durationMs,omitempty"`
 	Tokens           map[string]session.ModelTokens `json:"tokens,omitempty"`
-	Cost             float64                        `json:"cost,omitempty"`
+	Cost             *float64                       `json:"cost,omitempty"`
 	UnpricedModels   []string                       `json:"unpricedModels,omitempty"`
 	StartedAt        int64                          `json:"startedAt"`
 	LastActivityTime int64                          `json:"lastActivityAt"`

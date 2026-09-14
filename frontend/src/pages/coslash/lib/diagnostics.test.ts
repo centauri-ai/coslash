@@ -46,6 +46,19 @@ function snapshot(): Diagnostics {
         error: '',
         cli: { name: 'codex', found: false, path: '', version: '' },
       },
+      {
+        agent: 'cursor',
+        label: 'Cursor',
+        root: '~/.cursor/projects',
+        state: 'ok',
+        entries: 2,
+        sessions: 1,
+        skipped: [],
+        skippedTotal: 0,
+        error: '',
+        cli: { name: 'agent', found: true, path: '/opt/bin/agent', version: '2.0' },
+        ide: { name: 'cursor', found: true, path: '/opt/bin/cursor', version: '3.0' },
+      },
     ],
     checks: [check('ok')],
   };
@@ -78,6 +91,8 @@ describe('diagnostics helpers', () => {
     const output = formatDiagnosticsForCopy(value);
     expect(output).toContain('~/.claude/projects');
     expect(output).toContain('entries=4; sessions=3');
+    expect(output).toContain('CLI: found=true; path=/opt/bin/agent; version=2.0');
+    expect(output).toContain('IDE: found=true; path=/opt/bin/cursor; version=3.0');
     expect(output).toContain('Remote host:');
     expect(output).toContain('alias=gpu-server');
     expect(output).toContain('nextRetryAtMs=1700000180000');

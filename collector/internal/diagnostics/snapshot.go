@@ -119,6 +119,7 @@ type Source struct {
 	SkippedTotal int           `json:"skippedTotal"`
 	Error        string        `json:"error"`
 	CLI          CLI           `json:"cli"`
+	IDE          *CLI          `json:"ide,omitempty"`
 }
 
 type SkippedPath struct {
@@ -237,6 +238,10 @@ func collectSource(
 		SkippedTotal: health.SkippedTotal,
 		CLI:          CLI{Name: health.Agent},
 	}
+	if health.Agent == "cursor" {
+		source.CLI.Name = "agent"
+		source.IDE = &CLI{Name: "cursor"}
+	}
 	switch {
 	case health.Err != nil:
 		source.Error = displayError(userHome, health.Err.Error())
@@ -260,10 +265,23 @@ func collectSource(
 		})
 	}
 	if path, err := exec.LookPath(health.Agent); err == nil {
-		source.CLI.Found = true
-		source.CLI.Path = displayPath(userHome, path)
+		target := &source.CLI
+		if source.IDE != nil {
+			target = source.IDE
+		}
+		target.Found = true
+		target.Path = displayPath(userHome, path)
 		if includeVersion {
-			source.CLI.Version = commandVersion(ctx, path)
+			target.Version = commandVersion(ctx, path)
+		}
+	}
+	if source.IDE != nil {
+		if path, err := exec.LookPath(source.CLI.Name); err == nil {
+			source.CLI.Found = true
+			source.CLI.Path = displayPath(userHome, path)
+			if includeVersion {
+				source.CLI.Version = commandVersion(ctx, path)
+			}
 		}
 	}
 	return source
@@ -278,6 +296,9 @@ func sourceLabel(agent string) string {
 	}
 	if agent == "opencode" {
 		return "OpenCode"
+	}
+	if agent == "cursor" {
+		return "Cursor"
 	}
 	return agent
 }

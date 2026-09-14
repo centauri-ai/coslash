@@ -43,7 +43,7 @@ function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Se
 function GroupTotals({ sessions }: { sessions: Session[] }) {
   const aggregate = sessionsForAggregates(sessions);
   const tokens = aggregate.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
-  const cost = aggregate.reduce((sum, session) => sum + session.cost, 0);
+  const cost = aggregate.reduce((sum, session) => sum + (session.cost ?? 0), 0);
 
   return (
     <span className="text-muted-foreground text-xs">

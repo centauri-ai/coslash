@@ -69,6 +69,7 @@ import {
   sessionKey,
   STATUSES,
   SUBAGENT_STATUSES,
+  subagentParentName,
   type DigestEntry,
   type Session,
   type SessionDetail,
@@ -294,7 +295,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
           <SessionModelUsage agent={detail.agent} model={detail.model} tokens={detail.tokens} />
           <span className="font-bold">
             <UnpricedModelWarning unpriced={detail.unpricedModels}>
-              {formatEstimatedCost(detail.cost)}
+              {detail.cost == null ? '—' : formatEstimatedCost(detail.cost)}
             </UnpricedModelWarning>
           </span>
         </div>
@@ -374,13 +375,19 @@ function DisabledLaunchTooltip({ hint, children }: { hint?: string; children: Re
 function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; disabledHint?: string }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = resumeDisabled(detail, disabledHint);
+  const opensCursor =
+    isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
 
   return (
     <div className="flex flex-col gap-1">
       <DisabledLaunchTooltip hint={disabledHint}>
-        <Button className="bg-brand w-fit p-2 text-xs" onClick={() => launch('resume')} disabled={disabled}>
-          <PlayIcon />
-          <span>Resume</span>
+        <Button
+          className="bg-brand w-fit p-2 text-xs"
+          onClick={() => launch(opensCursor ? 'open' : 'resume')}
+          disabled={disabled}
+        >
+          {opensCursor ? <ExternalLinkIcon /> : <PlayIcon />}
+          <span>{opensCursor ? 'Open Cursor' : 'Resume'}</span>
         </Button>
       </DisabledLaunchTooltip>
       <LaunchError message={launchError} />
@@ -401,18 +408,20 @@ function StartNewSessionButton({
 }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
+  const opensCursor =
+    isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
 
   const startNewSession = () => {
     onCopy();
-    launch('new', brief);
+    launch(opensCursor ? 'open' : 'new', brief);
   };
 
   return (
     <div className="flex flex-col gap-1">
       <DisabledLaunchTooltip hint={disabledHint}>
         <Button className="bg-brand w-fit p-2 text-xs" onClick={startNewSession} disabled={disabled}>
-          <TerminalIcon />
-          <span>Start fresh with handoff</span>
+          {opensCursor ? <ExternalLinkIcon /> : <TerminalIcon />}
+          <span>{opensCursor ? 'Open Cursor with handoff' : 'Start fresh with handoff'}</span>
         </Button>
       </DisabledLaunchTooltip>
       <LaunchError message={launchError} />
@@ -731,7 +740,7 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
   if (!subagent) {
     throw new Error(`digest references subagent ${subagentId}, which is not on the session`);
   }
-  const parentName = detail.name;
+  const parentName = subagentParentName(subagent, detail.subagents, detail.name);
   const status = SUBAGENT_STATUSES[subagent.status].label;
   return (
     <Dialog>
@@ -1044,14 +1053,20 @@ function InspectorFooter({
   const [previewOpen, setPreviewOpen] = useState(false);
   const showTeamPreview =
     isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
+  const opensCursor =
+    isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
 
   return (
     <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
       <div className="flex min-w-0 flex-col">
-        <span className="text-xs">Resume this exact session</span>
+        <span className="text-xs">
+          {opensCursor ? 'Open workspace in Cursor' : 'Resume this exact session'}
+        </span>
         <span className="text-muted-foreground text-xs font-light">
           {isLocalSession(detail)
-            ? `Reopens this session in ${getVendor(detail.agent).label} with its full context.`
+            ? opensCursor
+              ? 'Cursor does not expose an IDE deep link, so this opens the workspace without restoring this chat.'
+              : `Reopens this session in ${getVendor(detail.agent).label} with its full context.`
             : remoteLaunchable
               ? `Opens this session in ${getVendor(detail.agent).label} through SSH.`
               : 'Available when the remote SSH host is connected.'}

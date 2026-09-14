@@ -186,10 +186,11 @@ function SessionsStats({
           {WINDOW_ACTIVITY_LABELS[timeWindow]} ·{' '}
           {aggregateSessions.filter((session) => session.agent === 'claude').length} Claude Code,{' '}
           {aggregateSessions.filter((session) => session.agent === 'codex').length} Codex,{' '}
-          {aggregateSessions.filter((session) => session.agent === 'opencode').length} OpenCode ·
+          {aggregateSessions.filter((session) => session.agent === 'opencode').length} OpenCode,{' '}
+          {aggregateSessions.filter((session) => session.agent === 'cursor').length} Cursor ·
         </span>
         <UnpricedModelWarning unpriced={aggregateSessions.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(aggregateSessions.reduce((sum, session) => sum + session.cost, 0))}
+          {formatEstimatedCost(aggregateSessions.reduce((sum, session) => sum + (session.cost ?? 0), 0))}
         </UnpricedModelWarning>
         <span
           className="shrink-0 cursor-help underline decoration-dotted underline-offset-2"

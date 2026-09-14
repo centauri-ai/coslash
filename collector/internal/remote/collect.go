@@ -216,7 +216,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 
 func collectClaudeVendor(source vendors.ReadSource, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
 	metadata := claude.RemoteMetadata(source, home, now)
-	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.Live)
+	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.LiveSessions())
 	if err != nil {
 		return vendorOutcome{Err: fmt.Errorf("collect Claude remote data: %w", err)}
 	}
@@ -246,7 +246,7 @@ func collectCodexVendor(
 ) (vendorOutcome, map[string]codex.CachedHeader) {
 	metadata := codex.RemoteMetadata(source, home)
 	selectedFamilies, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedEntries, truncated, err := codex.BuildRemoteFamilies(
-		source, home, since, metadata.Live, cachedHeaders,
+		source, home, since, metadata.LiveSessions(), cachedHeaders,
 	)
 	if err != nil {
 		return vendorOutcome{Err: fmt.Errorf("collect Codex remote data: %w", err)}, cachedHeaders
