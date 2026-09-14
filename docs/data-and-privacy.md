@@ -2,6 +2,12 @@
 
 coSlash runs locally, but agent transcripts can contain prompts, source code, command output, credentials, and other secrets. Review these boundaries before use.
 
+This is the canonical user-facing description of coSlash data handling. The
+code-adjacent references define the corresponding
+[`session-snapshot/v1`](../collector/snapshot/v1/README.md),
+[remote fact](../collector/internal/remotefacts/README.md), and
+[Linux helper](../collector/internal/remotehelper/README.md) contracts.
+
 ## Local access
 
 coSlash reads, but does not modify:
@@ -19,7 +25,7 @@ coSlash reads, but does not modify:
 | `summaries/` | Cached synthesis results. |
 | `synthesis/` | Temporary synthesis files and the OpenCode scratch database. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
-| `remotes/<source-id>/snapshot.json` | Normalized remote session facts, opaque file fingerprints, coverage, and health. No raw transcript rows or remote absolute paths. |
+| `remotes/<source-id>/snapshot-v2.json` | Sanitized remote session facts, opaque file fingerprints, coverage, and health. No prompts, summaries, commands, todos, file-edit paths, subagent details, raw transcript rows, or remote absolute paths. |
 
 coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
 

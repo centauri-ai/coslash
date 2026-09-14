@@ -1,4 +1,4 @@
-# `snapshot-preview/v1` (T2-I2)
+# `snapshot-preview/v1`
 
 This adapter is a view over the accepted `session-snapshot/v1` payload. It
 does not define or assemble snapshot fields. `sessionexport.Marshal` creates
