@@ -11,8 +11,12 @@ credentials, or other private data in public issues or discussions.
 coSlash binds to loopback and protects API requests with a per-start token. It
 reads agent transcripts from your home directory and can open a terminal running
 your agent CLI. Optional synthesis sends bounded session facts through your
-selected Claude Code or Codex CLI using that tool's existing authentication.
+selected Claude Code, Codex, or OpenCode CLI using that tool's existing
+authentication.
 
 Processes running as your macOS user can read coSlash data and its access token.
 Do not proxy or forward the server port, or run coSlash under a shared user
 account.
+
+See [Data and privacy](docs/data-and-privacy.md) for the complete user-facing
+data-handling and removal boundaries.

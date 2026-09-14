@@ -4,12 +4,18 @@ This package is the transport-independent input to shared session composition.
 It is deliberately separate from both the SSH NDJSON protocol and
 `session-snapshot/v1`.
 
+See [Data and privacy](../../../docs/data-and-privacy.md) for the canonical
+user-facing data-handling description.
+
 ## Remote display data
 
 Remote collection carries the session fields used by the local board and
 inspector, including prompts, summaries, commands, todo items, digest entries,
 file-edit summaries, subagent details, repository and working-directory facts,
-and Git status. The local coSlash cache persists these details with mode 0600.
+and Git status in memory. Before writing the mode-0600 local cache,
+`remote.privacySafeSnapshot` removes names, prompts, summaries, goals,
+synthesis, commands, commits, todos, digests, file edits, subagent details, and
+other path-bearing display fields.
 
 Family identity and incremental-refresh metadata remain separately bounded:
 

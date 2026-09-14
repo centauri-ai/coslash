@@ -36,6 +36,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
+      - name: Check documentation links
+        run: npm run docs:check
       - name: Lint frontend
         run: npm run lint
       - name: Check frontend formatting
@@ -59,7 +61,6 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: collector/go.mod
-          # This module has no dependencies or go.sum to cache.
           cache: false
       - name: Check collector
         run: make check
@@ -88,7 +89,6 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: collector/go.mod
-          # This module has no dependencies or go.sum to cache.
           cache: false
       - name: Build release binary
         run: make release

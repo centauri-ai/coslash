@@ -88,6 +88,9 @@ the UI can offer the right repair.
 
 ## Privacy
 
+See [Data and privacy](../../../docs/data-and-privacy.md) for the canonical
+user-facing data-handling description.
+
 Only the facts in `internal/remotefacts` cross the boundary. stdout carries no
 transcript rows, prompts, tool output, absolute paths, working directories, or
 environment values, and stderr is bounded diagnostics that the Mac redacts before

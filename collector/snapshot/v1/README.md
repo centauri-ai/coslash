@@ -5,6 +5,9 @@ that may leave a developer machine. The local `session.Session` type is not a
 wire type. Publishers map it through `internal/sessionexport`, which is an
 explicit allow-list, before preview, local export, or upload.
 
+See [Data and privacy](../../../docs/data-and-privacy.md) for the canonical
+user-facing data-handling description.
+
 ## Protocol
 
 - Schema version: `session-snapshot/v1`

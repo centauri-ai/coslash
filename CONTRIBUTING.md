@@ -45,6 +45,7 @@ make test
 make check
 
 cd ../frontend
+npm run docs:check
 npm test
 npm run lint
 npm run format:check
@@ -56,6 +57,7 @@ Run `make release && make smoke` from `collector/` when changing startup, embedd
 
 - Add agent vendors under `collector/internal/vendors/` and register them in the collector and UI.
 - Add verified Claude context windows in `collector/internal/session/models.go`; Codex models normally self-report them.
-- Add verified list pricing in `frontend/src/pages/coslash/lib/pricing.ts`; unknown models must remain visibly excluded.
+- Refresh the generated model and pricing table with `make models` from
+  `collector/`; unknown models must remain visibly excluded.
 
 Keep documentation coarse and tied to current behavior. Avoid copying internal constants or schemas that already have a source of truth in code.
