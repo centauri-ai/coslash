@@ -116,6 +116,7 @@ func UnpricedModels(tokens map[string]ModelTokens) []string {
 }
 
 func AttachCost(s *Session, recorded *float64) {
+	s.CostKnown = recorded != nil
 	if recorded != nil {
 		s.Cost = *recorded
 		s.UnpricedModels = []string{}

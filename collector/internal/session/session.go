@@ -52,6 +52,7 @@ type Session struct {
 	DurationMs          *int                   `json:"durationMs"`
 	Tokens              map[string]ModelTokens `json:"tokens"`
 	Cost                float64                `json:"cost"`
+	CostKnown           bool                   `json:"costKnown"`
 	UnpricedModels      []string               `json:"unpricedModels"`
 	Subagents           []Subagent             `json:"subagents"`
 	StartedAt           int64                  `json:"-"`

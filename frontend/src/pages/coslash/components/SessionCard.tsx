@@ -17,6 +17,7 @@ import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWa
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {
   boardStatusKey,
+  costIsAvailable,
   displayStatusLabel,
   environmentFact,
   getModality,
@@ -150,11 +151,12 @@ function Metadata({ session }: { session: Session }) {
 
 function TokenUsageAndCost({ session }: { session: Session }) {
   const hasUsage = hasTokenUsage(session.tokens);
+  const hasCost = costIsAvailable(session);
   return (
     <div className="flex-none text-right">
       <div className="text-base font-bold">
         <UnpricedModelWarning unpriced={session.unpricedModels}>
-          {hasUsage ? formatEstimatedCost(session.cost) : '—'}
+          {hasCost ? formatEstimatedCost(session.cost) : '—'}
         </UnpricedModelWarning>
       </div>
       <div className="text-muted-foreground pt-1 font-mono text-xs">
@@ -169,7 +171,7 @@ function Summary({ session }: { session: Session }) {
 }
 
 function CompactSessionCard({ session, showMachineBadge }: { session: Session; showMachineBadge: boolean }) {
-  const hasUsage = hasTokenUsage(session.tokens);
+  const hasCost = costIsAvailable(session);
   return (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -181,7 +183,7 @@ function CompactSessionCard({ session, showMachineBadge }: { session: Session; s
         </div>
         <span className="text-xs font-semibold whitespace-nowrap">
           <UnpricedModelWarning unpriced={session.unpricedModels}>
-            {hasUsage ? formatEstimatedCost(session.cost) : '—'}
+            {hasCost ? formatEstimatedCost(session.cost) : '—'}
           </UnpricedModelWarning>
         </span>
       </div>
