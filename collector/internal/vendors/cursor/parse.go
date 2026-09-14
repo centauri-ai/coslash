@@ -191,9 +191,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	if cwd == "" {
 		cwd = commonEditDirectory(edits.Edits)
 	}
-	if cwd == "" {
-		cwd = workspaceFromPath(path)
-	}
 	details := session.SessionDetails{
 		Turns: turns, ToolUses: toolUses, Errors: errorsCount,
 		Commands: commands.Raw(), PullRequests: len(pullRequests), Todos: todos, Digest: digest.Entries(), FileEdits: edits.Edits,
@@ -388,18 +385,4 @@ func commonEditDirectory(edits []session.FileEdit) string {
 func containsPath(parent, child string) bool {
 	relative, err := filepath.Rel(parent, child)
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
-}
-
-func workspaceFromPath(path string) string {
-	parts := strings.Split(filepath.ToSlash(path), "/")
-	for index, part := range parts {
-		if part != "agent-transcripts" || index == 0 {
-			continue
-		}
-		slug := parts[index-1]
-		if strings.HasPrefix(slug, "Users-") {
-			return "/" + strings.ReplaceAll(slug, "-", "/")
-		}
-	}
-	return ""
 }
