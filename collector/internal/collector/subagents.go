@@ -61,6 +61,9 @@ func subagentStatus(
 		if spawn.Active {
 			return session.SubagentRunning
 		}
+		if metadata.Session(child.Session.ID).Live != "" {
+			return session.SubagentRunning
+		}
 		return session.SubagentAborted
 	}
 	if child.Session.Agent == vendors.AgentCodex {

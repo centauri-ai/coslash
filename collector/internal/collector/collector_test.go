@@ -40,6 +40,19 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 	}
 }
 
+func TestCursorLiveSubagentIsRunningWithoutSpawnStatus(t *testing.T) {
+	child := &vendors.ParsedSession{
+		Session: &session.Session{Agent: vendors.AgentCursor, ID: "child"},
+		InTurn:  true,
+	}
+	parent := &vendors.ParsedSession{Session: &session.Session{}, Spawns: map[string]vendors.SpawnState{}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("child").Live = "interactive"
+	if got := subagentStatus(child, parent, metadata); got != session.SubagentRunning {
+		t.Fatalf("status = %q; want %q", got, session.SubagentRunning)
+	}
+}
+
 func TestResolveStatusClearsWaitingForClosedSession(t *testing.T) {
 	waiting := "waiting"
 	root := &vendors.ParsedSession{Session: &session.Session{
