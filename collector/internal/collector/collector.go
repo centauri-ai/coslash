@@ -104,59 +104,16 @@ func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
 		)
 		probeLastEdits(roots)
 		probeGitEnvironment(roots)
-		if root := previewRootFor(parsed, roots, id); root != nil {
-			return root.Session, nil
+		for _, root := range roots {
+			if root.Session.ID == id {
+				return root.Session, nil
+			}
 		}
 	}
 	if len(failures) > 0 {
 		return nil, errors.Join(failures...)
 	}
 	return nil, nil
-}
-
-func previewRootFor(
-	parsed, roots []*vendors.ParsedSession,
-	id string,
-) *vendors.ParsedSession {
-	byID := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
-	for _, item := range parsed {
-		if item != nil && item.Session != nil {
-			byID[sessionKey{agent: item.Session.Agent, id: item.Session.ID}] = item
-		}
-	}
-	selected := []*vendors.ParsedSession{}
-	for _, item := range parsed {
-		if item != nil && item.Session != nil && item.Session.ID == id {
-			selected = append(selected, item)
-		}
-	}
-	for _, item := range selected {
-		root := item
-		seen := map[sessionKey]bool{}
-		for root.ParentID != "" {
-			key := sessionKey{agent: root.Session.Agent, id: root.Session.ID}
-			if seen[key] {
-				root = nil
-				break
-			}
-			seen[key] = true
-			parent, ok := byID[sessionKey{agent: root.Session.Agent, id: root.ParentID}]
-			if !ok {
-				root = nil
-				break
-			}
-			root = parent
-		}
-		if root == nil {
-			continue
-		}
-		for _, candidate := range roots {
-			if candidate.Session.Agent == root.Session.Agent && candidate.Session.ID == root.Session.ID {
-				return candidate
-			}
-		}
-	}
-	return nil
 }
 
 func finalizeSessions(
