@@ -57,7 +57,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	turns, toolUses, errorsCount := 0, 0, 0
 	firstPrompt, cwd := "", ""
 	startedAt := int64(0)
-	var statusHint *string
 	spawns := map[string]vendors.SpawnState{}
 	assistantResult := ""
 	inTurn := true
@@ -68,7 +67,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 
 	for _, record := range records {
 		if (record.Role == "user" || record.Role == "assistant") && record.Message != nil && len(record.Message.Content) > 0 {
-			inTurn, stopped, statusHint = true, false, nil
+			inTurn, stopped = true, false
 		}
 		if record.Role == "user" && record.Message != nil {
 			text := firstText(record.Message.Content)
@@ -182,10 +181,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			switch record.Status {
 			case "error":
 				errorsCount++
-				status := "error"
-				statusHint = &status
-			case "success":
-				statusHint = nil
 			}
 		}
 	}
@@ -220,7 +215,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 		Session: result, LogPath: path, LogModifiedAtMs: modified,
 		ParentID: ParentIDFromPath(path),
 		InTurn:   inTurn, Stopped: stopped, Result: assistantResult,
-		Spawns: spawns, Commands: commands.Labelled(), StatusHint: statusHint,
+		Spawns: spawns, Commands: commands.Labelled(),
 	}, nil
 }
 
