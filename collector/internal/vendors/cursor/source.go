@@ -432,25 +432,3 @@ func Health() vendors.SourceHealth {
 	}
 	return vendors.FileSourceHealth(vendors.AgentCursor, root, scan, func(string) (bool, error) { return true, nil })
 }
-
-func familiesSince(parsed []*vendors.ParsedSession, since int64) []*vendors.ParsedSession {
-	// ponytail: full-history parsing and one scan per changed family; index families if large local histories make polling costly.
-	selected := map[string]bool{}
-	for _, item := range parsed {
-		if item.LogModifiedAtMs < since || selected[item.Session.ID] {
-			continue
-		}
-		// Let shared composition report and omit a child whose parent is missing.
-		selected[item.Session.ID] = true
-		for _, member := range selectFamily(parsed, item.Session.ID) {
-			selected[member.Session.ID] = true
-		}
-	}
-	result := make([]*vendors.ParsedSession, 0, len(selected))
-	for _, item := range parsed {
-		if selected[item.Session.ID] {
-			result = append(result, item)
-		}
-	}
-	return result
-}
