@@ -16,6 +16,7 @@ type transcriptMessage struct {
 
 type contentBlock struct {
 	Type  string          `json:"type"`
+	ID    string          `json:"id"`
 	Text  string          `json:"text"`
 	Name  string          `json:"name"`
 	Input json.RawMessage `json:"input"`

@@ -24,7 +24,7 @@ func subagentFrom(
 		Name:       cmp.Or(child.Name, s.ID),
 		Model:      s.Model,
 		Status:     subagentStatus(child, parent, metadata),
-		Task:       session.Truncate(cmp.Or(metadata.Session(s.ID).Relationship.Task, deref(s.FirstPrompt)), session.TruncateTextLimit),
+		Task:       session.Truncate(cmp.Or(parent.Spawns[child.SpawnKey].Task, metadata.Session(s.ID).Relationship.Task, deref(s.FirstPrompt)), session.TruncateTextLimit),
 		Result:     session.Truncate(cmp.Or(child.Result, deref(s.Summary)), session.TruncateTextLimit),
 		DurationMs: s.DurationMs,
 		ToolUses:   s.ToolUses,

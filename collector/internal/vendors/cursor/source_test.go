@@ -10,8 +10,32 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestApplyRelationshipsMatchesCLIToolCallIDAndPreservesTask(t *testing.T) {
+	parent := &vendors.ParsedSession{
+		Session: &session.Session{ID: "parent", SessionDetails: session.SessionDetails{
+			Digest: []session.DigestEntry{{Category: session.DigestSubagent, SpawnKey: "call-1", Description: "inspect parser"}},
+		}},
+		Spawns: map[string]vendors.SpawnState{"call-1": {Task: "inspect parser"}},
+	}
+	child := &vendors.ParsedSession{Session: &session.Session{ID: "child"}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("child").Relationship = vendors.SessionRelationship{
+		ParentID: "parent", SpawnKey: "call-1", Task: "explore",
+	}
+
+	applyRelationships([]*vendors.ParsedSession{parent, child}, metadata)
+
+	if child.ParentID != "parent" || child.SpawnKey != "call-1" {
+		t.Fatalf("child relationship = parent %q, spawn %q", child.ParentID, child.SpawnKey)
+	}
+	if got := metadata.Session("child").Relationship.Task; got != "inspect parser" {
+		t.Fatalf("task = %q; want transcript task", got)
+	}
+}
 
 func TestSelectCursorFilesKeepsRecentPathFamily(t *testing.T) {
 	root := "11111111-1111-4111-8111-111111111111"

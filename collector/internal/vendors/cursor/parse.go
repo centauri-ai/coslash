@@ -164,7 +164,10 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 					todos = todosFromTool(input.Todos)
 				case "Task":
 					taskCount++
-					spawnKey := fmt.Sprintf("cursor-task:%d", taskCount)
+					spawnKey := block.ID
+					if spawnKey == "" {
+						spawnKey = fmt.Sprintf("cursor-task:%d", taskCount)
+					}
 					turn := max(turns, 1)
 					task := input.Description
 					if task == "" {

@@ -159,7 +159,9 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 		parent.Spawns[value.SpawnKey] = spawn
 
 		for index, entry := range parent.Session.Digest {
-			if entry.Category != session.DigestSubagent || cmp.Or(parent.Spawns[entry.SpawnKey].Task, entry.Description) != value.Task || claimed[parent.Session.ID][index] {
+			task := cmp.Or(parent.Spawns[entry.SpawnKey].Task, entry.Description)
+			matches := entry.SpawnKey == value.SpawnKey || task == value.Task
+			if entry.Category != session.DigestSubagent || !matches || claimed[parent.Session.ID][index] {
 				continue
 			}
 			if claimed[parent.Session.ID] == nil {
@@ -172,6 +174,10 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 			delete(parent.Spawns, entry.SpawnKey)
 			parent.Session.Digest[index].SpawnKey = value.SpawnKey
 			parent.Spawns[value.SpawnKey] = spawn
+			if task != "" {
+				enrichment := metadata.Session(relationship.childID)
+				enrichment.Relationship.Task = task
+			}
 			break
 		}
 	}
