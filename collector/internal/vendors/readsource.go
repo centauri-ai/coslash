@@ -104,43 +104,6 @@ func SourceModificationTime(source ReadSource, path string) int64 {
 	return info.ModTime().UnixMilli()
 }
 
-func LimitNewestSourceFiles(
-	source ReadSource,
-	files []string,
-	limit int,
-) ([]string, bool) {
-	if limit <= 0 || len(files) <= limit {
-		return files, false
-	}
-	type candidate struct {
-		path     string
-		modified int64
-	}
-	candidates := make([]candidate, 0, len(files))
-	for _, file := range files {
-		candidates = append(candidates, candidate{
-			path: file, modified: SourceModificationTime(source, file),
-		})
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].modified == candidates[j].modified {
-			return candidates[i].path < candidates[j].path
-		}
-		return candidates[i].modified > candidates[j].modified
-	})
-	selected := make(map[string]struct{}, limit)
-	for _, candidate := range candidates[:limit] {
-		selected[candidate.path] = struct{}{}
-	}
-	result := make([]string, 0, limit)
-	for _, file := range files {
-		if _, ok := selected[file]; ok {
-			result = append(result, file)
-		}
-	}
-	return result, true
-}
-
 // LimitNewestSourceFileFamilies keeps whole file families, ordered by their newest member.
 func LimitNewestSourceFileFamilies(
 	source ReadSource,

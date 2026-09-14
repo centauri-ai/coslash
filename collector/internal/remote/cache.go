@@ -74,35 +74,6 @@ type CachedSnapshot struct {
 	Truncated       bool                                 `json:"truncated"`
 }
 
-func snapshotForCache(
-	sessions []*session.Session,
-	coverage []AgentCoverage,
-	fingerprints map[string][]vendors.FileFingerprint,
-	coverageSinceMs, fetchedAtMs, roundTripMs int64,
-) CachedSnapshot {
-	cached := CachedSnapshot{
-		Version: cacheVersion, Coverage: append([]AgentCoverage(nil), coverage...),
-		Fingerprints:    fingerprints,
-		CoverageSinceMs: coverageSinceMs, FetchedAtMs: fetchedAtMs, RoundTripMs: roundTripMs,
-	}
-	for _, item := range coverage {
-		cached.Truncated = cached.Truncated || item.Truncated
-	}
-	for _, item := range sessions {
-		cached.Sessions = append(cached.Sessions, CachedSession{
-			Agent: item.Agent, ID: item.ID, Name: item.Name, Status: item.Status,
-			Branch: item.Branch, DurationMs: item.DurationMs, Tokens: item.Tokens,
-			Cost: item.Cost, UnpricedModels: append([]string(nil), item.UnpricedModels...),
-			StartedAt: item.StartedAt, LastActivityTime: item.LastActivityTime,
-			Entrypoint: item.Entrypoint, Model: item.Model, ContextTokens: item.ContextTokens,
-			ContextWindow: item.ContextWindow, Turns: item.Turns, ToolUses: item.ToolUses,
-			Errors: item.Errors, Compactions: item.Compactions, PullRequests: item.PullRequests,
-			EditedFileCount: item.EditedFileCount,
-		})
-	}
-	return cached
-}
-
 func (cached CachedSnapshot) sessions() []*session.Session {
 	result := make([]*session.Session, 0, len(cached.Sessions))
 	for _, item := range cached.Sessions {

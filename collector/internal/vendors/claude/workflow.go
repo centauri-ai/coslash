@@ -37,11 +37,6 @@ type workflowJournalEntry struct {
 	Result  json.RawMessage `json:"result"`
 }
 
-// WorkflowAgents indexes Dynamic Workflow agents by session id their transcript parses to, "agent-<agentId>".
-func WorkflowAgents(parsed []*vendors.ParsedSession) map[string]*WorkflowAgent {
-	return WorkflowAgentsSource(vendors.LocalReadSource, parsed)
-}
-
 func WorkflowAgentsSource(
 	source vendors.ReadSource,
 	parsed []*vendors.ParsedSession,
@@ -101,10 +96,6 @@ func WorkflowAgentsSource(
 		agents[p.Session.ID] = agent
 	}
 	return agents
-}
-
-func workflowJournalResults(path string) map[string]string {
-	return workflowJournalResultsSource(vendors.LocalReadSource, path)
 }
 
 func workflowJournalResultsSource(source vendors.ReadSource, path string) map[string]string {

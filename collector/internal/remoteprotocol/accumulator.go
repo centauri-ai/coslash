@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"slices"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 )
@@ -155,24 +154,4 @@ func (a *Accumulator) Proposal() Generation {
 	result.Families = maps.Clone(a.proposal.Families)
 	result.VendorComplete = maps.Clone(a.proposal.VendorComplete)
 	return result
-}
-
-func (g Generation) SortedKeys() []FamilyKey {
-	keys := slices.Collect(maps.Keys(g.Families))
-	slices.SortFunc(keys, func(a, b FamilyKey) int {
-		if a.Vendor < b.Vendor {
-			return -1
-		}
-		if a.Vendor > b.Vendor {
-			return 1
-		}
-		if a.FamilyID < b.FamilyID {
-			return -1
-		}
-		if a.FamilyID > b.FamilyID {
-			return 1
-		}
-		return 0
-	})
-	return keys
 }
