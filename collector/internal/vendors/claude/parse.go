@@ -84,10 +84,6 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 	return parsed.transcript, nil
 }
 
-func parse(path string) (*parsedSession, error) {
-	return parseSource(vendors.LocalReadSource, path)
-}
-
 func parseSource(source vendors.ReadSource, path string) (*parsedSession, error) {
 	analysis, err := analyzeClaudeSessionSource(source, path)
 	if err != nil {
@@ -174,10 +170,6 @@ func claudeToolOutput(raw json.RawMessage) string {
 		return strings.Join(parts, "\n")
 	}
 	return string(raw)
-}
-
-func analyzeClaudeSession(file string) (*claudeSessionAnalysis, error) {
-	return analyzeClaudeSessionSource(vendors.LocalReadSource, file)
 }
 
 func analyzeClaudeSessionSource(

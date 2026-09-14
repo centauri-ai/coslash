@@ -142,10 +142,6 @@ func parseTranscriptSource(
 	return parsed.transcript, nil
 }
 
-func parse(path string) (*parsedSession, error) {
-	return parseSource(vendors.LocalReadSource, path, commandNeedsApproval)
-}
-
 func parseSource(
 	source vendors.ReadSource,
 	path string,
@@ -183,10 +179,6 @@ func parseSource(
 		transcript: parsed,
 		fork:       codexFork{forkedFromID: analysis.forkedFromID, samples: analysis.tokenSamples},
 	}, nil
-}
-
-func analyzeCodexSession(file string) (*codexSessionAnalysis, error) {
-	return analyzeCodexSessionSource(vendors.LocalReadSource, file, commandNeedsApproval)
 }
 
 func analyzeCodexSessionSource(
