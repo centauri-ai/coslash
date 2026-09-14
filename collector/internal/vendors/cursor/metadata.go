@@ -104,11 +104,16 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 
 	sdkStores, _ := filepath.Glob(filepath.Join(home, ".cursor", "projects", "*", "sdk-agent-store", "*", "index.db"))
 	for _, path := range sdkStores {
-		loadCursorRows(metadata, lanes, entrypointSDK, path, `SELECT agent_id, name FROM agents`, func(id, name string) (string, string, string) {
+		db, err := openCursorDB(path)
+		if err != nil {
+			continue
+		}
+		loadCursorRowsDB(metadata, lanes, entrypointSDK, path, db, `SELECT agent_id, name FROM agents`, func(id, name string) (string, string, string) {
 			return sdkTranscriptID(id), name, ""
 		})
-		loadSDKTimes(metadata, path)
-		loadSDKUsage(metadata, path)
+		loadSDKTimes(metadata, db)
+		loadSDKUsage(metadata, db)
+		db.Close()
 	}
 	loadCursorSummaries(metadata, filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db"))
 	for id, matches := range lanes {
@@ -292,12 +297,7 @@ func loadIDETimes(metadata *vendors.SessionMetadata, db *sql.DB) {
 	}
 }
 
-func loadSDKTimes(metadata *vendors.SessionMetadata, path string) {
-	db, err := openCursorDB(path)
-	if err != nil {
-		return
-	}
-	defer db.Close()
+func loadSDKTimes(metadata *vendors.SessionMetadata, db *sql.DB) {
 	rows, err := db.Query(`SELECT agent_id, created_at, updated_at FROM agents`)
 	if err != nil {
 		return
@@ -531,12 +531,7 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB) {
 	}
 }
 
-func loadSDKUsage(metadata *vendors.SessionMetadata, path string) {
-	db, err := openCursorDB(path)
-	if err != nil {
-		return
-	}
-	defer db.Close()
+func loadSDKUsage(metadata *vendors.SessionMetadata, db *sql.DB) {
 	rows, err := db.Query(`SELECT agent_id, COALESCE(model, ''), usage_json FROM runs ORDER BY turn_number`)
 	if err != nil {
 		return
