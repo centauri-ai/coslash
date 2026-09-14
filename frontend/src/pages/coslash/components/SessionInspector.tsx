@@ -376,7 +376,8 @@ function DisabledLaunchTooltip({ hint, children }: { hint?: string; children: Re
 function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; disabledHint?: string }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = resumeDisabled(detail, disabledHint);
-  const opensCursor = isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
+  const opensCursor =
+    isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
 
   return (
     <div className="flex flex-col gap-1">
@@ -408,7 +409,8 @@ function StartNewSessionButton({
 }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = !isLocalSession(detail) && (detail.displayStale || detail.launchable === false);
-  const opensCursor = isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
+  const opensCursor =
+    isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
 
   const startNewSession = () => {
     onCopy();
@@ -1052,12 +1054,15 @@ function InspectorFooter({
   const [previewOpen, setPreviewOpen] = useState(false);
   const showTeamPreview =
     isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
-  const opensCursor = isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
+  const opensCursor =
+    isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
 
   return (
     <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
       <div className="flex min-w-0 flex-col">
-        <span className="text-xs">{opensCursor ? 'Open workspace in Cursor' : 'Resume this exact session'}</span>
+        <span className="text-xs">
+          {opensCursor ? 'Open workspace in Cursor' : 'Resume this exact session'}
+        </span>
         <span className="text-muted-foreground text-xs font-light">
           {isLocalSession(detail)
             ? opensCursor
