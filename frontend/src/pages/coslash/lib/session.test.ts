@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeMachineFact } from '@/pages/coslash/lib/machines';
 import {
   boardStatusKey,
+  costIsAvailable,
   environmentFact,
   getModality,
   getSessionVendors,
@@ -89,6 +90,16 @@ describe('environmentFact', () => {
     expect(environmentFact('')).toBe('—');
     expect(environmentFact('  ')).toBe('—');
     expect(environmentFact('/home/user/proj')).toBe('/home/user/proj');
+  });
+});
+
+describe('costIsAvailable', () => {
+  it('shows a known recorded zero even when no token buckets exist', () => {
+    expect(costIsAvailable({ costKnown: true, tokens: {} })).toBe(true);
+  });
+
+  it('does not treat an unknown zero as a known cost', () => {
+    expect(costIsAvailable({ costKnown: false, tokens: {} })).toBe(false);
   });
 });
 
