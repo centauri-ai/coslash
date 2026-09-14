@@ -238,70 +238,36 @@ func selectCursorFilesSource(
 		}
 	}
 
-	type family struct {
-		id       string
-		files    []string
-		newest   int64
-		inWindow bool
-	}
-	families := map[string]*family{}
+	eligibleFamilies := map[string]bool{}
 	for _, path := range files {
 		id := IDFromPath(path)
 		familyID := union.find(id)
-		item := families[familyID]
-		if item == nil {
-			item = &family{id: familyID}
-			families[familyID] = item
-		}
-		item.files = append(item.files, path)
 		modified, err := source.Stat(path)
 		if err != nil {
 			// A file that disappears during discovery is retained so the
 			// existing parser error handling can report it consistently.
-			item.inWindow = true
+			eligibleFamilies[familyID] = true
 			continue
 		}
 		modifiedAt := modified.ModTime().UnixMilli()
-		item.newest = max(item.newest, modifiedAt)
 		if since <= 0 || modifiedAt >= since || metadata.StartedAt[id] >= since || metadata.LastActivityAt[id] >= since {
-			item.inWindow = true
+			eligibleFamilies[familyID] = true
 		}
 		if _, live := metadata.Live[id]; live {
-			item.inWindow = true
+			eligibleFamilies[familyID] = true
 		}
 	}
-
-	ordered := make([]*family, 0, len(families))
-	for _, item := range families {
-		if item.inWindow {
-			ordered = append(ordered, item)
-		}
-	}
-	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].newest == ordered[j].newest {
-			return ordered[i].id < ordered[j].id
-		}
-		return ordered[i].newest > ordered[j].newest
-	})
-
-	selected := map[string]struct{}{}
-	total := 0
-	for _, item := range ordered {
-		if total > 0 && total+len(item.files) > vendors.MaxCandidateFilesPerAgent {
-			continue
-		}
-		for _, path := range item.files {
-			selected[path] = struct{}{}
-		}
-		total += len(item.files)
-	}
-	result := make([]string, 0, len(selected))
+	eligible := make([]string, 0, len(files))
 	for _, path := range files {
-		if _, ok := selected[path]; ok {
-			result = append(result, path)
+		if eligibleFamilies[union.find(IDFromPath(path))] {
+			eligible = append(eligible, path)
 		}
 	}
-	return result
+	selected, _ := vendors.LimitNewestSourceFileFamilies(
+		source, eligible, vendors.MaxCandidateFilesPerAgent,
+		func(path string) string { return union.find(IDFromPath(path)) },
+	)
+	return selected
 }
 
 type cursorFamilyUnion struct {
