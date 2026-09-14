@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func TestSelectCursorFilesKeepsRecentPathFamily(t *testing.T) {
 	})
 	got := selectCursorFilesSource(source, []string{rootPath, childPath, unrelatedPath}, 2000, vendors.EmptySessionMetadata())
 
-	if !sameStrings(got, []string{rootPath, childPath}) {
+	if !slices.Equal(got, []string{rootPath, childPath}) {
 		t.Fatalf("selected files = %#v, want complete recent path family", got)
 	}
 }
@@ -71,7 +72,7 @@ func TestSelectCursorFilesSkipsOldUnrelatedTranscripts(t *testing.T) {
 
 	got := selectCursorFilesSource(source, []string{oldPath, recentPath}, 2000, vendors.EmptySessionMetadata())
 
-	if !sameStrings(got, []string{recentPath}) {
+	if !slices.Equal(got, []string{recentPath}) {
 		t.Fatalf("selected files = %#v, want only recent transcript", got)
 	}
 }
@@ -111,15 +112,3 @@ func (i cursorSelectionFileInfo) Mode() fs.FileMode  { return 0 }
 func (i cursorSelectionFileInfo) ModTime() time.Time { return time.UnixMilli(i.modified) }
 func (i cursorSelectionFileInfo) IsDir() bool        { return false }
 func (i cursorSelectionFileInfo) Sys() any           { return nil }
-
-func sameStrings(got, want []string) bool {
-	if len(got) != len(want) {
-		return false
-	}
-	for index := range got {
-		if got[index] != want[index] {
-			return false
-		}
-	}
-	return true
-}
