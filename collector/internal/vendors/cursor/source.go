@@ -20,20 +20,10 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	if err != nil {
 		return nil, nil, err
 	}
-	files, _ = vendors.LimitNewestSourceFileFamilies(
-		vendors.LocalReadSource, files, vendors.MaxCandidateFilesPerAgent, func(path string) string {
-			if parentID := ParentIDFromPath(path); parentID != "" {
-				return parentID
-			}
-			return IDFromPath(path)
-		},
-	)
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
+	files = selectCursorFilesSource(vendors.LocalReadSource, files, since, metadata)
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
 	applyRelationships(parsed, metadata)
-	if since > 0 {
-		parsed = familiesSince(parsed, since)
-	}
 	return parsed, metadata, nil
 }
 
@@ -216,6 +206,138 @@ func normalizedEditPath(cwd, path string) string {
 		return relative
 	}
 	return path
+}
+
+// selectCursorFilesSource admits complete Cursor families before parsing. A
+// family can be identified by transcript path, by side-store relationships, or
+// by both when the two sources describe the same session tree.
+func selectCursorFilesSource(
+	source vendors.ReadSource,
+	files []string,
+	since int64,
+	metadata *vendors.SessionMetadata,
+) []string {
+	if len(files) == 0 {
+		return nil
+	}
+	if metadata == nil {
+		metadata = vendors.EmptySessionMetadata()
+	}
+
+	union := newCursorFamilyUnion()
+	for _, path := range files {
+		id := IDFromPath(path)
+		union.add(id)
+		if parentID := ParentIDFromPath(path); parentID != "" {
+			union.union(id, parentID)
+		}
+	}
+	for childID, relationship := range metadata.Relationships {
+		if relationship.ParentID != "" {
+			union.union(childID, relationship.ParentID)
+		}
+	}
+
+	type family struct {
+		id       string
+		files    []string
+		newest   int64
+		inWindow bool
+	}
+	families := map[string]*family{}
+	for _, path := range files {
+		id := IDFromPath(path)
+		familyID := union.find(id)
+		item := families[familyID]
+		if item == nil {
+			item = &family{id: familyID}
+			families[familyID] = item
+		}
+		item.files = append(item.files, path)
+		modified, err := source.Stat(path)
+		if err != nil {
+			// A file that disappears during discovery is retained so the
+			// existing parser error handling can report it consistently.
+			item.inWindow = true
+			continue
+		}
+		modifiedAt := modified.ModTime().UnixMilli()
+		item.newest = max(item.newest, modifiedAt)
+		if since <= 0 || modifiedAt >= since || metadata.StartedAt[id] >= since || metadata.LastActivityAt[id] >= since {
+			item.inWindow = true
+		}
+		if _, live := metadata.Live[id]; live {
+			item.inWindow = true
+		}
+	}
+
+	ordered := make([]*family, 0, len(families))
+	for _, item := range families {
+		if item.inWindow {
+			ordered = append(ordered, item)
+		}
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].newest == ordered[j].newest {
+			return ordered[i].id < ordered[j].id
+		}
+		return ordered[i].newest > ordered[j].newest
+	})
+
+	selected := map[string]struct{}{}
+	total := 0
+	for _, item := range ordered {
+		if total > 0 && total+len(item.files) > vendors.MaxCandidateFilesPerAgent {
+			continue
+		}
+		for _, path := range item.files {
+			selected[path] = struct{}{}
+		}
+		total += len(item.files)
+	}
+	result := make([]string, 0, len(selected))
+	for _, path := range files {
+		if _, ok := selected[path]; ok {
+			result = append(result, path)
+		}
+	}
+	return result
+}
+
+type cursorFamilyUnion struct {
+	parents map[string]string
+}
+
+func newCursorFamilyUnion() *cursorFamilyUnion {
+	return &cursorFamilyUnion{parents: map[string]string{}}
+}
+
+func (u *cursorFamilyUnion) add(id string) {
+	if _, ok := u.parents[id]; !ok {
+		u.parents[id] = id
+	}
+}
+
+func (u *cursorFamilyUnion) find(id string) string {
+	u.add(id)
+	parent := u.parents[id]
+	if parent == id {
+		return id
+	}
+	u.parents[id] = u.find(parent)
+	return u.parents[id]
+}
+
+func (u *cursorFamilyUnion) union(left, right string) {
+	leftRoot, rightRoot := u.find(left), u.find(right)
+	if leftRoot == rightRoot {
+		return
+	}
+	if leftRoot < rightRoot {
+		u.parents[rightRoot] = leftRoot
+	} else {
+		u.parents[leftRoot] = rightRoot
+	}
 }
 
 func applyMetadataTimes(value *session.Session, startedAt, lastActivityAt int64) {
