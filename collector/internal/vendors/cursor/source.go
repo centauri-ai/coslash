@@ -3,9 +3,11 @@ package cursor
 import (
 	"errors"
 	"io/fs"
+	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -17,8 +19,11 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	if err != nil {
 		return nil, nil, err
 	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
 	files = selectCursorFilesSource(vendors.LocalReadSource, files, since)
-	return parseTranscriptFilesSource(vendors.LocalReadSource, files), vendors.EmptySessionMetadata(), nil
+	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
+	applyCursorEnrichment(parsed, metadata)
+	return parsed, metadata, nil
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
@@ -38,7 +43,12 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if len(fragments) == 0 {
 		return nil, nil
 	}
-	return parseTranscriptFragmentsSource(vendors.LocalReadSource, fragments)
+	parsed, err := parseTranscriptFragmentsSource(vendors.LocalReadSource, fragments)
+	if err != nil || parsed == nil {
+		return parsed, err
+	}
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata))
+	return parsed, nil
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
@@ -50,7 +60,73 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		return nil, vendors.EmptySessionMetadata(), err
 	}
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, cursorFamilyFiles(files, id))
-	return selectFamily(parsed, id), vendors.EmptySessionMetadata(), nil
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
+	applyCursorEnrichment(parsed, metadata)
+	return selectFamily(parsed, id), metadata, nil
+}
+
+func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
+	if metadata == nil {
+		return
+	}
+	for _, item := range parsed {
+		if item == nil || item.Session == nil {
+			continue
+		}
+		enrichment := metadata.Session(item.Session.ID)
+		applyMetadataTimes(item.Session, enrichment.StartedAt, enrichment.LastActivityAt)
+		if enrichment.WorkingDirectory != "" {
+			item.Session.WorkingDirectory = enrichment.WorkingDirectory
+		}
+		mergeIDEFileEdits(item.Session, enrichment.FileEdits)
+		if len(enrichment.CommitObservations) > 0 {
+			item.Session.CommitLog = append(item.Session.CommitLog, enrichment.CommitObservations...)
+		}
+	}
+}
+
+func applyMetadataTimes(value *session.Session, startedAt, lastActivityAt int64) {
+	if startedAt > 0 {
+		value.StartedAt = startedAt
+	}
+	if lastActivityAt > 0 {
+		value.LastActivityTime = lastActivityAt
+	}
+}
+
+func mergeIDEFileEdits(value *session.Session, sideStore []session.FileEdit) {
+	if len(sideStore) == 0 {
+		return
+	}
+	byPath := make(map[string]int, len(value.FileEdits))
+	for index, edit := range value.FileEdits {
+		byPath[normalizedEditPath(value.WorkingDirectory, edit.Path)] = index
+	}
+	for _, edit := range sideStore {
+		path := normalizedEditPath(value.WorkingDirectory, edit.Path)
+		if index, ok := byPath[path]; ok {
+			value.FileEdits[index].Additions = edit.Additions
+			value.FileEdits[index].Deletions = edit.Deletions
+			value.FileEdits[index].IsNew = edit.IsNew
+			continue
+		}
+		edit.Path = path
+		value.FileEdits = append(value.FileEdits, edit)
+		byPath[path] = len(value.FileEdits) - 1
+	}
+	value.EditedFileCount = len(value.FileEdits)
+}
+
+func normalizedEditPath(cwd, path string) string {
+	path = filepath.Clean(path)
+	if cwd == "" || !filepath.IsAbs(path) {
+		return path
+	}
+	relative, err := filepath.Rel(cwd, path)
+	if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return relative
+	}
+	return path
 }
 
 func cursorFamilyFiles(files []string, id string) []string {
