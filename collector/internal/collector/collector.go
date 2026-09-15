@@ -16,6 +16,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
@@ -47,6 +48,11 @@ var vendorSources = []vendorSource{
 		name: vendors.AgentOpenCode, collect: opencode.Collect, loadFacts: opencode.GetSessionFacts,
 		loadFamily: opencode.GetSessionFamily,
 		health:     opencode.Health,
+	},
+	{
+		name: vendors.AgentCursor, collect: cursor.Collect, loadFacts: cursor.GetSessionFacts,
+		loadFamily: cursor.GetSessionFamily,
+		health:     cursor.Health,
 	},
 }
 
