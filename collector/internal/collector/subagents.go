@@ -16,13 +16,19 @@ func subagentFrom(
 	useLiveStatus bool,
 ) session.Subagent {
 	s := child.Session
-	task, result := deref(s.FirstPrompt), deref(s.Summary)
+	relationshipTask := ""
+	if enrichment := metadata.Lookup(s.ID); enrichment != nil {
+		relationshipTask = enrichment.Relationship.Task
+	}
+	task := cmp.Or(parent.Spawns[child.SpawnKey].Task, relationshipTask, deref(s.FirstPrompt))
+	result := cmp.Or(child.Result, deref(s.Summary))
 	if !preserveText {
 		task = session.Truncate(task, session.TruncateTextLimit)
 		result = session.Truncate(result, session.TruncateTextLimit)
 	}
 	subagent := session.Subagent{
 		ID:         s.ID,
+		ParentID:   parent.Session.ID,
 		Name:       cmp.Or(deref(s.Name), child.Name, s.ID),
 		Model:      s.Model,
 		Status:     subagentStatus(child, parent, metadata, useLiveStatus),
@@ -57,6 +63,24 @@ func subagentStatus(
 	metadata *vendors.SessionMetadata,
 	useLiveStatus bool,
 ) string {
+	if child.Session.Agent == vendors.AgentCursor {
+		if child.Stopped {
+			return session.SubagentAborted
+		}
+		spawn := parent.Spawns[child.SpawnKey]
+		if spawn.Completed || !child.InTurn {
+			return session.SubagentReturned
+		}
+		if spawn.Active {
+			return session.SubagentRunning
+		}
+		if useLiveStatus {
+			if enrichment := metadata.Lookup(child.Session.ID); enrichment != nil && enrichment.Live != "" {
+				return session.SubagentRunning
+			}
+		}
+		return session.SubagentAborted
+	}
 	if child.Session.Agent == vendors.AgentCodex {
 		if child.Stopped {
 			return session.SubagentAborted

@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"cmp"
 	"errors"
 	"io/fs"
 	"path/filepath"
@@ -20,9 +21,13 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 		return nil, nil, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
-	files = selectCursorFilesSource(vendors.LocalReadSource, files, metadata, since)
+	files = selectCursorFilesSourceWithMetadata(vendors.LocalReadSource, files, since, metadata)
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
 	applyCursorEnrichment(parsed, metadata)
+	applyRelationships(parsed, metadata)
+	if since > 0 {
+		parsed = familiesSince(parsed, since)
+	}
 	return parsed, metadata, nil
 }
 
@@ -74,7 +79,86 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		return LoadMetadataForSessions(ids, familyFiles)
 	})
 	applyCursorEnrichment(parsed, metadata)
+	applyRelationships(parsed, metadata)
 	return selectFamily(parsed, id), metadata, nil
+}
+
+func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
+	if metadata == nil {
+		return
+	}
+	byID := map[string]*vendors.ParsedSession{}
+	for _, item := range parsed {
+		if item != nil && item.Session != nil {
+			byID[item.Session.ID] = item
+		}
+	}
+	for childID, entry := range metadata.Sessions {
+		if child := byID[childID]; child != nil && entry.Relationship.ParentID != "" {
+			child.ParentID, child.SpawnKey = entry.Relationship.ParentID, entry.Relationship.SpawnKey
+		}
+	}
+	for _, item := range byID {
+		seen := map[string]bool{}
+		for item.ParentID != "" {
+			if seen[item.Session.ID] {
+				item.ParentID, item.SpawnKey = "", ""
+				break
+			}
+			seen[item.Session.ID] = true
+			parent := byID[item.ParentID]
+			if parent == nil {
+				break
+			}
+			item = parent
+		}
+	}
+	for childID, entry := range metadata.Sessions {
+		value := entry.Relationship
+		child, parent := byID[childID], byID[value.ParentID]
+		if child == nil || parent == nil || child.ParentID == "" {
+			continue
+		}
+		if parent.Spawns == nil {
+			parent.Spawns = map[string]vendors.SpawnState{}
+		}
+		spawn := parent.Spawns[value.SpawnKey]
+		spawn.Completed, spawn.Active = value.Completed, value.Active
+		parent.Spawns[value.SpawnKey] = spawn
+		for i, digest := range parent.Session.Digest {
+			if digest.Category != session.DigestSubagent || (digest.SpawnKey != value.SpawnKey && cmp.Or(parent.Spawns[digest.SpawnKey].Task, digest.Description) != value.Task) {
+				continue
+			}
+			if value.Task == "" {
+				value.Task = digest.Description
+				metadata.Session(childID).Relationship.Task = value.Task
+			}
+			spawn := parent.Spawns[digest.SpawnKey]
+			spawn.Completed, spawn.Active = value.Completed, value.Active
+			delete(parent.Spawns, digest.SpawnKey)
+			parent.Session.Digest[i].SpawnKey = value.SpawnKey
+			parent.Spawns[value.SpawnKey] = spawn
+			break
+		}
+	}
+}
+
+func familiesSince(parsed []*vendors.ParsedSession, since int64) []*vendors.ParsedSession {
+	selected := map[string]bool{}
+	for _, item := range parsed {
+		if item != nil && item.LogModifiedAtMs >= since {
+			for _, member := range selectFamily(parsed, item.Session.ID) {
+				selected[member.Session.ID] = true
+			}
+		}
+	}
+	result := make([]*vendors.ParsedSession, 0, len(selected))
+	for _, item := range parsed {
+		if selected[item.Session.ID] {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
@@ -195,7 +279,11 @@ func parseTranscriptFilesSource(source vendors.ReadSource, files []string) []*ve
 	})
 }
 
-func selectCursorFilesSource(source vendors.ReadSource, files []string, metadata *vendors.SessionMetadata, since int64) []string {
+func selectCursorFilesSource(source vendors.ReadSource, files []string, since int64) []string {
+	return selectCursorFilesSourceWithMetadata(source, files, since, nil)
+}
+
+func selectCursorFilesSourceWithMetadata(source vendors.ReadSource, files []string, since int64, metadata *vendors.SessionMetadata) []string {
 	if len(files) == 0 {
 		return nil
 	}
@@ -205,6 +293,15 @@ func selectCursorFilesSource(source vendors.ReadSource, files []string, metadata
 		union.add(id)
 		if parentID := ParentIDFromPath(path); parentID != "" {
 			union.union(id, parentID)
+		}
+	}
+	if metadata != nil {
+		for childID, entry := range metadata.Sessions {
+			if entry.Relationship.ParentID != "" {
+				union.add(childID)
+				union.add(entry.Relationship.ParentID)
+				union.union(childID, entry.Relationship.ParentID)
+			}
 		}
 	}
 	eligibleFamilies := map[string]bool{}
