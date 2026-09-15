@@ -5,3 +5,7 @@
 *.local
 node_modules/
 .claude/
+graphify-out/
+.agents/
+.vscode/
+.zed/

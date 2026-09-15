@@ -5,8 +5,6 @@ import (
 	"errors"
 	"io"
 	"log"
-	"os"
-	"path/filepath"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -16,15 +14,6 @@ import (
 // before the divergence belongs to the parent. An unresolvable or unreadable
 // parent leaves the full cumulative usage in place; over-counting is the
 // deliberate failure mode, never under-counting.
-func applyForkedUsage(parsed []*parsedSession) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		applyForkedUsageSource(vendors.LocalReadSource, "", parsed)
-		return
-	}
-	applyForkedUsageSource(vendors.LocalReadSource, filepath.Join(home, ".codex", "archived_sessions"), parsed)
-}
-
 func applyForkedUsageSource(
 	source vendors.ReadSource,
 	archivedDir string,
@@ -87,10 +76,6 @@ func applyForkedUsageSource(
 // parent recorded past the fork point affects token attribution. This avoids
 // fully parsing a parent that may be long-running. The returned slice is enough
 // for tokenBuckets to find the shared prefix.
-func parentForkUsages(path string, forkSeq []codexTokenUsage) ([]codexTokenUsage, error) {
-	return parentForkUsagesSource(vendors.LocalReadSource, path, forkSeq)
-}
-
 func parentForkUsagesSource(
 	source vendors.ReadSource,
 	path string,

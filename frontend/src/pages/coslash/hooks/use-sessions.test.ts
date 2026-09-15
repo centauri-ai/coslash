@@ -8,9 +8,16 @@ import {
 import { LOCAL_SOURCE_ID, withLocalSourceDefaults, type Session } from '@/pages/coslash/lib/session';
 
 function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
+  const local = sourceId === LOCAL_SOURCE_ID;
   return {
     sourceId,
-    sourceLabel: sourceId === LOCAL_SOURCE_ID ? 'Local Mac' : 'gpu-server',
+    sourceLabel: local ? 'Local Mac' : 'SSH workspace',
+    sourceClass: local ? 'local' : 'ssh_workspace',
+    logicalSessionId: `${sourceId}:codex:${id}`,
+    revision: 1,
+    completion: 'complete',
+    privacy: 'shareable',
+    shareEligibility: 'eligible',
     eligibleForAggregates: true,
     displayStale: false,
     agent: 'codex',
@@ -59,6 +66,12 @@ describe('decodeSessionsResponse', () => {
       sourceLabel: _l,
       eligibleForAggregates: _e,
       displayStale: _d,
+      sourceClass: _sc,
+      logicalSessionId: _li,
+      revision: _r,
+      completion: _c,
+      privacy: _p,
+      shareEligibility: _se,
       ...legacy
     } = sampleSession('a');
     expect(decodeSessionsResponse([legacy])).toEqual({

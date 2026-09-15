@@ -53,11 +53,6 @@ func IsRootRollout(path string) (bool, error) {
 	return err == nil && parentID == "", err
 }
 
-func IsRootRolloutSource(source vendors.ReadSource, path string) (bool, error) {
-	_, parentID, err := readHeaderSource(source, path)
-	return err == nil && parentID == "", err
-}
-
 // root/subagents: ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<session-uuid>.jsonl
 func Root() (string, error) {
 	home, err := os.UserHomeDir()

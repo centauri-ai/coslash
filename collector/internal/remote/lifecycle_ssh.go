@@ -414,35 +414,6 @@ func writeLifecycleArtifact(file lifecycleArtifactFile, content []byte) error {
 	return nil
 }
 
-// writeAndCloseLifecycleArtifact is the failure-atomic temporary-file step of
-// installation. The callback makes cleanup testable independently from an SSH
-// server and ensures an interrupted write, sync, or close cannot leave a
-// candidate executable behind.
-func writeAndCloseLifecycleArtifact(
-	file lifecycleArtifactFile,
-	content []byte,
-	temporary string,
-	remove func(string) error,
-) error {
-	if err := errors.Join(writeLifecycleArtifact(file, content), file.Close()); err != nil {
-		return fmt.Errorf("write helper temporary: %w", errors.Join(err, remove(temporary)))
-	}
-	return nil
-}
-
-// activateLifecycleTemporary keeps a failed atomic rename from leaving a
-// verified-looking temporary executable behind for a later operation.
-func activateLifecycleTemporary(
-	rename func(string, string) error,
-	remove func(string) error,
-	temporary, destination string,
-) error {
-	if err := rename(temporary, destination); err != nil {
-		return fmt.Errorf("activate helper atomically: %w", errors.Join(err, remove(temporary)))
-	}
-	return nil
-}
-
 type boundedCommandOutput struct {
 	mu       sync.Mutex
 	buffer   bytes.Buffer
