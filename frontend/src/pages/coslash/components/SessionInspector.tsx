@@ -56,7 +56,6 @@ import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
   boardStatusKey,
   displayStatusLabel,
-  environmentFact,
   getModality,
   getSessionOutcome,
   getVendor,
@@ -67,8 +66,10 @@ import {
   resumeDisabled,
   resumeDisabledHint,
   sessionKey,
+  sessionLocationFact,
   STATUSES,
   SUBAGENT_STATUSES,
+  subagentParentName,
   type DigestEntry,
   type Session,
   type SessionDetail,
@@ -263,7 +264,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
     <div className="flex flex-col gap-2 pt-2">
       <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-xs">
         <div className="flex min-w-40 flex-1 items-center gap-1 overflow-hidden">
-          <Badge variant="secondary">{environmentFact(detail.repo)}</Badge>
+          <Badge variant="secondary">{sessionLocationFact(detail)}</Badge>
           <span>/</span>
           {detail.branch == null || detail.branch.trim() === '' ? (
             <Badge variant="secondary">—</Badge>
@@ -435,6 +436,7 @@ function HandoffSection({
   const treeStale = treeStaleReadiness(detail.lastEditAt);
 
   const brief = handoffBrief(detail);
+  const cursorReadOnly = isLocalSession(detail) && detail.agent === 'cursor';
 
   const copyBrief = () => {
     navigator.clipboard?.writeText(brief);
@@ -454,12 +456,14 @@ function HandoffSection({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <StartNewSessionButton
-          detail={detail}
-          brief={brief}
-          onCopy={copyBrief}
-          disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
-        />
+        {!cursorReadOnly && (
+          <StartNewSessionButton
+            detail={detail}
+            brief={brief}
+            onCopy={copyBrief}
+            disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
+          />
+        )}
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={copyBrief}>
           <span>Copy handoff</span>
         </Button>
@@ -731,7 +735,7 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
   if (!subagent) {
     throw new Error(`digest references subagent ${subagentId}, which is not on the session`);
   }
-  const parentName = detail.name;
+  const parentName = subagentParentName(subagent, detail.subagents, detail.name);
   const status = SUBAGENT_STATUSES[subagent.status].label;
   return (
     <Dialog>
@@ -1044,17 +1048,20 @@ function InspectorFooter({
   const [previewOpen, setPreviewOpen] = useState(false);
   const showTeamPreview =
     isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
+  const cursorReadOnly = isLocalSession(detail) && detail.agent === 'cursor';
 
   return (
     <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
       <div className="flex min-w-0 flex-col">
-        <span className="text-xs">Resume this exact session</span>
+        <span className="text-xs">{cursorReadOnly ? 'Cursor session' : 'Resume this exact session'}</span>
         <span className="text-muted-foreground text-xs font-light">
-          {isLocalSession(detail)
-            ? `Reopens this session in ${getVendor(detail.agent).label} with its full context.`
-            : remoteLaunchable
-              ? `Opens this session in ${getVendor(detail.agent).label} through SSH.`
-              : 'Available when the remote SSH host is connected.'}
+          {cursorReadOnly
+            ? 'Viewing is available; launching and resuming Cursor sessions is not supported yet.'
+            : isLocalSession(detail)
+              ? `Reopens this session in ${getVendor(detail.agent).label} with its full context.`
+              : remoteLaunchable
+                ? `Opens this session in ${getVendor(detail.agent).label} through SSH.`
+                : 'Available when the remote SSH host is connected.'}
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -1071,7 +1078,7 @@ function InspectorFooter({
             />
           </>
         )}
-        <ResumeSessionButton detail={detail} disabledHint={remoteResumeHint} />
+        {!cursorReadOnly && <ResumeSessionButton detail={detail} disabledHint={remoteResumeHint} />}
       </div>
     </SheetFooter>
   );

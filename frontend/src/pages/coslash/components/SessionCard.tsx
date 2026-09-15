@@ -23,9 +23,11 @@ import {
   getSessionCardSummary,
   getTotalTokens,
   getVendor,
+  sessionLocationFact,
   sessionShareEligibility,
   STATUSES,
   SUBAGENT_STATUSES,
+  subagentParentName,
   sumTokens,
   type Session,
   type Subagent,
@@ -139,8 +141,8 @@ function Modality({ session }: { session: Session }) {
 
 function Metadata({ session }: { session: Session }) {
   return (
-    <div className="text-muted-foreground pt-2 font-mono text-xs" title={environmentFact(session.repo)}>
-      {environmentFact(session.repo)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
+    <div className="text-muted-foreground pt-2 font-mono text-xs" title={sessionLocationFact(session)}>
+      {sessionLocationFact(session)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
       {formatDuration(session.durationMs)} · {session.files} files
     </div>
   );
@@ -445,7 +447,12 @@ function SessionSubagentRail({
     <div className={cn('flex flex-col', variant === 'compact' ? 'pl-3' : 'pl-20')}>
       <div className="border-subagent-rail flex flex-col gap-2 border-l-3 pl-4">
         {visible.map((subagent) => (
-          <SubagentCard key={subagent.id} subagent={subagent} parentName={parentName} variant={variant} />
+          <SubagentCard
+            key={subagent.id}
+            subagent={subagent}
+            parentName={subagentParentName(subagent, subagents, parentName)}
+            variant={variant}
+          />
         ))}
         {(hiddenCount > 0 || expanded) && (
           <SubagentExpandToggle
