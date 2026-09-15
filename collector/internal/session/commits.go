@@ -31,7 +31,7 @@ type CommitObservation struct {
 }
 
 func ParseCommitObservations(command, output string, succeeded bool) []CommitObservation {
-	invocations := commitInvocations(command)
+	invocations := ParseCommitAttempts(command)
 	hashes := commitOutputHashes(output)
 	if len(invocations) == len(hashes) {
 		for i := range invocations {
@@ -53,7 +53,7 @@ func commitOutputHashes(output string) []string {
 	return hashes
 }
 
-func commitInvocations(command string) []CommitObservation {
+func ParseCommitAttempts(command string) []CommitObservation {
 	matches := gitCommitCommand.FindAllStringSubmatchIndex(maskQuotedShellText(command), -1)
 	observations := make([]CommitObservation, 0, len(matches))
 	for _, match := range matches {
@@ -294,8 +294,15 @@ var prCreateCommand = regexp.MustCompile(`(?:^|[\n;&|])\s*(?:rtk\s+)?gh\s+pr\s+c
 var prCreateHelpOrVersionCommand = regexp.MustCompile(
 	`gh\s+pr\s+create\s+(?:-h|--help|--version)\b`,
 )
+var pullRequestURLPattern = regexp.MustCompile(
+	`https://github\.com/[^/\s"]+/[^/\s"]+/pull/[0-9]+`,
+)
 
 func IsPullRequestCreate(command string) bool {
 	return prCreateCommand.MatchString(command) &&
 		!prCreateHelpOrVersionCommand.MatchString(command)
+}
+
+func PullRequestURLs(text string) []string {
+	return pullRequestURLPattern.FindAllString(text, -1)
 }
