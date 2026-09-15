@@ -17,7 +17,7 @@ func parityFixture() ([]*vendors.ParsedSession, *vendors.SessionMetadata) {
 		{Session: &session.Session{Agent: "codex", ID: "child", StartedAt: 12, LastActivityTime: 25, Tokens: map[string]session.ModelTokens{}}, ParentID: "root", SpawnKey: "spawn", Name: "child name", Spawns: map[string]vendors.SpawnState{}, Commands: []session.SubagentCommand{{Label: "check tests"}}},
 	}
 	metadata := vendors.EmptySessionMetadata()
-	metadata.Names["root"] = "metadata name"
+	metadata.Session("root").Name = "metadata name"
 	return parsed, metadata
 }
 

@@ -78,7 +78,7 @@ func loadMetadata(db *sql.DB) (*vendors.SessionMetadata, error) {
 		return nil, fmt.Errorf("load live candidates: %w", err)
 	}
 	for id := range matchLiveSessions(processes, candidates) {
-		metadata.Live[id] = "interactive"
+		metadata.Session(id).Live = "interactive"
 	}
 	markPendingPermissions(db, metadata, permissionStateDir())
 	return metadata, nil
@@ -151,7 +151,7 @@ func markPendingPermissions(db *sql.DB, metadata *vendors.SessionMetadata, direc
 			`SELECT COALESCE(parent_id, id) FROM session WHERE id = ? AND time_archived IS NULL`,
 			pending.SessionID,
 		).Scan(&rootID) == nil {
-			metadata.Live[rootID] = "waiting"
+			metadata.Session(rootID).Live = "waiting"
 		}
 	}
 }

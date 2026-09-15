@@ -16,7 +16,7 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCodex, LoadMetadata)
 	if since > 0 {
-		files = FilesSince(files, metadata.Live, since)
+		files = FilesSince(files, metadata.LiveSessions(), since)
 	}
 	return parseFiles(files), metadata, nil
 }

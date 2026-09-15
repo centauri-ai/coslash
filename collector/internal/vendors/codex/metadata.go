@@ -28,9 +28,11 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 		return nil, err
 	}
 	metadata := vendors.EmptySessionMetadata()
-	metadata.Names = names
+	for id, name := range names {
+		metadata.Session(id).Name = name
+	}
 	for id := range live {
-		metadata.Live[id] = "interactive"
+		metadata.Session(id).Live = "interactive"
 	}
 	return metadata, nil
 }
@@ -87,7 +89,9 @@ func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.Sessio
 		return nil, err
 	}
 	metadata := vendors.EmptySessionMetadata()
-	metadata.Names = names
+	for id, name := range names {
+		metadata.Session(id).Name = name
+	}
 	return metadata, nil
 }
 
