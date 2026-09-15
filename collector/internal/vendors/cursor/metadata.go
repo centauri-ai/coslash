@@ -78,6 +78,7 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 		loadIDEDiffs(metadata, stateDB, ids)
 		loadIDECommitObservations(metadata, stateDB, ids)
 		loadIDEModelsDB(metadata, stateDB, ids)
+		loadIDERelationships(metadata, stateDB, ids)
 	}
 	query, args := cursorIDQuery(`SELECT id, title FROM conversations`, "id", ids)
 	query += ` ORDER BY source = 'local' DESC`
@@ -108,6 +109,10 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 			if transcriptIDPattern.MatchString(id) {
 				metadata.Session(id).Model = normalizeCursorModel(item.LastUsedModel)
 				setCursorTimes(metadata, id, item.CreatedAt, 0)
+			}
+			parentID := canonicalCursorID(item.SubagentInfo.ParentAgentID)
+			if transcriptIDPattern.MatchString(id) && transcriptIDPattern.MatchString(parentID) {
+				metadata.Session(id).Relationship = vendors.SessionRelationship{ParentID: parentID, SpawnKey: item.SubagentInfo.ToolCallID, Task: item.SubagentInfo.TypeName}
 			}
 			return id, item.Name, ""
 		})
@@ -256,6 +261,108 @@ func cursorSDKStores(home string, ids, transcriptPaths []string) []string {
 		}
 	}
 	return stores
+}
+
+func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+	query := `SELECT composerId, value FROM composerHeaders`
+	args := []any(nil)
+	if ids != nil {
+		if len(ids) == 0 {
+			query += ` WHERE 0`
+		} else {
+			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+			query += ` WHERE LOWER(composerId) IN (` + placeholders + `) OR LOWER(json_extract(value, '$.subagentInfo.parentComposerId')) IN (` + placeholders + `)`
+			for _, id := range ids {
+				args = append(args, id)
+			}
+			for _, id := range ids {
+				args = append(args, id)
+			}
+		}
+	}
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var childID, value string
+		if rows.Scan(&childID, &value) != nil {
+			continue
+		}
+		childID = canonicalCursorID(childID)
+		var header struct {
+			SubagentInfo struct {
+				ParentComposerID string `json:"parentComposerId"`
+				ToolCallID       string `json:"toolCallId"`
+			} `json:"subagentInfo"`
+		}
+		if json.Unmarshal([]byte(value), &header) != nil {
+			continue
+		}
+		parentID := canonicalCursorID(header.SubagentInfo.ParentComposerID)
+		if !transcriptIDPattern.MatchString(childID) || !transcriptIDPattern.MatchString(parentID) {
+			continue
+		}
+		metadata.Session(childID).Relationship = vendors.SessionRelationship{ParentID: parentID, SpawnKey: header.SubagentInfo.ToolCallID}
+	}
+	parentIDs := append([]string(nil), ids...)
+	for _, entry := range metadata.Sessions {
+		if entry.Relationship.ParentID != "" {
+			parentIDs = append(parentIDs, entry.Relationship.ParentID)
+		}
+	}
+	query, args = cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "bubbleId:", canonicalCursorIDs(parentIDs))
+	rows2, err := db.Query(query, args...)
+	if err != nil {
+		return
+	}
+	defer rows2.Close()
+	for rows2.Next() {
+		var key, value string
+		if rows2.Scan(&key, &value) != nil {
+			continue
+		}
+		parts := strings.SplitN(key, ":", 3)
+		if len(parts) != 3 || !transcriptIDPattern.MatchString(parts[1]) {
+			continue
+		}
+		parentID := canonicalCursorID(parts[1])
+		var bubble struct {
+			CreatedAt      string                                                    `json:"createdAt"`
+			ToolFormerData struct{ Name, ToolCallID, Status, Params, Result string } `json:"toolFormerData"`
+		}
+		if json.Unmarshal([]byte(value), &bubble) != nil || bubble.ToolFormerData.Name != "task_v2" {
+			continue
+		}
+		var params struct {
+			Description string `json:"description"`
+		}
+		var result struct {
+			AgentID string `json:"agentId"`
+		}
+		if json.Unmarshal([]byte(bubble.ToolFormerData.Params), &params) != nil {
+			continue
+		}
+		if bubble.ToolFormerData.Result != "" && json.Unmarshal([]byte(bubble.ToolFormerData.Result), &result) != nil {
+			continue
+		}
+		childID := canonicalCursorID(result.AgentID)
+		if !transcriptIDPattern.MatchString(childID) {
+			continue
+		}
+		rel := metadata.Session(childID).Relationship
+		if rel.ParentID != parentID || rel.SpawnKey != bubble.ToolFormerData.ToolCallID {
+			continue
+		}
+		rel.Task = params.Description
+		if at, ok := parseTimestamp(bubble.CreatedAt); ok {
+			rel.Time = at.UnixMilli()
+		}
+		rel.Completed = bubble.ToolFormerData.Status == "completed"
+		rel.Active = bubble.ToolFormerData.Status == "running"
+		metadata.Session(childID).Relationship = rel
+	}
 }
 
 var fullCommitHash = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)

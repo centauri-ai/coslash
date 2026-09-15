@@ -102,7 +102,7 @@ func TestSelectCursorFilesDoesNotCapAllHistory(t *testing.T) {
 		files[i] = filepath.Join("agent-transcripts", id, id+".jsonl")
 	}
 
-	got := selectCursorFilesSource(statReadSource{info: info}, files, nil, 0)
+	got := selectCursorFilesSource(statReadSource{info: info}, files, 0)
 	if len(got) != len(files) {
 		t.Fatalf("selected %d files, want all %d", len(got), len(files))
 	}
@@ -123,7 +123,7 @@ func TestSelectCursorFilesUsesSideStoreActivity(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session(id).LastActivityAt = since
 
-	got := selectCursorFilesSource(statReadSource{info: info}, []string{path}, metadata, since)
+	got := selectCursorFilesSourceWithMetadata(statReadSource{info: info}, []string{path}, since, metadata)
 	if len(got) != 1 || got[0] != path {
 		t.Fatalf("selected files = %v, want side-store-recent session", got)
 	}
@@ -147,7 +147,7 @@ func TestSelectCursorFilesOrdersFamiliesBySideStoreActivity(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session(newestID).LastActivityAt = info.ModTime().UnixMilli() + 1
 
-	got := selectCursorFilesSource(statReadSource{info: info}, files, metadata, 1)
+	got := selectCursorFilesSourceWithMetadata(statReadSource{info: info}, files, 1, metadata)
 	for _, path := range got {
 		if path == files[len(files)-1] {
 			return
