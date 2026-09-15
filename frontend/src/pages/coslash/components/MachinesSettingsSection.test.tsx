@@ -13,6 +13,14 @@ describe('RemoteExecutableField', () => {
     expect(markup).toContain('aria-invalid="true"');
     expect(markup).toContain('Use an absolute path or a path beginning with ~/.');
   });
+
+  it('renders an OpenCode override', () => {
+    const markup = renderToStaticMarkup(
+      <RemoteExecutableField agent="opencode" path="" disabled={false} onChange={vi.fn()} onBlur={vi.fn()} />,
+    );
+
+    expect(markup).toContain('OpenCode remote executable');
+  });
 });
 
 describe('SetupProgress', () => {
