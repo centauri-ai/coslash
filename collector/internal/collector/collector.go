@@ -96,16 +96,50 @@ func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
 		roots := servableRoots(finalizeSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}))
 		probeLastEdits(roots)
 		probeGitEnvironment(roots)
-		for _, candidate := range roots {
-			if candidate.Session.ID == id {
-				return candidate.Session, nil
-			}
+		if root := previewRootFor(parsed, roots, id); root != nil {
+			return root.Session, nil
 		}
 	}
 	if len(failures) > 0 {
 		return nil, errors.Join(failures...)
 	}
 	return nil, nil
+}
+
+func previewRootFor(parsed, roots []*vendors.ParsedSession, id string) *vendors.ParsedSession {
+	byID := map[sessionKey]*vendors.ParsedSession{}
+	for _, item := range parsed {
+		if item != nil && item.Session != nil {
+			byID[sessionKey{item.Session.Agent, item.Session.ID}] = item
+		}
+	}
+	for _, item := range parsed {
+		if item == nil || item.Session == nil || item.Session.ID != id {
+			continue
+		}
+		seen := map[sessionKey]bool{}
+		for item.ParentID != "" {
+			key := sessionKey{item.Session.Agent, item.Session.ID}
+			if seen[key] {
+				item = nil
+				break
+			}
+			seen[key] = true
+			item = byID[sessionKey{item.Session.Agent, item.ParentID}]
+			if item == nil {
+				break
+			}
+		}
+		if item == nil {
+			continue
+		}
+		for _, root := range roots {
+			if root.Session.Agent == item.Session.Agent && root.Session.ID == item.Session.ID {
+				return root
+			}
+		}
+	}
+	return nil
 }
 
 func finalizeSessions(
@@ -144,7 +178,9 @@ func promoteFamilyActivity(composition sessionComposition) {
 	}
 	for child, parent := range parents {
 		activity := child.Session.LastActivityTime
-		for parent != nil {
+		seen := map[*vendors.ParsedSession]bool{child: true}
+		for parent != nil && !seen[parent] {
+			seen[parent] = true
 			parent.Session.LastActivityTime = max(parent.Session.LastActivityTime, activity)
 			parent = parents[parent]
 		}
@@ -255,6 +291,10 @@ func enrichSubagents(
 	metadata map[string]*vendors.SessionMetadata,
 	claudeDynamicWorkflows map[string]*claude.WorkflowAgent,
 ) {
+	parents := make(map[*vendors.ParsedSession]*vendors.ParsedSession, len(composition.children))
+	for _, link := range composition.children {
+		parents[link.child] = link.parent
+	}
 	for _, link := range composition.children {
 		p, parent := link.child, link.parent
 		subagent := subagentFrom(
@@ -264,7 +304,15 @@ func enrichSubagents(
 			claudeDynamicWorkflows[p.Session.ID],
 		)
 		linkSpawnDigest(parent.Session, p.SpawnKey, subagent)
-		parent.Session.Subagents = append(parent.Session.Subagents, subagent)
+		if p.Session.Agent != vendors.AgentCursor {
+			parent.Session.Subagents = append(parent.Session.Subagents, subagent)
+			continue
+		}
+		seen := map[*vendors.ParsedSession]bool{p: true}
+		for owner := parent; owner != nil && !seen[owner]; owner = parents[owner] {
+			seen[owner] = true
+			owner.Session.Subagents = append(owner.Session.Subagents, subagent)
+		}
 	}
 }
 

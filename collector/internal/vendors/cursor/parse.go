@@ -58,6 +58,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	firstPrompt, cwd := "", ""
 	startedAt := int64(0)
 	spawns := map[string]vendors.SpawnState{}
+	assistantResult := ""
 	inTurn := true
 	stopped := false
 	taskCount := 0
@@ -96,6 +97,9 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 		if record.Role == "assistant" && record.Message != nil {
 			for _, block := range record.Message.Content {
 				if block.Type == "text" {
+					if text := strings.TrimSpace(block.Text); text != "" {
+						assistantResult = text
+					}
 					if text := strings.TrimSpace(block.Text); text != "" {
 						if pendingQuestion != "" {
 							digest.PushQuestion(pendingQuestionTurn, pendingQuestion, text, pendingQuestionTime)
@@ -171,7 +175,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 					if task == "" {
 						task = input.Prompt
 					}
-					spawns[spawnKey] = vendors.SpawnState{Turn: &turn}
+					spawns[spawnKey] = vendors.SpawnState{Turn: &turn, Task: task}
 					digest.PushSubagentTask(turn, spawnKey, task, 0)
 				}
 			}
@@ -211,8 +215,8 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	}
 	return &vendors.ParsedSession{
 		Session: result, LogPath: path, LogModifiedAtMs: modified,
-		ParentID: ParentIDFromPath(path),
-		InTurn:   inTurn, Stopped: stopped,
+		ParentID: ParentIDFromPath(path), Result: assistantResult,
+		InTurn: inTurn, Stopped: stopped,
 		Spawns: spawns, Commands: commands.Labelled(),
 	}, nil
 }
