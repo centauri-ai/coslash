@@ -5,7 +5,7 @@ import {
   sessionsRequestPath,
   synthesisRequestPath,
 } from '@/pages/coslash/hooks/use-sessions';
-import { LOCAL_SOURCE_ID, withLocalSourceDefaults, type Session } from '@/pages/coslash/lib/session';
+import { LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
 
 function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
   const local = sourceId === LOCAL_SOURCE_ID;
@@ -75,7 +75,7 @@ describe('decodeSessionsResponse', () => {
       ...legacy
     } = sampleSession('a');
     expect(decodeSessionsResponse([legacy])).toEqual({
-      sessions: [withLocalSourceDefaults(legacy)],
+      sessions: [sampleSession('a')],
       machines: [],
     });
   });
@@ -83,10 +83,7 @@ describe('decodeSessionsResponse', () => {
   it('accepts the source-aware envelope and preserves machines', () => {
     const sessions = [sampleSession('a'), sampleSession('b', 'r_0123456789abcdef')];
     const machines = [{ sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true }];
-    expect(decodeSessionsResponse({ sessions, machines })).toEqual({
-      sessions: sessions.map(withLocalSourceDefaults),
-      machines,
-    });
+    expect(decodeSessionsResponse({ sessions, machines })).toEqual({ sessions, machines });
   });
 
   it('normalizes null remote collections so sparse facts cannot crash the board', () => {
