@@ -52,7 +52,7 @@ func subagentStatus(
 		if !child.InTurn {
 			return session.SubagentReturned
 		}
-		if _, live := metadata.Live[child.Session.ID]; live {
+		if metadata.Session(child.Session.ID).Live != "" {
 			return session.SubagentRunning
 		}
 		return session.SubagentAborted
@@ -74,7 +74,7 @@ func subagentStatus(
 			return session.SubagentReturned
 		}
 		// The transcript stops mid-turn when the run dies with its parent.
-		if _, live := metadata.Live[parent.Session.ID]; !live {
+		if metadata.Session(parent.Session.ID).Live == "" {
 			return session.SubagentAborted
 		}
 	}

@@ -184,7 +184,7 @@ func loadCoreMetadata(
 		if !ok {
 			continue
 		}
-		metadata.Live[record.SessionID] = status
+		metadata.Session(record.SessionID).Live = status
 		live[record.SessionID] = metadataName{name: record.Name, nameSource: record.NameSource}
 	}
 
@@ -242,7 +242,7 @@ func resolveMetadataNames(
 			name = liveEntry.name
 		}
 		if name != "" {
-			metadata.Names[id] = name
+			metadata.Session(id).Name = name
 		}
 	}
 }

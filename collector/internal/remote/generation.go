@@ -58,11 +58,14 @@ func mergeMetadataInto(dst *vendors.SessionMetadata, src *vendors.SessionMetadat
 	if dst == nil || src == nil {
 		return
 	}
-	for id, name := range src.Names {
-		dst.Names[id] = name
-	}
-	for id, status := range src.Live {
-		dst.Live[id] = status
+	for id, value := range src.Sessions {
+		target := dst.Session(id)
+		if value.Name != "" {
+			target.Name = value.Name
+		}
+		if value.Live != "" {
+			target.Live = value.Live
+		}
 	}
 }
 
