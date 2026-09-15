@@ -7,6 +7,7 @@ import { remoteStatus, setupRemoteHelper, testRemoteAlias } from '@/pages/coslas
 import { sshTestFailureMessage } from '@/pages/coslash/lib/remote-setup-copy';
 import {
   remoteExecutablePathError,
+  type RemoteExecutableAgent,
   type RemoteExecutableSettings,
   type RemoteHostSettings,
 } from '@/pages/coslash/lib/settings';
@@ -105,19 +106,23 @@ export function RemoteExecutableField({
   onChange,
   onBlur,
 }: {
-  agent: 'claude' | 'codex';
+  agent: RemoteExecutableAgent;
   path: string;
   disabled: boolean;
   onChange: (path: string) => void;
   onBlur: () => void;
 }) {
-  const name = agent === 'claude' ? 'Claude' : 'Codex';
+  const name: Record<RemoteExecutableAgent, string> = {
+    claude: 'Claude',
+    codex: 'Codex',
+    opencode: 'OpenCode',
+  };
   const error = remoteExecutablePathError(path);
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[13px] font-semibold">{name}</span>
+      <span className="text-[13px] font-semibold">{name[agent]}</span>
       <input
-        aria-label={`${name} remote executable`}
+        aria-label={`${name[agent]} remote executable`}
         aria-invalid={error != null}
         value={path}
         disabled={disabled}
@@ -288,7 +293,7 @@ export function MachinesSettingsSection({
     }
   };
 
-  const setExecutable = (agent: 'claude' | 'codex', path: string) => {
+  const setExecutable = (agent: RemoteExecutableAgent, path: string) => {
     onExecutablesChange({ ...executables, [agent]: path });
   };
 
@@ -368,7 +373,7 @@ export function MachinesSettingsSection({
                   <div className="text-muted-foreground text-[11px] leading-relaxed">
                     Optional advanced overrides. Leave blank to discover the executable on this host.
                   </div>
-                  {(['claude', 'codex'] as const).map((agent) => {
+                  {(['claude', 'codex', 'opencode'] as const).map((agent) => {
                     const path = executables?.[agent] ?? '';
                     return (
                       <RemoteExecutableField
