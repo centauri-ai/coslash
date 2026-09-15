@@ -176,6 +176,10 @@ function SessionsStats({
   if (loadFailed) return null;
 
   const aggregateSessions = sessionsForAggregates(sessions);
+  const knownCosts = aggregateSessions.map((session) => session.cost);
+  const cost = knownCosts.some((value) => value != null)
+    ? knownCosts.reduce((sum, value) => sum + (value ?? 0), 0)
+    : null;
   return (
     <div className="flex w-full min-w-0 items-center justify-between gap-3">
       <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
@@ -189,7 +193,7 @@ function SessionsStats({
           {aggregateSessions.filter((session) => session.agent === 'opencode').length} OpenCode ·
         </span>
         <UnpricedModelWarning unpriced={aggregateSessions.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(aggregateSessions.reduce((sum, session) => sum + session.cost, 0))}
+          {formatEstimatedCost(cost)}
         </UnpricedModelWarning>
         <span
           className="shrink-0 cursor-help underline decoration-dotted underline-offset-2"
