@@ -81,6 +81,10 @@
   --color-opencode: var(--opencode);
   --color-opencode-bg: var(--opencode-bg);
 
+  /* vendor: Cursor */
+  --color-cursor: var(--cursor);
+  --color-cursor-bg: var(--cursor-bg);
+
   /* coSlash session views: a cooler neutral ramp than the shared greys,
      defined on .coslash-shell so the page can theme itself */
   --color-coslash-bg: var(--coslash-bg);
@@ -145,6 +149,8 @@
   --codex-bg: #eceffc;
   --opencode: #20751c;
   --opencode-bg: #e3f3e2;
+  --cursor: #242424;
+  --cursor-bg: #e8e8e8;
   --subagent: #0b7c91;
   --subagent-bg: #dff4f7;
   --subagent-card: #f2fbfc;
@@ -207,6 +213,8 @@
   --codex-bg: #252d47;
   --opencode: #7fc47a;
   --opencode-bg: #16301a;
+  --cursor: #ededed;
+  --cursor-bg: #303030;
   --subagent: #38b6cd;
   --subagent-bg: #0d2b32;
   --subagent-card: #0c1315;
