@@ -75,6 +75,7 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 	},
 	reflect.TypeOf(session.Subagent{}): {
 		"ID":            {false, "subagents remain local"},
+		"ParentID":      {false, "local hierarchy context"},
 		"Name":          {false, "subagents remain local"},
 		"Model":         {false, "subagents remain local"},
 		"Status":        {false, "subagents remain local"},

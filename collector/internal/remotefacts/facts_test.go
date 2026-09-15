@@ -151,7 +151,7 @@ func TestParsedRoundTripPreservesSessionDetails(t *testing.T) {
 func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 	assertCensus(t, reflect.TypeOf(vendors.ParsedSession{}), map[string]bool{
 		"Session": true, "LogPath": false, "LogModifiedAtMs": false,
-		"ParentID": true, "SpawnKey": true, "Stopped": true, "Spawns": true,
+		"ParentID": true, "SpawnKey": true, "Stopped": true, "Result": false, "Spawns": true,
 		"Commands": true, "Name": true, "InTurn": true, "StatusHint": true, "RecordedCost": true,
 	})
 	assertCensus(t, reflect.TypeOf(session.Session{}), map[string]bool{
