@@ -6,8 +6,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
@@ -20,6 +22,15 @@ type remoteHelperSetupRequest struct {
 	SSHAlias string `json:"sshAlias"`
 	Install  bool   `json:"install"`
 	Upgrade  bool   `json:"upgrade"`
+}
+
+type remoteAuthResponse struct {
+	ID    string           `json:"id"`
+	State remote.AuthState `json:"state"`
+}
+
+func terminalAuthenticationPermitted(health remote.Health) bool {
+	return health.Reason != nil && (*health.Reason == remote.ReasonAuthentication || *health.Reason == remote.ReasonHostKeyConfirmation)
 }
 
 type helperSetupResponse struct {
@@ -76,18 +87,81 @@ func handleRemoteTest(w http.ResponseWriter, request *http.Request, manager *rem
 	var body remoteTestRequest
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil || !settings.ValidSSHAlias(body.SSHAlias) {
-		http.Error(w, "invalid remote test request", http.StatusBadRequest)
+	if err := decoder.Decode(&body); err != nil || decoder.Decode(&struct{}{}) != io.EOF || !settings.ValidSSHAlias(body.SSHAlias) {
+		writeAPIError(w, http.StatusBadRequest, "invalid_destination", "Enter an SSH alias or user@host.")
 		return
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), remote.DefaultConnectTimeout+5*time.Second)
 	defer cancel()
 	health, err := manager.TestAlias(ctx, body.SSHAlias)
 	if err != nil {
-		http.Error(w, "invalid sshAlias", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid_destination", "Enter an SSH alias or user@host.")
 		return
 	}
 	writeJSON(w, machineFromHealth(health))
+}
+
+func handleRemoteAuthStart(w http.ResponseWriter, request *http.Request, manager *remote.Manager, store *settings.Store) {
+	var body remoteTestRequest
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil || decoder.Decode(&struct{}{}) != io.EOF || !settings.ValidSSHAlias(body.SSHAlias) {
+		writeAPIError(w, http.StatusBadRequest, "invalid_destination", "Enter an SSH alias or user@host.")
+		return
+	}
+	if remote.AuthAttemptActive(body.SSHAlias) {
+		writeAPIError(w, http.StatusConflict, "authentication_in_progress", "Authentication is already waiting in Terminal.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), remote.DefaultConnectTimeout+5*time.Second)
+	defer cancel()
+	health, err := manager.TestAlias(ctx, body.SSHAlias)
+	if err != nil || !terminalAuthenticationPermitted(health) {
+		writeAPIError(w, http.StatusConflict, "authentication_not_required", "Terminal authentication is not required for this host.")
+		return
+	}
+	id, err := remote.CreateAuthAttempt(body.SSHAlias)
+	if errors.Is(err, remote.ErrAuthAttemptActive) {
+		writeAPIError(w, http.StatusConflict, "authentication_in_progress", "Authentication is already waiting in Terminal.")
+		return
+	}
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "authentication_unavailable", "Could not prepare terminal authentication.")
+		return
+	}
+	executable, err := os.Executable()
+	if err == nil {
+		err = launch.SSHAuthentication(store.State().Config.Launch.Terminal, executable, id)
+	}
+	if err != nil {
+		_ = remote.CancelAuthAttempt(id)
+		writeAPIError(w, http.StatusConflict, "terminal_unavailable", "Could not open the selected terminal for SSH authentication.")
+		return
+	}
+	writeJSON(w, remoteAuthResponse{ID: id, State: remote.AuthWaiting})
+}
+
+func handleRemoteAuthStatus(w http.ResponseWriter, request *http.Request) {
+	id := request.URL.Query().Get("id")
+	state, err := remote.AuthAttemptState(request.Context(), id)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_authentication_attempt", "Authentication attempt is unavailable.")
+		return
+	}
+	writeJSON(w, remoteAuthResponse{ID: id, State: state})
+}
+
+func handleRemoteAuthCancel(w http.ResponseWriter, request *http.Request) {
+	var body struct {
+		ID string `json:"id"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil || decoder.Decode(&struct{}{}) != io.EOF || remote.CancelAuthAttempt(body.ID) != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_authentication_attempt", "Authentication attempt is unavailable.")
+		return
+	}
+	writeJSON(w, remoteAuthResponse{ID: body.ID, State: remote.AuthCancelled})
 }
 
 func handleRemoteRetry(w http.ResponseWriter, _ *http.Request, manager *remote.Manager) {

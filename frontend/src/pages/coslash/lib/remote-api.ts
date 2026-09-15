@@ -36,8 +36,63 @@ export async function testRemoteAlias(sshAlias: string): Promise<MachineFact> {
   return decodeMachineFact(await response.json());
 }
 
-export async function retryRemoteRefresh(): Promise<{ status: number; machine: MachineFact }> {
-  const response = await apiFetch('/api/remote/retry', { method: 'POST' });
+export type RemoteAuthAttempt = {
+  id: string;
+  state: 'waiting' | 'ready' | 'timed_out' | 'cancelled' | 'failed';
+};
+
+function decodeRemoteAuthAttempt(value: unknown): RemoteAuthAttempt {
+  if (value == null || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid authentication status');
+  const raw = value as Record<string, unknown>;
+  if (
+    typeof raw.id !== 'string' ||
+    !['waiting', 'ready', 'timed_out', 'cancelled', 'failed'].includes(String(raw.state))
+  ) {
+    throw new Error('Invalid authentication status');
+  }
+  return { id: raw.id, state: raw.state as RemoteAuthAttempt['state'] };
+}
+
+export async function startRemoteAuthentication(
+  sshAlias: string,
+  signal?: AbortSignal,
+): Promise<RemoteAuthAttempt> {
+  const response = await apiFetch('/api/remote/auth/start', { ...remoteTestRequestInit(sshAlias), signal });
+  const body: unknown = await response.json();
+  if (!response.ok) throw new Error(decodeApiError(body).error);
+  return decodeRemoteAuthAttempt(body);
+}
+
+export async function remoteAuthenticationStatus(
+  id: string,
+  signal?: AbortSignal,
+): Promise<RemoteAuthAttempt> {
+  const response = await apiFetch(`/api/remote/auth/status?id=${encodeURIComponent(id)}`, { signal });
+  const body: unknown = await response.json();
+  if (!response.ok) throw new Error(decodeApiError(body).error);
+  return decodeRemoteAuthAttempt(body);
+}
+
+export async function cancelRemoteAuthentication(
+  id: string,
+  signal?: AbortSignal,
+): Promise<RemoteAuthAttempt> {
+  const response = await apiFetch('/api/remote/auth/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+    signal,
+  });
+  const body: unknown = await response.json();
+  if (!response.ok) throw new Error(decodeApiError(body).error);
+  return decodeRemoteAuthAttempt(body);
+}
+
+export async function retryRemoteRefresh(
+  signal?: AbortSignal,
+): Promise<{ status: number; machine: MachineFact }> {
+  const response = await apiFetch('/api/remote/retry', { method: 'POST', signal });
   const body: unknown = await response.json();
   if (!response.ok) {
     const apiError = decodeApiError(body);
@@ -87,9 +142,23 @@ export async function waitForRemoteRefresh(
 // The retry endpoint acknowledges that collection has started, rather than
 // waiting for it to finish. Wait for its terminal health state before callers
 // reload the board, so it does not remain on the transient "connecting" view.
-export async function retryRemoteRefreshAndWait(): Promise<MachineFact> {
-  const { machine } = await retryRemoteRefresh();
-  return waitForRemoteRefresh(machine);
+export async function retryRemoteRefreshAndWait(signal?: AbortSignal): Promise<MachineFact> {
+  try {
+    const { machine } = await retryRemoteRefresh(signal);
+    return waitForRemoteRefresh(machine, signal);
+  } catch (error: unknown) {
+    // Authentication can make a shared master available just as the manager
+    // starts its own refresh. Waiting for that in-flight refresh is equivalent
+    // to retrying, and avoids presenting a successful reconnect as an error.
+    if (
+      error instanceof Error &&
+      (error as Error & { status?: unknown; code?: unknown }).status === 429 &&
+      (error as Error & { status?: unknown; code?: unknown }).code === 'remote_retry_throttled'
+    ) {
+      return waitForRemoteRefresh(undefined, signal);
+    }
+    throw error;
+  }
 }
 
 export async function setupRemoteHelper(

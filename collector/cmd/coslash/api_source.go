@@ -60,6 +60,8 @@ type machineFact struct {
 	State                       remote.State             `json:"state"`
 	Complete                    bool                     `json:"complete"`
 	Reason                      *remote.Reason           `json:"reason,omitempty"`
+	ActionRequired              remote.ActionRequired    `json:"actionRequired,omitempty"`
+	AuthState                   remote.AuthState         `json:"authState"`
 	LastSuccessAtMs             *int64                   `json:"lastSuccessAtMs,omitempty"`
 	LastCheckedAtMs             *int64                   `json:"lastCheckedAtMs,omitempty"`
 	SessionCount                int                      `json:"sessionCount"`
@@ -78,13 +80,15 @@ type machineFact struct {
 }
 
 func localMachineFact() machineFact {
-	return machineFact{SourceID: localSourceID, Label: localSourceLabel, State: remote.StateOK, Complete: true}
+	return machineFact{SourceID: localSourceID, Label: localSourceLabel, State: remote.StateOK, Complete: true, AuthState: remote.AuthNotRequired}
 }
 
 func machineFromHealth(health remote.Health) machineFact {
+	health = remote.WithAuthenticationStatus(health)
 	return machineFact{
 		SourceID: health.SourceID, Label: safeSourceLabel(health.SourceID), State: health.State,
 		Complete: health.Complete, Reason: health.Reason,
+		ActionRequired: health.ActionRequired, AuthState: health.AuthState,
 		LastSuccessAtMs: health.LastSuccessAtMs, LastCheckedAtMs: health.LastCheckedAtMs,
 		SessionCount: health.SessionCount, CoverageSinceMs: health.CoverageSinceMs,
 		RoundTripMs: health.RoundTripMs, Coverage: health.Coverage, Error: health.Error,
