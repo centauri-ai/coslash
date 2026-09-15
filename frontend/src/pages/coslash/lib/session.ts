@@ -28,7 +28,7 @@ export type Subagent = {
   toolUses: number;
   commands: SubagentCommand[];
   tokens: Record<string, ModelTokens>;
-  cost: number;
+  cost: number | null;
 };
 
 export const LOCAL_SOURCE_ID = 'local';
@@ -448,7 +448,8 @@ export function sumTokens(
   return Object.values(tokens).reduce((sum, modelTokens) => sum + modelTokens[key], 0);
 }
 
-export function getTotalTokens(tokens: Session['tokens']): number {
+export function getTotalTokens(tokens: Session['tokens']): number | null {
+  if (Object.keys(tokens).length === 0) return null;
   return Object.values(tokens).reduce(
     (sum, modelTokens) =>
       sum +
