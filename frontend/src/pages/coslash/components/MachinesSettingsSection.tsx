@@ -228,7 +228,7 @@ export function MachinesSettingsSection({
     setStage('authenticating');
     setMessage('Terminal opened. Complete the SSH prompt there; setup will continue automatically.');
     try {
-      const attempt = await startRemoteAuthentication(authAlias);
+      const attempt = await startRemoteAuthentication(authAlias, run.controller.signal);
       run.attemptID = attempt.id;
       if (run.cancelled || authenticationRun.current !== run) {
         await cancelRemoteAuthentication(attempt.id).catch(() => undefined);

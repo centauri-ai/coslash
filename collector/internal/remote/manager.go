@@ -967,6 +967,8 @@ func classifyError(err error) Reason {
 		return ReasonHostKeyConfirmation
 	}
 	if strings.Contains(message, "permission denied (publickey") ||
+		strings.Contains(message, "permission denied (password") ||
+		strings.Contains(message, "permission denied (keyboard-interactive") ||
 		strings.Contains(message, "permission denied, please try again") ||
 		strings.Contains(message, "too many authentication failures") {
 		return ReasonAuthentication

@@ -85,6 +85,21 @@ describe('terminal authentication API', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/remote/auth/start');
   });
 
+  it('passes cancellation through to the authentication start request', async () => {
+    vi.stubGlobal('window', {
+      location: { hash: '', pathname: '/', search: '' },
+      history: { state: null, replaceState: vi.fn() },
+      sessionStorage: { getItem: vi.fn(() => null), setItem: vi.fn() },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ id: 'a'.repeat(32), state: 'waiting' }));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+
+    await startRemoteAuthentication('jane@host', controller.signal);
+
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal });
+  });
+
   it('rejects unknown authentication states', async () => {
     vi.stubGlobal('window', {
       location: { hash: '', pathname: '/', search: '' },

@@ -59,6 +59,28 @@ func TestAuthAttemptCancelAndInvalidID(t *testing.T) {
 	}
 }
 
+func TestCancelReadyAuthAttemptKeepsMaster(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalExit := exitAuthControlMaster
+	t.Cleanup(func() { exitAuthControlMaster = originalExit })
+
+	id, err := CreateAuthAttempt("agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := updateAuthAttemptIfWaiting(id, AuthReady); err != nil {
+		t.Fatal(err)
+	}
+	exited := false
+	exitAuthControlMaster = func(string) { exited = true }
+	if err := CancelAuthAttempt(id); err != nil {
+		t.Fatal(err)
+	}
+	if exited {
+		t.Fatal("ready authentication master was closed")
+	}
+}
+
 func TestCreateAuthAttemptAllowsOnlyOneWaitingAttempt(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	const requests = 12
@@ -124,6 +146,36 @@ func TestRunAuthAttemptRecordsTerminalOutcomes(t *testing.T) {
 	}
 	if state, err := AuthAttemptState(context.Background(), id); err != nil || state != AuthCancelled {
 		t.Fatalf("cancelled state = %q, %v", state, err)
+	}
+}
+
+func TestRunAuthAttemptRejectsCancelledAttemptBeforeSSH(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalRun := runInteractiveSSH
+	originalExit := exitAuthControlMaster
+	t.Cleanup(func() {
+		runInteractiveSSH = originalRun
+		exitAuthControlMaster = originalExit
+	})
+
+	id, err := CreateAuthAttempt("agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitAuthControlMaster = func(string) {}
+	if err := CancelAuthAttempt(id); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	runInteractiveSSH = func(context.Context, []string) error {
+		called = true
+		return nil
+	}
+	if err := RunAuthAttempt(context.Background(), id); err == nil {
+		t.Fatal("cancelled attempt succeeded")
+	}
+	if called {
+		t.Fatal("interactive SSH ran for a cancelled attempt")
 	}
 }
 

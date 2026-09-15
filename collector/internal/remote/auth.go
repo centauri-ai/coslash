@@ -176,8 +176,11 @@ func CancelAuthAttempt(id string) error {
 	if err != nil {
 		return err
 	}
-	_, err = updateAuthAttemptIfWaiting(id, AuthCancelled)
-	if err == nil {
+	if attempt.State != AuthWaiting {
+		return nil
+	}
+	state, err := updateAuthAttemptIfWaiting(id, AuthCancelled)
+	if err == nil && state == AuthCancelled {
 		exitAuthControlMaster(attempt.Destination)
 	}
 	return err
@@ -297,6 +300,9 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 	if time.Since(attempt.CreatedAt) > AuthAttemptTTL {
 		_, _ = updateAuthAttemptIfWaiting(id, AuthTimedOut)
 		return errors.New("authentication attempt expired")
+	}
+	if attempt.State != AuthWaiting {
+		return fmt.Errorf("authentication attempt is %s", attempt.State)
 	}
 	deadline := attempt.CreatedAt.Add(AuthAttemptTTL)
 	ctx, cancel := context.WithDeadline(ctx, deadline)
