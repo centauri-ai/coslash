@@ -126,10 +126,10 @@ func aggregateFingerprint(item *family, metadata *vendors.SessionMetadata) strin
 	}
 	if metadata != nil {
 		for _, id := range item.sessionIDs {
-			if name, ok := metadata.Names[id]; ok {
+			if name := metadata.Session(id).Name; name != "" {
 				fmt.Fprintf(digest, "n\t%s\t%s\n", id, name)
 			}
-			if status, ok := metadata.Live[id]; ok {
+			if status := metadata.Session(id).Live; status != "" {
 				fmt.Fprintf(digest, "l\t%s\t%s\n", id, status)
 			}
 		}

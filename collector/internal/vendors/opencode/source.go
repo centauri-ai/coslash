@@ -68,10 +68,11 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	if since > 0 {
 		query += " AND (selected_roots.family_updated >= ?"
 		args = append(args, since)
-		if len(metadata.Live) > 0 {
+		live := metadata.LiveSessions()
+		if len(live) > 0 {
 			query += " OR selected_roots.id IN (" +
-				strings.TrimSuffix(strings.Repeat("?,", len(metadata.Live)), ",") + ")"
-			for id := range metadata.Live {
+				strings.TrimSuffix(strings.Repeat("?,", len(live)), ",") + ")"
+			for id := range live {
 				args = append(args, id)
 			}
 		}
