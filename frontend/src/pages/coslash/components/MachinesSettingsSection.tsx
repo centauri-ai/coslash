@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, ChevronRight, Circle, LoaderCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -103,34 +103,26 @@ export function RemoteExecutableField({
   agent,
   path,
   disabled,
-  autoFocus = false,
   onChange,
   onBlur,
 }: {
   agent: RemoteExecutableAgent;
   path: string;
   disabled: boolean;
-  autoFocus?: boolean;
   onChange: (path: string) => void;
   onBlur: () => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const name: Record<RemoteExecutableAgent, string> = {
     claude: 'Claude',
     codex: 'Codex',
   };
   const error = remoteExecutablePathError(path);
-  useEffect(() => {
-    if (autoFocus) inputRef.current?.focus();
-  }, [autoFocus]);
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-[13px] font-semibold">{name[agent]}</span>
       <input
-        ref={inputRef}
         aria-label={`${name[agent]} remote executable`}
         aria-invalid={error != null}
-        autoFocus={autoFocus}
         value={path}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
@@ -153,7 +145,6 @@ export function MachinesSettingsSection({
   onConnectionVerified,
   onBusyChange,
   executables,
-  revealInvalidExecutables = false,
   onExecutablesChange,
   onExecutablesCommit,
 }: {
@@ -163,7 +154,6 @@ export function MachinesSettingsSection({
   onConnectionVerified?: () => void;
   onBusyChange: (busy: boolean) => void;
   executables: RemoteExecutableSettings | undefined;
-  revealInvalidExecutables?: boolean;
   onExecutablesChange: (executables: RemoteExecutableSettings) => void;
   onExecutablesCommit: (executables: RemoteExecutableSettings) => void;
 }) {
@@ -177,14 +167,7 @@ export function MachinesSettingsSection({
   const setupFailed =
     stage === 'error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
-  const executablesExpanded = executablesOpen || revealInvalidExecutables;
-  const firstInvalidExecutable = (['claude', 'codex'] as const).find(
-    (agent) => remoteExecutablePathError(executables?.[agent] ?? '') != null,
-  );
 
-  useEffect(() => {
-    if (revealInvalidExecutables) setExecutablesOpen(true);
-  }, [revealInvalidExecutables]);
   useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
@@ -373,18 +356,18 @@ export function MachinesSettingsSection({
             <div className="border-t px-4 py-3">
               <button
                 type="button"
-                aria-expanded={executablesExpanded}
+                aria-expanded={executablesOpen}
                 onClick={() => setExecutablesOpen((open) => !open)}
                 className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold"
               >
                 <ChevronRight
                   aria-hidden="true"
-                  className={cn('size-3 transition-transform', { 'rotate-90': executablesExpanded })}
+                  className={cn('size-3 transition-transform', { 'rotate-90': executablesOpen })}
                   strokeWidth={2.5}
                 />
                 Remote agent executables
               </button>
-              {executablesExpanded && (
+              {executablesOpen && (
                 <div className="mt-3 flex flex-col gap-3">
                   <div className="text-muted-foreground text-[11px] leading-relaxed">
                     Optional advanced overrides. Leave blank to discover the executable on this host.
@@ -397,7 +380,6 @@ export function MachinesSettingsSection({
                         agent={agent}
                         path={path}
                         disabled={busy}
-                        autoFocus={revealInvalidExecutables && agent === firstInvalidExecutable}
                         onChange={(value) => setExecutable(agent, value)}
                         onBlur={commitExecutables}
                       />
