@@ -212,7 +212,6 @@ export function SettingsDialog({
   const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [revealInvalidExecutables, setRevealInvalidExecutables] = useState(false);
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
-  const [closeInProgress, setCloseInProgress] = useState(false);
   const initializedForOpen = useRef(false);
   const acknowledgedExecutables = useRef<RemoteExecutableSettings>({ ...initialExecutables });
   const lastSubmittedExecutables = useRef<RemoteExecutableSettings>({ ...initialExecutables });
@@ -388,17 +387,11 @@ export function SettingsDialog({
   );
 
   const closeDialog = async () => {
-    if (closeInProgress) return;
     if (!executableDraftIsValid) {
       setRevealInvalidExecutables(true);
       return;
     }
-    setCloseInProgress(true);
-    try {
-      if (await commitExecutables(executableDraft)) onOpenChange(false);
-    } finally {
-      setCloseInProgress(false);
-    }
+    if (await commitExecutables(executableDraft)) onOpenChange(false);
   };
 
   const addRemoteHost = async (sshAlias: string) => {
@@ -445,19 +438,17 @@ export function SettingsDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if ((requiresConsent || remoteOperationInProgress || closeInProgress) && !next) return;
+        if ((requiresConsent || remoteOperationInProgress) && !next) return;
         if (next) onOpenChange(true);
         else void closeDialog();
       }}
     >
       <DialogContent
         className="flex max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
-        showCloseButton={!requiresConsent && !remoteOperationInProgress && !closeInProgress}
-        onEscapeKeyDown={(event) =>
-          (requiresConsent || remoteOperationInProgress || closeInProgress) && event.preventDefault()
-        }
+        showCloseButton={!requiresConsent && !remoteOperationInProgress}
+        onEscapeKeyDown={(event) => (requiresConsent || remoteOperationInProgress) && event.preventDefault()}
         onPointerDownOutside={(event) =>
-          (requiresConsent || remoteOperationInProgress || closeInProgress) && event.preventDefault()
+          (requiresConsent || remoteOperationInProgress) && event.preventDefault()
         }
       >
         <DialogHeader className="shrink-0 gap-1.5 p-4 pr-12 pb-3">
@@ -694,7 +685,6 @@ export function SettingsDialog({
                     setRevealInvalidExecutables(false);
                   }}
                   onExecutablesCommit={commitExecutables}
-                  executablesDisabled={closeInProgress}
                 />
               )}
 
@@ -721,7 +711,7 @@ export function SettingsDialog({
               <Button
                 variant="outline"
                 onClick={() => void closeDialog()}
-                disabled={remoteOperationInProgress || closeInProgress}
+                disabled={remoteOperationInProgress}
               >
                 Close
               </Button>
