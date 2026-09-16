@@ -77,13 +77,16 @@ func TestPromptCarriesNameAndBoundedReviewContext(t *testing.T) {
 	name := "Fix checkout race"
 	branch := "feature/checkout"
 	outcome := "Implemented checkout locking"
+	edits := session.NewFileEditSet()
+	edits.Add("checkout.go", 1, 1, false)
+	edits.Patch("checkout.go", "@@\n-old\n+new")
 	origin := &session.Session{
 		ID:     "12345678-rest",
 		Name:   &name,
 		Branch: &branch,
 		SessionDetails: session.SessionDetails{
 			Synthesis: &session.SessionSynthesis{Outcome: outcome},
-			FileEdits: []session.FileEdit{{Path: "checkout.go"}},
+			FileEdits: edits.Edits,
 			Commits:   []string{"abc123 Fix checkout"},
 		},
 	}
@@ -99,6 +102,8 @@ func TestPromptCarriesNameAndBoundedReviewContext(t *testing.T) {
 		"feature/checkout",
 		"Implemented checkout locking",
 		"checkout.go",
+		"-old",
+		"+new",
 		"abc123 Fix checkout",
 	} {
 		if !strings.Contains(prompt, want) {

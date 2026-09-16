@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  activeReviewForOrigin,
   availableReviewers,
-  buildReviewLinks,
+  buildReviewIndex,
   reviewRequestPath,
   type ReviewableSession,
   type ReviewerOption,
@@ -51,7 +50,7 @@ it('builds a source-aware review request', () => {
   );
 });
 
-describe('buildReviewLinks', () => {
+describe('buildReviewIndex', () => {
   it('links a review to its origin and the origin to its newest review', () => {
     const origin = reviewable();
     const oldReview = reviewable({
@@ -68,21 +67,24 @@ describe('buildReviewLinks', () => {
       status: 'busy',
     });
 
-    const links = buildReviewLinks([origin, oldReview, newReview]);
+    const index = buildReviewIndex([origin, oldReview, newReview]);
 
-    expect(links.get('local:claude:12345678-aaaa-bbbb-cccc-123456789abc')).toEqual({
+    expect(index.links.get('local:claude:12345678-aaaa-bbbb-cccc-123456789abc')).toEqual({
       kind: 'reviewed',
       target: newReview,
     });
-    expect(links.get('local:codex:review-old')).toEqual({ kind: 'review', target: origin });
-    expect(links.get('local:opencode:review-new')).toEqual({ kind: 'review', target: origin });
-    expect(activeReviewForOrigin(origin, [origin, oldReview, newReview])).toBe(true);
+    expect(index.links.get('local:codex:review-old')).toEqual({ kind: 'review', target: origin });
+    expect(index.links.get('local:opencode:review-new')).toEqual({ kind: 'review', target: origin });
+    expect(index.activeOrigins.has('local:claude:12345678-aaaa-bbbb-cccc-123456789abc')).toBe(true);
+    expect(index.reviewSessions).toEqual(new Set(['local:codex:review-old', 'local:opencode:review-new']));
   });
 
   it('does not link malformed or ambiguous names', () => {
     const first = reviewable({ id: '12345678-a' });
     const second = reviewable({ id: '12345678-b', agent: 'codex' });
     const review = reviewable({ id: 'review', name: 'Review — Origin (12345678)', agent: 'opencode' });
-    expect(buildReviewLinks([first, second, review]).size).toBe(0);
+    const index = buildReviewIndex([first, second, review]);
+    expect(index.links.size).toBe(0);
+    expect(index.reviewSessions.has('local:opencode:review')).toBe(true);
   });
 });

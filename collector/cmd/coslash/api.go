@@ -426,9 +426,12 @@ func handleReview(
 	}
 	name := reviewpkg.Name(originName, found.ID)
 	prompt := reviewpkg.Prompt(found)
-	startReview(found.ID, reviewpkg.Launch{
+	if !startReview(found.ID, reviewpkg.Launch{
 		Reviewer: reviewer, WorkingDirectory: found.WorkingDirectory, Name: name, Prompt: prompt,
-	})
+	}) {
+		http.Error(w, "review already running", http.StatusConflict)
+		return
+	}
 	log.Printf("review: %s with %s", found.ID, reviewer)
 	w.WriteHeader(http.StatusAccepted)
 }
