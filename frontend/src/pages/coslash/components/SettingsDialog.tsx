@@ -210,6 +210,7 @@ export function SettingsDialog({
     ...initialExecutables,
   });
   const [disclosureOpen, setDisclosureOpen] = useState(false);
+  const [revealInvalidExecutables, setRevealInvalidExecutables] = useState(false);
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
   const initializedForOpen = useRef(false);
   const acknowledgedExecutables = useRef<RemoteExecutableSettings>({ ...initialExecutables });
@@ -237,6 +238,7 @@ export function SettingsDialog({
     const executables = { ...(response.settings.remote?.executables ?? {}) };
     setDraft(initialSettingsDraft(response));
     setExecutableDraft(executables);
+    setRevealInvalidExecutables(false);
     acknowledgedExecutables.current = executables;
     lastSubmittedExecutables.current = executables;
     setDisclosureOpen(false);
@@ -249,6 +251,7 @@ export function SettingsDialog({
   const selectedModel = selectedBackend?.models.find((option) => option.id === draft?.synthesis.model);
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
   const synthesisBackendAvailable = draft?.synthesis.enabled !== true || selectedBackend?.available === true;
+  const executableDraftIsValid = remoteExecutableSettingsAreValid(executableDraft);
 
   const reconcileSuccessfulSettingsSave = useCallback((saved: CoslashSettings) => {
     const savedExecutables = normalizeRemoteExecutableSettings(saved.remote?.executables);
@@ -384,6 +387,10 @@ export function SettingsDialog({
   );
 
   const closeDialog = async () => {
+    if (!executableDraftIsValid) {
+      setRevealInvalidExecutables(true);
+      return;
+    }
     if (await commitExecutables(executableDraft)) onOpenChange(false);
   };
 
@@ -417,6 +424,8 @@ export function SettingsDialog({
     ? { label: 'Save failed', className: 'text-destructive' }
     : isSaving
       ? { label: 'Saving…', className: 'text-muted-foreground' }
+      : !executableDraftIsValid
+        ? { label: 'Fix invalid executable path', className: 'text-destructive' }
       : !synthesisBackendAvailable
         ? { label: 'Backend unavailable', className: 'text-warning-fg' }
         : response?.valid === false
@@ -670,7 +679,11 @@ export function SettingsDialog({
                   onConnectionVerified={onRemoteConnectionVerified}
                   onBusyChange={setRemoteOperationInProgress}
                   executables={executableDraft}
-                  onExecutablesChange={setExecutableDraft}
+                  revealInvalidExecutables={revealInvalidExecutables}
+                  onExecutablesChange={(executables) => {
+                    setExecutableDraft(executables);
+                    setRevealInvalidExecutables(false);
+                  }}
                   onExecutablesCommit={commitExecutables}
                 />
               )}
