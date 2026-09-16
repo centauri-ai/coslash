@@ -152,6 +152,16 @@ export function sessionsForAggregates<T extends Pick<Session, 'eligibleForAggreg
   return sessions.filter((session) => session.eligibleForAggregates);
 }
 
+export function sumKnown(values: (number | null)[]): number | null {
+  if (values.length === 0) return null;
+  let total = 0;
+  for (const value of values) {
+    if (value == null) return null;
+    total += value;
+  }
+  return total;
+}
+
 /** Missing or blank remote env facts render as an em dash, never `undefined`. */
 export function environmentFact(value: string | null | undefined): string {
   const trimmed = value?.trim();

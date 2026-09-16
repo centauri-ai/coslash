@@ -51,6 +51,7 @@ import {
   LOCAL_SOURCE_ID,
   sessionKey,
   sessionsForAggregates,
+  sumKnown,
   type Session,
 } from '@/pages/coslash/lib/session';
 import {
@@ -176,10 +177,7 @@ function SessionsStats({
   if (loadFailed) return null;
 
   const aggregateSessions = sessionsForAggregates(sessions);
-  const knownCosts = aggregateSessions.map((session) => session.cost);
-  const cost = knownCosts.some((value) => value != null)
-    ? knownCosts.reduce<number>((sum, value) => sum + (value ?? 0), 0)
-    : null;
+  const cost = sumKnown(aggregateSessions.map((session) => session.cost));
   return (
     <div className="flex w-full min-w-0 items-center justify-between gap-3">
       <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
