@@ -190,7 +190,7 @@ func ValidRemoteID(id string) bool {
 // The remote resolver expands only that leading home marker; it never treats
 // settings data as shell syntax.
 func ValidRemoteExecutablePath(path string) bool {
-	if len(path) == 0 || len(path) > 4096 || strings.ContainsAny(path, "\x00\r\n") {
+	if len(path) == 0 || len(path) > 4096 || strings.HasSuffix(path, "/") || strings.ContainsAny(path, "\x00\r\n") {
 		return false
 	}
 	return (filepath.IsAbs(path) && path != "/") || (strings.HasPrefix(path, "~/") && len(path) > len("~/"))
@@ -289,7 +289,7 @@ func validateRemote(remote *RemoteSettings) error {
 	for _, candidate := range paths {
 		agent, path := candidate.agent, candidate.path
 		if path != "" && !ValidRemoteExecutablePath(path) {
-			return fmt.Errorf("remote executable for %s must be an absolute or ~/ path", agent)
+			return fmt.Errorf("remote executable for %s must be an absolute or ~/ file path without a trailing slash", agent)
 		}
 		nonblank = nonblank || path != ""
 	}
@@ -398,7 +398,7 @@ func Decode(data []byte) (Config, error) {
 					return Config{}, fmt.Errorf("remote executable for %s must be a string", agent)
 				}
 				if !ValidRemoteExecutablePath(*path) {
-					return Config{}, fmt.Errorf("remote executable for %s must be an absolute or ~/ path", agent)
+					return Config{}, fmt.Errorf("remote executable for %s must be an absolute or ~/ file path without a trailing slash", agent)
 				}
 				switch agent {
 				case "claude":
