@@ -98,55 +98,6 @@ func TestRemoteTerminalCommandStopsWhenWorkingDirectoryIsMissing(t *testing.T) {
 	}
 }
 
-func TestRemoteTerminalCommandUsesExplicitPOSIXShell(t *testing.T) {
-	workingDirectory := filepath.Join(t.TempDir(), "directory with ' quote")
-	if err := os.Mkdir(workingDirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	command, err := remoteCLICommand(vendors.AgentCodex, "/bin/pwd", "", NewSession, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	remoteCommand := remoteTerminalCommand(workingDirectory, command)
-	if !strings.HasPrefix(remoteCommand, "/bin/sh -c '") {
-		t.Fatalf("remote command does not select a POSIX shell: %q", remoteCommand)
-	}
-
-	want := physicalPath(t, workingDirectory) + "\n"
-	posixProcess := exec.Command("/bin/sh", "-c", remoteCommand)
-	posixProcess.Env = []string{"HOME=" + t.TempDir(), "PATH=/bin:/usr/bin"}
-	posixOutput, posixErr := posixProcess.CombinedOutput()
-	if posixErr != nil {
-		t.Fatalf("enter command through sh: %v\n%s", posixErr, posixOutput)
-	}
-	if string(posixOutput) != want {
-		t.Fatalf("output through sh = %q, want %q", posixOutput, want)
-	}
-
-	for _, loginShell := range []struct {
-		name string
-		args []string
-	}{
-		{name: "csh", args: []string{"-f", "-c"}},
-		{name: "tcsh", args: []string{"-f", "-c"}},
-		{name: "fish", args: []string{"-c"}},
-	} {
-		path, lookupErr := exec.LookPath(loginShell.name)
-		if lookupErr != nil {
-			continue
-		}
-		process := exec.Command(path, append(loginShell.args, remoteCommand)...)
-		process.Env = []string{"HOME=" + t.TempDir(), "PATH=/bin:/usr/bin"}
-		output, runErr := process.CombinedOutput()
-		if runErr != nil {
-			t.Fatalf("enter command through %s: %v\n%s", loginShell.name, runErr, output)
-		}
-		if string(output) != want {
-			t.Fatalf("output through %s = %q, want %q", loginShell.name, output, want)
-		}
-	}
-}
-
 func TestRemoteCLICommandResolvesExecutablesInTheRemoteShell(t *testing.T) {
 	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode} {
 		t.Run(agent, func(t *testing.T) {

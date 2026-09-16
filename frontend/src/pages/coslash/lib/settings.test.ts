@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   availableSynthesisBackends,
@@ -127,27 +126,5 @@ describe('remote executable settings', () => {
   it('treats blank draft values as equivalent to omitted overrides', () => {
     expect(remoteExecutableSettingsEqual({ claude: '' }, {})).toBe(true);
     expect(remoteExecutableSettingsEqual({ codex: '~/bin/codex' }, {})).toBe(false);
-  });
-
-  it.each([
-    ['/bin/codex', true],
-    ['~/bin/codex', true],
-    ['/bin/codex\0bad', false],
-    ['/bin/codex\rbad', false],
-    ['/bin/codex\nbad', false],
-  ] as const)('matches the published schema path contract for %j', (path, accepted) => {
-    const schema = JSON.parse(
-      readFileSync(new URL('../../../../../settings.schema.json', import.meta.url), 'utf8'),
-    ) as {
-      $defs: { remoteExecutablePath: { minLength: number; maxLength: number; pattern: string } };
-    };
-    const definition = schema.$defs.remoteExecutablePath;
-    const schemaAccepts =
-      path.length >= definition.minLength &&
-      path.length <= definition.maxLength &&
-      new RegExp(definition.pattern).test(path);
-
-    expect(schemaAccepts).toBe(accepted);
-    expect(remoteExecutablePathError(path) == null).toBe(accepted);
   });
 });

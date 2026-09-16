@@ -13,7 +13,6 @@ import {
   remoteExecutableSettingsAreValid,
   remoteExecutableSettingsEqual,
   requiresFirstRunConsent,
-  settingsForSave,
   type BackendOption,
   type CoslashSettings,
   type RemoteExecutableSettings,
@@ -299,7 +298,7 @@ export function SettingsDialog({
 
   const addRemoteHost = async (sshAlias: string) => {
     if (!draft) return false;
-    const next = settingsForSave({ ...draft, remote: { sshAlias, enabled: true } });
+    const next = { ...draft, remote: { sshAlias, enabled: true } };
     const saved = await saveSettings(next);
     if (saved) {
       setDraft(next);
