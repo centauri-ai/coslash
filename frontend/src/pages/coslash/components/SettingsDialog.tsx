@@ -473,9 +473,10 @@ export function SettingsDialog({
         </DialogHeader>
 
         <div
-          aria-busy={remoteOperationInProgress}
+          aria-busy={remoteOperationInProgress || closeInProgress}
+          inert={remoteOperationInProgress || closeInProgress ? true : undefined}
           className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-1 pb-4', {
-            'pointer-events-none': remoteOperationInProgress,
+            'pointer-events-none': remoteOperationInProgress || closeInProgress,
           })}
         >
           {isLoading ? (
