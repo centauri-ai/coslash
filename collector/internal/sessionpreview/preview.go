@@ -54,6 +54,9 @@ func Build(local session.Session, options sessionexport.BuildOptions, expectedRe
 			Action:  "Refresh the session list and review the current snapshot before sharing.",
 		})
 	}
+	if local.Cost == nil {
+		return fromError(errors.New("cost is unavailable"), local.LastActivityTime)
+	}
 	payload, err := sessionexport.Marshal(local, options)
 	if err != nil {
 		return fromError(err, local.LastActivityTime)

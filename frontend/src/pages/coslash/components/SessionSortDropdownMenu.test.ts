@@ -8,7 +8,7 @@ function session(id: string, status: string | null, sourceId = 'local', displayS
 
 describe('sortSessions', () => {
   it('sorts descending status by current activity', () => {
-    const sessions = [
+    const sessions: Session[] = [
       session('inactive', null),
       session('waiting', 'waiting'),
       session('active', 'busy'),
@@ -24,7 +24,7 @@ describe('sortSessions', () => {
   });
 
   it('places sessions with unknown remote liveness after inactive sessions', () => {
-    const sessions = [
+    const sessions: Session[] = [
       session('unknown', null, 'r_0123456789abcdef'),
       session('inactive', null),
       session('stale', 'busy', 'r_0123456789abcdef', true),
@@ -35,5 +35,32 @@ describe('sortSessions', () => {
       'unknown',
       'stale',
     ]);
+  });
+
+  it.each(['asc', 'desc'] as const)('places unknown costs last when sorting %s', (dir) => {
+    const sessions: Session[] = [
+      { ...session('unknown', null), cost: null },
+      { ...session('zero', null), cost: 0 },
+      { ...session('priced', null), cost: 1 },
+    ];
+
+    expect(sortSessions(sessions, SortKey.Value, dir).at(-1)?.id).toBe('unknown');
+  });
+
+  it.each(['asc', 'desc'] as const)('places unknown token counts last when sorting %s', (dir) => {
+    const zeroTokens = {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 0,
+      cache_creation_1h_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    };
+    const sessions: Session[] = [
+      { ...session('unknown', null), tokens: {} },
+      { ...session('zero', null), tokens: { model: zeroTokens } },
+      { ...session('used', null), tokens: { model: { ...zeroTokens, input_tokens: 1 } } },
+    ];
+
+    expect(sortSessions(sessions, SortKey.Tokens, dir).at(-1)?.id).toBe('unknown');
   });
 });

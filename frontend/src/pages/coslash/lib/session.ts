@@ -68,7 +68,7 @@ export type Session = {
   files: number;
   durationMs: number | null;
   tokens: Record<string, ModelTokens>;
-  cost: number;
+  cost: number | null;
   unpricedModels: string[];
   subagents: Subagent[];
   mtime: number;
