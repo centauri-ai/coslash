@@ -159,7 +159,8 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"WorkingDirectory": true, "Branch": true, "Repository": true, "RepositoryLocalOnly": true,
 		"EditedFileCount": true, "DurationMs": true, "Tokens": true, "Cost": true,
 		"UnpricedModels": true, "Subagents": true, "StartedAt": true, "LastActivityTime": true,
-		"Entrypoint": true, "CommitLog": true, "SessionDetails": true,
+		"Entrypoint": true, "ReviewPending": false, "ReviewError": false,
+		"CommitLog": true, "SessionDetails": true,
 	})
 	assertCensus(t, reflect.TypeOf(session.SessionDetails{}), map[string]bool{
 		"Model": true, "ContextTokens": true, "ContextWindow": true, "Turns": true,

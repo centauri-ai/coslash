@@ -45,6 +45,7 @@ import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { machinesForSourceFilter, type MachineFact } from '@/pages/coslash/lib/machines';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
+import { activeReviewForOrigin, buildReviewLinks, type ReviewerOption } from '@/pages/coslash/lib/review';
 import {
   getSessionVendors,
   isLocalSession,
@@ -224,6 +225,9 @@ function CoslashContent({
   diagnosticsLoading,
   diagnosticsLoadFailed,
   onRefreshDiagnostics,
+  allSessions,
+  reviewerOptions,
+  onReviewStarted,
 }: {
   loadError: string | null;
   onRetry: () => void;
@@ -238,6 +242,9 @@ function CoslashContent({
   diagnosticsLoading: boolean;
   diagnosticsLoadFailed: boolean;
   onRefreshDiagnostics: () => void;
+  allSessions: Session[];
+  reviewerOptions: readonly ReviewerOption[];
+  onReviewStarted: () => void;
 }) {
   if (loadError != null) {
     return (
@@ -276,6 +283,8 @@ function CoslashContent({
     );
   }
 
+  const reviewLinks = buildReviewLinks(allSessions);
+
   return (
     <div className="h-full overflow-y-auto">
       {view === 'board' ? (
@@ -283,6 +292,7 @@ function CoslashContent({
           sessions={visibleSessions}
           onSelectSession={onSelectSession}
           showMachineBadge={showMachineBadge}
+          review={{ allSessions, links: reviewLinks, reviewerOptions, onStarted: onReviewStarted }}
         />
       ) : (
         <div className="bg-background flex flex-col gap-4 px-4 py-2">
@@ -292,6 +302,11 @@ function CoslashContent({
               session={session}
               onClick={() => onSelectSession(session)}
               showMachineBadge={showMachineBadge}
+              reviewerOptions={reviewerOptions}
+              reviewLink={reviewLinks.get(sessionKey(session))}
+              reviewActive={session.reviewPending || activeReviewForOrigin(session, allSessions)}
+              onReviewStarted={onReviewStarted}
+              onSelectRelated={onSelectSession}
             />
           ))}
         </div>
@@ -554,6 +569,9 @@ export function CoslashPage() {
               diagnosticsLoading={diagnosticsLoading}
               diagnosticsLoadFailed={diagnosticsLoadFailed}
               onRefreshDiagnostics={refreshFirstRun}
+              allSessions={librarySessions}
+              reviewerOptions={settingsState.response?.options.reviewers ?? []}
+              onReviewStarted={retrySessions}
             />
           </LoadingSpinner>
         </div>

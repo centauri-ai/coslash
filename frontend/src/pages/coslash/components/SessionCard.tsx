@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronRightIcon, GitCompareArrowsIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
   Dialog,
@@ -13,8 +14,10 @@ import {
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
+import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
+import { type ReviewerOption, type ReviewLink } from '@/pages/coslash/lib/review';
 import {
   boardStatusKey,
   displayStatusLabel,
@@ -23,6 +26,7 @@ import {
   getSessionCardSummary,
   getTotalTokens,
   getVendor,
+  isLocalSession,
   sessionShareEligibility,
   STATUSES,
   SUBAGENT_STATUSES,
@@ -41,6 +45,11 @@ export type SessionCardProps = {
   onClick?: () => void;
   variant?: SessionCardVariant;
   showMachineBadge?: boolean;
+  reviewerOptions?: readonly ReviewerOption[];
+  reviewLink?: ReviewLink<Session>;
+  reviewActive?: boolean;
+  onReviewStarted?: () => void;
+  onSelectRelated?: (session: Session) => void;
 };
 
 function shortenSessionId(id: string): string {
@@ -467,7 +476,13 @@ export function SessionCard({
   onClick,
   variant = 'detailed',
   showMachineBadge = false,
+  reviewerOptions = [],
+  reviewLink,
+  reviewActive = false,
+  onReviewStarted = () => undefined,
+  onSelectRelated,
 }: SessionCardProps) {
+  const showReviewAction = isLocalSession(session) && reviewLink?.kind !== 'review';
   return (
     <div className="flex flex-col gap-2">
       <Card className={cn('cursor-pointer', variant === 'compact' ? 'gap-1 p-3' : 'p-4')} onClick={onClick}>
@@ -475,6 +490,34 @@ export function SessionCard({
           <CompactSessionCard session={session} showMachineBadge={showMachineBadge} />
         ) : (
           <DetailedSessionCard session={session} showMachineBadge={showMachineBadge} />
+        )}
+        {(reviewLink != null || showReviewAction) && (
+          <div className="flex items-center gap-2 pt-2" onClick={(event) => event.stopPropagation()}>
+            {reviewLink != null && onSelectRelated != null && (
+              <Button
+                size="xs"
+                variant="ghost"
+                title={
+                  reviewLink.kind === 'review'
+                    ? 'Review session — open origin'
+                    : 'Has review — open latest review'
+                }
+                onClick={() => onSelectRelated(reviewLink.target)}
+              >
+                <GitCompareArrowsIcon />
+                {reviewLink.kind === 'review' ? 'Open origin' : 'Open review'}
+              </Button>
+            )}
+            {showReviewAction && (
+              <ReviewDialog
+                origin={session}
+                reviewerOptions={reviewerOptions}
+                active={reviewActive}
+                reviewError={session.reviewError}
+                onStarted={onReviewStarted}
+              />
+            )}
+          </div>
         )}
       </Card>
       <SessionSubagentRail subagents={session.subagents} parentName={session.name} variant={variant} />

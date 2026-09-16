@@ -70,6 +70,46 @@ func TestFinalizeSessionsDoesNotAllocateMissingMetadata(t *testing.T) {
 	}
 }
 
+func TestResolveNamesPreservesReviewNameFromPrompt(t *testing.T) {
+	prompt := "Review — Fix checkout race (12345678)\n\nReview the current changes."
+	root := &vendors.ParsedSession{
+		Session: &session.Session{
+			Agent: "codex",
+			ID:    "review-id",
+			SessionDetails: session.SessionDetails{
+				FirstPrompt: &prompt,
+			},
+		},
+		Name: "provider-generated title",
+	}
+	metadata := map[string]*vendors.SessionMetadata{
+		"codex": {Names: map[string]string{"review-id": "metadata title"}},
+	}
+
+	resolveNames([]*vendors.ParsedSession{root}, metadata)
+
+	if root.Session.Name == nil || *root.Session.Name != "Review — Fix checkout race (12345678)" {
+		t.Fatalf("name = %v", root.Session.Name)
+	}
+}
+
+func TestResolveNamesStillPrefersMetadataForOrdinarySession(t *testing.T) {
+	prompt := "Implement checkout"
+	root := &vendors.ParsedSession{
+		Session: &session.Session{Agent: "codex", ID: "ordinary", SessionDetails: session.SessionDetails{FirstPrompt: &prompt}},
+		Name:    "prompt title",
+	}
+	metadata := map[string]*vendors.SessionMetadata{
+		"codex": {Names: map[string]string{"ordinary": "metadata title"}},
+	}
+
+	resolveNames([]*vendors.ParsedSession{root}, metadata)
+
+	if root.Session.Name == nil || *root.Session.Name != "metadata title" {
+		t.Fatalf("name = %v", root.Session.Name)
+	}
+}
+
 func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 	original := vendorSources
 	t.Cleanup(func() { vendorSources = original })
