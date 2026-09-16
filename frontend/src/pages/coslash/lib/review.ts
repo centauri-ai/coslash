@@ -17,6 +17,12 @@ export type ReviewLink<T extends ReviewableSession = ReviewableSession> = {
   target: T;
 };
 
+export type ReviewIndex<T extends ReviewableSession = ReviewableSession> = {
+  links: Map<string, ReviewLink<T>>;
+  activeOrigins: Set<string>;
+  reviewSessions: Set<string>;
+};
+
 const REVIEW_NAME = /^Review — .+ \(([^()]{8})\)$/;
 
 export function availableReviewers(
@@ -46,42 +52,35 @@ function originShortID(name: string | null): string | null {
   return REVIEW_NAME.exec(name)?.[1] ?? null;
 }
 
-export function buildReviewLinks<T extends ReviewableSession>(
-  sessions: readonly T[],
-): Map<string, ReviewLink<T>> {
+export function buildReviewIndex<T extends ReviewableSession>(sessions: readonly T[]): ReviewIndex<T> {
   const links = new Map<string, ReviewLink<T>>();
-  const reviews = sessions.flatMap((candidate) => {
+  const activeOrigins = new Set<string>();
+  const reviewSessions = new Set<string>();
+  const origins = new Map<string, T | null>();
+  const reviews: { session: T; shortID: string }[] = [];
+
+  for (const candidate of sessions) {
     const shortID = originShortID(candidate.name);
-    return shortID == null ? [] : [{ session: candidate, shortID }];
-  });
-  const origins = sessions.filter((candidate) => originShortID(candidate.name) == null);
+    if (shortID != null) {
+      reviewSessions.add(sessionKey(candidate));
+      reviews.push({ session: candidate, shortID });
+      continue;
+    }
+    const key = `${candidate.sourceId}:${candidate.id.slice(0, 8)}`;
+    origins.set(key, origins.has(key) ? null : candidate);
+  }
 
   for (const review of reviews) {
-    const matches = origins.filter(
-      (origin) => origin.sourceId === review.session.sourceId && origin.id.startsWith(review.shortID),
-    );
-    if (matches.length !== 1) continue;
-    const origin = matches[0];
+    const origin = origins.get(`${review.session.sourceId}:${review.shortID}`);
+    if (origin == null) continue;
     links.set(sessionKey(review.session), { kind: 'review', target: origin });
     const current = links.get(sessionKey(origin));
     if (current == null || current.target.mtime < review.session.mtime) {
       links.set(sessionKey(origin), { kind: 'reviewed', target: review.session });
     }
+    if (review.session.status === 'busy' || review.session.status === 'waiting') {
+      activeOrigins.add(sessionKey(origin));
+    }
   }
-  return links;
-}
-
-export function activeReviewForOrigin(
-  origin: ReviewableSession,
-  sessions: readonly ReviewableSession[],
-): boolean {
-  return sessions.some((candidate) => {
-    const shortID = originShortID(candidate.name);
-    return (
-      candidate.sourceId === origin.sourceId &&
-      shortID != null &&
-      origin.id.startsWith(shortID) &&
-      (candidate.status === 'busy' || candidate.status === 'waiting')
-    );
-  });
+  return { links, activeOrigins, reviewSessions };
 }

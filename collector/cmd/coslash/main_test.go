@@ -225,6 +225,25 @@ func TestHandleReviewRejectsUnsupportedRequests(t *testing.T) {
 	}
 }
 
+func TestHandleReviewRejectsDuplicateStart(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&id=origin&reviewer=codex", nil)
+	response := httptest.NewRecorder()
+	handleReview(
+		response,
+		request,
+		settings.Open(),
+		func(string) (*session.Session, error) {
+			return &session.Session{ID: "origin", WorkingDirectory: "/repo"}, nil
+		},
+		func(string) bool { return true },
+		func(string, reviewpkg.Launch) bool { return false },
+	)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusConflict)
+	}
+}
+
 func TestLocalMachineFactOmitsRemoteOnlyEnums(t *testing.T) {
 	encoded, err := json.Marshal(localMachineFact())
 	if err != nil {

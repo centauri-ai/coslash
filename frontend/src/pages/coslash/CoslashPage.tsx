@@ -45,7 +45,7 @@ import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { machinesForSourceFilter, type MachineFact } from '@/pages/coslash/lib/machines';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
-import { activeReviewForOrigin, buildReviewLinks, type ReviewerOption } from '@/pages/coslash/lib/review';
+import { buildReviewIndex, type ReviewerOption } from '@/pages/coslash/lib/review';
 import {
   getSessionVendors,
   isLocalSession,
@@ -246,6 +246,7 @@ function CoslashContent({
   reviewerOptions: readonly ReviewerOption[];
   onReviewStarted: () => void;
 }) {
+  const reviewIndex = useMemo(() => buildReviewIndex(allSessions), [allSessions]);
   if (loadError != null) {
     return (
       <div role="alert" className="text-destructive bg-background grid h-full place-items-center text-sm">
@@ -283,8 +284,6 @@ function CoslashContent({
     );
   }
 
-  const reviewLinks = buildReviewLinks(allSessions);
-
   return (
     <div className="h-full overflow-y-auto">
       {view === 'board' ? (
@@ -292,7 +291,7 @@ function CoslashContent({
           sessions={visibleSessions}
           onSelectSession={onSelectSession}
           showMachineBadge={showMachineBadge}
-          review={{ allSessions, links: reviewLinks, reviewerOptions, onStarted: onReviewStarted }}
+          review={{ index: reviewIndex, reviewerOptions, onStarted: onReviewStarted }}
         />
       ) : (
         <div className="bg-background flex flex-col gap-4 px-4 py-2">
@@ -303,8 +302,9 @@ function CoslashContent({
               onClick={() => onSelectSession(session)}
               showMachineBadge={showMachineBadge}
               reviewerOptions={reviewerOptions}
-              reviewLink={reviewLinks.get(sessionKey(session))}
-              reviewActive={session.reviewPending || activeReviewForOrigin(session, allSessions)}
+              reviewLink={reviewIndex.links.get(sessionKey(session))}
+              isReview={reviewIndex.reviewSessions.has(sessionKey(session))}
+              reviewActive={session.reviewPending || reviewIndex.activeOrigins.has(sessionKey(session))}
               onReviewStarted={onReviewStarted}
               onSelectRelated={onSelectSession}
             />

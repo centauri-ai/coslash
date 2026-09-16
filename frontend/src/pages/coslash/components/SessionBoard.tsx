@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
-import { activeReviewForOrigin, type ReviewerOption, type ReviewLink } from '@/pages/coslash/lib/review';
+import { type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
 import {
   boardStatusKey,
   getTotalTokens,
@@ -17,8 +17,7 @@ import {
 } from '@/pages/coslash/lib/session';
 
 type SessionReviewProps = {
-  allSessions: Session[];
-  links: Map<string, ReviewLink<Session>>;
+  index: ReviewIndex<Session>;
   reviewerOptions: readonly ReviewerOption[];
   onStarted: () => void;
 };
@@ -98,8 +97,9 @@ function SessionCardColumn({
             variant="compact"
             showMachineBadge={showMachineBadge}
             reviewerOptions={review.reviewerOptions}
-            reviewLink={review.links.get(sessionKey(session))}
-            reviewActive={session.reviewPending || activeReviewForOrigin(session, review.allSessions)}
+            reviewLink={review.index.links.get(sessionKey(session))}
+            isReview={review.index.reviewSessions.has(sessionKey(session))}
+            reviewActive={session.reviewPending || review.index.activeOrigins.has(sessionKey(session))}
             onReviewStarted={review.onStarted}
             onSelectRelated={onSelectSession}
           />

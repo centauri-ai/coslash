@@ -20,7 +20,9 @@ const (
 	maxBranchRunes      = 200
 	maxOutcomeRunes     = 4_000
 	maxArtifactRunes    = 500
-	maxFiles            = 100
+	maxChangeBytes      = 1_500
+	maxChangesPerFile   = 5
+	maxFiles            = 30
 	maxCommits          = 50
 	maxPromptBytes      = 16 * 1024
 	promptTruncatedMark = "\n…(truncated)"
@@ -127,7 +129,17 @@ func Prompt(origin *session.Session) string {
 			files = append(files, "- …(truncated)")
 			break
 		}
-		files = append(files, "- "+session.Truncate(edit.Path, maxArtifactRunes))
+		entry := "- " + session.Truncate(edit.Path, maxArtifactRunes)
+		for changeIndex, change := range edit.Changes() {
+			if changeIndex == maxChangesPerFile {
+				entry += "\n  …(more changes truncated)"
+				break
+			}
+			if text := strings.TrimSpace(change.Text); text != "" {
+				entry += "\n  " + change.Operation + ":\n" + limitBytes(text, maxChangeBytes)
+			}
+		}
+		files = append(files, entry)
 	}
 	if len(files) == 0 {
 		files = append(files, "- —")
