@@ -269,6 +269,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 	}
 	var found *session.Session
 	alias := ""
+	executable := ""
 	if sourceID == localSourceID {
 		found, err = collector.GetSessionFacts(query.Get("id"))
 		if err != nil {
@@ -277,7 +278,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			return
 		}
 	} else {
-		found, alias, err = remoteManager.LaunchSession(sourceID, query.Get("agent"), query.Get("id"), mode)
+		found, alias, executable, err = remoteManager.LaunchSession(sourceID, query.Get("agent"), query.Get("id"), mode)
 		if errors.Is(err, remote.ErrRemoteSessionActive) {
 			http.Error(w, "remote session is already active", http.StatusConflict)
 			return
@@ -315,7 +316,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			state.Config.Launch.Terminal,
 			alias,
 			found.Agent,
-			state.Config.Remote.ExecutableForAgent(found.Agent),
+			executable,
 			found.WorkingDirectory,
 			found.ID,
 			mode,
