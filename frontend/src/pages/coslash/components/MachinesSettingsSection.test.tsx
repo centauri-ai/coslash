@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { RemoteExecutableField, SetupProgress } from '@/pages/coslash/components/MachinesSettingsSection';
+import {
+  MachinesSettingsSection,
+  RemoteExecutableField,
+  SetupProgress,
+} from '@/pages/coslash/components/MachinesSettingsSection';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { sshTestFailureMessage } from '@/pages/coslash/lib/remote-setup-copy';
 
@@ -11,6 +15,27 @@ describe('RemoteExecutableField', () => {
     );
 
     expect(markup).toContain('aria-invalid="true"');
+    expect(markup).toContain('Use an absolute or ~/. file path without a trailing slash.');
+  });
+});
+
+describe('MachinesSettingsSection', () => {
+  it('reveals and focuses the first invalid executable when dismissal is refused', () => {
+    const markup = renderToStaticMarkup(
+      <MachinesSettingsSection
+        remote={{ sshAlias: 'dev-box', enabled: true }}
+        onAddHost={vi.fn()}
+        onRemoveHost={vi.fn()}
+        onBusyChange={vi.fn()}
+        executables={{ claude: '/', codex: '/usr/bin/codex' }}
+        revealInvalidExecutables
+        onExecutablesChange={vi.fn()}
+        onExecutablesCommit={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toMatch(/aria-label="Claude remote executable"[^>]*autofocus=""/);
     expect(markup).toContain('Use an absolute or ~/. file path without a trailing slash.');
   });
 });
