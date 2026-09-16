@@ -22,6 +22,7 @@ type SessionEnrichment struct {
 	Name, Live, Summary, Entrypoint, WorkingDirectory, Model string
 	StartedAt, LastActivityAt                                int64
 	FileEdits                                                []session.FileEdit
+	CommitObservations                                       []session.CommitObservation
 	PullRequests                                             int
 	Usage                                                    SessionUsage
 }
