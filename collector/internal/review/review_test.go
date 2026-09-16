@@ -31,7 +31,7 @@ func TestManagerTracksBackgroundReviewFailureAndRetry(t *testing.T) {
 	}
 
 	release <- errors.New("agent failed")
-	waitForReviewState(t, manager, "origin", func(state State) bool { return state.Error == "agent failed" })
+	waitForReviewState(t, manager, "origin", func(state State) bool { return state.Error == failureMessage })
 	if !manager.Start("origin", request) {
 		t.Fatal("retry Start() = false")
 	}
@@ -62,6 +62,13 @@ func TestNameUsesOriginNameAndEightCharacterID(t *testing.T) {
 func TestNameFallsBackForUntitledSession(t *testing.T) {
 	got := Name("", "ses_123456789")
 	if got != "Review — Untitled session (ses_1234)" {
+		t.Fatalf("Name() = %q", got)
+	}
+}
+
+func TestNameNormalizesMultilineOriginName(t *testing.T) {
+	got := Name("Fix checkout\nwith a second line", "12345678-rest")
+	if got != "Review — Fix checkout with a second line (12345678)" {
 		t.Fatalf("Name() = %q", got)
 	}
 }
@@ -97,6 +104,27 @@ func TestPromptCarriesNameAndBoundedReviewContext(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("Prompt() missing %q", want)
 		}
+	}
+}
+
+func TestPromptIsBounded(t *testing.T) {
+	name := strings.Repeat("name ", 100)
+	branch := strings.Repeat("branch ", 100)
+	outcome := strings.Repeat("outcome ", 2_000)
+	origin := &session.Session{ID: "12345678-rest", Name: &name, Branch: &branch, Summary: &outcome}
+	for range maxFiles + 1 {
+		origin.FileEdits = append(origin.FileEdits, session.FileEdit{Path: strings.Repeat("path/", 200)})
+	}
+	for range maxCommits + 1 {
+		origin.Commits = append(origin.Commits, strings.Repeat("commit ", 200))
+	}
+
+	prompt := Prompt(origin)
+	if len(prompt) > maxPromptBytes {
+		t.Fatalf("Prompt() length = %d", len(prompt))
+	}
+	if _, ok := NameFromPrompt(prompt); !ok {
+		t.Fatalf("Prompt() lost review name: %q", prompt[:200])
 	}
 }
 

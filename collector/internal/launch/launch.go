@@ -81,9 +81,10 @@ func ReviewerAvailable(reviewer string) bool {
 }
 
 type reviewCommandSpec struct {
-	bin  string
-	args []string
-	env  []string
+	bin   string
+	args  []string
+	env   []string
+	stdin string
 }
 
 func Review(ctx context.Context, request review.Launch) error {
@@ -97,8 +98,9 @@ func Review(ctx context.Context, request review.Launch) error {
 	}
 	command := exec.CommandContext(ctx, spec.bin, spec.args...)
 	command.Dir = workingDirectory
+	command.Stdin = strings.NewReader(spec.stdin)
 	command.Stdout = io.Discard
-	var stderr bytes.Buffer
+	stderr := boundedBuffer{limit: 8 << 10}
 	command.Stderr = &stderr
 	command.Env = append(os.Environ(), spec.env...)
 	if err := command.Run(); err != nil {
@@ -113,18 +115,32 @@ func Review(ctx context.Context, request review.Launch) error {
 func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
 	switch reviewer {
 	case vendors.AgentClaude:
-		return reviewCommandSpec{bin: "claude", args: []string{"-p", "--name", name, "--permission-mode", "plan", prompt}}, nil
+		return reviewCommandSpec{bin: "claude", args: []string{"-p", "--name", name, "--permission-mode", "plan"}, stdin: prompt}, nil
 	case vendors.AgentCodex:
-		return reviewCommandSpec{bin: "codex", args: []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", prompt}}, nil
+		return reviewCommandSpec{bin: "codex", args: []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"}, stdin: prompt}, nil
 	case vendors.AgentOpenCode:
 		return reviewCommandSpec{
-			bin:  "opencode",
-			args: []string{"run", "--title", name, "--dir", workingDirectory, prompt},
-			env:  []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			bin:   "opencode",
+			args:  []string{"run", "--title", name, "--dir", workingDirectory},
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			stdin: prompt,
 		}, nil
 	default:
 		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
 	}
+}
+
+type boundedBuffer struct {
+	bytes.Buffer
+	limit int
+}
+
+func (buffer *boundedBuffer) Write(data []byte) (int, error) {
+	written := len(data)
+	if remaining := buffer.limit - buffer.Len(); remaining > 0 {
+		_, _ = buffer.Buffer.Write(data[:min(len(data), remaining)])
+	}
+	return written, nil
 }
 
 func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string) error {
