@@ -21,7 +21,6 @@ import (
 const (
 	entrypointIDE = "cursor-ide"
 	entrypointCLI = "cursor-cli"
-	entrypointSDK = "cursor-sdk"
 )
 
 func LoadMetadata() (*vendors.SessionMetadata, error) {
@@ -61,15 +60,15 @@ func loadSelectionMetadata(home string) (*vendors.SessionMetadata, error) {
 }
 
 func loadMetadata(home string) (*vendors.SessionMetadata, error) {
-	return loadMetadataForSessions(home, nil, nil)
+	return loadMetadataForSessions(home, nil)
 }
 
-func LoadMetadataForSessions(ids, transcriptPaths []string) (*vendors.SessionMetadata, error) {
+func LoadMetadataForSessions(ids []string) (*vendors.SessionMetadata, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return loadMetadataForSessions(home, ids, transcriptPaths)
+	return loadMetadataForSessions(home, ids)
 }
 
 func LoadRelationshipMetadataForSessions(ids []string) (*vendors.SessionMetadata, error) {
@@ -136,7 +135,7 @@ func loadCLIRelationship(metadata *vendors.SessionMetadata, path string) {
 	}
 }
 
-func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendors.SessionMetadata, error) {
+func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
 	ids = canonicalCursorIDs(ids)
 	metadata := vendors.EmptySessionMetadata()
 	lanes := map[string]map[string]bool{}
@@ -211,21 +210,6 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 		})
 	}
 
-	sdkStores := cursorSDKStores(home, ids, transcriptPaths)
-	sdkIDs := rawSDKIDs(ids)
-	for _, path := range sdkStores {
-		db, err := openCursorDB(path)
-		if err != nil {
-			continue
-		}
-		query, args := cursorIDQuery(`SELECT agent_id, name FROM agents`, "agent_id", sdkIDs)
-		loadCursorRowsDB(metadata, lanes, entrypointSDK, path, db, query, args, func(id, name string) (string, string, string) {
-			return sdkTranscriptID(id), name, ""
-		})
-		loadSDKTimes(metadata, db, sdkIDs)
-		loadSDKUsage(metadata, db, sdkIDs)
-		db.Close()
-	}
 	loadCursorSummaries(metadata, filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db"), ids)
 	for id, matches := range lanes {
 		if len(matches) != 1 {
@@ -334,47 +318,6 @@ func cursorChatStores(home string, ids []string) []string {
 	for _, path := range matches {
 		if wanted[canonicalCursorID(filepath.Base(filepath.Dir(path)))] {
 			stores = append(stores, path)
-		}
-	}
-	return stores
-}
-
-func rawSDKIDs(ids []string) []string {
-	if ids == nil {
-		return nil
-	}
-	result := []string{}
-	for _, id := range ids {
-		if raw, ok := strings.CutPrefix(id, "agent-"); ok {
-			result = append(result, raw)
-		}
-	}
-	return result
-}
-
-func cursorSDKStores(home string, ids, transcriptPaths []string) []string {
-	if ids == nil {
-		stores, _ := filepath.Glob(filepath.Join(home, ".cursor", "projects", "*", "sdk-agent-store", "*", "index.db"))
-		return stores
-	}
-	if len(rawSDKIDs(ids)) == 0 {
-		return nil
-	}
-	seen := map[string]bool{}
-	stores := []string{}
-	for _, path := range transcriptPaths {
-		for directory := filepath.Dir(path); directory != filepath.Dir(directory); directory = filepath.Dir(directory) {
-			if filepath.Base(directory) != "agent-transcripts" {
-				continue
-			}
-			matches, _ := filepath.Glob(filepath.Join(filepath.Dir(directory), "sdk-agent-store", "*", "index.db"))
-			for _, match := range matches {
-				if !seen[match] {
-					seen[match] = true
-					stores = append(stores, match)
-				}
-			}
-			break
 		}
 	}
 	return stores
@@ -716,29 +659,6 @@ func loadIDETimes(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
 	}
 }
 
-func loadSDKTimes(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
-	query, args := cursorIDQuery(`SELECT agent_id, created_at, updated_at FROM agents`, "agent_id", ids)
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id, created, updated string
-		if rows.Scan(&id, &created, &updated) != nil {
-			continue
-		}
-		var startedAt, lastActivityAt int64
-		if value, ok := parseTimestamp(created); ok {
-			startedAt = value.UnixMilli()
-		}
-		if value, ok := parseTimestamp(updated); ok {
-			lastActivityAt = value.UnixMilli()
-		}
-		setCursorTimes(metadata, sdkTranscriptID(id), startedAt, lastActivityAt)
-	}
-}
-
 func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, lastActivityAt int64) {
 	id = canonicalCursorID(id)
 	if !transcriptIDPattern.MatchString(id) {
@@ -886,67 +806,6 @@ func cursorBubbleTime(raw json.RawMessage) float64 {
 	}
 	number, _ = strconv.ParseFloat(strings.TrimSpace(value), 64)
 	return number
-}
-
-func loadSDKUsage(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
-	query, args := cursorIDQuery(`SELECT agent_id, COALESCE(model, ''), usage_json FROM runs`, "agent_id", ids)
-	query += ` ORDER BY turn_number`
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id, model string
-		var raw sql.NullString
-		if rows.Scan(&id, &model, &raw) != nil {
-			continue
-		}
-		id = sdkTranscriptID(id)
-		if id == "" {
-			continue
-		}
-		rawModel := strings.TrimSpace(model)
-		model = normalizeCursorModel(rawModel)
-		if rawModel != "" {
-			metadata.Session(id).Model = model
-		}
-		var usage struct {
-			Input      int `json:"inputTokens"`
-			Output     int `json:"outputTokens"`
-			CacheRead  int `json:"cacheReadTokens"`
-			CacheWrite int `json:"cacheWriteTokens"`
-		}
-		if !raw.Valid || json.Unmarshal([]byte(raw.String), &usage) != nil || usage.Input < 0 || usage.Output < 0 || usage.CacheRead < 0 || usage.CacheWrite < 0 {
-			continue
-		}
-		value := metadata.Session(id).Usage
-		context := session.ContextTokens(usage.Input, usage.CacheRead, usage.CacheWrite)
-		value.ContextTokens = &context
-		if model != "" {
-			if value.Tokens == nil {
-				value.Tokens = map[string]session.ModelTokens{}
-			}
-			tokens := value.Tokens[model]
-			tokens.InputTokens += usage.Input
-			tokens.OutputTokens += usage.Output
-			tokens.CacheReadInputTokens += usage.CacheRead
-			tokens.CacheCreationInputTokens += usage.CacheWrite
-			value.Tokens[model] = tokens
-		}
-		metadata.Session(id).Usage = value
-	}
-}
-
-func sdkTranscriptID(id string) string {
-	id = canonicalCursorID(id)
-	if !strings.HasPrefix(id, "agent-") {
-		id = "agent-" + id
-	}
-	if !transcriptIDPattern.MatchString(id) {
-		return ""
-	}
-	return id
 }
 
 func normalizeCursorModel(model string) string {

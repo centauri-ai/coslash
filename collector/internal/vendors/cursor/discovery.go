@@ -9,7 +9,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-var transcriptIDPattern = regexp.MustCompile(`^(?:agent-)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
+var transcriptIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 
 func Root() (string, error) {
 	home, err := os.UserHomeDir()

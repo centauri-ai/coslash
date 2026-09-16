@@ -53,7 +53,7 @@ func TestLoadMetadataForSessionsReturnsOnlyRequestedIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadMetadataForSessions(home, []string{target}, nil)
+	metadata, err := loadMetadataForSessions(home, []string{target})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestLoadMetadataForSessionsCanonicalizesStoredIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadMetadataForSessions(home, []string{id}, nil)
+	metadata, err := loadMetadataForSessions(home, []string{id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +323,7 @@ func TestLoadMetadataForSessionsExpandsIDEFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := loadMetadataForSessions(home, []string{child1ID}, nil)
+	metadata, err := loadMetadataForSessions(home, []string{child1ID})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -203,7 +203,7 @@ describe('resumeDisabledHint', () => {
     ).toBe('Remote is offline');
   });
 
-  it('distinguishes Cursor CLI resume from IDE workspace opening and unsupported SDK sessions', () => {
+  it('distinguishes Cursor CLI resume from IDE workspace opening', () => {
     expect(
       resumeDisabledHint({
         sourceId: LOCAL_SOURCE_ID,
@@ -234,16 +234,6 @@ describe('resumeDisabledHint', () => {
         cwd: '/workspace',
       }),
     ).toBeUndefined();
-    expect(
-      resumeDisabledHint({
-        sourceId: LOCAL_SOURCE_ID,
-        agent: 'cursor',
-        entrypoint: 'cursor-sdk',
-        status: null,
-        displayStale: false,
-        cwd: '/workspace',
-      }),
-    ).toBe('Launch is not available for Cursor SDK sessions');
     expect(
       resumeDisabledHint({
         sourceId: LOCAL_SOURCE_ID,
@@ -361,7 +351,7 @@ describe('sessionReadiness', () => {
 });
 
 describe('freshLaunchDisabledHint', () => {
-  it('allows Cursor IDE and CLI but rejects SDK and missing working directories', () => {
+  it('allows Cursor IDE and CLI but rejects missing working directories', () => {
     expect(
       freshLaunchDisabledHint({
         sourceId: LOCAL_SOURCE_ID,
@@ -378,14 +368,6 @@ describe('freshLaunchDisabledHint', () => {
         cwd: '/workspace',
       }),
     ).toBeUndefined();
-    expect(
-      freshLaunchDisabledHint({
-        sourceId: LOCAL_SOURCE_ID,
-        agent: 'cursor',
-        entrypoint: 'cursor-sdk',
-        cwd: '/workspace',
-      }),
-    ).toBe('Launch is not available for Cursor SDK sessions');
     expect(
       freshLaunchDisabledHint({
         sourceId: LOCAL_SOURCE_ID,
