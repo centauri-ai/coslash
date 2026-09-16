@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
+import {
+  dirname,
+  extname,
+  isAbsolute,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
   encoding: "utf8",
@@ -70,6 +77,15 @@ function checkLink(source, rawLink) {
 
   const target =
     path === "" ? resolve(root, source) : resolve(root, dirname(source), path);
+  const relativeTarget = relative(root, target);
+  if (
+    relativeTarget === ".." ||
+    relativeTarget.startsWith(`..${sep}`) ||
+    isAbsolute(relativeTarget)
+  ) {
+    failures.push(`${source}: target escapes repository ${link}`);
+    return;
+  }
   if (!existsSync(target)) {
     failures.push(`${source}: missing target ${link}`);
     return;
@@ -81,6 +97,72 @@ function checkLink(source, rawLink) {
   ) {
     failures.push(`${source}: missing anchor ${link}`);
   }
+}
+
+function linksFromInlineMarkdown(content) {
+  const links = [];
+  const escapedPunctuationAt = (position) => {
+    const character = content[position + 1];
+    return character !== undefined && /[!-/:-@[-`{-~]/.test(character)
+      ? character
+      : null;
+  };
+
+  for (const match of content.matchAll(/!?\[[^\]]*]\(\s*/g)) {
+    let position = match.index + match[0].length;
+    let link = "";
+
+    if (content[position] === "<") {
+      position++;
+      while (position < content.length) {
+        const character = content[position];
+        const escaped = escapedPunctuationAt(position);
+        if (character === "\\" && escaped !== null) {
+          link += escaped;
+          position += 2;
+        } else if (character === ">") {
+          links.push(link);
+          break;
+        } else if (character === "\n") {
+          break;
+        } else {
+          link += character;
+          position++;
+        }
+      }
+      continue;
+    }
+
+    let depth = 0;
+    while (position < content.length) {
+      const character = content[position];
+      const escaped = escapedPunctuationAt(position);
+      if (character === "\\" && escaped !== null) {
+        link += escaped;
+        position += 2;
+      } else if (character === "(") {
+        depth++;
+        link += character;
+        position++;
+      } else if (character === ")") {
+        if (depth === 0) {
+          links.push(link);
+          break;
+        }
+        depth--;
+        link += character;
+        position++;
+      } else if (/\s/.test(character) && depth === 0) {
+        links.push(link);
+        break;
+      } else {
+        link += character;
+        position++;
+      }
+    }
+  }
+
+  return links;
 }
 
 function linksFromSrcset(srcset) {
@@ -111,13 +193,7 @@ function linksFromSrcset(srcset) {
 
 for (const source of files) {
   const content = readFileSync(resolve(root, source), "utf8");
-  const links = [];
-
-  for (const match of content.matchAll(
-    /!?\[[^\]]*]\(\s*(?:<([^>]+)>|([^\s)]+))/g,
-  )) {
-    links.push(match[1] ?? match[2]);
-  }
+  const links = linksFromInlineMarkdown(content);
   for (const match of content.matchAll(
     /^\s*\[[^\]]+]:\s*(?:<([^>]+)>|(\S+))/gm,
   )) {
