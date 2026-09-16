@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"sync"
 )
 
@@ -47,17 +46,9 @@ type Config struct {
 
 // RemoteSettings is the optional one-host SSH configuration.
 type RemoteSettings struct {
-	ID          string             `json:"id"`
-	SSHAlias    string             `json:"sshAlias"`
-	Enabled     bool               `json:"enabled"`
-	Executables *RemoteExecutables `json:"executables,omitempty"`
-}
-
-// RemoteExecutables holds optional absolute or home-relative executable
-// overrides. Empty values are deliberately not persisted.
-type RemoteExecutables struct {
-	Claude string `json:"claude,omitempty"`
-	Codex  string `json:"codex,omitempty"`
+	ID       string `json:"id"`
+	SSHAlias string `json:"sshAlias"`
+	Enabled  bool   `json:"enabled"`
 }
 
 type SynthesisSettings struct {
@@ -186,31 +177,6 @@ func ValidRemoteID(id string) bool {
 	return remoteIDPattern.MatchString(id)
 }
 
-// ValidRemoteExecutablePath accepts an absolute POSIX path or a leading ~/.
-// The remote resolver expands only that leading home marker; it never treats
-// settings data as shell syntax.
-func ValidRemoteExecutablePath(path string) bool {
-	if len(path) == 0 || len(path) > 4096 || strings.HasSuffix(path, "/") || strings.ContainsAny(path, "\x00\r\n") {
-		return false
-	}
-	return (filepath.IsAbs(path) && path != "/") || (strings.HasPrefix(path, "~/") && len(path) > len("~/"))
-}
-
-// ExecutableForAgent returns the configured override for an agent, if any.
-func (remote *RemoteSettings) ExecutableForAgent(agent string) string {
-	if remote == nil || remote.Executables == nil {
-		return ""
-	}
-	switch agent {
-	case "claude":
-		return remote.Executables.Claude
-	case "codex":
-		return remote.Executables.Codex
-	default:
-		return ""
-	}
-}
-
 func TerminalOptions() []TerminalOption {
 	return []TerminalOption{
 		{ID: TerminalApple, Label: "Apple Terminal"},
@@ -275,27 +241,6 @@ func validateRemote(remote *RemoteSettings) error {
 	if !ValidSSHAlias(remote.SSHAlias) {
 		return fmt.Errorf("remote sshAlias %q is not a valid SSH alias", remote.SSHAlias)
 	}
-	if remote.Executables == nil {
-		return nil
-	}
-	paths := []struct {
-		agent string
-		path  string
-	}{
-		{agent: "claude", path: remote.Executables.Claude},
-		{agent: "codex", path: remote.Executables.Codex},
-	}
-	nonblank := false
-	for _, candidate := range paths {
-		agent, path := candidate.agent, candidate.path
-		if path != "" && !ValidRemoteExecutablePath(path) {
-			return fmt.Errorf("remote executable for %s must be an absolute or ~/ file path without a trailing slash", agent)
-		}
-		nonblank = nonblank || path != ""
-	}
-	if !nonblank {
-		return errors.New("remote executables must include at least one path")
-	}
 	return nil
 }
 
@@ -311,15 +256,10 @@ func Decode(data []byte) (Config, error) {
 	type appearanceDocument struct {
 		Theme *string `json:"theme"`
 	}
-	type executablesDocument struct {
-		Claude json.RawMessage `json:"claude"`
-		Codex  json.RawMessage `json:"codex"`
-	}
 	type remoteDocument struct {
-		ID          *string         `json:"id"`
-		SSHAlias    *string         `json:"sshAlias"`
-		Enabled     *bool           `json:"enabled"`
-		Executables json.RawMessage `json:"executables"`
+		ID       *string `json:"id"`
+		SSHAlias *string `json:"sshAlias"`
+		Enabled  *bool   `json:"enabled"`
 	}
 	type configDocument struct {
 		Schema     *string             `json:"$schema"`
@@ -369,45 +309,6 @@ func Decode(data []byte) (Config, error) {
 			ID:       *document.Remote.ID,
 			SSHAlias: *document.Remote.SSHAlias,
 			Enabled:  *document.Remote.Enabled,
-		}
-		if document.Remote.Executables != nil {
-			decoder := json.NewDecoder(bytes.NewReader(document.Remote.Executables))
-			decoder.DisallowUnknownFields()
-			var executableFields *executablesDocument
-			if err := decoder.Decode(&executableFields); err != nil {
-				return Config{}, fmt.Errorf("decode remote executables: %w", err)
-			}
-			if executableFields == nil {
-				return Config{}, errors.New("remote executables must be an object")
-			}
-			executables := RemoteExecutables{}
-			paths := []struct {
-				agent string
-				value json.RawMessage
-			}{
-				{agent: "claude", value: executableFields.Claude},
-				{agent: "codex", value: executableFields.Codex},
-			}
-			for _, candidate := range paths {
-				agent, value := candidate.agent, candidate.value
-				if value == nil {
-					continue
-				}
-				var path *string
-				if err := json.Unmarshal(value, &path); err != nil || path == nil {
-					return Config{}, fmt.Errorf("remote executable for %s must be a string", agent)
-				}
-				if !ValidRemoteExecutablePath(*path) {
-					return Config{}, fmt.Errorf("remote executable for %s must be an absolute or ~/ file path without a trailing slash", agent)
-				}
-				switch agent {
-				case "claude":
-					executables.Claude = *path
-				case "codex":
-					executables.Codex = *path
-				}
-			}
-			config.Remote.Executables = &executables
 		}
 	}
 	if err := Validate(config); err != nil {

@@ -10,14 +10,7 @@ export type RemoteHostSettings = {
   id?: string;
   sshAlias: string;
   enabled: boolean;
-  executables?: RemoteExecutableSettings;
 };
-
-export type RemoteExecutableAgent = 'claude' | 'codex';
-
-export type RemoteExecutableSettings = Partial<Record<RemoteExecutableAgent, string>>;
-
-const REMOTE_EXECUTABLE_AGENTS = ['claude', 'codex'] as const;
 
 // Request-only intent sent beside a proposed settings replacement. It is not
 // serialized into settings.json.
@@ -79,72 +72,7 @@ export function decodeRemoteHostSettings(value: unknown): RemoteHostSettings | n
     if (typeof raw.id !== 'string') throw new Error('Invalid remote settings');
     remote.id = raw.id;
   }
-  if (Object.prototype.hasOwnProperty.call(raw, 'executables')) {
-    remote.executables = decodeRemoteExecutableSettings(raw.executables);
-  }
   return remote;
-}
-
-export function decodeRemoteExecutableSettings(value: unknown): RemoteExecutableSettings {
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Invalid remote executable settings');
-  }
-  const raw = value as Record<string, unknown>;
-  if (Object.keys(raw).length === 0) {
-    throw new Error('Invalid remote executable settings');
-  }
-  const executables: RemoteExecutableSettings = {};
-  for (const agent of REMOTE_EXECUTABLE_AGENTS) {
-    if (!Object.prototype.hasOwnProperty.call(raw, agent)) continue;
-    const path = raw[agent];
-    if (typeof path !== 'string' || path === '' || remoteExecutablePathError(path) != null) {
-      throw new Error(`Invalid remote executable path for ${agent}`);
-    }
-    executables[agent] = path;
-  }
-  if (Object.keys(raw).some((key) => !REMOTE_EXECUTABLE_AGENTS.includes(key as RemoteExecutableAgent))) {
-    throw new Error('Invalid remote executable settings');
-  }
-  if (Object.keys(executables).length === 0) {
-    throw new Error('Invalid remote executable settings');
-  }
-  return executables;
-}
-
-// A blank draft value means "automatic discovery" and is omitted on save.
-// Nonblank values must follow the same structural contract as the backend.
-export function remoteExecutablePathError(path: string): string | null {
-  if (path === '') return null;
-  if (path.length > 4096 || path.endsWith('/') || /[\0\r\n]/.test(path)) {
-    return 'Use an absolute or ~/. file path without a trailing slash.';
-  }
-  return (path.startsWith('/') && path !== '/') || (path.startsWith('~/') && path.length > 2)
-    ? null
-    : 'Use an absolute or ~/. file path without a trailing slash.';
-}
-
-export function normalizeRemoteExecutableSettings(
-  executables: RemoteExecutableSettings | undefined,
-): RemoteExecutableSettings {
-  const normalized: RemoteExecutableSettings = {};
-  for (const agent of REMOTE_EXECUTABLE_AGENTS) {
-    const path = executables?.[agent];
-    if (path) normalized[agent] = path;
-  }
-  return normalized;
-}
-
-export function remoteExecutableSettingsAreValid(executables: RemoteExecutableSettings | undefined): boolean {
-  return Object.values(executables ?? {}).every((path) => remoteExecutablePathError(path) == null);
-}
-
-export function remoteExecutableSettingsEqual(
-  left: RemoteExecutableSettings | undefined,
-  right: RemoteExecutableSettings | undefined,
-): boolean {
-  const normalizedLeft = normalizeRemoteExecutableSettings(left);
-  const normalizedRight = normalizeRemoteExecutableSettings(right);
-  return REMOTE_EXECUTABLE_AGENTS.every((agent) => normalizedLeft[agent] === normalizedRight[agent]);
 }
 
 export function decodeSettingsResponse(value: unknown): SettingsResponse {
@@ -171,28 +99,10 @@ export function decodeSettingsResponse(value: unknown): SettingsResponse {
 }
 
 export function settingsForSave(settings: CoslashSettings): CoslashSettings {
-  if (settings.remote == null) return settings;
-  const executables = normalizeRemoteExecutableSettings(settings.remote.executables);
-  const includeExecutables = Object.keys(executables).length > 0;
-  const hasNormalizedExecutables =
-    (settings.remote.executables != null) !== includeExecutables ||
-    Object.keys(settings.remote.executables ?? {}).length !== Object.keys(executables).length;
-  if (settings.remote.id != null && !hasNormalizedExecutables) return settings;
-
-  const { executables: _discarded, ...remote } = settings.remote;
-  const id =
-    remote.id ??
-    `r_${Array.from(crypto.getRandomValues(new Uint8Array(8)), (value) =>
-      value.toString(16).padStart(2, '0'),
-    ).join('')}`;
-  return {
-    ...settings,
-    remote: {
-      ...remote,
-      id,
-      ...(includeExecutables ? { executables } : {}),
-    },
-  };
+  if (settings.remote == null || settings.remote.id != null) return settings;
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  const id = `r_${Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')}`;
+  return { ...settings, remote: { ...settings.remote, id } };
 }
 
 export function availableSynthesisBackends(options: readonly BackendOption[]): BackendOption[] {
@@ -221,14 +131,7 @@ export function initialSettingsDraft(response: SettingsResponse): CoslashSetting
     synthesis,
     appearance: { ...response.settings.appearance },
     launch: { ...response.settings.launch },
-    remote: response.settings.remote
-      ? {
-          ...response.settings.remote,
-          ...(response.settings.remote.executables
-            ? { executables: { ...response.settings.remote.executables } }
-            : {}),
-        }
-      : response.settings.remote,
+    remote: response.settings.remote ? { ...response.settings.remote } : response.settings.remote,
   };
 }
 

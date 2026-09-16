@@ -451,31 +451,31 @@ func (manager *Manager) DiagnosticsHealth() Health {
 	return manager.healthLocked(manager.lastRequestedMs)
 }
 
-// LaunchSession returns the current remote session, SSH alias, and executable
-// override only while the host's most recent collection completed successfully.
-func (manager *Manager) LaunchSession(sourceID, agent, sessionID, mode string) (*session.Session, string, string, error) {
+// LaunchSession returns the current remote session and SSH alias only while
+// the host's most recent collection completed successfully.
+func (manager *Manager) LaunchSession(sourceID, agent, sessionID, mode string) (*session.Session, string, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID ||
 		(manager.state != StateOK && manager.state != StateLimited) {
-		return nil, "", "", nil
+		return nil, "", nil
 	}
 	for _, item := range manager.sessions {
 		if item.Agent == agent && item.ID == sessionID {
 			switch launchBlockReason(manager.snapshot, item) {
 			case LaunchBlockOversized:
-				return nil, "", "", ErrRemoteSessionOversized
+				return nil, "", ErrRemoteSessionOversized
 			case LaunchBlockMissingDetails:
-				return nil, "", "", ErrRemoteSessionUnavailable
+				return nil, "", ErrRemoteSessionUnavailable
 			}
 			if mode == launch.ResumeSession && item.Status != nil && (*item.Status == "busy" || *item.Status == "idle") {
-				return nil, "", "", ErrRemoteSessionActive
+				return nil, "", ErrRemoteSessionActive
 			}
 			copy := *item
-			return &copy, manager.cfg.SSHAlias, manager.cfg.ExecutableForAgent(item.Agent), nil
+			return &copy, manager.cfg.SSHAlias, nil
 		}
 	}
-	return nil, "", "", nil
+	return nil, "", nil
 }
 
 // PreviewSession returns one current, complete remote session for the sharing

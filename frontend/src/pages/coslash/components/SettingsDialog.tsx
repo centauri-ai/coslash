@@ -9,14 +9,9 @@ import {
   availableSynthesisBackends,
   initialSettingsDraft,
   modelForBackend,
-  normalizeRemoteExecutableSettings,
-  remoteExecutableSettingsAreValid,
-  remoteExecutableSettingsEqual,
   requiresFirstRunConsent,
-  settingsForSave,
   type BackendOption,
   type CoslashSettings,
-  type RemoteExecutableSettings,
   type RemoteOwnershipAction,
   type SettingsResponse,
 } from '@/pages/coslash/lib/settings';
@@ -205,22 +200,9 @@ export function SettingsDialog({
   const [draft, setDraft] = useState<CoslashSettings | null>(
     response ? initialSettingsDraft(response) : null,
   );
-  const initialExecutables = response?.settings.remote?.executables ?? {};
-  const [executableDraft, setExecutableDraft] = useState<RemoteExecutableSettings>({
-    ...initialExecutables,
-  });
   const [disclosureOpen, setDisclosureOpen] = useState(false);
-  const [revealInvalidExecutables, setRevealInvalidExecutables] = useState(false);
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
-  const [closeInProgress, setCloseInProgress] = useState(false);
   const initializedForOpen = useRef(false);
-  const acknowledgedExecutables = useRef<RemoteExecutableSettings>({ ...initialExecutables });
-  const lastSubmittedExecutables = useRef<RemoteExecutableSettings>({ ...initialExecutables });
-  const pendingExecutableSave = useRef<{
-    executables: RemoteExecutableSettings;
-    result: Promise<boolean>;
-  } | null>(null);
-  const pendingExecutableSaves = useRef(0);
   const saveChain = useRef(Promise.resolve());
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
@@ -231,17 +213,7 @@ export function SettingsDialog({
       return;
     }
     if (!response || initializedForOpen.current) return;
-    if (pendingExecutableSaves.current > 0) {
-      setDisclosureOpen(false);
-      initializedForOpen.current = true;
-      return;
-    }
-    const executables = { ...(response.settings.remote?.executables ?? {}) };
     setDraft(initialSettingsDraft(response));
-    setExecutableDraft(executables);
-    setRevealInvalidExecutables(false);
-    acknowledgedExecutables.current = executables;
-    lastSubmittedExecutables.current = executables;
     setDisclosureOpen(false);
     initializedForOpen.current = true;
   }, [open, response]);
@@ -252,50 +224,17 @@ export function SettingsDialog({
   const selectedModel = selectedBackend?.models.find((option) => option.id === draft?.synthesis.model);
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
   const synthesisBackendAvailable = draft?.synthesis.enabled !== true || selectedBackend?.available === true;
-  const executableDraftIsValid = remoteExecutableSettingsAreValid(executableDraft);
-
-  const reconcileSuccessfulSettingsSave = useCallback((saved: CoslashSettings) => {
-    const savedExecutables = normalizeRemoteExecutableSettings(saved.remote?.executables);
-    const previouslyAcknowledged = acknowledgedExecutables.current;
-    acknowledgedExecutables.current = savedExecutables;
-    // Keep a newer explicit executable commit authoritative over this queued snapshot.
-    if (!remoteExecutableSettingsEqual(lastSubmittedExecutables.current, previouslyAcknowledged)) return;
-
-    lastSubmittedExecutables.current = savedExecutables;
-    setDraft((current) => {
-      if (
-        !current?.remote ||
-        !saved.remote ||
-        current.remote.id !== saved.remote.id ||
-        !remoteExecutableSettingsEqual(current.remote.executables, previouslyAcknowledged)
-      ) {
-        return current;
-      }
-      const { executables: _discarded, ...remote } = current.remote;
-      return {
-        ...current,
-        remote: {
-          ...remote,
-          ...(Object.keys(savedExecutables).length > 0 ? { executables: savedExecutables } : {}),
-        },
-      };
-    });
-  }, []);
 
   const saveSettings = useCallback(
     (next: CoslashSettings, ownershipAction?: RemoteOwnershipAction) => {
-      const pending = saveChain.current.then(async () => {
-        const saved = await onSave(next, ownershipAction);
-        if (saved) reconcileSuccessfulSettingsSave(next);
-        return saved;
-      });
+      const pending = saveChain.current.then(() => onSave(next, ownershipAction));
       saveChain.current = pending.then(
         () => undefined,
         () => undefined,
       );
       return pending;
     },
-    [onSave, reconcileSuccessfulSettingsSave],
+    [onSave],
   );
 
   const save = async () => {
@@ -317,100 +256,11 @@ export function SettingsDialog({
     [requiresConsent, saveSettings],
   );
 
-  const reconcileFailedExecutableSave = useCallback((failed: RemoteExecutableSettings) => {
-    if (!remoteExecutableSettingsEqual(lastSubmittedExecutables.current, failed)) return;
-    lastSubmittedExecutables.current = acknowledgedExecutables.current;
-    setDraft((current) => {
-      if (!current?.remote || !remoteExecutableSettingsEqual(current.remote.executables ?? {}, failed)) {
-        return current;
-      }
-      const { executables: _discarded, ...remote } = current.remote;
-      const acknowledged = acknowledgedExecutables.current;
-      return {
-        ...current,
-        remote: {
-          ...remote,
-          ...(Object.keys(acknowledged).length > 0 ? { executables: acknowledged } : {}),
-        },
-      };
-    });
-  }, []);
-
-  const commitExecutables = useCallback(
-    (executables: RemoteExecutableSettings) => {
-      if (!draft?.remote) return Promise.resolve(true);
-      if (!remoteExecutableSettingsAreValid(executables)) return Promise.resolve(false);
-      const normalized = normalizeRemoteExecutableSettings(executables);
-      if (remoteExecutableSettingsEqual(normalized, lastSubmittedExecutables.current)) {
-        const pending = pendingExecutableSave.current;
-        return pending && remoteExecutableSettingsEqual(normalized, pending.executables)
-          ? pending.result
-          : Promise.resolve(true);
-      }
-
-      lastSubmittedExecutables.current = normalized;
-      const { executables: _discarded, ...remote } = draft.remote;
-      const next: CoslashSettings = {
-        ...draft,
-        remote: {
-          ...remote,
-          ...(Object.keys(normalized).length > 0 ? { executables: normalized } : {}),
-        },
-      };
-      setDraft(next);
-      pendingExecutableSaves.current += 1;
-      const result = saveSettings(next)
-        .then(
-          (saved) => {
-            if (saved) {
-              acknowledgedExecutables.current = normalized;
-              setTheme(next.appearance.theme);
-              return true;
-            }
-            reconcileFailedExecutableSave(normalized);
-            return false;
-          },
-          () => {
-            reconcileFailedExecutableSave(normalized);
-            return false;
-          },
-        )
-        .finally(() => {
-          pendingExecutableSaves.current -= 1;
-          if (pendingExecutableSave.current?.result === result) {
-            pendingExecutableSave.current = null;
-          }
-        });
-      pendingExecutableSave.current = { executables: normalized, result };
-      return result;
-    },
-    [draft, reconcileFailedExecutableSave, saveSettings],
-  );
-
-  const closeDialog = async () => {
-    if (closeInProgress) return;
-    if (!executableDraftIsValid) {
-      setRevealInvalidExecutables(true);
-      return;
-    }
-    setCloseInProgress(true);
-    try {
-      if (await commitExecutables(executableDraft)) onOpenChange(false);
-    } finally {
-      setCloseInProgress(false);
-    }
-  };
-
   const addRemoteHost = async (sshAlias: string) => {
     if (!draft) return false;
-    const next = settingsForSave({ ...draft, remote: { sshAlias, enabled: true } });
+    const next = { ...draft, remote: { sshAlias, enabled: true } };
     const saved = await saveSettings(next);
-    if (saved) {
-      setDraft(next);
-      setExecutableDraft({});
-      acknowledgedExecutables.current = {};
-      lastSubmittedExecutables.current = {};
-    }
+    if (saved) setDraft(next);
     return saved;
   };
 
@@ -418,12 +268,7 @@ export function SettingsDialog({
     if (!draft) return false;
     const { remote: _removed, ...next } = draft;
     const saved = await saveSettings({ ...next, remote: null }, 'release');
-    if (saved) {
-      setDraft({ ...next, remote: null });
-      setExecutableDraft({});
-      acknowledgedExecutables.current = {};
-      lastSubmittedExecutables.current = {};
-    }
+    if (saved) setDraft({ ...next, remote: null });
     return saved;
   };
 
@@ -431,33 +276,29 @@ export function SettingsDialog({
     ? { label: 'Save failed', className: 'text-destructive' }
     : isSaving
       ? { label: 'Saving…', className: 'text-muted-foreground' }
-      : !executableDraftIsValid
-        ? { label: 'Fix invalid executable path', className: 'text-destructive' }
-        : !synthesisBackendAvailable
-          ? { label: 'Backend unavailable', className: 'text-warning-fg' }
-          : response?.valid === false
-            ? { label: 'Repair required', className: 'text-warning-fg' }
-            : isFirstRun
-              ? { label: 'Not saved yet', className: 'text-warning-fg' }
-              : { label: 'Saved', className: 'text-muted-foreground' };
+      : !synthesisBackendAvailable
+        ? { label: 'Backend unavailable', className: 'text-warning-fg' }
+        : response?.valid === false
+          ? { label: 'Repair required', className: 'text-warning-fg' }
+          : isFirstRun
+            ? { label: 'Not saved yet', className: 'text-warning-fg' }
+            : { label: 'Saved', className: 'text-muted-foreground' };
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if ((requiresConsent || remoteOperationInProgress || closeInProgress) && !next) return;
+        if ((requiresConsent || remoteOperationInProgress) && !next) return;
         if (next) onOpenChange(true);
-        else void closeDialog();
+        else onOpenChange(false);
       }}
     >
       <DialogContent
         className="flex max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
-        showCloseButton={!requiresConsent && !remoteOperationInProgress && !closeInProgress}
-        onEscapeKeyDown={(event) =>
-          (requiresConsent || remoteOperationInProgress || closeInProgress) && event.preventDefault()
-        }
+        showCloseButton={!requiresConsent && !remoteOperationInProgress}
+        onEscapeKeyDown={(event) => (requiresConsent || remoteOperationInProgress) && event.preventDefault()}
         onPointerDownOutside={(event) =>
-          (requiresConsent || remoteOperationInProgress || closeInProgress) && event.preventDefault()
+          (requiresConsent || remoteOperationInProgress) && event.preventDefault()
         }
       >
         <DialogHeader className="shrink-0 gap-1.5 p-4 pr-12 pb-3">
@@ -473,10 +314,9 @@ export function SettingsDialog({
         </DialogHeader>
 
         <div
-          aria-busy={remoteOperationInProgress || closeInProgress}
-          inert={remoteOperationInProgress || closeInProgress ? true : undefined}
+          aria-busy={remoteOperationInProgress}
           className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-1 pb-4', {
-            'pointer-events-none': remoteOperationInProgress || closeInProgress,
+            'pointer-events-none': remoteOperationInProgress,
           })}
         >
           {isLoading ? (
@@ -688,14 +528,6 @@ export function SettingsDialog({
                   onRemoveHost={removeRemoteHost}
                   onConnectionVerified={onRemoteConnectionVerified}
                   onBusyChange={setRemoteOperationInProgress}
-                  executables={executableDraft}
-                  revealInvalidExecutables={revealInvalidExecutables}
-                  onExecutablesChange={(executables) => {
-                    setExecutableDraft(executables);
-                    setRevealInvalidExecutables(false);
-                  }}
-                  onExecutablesCommit={commitExecutables}
-                  executablesDisabled={closeInProgress}
                 />
               )}
 
@@ -721,8 +553,8 @@ export function SettingsDialog({
             ) : (
               <Button
                 variant="outline"
-                onClick={() => void closeDialog()}
-                disabled={remoteOperationInProgress || closeInProgress}
+                onClick={() => onOpenChange(false)}
+                disabled={remoteOperationInProgress}
               >
                 Close
               </Button>

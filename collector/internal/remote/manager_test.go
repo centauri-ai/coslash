@@ -497,10 +497,7 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 
 func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	manager := NewManager(Options{})
-	config := &settings.RemoteSettings{
-		ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true,
-		Executables: &settings.RemoteExecutables{Codex: "~/bin/codex"},
-	}
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
 	if err := manager.ApplySettings(config); err != nil {
 		t.Fatal(err)
 	}
@@ -509,21 +506,21 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	manager.complete = true
 	manager.sessions = []*session.Session{{Agent: vendors.AgentCodex, ID: "session", WorkingDirectory: "/workspace"}}
 	manager.mu.Unlock()
-	found, alias, executable, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume")
-	if err != nil || alias != config.SSHAlias || executable != "~/bin/codex" || found == nil || found.WorkingDirectory != "/workspace" {
-		t.Fatalf("launch session = %#v, %q, %q, %v", found, alias, executable, err)
+	found, alias, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume")
+	if err != nil || alias != config.SSHAlias || found == nil || found.WorkingDirectory != "/workspace" {
+		t.Fatalf("launch session = %#v, %q, %v", found, alias, err)
 	}
 	preview, err := manager.PreviewSession(config.ID, vendors.AgentCodex, "session", 1)
 	if err != nil || preview == nil || preview.WorkingDirectory != "/workspace" {
 		t.Fatalf("preview session = %#v, %v", preview, err)
 	}
-	if found, _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "missing", "resume"); found != nil || err != nil {
+	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "missing", "resume"); found != nil || err != nil {
 		t.Fatal("missing session was launchable")
 	}
 	manager.mu.Lock()
 	manager.sessions = append(manager.sessions, &session.Session{Agent: vendors.AgentCodex, ID: "compacted"})
 	manager.mu.Unlock()
-	if _, _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "compacted", "resume"); !errors.Is(err, ErrRemoteSessionUnavailable) {
+	if _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "compacted", "resume"); !errors.Is(err, ErrRemoteSessionUnavailable) {
 		t.Fatalf("compacted session error = %v", err)
 	}
 	if _, err := manager.PreviewSession(config.ID, vendors.AgentCodex, "compacted", 1); !errors.Is(err, ErrRemoteSessionUnavailable) {
@@ -532,7 +529,7 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	manager.mu.Lock()
 	manager.state = StateLimited
 	manager.mu.Unlock()
-	if found, _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume"); found == nil || err != nil {
+	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume"); found == nil || err != nil {
 		t.Fatal("connected limited remote was not launchable")
 	}
 	if found, err := manager.PreviewSession(config.ID, vendors.AgentCodex, "session", 1); found != nil || err != nil {
@@ -541,7 +538,7 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	manager.mu.Lock()
 	manager.state = StateStale
 	manager.mu.Unlock()
-	if found, _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume"); found != nil || err != nil {
+	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume"); found != nil || err != nil {
 		t.Fatal("stale remote was launchable")
 	}
 	busy := "busy"
@@ -549,10 +546,10 @@ func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
 	manager.state = StateOK
 	manager.sessions[0].Status = &busy
 	manager.mu.Unlock()
-	if _, _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume"); !errors.Is(err, ErrRemoteSessionActive) {
+	if _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "resume"); !errors.Is(err, ErrRemoteSessionActive) {
 		t.Fatalf("active session error = %v", err)
 	}
-	if found, _, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "new"); found == nil || err != nil {
+	if found, _, err := manager.LaunchSession(config.ID, vendors.AgentCodex, "session", "new"); found == nil || err != nil {
 		t.Fatalf("busy session could not start fresh: %#v, %v", found, err)
 	}
 }
