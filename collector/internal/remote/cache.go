@@ -568,6 +568,8 @@ func privacySafeSnapshot(cached CachedSnapshotV2) CachedSnapshotV2 {
 			facts.Sessions[j].Name = ""
 			facts.Sessions[j].CommandLabels = nil
 			display := facts.Sessions[j].Display
+			display.WorkingDirectory = ""
+			display.Repository = nil
 			display.Summary = nil
 			display.FirstPrompt = nil
 			display.DeclaredGoal = nil

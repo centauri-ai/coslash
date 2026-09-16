@@ -56,6 +56,29 @@ func TestCacheV2StoreLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCacheV2StoreScrubsRemotePaths(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	family := validFamily(t, "root-1")
+	repository := "/remote/private/repository"
+	family.Sessions[0].Display.WorkingDirectory = "/remote/private/repository/pkg"
+	family.Sessions[0].Display.Repository = &repository
+	snapshot := CachedSnapshotV2{Families: []CachedFamilyV2{{
+		Vendor: vendors.AgentClaude, FamilyID: "root-1", Facts: family,
+		Fingerprint: "fp-1", LastSuccessAtMs: 1000,
+	}}}
+	if err := cache.StoreV2("r_0123456789abcdef", snapshot); err != nil {
+		t.Fatalf("StoreV2: %v", err)
+	}
+	loaded, ok, err := cache.LoadV2("r_0123456789abcdef")
+	if err != nil || !ok {
+		t.Fatalf("LoadV2: ok=%v err=%v", ok, err)
+	}
+	display := loaded.Families[0].Facts.Sessions[0].Display
+	if display.WorkingDirectory != "" || display.Repository != nil {
+		t.Fatalf("cached remote paths were retained: cwd=%q repo=%v", display.WorkingDirectory, display.Repository)
+	}
+}
+
 func TestKnownFamiliesIncludeCodexHeaderMappings(t *testing.T) {
 	family := validFamily(t, "root-1")
 	family.Vendor = vendors.AgentCodex
