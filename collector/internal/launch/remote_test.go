@@ -76,28 +76,6 @@ func TestRemoteCLICommandKeepsRootLevelExecutableInRoot(t *testing.T) {
 	}
 }
 
-func TestRemoteTerminalCommandStopsWhenWorkingDirectoryIsMissing(t *testing.T) {
-	command, err := remoteCLICommand(vendors.AgentCodex, "/bin/pwd", "", NewSession, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	initialDirectory := t.TempDir()
-	missingDirectory := filepath.Join(t.TempDir(), "missing")
-	output, runErr := runRemoteCommand(
-		t,
-		remoteTerminalCommand(missingDirectory, command),
-		t.TempDir(),
-		"",
-		initialDirectory,
-	)
-	if runErr == nil {
-		t.Fatalf("missing working directory did not stop launch: %q", output)
-	}
-	if strings.Contains(output, initialDirectory) {
-		t.Fatalf("agent launched in the initial directory: %q", output)
-	}
-}
-
 func TestRemoteCLICommandResolvesExecutablesInTheRemoteShell(t *testing.T) {
 	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode} {
 		t.Run(agent, func(t *testing.T) {

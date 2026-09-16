@@ -80,12 +80,8 @@ func RemoteTerminal(terminal, alias, agent, executable, workingDirectory, sessio
 	if err != nil {
 		return err
 	}
-	remoteCommand := remoteTerminalCommand(workingDirectory, command)
+	remoteCommand := "cd " + shellQuote(workingDirectory) + " && " + command
 	return openTerminal(terminal, ".", shellJoin("ssh", "-tt", alias, remoteCommand))
-}
-
-func remoteTerminalCommand(workingDirectory, command string) string {
-	return "cd " + shellQuote(workingDirectory) + " || exit 1\n" + command
 }
 
 func openTerminal(terminal, workingDirectory, command string) error {
