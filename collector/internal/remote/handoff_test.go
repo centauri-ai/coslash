@@ -122,7 +122,7 @@ func TestStageHandoffUsesCapabilityTimeoutForTransferAndCleanup(t *testing.T) {
 
 func TestStageHandoffCommandRejectsEarlyEOF(t *testing.T) {
 	home := t.TempDir()
-	command := stageHandoffCommand(testHandoffName, len("complete payload"), 3600)
+	command := stageHandoffCommand(testHandoffName, len("complete payload"))
 	process := exec.Command("/bin/sh", "-c", command)
 	process.Env = append(os.Environ(), "HOME="+home)
 	process.Stdin = strings.NewReader("partial")
@@ -135,28 +135,39 @@ func TestStageHandoffCommandRejectsEarlyEOF(t *testing.T) {
 	}
 }
 
-func TestStageHandoffCommandExpiresCommittedFile(t *testing.T) {
+func TestCleanupHandoffsRemovesExpiredFilesAfterRestart(t *testing.T) {
 	home := t.TempDir()
-	command := stageHandoffCommand(testHandoffName, len("private handoff"), 1)
-	process := exec.Command("/bin/sh", "-c", command)
-	process.Env = append(os.Environ(), "HOME="+home)
-	process.Stdin = strings.NewReader("private handoff")
-	if err := process.Run(); err != nil {
+	dir := filepath.Join(home, ".coslash", "handoffs")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(home, ".coslash", "handoffs", testHandoffName)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("committed handoff was not created: %v", err)
+	oldPath := filepath.Join(dir, "old")
+	freshPath := filepath.Join(dir, "fresh")
+	for _, path := range []string{oldPath, freshPath} {
+		if err := os.WriteFile(path, []byte("private handoff"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("committed handoff did not expire")
-		}
-		time.Sleep(20 * time.Millisecond)
+	oldTime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	options := OpenOptions{
+		command: func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+			command := exec.CommandContext(ctx, "/bin/sh", "-c", args[len(args)-1])
+			command.Env = append(os.Environ(), "HOME="+home)
+			return command
+		},
+	}
+
+	if err := cleanupHandoffs(context.Background(), "agent-box", options); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("expired handoff still exists: %v", err)
+	}
+	if _, err := os.Stat(freshPath); err != nil {
+		t.Fatalf("fresh handoff was removed: %v", err)
 	}
 }
 
