@@ -327,9 +327,9 @@ func Decode(data []byte) (Config, error) {
 		Theme *string `json:"theme"`
 	}
 	type executablesDocument struct {
-		Claude   *string `json:"claude"`
-		Codex    *string `json:"codex"`
-		OpenCode *string `json:"opencode"`
+		Claude   json.RawMessage `json:"claude"`
+		Codex    json.RawMessage `json:"codex"`
+		OpenCode json.RawMessage `json:"opencode"`
 	}
 	type remoteDocument struct {
 		ID          *string              `json:"id"`
@@ -390,7 +390,7 @@ func Decode(data []byte) (Config, error) {
 			executables := RemoteExecutables{}
 			paths := []struct {
 				agent string
-				value *string
+				value json.RawMessage
 			}{
 				{agent: "claude", value: document.Remote.Executables.Claude},
 				{agent: "codex", value: document.Remote.Executables.Codex},
@@ -401,16 +401,20 @@ func Decode(data []byte) (Config, error) {
 				if value == nil {
 					continue
 				}
-				if !ValidRemoteExecutablePath(*value) {
+				var path *string
+				if err := json.Unmarshal(value, &path); err != nil || path == nil {
+					return Config{}, fmt.Errorf("remote executable for %s must be a string", agent)
+				}
+				if !ValidRemoteExecutablePath(*path) {
 					return Config{}, fmt.Errorf("remote executable for %s must be an absolute or ~/ path", agent)
 				}
 				switch agent {
 				case "claude":
-					executables.Claude = *value
+					executables.Claude = *path
 				case "codex":
-					executables.Codex = *value
+					executables.Codex = *path
 				case "opencode":
-					executables.OpenCode = *value
+					executables.OpenCode = *path
 				}
 			}
 			config.Remote.Executables = &executables

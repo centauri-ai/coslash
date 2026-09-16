@@ -95,8 +95,8 @@ export function decodeRemoteExecutableSettings(value: unknown): RemoteExecutable
   }
   const executables: RemoteExecutableSettings = {};
   for (const agent of REMOTE_EXECUTABLE_AGENTS) {
+    if (!Object.prototype.hasOwnProperty.call(raw, agent)) continue;
     const path = raw[agent];
-    if (path == null) continue;
     if (typeof path !== 'string' || path === '' || remoteExecutablePathError(path) != null) {
       throw new Error(`Invalid remote executable path for ${agent}`);
     }
