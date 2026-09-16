@@ -63,6 +63,16 @@ func renderDoctor(w io.Writer, snapshot *diagnostics.Snapshot) {
 			}
 		}
 		fmt.Fprintf(w, "%s: %s, %d source entries, %d sessions; CLI %s\n", source.Label, source.Root, source.Entries, source.Sessions, cli)
+		if source.IDE != nil {
+			ide := "not found"
+			if source.IDE.Found {
+				ide = source.IDE.Path
+				if source.IDE.Version != "" {
+					ide += " (" + source.IDE.Version + ")"
+				}
+			}
+			fmt.Fprintf(w, "  IDE %s\n", ide)
+		}
 	}
 	fmt.Fprintf(w, "Storage: %s, writable=%t\n", snapshot.Storage.Home, snapshot.Storage.Writable)
 }
