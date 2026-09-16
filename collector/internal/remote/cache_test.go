@@ -146,6 +146,61 @@ func TestCacheV2MigratesPrivacyUnsafeSnapshotWhileDisabled(t *testing.T) {
 	}
 }
 
+func TestCacheV2RemovesLegacySnapshotAfterReplacement(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	const sourceID = "r_0123456789abcdef"
+	legacy := CachedSnapshot{
+		Version: cacheVersion, Sessions: []CachedSession{{Agent: vendors.AgentClaude, ID: "s1"}},
+	}
+	if err := cache.Store(sourceID, legacy); err != nil {
+		t.Fatalf("Store (v1): %v", err)
+	}
+	if err := cache.StoreV2(sourceID, CachedSnapshotV2{}); err != nil {
+		t.Fatalf("StoreV2: %v", err)
+	}
+	path, err := cache.snapshotPath(sourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy snapshot still exists after v2 commit: %v", err)
+	}
+}
+
+func TestCacheV2LoadRemovesLeftoverLegacySnapshot(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	const sourceID = "r_0123456789abcdef"
+	if err := cache.StoreV2(sourceID, CachedSnapshotV2{}); err != nil {
+		t.Fatalf("StoreV2: %v", err)
+	}
+	if err := cache.Store(sourceID, CachedSnapshot{Version: cacheVersion}); err != nil {
+		t.Fatalf("Store (v1): %v", err)
+	}
+	if _, ok, err := cache.LoadV2(sourceID); err != nil || !ok {
+		t.Fatalf("LoadV2: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := cache.Load(sourceID); err != nil || ok {
+		t.Fatalf("legacy snapshot survived v2 load: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestDisabledSourceRemovesLegacySnapshotWithoutReplacement(t *testing.T) {
+	cache := NewCache(t.TempDir())
+	const sourceID = "r_0123456789abcdef"
+	if err := cache.Store(sourceID, CachedSnapshot{Version: cacheVersion}); err != nil {
+		t.Fatalf("Store (v1): %v", err)
+	}
+	manager := NewManager(Options{Cache: cache})
+	if err := manager.ApplySettings(&settings.RemoteSettings{
+		ID: sourceID, SSHAlias: "agent-box", Enabled: false,
+	}); err != nil {
+		t.Fatalf("ApplySettings: %v", err)
+	}
+	if _, ok, err := cache.Load(sourceID); err != nil || ok {
+		t.Fatalf("disabled source retained legacy snapshot: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestKnownFamiliesIncludeCodexHeaderMappings(t *testing.T) {
 	family := validFamily(t, "root-1")
 	family.Vendor = vendors.AgentCodex

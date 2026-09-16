@@ -160,6 +160,19 @@ func (c *Cache) snapshotPath(sourceID string) (string, error) {
 	return filepath.Join(dir, "snapshot.json"), nil
 }
 
+func (c *Cache) removeLegacySnapshot(sourceID string) error {
+	path, err := c.snapshotPath(sourceID)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	} else if err == nil {
+		syncDirBestEffort(filepath.Dir(path))
+	}
+	return nil
+}
+
 func (c *Cache) Load(sourceID string) (CachedSnapshot, bool, error) {
 	path, err := c.snapshotPath(sourceID)
 	if err != nil {
@@ -443,6 +456,8 @@ func (c *Cache) LoadV2(sourceID string) (CachedSnapshotV2, bool, error) {
 		if err := c.StoreV2(sourceID, cached); err != nil {
 			return CachedSnapshotV2{}, false, err
 		}
+	} else if err := c.removeLegacySnapshot(sourceID); err != nil {
+		return CachedSnapshotV2{}, false, err
 	}
 	return cached, true, nil
 }
@@ -567,6 +582,9 @@ func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	if err := c.removeLegacySnapshot(sourceID); err != nil {
 		return err
 	}
 	syncDirBestEffort(dir)
