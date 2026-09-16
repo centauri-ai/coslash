@@ -87,6 +87,9 @@ describe('launchRequestPath', () => {
     expect(launchRequestPath({ sourceId: 'r_0123456789abcdef', agent: 'claude', id: 'xyz' }, 'new')).toBe(
       '/api/launch?source=r_0123456789abcdef&agent=claude&id=xyz&mode=new',
     );
+    expect(launchRequestPath({ sourceId: LOCAL_SOURCE_ID, agent: 'cursor', id: 'xyz' }, 'open')).toBe(
+      '/api/launch?source=local&agent=cursor&id=xyz&mode=open',
+    );
   });
 });
 
