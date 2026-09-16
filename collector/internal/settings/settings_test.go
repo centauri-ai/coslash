@@ -48,6 +48,13 @@ func TestDecodeRejectsNullRemoteExecutableOverride(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsNullRemoteExecutables(t *testing.T) {
+	_, err := Decode([]byte(validSettings(`"remote":{"id":"r_0123456789abcdef","sshAlias":"agent-box","enabled":true,"executables":null}`)))
+	if err == nil {
+		t.Fatal("Decode accepted null executables")
+	}
+}
+
 func TestSaveRoundTripsRemoteExecutableOverrides(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	config, err := Decode([]byte(validSettings(`"remote":{"id":"r_0123456789abcdef","sshAlias":"agent-box","enabled":true,"executables":{"claude":"~/bin/claude","codex":"/opt/codex/bin/codex"}}`)))
