@@ -426,13 +426,13 @@ export function SettingsDialog({
       ? { label: 'Saving…', className: 'text-muted-foreground' }
       : !executableDraftIsValid
         ? { label: 'Fix invalid executable path', className: 'text-destructive' }
-      : !synthesisBackendAvailable
-        ? { label: 'Backend unavailable', className: 'text-warning-fg' }
-        : response?.valid === false
-          ? { label: 'Repair required', className: 'text-warning-fg' }
-          : isFirstRun
-            ? { label: 'Not saved yet', className: 'text-warning-fg' }
-            : { label: 'Saved', className: 'text-muted-foreground' };
+        : !synthesisBackendAvailable
+          ? { label: 'Backend unavailable', className: 'text-warning-fg' }
+          : response?.valid === false
+            ? { label: 'Repair required', className: 'text-warning-fg' }
+            : isFirstRun
+              ? { label: 'Not saved yet', className: 'text-warning-fg' }
+              : { label: 'Saved', className: 'text-muted-foreground' };
 
   return (
     <Dialog
