@@ -137,6 +137,46 @@ func TestRemoteCodexCLICommandStopsWhenHandoffReadFails(t *testing.T) {
 	}
 }
 
+func TestRemoteCodexCLICommandCreatesMissingProfileDirectory(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, "new-codex-home")
+	handoffDir := filepath.Join(home, ".coslash", "handoffs")
+	bin := filepath.Join(home, "bin")
+	for _, dir := range []string{handoffDir, bin} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(handoffDir, testRemoteHandoffName), []byte("private handoff"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte(
+		"#!/bin/sh\n[ -f \"$CODEX_HOME/$2.config.toml\" ] || exit 91\ntouch \"$HOME/codex-launched\"\n",
+	), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	command, err := remoteCLICommand(vendors.AgentCodex, "", NewSession, testRemoteHandoffName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := exec.Command("/bin/sh", "-c", command)
+	process.Env = append(os.Environ(), "HOME="+home, "CODEX_HOME="+codexHome, "PATH="+bin+":"+os.Getenv("PATH"))
+	if output, err := process.CombinedOutput(); err != nil {
+		t.Fatalf("command failed: %v: %s", err, output)
+	}
+	info, err := os.Stat(codexHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("Codex profile directory mode = %o, want 700", info.Mode().Perm())
+	}
+	if _, err := os.Stat(filepath.Join(home, "codex-launched")); err != nil {
+		t.Fatalf("Codex did not launch: %v", err)
+	}
+}
+
 func TestRemoteCLICommandRejectsInvalidHandoffName(t *testing.T) {
 	if _, err := remoteCLICommand(vendors.AgentCodex, "", NewSession, "../../handoff"); err == nil {
 		t.Fatal("remoteCLICommand accepted an invalid handoff name")

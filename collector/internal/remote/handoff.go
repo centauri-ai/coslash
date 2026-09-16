@@ -21,17 +21,18 @@ func RemoveHandoff(ctx context.Context, alias, name string) error {
 }
 
 func stageHandoff(ctx context.Context, alias string, contents []byte, options OpenOptions) (string, error) {
+	limits := handoffLimits(options)
 	nameBytes := make([]byte, handoffNameBytes)
 	if _, err := rand.Read(nameBytes); err != nil {
 		return "", fmt.Errorf("create remote handoff name: %w", err)
 	}
 	name := hex.EncodeToString(nameBytes)
 	command := stageHandoffCommand(name, len(contents), int(launch.HandoffMaxAge.Seconds()))
-	args, err := handoffSSHArgs(alias, command, int(options.Limits.withDefaults().ConnectTimeout.Seconds()))
+	args, err := handoffSSHArgs(alias, command, int(limits.ConnectTimeout.Seconds()))
 	if err != nil {
 		return "", err
 	}
-	runCtx, cancel := context.WithTimeout(ctx, options.Limits.withDefaults().Deadline)
+	runCtx, cancel := context.WithTimeout(ctx, limits.Deadline)
 	defer cancel()
 	process, err := startHelper(runCtx, alias, args, cancel, options)
 	if err != nil {
@@ -42,7 +43,7 @@ func stageHandoff(ctx context.Context, alias string, contents []byte, options Op
 		if complete {
 			return
 		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), options.Limits.withDefaults().Deadline)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), limits.Deadline)
 		defer cleanupCancel()
 		_ = removeHandoff(cleanupCtx, alias, name, options)
 	}()
@@ -79,6 +80,7 @@ func stageHandoffCommand(name string, size, maxAgeSeconds int) string {
 }
 
 func removeHandoff(ctx context.Context, alias, name string, options OpenOptions) error {
+	limits := handoffLimits(options)
 	if len(name) != handoffNameBytes*2 {
 		return fmt.Errorf("invalid remote handoff name")
 	}
@@ -86,13 +88,21 @@ func removeHandoff(ctx context.Context, alias, name string, options OpenOptions)
 		return fmt.Errorf("invalid remote handoff name")
 	}
 	command := `rm -f "$HOME"/'.coslash/handoffs/` + name + `'`
-	args, err := handoffSSHArgs(alias, command, int(options.Limits.withDefaults().ConnectTimeout.Seconds()))
+	args, err := handoffSSHArgs(alias, command, int(limits.ConnectTimeout.Seconds()))
 	if err != nil {
 		return err
 	}
-	runCtx, cancel := context.WithTimeout(ctx, options.Limits.withDefaults().Deadline)
+	runCtx, cancel := context.WithTimeout(ctx, limits.Deadline)
 	defer cancel()
 	return runSSHCommand(runCtx, options, args)
+}
+
+func handoffLimits(options OpenOptions) Limits {
+	limits := options.Limits.withDefaults()
+	if options.Limits.Deadline <= 0 {
+		limits.Deadline = DefaultCapabilityTimeout
+	}
+	return limits
 }
 
 func handoffSSHArgs(alias, command string, connectTimeoutSeconds int) ([]string, error) {

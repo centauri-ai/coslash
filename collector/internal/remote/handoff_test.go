@@ -90,6 +90,36 @@ func TestStageHandoffRemovesPartialFileOnTransferFailure(t *testing.T) {
 	}
 }
 
+func TestStageHandoffUsesCapabilityTimeoutForTransferAndCleanup(t *testing.T) {
+	started := time.Now()
+	var deadlines []time.Duration
+	options := OpenOptions{
+		command: func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("handoff command has no deadline")
+			}
+			deadlines = append(deadlines, deadline.Sub(started))
+			if len(deadlines) == 1 {
+				return exec.CommandContext(ctx, "/bin/sh", "-c", "exit 1")
+			}
+			return exec.CommandContext(ctx, "/bin/sh", "-c", "exit 0")
+		},
+	}
+
+	if _, err := stageHandoff(context.Background(), "agent-box", []byte("private handoff"), options); err == nil {
+		t.Fatal("stageHandoff ignored the transfer failure")
+	}
+	if len(deadlines) != 2 {
+		t.Fatalf("handoff command count = %d, want transfer and cleanup", len(deadlines))
+	}
+	for _, deadline := range deadlines {
+		if deadline < DefaultCapabilityTimeout-time.Second || deadline > DefaultCapabilityTimeout+time.Second {
+			t.Fatalf("handoff deadline = %v, want about %v", deadline, DefaultCapabilityTimeout)
+		}
+	}
+}
+
 func TestStageHandoffCommandRejectsEarlyEOF(t *testing.T) {
 	home := t.TempDir()
 	command := stageHandoffCommand(testHandoffName, len("complete payload"), 3600)

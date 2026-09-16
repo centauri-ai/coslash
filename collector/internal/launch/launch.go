@@ -255,7 +255,9 @@ func remoteCLICommand(agent, sessionID, mode, handoffName string) (string, error
 	case vendors.AgentCodex:
 		profileName := "coslash-" + handoffName
 		return prefix + `umask 077; profile_name=` + shellQuote(profileName) +
-			`; profile="${CODEX_HOME:-"$HOME/.codex"}/$profile_name.config.toml"; ` +
+			`; profile_dir="${CODEX_HOME:-"$HOME/.codex"}"; ` +
+			`mkdir -p "$profile_dir" && chmod 700 "$profile_dir" || exit 1; ` +
+			`profile="$profile_dir/$profile_name.config.toml"; ` +
 			`trap 'rm -f "$handoff" "$profile"' EXIT HUP INT TERM; ` +
 			`{ printf %s 'developer_instructions = ' && cat "$handoff" && printf '\n'; } > "$profile" || exit 1; ` +
 			shellJoin(cli, "--profile", profileName), nil
