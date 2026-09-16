@@ -251,12 +251,21 @@ func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
 	log.Printf("synthesis: %s", id)
 }
 
-func cleanupHandoffs() {
+func cleanupHandoffs(settingsStore *settings.Store) {
 	ticker := time.NewTicker(launch.HandoffSweepInterval)
 	defer ticker.Stop()
 	for {
 		if err := launch.CleanupHandoffs(); err != nil {
 			log.Printf("sweep handoffs: %v", err)
+		}
+		state := settingsStore.State()
+		if state.Valid && state.Config.Remote != nil && state.Config.Remote.Enabled {
+			ctx, cancel := context.WithTimeout(context.Background(), remote.DefaultCapabilityTimeout)
+			err := remote.CleanupHandoffs(ctx, state.Config.Remote.SSHAlias)
+			cancel()
+			if err != nil {
+				log.Printf("sweep remote handoffs: %v", err)
+			}
 		}
 		<-ticker.C
 	}

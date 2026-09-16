@@ -27,7 +27,7 @@ func stageHandoff(ctx context.Context, alias string, contents []byte, options Op
 		return "", fmt.Errorf("create remote handoff name: %w", err)
 	}
 	name := hex.EncodeToString(nameBytes)
-	command := stageHandoffCommand(name, len(contents), int(launch.HandoffMaxAge.Seconds()))
+	command := stageHandoffCommand(name, len(contents))
 	args, err := handoffSSHArgs(alias, command, int(limits.ConnectTimeout.Seconds()))
 	if err != nil {
 		return "", err
@@ -68,15 +68,35 @@ func stageHandoff(ctx context.Context, alias string, contents []byte, options Op
 	return name, nil
 }
 
-func stageHandoffCommand(name string, size, maxAgeSeconds int) string {
+func stageHandoffCommand(name string, size int) string {
 	return `umask 077; dir="$HOME"/'.coslash/handoffs'; handoff="$dir"/'` + name +
 		`'; mkdir -p "$dir" && chmod 700 "$dir" || exit 1; ` +
 		`trap 'rm -f "$handoff"' EXIT HUP INT TERM; ` +
 		`cat > "$handoff" && [ "$(wc -c < "$handoff")" -eq ` + strconv.Itoa(size) +
 		` ] && chmod 600 "$handoff" || exit 1; ` +
-		`nohup sh -c 'sleep "$1"; rm -f "$2"' sh ` + strconv.Itoa(maxAgeSeconds) +
-		` "$handoff" </dev/null >/dev/null 2>&1 & ` +
 		`trap - EXIT HUP INT TERM`
+}
+
+func CleanupHandoffs(ctx context.Context, alias string) error {
+	return cleanupHandoffs(ctx, alias, OpenOptions{})
+}
+
+func cleanupHandoffs(ctx context.Context, alias string, options OpenOptions) error {
+	limits := handoffLimits(options)
+	command := `dir="$HOME"/'.coslash/handoffs'; [ ! -d "$dir" ] || find "$dir" -type f -mmin +` +
+		strconv.Itoa(int(launch.HandoffMaxAge.Minutes())) + ` -delete`
+	args, err := handoffSSHArgs(alias, command, int(limits.ConnectTimeout.Seconds()))
+	if err != nil {
+		return err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, limits.Deadline)
+	defer cancel()
+	if options.command == nil {
+		if err := ensureControlMaster(runCtx, alias, options); err != nil {
+			return err
+		}
+	}
+	return runSSHCommand(runCtx, options, args)
 }
 
 func removeHandoff(ctx context.Context, alias, name string, options OpenOptions) error {
