@@ -380,6 +380,9 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 	f := Family{SchemaVersion: SchemaVersion, ParserVersion: parserVersion, Vendor: vendor, FamilyID: familyID, State: state, StaleReason: truncate(staleReason, MaxDisplayBytes)}
 	present := make(map[string]bool, len(parsed))
 	for _, p := range parsed {
+		if metadata != nil {
+			vendors.ApplySessionEnrichment(p, metadata.Lookup(p.Session.ID))
+		}
 		present[p.Session.ID] = true
 	}
 	for _, p := range parsed {
