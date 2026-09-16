@@ -24,6 +24,14 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
+var (
+	stageRemoteHandoff   = remote.StageHandoff
+	removeRemoteHandoff  = remote.RemoveHandoff
+	launchRemoteTerminal = launch.RemoteTerminal
+)
+
+var errRemoteHandoffTransfer = errors.New("remote handoff transfer failed")
+
 // decodeSettingsSave accepts the legacy bare settings document and the T05
 // envelope used when a settings replacement also has an explicit helper
 // ownership action. The action never becomes part of settings.json.
@@ -311,17 +319,52 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			http.Error(w, "remote host is offline; wait for it to reconnect", http.StatusConflict)
 			return
 		}
-		err = launch.RemoteTerminal(state.Config.Launch.Terminal, alias, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
+		err = openRemoteTerminalWithHandoff(
+			r.Context(), state.Config.Launch.Terminal, alias, found.Agent,
+			found.WorkingDirectory, found.ID, mode, handoff,
+		)
 	} else {
 		err = launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
 	}
 	if err != nil {
 		log.Printf("launch: %v", err)
+		if errors.Is(err, errRemoteHandoffTransfer) {
+			writeAPIError(w, http.StatusBadGateway, "remote_handoff_transfer_failed", "Could not transfer handoff; check SSH and try again.")
+			return
+		}
 		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
 		return
 	}
 	log.Printf("launch %s: %s %s", mode, found.Agent, found.ID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func openRemoteTerminalWithHandoff(
+	ctx context.Context,
+	terminal, alias, agent, workingDirectory, sessionID, mode, handoff string,
+) error {
+	handoffName := ""
+	if mode == launch.NewSession && handoff != "" {
+		contents, err := launch.RemoteHandoffContents(agent, handoff)
+		if err != nil {
+			return err
+		}
+		handoffName, err = stageRemoteHandoff(ctx, alias, contents)
+		if err != nil {
+			return fmt.Errorf("%w: %v", errRemoteHandoffTransfer, err)
+		}
+	}
+	if err := launchRemoteTerminal(
+		terminal, alias, agent, workingDirectory, sessionID, mode, handoffName,
+	); err != nil {
+		if handoffName != "" {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), remote.DefaultCapabilityTimeout)
+			defer cancel()
+			return errors.Join(err, removeRemoteHandoff(cleanupCtx, alias, handoffName))
+		}
+		return err
+	}
+	return nil
 }
 
 const maxSettingsBytes = 64 * 1024

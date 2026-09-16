@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
+	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -61,6 +63,96 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 				t.Fatalf("status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 			}
 		})
+	}
+}
+
+func TestRemoteHandoffTransferFailurePreventsTerminalLaunch(t *testing.T) {
+	originalStage := stageRemoteHandoff
+	originalLaunch := launchRemoteTerminal
+	t.Cleanup(func() {
+		stageRemoteHandoff = originalStage
+		launchRemoteTerminal = originalLaunch
+	})
+	wantErr := errors.New("transfer failed")
+	stageRemoteHandoff = func(context.Context, string, []byte) (string, error) {
+		return "", wantErr
+	}
+	launched := false
+	launchRemoteTerminal = func(string, string, string, string, string, string, string) error {
+		launched = true
+		return nil
+	}
+
+	err := openRemoteTerminalWithHandoff(
+		context.Background(), "terminal", "agent-box", "codex", "/workspace", "session-id", "new", "handoff",
+	)
+	if !errors.Is(err, errRemoteHandoffTransfer) {
+		t.Fatalf("error = %v, want %v", err, errRemoteHandoffTransfer)
+	}
+	if launched {
+		t.Fatal("terminal launched after handoff transfer failed")
+	}
+}
+
+func TestRemoteTerminalFailureRemovesStagedHandoff(t *testing.T) {
+	originalStage := stageRemoteHandoff
+	originalRemove := removeRemoteHandoff
+	originalLaunch := launchRemoteTerminal
+	t.Cleanup(func() {
+		stageRemoteHandoff = originalStage
+		removeRemoteHandoff = originalRemove
+		launchRemoteTerminal = originalLaunch
+	})
+	const name = "0123456789abcdef0123456789abcdef"
+	stageRemoteHandoff = func(_ context.Context, alias string, contents []byte) (string, error) {
+		if alias != "agent-box" || !bytes.Contains(contents, []byte("private handoff")) {
+			t.Fatalf("stage input = %q, %q", alias, contents)
+		}
+		return name, nil
+	}
+	wantErr := errors.New("terminal failed")
+	launchRemoteTerminal = func(string, string, string, string, string, string, string) error {
+		return wantErr
+	}
+	removed := ""
+	var cleanupContextErr error
+	removeRemoteHandoff = func(ctx context.Context, alias, handoffName string) error {
+		if alias != "agent-box" {
+			t.Fatalf("remove alias = %q", alias)
+		}
+		cleanupContextErr = ctx.Err()
+		removed = handoffName
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := openRemoteTerminalWithHandoff(
+		ctx, "terminal", "agent-box", "codex", "/workspace", "session-id", "new", "private handoff",
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error = %v, want %v", err, wantErr)
+	}
+	if removed != name {
+		t.Fatalf("removed handoff = %q, want %q", removed, name)
+	}
+	if cleanupContextErr != nil {
+		t.Fatalf("cleanup inherited canceled request context: %v", cleanupContextErr)
+	}
+}
+
+func TestReadHandoffKeepsThe64KiBBoundary(t *testing.T) {
+	special := []byte("🦖\n'\"\\$();&|<>\n")
+	maximum := append(special, bytes.Repeat([]byte("<"), launch.MaxHandoffBytes-len(special))...)
+	request := httptest.NewRequest(http.MethodPost, "/api/launch", bytes.NewReader(maximum))
+	got, err := readHandoff(httptest.NewRecorder(), request)
+	if err != nil || !bytes.Equal([]byte(got), maximum) {
+		t.Fatalf("maximum handoff changed: got %d bytes, err = %v", len(got), err)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/launch", bytes.NewReader(append(maximum, '<')))
+	if _, err := readHandoff(httptest.NewRecorder(), request); err == nil {
+		t.Fatal("readHandoff accepted 65,537 bytes")
 	}
 }
 
