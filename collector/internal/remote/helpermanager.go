@@ -267,6 +267,7 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 	}
 	var removeRemote LifecycleRemote
 	removePath := ""
+	var readyTarget *helperTarget
 	refreshAfterDiscovery := true
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || sshErrorStderr(err) != "" {
@@ -285,7 +286,7 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 		status := lifecycleStatus(result)
 		manager.helper = &status
 		if !useSFTPFallbackAfterDiscovery(result) {
-			manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
+			target := helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
 			// This records ownership locally, never remote execution authority.
 			if storeErr := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); storeErr != nil {
 				failed := unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, storeErr))
@@ -295,12 +296,20 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 				manager.helperProbe = helperProbeFallback
 			} else {
 				manager.helperVersion = result.Artifact.Version
-				manager.helperProbe = helperProbeReady
 				manager.nextHelperProbeAt = time.Time{}
 				if autoUpdate && previousVersion != "" && previousVersion != result.Artifact.Version && lifecycle.Remote != nil {
 					if previousPath, pathErr := helperPath(previousVersion); pathErr == nil {
 						removeRemote, removePath = lifecycle.Remote, previousPath
 					}
+				}
+				if removeRemote == nil {
+					manager.helperTarget = &target
+					manager.helperProbe = helperProbeReady
+				} else {
+					// Keep ListView and Retry from selecting either transport until
+					// cleanup of the superseded helper has completed.
+					manager.helperTarget = nil
+					readyTarget = &target
 				}
 			}
 		} else {
@@ -324,6 +333,8 @@ func (manager *Manager) runHelperDiscovery(ctx context.Context, config settings.
 		manager.mu.Lock()
 		if refreshAfterDiscovery && ctx.Err() == nil && manager.cfg != nil && manager.cfg.Enabled &&
 			manager.cfg.ID == config.ID && manager.cfg.SSHAlias == config.SSHAlias {
+			manager.helperTarget = readyTarget
+			manager.helperProbe = helperProbeReady
 			manager.maybeStartRefreshLocked(manager.requestedSinceLocked(), false)
 		}
 		manager.mu.Unlock()

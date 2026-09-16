@@ -60,6 +60,29 @@ describe('retryRemoteRefreshAndWait', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it('forwards retry statuses while waiting', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('window', {
+      location: { hash: '', pathname: '/', search: '' },
+      history: { state: null, replaceState: vi.fn() },
+      sessionStorage: { getItem: vi.fn(() => null), setItem: vi.fn() },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(refreshingMachine, { status: 202 }))
+        .mockResolvedValueOnce(Response.json(readyMachine)),
+    );
+    const observed: MachineFact[] = [];
+
+    const result = retryRemoteRefreshAndWait((machine) => observed.push(machine));
+    await vi.advanceTimersByTimeAsync(400);
+
+    await expect(result).resolves.toEqual(readyMachine);
+    expect(observed).toEqual([refreshingMachine, readyMachine]);
+  });
+
   it('reports each durable publication while polling', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('window', {

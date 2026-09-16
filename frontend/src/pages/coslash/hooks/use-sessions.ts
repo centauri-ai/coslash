@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
 import { waitForRemoteRefresh } from '@/pages/coslash/lib/remote-api';
@@ -259,6 +259,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [sessionsVersion, setSessionsVersion] = useState(0);
+  const remoteStatusHandler = useRef<(machine: MachineFact) => void>(() => {});
 
   useEffect(() => {
     const controller = new AbortController();
@@ -303,8 +304,9 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
           setLoadError(null);
+          const reload = publicationReload.accept(remoteMachine?.publicationId);
           if (remoteMachine != null) startRemotePoll(remoteMachine);
-          if (publicationReload.accept(remoteMachine?.publicationId)) load(true);
+          if (reload) load(true);
           else scheduleRefresh();
         })
         .catch((error: unknown) => {
@@ -343,12 +345,15 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
         .catch(() => {})
         .finally(() => {
           pollingRemote = false;
+          load(true);
         });
     }
 
+    remoteStatusHandler.current = acceptRemoteStatus;
     load(false);
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer);
+      remoteStatusHandler.current = () => {};
       controller.abort();
     };
   }, [localWindow, remoteWindow, retryCount]);
@@ -366,5 +371,6 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     loadError,
     sessionsVersion,
     retrySessions,
+    acceptRemoteStatus: (machine: MachineFact) => remoteStatusHandler.current(machine),
   };
 }

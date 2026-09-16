@@ -90,9 +90,11 @@ export async function waitForRemoteRefresh(
 // The retry endpoint acknowledges that collection has started, rather than
 // waiting for it to finish. Wait for its terminal health state before callers
 // reload the board, so it does not remain on the transient "connecting" view.
-export async function retryRemoteRefreshAndWait(): Promise<MachineFact> {
+export async function retryRemoteRefreshAndWait(
+  onStatus?: (machine: MachineFact) => void,
+): Promise<MachineFact> {
   const { machine } = await retryRemoteRefresh();
-  return waitForRemoteRefresh(machine);
+  return waitForRemoteRefresh(machine, undefined, onStatus);
 }
 
 export async function setupRemoteHelper(

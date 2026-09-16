@@ -676,6 +676,9 @@ func TestManagerUsesOnlyLifecycleVerifiedHelperAndDoesNotSilentlyFallback(t *tes
 	if health.Transport != TransportHelper || health.Reason == nil || *health.Reason != ReasonHelperFailed {
 		t.Fatalf("failure health = %#v", health)
 	}
+	if health.Metrics.RequestBytes != 5 || health.Metrics.ResponseBytes != 9 || health.Metrics.Records != 2 {
+		t.Fatalf("failure metrics = %#v", health.Metrics)
+	}
 }
 
 func TestManagerReverifiesHelperBeforeEveryRefresh(t *testing.T) {
@@ -827,6 +830,10 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 	}
 	restarted.ListView(time.Now().Add(-time.Hour).UnixMilli())
 	<-removeStarted
+	restarted.ListView(time.Now().Add(-time.Hour).UnixMilli())
+	if _, started := restarted.Retry(); started {
+		t.Fatal("manual refresh started before previous helper removal completed")
+	}
 	if refreshCalls.Load() != 0 {
 		t.Fatal("helper refresh started before previous helper removal completed")
 	}

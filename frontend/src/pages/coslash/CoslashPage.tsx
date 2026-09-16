@@ -358,7 +358,15 @@ export function CoslashPage() {
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
-  const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions } = useSessions({
+  const {
+    sessions,
+    machines,
+    isLoading,
+    loadError,
+    sessionsVersion,
+    retrySessions,
+    acceptRemoteStatus,
+  } = useSessions({
     localWindow: shareEnabled ? 'all' : timeWindow,
     remoteWindow: timeWindow,
   });
@@ -484,7 +492,7 @@ export function CoslashPage() {
   const handleRemoteRetry = () => {
     if (remoteRetryInFlight) return;
     setRemoteRetryInFlight(true);
-    void retryRemoteRefreshAndWait()
+    void retryRemoteRefreshAndWait(acceptRemoteStatus)
       .catch(() => undefined)
       .finally(() => {
         setRemoteRetryInFlight(false);

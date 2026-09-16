@@ -409,7 +409,7 @@ func (manager *Manager) Retry() (Health, bool) {
 	if manager.cfg == nil || !manager.cfg.Enabled {
 		return manager.healthLocked(manager.requestedSinceLocked()), false
 	}
-	if manager.refreshing || (!manager.lastManualRetryAt.IsZero() &&
+	if manager.refreshing || manager.helperProbe == helperProbeProbing || (!manager.lastManualRetryAt.IsZero() &&
 		manager.now().Sub(manager.lastManualRetryAt) < ManualRetryCooldown) {
 		return manager.healthLocked(manager.requestedSinceLocked()), false
 	}
@@ -642,7 +642,7 @@ func (manager *Manager) cancelLifeLocked() {
 }
 
 func (manager *Manager) maybeStartRefreshLocked(remoteSinceMs int64, manual bool) {
-	if manager.refreshing || manager.cfg == nil || !manager.cfg.Enabled || manager.lifeCtx == nil {
+	if manager.refreshing || manager.helperProbe == helperProbeProbing || manager.cfg == nil || !manager.cfg.Enabled || manager.lifeCtx == nil {
 		return
 	}
 	if !manual && !manager.nextRetryAt.IsZero() && manager.now().Before(manager.nextRetryAt) {
@@ -720,6 +720,7 @@ func (manager *Manager) runRefreshLoop(
 			if helper != nil {
 				reason = classifyHelperError(err)
 				manager.transport = TransportHelper
+				manager.metrics = metricsFor(result)
 			}
 			manager.refreshing = false
 			manager.applyFailureLocked(reason, diagnostic)
