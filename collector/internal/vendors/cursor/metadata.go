@@ -787,6 +787,14 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 	for id, value := range bubbles {
 		metadata.Session(id).Model = normalizeCursorModel(value.model)
 	}
+	for id := range fallbacks {
+		entry := metadata.Session(id)
+		if entry.Model != "" && entry.Usage.ContextTokens != nil {
+			entry.Usage.Tokens = map[string]session.ModelTokens{
+				entry.Model: {InputTokens: *entry.Usage.ContextTokens},
+			}
+		}
+	}
 	for id, urls := range pullRequests {
 		metadata.Session(id).PullRequests = len(urls)
 	}
