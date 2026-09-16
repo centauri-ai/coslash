@@ -67,8 +67,9 @@ func List(since int64) ([]*session.Session, error) {
 	roots := finalizeSessions(parsed, metadata)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
-			_, live := sessionMetadata(metadata, root.Session.Agent).Live[root.Session.ID]
-			return !live && root.Session.LastActivityTime < since
+			live := sessionMetadata(metadata, root.Session.Agent).Lookup(root.Session.ID)
+			isLive := live != nil && live.Live != ""
+			return !isLive && root.Session.LastActivityTime < since
 		})
 	}
 	roots = servableRoots(roots)
@@ -120,6 +121,7 @@ func finalizeSessionsSource(
 	metadata map[string]*vendors.SessionMetadata,
 	source vendors.ReadSource,
 ) []*vendors.ParsedSession {
+	applySessionEnrichment(parsed, metadata)
 	applyActivityFallbacks(parsed)
 	enrichModelsAndCosts(parsed)
 	composition := composeSessions(parsed)
@@ -284,8 +286,9 @@ func ListRemote(
 	roots := finalizeSessionsSource(parsed, metadata, source)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
-			_, live := sessionMetadata(metadata, root.Session.Agent).Live[root.Session.ID]
-			return !live && root.Session.LastActivityTime < since
+			live := sessionMetadata(metadata, root.Session.Agent).Lookup(root.Session.ID)
+			isLive := live != nil && live.Live != ""
+			return !isLive && root.Session.LastActivityTime < since
 		})
 	}
 	roots = servableRoots(roots)
@@ -409,9 +412,20 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
 	for _, p := range roots {
 		s := p.Session
-		if name := cmp.Or(sessionMetadata(metadata, s.Agent).Names[s.ID], p.Name); name != "" {
+		enrichment := sessionMetadata(metadata, s.Agent).Lookup(s.ID)
+		name := p.Name
+		if enrichment != nil {
+			name = cmp.Or(enrichment.Name, name)
+		}
+		if name != "" {
 			s.Name = &name
 		}
+	}
+}
+
+func applySessionEnrichment(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
+	for _, p := range parsed {
+		vendors.ApplySessionEnrichment(p, sessionMetadata(metadata, p.Session.Agent).Lookup(p.Session.ID))
 	}
 }
 
@@ -423,7 +437,12 @@ func resolveStatus(
 	now := time.Now().UnixMilli()
 	for _, p := range roots {
 		s := p.Session
-		raw, live := sessionMetadata(metadata, s.Agent).Live[s.ID]
+		enrichment := sessionMetadata(metadata, s.Agent).Lookup(s.ID)
+		raw := ""
+		if enrichment != nil {
+			raw = enrichment.Live
+		}
+		live := raw != ""
 		if deref(s.Status) == "waiting" && (!livenessAuthoritative || live) {
 			continue
 		}

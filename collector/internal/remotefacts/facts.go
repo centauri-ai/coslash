@@ -380,6 +380,9 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 	f := Family{SchemaVersion: SchemaVersion, ParserVersion: parserVersion, Vendor: vendor, FamilyID: familyID, State: state, StaleReason: truncate(staleReason, MaxDisplayBytes)}
 	present := make(map[string]bool, len(parsed))
 	for _, p := range parsed {
+		if metadata != nil {
+			vendors.ApplySessionEnrichment(p, metadata.Lookup(p.Session.ID))
+		}
 		present[p.Session.ID] = true
 	}
 	for _, p := range parsed {
@@ -447,13 +450,21 @@ func FromParsed(vendor, familyID, parserVersion, state, staleReason string, pars
 		sessionIDs[item.ID] = true
 	}
 	if metadata != nil {
-		for id, name := range metadata.Names {
+		for id, enrichment := range metadata.Sessions {
+			name := enrichment.Name
+			if name == "" {
+				continue
+			}
 			if !sessionIDs[id] {
 				continue
 			}
 			f.Metadata.Names = append(f.Metadata.Names, MetadataName{ID: id, Name: truncate(name, MaxDisplayBytes)})
 		}
-		for id, status := range metadata.Live {
+		for id, enrichment := range metadata.Sessions {
+			status := enrichment.Live
+			if status == "" {
+				continue
+			}
 			if !sessionIDs[id] {
 				continue
 			}
@@ -574,10 +585,10 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 	}
 	metadata := vendors.EmptySessionMetadata()
 	for _, value := range f.Metadata.Names {
-		metadata.Names[value.ID] = value.Name
+		metadata.Session(value.ID).Name = value.Name
 	}
 	for _, value := range f.Metadata.Live {
-		metadata.Live[value.ID] = value.Status
+		metadata.Session(value.ID).Live = value.Status
 	}
 	return parsed, metadata, nil
 }

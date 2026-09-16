@@ -16,10 +16,6 @@ import (
 //
 // Upstream priority: containment (a fork's ids strictly contain its parent's),
 // then file birthtime, then id count, then a tie yielding no owner.
-func applyForkedUsage(parsed []*parsedSession) {
-	applyForkedUsageSource(vendors.LocalReadSource, parsed)
-}
-
 func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) {
 	type entry struct {
 		p     *parsedSession

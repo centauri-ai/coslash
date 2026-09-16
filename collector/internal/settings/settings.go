@@ -2,8 +2,6 @@ package settings
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,6 +111,10 @@ func Path() string {
 	return filepath.Join(Home(), "settings.json")
 }
 
+func SSHControlPath() string {
+	return filepath.Join(Home(), "ssh", "cm-%C")
+}
+
 func Defaults() Config {
 	return Config{
 		Schema:  SchemaURL,
@@ -213,15 +215,6 @@ func ValidSSHAlias(alias string) bool {
 // ValidRemoteID reports whether id is a Mac-generated path-safe source id.
 func ValidRemoteID(id string) bool {
 	return remoteIDPattern.MatchString(id)
-}
-
-// NewRemoteID returns a random path-safe remote source id.
-func NewRemoteID() (string, error) {
-	raw := make([]byte, 8)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return "r_" + hex.EncodeToString(raw), nil
 }
 
 func TerminalOptions() []TerminalOption {

@@ -17,28 +17,9 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentClaude, LoadMetadata)
 	if since > 0 {
-		files = FilesSince(files, metadata.Live, since)
+		files = FilesSince(files, metadata.LiveSessions(), since)
 	}
 	return parseFiles(files), metadata, nil
-}
-
-func CollectSource(
-	source vendors.ReadSource,
-	root string,
-	since int64,
-	metadata *vendors.SessionMetadata,
-) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	files, err := FilesSource(source, root)
-	if err != nil {
-		return nil, nil, err
-	}
-	if metadata == nil {
-		metadata = vendors.EmptySessionMetadata()
-	}
-	if since > 0 {
-		files = FilesSinceSource(source, files, metadata.Live, since)
-	}
-	return parseFilesSource(source, files), metadata, nil
 }
 
 // RemoteMetadata loads best-effort live/name metadata for a remote source

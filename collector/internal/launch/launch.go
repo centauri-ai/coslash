@@ -4,7 +4,6 @@
 package launch
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +41,7 @@ var uuidSessionIDPattern = regexp.MustCompile(
 )
 
 var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
+var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 type terminalAdapter struct {
 	label     string
@@ -68,7 +68,7 @@ func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string
 
 // RemoteTerminal opens the selected local terminal and runs an agent CLI on a
 // configured SSH host.
-func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, handoff string) error {
+func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, handoffName string) error {
 	destination, err := settings.ParseSSHDestination(alias)
 	if err != nil {
 		return errors.New("launch: SSH alias is required")
@@ -76,14 +76,11 @@ func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, h
 	if workingDirectory == "" {
 		return fmt.Errorf("launch: session has no working directory")
 	}
-	command, err := remoteCLICommand(agent, sessionID, mode, handoff)
+	remoteCommand, err := remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName)
 	if err != nil {
 		return err
 	}
-	remoteCommand := "cd " + shellQuote(workingDirectory) + " && " + command
-	args := append([]string{"ssh", "-tt"}, destination.Args()...)
-	args = append(args, remoteCommand)
-	return openTerminal(terminal, ".", shellJoin(args...))
+	return openTerminal(terminal, ".", remoteSSHCommand(destination, remoteCommand))
 }
 
 // SSHAuthentication opens the selected terminal with a fixed coSlash command.
@@ -94,6 +91,28 @@ func SSHAuthentication(terminal, executable, attemptID string) error {
 		return errors.New("launch: authentication command is required")
 	}
 	return openTerminal(terminal, ".", shellJoin("env", "COSLASH_HOME="+settings.Home(), executable, "ssh-auth", attemptID))
+}
+
+func remoteSSHCommand(destination settings.SSHDestination, command string) string {
+	args := []string{
+		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath=" + settings.SSHControlPath(),
+	}
+	args = append(args, destination.Args()...)
+	args = append(args, command)
+	return shellJoin(args...)
+}
+
+func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName string) (string, error) {
+	command, err := remoteCLICommand(agent, sessionID, mode, handoffName)
+	if err != nil {
+		return "", err
+	}
+	changeDirectory := "cd " + shellQuote(workingDirectory)
+	if handoffName == "" {
+		return changeDirectory + " && " + command, nil
+	}
+	handoffPath := `"$HOME"/` + shellQuote(".coslash/handoffs/"+handoffName)
+	return changeDirectory + " || { rm -f " + handoffPath + "; exit 1; }; " + command, nil
 }
 
 func openTerminal(terminal, workingDirectory, command string) error {
@@ -208,7 +227,23 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 	return "", "", fmt.Errorf("launch: unknown agent %q", agent)
 }
 
-func remoteCLICommand(agent, sessionID, mode, handoff string) (string, error) {
+func RemoteHandoffContents(agent, handoff string) ([]byte, error) {
+	contents := handoffPreamble + handoff
+	switch agent {
+	case vendors.AgentClaude, vendors.AgentOpenCode:
+		return []byte(contents), nil
+	case vendors.AgentCodex:
+		encoded, err := json.Marshal(contents)
+		if err != nil {
+			return nil, fmt.Errorf("launch: encoding handoff context: %w", err)
+		}
+		return encoded, nil
+	default:
+		return nil, fmt.Errorf("launch: unknown agent %q", agent)
+	}
+}
+
+func remoteCLICommand(agent, sessionID, mode, handoffName string) (string, error) {
 	cli, err := cliName(agent)
 	if err != nil {
 		return "", err
@@ -220,27 +255,29 @@ func remoteCLICommand(agent, sessionID, mode, handoff string) (string, error) {
 	if mode != NewSession {
 		return "", fmt.Errorf("launch: unknown mode %q", mode)
 	}
-	if handoff == "" {
+	if handoffName == "" {
 		return shellJoin(cli), nil
 	}
-	contents := handoffPreamble + handoff
-	if agent == vendors.AgentCodex {
-		contentsBytes, err := json.Marshal(contents)
-		if err != nil {
-			return "", fmt.Errorf("launch: encoding handoff context: %w", err)
-		}
-		contents = string(contentsBytes)
+	if !remoteHandoffNamePattern.MatchString(handoffName) {
+		return "", errors.New("launch: invalid remote handoff name")
 	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(contents))
-	prefix := "handoff=$(mktemp) || exit 1; printf %s " + shellQuote(encoded) + " | base64 -d > \"$handoff\" || { rm -f \"$handoff\"; exit 1; }; "
-	cleanup := "; rm -f \"$handoff\""
+	prefix := `handoff="$HOME"/` + shellQuote(".coslash/handoffs/"+handoffName) + `; `
 	switch agent {
 	case vendors.AgentClaude:
-		return prefix + shellJoin(cli, "--append-system-prompt-file") + " \"$handoff\"" + cleanup, nil
+		return prefix + `trap 'rm -f "$handoff"' EXIT HUP INT TERM; cat "$handoff" > /dev/null || exit 1; ` +
+			shellJoin(cli, "--append-system-prompt-file") + ` "$handoff"`, nil
 	case vendors.AgentCodex:
-		return prefix + shellJoin(cli, "-c") + " \"developer_instructions=$(cat \"$handoff\")\"" + cleanup, nil
+		profileName := "coslash-" + handoffName
+		return prefix + `umask 077; profile_name=` + shellQuote(profileName) +
+			`; profile_dir="${CODEX_HOME:-"$HOME/.codex"}"; ` +
+			`mkdir -p "$profile_dir" && chmod 700 "$profile_dir" || exit 1; ` +
+			`profile="$profile_dir/$profile_name.config.toml"; ` +
+			`trap 'rm -f "$handoff" "$profile"' EXIT HUP INT TERM; ` +
+			`{ printf %s 'developer_instructions = ' && cat "$handoff" && printf '\n'; } > "$profile" || exit 1; ` +
+			shellJoin(cli, "--profile", profileName), nil
 	case vendors.AgentOpenCode:
-		return prefix + "OPENCODE_CONFIG_CONTENT='{\"instructions\":[\"'\"$handoff\"'\"]}' " + shellJoin(cli) + cleanup, nil
+		return prefix + `trap 'rm -f "$handoff"' EXIT HUP INT TERM; cat "$handoff" > /dev/null || exit 1; ` +
+			`OPENCODE_CONFIG_CONTENT='{"instructions":["'"$handoff"'"]}' ` + shellJoin(cli), nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }

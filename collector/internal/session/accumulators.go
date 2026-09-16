@@ -90,7 +90,3 @@ func (log *CommandLog) Raw() []string {
 	}
 	return raw
 }
-
-func (log *CommandLog) Count() int {
-	return len(log.entries)
-}

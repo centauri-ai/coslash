@@ -30,7 +30,7 @@ func parseDestination(value string) (settings.SSHDestination, error) {
 }
 
 func controlSocketPath() string {
-	return filepath.Join(settings.Home(), "ssh", "cm-%C")
+	return settings.SSHControlPath()
 }
 
 func ensureSSHControlDir() error {

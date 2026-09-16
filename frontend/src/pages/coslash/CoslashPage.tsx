@@ -27,6 +27,8 @@ import {
   AgentVendorFilterTabMenu,
   ALL_MACHINES,
   MachineFilterTabMenu,
+  RepositoryFilterDropdownMenu,
+  ShareStateFilterDropdownMenu,
   TimeWindowFilterTabMenu,
   ViewingModeTabMenu,
   type ViewMode,
@@ -150,60 +152,6 @@ function SessionSearch({
         value={searchTerm}
         onChange={(event) => onSearchTermChange(event.target.value)}
       />
-    </div>
-  );
-}
-
-function LibraryFilters({
-  repository,
-  repositories,
-  shareState,
-  onRepositoryChange,
-  onShareStateChange,
-}: {
-  repository: string;
-  repositories: readonly string[];
-  shareState: SessionLibraryFilters['shareState'];
-  onRepositoryChange: (value: string) => void;
-  onShareStateChange: (value: SessionLibraryFilters['shareState']) => void;
-}) {
-  return (
-    <div className="flex shrink-0 items-center gap-2">
-      <label className="sr-only" htmlFor="session-repository-filter">
-        Repository
-      </label>
-      <select
-        id="session-repository-filter"
-        value={repository}
-        onChange={(event) => onRepositoryChange(event.target.value)}
-        className="border-input bg-background h-8 max-w-40 rounded-md border px-2 text-xs"
-      >
-        <option value={ALL_REPOSITORIES}>All repositories</option>
-        {repositories.map((value) => (
-          <option key={value} value={value}>
-            {value}
-          </option>
-        ))}
-      </select>
-      <label className="sr-only" htmlFor="session-share-state-filter">
-        Share state
-      </label>
-      <select
-        id="session-share-state-filter"
-        value={shareState}
-        onChange={(event) => onShareStateChange(event.target.value as SessionLibraryFilters['shareState'])}
-        className="border-input bg-background h-8 rounded-md border px-2 text-xs"
-      >
-        <option value="all">All share states</option>
-        <option value="eligible">Eligible</option>
-        <option value="private">Private</option>
-        <option value="running">Running</option>
-        <option value="incomplete">Incomplete</option>
-        <option value="stale">Stale</option>
-        <option value="offline">Offline</option>
-        <option value="failed">Failed</option>
-        <option value="deleted">Deleted</option>
-      </select>
     </div>
   );
 }
@@ -521,13 +469,12 @@ export function CoslashPage() {
           <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
           <div className="flex shrink-0 items-center gap-2">
             <AgentVendorFilterTabMenu value={vendor} vendors={sessionVendors} onValueChange={setVendor} />
-            <LibraryFilters
-              repository={effectiveRepository}
+            <RepositoryFilterDropdownMenu
+              value={effectiveRepository}
               repositories={repositories}
-              shareState={shareState}
-              onRepositoryChange={setRepository}
-              onShareStateChange={setShareState}
+              onValueChange={setRepository}
             />
+            <ShareStateFilterDropdownMenu value={shareState} onValueChange={setShareState} />
             {filterableRemoteMachines.length > 0 && (
               <>
                 <span className="bg-border h-5 w-px" />

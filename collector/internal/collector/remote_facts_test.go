@@ -11,19 +11,39 @@ import (
 
 func parityFixture() ([]*vendors.ParsedSession, *vendors.SessionMetadata) {
 	model, status := "gpt-5", "waiting"
+	contextTokens, contextWindow, cost := 12, 128_000, 1.25
 	turn := 2
 	parsed := []*vendors.ParsedSession{
 		{Session: &session.Session{Agent: "codex", ID: "root", StartedAt: 10, LastActivityTime: 20, Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 4}}, SessionDetails: session.SessionDetails{Model: &model, Turns: 2}}, Name: "root name", StatusHint: &status, Spawns: map[string]vendors.SpawnState{"spawn": {Turn: &turn}}},
 		{Session: &session.Session{Agent: "codex", ID: "child", StartedAt: 12, LastActivityTime: 25, Tokens: map[string]session.ModelTokens{}}, ParentID: "root", SpawnKey: "spawn", Name: "child name", Spawns: map[string]vendors.SpawnState{}, Commands: []session.SubagentCommand{{Label: "check tests"}}},
 	}
 	metadata := vendors.EmptySessionMetadata()
-	metadata.Names["root"] = "metadata name"
+	metadata.Session("root").Name = "metadata name"
+	metadata.Session("root").Summary = "metadata summary"
+	metadata.Session("root").Entrypoint = "sdk"
+	metadata.Session("root").WorkingDirectory = "/workspace"
+	metadata.Session("root").StartedAt = 5
+	metadata.Session("root").LastActivityAt = 30
+	metadata.Session("root").Model = "metadata-model"
+	metadata.Session("root").FileEdits = []session.FileEdit{{Path: "main.go", Additions: 2}}
+	metadata.Session("root").PullRequests = 3
+	metadata.Session("root").Usage = vendors.SessionUsage{
+		Tokens:        map[string]session.ModelTokens{"metadata-model": {InputTokens: 7}},
+		ContextTokens: &contextTokens, ContextWindow: &contextWindow, RecordedCost: &cost,
+	}
+	metadata.Session("child").Summary = "child metadata summary"
 	return parsed, metadata
 }
 
 func TestLocalSFTPAndHelperNormalizedFactsComposeEquivalentCards(t *testing.T) {
 	directParsed, directMetadata := parityFixture()
 	direct := ListRemote(vendors.LocalReadSource, map[string]vendors.RemoteCollection{"codex": {Sessions: directParsed, Metadata: directMetadata}}, 0)
+	if len(direct) != 1 || direct[0].StartedAt != 5 || direct[0].LastActivityTime != 30 ||
+		direct[0].WorkingDirectory != "/workspace" || direct[0].Summary == nil || *direct[0].Summary != "metadata summary" ||
+		direct[0].Model == nil || *direct[0].Model != "metadata-model" || direct[0].PullRequests != 3 ||
+		len(direct[0].FileEdits) != 1 || len(direct[0].Subagents) != 1 || direct[0].Subagents[0].Result != "child metadata summary" {
+		t.Fatalf("direct enrichment = %#v", direct)
+	}
 
 	helperInput, helperMetadata := parityFixture()
 	family, err := remotefacts.FromParsed("codex", "root", "parser-v1", remotefacts.StateComplete, "", helperInput, helperMetadata, []vendors.FileFingerprint{{Key: "opaque-root", Size: 100, ModifiedAtMs: 25}})

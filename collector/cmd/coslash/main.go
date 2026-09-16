@@ -122,7 +122,7 @@ func main() {
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		return collector.List(today.UnixMilli())
 	})
-	go cleanupHandoffs()
+	go cleanupHandoffs(settingsStore)
 	remoteManager, err := newProductionRemoteManager()
 	if err != nil {
 		log.Fatalf("remote manager: %v", err)
