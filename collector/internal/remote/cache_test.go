@@ -56,10 +56,11 @@ func TestCacheV2StoreLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCacheV2StoreScrubsRemotePaths(t *testing.T) {
+func TestCacheV2StoreScrubsNamesAndRemotePaths(t *testing.T) {
 	cache := NewCache(t.TempDir())
 	family := validFamily(t, "root-1")
 	repository := "/remote/private/repository"
+	family.Metadata.Names = []remotefacts.MetadataName{{ID: "root-1", Name: "private thread name"}}
 	family.Sessions[0].Display.WorkingDirectory = "/remote/private/repository/pkg"
 	family.Sessions[0].Display.Repository = &repository
 	snapshot := CachedSnapshotV2{Families: []CachedFamilyV2{{
@@ -76,6 +77,9 @@ func TestCacheV2StoreScrubsRemotePaths(t *testing.T) {
 	display := loaded.Families[0].Facts.Sessions[0].Display
 	if display.WorkingDirectory != "" || display.Repository != nil {
 		t.Fatalf("cached remote paths were retained: cwd=%q repo=%v", display.WorkingDirectory, display.Repository)
+	}
+	if names := loaded.Families[0].Facts.Metadata.Names; len(names) != 0 {
+		t.Fatalf("cached metadata names were retained: %+v", names)
 	}
 }
 
