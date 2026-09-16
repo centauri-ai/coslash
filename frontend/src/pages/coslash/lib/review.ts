@@ -42,6 +42,7 @@ function reviewerRank(reviewer: string, originAgent: string): number {
 export function reviewRequestPath(origin: SessionIdentity, reviewer: VendorKey): string {
   return `/api/reviews?${new URLSearchParams({
     source: origin.sourceId,
+    agent: origin.agent,
     id: origin.id,
     reviewer,
   })}`;

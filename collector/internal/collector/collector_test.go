@@ -83,7 +83,7 @@ func TestResolveNamesPreservesReviewNameFromPrompt(t *testing.T) {
 		Name: "provider-generated title",
 	}
 	metadata := map[string]*vendors.SessionMetadata{
-		"codex": {Names: map[string]string{"review-id": "metadata title"}},
+		"codex": {Sessions: map[string]*vendors.SessionEnrichment{"review-id": {Name: "metadata title"}}},
 	}
 
 	resolveNames([]*vendors.ParsedSession{root}, metadata)
@@ -100,7 +100,7 @@ func TestResolveNamesStillPrefersMetadataForOrdinarySession(t *testing.T) {
 		Name:    "prompt title",
 	}
 	metadata := map[string]*vendors.SessionMetadata{
-		"codex": {Names: map[string]string{"ordinary": "metadata title"}},
+		"codex": {Sessions: map[string]*vendors.SessionEnrichment{"ordinary": {Name: "metadata title"}}},
 	}
 
 	resolveNames([]*vendors.ParsedSession{root}, metadata)
@@ -142,5 +142,26 @@ func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 	}
 	if got.LastActivityTime != 200 || len(got.Subagents) != 1 {
 		t.Fatalf("revision = %d, subagents = %d; want 200 and 1", got.LastActivityTime, len(got.Subagents))
+	}
+}
+
+func TestGetSessionForPreviewByAgentSelectsVendor(t *testing.T) {
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+	vendorSources = []vendorSource{
+		{name: "claude", loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			return []*vendors.ParsedSession{{Session: &session.Session{Agent: "claude", ID: "same", SessionDetails: session.SessionDetails{Turns: 1}}}}, vendors.EmptySessionMetadata(), nil
+		}},
+		{name: "codex", loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			return []*vendors.ParsedSession{{Session: &session.Session{Agent: "codex", ID: "same", SessionDetails: session.SessionDetails{Turns: 1}}}}, vendors.EmptySessionMetadata(), nil
+		}},
+	}
+
+	got, err := GetSessionForPreviewByAgent("codex", "same", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Agent != "codex" {
+		t.Fatalf("session = %#v, want codex session", got)
 	}
 }

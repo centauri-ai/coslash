@@ -162,21 +162,21 @@ func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	name := "Fix checkout race"
 	var gotReviewer, gotCWD, gotName, gotPrompt string
-	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&id=origin-id&reviewer=codex", nil)
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&agent=codex&id=origin-id&reviewer=codex", nil)
 	response := httptest.NewRecorder()
 	handleReview(
 		response,
 		request,
 		settings.Open(),
-		func(id string) (*session.Session, error) {
-			if id != "origin-id" {
-				t.Fatalf("id = %q", id)
+		func(agent, id string) (*session.Session, error) {
+			if agent != "codex" || id != "origin-id" {
+				t.Fatalf("session identity = %q, %q", agent, id)
 			}
-			return &session.Session{ID: id, Name: &name, WorkingDirectory: "/repo"}, nil
+			return &session.Session{Agent: agent, ID: id, Name: &name, WorkingDirectory: "/repo"}, nil
 		},
 		func(reviewer string) bool { return reviewer == "codex" },
 		func(id string, launch reviewpkg.Launch) bool {
-			if id != "origin-id" {
+			if id != "codex:origin-id" {
 				t.Fatalf("origin id = %q", id)
 			}
 			gotReviewer, gotCWD, gotName, gotPrompt = launch.Reviewer, launch.WorkingDirectory, launch.Name, launch.Prompt
@@ -212,7 +212,7 @@ func TestHandleReviewRejectsUnsupportedRequests(t *testing.T) {
 				response,
 				request,
 				settings.Open(),
-				func(string) (*session.Session, error) {
+				func(string, string) (*session.Session, error) {
 					return &session.Session{ID: "origin", WorkingDirectory: "/repo"}, nil
 				},
 				func(string) bool { return false },
@@ -227,20 +227,37 @@ func TestHandleReviewRejectsUnsupportedRequests(t *testing.T) {
 
 func TestHandleReviewRejectsDuplicateStart(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&id=origin&reviewer=codex", nil)
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&agent=codex&id=origin&reviewer=codex", nil)
 	response := httptest.NewRecorder()
 	handleReview(
 		response,
 		request,
 		settings.Open(),
-		func(string) (*session.Session, error) {
-			return &session.Session{ID: "origin", WorkingDirectory: "/repo"}, nil
+		func(string, string) (*session.Session, error) {
+			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: "/repo"}, nil
 		},
 		func(string) bool { return true },
 		func(string, reviewpkg.Launch) bool { return false },
 	)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusConflict)
+	}
+}
+
+func TestHandleReviewReturnsFixedSettingsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "settings.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews", nil)
+	response := httptest.NewRecorder()
+	handleReview(response, request, settings.Open(), nil, nil, nil)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusConflict)
+	}
+	if got := response.Body.String(); got != "settings are invalid; open Settings to repair them\n" {
+		t.Fatalf("body = %q", got)
 	}
 }
 

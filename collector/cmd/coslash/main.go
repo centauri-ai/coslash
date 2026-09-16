@@ -221,8 +221,8 @@ func routes(
 		handleLaunch(w, r, settingsStore, remoteManager)
 	})
 	api.HandleFunc("POST /api/reviews", func(w http.ResponseWriter, r *http.Request) {
-		getSession := func(id string) (*session.Session, error) {
-			found, err := collector.GetSessionForPreview(id, 0)
+		getSession := func(agent, id string) (*session.Session, error) {
+			found, err := collector.GetSessionForPreviewByAgent(agent, id, 0)
 			if found != nil {
 				found.Synthesis = mgr.Lookup(found.ID, found.LastActivityTime)
 			}

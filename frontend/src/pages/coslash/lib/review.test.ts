@@ -46,7 +46,7 @@ describe('availableReviewers', () => {
 
 it('builds a source-aware review request', () => {
   expect(reviewRequestPath(reviewable(), 'codex')).toBe(
-    '/api/reviews?source=local&id=12345678-aaaa-bbbb-cccc-123456789abc&reviewer=codex',
+    '/api/reviews?source=local&agent=claude&id=12345678-aaaa-bbbb-cccc-123456789abc&reviewer=codex',
   );
 });
 
