@@ -2,8 +2,6 @@ package settings
 
 import (
 	"bytes"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -214,15 +212,6 @@ func (remote *RemoteSettings) ExecutableForAgent(agent string) string {
 	default:
 		return ""
 	}
-}
-
-// NewRemoteID returns a random path-safe remote source id.
-func NewRemoteID() (string, error) {
-	raw := make([]byte, 8)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return "r_" + hex.EncodeToString(raw), nil
 }
 
 func TerminalOptions() []TerminalOption {
