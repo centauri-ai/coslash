@@ -1,149 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, Circle, LoaderCircle, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { remoteStatus, setupRemoteHelper, testRemoteAlias } from '@/pages/coslash/lib/remote-api';
-import { sshTestFailureMessage } from '@/pages/coslash/lib/remote-setup-copy';
-import {
-  remoteExecutablePathError,
-  type RemoteExecutableAgent,
-  type RemoteExecutableSettings,
-  type RemoteHostSettings,
-} from '@/pages/coslash/lib/settings';
+import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
 
 type SetupStage = 'idle' | 'testing' | 'saving' | 'consent' | 'installing' | 'ready' | 'error' | 'removing';
-type SetupStep = 1 | 2 | 3 | 4;
 
-const completedSetupCopy = [
-  'SSH connection verified',
-  'Remote host saved',
-  'Connector installed and verified',
-] as const;
-const failedSetupCopy = [
-  'SSH verification failed',
-  'Could not save remote host',
-  'Connector setup failed',
-  'Setup failed',
-] as const;
-
-function activeSetupCopy(stage: SetupStage, step: SetupStep) {
-  if (step === 1) return 'Verifying SSH connection…';
-  if (step === 2) return 'Saving remote host…';
-  if (step === 3 && stage === 'consent') return 'Connector setup is optional';
-  if (step === 3) return 'Installing and verifying connector…';
-  return 'Remote host ready';
-}
-
-export function SetupProgress({
-  stage,
-  step,
-  message,
-}: {
-  stage: SetupStage;
-  step: SetupStep;
-  message: string;
-}) {
-  const failed = stage === 'error';
-  const complete = stage === 'ready';
-  const running = stage === 'testing' || stage === 'saving' || stage === 'installing';
-  const completedSteps = complete ? [] : completedSetupCopy.slice(0, step - 1);
-  const currentCopy = complete
-    ? 'Remote host ready'
-    : failed
-      ? failedSetupCopy[step - 1]
-      : activeSetupCopy(stage, step);
-
-  return (
-    <div role={failed ? 'alert' : 'status'} className="bg-muted border-t px-4 py-3">
-      <div className="flex flex-col gap-1.5 font-mono text-xs">
-        {completedSteps.map((copy) => (
-          <div key={copy} className="text-success-fg flex items-center gap-2">
-            <Check aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={2.5} />
-            <span>{copy}</span>
-          </div>
-        ))}
-        <div
-          className={cn('flex items-center gap-2', {
-            'text-success-fg': complete,
-            'text-destructive': failed,
-            'text-foreground': !complete && !failed,
-            'animate-pulse': running,
-          })}
-        >
-          {complete ? (
-            <Check aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={2.5} />
-          ) : failed ? (
-            <X aria-hidden="true" className="size-3.5 shrink-0" strokeWidth={2.5} />
-          ) : running ? (
-            <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 animate-spin" />
-          ) : (
-            <Circle aria-hidden="true" className="size-3.5 shrink-0" />
-          )}
-          <span>{currentCopy}</span>
-        </div>
-      </div>
-      <div
-        className={cn('pt-2 text-xs leading-relaxed', {
-          'text-destructive': failed,
-          'text-muted-foreground': !failed,
-        })}
-      >
-        {message}
-      </div>
-    </div>
-  );
+function testResultCopy(machine: MachineFact) {
+  return machine.state === 'ok'
+    ? 'Connected · SSH/SFTP is ready'
+    : `${machine.label} · ${machine.error ?? 'Could not connect over SSH'}`;
 }
 
 function connectorFailureCopy(machine: MachineFact | null) {
   return machine?.helper?.reason?.replaceAll('_', ' ') ?? 'connector setup failed';
-}
-
-export function RemoteExecutableField({
-  agent,
-  path,
-  disabled,
-  autoFocus = false,
-  onChange,
-  onBlur,
-}: {
-  agent: RemoteExecutableAgent;
-  path: string;
-  disabled: boolean;
-  autoFocus?: boolean;
-  onChange: (path: string) => void;
-  onBlur: () => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const name: Record<RemoteExecutableAgent, string> = {
-    claude: 'Claude',
-    codex: 'Codex',
-  };
-  const error = remoteExecutablePathError(path);
-  useEffect(() => {
-    if (autoFocus) inputRef.current?.focus();
-  }, [autoFocus]);
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[13px] font-semibold">{name[agent]}</span>
-      <input
-        ref={inputRef}
-        aria-label={`${name[agent]} remote executable`}
-        aria-invalid={error != null}
-        autoFocus={autoFocus}
-        value={path}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        onBlur={onBlur}
-        placeholder="Automatic discovery"
-        className={cn(
-          'border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring h-8 rounded-lg border px-2.5 font-mono text-xs outline-none focus-visible:ring-3 disabled:opacity-50',
-          { 'border-destructive': error != null },
-        )}
-      />
-      {error && <span className="text-destructive text-[11px]">{error}</span>}
-    </label>
-  );
 }
 
 export function MachinesSettingsSection({
@@ -152,41 +23,22 @@ export function MachinesSettingsSection({
   onRemoveHost,
   onConnectionVerified,
   onBusyChange,
-  executables,
-  revealInvalidExecutables = false,
-  onExecutablesChange,
-  onExecutablesCommit,
-  executablesDisabled = false,
 }: {
   remote: RemoteHostSettings | null | undefined;
   onAddHost: (sshAlias: string) => Promise<boolean>;
   onRemoveHost: () => Promise<boolean>;
   onConnectionVerified?: () => void;
   onBusyChange: (busy: boolean) => void;
-  executables: RemoteExecutableSettings | undefined;
-  revealInvalidExecutables?: boolean;
-  onExecutablesChange: (executables: RemoteExecutableSettings) => void;
-  onExecutablesCommit: (executables: RemoteExecutableSettings) => void;
-  executablesDisabled?: boolean;
 }) {
   const [alias, setAlias] = useState('');
   const [stage, setStage] = useState<SetupStage>('idle');
-  const [setupStep, setSetupStep] = useState<SetupStep | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [machine, setMachine] = useState<MachineFact | null>(null);
-  const [executablesOpen, setExecutablesOpen] = useState(false);
   const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
   const setupFailed =
     stage === 'error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
-  const executablesExpanded = executablesOpen || revealInvalidExecutables;
-  const firstInvalidExecutable = (['claude', 'codex'] as const).find(
-    (agent) => remoteExecutablePathError(executables?.[agent] ?? '') != null,
-  );
 
-  useEffect(() => {
-    if (revealInvalidExecutables) setExecutablesOpen(true);
-  }, [revealInvalidExecutables]);
   useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
@@ -223,9 +75,8 @@ export function MachinesSettingsSection({
   }, [remote?.sshAlias]);
 
   const installConnector = async (sshAlias: string) => {
-    setSetupStep(3);
     setStage('installing');
-    setMessage('This can take a minute.');
+    setMessage('Installing connector…');
     try {
       const setup = await setupRemoteHelper(sshAlias, 'install');
       setMachine(setup.machine);
@@ -235,8 +86,7 @@ export function MachinesSettingsSection({
         return;
       }
       setStage('ready');
-      setSetupStep(4);
-      setMessage('SSH monitoring is active.');
+      setMessage('Connector installed and verified. SSH monitoring is active.');
       onConnectionVerified?.();
     } catch (error: unknown) {
       setStage('error');
@@ -251,25 +101,28 @@ export function MachinesSettingsSection({
       setMessage('Enter an SSH alias first.');
       return;
     }
-    setSetupStep(1);
-    setMessage('Waiting for the remote host to respond.');
+    setMessage('Checking SSH connection…');
     setStage('testing');
     try {
       const test = await testRemoteAlias(sshAlias);
       if (test.state !== 'ok') {
         setStage('error');
-        setMessage(sshTestFailureMessage(test, sshAlias));
+        const hint =
+          test.reason === 'connection_failed' ||
+          test.reason === 'authentication_failed' ||
+          test.reason === 'host_key_failed'
+            ? ` Run ssh ${sshAlias} once in Terminal, complete any prompt, then try again.`
+            : '';
+        setMessage(`${testResultCopy(test)}.${hint}`);
         return;
       }
-      setSetupStep(2);
       setStage('saving');
-      setMessage('SSH is ready. Saving this host to coSlash.');
+      setMessage('Connection succeeded. Adding SSH monitoring…');
       if (!(await onAddHost(sshAlias))) {
         setStage('error');
         setMessage('Could not add this SSH host.');
         return;
       }
-      setSetupStep(3);
       setStage('consent');
       setMessage('Install a private connector on this host, or skip installation.');
     } catch (error: unknown) {
@@ -280,20 +133,17 @@ export function MachinesSettingsSection({
 
   const retryConnectorSetup = () => {
     if (remote == null) return;
-    setSetupStep(3);
     setStage('consent');
     setMessage('Install a private connector on this host, or skip installation.');
   };
 
   const skipInstallation = () => {
-    setSetupStep(4);
     setStage('ready');
-    setMessage('Connector skipped. SSH monitoring is active.');
+    setMessage('Connector installation skipped. SSH monitoring is active.');
     onConnectionVerified?.();
   };
 
   const removeHost = async () => {
-    setSetupStep(null);
     setStage('removing');
     setMessage('Removing SSH monitoring…');
     try {
@@ -311,15 +161,6 @@ export function MachinesSettingsSection({
     }
   };
 
-  const setExecutable = (agent: RemoteExecutableAgent, path: string) => {
-    onExecutablesChange({ ...executables, [agent]: path });
-  };
-
-  const commitExecutables = () => {
-    if (Object.values(executables ?? {}).some((path) => remoteExecutablePathError(path) != null)) return;
-    onExecutablesCommit(executables ?? {});
-  };
-
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-0.5">
@@ -330,85 +171,47 @@ export function MachinesSettingsSection({
       </div>
       <div className="border-border bg-card overflow-hidden rounded-xl border">
         {remote ? (
-          <>
-            <div className="flex items-center justify-between gap-4 p-4">
-              <div className="flex min-w-0 flex-col gap-1">
-                <div className="text-sm font-semibold">{remote.sshAlias} · SSH</div>
-                <div className="text-muted-foreground text-xs">
-                  {setupFailed
-                    ? 'Setup failed'
-                    : machine?.refreshing || machine?.state === 'connecting'
-                      ? 'Checking'
-                      : machine?.state === 'stale' || machine?.state === 'error'
-                        ? 'Offline'
-                        : machine?.state === 'ok' && machine.sessionCount === 0
-                          ? 'Connected · no recent agent sessions found'
-                          : 'Connected'}
-                </div>
+          <div className="flex items-center justify-between gap-4 p-4">
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="text-sm font-semibold">{remote.sshAlias} · SSH</div>
+              <div className="text-muted-foreground text-xs">
+                {setupFailed
+                  ? 'Setup failed'
+                  : machine?.refreshing || machine?.state === 'connecting'
+                    ? 'Checking'
+                    : machine?.state === 'stale' || machine?.state === 'error'
+                      ? 'Offline'
+                      : machine?.state === 'ok' && machine.sessionCount === 0
+                        ? 'Connected · no recent agent sessions found'
+                        : 'Connected'}
               </div>
-              <div className="flex shrink-0 gap-2">
-                {stage === 'consent' ? (
-                  <>
-                    <Button type="button" variant="outline" size="sm" onClick={skipInstallation}>
-                      Skip installation
-                    </Button>
-                    <Button type="button" size="sm" onClick={() => void installConnector(remote.sshAlias)}>
-                      Install connector
-                    </Button>
-                  </>
-                ) : setupFailed ? (
-                  <Button type="button" size="sm" disabled={busy} onClick={retryConnectorSetup}>
-                    Retry setup
+            </div>
+            <div className="flex shrink-0 gap-2">
+              {stage === 'consent' ? (
+                <>
+                  <Button type="button" variant="outline" size="sm" onClick={skipInstallation}>
+                    Skip installation
                   </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => void removeHost()}
-                >
-                  {stage === 'removing' ? 'Removing…' : 'Remove'}
+                  <Button type="button" size="sm" onClick={() => void installConnector(remote.sshAlias)}>
+                    Install connector
+                  </Button>
+                </>
+              ) : setupFailed ? (
+                <Button type="button" size="sm" disabled={busy} onClick={retryConnectorSetup}>
+                  Retry setup
                 </Button>
-              </div>
-            </div>
-            <div className="border-t px-4 py-3">
-              <button
+              ) : null}
+              <Button
                 type="button"
-                aria-expanded={executablesExpanded}
-                onClick={() => setExecutablesOpen((open) => !open)}
-                className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => void removeHost()}
               >
-                <ChevronRight
-                  aria-hidden="true"
-                  className={cn('size-3 transition-transform', { 'rotate-90': executablesExpanded })}
-                  strokeWidth={2.5}
-                />
-                Remote agent executables
-              </button>
-              {executablesExpanded && (
-                <div className="mt-3 flex flex-col gap-3">
-                  <div className="text-muted-foreground text-[11px] leading-relaxed">
-                    Optional advanced overrides. Leave blank to discover the executable on this host.
-                  </div>
-                  {(['claude', 'codex'] as const).map((agent) => {
-                    const path = executables?.[agent] ?? '';
-                    return (
-                      <RemoteExecutableField
-                        key={agent}
-                        agent={agent}
-                        path={path}
-                        disabled={busy || executablesDisabled}
-                        autoFocus={revealInvalidExecutables && agent === firstInvalidExecutable}
-                        onChange={(value) => setExecutable(agent, value)}
-                        onBlur={commitExecutables}
-                      />
-                    );
-                  })}
-                </div>
-              )}
+                {stage === 'removing' ? 'Removing…' : 'Remove'}
+              </Button>
             </div>
-          </>
+          </div>
         ) : (
           <div className="flex flex-col gap-3 p-4">
             <div>
@@ -438,10 +241,7 @@ export function MachinesSettingsSection({
             </div>
           </div>
         )}
-        {message != null && setupStep != null && (
-          <SetupProgress stage={stage} step={setupStep} message={message} />
-        )}
-        {message != null && setupStep == null && (
+        {message != null && (
           <div
             role={stage === 'error' ? 'alert' : 'status'}
             className={cn('border-t px-4 py-3 text-xs', {
