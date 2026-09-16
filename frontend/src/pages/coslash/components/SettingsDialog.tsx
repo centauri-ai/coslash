@@ -297,11 +297,6 @@ export function SettingsDialog({
     [draft, saveSettings],
   );
 
-  const closeDialog = () => {
-    commitExecutables(executableDraft);
-    onOpenChange(false);
-  };
-
   const addRemoteHost = async (sshAlias: string) => {
     if (!draft) return false;
     const next = settingsForSave({ ...draft, remote: { sshAlias, enabled: true } });
@@ -344,7 +339,10 @@ export function SettingsDialog({
       onOpenChange={(next) => {
         if ((requiresConsent || remoteOperationInProgress) && !next) return;
         if (next) onOpenChange(true);
-        else closeDialog();
+        else {
+          commitExecutables(executableDraft);
+          onOpenChange(false);
+        }
       }}
     >
       <DialogContent
@@ -610,7 +608,7 @@ export function SettingsDialog({
             ) : (
               <Button
                 variant="outline"
-                onClick={closeDialog}
+                onClick={() => onOpenChange(false)}
                 disabled={remoteOperationInProgress}
               >
                 Close
