@@ -85,7 +85,8 @@ func RemoteTerminal(terminal, alias, agent, executable, workingDirectory, sessio
 }
 
 func remoteTerminalCommand(workingDirectory, command string) string {
-	return "cd " + shellQuote(workingDirectory) + " || exit 1\n" + command
+	payload := "cd " + shellQuote(workingDirectory) + " || exit 1\n" + command
+	return "/bin/sh -c " + shellQuote(payload)
 }
 
 func openTerminal(terminal, workingDirectory, command string) error {

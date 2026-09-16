@@ -84,7 +84,7 @@
       "type": "string",
       "minLength": 2,
       "maxLength": 4096,
-      "pattern": "^(?:/|~/).+"
+      "pattern": "^(?![\\s\\S]*[\\u0000\\r\\n])(?:/|~/)[\\s\\S]+$"
     }
   }
 }
