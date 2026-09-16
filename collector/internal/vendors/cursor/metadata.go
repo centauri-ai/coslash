@@ -172,6 +172,11 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 			metadata.Session(id).Entrypoint = lane
 		}
 	}
+	for id, lane := range loadLiveSessions() {
+		if lane != "" && metadata.Session(id).Entrypoint == lane {
+			metadata.Session(id).Live = "interactive"
+		}
+	}
 	return metadata, nil
 }
 

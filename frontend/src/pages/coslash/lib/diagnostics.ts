@@ -20,6 +20,7 @@ export type DiagnosticSource = {
   skippedTotal: number;
   error: string;
   cli: { name: string; found: boolean; path: string; version: string };
+  ide?: { name: string; found: boolean; path: string; version: string };
 };
 
 export type RemoteDiagnostics = {
@@ -79,6 +80,11 @@ export function formatDiagnosticsForCopy(snapshot: Diagnostics): string {
       `- ${source.label}: ${source.state}; root=${source.root}; entries=${source.entries}; sessions=${source.sessions}; skipped=${source.skippedTotal}`,
       `  CLI: found=${source.cli.found}; path=${source.cli.path || 'unknown'}; version=${source.cli.version || 'unknown'}`,
     );
+    if (source.ide) {
+      lines.push(
+        `  IDE: found=${source.ide.found}; path=${source.ide.path || 'unknown'}; version=${source.ide.version || 'unknown'}`,
+      );
+    }
     for (const skipped of source.skipped) lines.push(`  Skipped: ${skipped.error}`);
   }
   if (snapshot.remote) {
