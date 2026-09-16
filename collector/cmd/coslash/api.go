@@ -98,7 +98,7 @@ func handleList(
 	}
 	for _, session := range sessions {
 		session.Synthesis = mgr.Lookup(session.ID, session.LastActivityTime)
-		state := reviewManager.Status(session.ID)
+		state := reviewManager.Status(reviewpkg.Key(session.Agent, session.ID))
 		session.ReviewPending = state.Pending
 		session.ReviewError = state.Error
 	}
@@ -387,13 +387,14 @@ func handleReview(
 	w http.ResponseWriter,
 	r *http.Request,
 	settingsStore *settings.Store,
-	getSession func(string) (*session.Session, error),
+	getSession func(string, string) (*session.Session, error),
 	reviewerAvailable func(string) bool,
 	startReview reviewStarter,
 ) {
 	state := settingsStore.State()
 	if !state.Valid {
-		http.Error(w, state.Error+"; open Settings to repair it", http.StatusConflict)
+		log.Printf("review settings: %s", state.Error)
+		http.Error(w, "settings are invalid; open Settings to repair them", http.StatusConflict)
 		return
 	}
 	query := r.URL.Query()
@@ -406,13 +407,18 @@ func handleReview(
 		http.Error(w, "reviewer is not installed or supported", http.StatusBadRequest)
 		return
 	}
-	found, err := getSession(query.Get("id"))
+	originAgent := query.Get("agent")
+	if originAgent == "" {
+		http.Error(w, "origin agent is required", http.StatusBadRequest)
+		return
+	}
+	found, err := getSession(originAgent, query.Get("id"))
 	if err != nil {
 		log.Printf("review: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
 		return
 	}
-	if found == nil {
+	if found == nil || found.Agent != originAgent {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
@@ -426,7 +432,7 @@ func handleReview(
 	}
 	name := reviewpkg.Name(originName, found.ID)
 	prompt := reviewpkg.Prompt(found)
-	if !startReview(found.ID, reviewpkg.Launch{
+	if !startReview(reviewpkg.Key(found.Agent, found.ID), reviewpkg.Launch{
 		Reviewer: reviewer, WorkingDirectory: found.WorkingDirectory, Name: name, Prompt: prompt,
 	}) {
 		http.Error(w, "review already running", http.StatusConflict)

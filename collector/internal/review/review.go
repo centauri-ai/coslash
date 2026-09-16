@@ -53,6 +53,10 @@ func NewManager(run func(context.Context, Launch) error) *Manager {
 	return &Manager{states: make(map[string]State), run: run, timeout: 30 * time.Minute}
 }
 
+func Key(agent, id string) string {
+	return agent + ":" + id
+}
+
 func (m *Manager) Start(originID string, launch Launch) bool {
 	m.mu.Lock()
 	if m.states[originID].Pending {

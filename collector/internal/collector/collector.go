@@ -85,11 +85,22 @@ func List(since int64) ([]*session.Session, error) {
 
 // GetSessionForPreview returns the selected fully composed session family.
 func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
+	return getSessionForPreview("", id)
+}
+
+func GetSessionForPreviewByAgent(agent, id string, _ int64) (*session.Session, error) {
+	return getSessionForPreview(agent, id)
+}
+
+func getSessionForPreview(agent, id string) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
 	var failures []error
 	for _, source := range vendorSources {
+		if agent != "" && source.name != agent {
+			continue
+		}
 		parsed, metadata, err := source.loadFamily(id)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
