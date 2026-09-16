@@ -38,6 +38,24 @@ describe('MachinesSettingsSection', () => {
     expect(markup).toMatch(/aria-label="Claude remote executable"[^>]*autofocus=""/);
     expect(markup).toContain('Use an absolute or ~/. file path without a trailing slash.');
   });
+
+  it('disables executable editing while its parent is closing', () => {
+    const markup = renderToStaticMarkup(
+      <MachinesSettingsSection
+        remote={{ sshAlias: 'dev-box', enabled: true }}
+        onAddHost={vi.fn()}
+        onRemoveHost={vi.fn()}
+        onBusyChange={vi.fn()}
+        executables={{ claude: '/usr/bin/claude', codex: '/usr/bin/codex' }}
+        revealInvalidExecutables
+        onExecutablesChange={vi.fn()}
+        onExecutablesCommit={vi.fn()}
+        executablesDisabled
+      />,
+    );
+
+    expect(markup.match(/disabled=""/g)).toHaveLength(2);
+  });
 });
 
 describe('SetupProgress', () => {
