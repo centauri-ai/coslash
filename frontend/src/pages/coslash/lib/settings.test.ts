@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   availableSynthesisBackends,
@@ -12,6 +11,7 @@ import {
   type CoslashSettings,
   type SettingsResponse,
 } from '@/pages/coslash/lib/settings';
+import settingsSchemaSource from '../../../../../settings.schema.json?raw';
 
 function backend(id: string, available: boolean): BackendOption {
   return { id, label: id, models: [], available };
@@ -136,9 +136,7 @@ describe('remote executable settings', () => {
     ['/bin/codex\rbad', false],
     ['/bin/codex\nbad', false],
   ] as const)('matches the published schema path contract for %j', (path, accepted) => {
-    const schema = JSON.parse(
-      readFileSync(new URL('../../../../../settings.schema.json', import.meta.url), 'utf8'),
-    ) as {
+    const schema = JSON.parse(settingsSchemaSource) as {
       $defs: { remoteExecutablePath: { minLength: number; maxLength: number; pattern: string } };
     };
     const definition = schema.$defs.remoteExecutablePath;
