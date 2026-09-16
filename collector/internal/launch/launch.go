@@ -265,7 +265,7 @@ func remoteInvocation(arguments ...string) string {
 // lookup and execution share the remote account and non-interactive environment.
 func remoteExecutableResolver(agent, cli, override string) (string, error) {
 	if override != "" && !settings.ValidRemoteExecutablePath(override) {
-		return "", fmt.Errorf("launch: remote executable override for %s must be an absolute or ~/ file path without a trailing slash", agent)
+		return "", fmt.Errorf("launch: remote executable override for %s must be an absolute or ~/ path", agent)
 	}
 	failure := "printf '%s\\n' " + shellQuote("coSlash: could not find an executable for "+agent+" on this remote host") + " >&2; exit 127"
 	var command strings.Builder

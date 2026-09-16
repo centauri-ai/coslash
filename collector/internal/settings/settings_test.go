@@ -35,7 +35,7 @@ func TestDecodeRejectsOpenCodeRemoteExecutableOverride(t *testing.T) {
 }
 
 func TestDecodeRejectsInvalidRemoteExecutableOverrides(t *testing.T) {
-	for _, path := range []string{"", "/", "bin/codex", "~codex", "~/", "/opt/codex/", "~/bin/", "/bin/codex\n"} {
+	for _, path := range []string{"", "/", "bin/codex", "~codex", "~/", "/bin/codex\n"} {
 		t.Run(strings.ReplaceAll(path, "/", "_"), func(t *testing.T) {
 			_, err := Decode([]byte(validSettings(`"remote":{"id":"r_0123456789abcdef","sshAlias":"agent-box","enabled":true,"executables":{"codex":` + quoteJSON(path) + `}}`)))
 			if err == nil {

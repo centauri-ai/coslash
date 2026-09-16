@@ -115,12 +115,12 @@ export function decodeRemoteExecutableSettings(value: unknown): RemoteExecutable
 // Nonblank values must follow the same structural contract as the backend.
 export function remoteExecutablePathError(path: string): string | null {
   if (path === '') return null;
-  if (path.length > 4096 || path.endsWith('/') || /[\0\r\n]/.test(path)) {
-    return 'Use an absolute or ~/. file path without a trailing slash.';
+  if (path.length > 4096 || /[\0\r\n]/.test(path)) {
+    return 'Use an absolute path or a path beginning with ~/.';
   }
   return (path.startsWith('/') && path !== '/') || (path.startsWith('~/') && path.length > 2)
     ? null
-    : 'Use an absolute or ~/. file path without a trailing slash.';
+    : 'Use an absolute path or a path beginning with ~/.';
 }
 
 export function normalizeRemoteExecutableSettings(
