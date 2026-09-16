@@ -124,17 +124,6 @@ describe('remote executable settings', () => {
     );
   });
 
-  it('rejects an explicitly null executables object', () => {
-    expect(() =>
-      decodeRemoteHostSettings({
-        id: 'r_0123456789abcdef',
-        sshAlias: 'gpu-server',
-        enabled: true,
-        executables: null,
-      }),
-    ).toThrow('Invalid remote executable settings');
-  });
-
   it('treats blank draft values as equivalent to omitted overrides', () => {
     expect(remoteExecutableSettingsEqual({ claude: '' }, {})).toBe(true);
     expect(remoteExecutableSettingsEqual({ codex: '~/bin/codex' }, {})).toBe(false);

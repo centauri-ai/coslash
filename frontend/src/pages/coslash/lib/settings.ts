@@ -79,7 +79,7 @@ export function decodeRemoteHostSettings(value: unknown): RemoteHostSettings | n
     if (typeof raw.id !== 'string') throw new Error('Invalid remote settings');
     remote.id = raw.id;
   }
-  if (Object.prototype.hasOwnProperty.call(raw, 'executables')) {
+  if (raw.executables != null) {
     remote.executables = decodeRemoteExecutableSettings(raw.executables);
   }
   return remote;

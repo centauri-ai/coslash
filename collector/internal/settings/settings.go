@@ -332,10 +332,10 @@ func Decode(data []byte) (Config, error) {
 		OpenCode json.RawMessage `json:"opencode"`
 	}
 	type remoteDocument struct {
-		ID          *string         `json:"id"`
-		SSHAlias    *string         `json:"sshAlias"`
-		Enabled     *bool           `json:"enabled"`
-		Executables json.RawMessage `json:"executables"`
+		ID          *string              `json:"id"`
+		SSHAlias    *string              `json:"sshAlias"`
+		Enabled     *bool                `json:"enabled"`
+		Executables *executablesDocument `json:"executables"`
 	}
 	type configDocument struct {
 		Schema     *string             `json:"$schema"`
@@ -387,23 +387,14 @@ func Decode(data []byte) (Config, error) {
 			Enabled:  *document.Remote.Enabled,
 		}
 		if document.Remote.Executables != nil {
-			decoder := json.NewDecoder(bytes.NewReader(document.Remote.Executables))
-			decoder.DisallowUnknownFields()
-			var executableFields *executablesDocument
-			if err := decoder.Decode(&executableFields); err != nil {
-				return Config{}, fmt.Errorf("decode remote executables: %w", err)
-			}
-			if executableFields == nil {
-				return Config{}, errors.New("remote executables must be an object")
-			}
 			executables := RemoteExecutables{}
 			paths := []struct {
 				agent string
 				value json.RawMessage
 			}{
-				{agent: "claude", value: executableFields.Claude},
-				{agent: "codex", value: executableFields.Codex},
-				{agent: "opencode", value: executableFields.OpenCode},
+				{agent: "claude", value: document.Remote.Executables.Claude},
+				{agent: "codex", value: document.Remote.Executables.Codex},
+				{agent: "opencode", value: document.Remote.Executables.OpenCode},
 			}
 			for _, candidate := range paths {
 				agent, value := candidate.agent, candidate.value
