@@ -1,3 +1,4 @@
+import { type ReviewerOption } from '@/pages/coslash/lib/review';
 import { isSynthesisEligible, type Session } from '@/pages/coslash/lib/session';
 
 export type SynthesisSettings = {
@@ -52,6 +53,7 @@ export type SettingsResponse = {
   options: {
     synthesisBackends: BackendOption[];
     terminals: TerminalOption[];
+    reviewers: ReviewerOption[];
   };
 };
 
@@ -94,7 +96,10 @@ export function decodeSettingsResponse(value: unknown): SettingsResponse {
       ...response.settings,
       remote: decodeRemoteHostSettings(settingsRaw.remote),
     },
-    options: response.options,
+    options: {
+      ...response.options,
+      reviewers: Array.isArray(response.options.reviewers) ? response.options.reviewers : [],
+    },
   };
 }
 

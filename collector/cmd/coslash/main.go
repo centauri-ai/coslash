@@ -21,7 +21,9 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
+	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
@@ -93,6 +95,7 @@ func main() {
 		runner, _ = synthesis.NewRunner(settingsState.Config.Synthesis)
 	}
 	mgr := synthesis.NewManager(runner)
+	reviewManager := review.NewManager(launch.Review)
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr.SetRunner(nil)
@@ -143,7 +146,7 @@ func main() {
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
 	}
-	server := newServer(guard, mgr, settingsStore, remoteManager, hub)
+	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub)
 	go func() {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
@@ -164,12 +167,13 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 func newServer(
 	guard httpsec.Guard,
 	mgr *synthesis.Manager,
+	reviewManager *review.Manager,
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
 ) *http.Server {
 	server := &http.Server{
-		Handler:           guard.Wrap(routes(mgr, settingsStore, remoteManager, hub)),
+		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -182,6 +186,7 @@ func newServer(
 
 func routes(
 	mgr *synthesis.Manager,
+	reviewManager *review.Manager,
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
@@ -189,7 +194,7 @@ func routes(
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
-		handleList(w, r, mgr, remoteManager)
+		handleList(w, r, mgr, reviewManager, remoteManager)
 	})
 	api.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
 		if rejectRemoteSource(w, r) {
@@ -214,6 +219,16 @@ func routes(
 	})
 	api.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
 		handleLaunch(w, r, settingsStore, remoteManager)
+	})
+	api.HandleFunc("POST /api/reviews", func(w http.ResponseWriter, r *http.Request) {
+		getSession := func(id string) (*session.Session, error) {
+			found, err := collector.GetSessionForPreview(id, 0)
+			if found != nil {
+				found.Synthesis = mgr.Lookup(found.ID, found.LastActivityTime)
+			}
+			return found, err
+		}
+		handleReview(w, r, settingsStore, getSession, launch.ReviewerAvailable, reviewManager.Start)
 	})
 	api.HandleFunc("POST /api/remote/test", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteTest(w, r, remoteManager)

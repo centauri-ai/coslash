@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -412,6 +413,12 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
 	for _, p := range roots {
 		s := p.Session
+		if s.FirstPrompt != nil {
+			if name, ok := review.NameFromPrompt(*s.FirstPrompt); ok {
+				s.Name = &name
+				continue
+			}
+		}
 		enrichment := sessionMetadata(metadata, s.Agent).Lookup(s.ID)
 		name := p.Name
 		if enrichment != nil {
