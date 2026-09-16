@@ -422,17 +422,7 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 	status := lifecycleStatus(result)
 	manager.helper = &status
 	if result.CanExecute {
-		if err := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); err != nil {
-			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
-			manager.helper = &status
-			manager.helperTarget = nil
-			health := manager.healthLocked(manager.requestedSinceLocked())
-			manager.mu.Unlock()
-			return health, nil
-		}
-		manager.helperTarget = &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
-		manager.helperVersion = result.Artifact.Version
-		manager.helperProbe = helperProbeReady
+		target := &helperTarget{path: result.Path, version: result.Artifact.Version, state: result.State, artifact: result.Artifact}
 		var removeRemote LifecycleRemote
 		removePath := ""
 		if previousVersion != "" && previousVersion != result.Artifact.Version && activeLifecycle.Remote != nil {
@@ -440,11 +430,42 @@ func (manager *Manager) setupHelper(ctx context.Context, expectedAlias string, c
 				removeRemote, removePath = activeLifecycle.Remote, previousPath
 			}
 		}
+		if removeRemote != nil {
+			// Keep collection fenced and the prior ownership durable until the
+			// superseded helper has actually been removed.
+			manager.helperTarget = nil
+			manager.helperProbe = helperProbeProbing
+			manager.mu.Unlock()
+			removeErr := removeRemote.RemoveExact(ctx, removePath)
+			manager.mu.Lock()
+			if manager.cfg == nil || manager.cfg.ID != config.ID || manager.cfg.SSHAlias != config.SSHAlias {
+				health := manager.healthLocked(manager.requestedSinceLocked())
+				manager.mu.Unlock()
+				return health, nil
+			}
+			if removeErr != nil {
+				status = unavailableHelperStatus(fmt.Errorf("%w: remove superseded helper: %v", ErrHelperInstallation, removeErr))
+				manager.helper = &status
+				manager.helperProbe = helperProbeFallback
+				health := manager.healthLocked(manager.requestedSinceLocked())
+				manager.mu.Unlock()
+				return health, nil
+			}
+		}
+		if err := manager.cache.StoreHelperVersion(config.ID, result.Artifact.Version, config.SSHAlias); err != nil {
+			status = unavailableHelperStatus(fmt.Errorf("%w: %v", ErrHelperInstallation, err))
+			manager.helper = &status
+			manager.helperTarget = nil
+			manager.helperProbe = helperProbeFallback
+			health := manager.healthLocked(manager.requestedSinceLocked())
+			manager.mu.Unlock()
+			return health, nil
+		}
+		manager.helperTarget = target
+		manager.helperVersion = result.Artifact.Version
+		manager.helperProbe = helperProbeReady
 		health := manager.healthLocked(manager.requestedSinceLocked())
 		manager.mu.Unlock()
-		if removeRemote != nil {
-			_ = removeRemote.RemoveExact(ctx, removePath)
-		}
 		return health, nil
 	} else {
 		manager.helperTarget = nil

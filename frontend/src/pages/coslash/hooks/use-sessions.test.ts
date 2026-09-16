@@ -145,6 +145,7 @@ describe('PublicationReloadTracker', () => {
     expect(tracker.beginRequest()).toBe(true);
     expect(tracker.observe('publication-a')).toBe(false);
     expect(tracker.observe('publication-a')).toBe(false);
+    expect(tracker.hasPendingPublication()).toBe(true);
     expect(tracker.accept(undefined)).toBe(true);
 
     expect(tracker.beginRequest()).toBe(true);
@@ -154,6 +155,7 @@ describe('PublicationReloadTracker', () => {
 
     expect(tracker.beginRequest()).toBe(true);
     expect(tracker.accept('publication-b')).toBe(false);
+    expect(tracker.hasPendingPublication()).toBe(false);
     expect(tracker.observe('publication-b')).toBe(false);
   });
 

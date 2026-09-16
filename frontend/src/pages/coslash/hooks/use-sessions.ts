@@ -106,6 +106,10 @@ export class PublicationReloadTracker {
   allowRetry() {
     this.requested = undefined;
   }
+
+  hasPendingPublication() {
+    return this.latest != null && this.latest !== this.loaded;
+  }
 }
 
 export function decodeSessionsResponse(body: unknown): SessionsPayload {
@@ -342,10 +346,12 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
       if (pollingRemote || !remoteRefreshInProgress([machine])) return;
       pollingRemote = true;
       void waitForRemoteRefresh(machine, controller.signal, acceptRemoteStatus)
+        .then(() => {
+          if (!controller.signal.aborted && !publicationReload.hasPendingPublication()) load(true);
+        })
         .catch(() => {})
         .finally(() => {
           pollingRemote = false;
-          load(true);
         });
     }
 

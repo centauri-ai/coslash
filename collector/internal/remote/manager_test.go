@@ -1213,7 +1213,67 @@ func TestSetupRetriesTransportFailureWithFreshControlMaster(t *testing.T) {
 }
 
 func TestSetupRemovesPriorOwnedHelperAfterVerification(t *testing.T) {
+	remote, artifact, content := lifecycleFixture(t)
+	remote.removeStarted = make(chan struct{}, 1)
+	remote.removeRelease = make(chan struct{})
+	cache := NewCache(t.TempDir())
+	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
+	if err := cache.StoreHelperVersion(config.ID, "v0", config.SSHAlias); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{
+		Cache: cache, ReleaseProvider: fixedHelperRelease{document: remote.document, content: content},
+		LifecycleFactory:            func(string) (Lifecycle, error) { return lifecycleFor(remote), nil },
+		HelperInstallationAvailable: true,
+	})
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	type setupResult struct {
+		health Health
+		err    error
+	}
+	setupDone := make(chan setupResult, 1)
+	go func() {
+		health, err := manager.SetupHelperForAlias(context.Background(), config.SSHAlias, Consent{Install: true})
+		setupDone <- setupResult{health: health, err: err}
+	}()
+	<-remote.removeStarted
+
+	manager.ListView(0)
+	if _, started := manager.Retry(); started {
+		t.Fatal("refresh started before prior helper cleanup completed")
+	}
+	manager.mu.Lock()
+	target, probe, version := manager.helperTarget, manager.helperProbe, manager.helperVersion
+	manager.mu.Unlock()
+	if target != nil || probe != helperProbeProbing || version != "v0" {
+		t.Fatalf("upgrade was published during cleanup: target=%#v probe=%q version=%q", target, probe, version)
+	}
+	if ownership, owned, err := cache.LoadHelperOwnership(config.ID); err != nil || !owned || ownership.Version != "v0" {
+		t.Fatalf("ownership during cleanup = %#v, owned=%v, err=%v", ownership, owned, err)
+	}
+
+	close(remote.removeRelease)
+	result := <-setupDone
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	health := result.health
+	if health.Helper == nil || !health.Helper.Compatible {
+		t.Fatalf("setup health = %#v", health)
+	}
+	if remote.removed != "~/.coslash/helpers/v0/coslash-helper" {
+		t.Fatalf("removed = %q", remote.removed)
+	}
+	if ownership, owned, err := cache.LoadHelperOwnership(config.ID); err != nil || !owned || ownership.Version != artifact.Version {
+		t.Fatalf("ownership after cleanup = %#v, owned=%v, err=%v", ownership, owned, err)
+	}
+}
+
+func TestSetupCleanupFailureDoesNotPublishUpgrade(t *testing.T) {
 	remote, _, content := lifecycleFixture(t)
+	remote.removeErr = context.DeadlineExceeded
 	cache := NewCache(t.TempDir())
 	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
 	if err := cache.StoreHelperVersion(config.ID, "v0", config.SSHAlias); err != nil {
@@ -1231,11 +1291,17 @@ func TestSetupRemovesPriorOwnedHelperAfterVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if health.Helper == nil || !health.Helper.Compatible {
-		t.Fatalf("setup health = %#v", health)
+	if health.Helper == nil || health.Helper.Compatible || health.Helper.Reason == nil || *health.Helper.Reason != ReasonHelperInstallation {
+		t.Fatalf("cleanup failure health = %#v", health)
 	}
-	if remote.removed != "~/.coslash/helpers/v0/coslash-helper" {
-		t.Fatalf("removed = %q", remote.removed)
+	manager.mu.Lock()
+	target, probe, version := manager.helperTarget, manager.helperProbe, manager.helperVersion
+	manager.mu.Unlock()
+	if target != nil || probe != helperProbeFallback || version != "v0" {
+		t.Fatalf("failed cleanup published upgrade: target=%#v probe=%q version=%q", target, probe, version)
+	}
+	if ownership, owned, err := cache.LoadHelperOwnership(config.ID); err != nil || !owned || ownership.Version != "v0" {
+		t.Fatalf("ownership after failed cleanup = %#v, owned=%v, err=%v", ownership, owned, err)
 	}
 }
 
