@@ -3,6 +3,7 @@ import { decodeMachineFact } from '@/pages/coslash/lib/machines';
 import {
   boardStatusKey,
   environmentFact,
+  freshLaunchDisabledHint,
   getModality,
   getSessionVendors,
   LOCAL_SOURCE_ID,
@@ -201,6 +202,49 @@ describe('resumeDisabledHint', () => {
       ),
     ).toBe('Remote is offline');
   });
+
+  it('distinguishes Cursor CLI resume from IDE workspace opening and unsupported SDK sessions', () => {
+    expect(
+      resumeDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
+        entrypoint: 'cursor-cli',
+        status: 'busy',
+        displayStale: false,
+        cwd: '/workspace',
+      }),
+    ).toBe('This session is already active');
+    expect(
+      resumeDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
+        entrypoint: 'cursor-ide',
+        status: null,
+        displayStale: false,
+        cwd: '/workspace',
+      }),
+    ).toBeUndefined();
+    expect(
+      resumeDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
+        entrypoint: 'cursor-sdk',
+        status: null,
+        displayStale: false,
+        cwd: '/workspace',
+      }),
+    ).toBe('Launch is not available for Cursor SDK sessions');
+    expect(
+      resumeDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
+        entrypoint: 'cursor-cli',
+        status: null,
+        displayStale: false,
+        cwd: '',
+      }),
+    ).toBe('This session has no usable working directory');
+  });
 });
 
 describe('resumeDisabled', () => {
@@ -303,6 +347,43 @@ describe('sessionReadiness', () => {
       key: 'unavailable',
       label: 'Check host',
     });
+  });
+});
+
+describe('freshLaunchDisabledHint', () => {
+  it('allows Cursor IDE and CLI but rejects SDK and missing working directories', () => {
+    expect(
+      freshLaunchDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
+        entrypoint: 'cursor-ide',
+        cwd: '/workspace',
+      }),
+    ).toBeUndefined();
+    expect(
+      freshLaunchDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
+        entrypoint: 'cursor-cli',
+        cwd: '/workspace',
+      }),
+    ).toBeUndefined();
+    expect(
+      freshLaunchDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
+        entrypoint: 'cursor-sdk',
+        cwd: '/workspace',
+      }),
+    ).toBe('Launch is not available for Cursor SDK sessions');
+    expect(
+      freshLaunchDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
+        entrypoint: 'cursor-cli',
+        cwd: '',
+      }),
+    ).toBe('This session has no usable working directory');
   });
 });
 

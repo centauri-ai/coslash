@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { apiFetch, readApiError } from '@/pages/coslash/lib/api';
 import { type SessionIdentity } from '@/pages/coslash/lib/session';
 
-export type LaunchMode = 'resume' | 'new';
+export type LaunchMode = 'resume' | 'new' | 'open';
 
 export function launchRequestPath(session: SessionIdentity, mode: LaunchMode): string {
   return `/api/launch?${new URLSearchParams({

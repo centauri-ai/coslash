@@ -22,7 +22,34 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestValidateCursorLaunch(t *testing.T) {
+	directory := t.TempDir()
+	ide, cli, sdk := "cursor-ide", "cursor-cli", "cursor-sdk"
+	tests := []struct {
+		name    string
+		session session.Session
+		mode    string
+		wantErr bool
+	}{
+		{name: "IDE workspace", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &ide}, mode: launch.OpenWorkspace},
+		{name: "IDE exact resume", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &ide}, mode: launch.ResumeSession, wantErr: true},
+		{name: "CLI exact resume", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &cli}, mode: launch.ResumeSession},
+		{name: "CLI fresh", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &cli}, mode: launch.NewSession},
+		{name: "SDK", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &sdk}, mode: launch.NewSession, wantErr: true},
+		{name: "missing directory", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: filepath.Join(directory, "missing"), Entrypoint: &cli}, mode: launch.NewSession, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateCursorLaunch(&test.session, test.mode)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateCursorLaunch() error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
+	}
+}
 
 func TestListenBindsIPv4Loopback(t *testing.T) {
 	listener, err := listen(0)

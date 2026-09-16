@@ -343,6 +343,11 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			r.Context(), state.Config.Launch.Terminal, alias, found.Agent,
 			found.WorkingDirectory, found.ID, mode, handoff,
 		)
+	} else if err = validateCursorLaunch(found, mode); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	} else if mode == launch.OpenWorkspace {
+		err = launch.CursorWorkspace(found.WorkingDirectory)
 	} else {
 		err = launch.Terminal(r.Context(), state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
 	}
@@ -504,6 +509,35 @@ func openRemoteTerminalWithHandoff(
 			return errors.Join(err, removeRemoteHandoff(cleanupCtx, alias, handoffName))
 		}
 		return err
+	}
+	return nil
+}
+
+func validateCursorLaunch(found *session.Session, mode string) error {
+	if found.Agent != vendors.AgentCursor {
+		if mode == launch.OpenWorkspace {
+			return errors.New("workspace launch is only available for Cursor IDE sessions")
+		}
+		return nil
+	}
+	if !launch.ValidWorkingDirectory(found.WorkingDirectory) {
+		return errors.New("session has no usable working directory")
+	}
+	entrypoint := ""
+	if found.Entrypoint != nil {
+		entrypoint = *found.Entrypoint
+	}
+	switch entrypoint {
+	case "cursor-ide":
+		if mode != launch.OpenWorkspace {
+			return errors.New("exact resume is only available for Cursor CLI sessions")
+		}
+	case "cursor-cli":
+		if mode != launch.ResumeSession && mode != launch.NewSession {
+			return errors.New("workspace launch is only available for Cursor IDE sessions")
+		}
+	default:
+		return fmt.Errorf("launch is not available for %s sessions", entrypoint)
 	}
 	return nil
 }
