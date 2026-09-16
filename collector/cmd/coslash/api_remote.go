@@ -116,12 +116,23 @@ func handleRemoteAuthStart(w http.ResponseWriter, request *http.Request, manager
 	ctx, cancel := context.WithTimeout(request.Context(), remote.DefaultConnectTimeout+5*time.Second)
 	defer cancel()
 	health, err := manager.TestAlias(ctx, body.SSHAlias)
-	if err == nil && health.State == remote.StateOK {
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "authentication_unavailable", "Could not check whether terminal authentication is available.")
+		return
+	}
+	if health.State == remote.StateOK {
 		writeJSON(w, remoteAuthResponse{State: remote.AuthNotRequired})
 		return
 	}
-	if err != nil || !terminalAuthenticationPermitted(health) {
-		writeAPIError(w, http.StatusConflict, "authentication_not_required", "Terminal authentication is not required for this host.")
+	if !terminalAuthenticationPermitted(health) {
+		code, message := "authentication_unavailable", "Terminal authentication cannot resolve this SSH connection failure."
+		if health.Reason != nil {
+			code = string(*health.Reason)
+		}
+		if health.Error != "" {
+			message = health.Error
+		}
+		writeAPIError(w, http.StatusConflict, code, message)
 		return
 	}
 	id, err := remote.CreateAuthAttempt(request.Context(), body.SSHAlias)

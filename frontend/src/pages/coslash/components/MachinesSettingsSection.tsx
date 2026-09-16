@@ -175,6 +175,7 @@ export function MachinesSettingsSection({
         if (attempt.state === 'waiting') continue;
         if (authenticationRun.current !== run || run.cancelled) return;
         setAuthAttemptID(null);
+        run.attemptID = null;
         if (attempt.state !== 'ready') {
           setStage('error');
           setMessage(
@@ -262,9 +263,18 @@ export function MachinesSettingsSection({
   const cancelAuthentication = async () => {
     const run = authenticationRun.current;
     if (run != null) {
+      // A stale click can arrive after status reported ready but before React
+      // removes the button. Let the successful follow-up continue in that case.
+      if (run.attemptID == null) return;
+      const attempt = await cancelRemoteAuthentication(run.attemptID).catch(() => undefined);
+      if (authenticationRun.current !== run) return;
+      if (attempt?.state === 'ready') {
+        run.attemptID = null;
+        setAuthAttemptID(null);
+        return;
+      }
       run.cancelled = true;
       run.controller.abort();
-      if (run.attemptID != null) await cancelRemoteAuthentication(run.attemptID).catch(() => undefined);
     } else if (authAttemptID != null) {
       await cancelRemoteAuthentication(authAttemptID).catch(() => undefined);
     }
@@ -450,7 +460,7 @@ export function MachinesSettingsSection({
                 Authenticate in Terminal
               </Button>
             )}
-            {stage === 'authenticating' && (
+            {stage === 'authenticating' && authAttemptID != null && (
               <Button
                 type="button"
                 variant="outline"
