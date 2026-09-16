@@ -57,6 +57,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	startedAt := int64(0)
 	spawns := map[string]vendors.SpawnState{}
 	assistantResult := ""
+	turnFinalReply := ""
 	inTurn := true
 	stopped := false
 	taskCount := 0
@@ -70,6 +71,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			if text == "" {
 				continue
 			}
+			turnFinalReply = ""
 			turns++
 			prompt, timestamp := unwrapUserText(text)
 			if startedAt == 0 && timestamp > 0 {
@@ -87,6 +89,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 				if block.Type == "text" {
 					if text := strings.TrimSpace(block.Text); text != "" {
 						assistantResult = text
+						turnFinalReply = text
 					}
 				}
 				if block.Type != "tool_use" {
@@ -159,6 +162,10 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			}
 		}
 		if record.Type == "turn_ended" {
+			if record.Status == "success" && turns > 0 && turnFinalReply != "" {
+				digest.Push(turns, session.DigestRecap, turnFinalReply, 0)
+			}
+			turnFinalReply = ""
 			inTurn = false
 			stopped = record.Status == "error"
 			switch record.Status {

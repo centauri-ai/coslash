@@ -125,3 +125,45 @@ func TestParseTranscriptCountsSignPrefixedApplyPatchContent(t *testing.T) {
 		t.Fatalf("sign-prefixed edit = %#v, want one addition and deletion", edit)
 	}
 }
+
+func TestParseTranscriptAddsCompletedAssistantRepliesToDigest(t *testing.T) {
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	dir := filepath.Join(t.TempDir(), "agent-transcripts", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, id+".jsonl")
+	transcript := "" +
+		`{"role":"user","message":{"content":[{"type":"text","text":"first prompt"}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"text","text":"first reply"}]}}` + "\n" +
+		`{"type":"turn_ended","status":"success"}` + "\n" +
+		`{"role":"user","message":{"content":[{"type":"text","text":"follow up"}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"text","text":"second reply"}]}}` + "\n" +
+		`{"type":"turn_ended","status":"success"}` + "\n"
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := parseTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []session.DigestEntry{
+		{Turn: 1, Category: session.DigestFirstPrompt, Description: "first prompt"},
+		{Turn: 1, Category: session.DigestRecap, Description: "first reply"},
+		{Turn: 2, Category: session.DigestUser, Description: "follow up"},
+		{Turn: 2, Category: session.DigestRecap, Description: "second reply"},
+	}
+	if got := parsed.Session.Digest; len(got) != len(want) {
+		t.Fatalf("digest = %#v, want %#v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("digest[%d] = %#v, want %#v", i, got[i], want[i])
+			}
+		}
+	}
+	if parsed.Result != "second reply" {
+		t.Fatalf("result = %q, want second reply", parsed.Result)
+	}
+}
