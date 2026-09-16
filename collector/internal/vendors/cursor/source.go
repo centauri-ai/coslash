@@ -28,7 +28,7 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 		ids = append(ids, IDFromPath(path))
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadMetadataForSessions(canonicalCursorIDs(ids), files)
+		return LoadMetadataForSessions(canonicalCursorIDs(ids))
 	})
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
 	applyCursorEnrichment(parsed, metadata)
@@ -58,7 +58,7 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 		return parsed, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadMetadataForSessions([]string{parsed.Session.ID}, fragments)
+		return LoadMetadataForSessions([]string{parsed.Session.ID})
 	})
 	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
 	applyRelationships([]*vendors.ParsedSession{parsed}, metadata)
@@ -73,12 +73,6 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
-	requestedFiles := make([]string, 0, 1)
-	for _, path := range files {
-		if IDFromPath(path) == strings.ToLower(id) {
-			requestedFiles = append(requestedFiles, path)
-		}
-	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
 		return LoadRelationshipMetadataForSessions([]string{id})
 	})
@@ -91,7 +85,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		}
 	}
 	metadata = vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadMetadataForSessions(ids, familyFiles)
+		return LoadMetadataForSessions(ids)
 	})
 	applyCursorEnrichment(parsed, metadata)
 	applyRelationships(parsed, metadata)
@@ -472,7 +466,7 @@ func Health() vendors.SourceHealth {
 		ids = append(ids, IDFromPath(path))
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadMetadataForSessions(canonicalCursorIDs(ids), scan.Files)
+		return LoadMetadataForSessions(canonicalCursorIDs(ids))
 	})
 	return cursorSourceHealth(root, scan, metadata)
 }

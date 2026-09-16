@@ -381,7 +381,6 @@ const MODALITIES: Record<string, string> = {
   'opencode-cli': 'CLI',
   'opencode-desktop': 'Desktop',
   'cursor-cli': 'CLI',
-  'cursor-sdk': 'SDK',
   'cursor-ide': 'IDE',
   'sdk-cli': 'Autonomous',
   'sdk-ts': 'Autonomous',
@@ -431,7 +430,6 @@ export function resumeDisabledHint(
 ): string | undefined {
   if (isLocalSession(session) && session.agent === 'cursor') {
     if (!session.cwd) return 'This session has no usable working directory';
-    if (session.entrypoint === 'cursor-sdk') return 'Launch is not available for Cursor SDK sessions';
     if (session.entrypoint !== 'cursor-cli' && session.entrypoint !== 'cursor-ide') {
       return 'Launch is not available for this Cursor session';
     }
@@ -458,7 +456,6 @@ export function freshLaunchDisabledHint(
 ): string | undefined {
   if (!isLocalSession(session) || session.agent !== 'cursor') return undefined;
   if (!session.cwd) return 'This session has no usable working directory';
-  if (session.entrypoint === 'cursor-sdk') return 'Launch is not available for Cursor SDK sessions';
   return session.entrypoint === 'cursor-cli' || session.entrypoint === 'cursor-ide'
     ? undefined
     : 'Launch is not available for this Cursor session';
