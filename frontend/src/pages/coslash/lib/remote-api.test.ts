@@ -100,6 +100,20 @@ describe('terminal authentication API', () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal });
   });
 
+  it('accepts a healthy re-test that no longer requires authentication', async () => {
+    vi.stubGlobal('window', {
+      location: { hash: '', pathname: '/', search: '' },
+      history: { state: null, replaceState: vi.fn() },
+      sessionStorage: { getItem: vi.fn(() => null), setItem: vi.fn() },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ id: '', state: 'not_required' })));
+
+    await expect(startRemoteAuthentication('jane@host')).resolves.toEqual({
+      id: '',
+      state: 'not_required',
+    });
+  });
+
   it('rejects unknown authentication states', async () => {
     vi.stubGlobal('window', {
       location: { hash: '', pathname: '/', search: '' },

@@ -53,6 +53,67 @@ func TestApplySettingsWaitsForFirstListViewWindow(t *testing.T) {
 	})
 }
 
+func TestApplySettingsReleasesManagerLockBeforeAuthenticationCleanup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	manager := NewManager(Options{Cache: NewCache(filepath.Join(home, "remote-cache"))})
+	config := &settings.RemoteSettings{
+		ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true,
+	}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatalf("initial ApplySettings: %v", err)
+	}
+
+	coordinatorAcquired := make(chan struct{})
+	releaseCoordinator := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseCoordinator) }) }
+	t.Cleanup(release)
+	holderDone := make(chan error, 1)
+	go func() {
+		holderDone <- withDestinationCoordinator(context.Background(), config.SSHAlias, func() error {
+			close(coordinatorAcquired)
+			<-releaseCoordinator
+			return nil
+		})
+	}()
+	select {
+	case <-coordinatorAcquired:
+	case <-time.After(time.Second):
+		t.Fatal("coordinator was not acquired")
+	}
+
+	disabled := *config
+	disabled.Enabled = false
+	applyDone := make(chan error, 1)
+	go func() { applyDone <- manager.ApplySettings(&disabled) }()
+
+	deadline := time.Now().Add(time.Second)
+	observedUnlocked := false
+	for time.Now().Before(deadline) {
+		if manager.mu.TryLock() {
+			observedUnlocked = manager.cfg != nil && !manager.cfg.Enabled
+			manager.mu.Unlock()
+			if observedUnlocked {
+				break
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !observedUnlocked {
+		release()
+		t.Fatal("manager mutex remained locked while authentication cleanup waited")
+	}
+
+	release()
+	if err := <-holderDone; err != nil {
+		t.Fatalf("coordinator holder: %v", err)
+	}
+	if err := <-applyDone; err != nil {
+		t.Fatalf("ApplySettings: %v", err)
+	}
+}
+
 func TestApplyLimitedPublishesSessionsAndBacksOff(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)

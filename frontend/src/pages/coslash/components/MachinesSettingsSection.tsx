@@ -80,7 +80,8 @@ export function MachinesSettingsSection({
   const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
   // Authentication must not use the dialog-wide busy state because that
   // disables Cancel. Lock competing setup actions locally instead.
-  const setupActionsLocked = busy || stage === 'authenticating';
+  const setupActionsLocked =
+    busy || stage === 'authentication_required' || stage === 'authenticating';
   const setupFailed =
     stage === 'error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
@@ -226,15 +227,28 @@ export function MachinesSettingsSection({
     const run: AuthenticationRun = { cancelled: false, controller: new AbortController(), attemptID: null };
     authenticationRun.current = run;
     setStage('authenticating');
-    setMessage('Terminal opened. Complete the SSH prompt there; setup will continue automatically.');
+    setMessage('Checking SSH connection…');
     try {
       const attempt = await startRemoteAuthentication(authAlias, run.controller.signal);
-      run.attemptID = attempt.id;
       if (run.cancelled || authenticationRun.current !== run) {
-        await cancelRemoteAuthentication(attempt.id).catch(() => undefined);
+        if (attempt.state !== 'not_required') {
+          await cancelRemoteAuthentication(attempt.id).catch(() => undefined);
+        }
         return;
       }
+      if (attempt.state === 'not_required') {
+        if (authReconnect) {
+          setStage('ready');
+          setMessage('SSH monitoring reconnected.');
+          onConnectionVerified?.();
+        } else {
+          await saveVerifiedHost(authAlias);
+        }
+        return;
+      }
+      run.attemptID = attempt.id;
       setAuthAttemptID(attempt.id);
+      setMessage('Terminal opened. Complete the SSH prompt there; setup will continue automatically.');
       await waitForAuthentication(authAlias, attempt.id, authReconnect, run);
     } catch (error: unknown) {
       if (run.cancelled || authenticationRun.current !== run) return;
@@ -373,7 +387,9 @@ export function MachinesSettingsSection({
                   Retry setup
                 </Button>
               ) : null}
-              {machine?.actionRequired === 'authenticate' && stage !== 'authenticating' ? (
+              {machine?.actionRequired === 'authenticate' &&
+                stage !== 'authentication_required' &&
+                stage !== 'authenticating' ? (
                 <Button type="button" size="sm" disabled={busy} onClick={reconnect}>
                   Authenticate in Terminal
                 </Button>

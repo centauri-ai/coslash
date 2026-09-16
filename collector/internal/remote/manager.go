@@ -214,7 +214,14 @@ func NewManager(options Options) *Manager {
 
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	aliasesToClose := make([]string, 0, 2)
+	defer func() {
+		manager.mu.Unlock()
+		for _, alias := range aliasesToClose {
+			CancelAuthAttemptsForDestination(alias)
+			exitControlMasterBestEffort(alias)
+		}
+	}()
 	if manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
 		return ErrHelperSetupInProgress
 	}
@@ -242,7 +249,11 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		return err
 	}
 	if remote == nil {
-		return manager.removeLocked()
+		alias, err := manager.removeLocked()
+		if alias != "" {
+			aliasesToClose = append(aliasesToClose, alias)
+		}
+		return err
 	}
 	ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
 	if errors.Is(err, ErrHelperOwnershipCorrupt) {
@@ -253,15 +264,18 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		return err
 	}
 	if manager.cfg != nil && manager.cfg.ID != remote.ID {
-		if err := manager.removeLocked(); err != nil {
+		alias, err := manager.removeLocked()
+		if alias != "" {
+			aliasesToClose = append(aliasesToClose, alias)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	previous := manager.cfg
 	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
 	if aliasChanged {
-		CancelAuthAttemptsForDestination(previous.SSHAlias)
-		exitControlMasterBestEffort(previous.SSHAlias)
+		aliasesToClose = append(aliasesToClose, previous.SSHAlias)
 		if err := manager.cache.RemoveSource(remote.ID); err != nil {
 			return err
 		}
@@ -284,8 +298,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		manager.complete = true
 		manager.errorCopy = ""
 		manager.transport = TransportSFTP
-		CancelAuthAttemptsForDestination(remote.SSHAlias)
-		exitControlMasterBestEffort(remote.SSHAlias)
+		aliasesToClose = append(aliasesToClose, remote.SSHAlias)
 		return nil
 	}
 	restart := previous == nil || !previous.Enabled || previous.SSHAlias != remote.SSHAlias
@@ -535,9 +548,9 @@ func (manager *Manager) Shutdown() {
 	exitControlMasterBestEffort(alias)
 }
 
-func (manager *Manager) removeLocked() error {
+func (manager *Manager) removeLocked() (string, error) {
 	if manager.helperVersion != "" {
-		return ErrHelperOwnershipConflict
+		return "", ErrHelperOwnershipConflict
 	}
 	manager.cancelLifeLocked()
 	var sourceID string
@@ -568,12 +581,10 @@ func (manager *Manager) removeLocked() error {
 	manager.helperOwnershipCorrupt = false
 	manager.helperProbe = helperProbeFallback
 	manager.metrics = CollectionMetrics{}
-	CancelAuthAttemptsForDestination(alias)
-	exitControlMasterBestEffort(alias)
 	if sourceID != "" {
-		return manager.cache.RemoveSource(sourceID)
+		return alias, manager.cache.RemoveSource(sourceID)
 	}
-	return nil
+	return alias, nil
 }
 
 func (manager *Manager) loadCacheLocked() error {
@@ -960,7 +971,8 @@ func classifyError(err error) Reason {
 		return ReasonAuthentication
 	}
 	message := strings.ToLower(err.Error() + " " + sshErrorStderr(err))
-	if strings.Contains(message, "remote host identification has changed") || strings.Contains(message, "offending") {
+	if strings.Contains(message, "remote host identification has changed") ||
+		(strings.Contains(message, "offending ") && strings.Contains(message, " key") && strings.Contains(message, "known_hosts")) {
 		return ReasonHostKeyChanged
 	}
 	if strings.Contains(message, "host key verification failed") || strings.Contains(message, "no host key is known") {

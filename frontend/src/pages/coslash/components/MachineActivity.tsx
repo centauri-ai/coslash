@@ -29,6 +29,9 @@ function machineCopy(machine: MachineFact, checking: boolean) {
   if (machine.reason === 'authentication_failed') {
     return `Authentication required. Saved history from ${savedHistory}. Open Settings to reconnect.`;
   }
+  if (machine.reason === 'host_key_confirmation_required') {
+    return `SSH host key confirmation required. Open Settings to review and confirm it. Saved history from ${savedHistory}.`;
+  }
   if (machine.reason === 'host_key_changed') {
     return `SSH host key changed. Verify the host identity before reconnecting. Saved history from ${savedHistory}.`;
   }
@@ -95,7 +98,7 @@ export function MachineActivity({
             isChecking(machine) || (machine.sourceId !== LOCAL_SOURCE_ID && remoteRetryInFlight);
           const retryable =
             machine.sourceId !== LOCAL_SOURCE_ID &&
-            machine.actionRequired == null &&
+            (machine.actionRequired == null || machine.actionRequired === 'verify_host_key') &&
             (machine.state === 'stale' || machine.state === 'error' || connectorFailed(machine));
           const authenticationRequired =
             machine.sourceId !== LOCAL_SOURCE_ID && machine.actionRequired === 'authenticate';

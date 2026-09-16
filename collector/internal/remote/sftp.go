@@ -160,7 +160,7 @@ func ensureControlMaster(ctx context.Context, alias string, options OpenOptions)
 	if _, err := parseDestination(alias); err != nil {
 		return err
 	}
-	return withDestinationCoordinator(alias, func() error {
+	return withDestinationCoordinator(ctx, alias, func() error {
 		if AuthAttemptActive(alias) {
 			return ErrAuthAttemptActive
 		}

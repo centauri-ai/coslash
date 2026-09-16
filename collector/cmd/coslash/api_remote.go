@@ -116,11 +116,15 @@ func handleRemoteAuthStart(w http.ResponseWriter, request *http.Request, manager
 	ctx, cancel := context.WithTimeout(request.Context(), remote.DefaultConnectTimeout+5*time.Second)
 	defer cancel()
 	health, err := manager.TestAlias(ctx, body.SSHAlias)
+	if err == nil && health.State == remote.StateOK {
+		writeJSON(w, remoteAuthResponse{State: remote.AuthNotRequired})
+		return
+	}
 	if err != nil || !terminalAuthenticationPermitted(health) {
 		writeAPIError(w, http.StatusConflict, "authentication_not_required", "Terminal authentication is not required for this host.")
 		return
 	}
-	id, err := remote.CreateAuthAttempt(body.SSHAlias)
+	id, err := remote.CreateAuthAttempt(request.Context(), body.SSHAlias)
 	if errors.Is(err, remote.ErrAuthAttemptActive) {
 		writeAPIError(w, http.StatusConflict, "authentication_in_progress", "Authentication is already waiting in Terminal.")
 		return
@@ -134,7 +138,7 @@ func handleRemoteAuthStart(w http.ResponseWriter, request *http.Request, manager
 		err = launch.SSHAuthentication(store.State().Config.Launch.Terminal, executable, id)
 	}
 	if err != nil {
-		_ = remote.CancelAuthAttempt(id)
+		_ = remote.CancelAuthAttempt(request.Context(), id)
 		writeAPIError(w, http.StatusConflict, "terminal_unavailable", "Could not open the selected terminal for SSH authentication.")
 		return
 	}
@@ -157,7 +161,7 @@ func handleRemoteAuthCancel(w http.ResponseWriter, request *http.Request) {
 	}
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil || decoder.Decode(&struct{}{}) != io.EOF || remote.CancelAuthAttempt(body.ID) != nil {
+	if err := decoder.Decode(&body); err != nil || decoder.Decode(&struct{}{}) != io.EOF || remote.CancelAuthAttempt(request.Context(), body.ID) != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid_authentication_attempt", "Authentication attempt is unavailable.")
 		return
 	}

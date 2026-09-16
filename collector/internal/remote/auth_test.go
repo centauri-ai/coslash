@@ -44,17 +44,17 @@ func TestInteractiveMasterArgsUseStructuredDestination(t *testing.T) {
 
 func TestAuthAttemptCancelAndInvalidID(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	id, err := CreateAuthAttempt("agent-box")
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CancelAuthAttempt(id); err != nil {
+	if err := CancelAuthAttempt(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 	if state, err := AuthAttemptState(context.Background(), id); err != nil || state != AuthCancelled {
 		t.Fatalf("cancelled state = %q, %v", state, err)
 	}
-	if err := CancelAuthAttempt("not-an-id"); err == nil {
+	if err := CancelAuthAttempt(context.Background(), "not-an-id"); err == nil {
 		t.Fatal("invalid ID accepted")
 	}
 }
@@ -64,16 +64,16 @@ func TestCancelReadyAuthAttemptKeepsMaster(t *testing.T) {
 	originalExit := exitAuthControlMaster
 	t.Cleanup(func() { exitAuthControlMaster = originalExit })
 
-	id, err := CreateAuthAttempt("agent-box")
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := updateAuthAttemptIfWaiting(id, AuthReady); err != nil {
+	if _, err := updateAuthAttemptIfWaiting(context.Background(), id, AuthReady); err != nil {
 		t.Fatal(err)
 	}
 	exited := false
 	exitAuthControlMaster = func(string) { exited = true }
-	if err := CancelAuthAttempt(id); err != nil {
+	if err := CancelAuthAttempt(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 	if exited {
@@ -90,7 +90,7 @@ func TestCreateAuthAttemptAllowsOnlyOneWaitingAttempt(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			_, err := CreateAuthAttempt("agent-box")
+			_, err := CreateAuthAttempt(context.Background(), "agent-box")
 			results <- err
 		}()
 	}
@@ -120,7 +120,7 @@ func TestRunAuthAttemptRecordsTerminalOutcomes(t *testing.T) {
 	t.Cleanup(func() { runInteractiveSSH = original })
 
 	runInteractiveSSH = func(context.Context, []string) error { return errors.New("bad password") }
-	id, err := CreateAuthAttempt("agent-box")
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestRunAuthAttemptRecordsTerminalOutcomes(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	}
-	id, err = CreateAuthAttempt("agent-box")
+	id, err = CreateAuthAttempt(context.Background(), "agent-box")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,12 +158,12 @@ func TestRunAuthAttemptRejectsCancelledAttemptBeforeSSH(t *testing.T) {
 		exitAuthControlMaster = originalExit
 	})
 
-	id, err := CreateAuthAttempt("agent-box")
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
 	if err != nil {
 		t.Fatal(err)
 	}
 	exitAuthControlMaster = func(string) {}
-	if err := CancelAuthAttempt(id); err != nil {
+	if err := CancelAuthAttempt(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 	called := false
@@ -187,14 +187,14 @@ func TestRunAuthAttemptClosesMasterAfterCancellation(t *testing.T) {
 		runInteractiveSSH = originalRun
 		exitAuthControlMaster = originalExit
 	})
-	id, err := CreateAuthAttempt("agent-box")
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
 	if err != nil {
 		t.Fatal(err)
 	}
 	closed := make(chan string, 2)
 	exitAuthControlMaster = func(destination string) { closed <- destination }
 	runInteractiveSSH = func(context.Context, []string) error {
-		if err := CancelAuthAttempt(id); err != nil {
+		if err := CancelAuthAttempt(context.Background(), id); err != nil {
 			t.Errorf("CancelAuthAttempt: %v", err)
 		}
 		return nil
@@ -222,14 +222,14 @@ func TestRunAuthAttemptKeepsMasterWhenStatusAlreadyMarkedReady(t *testing.T) {
 		runInteractiveSSH = originalRun
 		exitAuthControlMaster = originalExit
 	})
-	id, err := CreateAuthAttempt("agent-box")
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
 	if err != nil {
 		t.Fatal(err)
 	}
 	exited := false
 	exitAuthControlMaster = func(string) { exited = true }
 	runInteractiveSSH = func(context.Context, []string) error {
-		_, err := updateAuthAttemptIfWaiting(id, AuthReady)
+		_, err := updateAuthAttemptIfWaiting(context.Background(), id, AuthReady)
 		return err
 	}
 	if err := RunAuthAttempt(context.Background(), id); err != nil {
@@ -264,7 +264,7 @@ func TestDestinationCoordinatorCoversControlMasterStart(t *testing.T) {
 	}
 	created := make(chan error, 1)
 	go func() {
-		_, err := CreateAuthAttempt("agent-box")
+		_, err := CreateAuthAttempt(context.Background(), "agent-box")
 		created <- err
 	}()
 	select {
@@ -287,6 +287,43 @@ func TestDestinationCoordinatorCoversControlMasterStart(t *testing.T) {
 	}
 }
 
+func TestDestinationCoordinatorHonorsContextWhileWaiting(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	acquired := make(chan struct{})
+	release := make(chan struct{})
+	holderDone := make(chan error, 1)
+	go func() {
+		holderDone <- withDestinationCoordinator(context.Background(), "agent-box", func() error {
+			close(acquired)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("coordinator was not acquired")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	called := false
+	err := withDestinationCoordinator(ctx, "agent-box", func() error {
+		called = true
+		return nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("withDestinationCoordinator error = %v, want deadline exceeded", err)
+	}
+	if called {
+		t.Fatal("callback ran without acquiring the coordinator")
+	}
+	close(release)
+	if err := <-holderDone; err != nil {
+		t.Fatalf("holder: %v", err)
+	}
+}
+
 func TestAuthenticationStatusKeepsChangedHostKeyOutOfTerminalFlow(t *testing.T) {
 	changed := WithAuthenticationStatus(Health{Label: "agent-box", Reason: reasonPtr(ReasonHostKeyChanged)})
 	if changed.ActionRequired != ActionVerifyHostKey || changed.AuthState != AuthNotRequired {
@@ -300,7 +337,7 @@ func TestAuthenticationStatusKeepsChangedHostKeyOutOfTerminalFlow(t *testing.T) 
 
 func TestWaitingAuthenticationSuppressesRefreshAndControlMaster(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	if _, err := CreateAuthAttempt("agent-box"); err != nil {
+	if _, err := CreateAuthAttempt(context.Background(), "agent-box"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureControlMaster(context.Background(), "agent-box", OpenOptions{}); !errors.Is(err, ErrAuthAttemptActive) {

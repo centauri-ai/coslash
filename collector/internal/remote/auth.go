@@ -50,12 +50,12 @@ func authAttemptPath(id string) (string, error) {
 	return filepath.Join(settings.Home(), "ssh", "auth-"+id+".json"), nil
 }
 
-func createAuthAttempt(destination string) (string, error) {
+func createAuthAttempt(ctx context.Context, destination string) (string, error) {
 	if _, err := parseDestination(destination); err != nil {
 		return "", err
 	}
 	var id string
-	err := withDestinationCoordinator(destination, func() error {
+	err := withDestinationCoordinator(ctx, destination, func() error {
 		entries, err := filepath.Glob(filepath.Join(settings.Home(), "ssh", "auth-*.json"))
 		if err != nil {
 			return err
@@ -106,7 +106,7 @@ func createAuthAttempt(destination string) (string, error) {
 // control-master check/start. The single lock is stronger than a per-
 // destination lock, and avoids leaving a new lock file for every attempted
 // destination. flock is released by the kernel if a process exits.
-func withDestinationCoordinator(_ string, callback func() error) error {
+func withDestinationCoordinator(ctx context.Context, _ string, callback func() error) error {
 	if err := ensureSSHControlDir(); err != nil {
 		return err
 	}
@@ -116,8 +116,24 @@ func withDestinationCoordinator(_ string, callback func() error) error {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return fmt.Errorf("lock SSH destination: %w", err)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return fmt.Errorf("lock SSH destination: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
 	defer func() { _ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) }()
 	return callback()
@@ -152,7 +168,9 @@ func loadAuthAttempt(id string) (authAttempt, error) {
 
 // CreateAuthAttempt records only the already-validated destination in a
 // mode-0600, short-lived local file. The terminal receives only its opaque ID.
-func CreateAuthAttempt(destination string) (string, error) { return createAuthAttempt(destination) }
+func CreateAuthAttempt(ctx context.Context, destination string) (string, error) {
+	return createAuthAttempt(ctx, destination)
+}
 
 // AuthAttemptActive is used by background work to avoid racing an explicit
 // terminal prompt. Corrupt and expired records are not considered active.
@@ -171,7 +189,7 @@ func AuthAttemptActive(destination string) bool {
 	return false
 }
 
-func CancelAuthAttempt(id string) error {
+func CancelAuthAttempt(ctx context.Context, id string) error {
 	attempt, err := loadAuthAttempt(id)
 	if err != nil {
 		return err
@@ -179,7 +197,7 @@ func CancelAuthAttempt(id string) error {
 	if attempt.State != AuthWaiting {
 		return nil
 	}
-	state, err := updateAuthAttemptIfWaiting(id, AuthCancelled)
+	state, err := updateAuthAttemptIfWaiting(ctx, id, AuthCancelled)
 	if err == nil && state == AuthCancelled {
 		exitAuthControlMaster(attempt.Destination)
 	}
@@ -194,7 +212,7 @@ func CancelAuthAttemptsForDestination(destination string) {
 		return
 	}
 	removed := false
-	_ = withDestinationCoordinator(destination, func() error {
+	_ = withDestinationCoordinator(context.Background(), destination, func() error {
 		entries, err := filepath.Glob(filepath.Join(settings.Home(), "ssh", "auth-*.json"))
 		if err != nil {
 			return err
@@ -223,13 +241,13 @@ func CancelAuthAttemptsForDestination(destination string) {
 
 // updateAuthAttemptIfWaiting preserves a terminal result chosen by another
 // process (for example, Cancel in the app racing a terminal SSH failure).
-func updateAuthAttemptIfWaiting(id string, state AuthState) (AuthState, error) {
+func updateAuthAttemptIfWaiting(ctx context.Context, id string, state AuthState) (AuthState, error) {
 	initial, err := loadAuthAttempt(id)
 	if err != nil {
 		return "", err
 	}
 	var result AuthState
-	err = withDestinationCoordinator(initial.Destination, func() error {
+	err = withDestinationCoordinator(ctx, initial.Destination, func() error {
 		attempt, err := loadAuthAttempt(id)
 		if err != nil {
 			return err
@@ -298,7 +316,7 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 		return err
 	}
 	if time.Since(attempt.CreatedAt) > AuthAttemptTTL {
-		_, _ = updateAuthAttemptIfWaiting(id, AuthTimedOut)
+		_, _ = updateAuthAttemptIfWaiting(ctx, id, AuthTimedOut)
 		return errors.New("authentication attempt expired")
 	}
 	if attempt.State != AuthWaiting {
@@ -319,11 +337,11 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			state = AuthCancelled
 		}
-		_, _ = updateAuthAttemptIfWaiting(id, state)
+		_, _ = updateAuthAttemptIfWaiting(context.Background(), id, state)
 		return fmt.Errorf("authenticate SSH: %w", err)
 	}
 	closeMaster := false
-	err = withDestinationCoordinator(attempt.Destination, func() error {
+	err = withDestinationCoordinator(ctx, attempt.Destination, func() error {
 		latest, err := loadAuthAttempt(id)
 		if errors.Is(err, os.ErrNotExist) {
 			closeMaster = true
@@ -367,7 +385,7 @@ func AuthAttemptState(ctx context.Context, id string) (AuthState, error) {
 		return attempt.State, nil
 	}
 	if time.Since(attempt.CreatedAt) > AuthAttemptTTL {
-		state, updateErr := updateAuthAttemptIfWaiting(id, AuthTimedOut)
+		state, updateErr := updateAuthAttemptIfWaiting(ctx, id, AuthTimedOut)
 		if updateErr != nil {
 			return "", updateErr
 		}
@@ -380,7 +398,7 @@ func AuthAttemptState(ctx context.Context, id string) (AuthState, error) {
 	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	if err := runSSHCommand(checkCtx, OpenOptions{}, args); err == nil {
-		state, updateErr := updateAuthAttemptIfWaiting(id, AuthReady)
+		state, updateErr := updateAuthAttemptIfWaiting(ctx, id, AuthReady)
 		if updateErr != nil {
 			return "", updateErr
 		}

@@ -38,7 +38,7 @@ export async function testRemoteAlias(sshAlias: string): Promise<MachineFact> {
 
 export type RemoteAuthAttempt = {
   id: string;
-  state: 'waiting' | 'ready' | 'timed_out' | 'cancelled' | 'failed';
+  state: 'not_required' | 'waiting' | 'ready' | 'timed_out' | 'cancelled' | 'failed';
 };
 
 function decodeRemoteAuthAttempt(value: unknown): RemoteAuthAttempt {
@@ -47,7 +47,7 @@ function decodeRemoteAuthAttempt(value: unknown): RemoteAuthAttempt {
   const raw = value as Record<string, unknown>;
   if (
     typeof raw.id !== 'string' ||
-    !['waiting', 'ready', 'timed_out', 'cancelled', 'failed'].includes(String(raw.state))
+    !['not_required', 'waiting', 'ready', 'timed_out', 'cancelled', 'failed'].includes(String(raw.state))
   ) {
     throw new Error('Invalid authentication status');
   }
