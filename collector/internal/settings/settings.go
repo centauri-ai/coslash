@@ -56,9 +56,8 @@ type RemoteSettings struct {
 // RemoteExecutables holds optional absolute or home-relative executable
 // overrides. Empty values are deliberately not persisted.
 type RemoteExecutables struct {
-	Claude   string `json:"claude,omitempty"`
-	Codex    string `json:"codex,omitempty"`
-	OpenCode string `json:"opencode,omitempty"`
+	Claude string `json:"claude,omitempty"`
+	Codex  string `json:"codex,omitempty"`
 }
 
 type SynthesisSettings struct {
@@ -207,8 +206,6 @@ func (remote *RemoteSettings) ExecutableForAgent(agent string) string {
 		return remote.Executables.Claude
 	case "codex":
 		return remote.Executables.Codex
-	case "opencode":
-		return remote.Executables.OpenCode
 	default:
 		return ""
 	}
@@ -287,7 +284,6 @@ func validateRemote(remote *RemoteSettings) error {
 	}{
 		{agent: "claude", path: remote.Executables.Claude},
 		{agent: "codex", path: remote.Executables.Codex},
-		{agent: "opencode", path: remote.Executables.OpenCode},
 	}
 	nonblank := false
 	for _, candidate := range paths {
@@ -316,9 +312,8 @@ func Decode(data []byte) (Config, error) {
 		Theme *string `json:"theme"`
 	}
 	type executablesDocument struct {
-		Claude   json.RawMessage `json:"claude"`
-		Codex    json.RawMessage `json:"codex"`
-		OpenCode json.RawMessage `json:"opencode"`
+		Claude json.RawMessage `json:"claude"`
+		Codex  json.RawMessage `json:"codex"`
 	}
 	type remoteDocument struct {
 		ID          *string         `json:"id"`
@@ -392,7 +387,6 @@ func Decode(data []byte) (Config, error) {
 			}{
 				{agent: "claude", value: executableFields.Claude},
 				{agent: "codex", value: executableFields.Codex},
-				{agent: "opencode", value: executableFields.OpenCode},
 			}
 			for _, candidate := range paths {
 				agent, value := candidate.agent, candidate.value
@@ -411,8 +405,6 @@ func Decode(data []byte) (Config, error) {
 					executables.Claude = *path
 				case "codex":
 					executables.Codex = *path
-				case "opencode":
-					executables.OpenCode = *path
 				}
 			}
 			config.Remote.Executables = &executables

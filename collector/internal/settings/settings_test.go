@@ -15,7 +15,7 @@ func TestDecodeRemoteExecutableOverridesAndPreservesVersionOneSettings(t *testin
 		t.Fatalf("legacy remote settings = %#v", legacy.Remote)
 	}
 
-	config, err := Decode([]byte(validSettings(`"remote":{"id":"r_0123456789abcdef","sshAlias":"agent-box","enabled":true,"executables":{"claude":"/opt/claude/bin/claude","codex":"~/bin/codex","opencode":"/opt/opencode/bin/opencode"}}`)))
+	config, err := Decode([]byte(validSettings(`"remote":{"id":"r_0123456789abcdef","sshAlias":"agent-box","enabled":true,"executables":{"claude":"/opt/claude/bin/claude","codex":"~/bin/codex"}}`)))
 	if err != nil {
 		t.Fatalf("decode executable overrides: %v", err)
 	}
@@ -25,8 +25,12 @@ func TestDecodeRemoteExecutableOverridesAndPreservesVersionOneSettings(t *testin
 	if got := config.Remote.ExecutableForAgent("codex"); got != "~/bin/codex" {
 		t.Fatalf("Codex executable = %q", got)
 	}
-	if got := config.Remote.ExecutableForAgent("opencode"); got != "/opt/opencode/bin/opencode" {
-		t.Fatalf("OpenCode executable = %q", got)
+}
+
+func TestDecodeRejectsOpenCodeRemoteExecutableOverride(t *testing.T) {
+	_, err := Decode([]byte(validSettings(`"remote":{"id":"r_0123456789abcdef","sshAlias":"agent-box","enabled":true,"executables":{"opencode":"/opt/opencode/bin/opencode"}}`)))
+	if err == nil {
+		t.Fatal("Decode accepted an OpenCode executable override without remote OpenCode collection support")
 	}
 }
 

@@ -72,8 +72,7 @@
           "minProperties": 1,
           "properties": {
             "claude": { "$ref": "#/$defs/remoteExecutablePath" },
-            "codex": { "$ref": "#/$defs/remoteExecutablePath" },
-            "opencode": { "$ref": "#/$defs/remoteExecutablePath" }
+            "codex": { "$ref": "#/$defs/remoteExecutablePath" }
           }
         }
       }
