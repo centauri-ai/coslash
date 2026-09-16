@@ -3,6 +3,7 @@ package remotehelper
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -126,11 +127,9 @@ func aggregateFingerprint(item *family, metadata *vendors.SessionMetadata) strin
 	}
 	if metadata != nil {
 		for _, id := range item.sessionIDs {
-			if name := metadata.Session(id).Name; name != "" {
-				fmt.Fprintf(digest, "n\t%s\t%s\n", id, name)
-			}
-			if status := metadata.Session(id).Live; status != "" {
-				fmt.Fprintf(digest, "l\t%s\t%s\n", id, status)
+			if enrichment := metadata.Lookup(id); enrichment != nil {
+				encoded, _ := json.Marshal(enrichment)
+				fmt.Fprintf(digest, "m\t%s\t%s\n", id, encoded)
 			}
 		}
 	}

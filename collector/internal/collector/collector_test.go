@@ -56,6 +56,20 @@ func TestResolveStatusClearsWaitingForClosedSession(t *testing.T) {
 	}
 }
 
+func TestFinalizeSessionsDoesNotAllocateMissingMetadata(t *testing.T) {
+	metadata := vendors.EmptySessionMetadata()
+	parsed := []*vendors.ParsedSession{{
+		Session: &session.Session{Agent: "codex", ID: "root", StartedAt: 1, LastActivityTime: 2},
+		Spawns:  map[string]vendors.SpawnState{},
+	}}
+
+	finalizeSessions(parsed, map[string]*vendors.SessionMetadata{"codex": metadata})
+
+	if len(metadata.Sessions) != 0 {
+		t.Fatalf("read-only finalization allocated %d metadata records", len(metadata.Sessions))
+	}
+}
+
 func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 	original := vendorSources
 	t.Cleanup(func() { vendorSources = original })
