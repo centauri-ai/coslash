@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   availableSynthesisBackends,
-  decodeRemoteExecutableSettings,
   decodeRemoteHostSettings,
   initialSettingsDraft,
   remoteExecutablePathError,
-  remoteExecutableSettingsEqual,
   settingsForSave,
   type BackendOption,
   type CoslashSettings,
@@ -116,15 +114,4 @@ describe('remote executable settings', () => {
       expect(remoteExecutablePathError(path)).not.toBeNull();
     },
   );
-
-  it('rejects a known key without a usable path', () => {
-    expect(() => decodeRemoteExecutableSettings({ claude: null })).toThrow(
-      'Invalid remote executable settings',
-    );
-  });
-
-  it('treats blank draft values as equivalent to omitted overrides', () => {
-    expect(remoteExecutableSettingsEqual({ claude: '' }, {})).toBe(true);
-    expect(remoteExecutableSettingsEqual({ codex: '~/bin/codex' }, {})).toBe(false);
-  });
 });

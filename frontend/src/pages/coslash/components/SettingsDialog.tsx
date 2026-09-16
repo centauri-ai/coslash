@@ -9,13 +9,9 @@ import {
   availableSynthesisBackends,
   initialSettingsDraft,
   modelForBackend,
-  normalizeRemoteExecutableSettings,
-  remoteExecutableSettingsAreValid,
-  remoteExecutableSettingsEqual,
   requiresFirstRunConsent,
   type BackendOption,
   type CoslashSettings,
-  type RemoteExecutableSettings,
   type RemoteOwnershipAction,
   type SettingsResponse,
 } from '@/pages/coslash/lib/settings';
@@ -204,14 +200,9 @@ export function SettingsDialog({
   const [draft, setDraft] = useState<CoslashSettings | null>(
     response ? initialSettingsDraft(response) : null,
   );
-  const initialExecutables = response?.settings.remote?.executables ?? {};
-  const [executableDraft, setExecutableDraft] = useState<RemoteExecutableSettings>({
-    ...initialExecutables,
-  });
   const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
   const initializedForOpen = useRef(false);
-  const lastSubmittedExecutables = useRef<RemoteExecutableSettings>({ ...initialExecutables });
   const saveChain = useRef(Promise.resolve());
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
@@ -222,10 +213,7 @@ export function SettingsDialog({
       return;
     }
     if (!response || initializedForOpen.current) return;
-    const executables = { ...(response.settings.remote?.executables ?? {}) };
     setDraft(initialSettingsDraft(response));
-    setExecutableDraft(executables);
-    lastSubmittedExecutables.current = executables;
     setDisclosureOpen(false);
     initializedForOpen.current = true;
   }, [open, response]);
@@ -268,43 +256,11 @@ export function SettingsDialog({
     [requiresConsent, saveSettings],
   );
 
-  const commitExecutables = useCallback(
-    (executables: RemoteExecutableSettings) => {
-      if (!draft?.remote || !remoteExecutableSettingsAreValid(executables)) return;
-      const normalized = normalizeRemoteExecutableSettings(executables);
-      if (remoteExecutableSettingsEqual(normalized, lastSubmittedExecutables.current)) return;
-
-      const previous = lastSubmittedExecutables.current;
-      lastSubmittedExecutables.current = normalized;
-      const { executables: _discarded, ...remote } = draft.remote;
-      const next: CoslashSettings = {
-        ...draft,
-        remote: {
-          ...remote,
-          ...(Object.keys(normalized).length > 0 ? { executables: normalized } : {}),
-        },
-      };
-      setDraft(next);
-      void saveSettings(next).then((saved) => {
-        if (saved) {
-          setTheme(next.appearance.theme);
-        } else if (remoteExecutableSettingsEqual(lastSubmittedExecutables.current, normalized)) {
-          lastSubmittedExecutables.current = previous;
-        }
-      });
-    },
-    [draft, saveSettings],
-  );
-
   const addRemoteHost = async (sshAlias: string) => {
     if (!draft) return false;
     const next = { ...draft, remote: { sshAlias, enabled: true } };
     const saved = await saveSettings(next);
-    if (saved) {
-      setDraft(next);
-      setExecutableDraft({});
-      lastSubmittedExecutables.current = {};
-    }
+    if (saved) setDraft(next);
     return saved;
   };
 
@@ -312,11 +268,7 @@ export function SettingsDialog({
     if (!draft) return false;
     const { remote: _removed, ...next } = draft;
     const saved = await saveSettings({ ...next, remote: null }, 'release');
-    if (saved) {
-      setDraft({ ...next, remote: null });
-      setExecutableDraft({});
-      lastSubmittedExecutables.current = {};
-    }
+    if (saved) setDraft({ ...next, remote: null });
     return saved;
   };
 
@@ -338,10 +290,7 @@ export function SettingsDialog({
       onOpenChange={(next) => {
         if ((requiresConsent || remoteOperationInProgress) && !next) return;
         if (next) onOpenChange(true);
-        else {
-          commitExecutables(executableDraft);
-          onOpenChange(false);
-        }
+        else onOpenChange(false);
       }}
     >
       <DialogContent
@@ -579,9 +528,19 @@ export function SettingsDialog({
                   onRemoveHost={removeRemoteHost}
                   onConnectionVerified={onRemoteConnectionVerified}
                   onBusyChange={setRemoteOperationInProgress}
-                  executables={executableDraft}
-                  onExecutablesChange={setExecutableDraft}
-                  onExecutablesCommit={commitExecutables}
+                  executables={draft.remote?.executables}
+                  onExecutablesChange={(executables) => {
+                    if (!draft.remote) return;
+                    setDraft({ ...draft, remote: { ...draft.remote, executables } });
+                  }}
+                  onExecutablesCommit={(executables) => {
+                    if (!draft.remote) return;
+                    const next = { ...draft, remote: { ...draft.remote, executables } };
+                    setDraft(next);
+                    void saveSettings(next).then((saved) => {
+                      if (saved) setTheme(next.appearance.theme);
+                    });
+                  }}
                 />
               )}
 
