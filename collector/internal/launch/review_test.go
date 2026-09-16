@@ -10,17 +10,20 @@ func TestReviewCLICommands(t *testing.T) {
 	prompt := "Review Bob's change\nDo not edit."
 	tests := map[string]reviewCommandSpec{
 		"claude": {
-			bin:  "claude",
-			args: []string{"-p", "--name", name, "--permission-mode", "plan", prompt},
+			bin:   "claude",
+			args:  []string{"-p", "--name", name, "--permission-mode", "plan"},
+			stdin: prompt,
 		},
 		"codex": {
-			bin:  "codex",
-			args: []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", prompt},
+			bin:   "codex",
+			args:  []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"},
+			stdin: prompt,
 		},
 		"opencode": {
-			bin:  "opencode",
-			args: []string{"run", "--title", name, "--dir", "/repo", prompt},
-			env:  []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			bin:   "opencode",
+			args:  []string{"run", "--title", name, "--dir", "/repo"},
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			stdin: prompt,
 		},
 	}
 	for reviewer, want := range tests {
@@ -31,6 +34,16 @@ func TestReviewCLICommands(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("reviewCLICommand(%q) = %#v, want %#v", reviewer, got, want)
 		}
+	}
+}
+
+func TestBoundedBufferCapsDiagnostics(t *testing.T) {
+	buffer := boundedBuffer{limit: 4}
+	if written, err := buffer.Write([]byte("secret diagnostic")); err != nil || written != 17 {
+		t.Fatalf("Write() = %d, %v", written, err)
+	}
+	if got := buffer.String(); got != "secr" {
+		t.Fatalf("String() = %q", got)
 	}
 }
 
