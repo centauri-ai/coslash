@@ -48,13 +48,13 @@ func TestAuthAttemptCancelAndInvalidID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CancelAuthAttempt(context.Background(), id); err != nil {
-		t.Fatal(err)
+	if state, err := CancelAuthAttempt(context.Background(), id); err != nil || state != AuthCancelled {
+		t.Fatalf("CancelAuthAttempt state/error = %q/%v", state, err)
 	}
 	if state, err := AuthAttemptState(context.Background(), id); err != nil || state != AuthCancelled {
 		t.Fatalf("cancelled state = %q, %v", state, err)
 	}
-	if err := CancelAuthAttempt(context.Background(), "not-an-id"); err == nil {
+	if _, err := CancelAuthAttempt(context.Background(), "not-an-id"); err == nil {
 		t.Fatal("invalid ID accepted")
 	}
 }
@@ -73,8 +73,8 @@ func TestCancelReadyAuthAttemptKeepsMaster(t *testing.T) {
 	}
 	exited := false
 	exitAuthControlMaster = func(string) { exited = true }
-	if err := CancelAuthAttempt(context.Background(), id); err != nil {
-		t.Fatal(err)
+	if state, err := CancelAuthAttempt(context.Background(), id); err != nil || state != AuthReady {
+		t.Fatalf("CancelAuthAttempt state/error = %q/%v", state, err)
 	}
 	if exited {
 		t.Fatal("ready authentication master was closed")
@@ -163,7 +163,7 @@ func TestRunAuthAttemptRejectsCancelledAttemptBeforeSSH(t *testing.T) {
 		t.Fatal(err)
 	}
 	exitAuthControlMaster = func(string) {}
-	if err := CancelAuthAttempt(context.Background(), id); err != nil {
+	if _, err := CancelAuthAttempt(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 	called := false
@@ -176,6 +176,46 @@ func TestRunAuthAttemptRejectsCancelledAttemptBeforeSSH(t *testing.T) {
 	}
 	if called {
 		t.Fatal("interactive SSH ran for a cancelled attempt")
+	}
+}
+
+func TestRunAuthAttemptStopsSSHWhenAttemptIsCancelled(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalRun := runInteractiveSSH
+	originalExit := exitAuthControlMaster
+	t.Cleanup(func() {
+		runInteractiveSSH = originalRun
+		exitAuthControlMaster = originalExit
+	})
+
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitAuthControlMaster = func(string) {}
+	started := make(chan struct{})
+	runInteractiveSSH = func(ctx context.Context, _ []string) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() { done <- RunAuthAttempt(context.Background(), id) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("interactive SSH did not start")
+	}
+	if state, err := CancelAuthAttempt(context.Background(), id); err != nil || state != AuthCancelled {
+		t.Fatalf("CancelAuthAttempt state/error = %q/%v", state, err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled RunAuthAttempt succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("interactive SSH was not stopped after cancellation")
 	}
 }
 
@@ -194,7 +234,7 @@ func TestRunAuthAttemptClosesMasterAfterCancellation(t *testing.T) {
 	closed := make(chan string, 2)
 	exitAuthControlMaster = func(destination string) { closed <- destination }
 	runInteractiveSSH = func(context.Context, []string) error {
-		if err := CancelAuthAttempt(context.Background(), id); err != nil {
+		if _, err := CancelAuthAttempt(context.Background(), id); err != nil {
 			t.Errorf("CancelAuthAttempt: %v", err)
 		}
 		return nil

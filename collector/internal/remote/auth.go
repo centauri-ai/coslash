@@ -189,19 +189,19 @@ func AuthAttemptActive(destination string) bool {
 	return false
 }
 
-func CancelAuthAttempt(ctx context.Context, id string) error {
+func CancelAuthAttempt(ctx context.Context, id string) (AuthState, error) {
 	attempt, err := loadAuthAttempt(id)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if attempt.State != AuthWaiting {
-		return nil
+		return attempt.State, nil
 	}
 	state, err := updateAuthAttemptIfWaiting(ctx, id, AuthCancelled)
 	if err == nil && state == AuthCancelled {
 		exitAuthControlMaster(attempt.Destination)
 	}
-	return err
+	return state, err
 }
 
 // CancelAuthAttemptsForDestination prevents a removed host from gaining a
@@ -329,7 +329,30 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := runInteractiveSSH(ctx, args); err != nil {
+	sshCtx, stopSSH := context.WithCancel(ctx)
+	monitorDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-monitorDone:
+				return
+			case <-sshCtx.Done():
+				return
+			case <-ticker.C:
+				latest, err := loadAuthAttempt(id)
+				if err == nil && latest.State == AuthCancelled {
+					stopSSH()
+					return
+				}
+			}
+		}
+	}()
+	runErr := runInteractiveSSH(sshCtx, args)
+	close(monitorDone)
+	stopSSH()
+	if runErr != nil {
 		state := AuthFailed
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			state = AuthTimedOut
@@ -338,7 +361,7 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 			state = AuthCancelled
 		}
 		_, _ = updateAuthAttemptIfWaiting(context.Background(), id, state)
-		return fmt.Errorf("authenticate SSH: %w", err)
+		return fmt.Errorf("authenticate SSH: %w", runErr)
 	}
 	closeMaster := false
 	err = withDestinationCoordinator(ctx, attempt.Destination, func() error {

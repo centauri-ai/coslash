@@ -138,7 +138,7 @@ func handleRemoteAuthStart(w http.ResponseWriter, request *http.Request, manager
 		err = launch.SSHAuthentication(store.State().Config.Launch.Terminal, executable, id)
 	}
 	if err != nil {
-		_ = remote.CancelAuthAttempt(request.Context(), id)
+		_, _ = remote.CancelAuthAttempt(request.Context(), id)
 		writeAPIError(w, http.StatusConflict, "terminal_unavailable", "Could not open the selected terminal for SSH authentication.")
 		return
 	}
@@ -161,11 +161,16 @@ func handleRemoteAuthCancel(w http.ResponseWriter, request *http.Request) {
 	}
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 4<<10))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil || decoder.Decode(&struct{}{}) != io.EOF || remote.CancelAuthAttempt(request.Context(), body.ID) != nil {
+	if err := decoder.Decode(&body); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		writeAPIError(w, http.StatusBadRequest, "invalid_authentication_attempt", "Authentication attempt is unavailable.")
 		return
 	}
-	writeJSON(w, remoteAuthResponse{ID: body.ID, State: remote.AuthCancelled})
+	state, err := remote.CancelAuthAttempt(request.Context(), body.ID)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_authentication_attempt", "Authentication attempt is unavailable.")
+		return
+	}
+	writeJSON(w, remoteAuthResponse{ID: body.ID, State: state})
 }
 
 func handleRemoteRetry(w http.ResponseWriter, _ *http.Request, manager *remote.Manager) {
