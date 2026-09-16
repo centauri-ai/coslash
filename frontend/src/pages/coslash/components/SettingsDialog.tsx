@@ -528,19 +528,6 @@ export function SettingsDialog({
                   onRemoveHost={removeRemoteHost}
                   onConnectionVerified={onRemoteConnectionVerified}
                   onBusyChange={setRemoteOperationInProgress}
-                  executables={draft.remote?.executables}
-                  onExecutablesChange={(executables) => {
-                    if (!draft.remote) return;
-                    setDraft({ ...draft, remote: { ...draft.remote, executables } });
-                  }}
-                  onExecutablesCommit={(executables) => {
-                    if (!draft.remote) return;
-                    const next = { ...draft, remote: { ...draft.remote, executables } };
-                    setDraft(next);
-                    void saveSettings(next).then((saved) => {
-                      if (saved) setTheme(next.appearance.theme);
-                    });
-                  }}
                 />
               )}
 
