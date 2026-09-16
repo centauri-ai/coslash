@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+
+	"github.com/centauri-ai/coslash/collector/internal/launch"
 )
 
 const handoffNameBytes = 16
@@ -24,7 +26,7 @@ func stageHandoff(ctx context.Context, alias string, contents []byte, options Op
 		return "", fmt.Errorf("create remote handoff name: %w", err)
 	}
 	name := hex.EncodeToString(nameBytes)
-	command := stageHandoffCommand(name, len(contents))
+	command := stageHandoffCommand(name, len(contents), int(launch.HandoffMaxAge.Seconds()))
 	args, err := handoffSSHArgs(alias, command, int(options.Limits.withDefaults().ConnectTimeout.Seconds()))
 	if err != nil {
 		return "", err
@@ -65,12 +67,14 @@ func stageHandoff(ctx context.Context, alias string, contents []byte, options Op
 	return name, nil
 }
 
-func stageHandoffCommand(name string, size int) string {
+func stageHandoffCommand(name string, size, maxAgeSeconds int) string {
 	return `umask 077; dir="$HOME"/'.coslash/handoffs'; handoff="$dir"/'` + name +
 		`'; mkdir -p "$dir" && chmod 700 "$dir" || exit 1; ` +
 		`trap 'rm -f "$handoff"' EXIT HUP INT TERM; ` +
 		`cat > "$handoff" && [ "$(wc -c < "$handoff")" -eq ` + strconv.Itoa(size) +
 		` ] && chmod 600 "$handoff" || exit 1; ` +
+		`nohup sh -c 'sleep "$1"; rm -f "$2"' sh ` + strconv.Itoa(maxAgeSeconds) +
+		` "$handoff" </dev/null >/dev/null 2>&1 & ` +
 		`trap - EXIT HUP INT TERM`
 }
 

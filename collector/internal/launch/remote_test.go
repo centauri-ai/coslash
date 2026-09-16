@@ -41,6 +41,15 @@ func TestRemoteCLICommandUsesStagedHandoffName(t *testing.T) {
 	}
 }
 
+func TestRemoteSSHCommandReusesControlSocket(t *testing.T) {
+	t.Setenv("COSLASH_HOME", "/tmp/coslash-test")
+	command := remoteSSHCommand("agent-box", "true")
+	if !strings.Contains(command, "'ControlMaster=auto'") ||
+		!strings.Contains(command, "'ControlPath=/tmp/coslash-test/ssh/cm-%C'") {
+		t.Fatalf("command = %q", command)
+	}
+}
+
 func TestRemoteCodexCLICommandLoadsBoundaryHandoffWithoutExpandingArguments(t *testing.T) {
 	home := t.TempDir()
 	codexHome := filepath.Join(home, ".codex")
@@ -98,6 +107,33 @@ printf '%s\n' "$@" > "$HOME/codex-args"
 	}
 	if want := "--profile\ncoslash-" + testRemoteHandoffName + "\n"; string(args) != want {
 		t.Fatalf("codex arguments = %q, want %q", args, want)
+	}
+}
+
+func TestRemoteCodexCLICommandStopsWhenHandoffReadFails(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	bin := filepath.Join(home, "bin")
+	for _, dir := range []string{codexHome, bin} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fakeCodex := filepath.Join(bin, "codex")
+	if err := os.WriteFile(fakeCodex, []byte("#!/bin/sh\ntouch \"$HOME/codex-launched\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command, err := remoteCLICommand(vendors.AgentCodex, "", NewSession, testRemoteHandoffName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := exec.Command("/bin/sh", "-c", command)
+	process.Env = append(os.Environ(), "HOME="+home, "CODEX_HOME="+codexHome, "PATH="+bin+":"+os.Getenv("PATH"))
+	if err := process.Run(); err == nil {
+		t.Fatal("command succeeded without its staged handoff")
+	}
+	if _, err := os.Stat(filepath.Join(home, "codex-launched")); !os.IsNotExist(err) {
+		t.Fatalf("Codex launched after handoff read failed: %v", err)
 	}
 }
 

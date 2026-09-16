@@ -110,6 +110,10 @@ func Path() string {
 	return filepath.Join(Home(), "settings.json")
 }
 
+func SSHControlPath() string {
+	return filepath.Join(Home(), "ssh", "cm-%C")
+}
+
 func Defaults() Config {
 	return Config{
 		Schema:  SchemaURL,
