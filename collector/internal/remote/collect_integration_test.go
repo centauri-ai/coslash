@@ -196,6 +196,30 @@ func TestCollectIncrementalSkipsUnchangedFamiliesAndHeaders(t *testing.T) {
 	}
 }
 
+func TestCollectIncrementalReplenishesPrivacyRedactedDisplayDetails(t *testing.T) {
+	fs := newFakeFS()
+	id := "aaaaaaaa-0000-0000-0000-000000000001"
+	file := writeClaudeFixture(fs, "proj1", id, 10, 5, time.Unix(1000, 0))
+	source := newFakeSource(fs, Limits{})
+
+	baseline, _, failures, err := collectIncremental(source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
+	if err != nil || len(failures) != 0 {
+		t.Fatalf("cold collectIncremental: failures=%v err=%v", failures, err)
+	}
+	baseline = privacySafeSnapshot(baseline)
+	before := fs.openCounts()[file]
+	_, sessions, failures, err := collectIncremental(source, 0, time.Unix(3000, 0), baseline)
+	if err != nil || len(failures) != 0 {
+		t.Fatalf("refresh privacy-redacted baseline: failures=%v err=%v", failures, err)
+	}
+	if after := fs.openCounts()[file]; after <= before {
+		t.Fatal("privacy-redacted family was reused without reparsing")
+	}
+	if len(sessions) != 1 || sessions[0].WorkingDirectory != "/test/project" {
+		t.Fatalf("refreshed sessions did not regain display details: %+v", sessions)
+	}
+}
+
 func TestCollectIncrementalIsolatesCorruptFamily(t *testing.T) {
 	fs := newFakeFS()
 	goodID := "aaaaaaaa-0000-0000-0000-000000000002"

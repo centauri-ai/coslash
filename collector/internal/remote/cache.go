@@ -249,15 +249,18 @@ func age(fetchedAtMs int64, now time.Time) time.Duration {
 	return now.Sub(time.UnixMilli(fetchedAtMs))
 }
 
-// Cache v2 persists normalized per-family facts (remotefacts.Family) instead
-// of composed session cards, so an incremental refresh can skip re-parsing an
-// unchanged family and still reconstruct a displayable snapshot from what
-// changed. It is written to a separate file from the v1 snapshot: a v1 card
+// Cache v2 uses normalized per-family facts (remotefacts.Family) instead of
+// composed session cards. The running manager can incrementally refresh these
+// facts; the sanitized disk form is display-only baseline data. It is written
+// to a separate file from the v1 snapshot: a v1 card
 // stays visible (marked stale) until the first v2 generation commits, and a
 // v1 fingerprint is never reinterpreted as v2 baseline state — the first v2
 // refresh always starts from an empty generation.
-const cacheV2Version = 4
-const maxCacheV2Bytes = 64 << 20
+const (
+	cacheV2Version              = 5
+	privacyUnsafeCacheV2Version = 4
+	maxCacheV2Bytes             = 64 << 20
+)
 
 // CachedFamilyV2 is one durable family entry. Vendor and FamilyID are stored
 // alongside Facts (rather than only as a map key) so the file round-trips
@@ -431,11 +434,22 @@ func (c *Cache) LoadV2(sourceID string) (CachedSnapshotV2, bool, error) {
 	if decoder.Decode(&cached) != nil || decoder.Decode(&struct{}{}) != io.EOF || !validCachedSnapshotV2(cached) {
 		return CachedSnapshotV2{}, false, nil
 	}
+	if cached.Version == privacyUnsafeCacheV2Version {
+		if err := file.Close(); err != nil {
+			return CachedSnapshotV2{}, false, err
+		}
+		cached = privacySafeSnapshot(cached)
+		cached.Version = cacheV2Version
+		if err := c.StoreV2(sourceID, cached); err != nil {
+			return CachedSnapshotV2{}, false, err
+		}
+	}
 	return cached, true, nil
 }
 
 func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
-	if cached.Version != cacheV2Version || len(cached.BaselineID) > remotefacts.MaxIDBytes ||
+	if (cached.Version != cacheV2Version && cached.Version != privacyUnsafeCacheV2Version) ||
+		len(cached.BaselineID) > remotefacts.MaxIDBytes ||
 		cached.CoverageSinceMs < 0 || cached.CoverageSinceMs > remotefacts.MaxTimestampMs ||
 		cached.FetchedAtMs < 0 || cached.FetchedAtMs > remotefacts.MaxTimestampMs || cached.RoundTripMs < 0 ||
 		len(cached.Families) > remoteprotocol.MaxRecords || len(cached.CodexHeaders) > DefaultMaxEntries ||
@@ -560,6 +574,10 @@ func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
 }
 
 func privacySafeSnapshot(cached CachedSnapshotV2) CachedSnapshotV2 {
+	// Display-only details are intentionally absent on disk, so the persisted
+	// generation must not be an incremental baseline. A refresh after restart
+	// uses the existing baseline-free path and reconstructs complete live facts.
+	cached.BaselineID = ""
 	cached.Families = append([]CachedFamilyV2(nil), cached.Families...)
 	for i := range cached.Families {
 		facts := cached.Families[i].Facts

@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -48,7 +49,7 @@ func TestCacheV2StoreLoadRoundTrip(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("LoadV2: ok=%v err=%v", ok, err)
 	}
-	if loaded.BaselineID != "req-1" || len(loaded.Families) != 1 || loaded.Families[0].FamilyID != "root-1" {
+	if loaded.BaselineID != "" || len(loaded.Families) != 1 || loaded.Families[0].FamilyID != "root-1" {
 		t.Fatalf("round-tripped snapshot mismatch: %+v", loaded)
 	}
 	if len(loaded.CodexHeaders) != 1 || loaded.CodexHeaders[0].SessionID != "s1" {
@@ -63,7 +64,7 @@ func TestCacheV2StoreScrubsNamesAndRemotePaths(t *testing.T) {
 	family.Metadata.Names = []remotefacts.MetadataName{{ID: "root-1", Name: "private thread name"}}
 	family.Sessions[0].Display.WorkingDirectory = "/remote/private/repository/pkg"
 	family.Sessions[0].Display.Repository = &repository
-	snapshot := CachedSnapshotV2{Families: []CachedFamilyV2{{
+	snapshot := CachedSnapshotV2{BaselineID: "req-1", Families: []CachedFamilyV2{{
 		Vendor: vendors.AgentClaude, FamilyID: "root-1", Facts: family,
 		Fingerprint: "fp-1", LastSuccessAtMs: 1000,
 	}}}
@@ -80,6 +81,68 @@ func TestCacheV2StoreScrubsNamesAndRemotePaths(t *testing.T) {
 	}
 	if names := loaded.Families[0].Facts.Metadata.Names; len(names) != 0 {
 		t.Fatalf("cached metadata names were retained: %+v", names)
+	}
+	if loaded.BaselineID != "" {
+		t.Fatalf("cached snapshot remained an incremental baseline: %q", loaded.BaselineID)
+	}
+	if snapshot.BaselineID != "req-1" {
+		t.Fatalf("StoreV2 mutated the live snapshot: %q", snapshot.BaselineID)
+	}
+}
+
+func TestCacheV2MigratesPrivacyUnsafeSnapshotWhileDisabled(t *testing.T) {
+	root := t.TempDir()
+	cache := NewCache(root)
+	const sourceID = "r_0123456789abcdef"
+	family := validFamily(t, "root-1")
+	repository := "/remote/private/repository"
+	family.Metadata.Names = []remotefacts.MetadataName{{ID: "root-1", Name: "private thread name"}}
+	family.Sessions[0].Display.WorkingDirectory = "/remote/private/repository/pkg"
+	family.Sessions[0].Display.Repository = &repository
+	legacy := CachedSnapshotV2{
+		Version: privacyUnsafeCacheV2Version, BaselineID: "req-1",
+		Families: []CachedFamilyV2{{
+			Vendor: vendors.AgentClaude, FamilyID: "root-1", Facts: family,
+			Fingerprint: "fp-1", LastSuccessAtMs: 1000,
+		}},
+	}
+	path, err := cache.snapshotV2Path(sourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(Options{Cache: cache})
+	if err := manager.ApplySettings(&settings.RemoteSettings{
+		ID: sourceID, SSHAlias: "agent-box", Enabled: false,
+	}); err != nil {
+		t.Fatalf("ApplySettings migration: %v", err)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var migrated CachedSnapshotV2
+	if err := json.Unmarshal(persisted, &migrated); err != nil {
+		t.Fatal(err)
+	}
+	if migrated.Version != cacheV2Version || migrated.BaselineID != "" {
+		t.Fatalf("migrated snapshot = %+v", migrated)
+	}
+	display := migrated.Families[0].Facts.Sessions[0].Display
+	if display.WorkingDirectory != "" || display.Repository != nil || len(migrated.Families[0].Facts.Metadata.Names) != 0 {
+		t.Fatalf("migrated snapshot retained private display details: %+v", migrated.Families[0].Facts)
+	}
+	if _, ok, err := cache.LoadV2(sourceID); err != nil || !ok {
+		t.Fatalf("rewritten snapshot did not load: ok=%v err=%v", ok, err)
 	}
 }
 

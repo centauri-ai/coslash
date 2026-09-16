@@ -83,6 +83,32 @@ function checkLink(source, rawLink) {
   }
 }
 
+function linksFromSrcset(srcset) {
+  const links = [];
+  let position = 0;
+
+  while (position < srcset.length) {
+    while (/[,\t\n\f\r ]/.test(srcset[position] ?? "")) position++;
+    const start = position;
+    while (position < srcset.length && !/[\t\n\f\r ]/.test(srcset[position])) {
+      position++;
+    }
+    let link = srcset.slice(start, position);
+    if (link === "") break;
+
+    if (link.endsWith(",")) {
+      link = link.replace(/,+$/, "");
+      if (link !== "") links.push(link);
+      continue;
+    }
+
+    links.push(link);
+    while (position < srcset.length && srcset[position] !== ",") position++;
+  }
+
+  return links;
+}
+
 for (const source of files) {
   const content = readFileSync(resolve(root, source), "utf8");
   const links = [];
@@ -97,10 +123,11 @@ for (const source of files) {
   )) {
     links.push(match[1] ?? match[2]);
   }
-  for (const match of content.matchAll(
-    /(?:href|src|srcset)=["']([^"']+)["']/gi,
-  )) {
+  for (const match of content.matchAll(/(?:href|src)=["']([^"']+)["']/gi)) {
     links.push(match[1]);
+  }
+  for (const match of content.matchAll(/srcset=["']([^"']+)["']/gi)) {
+    links.push(...linksFromSrcset(match[1]));
   }
   for (const link of links) checkLink(source, link);
 }

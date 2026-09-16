@@ -276,6 +276,11 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	}
 	manager.helperOwnershipCorrupt = corruptOwnership
 	if !remote.Enabled {
+		// LoadV2 also performs one-time privacy migrations. Run it even for a
+		// disabled source so an old snapshot is not left on disk indefinitely.
+		if _, _, err := manager.cache.LoadV2(remote.ID); err != nil {
+			return err
+		}
 		manager.cancelLifeLocked()
 		manager.refreshing = false
 		manager.state = StateDisabled
