@@ -500,7 +500,7 @@ export function CoslashPage() {
       .then(() => {
         if (!publicationReloadRequested) refreshSessions();
       })
-      .catch(() => undefined)
+      .catch(() => refreshSessions())
       .finally(() => {
         setRemoteRetryInFlight(false);
         if (diagnosticsOpen) refreshDiagnostics();
