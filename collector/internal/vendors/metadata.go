@@ -13,6 +13,15 @@ type SessionUsage struct {
 	RecordedCost  *float64
 }
 
+type SessionRelationship struct {
+	ParentID  string
+	SpawnKey  string
+	Task      string
+	Time      int64
+	Completed bool
+	Active    bool
+}
+
 // SessionMetadata carries raw liveness signals, not final status strings: the final
 // status needs parse output (InTurn, lastActivity), so resolveStatus computes it.
 // A Live value of "interactive" gets the busy/idle refinement; anything else
@@ -24,6 +33,7 @@ type SessionEnrichment struct {
 	FileEdits                                                []session.FileEdit
 	CommitObservations                                       []session.CommitObservation
 	PullRequests                                             int
+	Relationship                                             SessionRelationship
 	Usage                                                    SessionUsage
 }
 
