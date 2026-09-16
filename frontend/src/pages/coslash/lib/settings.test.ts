@@ -117,7 +117,7 @@ describe('remote executable settings', () => {
     );
   });
 
-  it.each(['/', 'relative/claude', '~claude', '~/', '/valid/path\n'])(
+  it.each(['/', 'relative/claude', '~claude', '~/', '/opt/codex/', '~/bin/', '/valid/path\n'])(
     'rejects invalid executable path %j',
     (path) => {
       expect(remoteExecutablePathError(path)).not.toBeNull();
@@ -152,6 +152,8 @@ describe('remote executable settings', () => {
     ['/bin/codex\0bad', false],
     ['/bin/codex\rbad', false],
     ['/bin/codex\nbad', false],
+    ['/opt/codex/', false],
+    ['~/bin/', false],
   ] as const)('matches the published schema path contract for %j', (path, accepted) => {
     const schema = JSON.parse(settingsSchemaSource) as {
       $defs: { remoteExecutablePath: { minLength: number; maxLength: number; pattern: string } };

@@ -250,16 +250,48 @@ export function SettingsDialog({
   const selectedTerminal = response?.options.terminals.find((option) => option.id === draft?.launch.terminal);
   const synthesisBackendAvailable = draft?.synthesis.enabled !== true || selectedBackend?.available === true;
 
+  const reconcileSuccessfulSettingsSave = useCallback((saved: CoslashSettings) => {
+    const savedExecutables = normalizeRemoteExecutableSettings(saved.remote?.executables);
+    const previouslyAcknowledged = acknowledgedExecutables.current;
+    acknowledgedExecutables.current = savedExecutables;
+    // Keep a newer explicit executable commit authoritative over this queued snapshot.
+    if (!remoteExecutableSettingsEqual(lastSubmittedExecutables.current, previouslyAcknowledged)) return;
+
+    lastSubmittedExecutables.current = savedExecutables;
+    setDraft((current) => {
+      if (
+        !current?.remote ||
+        !saved.remote ||
+        current.remote.id !== saved.remote.id ||
+        !remoteExecutableSettingsEqual(current.remote.executables, previouslyAcknowledged)
+      ) {
+        return current;
+      }
+      const { executables: _discarded, ...remote } = current.remote;
+      return {
+        ...current,
+        remote: {
+          ...remote,
+          ...(Object.keys(savedExecutables).length > 0 ? { executables: savedExecutables } : {}),
+        },
+      };
+    });
+  }, []);
+
   const saveSettings = useCallback(
     (next: CoslashSettings, ownershipAction?: RemoteOwnershipAction) => {
-      const pending = saveChain.current.then(() => onSave(next, ownershipAction));
+      const pending = saveChain.current.then(async () => {
+        const saved = await onSave(next, ownershipAction);
+        if (saved) reconcileSuccessfulSettingsSave(next);
+        return saved;
+      });
       saveChain.current = pending.then(
         () => undefined,
         () => undefined,
       );
       return pending;
     },
-    [onSave],
+    [onSave, reconcileSuccessfulSettingsSave],
   );
 
   const save = async () => {

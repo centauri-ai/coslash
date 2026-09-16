@@ -11,7 +11,7 @@ describe('RemoteExecutableField', () => {
     );
 
     expect(markup).toContain('aria-invalid="true"');
-    expect(markup).toContain('Use an absolute path or a path beginning with ~/.');
+    expect(markup).toContain('Use an absolute or ~/. file path without a trailing slash.');
   });
 });
 
