@@ -156,6 +156,7 @@ export function MachinesSettingsSection({
   revealInvalidExecutables = false,
   onExecutablesChange,
   onExecutablesCommit,
+  executablesDisabled = false,
 }: {
   remote: RemoteHostSettings | null | undefined;
   onAddHost: (sshAlias: string) => Promise<boolean>;
@@ -166,6 +167,7 @@ export function MachinesSettingsSection({
   revealInvalidExecutables?: boolean;
   onExecutablesChange: (executables: RemoteExecutableSettings) => void;
   onExecutablesCommit: (executables: RemoteExecutableSettings) => void;
+  executablesDisabled?: boolean;
 }) {
   const [alias, setAlias] = useState('');
   const [stage, setStage] = useState<SetupStage>('idle');
@@ -396,7 +398,7 @@ export function MachinesSettingsSection({
                         key={agent}
                         agent={agent}
                         path={path}
-                        disabled={busy}
+                        disabled={busy || executablesDisabled}
                         autoFocus={revealInvalidExecutables && agent === firstInvalidExecutable}
                         onChange={(value) => setExecutable(agent, value)}
                         onBlur={commitExecutables}
