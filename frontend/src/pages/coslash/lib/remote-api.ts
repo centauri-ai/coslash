@@ -48,7 +48,7 @@ export async function retryRemoteRefresh(): Promise<{ status: number; machine: M
 
 const REMOTE_REFRESH_POLL_INTERVAL_MS = 400;
 
-function remoteRefreshInProgress(machine: MachineFact): boolean {
+export function remoteRefreshInProgress(machine: MachineFact): boolean {
   return (
     machine.refreshing ||
     machine.state === 'connecting' ||

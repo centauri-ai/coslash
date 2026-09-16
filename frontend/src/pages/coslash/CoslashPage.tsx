@@ -366,6 +366,7 @@ export function CoslashPage() {
     sessionsVersion,
     retrySessions,
     acceptRemoteStatus,
+    refreshSessions,
   } = useSessions({
     localWindow: shareEnabled ? 'all' : timeWindow,
     remoteWindow: timeWindow,
@@ -492,11 +493,16 @@ export function CoslashPage() {
   const handleRemoteRetry = () => {
     if (remoteRetryInFlight) return;
     setRemoteRetryInFlight(true);
-    void retryRemoteRefreshAndWait(acceptRemoteStatus)
+    let publicationReloadRequested = false;
+    void retryRemoteRefreshAndWait((machine) => {
+      publicationReloadRequested = acceptRemoteStatus(machine) || publicationReloadRequested;
+    })
+      .then(() => {
+        if (!publicationReloadRequested) refreshSessions();
+      })
       .catch(() => undefined)
       .finally(() => {
         setRemoteRetryInFlight(false);
-        retrySessions();
         if (diagnosticsOpen) refreshDiagnostics();
       });
   };

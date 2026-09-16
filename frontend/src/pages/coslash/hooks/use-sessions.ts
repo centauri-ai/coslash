@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import { decodeMachineFacts, type MachineFact } from '@/pages/coslash/lib/machines';
-import { waitForRemoteRefresh } from '@/pages/coslash/lib/remote-api';
+import { remoteRefreshInProgress, waitForRemoteRefresh } from '@/pages/coslash/lib/remote-api';
 import {
   isLocalSource,
   withLocalSourceDefaults,
@@ -13,13 +13,6 @@ import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-windo
 
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
-function remoteRefreshInProgress(machines: MachineFact[]) {
-  return machines.some(
-    (machine) =>
-      !isLocalSource(machine.sourceId) &&
-      (machine.refreshing || machine.state === 'connecting' || machine.reason === 'initial_refresh'),
-  );
-}
 
 export type FileSelection = {
   sourceId: string;
@@ -73,10 +66,7 @@ export class PublicationReloadTracker {
       return false;
     }
     this.requested = publicationId;
-    if (this.inFlight) {
-      this.pending = true;
-      return false;
-    }
+    if (this.inFlight) return false;
     return true;
   }
 
@@ -263,7 +253,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [sessionsVersion, setSessionsVersion] = useState(0);
-  const remoteStatusHandler = useRef<(machine: MachineFact) => void>(() => {});
+  const remoteStatusHandler = useRef<(machine: MachineFact) => boolean>(() => false);
+  const backgroundRefreshHandler = useRef<() => void>(() => {});
 
   useEffect(() => {
     const controller = new AbortController();
@@ -335,15 +326,16 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
 
     function requestPublication(publicationId: string | undefined) {
       if (publicationReload.observe(publicationId)) load(true);
+      return publicationId != null && publicationReload.hasPendingPublication();
     }
 
     function acceptRemoteStatus(machine: MachineFact) {
       setMachines((current) => current.map((item) => (item.sourceId === machine.sourceId ? machine : item)));
-      requestPublication(machine.publicationId);
+      return requestPublication(machine.publicationId);
     }
 
     function startRemotePoll(machine: MachineFact) {
-      if (pollingRemote || !remoteRefreshInProgress([machine])) return;
+      if (pollingRemote || !remoteRefreshInProgress(machine)) return;
       pollingRemote = true;
       void waitForRemoteRefresh(machine, controller.signal, acceptRemoteStatus)
         .then(() => {
@@ -356,10 +348,12 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     }
 
     remoteStatusHandler.current = acceptRemoteStatus;
+    backgroundRefreshHandler.current = () => load(true);
     load(false);
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer);
-      remoteStatusHandler.current = () => {};
+      remoteStatusHandler.current = () => false;
+      backgroundRefreshHandler.current = () => {};
       controller.abort();
     };
   }, [localWindow, remoteWindow, retryCount]);
@@ -378,5 +372,6 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     sessionsVersion,
     retrySessions,
     acceptRemoteStatus: (machine: MachineFact) => remoteStatusHandler.current(machine),
+    refreshSessions: () => backgroundRefreshHandler.current(),
   };
 }

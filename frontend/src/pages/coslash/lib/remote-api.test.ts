@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MachineFact } from './machines';
-import { retryRemoteRefreshAndWait, waitForRemoteRefresh } from './remote-api';
+import { remoteRefreshInProgress, retryRemoteRefreshAndWait, waitForRemoteRefresh } from './remote-api';
 
 const connectingMachine: MachineFact = {
   sourceId: 'r_0123456789abcdef',
@@ -11,6 +11,12 @@ const connectingMachine: MachineFact = {
 
 const readyMachine: MachineFact = { ...connectingMachine, state: 'ok', complete: true };
 const refreshingMachine = { ...readyMachine, refreshing: true };
+
+describe('remoteRefreshInProgress', () => {
+  it('includes helper discovery probes', () => {
+    expect(remoteRefreshInProgress({ ...readyMachine, helperProbeState: 'probing' })).toBe(true);
+  });
+});
 
 describe('retryRemoteRefreshAndWait', () => {
   afterEach(() => {

@@ -140,6 +140,14 @@ describe('sessionsRequestPath', () => {
 });
 
 describe('PublicationReloadTracker', () => {
+  it('does not reload when an in-flight response includes the observed publication', () => {
+    const tracker = new PublicationReloadTracker();
+    expect(tracker.beginRequest()).toBe(true);
+    expect(tracker.observe('publication-a')).toBe(false);
+    expect(tracker.accept('publication-a')).toBe(false);
+    expect(tracker.hasPendingPublication()).toBe(false);
+  });
+
   it('coalesces repeated publications and closes the publication-during-fetch race', () => {
     const tracker = new PublicationReloadTracker();
     expect(tracker.beginRequest()).toBe(true);
