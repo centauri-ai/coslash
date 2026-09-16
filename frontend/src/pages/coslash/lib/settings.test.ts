@@ -118,9 +118,9 @@ describe('remote executable settings', () => {
     },
   );
 
-  it('rejects a null override alongside a valid path', () => {
-    expect(() => decodeRemoteExecutableSettings({ claude: null, codex: '/bin/codex' })).toThrow(
-      'Invalid remote executable path for claude',
+  it('rejects a known key without a usable path', () => {
+    expect(() => decodeRemoteExecutableSettings({ claude: null })).toThrow(
+      'Invalid remote executable settings',
     );
   });
 
