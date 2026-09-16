@@ -732,8 +732,13 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 			UsageData map[string]struct {
 				CostInCents *float64 `json:"costInCents"`
 			} `json:"usageData"`
-			ContextTokensUsed *int `json:"contextTokensUsed"`
-			ContextTokenLimit *int `json:"contextTokenLimit"`
+			ContextTokensUsed         *int `json:"contextTokensUsed"`
+			ContextTokenLimit         *int `json:"contextTokenLimit"`
+			LatestConversationSummary struct {
+				Summary struct {
+					Text string `json:"summary"`
+				} `json:"summary"`
+			} `json:"latestConversationSummary"`
 		}
 		if json.Unmarshal([]byte(value), &item) != nil {
 			continue
@@ -758,6 +763,7 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 		} else if id, ok := strings.CutPrefix(key, "composerData:"); ok && transcriptIDPattern.MatchString(id) {
 			id = canonicalCursorID(id)
 			fallbacks[id] = strings.TrimSpace(item.ModelConfig.ModelName)
+			metadata.Session(id).CompactionSeed = strings.TrimSpace(item.LatestConversationSummary.Summary.Text)
 			usage := metadata.Session(id).Usage
 			if item.ContextTokensUsed != nil && *item.ContextTokensUsed >= 0 {
 				usage.ContextTokens = item.ContextTokensUsed

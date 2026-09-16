@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -393,7 +394,7 @@ func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 	const id = "01234567-89ab-4def-8123-456789abcdef"
 	if _, err := db.Exec(`INSERT INTO cursorDiskKV VALUES (?, ?), (?, ?)`,
 		"bubbleId:"+id+":1", `{"createdAt":"2026-09-15T00:00:00Z","modelInfo":{"modelName":"claude-4.6-opus-high-thinking"}}`,
-		"composerData:"+id, `{"contextTokensUsed":48200,"contextTokenLimit":256000}`,
+		"composerData:"+id, `{"contextTokensUsed":48200,"contextTokenLimit":256000,"latestConversationSummary":{"summary":{"summary":"  Work completed before compaction.  "}}}`,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -409,5 +410,13 @@ func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 	}
 	if usage.ContextWindow == nil || *usage.ContextWindow != 256000 {
 		t.Fatalf("context window = %v, want 256000", usage.ContextWindow)
+	}
+	if got := metadata.Session(id).CompactionSeed; got != "Work completed before compaction." {
+		t.Fatalf("compaction seed = %q, want stored conversation summary", got)
+	}
+	parsed := &vendors.ParsedSession{Session: &session.Session{}}
+	vendors.ApplySessionEnrichment(parsed, metadata.Session(id))
+	if got := parsed.Session.CompactionSeed; got != "Work completed before compaction." {
+		t.Fatalf("applied compaction seed = %q, want stored conversation summary", got)
 	}
 }

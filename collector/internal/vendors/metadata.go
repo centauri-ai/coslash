@@ -29,6 +29,7 @@ type SessionRelationship struct {
 // may still provide a persisted or derived status hint.
 type SessionEnrichment struct {
 	Name, Live, Summary, Entrypoint, WorkingDirectory, Model string
+	CompactionSeed                                           string
 	StartedAt, LastActivityAt                                int64
 	FileEdits                                                []session.FileEdit
 	CommitObservations                                       []session.CommitObservation
@@ -66,6 +67,9 @@ func ApplySessionEnrichment(parsed *ParsedSession, enrichment *SessionEnrichment
 	s := parsed.Session
 	if enrichment.Summary != "" {
 		s.Summary = &enrichment.Summary
+	}
+	if enrichment.CompactionSeed != "" {
+		s.CompactionSeed = enrichment.CompactionSeed
 	}
 	if enrichment.Entrypoint != "" {
 		s.Entrypoint = &enrichment.Entrypoint
