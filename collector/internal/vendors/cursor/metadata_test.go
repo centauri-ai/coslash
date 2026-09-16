@@ -380,3 +380,34 @@ func createMetadataTestDB(path string) error {
 	); CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`)
 	return err
 }
+
+func TestLoadIDEModelsExposesContextUsageAsTokens(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	if _, err := db.Exec(`INSERT INTO cursorDiskKV VALUES (?, ?), (?, ?)`,
+		"bubbleId:"+id+":1", `{"createdAt":"2026-09-15T00:00:00Z","modelInfo":{"modelName":"claude-4.6-opus-high-thinking"}}`,
+		"composerData:"+id, `{"contextTokensUsed":48200,"contextTokenLimit":256000}`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata := vendors.EmptySessionMetadata()
+	loadIDEModelsDB(metadata, db, nil)
+	usage := metadata.Session(id).Usage
+	if got := usage.Tokens["claude-opus-4-6"].InputTokens; got != 48200 {
+		t.Fatalf("input tokens = %d, want 48200", got)
+	}
+	if usage.ContextTokens == nil || *usage.ContextTokens != 48200 {
+		t.Fatalf("context tokens = %v, want 48200", usage.ContextTokens)
+	}
+	if usage.ContextWindow == nil || *usage.ContextWindow != 256000 {
+		t.Fatalf("context window = %v, want 256000", usage.ContextWindow)
+	}
+}
