@@ -217,9 +217,10 @@ func TestTimeoutStatusLookupUsesOnlyTheOriginalKeyAndReturnsAcceptedRoute(t *tes
 
 func TestTimedOutShareReconcilesStatusBeforeReturningRetryableFailure(t *testing.T) {
 	repository := "github.com/centauri-ai/coslash"
+	cost := 0.0
 	found := &session.Session{
 		Agent: "codex", ID: "source", Repository: &repository, StartedAt: 1, LastActivityTime: 2,
-		Tokens: map[string]session.ModelTokens{},
+		Tokens: map[string]session.ModelTokens{}, Cost: &cost,
 	}
 	preview := sessionpreview.Build(*found, sessionexport.BuildOptions{CollectorVersion: "test"}, 2)
 	payload, err := sessionpreview.UploadBytes(preview)

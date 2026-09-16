@@ -215,6 +215,9 @@ func eligibilityFor(value *session.Session, sourceComplete, stale bool) string {
 	if value.Status != nil {
 		return "running"
 	}
+	if value.Cost == nil {
+		return "failed"
+	}
 	return "eligible"
 }
 

@@ -178,7 +178,7 @@ function SessionsStats({
   const aggregateSessions = sessionsForAggregates(sessions);
   const knownCosts = aggregateSessions.map((session) => session.cost);
   const cost = knownCosts.some((value) => value != null)
-    ? knownCosts.reduce((sum, value) => sum + (value ?? 0), 0)
+    ? knownCosts.reduce<number>((sum, value) => sum + (value ?? 0), 0)
     : null;
   return (
     <div className="flex w-full min-w-0 items-center justify-between gap-3">
