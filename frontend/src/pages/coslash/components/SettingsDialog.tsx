@@ -213,7 +213,6 @@ export function SettingsDialog({
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
   const initializedForOpen = useRef(false);
   const lastSubmittedExecutables = useRef<RemoteExecutableSettings>({ ...initialExecutables });
-  const pendingExecutableSaves = useRef(0);
   const saveChain = useRef(Promise.resolve());
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
@@ -224,11 +223,6 @@ export function SettingsDialog({
       return;
     }
     if (!response || initializedForOpen.current) return;
-    if (pendingExecutableSaves.current > 0) {
-      setDisclosureOpen(false);
-      initializedForOpen.current = true;
-      return;
-    }
     const executables = { ...(response.settings.remote?.executables ?? {}) };
     setDraft(initialSettingsDraft(response));
     setExecutableDraft(executables);
@@ -292,25 +286,13 @@ export function SettingsDialog({
         },
       };
       setDraft(next);
-      pendingExecutableSaves.current += 1;
-      void saveSettings(next)
-        .then(
-          (saved) => {
-            if (saved) {
-              setTheme(next.appearance.theme);
-            } else if (remoteExecutableSettingsEqual(lastSubmittedExecutables.current, normalized)) {
-              lastSubmittedExecutables.current = previous;
-            }
-          },
-          () => {
-            if (remoteExecutableSettingsEqual(lastSubmittedExecutables.current, normalized)) {
-              lastSubmittedExecutables.current = previous;
-            }
-          },
-        )
-        .finally(() => {
-          pendingExecutableSaves.current -= 1;
-        });
+      void saveSettings(next).then((saved) => {
+        if (saved) {
+          setTheme(next.appearance.theme);
+        } else if (remoteExecutableSettingsEqual(lastSubmittedExecutables.current, normalized)) {
+          lastSubmittedExecutables.current = previous;
+        }
+      });
     },
     [draft, saveSettings],
   );

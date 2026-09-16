@@ -13,11 +13,11 @@ export type RemoteHostSettings = {
   executables?: RemoteExecutableSettings;
 };
 
-export type RemoteExecutableAgent = 'claude' | 'codex';
+export type RemoteExecutableAgent = 'claude' | 'codex' | 'opencode';
 
 export type RemoteExecutableSettings = Partial<Record<RemoteExecutableAgent, string>>;
 
-const REMOTE_EXECUTABLE_AGENTS = ['claude', 'codex'] as const;
+const REMOTE_EXECUTABLE_AGENTS = ['claude', 'codex', 'opencode'] as const;
 
 // Request-only intent sent beside a proposed settings replacement. It is not
 // serialized into settings.json.

@@ -111,12 +111,6 @@ describe('remote executable settings', () => {
     ).toMatchObject({ executables: { claude: '/opt/claude/bin/claude', codex: '~/bin/codex' } });
   });
 
-  it('rejects an OpenCode override while remote OpenCode sessions are unsupported', () => {
-    expect(() => decodeRemoteExecutableSettings({ opencode: '/opt/opencode/bin/opencode' })).toThrow(
-      'Invalid remote executable settings',
-    );
-  });
-
   it.each(['/', 'relative/claude', '~claude', '~/', '/valid/path\n'])(
     'rejects invalid executable path %j',
     (path) => {

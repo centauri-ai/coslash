@@ -115,6 +115,7 @@ export function RemoteExecutableField({
   const name: Record<RemoteExecutableAgent, string> = {
     claude: 'Claude',
     codex: 'Codex',
+    opencode: 'OpenCode',
   };
   const error = remoteExecutablePathError(path);
   return (
@@ -372,7 +373,7 @@ export function MachinesSettingsSection({
                   <div className="text-muted-foreground text-[11px] leading-relaxed">
                     Optional advanced overrides. Leave blank to discover the executable on this host.
                   </div>
-                  {(['claude', 'codex'] as const).map((agent) => {
+                  {(['claude', 'codex', 'opencode'] as const).map((agent) => {
                     const path = executables?.[agent] ?? '';
                     return (
                       <RemoteExecutableField
