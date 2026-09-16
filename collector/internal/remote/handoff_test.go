@@ -92,7 +92,7 @@ func TestStageHandoffRemovesPartialFileOnTransferFailure(t *testing.T) {
 
 func TestStageHandoffCommandRejectsEarlyEOF(t *testing.T) {
 	home := t.TempDir()
-	command := stageHandoffCommand(testHandoffName, len("complete payload"))
+	command := stageHandoffCommand(testHandoffName, len("complete payload"), 3600)
 	process := exec.Command("/bin/sh", "-c", command)
 	process.Env = append(os.Environ(), "HOME="+home)
 	process.Stdin = strings.NewReader("partial")
@@ -102,6 +102,31 @@ func TestStageHandoffCommandRejectsEarlyEOF(t *testing.T) {
 	path := filepath.Join(home, ".coslash", "handoffs", testHandoffName)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("truncated handoff still exists: %v", err)
+	}
+}
+
+func TestStageHandoffCommandExpiresCommittedFile(t *testing.T) {
+	home := t.TempDir()
+	command := stageHandoffCommand(testHandoffName, len("private handoff"), 1)
+	process := exec.Command("/bin/sh", "-c", command)
+	process.Env = append(os.Environ(), "HOME="+home)
+	process.Stdin = strings.NewReader("private handoff")
+	if err := process.Run(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".coslash", "handoffs", testHandoffName)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("committed handoff was not created: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("committed handoff did not expire")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

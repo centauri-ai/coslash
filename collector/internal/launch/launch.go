@@ -79,7 +79,13 @@ func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, h
 	if err != nil {
 		return err
 	}
-	return openTerminal(terminal, ".", shellJoin("ssh", "-tt", alias, remoteCommand))
+	return openTerminal(terminal, ".", remoteSSHCommand(alias, remoteCommand))
+}
+
+func remoteSSHCommand(alias, command string) string {
+	return shellJoin(
+		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath="+settings.SSHControlPath(), alias, command,
+	)
 }
 
 func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName string) (string, error) {
@@ -251,7 +257,7 @@ func remoteCLICommand(agent, sessionID, mode, handoffName string) (string, error
 		return prefix + `umask 077; profile_name=` + shellQuote(profileName) +
 			`; profile="${CODEX_HOME:-"$HOME/.codex"}/$profile_name.config.toml"; ` +
 			`trap 'rm -f "$handoff" "$profile"' EXIT HUP INT TERM; ` +
-			`{ printf %s 'developer_instructions = '; cat "$handoff"; printf '\n'; } > "$profile" || exit 1; ` +
+			`{ printf %s 'developer_instructions = ' && cat "$handoff" && printf '\n'; } > "$profile" || exit 1; ` +
 			shellJoin(cli, "--profile", profileName), nil
 	case vendors.AgentOpenCode:
 		return prefix + `trap 'rm -f "$handoff"' EXIT HUP INT TERM; cat "$handoff" > /dev/null || exit 1; ` +

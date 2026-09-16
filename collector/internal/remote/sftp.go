@@ -25,7 +25,7 @@ var aliasPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 const defaultControlPersist = "10m"
 
 func controlSocketPath() string {
-	return filepath.Join(settings.Home(), "ssh", "cm-%C")
+	return settings.SSHControlPath()
 }
 
 func ensureSSHControlDir() error {
