@@ -249,7 +249,7 @@ Successful data commands write their result to standard output. Failures write `
 
 ### Agent skills
 
-Install the four coSlash skills for Claude Code:
+Install the five coSlash skills for Claude Code:
 
 ```sh
 claude plugin marketplace add centauri-ai/coslash
@@ -263,7 +263,7 @@ codex plugin marketplace add centauri-ai/coslash
 codex plugin add coslash@centauri-ai
 ```
 
-The `sessions`, `handoff`, and `send` skills require the coSlash app to be running. `doctor` works while the app is stopped.
+The `sessions`, `handoff`, `send`, and `review` skills require the coSlash app to be running. `doctor` works while the app is stopped.
 
 ## Develop
 
