@@ -110,8 +110,9 @@ func helperRefreshWithOpen(
 	target helperTarget,
 	open OpenOptions,
 ) (refreshOutcome, error) {
+	baseline = snapshotOrEmpty(&baseline)
 	request, err := buildLocalRequest(
-		fmt.Sprintf("helper-%d", now.UnixNano()), since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline),
+		fmt.Sprintf("helper-%d", now.UnixNano()), baseline.SourceID, since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline),
 	)
 	if err != nil {
 		return refreshOutcome{}, fmt.Errorf("build helper collection request: %w", err)
@@ -119,7 +120,7 @@ func helperRefreshWithOpen(
 	effectiveBaseline := baseline
 	if request.BaselineMode == remoteprotocol.BaselineNone {
 		// Omitted known data must not be treated as an implicit baseline.
-		effectiveBaseline = CachedSnapshotV2{Version: cacheV2Version, CodexHeaders: baseline.CodexHeaders}
+		effectiveBaseline = CachedSnapshotV2{Version: cacheV2Version, SourceID: baseline.SourceID, CodexHeaders: baseline.CodexHeaders}
 	}
 	result, collectErr := HelperCollect(ctx, alias, target.path, request, toGeneration(effectiveBaseline), open)
 	snapshot := fromGeneration(result.Proposal, result.Coverage, now.UnixMilli(), result.RoundTrip.Milliseconds(), nil)

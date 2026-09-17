@@ -2,8 +2,9 @@
 
 `coslash-helper` parses Claude and Codex transcripts beside the data and writes
 bounded protocol v1 records to stdout. The Mac keeps settings, cache,
-composition, health, and UI. The helper keeps nothing: no daemon, no listener, no
-state between runs, and no transcript ever leaves the machine.
+composition, health, and UI. The helper keeps nothing: no daemon, no listener,
+and no state between runs. Raw transcript rows never leave the Linux host;
+complete supported parsed Codex records do cross the trusted SSH boundary.
 
 ## Commands
 
@@ -88,8 +89,9 @@ the UI can offer the right repair.
 
 ## Privacy
 
-Only the facts in `internal/remotefacts` cross the boundary. stdout carries no
-transcript rows, prompts, tool output, absolute paths, working directories, or
-environment values, and stderr is bounded diagnostics that the Mac redacts before
-showing. Codex's prompt-derived fallback name is cleared at the helper adapter;
-approved session-index names remain available as bounded display text.
+stdout carries bounded `internal/remotefacts` rows plus, for changed Codex
+families, a validated `full-session-record/v1`. The complete record can contain
+parsed prompts, summaries, commands, working directories, subagent detail, and
+file-change bodies. It contains no raw transcript rows, SSH configuration,
+coSlash credentials, sockets, or environment values. stderr remains bounded
+diagnostics that the Mac redacts before showing.

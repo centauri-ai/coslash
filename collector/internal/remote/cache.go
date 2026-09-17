@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -227,8 +230,9 @@ func age(fetchedAtMs int64, now time.Time) time.Duration {
 // stays visible (marked stale) until the first v2 generation commits, and a
 // v1 fingerprint is never reinterpreted as v2 baseline state — the first v2
 // refresh always starts from an empty generation.
-const cacheV2Version = 4
-const maxCacheV2Bytes = 64 << 20
+const cacheV2Version = 5
+const legacyCacheV2Version = 4
+const maxCacheV2Bytes = 256 << 20
 
 // CachedFamilyV2 is one durable family entry. Vendor and FamilyID are stored
 // alongside Facts (rather than only as a map key) so the file round-trips
@@ -254,14 +258,25 @@ type CachedCodexHeader struct {
 }
 
 type CachedSnapshotV2 struct {
-	Version         int                 `json:"version"`
-	BaselineID      string              `json:"baselineId"`
-	CoverageSinceMs int64               `json:"coverageSinceMs"`
-	Families        []CachedFamilyV2    `json:"families"`
-	Coverage        []AgentCoverage     `json:"coverage,omitempty"`
-	FetchedAtMs     int64               `json:"fetchedAtMs"`
-	RoundTripMs     int64               `json:"roundTripMs"`
-	CodexHeaders    []CachedCodexHeader `json:"codexHeaders,omitempty"`
+	Version         int                         `json:"version"`
+	SourceID        string                      `json:"sourceId,omitempty"`
+	BaselineID      string                      `json:"baselineId"`
+	CoverageSinceMs int64                       `json:"coverageSinceMs"`
+	Families        []CachedFamilyV2            `json:"families"`
+	Coverage        []AgentCoverage             `json:"coverage,omitempty"`
+	FetchedAtMs     int64                       `json:"fetchedAtMs"`
+	RoundTripMs     int64                       `json:"roundTripMs"`
+	CodexHeaders    []CachedCodexHeader         `json:"codexHeaders,omitempty"`
+	FullRecords     []remoteprotocol.FullRecord `json:"fullRecords,omitempty"`
+	ChangeBodies    []CachedChangeBody          `json:"changeBodies,omitempty"`
+}
+
+// CachedChangeBody keeps large change text outside the full-record row while
+// retaining exact revision/change ownership and independent integrity data.
+type CachedChangeBody struct {
+	RevisionID string `json:"revisionId"`
+	ChangeID   string `json:"changeId"`
+	Text       string `json:"text"`
 }
 
 func (c *Cache) snapshotV2Path(sourceID string) (string, error) {
@@ -270,6 +285,14 @@ func (c *Cache) snapshotV2Path(sourceID string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "snapshot-v2.json"), nil
+}
+
+func (c *Cache) snapshotV2PreviousPath(sourceID string) (string, error) {
+	dir, err := c.sourceDir(sourceID)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "snapshot-v2.previous.json"), nil
 }
 
 func (c *Cache) helperOwnershipPath(sourceID string) (string, error) {
@@ -373,19 +396,38 @@ func (c *Cache) RemoveHelperVersion(sourceID string) error {
 	return nil
 }
 
-// LoadV2 returns ok=false for a missing, corrupt, or out-of-bounds file
-// rather than an error, so a damaged cache degrades to a cold start instead of
-// blocking startup.
+// LoadV2 falls back to the previous complete generation when the current file
+// is corrupt or out of bounds. Both files are owned by this cache.
 func (c *Cache) LoadV2(sourceID string) (CachedSnapshotV2, bool, error) {
+	if dir, dirErr := c.sourceDir(sourceID); dirErr == nil {
+		cleanupCacheTemps(dir)
+	}
 	path, err := c.snapshotV2Path(sourceID)
 	if err != nil {
 		return CachedSnapshotV2{}, false, err
 	}
-	file, err := os.Open(path)
+	previous, err := c.snapshotV2PreviousPath(sourceID)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return CachedSnapshotV2{}, false, nil
+		return CachedSnapshotV2{}, false, err
+	}
+	for _, candidate := range []string{path, previous} {
+		cached, ok, loadErr := loadCachedSnapshot(candidate)
+		if loadErr != nil {
+			return CachedSnapshotV2{}, false, loadErr
 		}
+		if ok {
+			return cached, true, nil
+		}
+	}
+	return CachedSnapshotV2{}, false, nil
+}
+
+func loadCachedSnapshot(path string) (CachedSnapshotV2, bool, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return CachedSnapshotV2{}, false, nil
+	}
+	if err != nil {
 		return CachedSnapshotV2{}, false, err
 	}
 	defer file.Close()
@@ -396,21 +438,45 @@ func (c *Cache) LoadV2(sourceID string) (CachedSnapshotV2, bool, error) {
 	if info.Size() < 0 || info.Size() > maxCacheV2Bytes {
 		return CachedSnapshotV2{}, false, nil
 	}
+	data, err := io.ReadAll(io.LimitReader(file, maxCacheV2Bytes+1))
+	if err != nil || len(data) > maxCacheV2Bytes {
+		return CachedSnapshotV2{}, false, err
+	}
+	return decodeCachedSnapshot(data)
+}
+
+func decodeCachedSnapshot(data []byte) (CachedSnapshotV2, bool, error) {
 	var cached CachedSnapshotV2
-	decoder := json.NewDecoder(io.LimitReader(file, maxCacheV2Bytes+1))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&cached) != nil || decoder.Decode(&struct{}{}) != io.EOF || !validCachedSnapshotV2(cached) {
+	if decoder.Decode(&cached) != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		return CachedSnapshotV2{}, false, nil
+	}
+	if cached.Version == cacheV2Version {
+		if !hydrateChangeBodies(&cached) {
+			return CachedSnapshotV2{}, false, nil
+		}
+	} else if cached.Version != legacyCacheV2Version {
+		return CachedSnapshotV2{}, false, nil
+	}
+	if !validCachedSnapshotV2(cached) {
 		return CachedSnapshotV2{}, false, nil
 	}
 	return cached, true, nil
 }
 
 func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
-	if cached.Version != cacheV2Version || len(cached.BaselineID) > remotefacts.MaxIDBytes ||
+	if (cached.Version != cacheV2Version && cached.Version != legacyCacheV2Version) || len(cached.BaselineID) > remotefacts.MaxIDBytes ||
 		cached.CoverageSinceMs < 0 || cached.CoverageSinceMs > remotefacts.MaxTimestampMs ||
 		cached.FetchedAtMs < 0 || cached.FetchedAtMs > remotefacts.MaxTimestampMs || cached.RoundTripMs < 0 ||
 		len(cached.Families) > remoteprotocol.MaxRecords || len(cached.CodexHeaders) > DefaultMaxEntries ||
 		len(cached.Coverage) > 2 {
+		return false
+	}
+	if cached.Version == cacheV2Version && !settings.ValidRemoteID(cached.SourceID) {
+		return false
+	}
+	if cached.Version == legacyCacheV2Version && (cached.SourceID != "" || len(cached.FullRecords) != 0) {
 		return false
 	}
 	seenCoverage := map[string]bool{}
@@ -465,6 +531,15 @@ func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
 		}
 		seenHeaders[header.Key] = true
 	}
+	seenRecords := map[remoteprotocol.FullRecordKey]bool{}
+	for _, full := range cached.FullRecords {
+		key := remoteprotocol.FullRecordKey{Vendor: full.Record.Agent, SessionID: full.Record.SessionID}
+		familyKey := remoteprotocol.FamilyKey{Vendor: full.Record.Agent, FamilyID: full.FamilyID}
+		if seenRecords[key] || !seen[familyKey] || full.Record.SourceID != cached.SourceID || fullsessionv1.Validate(full.Record) != nil {
+			return false
+		}
+		seenRecords[key] = true
+	}
 	return true
 }
 
@@ -474,6 +549,12 @@ func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
 func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
 	cached = privacySafeSnapshot(cached)
 	cached.Version = cacheV2Version
+	cached.SourceID = sourceID
+	for index := range cached.FullRecords {
+		if cached.FullRecords[index].Record.SourceID != sourceID {
+			return errors.New("full record source does not match cache source")
+		}
+	}
 	dir, err := c.sourceDir(sourceID)
 	if err != nil {
 		return err
@@ -491,13 +572,119 @@ func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(cached)
+	persisted, err := splitChangeBodies(cached)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(persisted)
 	if err != nil {
 		return err
 	}
 	if len(data) > maxCacheV2Bytes {
 		return fmt.Errorf("cache v2 exceeds %d-byte limit", maxCacheV2Bytes)
 	}
+	path, err := c.snapshotV2Path(sourceID)
+	if err != nil {
+		return err
+	}
+	previous, err := c.snapshotV2PreviousPath(sourceID)
+	if err != nil {
+		return err
+	}
+	if current, ok, readErr := readValidGenerationBytes(path); readErr != nil {
+		return readErr
+	} else if ok {
+		if err := writeAtomicCacheFile(dir, previous, current); err != nil {
+			return err
+		}
+	}
+	if err := writeAtomicCacheFile(dir, path, data); err != nil {
+		return err
+	}
+	syncDirBestEffort(dir)
+	cleanupCacheTemps(dir)
+	return nil
+}
+
+func splitChangeBodies(cached CachedSnapshotV2) (CachedSnapshotV2, error) {
+	cached.FullRecords = cloneFullRecords(cached.FullRecords)
+	cached.ChangeBodies = nil
+	for recordIndex := range cached.FullRecords {
+		record := &cached.FullRecords[recordIndex].Record
+		for editIndex := range record.Session.FileEdits {
+			for changeIndex := range record.Session.FileEdits[editIndex].Changes {
+				change := &record.Session.FileEdits[editIndex].Changes[changeIndex]
+				cached.ChangeBodies = append(cached.ChangeBodies, CachedChangeBody{
+					RevisionID: record.RevisionID, ChangeID: change.ID, Text: change.Text,
+				})
+				change.Text = ""
+			}
+		}
+	}
+	sort.Slice(cached.ChangeBodies, func(i, j int) bool {
+		if cached.ChangeBodies[i].RevisionID == cached.ChangeBodies[j].RevisionID {
+			return cached.ChangeBodies[i].ChangeID < cached.ChangeBodies[j].ChangeID
+		}
+		return cached.ChangeBodies[i].RevisionID < cached.ChangeBodies[j].RevisionID
+	})
+	return cached, nil
+}
+
+func hydrateChangeBodies(cached *CachedSnapshotV2) bool {
+	bodies := map[string]string{}
+	for _, body := range cached.ChangeBodies {
+		key := body.RevisionID + "\x00" + body.ChangeID
+		if _, exists := bodies[key]; exists {
+			return false
+		}
+		bodies[key] = body.Text
+	}
+	cached.FullRecords = cloneFullRecords(cached.FullRecords)
+	for recordIndex := range cached.FullRecords {
+		record := &cached.FullRecords[recordIndex].Record
+		for editIndex := range record.Session.FileEdits {
+			for changeIndex := range record.Session.FileEdits[editIndex].Changes {
+				change := &record.Session.FileEdits[editIndex].Changes[changeIndex]
+				key := record.RevisionID + "\x00" + change.ID
+				text, ok := bodies[key]
+				if !ok {
+					return false
+				}
+				change.Text = text
+				delete(bodies, key)
+			}
+		}
+	}
+	if len(bodies) != 0 {
+		return false
+	}
+	cached.ChangeBodies = nil
+	return true
+}
+
+func cloneFullRecords(records []remoteprotocol.FullRecord) []remoteprotocol.FullRecord {
+	data, _ := json.Marshal(records)
+	var result []remoteprotocol.FullRecord
+	_ = json.Unmarshal(data, &result)
+	return result
+}
+
+func readValidGenerationBytes(path string) ([]byte, bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if len(data) > maxCacheV2Bytes {
+		return nil, false, nil
+	}
+	_, ok, err := decodeCachedSnapshot(data)
+	return data, ok, err
+}
+
+func writeAtomicCacheFile(dir, target string, data []byte) error {
 	temp, err := os.CreateTemp(dir, ".snapshot-v2-*.tmp")
 	if err != nil {
 		return err
@@ -505,29 +692,33 @@ func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
 	if err := temp.Chmod(0o600); err != nil {
-		temp.Close()
+		_ = temp.Close()
 		return err
 	}
 	if _, err := temp.Write(data); err != nil {
-		temp.Close()
+		_ = temp.Close()
 		return err
 	}
 	if err := temp.Sync(); err != nil {
-		temp.Close()
+		_ = temp.Close()
 		return err
 	}
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	path, err := c.snapshotV2Path(sourceID)
+	return os.Rename(tempPath, target)
+}
+
+func cleanupCacheTemps(dir string) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return
 	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return err
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), ".snapshot-v2-") && strings.HasSuffix(entry.Name(), ".tmp") {
+			_ = os.Remove(filepath.Join(dir, entry.Name()))
+		}
 	}
-	syncDirBestEffort(dir)
-	return nil
 }
 
 func privacySafeSnapshot(cached CachedSnapshotV2) CachedSnapshotV2 {

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -59,6 +60,8 @@ func familySkipReason(err error) string {
 // claude- and codex-specific discovery fill it in before the diff/record
 // logic (shared, and thus tested once) runs.
 type vendorFamilyInput struct {
+	SourceID        string
+	Source          vendors.ReadSource
 	Vendor          string
 	ParserVersion   string
 	Baseline        map[string]CachedFamilyV2
@@ -168,9 +171,27 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 			familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_family_facts", in.Vendor))
 			continue
 		}
+		var fullRecords []remoteprotocol.FullRecord
+		if in.Vendor == vendors.AgentCodex {
+			complete, fullErr := fullsessionrecord.FromParsedFamily(in.SourceID, in.Vendor, in.Source, sessions, in.Metadata)
+			if fullErr != nil {
+				err = fmt.Errorf("complete family composition failed: %w", fullErr)
+			} else if len(complete) != 1 || complete[0].SessionID != id {
+				err = errors.New("complete family composition returned the wrong root")
+			} else {
+				fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: id, Record: complete[0]})
+			}
+		}
+		if err != nil {
+			records = append(records, remoteprotocol.Record{
+				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonInvalidData,
+			})
+			familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_full_record", in.Vendor))
+			continue
+		}
 		record := remoteprotocol.Record{
 			Type: remoteprotocol.RecordChanged, Vendor: in.Vendor, FamilyID: id,
-			Fingerprint: composite, Family: &family,
+			Fingerprint: composite, Family: &family, FullRecords: fullRecords,
 		}
 		if cached, known := in.Baseline[id]; known {
 			record.PriorFingerprint = cached.Fingerprint
@@ -214,7 +235,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	return vendorOutcome{Records: records, Complete: complete, Coverage: coverage, Metadata: in.Metadata, Failures: familyFailures}
 }
 
-func collectClaudeVendor(source vendors.ReadSource, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
+func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
 	metadata := claude.RemoteMetadata(source, home, now)
 	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.LiveSessions())
 	if err != nil {
@@ -227,6 +248,7 @@ func collectClaudeVendor(source vendors.ReadSource, home string, since int64, no
 		filesOf[id] = family.Files
 	}
 	return collectVendorFamilies(vendorFamilyInput{
+		SourceID: sourceID, Source: source,
 		Vendor: vendors.AgentClaude, ParserVersion: claudeParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
@@ -241,7 +263,7 @@ func collectClaudeVendor(source vendors.ReadSource, home string, since int64, no
 }
 
 func collectCodexVendor(
-	source vendors.ReadSource, home string, since int64,
+	source vendors.ReadSource, sourceID, home string, since int64,
 	baseline map[string]CachedFamilyV2, cachedHeaders map[string]codex.CachedHeader,
 ) (vendorOutcome, map[string]codex.CachedHeader) {
 	metadata := codex.RemoteMetadata(source, home)
@@ -274,6 +296,7 @@ func collectCodexVendor(
 		initialFailures = append(initialFailures, vendors.FileFailure{Path: file, Err: failure})
 	}
 	outcome := collectVendorFamilies(vendorFamilyInput{
+		SourceID: sourceID, Source: source,
 		Vendor: vendors.AgentCodex, ParserVersion: codexParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
@@ -295,12 +318,12 @@ func collectCodexVendor(
 	return outcome, updatedHeaders
 }
 
-func buildLocalRequest(requestID string, since, collectedAt int64, baselineID string, known []remoteprotocol.KnownFamily) (remoteprotocol.Request, error) {
+func buildLocalRequest(requestID, sourceID string, since, collectedAt int64, baselineID string, known []remoteprotocol.KnownFamily) (remoteprotocol.Request, error) {
 	request := remoteprotocol.Request{
 		RequestID:     requestID,
 		Protocol:      remoteprotocol.VersionRange{Min: remoteprotocol.ProtocolVersion, Max: remoteprotocol.ProtocolVersion},
 		Schema:        remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion},
-		ParserVersion: sftpCollectorParserVersion, SinceMs: since, CollectedAtMs: collectedAt,
+		ParserVersion: sftpCollectorParserVersion, SourceID: sourceID, SinceMs: since, CollectedAtMs: collectedAt,
 		Vendors: []string{vendors.AgentClaude, vendors.AgentCodex},
 		Limits: remoteprotocol.Limits{
 			MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes,
@@ -329,11 +352,17 @@ func collectIncremental(
 	now time.Time,
 	baseline CachedSnapshotV2,
 ) (CachedSnapshotV2, []*session.Session, []error, error) {
+	baseline = snapshotOrEmpty(&baseline)
+	if baseline.SourceID == "" {
+		// Direct collector tests and non-manager callers still need a valid
+		// transport identity. Production always supplies the configured ID.
+		baseline.SourceID = "r_0000000000000000"
+	}
 	home := source.Home()
 	parseSince := max(0, since-(24*time.Hour).Milliseconds())
 	perVendorBudget := source.Limits().MaxTotalBytes / 2
 	requestID := fmt.Sprintf("sftp-%d", now.UnixNano())
-	request, err := buildLocalRequest(requestID, since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline))
+	request, err := buildLocalRequest(requestID, baseline.SourceID, since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline))
 	if err != nil {
 		return CachedSnapshotV2{}, nil, nil, fmt.Errorf("build local collection request: %w", err)
 	}
@@ -342,7 +371,7 @@ func collectIncremental(
 	// copying the old facts in that mode: it requires a bounded full recollect.
 	effectiveBaseline := baseline
 	if request.BaselineMode == remoteprotocol.BaselineNone {
-		effectiveBaseline = CachedSnapshotV2{Version: cacheV2Version, CodexHeaders: baseline.CodexHeaders}
+		effectiveBaseline = CachedSnapshotV2{Version: cacheV2Version, SourceID: baseline.SourceID, CodexHeaders: baseline.CodexHeaders}
 	}
 
 	claudeBaseline := baselineFamilies(effectiveBaseline, vendors.AgentClaude)
@@ -357,10 +386,10 @@ func collectIncremental(
 	claudeCh := make(chan claudeResult, 1)
 	codexCh := make(chan codexResult, 1)
 	go func() {
-		claudeCh <- claudeResult{collectClaudeVendor(source.ForVendor(perVendorBudget), home, parseSince, now, claudeBaseline)}
+		claudeCh <- claudeResult{collectClaudeVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, now, claudeBaseline)}
 	}()
 	go func() {
-		outcome, headers := collectCodexVendor(source.ForVendor(perVendorBudget), home, parseSince, codexBaseline, codexHeaders)
+		outcome, headers := collectCodexVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, codexBaseline, codexHeaders)
 		codexCh <- codexResult{outcome, headers}
 	}()
 	claudeOut := <-claudeCh
@@ -395,6 +424,7 @@ func collectIncremental(
 	if err := apply(remoteprotocol.Record{
 		Type: remoteprotocol.RecordHandshake, BaselineID: request.BaselineID,
 		SchemaVersion: remotefacts.SchemaVersion, ParserVersion: request.ParserVersion,
+		Capabilities: []string{remoteprotocol.CapabilityFullSessionRecord},
 	}); err != nil {
 		return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply handshake: %w", err)
 	}

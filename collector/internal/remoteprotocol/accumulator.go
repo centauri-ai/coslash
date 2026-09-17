@@ -9,6 +9,7 @@ import (
 )
 
 type FamilyKey struct{ Vendor, FamilyID string }
+type FullRecordKey struct{ Vendor, SessionID string }
 type CachedFamily struct {
 	Facts           remotefacts.Family
 	Fingerprint     string
@@ -16,9 +17,11 @@ type CachedFamily struct {
 	LastSuccessAtMs int64
 }
 type Generation struct {
+	SourceID        string
 	BaselineID      string
 	CoverageSinceMs int64
 	Families        map[FamilyKey]CachedFamily
+	FullRecords     map[FullRecordKey]FullRecord
 	VendorComplete  map[string]bool
 	RequestComplete bool
 }
@@ -34,6 +37,8 @@ type Accumulator struct {
 	seenHandshake bool
 	nextSequence  int
 	closed        bool
+	records       int
+	bytes         int
 }
 
 func NewAccumulator(request Request, baseline Generation) (*Accumulator, error) {
@@ -43,9 +48,16 @@ func NewAccumulator(request Request, baseline Generation) (*Accumulator, error) 
 	if request.BaselineMode == BaselineKnown && request.BaselineID != baseline.BaselineID {
 		return nil, errors.New("stale baseline")
 	}
-	copy := Generation{BaselineID: request.RequestID, CoverageSinceMs: baseline.CoverageSinceMs, Families: maps.Clone(baseline.Families), VendorComplete: map[string]bool{}}
+	copy := Generation{
+		SourceID: request.SourceID, BaselineID: request.RequestID, CoverageSinceMs: baseline.CoverageSinceMs,
+		Families: maps.Clone(baseline.Families), FullRecords: maps.Clone(baseline.FullRecords),
+		VendorComplete: map[string]bool{},
+	}
 	if copy.Families == nil {
 		copy.Families = map[FamilyKey]CachedFamily{}
+	}
+	if copy.FullRecords == nil {
+		copy.FullRecords = map[FullRecordKey]FullRecord{}
 	}
 	return &Accumulator{request: request, proposal: copy, actions: map[FamilyKey]string{}, tombstones: map[string]map[string]bool{}, completed: map[string]bool{}, nextSequence: 1}, nil
 }
@@ -54,9 +66,16 @@ func (a *Accumulator) Apply(record Record) error {
 	if a.closed {
 		return errors.New("record after request completion")
 	}
+	size := encodedSize(record) + 1
+	if size > a.request.Limits.MaxRecordBytes || a.records >= a.request.Limits.MaxRecords ||
+		a.bytes+size > a.request.Limits.MaxResponseBytes {
+		return errors.New("response exceeds negotiated bounds")
+	}
 	if err := validateRecord(record, a.request, a.nextSequence); err != nil {
 		return err
 	}
+	a.records++
+	a.bytes += size
 	if record.FamilyID != "" && a.completed[record.Vendor] {
 		return fmt.Errorf("family action after vendor completion for %s", record.Vendor)
 	}
@@ -100,6 +119,14 @@ func (a *Accumulator) Apply(record Record) error {
 		a.proposal.Families[key] = CachedFamily{
 			Facts: *record.Family, Fingerprint: record.Fingerprint, LastSuccessAtMs: a.request.CollectedAtMs,
 		}
+		for recordKey, full := range a.proposal.FullRecords {
+			if recordKey.Vendor == record.Vendor && full.FamilyID == record.FamilyID {
+				delete(a.proposal.FullRecords, recordKey)
+			}
+		}
+		for _, full := range record.FullRecords {
+			a.proposal.FullRecords[FullRecordKey{Vendor: record.Vendor, SessionID: full.Record.SessionID}] = full
+		}
 	case RecordUnchanged:
 		current, ok := a.proposal.Families[key]
 		if !ok || current.Fingerprint != record.Fingerprint {
@@ -132,6 +159,11 @@ func (a *Accumulator) Apply(record Record) error {
 					return fmt.Errorf("tombstone %s/%s is present in inventory", record.Vendor, familyID)
 				}
 				delete(a.proposal.Families, FamilyKey{record.Vendor, familyID})
+				for recordKey, full := range a.proposal.FullRecords {
+					if recordKey.Vendor == record.Vendor && full.FamilyID == familyID {
+						delete(a.proposal.FullRecords, recordKey)
+					}
+				}
 			}
 		}
 		a.proposal.VendorComplete[record.Vendor] = record.EnumerationComplete && record.InventoryComplete
@@ -152,6 +184,7 @@ func (a *Accumulator) Apply(record Record) error {
 func (a *Accumulator) Proposal() Generation {
 	result := a.proposal
 	result.Families = maps.Clone(a.proposal.Families)
+	result.FullRecords = maps.Clone(a.proposal.FullRecords)
 	result.VendorComplete = maps.Clone(a.proposal.VendorComplete)
 	return result
 }

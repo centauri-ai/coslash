@@ -19,7 +19,8 @@ coSlash reads, but does not modify:
 | `summaries/` | Cached synthesis results. |
 | `synthesis/` | Temporary synthesis files and the OpenCode scratch database. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
-| `remotes/<source-id>/snapshot.json` | Normalized remote session facts, opaque file fingerprints, coverage, and health. No raw transcript rows or remote absolute paths. |
+| `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
+| `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
 
 coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
 
@@ -50,10 +51,13 @@ Both collection paths may read these paths beneath the SSH user's home:
 The SFTP interface has no write, delete, rename, or chmod operation. It rejects
 symlinks and canonical paths outside the allowlist. Current ceilings are 32 MiB
 per file, 128 MiB per refresh, 2,000 candidate files per agent, 10,000 directory
-entries, depth 16, and 90 seconds per refresh. Raw bytes stay in bounded Mac
-memory only while parsing. The disk cache deliberately omits prompts, transcript
-events, commands, tool output, edited-file paths, working directories, SSH
-configuration, and credentials.
+entries, depth 16, and three minutes per refresh. Raw transcript bytes stay in
+bounded Mac memory only while parsing. For the supported Codex path, complete
+parsed product data—including prompts, commands, edited-file paths, working
+directories, subagent detail, and file-change bodies—is transferred and cached
+locally so exact detail remains available after restart or an SSH outage. The
+cache excludes raw transcript rows, SSH configuration, coSlash credentials,
+sockets, and environment values.
 
 ## Outbound data
 

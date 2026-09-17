@@ -13,9 +13,12 @@ Record order is:
 3. `vendor_complete` after complete enumeration of each vendor;
 4. `request_complete` with final counts/timing.
 
-Changed facts validate and become publishable immediately. Skips retain the last
-good facts intact and attach a transient stale reason; a later unchanged result
-clears that reason. Tombstones remain provisional until `vendor_complete`
+Changed facts validate and become publishable immediately. A changed Codex
+family also carries one canonical `full-session-record/v1` rooted record; the
+handshake capability makes older helpers incompatible instead of silently
+producing incomplete data. Skips retain the last good facts and full record
+intact and attach a transient stale reason; a later unchanged result clears
+that reason. Tombstones remain provisional until `vendor_complete`
 provides a complete bounded authoritative inventory proving absence. Interruption
 before that point cannot delete anything. Missing `request_complete` makes the
 refresh partial but does not discard already validated changes.
@@ -34,8 +37,11 @@ fingerprints never imply deletion. Changed records in baseline-free mode omit
 `prior_fingerprint`, because the helper was intentionally given no comparison
 state; the complete inventory remains the deletion authority.
 
-Defaults cap a record at 1 MiB, a response at 32 MiB, and a response at 4,096
-records. Unknown fields, unknown required versions, mixed/replayed IDs, sequence
-gaps, stale baselines, duplicate/conflicting family actions, oversized input,
-and content following `request_complete` are rejected. The package performs no
-SSH, filesystem, or durable cache I/O.
+Defaults cap a record at 72 MiB, a response at 256 MiB, and a response at 4,096
+records. These bounds permit one complete record to remain an atomic family
+replacement while the helper output is still streamed one NDJSON record at a
+time. Unknown fields, unknown required versions, missing complete-record
+capability, mixed/replayed IDs, sequence gaps, stale baselines,
+duplicate/conflicting family actions, oversized input, and content following
+`request_complete` are rejected. The package performs no SSH, filesystem, or
+durable cache I/O.

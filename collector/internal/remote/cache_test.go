@@ -1,13 +1,16 @@
 package remote
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -27,6 +30,128 @@ func validFamily(t *testing.T, familyID string) remotefacts.Family {
 		t.Fatalf("validFamily: %v", err)
 	}
 	return family
+}
+
+func completeCodexSnapshot(t *testing.T, baselineID, body string) CachedSnapshotV2 {
+	t.Helper()
+	edits := session.NewFileEditSet()
+	edits.Add("main.go", 1, 0, true)
+	edits.Write("main.go", body)
+	parsed := session.Session{
+		Agent: vendors.AgentCodex, ID: "root-1", WorkingDirectory: "/workspace",
+		EditedFileCount: 1, StartedAt: 1000, LastActivityTime: 2000, Tokens: map[string]session.ModelTokens{},
+		Subagents: []session.Subagent{}, SessionDetails: session.SessionDetails{
+			Commands: []string{}, Commits: []string{}, CommitSHAs: []string{}, Todos: []session.Todo{},
+			Digest: []session.DigestEntry{}, FileEdits: edits.Edits,
+		},
+	}
+	record, err := fullsessionrecord.FromSession("r_0123456789abcdef", parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	family := validFamily(t, "root-1")
+	family.Vendor = vendors.AgentCodex
+	if err := remotefacts.Validate(family); err != nil {
+		t.Fatal(err)
+	}
+	return CachedSnapshotV2{
+		Version: cacheV2Version, SourceID: "r_0123456789abcdef", BaselineID: baselineID,
+		Families:    []CachedFamilyV2{{Vendor: vendors.AgentCodex, FamilyID: "root-1", Facts: family, Fingerprint: "fp-1", LastSuccessAtMs: 1000}},
+		FullRecords: []remoteprotocol.FullRecord{{FamilyID: "root-1", Record: record}},
+		FetchedAtMs: 1000,
+	}
+}
+
+func TestCacheV2SeparatesBodiesAndFallsBackToPreviousCompleteGeneration(t *testing.T) {
+	root := t.TempDir()
+	cache := NewCache(root)
+	const sourceID = "r_0123456789abcdef"
+	first := completeCodexSnapshot(t, "generation-1", "first body\n")
+	if err := cache.StoreV2(sourceID, first); err != nil {
+		t.Fatal(err)
+	}
+	second := completeCodexSnapshot(t, "generation-2", "second body\n")
+	if err := cache.StoreV2(sourceID, second); err != nil {
+		t.Fatal(err)
+	}
+
+	path, _ := cache.snapshotV2Path(sourceID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted CachedSnapshotV2
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	change := persisted.FullRecords[0].Record.Session.FileEdits[0].Changes[0]
+	if change.Text != "" || len(persisted.ChangeBodies) != 1 || persisted.ChangeBodies[0].Text != "second body\n" {
+		t.Fatalf("persisted row/body split = change:%#v bodies:%#v", change, persisted.ChangeBodies)
+	}
+
+	if err := os.WriteFile(path, []byte("{corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, ok, err := cache.LoadV2(sourceID)
+	if err != nil || !ok {
+		t.Fatalf("LoadV2 fallback: ok=%v err=%v", ok, err)
+	}
+	if loaded.BaselineID != "generation-1" || loaded.FullRecords[0].Record.Session.FileEdits[0].Changes[0].Text != "first body\n" {
+		t.Fatalf("fallback generation = %#v", loaded)
+	}
+}
+
+func TestCacheV2FailedReplacementAndRestartKeepExactRecordReadable(t *testing.T) {
+	root := t.TempDir()
+	cache := NewCache(root)
+	const sourceID = "r_0123456789abcdef"
+	snapshot := completeCodexSnapshot(t, "generation-1", "durable body\n")
+	if err := cache.StoreV2(sourceID, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	broken := completeCodexSnapshot(t, "generation-2", "replacement\n")
+	broken.FullRecords[0].Record.SourceID = "r_ffffffffffffffff"
+	if err := cache.StoreV2(sourceID, broken); err == nil {
+		t.Fatal("source-mismatched replacement was stored")
+	}
+
+	manager := NewManager(Options{Cache: cache})
+	t.Cleanup(manager.Shutdown)
+	config := &settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}
+	if err := manager.ApplySettings(config); err != nil {
+		t.Fatal(err)
+	}
+	revision := snapshot.FullRecords[0].Record.RevisionID
+	record, err := manager.ReadFullSession(sourceID, vendors.AgentCodex, "root-1", revision)
+	if err != nil || record == nil {
+		t.Fatalf("ReadFullSession: record=%#v err=%v", record, err)
+	}
+	changeID := record.Session.FileEdits[0].Changes[0].ID
+	change, err := manager.ReadChange(sourceID, vendors.AgentCodex, "root-1", revision, changeID)
+	if err != nil || change == nil || change.Text != "durable body\n" {
+		t.Fatalf("ReadChange: change=%#v err=%v", change, err)
+	}
+	if _, err := manager.ReadFullSession(sourceID, vendors.AgentCodex, "root-1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); !errors.Is(err, ErrRemoteRevisionNotFound) {
+		t.Fatalf("stale revision error = %v", err)
+	}
+}
+
+func TestRemoveSourceDeletesCurrentPreviousAndCompleteBodies(t *testing.T) {
+	root := t.TempDir()
+	cache := NewCache(root)
+	const sourceID = "r_0123456789abcdef"
+	if err := cache.StoreV2(sourceID, completeCodexSnapshot(t, "generation-1", "first\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.StoreV2(sourceID, completeCodexSnapshot(t, "generation-2", "second\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.RemoveSource(sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "remotes", sourceID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source cache still exists: %v", err)
+	}
 }
 
 func TestCacheV2StoreLoadRoundTrip(t *testing.T) {

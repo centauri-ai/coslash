@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "full-session-record/v1",
+  "collectorVersion": "fixturegen/1",
+  "fixtures": [
+    {
+      "path": "valid/codex.json",
+      "sha256": "01b09a2d74d3583106cf5cc7e1a7fe261335cfb729aab866f7f014cbcf32d691",
+      "valid": true
+    },
+    {
+      "path": "invalid/malformed.json",
+      "sha256": "ae0b3f00638cc5d55bb5fb22deed8790c6b2b84080dd01ddadb22e8fcfab5557",
+      "valid": false,
+      "reason": "malformed JSON"
+    },
+    {
+      "path": "invalid/unknown-field.json",
+      "sha256": "a38f2288302e49382417564c04598a4a560057efbda2240d58f3240c1a146bbf",
+      "valid": false,
+      "reason": "unknown field"
+    },
+    {
+      "path": "invalid/incomplete-body.json",
+      "sha256": "7f9aa08db6b1875eba1e7b72e14c539127e12e55190219b6ded0a5a4ef484b0f",
+      "valid": false,
+      "reason": "missing declared change body"
+    },
+    {
+      "path": "invalid/bad-revision.json",
+      "sha256": "c604ae1c238a0d957c8cd09c4f2f1f8a2146e4a099c53c270149e7a4bb2dc3e9",
+      "valid": false,
+      "reason": "revision hash mismatch"
+    },
+    {
+      "path": "invalid/bad-body-hash.json",
+      "sha256": "ddbc1bc74c2e3af3a0b3db864fd1981ead251486f8442081fc3da0812420c17d",
+      "valid": false,
+      "reason": "change hash mismatch"
+    }
+  ]
+}

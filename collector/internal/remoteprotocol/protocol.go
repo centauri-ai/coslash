@@ -9,16 +9,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 )
 
 const (
 	ProtocolVersion      = 1
 	MaxRequestBytes      = 256 << 10
-	MaxRecordBytes       = 1 << 20
-	MaxResponseBytes     = 32 << 20
+	MaxRecordBytes       = 72 << 20
+	MaxResponseBytes     = 256 << 20
 	MaxRecords           = 4096
 	MaxKnownFamilies     = 1024
 	MaxKnownHeaders      = 2048
@@ -65,6 +67,7 @@ type Request struct {
 	Protocol      VersionRange  `json:"protocol"`
 	Schema        VersionRange  `json:"schema"`
 	ParserVersion string        `json:"parser_version"`
+	SourceID      string        `json:"source_id,omitempty"`
 	BaselineMode  string        `json:"baseline_mode"`
 	BaselineID    string        `json:"baseline_id,omitempty"`
 	SinceMs       int64         `json:"since_ms"`
@@ -106,6 +109,9 @@ func BuildRequest(request Request, known []KnownFamily) (Request, error) {
 func ValidateRequest(r Request) error {
 	if !validID(r.RequestID) || !validID(r.ParserVersion) {
 		return errors.New("invalid request identity")
+	}
+	if r.SourceID != "" && !validID(r.SourceID) {
+		return errors.New("invalid source identity")
 	}
 	if !supports(r.Protocol, ProtocolVersion) || !supports(r.Schema, remotefacts.SchemaVersion) {
 		return errors.New("unsupported version range")
@@ -191,12 +197,20 @@ type Record struct {
 	PriorFingerprint    string              `json:"prior_fingerprint,omitempty"`
 	Fingerprint         string              `json:"fingerprint,omitempty"`
 	Family              *remotefacts.Family `json:"family,omitempty"`
+	FullRecords         []FullRecord        `json:"full_records,omitempty"`
 	Reason              string              `json:"reason,omitempty"`
 	EnumerationComplete bool                `json:"enumeration_complete,omitempty"`
 	InventoryComplete   bool                `json:"inventory_complete,omitempty"`
 	Inventory           []string            `json:"inventory,omitempty"`
 	Counts              Counts              `json:"counts,omitempty"`
 	Timing              Timing              `json:"timing,omitempty"`
+}
+
+// FullRecord associates one complete record with the changed family that owns
+// it. The complete record remains separate from the bounded display facts.
+type FullRecord struct {
+	FamilyID string               `json:"family_id"`
+	Record   fullsessionv1.Record `json:"record"`
 }
 
 func Decode(reader io.Reader, request Request) ([]Record, error) {
@@ -280,12 +294,34 @@ func validateRecord(r Record, request Request, sequence int) error {
 			}
 			previous = capability
 		}
+		if request.SourceID != "" && !slices.Contains(r.Capabilities, CapabilityFullSessionRecord) {
+			return errors.New("helper does not provide complete session records")
+		}
 	case RecordChanged:
 		if !requestedVendor(request, r.Vendor) || !validID(r.FamilyID) || !validID(r.Fingerprint) || r.Family == nil || r.FamilyID != r.Family.FamilyID || r.Vendor != r.Family.Vendor {
 			return errors.New("invalid changed family record")
 		}
 		if err := remotefacts.Validate(*r.Family); err != nil {
 			return fmt.Errorf("invalid changed family: %w", err)
+		}
+		seenSessions := map[string]bool{}
+		for _, fact := range r.Family.Sessions {
+			seenSessions[fact.ID] = true
+		}
+		seenRecords := map[string]bool{}
+		for _, full := range r.FullRecords {
+			if full.FamilyID != r.FamilyID || full.Record.SourceID != request.SourceID ||
+				full.Record.Agent != r.Vendor || !seenSessions[full.Record.SessionID] || seenRecords[full.Record.SessionID] {
+				return errors.New("full record identity does not match changed family")
+			}
+			if err := fullsessionv1.Validate(full.Record); err != nil {
+				return fmt.Errorf("invalid full session record: %w", err)
+			}
+			seenRecords[full.Record.SessionID] = true
+		}
+		if request.SourceID != "" && r.Vendor == "codex" &&
+			(len(seenRecords) != 1 || !seenRecords[r.FamilyID]) {
+			return errors.New("complete Codex family requires its rooted full record")
 		}
 	case RecordUnchanged:
 		if !requestedVendor(request, r.Vendor) || !validID(r.FamilyID) || !validID(r.Fingerprint) {

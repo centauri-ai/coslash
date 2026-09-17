@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -24,6 +25,8 @@ var (
 	ErrRemoteSessionActive      = errors.New("remote session already has an active writer")
 	ErrRemoteSessionUnavailable = errors.New("remote session details are unavailable")
 	ErrRemoteSessionOversized   = errors.New("remote session details exceed the collection size limit")
+	ErrRemoteRevisionNotFound   = errors.New("remote session revision is unavailable")
+	ErrRemoteChangeNotFound     = errors.New("remote file change is unavailable")
 )
 
 type LaunchBlockReason string
@@ -48,6 +51,7 @@ type IndexedSession struct {
 	LastSeenStatus        *string
 	Launchable            bool
 	LaunchBlockReason     LaunchBlockReason
+	RevisionID            string
 }
 
 type remoteSessionKey struct{ Agent, ID string }
@@ -507,6 +511,52 @@ func (manager *Manager) PreviewSession(sourceID, agent, sessionID string, revisi
 	return nil, nil
 }
 
+// ReadFullSession returns one exact immutable complete record. It remains
+// available from the last-good cache while the SSH source is offline.
+func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID || manager.snapshot == nil {
+		return nil, nil
+	}
+	for _, full := range manager.snapshot.FullRecords {
+		if full.Record.Agent != agent || full.Record.SessionID != sessionID {
+			continue
+		}
+		if full.Record.RevisionID != revisionID {
+			return nil, ErrRemoteRevisionNotFound
+		}
+		data, err := fullsessionv1.Marshal(full.Record)
+		if err != nil {
+			return nil, ErrRemoteRevisionNotFound
+		}
+		copy, err := fullsessionv1.Decode(data)
+		if err != nil {
+			return nil, ErrRemoteRevisionNotFound
+		}
+		return &copy, nil
+	}
+	return nil, nil
+}
+
+// ReadChange verifies the requested opaque change belongs to the exact source,
+// agent, session, and revision before returning its body.
+func (manager *Manager) ReadChange(sourceID, agent, sessionID, revisionID, changeID string) (*fullsessionv1.FileChange, error) {
+	record, err := manager.ReadFullSession(sourceID, agent, sessionID, revisionID)
+	if err != nil || record == nil {
+		return nil, err
+	}
+	for _, edit := range record.Session.FileEdits {
+		for _, change := range edit.Changes {
+			if change.ID == changeID {
+				copy := change
+				return &copy, nil
+			}
+		}
+	}
+	return nil, ErrRemoteChangeNotFound
+}
+
 // SetupAliasMatches reports whether alias is the currently persisted remote
 // target. SetupHelperForAlias repeats this check while taking its immutable
 // configuration snapshot; this fast check lets the HTTP handler reject an
@@ -649,6 +699,7 @@ func (manager *Manager) kickRefreshLocked(remoteSinceMs int64) {
 	}
 	config := *manager.cfg
 	baseline := snapshotOrEmpty(manager.snapshot)
+	baseline.SourceID = config.ID
 	var helper *helperTarget
 	if manager.helperTarget != nil {
 		copy := *manager.helperTarget
@@ -792,6 +843,7 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 			DisplayStale:          globalStale || manager.familyStale[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
 			Launchable:            blockReason == "",
 			LaunchBlockReason:     blockReason,
+			RevisionID:            fullRecordRevision(manager.snapshot, item.Agent, item.ID),
 		}
 		if indexed.DisplayStale {
 			indexed.LastSeenStatus = item.Status
@@ -799,6 +851,18 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 		result = append(result, indexed)
 	}
 	return result
+}
+
+func fullRecordRevision(snapshot *CachedSnapshotV2, agent, sessionID string) string {
+	if snapshot == nil {
+		return ""
+	}
+	for _, full := range snapshot.FullRecords {
+		if full.Record.Agent == agent && full.Record.SessionID == sessionID {
+			return full.Record.RevisionID
+		}
+	}
+	return ""
 }
 
 func launchBlockReason(snapshot *CachedSnapshotV2, item *session.Session) LaunchBlockReason {

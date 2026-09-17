@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -323,6 +324,14 @@ func publishFamily(
 				boundedReason(err),
 			)
 		}
+		var fullRecords []remoteprotocol.FullRecord
+		if scanned.vendor == vendors.AgentCodex {
+			complete, fullErr := fullsessionrecord.FromParsedFamily(request.SourceID, scanned.vendor, scanned.source, sessions, scanned.metadata)
+			if fullErr != nil || len(complete) != 1 || complete[0].SessionID != item.id {
+				return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)
+			}
+			fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: item.id, Record: complete[0]})
+		}
 		// A baseline-free response carries no prior fingerprint: the helper was
 		// given no comparison state, and the inventory is the deletion authority.
 		prior := ""
@@ -331,7 +340,7 @@ func publishFamily(
 		}
 		emitErr := emitter.emit(remoteprotocol.Record{
 			Type: remoteprotocol.RecordChanged, Vendor: scanned.vendor, FamilyID: item.id,
-			PriorFingerprint: prior, Fingerprint: item.fingerprint, Family: &facts,
+			PriorFingerprint: prior, Fingerprint: item.fingerprint, Family: &facts, FullRecords: fullRecords,
 		})
 		if emitErr != nil {
 			return parser, emitErr

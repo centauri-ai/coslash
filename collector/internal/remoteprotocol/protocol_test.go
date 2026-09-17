@@ -19,6 +19,21 @@ func request() Request {
 	return r
 }
 
+func TestCapabilitiesRequireCompleteRecordSupport(t *testing.T) {
+	capabilities := Capabilities{
+		Protocol:      VersionRange{Min: ProtocolVersion, Max: ProtocolVersion},
+		Schema:        VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion},
+		ParserVersion: "parser-v1",
+	}
+	if capabilities.Compatible() {
+		t.Fatal("helper without complete-record capability is compatible")
+	}
+	capabilities.Capabilities = []string{CapabilityFullSessionRecord}
+	if !capabilities.Compatible() {
+		t.Fatal("helper with complete-record capability is incompatible")
+	}
+}
+
 func TestChangedFamilyWithMultipleLargeDisplaysFitsRecordLimit(t *testing.T) {
 	large := strings.Repeat("x", 600<<10)
 	family, err := remotefacts.FromParsed("codex", "root", "parser-v1", remotefacts.StateComplete, "", []*vendors.ParsedSession{
@@ -106,7 +121,10 @@ func TestDecodeRejectsUnknownFieldsAndTrailingContent(t *testing.T) {
 func TestInterruptedBeforeVendorCompletionCannotDelete(t *testing.T) {
 	r := request()
 	baseFamily := family()
-	baseline := Generation{BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "root"}: {Facts: baseFamily, Fingerprint: "old"}}}
+	baseline := Generation{
+		BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "root"}: {Facts: baseFamily, Fingerprint: "old"}},
+		FullRecords: map[FullRecordKey]FullRecord{{"codex", "root"}: {FamilyID: "root"}},
+	}
 	a, err := NewAccumulator(r, baseline)
 	if err != nil {
 		t.Fatal(err)
@@ -120,11 +138,17 @@ func TestInterruptedBeforeVendorCompletionCannotDelete(t *testing.T) {
 	if _, ok := a.Proposal().Families[FamilyKey{"codex", "root"}]; !ok {
 		t.Fatal("provisional tombstone deleted cached family")
 	}
+	if _, ok := a.Proposal().FullRecords[FullRecordKey{"codex", "root"}]; !ok {
+		t.Fatal("provisional tombstone deleted cached full record")
+	}
 }
 
 func TestCompleteInventoryAuthorizesDeletion(t *testing.T) {
 	r := request()
-	baseline := Generation{BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "root"}: {Facts: family(), Fingerprint: "old"}}}
+	baseline := Generation{
+		BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "root"}: {Facts: family(), Fingerprint: "old"}},
+		FullRecords: map[FullRecordKey]FullRecord{{"codex", "root"}: {FamilyID: "root"}},
+	}
 	a, _ := NewAccumulator(r, baseline)
 	_ = a.Apply(handshake(r))
 	_ = a.Apply(Record{Type: RecordTombstone, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 2, Vendor: "codex", FamilyID: "root"})
@@ -133,6 +157,9 @@ func TestCompleteInventoryAuthorizesDeletion(t *testing.T) {
 	}
 	if len(a.Proposal().Families) != 0 {
 		t.Fatal("authorized tombstone was not applied")
+	}
+	if len(a.Proposal().FullRecords) != 0 {
+		t.Fatal("authorized tombstone did not remove full record")
 	}
 }
 
