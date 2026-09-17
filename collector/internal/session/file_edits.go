@@ -91,6 +91,15 @@ func (e FileEdit) Changes() []FileChange {
 	return changes
 }
 
+// FileEditWithChanges reconstructs a parsed edit from a complete record. The
+// change slice is copied so cache callers cannot mutate shared manager state.
+func FileEditWithChanges(path string, additions, deletions, edits int, isNew bool, changes []FileChange) FileEdit {
+	return FileEdit{
+		Path: path, Additions: additions, Deletions: deletions, Edits: edits, IsNew: isNew,
+		changes: append([]FileChange(nil), changes...),
+	}
+}
+
 func (s *FileEditSet) pendingChange(path string) *FileChange {
 	edit := &s.Edits[s.index[path]]
 	if len(edit.changes) == 0 || edit.changes[len(edit.changes)-1].Kind != "" {
