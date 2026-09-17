@@ -42,6 +42,7 @@ func main() {
 		{"invalid/malformed.json", []byte(`{"schemaVersion":`), false, "malformed JSON"},
 		{"invalid/unknown-field.json", bytes.Replace(canonical, []byte(`"schemaVersion"`), []byte(`"unknown":true,"schemaVersion"`), 1), false, "unknown field"},
 		{"invalid/incomplete-body.json", bytes.Replace(canonical, []byte(`"text":"@@\n-old\n+new\n"`), []byte(`"text":""`), 1), false, "missing declared change body"},
+		{"invalid/timestamp-out-of-range.json", bytes.Replace(canonical, []byte(`"lastActivityAtMs":1800000012000`), []byte(`"lastActivityAtMs":253402300800000`), 1), false, "session timestamp exceeds year 9999"},
 		{"invalid/bad-revision.json", bytes.Replace(canonical, []byte(valid.RevisionID), []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 1), false, "revision hash mismatch"},
 		{"invalid/bad-body-hash.json", bytes.Replace(canonical, []byte(valid.Session.FileEdits[0].Changes[0].SHA256), []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), 1), false, "change hash mismatch"},
 	}

@@ -21,6 +21,11 @@ const (
 	MaxTextBytes   = 32 << 20
 	MaxStringBytes = 1 << 20
 	MaxItems       = 100_000
+
+	// MaxSessionTimestampMs is the last millisecond representable in year 9999.
+	// Downstream consumers persist these values as PostgreSQL timestamptz, so
+	// reject larger values before storage-specific conversion can overflow.
+	MaxSessionTimestampMs int64 = 253_402_300_799_999
 )
 
 var (
@@ -247,7 +252,8 @@ func validate(record Record, requireRevision bool) error {
 		return fmt.Errorf("%w: revision must be empty while freezing", ErrInvalid)
 	}
 	s := record.Session
-	if s.StartedAtMs <= 0 || s.LastActivityAtMs < s.StartedAtMs || s.CostMicroUSD < 0 ||
+	if s.StartedAtMs <= 0 || s.StartedAtMs > MaxSessionTimestampMs ||
+		s.LastActivityAtMs < s.StartedAtMs || s.LastActivityAtMs > MaxSessionTimestampMs || s.CostMicroUSD < 0 ||
 		!nonnegative(s.EditedFileCount, s.Turns, s.ToolUses, s.Errors, s.Compactions, s.PullRequests) ||
 		!optionalNonnegative(s.DurationMs, s.ContextTokens, s.ContextWindow) {
 		return fmt.Errorf("%w: invalid session counts or time", ErrInvalid)

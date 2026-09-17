@@ -16,6 +16,10 @@ exact read identity. `revisionId` is SHA-256 over canonical JSON with an empty
 revision field. Each change body independently declares its UTF-8 byte count
 and SHA-256.
 
+Session timestamps must be positive Unix milliseconds no later than
+`9999-12-31T23:59:59.999Z`. This keeps the shared record within the supported
+PostgreSQL persistence range before a consumer performs timestamp conversion.
+
 The first C01 producer is Codex. Adding another parser requires an explicit
 field-parity decision; schema support alone does not claim producer coverage.
 

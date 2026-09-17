@@ -26,6 +26,12 @@
       "reason": "missing declared change body"
     },
     {
+      "path": "invalid/timestamp-out-of-range.json",
+      "sha256": "c96798e25a996eb692841f20e068e61017678afed9edba66dc6294c84224e9eb",
+      "valid": false,
+      "reason": "session timestamp exceeds year 9999"
+    },
+    {
       "path": "invalid/bad-revision.json",
       "sha256": "4d6da3c37f1efe52f8c79296f835d5323694b2789e938734f140d3a43cad4da3",
       "valid": false,
