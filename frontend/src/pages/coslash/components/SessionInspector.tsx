@@ -37,6 +37,7 @@ import {
   sessionDetailRequestPath,
   synthesisRequestPath,
   useFileDiff,
+  type ExactReadErrorKind,
   type FileSelection,
 } from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
@@ -97,7 +98,7 @@ type DetailResponse = {
   session: Partial<Session>;
 };
 
-type DetailErrorKind = 'stale' | 'missing' | 'corrupt' | 'other';
+type DetailErrorKind = Exclude<ExactReadErrorKind, 'too_large'>;
 
 type DetailError = {
   key: string;
@@ -106,13 +107,36 @@ type DetailError = {
 };
 
 /* oxlint-disable react/only-export-components -- exported for focused rendering tests */
-export function filePanelOpen(selection: FileSelection | null, session: SessionIdentity | null): boolean {
+export function filePanelOpen(
+  selection: FileSelection | null,
+  session: (SessionIdentity & Pick<Session, 'detailRevision'>) | null,
+): boolean {
   return (
     selection != null &&
     session != null &&
     selection.sourceId === session.sourceId &&
     selection.agent === session.agent &&
-    selection.sessionId === session.id
+    selection.sessionId === session.id &&
+    selection.revision === session.detailRevision
+  );
+}
+
+export function detailPresentation(session: Session | null): {
+  detail: SessionDetail | null;
+  summaryOnly: boolean;
+} {
+  if (session == null) return { detail: null, summaryOnly: false };
+  return session.detailRevision === ''
+    ? { detail: session, summaryOnly: true }
+    : { detail: null, summaryOnly: false };
+}
+
+export function SummaryOnlyBanner() {
+  return (
+    <div role="status" className="text-warning-fg bg-warning-bg mx-4 mb-2 rounded-sm px-3 py-2 text-xs">
+      Complete details are unavailable. Showing the bounded summary from the session library; exact file diffs
+      are disabled.
+    </div>
   );
 }
 /* oxlint-enable react/only-export-components */
@@ -127,6 +151,7 @@ function useSessionDetail(
   loadError: string | null;
   loadErrorKind: DetailErrorKind | null;
   cachedOffline: boolean;
+  summaryOnly: boolean;
 } {
   const [loadedDetail, setLoadedDetail] = useState<{
     key: string;
@@ -275,16 +300,25 @@ function useSessionDetail(
     };
   }, [detailKey, session, sessionsVersion, synthesisSettingsKey]);
 
+  const presentation = detailPresentation(session);
   if (session == null || detailKey == null) {
-    return { detail: null, isLoading: false, loadError: null, loadErrorKind: null, cachedOffline: false };
-  }
-  if (session.detailRevision === '') {
     return {
       detail: null,
       isLoading: false,
-      loadError: 'Complete details for this session are unavailable.',
-      loadErrorKind: 'missing',
+      loadError: null,
+      loadErrorKind: null,
       cachedOffline: false,
+      summaryOnly: false,
+    };
+  }
+  if (presentation.summaryOnly) {
+    return {
+      detail: presentation.detail,
+      isLoading: false,
+      loadError: null,
+      loadErrorKind: null,
+      cachedOffline: false,
+      summaryOnly: true,
     };
   }
   const currentError = detailError?.key === detailKey ? detailError : null;
@@ -295,10 +329,18 @@ function useSessionDetail(
       loadError: currentError.message,
       loadErrorKind: currentError.kind,
       cachedOffline: false,
+      summaryOnly: false,
     };
   }
   if (loadedDetail?.key !== detailKey) {
-    return { detail: null, isLoading: true, loadError: null, loadErrorKind: null, cachedOffline: false };
+    return {
+      detail: null,
+      isLoading: true,
+      loadError: null,
+      loadErrorKind: null,
+      cachedOffline: false,
+      summaryOnly: false,
+    };
   }
   const synthesis = loadedSynthesis?.key === detailKey ? loadedSynthesis : null;
   return {
@@ -315,6 +357,7 @@ function useSessionDetail(
     loadError: null,
     loadErrorKind: null,
     cachedOffline: loadedDetail.cachedOffline,
+    summaryOnly: false,
   };
 }
 
@@ -567,10 +610,12 @@ function StartNewSessionButton({
 
 function HandoffSection({
   detail,
+  exactDetailsAvailable,
   remoteLaunchable,
   remoteLaunchHint,
 }: {
   detail: SessionDetail;
+  exactDetailsAvailable: boolean;
   remoteLaunchable: boolean;
   remoteLaunchHint?: string;
 }) {
@@ -612,9 +657,11 @@ function HandoffSection({
       </div>
       {!isLocalSession(detail) && (
         <div className="text-muted-foreground text-xs">
-          {remoteLaunchable
-            ? 'Remote terminal actions open through SSH. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'
-            : 'Remote terminal actions are available when SSH reconnects. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'}
+          {!exactDetailsAvailable
+            ? 'This inspector uses the bounded session-library summary. Complete commands and exact file diffs are unavailable for this session.'
+            : remoteLaunchable
+              ? 'Remote terminal actions open through SSH. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'
+              : 'Remote terminal actions are available when SSH reconnects. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'}
         </div>
       )}
     </div>
@@ -1146,11 +1193,13 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
 
 function InspectorBody({
   detail,
+  exactDetailsAvailable,
   onSelectFile,
   remoteLaunchable,
   remoteLaunchHint,
 }: {
   detail: SessionDetail;
+  exactDetailsAvailable: boolean;
   onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number]) => void) | null;
   remoteLaunchable: boolean;
   remoteLaunchHint?: string;
@@ -1163,6 +1212,7 @@ function InspectorBody({
       <div className="flex flex-col gap-2 px-4">
         <HandoffSection
           detail={detail}
+          exactDetailsAvailable={exactDetailsAvailable}
           remoteLaunchable={remoteLaunchable}
           remoteLaunchHint={remoteLaunchHint}
         />
@@ -1239,7 +1289,7 @@ export function SessionInspector({
   onRefresh: () => void;
   onClose: () => void;
 }) {
-  const { detail, isLoading, loadError, loadErrorKind, cachedOffline } = useSessionDetail(
+  const { detail, isLoading, loadError, loadErrorKind, cachedOffline, summaryOnly } = useSessionDetail(
     session,
     sessionsVersion,
     synthesisSettingsKey,
@@ -1250,9 +1300,10 @@ export function SessionInspector({
     changes: fileChanges,
     isLoading: fileDiffLoading,
     loadError: fileDiffError,
+    loadErrorKind: fileDiffErrorKind,
   } = useFileDiff(selectedDiff);
   const isOpen = session != null;
-  const openSessionKey = session == null ? null : sessionKey(session);
+  const openSessionRevisionKey = session == null ? null : `${sessionKey(session)}@${session.detailRevision}`;
   const remoteLaunchable =
     detail != null &&
     !isLocalSession(detail) &&
@@ -1273,7 +1324,7 @@ export function SessionInspector({
 
   useEffect(() => {
     setSelectedDiff(null);
-  }, [openSessionKey]);
+  }, [openSessionRevisionKey]);
 
   return (
     <Sheet
@@ -1341,19 +1392,24 @@ export function SessionInspector({
                 Showing the last complete cached details while the SSH workspace is offline or reconnecting.
               </div>
             )}
+            {summaryOnly && <SummaryOnlyBanner />}
             <InspectorBody
               detail={detail}
+              exactDetailsAvailable={!summaryOnly}
               remoteLaunchable={remoteLaunchable}
               remoteLaunchHint={remoteLaunchHint}
-              onSelectFile={(fileEdit) =>
-                setSelectedDiff({
-                  sourceId: detail.sourceId,
-                  agent: detail.agent,
-                  sessionId: detail.id,
-                  revision: detail.detailRevision,
-                  path: fileEdit.path,
-                  changeIds: fileEdit.changeIds ?? [],
-                })
+              onSelectFile={
+                summaryOnly
+                  ? null
+                  : (fileEdit) =>
+                      setSelectedDiff({
+                        sourceId: detail.sourceId,
+                        agent: detail.agent,
+                        sessionId: detail.id,
+                        revision: detail.detailRevision,
+                        path: fileEdit.path,
+                        changeIds: fileEdit.changeIds ?? [],
+                      })
               }
             />
             <InspectorFooter
@@ -1383,7 +1439,20 @@ export function SessionInspector({
                   </SheetTitle>
                 </div>
               </SheetHeader>
-              <DiffList changes={fileChanges} isLoading={fileDiffLoading} loadError={fileDiffError} />
+              <DiffList
+                changes={fileChanges}
+                isLoading={fileDiffLoading}
+                loadError={fileDiffError}
+                showRefresh={
+                  fileDiffErrorKind === 'stale' ||
+                  fileDiffErrorKind === 'missing' ||
+                  fileDiffErrorKind === 'corrupt'
+                }
+                onRefresh={() => {
+                  setSelectedDiff(null);
+                  onRefresh();
+                }}
+              />
             </>
           )}
         </SheetContent>

@@ -39,6 +39,41 @@ export type FileChange = {
   deletions: number;
 };
 
+export type ExactReadErrorKind = 'stale' | 'missing' | 'corrupt' | 'too_large' | 'other';
+
+export type ExactReadFailure = {
+  kind: ExactReadErrorKind;
+  message: string;
+};
+
+export function exactDiffFailure(status: number, code: string): ExactReadFailure {
+  switch (code) {
+    case 'session_detail_stale':
+      return {
+        kind: 'stale',
+        message: 'This session changed before its file changes loaded. Refresh sessions and try again.',
+      };
+    case 'session_detail_missing':
+    case 'session_change_missing':
+      return {
+        kind: 'missing',
+        message: 'These exact file changes are no longer available. Refresh sessions and try again.',
+      };
+    case 'session_detail_corrupt':
+      return {
+        kind: 'corrupt',
+        message: 'Cached file changes could not be read. Refresh the source to restore a last-good copy.',
+      };
+    case 'session_diff_too_large':
+      return { kind: 'too_large', message: 'This file’s recorded changes are too large to display.' };
+    default:
+      return {
+        kind: 'other',
+        message: `Could not load this exact session revision’s file changes (${status}).`,
+      };
+  }
+}
+
 export type SessionsPayload = {
   sessions: Session[];
   machines: MachineFact[];
@@ -168,30 +203,50 @@ function sameFileSelection(left: FileSelection, right: FileSelection): boolean {
 
 export function useFileDiff(selection: FileSelection | null) {
   const [loaded, setLoaded] = useState<
-    (FileSelection & { changes: FileChange[] | null; loadError: string | null }) | null
+    | (FileSelection & {
+        changes: FileChange[] | null;
+        loadError: string | null;
+        loadErrorKind: ExactReadErrorKind | null;
+      })
+    | null
   >(null);
 
   useEffect(() => {
     if (selection == null) return;
     const controller = new AbortController();
 
-    apiFetch(diffRequestPath(selection), { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Diff request failed (${response.status})`);
-        return response.json() as Promise<{ changes: FileChange[] }>;
-      })
-      .then(({ changes }) => {
-        if (!controller.signal.aborted) setLoaded({ ...selection, changes, loadError: null });
-      })
-      .catch(() => {
+    const load = async () => {
+      try {
+        const response = await apiFetch(diffRequestPath(selection), { signal: controller.signal });
+        if (!response.ok) {
+          let code = '';
+          try {
+            code = ((await response.json()) as { code?: string }).code ?? '';
+          } catch {
+            // Status is sufficient for the generic fallback.
+          }
+          throw exactDiffFailure(response.status, code);
+        }
+        const { changes } = (await response.json()) as { changes: FileChange[] };
         if (!controller.signal.aborted) {
+          setLoaded({ ...selection, changes, loadError: null, loadErrorKind: null });
+        }
+      } catch (error: unknown) {
+        if (!controller.signal.aborted) {
+          const failure = error as Partial<ExactReadFailure>;
           setLoaded({
             ...selection,
             changes: null,
-            loadError: 'Could not load this exact session revision’s file changes.',
+            loadError:
+              error instanceof ApiAuthenticationError
+                ? error.message
+                : (failure.message ?? 'Could not load this exact session revision’s file changes.'),
+            loadErrorKind: failure.kind ?? 'other',
           });
         }
-      });
+      }
+    };
+    void load();
 
     return () => controller.abort();
   }, [selection]);
@@ -201,6 +256,7 @@ export function useFileDiff(selection: FileSelection | null) {
     changes: isCurrent ? loaded.changes : null,
     isLoading: selection != null && !isCurrent,
     loadError: isCurrent ? loaded.loadError : null,
+    loadErrorKind: isCurrent ? loaded.loadErrorKind : null,
   };
 }
 
