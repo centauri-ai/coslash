@@ -145,10 +145,14 @@ func (buffer *boundedBuffer) Write(data []byte) (int, error) {
 }
 
 func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string) error {
+	return TerminalWithPrompt(terminal, agent, workingDirectory, sessionID, mode, handoff, "")
+}
+
+func TerminalWithPrompt(terminal, agent, workingDirectory, sessionID, mode, handoff, prompt string) error {
 	if workingDirectory == "" {
 		return fmt.Errorf("launch: session has no working directory")
 	}
-	command, handoffPath, err := cliCommand(agent, sessionID, mode, handoff)
+	command, handoffPath, err := cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt)
 	if err != nil {
 		return err
 	}
@@ -241,6 +245,10 @@ func terminalFor(terminal string) (terminalAdapter, error) {
 }
 
 func cliCommand(agent, sessionID, mode, handoff string) (string, string, error) {
+	return cliCommandWithPrompt(agent, sessionID, mode, handoff, "")
+}
+
+func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (string, string, error) {
 	cli, err := cliName(agent)
 	if err != nil {
 		return "", "", err
@@ -248,9 +256,12 @@ func cliCommand(agent, sessionID, mode, handoff string) (string, string, error) 
 	switch mode {
 	case NewSession:
 		if handoff == "" {
-			return shellJoin(cli), "", nil
+			if prompt == "" {
+				return shellJoin(cli), "", nil
+			}
+			return shellJoin(cli, prompt), "", nil
 		}
-		return handoffCommand(agent, cli, handoff)
+		return handoffCommand(agent, cli, handoff, prompt)
 	case ResumeSession:
 		validSessionID := uuidSessionIDPattern.MatchString(sessionID)
 		if agent == vendors.AgentOpenCode {
@@ -268,7 +279,7 @@ func cliCommand(agent, sessionID, mode, handoff string) (string, string, error) 
 	return "", "", fmt.Errorf("launch: unknown mode %q", mode)
 }
 
-func handoffCommand(agent, cli, handoff string) (string, string, error) {
+func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) {
 	context := handoffPreamble + handoff
 	switch agent {
 	case vendors.AgentClaude:
@@ -276,7 +287,11 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 		if err != nil {
 			return "", "", err
 		}
-		return withCleanup(shellJoin(cli, "--append-system-prompt-file", path), path), path, nil
+		arguments := []string{cli, "--append-system-prompt-file", path}
+		if prompt != "" {
+			arguments = append(arguments, prompt)
+		}
+		return withCleanup(shellJoin(arguments...), path), path, nil
 	case vendors.AgentCodex:
 		// Codex takes instructions only as a -c override
 		encoded, err := json.Marshal(context)
@@ -290,7 +305,11 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 		// An unreadable file would leave the substitution empty
 		guard := "cat " + shellQuote(path) + " > /dev/null && "
 		override := `"developer_instructions=$(cat ` + shellQuote(path) + `)"`
-		return withCleanup(guard+shellJoin(cli, "-c")+" "+override, path), path, nil
+		command := guard + shellJoin(cli, "-c") + " " + override
+		if prompt != "" {
+			command += " " + shellQuote(prompt)
+		}
+		return withCleanup(command, path), path, nil
 	case vendors.AgentOpenCode:
 		path, err := writeHandoffFile(context)
 		if err != nil {
@@ -303,6 +322,9 @@ func handoffCommand(agent, cli, handoff string) (string, string, error) {
 		}
 		guard := "cat " + shellQuote(path) + " > /dev/null && "
 		command := guard + "OPENCODE_CONFIG_CONTENT=" + shellQuote(string(config)) + " " + shellJoin(cli)
+		if prompt != "" {
+			command += " " + shellQuote(prompt)
+		}
 		return withCleanup(command, path), path, nil
 	}
 	return "", "", fmt.Errorf("launch: unknown agent %q", agent)

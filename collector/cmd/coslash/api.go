@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	handoffcontext "github.com/centauri-ai/coslash/collector/internal/handoff"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
@@ -22,6 +23,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
@@ -353,6 +355,97 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func handleHandoff(
+	w http.ResponseWriter,
+	r *http.Request,
+	getSession func(string) (*session.Session, error),
+) {
+	found, err := getSession(r.URL.Query().Get("id"))
+	if err != nil {
+		log.Printf("handoff: %v", err)
+		http.Error(w, "could not load session", http.StatusInternalServerError)
+		return
+	}
+	if found == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	_, _ = io.WriteString(w, handoffcontext.Build(found))
+}
+
+func canonicalSession(
+	id string,
+	mgr *synthesis.Manager,
+	list func(int64) ([]*session.Session, error),
+) (*session.Session, error) {
+	if id == "" {
+		return nil, nil
+	}
+	sessions, err := list(0)
+	if err != nil {
+		return nil, err
+	}
+	for _, value := range sessions {
+		if value.ID == id {
+			value.Synthesis = mgr.Lookup(value.ID, value.LastActivityTime)
+			return value, nil
+		}
+	}
+	return nil, nil
+}
+
+type promptLauncher func(string, string, string, string, string, string, string) error
+
+func handleSend(
+	w http.ResponseWriter,
+	r *http.Request,
+	settingsStore *settings.Store,
+	getSession func(string) (*session.Session, error),
+	open promptLauncher,
+) {
+	target := r.URL.Query().Get("to")
+	if target != vendors.AgentClaude && target != vendors.AgentCodex {
+		http.Error(w, "target must be claude or codex", http.StatusBadRequest)
+		return
+	}
+	state := settingsStore.State()
+	if !state.Valid {
+		http.Error(w, state.Error+"; open Settings to repair it", http.StatusConflict)
+		return
+	}
+	found, err := getSession(r.URL.Query().Get("id"))
+	if err != nil {
+		log.Printf("send: %v", err)
+		http.Error(w, "could not load session", http.StatusInternalServerError)
+		return
+	}
+	if found == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	message, err := readMessage(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := open(
+		state.Config.Launch.Terminal,
+		target,
+		found.WorkingDirectory,
+		found.ID,
+		launch.NewSession,
+		handoffcontext.Build(found),
+		message,
+	); err != nil {
+		log.Printf("send: %v", err)
+		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("send: %s to %s", found.ID, target)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func openRemoteTerminalWithHandoff(
 	ctx context.Context,
 	terminal, alias, agent, workingDirectory, sessionID, mode, handoff string,
@@ -625,6 +718,17 @@ func readHandoff(w http.ResponseWriter, r *http.Request) (string, error) {
 	}
 	if !utf8.Valid(body) {
 		return "", fmt.Errorf("handoff context is not valid UTF-8")
+	}
+	return string(body), nil
+}
+
+func readMessage(w http.ResponseWriter, r *http.Request) (string, error) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, launch.MaxHandoffBytes))
+	if err != nil {
+		return "", fmt.Errorf("message exceeds %d bytes", launch.MaxHandoffBytes)
+	}
+	if !utf8.Valid(body) {
+		return "", fmt.Errorf("message is not valid UTF-8")
 	}
 	return string(body), nil
 }

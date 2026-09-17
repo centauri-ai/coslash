@@ -67,8 +67,11 @@ func parseOptions(arguments []string) (options, error) {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "doctor" {
-		os.Exit(runDoctor(os.Stdout, os.Stderr, os.Args[2:]))
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "sessions", "handoff", "send", "doctor":
+			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
+		}
 	}
 
 	opts, err := parseOptions(os.Args[1:])
@@ -133,6 +136,9 @@ func main() {
 		log.Printf("write API token: %v", err)
 	}
 	baseURL := "http://" + listener.Addr().String()
+	if err := writeRuntime(baseURL); err != nil {
+		log.Printf("write runtime descriptor: %v", err)
+	}
 	accessURL := baseURL + "/#t=" + token
 	log.Printf("listening on %s", baseURL)
 	log.Printf("open %s", accessURL)
@@ -194,6 +200,9 @@ func routes(
 ) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
+	getCanonicalSession := func(id string) (*session.Session, error) {
+		return canonicalSession(id, mgr, collector.List)
+	}
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		handleList(w, r, mgr, reviewManager, remoteManager)
 	})
@@ -237,6 +246,12 @@ func routes(
 			return found, err
 		}
 		handleReview(w, r, settingsStore, getSession, launch.ReviewerAvailable, reviewManager.Start)
+	})
+	api.HandleFunc("GET /api/handoff", func(w http.ResponseWriter, r *http.Request) {
+		handleHandoff(w, r, getCanonicalSession)
+	})
+	api.HandleFunc("POST /api/send", func(w http.ResponseWriter, r *http.Request) {
+		handleSend(w, r, settingsStore, getCanonicalSession, launch.TerminalWithPrompt)
 	})
 	api.HandleFunc("POST /api/remote/test", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteTest(w, r, remoteManager)
