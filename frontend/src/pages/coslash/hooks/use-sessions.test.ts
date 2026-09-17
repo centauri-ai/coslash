@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   decodeSessionsResponse,
   diffRequestPath,
+  sessionDetailRequestPath,
   sessionsRequestPath,
   synthesisRequestPath,
 } from '@/pages/coslash/hooks/use-sessions';
@@ -15,6 +16,7 @@ function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
     sourceClass: local ? 'local' : 'ssh_workspace',
     logicalSessionId: `${sourceId}:codex:${id}`,
     revision: 1,
+    detailRevision: local ? '1' : 'a'.repeat(64),
     completion: 'complete',
     privacy: 'shareable',
     shareEligibility: 'eligible',
@@ -145,16 +147,28 @@ describe('sessionsRequestPath', () => {
   });
 });
 
-describe('local-only request builders', () => {
-  it('refuses remote diff and synthesis construction', () => {
+describe('exact detail request builders', () => {
+  it('includes source, agent, session, revision, and ordered opaque changes', () => {
     const remote = {
       sourceId: 'r_0123456789abcdef',
       agent: 'codex',
       id: 'abc',
       sessionId: 'abc',
+      detailRevision: 'a'.repeat(64),
+      revision: 'a'.repeat(64),
       path: 'a.ts',
+      changeIds: ['change-000000-000000', 'change-000000-000001'],
     };
-    expect(() => diffRequestPath(remote)).toThrow('remote diff unsupported');
+    expect(sessionDetailRequestPath(remote)).toBe(
+      `/api/session-detail?source=r_0123456789abcdef&agent=codex&session=abc&revision=${'a'.repeat(64)}`,
+    );
+    expect(diffRequestPath(remote)).toBe(
+      `/api/diff?source=r_0123456789abcdef&agent=codex&session=abc&revision=${'a'.repeat(64)}&change=change-000000-000000&change=change-000000-000001`,
+    );
+  });
+
+  it('keeps synthesis local-only', () => {
+    const remote = { sourceId: 'r_0123456789abcdef', agent: 'codex', id: 'abc' };
     expect(() => synthesisRequestPath(remote)).toThrow('remote synthesis unsupported');
   });
 });

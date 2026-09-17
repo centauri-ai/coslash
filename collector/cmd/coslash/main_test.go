@@ -51,6 +51,7 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 		path   string
 	}{
 		{method: http.MethodPost, path: "/api/sessions"},
+		{method: http.MethodPost, path: "/api/session-detail"},
 		{method: http.MethodPost, path: "/api/synthesis"},
 		{method: http.MethodPost, path: "/api/diff"},
 		{method: http.MethodGet, path: "/api/launch"},

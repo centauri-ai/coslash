@@ -115,10 +115,12 @@ the remote machine.
 
 Remote sessions support **Resume** and **Start fresh with handoff** while their
 SSH host is connected. Cards, transcript-derived facts, costs, tokens,
-file-edit summaries, and **Copy handoff** are also available. Diffs, synthesis,
-preview, Commands, and sharing remain local-only. A remote session can show
-recent transcript activity while process liveness is unknown; coSlash labels
-those facts separately.
+file-edit summaries, and **Copy handoff** are also available. Complete cached
+Codex sessions use the same inspector and ordered file-diff view as local
+sessions, including after restart or while the SSH host is offline. Other
+remote sessions retain their bounded summary view. Synthesis, preview, and
+sharing remain local-only. A remote session can show recent transcript activity
+while process liveness is unknown; coSlash labels those facts separately.
 
 ## What you get
 

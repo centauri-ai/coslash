@@ -27,6 +27,7 @@ var (
 	ErrRemoteSessionUnavailable = errors.New("remote session details are unavailable")
 	ErrRemoteSessionOversized   = errors.New("remote session details exceed the collection size limit")
 	ErrRemoteRevisionNotFound   = errors.New("remote session revision is unavailable")
+	ErrRemoteRecordCorrupt      = errors.New("remote session record is corrupt")
 	ErrRemoteChangeNotFound     = errors.New("remote file change is unavailable")
 )
 
@@ -545,11 +546,11 @@ func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID s
 	}
 	data, err := fullsessionv1.Marshal(*selected)
 	if err != nil {
-		return nil, ErrRemoteRevisionNotFound
+		return nil, ErrRemoteRecordCorrupt
 	}
 	copy, err := fullsessionv1.Decode(data)
 	if err != nil {
-		return nil, ErrRemoteRevisionNotFound
+		return nil, ErrRemoteRecordCorrupt
 	}
 	return &copy, nil
 }

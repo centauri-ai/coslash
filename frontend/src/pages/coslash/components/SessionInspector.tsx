@@ -32,7 +32,13 @@ import {
 import { SnapshotPreviewDialog } from '@/pages/coslash/components/SnapshotPreviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
-import { synthesisRequestPath, useFileDiff, type FileSelection } from '@/pages/coslash/hooks/use-sessions';
+import {
+  decodeSession,
+  sessionDetailRequestPath,
+  synthesisRequestPath,
+  useFileDiff,
+  type FileSelection,
+} from '@/pages/coslash/hooks/use-sessions';
 import { ApiAuthenticationError, apiFetch } from '@/pages/coslash/lib/api';
 import {
   blocksFromTexts,
@@ -82,6 +88,23 @@ type SynthesisResponse = {
   synthesisError?: string;
 };
 
+type DetailResponse = {
+  sourceId: string;
+  agent: string;
+  sessionId: string;
+  revision: string;
+  cachedOffline: boolean;
+  session: Partial<Session>;
+};
+
+type DetailErrorKind = 'stale' | 'missing' | 'corrupt' | 'other';
+
+type DetailError = {
+  key: string;
+  kind: DetailErrorKind;
+  message: string;
+};
+
 /* oxlint-disable react/only-export-components -- exported for focused rendering tests */
 export function filePanelOpen(selection: FileSelection | null, session: SessionIdentity | null): boolean {
   return (
@@ -98,19 +121,111 @@ function useSessionDetail(
   session: Session | null,
   sessionsVersion: number,
   synthesisSettingsKey: string,
-): { detail: SessionDetail | null; loadError: string | null } {
-  const [loaded, setLoaded] = useState<({ key: string } & SynthesisResponse) | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+): {
+  detail: SessionDetail | null;
+  isLoading: boolean;
+  loadError: string | null;
+  loadErrorKind: DetailErrorKind | null;
+  cachedOffline: boolean;
+} {
+  const [loadedDetail, setLoadedDetail] = useState<{
+    key: string;
+    detail: SessionDetail;
+    cachedOffline: boolean;
+  } | null>(null);
+  const [detailError, setDetailError] = useState<DetailError | null>(null);
+  const [loadedSynthesis, setLoadedSynthesis] = useState<({ key: string } & SynthesisResponse) | null>(null);
   const pollDeadline = useRef<{ key: string; deadline: number } | null>(null);
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
-  const key = session == null ? null : sessionKey(session);
+  const detailKey = session == null ? null : `${sessionKey(session)}@${session.detailRevision}`;
 
   useEffect(() => {
-    const current = sessionRef.current;
-    setLoaded((prev) => (prev?.key === key ? prev : null));
-    setLoadError(null);
-    if (current == null || key == null) {
+    const current = session;
+    if (current == null || detailKey == null) return;
+    if (current.detailRevision === '') return;
+
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const response = await apiFetch(sessionDetailRequestPath(current), { signal: controller.signal });
+        if (!response.ok) {
+          let code = '';
+          try {
+            code = ((await response.json()) as { code?: string }).code ?? '';
+          } catch {
+            // The status remains enough to show an honest generic state.
+          }
+          const failure: Omit<DetailError, 'key'> =
+            code === 'session_detail_stale'
+              ? {
+                  kind: 'stale',
+                  message:
+                    'This session changed before its details loaded. Refresh sessions to inspect the latest revision.',
+                }
+              : code === 'session_detail_missing'
+                ? { kind: 'missing', message: 'Complete details for this session are unavailable.' }
+                : code === 'session_detail_corrupt'
+                  ? {
+                      kind: 'corrupt',
+                      message:
+                        'Cached session details could not be read. Refresh the source to restore a last-good copy.',
+                    }
+                  : { kind: 'other', message: `Could not load session details (${response.status}).` };
+          throw failure;
+        }
+        const body = (await response.json()) as DetailResponse;
+        if (
+          body.sourceId !== current.sourceId ||
+          body.agent !== current.agent ||
+          body.sessionId !== current.id ||
+          body.revision !== current.detailRevision ||
+          body.session == null ||
+          typeof body.session !== 'object'
+        ) {
+          throw {
+            kind: 'corrupt',
+            message: 'Session details did not match the selected revision.',
+          } satisfies Omit<DetailError, 'key'>;
+        }
+        const detail = decodeSession({
+          ...current,
+          ...body.session,
+          repo: body.session.repo ?? current.repo,
+          sourceId: current.sourceId,
+          sourceLabel: current.sourceLabel,
+          sourceClass: current.sourceClass,
+          logicalSessionId: current.logicalSessionId,
+          revision: current.revision,
+          detailRevision: current.detailRevision,
+          eligibleForAggregates: current.eligibleForAggregates,
+          displayStale: current.displayStale,
+          launchable: current.launchable,
+          launchBlockReason: current.launchBlockReason,
+        });
+        if (!controller.signal.aborted) {
+          setLoadedDetail({ key: detailKey, detail, cachedOffline: body.cachedOffline });
+          setDetailError(null);
+        }
+      } catch (error: unknown) {
+        if (controller.signal.aborted) return;
+        if (error instanceof ApiAuthenticationError) {
+          setDetailError({ key: detailKey, kind: 'other', message: error.message });
+          return;
+        }
+        const failure = error as Partial<Omit<DetailError, 'key'>>;
+        setDetailError({
+          key: detailKey,
+          kind: failure.kind ?? 'other',
+          message: failure.message ?? 'Could not load session details.',
+        });
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [detailKey, session, sessionsVersion]);
+
+  useEffect(() => {
+    const current = session;
+    if (current == null || detailKey == null) {
       pollDeadline.current = null;
       return;
     }
@@ -118,7 +233,7 @@ function useSessionDetail(
       pollDeadline.current = null;
       return;
     }
-    if (pollDeadline.current?.key !== key) {
+    if (pollDeadline.current?.key !== detailKey) {
       pollDeadline.current = null;
     }
     const identity = {
@@ -136,21 +251,21 @@ function useSessionDetail(
         if (!res.ok) return;
         const result = (await res.json()) as SynthesisResponse;
         if (result.synthesis == null && result.synthesisPending) {
-          pollDeadline.current ??= { key, deadline: Date.now() + 2 * MINUTE };
+          pollDeadline.current ??= { key: detailKey, deadline: Date.now() + 2 * MINUTE };
           if (Date.now() < pollDeadline.current.deadline) {
             timer = setTimeout(load, 3_000);
-            setLoaded({ key, ...result });
+            setLoadedSynthesis({ key: detailKey, ...result });
           } else {
-            setLoaded({ key, ...result, synthesisPending: false });
+            setLoadedSynthesis({ key: detailKey, ...result, synthesisPending: false });
           }
         } else {
           pollDeadline.current = null;
-          setLoaded({ key, ...result });
+          setLoadedSynthesis({ key: detailKey, ...result });
         }
       } catch (error: unknown) {
-        if (!controller.signal.aborted && error instanceof ApiAuthenticationError) {
-          setLoadError(error.message);
-        }
+        // Detail loading owns the visible request error. Synthesis failures
+        // remain represented by the endpoint's synthesisError field.
+        if (!controller.signal.aborted && error instanceof ApiAuthenticationError) return;
       }
     };
     void load();
@@ -158,18 +273,48 @@ function useSessionDetail(
       controller.abort();
       if (timer != null) clearTimeout(timer);
     };
-  }, [key, sessionsVersion, synthesisSettingsKey]);
+  }, [detailKey, session, sessionsVersion, synthesisSettingsKey]);
 
-  if (session == null) return { detail: null, loadError };
-  if (loaded?.key !== sessionKey(session)) return { detail: session, loadError };
+  if (session == null || detailKey == null) {
+    return { detail: null, isLoading: false, loadError: null, loadErrorKind: null, cachedOffline: false };
+  }
+  if (session.detailRevision === '') {
+    return {
+      detail: null,
+      isLoading: false,
+      loadError: 'Complete details for this session are unavailable.',
+      loadErrorKind: 'missing',
+      cachedOffline: false,
+    };
+  }
+  const currentError = detailError?.key === detailKey ? detailError : null;
+  if (currentError != null) {
+    return {
+      detail: null,
+      isLoading: false,
+      loadError: currentError.message,
+      loadErrorKind: currentError.kind,
+      cachedOffline: false,
+    };
+  }
+  if (loadedDetail?.key !== detailKey) {
+    return { detail: null, isLoading: true, loadError: null, loadErrorKind: null, cachedOffline: false };
+  }
+  const synthesis = loadedSynthesis?.key === detailKey ? loadedSynthesis : null;
   return {
-    detail: {
-      ...session,
-      synthesis: loaded.synthesis,
-      synthesisPending: loaded.synthesisPending,
-      synthesisError: loaded.synthesisError,
-    },
-    loadError,
+    detail:
+      synthesis == null
+        ? loadedDetail.detail
+        : {
+            ...loadedDetail.detail,
+            synthesis: synthesis.synthesis,
+            synthesisPending: synthesis.synthesisPending,
+            synthesisError: synthesis.synthesisError,
+          },
+    isLoading: false,
+    loadError: null,
+    loadErrorKind: null,
+    cachedOffline: loadedDetail.cachedOffline,
   };
 }
 
@@ -468,8 +613,8 @@ function HandoffSection({
       {!isLocalSession(detail) && (
         <div className="text-muted-foreground text-xs">
           {remoteLaunchable
-            ? 'Remote terminal actions open through SSH. File diffs, synthesis, Hub sharing, and command history remain local-only.'
-            : 'Remote terminal actions are available when SSH reconnects. File diffs, synthesis, Hub sharing, and command history remain local-only.'}
+            ? 'Remote terminal actions open through SSH. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'
+            : 'Remote terminal actions are available when SSH reconnects. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'}
         </div>
       )}
     </div>
@@ -884,7 +1029,7 @@ function FilesChangedList({
   onSelectFile,
 }: {
   detail: SessionDetail;
-  onSelectFile: ((path: string) => void) | null;
+  onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number]) => void) | null;
 }) {
   if (detail.fileEdits.length === 0) return null;
   const newFiles = detail.fileEdits.filter((fileEdit) => fileEdit.isNew).length;
@@ -913,7 +1058,7 @@ function FilesChangedList({
                     'text-success-fg': fileEdit.isNew,
                   },
                 )}
-                onClick={() => onSelectFile(fileEdit.path)}
+                onClick={() => onSelectFile(fileEdit)}
               >
                 {fileEdit.path.split('/').pop()}
               </button>
@@ -1006,7 +1151,7 @@ function InspectorBody({
   remoteLaunchHint,
 }: {
   detail: SessionDetail;
-  onSelectFile: ((path: string) => void) | null;
+  onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number]) => void) | null;
   remoteLaunchable: boolean;
   remoteLaunchHint?: string;
 }) {
@@ -1083,6 +1228,7 @@ export function SessionInspector({
   synthesisSettingsKey,
   showMachineBadge = false,
   machines,
+  onRefresh,
   onClose,
 }: {
   session: Session | null;
@@ -1090,9 +1236,14 @@ export function SessionInspector({
   synthesisSettingsKey: string;
   showMachineBadge?: boolean;
   machines: MachineFact[];
+  onRefresh: () => void;
   onClose: () => void;
 }) {
-  const { detail, loadError } = useSessionDetail(session, sessionsVersion, synthesisSettingsKey);
+  const { detail, isLoading, loadError, loadErrorKind, cachedOffline } = useSessionDetail(
+    session,
+    sessionsVersion,
+    synthesisSettingsKey,
+  );
   const contentRef = useRef<HTMLDivElement>(null);
   const [selectedDiff, setSelectedDiff] = useState<FileSelection | null>(null);
   const {
@@ -1137,13 +1288,35 @@ export function SessionInspector({
       <SheetContent
         ref={contentRef}
         tabIndex={-1}
-        className="w-1/2! max-w-none! gap-0 outline-none"
+        className="w-full! max-w-none! gap-0 outline-none sm:w-1/2!"
         showCloseButton={true}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           contentRef.current?.focus();
         }}
       >
+        {isOpen && isLoading && (
+          <div
+            role="status"
+            className="text-muted-foreground flex flex-1 items-center justify-center gap-2 text-xs"
+          >
+            <LoaderCircleIcon className="size-4 animate-spin" />
+            Loading exact session details…
+          </div>
+        )}
+        {isOpen && loadError != null && (
+          <div
+            role="alert"
+            className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+          >
+            <div className="text-destructive text-sm">{loadError}</div>
+            {(loadErrorKind === 'stale' || loadErrorKind === 'missing' || loadErrorKind === 'corrupt') && (
+              <Button variant="outline" size="sm" onClick={onRefresh}>
+                Refresh sessions
+              </Button>
+            )}
+          </div>
+        )}
         {isOpen && detail != null && (
           <>
             <SheetHeader>
@@ -1160,25 +1333,27 @@ export function SessionInspector({
                 <div className="border-b p-1" />
               </div>
             </SheetHeader>
-            {loadError != null && (
-              <div role="alert" className="text-destructive px-4 pb-2 text-xs">
-                {loadError}
+            {cachedOffline && (
+              <div
+                role="status"
+                className="text-warning-fg bg-warning-bg mx-4 mb-2 rounded-sm px-3 py-2 text-xs"
+              >
+                Showing the last complete cached details while the SSH workspace is offline or reconnecting.
               </div>
             )}
             <InspectorBody
               detail={detail}
               remoteLaunchable={remoteLaunchable}
               remoteLaunchHint={remoteLaunchHint}
-              onSelectFile={
-                isLocalSession(detail)
-                  ? (path) =>
-                      setSelectedDiff({
-                        sourceId: detail.sourceId,
-                        agent: detail.agent,
-                        sessionId: detail.id,
-                        path,
-                      })
-                  : null
+              onSelectFile={(fileEdit) =>
+                setSelectedDiff({
+                  sourceId: detail.sourceId,
+                  agent: detail.agent,
+                  sessionId: detail.id,
+                  revision: detail.detailRevision,
+                  path: fileEdit.path,
+                  changeIds: fileEdit.changeIds ?? [],
+                })
               }
             />
             <InspectorFooter
@@ -1195,7 +1370,7 @@ export function SessionInspector({
           if (!open) setSelectedDiff(null);
         }}
       >
-        <SheetContent className="w-1/2! max-w-none! gap-0" showCloseButton={true}>
+        <SheetContent className="w-full! max-w-none! gap-0 sm:w-1/2!" showCloseButton={true}>
           {selectedDiff != null && (
             <>
               <SheetHeader className="border-b">

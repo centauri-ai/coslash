@@ -26,7 +26,9 @@ export type FileSelection = {
   sourceId: string;
   agent: string;
   sessionId: string;
+  revision: string;
   path: string;
+  changeIds: string[];
 };
 
 export type FileChange = {
@@ -80,7 +82,7 @@ function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
 // Older caches and sparse remote facts can contain null collection fields.
 // Normalize at the API boundary so one incomplete session cannot crash the
 // whole board while the backend is being upgraded or refreshed.
-function decodeSession(value: unknown): Session {
+export function decodeSession(value: unknown): Session {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Invalid session response');
   }
@@ -125,10 +127,25 @@ export function sessionsRequestPath(query: {
   return encoded === '' ? '/api/sessions' : `/api/sessions?${encoded}`;
 }
 export function diffRequestPath(selection: FileSelection) {
-  if (!isLocalSource(selection.sourceId)) {
-    throw new Error('remote diff unsupported');
-  }
-  return `/api/diff?${new URLSearchParams({ id: selection.sessionId, path: selection.path })}`;
+  const params = new URLSearchParams({
+    source: selection.sourceId,
+    agent: selection.agent,
+    session: selection.sessionId,
+    revision: selection.revision,
+  });
+  selection.changeIds.forEach((changeId) => params.append('change', changeId));
+  return `/api/diff?${params}`;
+}
+
+export function sessionDetailRequestPath(
+  session: Pick<Session, 'sourceId' | 'agent' | 'id' | 'detailRevision'>,
+) {
+  return `/api/session-detail?${new URLSearchParams({
+    source: session.sourceId,
+    agent: session.agent,
+    session: session.id,
+    revision: session.detailRevision,
+  })}`;
 }
 
 export function synthesisRequestPath(session: SessionIdentity) {
@@ -138,11 +155,15 @@ export function synthesisRequestPath(session: SessionIdentity) {
   return `/api/synthesis?${new URLSearchParams({ id: session.id })}`;
 }
 
-function sameFileSelection(
-  left: Pick<FileSelection, 'sourceId' | 'sessionId' | 'path'>,
-  right: Pick<FileSelection, 'sourceId' | 'sessionId' | 'path'>,
-): boolean {
-  return left.sourceId === right.sourceId && left.sessionId === right.sessionId && left.path === right.path;
+function sameFileSelection(left: FileSelection, right: FileSelection): boolean {
+  return (
+    left.sourceId === right.sourceId &&
+    left.agent === right.agent &&
+    left.sessionId === right.sessionId &&
+    left.revision === right.revision &&
+    left.path === right.path &&
+    left.changeIds.join('\0') === right.changeIds.join('\0')
+  );
 }
 
 export function useFileDiff(selection: FileSelection | null) {
@@ -152,14 +173,6 @@ export function useFileDiff(selection: FileSelection | null) {
 
   useEffect(() => {
     if (selection == null) return;
-    if (!isLocalSource(selection.sourceId)) {
-      setLoaded({
-        ...selection,
-        changes: null,
-        loadError: 'Remote file diffs are not available.',
-      });
-      return;
-    }
     const controller = new AbortController();
 
     apiFetch(diffRequestPath(selection), { signal: controller.signal })
@@ -175,7 +188,7 @@ export function useFileDiff(selection: FileSelection | null) {
           setLoaded({
             ...selection,
             changes: null,
-            loadError: 'Could not load this session’s file changes.',
+            loadError: 'Could not load this exact session revision’s file changes.',
           });
         }
       });
