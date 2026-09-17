@@ -484,7 +484,7 @@ export function SessionCard({
   onReviewStarted = () => undefined,
   onSelectRelated,
 }: SessionCardProps) {
-  const showReviewAction = isLocalSession(session) && !isReview;
+  const showReviewAction = isLocalSession(session) && session.cwd.trim() !== '' && !isReview;
   return (
     <div className="flex flex-col gap-2">
       <Card className={cn('cursor-pointer', variant === 'compact' ? 'gap-1 p-3' : 'p-4')} onClick={onClick}>

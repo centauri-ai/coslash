@@ -66,6 +66,13 @@ func (m *Manager) Lookup(id string, revision int64) *session.SessionSynthesis {
 	return m.cache.Lookup(id, revision)
 }
 
+func (m *Manager) LookupLatest(id string) *session.SessionSynthesis {
+	if m == nil {
+		return nil
+	}
+	return m.cache.LookupLatest(id)
+}
+
 func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 	if m == nil || revision <= 0 || !Eligible(s) {
 		return false

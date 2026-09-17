@@ -1,8 +1,13 @@
 package launch
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/review"
 )
 
 func TestReviewCLICommands(t *testing.T) {
@@ -22,7 +27,7 @@ func TestReviewCLICommands(t *testing.T) {
 		"opencode": {
 			bin:   "opencode",
 			args:  []string{"run", "--title", name, "--dir", "/repo"},
-			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
 			stdin: prompt,
 		},
 	}
@@ -62,5 +67,28 @@ func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 func TestReviewCLICommandRejectsUnknownReviewer(t *testing.T) {
 	if _, err := reviewCLICommand("cursor", "/repo", "name", "prompt"); err == nil {
 		t.Fatal("reviewCLICommand() accepted an unsupported reviewer")
+	}
+}
+
+func TestReviewSetsPWDToWorkingDirectory(t *testing.T) {
+	bin := t.TempDir()
+	workingDirectory := t.TempDir()
+	output := filepath.Join(t.TempDir(), "pwd")
+	script := filepath.Join(bin, "opencode")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf %s \"$PWD\" > \"$REVIEW_PWD_OUTPUT\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("REVIEW_PWD_OUTPUT", output)
+
+	if err := Review(context.Background(), review.Launch{Reviewer: "opencode", WorkingDirectory: workingDirectory}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != workingDirectory {
+		t.Fatalf("PWD = %q, want %q", got, workingDirectory)
 	}
 }

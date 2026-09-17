@@ -1,6 +1,7 @@
 package remotefacts
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -171,6 +172,23 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"LastEditAt": true, "Synthesis": true, "SynthesisPending": true,
 		"DeclaredGoal": true, "CompactionSeed": true,
 	})
+}
+
+func TestCloneDisplayStripsLocalReviewState(t *testing.T) {
+	clone, err := cloneDisplay(session.Session{ReviewPending: true, ReviewError: "private failure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clone.ReviewPending || clone.ReviewError != "" {
+		t.Fatalf("review state crossed remote boundary: %#v", clone)
+	}
+	encoded, err := json.Marshal(clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("reviewPending")) || bytes.Contains(encoded, []byte("reviewError")) {
+		t.Fatalf("review state fields crossed remote boundary: %s", encoded)
+	}
 }
 
 func assertCensus(t *testing.T, typ reflect.Type, decisions map[string]bool) {

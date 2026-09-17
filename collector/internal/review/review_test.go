@@ -40,6 +40,23 @@ func TestManagerTracksBackgroundReviewFailureAndRetry(t *testing.T) {
 	waitForReviewState(t, manager, "origin", func(state State) bool { return !state.Pending && state.Error == "" })
 }
 
+func TestManagerShutdownCancelsRunningReview(t *testing.T) {
+	started := make(chan struct{})
+	manager := NewManager(func(ctx context.Context, _ Launch) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	manager.Start("origin", Launch{})
+	<-started
+
+	manager.Shutdown()
+
+	if state := manager.Status("origin"); state.Pending {
+		t.Fatalf("state after shutdown = %#v", state)
+	}
+}
+
 func waitForReviewState(t *testing.T, manager *Manager, id string, done func(State) bool) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
@@ -85,9 +102,10 @@ func TestPromptCarriesNameAndBoundedReviewContext(t *testing.T) {
 		Name:   &name,
 		Branch: &branch,
 		SessionDetails: session.SessionDetails{
-			Synthesis: &session.SessionSynthesis{Outcome: outcome},
-			FileEdits: edits.Edits,
-			Commits:   []string{"abc123 Fix checkout"},
+			Synthesis:  &session.SessionSynthesis{Outcome: outcome},
+			FileEdits:  edits.Edits,
+			Commits:    []string{"abc123 Fix checkout"},
+			CommitSHAs: []string{"abc123def456"},
 		},
 	}
 
@@ -105,6 +123,9 @@ func TestPromptCarriesNameAndBoundedReviewContext(t *testing.T) {
 		"-old",
 		"+new",
 		"abc123 Fix checkout",
+		"abc123def456",
+		"BEGIN UNTRUSTED SESSION DATA",
+		"END UNTRUSTED SESSION DATA",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("Prompt() missing %q", want)

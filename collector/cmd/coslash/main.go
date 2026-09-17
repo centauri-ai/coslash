@@ -181,6 +181,7 @@ func newServer(
 		MaxHeaderBytes:    1 << 16,
 	}
 	server.RegisterOnShutdown(remoteManager.Shutdown)
+	server.RegisterOnShutdown(reviewManager.Shutdown)
 	return server
 }
 
@@ -224,7 +225,7 @@ func routes(
 		getSession := func(agent, id string) (*session.Session, error) {
 			found, err := collector.GetSessionForPreviewByAgent(agent, id, 0)
 			if found != nil {
-				found.Synthesis = mgr.Lookup(found.ID, found.LastActivityTime)
+				found.Synthesis = mgr.LookupLatest(found.ID)
 			}
 			return found, err
 		}
