@@ -1,6 +1,8 @@
 package collector
 
 import (
+	"io"
+	"io/fs"
 	"reflect"
 	"testing"
 
@@ -8,6 +10,12 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+type unavailableReadSource struct{}
+
+func (unavailableReadSource) Open(string) (io.ReadCloser, error)    { return nil, fs.ErrNotExist }
+func (unavailableReadSource) ReadDir(string) ([]fs.DirEntry, error) { return nil, fs.ErrNotExist }
+func (unavailableReadSource) Stat(string) (fs.FileInfo, error)      { return nil, fs.ErrNotExist }
 
 func parityFixture() ([]*vendors.ParsedSession, *vendors.SessionMetadata) {
 	model, status := "gpt-5", "waiting"
@@ -75,5 +83,23 @@ func TestListRemoteUsesLiveStatus(t *testing.T) {
 	if len(got) != 1 || got[0].Status == nil || *got[0].Status != "busy" ||
 		len(got[0].Subagents) != 1 || got[0].Subagents[0].Status != session.SubagentRunning {
 		t.Fatalf("live remote display = %#v", got)
+	}
+}
+
+func TestListRemotePreservesWaitingWithoutAuthoritativeLiveness(t *testing.T) {
+	waiting := "waiting"
+	parsed := []*vendors.ParsedSession{{
+		Session: &session.Session{
+			Agent: "codex", ID: "root", Status: &waiting, StartedAt: 10, LastActivityTime: 20,
+			Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1},
+		},
+		Spawns: map[string]vendors.SpawnState{},
+	}}
+
+	got := ListRemote(unavailableReadSource{}, map[string]vendors.RemoteCollection{
+		"codex": {Sessions: parsed, Metadata: vendors.EmptySessionMetadata()},
+	}, 0)
+	if len(got) != 1 || got[0].Status == nil || *got[0].Status != "waiting" {
+		t.Fatalf("remote status without liveness = %#v; want waiting", got)
 	}
 }

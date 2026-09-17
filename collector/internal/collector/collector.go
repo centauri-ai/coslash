@@ -134,7 +134,7 @@ func finalizeSessionsSource(
 		removeUnresolvedSpawnRows(p.Session)
 	}
 	resolveNames(composition.roots, metadata)
-	resolveStatus(composition.roots, metadata, useLiveStatus)
+	resolveStatus(composition.roots, metadata, useLiveStatus, source == vendors.LocalReadSource)
 	return composition.roots
 }
 
@@ -506,6 +506,7 @@ func resolveStatus(
 	roots []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 	useLiveStatus bool,
+	livenessAuthoritative bool,
 ) {
 	var now int64
 	if useLiveStatus {
@@ -530,7 +531,7 @@ func resolveStatus(
 			raw = enrichment.Live
 		}
 		live := raw != ""
-		if deref(s.Status) == "waiting" && live {
+		if deref(s.Status) == "waiting" && (!livenessAuthoritative || live) {
 			continue
 		}
 		s.Status = nil
