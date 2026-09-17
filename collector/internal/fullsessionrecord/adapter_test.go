@@ -140,6 +140,51 @@ func TestRecordRoundTripPreservesNullStringArrays(t *testing.T) {
 	}
 }
 
+func TestRecordRoundTripPreservesEmptyStructuralArrays(t *testing.T) {
+	tests := map[string]func(*fullsessionv1.Session){
+		"usage":     func(s *fullsessionv1.Session) { s.Usage = []fullsessionv1.ModelUsage{} },
+		"subagents": func(s *fullsessionv1.Session) { s.Subagents = []fullsessionv1.Subagent{} },
+		"todos":     func(s *fullsessionv1.Session) { s.Todos = []fullsessionv1.Todo{} },
+		"digest":    func(s *fullsessionv1.Session) { s.Digest = []fullsessionv1.DigestEntry{} },
+		"file edits": func(s *fullsessionv1.Session) {
+			s.FileEdits = []fullsessionv1.FileEdit{}
+		},
+		"subagent commands and usage": func(s *fullsessionv1.Session) {
+			s.Subagents = []fullsessionv1.Subagent{{
+				ID: "subagent-1", Commands: []fullsessionv1.SubagentCommand{}, Usage: []fullsessionv1.ModelUsage{},
+			}}
+		},
+		"file changes": func(s *fullsessionv1.Session) {
+			s.EditedFileCount = 1
+			s.FileEdits = []fullsessionv1.FileEdit{{Path: "main.go", Edits: 1, Changes: []fullsessionv1.FileChange{}}}
+		},
+	}
+	for name, configure := range tests {
+		t.Run(name, func(t *testing.T) {
+			record := fullsessionv1.Record{
+				SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+				Session: fullsessionv1.Session{StartedAtMs: 1, LastActivityAtMs: 1},
+			}
+			configure(&record.Session)
+			frozen, err := fullsessionv1.Freeze(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			restored, err := ToSession(frozen)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roundTrip, err := FromSession(frozen.SourceID, *restored)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if roundTrip.RevisionID != frozen.RevisionID {
+				t.Fatalf("round trip revision = %s, want %s", roundTrip.RevisionID, frozen.RevisionID)
+			}
+		})
+	}
+}
+
 func TestParsedFamilyRejectsMissingPortableTimestamps(t *testing.T) {
 	parsed := []*vendors.ParsedSession{{
 		Session: &session.Session{
@@ -225,6 +270,7 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 
 func TestParsedFamilyPreservesCompleteDescendantSessions(t *testing.T) {
 	goal := "finish child work"
+	childName := "named child"
 	childEdits := session.FileEditWithChanges("child.go", 1, 0, 1, true, []session.FileChange{{
 		ID: "child-patch", Kind: "content", Text: "package child\n", Operation: "Write", Additions: 1,
 	}})
@@ -233,7 +279,7 @@ func TestParsedFamilyPreservesCompleteDescendantSessions(t *testing.T) {
 		{Session: &session.Session{Agent: "codex", ID: "child", StartedAt: 11, LastActivityTime: 21, EditedFileCount: 1, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{
 			Turns: 1, Todos: []session.Todo{{Text: "child todo"}}, FileEdits: []session.FileEdit{childEdits},
 			Synthesis: &session.SessionSynthesis{Goals: []string{goal}, Outcome: "done"},
-		}}, ParentID: "root", Spawns: map[string]vendors.SpawnState{}},
+		}}, Name: childName, ParentID: "root", Spawns: map[string]vendors.SpawnState{}},
 		{Session: &session.Session{Agent: "codex", ID: "grandchild", StartedAt: 12, LastActivityTime: 22, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1}}, ParentID: "child", Spawns: map[string]vendors.SpawnState{}},
 	}
 
@@ -245,9 +291,31 @@ func TestParsedFamilyPreservesCompleteDescendantSessions(t *testing.T) {
 		t.Fatalf("record lineage = %#v", records)
 	}
 	child := records[1].Session
-	if len(child.FileEdits) != 1 || child.FileEdits[0].Changes[0].ID != "child-patch" ||
+	if child.Name == nil || *child.Name != childName || len(child.FileEdits) != 1 || child.FileEdits[0].Changes[0].ID != "child-patch" ||
 		len(child.Todos) != 1 || child.Synthesis == nil || len(child.Subagents) != 1 || child.Subagents[0].ID != "grandchild" {
 		t.Fatalf("complete child record = %#v", child)
+	}
+}
+
+func TestParsedFamilyPopulatesPerModelCosts(t *testing.T) {
+	parsed := []*vendors.ParsedSession{{
+		Session: &session.Session{
+			Agent: "codex", ID: "session-1", StartedAt: 10, LastActivityTime: 20,
+			Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 1_000_000}},
+		},
+		Spawns: map[string]vendors.SpawnState{},
+	}}
+
+	records, err := FromParsedFamily(
+		"r_0123456789abcdef", "codex", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || len(records[0].Session.Usage) != 1 ||
+		records[0].Session.Usage[0].CostMicroUSD <= 0 || records[0].Session.CostMicroUSD == nil ||
+		records[0].Session.Usage[0].CostMicroUSD != *records[0].Session.CostMicroUSD {
+		t.Fatalf("portable costs = %#v", records)
 	}
 }
 

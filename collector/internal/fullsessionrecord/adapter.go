@@ -50,48 +50,33 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			DeclaredGoal:     cloneString(value.DeclaredGoal),
 		},
 	}
-	models := make([]string, 0, len(value.Tokens))
-	for model := range value.Tokens {
-		models = append(models, model)
-	}
-	sort.Strings(models)
-	for _, model := range models {
-		tokens := value.Tokens[model]
-		record.Session.Usage = append(record.Session.Usage, fullsessionv1.ModelUsage{
-			Model: model, InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens,
-			CacheCreationInputTokens:   tokens.CacheCreationInputTokens,
-			CacheCreation1hInputTokens: tokens.CacheCreation1hInputTokens,
-			CacheReadInputTokens:       tokens.CacheReadInputTokens, CostMicroUSD: micros(tokens.Cost),
-		})
+	record.Session.Usage = usageFromTokens(value.Tokens)
+	if value.Subagents != nil {
+		record.Session.Subagents = make([]fullsessionv1.Subagent, 0, len(value.Subagents))
 	}
 	for _, value := range value.Subagents {
 		item := fullsessionv1.Subagent{
 			ID: value.ID, Name: value.Name, Model: cloneString(value.Model), Status: value.Status,
 			Task: value.Task, Result: value.Result, DurationMs: cloneInt(value.DurationMs),
 			SpawnedAtTurn: cloneInt(value.SpawnedAtTurn), ToolUses: value.ToolUses,
-			CostMicroUSD: optionalMicros(value.Cost),
+			Usage: usageFromTokens(value.Tokens), CostMicroUSD: optionalMicros(value.Cost),
+		}
+		if value.Commands != nil {
+			item.Commands = make([]fullsessionv1.SubagentCommand, 0, len(value.Commands))
 		}
 		for _, command := range value.Commands {
 			item.Commands = append(item.Commands, fullsessionv1.SubagentCommand{Label: command.Label, Command: command.Command})
 		}
-		models = models[:0]
-		for model := range value.Tokens {
-			models = append(models, model)
-		}
-		sort.Strings(models)
-		for _, model := range models {
-			tokens := value.Tokens[model]
-			item.Usage = append(item.Usage, fullsessionv1.ModelUsage{
-				Model: model, InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens,
-				CacheCreationInputTokens:   tokens.CacheCreationInputTokens,
-				CacheCreation1hInputTokens: tokens.CacheCreation1hInputTokens,
-				CacheReadInputTokens:       tokens.CacheReadInputTokens, CostMicroUSD: micros(tokens.Cost),
-			})
-		}
 		record.Session.Subagents = append(record.Session.Subagents, item)
+	}
+	if value.Todos != nil {
+		record.Session.Todos = make([]fullsessionv1.Todo, 0, len(value.Todos))
 	}
 	for _, value := range value.Todos {
 		record.Session.Todos = append(record.Session.Todos, fullsessionv1.Todo{Text: value.Text, Done: value.Done})
+	}
+	if value.Digest != nil {
+		record.Session.Digest = make([]fullsessionv1.DigestEntry, 0, len(value.Digest))
 	}
 	for _, value := range value.Digest {
 		record.Session.Digest = append(record.Session.Digest, fullsessionv1.DigestEntry{
@@ -99,11 +84,18 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			SubagentID: value.SubagentID, TimeMs: value.Time,
 		})
 	}
+	if value.FileEdits != nil {
+		record.Session.FileEdits = make([]fullsessionv1.FileEdit, 0, len(value.FileEdits))
+	}
 	for _, value := range value.FileEdits {
 		item := fullsessionv1.FileEdit{
 			Path: value.Path, Additions: value.Additions, Deletions: value.Deletions, Edits: value.Edits, IsNew: value.IsNew,
 		}
-		for _, change := range value.Changes() {
+		changes := value.Changes()
+		if changes != nil {
+			item.Changes = make([]fullsessionv1.FileChange, 0, len(changes))
+		}
+		for _, change := range changes {
 			item.Changes = append(item.Changes, fullsessionv1.FileChange{
 				ID: change.ID, Kind: change.Kind, Text: change.Text, Operation: change.Operation,
 				Additions: change.Additions, Deletions: change.Deletions,
@@ -128,7 +120,7 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		Agent: record.Agent, ID: record.SessionID, Name: cloneString(record.Session.Name), Summary: cloneString(record.Session.Summary),
 		Status: cloneString(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
 		Branch: cloneString(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
-		DurationMs: cloneInt(record.Session.DurationMs), Tokens: map[string]session.ModelTokens{},
+		DurationMs: cloneInt(record.Session.DurationMs), Tokens: tokensFromUsage(record.Session.Usage),
 		Cost: optionalDollars(record.Session.CostMicroUSD), UnpricedModels: cloneSlice(record.Session.UnpricedModels),
 		StartedAt: record.Session.StartedAtMs, LastActivityTime: record.Session.LastActivityAtMs,
 		Entrypoint: cloneString(record.Session.Entrypoint),
@@ -142,35 +134,31 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			SynthesisPending: record.Session.SynthesisPending, DeclaredGoal: cloneString(record.Session.DeclaredGoal),
 		},
 	}
-	for _, usage := range record.Session.Usage {
-		value.Tokens[usage.Model] = session.ModelTokens{
-			InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
-			CacheCreationInputTokens:   usage.CacheCreationInputTokens,
-			CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens,
-			CacheReadInputTokens:       usage.CacheReadInputTokens, Cost: dollars(usage.CostMicroUSD),
-		}
+	if record.Session.Subagents != nil {
+		value.Subagents = make([]session.Subagent, 0, len(record.Session.Subagents))
 	}
 	for _, item := range record.Session.Subagents {
 		subagent := session.Subagent{
 			ID: item.ID, Name: item.Name, Model: cloneString(item.Model), Status: item.Status, Task: item.Task,
 			Result: item.Result, DurationMs: cloneInt(item.DurationMs), SpawnedAtTurn: cloneInt(item.SpawnedAtTurn),
-			ToolUses: item.ToolUses, Tokens: map[string]session.ModelTokens{}, Cost: optionalDollars(item.CostMicroUSD),
+			ToolUses: item.ToolUses, Tokens: tokensFromUsage(item.Usage), Cost: optionalDollars(item.CostMicroUSD),
+		}
+		if item.Commands != nil {
+			subagent.Commands = make([]session.SubagentCommand, 0, len(item.Commands))
 		}
 		for _, command := range item.Commands {
 			subagent.Commands = append(subagent.Commands, session.SubagentCommand{Label: command.Label, Command: command.Command})
 		}
-		for _, usage := range item.Usage {
-			subagent.Tokens[usage.Model] = session.ModelTokens{
-				InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
-				CacheCreationInputTokens:   usage.CacheCreationInputTokens,
-				CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens,
-				CacheReadInputTokens:       usage.CacheReadInputTokens, Cost: dollars(usage.CostMicroUSD),
-			}
-		}
 		value.Subagents = append(value.Subagents, subagent)
+	}
+	if record.Session.Todos != nil {
+		value.Todos = make([]session.Todo, 0, len(record.Session.Todos))
 	}
 	for _, item := range record.Session.Todos {
 		value.Todos = append(value.Todos, session.Todo{Text: item.Text, Done: item.Done})
+	}
+	if record.Session.Digest != nil {
+		value.Digest = make([]session.DigestEntry, 0, len(record.Session.Digest))
 	}
 	for _, item := range record.Session.Digest {
 		value.Digest = append(value.Digest, session.DigestEntry{
@@ -178,8 +166,14 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			SubagentID: item.SubagentID, Time: item.TimeMs,
 		})
 	}
+	if record.Session.FileEdits != nil {
+		value.FileEdits = make([]session.FileEdit, 0, len(record.Session.FileEdits))
+	}
 	for _, item := range record.Session.FileEdits {
-		changes := make([]session.FileChange, 0, len(item.Changes))
+		var changes []session.FileChange
+		if item.Changes != nil {
+			changes = make([]session.FileChange, 0, len(item.Changes))
+		}
 		for _, change := range item.Changes {
 			changes = append(changes, session.FileChange{
 				ID: change.ID, Kind: change.Kind, Text: change.Text, Operation: change.Operation,
@@ -197,6 +191,44 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		}
 	}
 	return value, nil
+}
+
+func usageFromTokens(tokens map[string]session.ModelTokens) []fullsessionv1.ModelUsage {
+	if tokens == nil {
+		return nil
+	}
+	usage := make([]fullsessionv1.ModelUsage, 0, len(tokens))
+	models := make([]string, 0, len(tokens))
+	for model := range tokens {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	for _, model := range models {
+		tokens := tokens[model]
+		usage = append(usage, fullsessionv1.ModelUsage{
+			Model: model, InputTokens: tokens.InputTokens, OutputTokens: tokens.OutputTokens,
+			CacheCreationInputTokens:   tokens.CacheCreationInputTokens,
+			CacheCreation1hInputTokens: tokens.CacheCreation1hInputTokens,
+			CacheReadInputTokens:       tokens.CacheReadInputTokens, CostMicroUSD: micros(tokens.Cost),
+		})
+	}
+	return usage
+}
+
+func tokensFromUsage(usage []fullsessionv1.ModelUsage) map[string]session.ModelTokens {
+	if usage == nil {
+		return nil
+	}
+	tokens := make(map[string]session.ModelTokens, len(usage))
+	for _, usage := range usage {
+		tokens[usage.Model] = session.ModelTokens{
+			InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+			CacheCreationInputTokens:   usage.CacheCreationInputTokens,
+			CacheCreation1hInputTokens: usage.CacheCreation1hInputTokens,
+			CacheReadInputTokens:       usage.CacheReadInputTokens, Cost: dollars(usage.CostMicroUSD),
+		}
+	}
+	return tokens
 }
 
 func cloneParsedFamily(parsed []*vendors.ParsedSession) []*vendors.ParsedSession {

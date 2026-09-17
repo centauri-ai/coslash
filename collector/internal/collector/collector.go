@@ -145,7 +145,7 @@ func finalizeSessionsSource(
 	for _, p := range composition.parsed {
 		removeUnresolvedSpawnRows(p.Session)
 	}
-	resolveNames(composition.roots, metadata)
+	resolveNames(composition.parsed, metadata)
 	resolveStatus(composition.roots, metadata, useLiveStatus, source == vendors.LocalReadSource)
 	return composition.roots
 }

@@ -302,7 +302,7 @@ func validateCollectionSizes(data []byte) error {
 		items int
 	}
 	stack := []container{}
-	totalItems := 0
+	budget := collectionBudget{}
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -320,8 +320,7 @@ func validateCollectionSizes(data []byte) error {
 		}
 		if len(stack) > 0 && stack[len(stack)-1].kind == '[' {
 			stack[len(stack)-1].items++
-			totalItems++
-			if stack[len(stack)-1].items > MaxItems || totalItems > MaxItems {
+			if stack[len(stack)-1].items > MaxItems || !budget.add(1) {
 				return fmt.Errorf("%w: collection exceeds item limit", ErrInvalid)
 			}
 		}
@@ -364,6 +363,9 @@ func validate(record Record, requireRevision bool) error {
 		return fmt.Errorf("%w: revision must be empty while freezing", ErrInvalid)
 	}
 	s := record.Session
+	if !validCollectionSizes(s) {
+		return fmt.Errorf("%w: aggregate collection exceeds item limit", ErrInvalid)
+	}
 	if s.StartedAtMs <= 0 || s.StartedAtMs > MaxSessionTimestampMs ||
 		s.LastActivityAtMs < s.StartedAtMs || s.LastActivityAtMs > MaxSessionTimestampMs || !optionalInt64Nonnegative(s.CostMicroUSD) ||
 		!nonnegative(s.EditedFileCount, s.Turns, s.ToolUses, s.Errors, s.Compactions, s.PullRequests) ||
@@ -446,6 +448,41 @@ func validate(record Record, requireRevision bool) error {
 		return fmt.Errorf("%w: invalid synthesis", ErrInvalid)
 	}
 	return nil
+}
+
+type collectionBudget struct {
+	total int
+}
+
+func (b *collectionBudget) add(items int) bool {
+	if items < 0 || items > MaxItems || b.total > MaxItems-items {
+		return false
+	}
+	b.total += items
+	return true
+}
+
+func validCollectionSizes(s Session) bool {
+	budget := collectionBudget{}
+	if !budget.add(len(s.Usage)) || !budget.add(len(s.UnpricedModels)) ||
+		!budget.add(len(s.Subagents)) || !budget.add(len(s.Commands)) ||
+		!budget.add(len(s.Commits)) || !budget.add(len(s.CommitSHAs)) ||
+		!budget.add(len(s.Todos)) || !budget.add(len(s.Digest)) ||
+		!budget.add(len(s.FileEdits)) {
+		return false
+	}
+	for _, subagent := range s.Subagents {
+		if !budget.add(len(subagent.Commands)) || !budget.add(len(subagent.Usage)) {
+			return false
+		}
+	}
+	for _, edit := range s.FileEdits {
+		if !budget.add(len(edit.Changes)) {
+			return false
+		}
+	}
+	return s.Synthesis == nil ||
+		(budget.add(len(s.Synthesis.Goals)) && budget.add(len(s.Synthesis.KeyDecisions)))
 }
 
 func validUsage(usage ModelUsage) bool {
