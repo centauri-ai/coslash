@@ -67,7 +67,7 @@ func cloneSlice[T any](value []T) []T {
 	if value == nil {
 		return nil
 	}
-	return append([]T(nil), value...)
+	return append(make([]T, 0, len(value)), value...)
 }
 
 func cloneMap[K comparable, V any](value map[K]V) map[K]V {

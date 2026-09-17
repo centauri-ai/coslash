@@ -140,6 +140,28 @@ func TestRecordRoundTripPreservesNullStringArrays(t *testing.T) {
 	}
 }
 
+func TestRecordRoundTripPreservesParentIdentity(t *testing.T) {
+	record, err := fullsessionv1.Freeze(fullsessionv1.Record{
+		SourceID: "source-1", Agent: "codex", SessionID: "child-1", ParentSessionID: "parent-1",
+		Session: fullsessionv1.Session{StartedAtMs: 1, LastActivityAtMs: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := ToSession(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := FromSession(record.SourceID, *restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.ParentSessionID != record.ParentSessionID || roundTrip.RevisionID != record.RevisionID {
+		t.Fatalf("parent = %q, revision = %q; want %q and %q",
+			restored.ParentSessionID, roundTrip.RevisionID, record.ParentSessionID, record.RevisionID)
+	}
+}
+
 func TestRecordRoundTripPreservesEmptyStructuralArrays(t *testing.T) {
 	tests := map[string]func(*fullsessionv1.Session){
 		"usage":     func(s *fullsessionv1.Session) { s.Usage = []fullsessionv1.ModelUsage{} },
@@ -210,7 +232,7 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 			{
 				Session: &session.Session{
 					Agent: "codex", ID: "root", StartedAt: 10, LastActivityTime: 20,
-					Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1},
+					Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1, Commands: []string{}},
 				},
 				Spawns: map[string]vendors.SpawnState{},
 			},
@@ -220,7 +242,7 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 					Tokens:         map[string]session.ModelTokens{},
 					SessionDetails: session.SessionDetails{FirstPrompt: &prompt}, Summary: &summary,
 				},
-				ParentID: "root", InTurn: true, Spawns: map[string]vendors.SpawnState{},
+				ParentID: "root", InTurn: true, Spawns: map[string]vendors.SpawnState{}, Commands: []session.SubagentCommand{},
 			},
 		}
 	}
@@ -265,6 +287,10 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 	}
 	if child.Status != session.SubagentAborted || withoutLive[0].Session.Status != nil {
 		t.Fatalf("portable statuses = root %v, child %q; want nil, aborted", withoutLive[0].Session.Status, child.Status)
+	}
+	if withoutLive[0].Session.Commands == nil || child.Commands == nil {
+		t.Fatalf("portable empty slices became null: commands=%#v subagent commands=%#v",
+			withoutLive[0].Session.Commands, child.Commands)
 	}
 }
 
@@ -321,7 +347,7 @@ func TestParsedFamilyPopulatesPerModelCosts(t *testing.T) {
 
 func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 	decisions := map[string]string{
-		"Agent": "record envelope", "ID": "record envelope", "Name": "included", "Summary": "included",
+		"Agent": "record envelope", "ID": "record envelope", "ParentSessionID": "record envelope", "Name": "included", "Summary": "included",
 		"Status": "included", "WorkingDirectory": "included", "Branch": "parser or portable metadata only",
 		"Repository": "excluded local filesystem enrichment", "RepositoryLocalOnly": "excluded local filesystem enrichment",
 		"EditedFileCount": "included", "DurationMs": "included", "Tokens": "included",

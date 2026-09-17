@@ -129,11 +129,11 @@ func finalizeSessionsSource(
 	enrichModelsAndCosts(parsed)
 	composition := composeSessions(parsed)
 	promoteFamilyActivity(composition)
+	resolveNames(composition.parsed, metadata)
 	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed), preserveSubagentText, useLiveStatus)
 	for _, p := range composition.parsed {
 		removeUnresolvedSpawnRows(p.Session)
 	}
-	resolveNames(composition.parsed, metadata)
 	resolveStatus(composition.roots, metadata, useLiveStatus, source == vendors.LocalReadSource)
 	return composition.roots
 }

@@ -78,6 +78,28 @@ func TestFreezeValidationFailureDoesNotMutateInput(t *testing.T) {
 	}
 }
 
+func TestFreezeGeneratedChangeIDsSkipSuppliedIDs(t *testing.T) {
+	record := Record{
+		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+		Session: Session{
+			StartedAtMs: 1, LastActivityAtMs: 1, EditedFileCount: 2,
+			FileEdits: []FileEdit{
+				{Path: "first.go", Edits: 1, Changes: []FileChange{{Kind: "content", Text: "first", Operation: "Write"}}},
+				{Path: "second.go", Edits: 1, Changes: []FileChange{{ID: "change-000000-000000", Kind: "content", Text: "second", Operation: "Write"}}},
+			},
+		},
+	}
+
+	frozen, err := Freeze(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := frozen.Session.FileEdits[0].Changes[0].ID
+	if generated != "change-000000-000000-000001" {
+		t.Fatalf("generated ID = %q, want collision-free deterministic ID", generated)
+	}
+}
+
 func TestDecodeRejectsOversizedCollectionBeforeTypedDecode(t *testing.T) {
 	data := make([]byte, 0, 3*MaxItems+4)
 	data = append(data, '[')

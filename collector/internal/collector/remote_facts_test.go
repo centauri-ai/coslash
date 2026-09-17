@@ -40,6 +40,7 @@ func parityFixture() ([]*vendors.ParsedSession, *vendors.SessionMetadata) {
 		ContextTokens: &contextTokens, ContextWindow: &contextWindow, RecordedCost: &cost,
 	}
 	metadata.Session("child").Summary = "child metadata summary"
+	metadata.Session("child").Name = "metadata child name"
 	return parsed, metadata
 }
 
@@ -49,7 +50,8 @@ func TestLocalSFTPAndHelperNormalizedFactsComposeEquivalentCards(t *testing.T) {
 	if len(direct) != 1 || direct[0].StartedAt != 5 || direct[0].LastActivityTime != 30 ||
 		direct[0].WorkingDirectory != "/workspace" || direct[0].Summary == nil || *direct[0].Summary != "metadata summary" ||
 		direct[0].Model == nil || *direct[0].Model != "metadata-model" || direct[0].PullRequests != 3 ||
-		len(direct[0].FileEdits) != 1 || len(direct[0].Subagents) != 1 || direct[0].Subagents[0].Result != "child metadata summary" {
+		len(direct[0].FileEdits) != 1 || len(direct[0].Subagents) != 1 || direct[0].Subagents[0].Result != "child metadata summary" ||
+		direct[0].Subagents[0].Name != "metadata child name" {
 		t.Fatalf("direct enrichment = %#v", direct)
 	}
 
@@ -65,6 +67,37 @@ func TestLocalSFTPAndHelperNormalizedFactsComposeEquivalentCards(t *testing.T) {
 	helper := ListRemote(vendors.LocalReadSource, map[string]vendors.RemoteCollection{"codex": {Sessions: normalized, Metadata: metadata}}, 0)
 	if !reflect.DeepEqual(direct, helper) {
 		t.Fatalf("direct/SFTP card = %#v\nhelper card = %#v", direct, helper)
+	}
+}
+
+func TestListRemoteProjectsResolvedChildName(t *testing.T) {
+	parsed := []*vendors.ParsedSession{
+		{
+			Session: &session.Session{
+				Agent: "codex", ID: "root", StartedAt: 10, LastActivityTime: 20,
+				Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{
+					Turns: 1, Digest: []session.DigestEntry{{Category: session.DigestSubagent, SpawnKey: "spawn"}},
+				},
+			},
+			Spawns: map[string]vendors.SpawnState{"spawn": {}},
+		},
+		{
+			Session: &session.Session{
+				Agent: "codex", ID: "child", StartedAt: 11, LastActivityTime: 21,
+				Tokens: map[string]session.ModelTokens{},
+			},
+			ParentID: "root", SpawnKey: "spawn", Spawns: map[string]vendors.SpawnState{},
+		},
+	}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("child").Name = "metadata child name"
+
+	got := ListRemote(vendors.LocalReadSource, map[string]vendors.RemoteCollection{
+		"codex": {Sessions: parsed, Metadata: metadata},
+	}, 0)
+	if len(got) != 1 || len(got[0].Subagents) != 1 || got[0].Subagents[0].Name != "metadata child name" ||
+		len(got[0].Digest) != 1 || got[0].Digest[0].Description != "metadata child name" {
+		t.Fatalf("resolved child projection = %#v", got)
 	}
 }
 

@@ -3,12 +3,20 @@ package session
 import "testing"
 
 func TestAttachCostPreservesAuthoritativeZero(t *testing.T) {
-
 	s := &Session{}
 	zero := 0.0
 	AttachCost(s, &zero)
 	if s.Cost == nil || *s.Cost != 0 {
 		t.Fatalf("cost = %v, want non-nil zero", s.Cost)
+	}
+}
+
+func TestAttachCostDoesNotMarkAuthoritativeCostIncomplete(t *testing.T) {
+	cost := 1.25
+	s := &Session{Tokens: map[string]ModelTokens{"unlisted-model": {InputTokens: 100}}}
+	AttachCost(s, &cost)
+	if s.Cost == nil || *s.Cost != cost || s.UnpricedModels == nil || len(s.UnpricedModels) != 0 {
+		t.Fatalf("cost = %v, unpriced = %#v; want authoritative cost and empty unpriced list", s.Cost, s.UnpricedModels)
 	}
 }
 
