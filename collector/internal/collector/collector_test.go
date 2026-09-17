@@ -123,3 +123,28 @@ func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 		t.Fatalf("revision = %d, subagents = %d; want 200 and 1", got.LastActivityTime, len(got.Subagents))
 	}
 }
+
+func TestGetSessionChangesSkipsEnvironmentProbes(t *testing.T) {
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+	vendorSources = []vendorSource{{
+		name: "test",
+		loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			return []*vendors.ParsedSession{{Session: &session.Session{
+				Agent: "test", ID: "root", WorkingDirectory: t.TempDir(),
+				StartedAt: 100, LastActivityTime: 200,
+			}}}, vendors.EmptySessionMetadata(), nil
+		},
+	}}
+
+	got, err := GetSessionChanges("test", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("session changes are nil")
+	}
+	if got.GitProbed || got.LastEditAt != nil {
+		t.Fatalf("diff read probed environment: GitProbed=%t LastEditAt=%v", got.GitProbed, got.LastEditAt)
+	}
+}

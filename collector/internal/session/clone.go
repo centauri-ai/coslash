@@ -40,6 +40,7 @@ func Clone(source *Session) *Session {
 	cloned.Digest = cloneSlice(source.Digest)
 	cloned.FileEdits = cloneSlice(source.FileEdits)
 	for i := range cloned.FileEdits {
+		cloned.FileEdits[i].ChangeIDs = cloneSlice(source.FileEdits[i].ChangeIDs)
 		cloned.FileEdits[i].changes = cloneSlice(source.FileEdits[i].changes)
 	}
 	if source.Git != nil {

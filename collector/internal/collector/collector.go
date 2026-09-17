@@ -113,6 +113,16 @@ func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
 // the agent as well as the vendor session ID keeps identical IDs from
 // different parsers distinct and avoids a machine-wide collection.
 func GetSessionDetail(agent, id string) (*session.Session, error) {
+	return getSessionDetail(agent, id, true)
+}
+
+// GetSessionChanges loads one exact vendor family for an exact diff without
+// probing display-only filesystem and Git environment fields.
+func GetSessionChanges(agent, id string) (*session.Session, error) {
+	return getSessionDetail(agent, id, false)
+}
+
+func getSessionDetail(agent, id string, probeEnvironment bool) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
@@ -125,8 +135,10 @@ func GetSessionDetail(agent, id string) (*session.Session, error) {
 			return nil, fmt.Errorf("%s: %w", source.name, err)
 		}
 		roots := servableRoots(finalizeSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}))
-		probeLastEdits(roots)
-		probeGitEnvironment(roots)
+		if probeEnvironment {
+			probeLastEdits(roots)
+			probeGitEnvironment(roots)
+		}
 		for _, candidate := range roots {
 			if candidate.Session.ID == id {
 				return candidate.Session, nil

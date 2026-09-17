@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -63,6 +64,7 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 	if identity.SourceID == localSourceID {
 		found, err := getLocal(identity.Agent, identity.SessionID)
 		if err != nil {
+			logExactReadError("read local session detail", identity, err)
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
 			return
 		}
@@ -79,6 +81,9 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 	} else {
 		record, err := remoteManager.ReadFullSession(identity.SourceID, identity.Agent, identity.SessionID, identity.Revision)
 		if err != nil {
+			if !errors.Is(err, remote.ErrRemoteRevisionNotFound) {
+				logExactReadError("read remote session detail", identity, err)
+			}
 			writeRemoteDetailError(w, err)
 			return
 		}
@@ -88,6 +93,7 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 		}
 		value, err = fullsessionrecord.ToSession(*record)
 		if err != nil {
+			logExactReadError("decode remote session detail", identity, err)
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
 			return
 		}
@@ -135,6 +141,7 @@ func handleExactDiff(w http.ResponseWriter, r *http.Request, getLocal localDetai
 	if identity.SourceID == localSourceID {
 		found, err := getLocal(identity.Agent, identity.SessionID)
 		if err != nil {
+			logExactReadError("read local session diff", identity, err)
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
 			return
 		}
@@ -158,6 +165,9 @@ func handleExactDiff(w http.ResponseWriter, r *http.Request, getLocal localDetai
 	} else {
 		record, err := remoteManager.ReadFullSession(identity.SourceID, identity.Agent, identity.SessionID, identity.Revision)
 		if err != nil {
+			if !errors.Is(err, remote.ErrRemoteRevisionNotFound) {
+				logExactReadError("read remote session diff", identity, err)
+			}
 			writeRemoteDetailError(w, err)
 			return
 		}
@@ -281,6 +291,11 @@ func writeRemoteDetailError(w http.ResponseWriter, err error) {
 		return
 	}
 	writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
+}
+
+func logExactReadError(operation string, identity exactSessionIdentity, err error) {
+	log.Printf("%s source=%q agent=%q session=%q revision=%q: %v",
+		operation, identity.SourceID, identity.Agent, identity.SessionID, identity.Revision, err)
 }
 
 func writeDetailError(w http.ResponseWriter, code string, status int) {
