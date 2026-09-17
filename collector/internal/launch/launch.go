@@ -259,7 +259,7 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 			if prompt == "" {
 				return shellJoin(cli), "", nil
 			}
-			return shellJoin(cli, prompt), "", nil
+			return shellJoin(cli, "--", prompt), "", nil
 		}
 		return handoffCommand(agent, cli, handoff, prompt)
 	case ResumeSession:
@@ -289,7 +289,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		}
 		arguments := []string{cli, "--append-system-prompt-file", path}
 		if prompt != "" {
-			arguments = append(arguments, prompt)
+			arguments = append(arguments, "--", prompt)
 		}
 		return withCleanup(shellJoin(arguments...), path), path, nil
 	case vendors.AgentCodex:
@@ -307,7 +307,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		override := `"developer_instructions=$(cat ` + shellQuote(path) + `)"`
 		command := guard + shellJoin(cli, "-c") + " " + override
 		if prompt != "" {
-			command += " " + shellQuote(prompt)
+			command += " " + shellJoin("--", prompt)
 		}
 		return withCleanup(command, path), path, nil
 	case vendors.AgentOpenCode:

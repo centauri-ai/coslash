@@ -16,12 +16,29 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"golang.org/x/sys/unix"
 )
 
 const runtimeFilename = "runtime.json"
 
 type runtimeDescriptor struct {
 	BaseURL string `json:"baseURL"`
+}
+
+func acquireRuntimeLock() (*os.File, error) {
+	home := settings.Home()
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(filepath.Join(home, "runtime.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		file.Close()
+		return nil, errors.New("another coSlash app is already running")
+	}
+	return file, nil
 }
 
 func writeRuntime(baseURL string) error {
