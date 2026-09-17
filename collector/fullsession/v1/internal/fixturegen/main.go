@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 )
@@ -43,9 +44,37 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	boundaryValues, err := fullsessionv1.Freeze(boundaryValuesRecord())
+	if err != nil {
+		panic(err)
+	}
+	boundaryValuesCanonical, err := fullsessionv1.Marshal(boundaryValues)
+	if err != nil {
+		panic(err)
+	}
+	boundaryItems, err := fullsessionv1.Freeze(boundaryItemsRecord())
+	if err != nil {
+		panic(err)
+	}
+	boundaryItemsCanonical, err := fullsessionv1.Marshal(boundaryItems)
+	if err != nil {
+		panic(err)
+	}
 	timestampOutOfRange := valid
 	timestampOutOfRange.Session.LastActivityAtMs = fullsessionv1.MaxSessionTimestampMs + 1
 	timestampOutOfRangeBytes, err := canonicalWithRevision(timestampOutOfRange)
+	if err != nil {
+		panic(err)
+	}
+	negativeCount := valid
+	negativeCount.Session.Turns = -1
+	negativeCountBytes, err := canonicalWithRevision(negativeCount)
+	if err != nil {
+		panic(err)
+	}
+	tooManyItems := boundaryItems
+	tooManyItems.Session.Commands = append(tooManyItems.Session.Commands, "")
+	tooManyItemsBytes, err := canonicalWithRevision(tooManyItems)
 	if err != nil {
 		panic(err)
 	}
@@ -57,10 +86,14 @@ func main() {
 	}{
 		{"valid/codex.json", canonical, true, ""},
 		{"valid/escaping.json", escapingCanonical, true, ""},
+		{"valid/boundary-values.json", boundaryValuesCanonical, true, ""},
+		{"valid/boundary-items.json", boundaryItemsCanonical, true, ""},
 		{"invalid/malformed.json", []byte(`{"schemaVersion":`), false, "malformed JSON"},
 		{"invalid/unknown-field.json", bytes.Replace(canonical, []byte(`"schemaVersion"`), []byte(`"unknown":true,"schemaVersion"`), 1), false, "unknown field"},
 		{"invalid/incomplete-body.json", bytes.Replace(canonical, []byte(`"text":"@@\n-old\n+new\n"`), []byte(`"text":""`), 1), false, "missing declared change body"},
 		{"invalid/timestamp-out-of-range.json", timestampOutOfRangeBytes, false, "session timestamp exceeds year 9999"},
+		{"invalid/negative-count.json", negativeCountBytes, false, "negative count"},
+		{"invalid/too-many-items.json", tooManyItemsBytes, false, "aggregate collection exceeds item limit"},
 		{"invalid/bad-revision.json", bytes.Replace(canonical, []byte(valid.RevisionID), []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 1), false, "revision hash mismatch"},
 		{"invalid/bad-body-hash.json", bytes.Replace(canonical, []byte(valid.Session.FileEdits[0].Changes[0].SHA256), []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), 1), false, "change hash mismatch"},
 	}
@@ -83,6 +116,27 @@ func main() {
 	data = append(data, '\n')
 	if err := os.WriteFile(filepath.Join("testdata", "fixtures", "manifest.json"), data, 0o644); err != nil {
 		panic(err)
+	}
+}
+
+func boundaryValuesRecord() fullsessionv1.Record {
+	cost := fullsessionv1.MaxCostMicroUSD
+	return fullsessionv1.Record{
+		SourceID: strings.Repeat("s", 512), Agent: "claude", SessionID: strings.Repeat("i", 512),
+		Session: fullsessionv1.Session{
+			StartedAtMs: fullsessionv1.MaxSessionTimestampMs, LastActivityAtMs: fullsessionv1.MaxSessionTimestampMs,
+			CostMicroUSD: &cost, Usage: []fullsessionv1.ModelUsage{{Model: "boundary-model", CostMicroUSD: cost}},
+			Subagents: []fullsessionv1.Subagent{{ID: "boundary-subagent", CostMicroUSD: &cost}},
+		},
+	}
+}
+
+func boundaryItemsRecord() fullsessionv1.Record {
+	return fullsessionv1.Record{
+		SourceID: "boundary-source", Agent: "codex", SessionID: "boundary-items",
+		Session: fullsessionv1.Session{
+			StartedAtMs: 1, LastActivityAtMs: 1, Commands: make([]string, fullsessionv1.MaxItems),
+		},
 	}
 }
 

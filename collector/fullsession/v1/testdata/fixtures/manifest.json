@@ -13,6 +13,16 @@
       "valid": true
     },
     {
+      "path": "valid/boundary-values.json",
+      "sha256": "df6d1ab042b19df5813e44e4afe96fb27d4be0c991bab70463f7093aa4636279",
+      "valid": true
+    },
+    {
+      "path": "valid/boundary-items.json",
+      "sha256": "2573a3f44438719ddcc506b3d7712330374006a8dac20294ef47e656643f1319",
+      "valid": true
+    },
+    {
       "path": "invalid/malformed.json",
       "sha256": "ae0b3f00638cc5d55bb5fb22deed8790c6b2b84080dd01ddadb22e8fcfab5557",
       "valid": false,
@@ -35,6 +45,18 @@
       "sha256": "9fcec972d1dc79bddaf98b09da89dae5da4dadd8b3bf04c74a736c6ce438beae",
       "valid": false,
       "reason": "session timestamp exceeds year 9999"
+    },
+    {
+      "path": "invalid/negative-count.json",
+      "sha256": "907ab9656109cc5a50e7b91e8508152353e36084d227a3b4a0fad8c8cb53e627",
+      "valid": false,
+      "reason": "negative count"
+    },
+    {
+      "path": "invalid/too-many-items.json",
+      "sha256": "28efe1f48285879900739aa480912a9ee93c0d1184a923cab193b006a08d6ff8",
+      "valid": false,
+      "reason": "aggregate collection exceeds item limit"
     },
     {
       "path": "invalid/bad-revision.json",

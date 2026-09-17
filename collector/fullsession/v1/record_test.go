@@ -2,6 +2,9 @@ package fullsessionv1
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -161,5 +164,39 @@ func TestFreezeRejectsUnsortedSubagentUsage(t *testing.T) {
 
 	if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Freeze error = %v; want %v", err, ErrInvalid)
+	}
+}
+
+func TestFreezeRejectsCostAboveExactAdapterLimit(t *testing.T) {
+	record := Record{
+		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+		Session: Session{StartedAtMs: 1, LastActivityAtMs: 1, Usage: []ModelUsage{{
+			Model: "gpt-5", CostMicroUSD: MaxCostMicroUSD + 1,
+		}}},
+	}
+	if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Freeze error = %v; want %v", err, ErrInvalid)
+	}
+}
+
+func TestValidateRejectsOversizedRecord(t *testing.T) {
+	commands := make([]string, MaxItems)
+	command := strings.Repeat("x", MaxRecordBytes/MaxItems+1)
+	for index := range commands {
+		commands[index] = command
+	}
+	record := Record{
+		SchemaVersion: SchemaVersion, SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+		Session: Session{StartedAtMs: 1, LastActivityAtMs: 1, Commands: commands},
+	}
+	preimage, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(preimage)
+	record.RevisionID = hex.EncodeToString(digest[:])
+
+	if err := Validate(record); !errors.Is(err, ErrOversized) {
+		t.Fatalf("Validate error = %v; want %v", err, ErrOversized)
 	}
 }

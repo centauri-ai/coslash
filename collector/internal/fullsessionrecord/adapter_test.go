@@ -115,6 +115,35 @@ func TestSessionRoundTripPreservesUnknownCosts(t *testing.T) {
 	}
 }
 
+func TestRecordRoundTripPreservesMaximumExactMicroUSDCost(t *testing.T) {
+	cost := fullsessionv1.MaxCostMicroUSD
+	record, err := fullsessionv1.Freeze(fullsessionv1.Record{
+		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+		Session: fullsessionv1.Session{
+			StartedAtMs: 1, LastActivityAtMs: 1, CostMicroUSD: &cost,
+			Usage: []fullsessionv1.ModelUsage{{Model: "gpt-5", CostMicroUSD: cost}},
+			Subagents: []fullsessionv1.Subagent{{
+				ID: "subagent-1", CostMicroUSD: &cost,
+				Usage: []fullsessionv1.ModelUsage{{Model: "gpt-5", CostMicroUSD: cost}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := ToSession(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := FromSession(record.SourceID, *restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.RevisionID != record.RevisionID {
+		t.Fatalf("round trip revision = %s, want %s", roundTrip.RevisionID, record.RevisionID)
+	}
+}
+
 func TestRecordRoundTripPreservesNullStringArrays(t *testing.T) {
 	record, err := fullsessionv1.Freeze(fullsessionv1.Record{
 		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
@@ -342,6 +371,29 @@ func TestParsedFamilyPopulatesPerModelCosts(t *testing.T) {
 		records[0].Session.Usage[0].CostMicroUSD <= 0 || records[0].Session.CostMicroUSD == nil ||
 		records[0].Session.Usage[0].CostMicroUSD != *records[0].Session.CostMicroUSD {
 		t.Fatalf("portable costs = %#v", records)
+	}
+}
+
+func TestParsedFamilyDoesNotMutateMetadataTokenCosts(t *testing.T) {
+	parsed := []*vendors.ParsedSession{{
+		Session: &session.Session{
+			Agent: "codex", ID: "session-1", StartedAt: 10, LastActivityTime: 20,
+			Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1},
+		},
+		Spawns: map[string]vendors.SpawnState{},
+	}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("session-1").Usage.Tokens = map[string]session.ModelTokens{
+		"gpt-5": {InputTokens: 1_000_000},
+	}
+
+	if _, err := FromParsedFamily(
+		"r_0123456789abcdef", "codex", vendors.LocalReadSource, parsed, metadata,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Session("session-1").Usage.Tokens["gpt-5"].Cost; got != 0 {
+		t.Fatalf("metadata model cost mutated to %v", got)
 	}
 }
 
