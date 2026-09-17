@@ -48,7 +48,7 @@ export type Session = {
   sourceClass?: SourceClass;
   logicalSessionId?: string;
   revision?: number;
-  /** Exact immutable identity used by detail and change-body reads. */
+  /** Revision guard used by detail and change-body reads; local values bind transcript activity time. */
   detailRevision: string;
   completion?: SessionCompletion;
   privacy?: SessionPrivacy;

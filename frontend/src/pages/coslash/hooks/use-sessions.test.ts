@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   decodeSessionsResponse,
   diffRequestPath,
+  exactDiffFailure,
   sessionDetailRequestPath,
   sessionsRequestPath,
   synthesisRequestPath,
@@ -170,5 +171,24 @@ describe('exact detail request builders', () => {
   it('keeps synthesis local-only', () => {
     const remote = { sourceId: 'r_0123456789abcdef', agent: 'codex', id: 'abc' };
     expect(() => synthesisRequestPath(remote)).toThrow('remote synthesis unsupported');
+  });
+});
+
+describe('exact diff failures', () => {
+  it.each([
+    ['session_detail_stale', 'stale'],
+    ['session_detail_missing', 'missing'],
+    ['session_change_missing', 'missing'],
+    ['session_detail_corrupt', 'corrupt'],
+    ['session_diff_too_large', 'too_large'],
+  ] as const)('preserves the structured %s failure as %s', (code, kind) => {
+    expect(exactDiffFailure(409, code)).toMatchObject({ kind });
+  });
+
+  it('retains the HTTP status in an unknown failure', () => {
+    expect(exactDiffFailure(502, 'unknown')).toEqual({
+      kind: 'other',
+      message: 'Could not load this exact session revision’s file changes (502).',
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { LoaderCircleIcon } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { FileChange } from '@/pages/coslash/hooks/use-sessions';
 
@@ -21,10 +22,14 @@ export function DiffList({
   changes,
   isLoading,
   loadError,
+  showRefresh = false,
+  onRefresh,
 }: {
   changes: FileChange[] | null;
   isLoading: boolean;
   loadError: string | null;
+  showRefresh?: boolean;
+  onRefresh?: () => void;
 }) {
   if (isLoading) {
     return (
@@ -36,8 +41,13 @@ export function DiffList({
   }
   if (loadError != null) {
     return (
-      <div role="alert" className="text-destructive flex flex-1 items-center justify-center text-xs">
-        {loadError}
+      <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <div className="text-destructive text-xs">{loadError}</div>
+        {showRefresh && onRefresh != null && (
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            Refresh sessions
+          </Button>
+        )}
       </div>
     );
   }
