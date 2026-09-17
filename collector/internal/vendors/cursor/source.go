@@ -48,8 +48,31 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
-	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
+	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, cursorFamilyFiles(files, id))
 	return selectFamily(parsed, id), vendors.EmptySessionMetadata(), nil
+}
+
+func cursorFamilyFiles(files []string, id string) []string {
+	parents := make(map[string]string, len(files))
+	for _, path := range files {
+		parents[IDFromPath(path)] = ParentIDFromPath(path)
+	}
+	root := func(value string) string {
+		seen := map[string]bool{}
+		for parents[value] != "" && !seen[value] {
+			seen[value] = true
+			value = parents[value]
+		}
+		return value
+	}
+	want := root(id)
+	selected := make([]string, 0, len(files))
+	for _, path := range files {
+		if root(IDFromPath(path)) == want {
+			selected = append(selected, path)
+		}
+	}
+	return selected
 }
 
 func parseTranscriptFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
@@ -96,6 +119,9 @@ func selectCursorFilesSource(source vendors.ReadSource, files []string, since in
 		if eligibleFamilies[union.find(IDFromPath(path))] {
 			eligible = append(eligible, path)
 		}
+	}
+	if since <= 0 {
+		return eligible
 	}
 	selected, _ := vendors.LimitNewestSourceFileFamilies(source, eligible, vendors.MaxCandidateFilesPerAgent,
 		func(path string) string { return union.find(IDFromPath(path)) })
@@ -188,5 +214,10 @@ func Health() vendors.SourceHealth {
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCursor, Root: root, Err: err}
 	}
-	return vendors.FileSourceHealth(vendors.AgentCursor, root, scan, func(string) (bool, error) { return true, nil })
+	return cursorSourceHealth(root, scan)
+}
+
+func cursorSourceHealth(root string, scan *vendors.SourceScan) vendors.SourceHealth {
+	return vendors.FileSourceHealth(vendors.AgentCursor, root, scan,
+		func(path string) (bool, error) { return ParentIDFromPath(path) == "", nil })
 }
