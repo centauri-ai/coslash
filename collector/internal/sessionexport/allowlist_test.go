@@ -38,6 +38,8 @@ var census = map[string]decision{
 	"StartedAt":           {true, "envelope sessionStartedAtMs"},
 	"LastActivityTime":    {true, "session.lastActivityAtMs"},
 	"Entrypoint":          {true, "bounded session.entrypoint"},
+	"ReviewPending":       {false, "local review state"},
+	"ReviewError":         {false, "local review failure"},
 
 	// session.SessionDetails
 	"Model":            {true, "session.model"},

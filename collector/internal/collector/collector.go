@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -84,11 +85,22 @@ func List(since int64) ([]*session.Session, error) {
 
 // GetSessionForPreview returns the selected fully composed session family.
 func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
+	return getSessionForPreview("", id)
+}
+
+func GetSessionForPreviewByAgent(agent, id string, _ int64) (*session.Session, error) {
+	return getSessionForPreview(agent, id)
+}
+
+func getSessionForPreview(agent, id string) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
 	var failures []error
 	for _, source := range vendorSources {
+		if agent != "" && source.name != agent {
+			continue
+		}
 		parsed, metadata, err := source.loadFamily(id)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
@@ -525,6 +537,12 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
 	for _, p := range roots {
 		s := p.Session
+		if s.FirstPrompt != nil {
+			if name, ok := review.NameFromPrompt(*s.FirstPrompt); ok {
+				s.Name = &name
+				continue
+			}
+		}
 		enrichment := sessionMetadata(metadata, s.Agent).Lookup(s.ID)
 		name := p.Name
 		if enrichment != nil {

@@ -254,17 +254,14 @@ func HelperCollect(
 }
 
 func marshalRequestLine(request remoteprotocol.Request) ([]byte, error) {
-	if err := remoteprotocol.ValidateRequest(request); err != nil {
+	payload, err := remoteprotocol.EncodeRequest(request)
+	if err != nil {
+		if errors.Is(err, remoteprotocol.ErrRequestBounds) {
+			return nil, ErrHelperRequestBounds
+		}
 		return nil, err
 	}
-	payload, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("encode collect request: %w", err)
-	}
-	if len(payload)+1 > remoteprotocol.MaxRequestBytes {
-		return nil, ErrHelperRequestBounds
-	}
-	return append(payload, '\n'), nil
+	return payload, nil
 }
 
 type streamOutcome struct {

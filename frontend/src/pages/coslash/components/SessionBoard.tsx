@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
+import { type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
 import {
   boardStatusKey,
   getTotalTokens,
@@ -14,6 +15,12 @@ import {
   type Session,
   type Status,
 } from '@/pages/coslash/lib/session';
+
+type SessionReviewProps = {
+  index: ReviewIndex<Session>;
+  reviewerOptions: readonly ReviewerOption[];
+  onStarted: () => void;
+};
 
 // Preserves insertion order, so sorted input yields groups ordered by their top session.
 function groupBy(sessions: Session[], keyOf: (session: Session) => string): [string, Session[]][] {
@@ -70,11 +77,13 @@ function SessionCardColumn({
   sessions,
   showMachineBadge,
   onSelectSession,
+  review,
 }: {
   status: string;
   sessions: Session[];
   showMachineBadge: boolean;
   onSelectSession: (session: Session) => void;
+  review: SessionReviewProps;
 }) {
   return (
     <>
@@ -87,6 +96,12 @@ function SessionCardColumn({
             onClick={() => onSelectSession(session)}
             variant="compact"
             showMachineBadge={showMachineBadge}
+            reviewerOptions={review.reviewerOptions}
+            reviewLink={review.index.links.get(sessionKey(session))}
+            isReview={review.index.reviewSessions.has(sessionKey(session))}
+            reviewActive={session.reviewPending || review.index.activeOrigins.has(sessionKey(session))}
+            onReviewStarted={review.onStarted}
+            onSelectRelated={onSelectSession}
           />
         ))}
     </>
@@ -99,12 +114,14 @@ function BranchRow({
   visibleStatuses,
   showMachineBadge,
   onSelectSession,
+  review,
 }: {
   branch: string;
   sessions: Session[];
   visibleStatuses: [string, Status][];
   showMachineBadge: boolean;
   onSelectSession: (session: Session) => void;
+  review: SessionReviewProps;
 }) {
   return (
     <>
@@ -119,6 +136,7 @@ function BranchRow({
             sessions={sessions}
             showMachineBadge={showMachineBadge}
             onSelectSession={onSelectSession}
+            review={review}
           />
         </div>
       ))}
@@ -130,10 +148,12 @@ export function SessionBoard({
   sessions,
   onSelectSession,
   showMachineBadge = false,
+  review,
 }: {
   sessions: Session[];
   onSelectSession: (session: Session) => void;
   showMachineBadge?: boolean;
+  review: SessionReviewProps;
 }) {
   const visibleStatuses = STATUS_ORDER.filter((status) =>
     sessions.some((session) => boardStatusKey(session) === status),
@@ -163,6 +183,7 @@ export function SessionBoard({
               visibleStatuses={visibleStatuses}
               showMachineBadge={showMachineBadge}
               onSelectSession={onSelectSession}
+              review={review}
             />
           ))}
         </Fragment>

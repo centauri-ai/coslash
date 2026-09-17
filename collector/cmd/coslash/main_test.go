@@ -18,6 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
+	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
@@ -44,7 +45,7 @@ func TestListenBindsIPv4Loopback(t *testing.T) {
 
 func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routes(synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
 	for _, test := range []struct {
 		method string
 		path   string
@@ -54,6 +55,7 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 		{method: http.MethodPost, path: "/api/synthesis"},
 		{method: http.MethodPost, path: "/api/diff"},
 		{method: http.MethodGet, path: "/api/launch"},
+		{method: http.MethodGet, path: "/api/reviews"},
 		{method: http.MethodPost, path: "/api/diagnostics"},
 	} {
 		t.Run(test.method+" "+test.path, func(t *testing.T) {
@@ -154,6 +156,109 @@ func TestReadHandoffKeepsThe64KiBBoundary(t *testing.T) {
 	request = httptest.NewRequest(http.MethodPost, "/api/launch", bytes.NewReader(append(maximum, '<')))
 	if _, err := readHandoff(httptest.NewRecorder(), request); err == nil {
 		t.Fatal("readHandoff accepted 65,537 bytes")
+	}
+}
+
+func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	name := "Fix checkout race"
+	var gotReviewer, gotCWD, gotName, gotPrompt string
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&agent=codex&id=origin-id&reviewer=codex", nil)
+	response := httptest.NewRecorder()
+	handleReview(
+		response,
+		request,
+		settings.Open(),
+		func(agent, id string) (*session.Session, error) {
+			if agent != "codex" || id != "origin-id" {
+				t.Fatalf("session identity = %q, %q", agent, id)
+			}
+			return &session.Session{Agent: agent, ID: id, Name: &name, WorkingDirectory: "/repo"}, nil
+		},
+		func(reviewer string) bool { return reviewer == "codex" },
+		func(id string, launch reviewpkg.Launch) bool {
+			if id != "codex:origin-id" {
+				t.Fatalf("origin id = %q", id)
+			}
+			gotReviewer, gotCWD, gotName, gotPrompt = launch.Reviewer, launch.WorkingDirectory, launch.Name, launch.Prompt
+			return true
+		},
+	)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+	if gotReviewer != "codex" || gotCWD != "/repo" || gotName != "Review — Fix checkout race (origin-i)" {
+		t.Fatalf("launch = reviewer %q, cwd %q, name %q", gotReviewer, gotCWD, gotName)
+	}
+	if !strings.HasPrefix(gotPrompt, gotName+"\n") {
+		t.Fatalf("prompt = %q", gotPrompt)
+	}
+}
+
+func TestHandleReviewRejectsUnsupportedRequests(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	tests := []struct {
+		name string
+		url  string
+		code int
+	}{
+		{name: "remote", url: "/api/reviews?source=remote&id=origin&reviewer=codex", code: http.StatusBadRequest},
+		{name: "reviewer", url: "/api/reviews?source=local&id=origin&reviewer=cursor", code: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, test.url, nil)
+			response := httptest.NewRecorder()
+			handleReview(
+				response,
+				request,
+				settings.Open(),
+				func(string, string) (*session.Session, error) {
+					return &session.Session{ID: "origin", WorkingDirectory: "/repo"}, nil
+				},
+				func(string) bool { return false },
+				func(string, reviewpkg.Launch) bool { t.Fatal("unexpected launch"); return false },
+			)
+			if response.Code != test.code {
+				t.Fatalf("status = %d, want %d", response.Code, test.code)
+			}
+		})
+	}
+}
+
+func TestHandleReviewRejectsDuplicateStart(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&agent=codex&id=origin&reviewer=codex", nil)
+	response := httptest.NewRecorder()
+	handleReview(
+		response,
+		request,
+		settings.Open(),
+		func(string, string) (*session.Session, error) {
+			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: "/repo"}, nil
+		},
+		func(string) bool { return true },
+		func(string, reviewpkg.Launch) bool { return false },
+	)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusConflict)
+	}
+}
+
+func TestHandleReviewReturnsFixedSettingsError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "settings.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews", nil)
+	response := httptest.NewRecorder()
+	handleReview(response, request, settings.Open(), nil, nil, nil)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusConflict)
+	}
+	if got := response.Body.String(); got != "settings are invalid; open Settings to repair them\n" {
+		t.Fatalf("body = %q", got)
 	}
 }
 
@@ -487,6 +592,7 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	server := newServer(
 		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
 		synthesis.NewManager(nil),
+		reviewpkg.NewManager(nil),
 		settings.Open(),
 		remote.NewManager(remote.Options{}),
 		nil,

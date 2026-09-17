@@ -4,16 +4,22 @@
 package launch
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -47,6 +53,95 @@ type terminalAdapter struct {
 	label     string
 	available func() error
 	open      func(string, string) error
+}
+
+type ReviewerOption struct {
+	ID         string
+	Label      string
+	Executable string
+}
+
+func ReviewerOptions() []ReviewerOption {
+	return []ReviewerOption{
+		{ID: vendors.AgentClaude, Label: "Claude Code", Executable: "claude"},
+		{ID: vendors.AgentCodex, Label: "Codex", Executable: "codex"},
+		{ID: vendors.AgentOpenCode, Label: "OpenCode", Executable: "opencode"},
+	}
+}
+
+func ReviewerAvailable(reviewer string) bool {
+	for _, option := range ReviewerOptions() {
+		if option.ID == reviewer {
+			_, err := exec.LookPath(option.Executable)
+			return err == nil
+		}
+	}
+	return false
+}
+
+type reviewCommandSpec struct {
+	bin   string
+	args  []string
+	env   []string
+	stdin string
+}
+
+func Review(ctx context.Context, request review.Launch) error {
+	workingDirectory := request.WorkingDirectory
+	if workingDirectory == "" {
+		return fmt.Errorf("launch: session has no working directory")
+	}
+	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, request.Prompt)
+	if err != nil {
+		return err
+	}
+	command := exec.CommandContext(ctx, spec.bin, spec.args...)
+	command.Dir = workingDirectory
+	configureReviewProcess(command)
+	command.Stdin = strings.NewReader(spec.stdin)
+	command.Stdout = io.Discard
+	stderr := boundedBuffer{limit: 8 << 10}
+	command.Stderr = &stderr
+	command.Env = append(command.Environ(), spec.env...)
+	command.WaitDelay = 5 * time.Second
+	if err := command.Run(); err != nil {
+		if message := strings.TrimSpace(stderr.String()); message != "" {
+			return fmt.Errorf("%s: %w", message, err)
+		}
+		return err
+	}
+	return nil
+}
+
+func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
+	switch reviewer {
+	case vendors.AgentClaude:
+		return reviewCommandSpec{bin: "claude", args: []string{"-p", "--name", name, "--permission-mode", "plan"}, stdin: prompt}, nil
+	case vendors.AgentCodex:
+		return reviewCommandSpec{bin: "codex", args: []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"}, stdin: prompt}, nil
+	case vendors.AgentOpenCode:
+		return reviewCommandSpec{
+			bin:   "opencode",
+			args:  []string{"run", "--title", name, "--dir", workingDirectory},
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
+			stdin: prompt,
+		}, nil
+	default:
+		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
+	}
+}
+
+type boundedBuffer struct {
+	bytes.Buffer
+	limit int
+}
+
+func (buffer *boundedBuffer) Write(data []byte) (int, error) {
+	written := len(data)
+	if remaining := buffer.limit - buffer.Len(); remaining > 0 {
+		_, _ = buffer.Buffer.Write(data[:min(len(data), remaining)])
+	}
+	return written, nil
 }
 
 func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string) error {

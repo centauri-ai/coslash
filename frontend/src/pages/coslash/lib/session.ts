@@ -75,6 +75,8 @@ export type Session = {
   subagents: Subagent[];
   mtime: number;
   entrypoint: string | null;
+  reviewPending?: boolean;
+  reviewError?: string;
   synthesis: SessionSynthesis | null;
   synthesisPending: boolean;
   synthesisError?: string;

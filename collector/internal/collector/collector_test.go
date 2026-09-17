@@ -89,6 +89,46 @@ func TestFinalizeSessionsDoesNotAllocateMissingMetadata(t *testing.T) {
 	}
 }
 
+func TestResolveNamesPreservesReviewNameFromPrompt(t *testing.T) {
+	prompt := "Review — Fix checkout race (12345678)\n\nReview the current changes."
+	root := &vendors.ParsedSession{
+		Session: &session.Session{
+			Agent: "codex",
+			ID:    "review-id",
+			SessionDetails: session.SessionDetails{
+				FirstPrompt: &prompt,
+			},
+		},
+		Name: "provider-generated title",
+	}
+	metadata := map[string]*vendors.SessionMetadata{
+		"codex": {Sessions: map[string]*vendors.SessionEnrichment{"review-id": {Name: "metadata title"}}},
+	}
+
+	resolveNames([]*vendors.ParsedSession{root}, metadata)
+
+	if root.Session.Name == nil || *root.Session.Name != "Review — Fix checkout race (12345678)" {
+		t.Fatalf("name = %v", root.Session.Name)
+	}
+}
+
+func TestResolveNamesStillPrefersMetadataForOrdinarySession(t *testing.T) {
+	prompt := "Implement checkout"
+	root := &vendors.ParsedSession{
+		Session: &session.Session{Agent: "codex", ID: "ordinary", SessionDetails: session.SessionDetails{FirstPrompt: &prompt}},
+		Name:    "prompt title",
+	}
+	metadata := map[string]*vendors.SessionMetadata{
+		"codex": {Sessions: map[string]*vendors.SessionEnrichment{"ordinary": {Name: "metadata title"}}},
+	}
+
+	resolveNames([]*vendors.ParsedSession{root}, metadata)
+
+	if root.Session.Name == nil || *root.Session.Name != "metadata title" {
+		t.Fatalf("name = %v", root.Session.Name)
+	}
+}
+
 func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 	original := vendorSources
 	t.Cleanup(func() { vendorSources = original })
@@ -146,5 +186,26 @@ func TestGetSessionChangesSkipsEnvironmentProbes(t *testing.T) {
 	}
 	if got.GitProbed || got.LastEditAt != nil {
 		t.Fatalf("diff read probed environment: GitProbed=%t LastEditAt=%v", got.GitProbed, got.LastEditAt)
+	}
+}
+
+func TestGetSessionForPreviewByAgentSelectsVendor(t *testing.T) {
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+	vendorSources = []vendorSource{
+		{name: "claude", loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			return []*vendors.ParsedSession{{Session: &session.Session{Agent: "claude", ID: "same", SessionDetails: session.SessionDetails{Turns: 1}}}}, vendors.EmptySessionMetadata(), nil
+		}},
+		{name: "codex", loadFamily: func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			return []*vendors.ParsedSession{{Session: &session.Session{Agent: "codex", ID: "same", SessionDetails: session.SessionDetails{Turns: 1}}}}, vendors.EmptySessionMetadata(), nil
+		}},
+	}
+
+	got, err := GetSessionForPreviewByAgent("codex", "same", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Agent != "codex" {
+		t.Fatalf("session = %#v, want codex session", got)
 	}
 }

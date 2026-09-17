@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sort"
@@ -352,6 +353,31 @@ func buildLocalRequest(requestID, sourceID string, since, collectedAt int64, bas
 	return remoteprotocol.BuildRequest(request, known)
 }
 
+func changedRecordFits(record remoteprotocol.Record, requestID string, sequence, maxBytes int) (bool, error) {
+	record.ProtocolVersion = remoteprotocol.ProtocolVersion
+	record.RequestID = requestID
+	record.Sequence = sequence
+	encoded, err := remoteprotocol.Encode([]remoteprotocol.Record{record})
+	if err != nil {
+		return false, err
+	}
+	return len(bytes.TrimSuffix(encoded, []byte{'\n'})) <= maxBytes, nil
+}
+
+func boundChangedRecord(record remoteprotocol.Record, requestID string, sequence, maxBytes int) (remoteprotocol.Record, bool, error) {
+	if record.Type != remoteprotocol.RecordChanged {
+		return record, false, nil
+	}
+	fits, err := changedRecordFits(record, requestID, sequence, maxBytes)
+	if err != nil || fits {
+		return record, false, err
+	}
+	return remoteprotocol.Record{
+		Type: remoteprotocol.RecordSkipped, Vendor: record.Vendor,
+		FamilyID: record.FamilyID, Reason: remotefacts.StaleReasonVendorBudgetExceeded,
+	}, true, nil
+}
+
 // collectIncremental is the incremental SFTP refresh producer: it diffs each
 // vendor against baseline concurrently under an independent byte budget, then
 // applies the resulting records to one Accumulator to get the same proposal
@@ -454,10 +480,25 @@ func collectIncremental(
 			})
 			continue
 		}
+		vendorLimited := false
 		for _, record := range outcome.Records {
+			bounded, limited, boundErr := boundChangedRecord(record, requestID, sequence, request.Limits.MaxRecordBytes)
+			if boundErr != nil {
+				return CachedSnapshotV2{}, nil, failures, fmt.Errorf("size %s changed family: %w", vendorName, boundErr)
+			}
+			record = bounded
+			if limited {
+				vendorLimited = true
+				failures = append(failures, fmt.Errorf("%s family skipped: %s", vendorName, remotefacts.StaleReasonVendorBudgetExceeded))
+			}
 			if err := apply(record); err != nil {
 				return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply %s record: %w", vendorName, err)
 			}
+		}
+		if vendorLimited {
+			allVendorsCompleted = false
+			coverage = append(coverage, outcome.Coverage)
+			continue
 		}
 		if outcome.Complete == nil {
 			allVendorsCompleted = false

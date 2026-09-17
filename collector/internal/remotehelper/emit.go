@@ -28,15 +28,27 @@ func newEmitter(output io.Writer, request remoteprotocol.Request) *emitter {
 	return &emitter{writer: bufio.NewWriter(output), request: request}
 }
 
-func (e *emitter) emit(record remoteprotocol.Record) error {
+func (e *emitter) prepare(record remoteprotocol.Record) ([]byte, error) {
 	record.ProtocolVersion = remoteprotocol.ProtocolVersion
 	record.RequestID = e.request.RequestID
 	record.Sequence = e.sequence + 1
-	line, err := marshalRecord(record)
+	return marshalRecord(record)
+}
+
+func (e *emitter) recordFits(record remoteprotocol.Record) (bool, error) {
+	line, err := e.prepare(record)
+	if err != nil {
+		return false, err
+	}
+	return len(bytes.TrimSuffix(line, []byte{'\n'})) <= e.request.Limits.MaxRecordBytes, nil
+}
+
+func (e *emitter) emit(record remoteprotocol.Record) error {
+	line, err := e.prepare(record)
 	if err != nil {
 		return err
 	}
-	if len(bytes.TrimRight(line, "\n")) > e.request.Limits.MaxRecordBytes {
+	if len(bytes.TrimSuffix(line, []byte{'\n'})) > e.request.Limits.MaxRecordBytes {
 		return fmt.Errorf("%w: %s record", ErrRecordLimit, record.Type)
 	}
 	if e.records+1 > e.request.Limits.MaxRecords {

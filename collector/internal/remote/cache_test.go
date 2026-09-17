@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
@@ -264,6 +265,36 @@ func TestKnownFamiliesIncludeCodexHeaderMappings(t *testing.T) {
 	}
 	if got, want := known[0].Headers[0], (remoteprotocol.KnownHeader{Key: "file-1", Size: 10, ModifiedAtMs: 1000, SessionID: "root-1"}); got != want {
 		t.Fatalf("known header = %#v, want %#v", got, want)
+	}
+}
+
+func TestSnapshotOrEmptyRequiresEveryCodexFamilyRecord(t *testing.T) {
+	snapshot := completeCodexSnapshot(t, "generation-1", "body\n")
+	snapshot.Families[0].Facts.Sessions = append(snapshot.Families[0].Facts.Sessions, remotefacts.Session{
+		ID: "child-1", ParentID: "root-1", StartedAtMs: 1000, LastActivityAtMs: 2000,
+		Counts: remotefacts.Counts{}, Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{},
+	})
+	if err := remotefacts.Validate(snapshot.Families[0].Facts); err != nil {
+		t.Fatal(err)
+	}
+
+	incomplete := snapshotOrEmpty(&snapshot)
+	if !strings.HasPrefix(incomplete.Families[0].Fingerprint, "complete-record-required-") {
+		t.Fatalf("root-only family fingerprint was not invalidated: %q", incomplete.Families[0].Fingerprint)
+	}
+
+	child := snapshot.FullRecords[0]
+	child.Record.SessionID = "child-1"
+	child.Record.ParentSessionID = "root-1"
+	frozen, err := fullsessionv1.Freeze(child.Record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Record = frozen
+	snapshot.FullRecords = append(snapshot.FullRecords, child)
+	complete := snapshotOrEmpty(&snapshot)
+	if complete.Families[0].Fingerprint != snapshot.Families[0].Fingerprint {
+		t.Fatalf("complete family fingerprint changed: got %q want %q", complete.Families[0].Fingerprint, snapshot.Families[0].Fingerprint)
 	}
 }
 

@@ -8,19 +8,38 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remotehelper"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 const testModel = "claude-sonnet-4-20250514"
+
+func TestBoundChangedRecordConvertsOversizedFamilyToStructuredSkip(t *testing.T) {
+	record := remoteprotocol.Record{
+		Type: remoteprotocol.RecordChanged, Vendor: vendors.AgentCodex, FamilyID: "root", Fingerprint: "new",
+		Family: &remotefacts.Family{Sessions: []remotefacts.Session{{ID: "root", Display: session.Session{Summary: pointerTo(strings.Repeat("x", 4<<10))}}}},
+	}
+	bounded, limited, err := boundChangedRecord(record, "request-1", 2, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !limited || bounded.Type != remoteprotocol.RecordSkipped || bounded.FamilyID != "root" || bounded.Reason != remotefacts.StaleReasonVendorBudgetExceeded {
+		t.Fatalf("bounded record = %#v limited=%v", bounded, limited)
+	}
+}
+
+func pointerTo(value string) *string { return &value }
 
 func TestSFTPFamilyFingerprintIncludesMetadata(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()

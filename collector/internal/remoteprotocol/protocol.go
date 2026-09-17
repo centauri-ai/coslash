@@ -27,6 +27,8 @@ const (
 	MaxInventoryFamilies = 2048
 )
 
+var ErrRequestBounds = errors.New("request exceeds byte limit")
+
 const (
 	BaselineKnown         = "known"
 	BaselineNone          = "none"
@@ -97,7 +99,7 @@ func BuildRequest(request Request, known []KnownFamily) (Request, error) {
 	})
 	request.Known = append([]KnownFamily(nil), known...)
 	request.BaselineMode = BaselineKnown
-	if len(known) > MaxKnownFamilies || headerCount > MaxKnownHeaders || encodedSize(request) > MaxRequestBytes {
+	if len(known) > MaxKnownFamilies || headerCount > MaxKnownHeaders || requestWireSize(request) > MaxRequestBytes {
 		request.BaselineMode, request.BaselineID, request.Known = BaselineNone, "", []KnownFamily{}
 	}
 	if err := ValidateRequest(request); err != nil {
@@ -166,10 +168,36 @@ func ValidateRequest(r Request) error {
 	if r.Limits.MaxRecordBytes <= 0 || r.Limits.MaxRecordBytes > MaxRecordBytes || r.Limits.MaxResponseBytes <= 0 || r.Limits.MaxResponseBytes > MaxResponseBytes || r.Limits.MaxRecords <= 0 || r.Limits.MaxRecords > MaxRecords || r.Limits.MaxInventoryFamilies <= 0 || r.Limits.MaxInventoryFamilies > MaxInventoryFamilies {
 		return errors.New("invalid requested limits")
 	}
-	if encodedSize(r) > MaxRequestBytes {
-		return errors.New("request exceeds byte limit")
+	if requestWireSize(r) > MaxRequestBytes {
+		return ErrRequestBounds
 	}
 	return nil
+}
+
+// EncodeRequest returns the exact newline-framed bytes written to helper
+// stdin. BuildRequest and ValidateRequest use the same encoder so a bounded
+// baseline cannot pass validation and then fail at the transport boundary.
+func EncodeRequest(request Request) ([]byte, error) {
+	if err := ValidateRequest(request); err != nil {
+		return nil, err
+	}
+	return encodeRequestLine(request)
+}
+
+func encodeRequestLine(request Request) ([]byte, error) {
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("encode collect request: %w", err)
+	}
+	return append(payload, '\n'), nil
+}
+
+func requestWireSize(request Request) int {
+	payload, err := encodeRequestLine(request)
+	if err != nil {
+		return MaxRequestBytes + 1
+	}
+	return len(payload)
 }
 
 type Counts struct {
@@ -319,9 +347,15 @@ func validateRecord(r Record, request Request, sequence int) error {
 			}
 			seenRecords[full.Record.SessionID] = true
 		}
-		if request.SourceID != "" && r.Vendor == "codex" &&
-			!seenRecords[r.FamilyID] {
-			return errors.New("complete Codex family requires its rooted full record")
+		if request.SourceID != "" && r.Vendor == "codex" {
+			if len(seenRecords) != len(seenSessions) {
+				return errors.New("complete Codex family requires one full record per session")
+			}
+			for sessionID := range seenSessions {
+				if !seenRecords[sessionID] {
+					return errors.New("complete Codex family requires one full record per session")
+				}
+			}
 		}
 	case RecordUnchanged:
 		if !requestedVendor(request, r.Vendor) || !validID(r.FamilyID) || !validID(r.Fingerprint) {
