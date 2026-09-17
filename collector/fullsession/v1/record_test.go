@@ -3,6 +3,7 @@ package fullsessionv1
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -94,6 +95,24 @@ func TestDecodeRejectsOversizedAggregateCollectionBeforeTypedDecode(t *testing.T
 
 	if err := validateCollectionSizes(data); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("validateCollectionSizes error = %v; want %v", err, ErrInvalid)
+	}
+}
+
+func TestFreezeRejectsOversizedAggregateCollection(t *testing.T) {
+	usage := make([]ModelUsage, MaxItems)
+	for index := range usage {
+		usage[index].Model = fmt.Sprintf("model-%06d", index)
+	}
+	record := Record{
+		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+		Session: Session{
+			StartedAtMs: 1, LastActivityAtMs: 1,
+			Usage: usage, Commands: []string{"go test ./..."},
+		},
+	}
+
+	if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Freeze error = %v; want %v", err, ErrInvalid)
 	}
 }
 

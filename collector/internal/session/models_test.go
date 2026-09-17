@@ -13,10 +13,13 @@ func TestAttachCostPreservesAuthoritativeZero(t *testing.T) {
 }
 
 func TestAttachCostEstimatesWhenTokenRowsExist(t *testing.T) {
-	s := &Session{Tokens: map[string]ModelTokens{"gpt-5": {InputTokens: 1}}}
+	s := &Session{Tokens: map[string]ModelTokens{"gpt-5": {InputTokens: 1_000_000}}}
 	AttachCost(s, nil)
 	if s.Cost == nil {
 		t.Fatal("cost is nil, want estimate")
+	}
+	if used := s.Tokens["gpt-5"]; used.Cost <= 0 || used.Cost != *s.Cost {
+		t.Fatalf("model cost = %v, aggregate = %v; want matching positive estimates", used.Cost, *s.Cost)
 	}
 }
 
