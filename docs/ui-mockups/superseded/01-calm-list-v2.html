@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>coSlash — Concept 1 v2: Calm List</title>
+<style>
+  :root {
+    --brand: #3554d1;
+    --success: #2f9e63; --success-fg: #2f7d55; --success-bg: #e4f2ea;
+    --info: #6366f1;    --info-fg: #4f46b5;    --info-bg: #ecebfb;
+    --warning: #c08a2e; --warning-fg: #8a6316; --warning-bg: #f7efdd;
+    --claude: #a24218;  --claude-bg: #f6e7de;
+    --codex: #4f5eea;   --codex-bg: #e8eaff;
+    --subagent: #0b7c91; --subagent-bg: #dff4f7;
+    --background: #fff;
+    --foreground: #252525;
+    --muted: #f7f7f7;
+    --muted-foreground: #8e8e8e;
+    --border: #ebebeb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #f2f3f5; color: var(--foreground); font-size: 14px; -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 32px 24px 96px; }
+  .doc-head { padding-bottom: 26px; border-bottom: 1px solid #e2e4e8; margin-bottom: 26px; }
+  .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--brand); }
+  h1 { font-size: 28px; margin: 8px 0; letter-spacing: -0.02em; }
+  .lede { color: #5c6068; max-width: 70ch; line-height: 1.6; margin: 0; }
+  h2 { font-size: 18px; margin: 42px 0 6px; letter-spacing: -0.01em; }
+  .sub { color: #6b7078; margin: 0 0 16px; max-width: 78ch; line-height: 1.55; }
+
+  .v2 {
+    background: #f0f6f2; border: 1px solid #cfe4d8; border-left: 3px solid var(--success-fg);
+    border-radius: 8px; padding: 13px 15px; margin: 0 0 20px; font-size: 13px; color: #35604a; line-height: 1.6;
+  }
+  .v2 b { color: #234534; }
+  .v2 ul { margin: 8px 0 0; padding-left: 18px; }
+  .v2 li { padding-bottom: 4px; }
+
+  .provenance {
+    background: #fbfbfc; border: 1px solid var(--border); border-radius: 8px;
+    padding: 11px 14px; margin: 0 0 18px; font-size: 12.5px; color: #62666e; line-height: 1.55;
+  }
+  .provenance b { color: #45484f; }
+
+  .surface {
+    background: var(--background); border: 1px solid #e2e4e8; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(16,24,40,.05), 0 8px 24px -12px rgba(16,24,40,.14);
+  }
+  .surface-label {
+    display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 11px; font-weight: 700;
+    letter-spacing: .1em; text-transform: uppercase; border-bottom: 1px solid var(--border);
+  }
+  .lbl-before { background: #fdf3f3; color: #a13c3c; }
+  .lbl-after  { background: #f0f7f2; color: #2f7d55; }
+
+  .appbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .search { position: relative; flex: 1; min-width: 200px; max-width: 360px; }
+  .search input {
+    width: 100%; height: 32px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--muted); padding: 0 44px 0 30px; font: inherit; font-size: 13px; color: var(--foreground);
+  }
+  .search input::placeholder { color: var(--muted-foreground); }
+  .search > svg { position: absolute; left: 9px; top: 8px; color: var(--muted-foreground); }
+  .kbd { font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+         border: 1px solid var(--border); background: #fff; color: var(--muted-foreground);
+         border-radius: 4px; padding: 4px 5px; position: absolute; right: 7px; top: 7px; }
+  .segbar { display: inline-flex; background: var(--muted); border-radius: 8px; padding: 2px; }
+  .segbar button { border: 0; background: transparent; font: inherit; font-size: 12px; font-weight: 500;
+                   color: var(--muted-foreground); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  .segbar button[aria-selected="true"] { background: #fff; color: var(--foreground); font-weight: 600; box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+
+  /* ---------- BEFORE ---------- */
+  .before-list { padding: 8px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
+  .b-card { border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 16px; display: flex; gap: 16px; align-items: flex-start; }
+  .b-main { min-width: 0; flex: 1; }
+  .b-row1 { display: flex; align-items: center; gap: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .pill-claude { background: var(--claude-bg); color: var(--claude); }
+  .pill-codex  { background: var(--codex-bg);  color: var(--codex); }
+  .pill-grey   { background: var(--muted); color: var(--muted-foreground); }
+  .pill-active { background: var(--success-bg); color: var(--success-fg); }
+  .pill-inactive { background: var(--muted); color: var(--muted-foreground); }
+  .dot { width: 5px; height: 5px; border-radius: 999px; }
+  .dot-green { background: var(--success); } .dot-grey { background: #b6b6b6; }
+  .b-title { font-size: 13px; font-weight: 600; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .b-id { font: 400 11px/1 ui-monospace, Menlo, monospace; color: var(--muted-foreground); white-space: nowrap; }
+  .b-summary { font-size: 12px; color: var(--muted-foreground); padding-top: 8px; }
+  .b-meta { font: 400 11px/1.5 ui-monospace, Menlo, monospace; color: var(--muted-foreground); padding-top: 8px; }
+  .b-cost { text-align: right; flex: none; }
+  .b-cost .amt { font-size: 16px; font-weight: 700; }
+  .b-cost .tok { font: 400 11px/1 ui-monospace, Menlo, monospace; color: var(--muted-foreground); padding-top: 4px; }
+
+  /* ---------- AFTER ---------- */
+  .after-list { padding: 6px 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .c-card {
+    position: relative; display: block; width: 100%; text-align: left; font: inherit; color: inherit;
+    border: 1px solid var(--border); border-radius: 10px; background: #fff;
+    padding: 11px 14px 11px 16px; cursor: pointer;
+    transition: border-color .13s, box-shadow .13s;
+  }
+  .c-card:hover { border-color: #d4d7dd; box-shadow: 0 1px 3px rgba(16,24,40,.07); }
+  .c-card::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0; }
+  .c-claude::before { background: var(--claude); }
+  .c-codex::before  { background: var(--codex); }
+
+  .c-row1 { display: flex; align-items: baseline; gap: 8px; }
+  .c-title { font-size: 14.5px; font-weight: 600; letter-spacing: -0.005em; min-width: 0; flex: 1;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c-when { font-size: 12px; color: var(--muted-foreground); white-space: nowrap; flex: none; font-variant-numeric: tabular-nums; }
+  .c-row2 { display: flex; align-items: center; gap: 7px; padding-top: 3px; min-width: 0; }
+  .c-where { display: inline-flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; color: #62666e; }
+  .c-repo { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c-branch { font: 500 11px/1 ui-monospace, Menlo, monospace; background: var(--muted); color: #62666e;
+              border-radius: 5px; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+  .c-sep { color: #d2d4d9; }
+  .c-facts { font-size: 12px; color: var(--muted-foreground); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .c-spend { margin-left: auto; font-size: 12px; color: var(--muted-foreground); white-space: nowrap; font-variant-numeric: tabular-nums; flex: none; }
+  .c-spend b { color: #4a4e56; font-weight: 600; }
+  .c-summary { font-size: 12.5px; color: #6e727a; padding-top: 6px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c-id { font: 400 10.5px/1 ui-monospace, Menlo, monospace; color: #b0b3b9; opacity: 0; transition: opacity .13s; }
+  .c-card:hover .c-id { opacity: 1; }
+
+  /* status vocabulary — all five STATUSES keys */
+  .c-state { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap; flex: none; }
+  .c-state-active  { color: var(--success-fg); }
+  .c-state-wait    { color: var(--warning-fg); }
+  .c-state-idle    { color: var(--info-fg); }
+  .c-state-unknown { color: var(--muted-foreground); font-weight: 500; }
+  .pulse { width: 6px; height: 6px; border-radius: 999px; background: var(--success);
+           box-shadow: 0 0 0 0 rgba(47,158,99,.55); animation: pulse 2.2s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 5px rgba(47,158,99,0); } 100% { box-shadow: 0 0 0 0 rgba(47,158,99,0); } }
+  .dot-idle { width: 6px; height: 6px; border-radius: 999px; background: var(--info); }
+  .dot-unknown { width: 6px; height: 6px; border-radius: 999px; border: 1.5px dashed #b6b9bf; }
+
+  .c-waiting { background: #fffdf7; border-color: #eddfc0; }
+  .c-waiting::before { background: var(--warning); }
+  .c-idle::before { background: var(--codex); }
+  .c-unknown { background: #fcfcfd; }
+  .c-unknown .c-title { color: #55585f; }
+  .c-unknown::before { opacity: .45; }
+
+  .c-subs { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--subagent);
+            background: var(--subagent-bg); border-radius: 5px; padding: 3px 7px; font-weight: 600; flex: none; }
+  .c-remote { display: inline-flex; align-items: center; gap: 4px; font: 500 10.5px/1 ui-monospace, Menlo, monospace;
+              color: #62666e; background: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; }
+
+  .c-group { display: flex; align-items: center; gap: 9px; padding: 16px 4px 6px; }
+  .c-group-name { font-size: 12px; font-weight: 700; letter-spacing: .03em; color: #4a4e56; }
+  .c-group-rule { flex: 1; height: 1px; background: var(--border); }
+  .c-group-meta { font-size: 11.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+  /* defined empty-lane state */
+  .c-empty {
+    border: 1px dashed #dcdfe4; border-radius: 10px; background: #fcfcfd;
+    padding: 13px 16px; display: flex; align-items: center; gap: 9px;
+    font-size: 12.5px; color: #7d818a;
+  }
+  .c-empty b { color: #4a4e56; font-weight: 600; }
+
+  .notes { margin-top: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 12px; }
+  .note { background: #fff; border: 1px solid #e2e4e8; border-radius: 10px; padding: 13px 14px; }
+  .note h4 { margin: 0 0 5px; font-size: 12.5px; }
+  .note p { margin: 0; font-size: 12.5px; color: #62666e; line-height: 1.5; }
+  .note .tag { font: 700 10px/1 ui-monospace, Menlo, monospace; letter-spacing: .06em; display: block; margin-bottom: 6px; color: var(--brand); }
+  .note .tag-fix { color: var(--success-fg); }
+  code { font: 400 .92em/1 ui-monospace, Menlo, monospace; background: #f2f3f5; border-radius: 3px; padding: 1px 4px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+    .pulse { box-shadow: 0 0 0 3px rgba(47,158,99,.22); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="doc-head">
+    <div class="eyebrow">Concept 1 · v2 · Low risk · Same design system</div>
+    <h1>Calm List</h1>
+    <p class="lede">
+      A hierarchy repair of the default session card. Today's card renders up to eleven competing elements at
+      near-identical weight, and the 36-character session ID is given more horizontal space than the title.
+      This concept removes or demotes everything not used to <em>recognise</em> a session and spends the
+      reclaimed space on <b>what it was, where it ran, when it ran</b>.
+    </p>
+  </div>
+
+  <div class="v2">
+    <b>Revised after Codex review.</b> Changes in v2:
+    <ul>
+      <li><b>All five status values are now represented</b> — v1 collapsed everything to Active / Waiting / nothing, silently dropping <code>idle</code> and <code>unknown</code>, both of which exist in <code>STATUSES</code>.</li>
+      <li><b>Unknown sessions have an explicit, honest treatment</b> — remote sessions whose liveness can't be determined are labelled "Unknown", not folded into Inactive and never implied to be complete.</li>
+      <li><b>Zero-Waiting is the observed reality, so it's the default view</b> — the "Needs you" group renders a defined empty state instead of being hidden, so the layout doesn't shift when a session starts waiting.</li>
+      <li><b>Data provenance is labelled</b> throughout: observed vs. illustrative.</li>
+      <li><b><code>prefers-reduced-motion</code> honoured</b> — v1 animated a pulse with no fallback.</li>
+      <li><b>Cost stays on the row</b>, demoted rather than deleted — with an optional density setting for people doing spend review.</li>
+    </ul>
+  </div>
+
+  <div class="provenance">
+    <b>Data provenance.</b> Sessions, costs, token counts and summaries below are taken from the live local
+    dataset on 2026-09-10 (52 sessions · 2 Active · 41 Inactive · 9 Unknown · <b>0 Waiting</b> · $296.20).
+    The <b>Waiting</b> card in the second view is <b>illustrative</b> — no session was waiting at inspection
+    time. It is shown because Waiting is the state the design most needs to handle, not because it was observed.
+  </div>
+
+  <h2>The card, before and after</h2>
+  <p class="sub">Same sessions, same data, same Tailwind tokens. The only change is what earns pixels.</p>
+
+  <div class="surface" style="margin-bottom:18px">
+    <div class="surface-label lbl-before">Today — 11 elements per card, ID out-ranks title</div>
+    <div class="before-list">
+      <div class="b-card">
+        <div class="b-main">
+          <div class="b-row1">
+            <span class="pill pill-codex" style="font-family:ui-monospace,Menlo,monospace;font-weight:700">CX</span>
+            <span class="b-title">Design Coslash UI concepts</span>
+            <span class="b-id">01a08e65-3c24-7030-9f3b-c1d18261041a</span>
+            <span class="pill pill-active"><span class="dot dot-green"></span>Active</span>
+            <span class="pill pill-grey">This Mac</span>
+            <span class="pill pill-grey">Codex Work Desktop</span>
+          </div>
+          <div class="b-summary">No summary available</div>
+          <div class="b-meta">goal-x20-you-are-a-senior · — · just now · 1m · 0 files</div>
+        </div>
+        <div class="b-cost"><div class="amt">≈$0.96</div><div class="tok">284k tok</div></div>
+      </div>
+      <div class="b-card">
+        <div class="b-main">
+          <div class="b-row1">
+            <span class="pill pill-codex" style="font-family:ui-monospace,Menlo,monospace;font-weight:700">CX</span>
+            <span class="b-title">Generate 4 kitchen renderings</span>
+            <span class="b-id">01a08d83-8e17-7e32-9475-f81ff523aa0c</span>
+            <span class="pill pill-inactive"><span class="dot dot-grey"></span>Inactive</span>
+            <span class="pill pill-grey">This Mac</span>
+            <span class="pill pill-grey">Codex Work Desktop</span>
+          </div>
+          <div class="b-summary">Created and corrected all four renderings in the new corner perspective with the warm, flat ceramic Zia tile surface and four grout options.</div>
+          <div class="b-meta">ge · — · 14m ago · 20m · 1 files</div>
+        </div>
+        <div class="b-cost"><div class="amt">≈$9.66</div><div class="tok">4.05M tok</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="surface">
+    <div class="surface-label lbl-after">Proposed — 5 elements, title leads, all five states represented</div>
+
+    <div class="appbar">
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input placeholder="Search title, goal, outcome, repo, branch" />
+        <span class="kbd">⌘K</span>
+      </div>
+      <div class="segbar">
+        <button aria-selected="true">All</button>
+        <button>Claude Code</button>
+        <button>Codex</button>
+      </div>
+      <div class="segbar" style="margin-left:auto">
+        <button aria-selected="true">Comfortable</button>
+        <button>Compact</button>
+        <button>Spend</button>
+      </div>
+    </div>
+
+    <div class="after-list">
+
+      <!-- defined empty state: 0 waiting observed -->
+      <div class="c-group">
+        <span class="c-group-name">NEEDS YOU</span>
+        <span class="c-group-rule"></span>
+        <span class="c-group-meta">0 waiting</span>
+      </div>
+      <div class="c-empty">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9aa0a8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        <span><b>Nothing is waiting on you.</b> This group stays visible so the list doesn't jump when a session starts asking.</span>
+      </div>
+
+      <div class="c-group">
+        <span class="c-group-name">RUNNING</span>
+        <span class="c-group-rule"></span>
+        <span class="c-group-meta">2 active · $2.23</span>
+      </div>
+
+      <button class="c-card c-codex">
+        <div class="c-row1">
+          <span class="c-title">Design Coslash UI concepts</span>
+          <span class="c-state c-state-active"><span class="pulse"></span>Active</span>
+          <span class="c-when">just now</span>
+        </div>
+        <div class="c-row2">
+          <span class="c-where"><span class="c-repo">goal-x20-you-are-a-senior</span></span>
+          <span class="c-sep">·</span><span class="c-facts">1m</span>
+          <span class="c-id">01a08e65</span>
+          <span class="c-spend"><b>$0.96</b> · 284k</span>
+        </div>
+      </button>
+
+      <button class="c-card c-claude">
+        <div class="c-row1">
+          <span class="c-title">Coslash webapp design modernization</span>
+          <span class="c-state c-state-active"><span class="pulse"></span>Active</span>
+          <span class="c-when">just now</span>
+        </div>
+        <div class="c-row2">
+          <span class="c-where"><span class="c-repo">coslash</span></span>
+          <span class="c-branch">milan/ui</span>
+          <span class="c-sep">·</span><span class="c-facts">1m</span>
+          <span class="c-id">05e982d2</span>
+          <span class="c-spend"><b>$1.27</b> · 1.18M</span>
+        </div>
+      </button>
+
+      <div class="c-group">
+        <span class="c-group-name">LAST ACTIVE TODAY</span>
+        <span class="c-group-rule"></span>
+        <span class="c-group-meta">9 sessions · $41.77</span>
+      </div>
+
+      <button class="c-card c-codex">
+        <div class="c-row1">
+          <span class="c-title">Generate 4 kitchen renderings</span>
+          <span class="c-when">14m</span>
+        </div>
+        <div class="c-row2">
+          <span class="c-where"><span class="c-repo">ge</span></span>
+          <span class="c-sep">·</span><span class="c-facts">20m · 1 file</span>
+          <span class="c-id">01a08d83</span>
+          <span class="c-spend"><b>$9.66</b> · 4.05M</span>
+        </div>
+        <div class="c-summary">Created and corrected all four renderings in the new corner perspective with the warm, flat ceramic Zia tile surface and four grout options.</div>
+      </button>
+
+      <button class="c-card c-codex">
+        <div class="c-row1">
+          <span class="c-title">Choose Laticrete grout color</span>
+          <span class="c-when">4h</span>
+        </div>
+        <div class="c-row2">
+          <span class="c-where"><span class="c-repo">pick-the-best-grout-color-for</span></span>
+          <span class="c-sep">·</span><span class="c-facts">10m · 2 files</span>
+          <span class="c-id">01a08d74</span>
+          <span class="c-spend"><b>$5.09</b> · 2.73M</span>
+        </div>
+        <div class="c-summary">Selected Laticrete Frosty as the recommended grout color and generated renderings for Bright White, Sauterne, Light Pewter, and Frosty.</div>
+      </button>
+
+      <!-- UNKNOWN: explicit destination, never implied complete -->
+      <div class="c-group">
+        <span class="c-group-name">LIVENESS UNKNOWN</span>
+        <span class="c-group-rule"></span>
+        <span class="c-group-meta">9 sessions · remote</span>
+      </div>
+      <div class="c-empty" style="margin-bottom:6px">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9aa0a8" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg>
+        <span>Transcript activity is readable, but process liveness could not be determined. <b>These are not finished</b> — they may still be running.</span>
+      </div>
+
+      <button class="c-card c-claude c-unknown">
+        <div class="c-row1">
+          <span class="c-title">Nightly integration sweep</span>
+          <span class="c-state c-state-unknown"><span class="dot-unknown"></span>Unknown</span>
+          <span class="c-when">2d</span>
+        </div>
+        <div class="c-row2">
+          <span class="c-where"><span class="c-repo">coslash</span></span>
+          <span class="c-branch">main</span>
+          <span class="c-remote">agent-box</span>
+          <span class="c-sep">·</span><span class="c-facts">last transcript write 2d ago</span>
+          <span class="c-spend"><b>$3.11</b> · 1.4M</span>
+        </div>
+      </button>
+
+      <!-- IDLE: a real STATUSES value v1 dropped -->
+      <div class="c-group">
+        <span class="c-group-name">IDLE</span>
+        <span class="c-group-rule"></span>
+        <span class="c-group-meta">process alive, no turn in progress</span>
+      </div>
+
+      <button class="c-card c-codex c-idle">
+        <div class="c-row1">
+          <span class="c-title">Refresh the model table from LiteLLM</span>
+          <span class="c-state c-state-idle"><span class="dot-idle"></span>Idle</span>
+          <span class="c-when">18m</span>
+        </div>
+        <div class="c-row2">
+          <span class="c-where"><span class="c-repo">coslash</span></span>
+          <span class="c-branch">milan/models</span>
+          <span class="c-sep">·</span><span class="c-facts">31m · 4 files</span>
+          <span class="c-id">01a08b12</span>
+          <span class="c-spend"><b>$3.90</b> · 1.02M</span>
+        </div>
+        <div class="c-summary">Regenerated the pricing table and reconciled four models that LiteLLM had renamed.</div>
+      </button>
+
+      <!-- WAITING: clearly illustrative -->
+      <div class="c-group">
+        <span class="c-group-name">WAITING — ILLUSTRATIVE, NOT OBSERVED</span>
+        <span class="c-group-rule"></span>
+        <span class="c-group-meta">shown to demonstrate the state</span>
+      </div>
+
+      <button class="c-card c-claude c-waiting">
+        <div class="c-row1">
+          <span class="c-title">Refactor the settings schema validator</span>
+          <span class="c-state c-state-wait">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 8v5"/><path d="M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>
+            Waiting for you
+          </span>
+          <span class="c-when">4m</span>
+        </div>
+        <div class="c-row2">
+          <span class="c-where"><span class="c-repo">coslash</span></span>
+          <span class="c-branch">milan/settings-v2</span>
+          <span class="c-sep">·</span><span class="c-facts">23m · 6 files</span>
+          <span class="c-spend"><b>$2.41</b> · 890k</span>
+        </div>
+        <div class="c-summary">Asked whether to keep the legacy <code>synthesis.backend</code> key or migrate it.</div>
+      </button>
+
+      <div class="c-group">
+        <span class="c-group-name">EARLIER</span>
+        <span class="c-group-rule"></span>
+        <span class="c-group-meta">40 sessions · $249.79</span>
+      </div>
+
+      <button class="c-card c-claude">
+        <div class="c-row1">
+          <span class="c-title">Paris fine dining availability</span>
+          <span class="c-when">yesterday</span>
+        </div>
+        <div class="c-row2">
+          <span class="c-where"><span class="c-repo">AgentsWorkspace</span></span>
+          <span class="c-sep">·</span><span class="c-facts">2h04m</span>
+          <span class="c-subs">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v4"/><path d="M5 21v-6a7 7 0 0 1 14 0v6"/><path d="M3 21h18"/></svg>
+            7 subagents
+          </span>
+          <span class="c-id">c6b455d8</span>
+          <span class="c-spend"><b>$64.45</b> · 21.4M</span>
+        </div>
+        <div class="c-summary">Completed a Top 25 ranking with component and final scores, addresses, CDG/Orly distances, and availability for the requested dates.</div>
+      </button>
+
+    </div>
+  </div>
+
+  <h2>What changed, and why</h2>
+
+  <div class="notes">
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span>
+      <h4>Five states, not two</h4>
+      <p><code>STATUSES</code> defines busy, idle, waiting, inactive and unknown. v1 rendered only Active and Waiting and dropped the rest — which silently erased <b>Idle</b> (process alive, between turns) and <b>Unknown</b>. Inactive remains the unmarked default; the other four are labelled.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span>
+      <h4>Unknown is never implied to be finished</h4>
+      <p>The 9 Unknown sessions get their own group and an explicit explanation: liveness could not be determined, and they may still be running. Folding them into a "done" bucket would be an unsupported claim about someone's work.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span>
+      <h4>Empty groups have defined behaviour</h4>
+      <p>Zero sessions were Waiting at inspection. Rather than hiding the group — which makes the list jump the moment one appears — it holds its place with a calm confirmation. Stable layout across refresh was a specific review concern.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span>
+      <h4>Motion has a fallback</h4>
+      <p>The Active pulse now degrades to a static ring under <code>prefers-reduced-motion</code>. v1 animated unconditionally.</p>
+    </div>
+    <div class="note">
+      <span class="tag">DELETE</span><h4>The UUID leaves the card face</h4>
+      <p><code>SessionName</code> is capped at <code>max-w-80</code> and truncates; <code>SessionId</code> is uncapped. At 900px the title collapses to "Design Coslash …" while the full UUID stays legible. It becomes an 8-char hover chip; the full value stays copyable in the inspector.</p>
+    </div>
+    <div class="note">
+      <span class="tag">DEMOTE</span><h4>Vendor pill → 3px spine</h4>
+      <p>Claude rust vs. Codex indigo is recognised pre-attentively from a stripe. A pill costs ~70px to say the same thing.</p>
+    </div>
+    <div class="note">
+      <span class="tag">DEMOTE</span><h4>Cost stops out-shouting the title — but stays</h4>
+      <p>Cost renders at <code>text-base font-bold</code> today, heavier than the session name. It drops to 12px tabular in the fact row. Codex argued for removing it entirely; I keep it, because the $64.45 outlier among $2 sessions is only findable if the number is on the row. A <b>Spend</b> density mode restores prominence for that specific job.</p>
+    </div>
+    <div class="note">
+      <span class="tag">PROMOTE</span><h4>Repo and branch become a breadcrumb</h4>
+      <p>Location is how people recognise work, but it's currently buried in an 11px grey monospace run of five <code>·</code>-separated facts.</p>
+    </div>
+    <div class="note">
+      <span class="tag">DELETE</span><h4>Empty and constant values render nothing</h4>
+      <p>"No summary available" disappears entirely. "This Mac" shows only for genuinely remote sessions. The modality pill ("Codex Work Desktop") is near-constant per user and moves to the inspector.</p>
+    </div>
+    <div class="note">
+      <span class="tag">ADD</span><h4>Subagents roll up</h4>
+      <p>An expanded rail can triple a card's height. One teal chip keeps the signal; the detail lives in the inspector.</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

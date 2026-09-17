@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>coSlash — Concept 2 v2: Finding the Session</title>
+<style>
+  :root {
+    --brand: #3554d1;
+    --success: #2f9e63; --success-fg: #2f7d55; --success-bg: #e4f2ea;
+    --info: #6366f1;    --info-fg: #4f46b5;    --info-bg: #ecebfb;
+    --warning: #c08a2e; --warning-fg: #8a6316; --warning-bg: #f7efdd;
+    --claude: #a24218;  --claude-bg: #f6e7de;
+    --codex: #4f5eea;   --codex-bg: #e8eaff;
+    --subagent: #0b7c91; --subagent-bg: #dff4f7;
+    --foreground: #252525;
+    --muted: #f7f7f7;
+    --muted-foreground: #8e8e8e;
+    --border: #ebebeb;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+         background: #f2f3f5; color: var(--foreground); font-size: 14px; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 1240px; margin: 0 auto; padding: 32px 24px 96px; }
+  .doc-head { padding-bottom: 26px; border-bottom: 1px solid #e2e4e8; margin-bottom: 26px; }
+  .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--brand); }
+  h1 { font-size: 28px; margin: 8px 0; letter-spacing: -0.02em; }
+  .lede { color: #5c6068; max-width: 72ch; line-height: 1.6; margin: 0; }
+  h2 { font-size: 18px; margin: 46px 0 6px; letter-spacing: -0.01em; }
+  .sub { color: #6b7078; margin: 0 0 16px; max-width: 78ch; line-height: 1.55; }
+  .surface { background: #fff; border: 1px solid #e2e4e8; border-radius: 14px; overflow: hidden;
+             box-shadow: 0 1px 2px rgba(16,24,40,.05), 0 8px 24px -12px rgba(16,24,40,.14); }
+
+  .diag { background: #fdf3f3; border: 1px solid #f0dada; border-left: 3px solid #c96a6a; border-radius: 8px;
+          padding: 12px 14px; margin: 0 0 16px; font-size: 13px; color: #7a4141; line-height: 1.55; max-width: 78ch; }
+  .diag b { color: #6a3434; }
+  .v2 { background: #f0f6f2; border: 1px solid #cfe4d8; border-left: 3px solid var(--success-fg); border-radius: 8px;
+        padding: 13px 15px; margin: 0 0 20px; font-size: 13px; color: #35604a; line-height: 1.6; }
+  .v2 b { color: #234534; }
+  .v2 ul { margin: 8px 0 0; padding-left: 18px; } .v2 li { padding-bottom: 4px; }
+  .provenance { background: #fbfbfc; border: 1px solid var(--border); border-radius: 8px; padding: 11px 14px;
+                margin: 0 0 18px; font-size: 12.5px; color: #62666e; line-height: 1.55; }
+  .provenance b { color: #45484f; }
+
+  /* ============ BOARD ============ */
+  .board-top { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .segbar { display: inline-flex; background: var(--muted); border-radius: 8px; padding: 2px; }
+  .segbar button { border: 0; background: transparent; font: inherit; font-size: 12px; font-weight: 500;
+                   color: var(--muted-foreground); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  .segbar button[aria-selected="true"] { background: #fff; color: var(--foreground); font-weight: 600; box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+  .grouped { font-size: 12px; color: var(--muted-foreground); margin-left: auto; }
+  .grouped select { font: inherit; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; background: #fff; color: var(--foreground); }
+
+  /* Six lanes don't fit at 1280. Populated lanes get a readable floor and share the
+     remaining width; empty lanes collapse to a narrow strip but keep their position. */
+  .lanes { display: flex; height: 500px; overflow-x: auto; }
+  .lane { flex: 1 1 0; min-width: 208px; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
+  .lane:first-child { border-left: 0; }
+  .lane-collapsed { flex: 0 0 150px; min-width: 150px; background: #fcfcfd; }
+  .lane-collapsed .lane-head { background: #fafafb; }
+  .lane-collapsed .lane-title { color: var(--muted-foreground); font-weight: 600; }
+  .lane-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); flex: none; }
+  .lane-title { font-size: 12.5px; font-weight: 700; }
+  .lane-n { font: 600 11px/1 ui-monospace, Menlo, monospace; color: var(--muted-foreground);
+            background: var(--muted); border-radius: 999px; padding: 4px 7px; }
+  .lane-spend { margin-left: auto; font-size: 11.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .lane-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 7px; }
+  .lane-needs .lane-head { background: #fffdf7; } .lane-needs .lane-title { color: var(--warning-fg); }
+  .lane-run .lane-head { background: #f4faf6; } .lane-run .lane-title { color: var(--success-fg); }
+  .lane-idle .lane-head { background: #f6f6fd; } .lane-idle .lane-title { color: var(--info-fg); }
+  .lane-unknown .lane-head { background: #fafafb; }
+
+  /* defined empty-lane behaviour */
+  .lane-empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+                padding: 20px 12px; text-align: center; color: #9aa0a8; font-size: 12px; line-height: 1.5; }
+  .lane-empty b { color: #6e727a; font-weight: 600; display: block; padding-bottom: 2px; }
+
+  .repo-sub { position: sticky; top: -8px; z-index: 2; margin: 0 -8px; padding: 7px 12px 6px;
+              background: #fff; border-bottom: 1px solid var(--border);
+              font: 600 11px/1 ui-monospace, Menlo, monospace; color: #5f636b;
+              display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .repo-sub span:last-child { font-family: inherit; font-size: 10.5px; font-weight: 500; color: var(--muted-foreground); }
+  .repo-sub:first-child { margin-top: -8px; }
+
+  .bc { position: relative; display: block; width: 100%; text-align: left; font: inherit; color: inherit;
+        border: 1px solid var(--border); border-radius: 9px; background: #fff; padding: 9px 11px 9px 13px; cursor: pointer;
+        transition: border-color .13s, box-shadow .13s; }
+  .bc:hover { border-color: #d4d7dd; box-shadow: 0 1px 3px rgba(16,24,40,.08); }
+  .bc::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; }
+  .bc-claude::before { background: var(--claude); } .bc-codex::before { background: var(--codex); }
+  .bc-title { font-size: 13px; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .bc-foot { display: flex; align-items: center; gap: 6px; padding-top: 6px; font-size: 11.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .bc-foot b { color: #4a4e56; font-weight: 600; }
+  .bc-branch { font: 500 10.5px/1 ui-monospace, Menlo, monospace; background: var(--muted); border-radius: 4px; padding: 3px 5px;
+               color: #62666e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+  .bc-when { margin-left: auto; white-space: nowrap; }
+  .bc-wait { background: #fffdf7; border-color: #eddfc0; } .bc-wait::before { background: var(--warning); }
+  .bc-unknown { background: #fcfcfd; } .bc-unknown::before { opacity: .45; }
+  .bc-remote { font: 500 10px/1 ui-monospace, Menlo, monospace; color: #62666e; background: var(--muted);
+               border: 1px solid var(--border); border-radius: 4px; padding: 2px 5px; }
+  .pulse { width: 6px; height: 6px; border-radius: 999px; background: var(--success); flex: none;
+           box-shadow: 0 0 0 0 rgba(47,158,99,.55); animation: pulse 2.2s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 5px rgba(47,158,99,0); } 100% { box-shadow: 0 0 0 0 rgba(47,158,99,0); } }
+  .dot-idle { width: 6px; height: 6px; border-radius: 999px; background: var(--info); flex: none; }
+  .dot-unknown { width: 6px; height: 6px; border-radius: 999px; border: 1.5px dashed #b6b9bf; flex: none; }
+  .bc-subs { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--subagent);
+             background: var(--subagent-bg); border-radius: 4px; padding: 2px 5px; font-weight: 600; }
+
+  /* ============ TABLE ============ */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th { text-align: left; font-weight: 600; color: var(--muted-foreground); font-size: 11px; letter-spacing: .04em;
+             text-transform: uppercase; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap;
+             background: #fff; position: sticky; top: 0; }
+  thead th.num { text-align: right; }
+  tbody td { padding: 8px 12px; border-bottom: 1px solid #f4f5f6; vertical-align: middle; }
+  tbody tr:hover { background: #fafbfc; cursor: pointer; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .t-name { font-weight: 600; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-mono { font: 400 11.5px/1 ui-monospace, Menlo, monospace; color: #62666e; white-space: nowrap; }
+  .t-vendor { display: inline-block; width: 3px; height: 15px; border-radius: 2px; vertical-align: -3px; margin-right: 8px; }
+  .v-claude { background: var(--claude); } .v-codex { background: var(--codex); }
+  .t-state { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+  .st-active { color: var(--success-fg); } .st-wait { color: var(--warning-fg); }
+  .st-idle { color: var(--info-fg); } .st-off { color: #b6b9bf; font-weight: 500; }
+  .st-unknown { color: #8e8e8e; font-weight: 500; }
+  .dotg { width: 6px; height: 6px; border-radius: 999px; background: #cbced3; }
+  .sortcol { color: var(--foreground); }
+
+  /* ============ PALETTE ============ */
+  .palette-stage { background: #dfe1e6; border-radius: 14px; padding: 34px 20px; display: grid; place-items: center;
+                   border: 1px solid #d3d6dc; gap: 26px; }
+  .palette { width: 100%; max-width: 660px; background: #fff; border-radius: 14px; overflow: hidden;
+             box-shadow: 0 24px 60px -12px rgba(16,24,40,.32), 0 0 0 1px rgba(16,24,40,.06); }
+  .pal-cap { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #6e727a;
+             width: 100%; max-width: 660px; padding-bottom: -4px; }
+  .pal-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .pal-input input { border: 0; outline: 0; font: inherit; font-size: 15px; flex: 1; color: var(--foreground); }
+  .pal-scope-bar { display: flex; align-items: center; gap: 8px; padding: 7px 16px; background: #fafbfc;
+                   border-bottom: 1px solid var(--border); font-size: 11.5px; color: #62666e; }
+  .pal-scope-bar b { color: #45484f; font-weight: 600; }
+  .scope-btn { margin-left: auto; font: inherit; font-size: 11.5px; font-weight: 600; color: var(--brand);
+               background: none; border: 0; cursor: pointer; padding: 0; }
+  .pal-body { max-height: 340px; overflow-y: auto; padding: 6px; }
+  .pal-group { font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+               color: var(--muted-foreground); padding: 9px 10px 5px; display: flex; align-items: center; gap: 7px; }
+  .pal-group span { font-weight: 500; text-transform: none; letter-spacing: 0; color: #b0b3b9; }
+  .pal-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; }
+  .pal-row.sel { background: var(--info-bg); }
+  .pal-main { min-width: 0; flex: 1; }
+  .pal-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pal-title mark, .pal-sub mark { background: #fde68a; color: inherit; border-radius: 2px; padding: 0 1px; }
+  .pal-sub { font-size: 11.5px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px; }
+  .pal-why { display: inline-flex; align-items: center; font: 600 9.5px/1 ui-monospace, Menlo, monospace; letter-spacing: .04em;
+             text-transform: uppercase; color: #6b7078; background: var(--muted); border: 1px solid var(--border);
+             border-radius: 4px; padding: 3px 5px; margin-right: 6px; }
+  .pal-right { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; font-variant-numeric: tabular-nums; text-align: right; }
+  .pal-foot { display: flex; align-items: center; gap: 14px; padding: 9px 14px; border-top: 1px solid var(--border);
+              background: #fafbfc; font-size: 11px; color: var(--muted-foreground); flex-wrap: wrap; }
+  .key { font: 600 10px/1 ui-monospace, Menlo, monospace; border: 1px solid var(--border); background: #fff;
+         border-radius: 4px; padding: 3px 5px; margin-right: 4px; }
+  .resume-target { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #62666e; }
+
+  .notes { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 12px; }
+  .note { background: #fff; border: 1px solid #e2e4e8; border-radius: 10px; padding: 13px 14px; }
+  .note h4 { margin: 0 0 5px; font-size: 12.5px; }
+  .note p { margin: 0; font-size: 12.5px; color: #62666e; line-height: 1.5; }
+  .note .tag { font: 700 10px/1 ui-monospace, Menlo, monospace; letter-spacing: .06em; color: var(--brand); display: block; margin-bottom: 6px; }
+  .note .tag-fix { color: var(--success-fg); }
+  code { font: 400 .92em/1 ui-monospace, Menlo, monospace; background: #f2f3f5; border-radius: 3px; padding: 1px 4px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+    .pulse { box-shadow: 0 0 0 3px rgba(47,158,99,.22); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="doc-head">
+    <div class="eyebrow">Concept 2 · v2 · Medium risk · Same design system</div>
+    <h1>Finding the Session</h1>
+    <p class="lede">
+      Three answers to "I can't find the session I want, fast." The board stops being a sparse repo × status
+      matrix; a table view handles the 52-row reality; and a ⌘K palette makes retrieval fast when you already
+      know roughly what you're looking for.
+    </p>
+  </div>
+
+  <div class="v2">
+    <b>Revised after Codex review.</b> Changes in v2:
+    <ul>
+      <li><b>Search relevance now outranks live activity.</b> v1 pinned Active sessions above results "regardless of rank", which buries the historical session you're actually hunting. Live shortcuts now appear only on an <em>empty</em> query; once you type, ranking is by match evidence with recency as tie-breaker.</li>
+      <li><b>Every result says why it matched</b> — a field label plus the highlighted text.</li>
+      <li><b>Search scope is explicit</b>, with one-click widening on thin results.</li>
+      <li><b>Empty lanes have defined behaviour</b> — the claim "lanes are populated by construction" was overstated: the observed dataset had <em>zero</em> Waiting. Lanes hold fixed order and position and explain themselves when empty.</li>
+      <li><b>Idle and Unknown have their own lanes.</b> v1 had nowhere to put either.</li>
+      <li><b>Empty-cell hatching removed</b> — it added visual noise without information.</li>
+      <li><b>Resume names its destination</b> (agent + machine) and respects launch eligibility.</li>
+      <li><b><code>prefers-reduced-motion</code> honoured.</b></li>
+    </ul>
+  </div>
+
+  <div class="provenance">
+    <b>Data provenance.</b> Counts and sessions are from the live local dataset on 2026-09-10
+    (52 sessions · 2 Active · 41 Inactive · 9 Unknown · <b>0 Waiting</b>). Waiting and Idle examples are
+    <b>illustrative</b> and labelled as such — neither was observed at inspection time.
+  </div>
+
+  <h2>A · Attention lanes — the board, re-asked</h2>
+  <p class="diag">
+    <b>Why today's board is hard to navigate:</b> it's a grid of <code>repo × status</code> with
+    <code>grid-template-columns: repeat(n, minmax(0, 1fr))</code> — every status column gets equal width
+    regardless of population. With 2 Active, 41 Inactive and 9 Unknown, roughly two thirds of the horizontal
+    space is permanently blank while 41 cards queue single-file down one narrow column. Only the status header
+    is sticky, so scrolling 400px loses all repo context.
+  </p>
+  <p class="sub">
+    Lanes are ordered by demand on your attention and hold <b>fixed position and order</b> — they never
+    reorder or disappear on refresh. Repo is a sticky subhead <em>inside</em> each lane, so context travels
+    with the cards. Each lane scrolls independently.
+  </p>
+
+  <div class="surface">
+    <div class="board-top">
+      <div class="segbar"><button>List</button><button aria-selected="true">Board</button><button>Table</button></div>
+      <div class="grouped">
+        Lanes by <select><option>Attention</option><option>Status</option><option>Repo</option><option>Agent</option></select>
+        · group within lane by <select><option>Repo</option><option>Branch</option><option>None</option></select>
+      </div>
+    </div>
+
+    <div class="lanes">
+
+      <!-- EMPTY LANE with defined behaviour -->
+      <div class="lane lane-needs lane-collapsed">
+        <div class="lane-head">
+          <span class="lane-title">Needs you</span>
+          <span class="lane-n">0</span>
+          <span class="lane-spend">—</span>
+        </div>
+        <div class="lane-body">
+          <div class="lane-empty">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#b8bcc3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            <span><b>Nothing<br>is waiting</b>Lane holds<br>its place.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="lane lane-run">
+        <div class="lane-head">
+          <span class="lane-title">Running</span><span class="lane-n">2</span><span class="lane-spend">$2.23</span>
+        </div>
+        <div class="lane-body">
+          <div class="repo-sub"><span>coslash/</span><span>1 · $1.27</span></div>
+          <button class="bc bc-claude">
+            <div class="bc-title">Coslash webapp design modernization</div>
+            <div class="bc-foot"><span class="pulse"></span><span class="bc-branch">milan/ui</span><b>$1.27</b><span class="bc-when">now</span></div>
+          </button>
+          <div class="repo-sub"><span>goal-x20-…-senior/</span><span>1 · $0.96</span></div>
+          <button class="bc bc-codex">
+            <div class="bc-title">Design Coslash UI concepts</div>
+            <div class="bc-foot"><span class="pulse"></span><b>$0.96</b><span class="bc-when">now</span></div>
+          </button>
+        </div>
+      </div>
+
+      <!-- IDLE lane -->
+      <div class="lane lane-idle lane-collapsed">
+        <div class="lane-head">
+          <span class="lane-title">Idle</span><span class="lane-n">0</span><span class="lane-spend">—</span>
+        </div>
+        <div class="lane-body">
+          <div class="lane-empty" style="padding-bottom:10px">
+            <span><b>No idle<br>sessions</b>Alive, between<br>turns. Card is<br>illustrative.</span>
+          </div>
+          <button class="bc bc-codex" style="opacity:.65">
+            <div class="bc-title">Refresh the model table from LiteLLM</div>
+            <div class="bc-foot"><span class="dot-idle"></span><span class="bc-branch">milan/models</span><b>$3.90</b><span class="bc-when">18m</span></div>
+          </button>
+        </div>
+      </div>
+
+      <div class="lane">
+        <div class="lane-head">
+          <span class="lane-title">Last active today</span><span class="lane-n">9</span><span class="lane-spend">$41.77</span>
+        </div>
+        <div class="lane-body">
+          <div class="repo-sub"><span>ge/</span><span>2 · $21.70</span></div>
+          <button class="bc bc-codex"><div class="bc-title">Generate 4 kitchen renderings</div><div class="bc-foot"><b>$9.66</b><span class="bc-when">14m</span></div></button>
+          <button class="bc bc-codex"><div class="bc-title">Generate TV wall rendering</div><div class="bc-foot"><b>$12.04</b><span class="bc-when">3h</span></div></button>
+          <div class="repo-sub"><span>AgentsWorkspace/</span><span>3 · $14.08</span></div>
+          <button class="bc bc-codex"><div class="bc-title">Access Google Sheet</div><div class="bc-foot"><b>$3.53</b><span class="bc-when">5h</span></div></button>
+          <button class="bc bc-codex"><div class="bc-title">Access Google Sheet</div><div class="bc-foot"><b>$10.53</b><span class="bc-when">5h</span></div></button>
+          <button class="bc bc-codex"><div class="bc-title">Find Mapei grout color matches</div><div class="bc-foot"><b>$2.17</b><span class="bc-when">5h</span></div></button>
+          <div class="repo-sub"><span>pick-the-best-grout-color-for/</span><span>1 · $5.09</span></div>
+          <button class="bc bc-codex"><div class="bc-title">Choose Laticrete grout color</div><div class="bc-foot"><b>$5.09</b><span class="bc-when">4h</span></div></button>
+        </div>
+      </div>
+
+      <!-- UNKNOWN lane: explicit destination -->
+      <div class="lane lane-unknown">
+        <div class="lane-head">
+          <span class="lane-title">Liveness unknown</span><span class="lane-n">9</span><span class="lane-spend">$28.40</span>
+        </div>
+        <div class="lane-body">
+          <div style="padding:2px 4px 8px;font-size:11px;color:#9aa0a8;line-height:1.5">
+            Remote sessions whose process state can't be read. <b style="color:#6e727a">Not finished</b> — may still be running.
+          </div>
+          <div class="repo-sub"><span>coslash/</span><span>4 · $12.20</span></div>
+          <button class="bc bc-claude bc-unknown">
+            <div class="bc-title">Nightly integration sweep</div>
+            <div class="bc-foot"><span class="dot-unknown"></span><span class="bc-remote">agent-box</span><b>$3.11</b><span class="bc-when">2d</span></div>
+          </button>
+          <button class="bc bc-claude bc-unknown">
+            <div class="bc-title">Backfill remote collector helpers</div>
+            <div class="bc-foot"><span class="dot-unknown"></span><span class="bc-remote">agent-box</span><b>$4.02</b><span class="bc-when">3d</span></div>
+          </button>
+        </div>
+      </div>
+
+      <div class="lane">
+        <div class="lane-head">
+          <span class="lane-title">Earlier</span><span class="lane-n">31</span><span class="lane-spend">$221.39</span>
+        </div>
+        <div class="lane-body">
+          <div class="repo-sub"><span>AgentsWorkspace/</span><span>11 · $131.40</span></div>
+          <button class="bc bc-claude">
+            <div class="bc-title">Paris fine dining availability</div>
+            <div class="bc-foot"><span class="bc-subs">7 sub</span><b>$64.45</b><span class="bc-when">yest</span></div>
+          </button>
+          <button class="bc bc-claude"><div class="bc-title">Fine-dining restaurant list</div><div class="bc-foot"><b>$4.22</b><span class="bc-when">yest</span></div></button>
+          <button class="bc bc-claude"><div class="bc-title">Remote Machine design fixes</div><div class="bc-foot"><b>$7.78</b><span class="bc-when">21h</span></div></button>
+          <div class="repo-sub"><span>coslash/</span><span>8 · $58.12</span></div>
+          <button class="bc bc-claude"><div class="bc-title">Keep referenced spawns and full session cost</div><div class="bc-foot"><span class="bc-branch">milan/caps</span><b>$11.03</b><span class="bc-when">2d</span></div></button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Lanes can be empty, and that's designed</h4>
+      <p>The v1 claim that lanes are "populated by construction" didn't survive contact with the data — zero sessions were Waiting. Lanes now hold fixed order, position and width, and an empty lane states its own meaning rather than vanishing and reflowing the board.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Idle and Unknown have homes</h4>
+      <p>v1's four lanes had nowhere to put <code>idle</code> or the 9 <code>unknown</code> sessions. Unknown now gets a lane that explicitly says liveness couldn't be read and these are <em>not</em> finished.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Hatching removed</h4>
+      <p>v1 hatched empty matrix cells. On reflection that adds texture without information — an empty cell already reads as empty. Plain ground, no pattern.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · CONSEQUENCE</span><h4>Six lanes don't fit — so empty ones collapse</h4>
+      <p>Giving Idle and Unknown their own lanes pushed the count to six, which overflows at 1280px. Rather than clip, populated lanes get a 208px floor and share remaining width, while zero-count lanes collapse to a 150px strip that keeps its position. Beyond that the board scrolls horizontally. This is the honest cost of representing every status.</p>
+    </div>
+    <div class="note">
+      <span class="tag">FIX</span><h4>Repo context travels with the cards</h4>
+      <p>Repo is a sticky subhead inside each lane rather than a full-width row above the grid, so the repo you're reading is always pinned at the top of its column.</p>
+    </div>
+    <div class="note">
+      <span class="tag">FIX</span><h4>Columns scroll independently</h4>
+      <p>Today the whole grid is one scroll surface, so reading the 41-card Inactive column drags the live sessions off screen. Per-lane scroll keeps them visible. Tradeoff noted in review: more scroll targets, so keyboard lane-switching needs a real design.</p>
+    </div>
+    <div class="note">
+      <span class="tag">ADD</span><h4>The lane axis is a control</h4>
+      <p>"Lanes by Attention / Status / Repo / Agent" turns one hard-coded board into four. Users who prefer the status board keep it.</p>
+    </div>
+  </div>
+
+  <h2>B · Table view — for when there are 52 of them</h2>
+  <p class="sub">Cards are right for ten sessions and wrong for fifty. Sortable columns make "the expensive one from yesterday" two clicks instead of a scroll hunt.</p>
+
+  <div class="surface">
+    <div class="board-top">
+      <div class="segbar"><button>List</button><button>Board</button><button aria-selected="true">Table</button></div>
+      <span style="font-size:12px;color:var(--muted-foreground);margin-left:auto">52 sessions · sorted by Est. cost ↓</span>
+    </div>
+    <div style="max-height:380px;overflow-y:auto">
+      <table>
+        <thead><tr>
+          <th>Session</th><th>Repo</th><th>Branch</th><th>State</th>
+          <th class="num sortcol">Est. cost ↓</th><th class="num">Tokens</th><th class="num">Duration</th><th class="num">Last active</th>
+        </tr></thead>
+        <tbody>
+          <tr><td class="t-name"><span class="t-vendor v-claude"></span>Paris fine dining availability</td><td class="t-mono">AgentsWorkspace</td><td class="t-mono">—</td><td><span class="t-state st-off"><span class="dotg"></span>Inactive</span></td><td class="num"><b>$64.45</b></td><td class="num t-mono">21.4M</td><td class="num t-mono">2h04m</td><td class="num t-mono">yesterday</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-codex"></span>Generate TV wall rendering</td><td class="t-mono">ge</td><td class="t-mono">—</td><td><span class="t-state st-off"><span class="dotg"></span>Inactive</span></td><td class="num"><b>$12.04</b></td><td class="num t-mono">8.15M</td><td class="num t-mono">31m</td><td class="num t-mono">3h ago</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-claude"></span>Keep referenced spawns and full session cost</td><td class="t-mono">coslash</td><td class="t-mono">milan/caps</td><td><span class="t-state st-off"><span class="dotg"></span>Inactive</span></td><td class="num"><b>$11.03</b></td><td class="num t-mono">5.02M</td><td class="num t-mono">54m</td><td class="num t-mono">2d ago</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-codex"></span>Access Google Sheet</td><td class="t-mono">AgentsWorkspace</td><td class="t-mono">—</td><td><span class="t-state st-off"><span class="dotg"></span>Inactive</span></td><td class="num"><b>$10.53</b></td><td class="num t-mono">21.4M</td><td class="num t-mono">9m</td><td class="num t-mono">5h ago</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-codex"></span>Generate 4 kitchen renderings</td><td class="t-mono">ge</td><td class="t-mono">—</td><td><span class="t-state st-off"><span class="dotg"></span>Inactive</span></td><td class="num"><b>$9.66</b></td><td class="num t-mono">4.05M</td><td class="num t-mono">20m</td><td class="num t-mono">14m ago</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-claude"></span>Remote Machine design fixes</td><td class="t-mono">AgentsWorkspace</td><td class="t-mono">—</td><td><span class="t-state st-off"><span class="dotg"></span>Inactive</span></td><td class="num"><b>$7.78</b></td><td class="num t-mono">595k</td><td class="num t-mono">1h38m</td><td class="num t-mono">21h ago</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-claude"></span>Backfill remote collector helpers</td><td class="t-mono">coslash</td><td class="t-mono">main</td><td><span class="t-state st-unknown"><span class="dot-unknown"></span>Unknown</span></td><td class="num"><b>$4.02</b></td><td class="num t-mono">1.9M</td><td class="num t-mono">—</td><td class="num t-mono">3d ago</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-codex"></span>Refresh the model table from LiteLLM</td><td class="t-mono">coslash</td><td class="t-mono">milan/models</td><td><span class="t-state st-idle"><span class="dot-idle"></span>Idle</span></td><td class="num"><b>$3.90</b></td><td class="num t-mono">1.02M</td><td class="num t-mono">31m</td><td class="num t-mono">18m ago</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-claude"></span>Nightly integration sweep</td><td class="t-mono">coslash</td><td class="t-mono">main</td><td><span class="t-state st-unknown"><span class="dot-unknown"></span>Unknown</span></td><td class="num"><b>$3.11</b></td><td class="num t-mono">1.4M</td><td class="num t-mono">—</td><td class="num t-mono">2d ago</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-claude"></span>Coslash webapp design modernization</td><td class="t-mono">coslash</td><td class="t-mono">milan/ui</td><td><span class="t-state st-active"><span class="pulse"></span>Active</span></td><td class="num"><b>$1.27</b></td><td class="num t-mono">1.18M</td><td class="num t-mono">1m</td><td class="num t-mono">just now</td></tr>
+          <tr><td class="t-name"><span class="t-vendor v-codex"></span>Design Coslash UI concepts</td><td class="t-mono">goal-x20-you-are-a-senior</td><td class="t-mono">—</td><td><span class="t-state st-active"><span class="pulse"></span>Active</span></td><td class="num"><b>$0.96</b></td><td class="num t-mono">284k</td><td class="num t-mono">1m</td><td class="num t-mono">just now</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2>C · ⌘K — retrieval, with evidence</h2>
+  <p class="diag">
+    <b>Why search misses today:</b> <code>sessionMatchesSearchTerm</code> tests exactly three fields —
+    <code>name</code>, <code>repo</code>, <code>branch</code>. Verified live: searching <code>Frosty</code>
+    returns "Nothing matches" while the card reading "Selected Laticrete <b>Frosty</b> as the recommended grout
+    color…" is visible in the same window. Searching <code>Laticrete</code> returns three results, one of which
+    matched only because its <code>repo</code> is the generated folder
+    <code>compare-https-www-laticrete-com-products</code> — with nothing on screen explaining why.
+  </p>
+  <p class="sub">
+    <b>Broader indexing and match evidence have to ship together</b> — adding outcome and filename matching
+    without showing <em>why</em> a result matched makes the confusing-result problem worse, not better.
+  </p>
+
+  <div class="palette-stage">
+
+    <div class="pal-cap">Empty query — shortcuts are appropriate here</div>
+    <div class="palette">
+      <div class="pal-input">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8e8e8e" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input placeholder="Search title, goal, outcome, repo, branch, filename" readonly />
+      </div>
+      <div class="pal-body">
+        <div class="pal-group">Running now <span>· live</span></div>
+        <div class="pal-row">
+          <span class="pulse"></span>
+          <div class="pal-main">
+            <div class="pal-title">Coslash webapp design modernization</div>
+            <div class="pal-sub">coslash · milan/ui · active 1m</div>
+          </div>
+          <div class="pal-right">$1.27</div>
+        </div>
+        <div class="pal-group">Recently opened</div>
+        <div class="pal-row">
+          <span style="width:3px;height:26px;border-radius:2px;background:var(--codex);flex:none"></span>
+          <div class="pal-main"><div class="pal-title">Generate 4 kitchen renderings</div><div class="pal-sub">ge · 14m ago</div></div>
+          <div class="pal-right">$9.66</div>
+        </div>
+        <div class="pal-group">Shortcuts</div>
+        <div class="pal-row">
+          <span style="width:3px;height:26px;border-radius:2px;background:var(--warning);flex:none"></span>
+          <div class="pal-main"><div class="pal-title">Waiting for you</div><div class="pal-sub">0 sessions right now</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pal-cap">Typed query — relevance wins; live sessions do not jump the queue</div>
+    <div class="palette">
+      <div class="pal-input">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8e8e8e" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input value="frosty" readonly />
+      </div>
+      <div class="pal-scope-bar">
+        Searching <b>all time</b> · all agents · all machines · <b>4 matches</b> of 52 sessions
+        <button class="scope-btn">Narrow to this week</button>
+      </div>
+      <div class="pal-body">
+        <div class="pal-group">Best matches <span>· ranked by evidence, recency breaks ties</span></div>
+        <div class="pal-row sel">
+          <span style="width:3px;height:30px;border-radius:2px;background:var(--codex);flex:none"></span>
+          <div class="pal-main">
+            <div class="pal-title">Choose Laticrete grout color</div>
+            <div class="pal-sub"><span class="pal-why">outcome</span>Selected Laticrete <mark>Frosty</mark> as the recommended grout color…</div>
+          </div>
+          <div class="pal-right">$5.09<br><span style="font-size:10px">4h ago</span></div>
+        </div>
+        <div class="pal-row">
+          <span style="width:3px;height:30px;border-radius:2px;background:var(--codex);flex:none"></span>
+          <div class="pal-main">
+            <div class="pal-title">Generate 4 kitchen renderings</div>
+            <div class="pal-sub"><span class="pal-why">outcome</span>…Bright White, Sauterne, Light Pewter, and <mark>Frosty</mark>.</div>
+          </div>
+          <div class="pal-right">$9.66<br><span style="font-size:10px">14m ago</span></div>
+        </div>
+        <div class="pal-row">
+          <span style="width:3px;height:30px;border-radius:2px;background:var(--codex);flex:none"></span>
+          <div class="pal-main">
+            <div class="pal-title">Find Laticrete color equivalents</div>
+            <div class="pal-sub"><span class="pal-why">goal</span>Compare swatches against Laticrete <mark>Frosty</mark> and Silver Shadow…</div>
+          </div>
+          <div class="pal-right">$0.93<br><span style="font-size:10px">4h ago</span></div>
+        </div>
+        <div class="pal-row">
+          <span style="width:3px;height:30px;border-radius:2px;background:var(--codex);flex:none"></span>
+          <div class="pal-main">
+            <div class="pal-title">Compare SPECTRALOCK and PRISM grout</div>
+            <div class="pal-sub"><span class="pal-why">repo</span>compare-https-www-<mark>laticrete</mark>-com-products <span style="color:#b0b3b9">· generated folder name</span></div>
+          </div>
+          <div class="pal-right">$1.56<br><span style="font-size:10px">6h ago</span></div>
+        </div>
+        <div class="pal-group">Not searched <span>· 3 sessions have no synthesis yet</span></div>
+        <div class="pal-row">
+          <div class="pal-main" style="padding-left:13px">
+            <div class="pal-sub" style="padding:0">Synthesis pending — these can't be matched on goal or outcome yet.</div>
+          </div>
+        </div>
+      </div>
+      <div class="pal-foot">
+        <span><span class="key">↵</span>open inspector</span>
+        <span class="resume-target">
+          <span class="key">⌘↵</span>resume <b style="font-weight:600;color:#45484f">Codex · This Mac</b>
+        </span>
+        <span style="margin-left:auto"><span class="key">repo:</span><span class="key">branch:</span><span class="key">is:waiting</span><span class="key">agent:</span></span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Relevance beats liveness once you type</h4>
+      <p>v1 pinned live sessions to the top "regardless of rank". An unrelated running session should never precede an exact outcome match. Live and recent shortcuts now belong to the <em>empty-query</em> state only.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Every result shows its evidence</h4>
+      <p>A field label (<code>outcome</code>, <code>goal</code>, <code>repo</code>) plus highlighted text. The Laticrete false-friend now explains itself: matched on a generated folder name, flagged as such.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Coverage gaps are disclosed</h4>
+      <p>Sessions with pending or missing synthesis are listed as explicitly <em>not searched</em>, rather than silently absent. This was the review's core objection to treating "two lines of code" as the acceptance criterion.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Scope is stated, not assumed</h4>
+      <p>A scope bar names the time window, agent and machine constraints with the match count, plus one-click widening — instead of the current empty state suggesting a window change that cannot help.</p>
+    </div>
+    <div class="note">
+      <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Resume names its destination</h4>
+      <p><code>⌘↵</code> shows which agent and machine it would launch into, targets the visibly selected row, and disables itself where <code>resumeDisabled</code> applies rather than failing after the keystroke.</p>
+    </div>
+    <div class="note">
+      <span class="tag">OPEN</span><h4>Still unvalidated</h4>
+      <p>Ranking weights between title, goal and outcome matches; whether filename indexing is worth its cost; and lane keyboard navigation across independent scroll containers. All need testing against the retrieval tasks in the review, not a designer's judgement.</p>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

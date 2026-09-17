@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>coSlash — Board & Table</title>
+<style>
+/* coSlash prototype — shared tokens and chrome.
+   Tokens mirror frontend/src/index.css so these prototypes sit in the real design system. */
+
+:root {
+  --brand: #3554d1;
+  --success: #2f9e63; --success-fg: #2f7d55; --success-bg: #e4f2ea;
+  --info: #6366f1;    --info-fg: #4f46b5;    --info-bg: #ecebfb;
+  --warning: #c08a2e; --warning-fg: #8a6316; --warning-bg: #f7efdd;
+  --claude: #a24218;  --claude-bg: #f6e7de;
+  --codex: #4f5eea;   --codex-bg: #e8eaff;
+  --subagent: #0b7c91; --subagent-bg: #dff4f7;
+
+  --background: #fff;
+  --foreground: #252525;
+  --muted: #f7f7f7;
+  --muted-foreground: #8e8e8e;
+  --border: #ebebeb;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--background); color: var(--foreground); font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; }
+mark { background: #fde68a; color: inherit; border-radius: 2px; padding: 0 1px; }
+code { font: 400 .92em/1 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--muted); border-radius: 4px; padding: 1px 4px; }
+
+/* ---------- concept switcher (prototype navigation only) ---------- */
+.proto-bar {
+  display: flex; align-items: center; gap: 10px; padding: 6px 16px;
+  background: #f4f5f7; border-bottom: 1px solid var(--border);
+  font-size: 11.5px; color: var(--muted-foreground);
+}
+.proto-bar .note { display: inline-flex; align-items: center; gap: 6px; }
+.proto-bar .dot { width: 5px; height: 5px; border-radius: 999px; background: #c3c6cc; }
+.proto-links { margin-left: auto; display: flex; gap: 4px; }
+.proto-links a {
+  color: var(--muted-foreground); text-decoration: none; font-weight: 500;
+  padding: 4px 9px; border-radius: 6px;
+}
+.proto-links a:hover { background: #e9eaee; color: var(--foreground); }
+.proto-links a[aria-current="page"] { background: #fff; color: var(--brand); font-weight: 600; box-shadow: 0 1px 2px rgba(16,24,40,.1); }
+
+/* ---------- app header ---------- */
+.app-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.logo { display: flex; align-items: center; gap: 8px; }
+.logo-mark { width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(140deg, #6f86f0, #3554d1 60%, #0b7c91); flex: none; }
+.logo-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.logo-name span { color: var(--brand); }
+.head-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.btn {
+  border: 1px solid var(--border); background: #fff; border-radius: 8px;
+  padding: 6px 11px; font-size: 12.5px; font-weight: 500; cursor: pointer;
+}
+.btn:hover { background: var(--muted); }
+.btn-primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+.btn-primary:hover { background: #2c48bb; }
+.btn-primary:disabled { background: #c7cee8; border-color: #c7cee8; cursor: not-allowed; }
+
+/* ---------- search + filters ---------- */
+.search-wrap { position: relative; flex: 1; min-width: 200px; }
+.search-wrap input {
+  width: 100%; height: 36px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--muted); padding: 0 74px 0 34px; font: inherit; font-size: 13.5px; color: var(--foreground);
+}
+.search-wrap input:focus { outline: none; background: #fff; border-color: #c3ccea; box-shadow: 0 0 0 3px rgba(53,84,209,.10); }
+.search-wrap input::placeholder { color: var(--muted-foreground); }
+.search-wrap > svg { position: absolute; left: 11px; top: 10px; color: var(--muted-foreground); pointer-events: none; }
+.search-keys { position: absolute; right: 8px; top: 8px; display: flex; gap: 3px; }
+.kbd {
+  font: 600 10px/1 ui-monospace, Menlo, monospace; color: var(--muted-foreground);
+  background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 4px 5px;
+}
+.clear-btn {
+  position: absolute; right: 8px; top: 7px; border: 0; background: transparent;
+  color: var(--muted-foreground); cursor: pointer; padding: 3px 5px; border-radius: 5px; font-size: 15px; line-height: 1;
+}
+.clear-btn:hover { background: #e9eaee; color: var(--foreground); }
+
+.segbar { display: inline-flex; background: var(--muted); border-radius: 8px; padding: 2px; flex: none; }
+.segbar button {
+  border: 0; background: transparent; font-size: 12px; font-weight: 500;
+  color: var(--muted-foreground); padding: 5px 10px; border-radius: 6px; cursor: pointer;
+}
+.segbar button:hover { color: var(--foreground); }
+.segbar button[aria-selected="true"] { background: #fff; color: var(--foreground); font-weight: 600; box-shadow: 0 1px 2px rgba(16,24,40,.08); }
+
+.scope {
+  display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  background: #fbfbfc; font-size: 12px; color: var(--muted-foreground);
+}
+.scope b { color: var(--foreground); font-weight: 600; }
+.scope .link { color: var(--brand); font-weight: 600; background: none; border: 0; cursor: pointer; padding: 0; font-size: 12px; }
+
+/* ---------- agent + status vocabulary ----------
+   Agent is a readable label, never colour alone. */
+.agent-tag {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  font-size: 11px; font-weight: 600; border-radius: 6px; padding: 3px 7px; white-space: nowrap;
+}
+.agent-claude { color: var(--claude); background: var(--claude-bg); }
+.agent-codex  { color: var(--codex);  background: var(--codex-bg); }
+.agent-swatch { width: 6px; height: 6px; border-radius: 2px; }
+.agent-claude .agent-swatch { background: var(--claude); }
+.agent-codex  .agent-swatch { background: var(--codex); }
+
+.state { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; white-space: nowrap; flex: none; }
+.state-active  { color: var(--success-fg); }
+.state-waiting { color: var(--warning-fg); }
+.state-idle    { color: var(--info-fg); }
+.state-off     { color: #b0b3b9; font-weight: 500; }
+.state-unknown { color: var(--muted-foreground); font-weight: 500; }
+.pip { width: 6px; height: 6px; border-radius: 999px; flex: none; }
+.pip-active { background: var(--success); }
+.pip-idle { background: var(--info); }
+.pip-off { background: #cbced3; }
+.pip-unknown { border: 1.5px dashed #b6b9bf; }
+.pip-waiting { background: var(--warning); }
+@media (prefers-reduced-motion: no-preference) {
+  .pip-active { box-shadow: 0 0 0 0 rgba(47,158,99,.55); animation: pulse 2.2s infinite; }
+}
+@media (prefers-reduced-motion: reduce) { .pip-active { box-shadow: 0 0 0 3px rgba(47,158,99,.2); } }
+@keyframes pulse { 70% { box-shadow: 0 0 0 5px rgba(47,158,99,0); } 100% { box-shadow: 0 0 0 0 rgba(47,158,99,0); } }
+
+.chip-mono {
+  font: 500 11px/1 ui-monospace, Menlo, monospace; background: var(--muted); color: #62666e;
+  border-radius: 5px; padding: 3px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px;
+}
+.chip-remote {
+  font: 500 10.5px/1 ui-monospace, Menlo, monospace; color: #62666e; background: var(--muted);
+  border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; white-space: nowrap;
+}
+.chip-subs {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600;
+  color: var(--subagent); background: var(--subagent-bg); border-radius: 5px; padding: 3px 7px; white-space: nowrap;
+}
+.why {
+  display: inline-flex; font: 600 9.5px/1 ui-monospace, Menlo, monospace; letter-spacing: .04em;
+  text-transform: uppercase; color: #6b7078; background: var(--muted); border: 1px solid var(--border);
+  border-radius: 4px; padding: 3px 5px; margin-right: 6px; flex: none;
+}
+.tag-illustrative {
+  font: 600 9.5px/1 ui-monospace, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--warning-fg); background: var(--warning-bg); border-radius: 4px; padding: 3px 5px; white-space: nowrap;
+}
+
+/* ---------- empty states ---------- */
+.empty-note {
+  border: 1px dashed #dcdfe4; border-radius: 9px; background: #fcfcfd;
+  padding: 12px 15px; display: flex; align-items: center; gap: 9px;
+  font-size: 12.5px; color: #7d818a;
+}
+.empty-note b { color: #4a4e56; font-weight: 600; }
+
+/* ---------- inspector drawer ---------- */
+.scrim {
+  position: fixed; inset: 0; background: rgba(23,39,66,.28); z-index: 40;
+  opacity: 0; pointer-events: none; transition: opacity .18s;
+}
+.scrim.open { opacity: 1; pointer-events: auto; }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 94vw); z-index: 50;
+  background: #fff; border-left: 1px solid var(--border); display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform .22s cubic-bezier(.2,.7,.3,1);
+  box-shadow: -12px 0 40px -20px rgba(16,24,40,.4);
+}
+.drawer.open { transform: translateX(0); }
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .scrim { transition: none; }
+}
+.drawer-head { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.drawer-title-row { display: flex; align-items: center; gap: 8px; }
+.drawer-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; flex: 1; min-width: 0; }
+.drawer-close { border: 0; background: transparent; cursor: pointer; color: var(--muted-foreground); font-size: 18px; padding: 2px 7px; border-radius: 6px; }
+.drawer-close:hover { background: var(--muted); color: var(--foreground); }
+.drawer-sub { display: flex; align-items: center; gap: 7px; padding-top: 9px; flex-wrap: wrap; font-size: 12px; color: var(--muted-foreground); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 16px; }
+.drawer-foot { border-top: 1px solid var(--border); padding: 12px 16px; display: flex; align-items: center; gap: 10px; background: #fbfbfc; }
+.drawer-foot .hint { font-size: 11.5px; color: var(--muted-foreground); }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.stat-cell { background: #fff; padding: 9px 11px; }
+.stat-k { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-foreground); }
+.stat-v { font-size: 14px; font-weight: 650; padding-top: 3px; font-variant-numeric: tabular-nums; }
+
+.sec-k { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted-foreground); padding: 18px 0 7px; }
+.prose { font-size: 13px; line-height: 1.55; color: #3f434b; }
+.prose-quote { border-left: 2px solid var(--border); padding-left: 11px; font-style: italic; color: #4a4e56; }
+.decisions { margin: 0; padding-left: 17px; font-size: 13px; line-height: 1.6; color: #3f434b; }
+.decisions li { padding-bottom: 4px; }
+.file-row { display: flex; align-items: center; gap: 7px; font: 500 12px/1 ui-monospace, Menlo, monospace; color: #4a4e56; padding: 6px 0; }
+
+.ask-box { background: var(--warning-bg); border: 1px solid #e8d5ad; border-radius: 10px; padding: 12px 14px; }
+.ask-k { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--warning-fg); }
+.ask-q { font-size: 13.5px; line-height: 1.55; padding-top: 7px; color: #4a4028; }
+
+/* ---------- command palette ---------- */
+.pal-scrim {
+  position: fixed; inset: 0; background: rgba(23,39,66,.32); z-index: 60;
+  display: none; align-items: flex-start; justify-content: center; padding-top: 11vh;
+}
+.pal-scrim.open { display: flex; }
+.pal {
+  width: min(660px, 94vw); background: #fff; border-radius: 14px; overflow: hidden;
+  box-shadow: 0 26px 64px -14px rgba(16,24,40,.42), 0 0 0 1px rgba(16,24,40,.06);
+  display: flex; flex-direction: column; max-height: 74vh;
+}
+.pal-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); flex: none; }
+.pal-input input { border: 0; outline: 0; font: inherit; font-size: 15px; flex: 1; color: var(--foreground); background: transparent; }
+.pal-scope { display: flex; align-items: center; gap: 8px; padding: 7px 16px; background: #fbfbfc; border-bottom: 1px solid var(--border); font-size: 11.5px; color: #62666e; flex: none; }
+.pal-scope b { color: #45484f; font-weight: 600; }
+.pal-body { overflow-y: auto; padding: 6px; flex: 1; }
+.pal-group { font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted-foreground); padding: 9px 10px 5px; display: flex; gap: 7px; align-items: baseline; }
+.pal-group span { font-weight: 500; text-transform: none; letter-spacing: 0; color: #b0b3b9; }
+.pal-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.pal-row:hover { background: #f5f6f8; }
+.pal-row[aria-selected="true"] { background: var(--info-bg); }
+.pal-main { min-width: 0; flex: 1; }
+.pal-title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-sub { font-size: 11.5px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: 2px; display: flex; align-items: center; }
+.pal-right { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.pal-foot { display: flex; align-items: center; gap: 14px; padding: 9px 14px; border-top: 1px solid var(--border); background: #fbfbfc; font-size: 11px; color: var(--muted-foreground); flex: none; flex-wrap: wrap; }
+.pal-empty { padding: 26px 16px; text-align: center; color: var(--muted-foreground); font-size: 13px; line-height: 1.6; }
+
+/* ---------- toast ---------- */
+.toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(14px);
+  background: #23262d; color: #fff; font-size: 12.5px; padding: 10px 15px; border-radius: 9px;
+  opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 80;
+  box-shadow: 0 12px 30px -12px rgba(0,0,0,.5);
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+
+.wrap { display: flex; flex-direction: column; height: calc(100vh - 33px); }
+.filters { display: flex; align-items: center; gap: 10px; padding: 0 16px 12px; flex-wrap: wrap; }
+.stage { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* ---- board ---- */
+.lanes { flex: 1; min-height: 0; display: flex; overflow-x: auto; }
+.lane { flex: 1 1 0; min-width: 212px; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
+.lane:first-child { border-left: 0; }
+.lane-collapsed { flex: 0 0 152px; min-width: 152px; background: #fcfcfd; }
+.lane-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); flex: none; }
+.lane-title { font-size: 12.5px; font-weight: 700; }
+.lane-n { font: 600 11px/1 ui-monospace, Menlo, monospace; color: var(--muted-foreground); background: var(--muted); border-radius: 999px; padding: 4px 7px; }
+.lane-spend { margin-left: auto; font-size: 11.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.lane-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 7px; }
+.lane-needs .lane-head { background: #fffdf7; } .lane-needs .lane-title { color: var(--warning-fg); }
+.lane-running .lane-head { background: #f4faf6; } .lane-running .lane-title { color: var(--success-fg); }
+.lane-idle .lane-head { background: #f6f6fd; } .lane-idle .lane-title { color: var(--info-fg); }
+.lane-collapsed .lane-title { color: var(--muted-foreground); font-weight: 600; }
+.lane-empty { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
+              gap: 7px; padding: 18px 12px; text-align: center; color: #9aa0a8; font-size: 11.5px; line-height: 1.5; }
+.lane-empty b { color: #6e727a; font-weight: 600; display: block; padding-bottom: 3px; }
+.lane-caption { padding: 2px 4px 6px; font-size: 11px; color: #9aa0a8; line-height: 1.5; }
+.lane-caption b { color: #6e727a; }
+
+.repo-sub { position: sticky; top: -8px; z-index: 2; margin: 0 -8px; padding: 7px 12px 6px; background: #fff;
+            border-bottom: 1px solid var(--border); font: 600 11px/1 ui-monospace, Menlo, monospace; color: #5f636b;
+            display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.repo-sub em { font-family: inherit; font-size: 10.5px; font-weight: 500; font-style: normal; color: var(--muted-foreground); }
+
+.bcard { position: relative; display: block; width: 100%; text-align: left; cursor: pointer;
+         border: 1px solid var(--border); border-radius: 9px; background: #fff; padding: 9px 11px;
+         transition: border-color .13s, box-shadow .13s; }
+.bcard:hover { border-color: #d4d7dd; box-shadow: 0 1px 3px rgba(16,24,40,.08); }
+.bcard-waiting { background: #fffdf7; border-color: #eddfc0; }
+.bcard-unknown { background: #fcfcfd; }
+.bcard-top { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; }
+.bcard-title { font-size: 13px; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.bcard-foot { display: flex; align-items: center; gap: 6px; padding-top: 7px; font-size: 11.5px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.bcard-foot b { color: #4a4e56; font-weight: 600; }
+.bcard-when { margin-left: auto; white-space: nowrap; }
+
+/* ---- table ---- */
+.tablewrap { flex: 1; min-height: 0; overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+thead th { text-align: left; font-weight: 600; color: var(--muted-foreground); font-size: 11px; letter-spacing: .04em;
+           text-transform: uppercase; padding: 9px 14px; border-bottom: 1px solid var(--border); white-space: nowrap;
+           background: #fff; position: sticky; top: 0; cursor: pointer; user-select: none; z-index: 3; }
+thead th:hover { color: var(--foreground); }
+thead th.num { text-align: right; }
+thead th[data-active="true"] { color: var(--foreground); }
+tbody td { padding: 9px 14px; border-bottom: 1px solid #f4f5f6; vertical-align: middle; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: #fafbfc; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.t-name { font-weight: 600; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-mono { font: 400 11.5px/1 ui-monospace, Menlo, monospace; color: #62666e; white-space: nowrap; }
+.no-results { padding: 46px 16px; text-align: center; color: var(--muted-foreground); }
+.no-results b { color: var(--foreground); display: block; font-size: 14px; padding-bottom: 6px; }
+
+</style>
+</head>
+<body>
+<div class="proto-bar">
+  <span class="note"><span class="dot"></span>Prototype · sample data modelled on the live dataset of 2026-09-10 · Resume and Copy handoff are simulated</span>
+  <span class="proto-links">
+    <a href="01-calm-list.html">Calm List</a>
+    <a href="02-navigation.html" aria-current="page">Board &amp; Table</a>
+    <a href="03-mission-control.html">Mission Control</a>
+  </span>
+</div>
+
+<div class="wrap">
+  <div class="app-head">
+    <div class="logo"><div class="logo-mark"></div><div class="logo-name">co<span>Slash</span></div></div>
+    <div class="search-wrap">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" placeholder="Search title, goal, outcome, repo, branch" autocomplete="off" />
+      <span class="search-keys"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+    </div>
+    <div class="head-right"><button class="btn" id="palBtn">Find a session</button></div>
+  </div>
+
+  <div class="filters">
+    <div class="segbar" id="view">
+      <button data-v="board" aria-selected="true">Board</button>
+      <button data-v="table">Table</button>
+    </div>
+    <span style="font-size:12px;color:var(--muted-foreground)">Lanes by</span>
+    <div class="segbar" id="laneAxis">
+      <button data-v="attention" aria-selected="true">Attention</button>
+      <button data-v="agent">Agent</button>
+      <button data-v="repo">Repo</button>
+    </div>
+  </div>
+
+  <div class="scope" id="scope"></div>
+  <div class="stage" id="stage"></div>
+</div>
+
+<script>
+/* coSlash prototype — shared sample dataset and helpers.
+   Sessions are modelled on the live local dataset inspected 2026-09-10
+   (52 sessions · 2 Active · 41 Inactive · 9 Unknown · 0 Waiting · $296.20).
+   Waiting and Idle rows are marked `illustrative: true` — neither state was
+   present at inspection time, but both exist in STATUSES and must be designed for. */
+
+const STATUS = {
+  busy:     { key: 'busy',     label: 'Active',   tone: 'active'  },
+  waiting:  { key: 'waiting',  label: 'Waiting',  tone: 'waiting' },
+  idle:     { key: 'idle',     label: 'Idle',     tone: 'idle'    },
+  inactive: { key: 'inactive', label: 'Inactive', tone: 'off'     },
+  unknown:  { key: 'unknown',  label: 'Unknown',  tone: 'unknown' },
+};
+
+const AGENT = {
+  claude: { key: 'claude', label: 'Claude Code' },
+  codex:  { key: 'codex',  label: 'Codex' },
+};
+
+const SESSIONS = [
+  {
+    id: '05e982d2-edb6-43c2-adec-1802656398e5', title: 'Coslash webapp design modernization',
+    agent: 'claude', status: 'busy', repo: 'coslash', branch: 'milan/ui', source: 'local',
+    when: 'just now', rank: 0, duration: '1m', files: 0, cost: 1.27, tokens: '1.18M',
+    turns: 14, tools: 61, ctx: 26, entrypoint: 'Claude Desktop',
+    doing: 'Reading SessionBoard.tsx',
+    goal: 'Review the coSlash web UI and propose design concepts that make it more modern and easier to scan.',
+    outcome: 'Analysed the live app, identified the card hierarchy and board density problems, and began building comparative prototypes.',
+    decisions: [
+      'Treat busy cards, board navigation and slow retrieval as one hierarchy problem.',
+      'Keep every concept in the light theme so they compare on equal ground.',
+      'Build clickable prototypes rather than annotated design boards.',
+    ],
+    artifacts: ['01-calm-list.html', '02-navigation.html'],
+  },
+  {
+    id: '01a08e65-3c24-7030-9f3b-c1d18261041a', title: 'Design Coslash UI concepts',
+    agent: 'codex', status: 'busy', repo: 'goal-x20-you-are-a-senior', branch: null, source: 'local',
+    when: 'just now', rank: 1, duration: '1m', files: 0, cost: 0.96, tokens: '284k',
+    turns: 4, tools: 12, ctx: 9, entrypoint: 'Codex Work Desktop',
+    doing: 'Writing prototype markup',
+    goal: 'Produce design concepts for finding the right coSlash session faster.',
+    outcome: 'Drafted a quiet list, a workspace navigator and a glass finder, each with sample data and working search.',
+    decisions: [
+      'Lead with retrieval rather than visual styling.',
+      'Show why a result matched, not just that it matched.',
+    ],
+    artifacts: ['01-quiet-list.html'],
+  },
+  {
+    id: '7c31aa02-91bd-4c11-bf03-2af0c9911d40', title: 'Refactor the settings schema validator',
+    agent: 'claude', status: 'waiting', repo: 'coslash', branch: 'milan/settings-v2', source: 'local',
+    when: '4m ago', rank: 2, duration: '23m', files: 6, cost: 2.41, tokens: '890k',
+    turns: 11, tools: 48, ctx: 34, entrypoint: 'Claude Desktop', illustrative: true,
+    question: 'Should I keep the legacy synthesis.backend key as a read-only alias, or migrate existing settings files on first load?',
+    goal: 'Tighten settings.json validation and report actionable errors instead of a generic parse failure.',
+    outcome: 'Validator rewritten with per-field errors; blocked on how to treat the deprecated synthesis.backend key.',
+    decisions: [
+      'Report every invalid field at once rather than failing on the first.',
+      'Keep the repair path in the existing settings dialog.',
+    ],
+    artifacts: ['settings.schema.json', 'settings.test.ts'],
+  },
+  {
+    id: '01a08b12-77aa-4c90-9f21-bb1190ee4412', title: 'Refresh the model table from LiteLLM',
+    agent: 'codex', status: 'idle', repo: 'coslash', branch: 'milan/models', source: 'local',
+    when: '18m ago', rank: 3, duration: '31m', files: 4, cost: 3.90, tokens: '1.02M',
+    turns: 9, tools: 26, ctx: 41, entrypoint: 'Codex Work Desktop', illustrative: true,
+    goal: 'Update the bundled pricing table from the upstream LiteLLM catalogue.',
+    outcome: 'Regenerated the pricing table and reconciled four models that LiteLLM had renamed.',
+    decisions: [
+      'Keep unpriced models visible with a warning rather than hiding them.',
+      'Pin the catalogue revision so refreshes are reproducible.',
+    ],
+    artifacts: ['models.json', 'pricing.go'],
+  },
+  {
+    id: '01a08d83-8e17-7e32-9475-f81ff523aa0c', title: 'Generate 4 kitchen renderings',
+    agent: 'codex', status: 'inactive', repo: 'ge', branch: null, source: 'local',
+    when: '14m ago', rank: 4, duration: '20m', files: 1, cost: 9.66, tokens: '4.05M',
+    turns: 22, tools: 71, ctx: 58, entrypoint: 'Codex Work Desktop',
+    goal: 'Render the kitchen in a new corner perspective with four grout options on the Zia tile.',
+    outcome: 'Created and corrected all four renderings in the new corner perspective with the warm, flat ceramic Zia tile surface and four grout options: Bright White, Sauterne, Light Pewter and Frosty.',
+    decisions: [
+      'Use the corner perspective rather than the frontal one for depth.',
+      'Keep the tile surface flat and matte to read as ceramic.',
+    ],
+    artifacts: ['kitchen-corner-frosty.png', 'kitchen-corner-sauterne.png'],
+  },
+  {
+    id: '01a08d74-dead-7752-b5e3-a7757d2df441', title: 'Choose Laticrete grout color',
+    agent: 'codex', status: 'inactive', repo: 'pick-the-best-grout-color-for', branch: null, source: 'local',
+    when: '4h ago', rank: 6, duration: '10m', files: 2, cost: 5.09, tokens: '2.73M',
+    turns: 12, tools: 33, ctx: 22, entrypoint: 'Codex Work Desktop',
+    goal: 'Pick the best Laticrete grout colour for the Zia tile and show it rendered.',
+    outcome: 'Selected Laticrete Frosty as the recommended grout color and generated renderings for Bright White, Sauterne, Light Pewter, and Frosty.',
+    decisions: [
+      'Recommend Frosty: warm enough to avoid a cold joint, light enough to keep the tile pattern reading.',
+      'Rule out Bright White as too high-contrast against the warm glaze.',
+    ],
+    artifacts: ['grout-comparison.png', 'frosty-detail.png'],
+  },
+  {
+    id: '01a08d65-4d3f-7f32-85b8-082200f464e0', title: 'Find Laticrete color equivalents',
+    agent: 'codex', status: 'inactive', repo: 'wha', branch: null, source: 'local',
+    when: '4h ago', rank: 7, duration: '2m', files: 0, cost: 0.93, tokens: '236k',
+    turns: 3, tools: 6, ctx: 8, entrypoint: 'Codex Work Desktop',
+    goal: 'Map the custom swatches in the screenshots to their closest Laticrete equivalents.',
+    outcome: 'Warm Gray maps to Silver Shadow and the closest match to Frosty is Alabaster; comparison notes record the difference in warmth for each pair.',
+    decisions: ['Compare in daylight balance rather than showroom lighting.'],
+    artifacts: ['swatch-matches.csv'],
+  },
+  {
+    id: '01a08cf3-2b41-70a9-91ee-33c7710de882', title: 'Compare SPECTRALOCK and PRISM grout',
+    agent: 'codex', status: 'inactive', repo: 'compare-https-www-laticrete-com-products', branch: null, source: 'local',
+    when: '6h ago', rank: 8, duration: '9m', files: 0, cost: 1.56, tokens: '635k',
+    turns: 7, tools: 14, ctx: 12, entrypoint: 'Codex Work Desktop',
+    goal: 'Decide between SPECTRALOCK epoxy and PRISM cement grout for the powder-room wall.',
+    outcome: 'Prism is the better choice for this powder-room wall provided a sample test confirms it will not scratch or discolour the marble.',
+    decisions: [
+      'Epoxy is not required for a low-traffic vertical surface.',
+      'Sample-test on an offcut before committing.',
+    ],
+    artifacts: [],
+  },
+  {
+    id: '01a08d3f-f9a4-7f92-a244-354dafcb5736', title: 'Access Google Sheet',
+    agent: 'codex', status: 'inactive', repo: 'AgentsWorkspace', branch: null, source: 'local',
+    when: '5h ago', rank: 9, duration: '12m', files: 0, cost: 3.53, tokens: '6.22M',
+    turns: 5, tools: 19, ctx: 15, entrypoint: 'Codex Work Desktop',
+    goal: 'Confirm whether the tile takeoff sheet can be read.',
+    outcome: 'The sheet "45 Warmwood Tile takeoff" is accessible with view-only permissions.',
+    decisions: ['Request edit access separately rather than copying the sheet.'],
+    artifacts: [],
+  },
+  {
+    id: '01a08cfd-9d6d-7171-82b7-aa9da7cf6442', title: 'Access Google Sheet',
+    agent: 'codex', status: 'inactive', repo: 'AgentsWorkspace', branch: null, source: 'local',
+    when: '5h ago', rank: 10, duration: '9m', files: 0, cost: 10.53, tokens: '21.4M',
+    turns: 4, tools: 12, ctx: 11, entrypoint: 'Codex Work Desktop',
+    goal: 'Retry reading the tile takeoff sheet after the permission change.',
+    outcome: 'No substantive work was completed; the retry hit the same view-only permission.',
+    decisions: [],
+    artifacts: [],
+  },
+  {
+    id: '01a08d22-6612-7b31-9a02-1f2e77a19bb1', title: 'Find Mapei grout color matches',
+    agent: 'codex', status: 'inactive', repo: 'AgentsWorkspace', branch: null, source: 'local',
+    when: '5h ago', rank: 11, duration: '7m', files: 0, cost: 2.17, tokens: '1.12M',
+    turns: 6, tools: 11, ctx: 9, entrypoint: 'Codex Work Desktop',
+    goal: 'Find the Mapei equivalents for the shortlisted Laticrete colours.',
+    outcome: 'Closest matches identified: Alabaster to #90 Light Pewter, Avalanche to #44 Bright White, Eggshell/White to #44.',
+    decisions: ['Prefer Mapei Ultracolor Plus for the shorter cure time.'],
+    artifacts: ['mapei-crosswalk.csv'],
+  },
+  {
+    id: '01a087b4-0c22-7e41-9911-5533aa771902', title: 'Generate TV wall rendering',
+    agent: 'codex', status: 'inactive', repo: 'ge', branch: null, source: 'local',
+    when: '3h ago', rank: 5, duration: '31m', files: 2, cost: 12.04, tokens: '8.15M',
+    turns: 26, tools: 88, ctx: 63, entrypoint: 'Codex Work Desktop',
+    goal: 'Render the 65-inch TV wall with the upper-right recess corner and new lighting.',
+    outcome: 'Created and refined the rendering through the latest upper-right recess corner and lighting change.',
+    decisions: ['Move the recess to the upper right so the TV mount clears the stud line.'],
+    artifacts: ['tv-wall-v4.png'],
+  },
+  {
+    id: '5333c6fb-1c02-4a88-9f31-ab6612ee0031', title: 'Remote Machine design fixes',
+    agent: 'claude', status: 'inactive', repo: 'AgentsWorkspace', branch: null, source: 'local',
+    when: '21h ago', rank: 12, duration: '1h38m', files: 9, cost: 7.78, tokens: '595k',
+    turns: 17, tools: 123, ctx: 26, entrypoint: 'Claude Desktop',
+    goal: 'Implement and refine the Remote host landing-page section in coslash-internal from the supplied design.',
+    outcome: 'Implemented the remote host section, refined its structure and copy, added the angled NEW navigation badge, committed the changes and pushed the branch.',
+    decisions: [
+      'Lead the section with the remote session-list board.',
+      'Use "Remote host" consistently in navigation and section labelling.',
+      'Position the NEW badge as an angled overlay on the Remote host label.',
+    ],
+    artifacts: ['Remote-Machine-Fixed.tsx', 'nav-badge.svg'],
+  },
+  {
+    id: 'c6b455d8-77e1-4a10-b662-19c0b1ee7741', title: 'Paris fine dining availability',
+    agent: 'claude', status: 'inactive', repo: 'AgentsWorkspace', branch: null, source: 'local',
+    when: 'yesterday', rank: 13, duration: '2h04m', files: 3, cost: 64.45, tokens: '21.4M',
+    turns: 41, tools: 210, ctx: 78, entrypoint: 'Claude Desktop', subagents: 7,
+    goal: 'Rank the best fine-dining options in Paris and check availability for the requested dates.',
+    outcome: 'Completed a Top 25 ranking with component and final scores, addresses, CDG/Orly distances, and availability for the requested dates.',
+    decisions: [
+      'Weight food quality above room and service, but keep all three in the composite.',
+      'Expand the candidate pool to 1-star restaurants to avoid an all-3-star list.',
+    ],
+    artifacts: ['paris-top25.csv', 'availability.json'],
+  },
+  {
+    id: '23e411ff-0a92-4c31-b7a1-9911ee220034', title: 'Fine-dining restaurant list',
+    agent: 'claude', status: 'inactive', repo: 'AgentsWorkspace', branch: null, source: 'local',
+    when: 'yesterday', rank: 14, duration: '22m', files: 1, cost: 4.22, tokens: '1.88M',
+    turns: 9, tools: 31, ctx: 19, entrypoint: 'Claude Desktop',
+    goal: 'Assemble a weighted candidate pool of fine-dining restaurants across several cities.',
+    outcome: 'A weighted candidate pool was assembled and Venice was expanded to include 1-star restaurants.',
+    decisions: ['Include 1-star rooms where the city has few 2- and 3-star options.'],
+    artifacts: ['candidates.csv'],
+  },
+  {
+    id: 'aa7c9391-2b71-4c01-9a17-0099ee771122', title: 'Keep referenced spawns and full session cost',
+    agent: 'claude', status: 'inactive', repo: 'coslash', branch: 'milan/caps', source: 'local',
+    when: '2d ago', rank: 15, duration: '54m', files: 12, cost: 11.03, tokens: '5.02M',
+    turns: 19, tools: 96, ctx: 44, entrypoint: 'Claude Desktop',
+    goal: 'Stop remote fact-list caps from dropping referenced spawns or understating session cost.',
+    outcome: 'Referenced spawns are retained when capping remote fact lists, and the full session cost is preserved.',
+    decisions: [
+      'Cap the list for display only; never drop a spawn another row references.',
+      'Compute cost from the full history, not the capped view.',
+    ],
+    artifacts: ['remote-api.ts', 'remote-api.test.ts'],
+  },
+  {
+    id: 'ce9a8c51-9931-4b02-8f10-77aa11bb3300', title: 'Clarify commit SHA array independence',
+    agent: 'claude', status: 'inactive', repo: 'coslash', branch: 'main', source: 'local',
+    when: '3d ago', rank: 16, duration: '18m', files: 1, cost: 1.44, tokens: '420k',
+    turns: 6, tools: 14, ctx: 11, entrypoint: 'Claude Desktop',
+    goal: 'Document that the snapshot commit SHA arrays are independent of one another.',
+    outcome: 'Snapshot docs now state that each commit SHA array is independent and must not be zipped positionally.',
+    decisions: ['Document the invariant rather than enforcing it in code for now.'],
+    artifacts: ['snapshot.md'],
+  },
+  {
+    id: '9f21ab70-3c11-4e02-aa31-5511ee990077', title: 'Nightly integration sweep',
+    agent: 'claude', status: 'unknown', repo: 'coslash', branch: 'main', source: 'agent-box',
+    when: '2d ago', rank: 17, duration: null, files: 7, cost: 3.11, tokens: '1.4M',
+    turns: 12, tools: 54, ctx: 31, entrypoint: 'CLI',
+    goal: 'Run the nightly integration sweep across the collector and frontend test suites.',
+    outcome: 'Last transcript write was 2d ago; the host became unreachable before any completion was recorded.',
+    decisions: [],
+    artifacts: ['sweep.log'],
+  },
+  {
+    id: '4a8811cd-7712-4b31-9902-3311aa660055', title: 'Backfill remote collector helpers',
+    agent: 'claude', status: 'unknown', repo: 'coslash', branch: 'main', source: 'agent-box',
+    when: '3d ago', rank: 18, duration: null, files: 4, cost: 4.02, tokens: '1.9M',
+    turns: 8, tools: 37, ctx: 24, entrypoint: 'CLI',
+    goal: 'Install and verify the Linux collector helper on the remote host.',
+    outcome: 'Helper installation started; process liveness could not be confirmed after the host stopped responding.',
+    decisions: [],
+    artifacts: [],
+  },
+  {
+    id: '6612aa99-1d02-4b71-8831-99ee2200aa11', title: 'Review GHI CSV exports',
+    agent: 'codex', status: 'inactive', repo: 'centauri-ai', branch: 'hlu/gcp', source: 'agent-box',
+    when: '8m ago', rank: 19, duration: '14m', files: 3, cost: 2.04, tokens: '760k',
+    turns: 7, tools: 22, ctx: 17, entrypoint: 'CLI',
+    goal: 'Check the GHI export mappings before the data hand-off.',
+    outcome: 'Three ambiguous source mappings need review before the export can continue.',
+    decisions: ['Block the export until the ambiguous columns are resolved.'],
+    artifacts: ['source-mapping.csv'],
+  },
+  {
+    id: '8831cc11-4a02-4e91-bb02-7711aa330099', title: 'Resume staging machines',
+    agent: 'codex', status: 'inactive', repo: 'centauri-ai', branch: 'main', source: 'agent-box',
+    when: '15m ago', rank: 20, duration: '26m', files: 2, cost: 9.14, tokens: '3.1M',
+    turns: 15, tools: 61, ctx: 35, entrypoint: 'CLI',
+    goal: 'Bring the staging machines back up after the restart window.',
+    outcome: 'Checked frontend and backend health after restarting the staging services; both returned healthy.',
+    decisions: ['Restart backend before frontend so health checks pass on first try.'],
+    artifacts: [],
+  },
+  {
+    id: '2201bb44-9c11-4d31-a012-6611ee880022', title: 'Inspect session cache after refresh',
+    agent: 'codex', status: 'inactive', repo: 'coslash', branch: 'main', source: 'local',
+    when: '38m ago', rank: 21, duration: '8m', files: 1, cost: 1.42, tokens: '512k',
+    turns: 5, tools: 17, ctx: 10, entrypoint: 'Codex Work Desktop',
+    goal: 'Check whether the session cache is invalidated correctly on refresh.',
+    outcome: 'Cache refresh returned; the session remains open and the stale entry was not evicted.',
+    decisions: ['Evict by source id rather than clearing the whole cache.'],
+    artifacts: [],
+  },
+];
+
+/* ---------- helpers ---------- */
+
+const SEARCH_FIELDS = [
+  { key: 'title',    label: 'title'    },
+  { key: 'goal',     label: 'goal'     },
+  { key: 'outcome',  label: 'outcome'  },
+  { key: 'repo',     label: 'repo'     },
+  { key: 'branch',   label: 'branch'   },
+  { key: 'artifact', label: 'file'     },
+];
+
+/** Rank: title > goal/outcome > repo/branch/file. Recency breaks ties.
+    Live sessions do NOT jump the queue once a query exists. */
+function searchSessions(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return SESSIONS.map((s) => ({ session: s, evidence: null, score: 0 }));
+
+  const hits = [];
+  for (const s of SESSIONS) {
+    let best = null;
+    let score = 0;
+    const test = (field, value, weight) => {
+      if (!value) return;
+      const i = value.toLowerCase().indexOf(q);
+      if (i === -1) return;
+      if (weight > score) { score = weight; best = { field, value, index: i }; }
+    };
+    test('title', s.title, 100);
+    test('outcome', s.outcome, 60);
+    test('goal', s.goal, 55);
+    test('repo', s.repo, 30);
+    test('branch', s.branch, 28);
+    for (const a of s.artifacts || []) test('file', a, 25);
+    if (best) hits.push({ session: s, evidence: best, score });
+  }
+  hits.sort((a, b) => b.score - a.score || a.session.rank - b.session.rank);
+  return hits;
+}
+
+function snippet(value, index, q, pad = 46) {
+  const start = Math.max(0, index - pad);
+  const end = Math.min(value.length, index + q.length + pad);
+  return (start > 0 ? '…' : '') + value.slice(start, end) + (end < value.length ? '…' : '');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+}
+
+function highlight(text, q) {
+  if (!q) return escapeHtml(text);
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i === -1) return escapeHtml(text);
+  return escapeHtml(text.slice(0, i)) + '<mark>' + escapeHtml(text.slice(i, i + q.length)) + '</mark>' + escapeHtml(text.slice(i + q.length));
+}
+
+function money(n) { return '$' + n.toFixed(2); }
+
+function statusOf(s) { return STATUS[s.status]; }
+function agentOf(s) { return AGENT[s.agent]; }
+
+/** Attention buckets used by the list groups and the board lanes. */
+function bucketOf(s) {
+  if (s.status === 'waiting') return 'needs';
+  if (s.status === 'busy') return 'running';
+  if (s.status === 'idle') return 'idle';
+  if (s.status === 'unknown') return 'unknown';
+  return /ago|now/.test(s.when) && !/\d+d ago|yesterday/.test(s.when) ? 'today' : 'earlier';
+}
+
+const BUCKETS = [
+  { key: 'needs',   label: 'Needs you',        empty: 'Nothing is waiting on you.' },
+  { key: 'running', label: 'Running',          empty: 'No sessions running.' },
+  { key: 'idle',    label: 'Idle',             empty: 'No idle sessions.' },
+  { key: 'today',   label: 'Last active today',empty: 'Nothing active today.' },
+  { key: 'unknown', label: 'Liveness unknown', empty: 'No unknown sessions.' },
+  { key: 'earlier', label: 'Earlier',          empty: 'Nothing earlier.' },
+];
+
+/* Derived from SESSIONS so every surface agrees. The live dataset held 52 sessions;
+   this sample carries 22 of them, so counts shown are the sample's own. */
+const TOTALS = {
+  sessions: SESSIONS.length,
+  claude: SESSIONS.filter((s) => s.agent === 'claude').length,
+  codex: SESSIONS.filter((s) => s.agent === 'codex').length,
+  spend: SESSIONS.reduce((n, s) => n + s.cost, 0),
+  active: SESSIONS.filter((s) => s.status === 'busy').length,
+  inactive: SESSIONS.filter((s) => s.status === 'inactive').length,
+  unknown: SESSIONS.filter((s) => s.status === 'unknown').length,
+  waiting: SESSIONS.filter((s) => s.status === 'waiting').length,
+  tokens: '68M',
+};
+
+</script>
+<script>
+/* coSlash prototype — shared behaviour: inspector drawer, ⌘K palette, toasts.
+   Prototype only: Resume and Copy handoff are simulated. */
+
+/* ---------- toast ---------- */
+function toast(message) {
+  let el = document.querySelector('.toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+/* ---------- inspector drawer ---------- */
+function mountDrawer() {
+  const scrim = document.createElement('div');
+  scrim.className = 'scrim';
+  const drawer = document.createElement('div');
+  drawer.className = 'drawer';
+  drawer.setAttribute('role', 'dialog');
+  drawer.setAttribute('aria-label', 'Session inspector');
+  document.body.append(scrim, drawer);
+  scrim.addEventListener('click', closeDrawer);
+  return { scrim, drawer };
+}
+
+let _drawer = null;
+function closeDrawer() {
+  if (!_drawer) return;
+  _drawer.drawer.classList.remove('open');
+  _drawer.scrim.classList.remove('open');
+}
+
+function stateMarkup(s) {
+  const st = statusOf(s);
+  const cls = { active: 'state-active', waiting: 'state-waiting', idle: 'state-idle', off: 'state-off', unknown: 'state-unknown' }[st.tone];
+  const pip = { active: 'pip-active', waiting: 'pip-waiting', idle: 'pip-idle', off: 'pip-off', unknown: 'pip-unknown' }[st.tone];
+  return `<span class="state ${cls}"><span class="pip ${pip}"></span>${st.label}</span>`;
+}
+
+function agentMarkup(s) {
+  const a = agentOf(s);
+  return `<span class="agent-tag agent-${a.key}"><span class="agent-swatch"></span>${a.label}</span>`;
+}
+
+function openSession(id) {
+  const s = SESSIONS.find((x) => x.id === id);
+  if (!s) return;
+  if (!_drawer) _drawer = mountDrawer();
+  const { scrim, drawer } = _drawer;
+
+  const canResume = s.status !== 'unknown' && !(s.status === 'busy' && s.agent === 'codex');
+  const resumeHint = s.status === 'unknown'
+    ? 'Host unreachable — resume unavailable'
+    : (s.status === 'busy' && s.agent === 'codex')
+      ? 'This session is already active'
+      : `Reopens in ${agentOf(s).label} · ${s.source === 'local' ? 'This Mac' : s.source}`;
+
+  drawer.innerHTML = `
+    <div class="drawer-head">
+      <div class="drawer-title-row">
+        ${agentMarkup(s)}
+        <span class="drawer-title">${escapeHtml(s.title)}</span>
+        <button class="drawer-close" aria-label="Close">✕</button>
+      </div>
+      <div class="drawer-sub">
+        ${stateMarkup(s)}
+        <span>${escapeHtml(s.repo)}</span>
+        ${s.branch ? `<span class="chip-mono">${escapeHtml(s.branch)}</span>` : ''}
+        ${s.source !== 'local' ? `<span class="chip-remote">${escapeHtml(s.source)}</span>` : ''}
+        <span>${escapeHtml(s.when)}</span>
+        ${s.illustrative ? '<span class="tag-illustrative">illustrative</span>' : ''}
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div class="stat-grid">
+        <div class="stat-cell"><div class="stat-k">Est. cost</div><div class="stat-v">${money(s.cost)}</div></div>
+        <div class="stat-cell"><div class="stat-k">Tokens</div><div class="stat-v">${s.tokens}</div></div>
+        <div class="stat-cell"><div class="stat-k">Duration</div><div class="stat-v">${s.duration ?? '—'}</div></div>
+        <div class="stat-cell"><div class="stat-k">Turns</div><div class="stat-v">${s.turns}</div></div>
+        <div class="stat-cell"><div class="stat-k">Context</div><div class="stat-v">${s.ctx}%</div></div>
+        <div class="stat-cell"><div class="stat-k">Files</div><div class="stat-v">${s.files}</div></div>
+      </div>
+
+      ${s.question ? `
+        <div class="sec-k">Waiting on you</div>
+        <div class="ask-box">
+          <div class="ask-k">Question</div>
+          <div class="ask-q">“${escapeHtml(s.question)}”</div>
+        </div>` : ''}
+
+      ${s.status === 'unknown' ? `
+        <div class="sec-k">Liveness</div>
+        <div class="empty-note">
+          <span>Process state could not be read from <b>${escapeHtml(s.source)}</b>. This session is
+          <b>not finished</b> — it may still be running.</span>
+        </div>` : ''}
+
+      <div class="sec-k">Goal</div>
+      <div class="prose prose-quote">${escapeHtml(s.goal)}</div>
+
+      <div class="sec-k">Outcome</div>
+      <div class="prose">${escapeHtml(s.outcome)}</div>
+
+      ${s.decisions && s.decisions.length ? `
+        <div class="sec-k">Key decisions</div>
+        <ul class="decisions">${s.decisions.map((d) => `<li>${escapeHtml(d)}</li>`).join('')}</ul>` : ''}
+
+      ${s.artifacts && s.artifacts.length ? `
+        <div class="sec-k">Files touched</div>
+        ${s.artifacts.map((a) => `<div class="file-row">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9aa0a8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+          ${escapeHtml(a)}</div>`).join('')}` : ''}
+
+      ${s.subagents ? `
+        <div class="sec-k">Subagents</div>
+        <div class="empty-note"><span><b>${s.subagents} subagents</b> ran in their own context windows and returned one result each.</span></div>` : ''}
+
+      <div class="sec-k">Session</div>
+      <div class="file-row" style="color:#8e8e8e">${escapeHtml(s.id)}</div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn">Copy handoff</button>
+      <button class="btn btn-primary" ${canResume ? '' : 'disabled'}>Resume</button>
+      <span class="hint">${escapeHtml(resumeHint)}</span>
+    </div>`;
+
+  drawer.querySelector('.drawer-close').addEventListener('click', closeDrawer);
+  drawer.querySelector('.btn').addEventListener('click', () => toast('Handoff brief copied (simulated)'));
+  const resume = drawer.querySelector('.btn-primary');
+  if (canResume) resume.addEventListener('click', () => toast(`Resuming in ${agentOf(s).label} (simulated)`));
+
+  drawer.classList.add('open');
+  scrim.classList.add('open');
+}
+
+/* ---------- command palette ---------- */
+let _pal = null;
+let _palIndex = 0;
+let _palRows = [];
+
+function mountPalette() {
+  const scrim = document.createElement('div');
+  scrim.className = 'pal-scrim';
+  scrim.innerHTML = `
+    <div class="pal" role="dialog" aria-label="Find a session">
+      <div class="pal-input">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8e8e8e" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input placeholder="Search title, goal, outcome, repo, branch, filename" />
+      </div>
+      <div class="pal-scope"></div>
+      <div class="pal-body"></div>
+      <div class="pal-foot">
+        <span><span class="kbd">↑↓</span> move</span>
+        <span><span class="kbd">↵</span> open</span>
+        <span><span class="kbd">esc</span> close</span>
+        <span style="margin-left:auto" class="pal-target"></span>
+      </div>
+    </div>`;
+  document.body.appendChild(scrim);
+  scrim.addEventListener('click', (e) => { if (e.target === scrim) closePalette(); });
+  const input = scrim.querySelector('input');
+  input.addEventListener('input', () => { _palIndex = 0; renderPalette(input.value); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); _palIndex = Math.min(_palIndex + 1, _palRows.length - 1); renderPalette(input.value, true); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); _palIndex = Math.max(_palIndex - 1, 0); renderPalette(input.value, true); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const row = _palRows[_palIndex];
+      if (row) { closePalette(); openSession(row.id); }
+    } else if (e.key === 'Escape') { closePalette(); }
+  });
+  return scrim;
+}
+
+function openPalette() {
+  if (!_pal) _pal = mountPalette();
+  _pal.classList.add('open');
+  const input = _pal.querySelector('input');
+  input.value = '';
+  _palIndex = 0;
+  renderPalette('');
+  input.focus();
+}
+function closePalette() { if (_pal) _pal.classList.remove('open'); }
+
+function renderPalette(query, keepScroll) {
+  const body = _pal.querySelector('.pal-body');
+  const scope = _pal.querySelector('.pal-scope');
+  const target = _pal.querySelector('.pal-target');
+  const q = query.trim();
+  const prevScroll = body.scrollTop;
+
+  if (!q) {
+    // Empty query: shortcuts are appropriate. Live sessions surface here, not in ranked results.
+    const live = SESSIONS.filter((s) => s.status === 'busy' || s.status === 'waiting');
+    const recent = SESSIONS.filter((s) => s.status !== 'busy' && s.status !== 'waiting').slice(0, 4);
+    _palRows = [...live, ...recent];
+    scope.innerHTML = `Searching <b>all time</b> · ${TOTALS.sessions} sessions · <b>${TOTALS.waiting} waiting</b>, ${TOTALS.active} running`;
+    body.innerHTML =
+      `<div class="pal-group">Live now <span>· ${live.length}</span></div>` +
+      live.map((s, i) => palRow(s, null, q, i)).join('') +
+      `<div class="pal-group">Recently active</div>` +
+      recent.map((s, i) => palRow(s, null, q, live.length + i)).join('');
+  } else {
+    const hits = searchSessions(q);
+    _palRows = hits.map((h) => h.session);
+    const pending = 3;
+    scope.innerHTML = `Searching <b>all time</b> · <b>${hits.length} ${hits.length === 1 ? 'match' : 'matches'}</b> of ${TOTALS.sessions} sessions`;
+    if (!hits.length) {
+      body.innerHTML = `<div class="pal-empty">
+        No session matches “${escapeHtml(q)}” in title, goal, outcome, repo, branch or filename.<br>
+        <span style="font-size:11.5px">${pending} sessions have no synthesis yet and cannot be matched on goal or outcome.</span>
+      </div>`;
+    } else {
+      body.innerHTML =
+        `<div class="pal-group">Matches <span>· ranked by where the text was found; recency breaks ties</span></div>` +
+        hits.map((h, i) => palRow(h.session, h.evidence, q, i)).join('') +
+        `<div class="pal-group">Not searched <span>· ${pending} sessions have no synthesis yet</span></div>`;
+    }
+  }
+
+  const sel = _palRows[_palIndex];
+  target.innerHTML = sel
+    ? `<span class="kbd">↵</span> opens in <b style="color:#45484f">${agentOf(sel).label} · ${sel.source === 'local' ? 'This Mac' : sel.source}</b>`
+    : '';
+
+  body.querySelectorAll('.pal-row').forEach((row, i) => {
+    row.addEventListener('click', () => { closePalette(); openSession(row.dataset.id); });
+    row.addEventListener('mousemove', () => { if (_palIndex !== i) { _palIndex = i; renderPalette(query, true); } });
+  });
+  if (keepScroll) body.scrollTop = prevScroll;
+  const active = body.querySelector('[aria-selected="true"]');
+  if (active && !keepScroll) active.scrollIntoView({ block: 'nearest' });
+}
+
+function palRow(s, evidence, q, index) {
+  const sel = index === _palIndex;
+  let sub;
+  if (evidence && evidence.field !== 'title') {
+    const text = snippet(evidence.value, evidence.index, q);
+    const extra = evidence.field === 'repo' && /^[a-z-]+-https?-/.test(s.repo)
+      ? ' <span style="color:#b0b3b9">· generated folder name</span>' : '';
+    sub = `<span class="why">${evidence.field}</span>${highlight(text, q)}${extra}`;
+  } else {
+    sub = `${escapeHtml(s.repo)}${s.branch ? ' · ' + escapeHtml(s.branch) : ''} · ${escapeHtml(s.when)}`;
+  }
+  const title = evidence && evidence.field === 'title' ? highlight(s.title, q) : escapeHtml(s.title);
+  return `<div class="pal-row" role="option" aria-selected="${sel}" data-id="${s.id}">
+    <span class="agent-tag agent-${s.agent}" style="font-size:10px"><span class="agent-swatch"></span>${agentOf(s).label}</span>
+    <div class="pal-main">
+      <div class="pal-title">${title}</div>
+      <div class="pal-sub">${sub}</div>
+    </div>
+    <div class="pal-right">${money(s.cost)}<br><span style="font-size:10px">${escapeHtml(s.when)}</span></div>
+  </div>`;
+}
+
+/* ---------- global keys ---------- */
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); return; }
+  if (e.key === 'Escape') { closePalette(); closeDrawer(); }
+  if (e.key === '/' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) {
+    e.preventDefault();
+    const box = document.querySelector('.search-wrap input');
+    if (box) box.focus(); else openPalette();
+  }
+});
+
+</script>
+<script>
+
+const qBox = document.getElementById('q');
+const stage = document.getElementById('stage');
+const scopeEl = document.getElementById('scope');
+let view = 'board';
+let laneAxis = 'attention';
+let query = '';
+let sortKey = 'cost';
+let sortDir = 'desc';
+
+document.getElementById('palBtn').addEventListener('click', openPalette);
+document.getElementById('view').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  view = b.dataset.v;
+  [...e.currentTarget.children].forEach((c) => c.setAttribute('aria-selected', c === b));
+  render();
+});
+document.getElementById('laneAxis').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  laneAxis = b.dataset.v;
+  [...e.currentTarget.children].forEach((c) => c.setAttribute('aria-selected', c === b));
+  if (view === 'board') render();
+});
+qBox.addEventListener('input', () => { query = qBox.value; render(); });
+
+function visible() { return searchSessions(query); }
+
+function laneDefs(hits) {
+  if (laneAxis === 'attention') return BUCKETS.map((b) => ({ ...b, of: (s) => bucketOf(s) === b.key }));
+  if (laneAxis === 'agent') return Object.values(AGENT).map((a) => ({ key: a.key, label: a.label, empty: 'No ' + a.label + ' sessions.', of: (s) => s.agent === a.key }));
+  const repos = [...new Set(hits.map((h) => h.session.repo))];
+  return repos.map((r) => ({ key: r, label: r, empty: 'Empty.', of: (s) => s.repo === r }));
+}
+
+function bcard(h) {
+  const s = h.session;
+  const cls = s.status === 'waiting' ? ' bcard-waiting' : s.status === 'unknown' ? ' bcard-unknown' : '';
+  return `<button class="bcard${cls}" data-id="${s.id}">
+    <div class="bcard-top">${agentMarkup(s)}${s.status !== 'inactive' ? stateMarkup(s) : ''}</div>
+    <div class="bcard-title">${escapeHtml(s.title)}</div>
+    <div class="bcard-foot">
+      ${s.branch ? `<span class="chip-mono" style="max-width:112px">${escapeHtml(s.branch)}</span>` : ''}
+      <b>${money(s.cost)}</b>
+      <span class="bcard-when">${escapeHtml(s.when)}</span>
+    </div>
+  </button>`;
+}
+
+function renderBoard(hits) {
+  const defs = laneDefs(hits);
+  stage.innerHTML = `<div class="lanes">` + defs.map((d) => {
+    const rows = hits.filter((h) => d.of(h.session));
+    const sum = rows.reduce((n, h) => n + h.session.cost, 0);
+    const collapsed = rows.length === 0;
+    const laneCls = ['lane', 'lane-' + d.key, collapsed ? 'lane-collapsed' : ''].join(' ');
+    let inner;
+    if (collapsed) {
+      inner = `<div class="lane-empty"><span><b>${escapeHtml(d.empty)}</b>Lane holds its place.</span></div>`;
+    } else {
+      const byRepo = {};
+      for (const h of rows) (byRepo[h.session.repo] ||= []).push(h);
+      inner = (d.key === 'unknown'
+          ? `<div class="lane-caption">Process state could not be read. <b>Not finished</b> — may still be running.</div>` : '') +
+        Object.entries(byRepo).map(([repo, rs]) =>
+          `<div class="repo-sub"><span>${escapeHtml(repo)}/</span><em>${rs.length} · ${money(rs.reduce((n, h) => n + h.session.cost, 0))}</em></div>` +
+          rs.map(bcard).join('')).join('');
+    }
+    return `<div class="${laneCls}">
+      <div class="lane-head">
+        <span class="lane-title">${escapeHtml(d.label)}</span>
+        <span class="lane-n">${rows.length}</span>
+        <span class="lane-spend">${rows.length ? money(sum) : '—'}</span>
+      </div>
+      <div class="lane-body">${inner}</div>
+    </div>`;
+  }).join('') + `</div>`;
+  stage.querySelectorAll('.bcard').forEach((c) => c.addEventListener('click', () => openSession(c.dataset.id)));
+}
+
+const COLUMNS = [
+  { key: 'title',    label: 'Session',     num: false },
+  { key: 'repo',     label: 'Repo',        num: false },
+  { key: 'branch',   label: 'Branch',      num: false },
+  { key: 'status',   label: 'State',       num: false },
+  { key: 'cost',     label: 'Est. cost',   num: true  },
+  { key: 'tokens',   label: 'Tokens',      num: true  },
+  { key: 'duration', label: 'Duration',    num: true  },
+  { key: 'rank',     label: 'Last active', num: true  },
+];
+
+function sortHits(hits) {
+  const dir = sortDir === 'asc' ? 1 : -1;
+  return [...hits].sort((a, b) => {
+    const A = a.session[sortKey], B = b.session[sortKey];
+    if (typeof A === 'number' && typeof B === 'number') return (A - B) * dir;
+    return String(A ?? '').localeCompare(String(B ?? '')) * dir;
+  });
+}
+
+function renderTable(hits) {
+  const rows = sortHits(hits);
+  stage.innerHTML = `<div class="tablewrap"><table>
+    <thead><tr>${COLUMNS.map((c) =>
+      `<th data-k="${c.key}" class="${c.num ? 'num' : ''}" data-active="${sortKey === c.key}">
+        ${c.label}${sortKey === c.key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((h) => {
+      const s = h.session;
+      return `<tr data-id="${s.id}">
+        <td class="t-name">${escapeHtml(s.title)}</td>
+        <td class="t-mono">${escapeHtml(s.repo)}</td>
+        <td class="t-mono">${s.branch ? escapeHtml(s.branch) : '—'}</td>
+        <td>${stateMarkup(s)}</td>
+        <td class="num"><b>${money(s.cost)}</b></td>
+        <td class="num t-mono">${s.tokens}</td>
+        <td class="num t-mono">${s.duration ?? '—'}</td>
+        <td class="num t-mono">${escapeHtml(s.when)}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+
+  stage.querySelectorAll('th').forEach((th) => th.addEventListener('click', () => {
+    const k = th.dataset.k;
+    if (sortKey === k) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+    else { sortKey = k; sortDir = k === 'title' || k === 'repo' || k === 'branch' ? 'asc' : 'desc'; }
+    render();
+  }));
+  stage.querySelectorAll('tbody tr').forEach((tr) => tr.addEventListener('click', () => openSession(tr.dataset.id)));
+}
+
+function render() {
+  const hits = visible();
+  const q = query.trim();
+  scopeEl.innerHTML = q
+    ? `Searching <b>all time</b> · <b>${hits.length} ${hits.length === 1 ? 'match' : 'matches'}</b> of ${TOTALS.sessions} sessions
+       <button class="link" id="clearQ">Clear search</button>`
+    : `<b>${TOTALS.sessions} sessions</b> this week · ${TOTALS.active} running · ${TOTALS.waiting} waiting · ${TOTALS.unknown} unknown liveness · ${money(TOTALS.spend)}`;
+  const c = () => { const el = document.getElementById('clearQ'); if (el) el.addEventListener('click', () => { qBox.value = ''; query = ''; render(); }); };
+
+  if (!hits.length) {
+    stage.innerHTML = `<div class="no-results"><b>Nothing matches “${escapeHtml(q)}”</b>
+      Searched title, goal, outcome, repo, branch and filenames across all time.</div>`;
+    c(); return;
+  }
+  if (view === 'board') renderBoard(hits); else renderTable(hits);
+  c();
+}
+
+render();
+
+</script>
+</body>
+</html>

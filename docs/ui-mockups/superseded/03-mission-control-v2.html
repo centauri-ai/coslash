@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>coSlash — Concept 3 v2: Mission Control (Light)</title>
+<style>
+  :root {
+    /* light glass palette, built on the app's own tokens */
+    --ink:       #1e2128;
+    --ink-dim:   #5f636c;
+    --ink-faint: #8a8f99;
+
+    --brand: #3554d1;
+    --success: #2f9e63; --success-fg: #2f7d55; --success-bg: #e4f2ea;
+    --info: #6366f1;    --info-fg: #4f46b5;    --info-bg: #ecebfb;
+    --warning: #c08a2e; --warning-fg: #8a6316; --warning-bg: #f7efdd;
+    --claude: #a24218;  --claude-bg: #f6e7de;
+    --codex: #4f5eea;   --codex-bg: #e8eaff;
+    --sub: #0b7c91;     --sub-bg: #dff4f7;
+
+    /* glass surfaces: high-opacity so text always sits on a solid reading ground */
+    --glass:    rgba(255,255,255,.72);
+    --glass-hi: rgba(255,255,255,.86);
+    --edge:     rgba(20,28,50,.09);
+    --edge-hi:  rgba(20,28,50,.15);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    color: var(--ink); background: #eef1f7; font-size: 14px; -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ---------- ambient field: static by default, drift only when motion is welcome ---------- */
+  .aurora { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(90px); }
+  .b1 { width: 620px; height: 620px; left: -170px; top: -220px;
+        background: radial-gradient(circle, #b9c6f5 0%, transparent 68%); opacity: .75; }
+  .b2 { width: 560px; height: 560px; right: -150px; top: -130px;
+        background: radial-gradient(circle, #a9dbe4 0%, transparent 68%); opacity: .6; }
+  .b3 { width: 720px; height: 520px; left: 32%; bottom: -320px;
+        background: radial-gradient(circle, #dcc4ea 0%, transparent 70%); opacity: .5; }
+  @media (prefers-reduced-motion: no-preference) {
+    .b1 { animation: drift1 30s ease-in-out infinite; }
+    .b2 { animation: drift2 35s ease-in-out infinite; }
+    .b3 { animation: drift3 41s ease-in-out infinite; }
+  }
+  @keyframes drift1 { 0%,100% { transform: translate(0,0) } 50% { transform: translate(60px,50px) } }
+  @keyframes drift2 { 0%,100% { transform: translate(0,0) } 50% { transform: translate(-50px,70px) } }
+  @keyframes drift3 { 0%,100% { transform: translate(0,0) } 50% { transform: translate(-70px,-40px) } }
+
+  .shell { position: relative; z-index: 2; display: flex; min-height: 100vh; }
+
+  /* ---------- rail ---------- */
+  .rail {
+    width: 220px; flex: none; padding: 20px 14px;
+    border-right: 1px solid var(--edge);
+    background: rgba(255,255,255,.62);
+    backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%);
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 22px; }
+  .brand-mark { width: 26px; height: 26px; border-radius: 8px; flex: none;
+                background: linear-gradient(140deg, #6f86f0, #3554d1 55%, #0b7c91);
+                box-shadow: 0 4px 12px rgba(53,84,209,.32); }
+  .brand-name { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand-name span { color: var(--brand); }
+
+  .rail-group { padding: 0 0 18px; }
+  .rail-label { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+                color: var(--ink-faint); padding: 0 8px 8px; }
+  .rail-item { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 9px;
+               font-size: 13px; color: var(--ink-dim); cursor: pointer; border: 1px solid transparent;
+               transition: background .15s, color .15s, border-color .15s; }
+  .rail-item:hover { background: rgba(255,255,255,.85); color: var(--ink); }
+  .rail-item.on { background: rgba(53,84,209,.09); border-color: rgba(53,84,209,.24); color: var(--brand); font-weight: 600; }
+  .rail-item.zero { color: var(--ink-faint); }
+  .rail-n { margin-left: auto; font: 600 11px/1 ui-monospace, Menlo, monospace; color: var(--ink-faint); }
+  .rail-item.on .rail-n { color: var(--brand); }
+  .rail-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+  .rail-dot-hollow { width: 7px; height: 7px; border-radius: 999px; border: 1.5px dashed #b6b9bf; flex: none; }
+
+  .spend-card { margin: 4px 2px 0; padding: 13px; border-radius: 13px;
+                background: rgba(255,255,255,.72); border: 1px solid var(--edge); }
+  .spend-k { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint); }
+  .spend-v { font-size: 23px; font-weight: 700; letter-spacing: -0.025em; padding-top: 5px; font-variant-numeric: tabular-nums; }
+  .spend-s { font-size: 11px; color: var(--ink-faint); padding-top: 3px; }
+  .bar { display: flex; height: 4px; border-radius: 999px; overflow: hidden; margin-top: 11px; gap: 2px; }
+  .bar i { display: block; height: 100%; border-radius: 999px; }
+
+  /* ---------- main ---------- */
+  .main { flex: 1; min-width: 0; padding: 20px 26px 70px; }
+  .topbar { display: flex; align-items: center; gap: 12px; padding-bottom: 18px; }
+  .omni { position: relative; flex: 1; max-width: 520px; }
+  .omni input {
+    width: 100%; height: 40px; border-radius: 12px; padding: 0 74px 0 40px;
+    background: rgba(255,255,255,.82); border: 1px solid var(--edge);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    color: var(--ink); font: inherit; font-size: 13.5px; outline: none;
+    transition: border-color .15s, background .15s, box-shadow .15s;
+  }
+  .omni input:focus { border-color: rgba(53,84,209,.45); background: #fff; box-shadow: 0 0 0 4px rgba(53,84,209,.10); }
+  .omni input::placeholder { color: var(--ink-faint); }
+  .omni > svg { position: absolute; left: 13px; top: 12px; color: var(--ink-faint); }
+  .omni .hint { position: absolute; right: 9px; top: 9px; display: flex; gap: 4px; }
+  .kbd { font: 600 10px/1 ui-monospace, Menlo, monospace; color: var(--ink-dim);
+         background: rgba(255,255,255,.9); border: 1px solid var(--edge); border-radius: 5px; padding: 5px 6px; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 11px; margin-left: auto;
+         background: rgba(255,255,255,.7); border: 1px solid var(--edge);
+         backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+  .seg button { border: 0; background: transparent; font: inherit; font-size: 12px; font-weight: 500;
+                color: var(--ink-dim); padding: 6px 13px; border-radius: 8px; cursor: pointer; transition: .15s; }
+  .seg button[aria-selected="true"] { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(16,24,40,.12); }
+
+  .provenance {
+    background: rgba(255,255,255,.66); border: 1px solid var(--edge); border-radius: 10px;
+    padding: 10px 13px; margin-bottom: 18px; font-size: 12px; color: var(--ink-dim); line-height: 1.55;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  }
+  .provenance b { color: var(--ink); }
+
+  /* ---------- hero: calm variant (nothing waiting — the observed state) ---------- */
+  .hero {
+    position: relative; border-radius: 18px; padding: 18px 22px; margin-bottom: 14px; overflow: hidden;
+    background: rgba(255,255,255,.78); border: 1px solid var(--edge);
+    backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%);
+    box-shadow: 0 12px 34px -22px rgba(20,28,50,.35);
+  }
+  .hero-calm { display: flex; align-items: center; gap: 13px; }
+  .hero-calm-icon { width: 34px; height: 34px; border-radius: 10px; flex: none; display: grid; place-items: center;
+                    background: var(--success-bg); color: var(--success-fg); }
+  .hero-calm-t { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+  .hero-calm-s { font-size: 12.5px; color: var(--ink-dim); padding-top: 2px; }
+
+  /* ---------- hero: waiting variant (illustrative) ---------- */
+  .hero-wait {
+    background: linear-gradient(115deg, rgba(224,164,74,.16), rgba(255,255,255,.72) 55%);
+    border-color: rgba(192,138,46,.34);
+    box-shadow: 0 16px 40px -24px rgba(192,138,46,.5);
+  }
+  .hero-k { display: inline-flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 700;
+            letter-spacing: .13em; text-transform: uppercase; color: var(--warning-fg); }
+  .hero-title { font-size: 20px; font-weight: 650; letter-spacing: -0.02em; padding-top: 9px; }
+  .hero-q { font-size: 13.5px; color: var(--ink-dim); padding-top: 7px; max-width: 70ch; line-height: 1.55; }
+  .hero-row { display: flex; align-items: center; gap: 9px; padding-top: 15px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-dim);
+          background: rgba(255,255,255,.8); border: 1px solid var(--edge); border-radius: 8px; padding: 5px 9px;
+          font-variant-numeric: tabular-nums; }
+  .chip.mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .btn { border: 0; font: inherit; font-size: 12.5px; font-weight: 600; border-radius: 10px; padding: 8px 15px;
+         cursor: pointer; color: #fff; background: var(--brand); box-shadow: 0 5px 14px -6px rgba(53,84,209,.55); }
+  .btn-ghost { background: rgba(255,255,255,.85); color: var(--ink); border: 1px solid var(--edge-hi); box-shadow: none; }
+  .btn-future { position: relative; background: rgba(255,255,255,.85); color: var(--ink-dim);
+                border: 1px dashed rgba(192,138,46,.55); box-shadow: none; }
+  .future-note { font-size: 11px; color: var(--warning-fg); padding-top: 10px; line-height: 1.6; max-width: 92ch; }
+  .future-note b { font-weight: 650; }
+
+  /* ---------- sections ---------- */
+  .sec-head { display: flex; align-items: center; gap: 10px; padding: 22px 2px 11px; }
+  .sec-title { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim); }
+  .sec-n { font: 600 11px/1 ui-monospace, Menlo, monospace; color: var(--ink-faint);
+           background: rgba(255,255,255,.8); border: 1px solid var(--edge); border-radius: 999px; padding: 4px 8px; }
+  .sec-rule { flex: 1; height: 1px; background: var(--edge); }
+  .sec-spend { font-size: 11.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+  .grid-live { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px; }
+
+  .live {
+    position: relative; border-radius: 16px; padding: 16px 18px; overflow: hidden; cursor: pointer;
+    background: var(--glass-hi); border: 1px solid var(--edge-hi);
+    backdrop-filter: blur(24px) saturate(140%); -webkit-backdrop-filter: blur(24px) saturate(140%);
+    box-shadow: 0 10px 30px -20px rgba(20,28,50,.45);
+    transition: transform .2s cubic-bezier(.2,.7,.3,1), border-color .2s, box-shadow .2s;
+  }
+  .live:hover { transform: translateY(-2px); border-color: rgba(53,84,209,.3); box-shadow: 0 16px 38px -20px rgba(20,28,50,.5); }
+  .live::after {
+    content: ''; position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+    background: linear-gradient(90deg, transparent, var(--success), transparent);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .live::after { animation: sweep 2.8s linear infinite; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live::after { background: var(--success); opacity: .5; }
+  }
+  @keyframes sweep { 0% { transform: translateX(-100%) } 100% { transform: translateX(100%) } }
+
+  .live-top { display: flex; align-items: center; gap: 8px; }
+  .agent { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+           border-radius: 7px; padding: 4px 8px; }
+  .agent-claude { color: var(--claude); background: var(--claude-bg); }
+  .agent-codex  { color: var(--codex);  background: var(--codex-bg); }
+  .live-state { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--success-fg); }
+  .pulse { width: 7px; height: 7px; border-radius: 999px; background: var(--success); flex: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .pulse { box-shadow: 0 0 0 0 rgba(47,158,99,.6); animation: pulse 2s infinite; }
+  }
+  @media (prefers-reduced-motion: reduce) { .pulse { box-shadow: 0 0 0 3px rgba(47,158,99,.22); } }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 7px rgba(47,158,99,0) } 100% { box-shadow: 0 0 0 0 rgba(47,158,99,0) } }
+
+  .live-title { font-size: 15.5px; font-weight: 650; letter-spacing: -0.015em; padding-top: 11px; line-height: 1.3; }
+  .live-where { display: flex; align-items: center; gap: 7px; padding-top: 9px; flex-wrap: wrap; }
+  .path { font-size: 12px; color: var(--ink-dim); }
+  .branch { font: 500 11px/1 ui-monospace, Menlo, monospace; color: var(--ink-dim);
+            background: rgba(20,28,50,.05); border: 1px solid var(--edge); border-radius: 6px; padding: 4px 7px; }
+  .live-doing { font-size: 12.5px; color: var(--ink-dim); padding-top: 11px; line-height: 1.5; }
+  .live-foot { display: flex; align-items: center; gap: 14px; padding-top: 13px; margin-top: 12px; border-top: 1px solid var(--edge); }
+  .stat { font-size: 11.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .stat b { color: var(--ink); font-weight: 650; }
+  .gauge { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .gauge-track { width: 62px; height: 4px; border-radius: 999px; background: rgba(20,28,50,.1); overflow: hidden; }
+  .gauge-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), var(--sub)); }
+  .gauge-t { font: 600 10.5px/1 ui-monospace, Menlo, monospace; color: var(--ink-faint); }
+
+  /* ---------- stream ---------- */
+  .stream { display: flex; flex-direction: column; gap: 8px; }
+  .row {
+    position: relative; display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+    border-radius: 13px; padding: 12px 16px 12px 18px;
+    background: rgba(255,255,255,.66); border: 1px solid var(--edge);
+    transition: background .16s, border-color .16s, transform .16s;
+  }
+  .row:hover { background: #fff; border-color: var(--edge-hi); transform: translateX(2px); }
+  .row::before { content: ''; position: absolute; left: 0; top: 11px; bottom: 11px; width: 2.5px; border-radius: 0 3px 3px 0; }
+  .row-claude::before { background: var(--claude); }
+  .row-codex::before  { background: var(--codex); }
+  .row-unknown { background: rgba(255,255,255,.45); }
+  .row-unknown::before { opacity: .4; }
+  .row-1 { display: flex; align-items: baseline; gap: 10px; }
+  .row-title { font-size: 14px; font-weight: 600; letter-spacing: -0.008em; flex: 1; min-width: 0;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-when { font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .row-2 { display: flex; align-items: center; gap: 8px; padding-top: 5px; }
+  .row-path { font-size: 11.5px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-spend { margin-left: auto; font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .row-spend b { color: var(--ink-dim); font-weight: 650; }
+  .row-sum { font-size: 12.5px; color: var(--ink-faint); padding-top: 7px; line-height: 1.45;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .subs { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600; color: var(--sub);
+          background: var(--sub-bg); border-radius: 6px; padding: 3px 7px; }
+  .state-idle { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--info-fg); }
+  .dot-idle { width: 6px; height: 6px; border-radius: 999px; background: var(--info); }
+  .state-unknown { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; color: var(--ink-faint); }
+  .dot-unknown { width: 6px; height: 6px; border-radius: 999px; border: 1.5px dashed #b6b9bf; }
+  .remote { font: 500 10px/1 ui-monospace, Menlo, monospace; color: var(--ink-dim);
+            background: rgba(20,28,50,.05); border: 1px solid var(--edge); border-radius: 4px; padding: 3px 5px; }
+
+  .band { border-radius: 12px; border: 1px solid var(--edge); background: rgba(255,255,255,.5);
+          padding: 11px 14px; font-size: 12px; color: var(--ink-dim); line-height: 1.55; margin-bottom: 8px; }
+  .band b { color: var(--ink); }
+
+  .day-rule { display: flex; align-items: center; gap: 11px; padding: 22px 2px 10px; }
+  .day-rule span { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); }
+  .day-rule i { flex: 1; height: 1px; background: var(--edge); }
+
+  .notes-wrap { margin-top: 44px; padding-top: 24px; border-top: 1px solid var(--edge); }
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; margin-top: 14px; }
+  .note { background: rgba(255,255,255,.72); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 15px; }
+  .note h4 { margin: 0 0 6px; font-size: 12.5px; }
+  .note p { margin: 0; font-size: 12.5px; color: var(--ink-dim); line-height: 1.55; }
+  .note .tag { font: 700 10px/1 ui-monospace, Menlo, monospace; letter-spacing: .06em; color: var(--brand); display: block; margin-bottom: 7px; }
+  .note .tag-fix { color: var(--success-fg); }
+  h2.nt { font-size: 17px; margin: 0; letter-spacing: -0.015em; }
+  p.nt { color: var(--ink-dim); font-size: 13px; max-width: 76ch; line-height: 1.6; margin: 7px 0 0; }
+  code { font: 400 .92em/1 ui-monospace, Menlo, monospace; background: rgba(20,28,50,.06); border-radius: 4px; padding: 1px 5px; }
+</style>
+</head>
+<body>
+
+<div class="aurora"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+
+<div class="shell">
+
+  <div class="rail">
+    <div class="brand"><div class="brand-mark"></div><div class="brand-name">co<span>Slash</span></div></div>
+
+    <div class="rail-group">
+      <div class="rail-label">Attention</div>
+      <div class="rail-item zero"><span class="rail-dot" style="background:#ddd0b0"></span>Needs you<span class="rail-n">0</span></div>
+      <div class="rail-item on"><span class="rail-dot" style="background:var(--success)"></span>Running<span class="rail-n">2</span></div>
+      <div class="rail-item zero"><span class="rail-dot" style="background:var(--info)"></span>Idle<span class="rail-n">0</span></div>
+      <div class="rail-item"><span class="rail-dot" style="background:#c3c6cc"></span>Last active today<span class="rail-n">9</span></div>
+      <div class="rail-item"><span class="rail-dot-hollow"></span>Liveness unknown<span class="rail-n">9</span></div>
+      <div class="rail-item"><span class="rail-dot" style="background:#9aa0a8"></span>Everything<span class="rail-n">52</span></div>
+    </div>
+
+    <div class="rail-group">
+      <div class="rail-label">Repositories</div>
+      <div class="rail-item">coslash<span class="rail-n">10</span></div>
+      <div class="rail-item">AgentsWorkspace<span class="rail-n">14</span></div>
+      <div class="rail-item">ge<span class="rail-n">2</span></div>
+      <div class="rail-item">Ungrouped<span class="rail-n">26</span></div>
+    </div>
+
+    <div class="rail-group">
+      <div class="rail-label">Agents</div>
+      <div class="rail-item"><span class="rail-dot" style="background:var(--claude)"></span>Claude Code<span class="rail-n">7</span></div>
+      <div class="rail-item"><span class="rail-dot" style="background:var(--codex)"></span>Codex<span class="rail-n">45</span></div>
+    </div>
+
+    <div class="spend-card">
+      <div class="spend-k">This week</div>
+      <div class="spend-v">$296.20</div>
+      <div class="spend-s">52 sessions · 141M tokens</div>
+      <div class="bar"><i style="width:78%;background:var(--codex)"></i><i style="width:22%;background:var(--claude)"></i></div>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <div class="topbar">
+      <div class="omni">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input placeholder="Search title, goal, outcome, repo, branch" />
+        <span class="hint"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+      </div>
+      <div class="seg"><button aria-selected="true">Stream</button><button>Board</button><button>Table</button></div>
+    </div>
+
+    <div class="provenance">
+      <b>Light theme (v2).</b> Glass is concentrated in chrome, hero and live cards; every text surface sits on
+      a high-opacity ground rather than directly on the gradient. Motion is gated behind
+      <code>prefers-reduced-motion</code>. · <b>Data:</b> live local dataset, 2026-09-10 — 52 sessions,
+      2 Active, 41 Inactive, 9 Unknown, <b>0 Waiting</b>. The Waiting hero further down is
+      <b>illustrative</b>, not observed.
+    </div>
+
+    <!-- OBSERVED STATE: nothing waiting -->
+    <div class="hero">
+      <div class="hero-calm">
+        <span class="hero-calm-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </span>
+        <div>
+          <div class="hero-calm-t">Nothing is waiting on you</div>
+          <div class="hero-calm-s">2 sessions running · 9 with unknown liveness · last check just now</div>
+        </div>
+        <button class="btn btn-ghost" style="margin-left:auto">Review unknown</button>
+      </div>
+    </div>
+
+    <div class="sec-head">
+      <span class="sec-title">Running now</span><span class="sec-n">2</span>
+      <span class="sec-rule"></span><span class="sec-spend">$2.23 so far</span>
+    </div>
+
+    <div class="grid-live">
+      <div class="live">
+        <div class="live-top">
+          <span class="agent agent-claude">Claude Code</span>
+          <span class="live-state"><span class="pulse"></span>Active</span>
+        </div>
+        <div class="live-title">Coslash webapp design modernization</div>
+        <div class="live-where"><span class="path">coslash</span><span class="branch">milan/ui</span></div>
+        <div class="live-doing">Reading <code>SessionBoard.tsx</code> — 14 turns, 61 tool calls</div>
+        <div class="live-foot">
+          <span class="stat"><b>$1.27</b></span><span class="stat">1.18M tok</span><span class="stat">1m</span>
+          <span class="gauge" title="Measured context usage — not a prediction of when compaction will occur">
+            <span class="gauge-track"><span class="gauge-fill" style="width:26%"></span></span>
+            <span class="gauge-t">26% ctx</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="live">
+        <div class="live-top">
+          <span class="agent agent-codex">Codex</span>
+          <span class="live-state"><span class="pulse"></span>Active</span>
+        </div>
+        <div class="live-title">Design Coslash UI concepts</div>
+        <div class="live-where"><span class="path">goal-x20-you-are-a-senior</span></div>
+        <div class="live-doing">Writing mockups — 4 turns, 12 tool calls</div>
+        <div class="live-foot">
+          <span class="stat"><b>$0.96</b></span><span class="stat">284k tok</span><span class="stat">1m</span>
+          <span class="gauge" title="Measured context usage — not a prediction of when compaction will occur">
+            <span class="gauge-track"><span class="gauge-fill" style="width:9%"></span></span>
+            <span class="gauge-t">9% ctx</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ILLUSTRATIVE waiting hero -->
+    <div class="sec-head">
+      <span class="sec-title">When something is waiting — illustrative</span>
+      <span class="sec-rule"></span>
+      <span class="sec-spend">not observed in this dataset</span>
+    </div>
+
+    <div class="hero hero-wait">
+      <div class="hero-k">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 8v5"/><path d="M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg>
+        One session is waiting on you
+      </div>
+      <div class="hero-title">Refactor the settings schema validator</div>
+      <div class="hero-q">
+        “Should I keep the legacy <code>synthesis.backend</code> key as a read-only alias, or migrate existing
+        settings files on first load?”
+      </div>
+      <div class="hero-row">
+        <span class="chip">coslash</span>
+        <span class="chip mono">milan/settings-v2</span>
+        <span class="chip">blocked 4m</span>
+        <span class="chip">23m · 6 files · $2.41</span>
+        <button class="btn btn-ghost" style="margin-left:auto">Open in inspector</button>
+        <button class="btn">Open in Claude Code</button>
+        <button class="btn btn-future">Answer here ✳</button>
+      </div>
+      <div class="future-note">
+        ✳ <b>Answer here</b> assumes an input-delivery path back into a running agent that coSlash does not
+        have today — resume and handoff don't establish it. Shown as a future capability pending feasibility;
+        <b>Open in Claude Code</b> is the route that works now.
+      </div>
+    </div>
+
+    <div class="day-rule"><span>Last active today</span><i></i></div>
+
+    <div class="stream">
+      <button class="row row-codex">
+        <div class="row-1"><span class="row-title">Generate 4 kitchen renderings</span><span class="row-when">14m ago</span></div>
+        <div class="row-2"><span class="row-path">ge · 20m · 1 file</span><span class="row-spend"><b>$9.66</b> · 4.05M</span></div>
+        <div class="row-sum">Created and corrected all four renderings in the new corner perspective with the warm, flat ceramic Zia tile surface and four grout options.</div>
+      </button>
+
+      <button class="row row-codex">
+        <div class="row-1"><span class="row-title">Choose Laticrete grout color</span><span class="row-when">4h ago</span></div>
+        <div class="row-2"><span class="row-path">pick-the-best-grout-color-for · 10m · 2 files</span><span class="row-spend"><b>$5.09</b> · 2.73M</span></div>
+        <div class="row-sum">Selected Laticrete Frosty as the recommended grout color and generated renderings for Bright White, Sauterne, Light Pewter, and Frosty.</div>
+      </button>
+
+      <button class="row row-codex">
+        <div class="row-1"><span class="row-title">Access Google Sheet</span><span class="row-when">5h ago</span></div>
+        <div class="row-2"><span class="row-path">AgentsWorkspace · 12m</span><span class="row-spend"><b>$3.53</b> · 6.22M</span></div>
+        <div class="row-sum">The sheet “45 Warmwood Tile takeoff” is accessible with view-only permissions.</div>
+      </button>
+
+      <div class="day-rule"><span>Liveness unknown</span><i></i></div>
+      <div class="band">
+        <b>9 sessions.</b> Transcript activity is readable but process state could not be determined — typically
+        a remote host that is unreachable. These are <b>not finished</b> and may still be running;
+        coSlash has no evidence either way.
+      </div>
+
+      <button class="row row-claude row-unknown">
+        <div class="row-1"><span class="row-title">Nightly integration sweep</span><span class="row-when">2d ago</span></div>
+        <div class="row-2">
+          <span class="state-unknown"><span class="dot-unknown"></span>Unknown</span>
+          <span class="remote">agent-box</span>
+          <span class="row-path">coslash · main</span>
+          <span class="row-spend"><b>$3.11</b> · 1.4M</span>
+        </div>
+        <div class="row-sum">Last transcript write 2d ago; host unreachable since.</div>
+      </button>
+
+      <div class="day-rule"><span>Yesterday</span><i></i></div>
+
+      <button class="row row-claude">
+        <div class="row-1"><span class="row-title">Remote Machine design fixes</span><span class="row-when">21h ago</span></div>
+        <div class="row-2"><span class="row-path">AgentsWorkspace · 1h38m · 17 turns</span><span class="row-spend"><b>$7.78</b> · 595k</span></div>
+        <div class="row-sum">Implemented the remote host section, refined its structure and copy, added the angled NEW navigation badge, committed and pushed.</div>
+      </button>
+
+      <button class="row row-claude">
+        <div class="row-1"><span class="row-title">Paris fine dining availability</span><span class="row-when">yesterday</span></div>
+        <div class="row-2">
+          <span class="row-path">AgentsWorkspace · 2h04m</span>
+          <span class="subs">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 3v4"/><path d="M5 21v-6a7 7 0 0 1 14 0v6"/><path d="M3 21h18"/></svg>
+            7 subagents
+          </span>
+          <span class="row-spend"><b>$64.45</b> · 21.4M</span>
+        </div>
+        <div class="row-sum">Completed a Top 25 ranking with component and final scores, addresses, CDG/Orly distances, and availability for the requested dates.</div>
+      </button>
+    </div>
+
+    <div class="notes-wrap">
+      <h2 class="nt">What this concept is arguing</h2>
+      <p class="nt">
+        The page stops being a uniform list of records and becomes a triage surface: something may be asking
+        for you, some things are happening, everything else is history — and some things we genuinely don't
+        know about. Visual weight follows that ranking exactly. <b>v2 moves this to the light theme</b> so it
+        sits beside Concepts 1 and 2 on the same ground and the structural argument can be judged on its own,
+        rather than winning on novelty.
+      </p>
+
+      <div class="notes">
+        <div class="note">
+          <span class="tag tag-fix">V2 · LIGHT</span><h4>Glass works in light, and is now comparable</h4>
+          <p>Dark was a product choice, not a requirement of the material. Translucency lives in chrome, hero and live cards; text always sits on a ≥72% opaque ground. Same three-weight hierarchy, directly comparable with Concepts 1 and 2.</p>
+        </div>
+        <div class="note">
+          <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Motion is opt-in</h4>
+          <p>v1 animated drift, sweep and pulse unconditionally with no <code>prefers-reduced-motion</code> query. All three are now gated; the ambient field is static by default and the sweep degrades to a solid rule.</p>
+        </div>
+        <div class="note">
+          <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>"41 finished" was wrong</h4>
+          <p>They are 41 <em>Inactive</em>. Inactive may mean interrupted, abandoned or failed — <code>STATUSES</code> has no completed state, and asserting one would misrepresent the data. Language corrected throughout.</p>
+        </div>
+        <div class="note">
+          <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Unknown and Idle exist now</h4>
+          <p>The 9 Unknown sessions get a rail entry, a stream band and their own row treatment stating that liveness is unreadable and they are not finished. Idle appears in the rail with a zero count rather than being silently absent.</p>
+        </div>
+        <div class="note">
+          <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>The gauge measures, it doesn't predict</h4>
+          <p>v1 claimed the context gauge "predicts a compaction before it happens". It reports measured usage; compaction timing depends on what the agent does next. Relabelled "26% ctx" with a measurement-only tooltip.</p>
+        </div>
+        <div class="note">
+          <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>"Answer &amp; resume" is marked speculative</h4>
+          <p>It assumed an input path back into a live agent that the existing resume/handoff actions don't establish. It's now visibly marked as a future capability, with <b>Open in Claude Code</b> as the working route beside it.</p>
+        </div>
+        <div class="note">
+          <span class="tag tag-fix">V2 · FROM REVIEW</span><h4>Honest grouping in the rail</h4>
+          <p>Repositories are derived from canonical repo identity. The 26 sessions in generated folders like <code>ge/</code> and <code>wha/</code> sit under <b>Ungrouped</b> rather than being dressed up as projects.</p>
+        </div>
+        <div class="note">
+          <span class="tag">CAUTION</span><h4>Still to validate</h4>
+          <p>Contrast must be checked on the rendered composite, not on token values — translucent surfaces over a gradient can fail where the tokens pass. And <code>backdrop-filter</code> is still limited to rail, hero and live cards; stream rows use flat translucent fills deliberately.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>
