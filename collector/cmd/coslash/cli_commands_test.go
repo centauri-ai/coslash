@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -47,6 +48,26 @@ func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
 	if _, _, err := readRuntime(); err == nil {
 		t.Fatal("readRuntime accepted a non-loopback URL")
 	}
+}
+
+func TestRuntimeLockAllowsOnlyOneServer(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	first, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acquireRuntimeLock(); err == nil {
+		first.Close()
+		t.Fatal("second server acquired the runtime lock")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	third, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatalf("lock remained held after close: %v", err)
+	}
+	third.Close()
 }
 
 func TestRunSessionsFiltersUIFieldsAndPrintsJSON(t *testing.T) {
@@ -188,12 +209,85 @@ func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 	}
 }
 
+func TestHandleSendDoesNotLaunchAfterRequestCancellation(t *testing.T) {
+	name := "Test"
+	found := &session.Session{Agent: "codex", ID: "session-1", Name: &name, WorkingDirectory: "/workspace"}
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store := settings.Open()
+	launched := false
+	open := func(string, string, string, string, string, string, string) error {
+		launched = true
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", nil).WithContext(ctx)
+	response := httptest.NewRecorder()
+	handleSend(response, request, store, func(string) (*session.Session, error) {
+		return found, nil
+	}, open)
+	if launched {
+		t.Fatal("canceled request launched an agent")
+	}
+}
+
+func TestHandleSendRejectsOversizedGeneratedHandoff(t *testing.T) {
+	prompt := strings.Repeat("x", launch.MaxHandoffBytes)
+	found := &session.Session{
+		Agent: "codex", ID: "session-1", WorkingDirectory: "/workspace",
+		SessionDetails: session.SessionDetails{FirstPrompt: &prompt},
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	launched := false
+	response := httptest.NewRecorder()
+	handleSend(
+		response,
+		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", nil),
+		settings.Open(),
+		func(string) (*session.Session, error) { return found, nil },
+		func(string, string, string, string, string, string, string) error {
+			launched = true
+			return nil
+		},
+	)
+	if response.Code != http.StatusRequestEntityTooLarge || launched {
+		t.Fatalf("response = %d %q, launched = %v", response.Code, response.Body.String(), launched)
+	}
+}
+
+func TestHandleSendHidesInvalidSettingsDetails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	if err := os.WriteFile(home+"/settings.json", []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handleSend(
+		response,
+		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", nil),
+		settings.Open(),
+		func(string) (*session.Session, error) {
+			t.Fatal("loaded session with invalid settings")
+			return nil, nil
+		},
+		func(string, string, string, string, string, string, string) error { return nil },
+	)
+	want := "settings are invalid; open Settings to repair them\n"
+	if response.Code != http.StatusConflict || response.Body.String() != want {
+		t.Fatalf("response = %d %q, want %d %q", response.Code, response.Body.String(), http.StatusConflict, want)
+	}
+}
+
 func TestCanonicalSessionUsesListedNameAndSynthesis(t *testing.T) {
 	name := "Resolved name"
 	value := &session.Session{ID: "session-1", Name: &name, LastActivityTime: 42}
 	mgr := synthesis.NewManager(nil)
-	found, err := canonicalSession("session-1", mgr, func(int64) ([]*session.Session, error) {
-		return []*session.Session{value}, nil
+	found, err := canonicalSession("session-1", mgr, func(id string, revision int64) (*session.Session, error) {
+		if id != "session-1" || revision != 0 {
+			t.Fatalf("load = %q/%d", id, revision)
+		}
+		return value, nil
 	})
 	if err != nil || found == nil || found.Name == nil || *found.Name != name {
 		t.Fatalf("session = %#v, err = %v", found, err)

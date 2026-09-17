@@ -85,6 +85,11 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	runtimeLock, err := acquireRuntimeLock()
+	if err != nil {
+		log.Fatalf("coslash: %v", err)
+	}
+	defer runtimeLock.Close()
 
 	settingsStore := settings.Open()
 	if err := opencode.EnsurePlugin(); err != nil {
@@ -201,7 +206,7 @@ func routes(
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
 	getCanonicalSession := func(id string) (*session.Session, error) {
-		return canonicalSession(id, mgr, collector.List)
+		return canonicalSession(id, mgr, collector.GetSessionForPreview)
 	}
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		handleList(w, r, mgr, reviewManager, remoteManager)

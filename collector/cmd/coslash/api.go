@@ -377,22 +377,19 @@ func handleHandoff(
 func canonicalSession(
 	id string,
 	mgr *synthesis.Manager,
-	list func(int64) ([]*session.Session, error),
+	load func(string, int64) (*session.Session, error),
 ) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
-	sessions, err := list(0)
+	found, err := load(id, 0)
 	if err != nil {
 		return nil, err
 	}
-	for _, value := range sessions {
-		if value.ID == id {
-			value.Synthesis = mgr.Lookup(value.ID, value.LastActivityTime)
-			return value, nil
-		}
+	if found != nil {
+		found.Synthesis = mgr.Lookup(found.ID, found.LastActivityTime)
 	}
-	return nil, nil
+	return found, nil
 }
 
 type promptLauncher func(string, string, string, string, string, string, string) error
@@ -411,7 +408,8 @@ func handleSend(
 	}
 	state := settingsStore.State()
 	if !state.Valid {
-		http.Error(w, state.Error+"; open Settings to repair it", http.StatusConflict)
+		log.Printf("send: invalid settings: %s", state.Error)
+		http.Error(w, "settings are invalid; open Settings to repair them", http.StatusConflict)
 		return
 	}
 	found, err := getSession(r.URL.Query().Get("id"))
@@ -429,13 +427,21 @@ func handleSend(
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	handoff := handoffcontext.Build(found)
+	if len(handoff) > launch.MaxHandoffBytes {
+		http.Error(w, "handoff context is too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if r.Context().Err() != nil {
+		return
+	}
 	if err := open(
 		state.Config.Launch.Terminal,
 		target,
 		found.WorkingDirectory,
 		found.ID,
 		launch.NewSession,
-		handoffcontext.Build(found),
+		handoff,
 		message,
 	); err != nil {
 		log.Printf("send: %v", err)

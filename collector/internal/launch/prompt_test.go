@@ -29,3 +29,25 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 		})
 	}
 }
+
+func TestCLICommandWithPromptStopsOptionParsing(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
+		for _, handoff := range []string{"", "context"} {
+			t.Run(agent+handoff, func(t *testing.T) {
+				command, handoffPath, err := cliCommandWithPrompt(
+					agent, "", NewSession, handoff, "--dangerously-skip-permissions",
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if handoffPath != "" {
+					t.Cleanup(func() { _ = os.Remove(handoffPath) })
+				}
+				if !strings.Contains(command, "'--' '--dangerously-skip-permissions'") {
+					t.Fatalf("command does not terminate option parsing: %q", command)
+				}
+			})
+		}
+	}
+}
