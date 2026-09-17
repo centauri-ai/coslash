@@ -1,0 +1,24 @@
+{
+  "name": "coslash",
+  "version": "0.1.0",
+  "description": "Use local coSlash sessions, handoffs, agent launches, and diagnostics.",
+  "author": {
+    "name": "Centauri AI",
+    "url": "https://github.com/centauri-ai"
+  },
+  "homepage": "https://github.com/centauri-ai/coslash",
+  "repository": "https://github.com/centauri-ai/coslash",
+  "license": "MIT",
+  "keywords": ["coslash", "sessions", "handoff", "claude", "codex"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "coSlash",
+    "shortDescription": "Use coSlash from Codex.",
+    "longDescription": "Find local agent sessions, produce canonical handoffs, launch Claude Code or Codex, and diagnose coSlash.",
+    "developerName": "Centauri AI",
+    "category": "Productivity",
+    "capabilities": ["Interactive"],
+    "defaultPrompt": ["Find my recent coSlash sessions."],
+    "websiteURL": "https://github.com/centauri-ai/coslash"
+  }
+}

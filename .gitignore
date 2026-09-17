@@ -6,6 +6,9 @@
 node_modules/
 .claude/
 graphify-out/
-.agents/
+.agents/*
+!.agents/plugins/
+.agents/plugins/*
+!.agents/plugins/marketplace.json
 .vscode/
 .zed/
