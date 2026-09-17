@@ -32,6 +32,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	timestampOutOfRange := valid
+	timestampOutOfRange.Session.LastActivityAtMs = fullsessionv1.MaxSessionTimestampMs + 1
+	timestampOutOfRangeBytes, err := canonicalWithRevision(timestampOutOfRange)
+	if err != nil {
+		panic(err)
+	}
 	entries := []struct {
 		path   string
 		data   []byte
@@ -42,7 +48,7 @@ func main() {
 		{"invalid/malformed.json", []byte(`{"schemaVersion":`), false, "malformed JSON"},
 		{"invalid/unknown-field.json", bytes.Replace(canonical, []byte(`"schemaVersion"`), []byte(`"unknown":true,"schemaVersion"`), 1), false, "unknown field"},
 		{"invalid/incomplete-body.json", bytes.Replace(canonical, []byte(`"text":"@@\n-old\n+new\n"`), []byte(`"text":""`), 1), false, "missing declared change body"},
-		{"invalid/timestamp-out-of-range.json", bytes.Replace(canonical, []byte(`"lastActivityAtMs":1800000012000`), []byte(`"lastActivityAtMs":253402300800000`), 1), false, "session timestamp exceeds year 9999"},
+		{"invalid/timestamp-out-of-range.json", timestampOutOfRangeBytes, false, "session timestamp exceeds year 9999"},
 		{"invalid/bad-revision.json", bytes.Replace(canonical, []byte(valid.RevisionID), []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 1), false, "revision hash mismatch"},
 		{"invalid/bad-body-hash.json", bytes.Replace(canonical, []byte(valid.Session.FileEdits[0].Changes[0].SHA256), []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), 1), false, "change hash mismatch"},
 	}
@@ -66,6 +72,17 @@ func main() {
 	if err := os.WriteFile(filepath.Join("testdata", "fixtures", "manifest.json"), data, 0o644); err != nil {
 		panic(err)
 	}
+}
+
+func canonicalWithRevision(record fullsessionv1.Record) ([]byte, error) {
+	record.RevisionID = ""
+	preimage, err := json.Marshal(record)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(preimage)
+	record.RevisionID = hex.EncodeToString(digest[:])
+	return json.Marshal(record)
 }
 
 func record() fullsessionv1.Record {

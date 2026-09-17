@@ -27,7 +27,7 @@
     },
     {
       "path": "invalid/timestamp-out-of-range.json",
-      "sha256": "c96798e25a996eb692841f20e068e61017678afed9edba66dc6294c84224e9eb",
+      "sha256": "c19ea16d296fb41549c8a02f7f75548c4277b6e0c0e4b7c65740282266a9ea58",
       "valid": false,
       "reason": "session timestamp exceeds year 9999"
     },
