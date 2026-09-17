@@ -8,7 +8,7 @@ also contains the two maintenance commits that were already on `origin/main`.
 
 ## Product capabilities
 
-- Discover and normalize local Claude Code, Codex, and OpenCode sessions.
+- Discover and normalize local Claude Code, Codex, Cursor IDE/CLI, and OpenCode sessions.
 - Present list and board views with repository, branch, source, status, time,
   token, cost, context, compaction, working-tree, and resume-readiness facts.
 - Inspect a session timeline, artifacts, commits, commands, todos, model usage,
@@ -35,7 +35,7 @@ also contains the two maintenance commits that were already on `origin/main`.
 | --- | --- |
 | Collector/API | Go module in `collector`; loopback HTTP server with a startup access-token guard |
 | UI | React, TypeScript, Vite, Tailwind, and Radix primitives in `frontend` |
-| Session sources | Read-only parsers for Claude Code, Codex, and OpenCode local data |
+| Session sources | Read-only parsers for Claude Code, Codex, Cursor IDE/CLI, and OpenCode local data |
 | Remote source | SSH manager plus versioned `coslash-helper` for Linux amd64/arm64 |
 | Local state | `~/.coslash/settings.json`, cached derived summaries, temporary handoffs, and normalized remote facts |
 | Hub credential | OS keychain entry scoped to the configured Hub host |
@@ -92,9 +92,12 @@ complete SSH Codex revision.
 ## Settings and supported agent skills
 
 The product has no independently installed "skill registry." Its reusable
-agent-facing capabilities are session discovery, debrief synthesis, resume,
-fresh-start handoff, copy handoff, and local/SSH collection for Claude Code,
-Codex, and OpenCode. Backend/model options are defined in
+agent-facing capabilities are local session discovery for Claude Code, Codex,
+Cursor IDE/CLI, and OpenCode; debrief synthesis through the installed Claude
+Code, Codex, or OpenCode CLI; and resume, fresh-start handoff, copy handoff,
+and local/SSH collection where supported. Cursor CLI can resume an exact
+session; Cursor IDE can only reopen its recorded workspace. Backend/model
+options are defined in
 `collector/internal/settings/settings.go`; arbitrary models are accepted only
 when the selected local CLI can resolve them.
 
@@ -129,3 +132,18 @@ frontend package audit reported zero vulnerabilities.
 - General-availability compatibility or support promises.
 - LB-09 production promotion; the accepted source is a non-production beta
   candidate until a later release decision is made.
+- Remote Cursor collection.
+- Cursor SDK session collection.
+
+## Cursor support addendum - 2026-09-17
+
+Cursor support is local-only and covers Cursor IDE and Cursor CLI (`agent`)
+sessions. coSlash reads Cursor transcripts and local metadata stores without
+modifying them, exposes IDE and CLI installation health separately, and keeps
+session families and subagents together. Cursor SDK sessions are excluded.
+
+Cursor IDE reports its current context occupancy as token usage, which is not
+lifetime session use. Cursor CLI token and compaction data remain unavailable
+when Cursor does not persist them reliably. Completed Cursor assistant replies
+appear as timeline recaps, and the latest IDE conversation summary can inform
+local synthesis.

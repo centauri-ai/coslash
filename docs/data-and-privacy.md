@@ -6,7 +6,10 @@ coSlash runs locally, but agent transcripts can contain prompts, source code, co
 
 coSlash reads, but does not modify:
 
-- Claude Code and Codex transcripts and their local session metadata.
+- Claude Code, Codex, and OpenCode transcripts and their local session metadata.
+- Cursor IDE and CLI transcripts plus their local read-only metadata stores:
+  `~/.cursor/projects`, `~/.cursor/chats`, `~/.cursor/ai-tracking`, and
+  `~/Library/Application Support/Cursor/User/globalStorage`.
 - Recorded working directories and Git metadata used for branch and change summaries.
 - Local process information used to identify live sessions.
 

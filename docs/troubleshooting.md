@@ -4,7 +4,9 @@ Start with `coslash doctor`. It checks session sources, agent CLIs, and storage.
 
 ## Sessions are missing
 
-Create at least one local Claude Code or Codex session, then reload. Run `coslash doctor` for unreadable or missing sources. In the UI, select **All** vendors and time windows and clear search.
+Create at least one local Claude Code, Codex, Cursor, or OpenCode session, then reload. Run `coslash doctor` for unreadable or missing sources. In the UI, select **All** vendors and time windows and clear search.
+
+For Cursor, `coslash doctor` reports the IDE (`cursor`) and CLI (`agent`) separately. coSlash reads only local Cursor IDE and CLI sessions: Cursor SDK sessions and remote Cursor collection are unsupported. Cursor CLI token and compaction data can be unavailable because Cursor does not store them reliably; Cursor IDE token data is its current context occupancy, not lifetime usage.
 
 For a remote machine, choose **Settings → Machines → Add remote host**. coSlash
 uses the Mac's existing OpenSSH configuration, so first run `ssh <alias>` in
@@ -53,6 +55,8 @@ Confirm that synthesis is enabled in Settings and that the selected CLI is insta
 ## Resume or Start fresh fails
 
 Launching requires macOS, a recorded working directory, the agent CLI, and the terminal selected in Settings. Confirm Apple Terminal or iTerm2 is installed and allow automation under **System Settings → Privacy & Security → Automation**.
+
+Cursor CLI **Resume** requires the `agent` command and restores the recorded session. **Open Cursor** for a Cursor IDE session requires the `cursor` command and only opens the recorded workspace; Cursor does not provide a way to restore that specific IDE chat.
 
 A fresh agent waiting silently is expected: handoff context is marked as background, and the agent waits for your next message.
 
