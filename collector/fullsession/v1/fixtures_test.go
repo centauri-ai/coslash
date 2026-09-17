@@ -1,6 +1,7 @@
 package fullsessionv1
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -116,5 +117,16 @@ func TestPublishedFixtures(t *testing.T) {
 				t.Fatal("invalid fixture accepted")
 			}
 		})
+	}
+}
+
+func TestCanonicalEscapingFixture(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "fixtures", "valid", "escaping.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte(`"summary":"\u003ctag\u003e\u0026 line\u2028paragraph\u2029 quote=\" slash=\\ controls=\b\f\n\r\t\u0000\u0001"`)
+	if !bytes.Contains(data, want) {
+		t.Fatalf("escaping fixture does not contain canonical summary %q", want)
 	}
 }

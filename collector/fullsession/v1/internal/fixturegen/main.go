@@ -32,6 +32,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	escapingInput := record()
+	escapingSummary := "<tag>& line\u2028paragraph\u2029 quote=\" slash=\\ controls=\b\f\n\r\t\x00\x01"
+	escapingInput.Session.Summary = &escapingSummary
+	escaping, err := fullsessionv1.Freeze(escapingInput)
+	if err != nil {
+		panic(err)
+	}
+	escapingCanonical, err := fullsessionv1.Marshal(escaping)
+	if err != nil {
+		panic(err)
+	}
 	timestampOutOfRange := valid
 	timestampOutOfRange.Session.LastActivityAtMs = fullsessionv1.MaxSessionTimestampMs + 1
 	timestampOutOfRangeBytes, err := canonicalWithRevision(timestampOutOfRange)
@@ -45,6 +56,7 @@ func main() {
 		reason string
 	}{
 		{"valid/codex.json", canonical, true, ""},
+		{"valid/escaping.json", escapingCanonical, true, ""},
 		{"invalid/malformed.json", []byte(`{"schemaVersion":`), false, "malformed JSON"},
 		{"invalid/unknown-field.json", bytes.Replace(canonical, []byte(`"schemaVersion"`), []byte(`"unknown":true,"schemaVersion"`), 1), false, "unknown field"},
 		{"invalid/incomplete-body.json", bytes.Replace(canonical, []byte(`"text":"@@\n-old\n+new\n"`), []byte(`"text":""`), 1), false, "missing declared change body"},

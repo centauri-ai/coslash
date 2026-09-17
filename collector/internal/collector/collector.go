@@ -113,27 +113,28 @@ func finalizeSessions(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 ) []*vendors.ParsedSession {
-	return finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource, true, true)
+	return finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource, true, true, false)
 }
 
 func finalizeSessionsSource(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 	source vendors.ReadSource,
-	livenessAuthoritative bool,
+	useLiveStatus bool,
 	allowLocalActivityFallbacks bool,
+	preserveSubagentText bool,
 ) []*vendors.ParsedSession {
 	applySessionEnrichment(parsed, metadata)
 	applyActivityFallbacks(parsed, allowLocalActivityFallbacks)
 	enrichModelsAndCosts(parsed)
 	composition := composeSessions(parsed)
 	promoteFamilyActivity(composition)
-	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed))
+	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed), preserveSubagentText, useLiveStatus)
 	for _, p := range composition.parsed {
 		removeUnresolvedSpawnRows(p.Session)
 	}
 	resolveNames(composition.roots, metadata)
-	resolveStatus(composition.roots, metadata, livenessAuthoritative)
+	resolveStatus(composition.roots, metadata, useLiveStatus)
 	return composition.roots
 }
 
@@ -258,6 +259,8 @@ func enrichSubagents(
 	composition sessionComposition,
 	metadata map[string]*vendors.SessionMetadata,
 	claudeDynamicWorkflows map[string]*claude.WorkflowAgent,
+	preserveText bool,
+	useLiveStatus bool,
 ) {
 	for _, link := range composition.children {
 		p, parent := link.child, link.parent
@@ -266,6 +269,8 @@ func enrichSubagents(
 			parent,
 			sessionMetadata(metadata, p.Session.Agent),
 			claudeDynamicWorkflows[p.Session.ID],
+			preserveText,
+			useLiveStatus,
 		)
 		linkSpawnDigest(parent.Session, p.SpawnKey, subagent)
 		parent.Session.Subagents = append(parent.Session.Subagents, subagent)
@@ -278,6 +283,24 @@ func ListRemote(
 	source vendors.ReadSource,
 	collections map[string]vendors.RemoteCollection,
 	since int64,
+) []*session.Session {
+	return listRemote(source, collections, since, false)
+}
+
+// ComposePortable returns complete transcript-backed sessions for immutable
+// records. Unlike ListRemote's display projection, child text is not truncated.
+func ComposePortable(
+	source vendors.ReadSource,
+	collections map[string]vendors.RemoteCollection,
+) []*session.Session {
+	return listRemote(source, collections, 0, true)
+}
+
+func listRemote(
+	source vendors.ReadSource,
+	collections map[string]vendors.RemoteCollection,
+	since int64,
+	preserveSubagentText bool,
 ) []*session.Session {
 	parsed := []*vendors.ParsedSession{}
 	metadata := map[string]*vendors.SessionMetadata{}
@@ -292,7 +315,7 @@ func ListRemote(
 	// Portable composition intentionally does not apply local liveness or
 	// filesystem-derived enrichment. The same semantics are used when source is
 	// LocalReadSource so canonical local/helper/SFTP records remain comparable.
-	roots := finalizeSessionsSource(parsed, metadata, source, false, false)
+	roots := finalizeSessionsSource(parsed, metadata, source, false, false, preserveSubagentText)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
 			live := sessionMetadata(metadata, root.Session.Agent).Lookup(root.Session.ID)
@@ -441,18 +464,32 @@ func applySessionEnrichment(parsed []*vendors.ParsedSession, metadata map[string
 func resolveStatus(
 	roots []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
-	livenessAuthoritative bool,
+	useLiveStatus bool,
 ) {
-	now := time.Now().UnixMilli()
+	var now int64
+	if useLiveStatus {
+		now = time.Now().UnixMilli()
+	}
 	for _, p := range roots {
 		s := p.Session
+		if !useLiveStatus {
+			if deref(s.Status) == "waiting" {
+				continue
+			}
+			s.Status = nil
+			if p.StatusHint != nil {
+				status := *p.StatusHint
+				s.Status = &status
+			}
+			continue
+		}
 		enrichment := sessionMetadata(metadata, s.Agent).Lookup(s.ID)
 		raw := ""
 		if enrichment != nil {
 			raw = enrichment.Live
 		}
 		live := raw != ""
-		if deref(s.Status) == "waiting" && (!livenessAuthoritative || live) {
+		if deref(s.Status) == "waiting" && live {
 			continue
 		}
 		s.Status = nil

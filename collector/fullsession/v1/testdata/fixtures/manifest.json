@@ -8,6 +8,11 @@
       "valid": true
     },
     {
+      "path": "valid/escaping.json",
+      "sha256": "fd5bf16d3447770480b96f7126a7bba02d141b87e189ca65857603ce9517ef52",
+      "valid": true
+    },
+    {
       "path": "invalid/malformed.json",
       "sha256": "ae0b3f00638cc5d55bb5fb22deed8790c6b2b84080dd01ddadb22e8fcfab5557",
       "valid": false,
