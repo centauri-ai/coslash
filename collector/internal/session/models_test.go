@@ -57,3 +57,12 @@ func TestCloneDeepCopiesFileEditChangeIDs(t *testing.T) {
 		t.Fatalf("source change ID = %q, want %q", got, "change-1")
 	}
 }
+
+func TestComposer25FastPricing(t *testing.T) {
+	tokens := map[string]ModelTokens{
+		"composer-2.5-fast": {InputTokens: 1_000_000, OutputTokens: 1_000_000},
+	}
+	if got := EstimatedCost(tokens); got != 18 {
+		t.Fatalf("cost = %v, want 18", got)
+	}
+}
