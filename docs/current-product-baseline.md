@@ -56,6 +56,8 @@ All routes are loopback-only and protected by the process access-token guard.
 | `GET /api/settings` | Read validated settings and backend/model options |
 | `PUT /api/settings` | Save settings and optional remote-helper ownership action |
 | `POST /api/launch` | Resume or start fresh with a handoff in the configured terminal/agent |
+| `GET /api/handoff` | Render canonical Markdown for one local session |
+| `POST /api/send` | Start Claude Code or Codex with a local session handoff and optional initial task |
 | `POST /api/remote/test` | Validate the configured SSH source |
 | `POST /api/remote/retry` | Retry remote collection |
 | `GET /api/remote/status` | Read sanitized remote/helper health |
