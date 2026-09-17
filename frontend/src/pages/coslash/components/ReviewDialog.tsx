@@ -58,7 +58,11 @@ export function ReviewDialogContent({
           </label>
         ))}
       </div>
-      {error != null && <div className="text-destructive text-xs">{error}</div>}
+      {error != null && (
+        <div role="alert" className="text-destructive text-xs">
+          {error}
+        </div>
+      )}
       <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={launching}>
           Close
@@ -140,7 +144,7 @@ export function ReviewDialog({
             reviewers={reviewers}
             selected={effectiveSelected}
             state={state}
-            error={error ?? reviewError ?? null}
+            error={state === 'idle' ? (reviewError ?? null) : error}
             onSelect={setSelected}
             onClose={close}
             onStart={() => void start()}

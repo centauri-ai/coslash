@@ -292,6 +292,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     setRetryCount((key) => key + 1);
   };
 
+  const refreshSessions = () => setRetryCount((key) => key + 1);
+
   return {
     sessions,
     machines,
@@ -299,5 +301,6 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     loadError,
     sessionsVersion,
     retrySessions,
+    refreshSessions,
   };
 }

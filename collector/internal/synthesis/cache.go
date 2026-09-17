@@ -87,6 +87,15 @@ func (c *Cache) Lookup(id string, revision int64) *session.SessionSynthesis {
 	return &synthesis
 }
 
+func (c *Cache) LookupLatest(id string) *session.SessionSynthesis {
+	record, err := c.Load(id)
+	if err != nil {
+		return nil
+	}
+	synthesis := record.Synthesis
+	return &synthesis
+}
+
 func (c *Cache) recordPath(id string) string {
 	return filepath.Join(SummariesDir(), id+".json")
 }

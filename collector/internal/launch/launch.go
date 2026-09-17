@@ -97,11 +97,13 @@ func Review(ctx context.Context, request review.Launch) error {
 	}
 	command := exec.CommandContext(ctx, spec.bin, spec.args...)
 	command.Dir = workingDirectory
+	configureReviewProcess(command)
 	command.Stdin = strings.NewReader(spec.stdin)
 	command.Stdout = io.Discard
 	stderr := boundedBuffer{limit: 8 << 10}
 	command.Stderr = &stderr
-	command.Env = append(os.Environ(), spec.env...)
+	command.Env = append(command.Environ(), spec.env...)
+	command.WaitDelay = 5 * time.Second
 	if err := command.Run(); err != nil {
 		if message := strings.TrimSpace(stderr.String()); message != "" {
 			return fmt.Errorf("%s: %w", message, err)
@@ -121,7 +123,7 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 		return reviewCommandSpec{
 			bin:   "opencode",
 			args:  []string{"run", "--title", name, "--dir", workingDirectory},
-			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
 			stdin: prompt,
 		}, nil
 	default:

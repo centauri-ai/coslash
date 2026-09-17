@@ -61,5 +61,6 @@ describe('ReviewDialogContent', () => {
       </Dialog>,
     );
     expect(markup).toContain('review process exited');
+    expect(markup).toContain('role="alert"');
   });
 });
