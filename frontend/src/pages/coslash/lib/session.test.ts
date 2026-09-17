@@ -12,6 +12,7 @@ import {
   sessionLocationFact,
   sessionsForAggregates,
   sessionShareEligibility,
+  sumKnown,
   withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
@@ -92,6 +93,14 @@ describe('sessionsForAggregates', () => {
         { eligibleForAggregates: true },
       ]),
     ).toEqual([{ eligibleForAggregates: true }, { eligibleForAggregates: true }]);
+  });
+});
+
+describe('sumKnown', () => {
+  it('returns unknown unless every included value is known', () => {
+    expect(sumKnown([10_000, null])).toBeNull();
+    expect(sumKnown([10_000, 2_000])).toBe(12_000);
+    expect(sumKnown([])).toBeNull();
   });
 });
 

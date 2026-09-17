@@ -232,6 +232,9 @@ function SubagentStatusBadge({ status }: { status: Subagent['status'] }) {
 
 // Cache writes fold the 5-minute and 1-hour buckets into one figure.
 export function TokenBreakdown({ tokens }: { tokens: Session['tokens'] }) {
+  if (Object.keys(tokens).length === 0) {
+    return <div className="text-muted-foreground pt-1">—</div>;
+  }
   return (
     <div className="text-muted-foreground pt-1">
       in {formatTokens(sumTokens(tokens, 'input_tokens'))} · out{' '}

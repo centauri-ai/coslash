@@ -30,7 +30,7 @@ const SORT_LABELS: Record<SortKey, string> = {
   [SortKey.Duration]: 'Duration',
 };
 
-function sortValue(session: Session, key: SortKey): number {
+function sortValue(session: Session, key: SortKey): number | null {
   switch (key) {
     case SortKey.Recency:
       return session.mtime;
@@ -49,7 +49,10 @@ export function sortSessions(sessions: Session[], key: SortKey, dir: SortDir): S
   return [...sessions].sort((a, b) => {
     // Stale/limited/incomplete cards always sort after current cards.
     if (a.displayStale !== b.displayStale) return a.displayStale ? 1 : -1;
-    const diff = sortValue(a, key) - sortValue(b, key);
+    const aValue = sortValue(a, key);
+    const bValue = sortValue(b, key);
+    if (aValue == null || bValue == null) return aValue == null ? (bValue == null ? 0 : 1) : -1;
+    const diff = aValue - bValue;
     return dir === 'desc' ? -diff : diff;
   });
 }
