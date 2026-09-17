@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotehelper"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -63,11 +65,13 @@ func writeCompleteCodexFixture(fs *fakeFS, id string, modTime time.Time) string 
 	return filePath
 }
 
-func TestCodexFullRecordMatchesAcrossSFTPAndHelperAndSurvivesWarmRefresh(t *testing.T) {
+func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testing.T) {
 	id := "019f4dde-db5b-7100-bdc0-09b5aaaac56f"
 	modTime := time.Unix(2_000, 0)
 	fake := newFakeFS()
 	file := writeCompleteCodexFixture(fake, id, modTime)
+	index := fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Complete fixture\"}\n", id)
+	fake.writeFile(path.Join(fakeHome, ".codex", "session_index.jsonl"), index, modTime)
 	baseline := CachedSnapshotV2{SourceID: "r_0123456789abcdef"}
 	sftp, _, failures, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), baseline)
 	if err != nil || len(failures) != 0 || len(sftp.FullRecords) != 1 {
@@ -112,6 +116,21 @@ func TestCodexFullRecordMatchesAcrossSFTPAndHelperAndSurvivesWarmRefresh(t *test
 	if err := os.Chtimes(realFile, modTime, modTime); err != nil {
 		t.Fatal(err)
 	}
+	indexFile := filepath.Join(home, ".codex", "session_index.jsonl")
+	if err := os.WriteFile(indexFile, []byte(index), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	localParsed, localMetadata, err := codex.Collect(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localRecords, err := fullsessionrecord.FromParsedFamily(
+		baseline.SourceID, vendors.AgentCodex, vendors.LocalReadSource, localParsed, localMetadata,
+	)
+	if err != nil || len(localRecords) != 1 {
+		t.Fatalf("local records=%d err=%v", len(localRecords), err)
+	}
 	request := remoteprotocol.Request{
 		RequestID: "helper-full-1", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
 		Schema: remoteprotocol.VersionRange{Min: 2, Max: 2}, ParserVersion: vendors.ParserVersion,
@@ -127,14 +146,22 @@ func TestCodexFullRecordMatchesAcrossSFTPAndHelperAndSurvivesWarmRefresh(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	var helperRecord any
+	var helperRecord *fullsessionv1.Record
 	for _, record := range records {
 		if len(record.FullRecords) == 1 {
-			helperRecord = record.FullRecords[0].Record
+			value := record.FullRecords[0].Record
+			helperRecord = &value
 		}
 	}
-	if helperRecord == nil || !reflect.DeepEqual(helperRecord, sftp.FullRecords[0].Record) {
-		t.Fatalf("helper/SFTP full records differ\nhelper=%#v\nsftp=%#v", helperRecord, sftp.FullRecords[0].Record)
+	if helperRecord == nil || !reflect.DeepEqual(*helperRecord, sftp.FullRecords[0].Record) ||
+		!reflect.DeepEqual(localRecords[0], sftp.FullRecords[0].Record) {
+		t.Fatalf("local/helper/SFTP full records differ\nlocal=%#v\nhelper=%#v\nsftp=%#v", localRecords[0], helperRecord, sftp.FullRecords[0].Record)
+	}
+	localBytes, _ := fullsessionv1.Marshal(localRecords[0])
+	helperBytes, _ := fullsessionv1.Marshal(*helperRecord)
+	sftpBytes, _ := fullsessionv1.Marshal(sftp.FullRecords[0].Record)
+	if !bytes.Equal(localBytes, helperBytes) || !bytes.Equal(localBytes, sftpBytes) {
+		t.Fatal("canonical local/helper/SFTP record bytes differ")
 	}
 }
 

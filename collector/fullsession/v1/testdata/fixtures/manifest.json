@@ -4,7 +4,7 @@
   "fixtures": [
     {
       "path": "valid/codex.json",
-      "sha256": "01b09a2d74d3583106cf5cc7e1a7fe261335cfb729aab866f7f014cbcf32d691",
+      "sha256": "617460f0d4b5b1795aea433967e89e8dc3be87b1eb82eb7e23ae4c307d001fbf",
       "valid": true
     },
     {
@@ -15,25 +15,25 @@
     },
     {
       "path": "invalid/unknown-field.json",
-      "sha256": "a38f2288302e49382417564c04598a4a560057efbda2240d58f3240c1a146bbf",
+      "sha256": "17a1cf90372cadcf60c31e0d225bcc7b7f3a729dff74b29a345c74bb5fa92230",
       "valid": false,
       "reason": "unknown field"
     },
     {
       "path": "invalid/incomplete-body.json",
-      "sha256": "7f9aa08db6b1875eba1e7b72e14c539127e12e55190219b6ded0a5a4ef484b0f",
+      "sha256": "825e31082985e034b710fe3f60428491643d1c4901fabfb214f07b3ca95e9b63",
       "valid": false,
       "reason": "missing declared change body"
     },
     {
       "path": "invalid/bad-revision.json",
-      "sha256": "c604ae1c238a0d957c8cd09c4f2f1f8a2146e4a099c53c270149e7a4bb2dc3e9",
+      "sha256": "4d6da3c37f1efe52f8c79296f835d5323694b2789e938734f140d3a43cad4da3",
       "valid": false,
       "reason": "revision hash mismatch"
     },
     {
       "path": "invalid/bad-body-hash.json",
-      "sha256": "ddbc1bc74c2e3af3a0b3db864fd1981ead251486f8442081fc3da0812420c17d",
+      "sha256": "2b84d4e77e1101883155d18da467fc130da1b34586c7d2af89d1e23a79bc23f3",
       "valid": false,
       "reason": "change hash mismatch"
     }

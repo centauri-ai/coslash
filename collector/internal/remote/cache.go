@@ -269,6 +269,9 @@ type CachedSnapshotV2 struct {
 	CodexHeaders    []CachedCodexHeader         `json:"codexHeaders,omitempty"`
 	FullRecords     []remoteprotocol.FullRecord `json:"fullRecords,omitempty"`
 	ChangeBodies    []CachedChangeBody          `json:"changeBodies,omitempty"`
+	// RequestComplete is transport evidence for the in-flight proposal. It is
+	// deliberately not persisted: only completed proposals may reach StoreV2.
+	RequestComplete bool `json:"-"`
 }
 
 // CachedChangeBody keeps large change text outside the full-record row while
@@ -415,7 +418,7 @@ func (c *Cache) LoadV2(sourceID string) (CachedSnapshotV2, bool, error) {
 		if loadErr != nil {
 			return CachedSnapshotV2{}, false, loadErr
 		}
-		if ok {
+		if ok && (cached.Version == legacyCacheV2Version || cached.SourceID == sourceID) {
 			return cached, true, nil
 		}
 	}

@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -12,8 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -44,6 +47,51 @@ func TestHelperCollectRejectsTruncatedResponse(t *testing.T) {
 	}
 	if result.Records != 1 || len(result.Proposal.Families) != 0 {
 		t.Fatalf("partial record mutated proposal: %#v", result)
+	}
+}
+
+func TestHelperCollectRejectsInterruptedOrMalformedStreamAfterWholeChangedRecord(t *testing.T) {
+	request, baseline, _ := completeResponse(t)
+	request.Limits.MaxRecordBytes = 16 << 10
+	request.Limits.MaxResponseBytes = 32 << 10
+	family := validFamily(t, "root")
+	family.Vendor = vendors.AgentCodex
+	records := []remoteprotocol.Record{
+		{Type: remoteprotocol.RecordHandshake, ProtocolVersion: 1, RequestID: request.RequestID, Sequence: 1, BaselineID: request.BaselineID, SchemaVersion: remotefacts.SchemaVersion, ParserVersion: vendors.ParserVersion},
+		{Type: remoteprotocol.RecordChanged, ProtocolVersion: 1, RequestID: request.RequestID, Sequence: 2, Vendor: vendors.AgentCodex, FamilyID: "root", Fingerprint: "new", Family: &family},
+	}
+	response, err := remoteprotocol.Encode(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, output := range map[string][]byte{
+		"interrupted": response,
+		"malformed":   append(append([]byte(nil), response...), []byte("{not-json\n")...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := HelperCollect(context.Background(), "host", "/helper", request, baseline, fakeOptions(output, 0, "", false))
+			if !errors.Is(err, ErrHelperFailed) || result.RequestComplete {
+				t.Fatalf("HelperCollect result = %#v, error = %v", result, err)
+			}
+			if got := result.Proposal.Families[remoteprotocol.FamilyKey{Vendor: vendors.AgentCodex, FamilyID: "root"}].Fingerprint; got != "new" {
+				t.Fatalf("diagnostic proposal fingerprint = %q, want new", got)
+			}
+		})
+	}
+}
+
+func TestHelperRefreshDoesNotDowngradeInterruptedChangedResponse(t *testing.T) {
+	t.Setenv("COSLASH_FAKE_PARTIAL_CHANGED", "1")
+	baseline := CachedSnapshotV2{SourceID: "r_0123456789abcdef"}
+	outcome, err := helperRefreshWithOpen(
+		context.Background(), "host", 0, time.Unix(3_000, 0), baseline,
+		helperTarget{path: "/helper"}, fakeOptions(nil, 0, "", false),
+	)
+	if !errors.Is(err, ErrHelperFailed) {
+		t.Fatalf("helperRefreshWithOpen error = %v, want ErrHelperFailed", err)
+	}
+	if outcome.Snapshot.RequestComplete || len(outcome.Snapshot.FullRecords) != 1 {
+		t.Fatalf("diagnostic partial proposal = %#v", outcome.Snapshot)
 	}
 }
 
@@ -202,6 +250,10 @@ func TestHelperExecProcess(t *testing.T) {
 		time.Sleep(time.Hour)
 		return
 	}
+	if os.Getenv("COSLASH_FAKE_PARTIAL_CHANGED") == "1" {
+		writePartialChangedResponse(t)
+		os.Exit(0)
+	}
 	if os.Getenv("COSLASH_FAKE_SPAWN_CHILD") == "1" {
 		child := exec.Command(os.Args[0], "-test.run=TestHelperExecProcess", "--")
 		child.Env = append(os.Environ(), "COSLASH_FAKE_CHILD=1")
@@ -219,4 +271,36 @@ func TestHelperExecProcess(t *testing.T) {
 	}
 	exitCode, _ := strconv.Atoi(os.Getenv("COSLASH_FAKE_EXIT"))
 	os.Exit(exitCode)
+}
+
+func writePartialChangedResponse(t *testing.T) {
+	var request remoteprotocol.Request
+	if err := json.NewDecoder(os.Stdin).Decode(&request); err != nil {
+		t.Fatal(err)
+	}
+	family := validFamily(t, "root")
+	family.Vendor = vendors.AgentCodex
+	value := session.Session{
+		Agent: vendors.AgentCodex, ID: "root", WorkingDirectory: "/workspace",
+		StartedAt: 1, LastActivityTime: 2, Tokens: map[string]session.ModelTokens{},
+		Subagents: []session.Subagent{}, SessionDetails: session.SessionDetails{
+			Commands: []string{}, Commits: []string{}, CommitSHAs: []string{}, Todos: []session.Todo{},
+			Digest: []session.DigestEntry{}, FileEdits: []session.FileEdit{},
+		},
+	}
+	full, err := fullsessionrecord.FromSession(request.SourceID, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := []remoteprotocol.Record{
+		{Type: remoteprotocol.RecordHandshake, ProtocolVersion: remoteprotocol.ProtocolVersion, RequestID: request.RequestID, Sequence: 1, BaselineID: request.BaselineID, SchemaVersion: remotefacts.SchemaVersion, ParserVersion: vendors.ParserVersion, Capabilities: []string{remoteprotocol.CapabilityFullSessionRecord}},
+		{Type: remoteprotocol.RecordChanged, ProtocolVersion: remoteprotocol.ProtocolVersion, RequestID: request.RequestID, Sequence: 2, Vendor: vendors.AgentCodex, FamilyID: "root", Fingerprint: "new", Family: &family, FullRecords: []remoteprotocol.FullRecord{{FamilyID: "root", Record: full}}},
+	}
+	response, err := remoteprotocol.Encode(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stdout.Write(response); err != nil {
+		t.Fatal(err)
+	}
 }

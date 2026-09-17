@@ -70,7 +70,9 @@ and finished inside the deadline. A missing vendor root is complete coverage of
 zero families; an unreadable directory is not. Tombstones name known families
 that a complete scan did not find, and they commit only against the bounded
 authoritative inventory. An interrupted or incomplete scan therefore cannot
-delete a cached family — it publishes what it collected and leaves the rest.
+delete or replace cached data. Whole records received before the failure remain
+diagnostic proposal state only; the Mac retains its prior complete durable
+generation.
 
 ## Exit codes
 

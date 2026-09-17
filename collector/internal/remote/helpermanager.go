@@ -133,13 +133,9 @@ func helperRefreshWithOpen(
 	if collectErr == nil {
 		return outcome, nil
 	}
-	// A helper can have emitted valid family records before a bounded partial
-	// result. Preserve those facts and show the exact limited reason; do not
-	// hide a protocol/data failure behind a second SFTP pass.
-	if result.Records > 1 {
-		outcome.Failures = []error{collectErr}
-		return outcome, nil
-	}
+	// The accumulator may expose a validated proposal for diagnostics, but a
+	// response without request_complete is not a publishable generation.
+	// Return the collection error so Manager retains its durable last-good data.
 	return outcome, collectErr
 }
 

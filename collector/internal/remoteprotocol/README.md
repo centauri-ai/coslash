@@ -13,15 +13,16 @@ Record order is:
 3. `vendor_complete` after complete enumeration of each vendor;
 4. `request_complete` with final counts/timing.
 
-Changed facts validate and become publishable immediately. A changed Codex
-family also carries one canonical `full-session-record/v1` rooted record; the
+Changed facts validate into an in-memory proposal immediately, but no proposal
+is durably published until the stream reaches a valid `request_complete`. A
+changed Codex family also carries one canonical `full-session-record/v1` rooted record; the
 handshake capability makes older helpers incompatible instead of silently
 producing incomplete data. Skips retain the last good facts and full record
 intact and attach a transient stale reason; a later unchanged result clears
 that reason. Tombstones remain provisional until `vendor_complete`
-provides a complete bounded authoritative inventory proving absence. Interruption
-before that point cannot delete anything. Missing `request_complete` makes the
-refresh partial but does not discard already validated changes.
+provides a complete bounded authoritative inventory proving absence.
+Interruption, malformed data, or any other failure before `request_complete`
+discards the proposal and retains the prior complete durable generation.
 
 Records may name only requested vendors. Family actions for a vendor end at its
 single `vendor_complete`, and `request_complete` requires every requested vendor

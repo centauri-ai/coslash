@@ -283,7 +283,10 @@ func ListRemote(
 		parsed = append(parsed, collection.Sessions...)
 		metadata[agent] = collection.Metadata
 	}
-	roots := finalizeSessionsSource(parsed, metadata, source)
+	// Portable composition intentionally does not apply local liveness or
+	// filesystem-derived enrichment. The same semantics are used when source is
+	// LocalReadSource so canonical local/helper/SFTP records remain comparable.
+	roots := finalizePortableSessionsSource(parsed, metadata, source)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
 			live := sessionMetadata(metadata, root.Session.Agent).Lookup(root.Session.ID)
@@ -297,6 +300,25 @@ func ListRemote(
 		sessions = append(sessions, root.Session)
 	}
 	return sessions
+}
+
+func finalizePortableSessionsSource(
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+	source vendors.ReadSource,
+) []*vendors.ParsedSession {
+	applySessionEnrichment(parsed, metadata)
+	applyActivityFallbacks(parsed)
+	enrichModelsAndCosts(parsed)
+	composition := composeSessions(parsed)
+	promoteFamilyActivity(composition)
+	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed))
+	for _, p := range composition.parsed {
+		removeUnresolvedSpawnRows(p.Session)
+	}
+	resolveNames(composition.roots, metadata)
+	resolveStatus(composition.roots, metadata, false)
+	return composition.roots
 }
 
 func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.Subagent) {

@@ -343,9 +343,9 @@ func buildLocalRequest(requestID, sourceID string, since, collectedAt int64, bas
 
 // collectIncremental is the incremental SFTP refresh producer: it diffs each
 // vendor against baseline concurrently under an independent byte budget, then
-// applies the resulting records to one Accumulator to get the same partial-
-// merge and deletion-authority guarantees a helper's protocol response would
-// get.
+// applies the resulting records to one Accumulator to get the same proposal
+// and deletion-authority guarantees as a helper protocol response. Manager
+// publishes that proposal only when it contains request_complete.
 func collectIncremental(
 	source *Source,
 	since int64,

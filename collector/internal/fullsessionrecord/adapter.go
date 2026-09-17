@@ -34,8 +34,7 @@ func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, 
 		SourceID: sourceID, Agent: value.Agent, SessionID: value.ID,
 		Session: fullsessionv1.Session{
 			Name: cloneString(value.Name), Summary: cloneString(value.Summary), Status: cloneString(value.Status),
-			WorkingDirectory: value.WorkingDirectory, Branch: cloneString(value.Branch), Repository: cloneString(value.Repository),
-			RepositoryLocalOnly: value.RepositoryLocalOnly, EditedFileCount: value.EditedFileCount,
+			WorkingDirectory: value.WorkingDirectory, Branch: cloneString(value.Branch), EditedFileCount: value.EditedFileCount,
 			DurationMs: cloneInt(value.DurationMs), CostMicroUSD: micros(value.Cost),
 			UnpricedModels: append([]string{}, value.UnpricedModels...), StartedAtMs: value.StartedAt,
 			LastActivityAtMs: value.LastActivityTime, Entrypoint: cloneString(value.Entrypoint), Model: cloneString(value.Model),
@@ -43,8 +42,8 @@ func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, 
 			ToolUses: value.ToolUses, Errors: value.Errors, Compactions: value.Compactions, FirstPrompt: cloneString(value.FirstPrompt),
 			Commands: append([]string{}, value.Commands...), Commits: append([]string{}, value.Commits...),
 			CommitSHAs: append([]string{}, value.CommitSHAs...), PullRequests: value.PullRequests,
-			LastEditAtMs: cloneInt64(value.LastEditAt), SynthesisPending: value.SynthesisPending,
-			DeclaredGoal: cloneString(value.DeclaredGoal),
+			SynthesisPending: value.SynthesisPending,
+			DeclaredGoal:     cloneString(value.DeclaredGoal),
 		},
 	}
 	models := make([]string, 0, len(value.Tokens))
@@ -108,9 +107,6 @@ func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, 
 		}
 		record.Session.FileEdits = append(record.Session.FileEdits, item)
 	}
-	if value.Git != nil {
-		record.Session.Git = &fullsessionv1.GitDrift{BaseBranch: value.Git.BaseBranch, Ahead: value.Git.Ahead, Behind: value.Git.Behind}
-	}
 	if value.Synthesis != nil {
 		record.Session.Synthesis = &fullsessionv1.SessionSynthesis{
 			Goals: append([]string{}, value.Synthesis.Goals...), Outcome: value.Synthesis.Outcome,
@@ -127,8 +123,7 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 	value := &session.Session{
 		Agent: record.Agent, ID: record.SessionID, Name: cloneString(record.Session.Name), Summary: cloneString(record.Session.Summary),
 		Status: cloneString(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
-		Branch: cloneString(record.Session.Branch), Repository: cloneString(record.Session.Repository),
-		RepositoryLocalOnly: record.Session.RepositoryLocalOnly, EditedFileCount: record.Session.EditedFileCount,
+		Branch: cloneString(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
 		DurationMs: cloneInt(record.Session.DurationMs), Tokens: map[string]session.ModelTokens{},
 		Cost: dollars(record.Session.CostMicroUSD), UnpricedModels: append([]string{}, record.Session.UnpricedModels...),
 		StartedAt: record.Session.StartedAtMs, LastActivityTime: record.Session.LastActivityAtMs,
@@ -139,7 +134,7 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 			ToolUses: record.Session.ToolUses, Errors: record.Session.Errors, Compactions: record.Session.Compactions,
 			FirstPrompt: cloneString(record.Session.FirstPrompt), Commands: append([]string{}, record.Session.Commands...),
 			Commits: append([]string{}, record.Session.Commits...), CommitSHAs: append([]string{}, record.Session.CommitSHAs...),
-			PullRequests: record.Session.PullRequests, LastEditAt: cloneInt64(record.Session.LastEditAtMs),
+			PullRequests:     record.Session.PullRequests,
 			SynthesisPending: record.Session.SynthesisPending, DeclaredGoal: cloneString(record.Session.DeclaredGoal),
 		},
 	}
@@ -190,9 +185,6 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		value.FileEdits = append(value.FileEdits, session.FileEditWithChanges(
 			item.Path, item.Additions, item.Deletions, item.Edits, item.IsNew, changes,
 		))
-	}
-	if record.Session.Git != nil {
-		value.Git = &session.GitDrift{BaseBranch: record.Session.Git.BaseBranch, Ahead: record.Session.Git.Ahead, Behind: record.Session.Git.Behind}
 	}
 	if record.Session.Synthesis != nil {
 		value.Synthesis = &session.SessionSynthesis{

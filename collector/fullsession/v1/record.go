@@ -38,42 +38,38 @@ type Record struct {
 }
 
 type Session struct {
-	Name                *string           `json:"name"`
-	Summary             *string           `json:"summary"`
-	Status              *string           `json:"status"`
-	WorkingDirectory    string            `json:"cwd"`
-	Branch              *string           `json:"branch"`
-	Repository          *string           `json:"repository"`
-	RepositoryLocalOnly bool              `json:"repositoryLocalOnly"`
-	EditedFileCount     int               `json:"editedFileCount"`
-	DurationMs          *int              `json:"durationMs"`
-	Usage               []ModelUsage      `json:"usage"`
-	CostMicroUSD        int64             `json:"costMicroUsd"`
-	UnpricedModels      []string          `json:"unpricedModels"`
-	Subagents           []Subagent        `json:"subagents"`
-	StartedAtMs         int64             `json:"startedAtMs"`
-	LastActivityAtMs    int64             `json:"lastActivityAtMs"`
-	Entrypoint          *string           `json:"entrypoint"`
-	Model               *string           `json:"model"`
-	ContextTokens       *int              `json:"contextTokens"`
-	ContextWindow       *int              `json:"contextWindow"`
-	Turns               int               `json:"turns"`
-	ToolUses            int               `json:"toolUses"`
-	Errors              int               `json:"errors"`
-	Compactions         int               `json:"compactions"`
-	FirstPrompt         *string           `json:"firstPrompt"`
-	Commands            []string          `json:"commands"`
-	Commits             []string          `json:"commits"`
-	CommitSHAs          []string          `json:"commitShas"`
-	PullRequests        int               `json:"pullRequests"`
-	Todos               []Todo            `json:"todos"`
-	Digest              []DigestEntry     `json:"digest"`
-	FileEdits           []FileEdit        `json:"fileEdits"`
-	Git                 *GitDrift         `json:"git"`
-	LastEditAtMs        *int64            `json:"lastEditAtMs"`
-	Synthesis           *SessionSynthesis `json:"synthesis"`
-	SynthesisPending    bool              `json:"synthesisPending"`
-	DeclaredGoal        *string           `json:"declaredGoal"`
+	Name             *string           `json:"name"`
+	Summary          *string           `json:"summary"`
+	Status           *string           `json:"status"`
+	WorkingDirectory string            `json:"cwd"`
+	Branch           *string           `json:"branch"`
+	EditedFileCount  int               `json:"editedFileCount"`
+	DurationMs       *int              `json:"durationMs"`
+	Usage            []ModelUsage      `json:"usage"`
+	CostMicroUSD     int64             `json:"costMicroUsd"`
+	UnpricedModels   []string          `json:"unpricedModels"`
+	Subagents        []Subagent        `json:"subagents"`
+	StartedAtMs      int64             `json:"startedAtMs"`
+	LastActivityAtMs int64             `json:"lastActivityAtMs"`
+	Entrypoint       *string           `json:"entrypoint"`
+	Model            *string           `json:"model"`
+	ContextTokens    *int              `json:"contextTokens"`
+	ContextWindow    *int              `json:"contextWindow"`
+	Turns            int               `json:"turns"`
+	ToolUses         int               `json:"toolUses"`
+	Errors           int               `json:"errors"`
+	Compactions      int               `json:"compactions"`
+	FirstPrompt      *string           `json:"firstPrompt"`
+	Commands         []string          `json:"commands"`
+	Commits          []string          `json:"commits"`
+	CommitSHAs       []string          `json:"commitShas"`
+	PullRequests     int               `json:"pullRequests"`
+	Todos            []Todo            `json:"todos"`
+	Digest           []DigestEntry     `json:"digest"`
+	FileEdits        []FileEdit        `json:"fileEdits"`
+	Synthesis        *SessionSynthesis `json:"synthesis"`
+	SynthesisPending bool              `json:"synthesisPending"`
+	DeclaredGoal     *string           `json:"declaredGoal"`
 }
 
 type ModelUsage struct {
@@ -138,12 +134,6 @@ type FileChange struct {
 	Deletions int    `json:"deletions"`
 	ByteCount int    `json:"byteCount"`
 	SHA256    string `json:"sha256"`
-}
-
-type GitDrift struct {
-	BaseBranch string `json:"baseBranch"`
-	Ahead      int    `json:"ahead"`
-	Behind     int    `json:"behind"`
 }
 
 type SessionSynthesis struct {
@@ -263,7 +253,7 @@ func validate(record Record, requireRevision bool) error {
 		return fmt.Errorf("%w: invalid session counts or time", ErrInvalid)
 	}
 	if !stringsValid(s.WorkingDirectory, stringValue(s.Name), stringValue(s.Summary), stringValue(s.Status),
-		stringValue(s.Branch), stringValue(s.Repository), stringValue(s.Entrypoint), stringValue(s.Model),
+		stringValue(s.Branch), stringValue(s.Entrypoint), stringValue(s.Model),
 		stringValue(s.FirstPrompt), stringValue(s.DeclaredGoal)) {
 		return fmt.Errorf("%w: invalid session text", ErrInvalid)
 	}
@@ -332,12 +322,6 @@ func validate(record Record, requireRevision bool) error {
 			}
 			seenSubagentModels[usage.Model] = true
 		}
-	}
-	if s.Git != nil && (!stringsValid(s.Git.BaseBranch) || !nonnegative(s.Git.Ahead, s.Git.Behind)) {
-		return fmt.Errorf("%w: invalid git drift", ErrInvalid)
-	}
-	if s.LastEditAtMs != nil && *s.LastEditAtMs < 0 {
-		return fmt.Errorf("%w: invalid last edit time", ErrInvalid)
 	}
 	if s.Synthesis != nil && (!stringSliceValid(s.Synthesis.Goals) || !stringSliceValid(s.Synthesis.KeyDecisions) ||
 		!stringsValid(s.Synthesis.Outcome, s.Synthesis.NextStep)) {

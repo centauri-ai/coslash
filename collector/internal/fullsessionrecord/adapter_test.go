@@ -44,8 +44,9 @@ func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
 func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 	decisions := map[string]string{
 		"Agent": "record envelope", "ID": "record envelope", "Name": "included", "Summary": "included",
-		"Status": "included", "WorkingDirectory": "included", "Branch": "included", "Repository": "included",
-		"RepositoryLocalOnly": "included", "EditedFileCount": "included", "DurationMs": "included", "Tokens": "included",
+		"Status": "included", "WorkingDirectory": "included", "Branch": "parser or portable metadata only",
+		"Repository": "excluded local filesystem enrichment", "RepositoryLocalOnly": "excluded local filesystem enrichment",
+		"EditedFileCount": "included", "DurationMs": "included", "Tokens": "included",
 		"Cost": "included", "UnpricedModels": "included", "Subagents": "included", "StartedAt": "included",
 		"LastActivityTime": "included", "Entrypoint": "included", "CommitLog": "parser-only source observation",
 		"SessionDetails": "included field-by-field",
@@ -65,8 +66,8 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 		"Model": "included", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
 		"ToolUses": "included", "Errors": "included", "Compactions": "included", "FirstPrompt": "included",
 		"Commands": "included", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included",
-		"Todos": "included", "Digest": "included", "FileEdits": "included with bodies", "Git": "included",
-		"GitProbed": "runtime probe marker", "LastEditAt": "included", "Synthesis": "included",
+		"Todos": "included", "Digest": "included", "FileEdits": "included with bodies", "Git": "excluded local filesystem enrichment",
+		"GitProbed": "runtime probe marker", "LastEditAt": "excluded local filesystem enrichment", "Synthesis": "included",
 		"SynthesisPending": "included", "DeclaredGoal": "included", "CompactionSeed": "parser-only composition seed",
 	}
 	detailsType := reflect.TypeOf(session.SessionDetails{})

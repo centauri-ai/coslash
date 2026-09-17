@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
@@ -14,6 +15,21 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func rebindSnapshotSource(t *testing.T, snapshot CachedSnapshotV2, sourceID string) CachedSnapshotV2 {
+	t.Helper()
+	snapshot.SourceID = sourceID
+	for index := range snapshot.FullRecords {
+		record := snapshot.FullRecords[index].Record
+		record.SourceID = sourceID
+		frozen, err := fullsessionv1.Freeze(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot.FullRecords[index].Record = frozen
+	}
+	return snapshot
+}
 
 func validFamily(t *testing.T, familyID string) remotefacts.Family {
 	t.Helper()
@@ -98,6 +114,45 @@ func TestCacheV2SeparatesBodiesAndFallsBackToPreviousCompleteGeneration(t *testi
 	}
 	if loaded.BaselineID != "generation-1" || loaded.FullRecords[0].Record.Session.FileEdits[0].Changes[0].Text != "first body\n" {
 		t.Fatalf("fallback generation = %#v", loaded)
+	}
+}
+
+func TestCacheV2RejectsMismatchedCurrentSourceAndFallsBackToPrevious(t *testing.T) {
+	root := t.TempDir()
+	cache := NewCache(root)
+	const sourceA = "r_aaaaaaaaaaaaaaaa"
+	const sourceB = "r_bbbbbbbbbbbbbbbb"
+
+	previousB := rebindSnapshotSource(t, completeCodexSnapshot(t, "b-previous", "previous B\n"), sourceB)
+	if err := cache.StoreV2(sourceB, previousB); err != nil {
+		t.Fatal(err)
+	}
+	currentB := rebindSnapshotSource(t, completeCodexSnapshot(t, "b-current", "current B\n"), sourceB)
+	if err := cache.StoreV2(sourceB, currentB); err != nil {
+		t.Fatal(err)
+	}
+
+	currentA := rebindSnapshotSource(t, completeCodexSnapshot(t, "a-current", "source A\n"), sourceA)
+	if err := cache.StoreV2(sourceA, currentA); err != nil {
+		t.Fatal(err)
+	}
+	pathA, _ := cache.snapshotV2Path(sourceA)
+	pathB, _ := cache.snapshotV2Path(sourceB)
+	dataA, err := os.ReadFile(pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathB, dataA, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, ok, err := cache.LoadV2(sourceB)
+	if err != nil || !ok {
+		t.Fatalf("LoadV2 fallback: ok=%v err=%v", ok, err)
+	}
+	if loaded.SourceID != sourceB || loaded.BaselineID != "b-previous" ||
+		loaded.FullRecords[0].Record.SourceID != sourceB {
+		t.Fatalf("loaded mismatched source generation: %#v", loaded)
 	}
 }
 

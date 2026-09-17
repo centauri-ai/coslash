@@ -163,7 +163,7 @@ func TestCompleteInventoryAuthorizesDeletion(t *testing.T) {
 	}
 }
 
-func TestChangedFamilyPublishesBeforeRequestCompletionAndFailedReplacementStaysGood(t *testing.T) {
+func TestChangedFamilyProposalIsNotACompletedGeneration(t *testing.T) {
 	r := request()
 	baseline := Generation{BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "old"}: {Facts: family(), Fingerprint: "old"}}}
 	a, _ := NewAccumulator(r, baseline)
@@ -183,6 +183,9 @@ func TestChangedFamilyPublishesBeforeRequestCompletionAndFailedReplacementStaysG
 	}
 	if got := a.Proposal().Families[FamilyKey{"codex", "old"}].Facts.State; got != remotefacts.StateComplete {
 		t.Fatalf("skip mutated last-good facts state to %q", got)
+	}
+	if a.Proposal().RequestComplete {
+		t.Fatal("proposal became publishable without request_complete")
 	}
 }
 

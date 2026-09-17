@@ -49,6 +49,7 @@ func fromGeneration(
 		Version: cacheV2Version, SourceID: gen.SourceID, BaselineID: gen.BaselineID, CoverageSinceMs: gen.CoverageSinceMs,
 		Coverage:    coverage,
 		FetchedAtMs: fetchedAtMs, RoundTripMs: roundTripMs, CodexHeaders: codexHeaders,
+		RequestComplete: gen.RequestComplete,
 	}
 	for _, full := range gen.FullRecords {
 		snapshot.FullRecords = append(snapshot.FullRecords, full)

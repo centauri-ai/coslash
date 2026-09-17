@@ -746,6 +746,12 @@ func (manager *Manager) runRefresh(
 		manager.applyFailureLocked(reason, diagnostic)
 		return
 	}
+	if !result.Snapshot.RequestComplete {
+		manager.transport = transportFor(helper)
+		manager.metrics = metricsFor(result)
+		manager.applyFailureLocked(ReasonPartialAgentData, "")
+		return
+	}
 	if reason := limitedResultReason(result); reason != nil {
 		manager.transport = transportFor(helper)
 		manager.metrics = metricsFor(result)
@@ -798,6 +804,12 @@ func (manager *Manager) publishSnapshotLocked(result refreshOutcome, fetchedAt i
 }
 
 func (manager *Manager) applyLimitedLocked(result refreshOutcome, reason Reason, fetchedAt int64) {
+	if !result.Snapshot.RequestComplete {
+		// A limited but incomplete proposal can contain whole, individually valid
+		// records. It still cannot replace the last complete generation.
+		manager.applyFailureLocked(reason, "")
+		return
+	}
 	if !manager.publishSnapshotLocked(result, fetchedAt) {
 		return
 	}
