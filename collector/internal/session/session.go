@@ -85,11 +85,12 @@ type DigestEntry struct {
 }
 
 type FileEdit struct {
-	Path      string `json:"path"`
-	Additions int    `json:"adds"`
-	Deletions int    `json:"dels"`
-	Edits     int    `json:"edits"`
-	IsNew     bool   `json:"isNew"`
+	Path      string   `json:"path"`
+	Additions int      `json:"adds"`
+	Deletions int      `json:"dels"`
+	Edits     int      `json:"edits"`
+	IsNew     bool     `json:"isNew"`
+	ChangeIDs []string `json:"changeIds,omitempty"`
 	changes   []FileChange
 }
 

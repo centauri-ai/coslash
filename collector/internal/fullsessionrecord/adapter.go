@@ -188,17 +188,20 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 	}
 	for _, item := range record.Session.FileEdits {
 		var changes []session.FileChange
+		var changeIDs []string
 		if item.Changes != nil {
 			changes = make([]session.FileChange, 0, len(item.Changes))
+			changeIDs = make([]string, 0, len(item.Changes))
 		}
 		for _, change := range item.Changes {
+			changeIDs = append(changeIDs, change.ID)
 			changes = append(changes, session.FileChange{
 				ID: change.ID, Kind: change.Kind, Text: change.Text, Operation: change.Operation,
 				Additions: change.Additions, Deletions: change.Deletions,
 			})
 		}
-		value.FileEdits = append(value.FileEdits, session.FileEditWithChanges(
-			item.Path, item.Additions, item.Deletions, item.Edits, item.IsNew, changes,
+		value.FileEdits = append(value.FileEdits, session.FileEditWithIdentifiedChanges(
+			item.Path, item.Additions, item.Deletions, item.Edits, item.IsNew, changeIDs, changes,
 		))
 	}
 	if record.Session.Synthesis != nil {

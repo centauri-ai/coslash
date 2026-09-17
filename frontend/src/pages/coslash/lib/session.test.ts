@@ -57,6 +57,7 @@ describe('withLocalSourceDefaults', () => {
       sourceClass: 'local',
       logicalSessionId: 'local:codex:abc',
       revision: 0,
+      detailRevision: '0',
       completion: 'complete',
       privacy: 'shareable',
       shareEligibility: 'eligible',

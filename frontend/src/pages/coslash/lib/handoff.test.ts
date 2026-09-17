@@ -16,6 +16,7 @@ function remoteDetail(): SessionDetail {
   return {
     sourceId: 'r_0123456789abcdef',
     sourceLabel: 'gpu-server',
+    detailRevision: 'a'.repeat(64),
     eligibleForAggregates: true,
     displayStale: false,
     agent: 'codex',
