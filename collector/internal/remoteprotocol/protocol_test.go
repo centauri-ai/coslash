@@ -2,6 +2,7 @@ package remoteprotocol
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -103,6 +104,10 @@ func TestChangedCodexFamilyAcceptsDescendantFullRecords(t *testing.T) {
 	if err := validateRecord(record, r, 2); err != nil {
 		t.Fatalf("descendant full records rejected: %v", err)
 	}
+	record.FullRecords = record.FullRecords[:1]
+	if err := validateRecord(record, r, 2); err == nil {
+		t.Fatal("accepted a changed family missing its descendant full record")
+	}
 }
 
 func family() remotefacts.Family {
@@ -125,6 +130,41 @@ func TestBuildRequestOverflowUsesNoBaselineWithoutPartialFingerprints(t *testing
 	}
 	if got.BaselineMode != BaselineNone || got.BaselineID != "" || len(got.Known) != 0 {
 		t.Fatalf("overflow request = %#v", got)
+	}
+}
+
+func TestBuildRequestUsesExactFramedWireSize(t *testing.T) {
+	r := request()
+	known := []KnownFamily{}
+	foundWireOnlyOverflow := false
+	for index := 0; index < MaxKnownFamilies; index++ {
+		known = append(known, KnownFamily{
+			Vendor: "codex", FamilyID: fmt.Sprintf("f%04d%s", index, strings.Repeat("&", 180)), Fingerprint: "fp",
+		})
+		candidate := r
+		candidate.Known = known
+		candidate.BaselineMode = BaselineKnown
+		if encodedSize(candidate) <= MaxRequestBytes && requestWireSize(candidate) > MaxRequestBytes {
+			foundWireOnlyOverflow = true
+			break
+		}
+	}
+	if !foundWireOnlyOverflow {
+		t.Fatal("test data did not distinguish canonical and request wire sizes")
+	}
+	got, err := BuildRequest(r, known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BaselineMode != BaselineNone || got.BaselineID != "" || len(got.Known) != 0 {
+		t.Fatalf("wire-overflow request retained baseline: %#v", got)
+	}
+	payload, err := EncodeRequest(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) > MaxRequestBytes || payload[len(payload)-1] != '\n' {
+		t.Fatalf("encoded request has invalid framing or size: %d", len(payload))
 	}
 }
 

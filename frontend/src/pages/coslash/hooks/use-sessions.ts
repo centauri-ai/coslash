@@ -13,6 +13,7 @@ import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-windo
 
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
+const ACTIVE_REVIEW_REFRESH_INTERVAL_MS = 3_000;
 function remoteRefreshInProgress(machines: MachineFact[]) {
   return machines.some(
     (machine) =>
@@ -203,8 +204,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     let authenticationFailed = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const scheduleRefresh = () => {
-      refreshTimer = setTimeout(() => load(true), REFRESH_INTERVAL_MS);
+    const scheduleRefresh = (delay = REFRESH_INTERVAL_MS) => {
+      refreshTimer = setTimeout(() => load(true), delay);
     };
 
     const load = (background: boolean) => {
@@ -232,7 +233,11 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
           setLoadError(null);
-          scheduleRefresh();
+          scheduleRefresh(
+            payload.sessions.some(({ reviewPending }) => reviewPending)
+              ? ACTIVE_REVIEW_REFRESH_INTERVAL_MS
+              : REFRESH_INTERVAL_MS,
+          );
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
@@ -287,6 +292,8 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     setRetryCount((key) => key + 1);
   };
 
+  const refreshSessions = () => setRetryCount((key) => key + 1);
+
   return {
     sessions,
     machines,
@@ -294,5 +301,6 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     loadError,
     sessionsVersion,
     retrySessions,
+    refreshSessions,
   };
 }

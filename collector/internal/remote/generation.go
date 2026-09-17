@@ -166,13 +166,17 @@ func snapshotOrEmpty(snapshot *CachedSnapshotV2) CachedSnapshotV2 {
 	copy := *snapshot
 	copy.Families = append([]CachedFamilyV2(nil), snapshot.Families...)
 	copy.FullRecords = append([]remoteprotocol.FullRecord(nil), snapshot.FullRecords...)
-	complete := map[remoteprotocol.FullRecordKey]bool{}
+	complete := map[remoteprotocol.FamilyKey]map[string]bool{}
 	for _, full := range copy.FullRecords {
-		complete[remoteprotocol.FullRecordKey{Vendor: full.Record.Agent, SessionID: full.Record.SessionID}] = true
+		key := remoteprotocol.FamilyKey{Vendor: full.Record.Agent, FamilyID: full.FamilyID}
+		if complete[key] == nil {
+			complete[key] = map[string]bool{}
+		}
+		complete[key][full.Record.SessionID] = true
 	}
 	for index := range copy.Families {
 		family := &copy.Families[index]
-		if family.Vendor == vendors.AgentCodex && !complete[remoteprotocol.FullRecordKey{Vendor: family.Vendor, SessionID: family.FamilyID}] {
+		if family.Vendor == vendors.AgentCodex && !completeFamilyRecords(family.Facts, complete[remoteprotocol.FamilyKey{Vendor: family.Vendor, FamilyID: family.FamilyID}]) {
 			// Preserve the legacy family as last-good display data, but make its
 			// comparison fingerprint impossible to equal the remote fingerprint.
 			// Both transports will therefore replace it with a complete record.
@@ -183,6 +187,18 @@ func snapshotOrEmpty(snapshot *CachedSnapshotV2) CachedSnapshotV2 {
 	}
 	copy.Version = cacheV2Version
 	return copy
+}
+
+func completeFamilyRecords(family remotefacts.Family, records map[string]bool) bool {
+	if len(records) != len(family.Sessions) {
+		return false
+	}
+	for _, item := range family.Sessions {
+		if !records[item.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 func baselineFamilies(snapshot CachedSnapshotV2, vendor string) map[string]CachedFamilyV2 {

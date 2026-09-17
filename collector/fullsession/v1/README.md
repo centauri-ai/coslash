@@ -110,7 +110,7 @@ field-parity decision; schema support alone does not claim producer coverage.
 | Subagent identity, task/result, commands, usage, and cost | Codex family composition | Typed `subagents` list | Ordered value equality |
 | File-edit summaries | Codex file-edit accumulator | Typed `fileEdits` rows | Ordered value equality |
 | File-change kind, operation, counts, and exact text | Codex file-edit accumulator | Change metadata in the record row; text in cache `changeBodies` | Per-body byte count/hash and exact read assertion |
-| Repository identity/local-only flag, filesystem fallback branch, Git drift, and last-edit time | Excluded local filesystem enrichment | No v1 field | Schema inventory and three-path equality test |
+| Repository identity/local-only flag, filesystem fallback branch, Git drift, last-edit time, and transient local review state | Excluded local/runtime enrichment | No v1 field | Schema inventory and three-path equality test |
 | Raw transcript rows and SSH/coSlash configuration | Excluded | No representation | Reflection/fixture review and transport allow-list |
 
 Local UI composition may add repository identity, a fallback branch, Git

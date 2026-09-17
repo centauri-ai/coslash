@@ -190,6 +190,57 @@ func TestPublishCodexFamilyWithoutSourceIDOmitsFullRecord(t *testing.T) {
 	}
 }
 
+func TestPublishCodexFamilyOverRecordLimitEmitsStructuredSkip(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".codex", "sessions", "transcript.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("row\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := OpenSource(home, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	info, err := source.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := sftpCompatibleFingerprint(vendors.FileFingerprint{Key: "opaque", Size: info.Size(), ModifiedAtMs: info.ModTime().UnixMilli()})
+	item := &family{id: "root", files: []string{path}, sessionIDs: []string{"root"}, fingerprints: []vendors.FileFingerprint{fingerprint}, fingerprint: "new"}
+	scanned := &vendorScan{
+		vendor: vendors.AgentCodex, source: source, metadata: vendors.EmptySessionMetadata(),
+		fileFacts: map[string]vendors.FileFingerprint{path: fingerprint},
+	}
+	large := strings.Repeat("x", 8<<10)
+	parsed := []*vendors.ParsedSession{{Session: &session.Session{
+		Agent: vendors.AgentCodex, ID: "root", StartedAt: 1, LastActivityTime: 2,
+		Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{FirstPrompt: &large},
+	}}}
+	request := validRequest()
+	request.SourceID = "r_0123456789abcdef"
+	request.Limits.MaxRecordBytes = 2 << 10
+	var output bytes.Buffer
+	emitter := newEmitter(&output, request)
+	if err := emitter.handshake(); err != nil {
+		t.Fatal(err)
+	}
+	counts := remoteprotocol.Counts{}
+	if _, err := publishFamily(emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
+	var record remoteprotocol.Record
+	if err := json.Unmarshal(lines[len(lines)-1], &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Type != remoteprotocol.RecordSkipped || record.Reason != remotefacts.StaleReasonVendorBudgetExceeded || counts.SkippedFamilies != 1 {
+		t.Fatalf("oversized family result = %#v counts=%#v", record, counts)
+	}
+}
+
 func TestCollectWithSkippedFamilyWithholdsCompletion(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".codex", "sessions")

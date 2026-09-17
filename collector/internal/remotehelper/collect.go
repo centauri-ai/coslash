@@ -341,10 +341,18 @@ func publishFamily(
 		if request.BaselineMode == remoteprotocol.BaselineKnown {
 			prior = known[item.id]
 		}
-		emitErr := emitter.emit(remoteprotocol.Record{
+		changedRecord := remoteprotocol.Record{
 			Type: remoteprotocol.RecordChanged, Vendor: scanned.vendor, FamilyID: item.id,
 			PriorFingerprint: prior, Fingerprint: item.fingerprint, Family: &facts, FullRecords: fullRecords,
-		})
+		}
+		fits, fitErr := emitter.recordFits(changedRecord)
+		if fitErr != nil {
+			return parser, fitErr
+		}
+		if !fits {
+			return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonVendorBudgetExceeded)
+		}
+		emitErr := emitter.emit(changedRecord)
 		if emitErr != nil {
 			return parser, emitErr
 		}

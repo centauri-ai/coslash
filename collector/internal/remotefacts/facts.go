@@ -594,6 +594,8 @@ func (f Family) Parsed() ([]*vendors.ParsedSession, *vendors.SessionMetadata, er
 }
 
 func cloneDisplay(value session.Session) (*session.Session, error) {
+	value.ReviewPending = false
+	value.ReviewError = ""
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return nil, err

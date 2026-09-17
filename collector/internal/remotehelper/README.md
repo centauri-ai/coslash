@@ -58,6 +58,12 @@ optimisation, not proof of immutability: after parsing, every file is re-stated,
 and a family whose files moved is re-parsed up to twice before it is reported
 skipped with a structured reason.
 
+One changed-family line carries the bounded display facts and exactly one
+complete record for every session in that family. The helper measures the whole
+line with the same wire encoder used for output. If the aggregate cannot fit the
+negotiated per-record limit, it emits a `vendor_budget_exceeded` skip and
+withholds completion; it never publishes only the root or another subset.
+
 Families outside the requested window are neither confirmed nor replaced. Their
 absence from a response is never deletion, and the inventory still proves they
 exist.

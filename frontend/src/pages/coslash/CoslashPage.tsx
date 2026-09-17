@@ -45,6 +45,7 @@ import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { machinesForSourceFilter, type MachineFact } from '@/pages/coslash/lib/machines';
 import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
+import { buildReviewIndex, type ReviewerOption } from '@/pages/coslash/lib/review';
 import {
   getSessionVendors,
   isLocalSession,
@@ -224,6 +225,9 @@ function CoslashContent({
   diagnosticsLoading,
   diagnosticsLoadFailed,
   onRefreshDiagnostics,
+  allSessions,
+  reviewerOptions,
+  onReviewStarted,
 }: {
   loadError: string | null;
   onRetry: () => void;
@@ -238,7 +242,11 @@ function CoslashContent({
   diagnosticsLoading: boolean;
   diagnosticsLoadFailed: boolean;
   onRefreshDiagnostics: () => void;
+  allSessions: Session[];
+  reviewerOptions: readonly ReviewerOption[];
+  onReviewStarted: () => void;
 }) {
+  const reviewIndex = useMemo(() => buildReviewIndex(allSessions), [allSessions]);
   if (loadError != null) {
     return (
       <div role="alert" className="text-destructive bg-background grid h-full place-items-center text-sm">
@@ -283,6 +291,7 @@ function CoslashContent({
           sessions={visibleSessions}
           onSelectSession={onSelectSession}
           showMachineBadge={showMachineBadge}
+          review={{ index: reviewIndex, reviewerOptions, onStarted: onReviewStarted }}
         />
       ) : (
         <div className="bg-background flex flex-col gap-4 px-4 py-2">
@@ -292,6 +301,12 @@ function CoslashContent({
               session={session}
               onClick={() => onSelectSession(session)}
               showMachineBadge={showMachineBadge}
+              reviewerOptions={reviewerOptions}
+              reviewLink={reviewIndex.links.get(sessionKey(session))}
+              isReview={reviewIndex.reviewSessions.has(sessionKey(session))}
+              reviewActive={session.reviewPending || reviewIndex.activeOrigins.has(sessionKey(session))}
+              onReviewStarted={onReviewStarted}
+              onSelectRelated={onSelectSession}
             />
           ))}
         </div>
@@ -308,10 +323,11 @@ export function CoslashPage() {
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
-  const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions } = useSessions({
-    localWindow: shareEnabled ? 'all' : timeWindow,
-    remoteWindow: timeWindow,
-  });
+  const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
+    useSessions({
+      localWindow: shareEnabled ? 'all' : timeWindow,
+      remoteWindow: timeWindow,
+    });
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
   const {
@@ -554,6 +570,9 @@ export function CoslashPage() {
               diagnosticsLoading={diagnosticsLoading}
               diagnosticsLoadFailed={diagnosticsLoadFailed}
               onRefreshDiagnostics={refreshFirstRun}
+              allSessions={librarySessions}
+              reviewerOptions={settingsState.response?.options.reviewers ?? []}
+              onReviewStarted={refreshSessions}
             />
           </LoadingSpinner>
         </div>

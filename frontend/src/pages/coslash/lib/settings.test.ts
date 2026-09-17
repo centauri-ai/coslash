@@ -1,12 +1,49 @@
 import { describe, expect, it } from 'vitest';
 import {
   availableSynthesisBackends,
+  decodeSettingsResponse,
   initialSettingsDraft,
   settingsForSave,
   type BackendOption,
   type CoslashSettings,
   type SettingsResponse,
 } from '@/pages/coslash/lib/settings';
+
+it('decodes installed reviewer options', () => {
+  const response = decodeSettingsResponse({
+    settings: {
+      $schema: 'x',
+      version: 1,
+      synthesis: { enabled: false, backend: '', model: '' },
+      appearance: { theme: 'light' },
+      launch: { terminal: 'Terminal' },
+    },
+    persisted: true,
+    valid: true,
+    options: {
+      synthesisBackends: [],
+      terminals: [],
+      reviewers: [{ id: 'codex', label: 'Codex', available: true }],
+    },
+  });
+  expect(response.options.reviewers).toEqual([{ id: 'codex', label: 'Codex', available: true }]);
+});
+
+it('defaults missing reviewer options for older servers', () => {
+  const response = decodeSettingsResponse({
+    settings: {
+      $schema: 'x',
+      version: 1,
+      synthesis: { enabled: false, backend: '', model: '' },
+      appearance: { theme: 'light' },
+      launch: { terminal: 'Terminal' },
+    },
+    persisted: true,
+    valid: true,
+    options: { synthesisBackends: [], terminals: [] },
+  });
+  expect(response.options.reviewers).toEqual([]);
+});
 
 function backend(id: string, available: boolean): BackendOption {
   return { id, label: id, models: [], available };
@@ -45,6 +82,7 @@ describe('initialSettingsDraft', () => {
           },
         ],
         terminals: [],
+        reviewers: [],
       },
     };
 

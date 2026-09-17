@@ -16,6 +16,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
+	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
@@ -73,6 +74,7 @@ func handleList(
 	w http.ResponseWriter,
 	r *http.Request,
 	mgr *synthesis.Manager,
+	reviewManager *reviewpkg.Manager,
 	remoteManager *remote.Manager,
 ) {
 	since, err := parseSince(r.URL.Query().Get("since"))
@@ -96,6 +98,9 @@ func handleList(
 	}
 	for _, session := range sessions {
 		session.Synthesis = mgr.Lookup(session.ID, session.LastActivityTime)
+		state := reviewManager.Status(reviewpkg.Key(session.Agent, session.ID))
+		session.ReviewPending = state.Pending
+		session.ReviewError = state.Error
 	}
 	if r.URL.Query().Get("sourceAware") != "1" {
 		writeJSON(w, sessions)
@@ -376,6 +381,67 @@ func openRemoteTerminalWithHandoff(
 	return nil
 }
 
+type reviewStarter func(string, reviewpkg.Launch) bool
+
+func handleReview(
+	w http.ResponseWriter,
+	r *http.Request,
+	settingsStore *settings.Store,
+	getSession func(string, string) (*session.Session, error),
+	reviewerAvailable func(string) bool,
+	startReview reviewStarter,
+) {
+	state := settingsStore.State()
+	if !state.Valid {
+		log.Printf("review settings: %s", state.Error)
+		http.Error(w, "settings are invalid; open Settings to repair them", http.StatusConflict)
+		return
+	}
+	query := r.URL.Query()
+	if query.Get("source") != localSourceID {
+		http.Error(w, "reviews require a local session", http.StatusBadRequest)
+		return
+	}
+	reviewer := query.Get("reviewer")
+	if !reviewerAvailable(reviewer) {
+		http.Error(w, "reviewer is not installed or supported", http.StatusBadRequest)
+		return
+	}
+	originAgent := query.Get("agent")
+	if originAgent == "" {
+		http.Error(w, "origin agent is required", http.StatusBadRequest)
+		return
+	}
+	found, err := getSession(originAgent, query.Get("id"))
+	if err != nil {
+		log.Printf("review: %v", err)
+		http.Error(w, "could not load session", http.StatusInternalServerError)
+		return
+	}
+	if found == nil || found.Agent != originAgent {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	if found.WorkingDirectory == "" {
+		http.Error(w, "session has no working directory", http.StatusConflict)
+		return
+	}
+	originName := ""
+	if found.Name != nil {
+		originName = *found.Name
+	}
+	name := reviewpkg.Name(originName, found.ID)
+	prompt := reviewpkg.Prompt(found)
+	if !startReview(reviewpkg.Key(found.Agent, found.ID), reviewpkg.Launch{
+		Reviewer: reviewer, WorkingDirectory: found.WorkingDirectory, Name: name, Prompt: prompt,
+	}) {
+		http.Error(w, "review already running", http.StatusConflict)
+		return
+	}
+	log.Printf("review: %s with %s", found.ID, reviewer)
+	w.WriteHeader(http.StatusAccepted)
+}
+
 const maxSettingsBytes = 64 * 1024
 
 type availableBackend struct {
@@ -388,6 +454,12 @@ type availableTerminal struct {
 	Available bool `json:"available"`
 }
 
+type availableReviewer struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Available bool   `json:"available"`
+}
+
 type settingsResponse struct {
 	Settings  settings.Config `json:"settings"`
 	Persisted bool            `json:"persisted"`
@@ -396,6 +468,7 @@ type settingsResponse struct {
 	Options   struct {
 		SynthesisBackends []availableBackend  `json:"synthesisBackends"`
 		Terminals         []availableTerminal `json:"terminals"`
+		Reviewers         []availableReviewer `json:"reviewers"`
 	} `json:"options"`
 }
 
@@ -424,6 +497,11 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 		response.Options.Terminals = append(response.Options.Terminals, availableTerminal{
 			TerminalOption: option,
 			Available:      launch.Available(option.ID),
+		})
+	}
+	for _, option := range launch.ReviewerOptions() {
+		response.Options.Reviewers = append(response.Options.Reviewers, availableReviewer{
+			ID: option.ID, Label: option.Label, Available: launch.ReviewerAvailable(option.ID),
 		})
 	}
 	writeJSON(w, response)
