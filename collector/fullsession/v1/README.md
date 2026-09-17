@@ -16,6 +16,10 @@ exact read identity. `revisionId` is SHA-256 over canonical JSON with an empty
 revision field. Each change body independently declares its UTF-8 byte count
 and SHA-256.
 
+Every family member has its own complete record. `parentSessionId` is empty for
+a root and identifies the direct parent for a child, preserving descendants
+without reducing child sessions to the display-oriented `subagents` list.
+
 ## Canonical JSON
 
 Canonical records use UTF-8 without a BOM, insignificant whitespace, or a
@@ -26,7 +30,7 @@ lowercase JSON literals.
 
 Object members occur in the following order:
 
-- Record: `schemaVersion`, `sourceId`, `agent`, `sessionId`, `revisionId`, `session`.
+- Record: `schemaVersion`, `sourceId`, `agent`, `sessionId`, `parentSessionId`, `revisionId`, `session`.
 - Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, `commits`, `commitShas`, `pullRequests`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
 - Model usage: `model`, `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
 - Subagent: `id`, `name`, `model`, `status`, `task`, `result`, `durationMs`, `spawnedAtTurn`, `toolUses`, `commands`, `usage`, `costMicroUsd`; a subagent command uses `label`, `command`.

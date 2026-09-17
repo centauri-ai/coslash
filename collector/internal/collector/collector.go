@@ -284,16 +284,38 @@ func ListRemote(
 	collections map[string]vendors.RemoteCollection,
 	since int64,
 ) []*session.Session {
-	return listRemote(source, collections, since, false)
+	return listRemote(source, collections, since, false, true)
 }
 
-// ComposePortable returns complete transcript-backed sessions for immutable
-// records. Unlike ListRemote's display projection, child text is not truncated.
+type PortableSession struct {
+	ParentSessionID string
+	Session         *session.Session
+}
+
+// ComposePortable returns every complete transcript-backed family member for
+// immutable records. Unlike ListRemote's display projection, child text is not
+// truncated and live status is not applied.
 func ComposePortable(
 	source vendors.ReadSource,
 	collections map[string]vendors.RemoteCollection,
-) []*session.Session {
-	return listRemote(source, collections, 0, true)
+) []PortableSession {
+	parsed, metadata := remoteInputs(collections)
+	roots := servableRoots(finalizeSessionsSource(parsed, metadata, source, false, false, true))
+	rootKeys := make(map[sessionKey]bool, len(roots))
+	byKey := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
+	for _, root := range roots {
+		rootKeys[sessionKey{agent: root.Session.Agent, id: root.Session.ID}] = true
+	}
+	for _, item := range parsed {
+		byKey[sessionKey{agent: item.Session.Agent, id: item.Session.ID}] = item
+	}
+	portable := make([]PortableSession, 0, len(parsed))
+	for _, item := range parsed {
+		if belongsToRoot(item, byKey, rootKeys) {
+			portable = append(portable, PortableSession{ParentSessionID: item.ParentID, Session: item.Session})
+		}
+	}
+	return portable
 }
 
 func listRemote(
@@ -301,21 +323,10 @@ func listRemote(
 	collections map[string]vendors.RemoteCollection,
 	since int64,
 	preserveSubagentText bool,
+	useLiveStatus bool,
 ) []*session.Session {
-	parsed := []*vendors.ParsedSession{}
-	metadata := map[string]*vendors.SessionMetadata{}
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
-		collection, ok := collections[agent]
-		if !ok {
-			continue
-		}
-		parsed = append(parsed, collection.Sessions...)
-		metadata[agent] = collection.Metadata
-	}
-	// Portable composition intentionally does not apply local liveness or
-	// filesystem-derived enrichment. The same semantics are used when source is
-	// LocalReadSource so canonical local/helper/SFTP records remain comparable.
-	roots := finalizeSessionsSource(parsed, metadata, source, false, false, preserveSubagentText)
+	parsed, metadata := remoteInputs(collections)
+	roots := finalizeSessionsSource(parsed, metadata, source, useLiveStatus, false, preserveSubagentText)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
 			live := sessionMetadata(metadata, root.Session.Agent).Lookup(root.Session.ID)
@@ -329,6 +340,36 @@ func listRemote(
 		sessions = append(sessions, root.Session)
 	}
 	return sessions
+}
+
+func remoteInputs(collections map[string]vendors.RemoteCollection) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
+	parsed := []*vendors.ParsedSession{}
+	metadata := map[string]*vendors.SessionMetadata{}
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
+		collection, ok := collections[agent]
+		if !ok {
+			continue
+		}
+		parsed = append(parsed, collection.Sessions...)
+		metadata[agent] = collection.Metadata
+	}
+	return parsed, metadata
+}
+
+func belongsToRoot(item *vendors.ParsedSession, byKey map[sessionKey]*vendors.ParsedSession, roots map[sessionKey]bool) bool {
+	seen := map[sessionKey]bool{}
+	for item != nil {
+		key := sessionKey{agent: item.Session.Agent, id: item.Session.ID}
+		if roots[key] {
+			return true
+		}
+		if item.ParentID == "" || seen[key] {
+			return false
+		}
+		seen[key] = true
+		item = byKey[sessionKey{agent: item.Session.Agent, id: item.ParentID}]
+	}
+	return false
 }
 
 func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.Subagent) {

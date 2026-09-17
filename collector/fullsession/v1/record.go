@@ -34,12 +34,13 @@ var (
 )
 
 type Record struct {
-	SchemaVersion string  `json:"schemaVersion"`
-	SourceID      string  `json:"sourceId"`
-	Agent         string  `json:"agent"`
-	SessionID     string  `json:"sessionId"`
-	RevisionID    string  `json:"revisionId"`
-	Session       Session `json:"session"`
+	SchemaVersion   string  `json:"schemaVersion"`
+	SourceID        string  `json:"sourceId"`
+	Agent           string  `json:"agent"`
+	SessionID       string  `json:"sessionId"`
+	ParentSessionID string  `json:"parentSessionId"`
+	RevisionID      string  `json:"revisionId"`
+	Session         Session `json:"session"`
 }
 
 type Session struct {
@@ -262,6 +263,9 @@ func Decode(data []byte) (Record, error) {
 	if len(data) > MaxRecordBytes {
 		return Record{}, ErrOversized
 	}
+	if err := validateCollectionSizes(data); err != nil {
+		return Record{}, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var record Record
@@ -279,6 +283,40 @@ func Decode(data []byte) (Record, error) {
 		return Record{}, fmt.Errorf("%w: non-canonical JSON", ErrInvalid)
 	}
 	return record, nil
+}
+
+func validateCollectionSizes(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	type container struct {
+		kind  json.Delim
+		items int
+	}
+	stack := []container{}
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("%w: decode: %v", ErrInvalid, err)
+		}
+		delim, isDelim := token.(json.Delim)
+		if isDelim && (delim == ']' || delim == '}') {
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			continue
+		}
+		if len(stack) > 0 && stack[len(stack)-1].kind == '[' {
+			stack[len(stack)-1].items++
+			if stack[len(stack)-1].items > MaxItems {
+				return fmt.Errorf("%w: collection exceeds item limit", ErrInvalid)
+			}
+		}
+		if isDelim && (delim == '[' || delim == '{') {
+			stack = append(stack, container{kind: delim})
+		}
+	}
 }
 
 func Validate(record Record) error {
@@ -300,7 +338,8 @@ func Validate(record Record) error {
 
 func validate(record Record, requireRevision bool) error {
 	if record.SchemaVersion != SchemaVersion || !identifier(record.SourceID) ||
-		(record.Agent != "codex" && record.Agent != "claude") || !identifier(record.SessionID) {
+		(record.Agent != "codex" && record.Agent != "claude") || !identifier(record.SessionID) ||
+		(record.ParentSessionID != "" && (!identifier(record.ParentSessionID) || record.ParentSessionID == record.SessionID)) {
 		return fmt.Errorf("%w: invalid envelope", ErrInvalid)
 	}
 	if requireRevision && !digest(record.RevisionID) {
