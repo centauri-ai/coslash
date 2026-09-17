@@ -53,7 +53,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	edits := session.NewFileEditSet()
 	todos := []session.Todo{}
 	todoStatus := map[string]string{}
-	pullRequests := map[string]struct{}{}
 	turns, toolUses, errorsCount := 0, 0, 0
 	firstPrompt, cwd := "", ""
 	startedAt := int64(0)
@@ -61,8 +60,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	inTurn := true
 	stopped := false
 	taskCount := 0
-	pendingQuestion, pendingQuestionTime := "", int64(0)
-	pendingQuestionTurn := 0
 
 	for _, record := range records {
 		if (record.Role == "user" || record.Role == "assistant") && record.Message != nil && len(record.Message.Content) > 0 {
@@ -72,10 +69,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			text := firstText(record.Message.Content)
 			if text == "" {
 				continue
-			}
-			if pendingQuestion != "" {
-				digest.PushQuestion(pendingQuestionTurn, pendingQuestion, "", pendingQuestionTime)
-				pendingQuestion = ""
 			}
 			turns++
 			prompt, timestamp := unwrapUserText(text)
@@ -87,25 +80,10 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 				firstPrompt = prompt
 				category = session.DigestFirstPrompt
 			}
-			if category == session.DigestUser && strings.HasSuffix(strings.TrimSpace(prompt), "?") {
-				pendingQuestion, pendingQuestionTurn, pendingQuestionTime = prompt, turns, timestamp
-			} else {
-				digest.Push(turns, category, prompt, timestamp)
-			}
+			digest.Push(turns, category, prompt, timestamp)
 		}
 		if record.Role == "assistant" && record.Message != nil {
 			for _, block := range record.Message.Content {
-				if block.Type == "text" {
-					if text := strings.TrimSpace(block.Text); text != "" {
-						if pendingQuestion != "" {
-							digest.PushQuestion(pendingQuestionTurn, pendingQuestion, text, pendingQuestionTime)
-							pendingQuestion = ""
-						}
-					}
-					for _, url := range session.PullRequestURLs(block.Text) {
-						pullRequests[url] = struct{}{}
-					}
-				}
 				if block.Type != "tool_use" {
 					continue
 				}
@@ -185,16 +163,12 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			}
 		}
 	}
-	if pendingQuestion != "" {
-		digest.PushQuestion(pendingQuestionTurn, pendingQuestion, "", pendingQuestionTime)
-	}
-
 	if cwd == "" {
 		cwd = commonEditDirectory(edits.Edits)
 	}
 	details := session.SessionDetails{
 		Turns: turns, ToolUses: toolUses, Errors: errorsCount,
-		Commands: commands.Raw(), PullRequests: len(pullRequests), Todos: todos, Digest: digest.Entries(), FileEdits: edits.Edits,
+		Commands: commands.Raw(), Todos: todos, Digest: digest.Entries(), FileEdits: edits.Edits,
 	}
 	if firstPrompt != "" {
 		details.FirstPrompt = &firstPrompt
