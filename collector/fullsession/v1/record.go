@@ -21,6 +21,9 @@ const (
 	MaxTextBytes   = 32 << 20
 	MaxStringBytes = 1 << 20
 	MaxItems       = 100_000
+	// MaxCostMicroUSD is the largest integer micro-USD value guaranteed to
+	// survive the private float64 dollar adapter without losing a micro-dollar.
+	MaxCostMicroUSD int64 = (1<<32)*1_000_000 - 1
 
 	// MaxSessionTimestampMs is the last millisecond representable in year 9999.
 	// Downstream consumers persist these values as PostgreSQL timestamptz, so
@@ -350,6 +353,13 @@ func Validate(record Record) error {
 	if err := validate(record, true); err != nil {
 		return err
 	}
+	canonical, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	if len(canonical) > MaxRecordBytes {
+		return ErrOversized
+	}
 	copy := record
 	copy.RevisionID = ""
 	preimage, err := json.Marshal(copy)
@@ -499,7 +509,7 @@ func validCollectionSizes(s Session) bool {
 }
 
 func validUsage(usage ModelUsage) bool {
-	return stringsValid(usage.Model) && usage.Model != "" && usage.CostMicroUSD >= 0 &&
+	return stringsValid(usage.Model) && usage.Model != "" && validCost(usage.CostMicroUSD) &&
 		nonnegative(usage.InputTokens, usage.OutputTokens, usage.CacheCreationInputTokens,
 			usage.CacheCreation1hInputTokens, usage.CacheReadInputTokens)
 }
@@ -568,5 +578,9 @@ func optionalNonnegative(values ...*int) bool {
 }
 
 func optionalInt64Nonnegative(value *int64) bool {
-	return value == nil || *value >= 0
+	return value == nil || validCost(*value)
+}
+
+func validCost(value int64) bool {
+	return value >= 0 && value <= MaxCostMicroUSD
 }

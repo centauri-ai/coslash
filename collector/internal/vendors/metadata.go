@@ -77,7 +77,7 @@ func ApplySessionEnrichment(parsed *ParsedSession, enrichment *SessionEnrichment
 	}
 	s.PullRequests = max(s.PullRequests, enrichment.PullRequests)
 	if len(enrichment.Usage.Tokens) > 0 {
-		s.Tokens = enrichment.Usage.Tokens
+		s.Tokens = cloneTokens(enrichment.Usage.Tokens)
 	}
 	if enrichment.Usage.ContextTokens != nil {
 		s.ContextTokens = enrichment.Usage.ContextTokens
@@ -88,6 +88,14 @@ func ApplySessionEnrichment(parsed *ParsedSession, enrichment *SessionEnrichment
 	if enrichment.Usage.RecordedCost != nil {
 		parsed.RecordedCost = enrichment.Usage.RecordedCost
 	}
+}
+
+func cloneTokens(source map[string]session.ModelTokens) map[string]session.ModelTokens {
+	cloned := make(map[string]session.ModelTokens, len(source))
+	for model, tokens := range source {
+		cloned[model] = tokens
+	}
+	return cloned
 }
 
 func (m *SessionMetadata) LiveSessions() map[string]string {
