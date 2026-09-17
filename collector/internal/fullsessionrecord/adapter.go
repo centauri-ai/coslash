@@ -35,7 +35,7 @@ func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, 
 		Session: fullsessionv1.Session{
 			Name: cloneString(value.Name), Summary: cloneString(value.Summary), Status: cloneString(value.Status),
 			WorkingDirectory: value.WorkingDirectory, Branch: cloneString(value.Branch), EditedFileCount: value.EditedFileCount,
-			DurationMs: cloneInt(value.DurationMs), CostMicroUSD: micros(value.Cost),
+			DurationMs: cloneInt(value.DurationMs), CostMicroUSD: optionalMicros(value.Cost),
 			UnpricedModels: append([]string{}, value.UnpricedModels...), StartedAtMs: value.StartedAt,
 			LastActivityAtMs: value.LastActivityTime, Entrypoint: cloneString(value.Entrypoint), Model: cloneString(value.Model),
 			ContextTokens: cloneInt(value.ContextTokens), ContextWindow: cloneInt(value.ContextWindow), Turns: value.Turns,
@@ -65,7 +65,7 @@ func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, 
 			ID: value.ID, Name: value.Name, Model: cloneString(value.Model), Status: value.Status,
 			Task: value.Task, Result: value.Result, DurationMs: cloneInt(value.DurationMs),
 			SpawnedAtTurn: cloneInt(value.SpawnedAtTurn), ToolUses: value.ToolUses,
-			CostMicroUSD: micros(value.Cost),
+			CostMicroUSD: optionalMicros(value.Cost),
 		}
 		for _, command := range value.Commands {
 			item.Commands = append(item.Commands, fullsessionv1.SubagentCommand{Label: command.Label, Command: command.Command})
@@ -125,7 +125,7 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		Status: cloneString(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
 		Branch: cloneString(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
 		DurationMs: cloneInt(record.Session.DurationMs), Tokens: map[string]session.ModelTokens{},
-		Cost: dollars(record.Session.CostMicroUSD), UnpricedModels: append([]string{}, record.Session.UnpricedModels...),
+		Cost: optionalDollars(record.Session.CostMicroUSD), UnpricedModels: append([]string{}, record.Session.UnpricedModels...),
 		StartedAt: record.Session.StartedAtMs, LastActivityTime: record.Session.LastActivityAtMs,
 		Entrypoint: cloneString(record.Session.Entrypoint),
 		SessionDetails: session.SessionDetails{
@@ -150,7 +150,7 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		subagent := session.Subagent{
 			ID: item.ID, Name: item.Name, Model: cloneString(item.Model), Status: item.Status, Task: item.Task,
 			Result: item.Result, DurationMs: cloneInt(item.DurationMs), SpawnedAtTurn: cloneInt(item.SpawnedAtTurn),
-			ToolUses: item.ToolUses, Tokens: map[string]session.ModelTokens{}, Cost: dollars(item.CostMicroUSD),
+			ToolUses: item.ToolUses, Tokens: map[string]session.ModelTokens{}, Cost: optionalDollars(item.CostMicroUSD),
 		}
 		for _, command := range item.Commands {
 			subagent.Commands = append(subagent.Commands, session.SubagentCommand{Label: command.Label, Command: command.Command})
@@ -197,6 +197,16 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 
 func micros(value float64) int64  { return int64(math.Round(value * 1_000_000)) }
 func dollars(value int64) float64 { return float64(value) / 1_000_000 }
+func optionalMicros(value *float64) int64 {
+	if value == nil {
+		return 0
+	}
+	return micros(*value)
+}
+func optionalDollars(value int64) *float64 {
+	dollars := dollars(value)
+	return &dollars
+}
 func cloneString(value *string) *string {
 	if value == nil {
 		return nil

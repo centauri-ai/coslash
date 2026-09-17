@@ -14,10 +14,11 @@ func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
 	edits.Add("main.go", 2, 0, false)
 	edits.Write("main.go", "package main\n")
 	name, summary, model := "complete", "summary", "gpt-5"
+	cost := .25
 	original := session.Session{
 		Agent: "codex", ID: "session-1", Name: &name, Summary: &summary,
 		WorkingDirectory: "/workspace", EditedFileCount: 1, StartedAt: 1000, LastActivityTime: 2000,
-		Tokens:    map[string]session.ModelTokens{"gpt-5": {InputTokens: 10, OutputTokens: 5, Cost: .25}},
+		Cost: &cost, Tokens: map[string]session.ModelTokens{"gpt-5": {InputTokens: 10, OutputTokens: 5, Cost: .25}},
 		Subagents: []session.Subagent{}, SessionDetails: session.SessionDetails{
 			Model: &model, Commands: []string{"go test ./..."}, Commits: []string{}, CommitSHAs: []string{},
 			Todos: []session.Todo{}, Digest: []session.DigestEntry{}, FileEdits: edits.Edits,
@@ -32,12 +33,18 @@ func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
 		record.Session.FileEdits[0].Changes[1].Text != "package main\n" {
 		t.Fatalf("ordered changes = %#v", record.Session.FileEdits)
 	}
+	if record.Session.CostMicroUSD != 250_000 {
+		t.Fatalf("cost = %d micro-USD, want 250000", record.Session.CostMicroUSD)
+	}
 	restored, err := ToSession(record)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(restored.FileEdits[0].Changes(), original.FileEdits[0].Changes()) {
 		t.Fatalf("restored changes = %#v, want %#v", restored.FileEdits[0].Changes(), original.FileEdits[0].Changes())
+	}
+	if restored.Cost == nil || *restored.Cost != cost {
+		t.Fatalf("restored cost = %v, want %v", restored.Cost, cost)
 	}
 }
 
