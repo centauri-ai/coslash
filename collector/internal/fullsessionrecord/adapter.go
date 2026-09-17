@@ -197,14 +197,18 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 
 func micros(value float64) int64  { return int64(math.Round(value * 1_000_000)) }
 func dollars(value int64) float64 { return float64(value) / 1_000_000 }
-func optionalMicros(value *float64) int64 {
+func optionalMicros(value *float64) *int64 {
 	if value == nil {
-		return 0
+		return nil
 	}
-	return micros(*value)
+	micros := micros(*value)
+	return &micros
 }
-func optionalDollars(value int64) *float64 {
-	dollars := dollars(value)
+func optionalDollars(value *int64) *float64 {
+	if value == nil {
+		return nil
+	}
+	dollars := dollars(*value)
 	return &dollars
 }
 func cloneString(value *string) *string {
