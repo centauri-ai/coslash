@@ -50,6 +50,9 @@ func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
 	if !reflect.DeepEqual(restored.FileEdits[0].Changes(), wantChanges) {
 		t.Fatalf("restored changes = %#v, want %#v", restored.FileEdits[0].Changes(), wantChanges)
 	}
+	if !reflect.DeepEqual(restored.FileEdits[0].ChangeIDs, []string{"change-000000-000000", "change-000000-000001"}) {
+		t.Fatalf("restored change IDs = %#v", restored.FileEdits[0].ChangeIDs)
+	}
 	if restored.Cost == nil || *restored.Cost != cost {
 		t.Fatalf("restored cost = %v, want %v", restored.Cost, cost)
 	}
@@ -394,9 +397,6 @@ func TestParsedFamilyDoesNotMutateMetadataTokenCosts(t *testing.T) {
 	}
 	if got := metadata.Session("session-1").Usage.Tokens["gpt-5"].Cost; got != 0 {
 		t.Fatalf("metadata model cost mutated to %v", got)
-	}
-	if !reflect.DeepEqual(restored.FileEdits[0].ChangeIDs, []string{"change-000000-000000", "change-000000-000001"}) {
-		t.Fatalf("restored change IDs = %#v", restored.FileEdits[0].ChangeIDs)
 	}
 }
 
