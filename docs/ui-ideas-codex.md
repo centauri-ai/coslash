@@ -2,14 +2,14 @@
 
 Design exploration by Codex · September 10, 2026
 
-## Current revision — Review V2
+## Current revision — Review V2 + competitive-emphasis passes
 
-The user asked me to reflect on Claude's review and revise all three concepts in **new HTML versions**. The current set is [Review V2](ui-mockups/codex/review-v2/index.html); earlier files are preserved for comparison. All three remain light themed.
+The user asked me to reflect on Claude's review and revise all three concepts in **new HTML versions**. The current set is [Review V2](ui-mockups/codex/review-v2/index.html); earlier files are preserved for comparison. All three remain light themed. Quiet List and Workspace Navigator now also carry the September 17 competitive-emphasis pass described below.
 
 | New prototype | Revision driven by the review |
 |---|---|
-| [Quiet list V2](ui-mockups/codex/review-v2/01-quiet-list.html) | A subdued cost column with cost sorting; title-first rows; explicit matched-field excerpts; accurate filter recovery; and a full captured-session inspector for two realistic examples. |
-| [Workspace navigator V2](ui-mockups/codex/review-v2/02-workspace-navigator.html) | Automatically detected repository/folder groups; editable display labels with unchanged membership; first-class No location fallback; Idle and Unknown retained; drawer below 1600px and adjacent preview at wider widths. |
+| [Quiet list V2](ui-mockups/codex/review-v2/01-quiet-list.html) | Title-first rows; explicit matched-field excerpts; accurate filter recovery; a full captured-session inspector; plus vendor and activity pills beside quiet repository context, with machine, readiness, update, and cost kept as aligned columns. |
+| [Workspace navigator V2](ui-mockups/codex/review-v2/02-workspace-navigator.html) | Automatically detected repository/folder groups; editable display labels with unchanged membership; first-class No location fallback; Idle and Unknown retained; plus visible repository/branch usage, fixed vendor and machine columns, and card-level resume readiness. |
 | [Glass Recall V2](ui-mockups/codex/review-v2/03-glass-finder.html) | Outcome shelf stays distinct; curated topic chips become an automatic group selector; estimates and cost sorting remain accessible; missing summaries/files have an honest first-prompt fallback; matched evidence and filter recovery follow the same rules as the other concepts. |
 
 ### Reflection on Claude's feedback
@@ -71,11 +71,17 @@ scan covering all thirteen HTML files, `superseded/` included, found it only the
 It is one click deep. If it is the most defensible of the four surfaces, the open question is whether a
 compact form belongs on the card face or the group header.
 
-### Not yet designed
+### Competitive-emphasis iteration
 
-- A vendor column and a machine column in board view.
-- A cost and token rollup positioned as a differentiator rather than as per-card metadata.
-- Any card-face or group-header form of readiness.
+Two prototypes now test the structural direction above without abandoning their separate retrieval models:
+
+- [Quiet List V2](ui-mockups/codex/review-v2/01-quiet-list.html) keeps the continuous high-density list with a hybrid hierarchy. Vendor and activity return to the original pill treatment; repository and branch remain quiet plain text beside them. Machine, readiness, update time, and cost stay aligned for comparison. A compact current-view band rolls up usage, vendor split, machine split, and readiness counts. Mobile keeps the pills and context beneath the excerpt while cost remains the fixed right-side value.
+- [Workspace Navigator V2](ui-mockups/codex/review-v2/02-workspace-navigator.html) gives vendor and machine fixed columns at the top of each board item, rather than a mixed metadata-pill row.
+- A repository rollup leads with session count, estimated tokens, estimated cost, vendor split, and machine split. Branch usage is a subordinate horizontal strip; cost is no longer repeated on every board card.
+- Resume readiness is visible on each card as a recommendation plus the decisive context/cache signal. The group rollup counts Resume, Review, Start fresh, and unavailable states.
+- Unknown remote activity stays separate. Applying the staged refresh changes the sample session from unavailable to resumable and updates the rollup without moving anything until the user asks.
+
+This is still a design hypothesis. The token and readiness values are curated prototype data, not collector output, and the pass does not establish whether list-column, card-level, or separate comparison-view readiness is best.
 
 
 ## Earlier exploration and recommendation
@@ -241,6 +247,10 @@ Use a simple comparative task study: the same user, the same session corpus, and
 Suggested targets, **not measured results**: known session within 5 seconds; remembered topic/outcome within 10 seconds; no loss of query/scroll state after previewing; normal text contrast at least 4.5:1; usable keyboard focus and 44px touch targets where practical. Include long titles, 0 results, missing summaries, several hundred sessions, narrow windows, and disconnected hosts before choosing a final implementation.
 
 ## Verification log
+
+**September 17 — competitive-emphasis list pass:** verified Quiet List at 1440 × 1000 and 390 × 844, including the final hybrid treatment with vendor and activity pills plus aligned machine, readiness, update, and cost fields. The default view retained 21 rows with a compact rollup for 31M sample tokens, ≈$224.81 plus unavailable usage, two vendors, two machines, and four readiness states. The document width matched both viewports. `Frosty` returned two matches, cost sorting promoted the $64.45 session, the board toggle retained all 21 sessions, and the full captured-session inspector opened at both sizes. Applying the staged remote update changed readiness from seven to eight resumable sessions while unavailable fell from three to two. No browser console warnings or errors were captured. These figures and recommendations are curated prototype data.
+
+**September 17 — competitive-emphasis board pass:** verified Workspace Navigator at 1440 × 1000 and 390 × 844. The Centauri repository rollup reconciled seven sessions, 24.1M sample tokens, ≈$53.42, two vendors, two machines, and both branch subtotals. All seven sessions remained present across the activity lanes and Unknown disclosure. The mobile document width matched the viewport. Opening a board item displayed the preview, and applying the staged remote update changed readiness from three to four resumable sessions while unavailable fell from two to one. No browser console warnings or errors were captured. These figures and recommendations are curated prototype data.
 
 **Review V2 — all three concepts:** browser checks covered the revised desktop layouts and actual 390 × 844 mobile viewports. Cost sorting brought the $64.45 / seven-subagent session to the top. `Frosty` returned the expected two matches; restricting to coSlash produced an accurate cross-group recovery action; `remote onboarding` produced a one-match all-time recovery action without clearing the query. The Warm Gray sample rendered clean text from Markdown. The no-location record remained findable with unavailable cost and a first-prompt fallback.
 
