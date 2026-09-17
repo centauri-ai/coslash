@@ -19,6 +19,8 @@ and SHA-256.
 Session timestamps must be positive Unix milliseconds no later than
 `9999-12-31T23:59:59.999Z`. This keeps the shared record within the supported
 PostgreSQL persistence range before a consumer performs timestamp conversion.
+Session and subagent costs are nullable when neither the source nor token usage
+provides an estimate; a present zero remains distinct from an unknown cost.
 
 The first C01 producer is Codex. Adding another parser requires an explicit
 field-parity decision; schema support alone does not claim producer coverage.

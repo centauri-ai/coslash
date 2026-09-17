@@ -21,7 +21,7 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 	noTimingData := &vendors.ParsedSession{Session: &session.Session{}}
 	parsed := &vendors.ParsedSession{Session: &session.Session{StartedAt: 100, LastActivityTime: 900}}
 
-	applyActivityFallbacks([]*vendors.ParsedSession{untimed, noLog, noTimingData, parsed})
+	applyActivityFallbacks([]*vendors.ParsedSession{untimed, noLog, noTimingData, parsed}, true)
 
 	if untimed.Session.LastActivityTime != modified || untimed.Session.StartedAt != modified {
 		t.Fatalf("untimed session = start %d, activity %d; want %d for both",
@@ -37,6 +37,25 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 	if parsed.Session.StartedAt != 100 || parsed.Session.LastActivityTime != 900 {
 		t.Fatalf("parsed timestamps were overwritten: start %d, activity %d",
 			parsed.Session.StartedAt, parsed.Session.LastActivityTime)
+	}
+}
+
+func TestApplyActivityFallbacksKeepsPortableTimingDeterministic(t *testing.T) {
+	sourceTimed := &vendors.ParsedSession{
+		Session:         &session.Session{},
+		LogModifiedAtMs: 1234,
+	}
+	untimed := &vendors.ParsedSession{Session: &session.Session{}}
+
+	applyActivityFallbacks([]*vendors.ParsedSession{sourceTimed, untimed}, false)
+
+	if sourceTimed.Session.StartedAt != 1234 || sourceTimed.Session.LastActivityTime != 1234 {
+		t.Fatalf("source-timed session = start %d, activity %d; want 1234 for both",
+			sourceTimed.Session.StartedAt, sourceTimed.Session.LastActivityTime)
+	}
+	if untimed.Session.StartedAt != 0 || untimed.Session.LastActivityTime != 0 {
+		t.Fatalf("untimed portable session = start %d, activity %d; want zero for Freeze rejection",
+			untimed.Session.StartedAt, untimed.Session.LastActivityTime)
 	}
 }
 

@@ -91,13 +91,14 @@ func record() fullsessionv1.Record {
 	firstPrompt, goal := "Restore the complete session without dropping diffs.", "Ship one complete thin path."
 	duration, contextTokens, contextWindow := 12_000, 12_345, 272_000
 	subModel, subDuration, subTurn := "gpt-5-mini", 2_000, 2
+	cost, subagentCost := int64(125_000), int64(1_000)
 	return fullsessionv1.Record{
 		SourceID: "r_0123456789abcdef", Agent: "codex", SessionID: "019f4dde-db5b-7100-bdc0-09b5aaaac56f",
 		Session: fullsessionv1.Session{
 			Name: &name, Summary: &summary, Status: &status, WorkingDirectory: "/workspace/coslash",
 			Branch: &branch, EditedFileCount: 1, DurationMs: &duration,
 			Usage:        []fullsessionv1.ModelUsage{{Model: "gpt-5", InputTokens: 2000, OutputTokens: 400, CacheReadInputTokens: 800, CostMicroUSD: 125000}},
-			CostMicroUSD: 125000, UnpricedModels: []string{}, StartedAtMs: 1_800_000_000_000,
+			CostMicroUSD: &cost, UnpricedModels: []string{}, StartedAtMs: 1_800_000_000_000,
 			LastActivityAtMs: 1_800_000_012_000, Entrypoint: &entrypoint, Model: &model,
 			ContextTokens: &contextTokens, ContextWindow: &contextWindow, Turns: 3, ToolUses: 4,
 			FirstPrompt: &firstPrompt, Commands: []string{"go test ./..."}, Commits: []string{"feat: preserve complete SSH records"},
@@ -107,7 +108,7 @@ func record() fullsessionv1.Record {
 				{Kind: "diff", Operation: "Patch", Additions: 1, Deletions: 1, Text: "@@\n-old\n+new\n"},
 				{Kind: "content", Operation: "Write", Additions: 1, Text: "package example\n"},
 			}}},
-			Subagents:    []fullsessionv1.Subagent{{ID: "agent-1", Name: "verify", Model: &subModel, Status: "returned", Task: "run focused tests", Result: "all passed", DurationMs: &subDuration, SpawnedAtTurn: &subTurn, ToolUses: 1, Commands: []fullsessionv1.SubagentCommand{{Label: "tests", Command: "go test ./..."}}, Usage: []fullsessionv1.ModelUsage{}, CostMicroUSD: 1000}},
+			Subagents:    []fullsessionv1.Subagent{{ID: "agent-1", Name: "verify", Model: &subModel, Status: "returned", Task: "run focused tests", Result: "all passed", DurationMs: &subDuration, SpawnedAtTurn: &subTurn, ToolUses: 1, Commands: []fullsessionv1.SubagentCommand{{Label: "tests", Command: "go test ./..."}}, Usage: []fullsessionv1.ModelUsage{}, CostMicroUSD: &subagentCost}},
 			Synthesis:    &fullsessionv1.SessionSynthesis{Goals: []string{goal}, Outcome: "complete", KeyDecisions: []string{"use exact revisions"}, NextStep: "handoff"},
 			DeclaredGoal: &goal,
 		},

@@ -51,7 +51,7 @@ type Session struct {
 	EditedFileCount  int               `json:"editedFileCount"`
 	DurationMs       *int              `json:"durationMs"`
 	Usage            []ModelUsage      `json:"usage"`
-	CostMicroUSD     int64             `json:"costMicroUsd"`
+	CostMicroUSD     *int64            `json:"costMicroUsd"`
 	UnpricedModels   []string          `json:"unpricedModels"`
 	Subagents        []Subagent        `json:"subagents"`
 	StartedAtMs      int64             `json:"startedAtMs"`
@@ -104,7 +104,7 @@ type Subagent struct {
 	ToolUses      int               `json:"toolUses"`
 	Commands      []SubagentCommand `json:"commands"`
 	Usage         []ModelUsage      `json:"usage"`
-	CostMicroUSD  int64             `json:"costMicroUsd"`
+	CostMicroUSD  *int64            `json:"costMicroUsd"`
 }
 
 type Todo struct {
@@ -173,9 +173,6 @@ func Freeze(record Record) (Record, error) {
 	}
 	digest := sha256.Sum256(preimage)
 	record.RevisionID = hex.EncodeToString(digest[:])
-	if err := Validate(record); err != nil {
-		return Record{}, err
-	}
 	data, err := json.Marshal(record)
 	if err != nil {
 		return Record{}, err
@@ -253,7 +250,7 @@ func validate(record Record, requireRevision bool) error {
 	}
 	s := record.Session
 	if s.StartedAtMs <= 0 || s.StartedAtMs > MaxSessionTimestampMs ||
-		s.LastActivityAtMs < s.StartedAtMs || s.LastActivityAtMs > MaxSessionTimestampMs || s.CostMicroUSD < 0 ||
+		s.LastActivityAtMs < s.StartedAtMs || s.LastActivityAtMs > MaxSessionTimestampMs || !optionalInt64Nonnegative(s.CostMicroUSD) ||
 		!nonnegative(s.EditedFileCount, s.Turns, s.ToolUses, s.Errors, s.Compactions, s.PullRequests) ||
 		!optionalNonnegative(s.DurationMs, s.ContextTokens, s.ContextWindow) {
 		return fmt.Errorf("%w: invalid session counts or time", ErrInvalid)
@@ -312,7 +309,7 @@ func validate(record Record, requireRevision bool) error {
 	}
 	for _, subagent := range s.Subagents {
 		if !identifier(subagent.ID) || !stringsValid(subagent.Name, stringValue(subagent.Model), subagent.Status, subagent.Task, subagent.Result) ||
-			!optionalNonnegative(subagent.DurationMs, subagent.SpawnedAtTurn) || subagent.ToolUses < 0 || subagent.CostMicroUSD < 0 ||
+			!optionalNonnegative(subagent.DurationMs, subagent.SpawnedAtTurn) || subagent.ToolUses < 0 || !optionalInt64Nonnegative(subagent.CostMicroUSD) ||
 			!boundedItems(len(subagent.Commands), len(subagent.Usage)) {
 			return fmt.Errorf("%w: invalid subagent", ErrInvalid)
 		}
@@ -403,4 +400,8 @@ func optionalNonnegative(values ...*int) bool {
 		}
 	}
 	return true
+}
+
+func optionalInt64Nonnegative(value *int64) bool {
+	return value == nil || *value >= 0
 }
