@@ -40,12 +40,12 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 			Name: cloneString(value.Name), Summary: cloneString(value.Summary), Status: cloneString(value.Status),
 			WorkingDirectory: value.WorkingDirectory, Branch: cloneString(value.Branch), EditedFileCount: value.EditedFileCount,
 			DurationMs: cloneInt(value.DurationMs), CostMicroUSD: optionalMicros(value.Cost),
-			UnpricedModels: append([]string{}, value.UnpricedModels...), StartedAtMs: value.StartedAt,
+			UnpricedModels: cloneSlice(value.UnpricedModels), StartedAtMs: value.StartedAt,
 			LastActivityAtMs: value.LastActivityTime, Entrypoint: cloneString(value.Entrypoint), Model: cloneString(value.Model),
 			ContextTokens: cloneInt(value.ContextTokens), ContextWindow: cloneInt(value.ContextWindow), Turns: value.Turns,
 			ToolUses: value.ToolUses, Errors: value.Errors, Compactions: value.Compactions, FirstPrompt: cloneString(value.FirstPrompt),
-			Commands: append([]string{}, value.Commands...), Commits: append([]string{}, value.Commits...),
-			CommitSHAs: append([]string{}, value.CommitSHAs...), PullRequests: value.PullRequests,
+			Commands: cloneSlice(value.Commands), Commits: cloneSlice(value.Commits),
+			CommitSHAs: cloneSlice(value.CommitSHAs), PullRequests: value.PullRequests,
 			SynthesisPending: value.SynthesisPending,
 			DeclaredGoal:     cloneString(value.DeclaredGoal),
 		},
@@ -113,8 +113,8 @@ func fromSession(sourceID, parentSessionID string, value session.Session) (fulls
 	}
 	if value.Synthesis != nil {
 		record.Session.Synthesis = &fullsessionv1.SessionSynthesis{
-			Goals: append([]string{}, value.Synthesis.Goals...), Outcome: value.Synthesis.Outcome,
-			KeyDecisions: append([]string{}, value.Synthesis.KeyDecisions...), NextStep: value.Synthesis.NextStep,
+			Goals: cloneSlice(value.Synthesis.Goals), Outcome: value.Synthesis.Outcome,
+			KeyDecisions: cloneSlice(value.Synthesis.KeyDecisions), NextStep: value.Synthesis.NextStep,
 		}
 	}
 	return fullsessionv1.Freeze(record)
@@ -129,15 +129,15 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		Status: cloneString(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
 		Branch: cloneString(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
 		DurationMs: cloneInt(record.Session.DurationMs), Tokens: map[string]session.ModelTokens{},
-		Cost: optionalDollars(record.Session.CostMicroUSD), UnpricedModels: append([]string{}, record.Session.UnpricedModels...),
+		Cost: optionalDollars(record.Session.CostMicroUSD), UnpricedModels: cloneSlice(record.Session.UnpricedModels),
 		StartedAt: record.Session.StartedAtMs, LastActivityTime: record.Session.LastActivityAtMs,
 		Entrypoint: cloneString(record.Session.Entrypoint),
 		SessionDetails: session.SessionDetails{
 			Model: cloneString(record.Session.Model), ContextTokens: cloneInt(record.Session.ContextTokens),
 			ContextWindow: cloneInt(record.Session.ContextWindow), Turns: record.Session.Turns,
 			ToolUses: record.Session.ToolUses, Errors: record.Session.Errors, Compactions: record.Session.Compactions,
-			FirstPrompt: cloneString(record.Session.FirstPrompt), Commands: append([]string{}, record.Session.Commands...),
-			Commits: append([]string{}, record.Session.Commits...), CommitSHAs: append([]string{}, record.Session.CommitSHAs...),
+			FirstPrompt: cloneString(record.Session.FirstPrompt), Commands: cloneSlice(record.Session.Commands),
+			Commits: cloneSlice(record.Session.Commits), CommitSHAs: cloneSlice(record.Session.CommitSHAs),
 			PullRequests:     record.Session.PullRequests,
 			SynthesisPending: record.Session.SynthesisPending, DeclaredGoal: cloneString(record.Session.DeclaredGoal),
 		},
@@ -192,8 +192,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 	}
 	if record.Session.Synthesis != nil {
 		value.Synthesis = &session.SessionSynthesis{
-			Goals: append([]string{}, record.Session.Synthesis.Goals...), Outcome: record.Session.Synthesis.Outcome,
-			KeyDecisions: append([]string{}, record.Session.Synthesis.KeyDecisions...), NextStep: record.Session.Synthesis.NextStep,
+			Goals: cloneSlice(record.Session.Synthesis.Goals), Outcome: record.Session.Synthesis.Outcome,
+			KeyDecisions: cloneSlice(record.Session.Synthesis.KeyDecisions), NextStep: record.Session.Synthesis.NextStep,
 		}
 	}
 	return value, nil
@@ -257,10 +257,9 @@ func cloneInt(value *int) *int {
 	copy := *value
 	return &copy
 }
-func cloneInt64(value *int64) *int64 {
+func cloneSlice[T any](value []T) []T {
 	if value == nil {
 		return nil
 	}
-	copy := *value
-	return &copy
+	return append(make([]T, 0, len(value)), value...)
 }

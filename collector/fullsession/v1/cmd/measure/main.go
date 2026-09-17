@@ -17,19 +17,25 @@ func main() {
 		fmt.Fprintln(os.Stderr, "--collector-version and one or more record files are required")
 		os.Exit(2)
 	}
-	records := make([]fullsessionv1.Record, 0, flags.NArg())
-	for _, path := range flags.Args() {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			fail()
-		}
-		record, err := fullsessionv1.Decode(data)
-		if err != nil {
-			fail()
-		}
-		records = append(records, record)
+	measurer, err := fullsessionv1.NewMeasurer(*version)
+	if err != nil {
+		fail()
 	}
-	report, err := fullsessionv1.Measure(records, *version)
+	for _, path := range flags.Args() {
+		file, err := os.Open(path)
+		if err != nil {
+			fail()
+		}
+		record, decodeErr := fullsessionv1.DecodeReader(file)
+		closeErr := file.Close()
+		if decodeErr != nil || closeErr != nil {
+			fail()
+		}
+		if err := measurer.Add(record); err != nil {
+			fail()
+		}
+	}
+	report, err := measurer.Report()
 	if err != nil {
 		fail()
 	}
