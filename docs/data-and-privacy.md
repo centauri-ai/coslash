@@ -60,9 +60,13 @@ cache excludes raw transcript rows, SSH configuration, coSlash credentials,
 sockets, and environment values.
 
 The local web app requests inspector data by opaque source, agent, session, and
-immutable revision identities. File-change bodies are requested only by opaque
-change IDs that the collector verifies belong to that exact revision; display
-paths and change IDs are never treated as files to open.
+revision identities. A supported remote record's revision is a content-derived
+identity for the complete parsed record. A local revision is the transcript's
+last-activity timestamp: it prevents mixing transcript revisions, but it is not
+an immutable identity for separately refreshed Git, repository, or filesystem
+metadata. File-change bodies are requested only by opaque change IDs that the
+collector verifies belong to the selected revision; display paths and change
+IDs are never treated as files to open.
 
 ## Outbound data
 

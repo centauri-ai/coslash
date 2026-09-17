@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,6 +104,83 @@ func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 			var body apiErrorBody
 			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Code != test.code {
 				t.Fatalf("error = %#v, decode=%v", body, err)
+			}
+		})
+	}
+}
+
+func TestExactDiffRejectsDuplicateAndOversizedChangeSelections(t *testing.T) {
+	reader := func(string, string) (*session.Session, error) {
+		t.Fatal("invalid selections must be rejected before reading session detail")
+		return nil, nil
+	}
+	manager := remote.NewManager(remote.Options{})
+
+	tests := []struct {
+		name   string
+		target string
+		status int
+		code   string
+	}{
+		{
+			name: "duplicate",
+			target: "/api/diff?source=local&agent=codex&session=same-session&revision=2000" +
+				"&change=change-000000-000000&change=change-000000-000000",
+			status: http.StatusBadRequest,
+			code:   errCodeChangeDuplicate,
+		},
+	}
+
+	var oversized strings.Builder
+	oversized.WriteString("/api/diff?source=local&agent=codex&session=same-session&revision=2000")
+	for index := 0; index <= maxExactDiffChanges; index++ {
+		fmt.Fprintf(&oversized, "&change=change-%06d-000000", index)
+	}
+	tests = append(tests, struct {
+		name   string
+		target string
+		status int
+		code   string
+	}{name: "too many", target: oversized.String(), status: http.StatusRequestEntityTooLarge, code: errCodeDiffTooLarge})
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handleExactDiff(response, httptest.NewRequest(http.MethodGet, test.target, nil), reader, manager)
+			var body apiErrorBody
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != test.status || body.Code != test.code {
+				t.Fatalf("response = %d %#v, want %d/%s", response.Code, body, test.status, test.code)
+			}
+		})
+	}
+}
+
+func TestExactDiffResponseEnforcesEncodedByteLimit(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		maxTextBytes     int
+		maxResponseBytes int
+	}{
+		{name: "text body", maxTextBytes: 32, maxResponseBytes: 1024},
+		{name: "encoded response", maxTextBytes: 1024, maxResponseBytes: 32},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			writeExactDiffResponse(
+				response,
+				[]session.FileChange{{Text: strings.Repeat("x", 64)}},
+				test.maxTextBytes,
+				test.maxResponseBytes,
+			)
+			var body apiErrorBody
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != http.StatusRequestEntityTooLarge || body.Code != errCodeDiffTooLarge {
+				t.Fatalf("response = %d %#v", response.Code, body)
 			}
 		})
 	}

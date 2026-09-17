@@ -13,6 +13,7 @@
     "lint": "oxlint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "fixture:c02": "node scripts/c02-fixture-server.mjs",
     "test": "vitest run",
     "preview": "vite preview"
   },

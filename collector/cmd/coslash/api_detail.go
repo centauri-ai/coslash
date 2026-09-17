@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,10 +17,17 @@ import (
 )
 
 const (
-	errCodeDetailStale   = "session_detail_stale"
-	errCodeDetailMissing = "session_detail_missing"
-	errCodeDetailCorrupt = "session_detail_corrupt"
-	errCodeChangeMissing = "session_change_missing"
+	errCodeDetailStale     = "session_detail_stale"
+	errCodeDetailMissing   = "session_detail_missing"
+	errCodeDetailCorrupt   = "session_detail_corrupt"
+	errCodeChangeMissing   = "session_change_missing"
+	errCodeChangeDuplicate = "session_change_duplicate"
+	errCodeDiffTooLarge    = "session_diff_too_large"
+
+	maxExactDiffChanges   = 256
+	maxExactDiffIDBytes   = 16 << 10
+	maxExactDiffTextBytes = 8 << 20
+	maxExactDiffBytes     = fullsessionv1.MaxRecordBytes
 )
 
 type localDetailReader func(agent, sessionID string) (*session.Session, error)
@@ -38,6 +46,10 @@ type sessionDetailResponse struct {
 	Revision      string          `json:"revision"`
 	CachedOffline bool            `json:"cachedOffline"`
 	Session       session.Session `json:"session"`
+}
+
+type exactDiffResponse struct {
+	Changes []session.FileChange `json:"changes"`
 }
 
 func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localDetailReader, remoteManager *remote.Manager) {
@@ -96,15 +108,27 @@ func handleExactDiff(w http.ResponseWriter, r *http.Request, getLocal localDetai
 		return
 	}
 	changeIDs := r.URL.Query()["change"]
-	if len(changeIDs) > fullsessionv1.MaxItems {
-		http.Error(w, "too many changes", http.StatusBadRequest)
+	if len(changeIDs) > maxExactDiffChanges {
+		writeDetailError(w, errCodeDiffTooLarge, http.StatusRequestEntityTooLarge)
 		return
 	}
+	seen := make(map[string]struct{}, len(changeIDs))
+	totalIDBytes := 0
 	for _, changeID := range changeIDs {
 		if !validOpaqueIdentifier(changeID) {
 			http.Error(w, "invalid change", http.StatusBadRequest)
 			return
 		}
+		if _, duplicate := seen[changeID]; duplicate {
+			writeDetailError(w, errCodeChangeDuplicate, http.StatusBadRequest)
+			return
+		}
+		totalIDBytes += len(changeID)
+		if totalIDBytes > maxExactDiffIDBytes {
+			writeDetailError(w, errCodeDiffTooLarge, http.StatusRequestEntityTooLarge)
+			return
+		}
+		seen[changeID] = struct{}{}
 	}
 
 	changes := make([]session.FileChange, 0, len(changeIDs))
@@ -152,9 +176,29 @@ func handleExactDiff(w http.ResponseWriter, r *http.Request, getLocal localDetai
 		}
 	}
 
-	writeJSON(w, struct {
-		Changes []session.FileChange `json:"changes"`
-	}{Changes: changes})
+	writeExactDiffResponse(w, changes, maxExactDiffTextBytes, maxExactDiffBytes)
+}
+
+func writeExactDiffResponse(w http.ResponseWriter, changes []session.FileChange, maxTextBytes, maxBytes int) {
+	totalTextBytes := 0
+	for _, change := range changes {
+		if len(change.Text) > maxTextBytes-totalTextBytes {
+			writeDetailError(w, errCodeDiffTooLarge, http.StatusRequestEntityTooLarge)
+			return
+		}
+		totalTextBytes += len(change.Text)
+	}
+	body, err := json.Marshal(exactDiffResponse{Changes: changes})
+	if err != nil {
+		writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
+		return
+	}
+	if len(body) > maxBytes {
+		writeDetailError(w, errCodeDiffTooLarge, http.StatusRequestEntityTooLarge)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
 }
 
 func parseExactSessionIdentity(w http.ResponseWriter, r *http.Request) (exactSessionIdentity, bool) {
@@ -241,10 +285,12 @@ func writeRemoteDetailError(w http.ResponseWriter, err error) {
 
 func writeDetailError(w http.ResponseWriter, code string, status int) {
 	message := map[string]string{
-		errCodeDetailStale:   "the selected session revision changed; refresh sessions and try again",
-		errCodeDetailMissing: "complete session details are unavailable",
-		errCodeDetailCorrupt: "complete session details could not be read",
-		errCodeChangeMissing: "the selected change does not belong to this session revision",
+		errCodeDetailStale:     "the selected session revision changed; refresh sessions and try again",
+		errCodeDetailMissing:   "complete session details are unavailable",
+		errCodeDetailCorrupt:   "complete session details could not be read",
+		errCodeChangeMissing:   "the selected change does not belong to this session revision",
+		errCodeChangeDuplicate: "duplicate change IDs are not allowed",
+		errCodeDiffTooLarge:    "the requested file changes exceed the exact-diff response limit",
 	}[code]
 	writeAPIError(w, status, code, message)
 }
