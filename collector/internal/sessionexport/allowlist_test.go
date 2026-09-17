@@ -106,6 +106,7 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 		"Deletions": {true, "fileEdit.deletions"},
 		"Edits":     {true, "fileEdit.edits"},
 		"IsNew":     {true, "fileEdit.isNew"},
+		"ChangeIDs": {false, "opaque local detail-read identities never cross the v1 export boundary"},
 		"changes":   {false, "raw file changes never cross"},
 	},
 	reflect.TypeOf(session.GitDrift{}): {

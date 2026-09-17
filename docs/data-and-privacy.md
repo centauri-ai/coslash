@@ -59,6 +59,11 @@ locally so exact detail remains available after restart or an SSH outage. The
 cache excludes raw transcript rows, SSH configuration, coSlash credentials,
 sockets, and environment values.
 
+The local web app requests inspector data by opaque source, agent, session, and
+immutable revision identities. File-change bodies are requested only by opaque
+change IDs that the collector verifies belong to that exact revision; display
+paths and change IDs are never treated as files to open.
+
 ## Outbound data
 
 The collector does not upload data itself. If you enable synthesis, it passes a bounded set of session facts—such as prompts or recaps, todos, filenames, commands, and commit text—to your selected local Claude Code, Codex, or OpenCode CLI. That CLI sends the request using its existing authentication, so the selected provider's settings and terms apply.

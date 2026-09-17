@@ -100,6 +100,16 @@ func FileEditWithChanges(path string, additions, deletions, edits int, isNew boo
 	}
 }
 
+// FileEditWithIdentifiedChanges reconstructs an edit whose bodies can be read
+// only through opaque membership-checked IDs. IDs are deliberately separate
+// from paths so API callers never turn a display path into a filesystem read.
+func FileEditWithIdentifiedChanges(path string, additions, deletions, edits int, isNew bool, changeIDs []string, changes []FileChange) FileEdit {
+	return FileEdit{
+		Path: path, Additions: additions, Deletions: deletions, Edits: edits, IsNew: isNew,
+		ChangeIDs: append([]string(nil), changeIDs...), changes: append([]FileChange(nil), changes...),
+	}
+}
+
 func (s *FileEditSet) pendingChange(path string) *FileChange {
 	edit := &s.Edits[s.index[path]]
 	if len(edit.changes) == 0 || edit.changes[len(edit.changes)-1].Kind != "" {

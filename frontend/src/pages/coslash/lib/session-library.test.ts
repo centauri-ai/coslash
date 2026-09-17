@@ -14,6 +14,7 @@ function session(overrides: Partial<Session> = {}): Session {
     sourceClass: 'local',
     logicalSessionId: 'local:codex:one',
     revision: 10,
+    detailRevision: '10',
     completion: 'complete',
     privacy: 'shareable',
     shareEligibility: 'eligible',

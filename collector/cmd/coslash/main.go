@@ -191,6 +191,9 @@ func routes(
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		handleList(w, r, mgr, remoteManager)
 	})
+	api.HandleFunc("GET /api/session-detail", func(w http.ResponseWriter, r *http.Request) {
+		handleSessionDetail(w, r, collector.GetSessionDetail, remoteManager)
+	})
 	api.HandleFunc("GET /api/synthesis", func(w http.ResponseWriter, r *http.Request) {
 		if rejectRemoteSource(w, r) {
 			return
@@ -198,6 +201,10 @@ func routes(
 		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
 	})
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("session") {
+			handleExactDiff(w, r, collector.GetSessionDetail, remoteManager)
+			return
+		}
 		if rejectRemoteSource(w, r) {
 			return
 		}

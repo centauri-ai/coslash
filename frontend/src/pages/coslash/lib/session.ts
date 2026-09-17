@@ -48,6 +48,8 @@ export type Session = {
   sourceClass?: SourceClass;
   logicalSessionId?: string;
   revision?: number;
+  /** Exact immutable identity used by detail and change-body reads. */
+  detailRevision: string;
   completion?: SessionCompletion;
   privacy?: SessionPrivacy;
   shareEligibility?: ShareEligibility;
@@ -172,6 +174,7 @@ export function withLocalSourceDefaults<T extends { agent: string; id: string }>
     | 'sourceClass'
     | 'logicalSessionId'
     | 'revision'
+    | 'detailRevision'
     | 'completion'
     | 'privacy'
     | 'shareEligibility'
@@ -199,6 +202,7 @@ export function withLocalSourceDefaults<T extends { agent: string; id: string }>
     sourceClass,
     logicalSessionId: record.logicalSessionId ?? `${sourceId}:${session.agent}:${session.id}`,
     revision: record.revision ?? record.mtime ?? 0,
+    detailRevision: record.detailRevision ?? String(record.revision ?? record.mtime ?? 0),
     completion:
       record.completion ??
       (shareEligibility === 'running' ? 'running' : eligibleForAggregates ? 'complete' : 'incomplete'),
@@ -215,6 +219,7 @@ type FileEdit = {
   dels: number;
   edits: number;
   isNew: boolean;
+  changeIds?: string[];
 };
 
 type GitDrift = { baseBranch: string; ahead: number; behind: number };

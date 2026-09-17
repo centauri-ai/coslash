@@ -39,6 +39,9 @@ func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
 	if !reflect.DeepEqual(restored.FileEdits[0].Changes(), original.FileEdits[0].Changes()) {
 		t.Fatalf("restored changes = %#v, want %#v", restored.FileEdits[0].Changes(), original.FileEdits[0].Changes())
 	}
+	if !reflect.DeepEqual(restored.FileEdits[0].ChangeIDs, []string{"change-000000-000000", "change-000000-000001"}) {
+		t.Fatalf("restored change IDs = %#v", restored.FileEdits[0].ChangeIDs)
+	}
 }
 
 func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {

@@ -562,6 +562,10 @@ export function CoslashPage() {
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}
         machines={machines}
+        onRefresh={() => {
+          if (selectedSession != null && !isLocalSession(selectedSession)) handleRemoteRetry();
+          else retrySessions();
+        }}
         onClose={() => setSelectedSessionKey(null)}
       />
       {shareEnabled && shareDestination && (

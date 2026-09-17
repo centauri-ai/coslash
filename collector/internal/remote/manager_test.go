@@ -117,6 +117,20 @@ func TestIncompleteRefreshRetainsLastCompleteGenerationAcrossRestart(t *testing.
 	}
 }
 
+func TestReadFullSessionReportsCorruptCurrentRecord(t *testing.T) {
+	const sourceID = "r_0123456789abcdef"
+	snapshot := completeCodexSnapshot(t, "generation-1", "original body\n")
+	revision := snapshot.FullRecords[0].Record.RevisionID
+	snapshot.FullRecords[0].Record.Session.FileEdits[0].Changes[0].Text = "tampered body\n"
+	manager := NewManager(Options{Cache: NewCache(t.TempDir())})
+	manager.cfg = &settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}
+	manager.snapshot = &snapshot
+
+	if _, err := manager.ReadFullSession(sourceID, vendors.AgentCodex, "root-1", revision); !errors.Is(err, ErrRemoteRecordCorrupt) {
+		t.Fatalf("ReadFullSession error = %v, want %v", err, ErrRemoteRecordCorrupt)
+	}
+}
+
 func TestHardFailureFallsBackToStaleWhenCacheExists(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)

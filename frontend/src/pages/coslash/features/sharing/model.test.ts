@@ -32,6 +32,7 @@ function session(id: string, repo: string, mtime: number): Session {
   return {
     sourceId: 'local',
     sourceLabel: 'Local Mac',
+    detailRevision: String(mtime),
     eligibleForAggregates: true,
     displayStale: false,
     agent: 'codex',

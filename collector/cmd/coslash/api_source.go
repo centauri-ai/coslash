@@ -43,6 +43,7 @@ type boardSession struct {
 	SourceClass           string                   `json:"sourceClass"`
 	LogicalSessionID      string                   `json:"logicalSessionId"`
 	Revision              int64                    `json:"revision"`
+	DetailRevision        string                   `json:"detailRevision"`
 	Completion            string                   `json:"completion"`
 	Privacy               string                   `json:"privacy"`
 	ShareEligibility      string                   `json:"shareEligibility"`
@@ -101,8 +102,9 @@ func boardLocalSession(value *session.Session) boardSession {
 	return boardSession{
 		SourceID: localSourceID, SourceLabel: localSourceLabel,
 		SourceClass: "local", LogicalSessionID: logicalSessionID(localSourceID, value),
-		Revision: value.LastActivityTime, Completion: completionFor(value, true),
-		Privacy: privacyFor(value), ShareEligibility: eligibilityFor(value, true, false),
+		Revision: value.LastActivityTime, DetailRevision: fmt.Sprintf("%d", value.LastActivityTime),
+		Completion: completionFor(value, true),
+		Privacy:    privacyFor(value), ShareEligibility: eligibilityFor(value, true, false),
 		EligibleForAggregates: true, Session: sessionWithJSONCollections(*value),
 	}
 }
@@ -113,6 +115,7 @@ func boardRemoteSession(value remote.IndexedSession) boardSession {
 		SourceID: value.Key.SourceID, SourceLabel: sshSourceLabel,
 		SourceClass: "ssh_workspace", LogicalSessionID: logicalSessionID(value.Key.SourceID, value.Session),
 		Revision:              value.Session.LastActivityTime,
+		DetailRevision:        value.RevisionID,
 		Completion:            completionFor(value.Session, value.EligibleForAggregates && !value.DisplayStale),
 		Privacy:               privacyFor(value.Session),
 		ShareEligibility:      eligibilityFor(value.Session, value.EligibleForAggregates, value.DisplayStale),
