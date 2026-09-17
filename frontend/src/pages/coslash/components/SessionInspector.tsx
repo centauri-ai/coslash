@@ -1346,6 +1346,9 @@ export function SessionInspector({
           contentRef.current?.focus();
         }}
       >
+        {session != null && (
+          <SheetTitle className="sr-only">{session.name ?? 'Untitled session'}</SheetTitle>
+        )}
         {isOpen && isLoading && (
           <div
             role="status"
@@ -1374,9 +1377,9 @@ export function SessionInspector({
               <div className="flex min-w-0 flex-col gap-2">
                 <div className="flex items-center gap-2 pr-10">
                   <SessionVendorBadge agent={detail.agent} />
-                  <SheetTitle className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1">
                     <SessionName name={detail.name} variant="inspector" />
-                  </SheetTitle>
+                  </div>
                   <SessionId id={detail.id} shortened />
                   {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
                 </div>

@@ -44,3 +44,16 @@ func TestAttachCostLeavesCostUnknownWithoutRecordedCostOrTokens(t *testing.T) {
 		t.Fatalf("cost = %v, want nil", s.Cost)
 	}
 }
+
+func TestCloneDeepCopiesFileEditChangeIDs(t *testing.T) {
+	source := &Session{SessionDetails: SessionDetails{FileEdits: []FileEdit{
+		FileEditWithIdentifiedChanges("example.go", 1, 1, 1, false, []string{"change-1"}, nil),
+	}}}
+
+	cloned := Clone(source)
+	cloned.FileEdits[0].ChangeIDs[0] = "changed"
+
+	if got := source.FileEdits[0].ChangeIDs[0]; got != "change-1" {
+		t.Fatalf("source change ID = %q, want %q", got, "change-1")
+	}
+}
