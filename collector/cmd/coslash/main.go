@@ -208,7 +208,7 @@ func routes(
 	})
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("session") {
-			handleExactDiff(w, r, collector.GetSessionDetail, remoteManager)
+			handleExactDiff(w, r, collector.GetSessionChanges, remoteManager)
 			return
 		}
 		if rejectRemoteSource(w, r) {

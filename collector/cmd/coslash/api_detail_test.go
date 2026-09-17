@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -215,6 +217,29 @@ func TestSessionDetailReportsMissingAndUnreadableLocalStates(t *testing.T) {
 				t.Fatalf("response = %d %#v, want %d/%s", response.Code, body, test.status, test.code)
 			}
 		})
+	}
+}
+
+func TestSessionDetailLogsUnreadableLocalCause(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previousWriter) })
+
+	request := httptest.NewRequest(http.MethodGet,
+		"/api/session-detail?source=local&agent=codex&session=same-session&revision=2000", nil)
+	response := httptest.NewRecorder()
+	handleSessionDetail(response, request, func(string, string) (*session.Session, error) {
+		return nil, errors.New("parse failed")
+	}, remote.NewManager(remote.Options{}))
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusInternalServerError)
+	}
+	for _, expected := range []string{"read local session detail", `agent="codex"`, `session="same-session"`, "parse failed"} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("log %q does not contain %q", logs.String(), expected)
+		}
 	}
 }
 
