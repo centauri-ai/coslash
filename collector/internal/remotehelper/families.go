@@ -1,12 +1,7 @@
 package remotehelper
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"sort"
-	"strconv"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -116,24 +111,7 @@ func (s *scan) inventory(limit int) ([]string, bool) {
 // aggregateFingerprint is comparison data only. It is a digest, never a path,
 // and the helper never resolves one that arrives in a request.
 func aggregateFingerprint(item *family, metadata *vendors.SessionMetadata) string {
-	digest := sha256.New()
-	fmt.Fprintf(digest, "v1\n%s\n%s\n", vendors.ParserVersion, item.id)
-	for _, fingerprint := range item.fingerprints {
-		fmt.Fprintf(
-			digest, "f\t%s\t%s\t%s\n", fingerprint.Key,
-			strconv.FormatInt(fingerprint.Size, 10),
-			strconv.FormatInt(fingerprint.ModifiedAtMs, 10),
-		)
-	}
-	if metadata != nil {
-		for _, id := range item.sessionIDs {
-			if enrichment := metadata.Lookup(id); enrichment != nil {
-				encoded, _ := json.Marshal(enrichment)
-				fmt.Fprintf(digest, "m\t%s\t%s\n", id, encoded)
-			}
-		}
-	}
-	return hex.EncodeToString(digest.Sum(nil))
+	return vendors.AggregateFingerprint(item.id, item.fingerprints, item.sessionIDs, metadata)
 }
 
 func dedupeFingerprints(items []vendors.FileFingerprint) []vendors.FileFingerprint {

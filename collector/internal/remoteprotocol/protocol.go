@@ -391,4 +391,12 @@ func validID(value string) bool {
 	}
 	return true
 }
-func encodedSize(value any) int { data, _ := json.Marshal(value); return len(data) }
+func encodedSize(value any) int {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(value) != nil {
+		return 0
+	}
+	return output.Len() - 1 // Encoder appends one framing newline.
+}

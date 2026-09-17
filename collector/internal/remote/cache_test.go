@@ -154,6 +154,18 @@ func TestCacheV2RejectsMismatchedCurrentSourceAndFallsBackToPrevious(t *testing.
 		loaded.FullRecords[0].Record.SourceID != sourceB {
 		t.Fatalf("loaded mismatched source generation: %#v", loaded)
 	}
+
+	replacementB := rebindSnapshotSource(t, completeCodexSnapshot(t, "b-replacement", "replacement B\n"), sourceB)
+	if err := cache.StoreV2(sourceB, replacementB); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathB, []byte("{corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, ok, err = cache.LoadV2(sourceB)
+	if err != nil || !ok || loaded.BaselineID != "b-previous" {
+		t.Fatalf("wrong-source current displaced last-good previous: cached=%#v ok=%v err=%v", loaded, ok, err)
+	}
 }
 
 func TestCacheV2FailedReplacementAndRestartKeepExactRecordReadable(t *testing.T) {
@@ -321,6 +333,66 @@ func TestCacheV2LoadRejectsOversizedFile(t *testing.T) {
 	}
 	if _, ok, err := cache.LoadV2("r_0123456789abcdef"); err != nil || ok {
 		t.Fatalf("oversized cache should degrade safely: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCacheV2StoreDoesNotReadOrRotateOversizedCurrent(t *testing.T) {
+	root := t.TempDir()
+	cache := NewCache(root)
+	const sourceID = "r_0123456789abcdef"
+	if err := cache.StoreV2(sourceID, CachedSnapshotV2{BaselineID: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := cache.snapshotV2Path(sourceID)
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxCacheV2Bytes + 1); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.StoreV2(sourceID, CachedSnapshotV2{BaselineID: "replacement"}); err != nil {
+		t.Fatal(err)
+	}
+	previous, _ := cache.snapshotV2PreviousPath(sourceID)
+	if _, err := os.Stat(previous); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("oversized current was rotated to previous: %v", err)
+	}
+}
+
+func TestCacheV2DoesNotReapUnownedTempFiles(t *testing.T) {
+	root := t.TempDir()
+	cache := NewCache(root)
+	const sourceID = "r_0123456789abcdef"
+	if err := cache.StoreV2(sourceID, CachedSnapshotV2{BaselineID: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := cache.sourceDir(sourceID)
+	temp := filepath.Join(dir, ".snapshot-v2-live-writer.tmp")
+	if err := os.WriteFile(temp, []byte("in progress"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cache.LoadV2(sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.StoreV2(sourceID, CachedSnapshotV2{BaselineID: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(temp); err != nil {
+		t.Fatalf("another writer's temp file was removed: %v", err)
+	}
+}
+
+func TestCloneFullRecordsCopiesOnlyMutableChangeContainers(t *testing.T) {
+	records := completeCodexSnapshot(t, "generation", "body\n").FullRecords
+	cloned := cloneFullRecords(records)
+	cloned[0].Record.Session.FileEdits[0].Changes[0].Text = "changed"
+	if got := records[0].Record.Session.FileEdits[0].Changes[0].Text; got != "body\n" {
+		t.Fatalf("structural clone mutated input body: %q", got)
 	}
 }
 

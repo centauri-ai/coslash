@@ -22,6 +22,20 @@ import (
 
 const testModel = "claude-sonnet-4-20250514"
 
+func TestSFTPFamilyFingerprintIncludesMetadata(t *testing.T) {
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("root").Name = "before"
+	in := vendorFamilyInput{
+		Metadata: metadata, SessionIDs: map[string][]string{"root": {"root"}},
+	}
+	fingerprints := []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}}
+	before := familyFingerprint(in, "root", fingerprints)
+	metadata.Session("root").Name = "after"
+	if after := familyFingerprint(in, "root", fingerprints); after == before {
+		t.Fatal("metadata-only change did not change SFTP family fingerprint")
+	}
+}
+
 func writeClaudeFixture(fs *fakeFS, projectDir, id string, inTokens, outTokens int, modTime time.Time) string {
 	filePath := path.Join(fakeHome, ".claude/projects", projectDir, id+".jsonl")
 	content := fmt.Sprintf(

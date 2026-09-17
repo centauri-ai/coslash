@@ -196,7 +196,7 @@ func collectVendor(
 	// vendor_complete asserts authoritative enumeration, so it is emitted only
 	// when the scan really saw everything. A baseline-free response must also
 	// carry the complete inventory or it cannot authorise any deletion.
-	if !scanned.scan.complete || ctx.Err() != nil {
+	if !scanned.scan.complete || counts.SkippedFamilies > 0 || ctx.Err() != nil {
 		return result, nil
 	}
 	if request.BaselineMode == remoteprotocol.BaselineNone && !inventoryComplete {
@@ -325,7 +325,7 @@ func publishFamily(
 			)
 		}
 		var fullRecords []remoteprotocol.FullRecord
-		if scanned.vendor == vendors.AgentCodex {
+		if scanned.vendor == vendors.AgentCodex && request.SourceID != "" {
 			complete, fullErr := fullsessionrecord.FromParsedFamily(request.SourceID, scanned.vendor, scanned.source, sessions, scanned.metadata)
 			if fullErr != nil || len(complete) != 1 || complete[0].SessionID != item.id {
 				return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)

@@ -49,6 +49,20 @@ func TestChangedFamilyWithMultipleLargeDisplaysFitsRecordLimit(t *testing.T) {
 	}
 }
 
+func TestEncodedSizeMatchesUnescapedWireEncoding(t *testing.T) {
+	record := Record{Type: RecordRequestComplete, ProtocolVersion: ProtocolVersion, RequestID: "a<&>z", Sequence: 1}
+	encoded, err := Encode([]Record{record})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := encodedSize(record)+1, len(encoded); got != want {
+		t.Fatalf("encoded size = %d, wire size = %d", got, want)
+	}
+	if bytes.Contains(encoded, []byte(`\u003c`)) || bytes.Contains(encoded, []byte(`\u0026`)) {
+		t.Fatalf("wire encoding unexpectedly escaped HTML: %s", encoded)
+	}
+}
+
 func family() remotefacts.Family {
 	return remotefacts.Family{SchemaVersion: remotefacts.SchemaVersion, ParserVersion: "parser-v1", Vendor: "codex", FamilyID: "root", State: "complete", Sessions: []remotefacts.Session{{ID: "root", StartedAtMs: 1, LastActivityAtMs: 2, Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{}}}, Metadata: remotefacts.Metadata{Names: []remotefacts.MetadataName{}, Live: []remotefacts.MetadataLive{}}, Fingerprints: []remotefacts.Fingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}}}
 }
