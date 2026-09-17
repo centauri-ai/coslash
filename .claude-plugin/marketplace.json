@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "centauri-ai",
+  "description": "Official coSlash plugins from Centauri AI.",
+  "owner": {
+    "name": "Centauri AI",
+    "url": "https://github.com/centauri-ai"
+  },
+  "plugins": [
+    {
+      "name": "coslash",
+      "description": "Use coSlash sessions, handoffs, agent launches, and diagnostics from Claude Code.",
+      "version": "0.1.0",
+      "source": "./plugins/coslash",
+      "category": "productivity"
+    }
+  ]
+}

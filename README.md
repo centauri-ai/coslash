@@ -247,6 +247,24 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 
 Successful data commands write their result to standard output. Failures write `Error: <message>` to standard error and exit non-zero; run `coslash doctor --json` for diagnostics. Authentication for the running app is discovered locally and is never printed.
 
+### Agent skills
+
+Install the four coSlash skills for Claude Code:
+
+```sh
+claude plugin marketplace add centauri-ai/coslash
+claude plugin install coslash@centauri-ai
+```
+
+Or install them for Codex:
+
+```sh
+codex plugin marketplace add centauri-ai/coslash
+codex plugin add coslash@centauri-ai
+```
+
+The `sessions`, `handoff`, and `send` skills require the coSlash app to be running. `doctor` works while the app is stopped.
+
 ## Develop
 
 Building from source requires **Go 1.26+** and **Node 24+** (see `collector/go.mod` and `frontend/.nvmrc`). End users do not need these tools — use [Install](#install) above for a prebuilt binary.

@@ -1,0 +1,13 @@
+{
+  "name": "coslash",
+  "version": "0.1.0",
+  "description": "Use local coSlash sessions, handoffs, agent launches, and diagnostics.",
+  "author": {
+    "name": "Centauri AI",
+    "url": "https://github.com/centauri-ai"
+  },
+  "homepage": "https://github.com/centauri-ai/coslash",
+  "repository": "https://github.com/centauri-ai/coslash",
+  "license": "MIT",
+  "keywords": ["coslash", "sessions", "handoff", "claude", "codex"]
+}
