@@ -24,9 +24,10 @@ without reducing child sessions to the display-oriented `subagents` list.
 
 Canonical records use UTF-8 without a BOM, insignificant whitespace, or a
 trailing newline. Every field is present, including null pointers and empty or
-null arrays. Arrays retain their declared order. Integers use the shortest
-base-10 form (no leading zero or plus sign); booleans and null use their
-lowercase JSON literals.
+null arrays. Usage arrays declare models in ascending model-name order; all
+other arrays retain their declared order. Integers use the shortest base-10
+form (no leading zero or plus sign); booleans and null use their lowercase JSON
+literals.
 
 Object members occur in the following order:
 

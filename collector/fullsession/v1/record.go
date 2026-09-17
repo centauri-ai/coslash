@@ -285,6 +285,16 @@ func Decode(data []byte) (Record, error) {
 	return record, nil
 }
 
+// DecodeReader reads and decodes one record without allowing the input source
+// to allocate beyond the record byte limit.
+func DecodeReader(reader io.Reader) (Record, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, MaxRecordBytes+1))
+	if err != nil {
+		return Record{}, fmt.Errorf("read full session record: %w", err)
+	}
+	return Decode(data)
+}
+
 func validateCollectionSizes(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	type container struct {
@@ -292,6 +302,7 @@ func validateCollectionSizes(data []byte) error {
 		items int
 	}
 	stack := []container{}
+	totalItems := 0
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -309,11 +320,15 @@ func validateCollectionSizes(data []byte) error {
 		}
 		if len(stack) > 0 && stack[len(stack)-1].kind == '[' {
 			stack[len(stack)-1].items++
-			if stack[len(stack)-1].items > MaxItems {
+			totalItems++
+			if stack[len(stack)-1].items > MaxItems || totalItems > MaxItems {
 				return fmt.Errorf("%w: collection exceeds item limit", ErrInvalid)
 			}
 		}
 		if isDelim && (delim == '[' || delim == '{') {
+			if len(stack) >= MaxItems {
+				return fmt.Errorf("%w: collection nesting exceeds item limit", ErrInvalid)
+			}
 			stack = append(stack, container{kind: delim})
 		}
 	}
@@ -367,12 +382,12 @@ func validate(record Record, requireRevision bool) error {
 	if s.EditedFileCount != len(s.FileEdits) {
 		return fmt.Errorf("%w: edited file count does not match file edits", ErrInvalid)
 	}
-	seenModels := map[string]bool{}
-	for _, usage := range s.Usage {
-		if !validUsage(usage) || seenModels[usage.Model] {
-			return fmt.Errorf("%w: invalid or duplicate usage", ErrInvalid)
+	previousModel := ""
+	for index, usage := range s.Usage {
+		if !validUsage(usage) || (index > 0 && usage.Model <= previousModel) {
+			return fmt.Errorf("%w: invalid or unsorted usage", ErrInvalid)
 		}
-		seenModels[usage.Model] = true
+		previousModel = usage.Model
 	}
 	if !stringSliceValid(s.UnpricedModels) || !stringSliceValid(s.Commands) ||
 		!stringSliceValid(s.Commits) || !stringSliceValid(s.CommitSHAs) {
@@ -418,12 +433,12 @@ func validate(record Record, requireRevision bool) error {
 				return fmt.Errorf("%w: invalid subagent command", ErrInvalid)
 			}
 		}
-		seenSubagentModels := map[string]bool{}
-		for _, usage := range subagent.Usage {
-			if !validUsage(usage) || seenSubagentModels[usage.Model] {
-				return fmt.Errorf("%w: invalid subagent usage", ErrInvalid)
+		previousModel := ""
+		for index, usage := range subagent.Usage {
+			if !validUsage(usage) || (index > 0 && usage.Model <= previousModel) {
+				return fmt.Errorf("%w: invalid or unsorted subagent usage", ErrInvalid)
 			}
-			seenSubagentModels[usage.Model] = true
+			previousModel = usage.Model
 		}
 	}
 	if s.Synthesis != nil && (!stringSliceValid(s.Synthesis.Goals) || !stringSliceValid(s.Synthesis.KeyDecisions) ||

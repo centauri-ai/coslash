@@ -115,6 +115,31 @@ func TestSessionRoundTripPreservesUnknownCosts(t *testing.T) {
 	}
 }
 
+func TestRecordRoundTripPreservesNullStringArrays(t *testing.T) {
+	record, err := fullsessionv1.Freeze(fullsessionv1.Record{
+		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+		Session: fullsessionv1.Session{
+			StartedAtMs: 1, LastActivityAtMs: 1,
+			Synthesis: &fullsessionv1.SessionSynthesis{Outcome: "complete"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := ToSession(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := FromSession(record.SourceID, *restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.RevisionID != record.RevisionID {
+		t.Fatalf("round trip revision = %s, want %s", roundTrip.RevisionID, record.RevisionID)
+	}
+}
+
 func TestParsedFamilyRejectsMissingPortableTimestamps(t *testing.T) {
 	parsed := []*vendors.ParsedSession{{
 		Session: &session.Session{

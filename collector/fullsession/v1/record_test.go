@@ -3,6 +3,7 @@ package fullsessionv1
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +85,40 @@ func TestDecodeRejectsOversizedCollectionBeforeTypedDecode(t *testing.T) {
 
 	if _, err := Decode(data); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Decode error = %v; want %v", err, ErrInvalid)
+	}
+}
+
+func TestDecodeRejectsOversizedAggregateCollectionBeforeTypedDecode(t *testing.T) {
+	items := strings.Repeat("{},", MaxItems/2-1) + "{}"
+	data := []byte("[[" + items + "],[" + items + "]]")
+
+	if err := validateCollectionSizes(data); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("validateCollectionSizes error = %v; want %v", err, ErrInvalid)
+	}
+}
+
+func TestFreezeRejectsUnsortedUsage(t *testing.T) {
+	record := Record{
+		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+		Session: Session{StartedAtMs: 1, LastActivityAtMs: 1, Usage: []ModelUsage{
+			{Model: "z-model"}, {Model: "a-model"},
+		}},
+	}
+
+	if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Freeze error = %v; want %v", err, ErrInvalid)
+	}
+}
+
+func TestFreezeRejectsUnsortedSubagentUsage(t *testing.T) {
+	record := Record{
+		SourceID: "source-1", Agent: "codex", SessionID: "session-1",
+		Session: Session{StartedAtMs: 1, LastActivityAtMs: 1, Subagents: []Subagent{{
+			ID: "subagent-1", Usage: []ModelUsage{{Model: "z-model"}, {Model: "a-model"}},
+		}}},
+	}
+
+	if _, err := Freeze(record); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Freeze error = %v; want %v", err, ErrInvalid)
 	}
 }
