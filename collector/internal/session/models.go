@@ -130,11 +130,12 @@ func AttachCost(s *Session, recorded *float64) {
 			s.Tokens[model] = used
 		}
 	}
-	s.UnpricedModels = UnpricedModels(s.Tokens)
 	if recorded != nil {
+		s.UnpricedModels = []string{}
 		s.Cost = recorded
 		return
 	}
+	s.UnpricedModels = UnpricedModels(s.Tokens)
 	if len(s.Tokens) == 0 {
 		s.Cost = nil
 		return

@@ -30,7 +30,7 @@ func FromParsedFamily(sourceID, vendor string, source vendors.ReadSource, parsed
 }
 
 func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, error) {
-	return fromSession(sourceID, "", value)
+	return fromSession(sourceID, value.ParentSessionID, value)
 }
 
 func fromSession(sourceID, parentSessionID string, value session.Session) (fullsessionv1.Record, error) {
@@ -117,7 +117,8 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		return nil, err
 	}
 	value := &session.Session{
-		Agent: record.Agent, ID: record.SessionID, Name: cloneString(record.Session.Name), Summary: cloneString(record.Session.Summary),
+		Agent: record.Agent, ID: record.SessionID, ParentSessionID: record.ParentSessionID,
+		Name: cloneString(record.Session.Name), Summary: cloneString(record.Session.Summary),
 		Status: cloneString(record.Session.Status), WorkingDirectory: record.Session.WorkingDirectory,
 		Branch: cloneString(record.Session.Branch), EditedFileCount: record.Session.EditedFileCount,
 		DurationMs: cloneInt(record.Session.DurationMs), Tokens: tokensFromUsage(record.Session.Usage),
@@ -248,7 +249,7 @@ func cloneParsedFamily(parsed []*vendors.ParsedSession) []*vendors.ParsedSession
 			}
 			copy.Spawns[key] = spawn
 		}
-		copy.Commands = append([]session.SubagentCommand(nil), item.Commands...)
+		copy.Commands = cloneSlice(item.Commands)
 		copy.StatusHint = cloneString(item.StatusHint)
 		if item.RecordedCost != nil {
 			cost := *item.RecordedCost

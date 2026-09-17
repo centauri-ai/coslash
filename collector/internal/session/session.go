@@ -40,6 +40,7 @@ type Subagent struct {
 type Session struct {
 	Agent               string                 `json:"agent"`
 	ID                  string                 `json:"id"`
+	ParentSessionID     string                 `json:"-"`
 	Name                *string                `json:"name"`
 	Summary             *string                `json:"summary"`
 	Status              *string                `json:"status"`

@@ -155,11 +155,24 @@ func Freeze(record Record) (Record, error) {
 	record = cloneRecord(record)
 	record.SchemaVersion = SchemaVersion
 	record.RevisionID = ""
+	changeIDs := make(map[string]bool)
+	for _, edit := range record.Session.FileEdits {
+		for _, change := range edit.Changes {
+			if change.ID != "" {
+				changeIDs[change.ID] = true
+			}
+		}
+	}
 	for editIndex := range record.Session.FileEdits {
 		for changeIndex := range record.Session.FileEdits[editIndex].Changes {
 			change := &record.Session.FileEdits[editIndex].Changes[changeIndex]
 			if change.ID == "" {
-				change.ID = fmt.Sprintf("change-%06d-%06d", editIndex, changeIndex)
+				base := fmt.Sprintf("change-%06d-%06d", editIndex, changeIndex)
+				change.ID = base
+				for suffix := 1; changeIDs[change.ID]; suffix++ {
+					change.ID = fmt.Sprintf("%s-%06d", base, suffix)
+				}
+				changeIDs[change.ID] = true
 			}
 			change.ByteCount = len(change.Text)
 			digest := sha256.Sum256([]byte(change.Text))

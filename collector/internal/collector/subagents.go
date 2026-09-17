@@ -23,7 +23,7 @@ func subagentFrom(
 	}
 	subagent := session.Subagent{
 		ID:         s.ID,
-		Name:       cmp.Or(child.Name, s.ID),
+		Name:       cmp.Or(deref(s.Name), child.Name, s.ID),
 		Model:      s.Model,
 		Status:     subagentStatus(child, parent, metadata, useLiveStatus),
 		Task:       task,
