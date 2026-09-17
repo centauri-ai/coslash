@@ -1,5 +1,6 @@
 import {
   isEligibleForSharing,
+  isLocalSession,
   sessionLogicalId,
   sessionRevision,
   sessionShareEligibility,
@@ -16,6 +17,39 @@ export type SessionLibraryFilters = {
 };
 
 export const ALL_REPOSITORIES = 'all-repositories';
+
+const sessionSearchDocuments = new WeakMap<Session, string>();
+const searchableDigestCategories = new Set(['first_prompt', 'user', 'question', 'recap']);
+
+function sessionSearchDocument(session: Session): string {
+  const cached = sessionSearchDocuments.get(session);
+  if (cached != null) return cached;
+
+  const fields: (string | null | undefined)[] = [session.name, session.repo, session.branch, session.agent];
+  if (isLocalSession(session)) {
+    fields.push(session.firstPrompt, session.summary, session.declaredGoal);
+    for (const entry of session.digest) {
+      if (searchableDigestCategories.has(entry.category)) {
+        fields.push(entry.description, entry.answer);
+      }
+    }
+    if (session.synthesis != null) {
+      fields.push(
+        ...session.synthesis.goals,
+        session.synthesis.outcome,
+        ...session.synthesis.keyDecisions,
+        session.synthesis.nextStep,
+      );
+    }
+  }
+
+  const document = fields
+    .filter((value): value is string => value != null)
+    .join('\n')
+    .toLowerCase();
+  sessionSearchDocuments.set(session, document);
+  return document;
+}
 
 /**
  * A source may return a cached older revision beside a freshly collected
@@ -48,12 +82,7 @@ export function filterSessionLibrary<T extends Session>(
     if (filters.source !== 'all' && session.sourceClass !== filters.source) return false;
     if (filters.shareState !== 'all' && sessionShareEligibility(session) !== filters.shareState) return false;
     if (!search) return true;
-    // Deliberately exclude cwd and source IDs: both may reveal local-only or
-    // operational metadata. Repository, branch, title, and agent are the
-    // searchable library fields.
-    return [session.name, session.repo, session.branch, session.agent].some(
-      (value) => value != null && value.toLowerCase().includes(search),
-    );
+    return sessionSearchDocument(session).includes(search);
   });
 }
 
