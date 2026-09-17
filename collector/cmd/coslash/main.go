@@ -69,7 +69,7 @@ func parseOptions(arguments []string) (options, error) {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "sessions", "handoff", "send", "doctor":
+		case "sessions", "handoff", "send", "review", "doctor":
 			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		}
 	}
@@ -244,7 +244,13 @@ func routes(
 	})
 	api.HandleFunc("POST /api/reviews", func(w http.ResponseWriter, r *http.Request) {
 		getSession := func(agent, id string) (*session.Session, error) {
-			found, err := collector.GetSessionForPreviewByAgent(agent, id, 0)
+			var found *session.Session
+			var err error
+			if agent == "" {
+				found, err = collector.GetSessionForPreview(id, 0)
+			} else {
+				found, err = collector.GetSessionForPreviewByAgent(agent, id, 0)
+			}
 			if found != nil {
 				found.Synthesis = mgr.LookupLatest(found.ID)
 			}

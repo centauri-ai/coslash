@@ -507,17 +507,13 @@ func handleReview(
 		return
 	}
 	originAgent := query.Get("agent")
-	if originAgent == "" {
-		http.Error(w, "origin agent is required", http.StatusBadRequest)
-		return
-	}
 	found, err := getSession(originAgent, query.Get("id"))
 	if err != nil {
 		log.Printf("review: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
 		return
 	}
-	if found == nil || found.Agent != originAgent {
+	if found == nil || originAgent != "" && found.Agent != originAgent {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}

@@ -154,6 +154,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		err = runHandoff(stdout, args[1:])
 	case "send":
 		err = runSend(stdout, args[1:])
+	case "review":
+		err = runReview(stdout, args[1:])
 	case "doctor":
 		return runDoctor(stdout, stderr, args[1:])
 	default:
@@ -271,5 +273,25 @@ func runSend(stdout io.Writer, args []string) error {
 		return err
 	}
 	fmt.Fprintf(stdout, "Success: started %s for session %s\n", target, args[0])
+	return nil
+}
+
+func runReview(stdout io.Writer, args []string) error {
+	if len(args) != 3 || args[0] == "" || args[1] != "--with" {
+		return fmt.Errorf("usage: coslash review <session> --with claude|codex|opencode")
+	}
+	reviewer := args[2]
+	if reviewer != "claude" && reviewer != "codex" && reviewer != "opencode" {
+		return fmt.Errorf("--with must be claude, codex, or opencode")
+	}
+	client, err := newLocalAPIClient()
+	if err != nil {
+		return err
+	}
+	path := "/api/reviews?source=local&id=" + url.QueryEscape(args[0]) + "&reviewer=" + url.QueryEscape(reviewer)
+	if _, err := client.request(http.MethodPost, path, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Success: started %s review for session %s\n", reviewer, args[0])
 	return nil
 }
