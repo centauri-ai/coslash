@@ -157,6 +157,70 @@ func TestRunHandoffAndSendPreserveServerOutcomes(t *testing.T) {
 	}
 }
 
+func TestRunReviewPreservesServerOutcomes(t *testing.T) {
+	reviewer := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/reviews" ||
+			r.URL.Query().Get("source") != "local" || r.URL.Query().Get("id") != "session-1" ||
+			r.URL.Query().Get("reviewer") != reviewer {
+			t.Fatalf("request = %s %s", r.Method, r.URL.String())
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+
+	for _, selected := range []string{"claude", "codex", "opencode"} {
+		reviewer = selected
+		var stdout, stderr bytes.Buffer
+		if code := runCLI(&stdout, &stderr, []string{"review", "session-1", "--with", selected}); code != 0 {
+			t.Fatalf("reviewer = %q, code = %d, stderr = %q", selected, code, stderr.String())
+		}
+		if got := stdout.String(); got != "Success: started "+selected+" review for session session-1\n" {
+			t.Fatalf("reviewer = %q, stdout = %q", selected, got)
+		}
+	}
+}
+
+func TestRunReviewRejectsInvalidArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"review"},
+		{"review", "session-1"},
+		{"review", "session-1", "--with"},
+		{"review", "session-1", "--with", "cursor"},
+		{"review", "session-1", "--with", "codex", "extra"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := runCLI(&stdout, &stderr, args); code != 1 || !strings.HasPrefix(stderr.String(), "Error: ") {
+			t.Fatalf("args = %#v, code = %d, stderr = %q", args, code, stderr.String())
+		}
+	}
+}
+
+func TestRunReviewReportsAPIError(t *testing.T) {
+	for _, message := range []string{
+		"reviewer is not installed or supported",
+		"session not found",
+		"review already running",
+	} {
+		t.Run(message, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, message, http.StatusConflict)
+			}))
+			defer server.Close()
+			writeTestRuntime(t, server.URL, "secret")
+
+			var stdout, stderr bytes.Buffer
+			if code := runCLI(&stdout, &stderr, []string{"review", "session-1", "--with", "codex"}); code != 1 {
+				t.Fatalf("code = %d", code)
+			}
+			if got := stderr.String(); got != "Error: "+message+"\n" {
+				t.Fatalf("stderr = %q", got)
+			}
+		})
+	}
+}
+
 func TestRunCLIReportsServerErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "session not found", http.StatusNotFound)

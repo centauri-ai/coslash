@@ -197,6 +197,33 @@ func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 	}
 }
 
+func TestHandleReviewResolvesSessionWhenOriginAgentIsOmitted(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&id=origin-id&reviewer=claude", nil)
+	response := httptest.NewRecorder()
+	handleReview(
+		response,
+		request,
+		settings.Open(),
+		func(agent, id string) (*session.Session, error) {
+			if agent != "" || id != "origin-id" {
+				t.Fatalf("session identity = %q, %q", agent, id)
+			}
+			return &session.Session{Agent: "codex", ID: id, WorkingDirectory: "/repo"}, nil
+		},
+		func(reviewer string) bool { return reviewer == "claude" },
+		func(id string, launch reviewpkg.Launch) bool {
+			if id != "codex:origin-id" || launch.Reviewer != "claude" {
+				t.Fatalf("review = %q, %#v", id, launch)
+			}
+			return true
+		},
+	)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
+	}
+}
+
 func TestHandleReviewRejectsUnsupportedRequests(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	tests := []struct {
