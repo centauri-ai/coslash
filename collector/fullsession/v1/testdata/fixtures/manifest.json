@@ -4,12 +4,12 @@
   "fixtures": [
     {
       "path": "valid/codex.json",
-      "sha256": "617460f0d4b5b1795aea433967e89e8dc3be87b1eb82eb7e23ae4c307d001fbf",
+      "sha256": "10660c3b6a01cde4838b8dddcaff29ce1d38bd67adfca87447e0b45743d04fb2",
       "valid": true
     },
     {
       "path": "valid/escaping.json",
-      "sha256": "fd5bf16d3447770480b96f7126a7bba02d141b87e189ca65857603ce9517ef52",
+      "sha256": "ca12295dd4ede5cf07de25dfea3628e261fe57fbbb162e4fde0c660f2a4487e8",
       "valid": true
     },
     {
@@ -20,31 +20,31 @@
     },
     {
       "path": "invalid/unknown-field.json",
-      "sha256": "17a1cf90372cadcf60c31e0d225bcc7b7f3a729dff74b29a345c74bb5fa92230",
+      "sha256": "61a8a4d0ebbcebe77b7d0976960eb74268df9931ca33f2f764d038e101362792",
       "valid": false,
       "reason": "unknown field"
     },
     {
       "path": "invalid/incomplete-body.json",
-      "sha256": "825e31082985e034b710fe3f60428491643d1c4901fabfb214f07b3ca95e9b63",
+      "sha256": "4dc7236bfbd63d3b26bc29b3d4df7949ae9c0f4904718047e722e6ed5a0c6e19",
       "valid": false,
       "reason": "missing declared change body"
     },
     {
       "path": "invalid/timestamp-out-of-range.json",
-      "sha256": "c19ea16d296fb41549c8a02f7f75548c4277b6e0c0e4b7c65740282266a9ea58",
+      "sha256": "9fcec972d1dc79bddaf98b09da89dae5da4dadd8b3bf04c74a736c6ce438beae",
       "valid": false,
       "reason": "session timestamp exceeds year 9999"
     },
     {
       "path": "invalid/bad-revision.json",
-      "sha256": "4d6da3c37f1efe52f8c79296f835d5323694b2789e938734f140d3a43cad4da3",
+      "sha256": "41d2d755f893bda09f85ee9c7427a20b3c2c752830261d95041464fa14691577",
       "valid": false,
       "reason": "revision hash mismatch"
     },
     {
       "path": "invalid/bad-body-hash.json",
-      "sha256": "2b84d4e77e1101883155d18da467fc130da1b34586c7d2af89d1e23a79bc23f3",
+      "sha256": "7bff6d09a7f6edbfcaf4861c9f4760c0e781473d3e676ecbf663b9dc73261735",
       "valid": false,
       "reason": "change hash mismatch"
     }

@@ -59,3 +59,21 @@ func TestLocalSFTPAndHelperNormalizedFactsComposeEquivalentCards(t *testing.T) {
 		t.Fatalf("direct/SFTP card = %#v\nhelper card = %#v", direct, helper)
 	}
 }
+
+func TestListRemoteUsesLiveStatus(t *testing.T) {
+	parsed := []*vendors.ParsedSession{
+		{Session: &session.Session{Agent: "codex", ID: "root", StartedAt: 10, LastActivityTime: 20, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1}}, InTurn: true, Spawns: map[string]vendors.SpawnState{}},
+		{Session: &session.Session{Agent: "codex", ID: "child", StartedAt: 11, LastActivityTime: 21, Tokens: map[string]session.ModelTokens{}}, ParentID: "root", InTurn: true, Spawns: map[string]vendors.SpawnState{}},
+	}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("root").Live = "interactive"
+	metadata.Session("child").Live = "interactive"
+
+	got := ListRemote(vendors.LocalReadSource, map[string]vendors.RemoteCollection{
+		"codex": {Sessions: parsed, Metadata: metadata},
+	}, 0)
+	if len(got) != 1 || got[0].Status == nil || *got[0].Status != "busy" ||
+		len(got[0].Subagents) != 1 || got[0].Subagents[0].Status != session.SubagentRunning {
+		t.Fatalf("live remote display = %#v", got)
+	}
+}

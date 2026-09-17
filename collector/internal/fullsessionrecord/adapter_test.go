@@ -43,11 +43,43 @@ func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(restored.FileEdits[0].Changes(), original.FileEdits[0].Changes()) {
-		t.Fatalf("restored changes = %#v, want %#v", restored.FileEdits[0].Changes(), original.FileEdits[0].Changes())
+	wantChanges := original.FileEdits[0].Changes()
+	for i := range wantChanges {
+		wantChanges[i].ID = record.Session.FileEdits[0].Changes[i].ID
+	}
+	if !reflect.DeepEqual(restored.FileEdits[0].Changes(), wantChanges) {
+		t.Fatalf("restored changes = %#v, want %#v", restored.FileEdits[0].Changes(), wantChanges)
 	}
 	if restored.Cost == nil || *restored.Cost != cost {
 		t.Fatalf("restored cost = %v, want %v", restored.Cost, cost)
+	}
+}
+
+func TestSessionRoundTripPreservesOpaqueChangeIDs(t *testing.T) {
+	original := session.Session{
+		Agent: "codex", ID: "session-1", StartedAt: 1000, LastActivityTime: 2000,
+		EditedFileCount: 1, Tokens: map[string]session.ModelTokens{},
+		SessionDetails: session.SessionDetails{FileEdits: []session.FileEdit{
+			session.FileEditWithChanges("main.go", 1, 0, 1, false, []session.FileChange{{
+				ID: "patch-abcd", Kind: "content", Text: "package main\n", Operation: "Write", Additions: 1,
+			}}),
+		}},
+	}
+	record, err := FromSession("r_0123456789abcdef", original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := ToSession(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := FromSession("r_0123456789abcdef", *restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.Session.FileEdits[0].Changes[0].ID != "patch-abcd" || roundTrip.RevisionID != record.RevisionID {
+		t.Fatalf("round trip change = %#v, revision = %s; want opaque ID and revision %s",
+			roundTrip.Session.FileEdits[0].Changes[0], roundTrip.RevisionID, record.RevisionID)
 	}
 }
 
@@ -123,9 +155,10 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 		}
 	}
 
+	parsed := family()
 	withoutLive, err := FromParsedFamily(
 		"r_0123456789abcdef", "codex", vendors.LocalReadSource,
-		family(), vendors.EmptySessionMetadata(),
+		parsed, vendors.EmptySessionMetadata(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -142,12 +175,54 @@ func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
 	if !reflect.DeepEqual(withoutLive, withLive) {
 		t.Fatalf("portable records differ with live metadata:\nwithout = %#v\nwith = %#v", withoutLive, withLive)
 	}
+	repeated, err := FromParsedFamily(
+		"r_0123456789abcdef", "codex", vendors.LocalReadSource,
+		parsed, vendors.EmptySessionMetadata(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(withoutLive, repeated) || len(parsed[0].Session.Subagents) != 0 {
+		t.Fatalf("portable composition mutated its input or changed on repeat:\nfirst = %#v\nsecond = %#v\ninput = %#v",
+			withoutLive, repeated, parsed[0].Session)
+	}
+	if len(withoutLive) != 2 || withoutLive[1].ParentSessionID != "root" || withoutLive[1].SessionID != "child" {
+		t.Fatalf("flattened family = %#v; want root and child with parent identity", withoutLive)
+	}
 	child := withoutLive[0].Session.Subagents[0]
 	if child.Task != prompt || child.Result != summary {
 		t.Fatalf("subagent text = (%q, %q); want (%q, %q)", child.Task, child.Result, prompt, summary)
 	}
 	if child.Status != session.SubagentAborted || withoutLive[0].Session.Status != nil {
 		t.Fatalf("portable statuses = root %v, child %q; want nil, aborted", withoutLive[0].Session.Status, child.Status)
+	}
+}
+
+func TestParsedFamilyPreservesCompleteDescendantSessions(t *testing.T) {
+	goal := "finish child work"
+	childEdits := session.FileEditWithChanges("child.go", 1, 0, 1, true, []session.FileChange{{
+		ID: "child-patch", Kind: "content", Text: "package child\n", Operation: "Write", Additions: 1,
+	}})
+	parsed := []*vendors.ParsedSession{
+		{Session: &session.Session{Agent: "codex", ID: "root", StartedAt: 10, LastActivityTime: 20, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1}}, Spawns: map[string]vendors.SpawnState{}},
+		{Session: &session.Session{Agent: "codex", ID: "child", StartedAt: 11, LastActivityTime: 21, EditedFileCount: 1, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{
+			Turns: 1, Todos: []session.Todo{{Text: "child todo"}}, FileEdits: []session.FileEdit{childEdits},
+			Synthesis: &session.SessionSynthesis{Goals: []string{goal}, Outcome: "done"},
+		}}, ParentID: "root", Spawns: map[string]vendors.SpawnState{}},
+		{Session: &session.Session{Agent: "codex", ID: "grandchild", StartedAt: 12, LastActivityTime: 22, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1}}, ParentID: "child", Spawns: map[string]vendors.SpawnState{}},
+	}
+
+	records, err := FromParsedFamily("r_0123456789abcdef", "codex", vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 3 || records[1].ParentSessionID != "root" || records[2].ParentSessionID != "child" {
+		t.Fatalf("record lineage = %#v", records)
+	}
+	child := records[1].Session
+	if len(child.FileEdits) != 1 || child.FileEdits[0].Changes[0].ID != "child-patch" ||
+		len(child.Todos) != 1 || child.Synthesis == nil || len(child.Subagents) != 1 || child.Subagents[0].ID != "grandchild" {
+		t.Fatalf("complete child record = %#v", child)
 	}
 }
 

@@ -1,6 +1,7 @@
 package fullsessionv1
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 )
@@ -72,5 +73,16 @@ func TestFreezeValidationFailureDoesNotMutateInput(t *testing.T) {
 	change := record.Session.FileEdits[0].Changes[0]
 	if change.ID != "" || change.ByteCount != 0 || change.SHA256 != "" {
 		t.Fatalf("failed Freeze mutated input change: %#v", change)
+	}
+}
+
+func TestDecodeRejectsOversizedCollectionBeforeTypedDecode(t *testing.T) {
+	data := make([]byte, 0, 3*MaxItems+4)
+	data = append(data, '[')
+	data = append(data, bytes.Repeat([]byte("{},"), MaxItems)...)
+	data = append(data, '{', '}', ']')
+
+	if _, err := Decode(data); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Decode error = %v; want %v", err, ErrInvalid)
 	}
 }

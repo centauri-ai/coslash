@@ -3,6 +3,7 @@ package session
 import "strings"
 
 type FileChange struct {
+	ID        string `json:"id"`
 	Kind      string `json:"kind"`
 	Text      string `json:"text"`
 	Operation string `json:"operation"`
