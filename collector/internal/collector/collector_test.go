@@ -68,7 +68,7 @@ func TestResolveStatusClearsWaitingForClosedSession(t *testing.T) {
 		"codex": vendors.EmptySessionMetadata(),
 	}
 
-	resolveStatus([]*vendors.ParsedSession{root}, metadata, true)
+	resolveStatus([]*vendors.ParsedSession{root}, metadata, true, true)
 
 	if root.Session.Status != nil {
 		t.Fatalf("closed session status = %q; want nil", *root.Session.Status)
