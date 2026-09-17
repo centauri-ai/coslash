@@ -314,13 +314,13 @@ func validateRecord(r Record, request Request, sequence int) error {
 				full.Record.Agent != r.Vendor || !seenSessions[full.Record.SessionID] || seenRecords[full.Record.SessionID] {
 				return errors.New("full record identity does not match changed family")
 			}
-			if err := fullsessionv1.Validate(full.Record); err != nil {
+			if _, err := fullsessionv1.Marshal(full.Record); err != nil {
 				return fmt.Errorf("invalid full session record: %w", err)
 			}
 			seenRecords[full.Record.SessionID] = true
 		}
 		if request.SourceID != "" && r.Vendor == "codex" &&
-			(len(seenRecords) != 1 || !seenRecords[r.FamilyID]) {
+			!seenRecords[r.FamilyID] {
 			return errors.New("complete Codex family requires its rooted full record")
 		}
 	case RecordUnchanged:
@@ -391,4 +391,12 @@ func validID(value string) bool {
 	}
 	return true
 }
-func encodedSize(value any) int { data, _ := json.Marshal(value); return len(data) }
+func encodedSize(value any) int {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(value) != nil {
+		return 0
+	}
+	return output.Len() - 1 // Encoder appends one framing newline.
+}

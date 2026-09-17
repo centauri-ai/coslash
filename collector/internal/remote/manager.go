@@ -387,13 +387,18 @@ func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
 		manager.startHelperDiscoveryLocked()
 	}
 	if manager.helperProbe == helperProbeProbing {
-		return ListResult{Sessions: manager.sessionsLocked(remoteSinceMs), Health: manager.healthLocked(remoteSinceMs)}
+		return manager.listResultLocked(remoteSinceMs)
 	}
 	if manager.snapshot == nil || age(manager.snapshot.FetchedAtMs, manager.now()) >= FreshnessInterval ||
 		manager.snapshot.CoverageSinceMs > remoteSinceMs {
 		manager.maybeStartRefreshLocked(remoteSinceMs, false)
 	}
-	return ListResult{Sessions: manager.sessionsLocked(remoteSinceMs), Health: manager.healthLocked(remoteSinceMs)}
+	return manager.listResultLocked(remoteSinceMs)
+}
+
+func (manager *Manager) listResultLocked(remoteSinceMs int64) ListResult {
+	sessions := manager.sessionsLocked(remoteSinceMs)
+	return ListResult{Sessions: sessions, Health: manager.healthLockedWithSessionCount(remoteSinceMs, len(sessions))}
 }
 
 // Retry starts one manual refresh unless another one is running or the
@@ -516,28 +521,36 @@ func (manager *Manager) PreviewSession(sourceID, agent, sessionID string, revisi
 // available from the last-good cache while the SSH source is offline.
 func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, error) {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID || manager.snapshot == nil {
+		manager.mu.Unlock()
 		return nil, nil
 	}
+	var selected *fullsessionv1.Record
 	for _, full := range manager.snapshot.FullRecords {
 		if full.Record.Agent != agent || full.Record.SessionID != sessionID {
 			continue
 		}
 		if full.Record.RevisionID != revisionID {
+			manager.mu.Unlock()
 			return nil, ErrRemoteRevisionNotFound
 		}
-		data, err := fullsessionv1.Marshal(full.Record)
-		if err != nil {
-			return nil, ErrRemoteRecordCorrupt
-		}
-		copy, err := fullsessionv1.Decode(data)
-		if err != nil {
-			return nil, ErrRemoteRecordCorrupt
-		}
-		return &copy, nil
+		copy := full.Record
+		selected = &copy
+		break
 	}
-	return nil, nil
+	manager.mu.Unlock()
+	if selected == nil {
+		return nil, nil
+	}
+	data, err := fullsessionv1.Marshal(*selected)
+	if err != nil {
+		return nil, ErrRemoteRecordCorrupt
+	}
+	copy, err := fullsessionv1.Decode(data)
+	if err != nil {
+		return nil, ErrRemoteRecordCorrupt
+	}
+	return &copy, nil
 }
 
 // ReadChange verifies the requested opaque change belongs to the exact source,
@@ -843,6 +856,7 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 	}
 	eligible := manager.state == StateOK && manager.complete
 	globalStale := manager.state != StateOK && manager.state != StateLimited
+	revisions := fullRecordRevisions(manager.snapshot)
 	result := []IndexedSession{}
 	for _, item := range manager.sessions {
 		if remoteSinceMs > 0 && item.Status == nil && item.LastActivityTime < remoteSinceMs {
@@ -856,7 +870,7 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 			DisplayStale:          globalStale || manager.familyStale[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
 			Launchable:            blockReason == "",
 			LaunchBlockReason:     blockReason,
-			RevisionID:            fullRecordRevision(manager.snapshot, item.Agent, item.ID),
+			RevisionID:            revisions[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
 		}
 		if indexed.DisplayStale {
 			indexed.LastSeenStatus = item.Status
@@ -866,16 +880,15 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 	return result
 }
 
-func fullRecordRevision(snapshot *CachedSnapshotV2, agent, sessionID string) string {
+func fullRecordRevisions(snapshot *CachedSnapshotV2) map[remoteSessionKey]string {
+	revisions := map[remoteSessionKey]string{}
 	if snapshot == nil {
-		return ""
+		return revisions
 	}
 	for _, full := range snapshot.FullRecords {
-		if full.Record.Agent == agent && full.Record.SessionID == sessionID {
-			return full.Record.RevisionID
-		}
+		revisions[remoteSessionKey{Agent: full.Record.Agent, ID: full.Record.SessionID}] = full.Record.RevisionID
 	}
-	return ""
+	return revisions
 }
 
 func launchBlockReason(snapshot *CachedSnapshotV2, item *session.Session) LaunchBlockReason {
@@ -898,6 +911,10 @@ func launchBlockReason(snapshot *CachedSnapshotV2, item *session.Session) Launch
 }
 
 func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
+	return manager.healthLockedWithSessionCount(remoteSinceMs, len(manager.sessionsLocked(remoteSinceMs)))
+}
+
+func (manager *Manager) healthLockedWithSessionCount(remoteSinceMs int64, sessionCount int) Health {
 	if manager.cfg == nil {
 		return Health{State: StateDisabled, Complete: true, Reason: reasonPtr(ReasonDisabled)}
 	}
@@ -907,7 +924,7 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		Refreshing:      manager.refreshing,
 		LastSuccessAtMs: manager.lastSuccessAt,
 		LastCheckedAtMs: manager.lastCheckedAt,
-		SessionCount:    len(manager.sessionsLocked(remoteSinceMs)),
+		SessionCount:    sessionCount,
 		Transport:       manager.transport, Helper: manager.helper, Metrics: manager.metrics,
 		HelperInstallationAvailable: manager.helperInstallationAvailable,
 		HelperProbeState:            string(manager.helperProbe),

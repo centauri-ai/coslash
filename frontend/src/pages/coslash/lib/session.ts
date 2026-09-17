@@ -28,7 +28,7 @@ export type Subagent = {
   toolUses: number;
   commands: SubagentCommand[];
   tokens: Record<string, ModelTokens>;
-  cost: number;
+  cost: number | null;
 };
 
 export const LOCAL_SOURCE_ID = 'local';
@@ -70,7 +70,7 @@ export type Session = {
   files: number;
   durationMs: number | null;
   tokens: Record<string, ModelTokens>;
-  cost: number;
+  cost: number | null;
   unpricedModels: string[];
   subagents: Subagent[];
   mtime: number;
@@ -152,6 +152,16 @@ export function sessionsForAggregates<T extends Pick<Session, 'eligibleForAggreg
   sessions: readonly T[],
 ): T[] {
   return sessions.filter((session) => session.eligibleForAggregates);
+}
+
+export function sumKnown(values: (number | null)[]): number | null {
+  if (values.length === 0) return null;
+  let total = 0;
+  for (const value of values) {
+    if (value == null) return null;
+    total += value;
+  }
+  return total;
 }
 
 /** Missing or blank remote env facts render as an em dash, never `undefined`. */
@@ -453,7 +463,8 @@ export function sumTokens(
   return Object.values(tokens).reduce((sum, modelTokens) => sum + modelTokens[key], 0);
 }
 
-export function getTotalTokens(tokens: Session['tokens']): number {
+export function getTotalTokens(tokens: Session['tokens']): number | null {
+  if (Object.keys(tokens).length === 0) return null;
   return Object.values(tokens).reduce(
     (sum, modelTokens) =>
       sum +

@@ -91,17 +91,25 @@ func ContextTokens(inputTokens, cacheReadTokens, cacheWriteTokens int) int {
 func EstimatedCost(tokens map[string]ModelTokens) float64 {
 	total := 0.0
 	for model, used := range tokens {
-		info, ok := modelInfoFor(model)
+		cost, ok := estimatedModelCost(model, used)
 		if !ok {
 			continue
 		}
-		total += float64(used.InputTokens)*info.Input +
-			float64(used.OutputTokens)*info.Output +
-			float64(used.CacheCreationInputTokens)*info.CacheWrite +
-			float64(used.CacheCreation1hInputTokens)*info.CacheWrite1h +
-			float64(used.CacheReadInputTokens)*info.CacheRead
+		total += cost
 	}
 	return total
+}
+
+func estimatedModelCost(model string, used ModelTokens) (float64, bool) {
+	info, ok := modelInfoFor(model)
+	if !ok {
+		return 0, false
+	}
+	return float64(used.InputTokens)*info.Input +
+		float64(used.OutputTokens)*info.Output +
+		float64(used.CacheCreationInputTokens)*info.CacheWrite +
+		float64(used.CacheCreation1hInputTokens)*info.CacheWrite1h +
+		float64(used.CacheReadInputTokens)*info.CacheRead, true
 }
 
 func UnpricedModels(tokens map[string]ModelTokens) []string {
@@ -116,11 +124,24 @@ func UnpricedModels(tokens map[string]ModelTokens) []string {
 }
 
 func AttachCost(s *Session, recorded *float64) {
-	if recorded != nil {
-		s.Cost = *recorded
-		s.UnpricedModels = []string{}
-	} else {
-		s.Cost = EstimatedCost(s.Tokens)
-		s.UnpricedModels = UnpricedModels(s.Tokens)
+	if recorded == nil {
+		for model, used := range s.Tokens {
+			if cost, ok := estimatedModelCost(model, used); ok {
+				used.Cost = cost
+				s.Tokens[model] = used
+			}
+		}
 	}
+	if recorded != nil {
+		s.UnpricedModels = []string{}
+		s.Cost = recorded
+		return
+	}
+	s.UnpricedModels = UnpricedModels(s.Tokens)
+	if len(s.Tokens) == 0 {
+		s.Cost = nil
+		return
+	}
+	estimate := EstimatedCost(s.Tokens)
+	s.Cost = &estimate
 }

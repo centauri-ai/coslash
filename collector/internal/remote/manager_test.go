@@ -10,12 +10,25 @@ import (
 	"testing"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestFullRecordRevisionsBuildsSessionIndex(t *testing.T) {
+	snapshot := &CachedSnapshotV2{FullRecords: []remoteprotocol.FullRecord{
+		{Record: fullsessionv1.Record{Agent: vendors.AgentCodex, SessionID: "one", RevisionID: "rev-one"}},
+		{Record: fullsessionv1.Record{Agent: vendors.AgentCodex, SessionID: "two", RevisionID: "rev-two"}},
+	}}
+	revisions := fullRecordRevisions(snapshot)
+	if revisions[remoteSessionKey{Agent: vendors.AgentCodex, ID: "one"}] != "rev-one" ||
+		revisions[remoteSessionKey{Agent: vendors.AgentCodex, ID: "two"}] != "rev-two" {
+		t.Fatalf("revision index = %#v", revisions)
+	}
+}
 
 func TestApplySettingsWaitsForFirstListViewWindow(t *testing.T) {
 	home := t.TempDir()
@@ -497,7 +510,7 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 	waitUntil(t, func() bool {
 		restarted.mu.Lock()
 		defer restarted.mu.Unlock()
-		return restarted.helperProbe == helperProbeReady && !restarted.helperSetup
+		return restarted.helperProbe == helperProbeReady && !restarted.helperAutoSetup
 	})
 	if remote.installs != 2 || remote.removed != "~/.coslash/helpers/v1/coslash-helper" {
 		t.Fatalf("installs=%d removed=%q", remote.installs, remote.removed)

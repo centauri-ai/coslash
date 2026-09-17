@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -46,6 +47,61 @@ func TestChangedFamilyWithMultipleLargeDisplaysFitsRecordLimit(t *testing.T) {
 	record := Record{Type: RecordChanged, ProtocolVersion: ProtocolVersion, RequestID: strings.Repeat("r", remotefacts.MaxIDBytes), Sequence: MaxRecords, Vendor: "codex", FamilyID: "root", Fingerprint: strings.Repeat("f", remotefacts.MaxIDBytes), Family: &family}
 	if size := encodedSize(record); size > MaxRecordBytes {
 		t.Fatalf("changed family record is %d bytes, limit is %d", size, MaxRecordBytes)
+	}
+}
+
+func TestEncodedSizeMatchesUnescapedWireEncoding(t *testing.T) {
+	record := Record{Type: RecordRequestComplete, ProtocolVersion: ProtocolVersion, RequestID: "a<&>z", Sequence: 1}
+	encoded, err := Encode([]Record{record})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := encodedSize(record)+1, len(encoded); got != want {
+		t.Fatalf("encoded size = %d, wire size = %d", got, want)
+	}
+	if bytes.Contains(encoded, []byte(`\u003c`)) || bytes.Contains(encoded, []byte(`\u0026`)) {
+		t.Fatalf("wire encoding unexpectedly escaped HTML: %s", encoded)
+	}
+}
+
+func TestAccumulatorAcceptsRecordAtExactByteLimit(t *testing.T) {
+	r := request()
+	record := handshake(r)
+	r.Limits.MaxRecordBytes = encodedSize(record)
+	a, err := NewAccumulator(r, Generation{BaselineID: "base-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Apply(record); err != nil {
+		t.Fatalf("Apply record at exact byte limit: %v", err)
+	}
+}
+
+func TestChangedCodexFamilyAcceptsDescendantFullRecords(t *testing.T) {
+	r := request()
+	r.SourceID = "r_0123456789abcdef"
+	facts := family()
+	facts.Sessions = append(facts.Sessions, remotefacts.Session{
+		ID: "child", ParentID: "root", StartedAtMs: 1, LastActivityAtMs: 2,
+		Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{},
+	})
+	fullRecords := make([]FullRecord, 0, 2)
+	for _, id := range []string{"root", "child"} {
+		record, err := fullsessionv1.Freeze(fullsessionv1.Record{
+			SourceID: r.SourceID, Agent: "codex", SessionID: id,
+			Session: fullsessionv1.Session{StartedAtMs: 1, LastActivityAtMs: 2},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fullRecords = append(fullRecords, FullRecord{FamilyID: "root", Record: record})
+	}
+	record := Record{
+		Type: RecordChanged, ProtocolVersion: ProtocolVersion, RequestID: r.RequestID, Sequence: 2,
+		Vendor: "codex", FamilyID: "root", Fingerprint: "new", Family: &facts, FullRecords: fullRecords,
+	}
+	if err := validateRecord(record, r, 2); err != nil {
+		t.Fatalf("descendant full records rejected: %v", err)
 	}
 }
 

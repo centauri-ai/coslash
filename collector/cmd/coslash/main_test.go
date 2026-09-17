@@ -239,6 +239,13 @@ func TestBoardSessionLibraryNormalizesIdentityEligibilityAndSSHLabel(t *testing.
 	}
 }
 
+func TestCompletedSessionWithUnknownCostIsNotShareable(t *testing.T) {
+	localSession := boardLocalSession(&session.Session{Agent: "codex", ID: "session", LastActivityTime: 1})
+	if localSession.ShareEligibility != "failed" {
+		t.Fatalf("share eligibility = %q, want failed", localSession.ShareEligibility)
+	}
+}
+
 func TestBoardRemoteSessionDoesNotSerializeRemoteOperationalOrContentFields(t *testing.T) {
 	secret := "SECRET-REMOTE-CONTENT"
 	repository := "centauri/coslash"

@@ -34,12 +34,13 @@ type Subagent struct {
 	ToolUses      int                    `json:"toolUses"`
 	Commands      []SubagentCommand      `json:"commands"`
 	Tokens        map[string]ModelTokens `json:"tokens"`
-	Cost          float64                `json:"cost"`
+	Cost          *float64               `json:"cost"`
 }
 
 type Session struct {
 	Agent               string                 `json:"agent"`
 	ID                  string                 `json:"id"`
+	ParentSessionID     string                 `json:"-"`
 	Name                *string                `json:"name"`
 	Summary             *string                `json:"summary"`
 	Status              *string                `json:"status"`
@@ -50,7 +51,7 @@ type Session struct {
 	EditedFileCount     int                    `json:"files"`
 	DurationMs          *int                   `json:"durationMs"`
 	Tokens              map[string]ModelTokens `json:"tokens"`
-	Cost                float64                `json:"cost"`
+	Cost                *float64               `json:"cost"`
 	UnpricedModels      []string               `json:"unpricedModels"`
 	Subagents           []Subagent             `json:"subagents"`
 	StartedAt           int64                  `json:"-"`

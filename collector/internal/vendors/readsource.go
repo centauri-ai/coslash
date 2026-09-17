@@ -11,10 +11,49 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 )
 
 // ErrInvalidData marks transcript content that cannot be parsed or validated.
 var ErrInvalidData = errors.New("invalid transcript data")
+
+// AggregateFingerprint identifies all inputs that can change a collected
+// family, including metadata that is stored outside transcript files.
+func AggregateFingerprint(familyID string, fingerprints []FileFingerprint, sessionIDs []string, metadata *SessionMetadata) string {
+	fingerprints = append([]FileFingerprint(nil), fingerprints...)
+	sort.Slice(fingerprints, func(i, j int) bool { return fingerprints[i].Key < fingerprints[j].Key })
+	sessionIDs = append([]string(nil), sessionIDs...)
+	sort.Strings(sessionIDs)
+
+	digest := sha256.New()
+	fmt.Fprintf(digest, "v1\n%s\n%s\n", ParserVersion, familyID)
+	previousKey := ""
+	for _, fingerprint := range fingerprints {
+		if fingerprint.Key == previousKey {
+			continue
+		}
+		previousKey = fingerprint.Key
+		fmt.Fprintf(
+			digest, "f\t%s\t%s\t%s\n", fingerprint.Key,
+			strconv.FormatInt(fingerprint.Size, 10),
+			strconv.FormatInt(fingerprint.ModifiedAtMs, 10),
+		)
+	}
+	previousID := ""
+	if metadata != nil {
+		for _, id := range sessionIDs {
+			if id == previousID {
+				continue
+			}
+			previousID = id
+			if enrichment := metadata.Lookup(id); enrichment != nil {
+				encoded, _ := json.Marshal(enrichment)
+				fmt.Fprintf(digest, "m\t%s\t%s\n", id, encoded)
+			}
+		}
+	}
+	return hex.EncodeToString(digest.Sum(nil))
+}
 
 func FingerprintSourceFiles(
 	source ReadSource,

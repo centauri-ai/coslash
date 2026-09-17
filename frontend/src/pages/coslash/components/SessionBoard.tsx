@@ -10,6 +10,7 @@ import {
   sessionsForAggregates,
   STATUS_ORDER,
   STATUSES,
+  sumKnown,
   type Session,
   type Status,
 } from '@/pages/coslash/lib/session';
@@ -42,8 +43,8 @@ function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Se
 
 function GroupTotals({ sessions }: { sessions: Session[] }) {
   const aggregate = sessionsForAggregates(sessions);
-  const tokens = aggregate.reduce((sum, session) => sum + getTotalTokens(session.tokens), 0);
-  const cost = aggregate.reduce((sum, session) => sum + session.cost, 0);
+  const tokens = sumKnown(aggregate.map((session) => getTotalTokens(session.tokens)));
+  const cost = sumKnown(aggregate.map((session) => session.cost));
 
   return (
     <span className="text-muted-foreground text-xs">

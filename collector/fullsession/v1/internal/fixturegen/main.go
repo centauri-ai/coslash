@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 )
@@ -32,6 +33,51 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	escapingInput := record()
+	escapingSummary := "<tag>& line\u2028paragraph\u2029 quote=\" slash=\\ controls=\b\f\n\r\t\x00\x01"
+	escapingInput.Session.Summary = &escapingSummary
+	escaping, err := fullsessionv1.Freeze(escapingInput)
+	if err != nil {
+		panic(err)
+	}
+	escapingCanonical, err := fullsessionv1.Marshal(escaping)
+	if err != nil {
+		panic(err)
+	}
+	boundaryValues, err := fullsessionv1.Freeze(boundaryValuesRecord())
+	if err != nil {
+		panic(err)
+	}
+	boundaryValuesCanonical, err := fullsessionv1.Marshal(boundaryValues)
+	if err != nil {
+		panic(err)
+	}
+	boundaryItems, err := fullsessionv1.Freeze(boundaryItemsRecord())
+	if err != nil {
+		panic(err)
+	}
+	boundaryItemsCanonical, err := fullsessionv1.Marshal(boundaryItems)
+	if err != nil {
+		panic(err)
+	}
+	timestampOutOfRange := valid
+	timestampOutOfRange.Session.LastActivityAtMs = fullsessionv1.MaxSessionTimestampMs + 1
+	timestampOutOfRangeBytes, err := canonicalWithRevision(timestampOutOfRange)
+	if err != nil {
+		panic(err)
+	}
+	negativeCount := valid
+	negativeCount.Session.Turns = -1
+	negativeCountBytes, err := canonicalWithRevision(negativeCount)
+	if err != nil {
+		panic(err)
+	}
+	tooManyItems := boundaryItems
+	tooManyItems.Session.Commands = append(tooManyItems.Session.Commands, "")
+	tooManyItemsBytes, err := canonicalWithRevision(tooManyItems)
+	if err != nil {
+		panic(err)
+	}
 	entries := []struct {
 		path   string
 		data   []byte
@@ -39,9 +85,15 @@ func main() {
 		reason string
 	}{
 		{"valid/codex.json", canonical, true, ""},
+		{"valid/escaping.json", escapingCanonical, true, ""},
+		{"valid/boundary-values.json", boundaryValuesCanonical, true, ""},
+		{"valid/boundary-items.json", boundaryItemsCanonical, true, ""},
 		{"invalid/malformed.json", []byte(`{"schemaVersion":`), false, "malformed JSON"},
 		{"invalid/unknown-field.json", bytes.Replace(canonical, []byte(`"schemaVersion"`), []byte(`"unknown":true,"schemaVersion"`), 1), false, "unknown field"},
 		{"invalid/incomplete-body.json", bytes.Replace(canonical, []byte(`"text":"@@\n-old\n+new\n"`), []byte(`"text":""`), 1), false, "missing declared change body"},
+		{"invalid/timestamp-out-of-range.json", timestampOutOfRangeBytes, false, "session timestamp exceeds year 9999"},
+		{"invalid/negative-count.json", negativeCountBytes, false, "negative count"},
+		{"invalid/too-many-items.json", tooManyItemsBytes, false, "aggregate collection exceeds item limit"},
 		{"invalid/bad-revision.json", bytes.Replace(canonical, []byte(valid.RevisionID), []byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 1), false, "revision hash mismatch"},
 		{"invalid/bad-body-hash.json", bytes.Replace(canonical, []byte(valid.Session.FileEdits[0].Changes[0].SHA256), []byte("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), 1), false, "change hash mismatch"},
 	}
@@ -67,19 +119,52 @@ func main() {
 	}
 }
 
+func boundaryValuesRecord() fullsessionv1.Record {
+	cost := fullsessionv1.MaxCostMicroUSD
+	return fullsessionv1.Record{
+		SourceID: strings.Repeat("s", 512), Agent: "claude", SessionID: strings.Repeat("i", 512),
+		Session: fullsessionv1.Session{
+			StartedAtMs: fullsessionv1.MaxSessionTimestampMs, LastActivityAtMs: fullsessionv1.MaxSessionTimestampMs,
+			CostMicroUSD: &cost, Usage: []fullsessionv1.ModelUsage{{Model: "boundary-model", CostMicroUSD: cost}},
+			Subagents: []fullsessionv1.Subagent{{ID: "boundary-subagent", CostMicroUSD: &cost}},
+		},
+	}
+}
+
+func boundaryItemsRecord() fullsessionv1.Record {
+	return fullsessionv1.Record{
+		SourceID: "boundary-source", Agent: "codex", SessionID: "boundary-items",
+		Session: fullsessionv1.Session{
+			StartedAtMs: 1, LastActivityAtMs: 1, Commands: make([]string, fullsessionv1.MaxItems),
+		},
+	}
+}
+
+func canonicalWithRevision(record fullsessionv1.Record) ([]byte, error) {
+	record.RevisionID = ""
+	preimage, err := json.Marshal(record)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(preimage)
+	record.RevisionID = hex.EncodeToString(digest[:])
+	return json.Marshal(record)
+}
+
 func record() fullsessionv1.Record {
 	name, summary, status := "Complete SSH fixture", "Preserves parsed detail and ordered changes.", "inactive"
 	branch, entrypoint, model := "feature/full-data", "codex", "gpt-5"
 	firstPrompt, goal := "Restore the complete session without dropping diffs.", "Ship one complete thin path."
 	duration, contextTokens, contextWindow := 12_000, 12_345, 272_000
 	subModel, subDuration, subTurn := "gpt-5-mini", 2_000, 2
+	cost, subagentCost := int64(125_000), int64(1_000)
 	return fullsessionv1.Record{
 		SourceID: "r_0123456789abcdef", Agent: "codex", SessionID: "019f4dde-db5b-7100-bdc0-09b5aaaac56f",
 		Session: fullsessionv1.Session{
 			Name: &name, Summary: &summary, Status: &status, WorkingDirectory: "/workspace/coslash",
 			Branch: &branch, EditedFileCount: 1, DurationMs: &duration,
 			Usage:        []fullsessionv1.ModelUsage{{Model: "gpt-5", InputTokens: 2000, OutputTokens: 400, CacheReadInputTokens: 800, CostMicroUSD: 125000}},
-			CostMicroUSD: 125000, UnpricedModels: []string{}, StartedAtMs: 1_800_000_000_000,
+			CostMicroUSD: &cost, UnpricedModels: []string{}, StartedAtMs: 1_800_000_000_000,
 			LastActivityAtMs: 1_800_000_012_000, Entrypoint: &entrypoint, Model: &model,
 			ContextTokens: &contextTokens, ContextWindow: &contextWindow, Turns: 3, ToolUses: 4,
 			FirstPrompt: &firstPrompt, Commands: []string{"go test ./..."}, Commits: []string{"feat: preserve complete SSH records"},
@@ -89,7 +174,7 @@ func record() fullsessionv1.Record {
 				{Kind: "diff", Operation: "Patch", Additions: 1, Deletions: 1, Text: "@@\n-old\n+new\n"},
 				{Kind: "content", Operation: "Write", Additions: 1, Text: "package example\n"},
 			}}},
-			Subagents:    []fullsessionv1.Subagent{{ID: "agent-1", Name: "verify", Model: &subModel, Status: "returned", Task: "run focused tests", Result: "all passed", DurationMs: &subDuration, SpawnedAtTurn: &subTurn, ToolUses: 1, Commands: []fullsessionv1.SubagentCommand{{Label: "tests", Command: "go test ./..."}}, Usage: []fullsessionv1.ModelUsage{}, CostMicroUSD: 1000}},
+			Subagents:    []fullsessionv1.Subagent{{ID: "agent-1", Name: "verify", Model: &subModel, Status: "returned", Task: "run focused tests", Result: "all passed", DurationMs: &subDuration, SpawnedAtTurn: &subTurn, ToolUses: 1, Commands: []fullsessionv1.SubagentCommand{{Label: "tests", Command: "go test ./..."}}, Usage: []fullsessionv1.ModelUsage{}, CostMicroUSD: &subagentCost}},
 			Synthesis:    &fullsessionv1.SessionSynthesis{Goals: []string{goal}, Outcome: "complete", KeyDecisions: []string{"use exact revisions"}, NextStep: "handoff"},
 			DeclaredGoal: &goal,
 		},

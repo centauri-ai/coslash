@@ -1,13 +1,12 @@
 package remote
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
@@ -30,16 +29,6 @@ const (
 	codexParserVersion         = vendors.ParserVersion
 	sftpCollectorParserVersion = "sftp-collector.1"
 )
-
-func compositeFingerprint(fingerprints []vendors.FileFingerprint) string {
-	sorted := append([]vendors.FileFingerprint(nil), fingerprints...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Key < sorted[j].Key })
-	h := sha256.New()
-	for _, fp := range sorted {
-		fmt.Fprintf(h, "%s:%d:%d\n", fp.Key, fp.Size, fp.ModifiedAtMs)
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
 
 func familySkipReason(err error) string {
 	switch {
@@ -75,8 +64,13 @@ type vendorFamilyInput struct {
 	Parse           func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error)
 	Fingerprint     func(files []string) ([]vendors.FileFingerprint, error)
 	HeaderMappings  map[string][]remotefacts.HeaderMapping
+	SessionIDs      map[string][]string
 	InitialFailures []vendors.FileFailure
 	FamilyIDOf      func(logPath string) string
+}
+
+func familyFingerprint(in vendorFamilyInput, id string, fingerprints []vendors.FileFingerprint) string {
+	return vendors.AggregateFingerprint(id, fingerprints, in.SessionIDs[id], in.Metadata)
 }
 
 type vendorOutcome struct {
@@ -95,7 +89,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	selectedFiles := 0
 	for id, fingerprints := range in.Selected {
 		selectedFiles += len(fingerprints)
-		composite := compositeFingerprint(fingerprints)
+		composite := familyFingerprint(in, id, fingerprints)
 		if cached, ok := in.Baseline[id]; ok && cached.Fingerprint == composite &&
 			cached.Facts.SchemaVersion == remotefacts.SchemaVersion && cached.Facts.ParserVersion == in.ParserVersion {
 			records = append(records, remoteprotocol.Record{
@@ -129,7 +123,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		// cannot cause otherwise valid changed families to be discarded.
 		for id, before := range changed {
 			after, err := in.Fingerprint(in.FilesOf[id])
-			if err != nil || compositeFingerprint(after) != before {
+			if err != nil || familyFingerprint(in, id, after) != before {
 				unstableFamilies[id] = true
 			}
 		}
@@ -176,10 +170,12 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 			complete, fullErr := fullsessionrecord.FromParsedFamily(in.SourceID, in.Vendor, in.Source, sessions, in.Metadata)
 			if fullErr != nil {
 				err = fmt.Errorf("complete family composition failed: %w", fullErr)
-			} else if len(complete) != 1 || complete[0].SessionID != id {
+			} else if !containsFullRecord(complete, id) {
 				err = errors.New("complete family composition returned the wrong root")
 			} else {
-				fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: id, Record: complete[0]})
+				for _, completeRecord := range complete {
+					fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: id, Record: completeRecord})
+				}
 			}
 		}
 		if err != nil {
@@ -235,6 +231,15 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	return vendorOutcome{Records: records, Complete: complete, Coverage: coverage, Metadata: in.Metadata, Failures: familyFailures}
 }
 
+func containsFullRecord(records []fullsessionv1.Record, sessionID string) bool {
+	for _, record := range records {
+		if record.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
 func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
 	metadata := claude.RemoteMetadata(source, home, now)
 	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.LiveSessions())
@@ -243,15 +248,18 @@ func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since
 	}
 	selected := map[string][]vendors.FileFingerprint{}
 	filesOf := map[string][]string{}
+	sessionIDs := map[string][]string{}
 	for id, family := range selectedFamilies {
 		selected[id] = family.Fingerprints
 		filesOf[id] = family.Files
+		sessionIDs[id] = []string{id}
 	}
 	return collectVendorFamilies(vendorFamilyInput{
 		SourceID: sourceID, Source: source,
 		Vendor: vendors.AgentClaude, ParserVersion: claudeParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
+		SessionIDs: sessionIDs,
 		Parse: func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
 			return claude.ParseRemoteFiles(source, files)
 		},
@@ -277,12 +285,14 @@ func collectCodexVendor(
 	filesOf := map[string][]string{}
 	familyIDOf := map[string]string{}
 	headerMappings := map[string][]remotefacts.HeaderMapping{}
+	sessionIDs := map[string][]string{}
 	var initialFailures []vendors.FileFailure
 	for id, family := range selectedFamilies {
 		selected[id] = family.Fingerprints
 		filesOf[id] = family.Files
 		for _, fingerprint := range family.Fingerprints {
 			if header, ok := updatedHeaders[fingerprint.Key]; ok {
+				sessionIDs[id] = append(sessionIDs[id], header.SessionID)
 				headerMappings[id] = append(headerMappings[id], remotefacts.HeaderMapping{
 					Key: fingerprint.Key, SessionID: header.SessionID, ParentID: header.ParentID,
 				})
@@ -307,6 +317,7 @@ func collectCodexVendor(
 			return vendors.FingerprintSourceFilesFresh(source, codex.SessionsRoot(home), files)
 		},
 		HeaderMappings:  headerMappings,
+		SessionIDs:      sessionIDs,
 		InitialFailures: initialFailures,
 		FamilyIDOf: func(logPath string) string {
 			if id, ok := familyIDOf[logPath]; ok {

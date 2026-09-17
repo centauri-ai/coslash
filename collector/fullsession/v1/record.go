@@ -21,6 +21,14 @@ const (
 	MaxTextBytes   = 32 << 20
 	MaxStringBytes = 1 << 20
 	MaxItems       = 100_000
+	// MaxCostMicroUSD is the largest integer micro-USD value guaranteed to
+	// survive the private float64 dollar adapter without losing a micro-dollar.
+	MaxCostMicroUSD int64 = (1<<32)*1_000_000 - 1
+
+	// MaxSessionTimestampMs is the last millisecond representable in year 9999.
+	// Downstream consumers persist these values as PostgreSQL timestamptz, so
+	// reject larger values before storage-specific conversion can overflow.
+	MaxSessionTimestampMs int64 = 253_402_300_799_999
 )
 
 var (
@@ -29,12 +37,13 @@ var (
 )
 
 type Record struct {
-	SchemaVersion string  `json:"schemaVersion"`
-	SourceID      string  `json:"sourceId"`
-	Agent         string  `json:"agent"`
-	SessionID     string  `json:"sessionId"`
-	RevisionID    string  `json:"revisionId"`
-	Session       Session `json:"session"`
+	SchemaVersion   string  `json:"schemaVersion"`
+	SourceID        string  `json:"sourceId"`
+	Agent           string  `json:"agent"`
+	SessionID       string  `json:"sessionId"`
+	ParentSessionID string  `json:"parentSessionId"`
+	RevisionID      string  `json:"revisionId"`
+	Session         Session `json:"session"`
 }
 
 type Session struct {
@@ -46,7 +55,7 @@ type Session struct {
 	EditedFileCount  int               `json:"editedFileCount"`
 	DurationMs       *int              `json:"durationMs"`
 	Usage            []ModelUsage      `json:"usage"`
-	CostMicroUSD     int64             `json:"costMicroUsd"`
+	CostMicroUSD     *int64            `json:"costMicroUsd"`
 	UnpricedModels   []string          `json:"unpricedModels"`
 	Subagents        []Subagent        `json:"subagents"`
 	StartedAtMs      int64             `json:"startedAtMs"`
@@ -99,7 +108,7 @@ type Subagent struct {
 	ToolUses      int               `json:"toolUses"`
 	Commands      []SubagentCommand `json:"commands"`
 	Usage         []ModelUsage      `json:"usage"`
-	CostMicroUSD  int64             `json:"costMicroUsd"`
+	CostMicroUSD  *int64            `json:"costMicroUsd"`
 }
 
 type Todo struct {
@@ -146,13 +155,27 @@ type SessionSynthesis struct {
 // Freeze computes all body hashes/counts and the immutable revision identity.
 // The revision is the SHA-256 of the canonical record with revisionId empty.
 func Freeze(record Record) (Record, error) {
+	record = cloneRecord(record)
 	record.SchemaVersion = SchemaVersion
 	record.RevisionID = ""
+	changeIDs := make(map[string]bool)
+	for _, edit := range record.Session.FileEdits {
+		for _, change := range edit.Changes {
+			if change.ID != "" {
+				changeIDs[change.ID] = true
+			}
+		}
+	}
 	for editIndex := range record.Session.FileEdits {
 		for changeIndex := range record.Session.FileEdits[editIndex].Changes {
 			change := &record.Session.FileEdits[editIndex].Changes[changeIndex]
 			if change.ID == "" {
-				change.ID = fmt.Sprintf("change-%06d-%06d", editIndex, changeIndex)
+				base := fmt.Sprintf("change-%06d-%06d", editIndex, changeIndex)
+				change.ID = base
+				for suffix := 1; changeIDs[change.ID]; suffix++ {
+					change.ID = fmt.Sprintf("%s-%06d", base, suffix)
+				}
+				changeIDs[change.ID] = true
 			}
 			change.ByteCount = len(change.Text)
 			digest := sha256.Sum256([]byte(change.Text))
@@ -168,9 +191,6 @@ func Freeze(record Record) (Record, error) {
 	}
 	digest := sha256.Sum256(preimage)
 	record.RevisionID = hex.EncodeToString(digest[:])
-	if err := Validate(record); err != nil {
-		return Record{}, err
-	}
 	data, err := json.Marshal(record)
 	if err != nil {
 		return Record{}, err
@@ -179,6 +199,66 @@ func Freeze(record Record) (Record, error) {
 		return Record{}, ErrOversized
 	}
 	return record, nil
+}
+
+func cloneRecord(record Record) Record {
+	cloned := record
+	s := record.Session
+	s.Name = clonePointer(s.Name)
+	s.Summary = clonePointer(s.Summary)
+	s.Status = clonePointer(s.Status)
+	s.Branch = clonePointer(s.Branch)
+	s.DurationMs = clonePointer(s.DurationMs)
+	s.CostMicroUSD = clonePointer(s.CostMicroUSD)
+	s.Entrypoint = clonePointer(s.Entrypoint)
+	s.Model = clonePointer(s.Model)
+	s.ContextTokens = clonePointer(s.ContextTokens)
+	s.ContextWindow = clonePointer(s.ContextWindow)
+	s.FirstPrompt = clonePointer(s.FirstPrompt)
+	s.DeclaredGoal = clonePointer(s.DeclaredGoal)
+	s.Usage = cloneSlice(s.Usage)
+	s.UnpricedModels = cloneSlice(s.UnpricedModels)
+	s.Commands = cloneSlice(s.Commands)
+	s.Commits = cloneSlice(s.Commits)
+	s.CommitSHAs = cloneSlice(s.CommitSHAs)
+	s.Todos = cloneSlice(s.Todos)
+	s.Digest = cloneSlice(s.Digest)
+	s.Subagents = cloneSlice(s.Subagents)
+	for i := range s.Subagents {
+		s.Subagents[i].Model = clonePointer(s.Subagents[i].Model)
+		s.Subagents[i].DurationMs = clonePointer(s.Subagents[i].DurationMs)
+		s.Subagents[i].SpawnedAtTurn = clonePointer(s.Subagents[i].SpawnedAtTurn)
+		s.Subagents[i].CostMicroUSD = clonePointer(s.Subagents[i].CostMicroUSD)
+		s.Subagents[i].Commands = cloneSlice(s.Subagents[i].Commands)
+		s.Subagents[i].Usage = cloneSlice(s.Subagents[i].Usage)
+	}
+	s.FileEdits = cloneSlice(s.FileEdits)
+	for i := range s.FileEdits {
+		s.FileEdits[i].Changes = cloneSlice(s.FileEdits[i].Changes)
+	}
+	if s.Synthesis != nil {
+		value := *s.Synthesis
+		value.Goals = cloneSlice(value.Goals)
+		value.KeyDecisions = cloneSlice(value.KeyDecisions)
+		s.Synthesis = &value
+	}
+	cloned.Session = s
+	return cloned
+}
+
+func clonePointer[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneSlice[T any](value []T) []T {
+	if value == nil {
+		return nil
+	}
+	return append(make([]T, 0, len(value)), value...)
 }
 
 func Marshal(record Record) ([]byte, error) {
@@ -199,6 +279,9 @@ func Decode(data []byte) (Record, error) {
 	if len(data) > MaxRecordBytes {
 		return Record{}, ErrOversized
 	}
+	if err := validateCollectionSizes(data); err != nil {
+		return Record{}, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var record Record
@@ -218,9 +301,64 @@ func Decode(data []byte) (Record, error) {
 	return record, nil
 }
 
+// DecodeReader reads and decodes one record without allowing the input source
+// to allocate beyond the record byte limit.
+func DecodeReader(reader io.Reader) (Record, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, MaxRecordBytes+1))
+	if err != nil {
+		return Record{}, fmt.Errorf("read full session record: %w", err)
+	}
+	return Decode(data)
+}
+
+func validateCollectionSizes(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	type container struct {
+		kind  json.Delim
+		items int
+	}
+	stack := []container{}
+	budget := collectionBudget{}
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("%w: decode: %v", ErrInvalid, err)
+		}
+		delim, isDelim := token.(json.Delim)
+		if isDelim && (delim == ']' || delim == '}') {
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			continue
+		}
+		if len(stack) > 0 && stack[len(stack)-1].kind == '[' {
+			stack[len(stack)-1].items++
+			if stack[len(stack)-1].items > MaxItems || !budget.add(1) {
+				return fmt.Errorf("%w: collection exceeds item limit", ErrInvalid)
+			}
+		}
+		if isDelim && (delim == '[' || delim == '{') {
+			if len(stack) >= MaxItems {
+				return fmt.Errorf("%w: collection nesting exceeds item limit", ErrInvalid)
+			}
+			stack = append(stack, container{kind: delim})
+		}
+	}
+}
+
 func Validate(record Record) error {
 	if err := validate(record, true); err != nil {
 		return err
+	}
+	canonical, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	if len(canonical) > MaxRecordBytes {
+		return ErrOversized
 	}
 	copy := record
 	copy.RevisionID = ""
@@ -237,7 +375,8 @@ func Validate(record Record) error {
 
 func validate(record Record, requireRevision bool) error {
 	if record.SchemaVersion != SchemaVersion || !identifier(record.SourceID) ||
-		(record.Agent != "codex" && record.Agent != "claude") || !identifier(record.SessionID) {
+		(record.Agent != "codex" && record.Agent != "claude") || !identifier(record.SessionID) ||
+		(record.ParentSessionID != "" && (!identifier(record.ParentSessionID) || record.ParentSessionID == record.SessionID)) {
 		return fmt.Errorf("%w: invalid envelope", ErrInvalid)
 	}
 	if requireRevision && !digest(record.RevisionID) {
@@ -247,7 +386,11 @@ func validate(record Record, requireRevision bool) error {
 		return fmt.Errorf("%w: revision must be empty while freezing", ErrInvalid)
 	}
 	s := record.Session
-	if s.StartedAtMs <= 0 || s.LastActivityAtMs < s.StartedAtMs || s.CostMicroUSD < 0 ||
+	if !validCollectionSizes(s) {
+		return fmt.Errorf("%w: aggregate collection exceeds item limit", ErrInvalid)
+	}
+	if s.StartedAtMs <= 0 || s.StartedAtMs > MaxSessionTimestampMs ||
+		s.LastActivityAtMs < s.StartedAtMs || s.LastActivityAtMs > MaxSessionTimestampMs || !optionalInt64Nonnegative(s.CostMicroUSD) ||
 		!nonnegative(s.EditedFileCount, s.Turns, s.ToolUses, s.Errors, s.Compactions, s.PullRequests) ||
 		!optionalNonnegative(s.DurationMs, s.ContextTokens, s.ContextWindow) {
 		return fmt.Errorf("%w: invalid session counts or time", ErrInvalid)
@@ -264,12 +407,12 @@ func validate(record Record, requireRevision bool) error {
 	if s.EditedFileCount != len(s.FileEdits) {
 		return fmt.Errorf("%w: edited file count does not match file edits", ErrInvalid)
 	}
-	seenModels := map[string]bool{}
-	for _, usage := range s.Usage {
-		if !validUsage(usage) || seenModels[usage.Model] {
-			return fmt.Errorf("%w: invalid or duplicate usage", ErrInvalid)
+	previousModel := ""
+	for index, usage := range s.Usage {
+		if !validUsage(usage) || (index > 0 && usage.Model <= previousModel) {
+			return fmt.Errorf("%w: invalid or unsorted usage", ErrInvalid)
 		}
-		seenModels[usage.Model] = true
+		previousModel = usage.Model
 	}
 	if !stringSliceValid(s.UnpricedModels) || !stringSliceValid(s.Commands) ||
 		!stringSliceValid(s.Commits) || !stringSliceValid(s.CommitSHAs) {
@@ -306,7 +449,7 @@ func validate(record Record, requireRevision bool) error {
 	}
 	for _, subagent := range s.Subagents {
 		if !identifier(subagent.ID) || !stringsValid(subagent.Name, stringValue(subagent.Model), subagent.Status, subagent.Task, subagent.Result) ||
-			!optionalNonnegative(subagent.DurationMs, subagent.SpawnedAtTurn) || subagent.ToolUses < 0 || subagent.CostMicroUSD < 0 ||
+			!optionalNonnegative(subagent.DurationMs, subagent.SpawnedAtTurn) || subagent.ToolUses < 0 || !optionalInt64Nonnegative(subagent.CostMicroUSD) ||
 			!boundedItems(len(subagent.Commands), len(subagent.Usage)) {
 			return fmt.Errorf("%w: invalid subagent", ErrInvalid)
 		}
@@ -315,12 +458,12 @@ func validate(record Record, requireRevision bool) error {
 				return fmt.Errorf("%w: invalid subagent command", ErrInvalid)
 			}
 		}
-		seenSubagentModels := map[string]bool{}
-		for _, usage := range subagent.Usage {
-			if !validUsage(usage) || seenSubagentModels[usage.Model] {
-				return fmt.Errorf("%w: invalid subagent usage", ErrInvalid)
+		previousModel := ""
+		for index, usage := range subagent.Usage {
+			if !validUsage(usage) || (index > 0 && usage.Model <= previousModel) {
+				return fmt.Errorf("%w: invalid or unsorted subagent usage", ErrInvalid)
 			}
-			seenSubagentModels[usage.Model] = true
+			previousModel = usage.Model
 		}
 	}
 	if s.Synthesis != nil && (!stringSliceValid(s.Synthesis.Goals) || !stringSliceValid(s.Synthesis.KeyDecisions) ||
@@ -330,8 +473,43 @@ func validate(record Record, requireRevision bool) error {
 	return nil
 }
 
+type collectionBudget struct {
+	total int
+}
+
+func (b *collectionBudget) add(items int) bool {
+	if items < 0 || items > MaxItems || b.total > MaxItems-items {
+		return false
+	}
+	b.total += items
+	return true
+}
+
+func validCollectionSizes(s Session) bool {
+	budget := collectionBudget{}
+	if !budget.add(len(s.Usage)) || !budget.add(len(s.UnpricedModels)) ||
+		!budget.add(len(s.Subagents)) || !budget.add(len(s.Commands)) ||
+		!budget.add(len(s.Commits)) || !budget.add(len(s.CommitSHAs)) ||
+		!budget.add(len(s.Todos)) || !budget.add(len(s.Digest)) ||
+		!budget.add(len(s.FileEdits)) {
+		return false
+	}
+	for _, subagent := range s.Subagents {
+		if !budget.add(len(subagent.Commands)) || !budget.add(len(subagent.Usage)) {
+			return false
+		}
+	}
+	for _, edit := range s.FileEdits {
+		if !budget.add(len(edit.Changes)) {
+			return false
+		}
+	}
+	return s.Synthesis == nil ||
+		(budget.add(len(s.Synthesis.Goals)) && budget.add(len(s.Synthesis.KeyDecisions)))
+}
+
 func validUsage(usage ModelUsage) bool {
-	return stringsValid(usage.Model) && usage.Model != "" && usage.CostMicroUSD >= 0 &&
+	return stringsValid(usage.Model) && usage.Model != "" && validCost(usage.CostMicroUSD) &&
 		nonnegative(usage.InputTokens, usage.OutputTokens, usage.CacheCreationInputTokens,
 			usage.CacheCreation1hInputTokens, usage.CacheReadInputTokens)
 }
@@ -397,4 +575,12 @@ func optionalNonnegative(values ...*int) bool {
 		}
 	}
 	return true
+}
+
+func optionalInt64Nonnegative(value *int64) bool {
+	return value == nil || validCost(*value)
+}
+
+func validCost(value int64) bool {
+	return value >= 0 && value <= MaxCostMicroUSD
 }

@@ -392,8 +392,11 @@ func (b *builder) git(value *session.GitDrift) *snapshotv1.GitDrift {
 	return &snapshotv1.GitDrift{BaseBranch: b.text("/session/git/baseBranch", value.BaseBranch, maxBranchBytes), Ahead: value.Ahead, Behind: value.Behind}
 }
 
-func (b *builder) usage(tokens map[string]session.ModelTokens, cost float64, unpriced []string, path string) (snapshotv1.Usage, error) {
-	estimated, err := snapshotv1.CostMicroUSD(cost)
+func (b *builder) usage(tokens map[string]session.ModelTokens, cost *float64, unpriced []string, path string) (snapshotv1.Usage, error) {
+	if cost == nil {
+		cost = new(float64)
+	}
+	estimated, err := snapshotv1.CostMicroUSD(*cost)
 	if err != nil {
 		return snapshotv1.Usage{}, fmt.Errorf("%s: %w", path, err)
 	}

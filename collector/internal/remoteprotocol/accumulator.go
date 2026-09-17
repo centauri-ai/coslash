@@ -66,8 +66,9 @@ func (a *Accumulator) Apply(record Record) error {
 	if a.closed {
 		return errors.New("record after request completion")
 	}
-	size := encodedSize(record) + 1
-	if size > a.request.Limits.MaxRecordBytes || a.records >= a.request.Limits.MaxRecords ||
+	recordSize := encodedSize(record)
+	size := recordSize + 1
+	if recordSize > a.request.Limits.MaxRecordBytes || a.records >= a.request.Limits.MaxRecords ||
 		a.bytes+size > a.request.Limits.MaxResponseBytes {
 		return errors.New("response exceeds negotiated bounds")
 	}

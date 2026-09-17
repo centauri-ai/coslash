@@ -21,6 +21,7 @@ var census = map[string]decision{
 	// session.Session
 	"Agent":               {true, "envelope agent"},
 	"ID":                  {true, "envelope sourceSessionId"},
+	"ParentSessionID":     {false, "record-adapter lineage remains local"},
 	"Name":                {false, "free-form session titles remain local"},
 	"Summary":             {false, "free-form summaries remain local"},
 	"Status":              {true, "bounded session.status"},

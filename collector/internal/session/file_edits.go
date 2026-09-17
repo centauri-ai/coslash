@@ -3,6 +3,7 @@ package session
 import "strings"
 
 type FileChange struct {
+	ID        string `json:"id"`
 	Kind      string `json:"kind"`
 	Text      string `json:"text"`
 	Operation string `json:"operation"`
@@ -82,6 +83,9 @@ func (s *FileEditSet) Patch(path, patch string) {
 }
 
 func (e FileEdit) Changes() []FileChange {
+	if e.changes == nil {
+		return nil
+	}
 	changes := make([]FileChange, 0, len(e.changes))
 	for _, change := range e.changes {
 		if change.Kind != "" {
@@ -94,9 +98,13 @@ func (e FileEdit) Changes() []FileChange {
 // FileEditWithChanges reconstructs a parsed edit from a complete record. The
 // change slice is copied so cache callers cannot mutate shared manager state.
 func FileEditWithChanges(path string, additions, deletions, edits int, isNew bool, changes []FileChange) FileEdit {
+	var cloned []FileChange
+	if changes != nil {
+		cloned = append(make([]FileChange, 0, len(changes)), changes...)
+	}
 	return FileEdit{
 		Path: path, Additions: additions, Deletions: deletions, Edits: edits, IsNew: isNew,
-		changes: append([]FileChange(nil), changes...),
+		changes: cloned,
 	}
 }
 
@@ -104,9 +112,17 @@ func FileEditWithChanges(path string, additions, deletions, edits int, isNew boo
 // only through opaque membership-checked IDs. IDs are deliberately separate
 // from paths so API callers never turn a display path into a filesystem read.
 func FileEditWithIdentifiedChanges(path string, additions, deletions, edits int, isNew bool, changeIDs []string, changes []FileChange) FileEdit {
+	var clonedIDs []string
+	if changeIDs != nil {
+		clonedIDs = append(make([]string, 0, len(changeIDs)), changeIDs...)
+	}
+	var clonedChanges []FileChange
+	if changes != nil {
+		clonedChanges = append(make([]FileChange, 0, len(changes)), changes...)
+	}
 	return FileEdit{
 		Path: path, Additions: additions, Deletions: deletions, Edits: edits, IsNew: isNew,
-		ChangeIDs: append([]string(nil), changeIDs...), changes: append([]FileChange(nil), changes...),
+		ChangeIDs: clonedIDs, changes: clonedChanges,
 	}
 }
 
