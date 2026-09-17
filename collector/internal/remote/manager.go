@@ -520,28 +520,36 @@ func (manager *Manager) PreviewSession(sourceID, agent, sessionID string, revisi
 // available from the last-good cache while the SSH source is offline.
 func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, error) {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID || manager.snapshot == nil {
+		manager.mu.Unlock()
 		return nil, nil
 	}
+	var selected *fullsessionv1.Record
 	for _, full := range manager.snapshot.FullRecords {
 		if full.Record.Agent != agent || full.Record.SessionID != sessionID {
 			continue
 		}
 		if full.Record.RevisionID != revisionID {
+			manager.mu.Unlock()
 			return nil, ErrRemoteRevisionNotFound
 		}
-		data, err := fullsessionv1.Marshal(full.Record)
-		if err != nil {
-			return nil, ErrRemoteRevisionNotFound
-		}
-		copy, err := fullsessionv1.Decode(data)
-		if err != nil {
-			return nil, ErrRemoteRevisionNotFound
-		}
-		return &copy, nil
+		copy := full.Record
+		selected = &copy
+		break
 	}
-	return nil, nil
+	manager.mu.Unlock()
+	if selected == nil {
+		return nil, nil
+	}
+	data, err := fullsessionv1.Marshal(*selected)
+	if err != nil {
+		return nil, ErrRemoteRevisionNotFound
+	}
+	copy, err := fullsessionv1.Decode(data)
+	if err != nil {
+		return nil, ErrRemoteRevisionNotFound
+	}
+	return &copy, nil
 }
 
 // ReadChange verifies the requested opaque change belongs to the exact source,

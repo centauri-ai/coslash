@@ -302,6 +302,57 @@ func ListRemote(
 	return sessions
 }
 
+// ComposePortable returns every complete transcript-backed member of the
+// rooted families in collections. Unlike ListRemote's display projection,
+// descendants remain independently addressable by the complete-record cache.
+func ComposePortable(
+	source vendors.ReadSource,
+	collections map[string]vendors.RemoteCollection,
+) []*session.Session {
+	parsed := []*vendors.ParsedSession{}
+	metadata := map[string]*vendors.SessionMetadata{}
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
+		collection, ok := collections[agent]
+		if !ok {
+			continue
+		}
+		parsed = append(parsed, collection.Sessions...)
+		metadata[agent] = collection.Metadata
+	}
+	roots := servableRoots(finalizePortableSessionsSource(parsed, metadata, source))
+	rootKeys := make(map[sessionKey]bool, len(roots))
+	byKey := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
+	for _, root := range roots {
+		rootKeys[sessionKey{agent: root.Session.Agent, id: root.Session.ID}] = true
+	}
+	for _, item := range parsed {
+		byKey[sessionKey{agent: item.Session.Agent, id: item.Session.ID}] = item
+	}
+	portable := make([]*session.Session, 0, len(parsed))
+	for _, item := range parsed {
+		if belongsToRoot(item, byKey, rootKeys) {
+			portable = append(portable, item.Session)
+		}
+	}
+	return portable
+}
+
+func belongsToRoot(item *vendors.ParsedSession, byKey map[sessionKey]*vendors.ParsedSession, roots map[sessionKey]bool) bool {
+	seen := map[sessionKey]bool{}
+	for item != nil {
+		key := sessionKey{agent: item.Session.Agent, id: item.Session.ID}
+		if roots[key] {
+			return true
+		}
+		if item.ParentID == "" || seen[key] {
+			return false
+		}
+		seen[key] = true
+		item = byKey[sessionKey{agent: item.Session.Agent, id: item.ParentID}]
+	}
+	return false
+}
+
 func finalizePortableSessionsSource(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -73,6 +74,34 @@ func TestAccumulatorAcceptsRecordAtExactByteLimit(t *testing.T) {
 	}
 	if err := a.Apply(record); err != nil {
 		t.Fatalf("Apply record at exact byte limit: %v", err)
+	}
+}
+
+func TestChangedCodexFamilyAcceptsDescendantFullRecords(t *testing.T) {
+	r := request()
+	r.SourceID = "r_0123456789abcdef"
+	facts := family()
+	facts.Sessions = append(facts.Sessions, remotefacts.Session{
+		ID: "child", ParentID: "root", StartedAtMs: 1, LastActivityAtMs: 2,
+		Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{},
+	})
+	fullRecords := make([]FullRecord, 0, 2)
+	for _, id := range []string{"root", "child"} {
+		record, err := fullsessionv1.Freeze(fullsessionv1.Record{
+			SourceID: r.SourceID, Agent: "codex", SessionID: id,
+			Session: fullsessionv1.Session{StartedAtMs: 1, LastActivityAtMs: 2},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fullRecords = append(fullRecords, FullRecord{FamilyID: "root", Record: record})
+	}
+	record := Record{
+		Type: RecordChanged, ProtocolVersion: ProtocolVersion, RequestID: r.RequestID, Sequence: 2,
+		Vendor: "codex", FamilyID: "root", Fingerprint: "new", Family: &facts, FullRecords: fullRecords,
+	}
+	if err := validateRecord(record, r, 2); err != nil {
+		t.Fatalf("descendant full records rejected: %v", err)
 	}
 }
 

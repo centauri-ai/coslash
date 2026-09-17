@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
@@ -45,6 +46,25 @@ func TestSessionRoundTripPreservesOrderedChangeBodies(t *testing.T) {
 	}
 	if restored.Cost == nil || *restored.Cost != cost {
 		t.Fatalf("restored cost = %v, want %v", restored.Cost, cost)
+	}
+}
+
+func TestParsedFamilyPreservesDescendantRecords(t *testing.T) {
+	parsed := []*vendors.ParsedSession{
+		{Session: &session.Session{Agent: "codex", ID: "root", StartedAt: 10, LastActivityTime: 20, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1}}, Spawns: map[string]vendors.SpawnState{}},
+		{Session: &session.Session{Agent: "codex", ID: "child", StartedAt: 11, LastActivityTime: 21, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1}}, ParentID: "root", Spawns: map[string]vendors.SpawnState{}},
+		{Session: &session.Session{Agent: "codex", ID: "grandchild", StartedAt: 12, LastActivityTime: 22, Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1}}, ParentID: "child", Spawns: map[string]vendors.SpawnState{}},
+	}
+
+	records, err := FromParsedFamily("r_0123456789abcdef", vendors.AgentCodex, vendors.LocalReadSource, parsed, vendors.EmptySessionMetadata())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 3 || records[0].SessionID != "root" || records[1].SessionID != "child" || records[2].SessionID != "grandchild" {
+		t.Fatalf("complete family records = %#v", records)
+	}
+	if len(parsed[0].Session.Subagents) != 0 || len(parsed[1].Session.Subagents) != 0 {
+		t.Fatalf("portable composition mutated parser input: %#v", parsed)
 	}
 }
 

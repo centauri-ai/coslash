@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
@@ -169,10 +170,12 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 			complete, fullErr := fullsessionrecord.FromParsedFamily(in.SourceID, in.Vendor, in.Source, sessions, in.Metadata)
 			if fullErr != nil {
 				err = fmt.Errorf("complete family composition failed: %w", fullErr)
-			} else if len(complete) != 1 || complete[0].SessionID != id {
+			} else if !containsFullRecord(complete, id) {
 				err = errors.New("complete family composition returned the wrong root")
 			} else {
-				fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: id, Record: complete[0]})
+				for _, completeRecord := range complete {
+					fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: id, Record: completeRecord})
+				}
 			}
 		}
 		if err != nil {
@@ -226,6 +229,15 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		Truncated:      in.Truncated || len(in.AllFamilyIDs) > remoteprotocol.MaxInventoryFamilies,
 	}
 	return vendorOutcome{Records: records, Complete: complete, Coverage: coverage, Metadata: in.Metadata, Failures: familyFailures}
+}
+
+func containsFullRecord(records []fullsessionv1.Record, sessionID string) bool {
+	for _, record := range records {
+		if record.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {

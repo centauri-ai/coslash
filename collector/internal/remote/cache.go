@@ -534,7 +534,10 @@ func validCachedSnapshotV2(cached CachedSnapshotV2) bool {
 	for _, full := range cached.FullRecords {
 		key := remoteprotocol.FullRecordKey{Vendor: full.Record.Agent, SessionID: full.Record.SessionID}
 		familyKey := remoteprotocol.FamilyKey{Vendor: full.Record.Agent, FamilyID: full.FamilyID}
-		if seenRecords[key] || !seen[familyKey] || full.Record.SourceID != cached.SourceID || fullsessionv1.Validate(full.Record) != nil {
+		if seenRecords[key] || !seen[familyKey] || full.Record.SourceID != cached.SourceID {
+			return false
+		}
+		if _, err := fullsessionv1.Marshal(full.Record); err != nil {
 			return false
 		}
 		seenRecords[key] = true
@@ -552,6 +555,9 @@ func (c *Cache) StoreV2(sourceID string, cached CachedSnapshotV2) error {
 	for index := range cached.FullRecords {
 		if cached.FullRecords[index].Record.SourceID != sourceID {
 			return errors.New("full record source does not match cache source")
+		}
+		if _, err := fullsessionv1.Marshal(cached.FullRecords[index].Record); err != nil {
+			return fmt.Errorf("invalid full record: %w", err)
 		}
 	}
 	dir, err := c.sourceDir(sourceID)

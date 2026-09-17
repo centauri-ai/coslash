@@ -12,15 +12,15 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// FromParsedFamily runs the same shared composition used by local and remote
-// library sessions before freezing the rooted complete records.
+// FromParsedFamily freezes one complete record for every member of a rooted
+// family without mutating the parser results used by other projections.
 func FromParsedFamily(sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
-	roots := collector.ListRemote(source, map[string]vendors.RemoteCollection{
-		vendor: {Sessions: parsed, Metadata: metadata},
-	}, 0)
-	records := make([]fullsessionv1.Record, 0, len(roots))
-	for _, root := range roots {
-		record, err := FromSession(sourceID, *root)
+	composed := collector.ComposePortable(source, map[string]vendors.RemoteCollection{
+		vendor: {Sessions: cloneParsedFamily(parsed), Metadata: metadata},
+	})
+	records := make([]fullsessionv1.Record, 0, len(composed))
+	for _, item := range composed {
+		record, err := FromSession(sourceID, *item)
 		if err != nil {
 			return nil, err
 		}
@@ -193,6 +193,34 @@ func ToSession(record fullsessionv1.Record) (*session.Session, error) {
 		}
 	}
 	return value, nil
+}
+
+func cloneParsedFamily(parsed []*vendors.ParsedSession) []*vendors.ParsedSession {
+	cloned := make([]*vendors.ParsedSession, 0, len(parsed))
+	for _, item := range parsed {
+		if item == nil {
+			cloned = append(cloned, nil)
+			continue
+		}
+		copy := *item
+		copy.Session = session.Clone(item.Session)
+		copy.Spawns = make(map[string]vendors.SpawnState, len(item.Spawns))
+		for key, spawn := range item.Spawns {
+			if spawn.Turn != nil {
+				turn := *spawn.Turn
+				spawn.Turn = &turn
+			}
+			copy.Spawns[key] = spawn
+		}
+		copy.Commands = append([]session.SubagentCommand(nil), item.Commands...)
+		copy.StatusHint = cloneString(item.StatusHint)
+		if item.RecordedCost != nil {
+			cost := *item.RecordedCost
+			copy.RecordedCost = &cost
+		}
+		cloned = append(cloned, &copy)
+	}
+	return cloned
 }
 
 func micros(value float64) int64  { return int64(math.Round(value * 1_000_000)) }

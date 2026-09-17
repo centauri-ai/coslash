@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
@@ -327,10 +328,12 @@ func publishFamily(
 		var fullRecords []remoteprotocol.FullRecord
 		if scanned.vendor == vendors.AgentCodex && request.SourceID != "" {
 			complete, fullErr := fullsessionrecord.FromParsedFamily(request.SourceID, scanned.vendor, scanned.source, sessions, scanned.metadata)
-			if fullErr != nil || len(complete) != 1 || complete[0].SessionID != item.id {
+			if fullErr != nil || !containsFullRecord(complete, item.id) {
 				return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)
 			}
-			fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: item.id, Record: complete[0]})
+			for _, completeRecord := range complete {
+				fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: item.id, Record: completeRecord})
+			}
 		}
 		// A baseline-free response carries no prior fingerprint: the helper was
 		// given no comparison state, and the inventory is the deletion authority.
@@ -348,6 +351,15 @@ func publishFamily(
 		counts.SelectedFamilies++
 		return parser, nil
 	}
+}
+
+func containsFullRecord(records []fullsessionv1.Record, sessionID string) bool {
+	for _, record := range records {
+		if record.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 // familyFacts assembles one rooted family. Membership comes from the grouping
