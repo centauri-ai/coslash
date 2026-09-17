@@ -471,3 +471,55 @@ export function getTotalTokens(tokens: Session['tokens']): number | null {
     0,
   );
 }
+
+export type SessionReadiness = {
+  key: 'resume' | 'review' | 'fresh' | 'unavailable';
+  label: 'Resume' | 'Review' | 'Start fresh' | 'Check host';
+  detail: string;
+};
+
+export function sessionReadiness(
+  session: Pick<
+    Session,
+    | 'sourceId'
+    | 'status'
+    | 'displayStale'
+    | 'launchable'
+    | 'contextTokens'
+    | 'contextWindow'
+    | 'compactions'
+    | 'tokens'
+    | 'git'
+  >,
+): SessionReadiness {
+  if (
+    session.displayStale ||
+    (!isLocalSession(session) && (session.launchable === false || session.status == null))
+  ) {
+    return { key: 'unavailable', label: 'Check host', detail: 'Live context unavailable' };
+  }
+
+  const contextUsed =
+    session.contextTokens != null && session.contextWindow != null && session.contextWindow > 0
+      ? Math.round((session.contextTokens / session.contextWindow) * 100)
+      : null;
+  const commitsBehind = session.git?.behind ?? 0;
+  const cacheReads = sumTokens(session.tokens, 'cache_read_input_tokens');
+  const cacheState = cacheReads > 0 ? 'warm cache' : 'cold cache';
+
+  if ((contextUsed != null && contextUsed >= 82) || session.compactions >= 2 || commitsBehind >= 6) {
+    return {
+      key: 'fresh',
+      label: 'Start fresh',
+      detail: contextUsed == null ? `${session.compactions} compactions` : `${contextUsed}% context used`,
+    };
+  }
+  if (contextUsed != null && contextUsed <= 62 && cacheReads > 0 && commitsBehind <= 2) {
+    return { key: 'resume', label: 'Resume', detail: `${contextUsed}% context · ${cacheState}` };
+  }
+  return {
+    key: 'review',
+    label: 'Review',
+    detail: contextUsed == null ? 'Context estimate unavailable' : `${contextUsed}% context · ${cacheState}`,
+  };
+}

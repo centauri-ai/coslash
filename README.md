@@ -124,7 +124,7 @@ those facts separately.
 
 ### One board for every agent
 
-Claude Code, Codex, and OpenCode sessions land in the same place, whether they came from a desktop app or a CLI. **List view** gives you a full card per session; **board view** groups sessions by repository and branch, with a column per state, so a repo with four parallel branches reads as four rows instead of a scroll.
+Claude Code, Codex, and OpenCode sessions land in the same place, whether they came from a desktop app or a CLI. **List view** gives you a compact, title-first row per session with vendor, activity, machine, resume readiness, update time, and cost aligned for comparison; **board view** groups sessions by repository and branch, with a column per state, so a repo with four parallel branches reads as four rows instead of a scroll.
 
 Search by title, repo, or branch. Filter by vendor and by time window (this week, this month, 7 days, 30 days, all). Sort by recency, estimated cost, tokens, or duration. The list refreshes itself every minute, so statuses and "3 min ago" stay honest without a reload.
 

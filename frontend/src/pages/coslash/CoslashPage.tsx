@@ -9,8 +9,9 @@ import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboardin
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { MachineActivity } from '@/pages/coslash/components/MachineActivity';
 import { SessionBoard } from '@/pages/coslash/components/SessionBoard';
-import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
+import { SessionList } from '@/pages/coslash/components/SessionList';
+import { SessionScopeSummary } from '@/pages/coslash/components/SessionScopeSummary';
 import {
   SessionSortDropdownMenu,
   SortKey,
@@ -278,6 +279,9 @@ function CoslashContent({
 
   return (
     <div className="h-full overflow-y-auto">
+      <div className="bg-background px-4 pt-3">
+        <SessionScopeSummary sessions={visibleSessions} />
+      </div>
       {view === 'board' ? (
         <SessionBoard
           sessions={visibleSessions}
@@ -285,15 +289,8 @@ function CoslashContent({
           showMachineBadge={showMachineBadge}
         />
       ) : (
-        <div className="bg-background flex flex-col gap-4 px-4 py-2">
-          {visibleSessions.map((session) => (
-            <SessionCard
-              key={sessionKey(session)}
-              session={session}
-              onClick={() => onSelectSession(session)}
-              showMachineBadge={showMachineBadge}
-            />
-          ))}
+        <div className="bg-background px-4 py-3">
+          <SessionList sessions={visibleSessions} onSelectSession={onSelectSession} />
         </div>
       )}
     </div>

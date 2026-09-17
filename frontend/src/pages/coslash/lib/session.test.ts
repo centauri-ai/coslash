@@ -10,6 +10,7 @@ import {
   resumeDisabledHint,
   sessionKey,
   sessionLocationFact,
+  sessionReadiness,
   sessionsForAggregates,
   sessionShareEligibility,
   sumKnown,
@@ -225,6 +226,68 @@ describe('resumeDisabled', () => {
         'Remote is offline',
       ),
     ).toBe(true);
+  });
+});
+
+describe('sessionReadiness', () => {
+  const base = {
+    sourceId: LOCAL_SOURCE_ID,
+    status: null,
+    displayStale: false,
+    launchable: true,
+    contextTokens: 40_000,
+    contextWindow: 100_000,
+    compactions: 0,
+    tokens: {
+      model: {
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_creation_1h_input_tokens: 0,
+        cache_read_input_tokens: 1_000,
+      },
+    },
+    git: { baseBranch: 'main', ahead: 0, behind: 0 },
+  } satisfies Pick<
+    Session,
+    | 'sourceId'
+    | 'status'
+    | 'displayStale'
+    | 'launchable'
+    | 'contextTokens'
+    | 'contextWindow'
+    | 'compactions'
+    | 'tokens'
+    | 'git'
+  >;
+
+  it('recommends resuming a low-context session with a warm prompt cache', () => {
+    expect(sessionReadiness(base)).toMatchObject({ key: 'resume', label: 'Resume' });
+    expect(sessionReadiness({ ...base, launchable: false })).toMatchObject({
+      key: 'resume',
+      label: 'Resume',
+    });
+  });
+
+  it('recommends starting fresh when context pressure or branch drift is high', () => {
+    expect(sessionReadiness({ ...base, contextTokens: 85_000 })).toMatchObject({
+      key: 'fresh',
+      label: 'Start fresh',
+    });
+    expect(sessionReadiness({ ...base, git: { baseBranch: 'main', ahead: 0, behind: 6 } })).toMatchObject({
+      key: 'fresh',
+    });
+  });
+
+  it('does not claim readiness when remote context is unavailable', () => {
+    expect(sessionReadiness({ ...base, sourceId: 'r_0123456789abcdef', status: null })).toMatchObject({
+      key: 'unavailable',
+      label: 'Check host',
+    });
+    expect(sessionReadiness({ ...base, sourceId: 'r_0123456789abcdef', launchable: false })).toMatchObject({
+      key: 'unavailable',
+      label: 'Check host',
+    });
   });
 });
 
