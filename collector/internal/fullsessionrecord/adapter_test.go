@@ -1,6 +1,7 @@
 package fullsessionrecord
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 
@@ -96,6 +97,57 @@ func TestParsedFamilyRejectsMissingPortableTimestamps(t *testing.T) {
 		parsed, vendors.EmptySessionMetadata(),
 	); err == nil {
 		t.Fatal("portable family without source-derived timestamps was accepted")
+	}
+}
+
+func TestParsedFamilyPreservesSubagentTextAndIgnoresLiveMetadata(t *testing.T) {
+	prompt := "first line\n\n" + string(bytes.Repeat([]byte("task "), 80))
+	summary := "result line one\nresult line two"
+	family := func() []*vendors.ParsedSession {
+		return []*vendors.ParsedSession{
+			{
+				Session: &session.Session{
+					Agent: "codex", ID: "root", StartedAt: 10, LastActivityTime: 20,
+					Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1},
+				},
+				Spawns: map[string]vendors.SpawnState{},
+			},
+			{
+				Session: &session.Session{
+					Agent: "codex", ID: "child", StartedAt: 12, LastActivityTime: 25,
+					Tokens:         map[string]session.ModelTokens{},
+					SessionDetails: session.SessionDetails{FirstPrompt: &prompt}, Summary: &summary,
+				},
+				ParentID: "root", InTurn: true, Spawns: map[string]vendors.SpawnState{},
+			},
+		}
+	}
+
+	withoutLive, err := FromParsedFamily(
+		"r_0123456789abcdef", "codex", vendors.LocalReadSource,
+		family(), vendors.EmptySessionMetadata(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := vendors.EmptySessionMetadata()
+	live.Session("root").Live = "interactive"
+	live.Session("child").Live = "interactive"
+	withLive, err := FromParsedFamily(
+		"r_0123456789abcdef", "codex", vendors.LocalReadSource, family(), live,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(withoutLive, withLive) {
+		t.Fatalf("portable records differ with live metadata:\nwithout = %#v\nwith = %#v", withoutLive, withLive)
+	}
+	child := withoutLive[0].Session.Subagents[0]
+	if child.Task != prompt || child.Result != summary {
+		t.Fatalf("subagent text = (%q, %q); want (%q, %q)", child.Task, child.Result, prompt, summary)
+	}
+	if child.Status != session.SubagentAborted || withoutLive[0].Session.Status != nil {
+		t.Fatalf("portable statuses = root %v, child %q; want nil, aborted", withoutLive[0].Session.Status, child.Status)
 	}
 }
 

@@ -12,12 +12,12 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// FromParsedFamily runs the same shared composition used by local and remote
-// library sessions before freezing the rooted complete records.
+// FromParsedFamily runs portable composition without the display projection
+// before freezing the rooted complete records.
 func FromParsedFamily(sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
-	roots := collector.ListRemote(source, map[string]vendors.RemoteCollection{
+	roots := collector.ComposePortable(source, map[string]vendors.RemoteCollection{
 		vendor: {Sessions: parsed, Metadata: metadata},
-	}, 0)
+	})
 	records := make([]fullsessionv1.Record, 0, len(roots))
 	for _, root := range roots {
 		record, err := FromSession(sourceID, *root)

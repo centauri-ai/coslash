@@ -16,6 +16,33 @@ exact read identity. `revisionId` is SHA-256 over canonical JSON with an empty
 revision field. Each change body independently declares its UTF-8 byte count
 and SHA-256.
 
+## Canonical JSON
+
+Canonical records use UTF-8 without a BOM, insignificant whitespace, or a
+trailing newline. Every field is present, including null pointers and empty or
+null arrays. Arrays retain their declared order. Integers use the shortest
+base-10 form (no leading zero or plus sign); booleans and null use their
+lowercase JSON literals.
+
+Object members occur in the following order:
+
+- Record: `schemaVersion`, `sourceId`, `agent`, `sessionId`, `revisionId`, `session`.
+- Session: `name`, `summary`, `status`, `cwd`, `branch`, `editedFileCount`, `durationMs`, `usage`, `costMicroUsd`, `unpricedModels`, `subagents`, `startedAtMs`, `lastActivityAtMs`, `entrypoint`, `model`, `contextTokens`, `contextWindow`, `turns`, `toolUses`, `errors`, `compactions`, `firstPrompt`, `commands`, `commits`, `commitShas`, `pullRequests`, `todos`, `digest`, `fileEdits`, `synthesis`, `synthesisPending`, `declaredGoal`.
+- Model usage: `model`, `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheCreation1hInputTokens`, `cacheReadInputTokens`, `costMicroUsd`.
+- Subagent: `id`, `name`, `model`, `status`, `task`, `result`, `durationMs`, `spawnedAtTurn`, `toolUses`, `commands`, `usage`, `costMicroUsd`; a subagent command uses `label`, `command`.
+- Todo: `text`, `done`; digest entry: `turn`, `category`, `description`, `answer`, `subagentId`, `timeMs`.
+- File edit: `path`, `additions`, `deletions`, `edits`, `isNew`, `changes`; file change: `id`, `kind`, `text`, `operation`, `additions`, `deletions`, `byteCount`, `sha256`.
+- Synthesis: `goals`, `outcome`, `keyDecisions`, `nextStep`.
+
+Strings use JSON double quotes. Escape quotation mark and reverse solidus as
+`\"` and `\\`; use `\b`, `\f`, `\n`, `\r`, and `\t` for those controls and
+lowercase `\u00xx` for the remaining U+0000 through U+001F controls. Encode
+other valid Unicode directly as UTF-8 except `<`, `>`, `&`, U+2028, and U+2029,
+which are respectively `\u003c`, `\u003e`, `\u0026`, `\u2028`, and `\u2029`.
+Solidus is not escaped. The published `valid/escaping.json` fixture exercises
+these rules. Hashes are lowercase hexadecimal SHA-256 digests of exactly these
+bytes; compute the revision with `revisionId` set to the empty string.
+
 Session timestamps must be positive Unix milliseconds no later than
 `9999-12-31T23:59:59.999Z`. This keeps the shared record within the supported
 PostgreSQL persistence range before a consumer performs timestamp conversion.

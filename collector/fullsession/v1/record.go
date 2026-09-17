@@ -151,6 +151,7 @@ type SessionSynthesis struct {
 // Freeze computes all body hashes/counts and the immutable revision identity.
 // The revision is the SHA-256 of the canonical record with revisionId empty.
 func Freeze(record Record) (Record, error) {
+	record = cloneRecord(record)
 	record.SchemaVersion = SchemaVersion
 	record.RevisionID = ""
 	for editIndex := range record.Session.FileEdits {
@@ -181,6 +182,66 @@ func Freeze(record Record) (Record, error) {
 		return Record{}, ErrOversized
 	}
 	return record, nil
+}
+
+func cloneRecord(record Record) Record {
+	cloned := record
+	s := record.Session
+	s.Name = clonePointer(s.Name)
+	s.Summary = clonePointer(s.Summary)
+	s.Status = clonePointer(s.Status)
+	s.Branch = clonePointer(s.Branch)
+	s.DurationMs = clonePointer(s.DurationMs)
+	s.CostMicroUSD = clonePointer(s.CostMicroUSD)
+	s.Entrypoint = clonePointer(s.Entrypoint)
+	s.Model = clonePointer(s.Model)
+	s.ContextTokens = clonePointer(s.ContextTokens)
+	s.ContextWindow = clonePointer(s.ContextWindow)
+	s.FirstPrompt = clonePointer(s.FirstPrompt)
+	s.DeclaredGoal = clonePointer(s.DeclaredGoal)
+	s.Usage = cloneSlice(s.Usage)
+	s.UnpricedModels = cloneSlice(s.UnpricedModels)
+	s.Commands = cloneSlice(s.Commands)
+	s.Commits = cloneSlice(s.Commits)
+	s.CommitSHAs = cloneSlice(s.CommitSHAs)
+	s.Todos = cloneSlice(s.Todos)
+	s.Digest = cloneSlice(s.Digest)
+	s.Subagents = cloneSlice(s.Subagents)
+	for i := range s.Subagents {
+		s.Subagents[i].Model = clonePointer(s.Subagents[i].Model)
+		s.Subagents[i].DurationMs = clonePointer(s.Subagents[i].DurationMs)
+		s.Subagents[i].SpawnedAtTurn = clonePointer(s.Subagents[i].SpawnedAtTurn)
+		s.Subagents[i].CostMicroUSD = clonePointer(s.Subagents[i].CostMicroUSD)
+		s.Subagents[i].Commands = cloneSlice(s.Subagents[i].Commands)
+		s.Subagents[i].Usage = cloneSlice(s.Subagents[i].Usage)
+	}
+	s.FileEdits = cloneSlice(s.FileEdits)
+	for i := range s.FileEdits {
+		s.FileEdits[i].Changes = cloneSlice(s.FileEdits[i].Changes)
+	}
+	if s.Synthesis != nil {
+		value := *s.Synthesis
+		value.Goals = cloneSlice(value.Goals)
+		value.KeyDecisions = cloneSlice(value.KeyDecisions)
+		s.Synthesis = &value
+	}
+	cloned.Session = s
+	return cloned
+}
+
+func clonePointer[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneSlice[T any](value []T) []T {
+	if value == nil {
+		return nil
+	}
+	return append(make([]T, 0, len(value)), value...)
 }
 
 func Marshal(record Record) ([]byte, error) {
