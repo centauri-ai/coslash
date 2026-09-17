@@ -3,6 +3,7 @@ package session
 import "strings"
 
 type FileChange struct {
+	ID        string `json:"id"`
 	Kind      string `json:"kind"`
 	Text      string `json:"text"`
 	Operation string `json:"operation"`
@@ -82,6 +83,9 @@ func (s *FileEditSet) Patch(path, patch string) {
 }
 
 func (e FileEdit) Changes() []FileChange {
+	if e.changes == nil {
+		return nil
+	}
 	changes := make([]FileChange, 0, len(e.changes))
 	for _, change := range e.changes {
 		if change.Kind != "" {
@@ -94,9 +98,13 @@ func (e FileEdit) Changes() []FileChange {
 // FileEditWithChanges reconstructs a parsed edit from a complete record. The
 // change slice is copied so cache callers cannot mutate shared manager state.
 func FileEditWithChanges(path string, additions, deletions, edits int, isNew bool, changes []FileChange) FileEdit {
+	var cloned []FileChange
+	if changes != nil {
+		cloned = append(make([]FileChange, 0, len(changes)), changes...)
+	}
 	return FileEdit{
 		Path: path, Additions: additions, Deletions: deletions, Edits: edits, IsNew: isNew,
-		changes: append([]FileChange(nil), changes...),
+		changes: cloned,
 	}
 }
 

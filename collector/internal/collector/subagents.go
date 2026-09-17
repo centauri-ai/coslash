@@ -12,15 +12,22 @@ func subagentFrom(
 	child, parent *vendors.ParsedSession,
 	metadata *vendors.SessionMetadata,
 	claudeWorkflowAgent *claude.WorkflowAgent,
+	preserveText bool,
+	useLiveStatus bool,
 ) session.Subagent {
 	s := child.Session
+	task, result := deref(s.FirstPrompt), deref(s.Summary)
+	if !preserveText {
+		task = session.Truncate(task, session.TruncateTextLimit)
+		result = session.Truncate(result, session.TruncateTextLimit)
+	}
 	subagent := session.Subagent{
 		ID:         s.ID,
-		Name:       cmp.Or(child.Name, s.ID),
+		Name:       cmp.Or(deref(s.Name), child.Name, s.ID),
 		Model:      s.Model,
-		Status:     subagentStatus(child, parent, metadata),
-		Task:       session.Truncate(deref(s.FirstPrompt), session.TruncateTextLimit),
-		Result:     session.Truncate(deref(s.Summary), session.TruncateTextLimit),
+		Status:     subagentStatus(child, parent, metadata, useLiveStatus),
+		Task:       task,
+		Result:     result,
 		DurationMs: s.DurationMs,
 		ToolUses:   s.ToolUses,
 		Commands:   child.Commands,
@@ -36,7 +43,11 @@ func subagentFrom(
 		result := cmp.Or(
 			claudeWorkflowAgent.ResultPreview, claudeWorkflowAgent.Error, subagent.Result,
 		)
-		subagent.Result = session.Truncate(result, session.TruncateTextLimit)
+		if preserveText {
+			subagent.Result = result
+		} else {
+			subagent.Result = session.Truncate(result, session.TruncateTextLimit)
+		}
 	}
 	return subagent
 }
@@ -44,6 +55,7 @@ func subagentFrom(
 func subagentStatus(
 	child, parent *vendors.ParsedSession,
 	metadata *vendors.SessionMetadata,
+	useLiveStatus bool,
 ) string {
 	if child.Session.Agent == vendors.AgentCodex {
 		if child.Stopped {
@@ -52,8 +64,10 @@ func subagentStatus(
 		if !child.InTurn {
 			return session.SubagentReturned
 		}
-		if enrichment := metadata.Lookup(child.Session.ID); enrichment != nil && enrichment.Live != "" {
-			return session.SubagentRunning
+		if useLiveStatus {
+			if enrichment := metadata.Lookup(child.Session.ID); enrichment != nil && enrichment.Live != "" {
+				return session.SubagentRunning
+			}
 		}
 		return session.SubagentAborted
 	}
@@ -74,6 +88,9 @@ func subagentStatus(
 			return session.SubagentReturned
 		}
 		// The transcript stops mid-turn when the run dies with its parent.
+		if !useLiveStatus {
+			return session.SubagentAborted
+		}
 		if enrichment := metadata.Lookup(parent.Session.ID); enrichment == nil || enrichment.Live == "" {
 			return session.SubagentAborted
 		}

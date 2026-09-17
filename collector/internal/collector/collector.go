@@ -113,25 +113,28 @@ func finalizeSessions(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 ) []*vendors.ParsedSession {
-	return finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource)
+	return finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource, true, true, false)
 }
 
 func finalizeSessionsSource(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 	source vendors.ReadSource,
+	useLiveStatus bool,
+	allowLocalActivityFallbacks bool,
+	preserveSubagentText bool,
 ) []*vendors.ParsedSession {
 	applySessionEnrichment(parsed, metadata)
-	applyActivityFallbacks(parsed)
+	applyActivityFallbacks(parsed, allowLocalActivityFallbacks)
 	enrichModelsAndCosts(parsed)
 	composition := composeSessions(parsed)
 	promoteFamilyActivity(composition)
-	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed))
+	resolveNames(composition.parsed, metadata)
+	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed), preserveSubagentText, useLiveStatus)
 	for _, p := range composition.parsed {
 		removeUnresolvedSpawnRows(p.Session)
 	}
-	resolveNames(composition.roots, metadata)
-	resolveStatus(composition.roots, metadata, source == vendors.LocalReadSource)
+	resolveStatus(composition.roots, metadata, useLiveStatus, source == vendors.LocalReadSource)
 	return composition.roots
 }
 
@@ -149,20 +152,24 @@ func promoteFamilyActivity(composition sessionComposition) {
 	}
 }
 
-func applyActivityFallbacks(parsed []*vendors.ParsedSession) {
-	collectedAt := time.Now().UnixMilli()
+func applyActivityFallbacks(parsed []*vendors.ParsedSession, allowLocalFallbacks bool) {
+	var collectedAt int64
+	if allowLocalFallbacks {
+		collectedAt = time.Now().UnixMilli()
+	}
 	for _, item := range parsed {
 		s := item.Session
 		if s.LastActivityTime == 0 && item.LogModifiedAtMs > 0 {
 			s.LastActivityTime = item.LogModifiedAtMs
-		} else if s.LastActivityTime == 0 && item.LogPath != "" {
+		} else if allowLocalFallbacks && s.LastActivityTime == 0 && item.LogPath != "" {
 			s.LastActivityTime = session.FileModificationTime(item.LogPath)
 		}
-		// The export contract requires a positive start. Prefer last activity,
-		// then collection time when the source and its log provide no timestamp.
+		// Prefer source-derived activity. Local display paths may use collection
+		// time, while portable records leave missing timing invalid so Freeze can
+		// reject it instead of producing a wall-clock-dependent revision.
 		if s.StartedAt == 0 {
 			s.StartedAt = s.LastActivityTime
-			if s.StartedAt == 0 {
+			if s.StartedAt == 0 && allowLocalFallbacks {
 				s.StartedAt = collectedAt
 				s.LastActivityTime = collectedAt
 			}
@@ -252,6 +259,8 @@ func enrichSubagents(
 	composition sessionComposition,
 	metadata map[string]*vendors.SessionMetadata,
 	claudeDynamicWorkflows map[string]*claude.WorkflowAgent,
+	preserveText bool,
+	useLiveStatus bool,
 ) {
 	for _, link := range composition.children {
 		p, parent := link.child, link.parent
@@ -260,6 +269,8 @@ func enrichSubagents(
 			parent,
 			sessionMetadata(metadata, p.Session.Agent),
 			claudeDynamicWorkflows[p.Session.ID],
+			preserveText,
+			useLiveStatus,
 		)
 		linkSpawnDigest(parent.Session, p.SpawnKey, subagent)
 		parent.Session.Subagents = append(parent.Session.Subagents, subagent)
@@ -273,20 +284,49 @@ func ListRemote(
 	collections map[string]vendors.RemoteCollection,
 	since int64,
 ) []*session.Session {
-	parsed := []*vendors.ParsedSession{}
-	metadata := map[string]*vendors.SessionMetadata{}
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
-		collection, ok := collections[agent]
-		if !ok {
-			continue
-		}
-		parsed = append(parsed, collection.Sessions...)
-		metadata[agent] = collection.Metadata
+	return listRemote(source, collections, since, false, true)
+}
+
+type PortableSession struct {
+	ParentSessionID string
+	Session         *session.Session
+}
+
+// ComposePortable returns every complete transcript-backed family member for
+// immutable records. Unlike ListRemote's display projection, child text is not
+// truncated and live status is not applied.
+func ComposePortable(
+	source vendors.ReadSource,
+	collections map[string]vendors.RemoteCollection,
+) []PortableSession {
+	parsed, metadata := remoteInputs(collections)
+	roots := servableRoots(finalizeSessionsSource(parsed, metadata, source, false, false, true))
+	rootKeys := make(map[sessionKey]bool, len(roots))
+	byKey := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
+	for _, root := range roots {
+		rootKeys[sessionKey{agent: root.Session.Agent, id: root.Session.ID}] = true
 	}
-	// Portable composition intentionally does not apply local liveness or
-	// filesystem-derived enrichment. The same semantics are used when source is
-	// LocalReadSource so canonical local/helper/SFTP records remain comparable.
-	roots := finalizePortableSessionsSource(parsed, metadata, source)
+	for _, item := range parsed {
+		byKey[sessionKey{agent: item.Session.Agent, id: item.Session.ID}] = item
+	}
+	portable := make([]PortableSession, 0, len(parsed))
+	for _, item := range parsed {
+		if belongsToRoot(item, byKey, rootKeys) {
+			portable = append(portable, PortableSession{ParentSessionID: item.ParentID, Session: item.Session})
+		}
+	}
+	return portable
+}
+
+func listRemote(
+	source vendors.ReadSource,
+	collections map[string]vendors.RemoteCollection,
+	since int64,
+	preserveSubagentText bool,
+	useLiveStatus bool,
+) []*session.Session {
+	parsed, metadata := remoteInputs(collections)
+	roots := finalizeSessionsSource(parsed, metadata, source, useLiveStatus, false, preserveSubagentText)
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
 			live := sessionMetadata(metadata, root.Session.Agent).Lookup(root.Session.ID)
@@ -302,13 +342,7 @@ func ListRemote(
 	return sessions
 }
 
-// ComposePortable returns every complete transcript-backed member of the
-// rooted families in collections. Unlike ListRemote's display projection,
-// descendants remain independently addressable by the complete-record cache.
-func ComposePortable(
-	source vendors.ReadSource,
-	collections map[string]vendors.RemoteCollection,
-) []*session.Session {
+func remoteInputs(collections map[string]vendors.RemoteCollection) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
 	parsed := []*vendors.ParsedSession{}
 	metadata := map[string]*vendors.SessionMetadata{}
 	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
@@ -319,22 +353,7 @@ func ComposePortable(
 		parsed = append(parsed, collection.Sessions...)
 		metadata[agent] = collection.Metadata
 	}
-	roots := servableRoots(finalizePortableSessionsSource(parsed, metadata, source))
-	rootKeys := make(map[sessionKey]bool, len(roots))
-	byKey := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
-	for _, root := range roots {
-		rootKeys[sessionKey{agent: root.Session.Agent, id: root.Session.ID}] = true
-	}
-	for _, item := range parsed {
-		byKey[sessionKey{agent: item.Session.Agent, id: item.Session.ID}] = item
-	}
-	portable := make([]*session.Session, 0, len(parsed))
-	for _, item := range parsed {
-		if belongsToRoot(item, byKey, rootKeys) {
-			portable = append(portable, item.Session)
-		}
-	}
-	return portable
+	return parsed, metadata
 }
 
 func belongsToRoot(item *vendors.ParsedSession, byKey map[sessionKey]*vendors.ParsedSession, roots map[sessionKey]bool) bool {
@@ -351,25 +370,6 @@ func belongsToRoot(item *vendors.ParsedSession, byKey map[sessionKey]*vendors.Pa
 		item = byKey[sessionKey{agent: item.Session.Agent, id: item.ParentID}]
 	}
 	return false
-}
-
-func finalizePortableSessionsSource(
-	parsed []*vendors.ParsedSession,
-	metadata map[string]*vendors.SessionMetadata,
-	source vendors.ReadSource,
-) []*vendors.ParsedSession {
-	applySessionEnrichment(parsed, metadata)
-	applyActivityFallbacks(parsed)
-	enrichModelsAndCosts(parsed)
-	composition := composeSessions(parsed)
-	promoteFamilyActivity(composition)
-	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed))
-	for _, p := range composition.parsed {
-		removeUnresolvedSpawnRows(p.Session)
-	}
-	resolveNames(composition.roots, metadata)
-	resolveStatus(composition.roots, metadata, false)
-	return composition.roots
 }
 
 func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.Subagent) {
@@ -505,11 +505,26 @@ func applySessionEnrichment(parsed []*vendors.ParsedSession, metadata map[string
 func resolveStatus(
 	roots []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
+	useLiveStatus bool,
 	livenessAuthoritative bool,
 ) {
-	now := time.Now().UnixMilli()
+	var now int64
+	if useLiveStatus {
+		now = time.Now().UnixMilli()
+	}
 	for _, p := range roots {
 		s := p.Session
+		if !useLiveStatus {
+			if deref(s.Status) == "waiting" {
+				continue
+			}
+			s.Status = nil
+			if p.StatusHint != nil {
+				status := *p.StatusHint
+				s.Status = &status
+			}
+			continue
+		}
 		enrichment := sessionMetadata(metadata, s.Agent).Lookup(s.ID)
 		raw := ""
 		if enrichment != nil {
@@ -601,7 +616,7 @@ func GetSessionFacts(id string) (*session.Session, error) {
 	}
 	// No subagents here means no spawn key can resolve.
 	removeUnresolvedSpawnRows(p.Session)
-	applyActivityFallbacks([]*vendors.ParsedSession{p})
+	applyActivityFallbacks([]*vendors.ParsedSession{p}, true)
 	probeGitEnvironment([]*vendors.ParsedSession{p})
 	return p.Session, nil
 }

@@ -1,7 +1,7 @@
 package session
 
 // Clone returns a deep copy suitable for composition stages that mutate a
-// parsed session while deriving complete-record fields.
+// parsed session while deriving display or portable-record fields.
 func Clone(source *Session) *Session {
 	if source == nil {
 		return nil

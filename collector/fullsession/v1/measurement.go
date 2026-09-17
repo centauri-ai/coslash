@@ -19,34 +19,65 @@ type MeasurementReport struct {
 	MaximumChangeBytes int    `json:"maximumChangeBytes"`
 }
 
-func Measure(records []Record, collectorVersion string) (MeasurementReport, error) {
-	report := MeasurementReport{SchemaVersion: SchemaVersion, CollectorVersion: collectorVersion, CorpusSize: len(records)}
+// Measurer accumulates corpus statistics without retaining decoded records or
+// their change bodies.
+type Measurer struct {
+	report MeasurementReport
+	sizes  []int
+}
+
+// NewMeasurer starts an incremental measurement for one collector version.
+func NewMeasurer(collectorVersion string) (*Measurer, error) {
 	if collectorVersion == "" {
-		return MeasurementReport{}, fmt.Errorf("collector version is required")
+		return nil, fmt.Errorf("collector version is required")
 	}
-	if len(records) == 0 {
-		return report, fmt.Errorf("measurement corpus is empty")
+	return &Measurer{report: MeasurementReport{
+		SchemaVersion: SchemaVersion, CollectorVersion: collectorVersion,
+	}}, nil
+}
+
+// Add validates and incorporates one record without retaining it.
+func (m *Measurer) Add(record Record) error {
+	data, err := Marshal(record)
+	if err != nil {
+		return err
 	}
-	sizes := make([]int, 0, len(records))
+	m.report.CorpusSize++
+	m.sizes = append(m.sizes, len(data))
+	for _, edit := range record.Session.FileEdits {
+		for _, change := range edit.Changes {
+			m.report.TotalChangeBodies++
+			m.report.MaximumChangeBytes = max(m.report.MaximumChangeBytes, change.ByteCount)
+		}
+	}
+	return nil
+}
+
+// Report returns the completed corpus statistics.
+func (m *Measurer) Report() (MeasurementReport, error) {
+	if len(m.sizes) == 0 {
+		return m.report, fmt.Errorf("measurement corpus is empty")
+	}
+	sort.Ints(m.sizes)
+	report := m.report
+	report.P50Bytes = nearestRank(m.sizes, 50)
+	report.P95Bytes = nearestRank(m.sizes, 95)
+	report.P99Bytes = nearestRank(m.sizes, 99)
+	report.MaximumBytes = m.sizes[len(m.sizes)-1]
+	return report, nil
+}
+
+func Measure(records []Record, collectorVersion string) (MeasurementReport, error) {
+	measurer, err := NewMeasurer(collectorVersion)
+	if err != nil {
+		return MeasurementReport{}, err
+	}
 	for index, record := range records {
-		data, err := Marshal(record)
-		if err != nil {
+		if err := measurer.Add(record); err != nil {
 			return MeasurementReport{}, fmt.Errorf("measure record %d: %w", index, err)
 		}
-		sizes = append(sizes, len(data))
-		for _, edit := range record.Session.FileEdits {
-			for _, change := range edit.Changes {
-				report.TotalChangeBodies++
-				report.MaximumChangeBytes = max(report.MaximumChangeBytes, change.ByteCount)
-			}
-		}
 	}
-	sort.Ints(sizes)
-	report.P50Bytes = nearestRank(sizes, 50)
-	report.P95Bytes = nearestRank(sizes, 95)
-	report.P99Bytes = nearestRank(sizes, 99)
-	report.MaximumBytes = sizes[len(sizes)-1]
-	return report, nil
+	return measurer.Report()
 }
 
 func nearestRank(sorted []int, percentile int) int {
