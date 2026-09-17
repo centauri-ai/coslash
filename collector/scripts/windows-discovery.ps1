@@ -44,12 +44,20 @@ function Invoke-ToolCapture {
 
     try {
         $global:LASTEXITCODE = 0
-        $output = & $command @Arguments 2>&1 | Out-String
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $output = & $command @Arguments 2>&1 | Out-String
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
         return [PSCustomObject]@{
             command = $command
             arguments = @($Arguments)
             available = $true
-            exitCode = $LASTEXITCODE
+            exitCode = $exitCode
             output = $output.Trim()
         }
     }
