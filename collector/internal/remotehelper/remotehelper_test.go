@@ -229,6 +229,28 @@ func TestCollectWithSkippedFamilyWithholdsCompletion(t *testing.T) {
 	}
 }
 
+func TestCollectWithUnknownScanSkippedFamilyWithholdsCompletion(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".codex", "sessions")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	id := "019f4dde-db5b-7100-bdc0-09b5aaaac56f"
+	path := filepath.Join(root, "rollout-2026-07-10T14-11-18-"+id+".jsonl")
+	if err := os.WriteFile(path, []byte("not-json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := validRequest()
+	var output bytes.Buffer
+	outcome, err := Collect(context.Background(), request, Options{Home: home}, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.RequestComplete || strings.Contains(output.String(), `"type":"request_complete"`) {
+		t.Fatalf("unknown skipped family was reported complete: outcome=%#v output=%s", outcome, output.String())
+	}
+}
+
 func validRequest() remoteprotocol.Request {
 	return remoteprotocol.Request{
 		RequestID: "req-1", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},

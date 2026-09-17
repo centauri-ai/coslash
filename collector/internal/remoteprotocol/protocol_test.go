@@ -63,6 +63,19 @@ func TestEncodedSizeMatchesUnescapedWireEncoding(t *testing.T) {
 	}
 }
 
+func TestAccumulatorAcceptsRecordAtExactByteLimit(t *testing.T) {
+	r := request()
+	record := handshake(r)
+	r.Limits.MaxRecordBytes = encodedSize(record)
+	a, err := NewAccumulator(r, Generation{BaselineID: "base-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Apply(record); err != nil {
+		t.Fatalf("Apply record at exact byte limit: %v", err)
+	}
+}
+
 func family() remotefacts.Family {
 	return remotefacts.Family{SchemaVersion: remotefacts.SchemaVersion, ParserVersion: "parser-v1", Vendor: "codex", FamilyID: "root", State: "complete", Sessions: []remotefacts.Session{{ID: "root", StartedAtMs: 1, LastActivityAtMs: 2, Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{}}}, Metadata: remotefacts.Metadata{Names: []remotefacts.MetadataName{}, Live: []remotefacts.MetadataLive{}}, Fingerprints: []remotefacts.Fingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}}}
 }

@@ -146,13 +146,13 @@ func collectVendor(
 		cached, isKnown := known[item.id]
 		switch {
 		case item.skipReason != "":
+			counts.SkippedFamilies++
 			if !isKnown {
 				continue
 			}
 			if err := emitSkipped(emitter, vendor, item.id, item.skipReason); err != nil {
 				return vendorResult{counts: counts}, err
 			}
-			counts.SkippedFamilies++
 		case baselineKnown && isKnown && cached == item.fingerprint:
 			err := emitter.emit(remoteprotocol.Record{
 				Type: remoteprotocol.RecordUnchanged, Vendor: vendor,
