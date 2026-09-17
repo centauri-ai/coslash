@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -327,6 +328,7 @@ func remoteFile(path string, artifact Artifact, uid uint32) RemoteFile {
 }
 
 type fakeLifecycleRemote struct {
+	mu                sync.Mutex
 	root              string
 	platform          Platform
 	files             map[string]RemoteFile
@@ -343,9 +345,13 @@ type fakeLifecycleRemote struct {
 }
 
 func (remote *fakeLifecycleRemote) ProbePlatform(context.Context) (Platform, error) {
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
 	return remote.platform, remote.probeErr
 }
 func (remote *fakeLifecycleRemote) Inspect(_ context.Context, path string) (RemoteFile, error) {
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
 	file, ok := remote.files[path]
 	if !ok {
 		return RemoteFile{}, fs.ErrNotExist
@@ -353,6 +359,8 @@ func (remote *fakeLifecycleRemote) Inspect(_ context.Context, path string) (Remo
 	return file, nil
 }
 func (remote *fakeLifecycleRemote) Install(_ context.Context, request InstallRequest) (RemoteFile, error) {
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
 	remote.installs++
 	remote.lastRequest = request
 	if remote.installErr != nil {
@@ -378,6 +386,8 @@ func (remote *fakeLifecycleRemote) Install(_ context.Context, request InstallReq
 	return file, nil
 }
 func (remote *fakeLifecycleRemote) RemoveExact(_ context.Context, path string) error {
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
 	remote.removed = path
 	if remote.removeErr != nil {
 		return remote.removeErr
@@ -395,6 +405,8 @@ func (remote *fakeLifecycleRemote) RemoveExact(_ context.Context, path string) e
 	return nil
 }
 func (remote *fakeLifecycleRemote) Capabilities(_ context.Context, path string) (remoteprotocol.Capabilities, error) {
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
 	remote.capabilitiesCalls++
 	return remote.capabilities, remote.capabilityErrors[path]
 }

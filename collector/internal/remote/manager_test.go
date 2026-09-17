@@ -481,7 +481,7 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 	waitUntil(t, func() bool {
 		restarted.mu.Lock()
 		defer restarted.mu.Unlock()
-		return restarted.helperProbe == helperProbeReady && !restarted.helperSetup
+		return restarted.helperProbe == helperProbeReady && !restarted.helperAutoSetup
 	})
 	if remote.installs != 2 || remote.removed != "~/.coslash/helpers/v1/coslash-helper" {
 		t.Fatalf("installs=%d removed=%q", remote.installs, remote.removed)
