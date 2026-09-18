@@ -143,6 +143,7 @@ export function SummaryOnlyBanner() {
 
 function useSessionDetail(
   session: Session | null,
+  detailRetryToken: number,
   sessionsVersion: number,
   synthesisSettingsKey: string,
 ): {
@@ -158,6 +159,7 @@ function useSessionDetail(
     detail: SessionDetail;
     cachedOffline: boolean;
   } | null>(null);
+  const loadedDetailRef = useRef(loadedDetail);
   const [detailError, setDetailError] = useState<DetailError | null>(null);
   const [loadedSynthesis, setLoadedSynthesis] = useState<({ key: string } & SynthesisResponse) | null>(null);
   const pollDeadline = useRef<{ key: string; deadline: number } | null>(null);
@@ -167,6 +169,7 @@ function useSessionDetail(
     const current = session;
     if (current == null || detailKey == null) return;
     if (current.detailRevision === '') return;
+    setDetailError((error) => (error?.key === detailKey ? null : error));
 
     const controller = new AbortController();
     const load = async () => {
@@ -227,7 +230,9 @@ function useSessionDetail(
           launchBlockReason: current.launchBlockReason,
         });
         if (!controller.signal.aborted) {
-          setLoadedDetail({ key: detailKey, detail, cachedOffline: body.cachedOffline });
+          const loaded = { key: detailKey, detail, cachedOffline: body.cachedOffline };
+          loadedDetailRef.current = loaded;
+          setLoadedDetail(loaded);
           setDetailError(null);
         }
       } catch (error: unknown) {
@@ -236,6 +241,7 @@ function useSessionDetail(
           setDetailError({ key: detailKey, kind: 'other', message: error.message });
           return;
         }
+        if (loadedDetailRef.current?.key === detailKey) return;
         const failure = error as Partial<Omit<DetailError, 'key'>>;
         setDetailError({
           key: detailKey,
@@ -246,7 +252,7 @@ function useSessionDetail(
     };
     void load();
     return () => controller.abort();
-  }, [detailKey, session, sessionsVersion]);
+  }, [detailKey, detailRetryToken]);
 
   useEffect(() => {
     const current = session;
@@ -1274,6 +1280,7 @@ function InspectorFooter({
 
 export function SessionInspector({
   session,
+  detailRetryToken,
   sessionsVersion,
   synthesisSettingsKey,
   showMachineBadge = false,
@@ -1282,6 +1289,7 @@ export function SessionInspector({
   onClose,
 }: {
   session: Session | null;
+  detailRetryToken: number;
   sessionsVersion: number;
   synthesisSettingsKey: string;
   showMachineBadge?: boolean;
@@ -1291,6 +1299,7 @@ export function SessionInspector({
 }) {
   const { detail, isLoading, loadError, loadErrorKind, cachedOffline, summaryOnly } = useSessionDetail(
     session,
+    detailRetryToken,
     sessionsVersion,
     synthesisSettingsKey,
   );

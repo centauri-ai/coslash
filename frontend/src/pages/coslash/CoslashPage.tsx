@@ -323,11 +323,19 @@ export function CoslashPage() {
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
-  const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
-    useSessions({
-      localWindow: shareEnabled ? 'all' : timeWindow,
-      remoteWindow: timeWindow,
-    });
+  const {
+    sessions,
+    machines,
+    isLoading,
+    loadError,
+    detailRetryToken,
+    sessionsVersion,
+    retrySessions,
+    refreshSessions,
+  } = useSessions({
+    localWindow: shareEnabled ? 'all' : timeWindow,
+    remoteWindow: timeWindow,
+  });
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
   const {
@@ -579,6 +587,7 @@ export function CoslashPage() {
       </div>
       <SessionInspector
         session={selectedSession}
+        detailRetryToken={detailRetryToken}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}
