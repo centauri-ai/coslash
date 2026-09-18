@@ -1,8 +1,9 @@
 import { type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { type Session } from '@/pages/coslash/lib/session';
+import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
 
 const props: ComponentProps<typeof CoslashLayout> = {
   sessions: [],
@@ -33,6 +34,45 @@ const props: ComponentProps<typeof CoslashLayout> = {
 
 function renderLayout(overrides: Partial<ComponentProps<typeof CoslashLayout>> = {}) {
   return renderToStaticMarkup(<CoslashLayout {...props} {...overrides} />);
+}
+
+function session(overrides: Partial<Session>): Session {
+  return {
+    sourceId: 'remote',
+    agent: 'codex',
+    cwd: '/workspace/app',
+    status: null,
+    mtime: 0,
+    tokens: {
+      'gpt-5': {
+        input_tokens: 1000,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_creation_1h_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
+    cost: 1,
+    unpricedModels: [],
+    eligibleForAggregates: true,
+    displayStale: false,
+    name: null,
+    firstPrompt: null,
+    ...overrides,
+  } as Session;
+}
+
+/** The layout reads its sort from session storage, which the node test environment lacks. */
+function storeSort(sort: SessionSort) {
+  const stored = JSON.stringify({ sort });
+  vi.stubGlobal('sessionStorage', { getItem: () => stored, setItem: () => {} });
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+/** Document order of the given titles in the rendered table. */
+function orderOf(markup: string, ...titles: string[]): number[] {
+  return titles.map((title) => markup.indexOf(title));
 }
 
 describe('CoslashLayout', () => {
@@ -67,32 +107,10 @@ describe('CoslashLayout', () => {
   });
 
   it('keeps sessions with truncated history out of the header totals', () => {
-    const rollupSession = (overrides: Partial<Session>) =>
-      ({
-        sourceId: 'remote',
-        agent: 'codex',
-        cwd: '/workspace/app',
-        status: null,
-        mtime: 0,
-        tokens: {
-          'gpt-5': {
-            input_tokens: 1000,
-            output_tokens: 0,
-            cache_creation_input_tokens: 0,
-            cache_creation_1h_input_tokens: 0,
-            cache_read_input_tokens: 0,
-          },
-        },
-        cost: 1,
-        unpricedModels: [],
-        eligibleForAggregates: true,
-        ...overrides,
-      }) as Session;
-
     const markup = renderLayout({
       sessions: [
-        rollupSession({ id: 'counted' }),
-        rollupSession({ id: 'truncated', cost: 9, eligibleForAggregates: false }),
+        session({ id: 'counted' }),
+        session({ id: 'truncated', cost: 9, eligibleForAggregates: false }),
       ],
     });
 
@@ -100,6 +118,62 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('≈$1.00');
     expect(markup).not.toContain('$10.00');
     expect(markup).toContain('>$9.00<');
+  });
+
+  it('keeps same-named repositories from different owners apart', () => {
+    const sessions = [
+      {
+        id: 'upstream',
+        sourceId: 'local',
+        agent: 'codex',
+        repo: 'github.com/centauri-ai/coslash',
+        repoLocalOnly: false,
+        cwd: '/workspace/upstream',
+        status: null,
+        mtime: 0,
+      },
+      {
+        id: 'fork',
+        sourceId: 'local',
+        agent: 'codex',
+        repo: 'github.com/calvintvu/coslash',
+        repoLocalOnly: false,
+        cwd: '/workspace/fork',
+        status: null,
+        mtime: 0,
+      },
+    ] as Session[];
+
+    const markup = renderLayout({ sessions, range: 'today' });
+
+    expect(markup.match(/>coslash</g)).toHaveLength(2);
+  });
+
+  it('sorts A-Z on the title the row actually renders', () => {
+    storeSort({ key: 'title', dir: 'asc' });
+    const markup = renderLayout({
+      sessions: [
+        session({ id: 'named', name: 'Banana' }),
+        session({ id: 'prompt-z', firstPrompt: 'Zebra prompt' }),
+        session({ id: 'prompt-a', firstPrompt: 'Apple prompt' }),
+      ],
+    });
+
+    const [apple, banana, zebra] = orderOf(markup, 'Apple prompt', 'Banana', 'Zebra prompt');
+    expect(apple).toBeLessThan(banana);
+    expect(banana).toBeLessThan(zebra);
+  });
+
+  it('sorts rows with unknown liveness below current rows', () => {
+    const markup = renderLayout({
+      sessions: [
+        session({ id: 'stale', name: 'Stale but recent', mtime: 200, displayStale: true }),
+        session({ id: 'live', name: 'Live and older', mtime: 100 }),
+      ],
+    });
+
+    const [live, stale] = orderOf(markup, 'Live and older', 'Stale but recent');
+    expect(live).toBeLessThan(stale);
   });
 
   it('separates verified repositories from local-only folders', () => {

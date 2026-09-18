@@ -162,7 +162,7 @@ function detectedGroup(session: Session): Group {
   if (session.repo?.trim() && !session.repoLocalOnly) {
     const label = session.repo.split('/').filter(Boolean).at(-1) ?? session.repo;
     return {
-      id: `repo:${label.toLowerCase()}`,
+      id: `repo:${session.repo.toLowerCase()}`,
       label,
       kind: 'Repository',
       basis: session.repo,
@@ -180,7 +180,6 @@ function detectedGroup(session: Session): Group {
   const cwd = session.cwd.trim();
   if (cwd) {
     const parts = cwd.split('/').filter(Boolean);
-    // A root-level cwd has no parent, so it groups under itself rather than an empty shared id.
     const parent = parts.slice(0, -1).join('/') || parts.join('/');
     return {
       id: `folder:${session.sourceId}:${parent}`,
@@ -206,13 +205,6 @@ function formatTokens(value: number | null): string {
 
 function formatTableCost(value: number | null): string {
   return formatEstimatedCost(value).replace(/^≈/, '');
-}
-
-function totalTokens(sessions: Session[]): number | null {
-  const values = sessions.map((session) => getTotalTokens(session.tokens));
-  return values.every((value) => value == null)
-    ? null
-    : values.reduce<number>((total, value) => total + (value ?? 0), 0);
 }
 
 function matchesSearch(session: Session, group: Group, query: string): boolean {
@@ -256,10 +248,24 @@ function matchesFilters(
   return matchesSearch(session, group, query);
 }
 
+/** Unlike cost, a session with no recorded tokens contributes nothing rather than voiding the total. */
+function tokenTotal(sessions: Session[]): number | null {
+  const values = sessions.map((session) => getTotalTokens(session.tokens));
+  return values.every((value) => value == null)
+    ? null
+    : values.reduce<number>((total, value) => total + (value ?? 0), 0);
+}
+
+function sessionTitle(session: Session): string {
+  return session.name ?? session.firstPrompt ?? 'Untitled session';
+}
+
 function sortSessions(sessions: Session[], sort: SessionSort): Session[] {
   return [...sessions].sort((a, b) => {
+    // Rows whose liveness is unknown stay below current rows whatever the sort key.
+    if (a.displayStale !== b.displayStale) return a.displayStale ? 1 : -1;
     if (sort.key === 'title') {
-      const difference = (a.name ?? 'Untitled session').localeCompare(b.name ?? 'Untitled session');
+      const difference = sessionTitle(a).localeCompare(sessionTitle(b));
       return sort.dir === 'asc' ? difference : -difference;
     }
     if (sort.key === 'cost') {
@@ -286,7 +292,7 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
       <span className="text-[var(--coslash-muted)]">active in this scope</span>
       <span className="text-[var(--coslash-muted)]">·</span>
       <span className="flex items-center gap-1 text-[var(--coslash-muted)]">
-        {isLoading ? <InlineSpinner /> : formatTokens(totalTokens(aggregate))} tokens
+        {isLoading ? <InlineSpinner /> : formatTokens(tokenTotal(aggregate))} tokens
       </span>
       <span className="text-[var(--coslash-muted)]">·</span>
       {isLoading ? (
@@ -532,7 +538,7 @@ function SessionRow({
           className="block w-full truncate px-1.5 py-px text-left text-[13px] leading-[1.35] font-semibold hover:text-[var(--coslash-accent)]"
           onClick={onSelect}
         >
-          {session.name ?? session.firstPrompt ?? 'Untitled session'}
+          {sessionTitle(session)}
         </button>
         <span
           className={cn(
@@ -751,8 +757,8 @@ function SessionListView({
                   {STATUS_META[status].label}{' '}
                   <span className="font-medium text-[var(--coslash-muted)]">{rows.length}</span>
                   <span className="ml-auto text-[11.5px] font-medium text-[var(--coslash-muted)]">
-                    {formatTokens(totalTokens(aggregate))} tokens ·{' '}
-                    {formatTableCost(sumKnown(aggregate.map((session) => session.cost)))}
+                    {formatTokens(sumKnown(aggregate.map((session) => getTotalTokens(session.tokens))))}{' '}
+                    tokens · {formatTableCost(sumKnown(aggregate.map((session) => session.cost)))}
                   </span>
                 </button>
               </th>
@@ -871,11 +877,10 @@ export function CoslashLayout({
     [sessionGroups],
   );
   const agents = useMemo(() => getSessionVendors(sessions), [sessions]);
-  const start = rangeStart(range);
-  const sessionsInRange = useMemo(
-    () => sessions.filter((session) => start == null || session.status != null || session.mtime >= start),
-    [sessions, start],
-  );
+  const sessionsInRange = useMemo(() => {
+    const start = rangeStart(range);
+    return sessions.filter((session) => start == null || session.status != null || session.mtime >= start);
+  }, [sessions, range]);
   const visibleSessions = useMemo(
     () =>
       sortSessions(

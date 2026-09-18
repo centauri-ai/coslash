@@ -39,6 +39,11 @@ export const DEFAULT_SESSION_VIEW_PREFERENCES: SessionViewPreferences = {
   sort: { key: 'recent', dir: 'desc' },
 };
 
+/** Persisted preferences are untrusted input, so an unknown value falls back rather than throwing. */
+function oneOf<T extends string>(value: unknown, allowed: ReadonlySet<T>, fallback: T): T {
+  return typeof value === 'string' && (allowed as ReadonlySet<string>).has(value) ? (value as T) : fallback;
+}
+
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
@@ -68,40 +73,21 @@ export function loadSessionViewPreferences(storage?: Pick<Storage, 'getItem'>): 
       record.sort != null && typeof record.sort === 'object' && !Array.isArray(record.sort)
         ? (record.sort as Record<string, unknown>)
         : {};
-    const range = stringOrNull(record.range);
-    const view = stringOrNull(record.view);
-    const density = stringOrNull(record.density);
-    const sortKey = stringOrNull(storedSort.key);
-    const sortDir = stringOrNull(storedSort.dir);
+    const defaults = DEFAULT_SESSION_VIEW_PREFERENCES;
     return {
-      query: stringOrNull(record.query) ?? DEFAULT_SESSION_VIEW_PREFERENCES.query,
-      range:
-        range != null && RANGES.has(range as SessionRange)
-          ? (range as SessionRange)
-          : DEFAULT_SESSION_VIEW_PREFERENCES.range,
+      query: stringOrNull(record.query) ?? defaults.query,
+      range: oneOf(record.range, RANGES, defaults.range),
       statusFilters: stringArray(record.statusFilters).filter((status): status is SessionStatusGroup =>
         STATUSES.has(status as SessionStatusGroup),
       ),
       groupFilters: stringArray(record.groupFilters),
       machineFilters: stringArrayOrLegacy(record.machineFilters, record.machineFilter),
       agentFilters: stringArrayOrLegacy(record.agentFilters, record.agentFilter),
-      view:
-        view != null && VIEWS.has(view as SessionView)
-          ? (view as SessionView)
-          : DEFAULT_SESSION_VIEW_PREFERENCES.view,
-      density:
-        density != null && DENSITIES.has(density as SessionListDensity)
-          ? (density as SessionListDensity)
-          : DEFAULT_SESSION_VIEW_PREFERENCES.density,
+      view: oneOf(record.view, VIEWS, defaults.view),
+      density: oneOf(record.density, DENSITIES, defaults.density),
       sort: {
-        key:
-          sortKey != null && SORT_KEYS.has(sortKey as SessionSort['key'])
-            ? (sortKey as SessionSort['key'])
-            : DEFAULT_SESSION_VIEW_PREFERENCES.sort.key,
-        dir:
-          sortDir != null && SORT_DIRECTIONS.has(sortDir as SessionSort['dir'])
-            ? (sortDir as SessionSort['dir'])
-            : DEFAULT_SESSION_VIEW_PREFERENCES.sort.dir,
+        key: oneOf(storedSort.key, SORT_KEYS, defaults.sort.key),
+        dir: oneOf(storedSort.dir, SORT_DIRECTIONS, defaults.sort.dir),
       },
     };
   } catch {
