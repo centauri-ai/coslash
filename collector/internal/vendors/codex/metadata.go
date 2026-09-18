@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -37,26 +36,16 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 	return metadata, nil
 }
 
-// LoadLiveSessions returns the Codex session IDs that lsof reports as open.
+// LoadLiveSessions returns the Codex session IDs whose rollouts are open.
 func LoadLiveSessions() (map[string]struct{}, error) {
-	openCodexSessions, err := exec.Command("lsof", "-a", "-c", "codex", "-Fn").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.Is(err, exec.ErrNotFound) || errors.As(err, &exitErr) {
-			return map[string]struct{}{}, nil
-		}
-		return nil, err
+	return loadLiveSessions()
+}
+
+func sessionIDForOpenRollout(path string, pids []uint32) string {
+	if len(pids) == 0 {
+		return ""
 	}
-	live := map[string]struct{}{}
-	for line := range strings.SplitSeq(string(openCodexSessions), "\n") {
-		if !strings.HasPrefix(line, "n") || !strings.HasSuffix(line, ".jsonl") {
-			continue
-		}
-		if id := SessionIDFromRollout(line[1:]); id != "" {
-			live[id] = struct{}{}
-		}
-	}
-	return live, nil
+	return SessionIDFromRollout(path)
 }
 
 type sessionIndexEntry struct {
