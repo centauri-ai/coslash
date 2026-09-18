@@ -56,6 +56,47 @@ func TestParseFilesDeduplicatesRootsBySessionID(t *testing.T) {
 	}
 }
 
+func TestGetSessionFactsUsesNewestDuplicate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	id := "33333333-3333-3333-3333-333333333333"
+	older := filepath.Join(ProjectsRoot(home), "a-old", id+".jsonl")
+	newer := filepath.Join(ProjectsRoot(home), "z-new", id+".jsonl")
+	writeTranscript(t, older, id, "C:\\Users\\old")
+	writeTranscript(t, newer, id, "C:\\Users\\new")
+	setModifiedTime(t, older, 1_000)
+	setModifiedTime(t, newer, 2_000)
+
+	got, err := GetSessionFacts(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.LogPath != newer || got.LogModifiedAtMs != 2_000 {
+		t.Fatalf("session facts = %#v, want %q at 2000", got, newer)
+	}
+}
+
+func TestParseFilesDuplicateTieUsesLexicalPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	id := "44444444-4444-4444-4444-444444444444"
+	first := filepath.Join(root, "a-project", id+".jsonl")
+	second := filepath.Join(root, "z-project", id+".jsonl")
+	writeTranscript(t, first, id, "C:\\Users\\first")
+	writeTranscript(t, second, id, "C:\\Users\\second")
+	setModifiedTime(t, first, 1_000)
+	setModifiedTime(t, second, 1_000)
+
+	for _, files := range [][]string{{first, second}, {second, first}} {
+		got := parseFiles(files)
+		if len(got) != 1 || got[0].LogPath != first {
+			t.Fatalf("equal-mtime winner for %q = %#v, want %q", files, got, first)
+		}
+	}
+}
+
 func writeTranscript(t *testing.T, path, sessionID, cwd string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
