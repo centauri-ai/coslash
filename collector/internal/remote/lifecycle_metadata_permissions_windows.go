@@ -11,32 +11,52 @@ import (
 )
 
 func readMetadataSequenceContent(path string) ([]byte, error) {
-	if err := protectMetadataSequenceDirectory(filepath.Dir(path)); err != nil {
-		return nil, err
-	}
-	handle, err := openMetadataSequencePath(path, windows.GENERIC_READ|windows.READ_CONTROL|windows.WRITE_DAC, false)
+	return readPrivateWindowsFile(path, "metadata sequence")
+}
+
+func protectMetadataSequenceDirectory(path string) error {
+	return protectPrivateWindowsDirectory(path, "metadata sequence")
+}
+
+func protectMetadataSequenceFile(path string, file *os.File) error {
+	return protectPrivateWindowsFile(path, file, "metadata sequence")
+}
+
+func readPrivateWindowsFile(path, subject string) ([]byte, error) {
+	file, err := openPrivateWindowsFile(path, subject)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := metadataSequenceFileInformation(handle); err != nil {
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
+func openPrivateWindowsFile(path, subject string) (*os.File, error) {
+	if err := protectPrivateWindowsDirectory(filepath.Dir(path), subject); err != nil {
+		return nil, err
+	}
+	handle, err := openPrivateWindowsPath(path, windows.GENERIC_READ|windows.READ_CONTROL|windows.WRITE_DAC, false)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := privateWindowsFileInformation(handle, subject); err != nil {
 		windows.CloseHandle(handle)
 		return nil, err
 	}
-	if err := protectMetadataSequenceHandle(handle, false); err != nil {
+	if err := protectPrivateWindowsHandle(handle, false); err != nil {
 		windows.CloseHandle(handle)
 		return nil, err
 	}
 	file := os.NewFile(uintptr(handle), path)
 	if file == nil {
 		windows.CloseHandle(handle)
-		return nil, fmt.Errorf("open metadata sequence handle")
+		return nil, fmt.Errorf("open %s handle", subject)
 	}
-	defer file.Close()
-	return io.ReadAll(file)
+	return file, nil
 }
 
-func protectMetadataSequenceDirectory(path string) error {
-	handle, err := openMetadataSequencePath(path, windows.FILE_LIST_DIRECTORY|windows.READ_CONTROL|windows.WRITE_DAC, true)
+func protectPrivateWindowsDirectory(path, subject string) error {
+	handle, err := openPrivateWindowsPath(path, windows.FILE_LIST_DIRECTORY|windows.READ_CONTROL|windows.WRITE_DAC, true)
 	if err != nil {
 		return err
 	}
@@ -46,33 +66,33 @@ func protectMetadataSequenceDirectory(path string) error {
 		return err
 	}
 	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
-		return fmt.Errorf("metadata sequence directory must not be a reparse point")
+		return fmt.Errorf("%s directory must not be a reparse point", subject)
 	}
-	return protectMetadataSequenceHandle(handle, true)
+	return protectPrivateWindowsHandle(handle, true)
 }
 
-func protectMetadataSequenceFile(path string, file *os.File) error {
-	original, err := metadataSequenceFileInformation(windows.Handle(file.Fd()))
+func protectPrivateWindowsFile(path string, file *os.File, subject string) error {
+	original, err := privateWindowsFileInformation(windows.Handle(file.Fd()), subject)
 	if err != nil {
 		return err
 	}
-	handle, err := openMetadataSequencePath(path, windows.READ_CONTROL|windows.WRITE_DAC, false)
+	handle, err := openPrivateWindowsPath(path, windows.READ_CONTROL|windows.WRITE_DAC, false)
 	if err != nil {
 		return err
 	}
 	defer windows.CloseHandle(handle)
-	opened, err := metadataSequenceFileInformation(handle)
+	opened, err := privateWindowsFileInformation(handle, subject)
 	if err != nil {
 		return err
 	}
 	if original.VolumeSerialNumber != opened.VolumeSerialNumber || original.FileIndexHigh != opened.FileIndexHigh || original.FileIndexLow != opened.FileIndexLow {
-		return fmt.Errorf("metadata sequence temporary file changed while securing it")
+		return fmt.Errorf("%s temporary file changed while securing it", subject)
 	}
-	return protectMetadataSequenceHandle(handle, false)
+	return protectPrivateWindowsHandle(handle, false)
 }
 
-func openMetadataSequencePath(path string, access uint32, directory bool) (windows.Handle, error) {
-	pointer, err := metadataSequencePathPointer(path)
+func openPrivateWindowsPath(path string, access uint32, directory bool) (windows.Handle, error) {
+	pointer, err := privateWindowsPathPointer(path)
 	if err != nil {
 		return 0, err
 	}
@@ -91,7 +111,7 @@ func openMetadataSequencePath(path string, access uint32, directory bool) (windo
 	)
 }
 
-func metadataSequencePathPointer(path string) (*uint16, error) {
+func privateWindowsPathPointer(path string) (*uint16, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -106,21 +126,21 @@ func metadataSequencePathPointer(path string) (*uint16, error) {
 	return windows.UTF16PtrFromString(absolute)
 }
 
-func metadataSequenceFileInformation(handle windows.Handle) (windows.ByHandleFileInformation, error) {
+func privateWindowsFileInformation(handle windows.Handle, subject string) (windows.ByHandleFileInformation, error) {
 	var info windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
 		return info, err
 	}
 	if info.FileAttributes&(windows.FILE_ATTRIBUTE_REPARSE_POINT|windows.FILE_ATTRIBUTE_DIRECTORY) != 0 {
-		return info, fmt.Errorf("metadata sequence must be a regular file")
+		return info, fmt.Errorf("%s must be a regular file", subject)
 	}
 	if info.NumberOfLinks != 1 {
-		return info, fmt.Errorf("metadata sequence must not be hard linked")
+		return info, fmt.Errorf("%s must not be hard linked", subject)
 	}
 	return info, nil
 }
 
-func protectMetadataSequenceHandle(handle windows.Handle, directory bool) error {
+func protectPrivateWindowsHandle(handle windows.Handle, directory bool) error {
 	token, err := windows.OpenCurrentProcessToken()
 	if err != nil {
 		return err

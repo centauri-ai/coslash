@@ -323,13 +323,9 @@ func TestCacheV2StoreIsAtomicAndPermissioned(t *testing.T) {
 			t.Fatalf("temp file left behind: %s", entry.Name())
 		}
 	}
-	info, err := os.Stat(filepath.Join(dir, "snapshot-v2.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("snapshot mode = %v, want 0600", info.Mode().Perm())
-	}
+	assertPrivateCachePath(t, filepath.Join(root, "remotes"), true)
+	assertPrivateCachePath(t, dir, true)
+	assertPrivateCachePath(t, filepath.Join(dir, "snapshot-v2.json"), false)
 }
 
 func TestCacheV2LoadRejectsCorruptFile(t *testing.T) {
@@ -601,17 +597,16 @@ func TestCacheHelperOwnershipPersistsOnlyAValidatedVersion(t *testing.T) {
 	if err := cache.StoreHelperVersion(sourceID, "v1.2.3", "agent-box"); err != nil {
 		t.Fatalf("StoreHelperVersion: %v", err)
 	}
-	ownership, ok, err := cache.LoadHelperOwnership(sourceID)
-	if err != nil || !ok || ownership.Version != "v1.2.3" || ownership.Alias != "agent-box" {
-		t.Fatalf("LoadHelperOwnership = %#v, %v, %v", ownership, ok, err)
-	}
 	path, err := cache.helperOwnershipPath(sourceID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("helper ownership mode = %v, err=%v", info.Mode(), err)
+	assertPrivateCachePath(t, filepath.Join(cache.Root, "remotes"), true)
+	assertPrivateCachePath(t, filepath.Dir(path), true)
+	assertPrivateCachePath(t, path, false)
+	ownership, ok, err := cache.LoadHelperOwnership(sourceID)
+	if err != nil || !ok || ownership.Version != "v1.2.3" || ownership.Alias != "agent-box" {
+		t.Fatalf("LoadHelperOwnership = %#v, %v, %v", ownership, ok, err)
 	}
 	if err := cache.RemoveHelperVersion(sourceID); err != nil {
 		t.Fatalf("RemoveHelperVersion: %v", err)
