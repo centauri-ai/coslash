@@ -3,11 +3,13 @@ package launch
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"golang.org/x/sys/windows"
 )
 
 func TestPowerShellQuote(t *testing.T) {
@@ -70,11 +72,18 @@ func TestWindowsHandoffCommandsUsePowerShellCleanup(t *testing.T) {
 		},
 		{
 			agent: vendors.AgentCodex,
-			want:  []string{"Get-Content -Raw -LiteralPath", "& 'codex' '-c' ('developer_instructions=' + $handoff)", "finally { Remove-Item -LiteralPath"},
+			want:  []string{"Get-Content -Raw -Encoding UTF8 -LiteralPath", "& 'codex' '-c' ('developer_instructions=' + $handoff)", "finally { Remove-Item -LiteralPath"},
 		},
 		{
 			agent: vendors.AgentOpenCode,
-			want:  []string{"$env:OPENCODE_CONFIG_CONTENT =", "& 'opencode'", "Remove-Item Env:OPENCODE_CONFIG_CONTENT", "Remove-Item -LiteralPath"},
+			want: []string{
+				"$hadOpenCodeConfigContent = Test-Path Env:OPENCODE_CONFIG_CONTENT",
+				"$previousOpenCodeConfigContent = $env:OPENCODE_CONFIG_CONTENT",
+				"$env:OPENCODE_CONFIG_CONTENT =",
+				"& 'opencode'",
+				"if ($hadOpenCodeConfigContent) { $env:OPENCODE_CONFIG_CONTENT = $previousOpenCodeConfigContent } else { Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue }",
+				"Remove-Item -LiteralPath",
+			},
 		},
 	}
 	for _, test := range tests {
@@ -105,26 +114,27 @@ func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
 		}
 		return `C:\Windows\wt.exe`, nil
 	}
-	var gotName string
-	var gotDirectory string
-	var gotArgs []string
-	windowsStart = func(name, directory string, arguments ...string) error {
-		gotName, gotDirectory, gotArgs = name, directory, arguments
+	var got *exec.Cmd
+	windowsStart = func(command *exec.Cmd) error {
+		got = command
 		return nil
 	}
 
 	if err := openWindowsTerminal(`C:\Users\Bob's Project`, `& 'codex' 'resume' 'session'`); err != nil {
 		t.Fatal(err)
 	}
-	if gotName != `C:\Windows\wt.exe` {
-		t.Fatalf("executable = %q", gotName)
+	if got.Path != `C:\Windows\wt.exe` {
+		t.Fatalf("executable = %q", got.Path)
 	}
-	if gotDirectory != `C:\Users\Bob's Project` {
-		t.Fatalf("working directory = %q", gotDirectory)
+	if got.Dir != `C:\Users\Bob's Project` {
+		t.Fatalf("working directory = %q", got.Dir)
 	}
-	wantArgs := []string{"-d", `C:\Users\Bob's Project`, "powershell.exe", "-NoExit", "-Command", `& 'codex' 'resume' 'session'`}
-	if !reflect.DeepEqual(gotArgs, wantArgs) {
-		t.Fatalf("arguments = %#v, want %#v", gotArgs, wantArgs)
+	wantArgs := []string{`C:\Windows\wt.exe`, "-d", `C:\Users\Bob's Project`, "powershell.exe", "-NoExit", "-Command", `& 'codex' 'resume' 'session'`}
+	if !reflect.DeepEqual(got.Args, wantArgs) {
+		t.Fatalf("arguments = %#v, want %#v", got.Args, wantArgs)
+	}
+	if got.SysProcAttr != nil {
+		t.Fatalf("Windows Terminal creation flags = %#v, want nil", got.SysProcAttr)
 	}
 }
 
@@ -142,25 +152,32 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 			return "", nil
 		}
 	}
-	var gotName string
-	var gotDirectory string
-	var gotArgs []string
-	windowsStart = func(name, directory string, arguments ...string) error {
-		gotName, gotDirectory, gotArgs = name, directory, arguments
+	var got *exec.Cmd
+	windowsStart = func(command *exec.Cmd) error {
+		got = command
 		return nil
 	}
 
 	if err := openWindowsTerminal(`C:\work`, `& 'claude'`); err != nil {
 		t.Fatal(err)
 	}
-	if gotName != `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` {
-		t.Fatalf("executable = %q", gotName)
+	if got.Path != `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` {
+		t.Fatalf("executable = %q", got.Path)
 	}
-	if gotDirectory != `C:\work` {
-		t.Fatalf("working directory = %q", gotDirectory)
+	if got.Dir != `C:\work` {
+		t.Fatalf("working directory = %q", got.Dir)
 	}
-	wantArgs := []string{"-NoExit", "-Command", `& 'claude'`}
-	if !reflect.DeepEqual(gotArgs, wantArgs) {
-		t.Fatalf("arguments = %#v, want %#v", gotArgs, wantArgs)
+	wantArgs := []string{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, "-NoExit", "-Command", `& 'claude'`}
+	if !reflect.DeepEqual(got.Args, wantArgs) {
+		t.Fatalf("arguments = %#v, want %#v", got.Args, wantArgs)
+	}
+	if got.Stdin != os.Stdin || got.Stdout != os.Stdout || got.Stderr != os.Stderr {
+		t.Fatal("direct PowerShell does not use interactive standard streams")
+	}
+	if got.SysProcAttr == nil || got.SysProcAttr.CreationFlags&windows.CREATE_NEW_CONSOLE == 0 {
+		t.Fatalf("creation flags = %#v, want CREATE_NEW_CONSOLE", got.SysProcAttr)
+	}
+	if got.SysProcAttr.CreationFlags != windows.CREATE_NEW_CONSOLE {
+		t.Fatalf("creation flags = %#x, want %#x", got.SysProcAttr.CreationFlags, uint32(windows.CREATE_NEW_CONSOLE))
 	}
 }

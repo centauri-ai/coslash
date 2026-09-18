@@ -45,7 +45,7 @@
       "additionalProperties": false,
       "required": ["terminal"],
       "properties": {
-        "terminal": { "enum": ["terminal", "iterm2"] }
+        "terminal": { "enum": ["terminal", "iterm2", "windows-terminal"] }
       }
     },
     "remote": {
