@@ -24,7 +24,7 @@ func TestWindowsPowerShell51UnicodeConsoleSmoke(t *testing.T) {
 	if err := os.WriteFile(input, []byte(want), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	script := "$handoff = Get-Content -Raw -Encoding UTF8 -LiteralPath " + powerShellQuote(input) + "; " +
+	script := "[string]$handoff = Get-Content -Raw -Encoding UTF8 -LiteralPath " + powerShellQuote(input) + "; " +
 		"$result = [ordered]@{version=$PSVersionTable.PSVersion.Major; inputRedirected=[Console]::IsInputRedirected; " +
 		"outputRedirected=[Console]::IsOutputRedirected; handoff=$handoff} | ConvertTo-Json -Compress; " +
 		"[IO.File]::WriteAllText(" + powerShellQuote(temporaryOutput) + ", $result, [Text.UTF8Encoding]::new($false)); " +
@@ -59,7 +59,7 @@ func TestWindowsPowerShell51UnicodeConsoleSmoke(t *testing.T) {
 		Handoff          string `json:"handoff"`
 	}
 	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
+		t.Fatalf("decode PowerShell result %q: %v", data, err)
 	}
 	if got.Version != 5 || got.InputRedirected || got.OutputRedirected || got.Handoff != want {
 		t.Fatalf("PowerShell result = %#v", got)

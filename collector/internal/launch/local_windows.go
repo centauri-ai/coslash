@@ -1,11 +1,14 @@
 package launch
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -47,8 +50,9 @@ func Available(terminal string) bool {
 }
 
 func openWindowsTerminal(workingDirectory, command string) error {
+	arguments := powerShellCommandArguments(command)
 	if terminal, err := windowsLookPath("wt.exe"); err == nil {
-		process := exec.Command(terminal, "-d", workingDirectory, "powershell.exe", "-NoExit", "-Command", command)
+		process := exec.Command(terminal, append([]string{"-d", workingDirectory, "powershell.exe"}, arguments...)...)
 		process.Dir = workingDirectory
 		return windowsStart(process)
 	}
@@ -56,7 +60,23 @@ func openWindowsTerminal(workingDirectory, command string) error {
 	if err != nil {
 		return fmt.Errorf("Windows Terminal and Windows PowerShell are not installed or available")
 	}
-	return startWindowsConsole(powerShell, workingDirectory, "-NoExit", "-Command", command)
+	return startWindowsConsole(powerShell, workingDirectory, arguments...)
+}
+
+func powerShellCommandArguments(command string) []string {
+	utf16Command := utf16.Encode([]rune(command))
+	encodedCommand := make([]byte, len(utf16Command)*2)
+	for i, codeUnit := range utf16Command {
+		binary.LittleEndian.PutUint16(encodedCommand[i*2:], codeUnit)
+	}
+	return []string{
+		"-NoLogo",
+		"-NoProfile",
+		"-NonInteractive",
+		"-NoExit",
+		"-EncodedCommand",
+		base64.StdEncoding.EncodeToString(encodedCommand),
+	}
 }
 
 func startWindowsConsole(executable, workingDirectory string, arguments ...string) error {
