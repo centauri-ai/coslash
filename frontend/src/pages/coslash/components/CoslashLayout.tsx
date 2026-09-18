@@ -388,7 +388,10 @@ function CoslashHeader({
   actions?: ReactNode;
 }) {
   const problems = machines.filter(
-    (machine) => ['stale', 'error'].includes(machine.state) && machine.reason !== 'initial_refresh',
+    (machine) =>
+      ['stale', 'error'].includes(machine.state) &&
+      machine.reason !== 'initial_refresh' &&
+      !machine.refreshing,
   );
   return (
     <>
