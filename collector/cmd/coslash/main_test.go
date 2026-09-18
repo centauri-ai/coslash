@@ -764,16 +764,11 @@ func TestTokenLifecycle(t *testing.T) {
 	if strings.TrimSpace(string(contents)) != token {
 		t.Fatal("token file does not contain generated token")
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("token mode = %o, want 600", info.Mode().Perm())
-	}
+	assertPrivateTokenPath(t, home, true)
+	assertPrivateTokenPath(t, path, false)
 }
 
-func TestWriteTokenPreservesHomePermissions(t *testing.T) {
+func TestWriteTokenSecuresHomePermissions(t *testing.T) {
 	home := t.TempDir()
 	if err := os.Chmod(home, 0o750); err != nil {
 		t.Fatal(err)
@@ -783,13 +778,8 @@ func TestWriteTokenPreservesHomePermissions(t *testing.T) {
 	if err := writeToken("secret"); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o750 {
-		t.Fatalf("home mode = %o, want 750", info.Mode().Perm())
-	}
+	assertPrivateTokenPath(t, home, true)
+	assertPrivateTokenPath(t, filepath.Join(home, "token"), false)
 }
 
 func TestHandleDiffReturnsRecordedEditsInOrder(t *testing.T) {
