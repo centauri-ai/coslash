@@ -160,8 +160,8 @@ export function ShareToHubDialog({
 
   /* oxlint-disable react/set-state-in-effect -- revoke selections whose source is no longer eligible */
   useEffect(() => {
-    setSelected((current) => reconcileVisibleSelection(current, candidates));
-  }, [candidates]);
+    setSelected((current) => reconcileVisibleSelection(current, visible));
+  }, [visible]);
   /* oxlint-enable react/set-state-in-effect */
 
   useEffect(() => {
