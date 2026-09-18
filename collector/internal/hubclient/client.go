@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/sessionpreview"
@@ -27,6 +29,7 @@ const batchTimeout = 150 * time.Second
 
 type SessionLoader func(string, int64) (*session.Session, error)
 type SourceSessionLoader func(sourceID, agent, sessionID string, revision int64) (*session.Session, error)
+type FullSessionLoader func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error)
 
 type Client struct {
 	BaseURL           *url.URL
@@ -36,6 +39,7 @@ type Client struct {
 	CollectorVersion  string
 	LoadSession       SessionLoader
 	LoadSourceSession SourceSessionLoader
+	LoadFullSession   FullSessionLoader
 
 	pairingMu sync.Mutex
 	pairings  map[string]pairingSecret

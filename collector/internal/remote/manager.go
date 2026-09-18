@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -523,28 +524,33 @@ func (manager *Manager) PreviewSession(sourceID, agent, sessionID string, revisi
 // available from the last-good cache while the SSH source is offline.
 func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, error) {
 	manager.mu.Lock()
+	selected, err := manager.readFullSessionLocked(sourceID, agent, sessionID, revisionID)
+	manager.mu.Unlock()
+	if err != nil || selected == nil {
+		return selected, err
+	}
+	return cloneFullSessionRecord(*selected)
+}
+
+func (manager *Manager) readFullSessionLocked(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, error) {
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID || manager.snapshot == nil {
-		manager.mu.Unlock()
 		return nil, nil
 	}
-	var selected *fullsessionv1.Record
 	for _, full := range manager.snapshot.FullRecords {
 		if full.Record.Agent != agent || full.Record.SessionID != sessionID {
 			continue
 		}
 		if full.Record.RevisionID != revisionID {
-			manager.mu.Unlock()
 			return nil, ErrRemoteRevisionNotFound
 		}
 		copy := full.Record
-		selected = &copy
-		break
+		return &copy, nil
 	}
-	manager.mu.Unlock()
-	if selected == nil {
-		return nil, nil
-	}
-	data, err := fullsessionv1.Marshal(*selected)
+	return nil, nil
+}
+
+func cloneFullSessionRecord(record fullsessionv1.Record) (*fullsessionv1.Record, error) {
+	data, err := fullsessionv1.Marshal(record)
 	if err != nil {
 		return nil, ErrRemoteRecordCorrupt
 	}
@@ -553,6 +559,43 @@ func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID s
 		return nil, ErrRemoteRecordCorrupt
 	}
 	return &copy, nil
+}
+
+// ReadFullSessionForShare returns the exact cached record and its bounded
+// repository binding under one lock. It deliberately remains available from
+// the last-good cache; callers still enforce current share eligibility and Hub
+// authority before upload.
+func (manager *Manager) ReadFullSessionForShare(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, string, bool, error) {
+	manager.mu.Lock()
+	selected, err := manager.readFullSessionLocked(sourceID, agent, sessionID, revisionID)
+	if err != nil || selected == nil {
+		manager.mu.Unlock()
+		return selected, "", false, err
+	}
+	repository := ""
+	localOnly := true
+	repositoryFound := false
+	for _, item := range manager.sessions {
+		if item.Agent == agent && item.ID == sessionID && item.Repository != nil {
+			repository = *item.Repository
+			localOnly = item.RepositoryLocalOnly
+			repositoryFound = true
+			break
+		}
+	}
+	// FullSessionRecord intentionally excludes filesystem-derived repository
+	// enrichment. Preserve that boundary and use only its disclosed Linux cwd
+	// basename as a local-only repository identity when no bounded row identity
+	// survived in the cache.
+	if !repositoryFound {
+		repository = path.Base(path.Clean(selected.Session.WorkingDirectory))
+		if repository == "." || repository == "/" {
+			repository = ""
+		}
+	}
+	manager.mu.Unlock()
+	record, err := cloneFullSessionRecord(*selected)
+	return record, repository, localOnly, err
 }
 
 // ReadChange verifies the requested opaque change belongs to the exact source,

@@ -44,6 +44,7 @@ type boardSession struct {
 	LogicalSessionID      string                   `json:"logicalSessionId"`
 	Revision              int64                    `json:"revision"`
 	DetailRevision        string                   `json:"detailRevision"`
+	FullRevision          string                   `json:"fullRevision,omitempty"`
 	Completion            string                   `json:"completion"`
 	Privacy               string                   `json:"privacy"`
 	ShareEligibility      string                   `json:"shareEligibility"`
@@ -116,6 +117,7 @@ func boardRemoteSession(value remote.IndexedSession) boardSession {
 		SourceClass: "ssh_workspace", LogicalSessionID: logicalSessionID(value.Key.SourceID, value.Session),
 		Revision:              value.Session.LastActivityTime,
 		DetailRevision:        value.RevisionID,
+		FullRevision:          value.RevisionID,
 		Completion:            completionFor(value.Session, value.EligibleForAggregates && !value.DisplayStale),
 		Privacy:               privacyFor(value.Session),
 		ShareEligibility:      eligibilityFor(value.Session, value.EligibleForAggregates, value.DisplayStale),

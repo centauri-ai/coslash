@@ -170,6 +170,27 @@ func TestReadFullSessionReportsCorruptCurrentRecord(t *testing.T) {
 	}
 }
 
+func TestFullSessionShareUsesDisclosedLocalOnlyRepositoryFallback(t *testing.T) {
+	const sourceID = "r_0123456789abcdef"
+	snapshot := completeCodexSnapshot(t, "complete-generation", "body\n")
+	record := snapshot.FullRecords[0].Record
+	record.Session.WorkingDirectory = "/workspace/coslash"
+	frozen, err := fullsessionv1.Freeze(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.FullRecords[0].Record = frozen
+	manager := &Manager{
+		cfg:      &settings.RemoteSettings{ID: sourceID, Enabled: true},
+		snapshot: &snapshot,
+		sessions: []*session.Session{{Agent: vendors.AgentCodex, ID: frozen.SessionID}},
+	}
+	got, repository, localOnly, err := manager.ReadFullSessionForShare(sourceID, vendors.AgentCodex, frozen.SessionID, frozen.RevisionID)
+	if err != nil || got == nil || repository != "coslash" || !localOnly {
+		t.Fatalf("record=%#v repository=%q localOnly=%t err=%v", got, repository, localOnly, err)
+	}
+}
+
 func TestHardFailureFallsBackToStaleWhenCacheExists(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
