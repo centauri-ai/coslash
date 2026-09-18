@@ -50,6 +50,8 @@ export type Session = {
   revision?: number;
   /** Revision guard used by detail and change-body reads. */
   detailRevision: string;
+  /** Immutable full-record revision when this row supports full-v2 sharing. */
+  fullRevision?: string;
   completion?: SessionCompletion;
   privacy?: SessionPrivacy;
   shareEligibility?: ShareEligibility;

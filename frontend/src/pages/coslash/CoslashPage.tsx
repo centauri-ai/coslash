@@ -8,6 +8,8 @@ import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog'
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
+import { FullSessionShareDialog } from '@/pages/coslash/features/full-sharing/FullSessionShareDialog';
+import { fullSessionCandidates } from '@/pages/coslash/features/full-sharing/model';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
 import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
@@ -105,6 +107,7 @@ export function CoslashPage() {
     loadFailed: diagnosticsLoadFailed,
     refresh: refreshDiagnostics,
   } = useDiagnostics(diagnosticsEnabled);
+  const [fullShareDialogOpen, setFullShareDialogOpen] = useState(false);
   const remoteRetryPromise = useRef<Promise<void> | null>(null);
   const settingsState = useSettings();
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
@@ -121,6 +124,7 @@ export function CoslashPage() {
       previouslyShared: shareFixtureEnabled && index === 0,
     }));
   }, [sessions, shareFixtureEnabled]);
+  const fullShareCandidates = useMemo(() => fullSessionCandidates(sessions), [sessions]);
   const synthesisSettingsKey = settingsState.response
     ? [
         settingsState.response.persisted,
@@ -273,6 +277,11 @@ export function CoslashPage() {
               <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
                 Share to Hub
               </Button>
+              {shareDestination?.state === 'ready' && fullShareCandidates.length > 0 && (
+                <Button variant="outline" size="sm" onClick={() => setFullShareDialogOpen(true)}>
+                  Share full revision
+                </Button>
+              )}
             </>
           ) : undefined
         }
@@ -305,6 +314,15 @@ export function CoslashPage() {
             setShareDialogOpen(false);
             setSettingsDialogMode('full-settings');
           }}
+        />
+      )}
+      {shareDestination && (
+        <FullSessionShareDialog
+          open={fullShareDialogOpen}
+          onOpenChange={setFullShareDialogOpen}
+          candidates={fullShareCandidates}
+          destinationResult={shareDestination}
+          onDestinationRefresh={refreshHubDestination}
         />
       )}
       <SettingsDialog

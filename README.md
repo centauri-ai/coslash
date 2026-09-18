@@ -27,7 +27,8 @@ Three agents are running. One finished twenty minutes ago, one is waiting on a q
 
 Then it gets you back in — resume a session in its own terminal with full context, or copy a handoff brief and pick it up cold somewhere else.
 
-Everything runs locally. Nothing leaves your machine unless you turn on synthesis.
+Everything runs locally. Nothing leaves your machine unless you turn on synthesis
+or explicitly approve a Hub share.
 
 **Early preview · macOS only**
 
@@ -117,10 +118,13 @@ Remote sessions support **Resume** and **Start fresh with handoff** while their
 SSH host is connected. Cards, transcript-derived facts, costs, tokens,
 file-edit summaries, and **Copy handoff** are also available. Complete cached
 Codex sessions use the same inspector and ordered file-diff view as local
-sessions, including after restart or while the SSH host is offline. Other
-remote sessions retain their bounded summary view. Synthesis, preview, and
-sharing remain local-only. A remote session can show recent transcript activity
-while process liveness is unknown; coSlash labels those facts separately.
+sessions, including after restart or while the SSH host is offline. A complete
+cached Codex SSH revision—including its recorded file-change bodies—can also be
+reviewed in full and explicitly uploaded when the paired Hub advertises the v2
+full-session contract. Other remote sessions retain their bounded summary view
+and are not offered for full sharing. Synthesis and Commands remain local-only.
+A remote session can show recent transcript activity while process liveness is
+unknown; coSlash labels those facts separately.
 
 ## What you get
 
