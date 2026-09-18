@@ -246,11 +246,17 @@ func deduplicateRoots(parsed []*parsedSession) []*parsedSession {
 			deduplicated = append(deduplicated, item)
 			continue
 		}
-		if item.transcript.LogModifiedAtMs > deduplicated[index].transcript.LogModifiedAtMs {
+		current := deduplicated[index].transcript
+		if newerLog(item.transcript.LogModifiedAtMs, item.transcript.LogPath,
+			current.LogModifiedAtMs, current.LogPath) {
 			deduplicated[index] = item
 		}
 	}
 	return deduplicated
+}
+
+func newerLog(modified int64, path string, currentModified int64, currentPath string) bool {
+	return modified > currentModified || modified == currentModified && path < currentPath
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
@@ -258,7 +264,22 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	return vendors.FindAndParse(files, id, IDFromPath, parseTranscript)
+	var newest string
+	var modified int64
+	for _, file := range files {
+		if ParentIDFromPath(file) != "" || IDFromPath(file) != id {
+			continue
+		}
+		candidateModified := vendors.SourceModificationTime(vendors.LocalReadSource, file)
+		if newest == "" || newerLog(candidateModified, file, modified, newest) {
+			newest = file
+			modified = candidateModified
+		}
+	}
+	if newest == "" {
+		return nil, nil
+	}
+	return parseTranscript(newest)
 }
 
 func Health() vendors.SourceHealth {
