@@ -174,6 +174,7 @@ func TestReadHandoffKeepsThe64KiBBoundary(t *testing.T) {
 
 func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
+	workingDirectory := t.TempDir()
 	name := "Fix checkout race"
 	var gotReviewer, gotCWD, gotName, gotPrompt string
 	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&agent=codex&id=origin-id&reviewer=codex", nil)
@@ -186,7 +187,7 @@ func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 			if agent != "codex" || id != "origin-id" {
 				t.Fatalf("session identity = %q, %q", agent, id)
 			}
-			return &session.Session{Agent: agent, ID: id, Name: &name, WorkingDirectory: "/repo"}, nil
+			return &session.Session{Agent: agent, ID: id, Name: &name, WorkingDirectory: workingDirectory}, nil
 		},
 		func(reviewer string) bool { return reviewer == "codex" },
 		func(id string, launch reviewpkg.Launch) bool {
@@ -200,11 +201,42 @@ func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
 	}
-	if gotReviewer != "codex" || gotCWD != "/repo" || gotName != "Review — Fix checkout race (origin-i)" {
+	if gotReviewer != "codex" || gotCWD != workingDirectory || gotName != "Review — Fix checkout race (origin-i)" {
 		t.Fatalf("launch = reviewer %q, cwd %q, name %q", gotReviewer, gotCWD, gotName)
 	}
 	if !strings.HasPrefix(gotPrompt, gotName+"\n") {
 		t.Fatalf("prompt = %q", gotPrompt)
+	}
+}
+
+func TestHandleReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, workingDirectory := range []string{filepath.Join(t.TempDir(), "missing"), file} {
+		t.Run(filepath.Base(workingDirectory), func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&agent=codex&id=origin&reviewer=codex", nil)
+			response := httptest.NewRecorder()
+			started := false
+			handleReview(
+				response,
+				request,
+				settings.Open(),
+				func(string, string) (*session.Session, error) {
+					return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: workingDirectory}, nil
+				},
+				func(string) bool { return true },
+				func(string, reviewpkg.Launch) bool { started = true; return true },
+			)
+			if response.Code != http.StatusConflict || response.Body.String() != "session working directory is unavailable\n" {
+				t.Fatalf("response = %d, %q", response.Code, response.Body.String())
+			}
+			if started {
+				t.Fatal("review started with an unavailable working directory")
+			}
+		})
 	}
 }
 
@@ -264,6 +296,7 @@ func TestHandleReviewRejectsUnsupportedRequests(t *testing.T) {
 
 func TestHandleReviewRejectsDuplicateStart(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
+	workingDirectory := t.TempDir()
 	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&agent=codex&id=origin&reviewer=codex", nil)
 	response := httptest.NewRecorder()
 	handleReview(
@@ -271,7 +304,7 @@ func TestHandleReviewRejectsDuplicateStart(t *testing.T) {
 		request,
 		settings.Open(),
 		func(string, string) (*session.Session, error) {
-			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: "/repo"}, nil
+			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: workingDirectory}, nil
 		},
 		func(string) bool { return true },
 		func(string, reviewpkg.Launch) bool { return false },
@@ -283,6 +316,7 @@ func TestHandleReviewRejectsDuplicateStart(t *testing.T) {
 
 func TestHandleReviewDoesNotStartAfterRequestCancellation(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
+	workingDirectory := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	request := httptest.NewRequest(
@@ -296,7 +330,7 @@ func TestHandleReviewDoesNotStartAfterRequestCancellation(t *testing.T) {
 		request,
 		settings.Open(),
 		func(string, string) (*session.Session, error) {
-			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: "/repo"}, nil
+			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: workingDirectory}, nil
 		},
 		func(string) bool { return true },
 		func(string, reviewpkg.Launch) bool {

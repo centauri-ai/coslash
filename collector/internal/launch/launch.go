@@ -34,6 +34,17 @@ const MaxHandoffBytes = 64 * 1024
 // ErrWorkingDirectoryUnavailable means a session path no longer names a directory.
 var ErrWorkingDirectoryUnavailable = errors.New("launch: working directory is unavailable")
 
+func ValidateWorkingDirectory(path string) error {
+	if path == "" {
+		return ErrWorkingDirectoryUnavailable
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return ErrWorkingDirectoryUnavailable
+	}
+	return nil
+}
+
 const (
 	HandoffSweepInterval = 24 * time.Hour
 	HandoffMaxAge        = time.Hour
@@ -91,8 +102,8 @@ type reviewCommandSpec struct {
 
 func Review(ctx context.Context, request review.Launch) error {
 	workingDirectory := request.WorkingDirectory
-	if workingDirectory == "" {
-		return fmt.Errorf("launch: session has no working directory")
+	if err := ValidateWorkingDirectory(workingDirectory); err != nil {
+		return err
 	}
 	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, request.Prompt)
 	if err != nil {
@@ -152,12 +163,8 @@ func Terminal(ctx context.Context, terminal, agent, workingDirectory, sessionID,
 }
 
 func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, sessionID, mode, handoff, prompt string) error {
-	if workingDirectory == "" {
-		return ErrWorkingDirectoryUnavailable
-	}
-	info, err := os.Stat(workingDirectory)
-	if err != nil || !info.IsDir() {
-		return ErrWorkingDirectoryUnavailable
+	if err := ValidateWorkingDirectory(workingDirectory); err != nil {
+		return err
 	}
 	command, handoffPath, err := cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt)
 	if err != nil {

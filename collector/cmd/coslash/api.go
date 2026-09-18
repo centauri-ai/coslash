@@ -549,10 +549,6 @@ func handleReview(
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	if found.WorkingDirectory == "" {
-		http.Error(w, "session has no working directory", http.StatusConflict)
-		return
-	}
 	originName := ""
 	if found.Name != nil {
 		originName = *found.Name
@@ -560,6 +556,10 @@ func handleReview(
 	name := reviewpkg.Name(originName, found.ID)
 	prompt := reviewpkg.Prompt(found)
 	if r.Context().Err() != nil {
+		return
+	}
+	if err := launch.ValidateWorkingDirectory(found.WorkingDirectory); err != nil {
+		writeTerminalLaunchError(w, err)
 		return
 	}
 	if !startReview(reviewpkg.Key(found.Agent, found.ID), reviewpkg.Launch{
