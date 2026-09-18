@@ -274,6 +274,34 @@ func TestHandleReviewRejectsDuplicateStart(t *testing.T) {
 	}
 }
 
+func TestHandleReviewDoesNotStartAfterRequestCancellation(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"http://127.0.0.1/api/reviews?source=local&agent=codex&id=origin&reviewer=codex",
+		nil,
+	).WithContext(ctx)
+	started := false
+	handleReview(
+		httptest.NewRecorder(),
+		request,
+		settings.Open(),
+		func(string, string) (*session.Session, error) {
+			return &session.Session{Agent: "codex", ID: "origin", WorkingDirectory: "/repo"}, nil
+		},
+		func(string) bool { return true },
+		func(string, reviewpkg.Launch) bool {
+			started = true
+			return true
+		},
+	)
+	if started {
+		t.Fatal("canceled request started a review")
+	}
+}
+
 func TestHandleReviewReturnsFixedSettingsError(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)

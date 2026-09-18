@@ -399,11 +399,16 @@ func handleSend(
 	r *http.Request,
 	settingsStore *settings.Store,
 	getSession func(string) (*session.Session, error),
+	targetAvailable func(string) bool,
 	open promptLauncher,
 ) {
 	target := r.URL.Query().Get("to")
 	if target != vendors.AgentClaude && target != vendors.AgentCodex {
 		http.Error(w, "target must be claude or codex", http.StatusBadRequest)
+		return
+	}
+	if !targetAvailable(target) {
+		http.Error(w, "target is not installed or supported", http.StatusBadRequest)
 		return
 	}
 	state := settingsStore.State()
@@ -527,6 +532,9 @@ func handleReview(
 	}
 	name := reviewpkg.Name(originName, found.ID)
 	prompt := reviewpkg.Prompt(found)
+	if r.Context().Err() != nil {
+		return
+	}
 	if !startReview(reviewpkg.Key(found.Agent, found.ID), reviewpkg.Launch{
 		Reviewer: reviewer, WorkingDirectory: found.WorkingDirectory, Name: name, Prompt: prompt,
 	}) {
