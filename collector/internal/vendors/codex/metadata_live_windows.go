@@ -63,7 +63,7 @@ func loadLiveSessionsFromFiles(files []string) (map[string]struct{}, error) {
 	return live, nil
 }
 
-func processesUsingRollout(path string) ([]uint32, error) {
+func processesUsingRollout(path string) (pids []uint32, err error) {
 	var session uint32
 	var key [rmSessionKeyLength + 1]uint16
 	if code, _, _ := rmStartSession.Call(
@@ -73,7 +73,11 @@ func processesUsingRollout(path string) ([]uint32, error) {
 	); code != 0 {
 		return nil, fmt.Errorf("RmStartSession: %w", syscall.Errno(code))
 	}
-	defer rmEndSession.Call(uintptr(session))
+	defer func() {
+		if code, _, _ := rmEndSession.Call(uintptr(session)); code != 0 {
+			err = preserveOperationError(err, fmt.Errorf("RmEndSession: %w", syscall.Errno(code)))
+		}
+	}()
 
 	pathPointer, err := windows.UTF16PtrFromString(path)
 	if err != nil {
@@ -124,7 +128,7 @@ func processesUsingRollout(path string) ([]uint32, error) {
 		if code != 0 {
 			return nil, fmt.Errorf("RmGetList: %w", syscall.Errno(code))
 		}
-		pids := make([]uint32, count)
+		pids = make([]uint32, count)
 		for i := range count {
 			pids[i] = processes[i].Process.PID
 		}
