@@ -83,7 +83,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			if prompt == "" {
 				continue
 			}
-			busy = false
+			busy = true
 			waiting = false
 			clear(activeTasks)
 			turns++
