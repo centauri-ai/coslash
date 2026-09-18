@@ -33,6 +33,7 @@ import {
   machineStatusText,
   machineTone,
   needsBanner,
+  needsSetup,
   type MachineTone,
 } from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
@@ -174,6 +175,13 @@ function rangeStart(range: SessionRange): number | null {
   return Date.now() - (range === 'week' ? 7 : 30) * DAY;
 }
 
+/** The collector reports only a basename for a local-only repository, merging same-named folders. */
+function localRepositoryRoot(cwd: string, repo: string): string {
+  const parts = cwd.trim().split('/');
+  const depth = parts.lastIndexOf(repo.trim());
+  return depth === -1 ? cwd.trim() || repo : parts.slice(0, depth + 1).join('/');
+}
+
 function detectedGroup(session: Session): Group {
   if (session.repo?.trim() && !session.repoLocalOnly) {
     const label = session.repo.split('/').filter(Boolean).at(-1) ?? session.repo;
@@ -185,12 +193,12 @@ function detectedGroup(session: Session): Group {
     };
   }
   if (session.repo?.trim()) {
-    const basis = session.cwd.trim() || session.repo;
+    const root = localRepositoryRoot(session.cwd, session.repo);
     return {
-      id: `folder:${session.sourceId}:${session.repo.toLowerCase()}`,
-      label: session.repo,
+      id: `folder:${session.sourceId}:${root.toLowerCase()}`,
+      label: root.split('/').filter(Boolean).slice(-2).join('/'),
       kind: 'Folder',
-      basis,
+      basis: root,
     };
   }
   const cwd = session.cwd.trim();
@@ -303,25 +311,22 @@ function MachineDot({
 }) {
   const tone = machineTone(machine);
   const retryable = machineRetryable(machine) && !retrying;
-  const hint = retrying ? ' Retrying…' : retryable ? ' Click to retry.' : '';
+  const hint = retrying ? ' Retrying…' : retryable ? ' Retry the connection.' : '';
+  const status = machineStatusText(machine);
+  const dot = cn('size-[7px] shrink-0 rounded-full', TONE_DOT[tone]);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        {/* A span, not a button: this renders inside the facet row's button. */}
-        <span
-          className={cn('size-[7px] shrink-0 rounded-full', TONE_DOT[tone], {
-            'cursor-pointer': retryable,
-          })}
-          aria-label={machineStatusText(machine)}
-          onClick={
-            retryable
-              ? (event) => {
-                  event.stopPropagation();
-                  onRetry();
-                }
-              : undefined
-          }
-        />
+        {retryable ? (
+          <button
+            type="button"
+            className={cn(dot, 'cursor-pointer')}
+            aria-label={`${status} Retry.`}
+            onClick={onRetry}
+          />
+        ) : (
+          <span className={dot} role="img" aria-label={status} />
+        )}
       </TooltipTrigger>
       {/* Portaled outside the shell, so the tokens have to be re-scoped here. */}
       <TooltipContent className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line [&_svg]:bg-coslash-surface [&_svg]:fill-coslash-surface border">
@@ -367,22 +372,25 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
 
 function FacetRow({ label, count, selected, icon, indicator, status, onClick }: FacetOption) {
   return (
-    <button
-      type="button"
-      className={cn(styles.facet, {
+    <div
+      className={cn(styles.facet, 'relative gap-1.5', {
         'bg-coslash-tint text-coslash-accent-ink font-semibold': selected,
         'opacity-55': count === 0 && !selected,
       })}
-      aria-pressed={selected}
-      onClick={onClick}
     >
-      {status ? <span className={cn('size-[7px] shrink-0 rounded-full', statusDot(status))} /> : icon}
-      <span className="flex min-w-0 items-center gap-1.5">
+      {/* Stretched over the row, so the whole row still toggles the facet. */}
+      <button
+        type="button"
+        className="flex min-w-0 cursor-pointer items-center gap-[9px] text-left after:absolute after:inset-0 [&>svg]:size-3.5"
+        aria-pressed={selected}
+        onClick={onClick}
+      >
+        {status ? <span className={cn('size-[7px] shrink-0 rounded-full', statusDot(status))} /> : icon}
         <span className="truncate">{label}</span>
-        {indicator}
-      </span>
+      </button>
+      {indicator && <span className="relative flex">{indicator}</span>}
       <span className="text-meta ml-auto tabular-nums">{count}</span>
-    </button>
+    </div>
   );
 }
 
@@ -511,15 +519,26 @@ function CoslashHeader({
               ? machineStatusText(problems[0])
               : 'need attention — open Settings to retry.'}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="border-coslash-clay text-coslash-clay ml-auto bg-transparent"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCw className={cn({ 'animate-spin': retrying })} /> Retry
-          </Button>
+          {problems.some(needsSetup) ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-coslash-clay text-coslash-clay ml-auto bg-transparent"
+              onClick={onSettings}
+            >
+              <Settings /> Open Settings
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-coslash-clay text-coslash-clay ml-auto bg-transparent"
+              onClick={onRetry}
+              disabled={retrying}
+            >
+              <RefreshCw className={cn({ 'animate-spin': retrying })} /> Retry
+            </Button>
+          )}
         </div>
       )}
     </>
