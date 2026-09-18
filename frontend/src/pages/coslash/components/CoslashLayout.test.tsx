@@ -2,6 +2,7 @@ import { type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
+import { MACHINE_TONE_LEGEND } from '@/pages/coslash/lib/machine-status';
 import { type Session } from '@/pages/coslash/lib/session';
 import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
 
@@ -70,7 +71,6 @@ function storeSort(sort: SessionSort) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-/** Document order of the given titles in the rendered table. */
 function orderOf(markup: string, ...titles: string[]): number[] {
   return titles.map((title) => markup.indexOf(title));
 }
@@ -94,7 +94,7 @@ describe('CoslashLayout', () => {
 
     expect(markup).toContain('agent-box');
     expect(markup).toContain('lucide-server');
-    expect(markup).toContain('aria-label="Connected"');
+    expect(markup).toContain('bg-[var(--coslash-green-dot)]" aria-label="Synced no saved history over SSH.');
     expect(markup).not.toContain('lucide-activity');
     expect(markup).not.toContain('running ·');
     expect(markup).toContain('Filter groups');
@@ -247,7 +247,7 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('unreachable');
   });
 
-  it('reports a remote outage after a refresh fails', () => {
+  it('shows a stale host as degraded without interrupting with a banner', () => {
     const markup = renderLayout({
       machines: [
         { sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true },
@@ -261,7 +261,41 @@ describe('CoslashLayout', () => {
       ],
     });
 
-    expect(markup).toContain('agent-box');
-    expect(markup).toContain('unreachable');
+    expect(markup).toContain('bg-[var(--coslash-amber-dot)]" aria-label="Offline.');
+    expect(markup).not.toContain('role="alert"');
+  });
+
+  it('offers a legend for every connection dot colour', () => {
+    const markup = renderLayout();
+
+    expect(markup).toContain('aria-label="What the connection dots mean"');
+    expect(new Set(MACHINE_TONE_LEGEND.map((entry) => entry.tone)).size).toBe(6);
+  });
+
+  it('does not paint a degraded remote as connected', () => {
+    const markup = renderLayout({
+      machines: [{ sourceId: 'remote', label: 'agent-box', state: 'limited', complete: false }],
+    });
+
+    expect(markup).toContain(
+      'bg-[var(--coslash-amber-dot)]" aria-label="Showing the available remote history."',
+    );
+  });
+
+  it('banners a failed connector with its own reason', () => {
+    const markup = renderLayout({
+      machines: [
+        {
+          sourceId: 'remote',
+          label: 'agent-box',
+          state: 'ok',
+          complete: true,
+          helper: { state: 'ready', compatible: false, fallback: true, reason: 'helper_incompatible' },
+        },
+      ],
+    });
+
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain('Setup failed: helper incompatible. Open Settings to retry.');
   });
 });
