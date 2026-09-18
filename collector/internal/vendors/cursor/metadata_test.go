@@ -97,6 +97,40 @@ func TestLoadSelectionMetadataReadsOnlySelectionSignals(t *testing.T) {
 	}
 }
 
+func TestLoadRelationshipMetadataReadsOnlyRelationships(t *testing.T) {
+	home := t.TempDir()
+	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	if err := createMetadataTestDB(statePath); err != nil {
+		t.Fatal(err)
+	}
+	parentID := "00000000-0000-4000-8000-000000000001"
+	childID := "00000000-0000-4000-8000-000000000002"
+	db, err := sql.Open("sqlite", statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := `{"name":"Child","subagentInfo":{"parentComposerId":"` + parentID + `"}}`
+	if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value, createdAt, lastUpdatedAt) VALUES (?, ?, 10, 20)`, childID, header); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata, err := loadRelationshipMetadataForSessions(home, []string{childID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := metadata.Lookup(childID)
+	if got == nil || got.Relationship.ParentID != parentID {
+		t.Fatalf("relationship metadata = %#v, want parent %s", got, parentID)
+	}
+	if got.Name != "" || got.StartedAt != 0 || got.LastActivityAt != 0 || got.Live != "" {
+		t.Fatalf("relationship metadata included unrelated enrichment: %#v", got)
+	}
+}
+
 func TestLoadMetadataForSessionsCanonicalizesStoredIDs(t *testing.T) {
 	home := t.TempDir()
 	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")

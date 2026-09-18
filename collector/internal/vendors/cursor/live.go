@@ -65,7 +65,7 @@ func liveIDsFromLSOF(output, root, child, database string) map[string]bool {
 		}
 		name := parts[len(parts)-1]
 		if name == database || name == database+"-wal" || name == database+"-shm" {
-			live[parts[idIndex]] = true
+			live[canonicalCursorID(parts[idIndex])] = true
 		}
 	}
 	return live

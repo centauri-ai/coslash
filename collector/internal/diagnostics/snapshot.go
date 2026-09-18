@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -264,15 +265,19 @@ func collectSource(
 			Error: displayError(userHome, skipped.Error),
 		})
 	}
-	if path, err := exec.LookPath(health.Agent); err == nil {
-		target := &source.CLI
-		if source.IDE != nil {
-			target = source.IDE
+	if source.IDE != nil {
+		if path := cursorIDEExecutable(userHome); path != "" {
+			source.IDE.Found = true
+			source.IDE.Path = displayPath(userHome, path)
+			if includeVersion {
+				source.IDE.Version = commandVersion(ctx, path)
+			}
 		}
-		target.Found = true
-		target.Path = displayPath(userHome, path)
+	} else if path, err := exec.LookPath(health.Agent); err == nil {
+		source.CLI.Found = true
+		source.CLI.Path = displayPath(userHome, path)
 		if includeVersion {
-			target.Version = commandVersion(ctx, path)
+			source.CLI.Version = commandVersion(ctx, path)
 		}
 	}
 	if source.IDE != nil {
@@ -285,6 +290,19 @@ func collectSource(
 		}
 	}
 	return source
+}
+
+func cursorIDEExecutable(home string) string {
+	for _, path := range []string{
+		filepath.Join(home, "Applications", "Cursor.app", "Contents", "MacOS", "Cursor"),
+		"/Applications/Cursor.app/Contents/MacOS/Cursor",
+	} {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	path, _ := exec.LookPath("cursor")
+	return path
 }
 
 func sourceLabel(agent string) string {
