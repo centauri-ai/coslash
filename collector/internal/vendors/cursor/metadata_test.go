@@ -170,6 +170,7 @@ func TestLoadMetadataForSessionsExpandsIDEFamily(t *testing.T) {
 		{parentID, `{"name":"Parent"}`},
 		{child1ID, `{"name":"Child one","subagentInfo":{"parentComposerId":"` + parentID + `","toolCallId":"call-1"}}`},
 		{child2ID, `{"name":"Child two","subagentInfo":{"parentComposerId":"` + parentID + `","toolCallId":"call-2"}}`},
+		{"00000000-0000-4000-8000-000000000004", `not json`},
 	} {
 		if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value) VALUES (?, ?)`, row.id, row.value); err != nil {
 			db.Close()
