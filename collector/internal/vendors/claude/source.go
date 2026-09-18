@@ -223,6 +223,7 @@ func finalizeParsedFiles(
 	source vendors.ReadSource,
 	parsed []*parsedSession,
 ) []*vendors.ParsedSession {
+	parsed = deduplicateRoots(parsed)
 	applyForkedUsageSource(source, parsed)
 	parsed = collapseBackgroundRehomes(parsed)
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
@@ -230,6 +231,26 @@ func finalizeParsedFiles(
 		transcripts = append(transcripts, item.transcript)
 	}
 	return transcripts
+}
+
+func deduplicateRoots(parsed []*parsedSession) []*parsedSession {
+	rootIndexes := map[string]int{}
+	deduplicated := make([]*parsedSession, 0, len(parsed))
+	for _, item := range parsed {
+		id := item.transcript.Session.ID
+		index, duplicate := rootIndexes[id]
+		if item.transcript.ParentID != "" || id == "" || !duplicate {
+			if item.transcript.ParentID == "" && id != "" {
+				rootIndexes[id] = len(deduplicated)
+			}
+			deduplicated = append(deduplicated, item)
+			continue
+		}
+		if item.transcript.LogModifiedAtMs > deduplicated[index].transcript.LogModifiedAtMs {
+			deduplicated[index] = item
+		}
+	}
+	return deduplicated
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
