@@ -36,12 +36,22 @@ function renderLayout(overrides: Partial<ComponentProps<typeof CoslashLayout>> =
 }
 
 describe('CoslashLayout', () => {
-  it('shows installed agents at zero count and omits unavailable agents', () => {
+  it('offers agent facets for the vendors present, not the reviewer CLIs installed', () => {
+    const markup = renderLayout({
+      sessions: [
+        { id: 'one', sourceId: 'remote', agent: 'opencode', cwd: '/workspace/app', status: null, mtime: 0 },
+      ] as Session[],
+      range: 'today',
+    });
+
+    expect(markup).toContain('OpenCode');
+    expect(markup).not.toContain('Claude Code');
+    expect(markup).not.toContain('>Codex<');
+  });
+
+  it('renders the connection facets and the search and view controls', () => {
     const markup = renderLayout();
 
-    expect(markup).toContain('Claude Code');
-    expect(markup).not.toContain('>Codex<');
-    expect(markup).not.toContain('OpenCode');
     expect(markup).toContain('agent-box');
     expect(markup).toContain('lucide-server');
     expect(markup).toContain('aria-label="Connected"');
@@ -54,6 +64,42 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('aria-label="View"');
     expect(markup).toContain('>Table<');
     expect(markup).toContain('>Board<');
+  });
+
+  it('keeps sessions with truncated history out of the header totals', () => {
+    const rollupSession = (overrides: Partial<Session>) =>
+      ({
+        sourceId: 'remote',
+        agent: 'codex',
+        cwd: '/workspace/app',
+        status: null,
+        mtime: 0,
+        tokens: {
+          'gpt-5': {
+            input_tokens: 1000,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_creation_1h_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+        cost: 1,
+        unpricedModels: [],
+        eligibleForAggregates: true,
+        ...overrides,
+      }) as Session;
+
+    const markup = renderLayout({
+      sessions: [
+        rollupSession({ id: 'counted' }),
+        rollupSession({ id: 'truncated', cost: 9, eligibleForAggregates: false }),
+      ],
+    });
+
+    expect(markup).toContain('2 sessions');
+    expect(markup).toContain('≈$1.00');
+    expect(markup).not.toContain('$10.00');
+    expect(markup).toContain('>$9.00<');
   });
 
   it('separates verified repositories from local-only folders', () => {
