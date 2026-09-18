@@ -153,7 +153,7 @@ func Terminal(ctx context.Context, terminal, agent, workingDirectory, sessionID,
 
 func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, sessionID, mode, handoff, prompt string) error {
 	if workingDirectory == "" {
-		return fmt.Errorf("launch: session has no working directory")
+		return ErrWorkingDirectoryUnavailable
 	}
 	info, err := os.Stat(workingDirectory)
 	if err != nil || !info.IsDir() {
@@ -179,7 +179,7 @@ func RemoteTerminal(ctx context.Context, terminal, alias, agent, workingDirector
 		return errors.New("launch: SSH alias is required")
 	}
 	if workingDirectory == "" {
-		return fmt.Errorf("launch: session has no working directory")
+		return ErrWorkingDirectoryUnavailable
 	}
 	remoteCommand, err := remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName)
 	if err != nil {

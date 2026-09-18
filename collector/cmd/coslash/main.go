@@ -107,6 +107,11 @@ func main() {
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr.SetRunner(nil)
+	} else if err := synthesis.MigrateLegacyCache(func(agent, id string) (bool, error) {
+		found, err := collector.GetSessionFactsByAgent(agent, id)
+		return found != nil, err
+	}); err != nil {
+		log.Printf("migrate synthesis cache: %v", err)
 	}
 	if err := synthesis.CleanupOpenCodeScratch(); err != nil {
 		log.Printf("sweep OpenCode scratch directories: %v", err)
@@ -218,7 +223,8 @@ func routes(
 		if rejectRemoteSource(w, r) {
 			return
 		}
-		handleSynthesis(w, r.URL.Query().Get("id"), mgr)
+		query := r.URL.Query()
+		handleSynthesis(w, query.Get("agent"), query.Get("id"), mgr)
 	})
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("session") {

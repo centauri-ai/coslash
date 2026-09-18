@@ -65,3 +65,25 @@ func TestBuildUsesStableFallbacks(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildRendersQuestionAnswers(t *testing.T) {
+	got := Build(&session.Session{ID: "session-1", SessionDetails: session.SessionDetails{
+		Digest: []session.DigestEntry{{
+			Turn: 3, Category: session.DigestQuestion, Description: "Which database?", Answer: "Postgres",
+		}},
+	}})
+	if !strings.Contains(got, "- [question · turn 3] Which database?\n  - Answer: Postgres") {
+		t.Fatalf("handoff omitted the recorded answer:\n%s", got)
+	}
+}
+
+func TestBuildKeepsSummaryWhenSynthesisOutcomeIsBlank(t *testing.T) {
+	summary := "Tests pass"
+	got := Build(&session.Session{
+		ID: "session-1", Summary: &summary,
+		SessionDetails: session.SessionDetails{Synthesis: &session.SessionSynthesis{Goals: []string{"Ship it"}}},
+	})
+	if !strings.Contains(got, "## Current state\nTests pass") {
+		t.Fatalf("handoff discarded the summary:\n%s", got)
+	}
+}

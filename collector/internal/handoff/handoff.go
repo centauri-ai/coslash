@@ -20,8 +20,8 @@ func Build(value *session.Session) string {
 	if value.Summary != nil {
 		current = *value.Summary
 	}
-	if value.Synthesis != nil {
-		current = value.Synthesis.Outcome
+	if value.Synthesis != nil && strings.TrimSpace(value.Synthesis.Outcome) != "" {
+		current = strings.TrimSpace(value.Synthesis.Outcome)
 	}
 	decisions := []string{"—"}
 	if value.Synthesis != nil && len(value.Synthesis.KeyDecisions) > 0 {
@@ -39,6 +39,9 @@ func Build(value *session.Session) string {
 	} else {
 		for _, entry := range value.Digest {
 			lines = append(lines, fmt.Sprintf("- [%s · turn %d] %s", entry.Category, entry.Turn, entry.Description))
+			if answer := strings.TrimSpace(entry.Answer); answer != "" {
+				lines = append(lines, "  - Answer: "+answer)
+			}
 		}
 	}
 	lines = append(lines, "", "## Files")

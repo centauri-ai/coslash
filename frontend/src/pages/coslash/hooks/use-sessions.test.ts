@@ -149,6 +149,12 @@ describe('sessionsRequestPath', () => {
 });
 
 describe('exact detail request builders', () => {
+  it('qualifies local synthesis requests by agent', () => {
+    expect(synthesisRequestPath({ sourceId: 'local', agent: 'codex', id: 'abc' })).toBe(
+      '/api/synthesis?agent=codex&id=abc',
+    );
+  });
+
   it('includes source, agent, session, revision, and ordered opaque changes', () => {
     const remote = {
       sourceId: 'r_0123456789abcdef',

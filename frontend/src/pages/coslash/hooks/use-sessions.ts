@@ -188,7 +188,7 @@ export function synthesisRequestPath(session: SessionIdentity) {
   if (!isLocalSource(session.sourceId)) {
     throw new Error('remote synthesis unsupported');
   }
-  return `/api/synthesis?${new URLSearchParams({ id: session.id })}`;
+  return `/api/synthesis?${new URLSearchParams({ agent: session.agent, id: session.id })}`;
 }
 
 function sameFileSelection(left: FileSelection, right: FileSelection): boolean {
