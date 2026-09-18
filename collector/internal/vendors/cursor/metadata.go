@@ -32,6 +32,19 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 }
 
 func loadMetadata(home string) (*vendors.SessionMetadata, error) {
+	return loadMetadataForSessions(home, nil, nil)
+}
+
+func LoadMetadataForSessions(ids, transcriptPaths []string) (*vendors.SessionMetadata, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return loadMetadataForSessions(home, ids, transcriptPaths)
+}
+
+func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendors.SessionMetadata, error) {
+	ids = canonicalCursorIDs(ids)
 	metadata := vendors.EmptySessionMetadata()
 	lanes := map[string]map[string]bool{}
 	globalStorage := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage")
@@ -42,7 +55,8 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 	}
 	if stateDB != nil {
 		defer stateDB.Close()
-		loadCursorRowsDB(metadata, lanes, entrypointIDE, statePath, stateDB, `SELECT composerId, value FROM composerHeaders`, func(id, value string) (string, string, string) {
+		query, args := cursorIDQuery(`SELECT composerId, value FROM composerHeaders`, "composerId", ids)
+		loadCursorRowsDB(metadata, lanes, entrypointIDE, statePath, stateDB, query, args, func(id, value string) (string, string, string) {
 			var header struct {
 				Name                string `json:"name"`
 				Subtitle            string `json:"subtitle"`
@@ -58,18 +72,20 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 			}
 			return id, header.Name, header.Subtitle
 		})
-		loadIDETimes(metadata, stateDB)
-		loadIDEDiffs(metadata, stateDB)
-		loadIDECommitObservations(metadata, stateDB)
-		loadIDEModelsDB(metadata, stateDB)
+		loadIDETimes(metadata, stateDB, ids)
+		loadIDEDiffs(metadata, stateDB, ids)
+		loadIDECommitObservations(metadata, stateDB, ids)
+		loadIDEModelsDB(metadata, stateDB, ids)
 	}
-	loadCursorRows(metadata, lanes, "", filepath.Join(globalStorage, "conversation-search.db"), `SELECT id, title FROM conversations ORDER BY source = 'local' DESC`, func(id, title string) (string, string, string) {
+	query, args := cursorIDQuery(`SELECT id, title FROM conversations`, "id", ids)
+	query += ` ORDER BY source = 'local' DESC`
+	loadCursorRows(metadata, lanes, "", filepath.Join(globalStorage, "conversation-search.db"), query, args, func(id, title string) (string, string, string) {
 		return id, title, ""
 	})
 
-	chatStores, _ := filepath.Glob(filepath.Join(home, ".cursor", "chats", "*", "*", "store.db"))
+	chatStores := cursorChatStores(home, ids)
 	for _, path := range chatStores {
-		loadCursorRows(metadata, lanes, entrypointCLI, path, `SELECT key, value FROM meta WHERE key = '0'`, func(_, value string) (string, string, string) {
+		loadCursorRows(metadata, lanes, entrypointCLI, path, `SELECT key, value FROM meta WHERE key = '0'`, nil, func(_, value string) (string, string, string) {
 			data, err := hex.DecodeString(value)
 			if err != nil {
 				return "", "", ""
@@ -94,20 +110,22 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 		})
 	}
 
-	sdkStores, _ := filepath.Glob(filepath.Join(home, ".cursor", "projects", "*", "sdk-agent-store", "*", "index.db"))
+	sdkStores := cursorSDKStores(home, ids, transcriptPaths)
+	sdkIDs := rawSDKIDs(ids)
 	for _, path := range sdkStores {
 		db, err := openCursorDB(path)
 		if err != nil {
 			continue
 		}
-		loadCursorRowsDB(metadata, lanes, entrypointSDK, path, db, `SELECT agent_id, name FROM agents`, func(id, name string) (string, string, string) {
+		query, args := cursorIDQuery(`SELECT agent_id, name FROM agents`, "agent_id", sdkIDs)
+		loadCursorRowsDB(metadata, lanes, entrypointSDK, path, db, query, args, func(id, name string) (string, string, string) {
 			return sdkTranscriptID(id), name, ""
 		})
-		loadSDKTimes(metadata, db)
-		loadSDKUsage(metadata, db)
+		loadSDKTimes(metadata, db, sdkIDs)
+		loadSDKUsage(metadata, db, sdkIDs)
 		db.Close()
 	}
-	loadCursorSummaries(metadata, filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db"))
+	loadCursorSummaries(metadata, filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db"), ids)
 	for id, matches := range lanes {
 		if len(matches) != 1 {
 			entry := metadata.Session(id)
@@ -124,10 +142,115 @@ func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 	return metadata, nil
 }
 
+func canonicalCursorIDs(ids []string) []string {
+	if ids == nil {
+		return nil
+	}
+	result := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, id := range ids {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if id != "" && !seen[id] {
+			seen[id] = true
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
+func cursorIDQuery(query, column string, ids []string) (string, []any) {
+	if ids == nil {
+		return query, nil
+	}
+	if len(ids) == 0 {
+		return query + " WHERE 0", nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return query + " WHERE " + column + " IN (" + placeholders + ")", args
+}
+
+func cursorKeyQuery(query, prefix string, ids []string) (string, []any) {
+	if ids == nil {
+		return query + " WHERE key LIKE ?", []any{prefix + "%"}
+	}
+	if len(ids) == 0 {
+		return query + " WHERE 0", nil
+	}
+	clauses := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		clauses[i] = "key LIKE ?"
+		args[i] = prefix + id + "%"
+	}
+	return query + " WHERE " + strings.Join(clauses, " OR "), args
+}
+
+func cursorChatStores(home string, ids []string) []string {
+	if ids == nil {
+		stores, _ := filepath.Glob(filepath.Join(home, ".cursor", "chats", "*", "*", "store.db"))
+		return stores
+	}
+	stores := []string{}
+	for _, id := range ids {
+		if strings.HasPrefix(id, "agent-") {
+			continue
+		}
+		matches, _ := filepath.Glob(filepath.Join(home, ".cursor", "chats", "*", id, "store.db"))
+		stores = append(stores, matches...)
+	}
+	return stores
+}
+
+func rawSDKIDs(ids []string) []string {
+	if ids == nil {
+		return nil
+	}
+	result := []string{}
+	for _, id := range ids {
+		if raw, ok := strings.CutPrefix(id, "agent-"); ok {
+			result = append(result, raw)
+		}
+	}
+	return result
+}
+
+func cursorSDKStores(home string, ids, transcriptPaths []string) []string {
+	if ids == nil {
+		stores, _ := filepath.Glob(filepath.Join(home, ".cursor", "projects", "*", "sdk-agent-store", "*", "index.db"))
+		return stores
+	}
+	if len(rawSDKIDs(ids)) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	stores := []string{}
+	for _, path := range transcriptPaths {
+		for directory := filepath.Dir(path); directory != filepath.Dir(directory); directory = filepath.Dir(directory) {
+			if filepath.Base(directory) != "agent-transcripts" {
+				continue
+			}
+			matches, _ := filepath.Glob(filepath.Join(filepath.Dir(directory), "sdk-agent-store", "*", "index.db"))
+			for _, match := range matches {
+				if !seen[match] {
+					seen[match] = true
+					stores = append(stores, match)
+				}
+			}
+			break
+		}
+	}
+	return stores
+}
+
 var fullCommitHash = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)
 
-func loadIDECommitObservations(metadata *vendors.SessionMetadata, db *sql.DB) {
-	rows, err := db.Query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'`)
+func loadIDECommitObservations(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+	query, args := cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "bubbleId:", ids)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
 	}
@@ -164,8 +287,27 @@ func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
 	var bubble struct {
 		Before checkpoint `json:"gitCheckpoint"`
 		After  checkpoint `json:"afterGitCheckpoint"`
+		Tool   struct {
+			Name    string          `json:"name"`
+			Status  string          `json:"status"`
+			RawArgs json.RawMessage `json:"rawArgs"`
+		} `json:"toolFormerData"`
 	}
 	if json.Unmarshal([]byte(value), &bubble) != nil {
+		return nil
+	}
+	if bubble.Tool.Status != "completed" ||
+		(bubble.Tool.Name != "run_terminal_cmd" && bubble.Tool.Name != "run_terminal_command_v2") {
+		return nil
+	}
+	var rawArgs string
+	if json.Unmarshal(bubble.Tool.RawArgs, &rawArgs) != nil {
+		rawArgs = string(bubble.Tool.RawArgs)
+	}
+	var args struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal([]byte(rawArgs), &args) != nil || len(session.ParseCommitAttempts(args.Command)) == 0 {
 		return nil
 	}
 	observations := []session.CommitObservation{}
@@ -200,8 +342,9 @@ type ideCheckpoint struct {
 	} `json:"inlineDiffNewlyCreatedResources"`
 }
 
-func loadIDEDiffs(metadata *vendors.SessionMetadata, db *sql.DB) {
-	rows, err := db.Query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'`)
+func loadIDEDiffs(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+	query, args := cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "composerData:", ids)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
 	}
@@ -269,8 +412,9 @@ func checkpointFileEdits(checkpoint ideCheckpoint) []session.FileEdit {
 	return edits.Edits
 }
 
-func loadIDETimes(metadata *vendors.SessionMetadata, db *sql.DB) {
-	rows, err := db.Query(`SELECT composerId, createdAt, lastUpdatedAt FROM composerHeaders`)
+func loadIDETimes(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+	query, args := cursorIDQuery(`SELECT composerId, createdAt, lastUpdatedAt FROM composerHeaders`, "composerId", ids)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
 	}
@@ -284,8 +428,9 @@ func loadIDETimes(metadata *vendors.SessionMetadata, db *sql.DB) {
 	}
 }
 
-func loadSDKTimes(metadata *vendors.SessionMetadata, db *sql.DB) {
-	rows, err := db.Query(`SELECT agent_id, created_at, updated_at FROM agents`)
+func loadSDKTimes(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+	query, args := cursorIDQuery(`SELECT agent_id, created_at, updated_at FROM agents`, "agent_id", ids)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
 	}
@@ -318,8 +463,23 @@ func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, las
 	}
 }
 
-func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB) {
-	rows, err := db.Query(`SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' OR key LIKE 'composerData:%'`)
+func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+	query := `SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' OR key LIKE 'composerData:%'`
+	args := []any(nil)
+	if ids != nil {
+		if len(ids) == 0 {
+			query = `SELECT key, value FROM cursorDiskKV WHERE 0`
+		}
+		clauses := make([]string, 0, len(ids)*2)
+		for _, id := range ids {
+			clauses = append(clauses, "key LIKE ?", "key = ?")
+			args = append(args, "bubbleId:"+id+":%", "composerData:"+id)
+		}
+		if len(clauses) > 0 {
+			query = `SELECT key, value FROM cursorDiskKV WHERE ` + strings.Join(clauses, " OR ")
+		}
+	}
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
 	}
@@ -408,8 +568,10 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB) {
 	}
 }
 
-func loadSDKUsage(metadata *vendors.SessionMetadata, db *sql.DB) {
-	rows, err := db.Query(`SELECT agent_id, COALESCE(model, ''), usage_json FROM runs ORDER BY turn_number`)
+func loadSDKUsage(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+	query, args := cursorIDQuery(`SELECT agent_id, COALESCE(model, ''), usage_json FROM runs`, "agent_id", ids)
+	query += ` ORDER BY turn_number`
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return
 	}
@@ -494,7 +656,7 @@ func isCursorModelModifier(part string) bool {
 	return part == "none" || part == "low" || part == "medium" || part == "high" || part == "xhigh" || part == "thinking"
 }
 
-func loadCursorRows(metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path, query string, decode func(string, string) (string, string, string)) {
+func loadCursorRows(metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path, query string, args []any, decode func(string, string) (string, string, string)) {
 	db, err := openCursorDB(path)
 	if os.IsNotExist(err) {
 		return
@@ -504,11 +666,11 @@ func loadCursorRows(metadata *vendors.SessionMetadata, lanes map[string]map[stri
 		return
 	}
 	defer db.Close()
-	loadCursorRowsDB(metadata, lanes, lane, path, db, query, decode)
+	loadCursorRowsDB(metadata, lanes, lane, path, db, query, args, decode)
 }
 
-func loadCursorRowsDB(metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path string, db *sql.DB, query string, decode func(string, string) (string, string, string)) {
-	rows, err := db.Query(query)
+func loadCursorRowsDB(metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, lane, path string, db *sql.DB, query string, args []any, decode func(string, string) (string, string, string)) {
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		log.Printf("Cursor metadata %q: %v", path, err)
 		return
@@ -541,7 +703,7 @@ func loadCursorRowsDB(metadata *vendors.SessionMetadata, lanes map[string]map[st
 	}
 }
 
-func loadCursorSummaries(metadata *vendors.SessionMetadata, path string) {
+func loadCursorSummaries(metadata *vendors.SessionMetadata, path string, ids []string) {
 	db, err := openCursorDB(path)
 	if os.IsNotExist(err) {
 		return
@@ -551,7 +713,8 @@ func loadCursorSummaries(metadata *vendors.SessionMetadata, path string) {
 		return
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT conversationId, tldr, overview FROM conversation_summaries`)
+	query, args := cursorIDQuery(`SELECT conversationId, tldr, overview FROM conversation_summaries`, "conversationId", ids)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		log.Printf("Cursor metadata %q: %v", path, err)
 		return

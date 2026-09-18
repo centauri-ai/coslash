@@ -150,6 +150,17 @@ func LimitNewestSourceFileFamilies(
 	limit int,
 	familyID func(string) string,
 ) ([]string, bool) {
+	return LimitNewestFileFamilies(files, limit, familyID, func(path string) int64 {
+		return SourceModificationTime(source, path)
+	})
+}
+
+func LimitNewestFileFamilies(
+	files []string,
+	limit int,
+	familyID func(string) string,
+	modified func(string) int64,
+) ([]string, bool) {
 	if limit <= 0 || len(files) <= limit {
 		return files, false
 	}
@@ -167,7 +178,7 @@ func LimitNewestSourceFileFamilies(
 			families[id] = item
 		}
 		item.files[file] = struct{}{}
-		item.modified = max(item.modified, SourceModificationTime(source, file))
+		item.modified = max(item.modified, modified(file))
 	}
 	ordered := make([]*family, 0, len(families))
 	for _, item := range families {
