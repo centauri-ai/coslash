@@ -20,10 +20,14 @@ function ConvertTo-SafeText {
 
     $text = ($Lines | ForEach-Object { "$_" }) -join "`n"
     if (![string]::IsNullOrWhiteSpace($repositoryRoot)) {
-        $text = $text.Replace($repositoryRoot, "%REPOSITORY%")
+        foreach ($path in @($repositoryRoot, $repositoryRoot.Replace("\", "\\"), $repositoryRoot.Replace("\", "/"))) {
+            $text = $text.Replace($path, "%REPOSITORY%")
+        }
     }
     if (![string]::IsNullOrWhiteSpace($userProfile)) {
-        $text = $text.Replace($userProfile, "%USERPROFILE%")
+        foreach ($path in @($userProfile, $userProfile.Replace("\", "\\"), $userProfile.Replace("\", "/"))) {
+            $text = $text.Replace($path, "%USERPROFILE%")
+        }
     }
     if ($text.Length -gt 2000) {
         $text = $text.Substring($text.Length - 2000)
@@ -39,9 +43,11 @@ function Invoke-ValidationCommand {
     )
 
     $watch = [Diagnostics.Stopwatch]::StartNew()
+    $commandErrorActionPreference = $ErrorActionPreference
     Push-Location $collectorRoot
     try {
         $global:LASTEXITCODE = 0
+        $ErrorActionPreference = "Continue"
         $output = @(& $FilePath @Arguments 2>&1)
         $exitCode = $LASTEXITCODE
         $output | ForEach-Object { Write-Host "$_" }
@@ -55,6 +61,7 @@ function Invoke-ValidationCommand {
         Write-Host $detail
     }
     finally {
+        $ErrorActionPreference = $commandErrorActionPreference
         Pop-Location
         $watch.Stop()
     }
@@ -74,12 +81,13 @@ function Get-ToolVersion {
         [string[]]$Arguments = @("--version")
     )
 
-    if ($null -eq (Get-Command $Name -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+    $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $command) {
         return [PSCustomObject]@{ name = $Name; available = $false; version = "" }
     }
     try {
         $global:LASTEXITCODE = 0
-        $output = @(& $Name @Arguments 2>&1)
+        $output = @(& $command.Source @Arguments 2>&1)
         return [PSCustomObject]@{
             name = $Name
             available = $true
@@ -126,7 +134,7 @@ function New-EnvironmentCheck {
 Push-Location $repositoryRoot
 try {
     $commit = (& git rev-parse HEAD).Trim()
-    $branch = (& git branch --show-current).Trim()
+    $branch = (@(& git branch --show-current) -join "").Trim()
     $dirty = @(& git status --porcelain).Count -gt 0
 }
 finally {

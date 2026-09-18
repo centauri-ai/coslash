@@ -1,0 +1,180 @@
+{
+    "schemaVersion":  1,
+    "capturedAtUtc":  "2026-09-18T18:07:55.7077293Z",
+    "status":  "fail",
+    "source":  {
+                   "commit":  "9f30790691e5d1b914ce19089ed3fa735b62b4a7",
+                   "branch":  "",
+                   "dirty":  true
+               },
+    "system":  {
+                   "edition":  "Microsoft Windows 11 Pro",
+                   "version":  "10.0.26100",
+                   "build":  26100,
+                   "architecture":  "amd64",
+                   "administrator":  false,
+                   "powershell":  "5.1.26100.7920"
+               },
+    "security":  {
+                     "defender":  {
+                                      "available":  true,
+                                      "antivirusEnabled":  true,
+                                      "realTimeProtectionEnabled":  true,
+                                      "error":  ""
+                                  },
+                     "smartScreenMachine":  null,
+                     "smartScreenUser":  null
+                 },
+    "tools":  [
+                  {
+                      "name":  "git",
+                      "available":  true,
+                      "version":  "git version 2.53.0.windows.3"
+                  },
+                  {
+                      "name":  "go",
+                      "available":  true,
+                      "version":  "go version go1.27.1 windows/amd64"
+                  },
+                  {
+                      "name":  "node",
+                      "available":  true,
+                      "version":  "v24.4.1"
+                  },
+                  {
+                      "name":  "npm",
+                      "available":  true,
+                      "version":  "11.4.2"
+                  },
+                  {
+                      "name":  "claude",
+                      "available":  true,
+                      "version":  "2.1.275 (Claude Code)"
+                  },
+                  {
+                      "name":  "codex",
+                      "available":  true,
+                      "version":  "codex-cli 0.155.0-alpha.2.6"
+                  },
+                  {
+                      "name":  "opencode",
+                      "available":  true,
+                      "version":  "1.18.31"
+                  },
+                  {
+                      "name":  "wt.exe",
+                      "available":  true,
+                      "version":  ""
+                  }
+              ],
+    "candidateArtifact":  {
+                              "supplied":  true,
+                              "sha256":  "7dce30f4c21e8153d43028819789d4c403af83421c15d7d86a12438b47fb9a9f"
+                          },
+    "environmentChecks":  [
+                              {
+                                  "id":  "supported-windows",
+                                  "status":  "pass",
+                                  "detail":  "Microsoft Windows 11 Pro, build 26100"
+                              },
+                              {
+                                  "id":  "supported-architecture",
+                                  "status":  "pass",
+                                  "detail":  "amd64"
+                              },
+                              {
+                                  "id":  "standard-user",
+                                  "status":  "pass",
+                                  "detail":  "PowerShell is not elevated"
+                              },
+                              {
+                                  "id":  "windows-powershell-5.1",
+                                  "status":  "pass",
+                                  "detail":  "5.1.26100.7920"
+                              },
+                              {
+                                  "id":  "windows-terminal",
+                                  "status":  "pass",
+                                  "detail":  "wt.exe is available"
+                              }
+                          ],
+    "automatedChecks":  [
+                            {
+                                "id":  "windows-package-tests",
+                                "status":  "fail",
+                                "exitCode":  1,
+                                "durationSeconds":  3.9,
+                                "detail":  "e{remote.AgentCoverage{Agent:\"codex\", CandidateFiles:0, SelectedFiles:0, SkippedEntries:0, Truncated:false, Error:\"\"}}, Records:3, ResponseBytes:455, RequestBytes:327, RequestComplete:true, ExitCode:1, Stderr:\"\", RoundTrip:120039700}, error = exit status 1\n--- FAIL: TestFileMetadataSequenceStorePersistsHighWaterMark (0.01s)\n    lifecycle_metadata_test.go:13: sync %USERPROFILE%\\AppData\\Local\\Temp\\TestFileMetadataSequenceStorePersistsHighWaterMark3254077826\\001\\state: Access is denied.\n--- FAIL: TestLifecycleSFTPPrimitivesCreateVerifyAndRejectSymlink (0.00s)\n    lifecycle_ssh_test.go:83: unsafe helper directory /%USERPROFILE%/AppData/Local/Temp/TestLifecycleSFTPPrimitivesCreateVerifyAndRejectSymlink1286746651/001: helper verification failed\nFAIL\nFAIL\tgithub.com/centauri-ai/coslash/collector/internal/remote\t1.242s\nok  \tgithub.com/centauri-ai/coslash/collector/internal/session\t(cached)\nok  \tgithub.com/centauri-ai/coslash/collector/internal/settings\t(cached)\n--- FAIL: TestLoadMetadataUsesUserConfigDirectory (0.00s)\n    metadata_test.go:19: missing desktop directory metadata = \u0026vendors.SessionEnrichment{Name:\"Desktop title\", Live:\"\", Summary:\"\", Entrypoint:\"\", WorkingDirectory:\"\", Model:\"\", StartedAt:0, LastActivityAt:0, FileEdits:[]session.FileEdit(nil), PullRequests:0, Usage:vendors.SessionUsage{Tokens:map[string]session.ModelTokens(nil), ContextTokens:(*int)(nil), ContextWindow:(*int)(nil), RecordedCost:(*float64)(nil)}}, want nil\n--- FAIL: TestGetSessionFactsUsesNewestDuplicate (0.01s)\n    source_test.go:76: session facts = (*vendors.ParsedSession)(nil), want \"%USERPROFILE%\\\\AppData\\\\Local\\\\Temp\\\\TestGetSessionFactsUsesNewestDuplicate3287508127\\\\001\\\\.claude\\\\projects\\\\z-new\\\\33333333-3333-3333-3333-333333333333.jsonl\" at 2000\nFAIL\nFAIL\tgithub.com/centauri-ai/coslash/collector/internal/vendors/claude\t0.515s\nok  \tgithub.com/centauri-ai/coslash/collector/internal/vendors/codex\t(cached)\nok  \tgithub.com/centauri-ai/coslash/collector/internal/vendors/opencode\t(cached)\nFAIL"
+                            },
+                            {
+                                "id":  "go-vet",
+                                "status":  "pass",
+                                "exitCode":  0,
+                                "durationSeconds":  0.65,
+                                "detail":  ""
+                            },
+                            {
+                                "id":  "native-build",
+                                "status":  "pass",
+                                "exitCode":  0,
+                                "durationSeconds":  1.05,
+                                "detail":  ""
+                            },
+                            {
+                                "id":  "native-build-version",
+                                "status":  "pass",
+                                "exitCode":  0,
+                                "durationSeconds":  0.15,
+                                "detail":  ""
+                            },
+                            {
+                                "id":  "candidate-version",
+                                "status":  "pass",
+                                "exitCode":  0,
+                                "durationSeconds":  0.03,
+                                "detail":  ""
+                            }
+                        ],
+    "manualChecks":  [
+                         {
+                             "id":  "claude-launch-resume-handoff",
+                             "status":  "fail",
+                             "note":  "Discovery rendered three Claude sessions and the inspector showed transcript, cost, readiness, timeline, and artifacts. Resume and fresh-launch requests opened Windows Terminal, but PowerShell startup stopped at an untrusted-publisher prompt for PSReadLine.format.ps1xml loaded from the Codex runtime; the Claude CLI and handoff did not proceed. The fresh handoff file remained under %USERPROFILE%\\.coslash\\sys-prompts instead of being consumed and removed."
+                         },
+                         {
+                             "id":  "codex-launch-resume-handoff",
+                             "status":  "fail",
+                             "note":  "Discovery rendered three Codex sessions. Start fresh reached the backend, but Windows Terminal returned error 2147942402 (0x80070002) while launching the quoted command string, followed by 'The system cannot find the file specified.' In another launch terminal, choosing Run once at the publisher prompt exposed a PowerShell 'Missing closing }' parser error, confirming the generated payload was incomplete after argument parsing. No new Codex CLI child started and the handoff file remained under %USERPROFILE%\\.coslash\\sys-prompts. The candidate doctor also incorrectly reported terminalLaunchSupported=false on Windows despite Windows launch code being present."
+                         },
+                         {
+                             "id":  "opencode-launch-resume-handoff",
+                             "status":  "fail",
+                             "note":  "OpenCode 1.18.31 was installed, but discovery failed with 'invalid uri authority: C:' while opening the Windows SQLite path, so the UI showed zero OpenCode sessions and resume/handoff could not proceed. Supplemental isolated-config checks passed: the managed plugin upgraded to SHA-256 af33b341f766d065a7b4ecc64eb656be84dd3f972d0d0a010b0a9024557d804b and an unmanaged plugin was not overwritten."
+                         },
+                         {
+                             "id":  "unicode-and-handoff-cleanup",
+                             "status":  "fail",
+                             "note":  "The prescribed Windows PowerShell 5.1 Unicode smoke test failed with 'json: cannot unmarshal object into Go struct field .handoff of type string'. Manual Claude and Codex fresh launches also left their temporary handoff files in place, so delivery and cleanup did not pass."
+                         },
+                         {
+                             "id":  "session-state-and-feature-parity",
+                             "status":  "fail",
+                             "note":  "The authenticated UI loaded six Claude/Codex sessions; list and board views, search, vendor filtering, active/inactive grouping, costs, readiness, timeline, and artifacts rendered correctly. Full parity failed because OpenCode discovery was unavailable, waiting/idle states could not be exercised, and resume/handoff actions did not complete."
+                         },
+                         {
+                             "id":  "browser-and-credential-restart",
+                             "status":  "skip",
+                             "note":  "The candidate opened a tokenized loopback URL without a browser-launch error and the authenticated UI loaded successfully. No Hub URL, test account, or existing coSlash settings were configured, so browser pairing and credential persistence across restart were not attempted. The internal/hubclient Windows package tests passed."
+                         },
+                         {
+                             "id":  "windows-to-linux-ssh",
+                             "status":  "skip",
+                             "note":  "No authorized Linux SSH test host or coSlash remote-host configuration was available. Automated remote tests failed on Windows for Unix shell dependencies, Windows path allowlisting, handoff cleanup, file permissions, and helper lifecycle behavior; the JSON automated-check detail preserves the failing tail."
+                         },
+                         {
+                             "id":  "standard-user-install-upgrade-defender-smartscreen",
+                             "status":  "skip",
+                             "note":  "The candidate installed to an isolated LocalAppData Programs directory, reported version 9f30790-validation, started as a non-administrator, stopped, and was replaced successfully. Defender antivirus and real-time protection were enabled with zero detections for that path. The locally built file had no Mark-of-the-Web, so authentic unsigned-download SmartScreen behavior could not be exercised without altering security settings."
+                         }
+                     ]
+}
