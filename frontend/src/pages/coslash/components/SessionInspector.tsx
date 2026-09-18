@@ -103,6 +103,7 @@ type DetailErrorKind = Exclude<ExactReadErrorKind, 'too_large'> | 'authenticatio
 
 type DetailError = {
   key: string;
+  retryToken: number;
   kind: DetailErrorKind;
   message: string;
 };
@@ -229,12 +230,16 @@ function useSessionDetail(
   const [loadedSynthesis, setLoadedSynthesis] = useState<({ key: string } & SynthesisResponse) | null>(null);
   const pollDeadline = useRef<{ key: string; deadline: number } | null>(null);
   const detailKey = session == null ? null : `${sessionKey(session)}@${session.detailRevision}`;
+  const sessionRef = useRef(session);
 
   useEffect(() => {
-    const current = session;
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    const current = sessionRef.current;
     if (current == null || detailKey == null) return;
     if (current.detailRevision === '') return;
-    setDetailError((error) => (error?.key === detailKey ? null : error));
 
     const controller = new AbortController();
     const load = async () => {
@@ -247,7 +252,7 @@ function useSessionDetail(
           } catch {
             // The status remains enough to show an honest generic state.
           }
-          const failure: Omit<DetailError, 'key'> =
+          const failure: Omit<DetailError, 'key' | 'retryToken'> =
             code === 'session_detail_stale'
               ? {
                   kind: 'stale',
@@ -277,7 +282,7 @@ function useSessionDetail(
           throw {
             kind: 'corrupt',
             message: 'Session details did not match the selected revision.',
-          } satisfies Omit<DetailError, 'key'>;
+          } satisfies Omit<DetailError, 'key' | 'retryToken'>;
         }
         const detail = decodeSession({
           ...current,
@@ -303,13 +308,19 @@ function useSessionDetail(
       } catch (error: unknown) {
         if (controller.signal.aborted) return;
         if (error instanceof ApiAuthenticationError) {
-          setDetailError({ key: detailKey, kind: 'authentication', message: error.message });
+          setDetailError({
+            key: detailKey,
+            retryToken: detailRetryToken,
+            kind: 'authentication',
+            message: error.message,
+          });
           return;
         }
         if (loadedDetailRef.current?.key === detailKey) return;
-        const failure = error as Partial<Omit<DetailError, 'key'>>;
+        const failure = error as Partial<Omit<DetailError, 'key' | 'retryToken'>>;
         setDetailError({
           key: detailKey,
+          retryToken: detailRetryToken,
           kind: failure.kind ?? 'other',
           message: failure.message ?? 'Could not load session details.',
         });
@@ -392,7 +403,8 @@ function useSessionDetail(
       summaryOnly: true,
     };
   }
-  const currentError = detailError?.key === detailKey ? detailError : null;
+  const currentError =
+    detailError?.key === detailKey && detailError.retryToken === detailRetryToken ? detailError : null;
   if (currentError != null) {
     return {
       detail: null,
