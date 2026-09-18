@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"unicode"
@@ -99,10 +98,11 @@ func machineFromHealth(health remote.Health) machineFact {
 }
 
 func boardLocalSession(value *session.Session) boardSession {
+	detailRevision, _ := localDetailRevision(*value)
 	return boardSession{
 		SourceID: localSourceID, SourceLabel: localSourceLabel,
 		SourceClass: "local", LogicalSessionID: logicalSessionID(localSourceID, value),
-		Revision: value.LastActivityTime, DetailRevision: fmt.Sprintf("%d", value.LastActivityTime),
+		Revision: value.LastActivityTime, DetailRevision: detailRevision,
 		Completion: completionFor(value, true),
 		Privacy:    privacyFor(value), ShareEligibility: eligibilityFor(value, true, false),
 		EligibleForAggregates: true, Session: sessionWithJSONCollections(*value),

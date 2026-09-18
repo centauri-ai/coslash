@@ -131,6 +131,34 @@ export function detailPresentation(session: Session | null): {
     : { detail: null, summaryOnly: false };
 }
 
+export function overlayLiveSessionFields(detail: SessionDetail, current: Session): SessionDetail {
+  const currentSubagents = new Map(current.subagents.map((subagent) => [subagent.id, subagent]));
+  return {
+    ...detail,
+    status: current.status,
+    branch: current.branch,
+    repo: current.repo,
+    repoLocalOnly: current.repoLocalOnly,
+    reviewPending: current.reviewPending,
+    reviewError: current.reviewError,
+    completion: current.completion,
+    privacy: current.privacy,
+    shareEligibility: current.shareEligibility,
+    eligibleForAggregates: current.eligibleForAggregates,
+    displayStale: current.displayStale,
+    lastSeenStatus: current.lastSeenStatus,
+    launchable: current.launchable,
+    launchBlockReason: current.launchBlockReason,
+    ...(isLocalSession(current)
+      ? { commits: current.commits, git: current.git, lastEditAt: current.lastEditAt }
+      : {}),
+    subagents: detail.subagents.map((subagent) => {
+      const live = currentSubagents.get(subagent.id);
+      return live == null ? subagent : { ...subagent, status: live.status };
+    }),
+  };
+}
+
 export function SummaryOnlyBanner() {
   return (
     <div role="status" className="text-warning-fg bg-warning-bg mx-4 mb-2 rounded-sm px-3 py-2 text-xs">
@@ -349,12 +377,13 @@ function useSessionDetail(
     };
   }
   const synthesis = loadedSynthesis?.key === detailKey ? loadedSynthesis : null;
+  const detail = overlayLiveSessionFields(loadedDetail.detail, session);
   return {
     detail:
       synthesis == null
-        ? loadedDetail.detail
+        ? detail
         : {
-            ...loadedDetail.detail,
+            ...detail,
             synthesis: synthesis.synthesis,
             synthesisPending: synthesis.synthesisPending,
             synthesisError: synthesis.synthesisError,

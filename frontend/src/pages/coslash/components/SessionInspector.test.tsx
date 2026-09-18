@@ -4,6 +4,7 @@ import { DiffList } from '@/pages/coslash/components/DiffList';
 import {
   detailPresentation,
   filePanelOpen,
+  overlayLiveSessionFields,
   SummaryOnlyBanner,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
@@ -37,6 +38,38 @@ describe('SessionInspector exact-detail boundaries', () => {
   it('keeps a loaded diff open only for the selected exact revision', () => {
     expect(filePanelOpen(selection, { ...session, detailRevision: 'revision-1' })).toBe(true);
     expect(filePanelOpen(selection, { ...session, detailRevision: 'revision-2' })).toBe(false);
+  });
+
+  it('overlays current list readiness without replacing exact detail content', () => {
+    const loaded = {
+      ...session,
+      sourceId: 'local',
+      status: 'busy',
+      commands: ['exact command'],
+      commits: ['old commit'],
+      git: { baseBranch: 'main', ahead: 0, behind: 1 },
+      lastEditAt: 10,
+      launchable: false,
+      subagents: [],
+    } as Session;
+    const current = {
+      ...loaded,
+      status: null,
+      commands: [],
+      commits: ['new commit'],
+      git: { baseBranch: 'main', ahead: 1, behind: 0 },
+      lastEditAt: 20,
+      launchable: true,
+    };
+
+    expect(overlayLiveSessionFields(loaded, current)).toMatchObject({
+      status: null,
+      commands: ['exact command'],
+      commits: ['new commit'],
+      git: { baseBranch: 'main', ahead: 1, behind: 0 },
+      lastEditAt: 20,
+      launchable: true,
+    });
   });
 
   it('renders the refresh path for a structured stale diff failure', () => {
