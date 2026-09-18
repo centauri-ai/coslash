@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -246,11 +248,30 @@ func validOpaqueIdentifier(value string) bool {
 
 func withLocalChangeIDs(value session.Session) session.Session {
 	value.FileEdits = append([]session.FileEdit(nil), value.FileEdits...)
+	occurrences := map[string]int{}
 	for editIndex := range value.FileEdits {
 		changes := value.FileEdits[editIndex].Changes()
 		value.FileEdits[editIndex].ChangeIDs = make([]string, len(changes))
-		for changeIndex := range changes {
-			value.FileEdits[editIndex].ChangeIDs[changeIndex] = fmt.Sprintf("change-%06d-%06d", editIndex, changeIndex)
+		for changeIndex, change := range changes {
+			identity, _ := json.Marshal(struct {
+				Path      string `json:"path"`
+				Kind      string `json:"kind"`
+				Text      string `json:"text"`
+				Operation string `json:"operation"`
+				Additions int    `json:"additions"`
+				Deletions int    `json:"deletions"`
+			}{
+				Path: value.FileEdits[editIndex].Path, Kind: change.Kind, Text: change.Text,
+				Operation: change.Operation, Additions: change.Additions, Deletions: change.Deletions,
+			})
+			digest := sha256.Sum256(identity)
+			base := "change-" + base64.RawURLEncoding.EncodeToString(digest[:])
+			occurrence := occurrences[base]
+			occurrences[base]++
+			if occurrence > 0 {
+				base = fmt.Sprintf("%s-%06d", base, occurrence)
+			}
+			value.FileEdits[editIndex].ChangeIDs[changeIndex] = base
 		}
 	}
 	return value

@@ -111,6 +111,54 @@ func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 	}
 }
 
+func TestExactLocalChangeIDsRemainBoundAfterFileReordering(t *testing.T) {
+	edits := session.NewFileEditSet()
+	edits.Add("a.go", 1, 1, false)
+	edits.Patch("a.go", "@@\n-old a\n+new a\n")
+	edits.Add("b.go", 1, 1, false)
+	edits.Patch("b.go", "@@\n-old b\n+new b\n")
+	local := exactDetailSession("")
+	local.SessionDetails.FileEdits = edits.Edits
+
+	reader := func(string, string) (*session.Session, error) {
+		copy := local
+		return &copy, nil
+	}
+	detailResponse := httptest.NewRecorder()
+	handleSessionDetail(detailResponse, httptest.NewRequest(http.MethodGet,
+		"/api/session-detail?source=local&agent=codex&session=same-session&revision=2000", nil),
+		reader, remote.NewManager(remote.Options{}))
+	if detailResponse.Code != http.StatusOK {
+		t.Fatalf("detail status = %d: %s", detailResponse.Code, detailResponse.Body.String())
+	}
+	var detail sessionDetailResponse
+	if err := json.Unmarshal(detailResponse.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	changeID := detail.Session.FileEdits[0].ChangeIDs[0]
+
+	// A later untimed row can edit a.go without advancing LastActivityTime,
+	// moving that file behind b.go in FileEditSet's most-recent-first order.
+	edits.Add("a.go", 1, 1, false)
+	edits.Patch("a.go", "@@\n-new a\n+newer a\n")
+	local.SessionDetails.FileEdits = edits.Edits
+
+	diffResponse := httptest.NewRecorder()
+	handleExactDiff(diffResponse, httptest.NewRequest(http.MethodGet,
+		"/api/diff?source=local&agent=codex&session=same-session&revision=2000&change="+changeID, nil),
+		reader, remote.NewManager(remote.Options{}))
+	if diffResponse.Code != http.StatusOK {
+		t.Fatalf("diff status = %d: %s", diffResponse.Code, diffResponse.Body.String())
+	}
+	var diff exactDiffResponse
+	if err := json.Unmarshal(diffResponse.Body.Bytes(), &diff); err != nil {
+		t.Fatal(err)
+	}
+	if len(diff.Changes) != 1 || diff.Changes[0].Text != "@@\n-old a\n+new a\n" {
+		t.Fatalf("changes = %#v", diff.Changes)
+	}
+}
+
 func TestExactDiffRejectsDuplicateAndOversizedChangeSelections(t *testing.T) {
 	reader := func(string, string) (*session.Session, error) {
 		t.Fatal("invalid selections must be rejected before reading session detail")
@@ -319,13 +367,22 @@ func TestRemoteDetailAndDiffRemainReadableFromRestartedOfflineCache(t *testing.T
 	if err := json.Unmarshal(localDetailResponse.Body.Bytes(), &localDetail); err != nil {
 		t.Fatal(err)
 	}
+	localChangeID := localDetail.Session.FileEdits[0].ChangeIDs[0]
+	changeID := detail.Session.FileEdits[0].ChangeIDs[0]
+	// Change IDs are source-local opaque selectors. Compare the portable
+	// detail payload independently from their source-specific representation.
+	for index := range localDetail.Session.FileEdits {
+		localDetail.Session.FileEdits[index].ChangeIDs = nil
+	}
+	for index := range detail.Session.FileEdits {
+		detail.Session.FileEdits[index].ChangeIDs = nil
+	}
 	localDetailJSON, _ := json.Marshal(localDetail.Session)
 	remoteDetailJSON, _ := json.Marshal(detail.Session)
 	if string(localDetailJSON) != string(remoteDetailJSON) {
 		t.Fatalf("local/remote detail differ\nlocal=%s\nremote=%s", localDetailJSON, remoteDetailJSON)
 	}
 
-	changeID := detail.Session.FileEdits[0].ChangeIDs[0]
 	diffTarget := "/api/diff?source=" + testRemoteSourceID + "&agent=codex&session=" + remoteSession.ID + "&revision=" + record.RevisionID + "&change=" + changeID
 	diffResponse := httptest.NewRecorder()
 	handleExactDiff(diffResponse, httptest.NewRequest(http.MethodGet, diffTarget, nil), localReader, manager)
@@ -335,7 +392,7 @@ func TestRemoteDetailAndDiffRemainReadableFromRestartedOfflineCache(t *testing.T
 	localDiffResponse := httptest.NewRecorder()
 	handleExactDiff(
 		localDiffResponse,
-		httptest.NewRequest(http.MethodGet, "/api/diff?source=local&agent=codex&session=same-session&revision=2000&change="+changeID, nil),
+		httptest.NewRequest(http.MethodGet, "/api/diff?source=local&agent=codex&session=same-session&revision=2000&change="+localChangeID, nil),
 		localParityReader,
 		manager,
 	)
