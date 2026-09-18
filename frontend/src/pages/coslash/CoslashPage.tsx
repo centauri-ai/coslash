@@ -64,7 +64,7 @@ import {
   type SessionLibraryFilters,
 } from '@/pages/coslash/lib/session-library';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
-import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
+import { timeIsInWindow, type TimeWindow } from '@/pages/coslash/lib/time-window';
 
 const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
   'week': 'active this week',
@@ -418,12 +418,7 @@ export function CoslashPage() {
     }
   }, [selectedSession, selectedSessionKey]);
 
-  // Keep live sessions visible even when their logs predate the window.
-  const windowStart = timeWindowStart(timeWindow);
-  const sessionsInWindow =
-    windowStart == null
-      ? librarySessions
-      : librarySessions.filter((session) => session.status != null || session.mtime >= windowStart);
+  const sessionsInWindow = librarySessions.filter((session) => timeIsInWindow(session.mtime, timeWindow));
   const sessionsForMachine =
     effectiveMachineFilter === ALL_MACHINES
       ? sessionsInWindow

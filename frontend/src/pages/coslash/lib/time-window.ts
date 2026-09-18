@@ -31,3 +31,8 @@ export function timeWindowStart(window: TimeWindow, now = new Date()): number | 
       return null;
   }
 }
+
+export function timeIsInWindow(timestamp: number, window: TimeWindow, now = new Date()): boolean {
+  const start = timeWindowStart(window, now);
+  return start == null || timestamp >= start;
+}
