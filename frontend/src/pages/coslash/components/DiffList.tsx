@@ -24,12 +24,16 @@ export function DiffList({
   loadError,
   showRefresh = false,
   onRefresh,
+  showRetry = false,
+  onRetry,
 }: {
   changes: FileChange[] | null;
   isLoading: boolean;
   loadError: string | null;
   showRefresh?: boolean;
   onRefresh?: () => void;
+  showRetry?: boolean;
+  onRetry?: () => void;
 }) {
   if (isLoading) {
     return (
@@ -46,6 +50,11 @@ export function DiffList({
         {showRefresh && onRefresh != null && (
           <Button variant="outline" size="sm" onClick={onRefresh}>
             Refresh sessions
+          </Button>
+        )}
+        {showRetry && onRetry != null && (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            Retry file changes
           </Button>
         )}
       </div>

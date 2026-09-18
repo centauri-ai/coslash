@@ -1350,7 +1350,7 @@ export function SessionInspector({
   synthesisSettingsKey: string;
   showMachineBadge?: boolean;
   machines: MachineFact[];
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   onClose: () => void;
 }) {
   const [detailRetryToken, setDetailRetryToken] = useState(0);
@@ -1362,12 +1362,13 @@ export function SessionInspector({
   );
   const contentRef = useRef<HTMLDivElement>(null);
   const [selectedDiff, setSelectedDiff] = useState<FileSelection | null>(null);
+  const [fileDiffRetryToken, setFileDiffRetryToken] = useState(0);
   const {
     changes: fileChanges,
     isLoading: fileDiffLoading,
     loadError: fileDiffError,
     loadErrorKind: fileDiffErrorKind,
-  } = useFileDiff(selectedDiff);
+  } = useFileDiff(selectedDiff, fileDiffRetryToken);
   const isOpen = session != null;
   const openSessionRevisionKey = session == null ? null : `${sessionKey(session)}@${session.detailRevision}`;
   const remoteLaunchable =
@@ -1381,6 +1382,8 @@ export function SessionInspector({
     );
   const remoteMachine =
     detail == null ? undefined : machines.find((machine) => machine.sourceId === detail.sourceId);
+  const showCachedOffline =
+    cachedOffline && remoteMachine?.state !== 'ok' && remoteMachine?.state !== 'limited';
   const remoteLaunchHint =
     detail == null || isLocalSession(detail) || remoteLaunchable
       ? undefined
@@ -1428,8 +1431,9 @@ export function SessionInspector({
             kind={loadErrorKind}
             onRetry={() => setDetailRetryToken((token) => token + 1)}
             onRefresh={() => {
-              onRefresh();
-              setDetailRetryToken((token) => token + 1);
+              void Promise.resolve(onRefresh()).then(() => {
+                setDetailRetryToken((token) => token + 1);
+              });
             }}
           />
         )}
@@ -1449,7 +1453,7 @@ export function SessionInspector({
                 <div className="border-b p-1" />
               </div>
             </SheetHeader>
-            {cachedOffline && (
+            {showCachedOffline && (
               <div
                 role="status"
                 className="text-warning-fg bg-warning-bg mx-4 mb-2 rounded-sm px-3 py-2 text-xs"
@@ -1513,9 +1517,11 @@ export function SessionInspector({
                   fileDiffErrorKind === 'missing' ||
                   fileDiffErrorKind === 'corrupt'
                 }
+                showRetry={fileDiffErrorKind === 'other'}
+                onRetry={() => setFileDiffRetryToken((token) => token + 1)}
                 onRefresh={() => {
                   setSelectedDiff(null);
-                  onRefresh();
+                  void onRefresh();
                 }}
               />
             </>

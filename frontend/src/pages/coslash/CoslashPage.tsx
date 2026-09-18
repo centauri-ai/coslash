@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -353,6 +353,7 @@ export function CoslashPage() {
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [remoteRetryInFlight, setRemoteRetryInFlight] = useState(false);
+  const remoteRetryPromise = useRef<Promise<void> | null>(null);
   const settingsState = useSettings();
   const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
@@ -455,15 +456,19 @@ export function CoslashPage() {
   };
 
   const handleRemoteRetry = () => {
-    if (remoteRetryInFlight) return;
+    if (remoteRetryPromise.current != null) return remoteRetryPromise.current;
     setRemoteRetryInFlight(true);
-    void retryRemoteRefreshAndWait()
+    const retry = retryRemoteRefreshAndWait()
+      .then(() => undefined)
       .catch(() => undefined)
       .finally(() => {
+        remoteRetryPromise.current = null;
         setRemoteRetryInFlight(false);
         retrySessions();
         if (diagnosticsOpen) refreshDiagnostics();
       });
+    remoteRetryPromise.current = retry;
+    return retry;
   };
 
   const saveSettings = async (...args: Parameters<typeof settingsState.save>) => {
@@ -590,8 +595,8 @@ export function CoslashPage() {
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}
         machines={machines}
-        onRefresh={() => {
-          if (selectedSession != null && !isLocalSession(selectedSession)) handleRemoteRetry();
+        onRefresh={async () => {
+          if (selectedSession != null && !isLocalSession(selectedSession)) await handleRemoteRetry();
           else retrySessions();
         }}
         onClose={() => setSelectedSessionKey(null)}

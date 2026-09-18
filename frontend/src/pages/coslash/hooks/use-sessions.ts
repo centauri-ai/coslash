@@ -40,6 +40,7 @@ export type FileChange = {
 };
 
 export type ExactReadErrorKind = 'stale' | 'missing' | 'corrupt' | 'too_large' | 'other';
+export type FileDiffErrorKind = ExactReadErrorKind | 'authentication';
 
 export type ExactReadFailure = {
   kind: ExactReadErrorKind;
@@ -201,12 +202,13 @@ function sameFileSelection(left: FileSelection, right: FileSelection): boolean {
   );
 }
 
-export function useFileDiff(selection: FileSelection | null) {
+export function useFileDiff(selection: FileSelection | null, retryToken: number) {
   const [loaded, setLoaded] = useState<
     | (FileSelection & {
+        retryToken: number;
         changes: FileChange[] | null;
         loadError: string | null;
-        loadErrorKind: ExactReadErrorKind | null;
+        loadErrorKind: FileDiffErrorKind | null;
       })
     | null
   >(null);
@@ -229,19 +231,21 @@ export function useFileDiff(selection: FileSelection | null) {
         }
         const { changes } = (await response.json()) as { changes: FileChange[] };
         if (!controller.signal.aborted) {
-          setLoaded({ ...selection, changes, loadError: null, loadErrorKind: null });
+          setLoaded({ ...selection, retryToken, changes, loadError: null, loadErrorKind: null });
         }
       } catch (error: unknown) {
         if (!controller.signal.aborted) {
           const failure = error as Partial<ExactReadFailure>;
           setLoaded({
             ...selection,
+            retryToken,
             changes: null,
             loadError:
               error instanceof ApiAuthenticationError
                 ? error.message
                 : (failure.message ?? 'Could not load this exact session revision’s file changes.'),
-            loadErrorKind: failure.kind ?? 'other',
+            loadErrorKind:
+              error instanceof ApiAuthenticationError ? 'authentication' : (failure.kind ?? 'other'),
           });
         }
       }
@@ -249,9 +253,13 @@ export function useFileDiff(selection: FileSelection | null) {
     void load();
 
     return () => controller.abort();
-  }, [selection]);
+  }, [retryToken, selection]);
 
-  const isCurrent = selection != null && loaded != null && sameFileSelection(loaded, selection);
+  const isCurrent =
+    selection != null &&
+    loaded != null &&
+    loaded.retryToken === retryToken &&
+    sameFileSelection(loaded, selection);
   return {
     changes: isCurrent ? loaded.changes : null,
     isLoading: selection != null && !isCurrent,
