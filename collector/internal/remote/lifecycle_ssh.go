@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -183,11 +182,8 @@ func (remote *SSHLifecycleRemote) runStagedInstaller(ctx context.Context, stagin
 	}
 	runCtx, cancel := context.WithTimeout(ctx, min(limits.Deadline, DefaultHelperInstallTimeout))
 	defer cancel()
-	args := []string{
-		"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(int(limits.ConnectTimeout.Seconds())),
-		"-o", "ControlMaster=auto", "-o", "ControlPath=" + controlSocketPath(), "-o", "ControlPersist=" + defaultControlPersist,
-		remote.Alias, shellQuote(staging) + " install " + shellQuote(home) + " " + shellQuote(version) + " " + shellQuote(sha256),
-	}
+	args := append(sshOptions(int(limits.ConnectTimeout.Seconds()), sshMultiplexing),
+		remote.Alias, shellQuote(staging)+" install "+shellQuote(home)+" "+shellQuote(version)+" "+shellQuote(sha256))
 	cmd := command(runCtx, bin, args...)
 	stdout := &boundedCommandOutput{limit: 128, cancel: cancel}
 	stderr := &boundedCommandOutput{limit: limits.MaxStderrBytes, cancel: cancel}

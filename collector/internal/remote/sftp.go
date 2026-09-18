@@ -50,24 +50,30 @@ func SSHArgs(alias string, connectTimeoutSeconds int) ([]string, error) {
 	if !aliasPattern.MatchString(alias) {
 		return nil, ErrInvalidAlias
 	}
+	return append(sshOptions(connectTimeoutSeconds, sshMultiplexing), alias, "-s", "sftp"), nil
+}
+
+func sshOptions(connectTimeoutSeconds int, multiplexing bool) []string {
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
-	return []string{
-		"-T",
-		"-o", "BatchMode=yes",
-		"-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=" + controlSocketPath(),
-		"-o", "ControlPersist=" + defaultControlPersist,
-		alias,
-		"-s", "sftp",
-	}, nil
+	options := []string{"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds)}
+	if multiplexing {
+		options = append(options,
+			"-o", "ControlMaster=auto",
+			"-o", "ControlPath="+controlSocketPath(),
+			"-o", "ControlPersist="+defaultControlPersist,
+		)
+	}
+	return options
 }
 
 func ControlExitArgs(alias string) ([]string, error) {
 	if !aliasPattern.MatchString(alias) {
 		return nil, ErrInvalidAlias
+	}
+	if !sshMultiplexing {
+		return nil, nil
 	}
 	return []string{
 		"-O", "exit",
@@ -148,6 +154,9 @@ func runSSHCommand(ctx context.Context, options OpenOptions, args []string) erro
 }
 
 func ensureControlMaster(ctx context.Context, alias string, options OpenOptions) error {
+	if !sshMultiplexing {
+		return nil
+	}
 	if err := ensureSSHControlDir(); err != nil {
 		return err
 	}
@@ -181,6 +190,9 @@ func ExitControlMaster(alias string, options OpenOptions) error {
 	args, err := ControlExitArgs(alias)
 	if err != nil {
 		return err
+	}
+	if !sshMultiplexing {
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

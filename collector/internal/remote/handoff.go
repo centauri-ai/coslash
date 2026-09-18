@@ -129,17 +129,5 @@ func handoffSSHArgs(alias, command string, connectTimeoutSeconds int) ([]string,
 	if !aliasPattern.MatchString(alias) {
 		return nil, ErrInvalidAlias
 	}
-	if connectTimeoutSeconds <= 0 {
-		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
-	}
-	return []string{
-		"-T",
-		"-o", "BatchMode=yes",
-		"-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=" + controlSocketPath(),
-		"-o", "ControlPersist=" + defaultControlPersist,
-		alias,
-		command,
-	}, nil
+	return append(sshOptions(connectTimeoutSeconds, sshMultiplexing), alias, command), nil
 }
