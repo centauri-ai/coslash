@@ -144,6 +144,35 @@ func TestRuntimeLockAllowsOnlyOneServer(t *testing.T) {
 	third.Close()
 }
 
+func TestRuntimeLockAcquisitionClearsStaleDiscovery(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		io.WriteString(w, "[]")
+	}))
+	defer server.Close()
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	if err := writeToken("stale-token"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRuntime(server.URL); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"sessions", "--json"}); code == 0 {
+		t.Fatalf("sessions trusted stale discovery during restart: %s", stdout.String())
+	}
+	if called {
+		t.Fatal("stale runtime endpoint received a request during restart")
+	}
+}
+
 func TestRunSessionsFiltersUIFieldsAndPrintsJSON(t *testing.T) {
 	var gotToken string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
