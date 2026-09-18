@@ -63,6 +63,39 @@ func TestLoadMetadataForSessionsReturnsOnlyRequestedIDs(t *testing.T) {
 	}
 }
 
+func TestLoadSelectionMetadataReadsOnlySelectionSignals(t *testing.T) {
+	home := t.TempDir()
+	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	if err := createMetadataTestDB(statePath); err != nil {
+		t.Fatal(err)
+	}
+	id := "00000000-0000-4000-8000-000000000001"
+	db, err := sql.Open("sqlite", statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value, createdAt, lastUpdatedAt) VALUES (?, '{}', 10, 20)`, id); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`,
+		"bubbleId:"+id+":1", `{"createdAt":100,"modelInfo":{"modelName":"gpt-5"}}`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata, err := loadSelectionMetadata(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Lookup(id); got == nil || got.LastActivityAt != 20 || got.Model != "" {
+		t.Fatalf("selection metadata = %#v, want activity without full enrichment", got)
+	}
+}
+
 func TestLoadMetadataForSessionsCanonicalizesStoredIDs(t *testing.T) {
 	home := t.TempDir()
 	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
