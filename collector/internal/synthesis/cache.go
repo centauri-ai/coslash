@@ -27,10 +27,17 @@ func NewCache() *Cache {
 }
 
 func (c *Cache) Load(id string) (Record, error) {
+	path, err := c.recordPath(id)
+	if err != nil {
+		return Record{}, err
+	}
 	if value, ok := c.records.Load(id); ok {
 		return value.(Record), nil
 	}
-	data, err := os.ReadFile(c.recordPath(id))
+	if err := protectSynthesisDirectories(SummariesDir()); err != nil {
+		return Record{}, err
+	}
+	data, err := readSynthesisFile(path)
 	if err != nil {
 		return Record{}, err
 	}
@@ -43,7 +50,14 @@ func (c *Cache) Load(id string) (Record, error) {
 }
 
 func (c *Cache) Store(id string, record Record) error {
+	path, err := c.recordPath(id)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(SummariesDir(), 0o700); err != nil {
+		return err
+	}
+	if err := protectSynthesisDirectories(SummariesDir()); err != nil {
 		return err
 	}
 	record.SessionID = id
@@ -57,7 +71,7 @@ func (c *Cache) Store(id string, record Record) error {
 	}
 	tempName := temp.Name()
 	defer os.Remove(tempName)
-	if err := temp.Chmod(0o600); err != nil {
+	if err := protectSynthesisFile(tempName, temp); err != nil {
 		temp.Close()
 		return err
 	}
@@ -68,7 +82,7 @@ func (c *Cache) Store(id string, record Record) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tempName, c.recordPath(id)); err != nil {
+	if err := os.Rename(tempName, path); err != nil {
 		return err
 	}
 	c.records.Store(id, record)
@@ -96,6 +110,17 @@ func (c *Cache) LookupLatest(id string) *session.SessionSynthesis {
 	return &synthesis
 }
 
-func (c *Cache) recordPath(id string) string {
-	return filepath.Join(SummariesDir(), id+".json")
+func (c *Cache) recordPath(id string) (string, error) {
+	if id == "" || len(id) > 256 {
+		return "", fmt.Errorf("invalid synthesis cache session id")
+	}
+	for _, character := range id {
+		if (character < 'a' || character > 'z') &&
+			(character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') &&
+			character != '-' && character != '_' {
+			return "", fmt.Errorf("invalid synthesis cache session id")
+		}
+	}
+	return filepath.Join(SummariesDir(), id+".json"), nil
 }
