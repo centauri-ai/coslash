@@ -18,6 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"golang.org/x/sys/unix"
 )
 
 func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
@@ -34,9 +35,11 @@ func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
 	if err := writeRuntime("http://127.0.0.1:4321"); err != nil {
 		t.Fatal(err)
 	}
-	if err := markRuntimeReady(lock); err != nil {
+	ready, err := acquireRuntimeReadiness()
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer ready.Close()
 
 	baseURL, token, err := readRuntime()
 	if err != nil {
@@ -145,6 +148,30 @@ func TestRuntimeLockAllowsOnlyOneServer(t *testing.T) {
 		t.Fatalf("lock remained held after close: %v", err)
 	}
 	third.Close()
+}
+
+func TestRuntimeReadinessPreservesExclusiveOwnership(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	lock, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	ready, err := acquireRuntimeReadiness()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Close()
+	probe, err := os.OpenFile(filepath.Join(home, "runtime.lock"), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	if err := unix.Flock(int(probe.Fd()), unix.LOCK_SH|unix.LOCK_NB); err == nil {
+		_ = unix.Flock(int(probe.Fd()), unix.LOCK_UN)
+		t.Fatal("readiness publication released exclusive singleton ownership")
+	}
 }
 
 func TestRuntimeLockAcquisitionClearsStaleDiscovery(t *testing.T) {
@@ -575,7 +602,9 @@ func writeTestRuntime(t *testing.T, baseURL, token string) {
 	if err := writeRuntime(baseURL); err != nil {
 		t.Fatal(err)
 	}
-	if err := markRuntimeReady(lock); err != nil {
+	ready, err := acquireRuntimeReadiness()
+	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { ready.Close() })
 }

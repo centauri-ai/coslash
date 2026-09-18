@@ -20,7 +20,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const runtimeFilename = "runtime.json"
+const (
+	runtimeFilename   = "runtime.json"
+	readinessFilename = "runtime.ready"
+)
 
 const sessionListTimeout = 3 * time.Minute
 
@@ -50,8 +53,16 @@ func acquireRuntimeLock() (*os.File, error) {
 	return file, nil
 }
 
-func markRuntimeReady(file *os.File) error {
-	return unix.Flock(int(file.Fd()), unix.LOCK_SH)
+func acquireRuntimeReadiness() (*os.File, error) {
+	file, err := os.OpenFile(filepath.Join(settings.Home(), readinessFilename), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return file, nil
 }
 
 func writeRuntime(baseURL string) error {
@@ -107,23 +118,21 @@ func removeRuntime(baseURL, token string) error {
 	return errors.Join(os.Remove(runtimePath), os.Remove(tokenPath))
 }
 
-func runtimeOwnerActive() bool {
-	file, err := os.OpenFile(filepath.Join(settings.Home(), "runtime.lock"), os.O_RDWR, 0)
+func exclusiveRuntimeLockHeld(name string) bool {
+	file, err := os.OpenFile(filepath.Join(settings.Home(), name), os.O_RDWR, 0)
 	if err != nil {
 		return false
 	}
 	defer file.Close()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err == nil {
-		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-		return false
-	} else if !errors.Is(err, unix.EWOULDBLOCK) {
-		return false
-	}
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
-		return false
+		return errors.Is(err, unix.EWOULDBLOCK)
 	}
 	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-	return true
+	return false
+}
+
+func runtimeOwnerActive() bool {
+	return exclusiveRuntimeLockHeld("runtime.lock") && exclusiveRuntimeLockHeld(readinessFilename)
 }
 
 func readRuntime() (string, string, error) {
