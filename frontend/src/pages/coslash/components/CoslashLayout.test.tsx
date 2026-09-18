@@ -245,6 +245,20 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('>server/app<');
   });
 
+  it('withholds review from a local session that has no working directory', () => {
+    const reviewable = renderLayout({
+      sessions: [
+        session({ id: 'with-cwd', sourceId: 'local', agent: 'claude', cwd: '/workspace/app' }),
+      ] as Session[],
+    });
+    const unreviewable = renderLayout({
+      sessions: [session({ id: 'without-cwd', sourceId: 'local', agent: 'claude', cwd: '' })] as Session[],
+    });
+
+    expect(reviewable).toContain('Send for review');
+    expect(unreviewable).not.toContain('Send for review');
+  });
+
   it('shows loading indicators while refreshing the selected time window', () => {
     const markup = renderLayout({ isLoading: true });
 

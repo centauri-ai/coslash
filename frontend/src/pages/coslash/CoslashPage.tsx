@@ -59,15 +59,23 @@ function apiWindowForRange(range: SessionRange): TimeWindow {
   return 'all';
 }
 
-function SettingsErrorBanner({ message, onOpen }: { message: string; onOpen: () => void }) {
+function SettingsErrorBanner({
+  message,
+  actionLabel,
+  onOpen,
+}: {
+  message: string;
+  actionLabel: string;
+  onOpen: () => void;
+}) {
   return (
     <div
       role="alert"
       className="text-destructive flex items-center justify-between gap-4 border-b bg-neutral-50 px-5 py-2 text-sm dark:bg-neutral-900"
     >
-      <span>{message} Synthesis is off and terminal launches are blocked.</span>
+      <span>{message}</span>
       <Button variant="outline" size="sm" onClick={onOpen}>
-        Repair settings
+        {actionLabel}
       </Button>
     </div>
   );
@@ -203,6 +211,21 @@ export function CoslashPage() {
     });
   };
 
+  const settingsBanner =
+    settingsState.response?.valid === false ? (
+      <SettingsErrorBanner
+        message={`${settingsState.response.error ?? 'settings.json is invalid.'} Synthesis is off and terminal launches are blocked.`}
+        actionLabel="Repair settings"
+        onOpen={() => setSettingsDialogMode('full-settings')}
+      />
+    ) : settingsState.loadError != null ? (
+      <SettingsErrorBanner
+        message={`Settings could not be loaded: ${settingsState.loadError}`}
+        actionLabel="View details"
+        onOpen={() => setSettingsDialogMode('full-settings')}
+      />
+    ) : undefined;
+
   const firstRun = diagnostics?.sources.every(
     (source) => source.state === 'missing' || source.state === 'empty',
   );
@@ -243,9 +266,9 @@ export function CoslashPage() {
         theme={settingsState.response?.settings.appearance.theme ?? 'light'}
         onThemeChange={handleThemeChange}
         themeDisabled={
-          settingsState.isLoading ||
+          settingsState.response == null ||
           settingsState.isSaving ||
-          settingsState.response?.valid === false ||
+          settingsState.response.valid === false ||
           requiresFirstRunConsent(settingsState.response)
         }
         onRetry={handleRemoteRetry}
@@ -253,14 +276,7 @@ export function CoslashPage() {
         isLoading={isLoading}
         loadError={loadError}
         emptyContent={emptyContent}
-        banner={
-          settingsState.response?.valid === false ? (
-            <SettingsErrorBanner
-              message={settingsState.response.error ?? 'settings.json is invalid.'}
-              onOpen={() => setSettingsDialogMode('full-settings')}
-            />
-          ) : undefined
-        }
+        banner={settingsBanner}
         headerActions={
           shareEnabled ? (
             <>

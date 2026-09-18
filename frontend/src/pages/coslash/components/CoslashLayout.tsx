@@ -590,7 +590,8 @@ function SessionRow({
   const vendor = getVendor(session.agent);
   const key = sessionKey(session);
   const reviewLink = review.index.links.get(key);
-  const showReviewAction = isLocalSession(session) && !review.index.reviewSessions.has(key);
+  const showReviewAction =
+    isLocalSession(session) && session.cwd.trim() !== '' && !review.index.reviewSessions.has(key);
   const cell = cn(styles.cell, { 'py-[5px]': compact });
   const hideWhenCompact = { hidden: compact };
   return (
