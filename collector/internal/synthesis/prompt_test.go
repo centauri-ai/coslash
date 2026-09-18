@@ -19,3 +19,13 @@ func TestBuildInputReservesCompactionSeedBeforeDigest(t *testing.T) {
 		t.Fatalf("compaction seed was truncated from synthesis input: %s", input)
 	}
 }
+
+func TestBuildInputPreservesDigestAfterMultibyteCompactionSeed(t *testing.T) {
+	input := BuildInput(&session.Session{ID: "session", Agent: "cursor", SessionDetails: session.SessionDetails{
+		CompactionSeed: strings.Repeat("界", 4_000),
+		Digest:         []session.DigestEntry{{Turn: 1, Category: session.DigestRecap, Description: "recent post-compaction fact"}},
+	}})
+	if !strings.Contains(input, "recent post-compaction fact") {
+		t.Fatalf("recent digest was truncated after multibyte compaction seed: %s", input)
+	}
+}

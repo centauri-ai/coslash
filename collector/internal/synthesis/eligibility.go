@@ -6,6 +6,6 @@ func Eligible(s *session.Session) bool {
 	if s == nil {
 		return false
 	}
-	return s.Turns > 5 || s.Compactions > 0 ||
+	return s.Turns > 5 || s.Compactions > 0 || s.CompactionSeed != "" ||
 		(s.ContextTokens != nil && *s.ContextTokens > 100_000)
 }
