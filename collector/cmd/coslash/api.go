@@ -99,7 +99,7 @@ func handleList(
 		return
 	}
 	for _, session := range sessions {
-		session.Synthesis = mgr.Lookup(session.ID, session.LastActivityTime)
+		session.Synthesis = mgr.Lookup(session.Agent, session.ID, session.LastActivityTime)
 		state := reviewManager.Status(reviewpkg.Key(session.Agent, session.ID))
 		session.ReviewPending = state.Pending
 		session.ReviewError = state.Error
@@ -246,12 +246,12 @@ func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
 	}{}
 	revision := found.LastActivityTime
 	if revision > 0 {
-		response.Synthesis = mgr.Lookup(found.ID, revision)
+		response.Synthesis = mgr.Lookup(found.Agent, found.ID, revision)
 		mgr.Ensure(found, revision)
 		response.SynthesisPending = response.Synthesis == nil && synthesis.Eligible(found) &&
-			!mgr.InCooldown(found.ID, revision)
+			!mgr.InCooldown(found.Agent, found.ID, revision)
 		if response.Synthesis == nil {
-			response.SynthesisError = mgr.Failure(found.ID, revision)
+			response.SynthesisError = mgr.Failure(found.Agent, found.ID, revision)
 		}
 	}
 	writeJSON(w, response)
@@ -392,7 +392,7 @@ func canonicalSession(
 		return nil, err
 	}
 	if found != nil {
-		found.Synthesis = mgr.Lookup(found.ID, found.LastActivityTime)
+		found.Synthesis = mgr.Lookup(found.Agent, found.ID, found.LastActivityTime)
 	}
 	return found, nil
 }
@@ -461,6 +461,10 @@ func handleSend(
 		message,
 	); err != nil {
 		log.Printf("send: %v", err)
+		if errors.Is(err, launch.ErrWorkingDirectoryUnavailable) {
+			http.Error(w, "session working directory is unavailable", http.StatusConflict)
+			return
+		}
 		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
 		return
 	}

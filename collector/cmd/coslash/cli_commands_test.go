@@ -309,6 +309,37 @@ func TestHandleSendDoesNotLaunchAfterRequestCancellation(t *testing.T) {
 	}
 }
 
+type unavailableWorkingDirectoryError struct{}
+
+func (unavailableWorkingDirectoryError) Error() string {
+	return "launch: working directory is unavailable"
+}
+
+func (unavailableWorkingDirectoryError) Is(target error) bool {
+	return target.Error() == "launch: working directory is unavailable"
+}
+
+func TestHandleSendReportsUnavailableWorkingDirectory(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	response := httptest.NewRecorder()
+	handleSend(
+		response,
+		httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil),
+		settings.Open(),
+		func(string, string) (*session.Session, error) {
+			return &session.Session{Agent: "codex", ID: "session-1", WorkingDirectory: "/missing"}, nil
+		},
+		func(string) bool { return true },
+		func(context.Context, string, string, string, string, string, string, string) error {
+			return unavailableWorkingDirectoryError{}
+		},
+	)
+	want := "session working directory is unavailable\n"
+	if response.Code != http.StatusConflict || response.Body.String() != want {
+		t.Fatalf("response = %d %q, want %d %q", response.Code, response.Body.String(), http.StatusConflict, want)
+	}
+}
+
 func TestHandleSendRejectsUnavailableTarget(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	launched := false

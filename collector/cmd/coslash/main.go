@@ -246,7 +246,7 @@ func routes(
 		getSession := func(agent, id string) (*session.Session, error) {
 			found, err := collector.GetSessionForPreviewByAgent(agent, id, 0)
 			if found != nil {
-				found.Synthesis = mgr.LookupLatest(found.ID)
+				found.Synthesis = mgr.LookupLatest(found.Agent, found.ID)
 			}
 			return found, err
 		}

@@ -4,11 +4,26 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestTerminalWithPromptRejectsUnavailableWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, workingDirectory := range []string{filepath.Join(root, "missing"), file} {
+		err := TerminalWithPrompt(context.Background(), "invalid", vendors.AgentCodex, workingDirectory, "", NewSession, "", "")
+		if err == nil || err.Error() != "launch: working directory is unavailable" {
+			t.Fatalf("TerminalWithPrompt(%q) error = %v, want unavailable working directory", workingDirectory, err)
+		}
+	}
+}
 
 func TestOpenMacTerminalPropagatesCancellation(t *testing.T) {
 	original := runOSAScript

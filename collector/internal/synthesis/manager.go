@@ -22,6 +22,7 @@ const (
 )
 
 type failureKey struct {
+	agent    string
 	id       string
 	revision int64
 }
@@ -59,18 +60,18 @@ func NewManager(runner Runner) *Manager {
 	}
 }
 
-func (m *Manager) Lookup(id string, revision int64) *session.SessionSynthesis {
+func (m *Manager) Lookup(agent, id string, revision int64) *session.SessionSynthesis {
 	if m == nil {
 		return nil
 	}
-	return m.cache.Lookup(id, revision)
+	return m.cache.Lookup(agent, id, revision)
 }
 
-func (m *Manager) LookupLatest(id string) *session.SessionSynthesis {
+func (m *Manager) LookupLatest(agent, id string) *session.SessionSynthesis {
 	if m == nil {
 		return nil
 	}
-	return m.cache.LookupLatest(id)
+	return m.cache.LookupLatest(agent, id)
 }
 
 func (m *Manager) Ensure(s *session.Session, revision int64) bool {
@@ -80,16 +81,17 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 	if m.currentRunner() == nil {
 		return false
 	}
-	if m.Lookup(s.ID, revision) != nil || m.InCooldown(s.ID, revision) {
+	if m.Lookup(s.Agent, s.ID, revision) != nil || m.InCooldown(s.Agent, s.ID, revision) {
 		return false
 	}
-	if _, loaded := m.inFlight.LoadOrStore(s.ID, struct{}{}); loaded {
+	key := cacheKey{agent: s.Agent, id: s.ID}
+	if _, loaded := m.inFlight.LoadOrStore(key, struct{}{}); loaded {
 		return false
 	}
 	input := buildInputWithDetailProbes(s)
-	id := s.ID
+	agent, id := s.Agent, s.ID
 	go func() {
-		defer m.inFlight.Delete(id)
+		defer m.inFlight.Delete(key)
 		m.slots <- struct{}{}
 		defer func() { <-m.slots }()
 
@@ -99,7 +101,7 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 		}
 		result, err := runner.Run(context.Background(), input)
 		if err != nil {
-			m.recordFailure(id, revision, err)
+			m.recordFailure(agent, id, revision, err)
 			log.Printf("synthesize session %s: %v", id, err)
 			return
 		}
@@ -110,12 +112,12 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 			GeneratedAt: m.now().UnixMilli(),
 			Synthesis:   result,
 		}
-		if err := m.cache.Store(id, record); err != nil {
-			m.recordFailure(id, revision, err)
+		if err := m.cache.Store(agent, id, record); err != nil {
+			m.recordFailure(agent, id, revision, err)
 			log.Printf("cache synthesis for session %s: %v", id, err)
 			return
 		}
-		m.failures.Delete(failureKey{id: id, revision: revision})
+		m.failures.Delete(failureKey{agent: agent, id: id, revision: revision})
 		m.cliMissingUntil.Store(0)
 	}()
 	return true
@@ -130,7 +132,7 @@ func buildInputWithDetailProbes(s *session.Session) string {
 	return BuildInput(&inputSession)
 }
 
-func (m *Manager) InCooldown(id string, revision int64) bool {
+func (m *Manager) InCooldown(agent, id string, revision int64) bool {
 	if m == nil {
 		return true
 	}
@@ -142,7 +144,7 @@ func (m *Manager) InCooldown(id string, revision int64) bool {
 	if until := m.cliMissingUntil.Load(); until > now.UnixNano() {
 		return true
 	}
-	key := failureKey{id: id, revision: revision}
+	key := failureKey{agent: agent, id: id, revision: revision}
 	value, ok := m.failures.Load(key)
 	if !ok {
 		return false
@@ -197,9 +199,9 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 	}
 }
 
-func (m *Manager) recordFailure(id string, revision int64, err error) {
+func (m *Manager) recordFailure(agent, id string, revision int64, err error) {
 	now := m.now()
-	m.failures.Store(failureKey{id: id, revision: revision}, failure{at: now, message: err.Error()})
+	m.failures.Store(failureKey{agent: agent, id: id, revision: revision}, failure{at: now, message: err.Error()})
 	if errors.Is(err, exec.ErrNotFound) {
 		m.cliMissingUntil.Store(now.Add(m.cliMissingCooldown).UnixNano())
 	}
@@ -219,17 +221,18 @@ func (m *Manager) SetRunner(runner Runner) {
 	})
 }
 
-func (m *Manager) Failure(id string, revision int64) string {
+func (m *Manager) Failure(agent, id string, revision int64) string {
 	if m == nil {
 		return ""
 	}
-	value, ok := m.failures.Load(failureKey{id: id, revision: revision})
+	key := failureKey{agent: agent, id: id, revision: revision}
+	value, ok := m.failures.Load(key)
 	if !ok {
 		return ""
 	}
 	failed := value.(failure)
 	if m.now().Sub(failed.at) >= m.failureCooldown {
-		m.failures.Delete(failureKey{id: id, revision: revision})
+		m.failures.Delete(key)
 		return ""
 	}
 	return failed.message
