@@ -4,15 +4,22 @@ import { LOCAL_SOURCE_ID } from '@/pages/coslash/lib/session';
 
 export type MachineTone = 'checking' | 'failed' | 'disabled' | 'stale' | 'limited' | 'ok';
 
-/** Legend copy for the sidebar dots, ordered healthiest first. */
-export const MACHINE_TONE_LEGEND: { tone: MachineTone; label: string }[] = [
-  { tone: 'ok', label: 'Connected — history is complete.' },
-  { tone: 'checking', label: 'Checking the connection.' },
-  { tone: 'limited', label: 'Partial history — these sessions are left out of the totals.' },
-  { tone: 'stale', label: 'Offline — showing the last recorded context. Retry from Settings.' },
-  { tone: 'failed', label: 'Setup or connection failed — open Settings to fix it.' },
-  { tone: 'disabled', label: 'Remote collection is turned off.' },
-];
+/** One line per dot colour, shown when the dot is hovered. */
+export const MACHINE_TONE_COPY: Record<MachineTone, string> = {
+  ok: 'Connected — history is complete.',
+  checking: 'Checking the connection.',
+  limited: 'Partial history — these sessions are left out of the totals.',
+  stale: 'Offline — showing the last recorded context.',
+  failed: 'Setup or connection failed — open Settings to fix it.',
+  disabled: 'Remote collection is turned off.',
+};
+
+/** Offline hosts and failed connectors are the ones a refresh can recover. */
+export function machineRetryable(machine: MachineFact): boolean {
+  if (machine.sourceId === LOCAL_SOURCE_ID) return false;
+  const tone = machineTone(machine);
+  return tone === 'stale' || tone === 'failed';
+}
 
 function isChecking(machine: MachineFact): boolean {
   return (
