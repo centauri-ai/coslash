@@ -97,7 +97,7 @@ export function CoslashPage() {
   const apiWindow = apiWindowForRange(range);
   const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
     useSessions({
-      localWindow: apiWindow,
+      localWindow: shareFixtureEnabled ? 'all' : apiWindow,
       remoteWindow: apiWindow,
     });
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);

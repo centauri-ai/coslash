@@ -3,6 +3,7 @@ import {
   decodeSessionsResponse,
   diffRequestPath,
   exactDiffFailure,
+  remoteRefreshInProgress,
   sessionDetailRequestPath,
   sessionsRequestPath,
   shareCandidatesReducer,
@@ -192,6 +193,23 @@ describe('shareCandidatesReducer', () => {
       isLoading: true,
       loadError: null,
     });
+  });
+});
+
+describe('remoteRefreshInProgress', () => {
+  it('recognizes a broader-history refresh before Share accepts the cached response', () => {
+    expect(
+      remoteRefreshInProgress([
+        {
+          sourceId: 'r_0123456789abcdef',
+          label: 'SSH workspace',
+          state: 'connecting',
+          complete: false,
+          reason: 'broader_history',
+          refreshing: true,
+        },
+      ]),
+    ).toBe(true);
   });
 });
 

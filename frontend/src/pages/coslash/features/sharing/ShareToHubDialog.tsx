@@ -231,12 +231,12 @@ export function ShareToHubDialog({
 
   /* oxlint-disable react/set-state-in-effect -- revoke consent when its source revision changes */
   useEffect(() => {
-    if (phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
+    if (!open || phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
     setRecords([]);
     setReviewed(false);
     setProblem('The source revision or destination changed. Review the current selection again.');
     setPhase('select');
-  }, [phase, records.length, reviewStillCurrent]);
+  }, [open, phase, records.length, reviewStillCurrent]);
   /* oxlint-enable react/set-state-in-effect */
 
   const replaceSelection = (next: Set<string>) => {

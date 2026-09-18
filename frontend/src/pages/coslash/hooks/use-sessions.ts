@@ -14,7 +14,7 @@ import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-windo
 // Background refresh keeps statuses and "ago" times current.
 const REFRESH_INTERVAL_MS = MINUTE;
 const ACTIVE_REVIEW_REFRESH_INTERVAL_MS = 3_000;
-function remoteRefreshInProgress(machines: MachineFact[]) {
+export function remoteRefreshInProgress(machines: MachineFact[]) {
   return machines.some(
     (machine) =>
       !isLocalSource(machine.sourceId) &&
@@ -442,20 +442,22 @@ export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
     const controller = new AbortController();
     dispatch({ type: 'start', window });
 
-    void apiFetch(path, { signal: controller.signal })
-      .then((response) => {
+    const load = async () => {
+      const fetchPayload = async () => {
+        const response = await apiFetch(path, { signal: controller.signal });
         if (!response.ok) throw new Error(`Share candidates request failed (${response.status})`);
-        return response.json() as Promise<unknown>;
-      })
-      .then((body) => {
+        return decodeSessionsResponse(await response.json());
+      };
+
+      try {
+        let payload = await fetchPayload();
+        if (remoteRefreshInProgress(payload.machines)) {
+          await waitForRemoteRefresh(undefined, controller.signal);
+          payload = await fetchPayload();
+        }
         if (controller.signal.aborted) return;
-        dispatch({
-          type: 'success',
-          window,
-          sessions: decodeSessionsResponse(body).sessions,
-        });
-      })
-      .catch((error: unknown) => {
+        dispatch({ type: 'success', window, sessions: payload.sessions });
+      } catch (error: unknown) {
         if (controller.signal.aborted) return;
         dispatch({
           type: 'error',
@@ -465,7 +467,9 @@ export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
               ? error.message
               : 'CoSlash couldn’t load sessions available to share.',
         });
-      });
+      }
+    };
+    void load();
 
     return () => controller.abort();
   }, [enabled, window]);
