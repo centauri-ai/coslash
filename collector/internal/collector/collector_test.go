@@ -290,3 +290,24 @@ func TestGetSessionForPreviewByAgentSelectsVendor(t *testing.T) {
 		t.Fatalf("session = %#v, want codex session", got)
 	}
 }
+
+func TestGetSessionFactsByAgentSelectsVendor(t *testing.T) {
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+	vendorSources = []vendorSource{
+		{name: "claude", loadFacts: func(string) (*vendors.ParsedSession, error) {
+			return &vendors.ParsedSession{Session: &session.Session{Agent: "claude", ID: "same"}}, nil
+		}},
+		{name: "codex", loadFacts: func(string) (*vendors.ParsedSession, error) {
+			return &vendors.ParsedSession{Session: &session.Session{Agent: "codex", ID: "same"}}, nil
+		}},
+	}
+
+	got, err := GetSessionFactsByAgent("codex", "same")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Agent != "codex" {
+		t.Fatalf("session = %#v, want codex session", got)
+	}
+}

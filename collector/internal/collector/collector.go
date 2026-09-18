@@ -674,12 +674,23 @@ func deref(value *string) string {
 }
 
 func GetSessionFacts(id string) (*session.Session, error) {
+	return getSessionFacts("", id)
+}
+
+func GetSessionFactsByAgent(agent, id string) (*session.Session, error) {
+	return getSessionFacts(agent, id)
+}
+
+func getSessionFacts(agent, id string) (*session.Session, error) {
 	if id == "" {
 		return nil, nil
 	}
 	var p *vendors.ParsedSession
 	var failures []error
 	for _, source := range vendorSources {
+		if agent != "" && source.name != agent {
+			continue
+		}
 		candidate, err := source.loadFacts(id)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))

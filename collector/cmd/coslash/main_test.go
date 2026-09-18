@@ -71,6 +71,17 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	}
 }
 
+func TestSynthesisRouteRequiresAgent(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	handler := routes(synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/synthesis?id=same", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || response.Body.String() != "agent is required\n" {
+		t.Fatalf("response = %d %q", response.Code, response.Body.String())
+	}
+}
+
 func TestRemoteHandoffTransferFailurePreventsTerminalLaunch(t *testing.T) {
 	originalStage := stageRemoteHandoff
 	originalLaunch := launchRemoteTerminal

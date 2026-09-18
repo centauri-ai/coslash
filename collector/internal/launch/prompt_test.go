@@ -17,9 +17,9 @@ func TestTerminalWithPromptRejectsUnavailableWorkingDirectory(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, workingDirectory := range []string{filepath.Join(root, "missing"), file} {
+	for _, workingDirectory := range []string{"", filepath.Join(root, "missing"), file} {
 		err := TerminalWithPrompt(context.Background(), "invalid", vendors.AgentCodex, workingDirectory, "", NewSession, "", "")
-		if err == nil || err.Error() != "launch: working directory is unavailable" {
+		if !errors.Is(err, ErrWorkingDirectoryUnavailable) {
 			t.Fatalf("TerminalWithPrompt(%q) error = %v, want unavailable working directory", workingDirectory, err)
 		}
 	}

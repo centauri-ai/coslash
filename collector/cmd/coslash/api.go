@@ -224,12 +224,16 @@ func parseRevision(value string) (int64, error) {
 	return revision, nil
 }
 
-// /api/synthesis?id=X → cached synthesis for one session, triggering a run
+// /api/synthesis?agent=A&id=X → cached synthesis for one session, triggering a run
 // when eligible. Loads one session, never the whole machine; GetSessionFacts skips fork,
 // subagents, and name/status resolution because BuildInput and Eligible read
 // none of those.
-func handleSynthesis(w http.ResponseWriter, id string, mgr *synthesis.Manager) {
-	found, err := collector.GetSessionFacts(id)
+func handleSynthesis(w http.ResponseWriter, agent, id string, mgr *synthesis.Manager) {
+	if agent == "" {
+		http.Error(w, "agent is required", http.StatusBadRequest)
+		return
+	}
+	found, err := collector.GetSessionFactsByAgent(agent, id)
 	if err != nil {
 		log.Printf("synthesis: %v", err)
 		http.Error(w, "could not load synthesis", http.StatusInternalServerError)
@@ -348,7 +352,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			writeAPIError(w, http.StatusBadGateway, "remote_handoff_transfer_failed", "Could not transfer handoff; check SSH and try again.")
 			return
 		}
-		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
+		writeTerminalLaunchError(w, err)
 		return
 	}
 	log.Printf("launch %s: %s %s", mode, found.Agent, found.ID)
@@ -461,15 +465,19 @@ func handleSend(
 		message,
 	); err != nil {
 		log.Printf("send: %v", err)
-		if errors.Is(err, launch.ErrWorkingDirectoryUnavailable) {
-			http.Error(w, "session working directory is unavailable", http.StatusConflict)
-			return
-		}
-		http.Error(w, "could not launch terminal", http.StatusInternalServerError)
+		writeTerminalLaunchError(w, err)
 		return
 	}
 	log.Printf("send: %s to %s", found.ID, target)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeTerminalLaunchError(w http.ResponseWriter, err error) {
+	if errors.Is(err, launch.ErrWorkingDirectoryUnavailable) {
+		http.Error(w, "session working directory is unavailable", http.StatusConflict)
+		return
+	}
+	http.Error(w, "could not launch terminal", http.StatusInternalServerError)
 }
 
 func openRemoteTerminalWithHandoff(

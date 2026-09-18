@@ -2,12 +2,15 @@ package synthesis
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 type Record struct {
@@ -30,6 +33,70 @@ type cacheKey struct {
 
 func NewCache() *Cache {
 	return &Cache{}
+}
+
+func MigrateLegacyCache(exists func(agent, id string) (bool, error)) error {
+	entries, err := os.ReadDir(SummariesDir())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	cache := NewCache()
+	var failures []error
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), ".json")
+		legacyPath := filepath.Join(SummariesDir(), entry.Name())
+		data, err := os.ReadFile(legacyPath)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("read legacy synthesis %q: %w", id, err))
+			continue
+		}
+		var record Record
+		if err := json.Unmarshal(data, &record); err != nil {
+			failures = append(failures, fmt.Errorf("decode legacy synthesis %q: %w", id, err))
+			continue
+		}
+		var matches []string
+		resolutionFailed := false
+		for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode} {
+			found, err := exists(agent, id)
+			if err != nil {
+				failures = append(failures, fmt.Errorf("resolve legacy synthesis %q: %w", id, err))
+				resolutionFailed = true
+				break
+			}
+			if found {
+				matches = append(matches, agent)
+				if len(matches) > 1 {
+					break
+				}
+			}
+		}
+		if resolutionFailed {
+			continue
+		}
+		if len(matches) == 1 {
+			destination := cache.recordPath(matches[0], id)
+			if _, err := os.Stat(destination); errors.Is(err, os.ErrNotExist) {
+				if err := cache.Store(matches[0], id, record); err != nil {
+					failures = append(failures, fmt.Errorf("migrate legacy synthesis %q: %w", id, err))
+					continue
+				}
+			} else if err != nil {
+				failures = append(failures, fmt.Errorf("inspect synthesis destination %q: %w", id, err))
+				continue
+			}
+		}
+		if err := os.Remove(legacyPath); err != nil {
+			failures = append(failures, fmt.Errorf("remove legacy synthesis %q: %w", id, err))
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func (c *Cache) Load(agent, id string) (Record, error) {
