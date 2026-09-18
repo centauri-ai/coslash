@@ -9,7 +9,6 @@ import (
 	"io"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -63,19 +62,7 @@ func HelperArgs(alias, helperPath, subcommand string, connectTimeoutSeconds int)
 	if err != nil {
 		return nil, err
 	}
-	if connectTimeoutSeconds <= 0 {
-		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
-	}
-	return []string{
-		"-T",
-		"-o", "BatchMode=yes",
-		"-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=" + controlSocketPath(),
-		"-o", "ControlPersist=" + defaultControlPersist,
-		alias,
-		command,
-	}, nil
+	return append(sshOptions(connectTimeoutSeconds, sshMultiplexing), alias, command), nil
 }
 
 // helperCommand renders the remote command. OpenSSH hands the command to the

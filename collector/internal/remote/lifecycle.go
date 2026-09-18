@@ -21,7 +21,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -289,19 +288,7 @@ func HelperPlatformArgs(alias string, connectTimeoutSeconds int) ([]string, erro
 	if !aliasPattern.MatchString(alias) {
 		return nil, ErrInvalidAlias
 	}
-	if connectTimeoutSeconds <= 0 {
-		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
-	}
-	return []string{
-		"-T",
-		"-o", "BatchMode=yes",
-		"-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=" + controlSocketPath(),
-		"-o", "ControlPersist=" + defaultControlPersist,
-		alias,
-		"uname -s; uname -m; id -u",
-	}, nil
+	return append(sshOptions(connectTimeoutSeconds, sshMultiplexing), alias, "uname -s; uname -m; id -u"), nil
 }
 
 func (artifact Artifact) Validate() error {
