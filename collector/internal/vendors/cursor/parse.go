@@ -85,6 +85,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			digest.Push(turns, category, prompt, timestamp)
 		}
 		if record.Role == "assistant" && record.Message != nil {
+			turnFinalReply = ""
 			textBlocks := []string{}
 			for _, block := range record.Message.Content {
 				if block.Type == "text" {

@@ -490,3 +490,43 @@ func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 		t.Fatalf("ambiguous compaction seed = %q, want empty", got)
 	}
 }
+
+func TestMalformedComposerDataStillRegistersIDELane(t *testing.T) {
+	home := t.TempDir()
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	if err := createMetadataTestDB(statePath); err != nil {
+		t.Fatal(err)
+	}
+	stateDB, err := sql.Open("sqlite", statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stateDB.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, 'not-json')`, "composerData:"+id); err != nil {
+		t.Fatal(err)
+	}
+	stateDB.Close()
+	chatPath := filepath.Join(home, ".cursor", "chats", "one", id, "store.db")
+	if err := os.MkdirAll(filepath.Dir(chatPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chatDB, err := sql.Open("sqlite", chatPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chatDB.Exec(`CREATE TABLE meta (key TEXT, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	value := hex.EncodeToString([]byte(`{"agentId":"` + id + `"}`))
+	if _, err := chatDB.Exec(`INSERT INTO meta VALUES ('0', ?)`, value); err != nil {
+		t.Fatal(err)
+	}
+	chatDB.Close()
+	metadata, err := loadMetadata(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Lookup(id); got == nil || got.Entrypoint != "" {
+		t.Fatalf("ambiguous malformed composer metadata = %#v", got)
+	}
+}

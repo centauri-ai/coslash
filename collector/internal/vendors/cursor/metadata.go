@@ -715,6 +715,17 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, lanes map[string]map[str
 		if rows.Scan(&key, &value) != nil {
 			continue
 		}
+		composerID, composerData := strings.CutPrefix(key, "composerData:")
+		validComposerData := composerData && transcriptIDPattern.MatchString(composerID)
+		if validComposerData {
+			composerID = canonicalCursorID(composerID)
+			if lanes != nil {
+				if lanes[composerID] == nil {
+					lanes[composerID] = map[string]bool{}
+				}
+				lanes[composerID][entrypointIDE] = true
+			}
+		}
 		var item struct {
 			CreatedAt json.RawMessage `json:"createdAt"`
 			ModelInfo struct {
@@ -760,14 +771,8 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, lanes map[string]map[str
 					pullRequests[id][url] = struct{}{}
 				}
 			}
-		} else if id, ok := strings.CutPrefix(key, "composerData:"); ok && transcriptIDPattern.MatchString(id) {
-			id = canonicalCursorID(id)
-			if lanes != nil {
-				if lanes[id] == nil {
-					lanes[id] = map[string]bool{}
-				}
-				lanes[id][entrypointIDE] = true
-			}
+		} else if validComposerData {
+			id := composerID
 			fallbacks[id] = strings.TrimSpace(item.ModelConfig.ModelName)
 			metadata.Session(id).CompactionSeed = strings.TrimSpace(item.LatestConversationSummary.Summary.Text)
 			usage := metadata.Session(id).Usage
