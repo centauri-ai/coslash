@@ -251,7 +251,7 @@ func applyCursorLiveness(metadata *vendors.SessionMetadata, live map[string]stri
 			entry = metadata.Session(id)
 			entry.Entrypoint = lane
 		}
-		if entry != nil && lane != "" && (entry.Entrypoint == "" || entry.Entrypoint == lane) {
+		if entry != nil && lane != "" && entry.Entrypoint == lane {
 			entry.Live = "interactive"
 		}
 	}
