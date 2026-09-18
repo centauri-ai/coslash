@@ -110,28 +110,8 @@ export function CoslashPage() {
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
   const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
-  const remoteSettings = settingsState.response?.settings.remote;
-  const pageSessions = useMemo(
-    () =>
-      remoteSettings == null
-        ? librarySessions
-        : librarySessions.map((session) =>
-            session.sourceId === remoteSettings.id
-              ? { ...session, sourceLabel: remoteSettings.sshAlias }
-              : session,
-          ),
-    [librarySessions, remoteSettings],
-  );
-  const pageMachines = useMemo(
-    () =>
-      remoteSettings == null
-        ? machines
-        : machines.map((machine) =>
-            machine.sourceId === remoteSettings.id ? { ...machine, label: remoteSettings.sshAlias } : machine,
-          ),
-    [machines, remoteSettings],
-  );
-  const selectedSession = pageSessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
+  const selectedSession =
+    librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
   const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
   const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
   const shareCandidates = useMemo(() => {
@@ -245,8 +225,8 @@ export function CoslashPage() {
   return (
     <>
       <CoslashLayout
-        sessions={pageSessions}
-        machines={pageMachines}
+        sessions={librarySessions}
+        machines={machines}
         range={range}
         onRangeChange={setRange}
         selectedSessionKey={selectedSessionKey}
@@ -272,6 +252,7 @@ export function CoslashPage() {
           requiresFirstRunConsent(settingsState.response)
         }
         onRetry={handleRemoteRetry}
+        onRetrySessions={retrySessions}
         retrying={remoteRetryInFlight}
         isLoading={isLoading}
         loadError={loadError}
@@ -304,7 +285,7 @@ export function CoslashPage() {
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}
-        machines={pageMachines}
+        machines={machines}
         onRefresh={async () => {
           if (selectedSession != null && !isLocalSession(selectedSession)) await handleRemoteRetry();
           else retrySessions();

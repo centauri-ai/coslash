@@ -49,8 +49,8 @@ function needsAttention(machine: MachineFact): boolean {
 
 export function machineTone(machine: MachineFact): MachineTone {
   if (isChecking(machine)) return 'checking';
-  if (connectorFailed(machine)) return 'failed';
   if (machine.state === 'disabled') return 'disabled';
+  if (connectorFailed(machine)) return 'failed';
   if (machine.state === 'stale') return 'stale';
   if (machine.state === 'limited') return 'limited';
   if (machine.state === 'error') return needsAttention(machine) ? 'failed' : 'stale';
@@ -65,6 +65,7 @@ export function machineStatusText(machine: MachineFact): string {
   if (isChecking(machine)) {
     return `Checking SSH. Last checked ${lastChecked}. Saved history from ${savedHistory}.`;
   }
+  if (machine.state === 'disabled') return 'Remote collection is disabled.';
   if (connectorFailed(machine)) {
     return `Setup failed: ${connectorFailureCopy(machine)}. Open Settings to retry.`;
   }
@@ -73,7 +74,6 @@ export function machineStatusText(machine: MachineFact): string {
   }
   if (machine.state === 'limited') return 'Showing the available remote history.';
   if (machine.state === 'error') return 'Connection needs attention.';
-  if (machine.state === 'disabled') return 'Remote collection is disabled.';
   if (machine.sessionCount === 0) {
     return `Connected. Last checked ${lastChecked}. No recent agent sessions found.`;
   }
@@ -82,5 +82,6 @@ export function machineStatusText(machine: MachineFact): string {
 
 /** A degraded or offline host is signalled by its dot; only these two interrupt the page. */
 export function needsBanner(machine: MachineFact): boolean {
-  return !isChecking(machine) && (connectorFailed(machine) || machine.state === 'error');
+  if (isChecking(machine) || machine.state === 'disabled') return false;
+  return connectorFailed(machine) || machine.state === 'error';
 }
