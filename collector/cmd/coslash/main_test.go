@@ -83,7 +83,7 @@ func TestRemoteHandoffTransferFailurePreventsTerminalLaunch(t *testing.T) {
 		return "", wantErr
 	}
 	launched := false
-	launchRemoteTerminal = func(string, string, string, string, string, string, string) error {
+	launchRemoteTerminal = func(context.Context, string, string, string, string, string, string, string) error {
 		launched = true
 		return nil
 	}
@@ -116,7 +116,7 @@ func TestRemoteTerminalFailureRemovesStagedHandoff(t *testing.T) {
 		return name, nil
 	}
 	wantErr := errors.New("terminal failed")
-	launchRemoteTerminal = func(string, string, string, string, string, string, string) error {
+	launchRemoteTerminal = func(context.Context, string, string, string, string, string, string, string) error {
 		return wantErr
 	}
 	removed := ""
@@ -197,7 +197,7 @@ func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 	}
 }
 
-func TestHandleReviewResolvesSessionWhenOriginAgentIsOmitted(t *testing.T) {
+func TestHandleReviewRequiresOriginAgent(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/api/reviews?source=local&id=origin-id&reviewer=claude", nil)
 	response := httptest.NewRecorder()
@@ -206,20 +206,16 @@ func TestHandleReviewResolvesSessionWhenOriginAgentIsOmitted(t *testing.T) {
 		request,
 		settings.Open(),
 		func(agent, id string) (*session.Session, error) {
-			if agent != "" || id != "origin-id" {
-				t.Fatalf("session identity = %q, %q", agent, id)
-			}
-			return &session.Session{Agent: "codex", ID: id, WorkingDirectory: "/repo"}, nil
+			t.Fatal("loaded session without an agent")
+			return nil, nil
 		},
 		func(reviewer string) bool { return reviewer == "claude" },
 		func(id string, launch reviewpkg.Launch) bool {
-			if id != "codex:origin-id" || launch.Reviewer != "claude" {
-				t.Fatalf("review = %q, %#v", id, launch)
-			}
-			return true
+			t.Fatal("started review without an agent")
+			return false
 		},
 	)
-	if response.Code != http.StatusAccepted {
+	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %q", response.Code, response.Body.String())
 	}
 }
