@@ -33,8 +33,9 @@ export function MachinesSettingsSection({
   const [alias, setAlias] = useState('');
   const [stage, setStage] = useState<SetupStage>('idle');
   const [message, setMessage] = useState<string | null>(null);
-  const [machine, setMachine] = useState<MachineFact | null>(null);
-  const currentMachine = remote?.sshAlias ? machine : null;
+  const [machineResult, setMachineResult] = useState<{ sshAlias: string; machine: MachineFact } | null>(null);
+  const currentMachine =
+    machineResult != null && machineResult.sshAlias === remote?.sshAlias ? machineResult.machine : null;
   const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
   const setupFailed =
     stage === 'error' ||
@@ -47,13 +48,14 @@ export function MachinesSettingsSection({
 
   useEffect(() => {
     if (!remote?.sshAlias) return;
+    const sshAlias = remote.sshAlias;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = () => {
       void remoteStatus()
         .then((status) => {
           if (cancelled) return;
-          setMachine(status);
+          setMachineResult({ sshAlias, machine: status });
           if (
             status.refreshing ||
             status.state === 'connecting' ||
@@ -64,7 +66,7 @@ export function MachinesSettingsSection({
           }
         })
         .catch(() => {
-          if (!cancelled) setMachine(null);
+          if (!cancelled) setMachineResult(null);
         });
     };
     poll();
@@ -79,7 +81,7 @@ export function MachinesSettingsSection({
     setMessage('Installing connector…');
     try {
       const setup = await setupRemoteHelper(sshAlias, 'install');
-      setMachine(setup.machine);
+      setMachineResult({ sshAlias, machine: setup.machine });
       if (setup.error != null) {
         setStage('error');
         setMessage(`Setup failed: ${setup.error}. Check SSH access and retry.`);
@@ -155,6 +157,7 @@ export function MachinesSettingsSection({
       setStage('idle');
       setMessage(null);
       setAlias('');
+      setMachineResult(null);
     } catch (error: unknown) {
       setStage('error');
       setMessage(error instanceof Error ? error.message : 'Could not remove this SSH host.');

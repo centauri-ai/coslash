@@ -32,10 +32,11 @@ export function useDiagnostics(enabled: boolean) {
   }, [enabled, requestID]);
 
   const refresh = () => setRequestID((id) => id + 1);
+  const isLoading = enabled && completedRequestID !== requestID;
   return {
     diagnostics,
-    isLoading: enabled && completedRequestID !== requestID,
-    loadFailed,
+    isLoading,
+    loadFailed: !isLoading && loadFailed,
     refresh,
   };
 }

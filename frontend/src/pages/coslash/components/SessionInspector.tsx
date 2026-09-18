@@ -82,7 +82,7 @@ import {
   type SessionDetail,
   type SessionIdentity,
 } from '@/pages/coslash/lib/session';
-import { HOUR, MINUTE } from '@/pages/coslash/lib/time';
+import { HOUR, MINUTE, promptCacheTiming } from '@/pages/coslash/lib/time';
 
 type SynthesisResponse = {
   synthesis: SessionDetail['synthesis'];
@@ -591,10 +591,14 @@ function CacheWindowMark({ within, label }: { within: boolean; label: string }) 
 // Cache TTL refreshes on every request, so warmth keys off the transcript's
 // last write: within 5 min both windows hold, within 1 hr only the 1-hr one.
 function PromptCacheCell({ lastAccessAt }: { lastAccessAt: number }) {
-  const [now] = useState(Date.now);
-  const ageMin = (now - lastAccessAt) / MINUTE;
-  const within5m = ageMin <= 5;
-  const within1h = ageMin <= 60;
+  const [now, setNow] = useState(Date.now);
+  const { within5m, within1h, nextRefreshAt } = promptCacheTiming(lastAccessAt, now);
+
+  useEffect(() => {
+    if (nextRefreshAt == null) return;
+    const timeout = globalThis.setTimeout(() => setNow(Date.now()), Math.max(0, nextRefreshAt - Date.now()));
+    return () => globalThis.clearTimeout(timeout);
+  }, [nextRefreshAt]);
 
   return (
     <div className="bg-background p-2">

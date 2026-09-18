@@ -136,6 +136,11 @@ export function SnapshotPreviewDialog({
   const [load, setLoad] = useState<LoadState>({ status: 'idle' });
   const loadKey = `${detail.sourceId}\0${detail.agent}\0${detail.id}\0${detail.mtime}`;
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) setLoad({ status: 'idle' });
+    onOpenChange(nextOpen);
+  };
+
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
@@ -159,7 +164,7 @@ export function SnapshotPreviewDialog({
     open && load.status !== 'idle' && load.key === loadKey ? load : { status: 'loading' };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[min(56rem,calc(100vw-2rem))] max-w-none! flex-col">
         <DialogHeader>
           <DialogTitle>{previewOnly ? 'Team sharing preview' : 'Exact snapshot preview'}</DialogTitle>
