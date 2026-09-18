@@ -1,3 +1,5 @@
+//go:build !windows
+
 package remote
 
 import (
@@ -5,16 +7,8 @@ import (
 	"testing"
 )
 
-func TestSSHOptionsOmitMultiplexingWhenDisabled(t *testing.T) {
-	got := sshOptions(7, false)
-	want := []string{"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("SSH options = %q, want %q", got, want)
-	}
-}
-
-func TestSSHOptionsIncludeMultiplexingWhenEnabled(t *testing.T) {
-	got := sshOptions(7, true)
+func TestUnixSSHOptionsIncludeMultiplexing(t *testing.T) {
+	got := sshOptions(7)
 	want := []string{
 		"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7",
 		"-o", "ControlMaster=auto", "-o", "ControlPath=" + controlSocketPath(),
