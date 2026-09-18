@@ -435,7 +435,10 @@ export function resumeDisabledHint(
     if (session.entrypoint !== 'cursor-cli' && session.entrypoint !== 'cursor-ide') {
       return 'Launch is not available for this Cursor session';
     }
-    if (session.entrypoint === 'cursor-cli' && boardStatusKey(session) === 'busy') {
+    if (
+      session.entrypoint === 'cursor-cli' &&
+      (boardStatusKey(session) === 'busy' || boardStatusKey(session) === 'idle')
+    ) {
       return 'This session is already active';
     }
     return undefined;

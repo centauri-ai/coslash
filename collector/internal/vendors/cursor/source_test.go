@@ -123,6 +123,18 @@ func TestCursorEnrichmentClearsStaleLivenessForStoppedSession(t *testing.T) {
 	}
 }
 
+func TestCursorEnrichmentAppliesIdleLiveStatusForFacts(t *testing.T) {
+	parsed := &vendors.ParsedSession{Session: &session.Session{ID: "live"}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("live").Live = "interactive"
+
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+
+	if parsed.Session.Status == nil || *parsed.Session.Status != "idle" {
+		t.Fatalf("status = %v, want idle", parsed.Session.Status)
+	}
+}
+
 func TestSelectCursorFilesPreservesLiveFamily(t *testing.T) {
 	tempFile := filepath.Join(t.TempDir(), "stat")
 	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {

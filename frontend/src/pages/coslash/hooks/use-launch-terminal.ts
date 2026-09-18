@@ -13,10 +13,14 @@ export function launchRequestPath(session: SessionIdentity, mode: LaunchMode): s
   })}`;
 }
 
+export function launchRequestBody(session: SessionIdentity, handoff?: string): string | undefined {
+  return session.agent === 'cursor' ? undefined : handoff;
+}
+
 async function launchTerminal(session: SessionIdentity, mode: LaunchMode, handoff?: string): Promise<void> {
   const response = await apiFetch(launchRequestPath(session, mode), {
     method: 'POST',
-    body: handoff,
+    body: launchRequestBody(session, handoff),
   });
   if (!response.ok) {
     const apiError = await readApiError(response);

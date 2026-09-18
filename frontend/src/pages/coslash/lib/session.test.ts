@@ -218,6 +218,16 @@ describe('resumeDisabledHint', () => {
       resumeDisabledHint({
         sourceId: LOCAL_SOURCE_ID,
         agent: 'cursor',
+        entrypoint: 'cursor-cli',
+        status: 'idle',
+        displayStale: false,
+        cwd: '/workspace',
+      }),
+    ).toBe('This session is already active');
+    expect(
+      resumeDisabledHint({
+        sourceId: LOCAL_SOURCE_ID,
+        agent: 'cursor',
         entrypoint: 'cursor-ide',
         status: null,
         displayStale: false,

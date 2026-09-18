@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -194,6 +195,13 @@ func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.Se
 			item.Session.CommitLog = append(item.Session.CommitLog, enrichment.CommitObservations...)
 		}
 		vendors.ApplySessionEnrichment(item, enrichment)
+		if enrichment.Live != "" {
+			status := enrichment.Live
+			if status == "interactive" {
+				status = session.LiveStatus(item.InTurn, item.Session.LastActivityTime, time.Now().UnixMilli())
+			}
+			item.Session.Status = &status
+		}
 		if item.Session.ContextWindow == nil && item.Session.Model != nil {
 			item.Session.ContextWindow = session.ContextWindowFor(*item.Session.Model)
 		}
