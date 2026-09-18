@@ -167,3 +167,28 @@ func TestParseTranscriptAddsCompletedAssistantRepliesToDigest(t *testing.T) {
 		t.Fatalf("result = %q, want complete second reply", parsed.Result)
 	}
 }
+
+func TestParseTranscriptDoesNotPromoteProgressBeforeToolOnlyAssistantRecord(t *testing.T) {
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	dir := filepath.Join(t.TempDir(), "agent-transcripts", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, id+".jsonl")
+	transcript := `{"role":"user","message":{"content":[{"type":"text","text":"do work"}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"text","text":"working on it"}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Shell","input":{"command":"true"}}]}}` + "\n" +
+		`{"type":"turn_ended","status":"success"}` + "\n"
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range parsed.Session.Digest {
+		if entry.Category == session.DigestRecap {
+			t.Fatalf("unexpected recap from progress text: %#v", entry)
+		}
+	}
+}

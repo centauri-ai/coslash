@@ -38,6 +38,9 @@ func BuildInput(s *session.Session) string {
 	if s.FirstPrompt != nil && strings.TrimSpace(*s.FirstPrompt) != "" {
 		fmt.Fprintf(&out, "First prompt: %s\n", limited(*s.FirstPrompt, 1_000))
 	}
+	if seed := strings.TrimSpace(s.CompactionSeed); seed != "" {
+		fmt.Fprintf(&out, "\nCOMPACTION SEED\n%s\n", limited(seed, 4_000))
+	}
 
 	out.WriteString("\nDIGEST (newest first)\n")
 	start := max(0, len(s.Digest)-40)
@@ -58,10 +61,6 @@ func BuildInput(s *session.Session) string {
 			state = "done"
 		}
 		fmt.Fprintf(&out, "- [%s] %s\n", state, limited(todo.Text, 500))
-	}
-
-	if seed := strings.TrimSpace(s.CompactionSeed); seed != "" {
-		fmt.Fprintf(&out, "\nCOMPACTION SEED\n%s\n", limited(seed, 4_000))
 	}
 
 	out.WriteString("\nARTIFACTS\nFiles\n")
