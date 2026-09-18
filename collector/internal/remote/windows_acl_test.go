@@ -30,7 +30,7 @@ func setWindowsDACL(t *testing.T, path, sddl string, directory bool) {
 
 func assertPrivateWindowsACL(t *testing.T, path string, directory bool) {
 	t.Helper()
-	handle, err := openMetadataSequencePath(path, windows.READ_CONTROL, directory)
+	handle, err := openPrivateWindowsPath(path, windows.READ_CONTROL, directory)
 	if err != nil {
 		t.Fatal(err)
 	}
