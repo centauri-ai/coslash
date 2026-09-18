@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/pkg/sftp"
@@ -45,6 +46,9 @@ func TestSSHLifecycleRemotePreservesPlatformProbeExitError(t *testing.T) {
 }
 
 func TestLifecycleSFTPPrimitivesCreateVerifyAndRejectSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the in-process SFTP server cannot emulate Linux ownership and mode attributes on Windows")
+	}
 	root := t.TempDir()
 	if err := os.Chmod(root, 0o700); err != nil {
 		t.Fatal(err)

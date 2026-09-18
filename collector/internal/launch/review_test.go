@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -82,15 +83,14 @@ func TestReviewCLICommandRejectsUnknownReviewer(t *testing.T) {
 }
 
 func TestReviewSetsPWDToWorkingDirectory(t *testing.T) {
-	bin := t.TempDir()
 	workingDirectory := t.TempDir()
 	output := filepath.Join(t.TempDir(), "pwd")
-	script := filepath.Join(bin, "opencode")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf %s \"$PWD\" > \"$REVIEW_PWD_OUTPUT\"\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("REVIEW_PWD_OUTPUT", output)
+	previous := reviewCommandContext
+	reviewCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=^TestReviewWorkingDirectoryProcess$")
+	}
+	t.Cleanup(func() { reviewCommandContext = previous })
 
 	if err := Review(context.Background(), review.Launch{Reviewer: "opencode", WorkingDirectory: workingDirectory}); err != nil {
 		t.Fatal(err)
@@ -101,5 +101,19 @@ func TestReviewSetsPWDToWorkingDirectory(t *testing.T) {
 	}
 	if string(got) != workingDirectory {
 		t.Fatalf("PWD = %q, want %q", got, workingDirectory)
+	}
+}
+
+func TestReviewWorkingDirectoryProcess(t *testing.T) {
+	output := os.Getenv("REVIEW_PWD_OUTPUT")
+	if output == "" {
+		return
+	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(output, []byte(workingDirectory), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

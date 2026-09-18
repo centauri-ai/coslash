@@ -63,6 +63,7 @@ var uuidSessionIDPattern = regexp.MustCompile(
 var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var localTerminalOpener = openTerminal
+var reviewCommandContext = exec.CommandContext
 
 type ReviewerOption struct {
 	ID         string
@@ -104,7 +105,7 @@ func Review(ctx context.Context, request review.Launch) error {
 	if err != nil {
 		return err
 	}
-	command := exec.CommandContext(ctx, spec.bin, spec.args...)
+	command := reviewCommandContext(ctx, spec.bin, spec.args...)
 	command.Dir = workingDirectory
 	configureReviewProcess(command)
 	command.Stdin = strings.NewReader(spec.stdin)

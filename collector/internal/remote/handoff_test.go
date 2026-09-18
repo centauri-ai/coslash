@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 const testHandoffName = "0123456789abcdef0123456789abcdef"
 
 func TestStageHandoffTransfersBoundaryPayloadOutsideCommandArguments(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	special := []byte("🦖\n'\"\\$();&|<>\n")
 	payload := append(special, bytes.Repeat([]byte("<"), 64*1024-len(special))...)
@@ -60,6 +63,7 @@ func TestStageHandoffTransfersBoundaryPayloadOutsideCommandArguments(t *testing.
 }
 
 func TestStageHandoffRemovesPartialFileOnTransferFailure(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	bin := t.TempDir()
 	if err := os.WriteFile(
@@ -101,9 +105,9 @@ func TestStageHandoffUsesCapabilityTimeoutForTransferAndCleanup(t *testing.T) {
 			}
 			deadlines = append(deadlines, deadline.Sub(started))
 			if len(deadlines) == 1 {
-				return exec.CommandContext(ctx, "/bin/sh", "-c", "exit 1")
+				return handoffExitCommand(ctx, 1)
 			}
-			return exec.CommandContext(ctx, "/bin/sh", "-c", "exit 0")
+			return handoffExitCommand(ctx, 0)
 		},
 	}
 
@@ -121,6 +125,7 @@ func TestStageHandoffUsesCapabilityTimeoutForTransferAndCleanup(t *testing.T) {
 }
 
 func TestStageHandoffCommandRejectsEarlyEOF(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	command := stageHandoffCommand(testHandoffName, len("complete payload"))
 	process := exec.Command("/bin/sh", "-c", command)
@@ -136,6 +141,7 @@ func TestStageHandoffCommandRejectsEarlyEOF(t *testing.T) {
 }
 
 func TestCleanupHandoffsRemovesExpiredFilesAfterRestart(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	dir := filepath.Join(home, ".coslash", "handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -172,6 +178,7 @@ func TestCleanupHandoffsRemovesExpiredFilesAfterRestart(t *testing.T) {
 }
 
 func TestStageHandoffRemovesCommittedFileWhenSSHReportsFailure(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	options := OpenOptions{
 		Limits: Limits{Deadline: 10 * time.Second, MaxStderrBytes: 1024},
@@ -194,6 +201,7 @@ func TestStageHandoffRemovesCommittedFileWhenSSHReportsFailure(t *testing.T) {
 }
 
 func TestRemoveHandoffDeletesStagedFile(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	options := OpenOptions{
 		Limits: Limits{Deadline: 10 * time.Second, MaxStderrBytes: 1024},
@@ -213,5 +221,30 @@ func TestRemoveHandoffDeletesStagedFile(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("staged handoff still exists: %v", err)
+	}
+}
+
+func handoffExitCommand(ctx context.Context, exitCode int) *exec.Cmd {
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHandoffExitProcess$")
+	command.Env = append(os.Environ(), "COSLASH_HANDOFF_TEST_EXIT="+strconv.Itoa(exitCode))
+	return command
+}
+
+func TestHandoffExitProcess(t *testing.T) {
+	value := os.Getenv("COSLASH_HANDOFF_TEST_EXIT")
+	if value == "" {
+		return
+	}
+	exitCode, err := strconv.Atoi(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Exit(exitCode)
+}
+
+func requirePOSIXRemoteShell(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("executes the POSIX command on the Linux SSH peer")
 	}
 }

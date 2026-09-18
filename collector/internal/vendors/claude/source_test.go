@@ -59,6 +59,7 @@ func TestParseFilesDeduplicatesRootsBySessionID(t *testing.T) {
 func TestGetSessionFactsUsesNewestDuplicate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	id := "33333333-3333-3333-3333-333333333333"
 	older := filepath.Join(ProjectsRoot(home), "a-old", id+".jsonl")
