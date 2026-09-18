@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -414,9 +415,78 @@ func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 	if got := metadata.Session(id).CompactionSeed; got != "Work completed before compaction." {
 		t.Fatalf("compaction seed = %q, want stored conversation summary", got)
 	}
-	parsed := &vendors.ParsedSession{Session: &session.Session{}}
-	vendors.ApplySessionEnrichment(parsed, metadata.Session(id))
+	parsed := &vendors.ParsedSession{Session: &session.Session{ID: id}}
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
 	if got := parsed.Session.CompactionSeed; got != "Work completed before compaction." {
 		t.Fatalf("applied compaction seed = %q, want stored conversation summary", got)
+	}
+	if input := synthesis.BuildInput(parsed.Session); !strings.Contains(input, "COMPACTION SEED\nWork completed before compaction.") {
+		t.Fatalf("synthesis input omitted compaction seed: %s", input)
+	}
+}
+
+func TestLoadMetadataClearsIDESeedForAmbiguousLane(t *testing.T) {
+	home := t.TempDir()
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stateDB, err := sql.Open("sqlite", statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE composerHeaders (composerId TEXT, value TEXT)`,
+		`CREATE TABLE cursorDiskKV (key TEXT, value TEXT)`,
+	} {
+		if _, err := stateDB.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := stateDB.Exec(`INSERT INTO composerHeaders VALUES (?, '{}')`, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stateDB.Exec(`INSERT INTO cursorDiskKV VALUES (?, ?)`,
+		"composerData:"+id, `{"latestConversationSummary":{"summary":{"summary":"IDE-only seed"}}}`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := stateDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := loadMetadata(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Session(id).CompactionSeed; got != "IDE-only seed" {
+		t.Fatalf("IDE compaction seed = %q, want fixture seed", got)
+	}
+
+	chatPath := filepath.Join(home, ".cursor", "chats", "one", "two", "store.db")
+	if err := os.MkdirAll(filepath.Dir(chatPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chatDB, err := sql.Open("sqlite", chatPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cliMetadata := hex.EncodeToString([]byte(`{"agentId":"` + id + `","name":"CLI session"}`))
+	if _, err := chatDB.Exec(`CREATE TABLE meta (key TEXT, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chatDB.Exec(`INSERT INTO meta VALUES ('0', ?)`, cliMetadata); err != nil {
+		t.Fatal(err)
+	}
+	if err := chatDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata, err = loadMetadata(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Session(id).CompactionSeed; got != "" {
+		t.Fatalf("ambiguous compaction seed = %q, want empty", got)
 	}
 }

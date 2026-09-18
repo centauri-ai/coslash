@@ -214,7 +214,7 @@ func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadat
 	for id, matches := range lanes {
 		if len(matches) != 1 {
 			entry := metadata.Session(id)
-			entry.Model, entry.WorkingDirectory = "", ""
+			entry.Model, entry.WorkingDirectory, entry.CompactionSeed = "", "", ""
 			entry.PullRequests, entry.StartedAt, entry.LastActivityAt = 0, 0, 0
 			entry.Usage = vendors.SessionUsage{}
 			entry.FileEdits, entry.CommitObservations = nil, nil
