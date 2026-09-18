@@ -287,8 +287,9 @@ func TestPowerShellCommandArgumentsRoundTripUnicodeWithoutShellMetacharacters(t 
 	for i := range codeUnits {
 		codeUnits[i] = binary.LittleEndian.Uint16(encoded[i*2:])
 	}
-	if got := string(utf16.Decode(codeUnits)); got != command {
-		t.Fatalf("decoded command = %q, want %q", got, command)
+	wantCommand := "$env:TERM = 'xterm-256color'; " + command
+	if got := string(utf16.Decode(codeUnits)); got != wantCommand {
+		t.Fatalf("decoded command = %q, want %q", got, wantCommand)
 	}
 }
 

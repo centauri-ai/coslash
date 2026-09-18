@@ -61,6 +61,7 @@ func openWindowsTerminal(workingDirectory, command string) error {
 }
 
 func powerShellCommandArguments(command string) []string {
+	command = "$env:TERM = 'xterm-256color'; " + command
 	utf16Command := utf16.Encode([]rune(command))
 	encodedCommand := make([]byte, len(utf16Command)*2)
 	for i, codeUnit := range utf16Command {
