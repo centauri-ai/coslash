@@ -138,7 +138,7 @@ func TestParseTranscriptAddsCompletedAssistantRepliesToDigest(t *testing.T) {
 		`{"role":"assistant","message":{"content":[{"type":"text","text":"first reply"}]}}` + "\n" +
 		`{"type":"turn_ended","status":"success"}` + "\n" +
 		`{"role":"user","message":{"content":[{"type":"text","text":"follow up?"}]}}` + "\n" +
-		`{"role":"assistant","message":{"content":[{"type":"text","text":"second reply"}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"text","text":"second reply, part one"},{"type":"text","text":"part two"}]}}` + "\n" +
 		`{"type":"turn_ended","status":"success"}` + "\n"
 	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
@@ -152,7 +152,7 @@ func TestParseTranscriptAddsCompletedAssistantRepliesToDigest(t *testing.T) {
 		{Turn: 1, Category: session.DigestFirstPrompt, Description: "first prompt"},
 		{Turn: 1, Category: session.DigestRecap, Description: "first reply"},
 		{Turn: 2, Category: session.DigestUser, Description: "follow up?"},
-		{Turn: 2, Category: session.DigestRecap, Description: "second reply"},
+		{Turn: 2, Category: session.DigestRecap, Description: "second reply, part one\n\npart two"},
 	}
 	if got := parsed.Session.Digest; len(got) != len(want) {
 		t.Fatalf("digest = %#v, want %#v", got, want)
@@ -163,7 +163,7 @@ func TestParseTranscriptAddsCompletedAssistantRepliesToDigest(t *testing.T) {
 			}
 		}
 	}
-	if parsed.Result != "second reply" {
-		t.Fatalf("result = %q, want second reply", parsed.Result)
+	if parsed.Result != "second reply, part one\n\npart two" {
+		t.Fatalf("result = %q, want complete second reply", parsed.Result)
 	}
 }
