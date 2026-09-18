@@ -89,15 +89,17 @@ dist: check-go check-node stage helper-assets
 		rm -rf $(DIST)/$$stem; \
 		echo "packaged $(DIST)/$$stem.tar.gz"; \
 	done; \
+	mkdir -p $(DIST)/windows; \
 	for platform in $(WINDOWS_PLATFORMS); do \
 		goarch=$${platform#*/}; \
 		artifact=$(BINARY)-windows-$${goarch}.exe; \
 		CGO_ENABLED=0 GOOS=windows GOARCH=$$goarch \
 			go build -trimpath -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' \
-			-o $(DIST)/$$artifact $(PKG) || exit 1; \
-		echo "packaged $(DIST)/$$artifact"; \
+			-o $(DIST)/windows/$$artifact $(PKG) || exit 1; \
+		echo "packaged $(DIST)/windows/$$artifact"; \
 	done
-	cd $(DIST) && shasum -a 256 *.tar.gz *.exe > checksums.txt
+	cd $(DIST) && shasum -a 256 *.tar.gz > checksums.txt
+	cd $(DIST)/windows && shasum -a 256 *.exe > checksums.txt
 
 # The Linux collection helper, for local iteration on the host platform.
 helper:

@@ -29,7 +29,7 @@ Then it gets you back in — resume a session in its own terminal with full cont
 
 Everything runs locally. Nothing leaves your machine unless you turn on synthesis.
 
-**Early preview · macOS and Windows**
+**Early preview - macOS; Windows packages are being validated**
 
 <table>
 <tr>
@@ -91,33 +91,33 @@ Release binaries are unsigned. macOS may warn about archives downloaded through 
 
 ### Windows
 
-Install for your Windows user without administrator rights. In PowerShell, set
-`$Arch` to `amd64` for Intel or AMD Windows, or `arm64` for Windows on Arm:
+The release workflow prepares a `windows-release-artifacts` artifact for native
+validation. It is not published as a GitHub Release asset yet. After downloading
+and extracting that workflow artifact, install it for your Windows user without
+administrator rights. In PowerShell, set `$ArtifactDir` to the extracted folder
+and `$Arch` to `amd64` for Intel or AMD Windows, or `arm64` for Windows on Arm:
 
 ```powershell
-$Version = "v0.0.1" # or the desired version tag
+$ArtifactDir = "$HOME\Downloads\windows-release-artifacts"
 $Arch = "amd64"
 $Asset = "coslash-windows-$Arch.exe"
-$BaseUrl = "https://github.com/centauri-ai/coslash/releases/download/$Version"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\coSlash"
-$Download = Join-Path $env:TEMP $Asset
+$Download = Join-Path $ArtifactDir $Asset
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
-Invoke-WebRequest "$BaseUrl/$Asset" -OutFile $Download
-Invoke-WebRequest "$BaseUrl/checksums.txt" -OutFile "$env:TEMP\coslash-checksums.txt"
-$Expected = (Select-String "$env:TEMP\coslash-checksums.txt" -Pattern "  $([regex]::Escape($Asset))$").Line.Split()[0]
+$Expected = (Select-String "$ArtifactDir\checksums.txt" -Pattern "  $([regex]::Escape($Asset))$").Line.Split()[0]
 $Actual = (Get-FileHash $Download -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($Actual -ne $Expected) { throw "coSlash checksum verification failed" }
-Move-Item -Force $Download "$InstallDir\coslash.exe"
+Copy-Item -Force $Download "$InstallDir\coslash.exe"
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (($UserPath -split ";") -notcontains $InstallDir) {
   [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir", "User")
 }
 ```
 
-Open a new PowerShell window, then run `coslash`. To upgrade, stop coSlash with
-Ctrl+C, download the new executable and checksum file using the commands above,
-and replace `$InstallDir\coslash.exe`. Windows cannot replace the executable
-while coSlash is running. The Windows executables are not yet Authenticode-signed.
+Open a new PowerShell window, then run `coslash`. To upgrade from a newer
+workflow artifact, stop coSlash with Ctrl+C and repeat the verification and
+`Copy-Item` steps. Windows cannot replace the executable while coSlash is
+running. The Windows executables are not yet Authenticode-signed.
 
 ### First run
 
