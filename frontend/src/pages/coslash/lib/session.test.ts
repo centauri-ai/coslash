@@ -84,6 +84,10 @@ describe('sessionLocationFact', () => {
     expect(sessionLocationFact({ repo: '', repoLocalOnly: false, cwd: '/tmp' })).toBe('/tmp');
     expect(sessionLocationFact({ repo: '  ', repoLocalOnly: false, cwd: '/tmp' })).toBe('/tmp');
   });
+
+  it('falls back to the repository when a remote local-only cwd is redacted', () => {
+    expect(sessionLocationFact({ repo: 'private-repo', repoLocalOnly: true, cwd: '' })).toBe('private-repo');
+  });
 });
 
 describe('sessionsForAggregates', () => {

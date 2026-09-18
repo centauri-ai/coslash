@@ -184,7 +184,9 @@ export function environmentFact(value: string | null | undefined): string {
 }
 
 export function sessionLocationFact(session: Pick<Session, 'repo' | 'repoLocalOnly' | 'cwd'>): string {
-  return environmentFact(session.repoLocalOnly ? session.cwd : session.repo?.trim() || session.cwd);
+  return environmentFact(
+    session.repoLocalOnly ? session.cwd.trim() || session.repo : session.repo?.trim() || session.cwd,
+  );
 }
 
 export function withLocalSourceDefaults<T extends { agent: string; id: string }>(
