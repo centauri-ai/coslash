@@ -1,20 +1,70 @@
 package remote
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
+	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
+	"github.com/centauri-ai/coslash/collector/internal/remotehelper"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 const testModel = "claude-sonnet-4-20250514"
+
+func TestBoundChangedRecordConvertsOversizedFamilyToStructuredSkip(t *testing.T) {
+	record := remoteprotocol.Record{
+		Type: remoteprotocol.RecordChanged, Vendor: vendors.AgentCodex, FamilyID: "root", Fingerprint: "new",
+		Family: &remotefacts.Family{Sessions: []remotefacts.Session{{ID: "root", Display: session.Session{Summary: pointerTo(strings.Repeat("x", 4<<10))}}}},
+	}
+	bounded, limited, _, err := boundChangedRecord(record, "request-1", 2, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !limited || bounded.Type != remoteprotocol.RecordSkipped || bounded.FamilyID != "root" || bounded.Reason != remotefacts.StaleReasonVendorBudgetExceeded {
+		t.Fatalf("bounded record = %#v limited=%v", bounded, limited)
+	}
+}
+
+func TestSortVendorRecordsWrapsAfterCursor(t *testing.T) {
+	records := []remoteprotocol.Record{{FamilyID: "b"}, {FamilyID: "d"}, {FamilyID: "a"}, {FamilyID: "c"}}
+	sortVendorRecords(records, "b")
+	for index, want := range []string{"c", "d", "a", "b"} {
+		if records[index].FamilyID != want {
+			t.Fatalf("paged record %d = %q, want %q", index, records[index].FamilyID, want)
+		}
+	}
+}
+
+func pointerTo(value string) *string { return &value }
+
+func TestSFTPFamilyFingerprintIncludesEverySessionMetadata(t *testing.T) {
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("root").Name = "before"
+	metadata.Session("child").Name = "before"
+	in := vendorFamilyInput{
+		Metadata: metadata, SessionIDs: map[string][]string{"root": {"root", "child"}},
+	}
+	fingerprints := []vendors.FileFingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}}
+	before := familyFingerprint(in, "root", fingerprints)
+	metadata.Session("child").Name = "after"
+	if after := familyFingerprint(in, "root", fingerprints); after == before {
+		t.Fatal("metadata-only change did not change SFTP family fingerprint")
+	}
+}
 
 func writeClaudeFixture(fs *fakeFS, projectDir, id string, inTokens, outTokens int, modTime time.Time) string {
 	filePath := path.Join(fakeHome, ".claude/projects", projectDir, id+".jsonl")
@@ -39,6 +89,172 @@ func writeCodexFixture(fs *fakeFS, id, parentID string, modTime time.Time) strin
 `, id, id, parent)
 	fs.writeFile(filePath, content, modTime)
 	return filePath
+}
+
+func completeCodexFixture(id string) string {
+	return fmt.Sprintf(
+		`{"timestamp":"2026-08-18T10:00:00.000Z","type":"session_meta","payload":{"id":%q,"session_id":%q,"cwd":"/test/project","git":{"branch":"main"}}}
+{"timestamp":"2026-08-18T10:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"do complete work"}}
+{"timestamp":"2026-08-18T10:00:02.000Z","type":"turn_context","payload":{"model":"gpt-5"}}
+{"timestamp":"2026-08-18T10:00:03.000Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-08-18T10:00:04.000Z","type":"event_msg","payload":{"type":"patch_apply_end","changes":{"main.go":{"type":"update","unified_diff":"@@\n-old\n+new\n"},"new.go":{"type":"add","content":"package newfile\n"}}}}
+{"timestamp":"2026-08-18T10:00:05.000Z","type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"done"}}
+{"timestamp":"2026-08-18T10:00:06.000Z","type":"event_msg","payload":{"type":"task_complete"}}
+`, id, id)
+}
+
+func writeCompleteCodexFixture(fs *fakeFS, id string, modTime time.Time) string {
+	filePath := path.Join(fakeHome, ".codex/sessions/2026/08/18", "rollout-2026-08-18T10-00-00-"+id+".jsonl")
+	fs.writeFile(filePath, completeCodexFixture(id), modTime)
+	return filePath
+}
+
+func TestCodexSessionMetaOnlyRootIsAbsentFromCompleteInventory(t *testing.T) {
+	id := "019f4dde-db5b-7100-bdc0-09b5aaaac56f"
+	content := fmt.Sprintf(
+		`{"timestamp":"2026-08-18T10:00:00.000Z","type":"session_meta","payload":{"id":%q,"session_id":%q,"cwd":"/test/project"}}
+`, id, id)
+	modTime := time.Unix(2_000, 0)
+	fake := newFakeFS()
+	file := path.Join(fakeHome, ".codex/sessions/2026/08/18", "rollout-2026-08-18T10-00-00-"+id+".jsonl")
+	fake.writeFile(file, content, modTime)
+
+	snapshot, sessions, failures, err := collectIncremental(
+		newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), CachedSnapshotV2{SourceID: "r_0123456789abcdef"},
+	)
+	if err != nil || len(failures) != 0 || !snapshot.RequestComplete || len(snapshot.Families) != 0 || len(sessions) != 0 {
+		t.Fatalf("SFTP meta-only collection: snapshot=%#v sessions=%d failures=%v err=%v", snapshot, len(sessions), failures, err)
+	}
+
+	home := t.TempDir()
+	realFile := filepath.Join(home, ".codex", "sessions", "2026", "08", "18", filepath.Base(file))
+	if err := os.MkdirAll(filepath.Dir(realFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(realFile, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := remoteprotocol.Request{
+		RequestID: "helper-meta-only", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
+		Schema: remoteprotocol.VersionRange{Min: 2, Max: 2}, ParserVersion: vendors.ParserVersion,
+		SourceID: "r_0123456789abcdef", BaselineMode: remoteprotocol.BaselineNone,
+		CollectedAtMs: time.Unix(3_000, 0).UnixMilli(), Vendors: []string{vendors.AgentCodex},
+		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},
+	}
+	var output bytes.Buffer
+	outcome, err := remotehelper.Collect(t.Context(), request, remotehelper.Options{Home: home}, &output)
+	if err != nil || !outcome.RequestComplete {
+		t.Fatalf("helper meta-only collection: outcome=%#v err=%v", outcome, err)
+	}
+	records, err := remoteprotocol.Decode(&output, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range records {
+		if record.Type == remoteprotocol.RecordChanged || record.Type == remoteprotocol.RecordSkipped || len(record.Inventory) != 0 {
+			t.Fatalf("helper published meta-only root: %#v", record)
+		}
+	}
+}
+
+func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testing.T) {
+	id := "019f4dde-db5b-7100-bdc0-09b5aaaac56f"
+	modTime := time.Unix(2_000, 0)
+	fake := newFakeFS()
+	file := writeCompleteCodexFixture(fake, id, modTime)
+	index := fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Complete fixture\"}\n", id)
+	fake.writeFile(path.Join(fakeHome, ".codex", "session_index.jsonl"), index, modTime)
+	baseline := CachedSnapshotV2{SourceID: "r_0123456789abcdef"}
+	sftp, _, failures, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), baseline)
+	if err != nil || len(failures) != 0 || len(sftp.FullRecords) != 1 {
+		t.Fatalf("SFTP collect: records=%d failures=%v err=%v", len(sftp.FullRecords), failures, err)
+	}
+	changes := sftp.FullRecords[0].Record.Session.FileEdits
+	if len(changes) != 2 || len(changes[0].Changes) != 1 || len(changes[1].Changes) != 1 ||
+		changes[0].Changes[0].Text != "@@\n-old\n+new\n" || changes[1].Changes[0].Text != "@@\n+package newfile\n" {
+		t.Fatalf("ordered SFTP changes = %#v", changes)
+	}
+
+	before := fake.openCounts()[file]
+	warm, _, failures, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(4_000, 0), sftp)
+	if err != nil || len(failures) != 0 || len(warm.FullRecords) != 1 ||
+		warm.FullRecords[0].Record.RevisionID != sftp.FullRecords[0].Record.RevisionID {
+		t.Fatalf("warm collect = %#v failures=%v err=%v", warm.FullRecords, failures, err)
+	}
+	if after := fake.openCounts()[file]; after != before {
+		t.Fatalf("warm refresh reopened transcript: before=%d after=%d", before, after)
+	}
+	legacy := sftp
+	legacy.Version = legacyCacheV2Version
+	legacy.SourceID = ""
+	legacy.FullRecords = nil
+	beforeMigration := fake.openCounts()[file]
+	migrated, _, failures, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(4_500, 0), legacy)
+	if err != nil || len(failures) != 0 || len(migrated.FullRecords) != 1 {
+		t.Fatalf("legacy migration: records=%d failures=%v err=%v", len(migrated.FullRecords), failures, err)
+	}
+	if after := fake.openCounts()[file]; after <= beforeMigration {
+		t.Fatal("legacy unchanged family was not recollected for its complete record")
+	}
+
+	home := t.TempDir()
+	realFile := filepath.Join(home, ".codex", "sessions", "2026", "08", "18", filepath.Base(file))
+	if err := os.MkdirAll(filepath.Dir(realFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(realFile, []byte(completeCodexFixture(id)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(realFile, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+	indexFile := filepath.Join(home, ".codex", "session_index.jsonl")
+	if err := os.WriteFile(indexFile, []byte(index), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	localParsed, localMetadata, err := codex.Collect(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localRecords, err := fullsessionrecord.FromParsedFamily(
+		baseline.SourceID, vendors.AgentCodex, vendors.LocalReadSource, localParsed, localMetadata,
+	)
+	if err != nil || len(localRecords) != 1 {
+		t.Fatalf("local records=%d err=%v", len(localRecords), err)
+	}
+	request := remoteprotocol.Request{
+		RequestID: "helper-full-1", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
+		Schema: remoteprotocol.VersionRange{Min: 2, Max: 2}, ParserVersion: vendors.ParserVersion,
+		SourceID: baseline.SourceID, BaselineMode: remoteprotocol.BaselineNone,
+		CollectedAtMs: time.Unix(3_000, 0).UnixMilli(), Vendors: []string{vendors.AgentCodex},
+		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},
+	}
+	var output bytes.Buffer
+	if _, err := remotehelper.Collect(t.Context(), request, remotehelper.Options{Home: home}, &output); err != nil {
+		t.Fatal(err)
+	}
+	records, err := remoteprotocol.Decode(&output, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var helperRecord *fullsessionv1.Record
+	for _, record := range records {
+		if len(record.FullRecords) == 1 {
+			value := record.FullRecords[0].Record
+			helperRecord = &value
+		}
+	}
+	if helperRecord == nil || !reflect.DeepEqual(*helperRecord, sftp.FullRecords[0].Record) ||
+		!reflect.DeepEqual(localRecords[0], sftp.FullRecords[0].Record) {
+		t.Fatalf("local/helper/SFTP full records differ\nlocal=%#v\nhelper=%#v\nsftp=%#v", localRecords[0], helperRecord, sftp.FullRecords[0].Record)
+	}
+	localBytes, _ := fullsessionv1.Marshal(localRecords[0])
+	helperBytes, _ := fullsessionv1.Marshal(*helperRecord)
+	sftpBytes, _ := fullsessionv1.Marshal(sftp.FullRecords[0].Record)
+	if !bytes.Equal(localBytes, helperBytes) || !bytes.Equal(localBytes, sftpBytes) {
+		t.Fatal("canonical local/helper/SFTP record bytes differ")
+	}
 }
 
 func TestCodexRemoteFamiliesSelectRecentChildOfOldRoot(t *testing.T) {

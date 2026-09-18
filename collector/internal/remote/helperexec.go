@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -108,8 +107,8 @@ func shellQuote(value string) string {
 }
 
 // HelperResult reports one collect exchange. The proposal holds every record
-// that applied cleanly, even when the response was cut short, so a partial
-// refresh keeps the families that did arrive.
+// that applied cleanly for diagnostics, even when the response was cut short;
+// only RequestComplete makes that proposal eligible for durable publication.
 type HelperResult struct {
 	Capabilities    remoteprotocol.Capabilities
 	Proposal        remoteprotocol.Generation
@@ -254,17 +253,14 @@ func HelperCollect(
 }
 
 func marshalRequestLine(request remoteprotocol.Request) ([]byte, error) {
-	if err := remoteprotocol.ValidateRequest(request); err != nil {
+	payload, err := remoteprotocol.EncodeRequest(request)
+	if err != nil {
+		if errors.Is(err, remoteprotocol.ErrRequestBounds) {
+			return nil, ErrHelperRequestBounds
+		}
 		return nil, err
 	}
-	payload, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("encode collect request: %w", err)
-	}
-	if len(payload)+1 > remoteprotocol.MaxRequestBytes {
-		return nil, ErrHelperRequestBounds
-	}
-	return append(payload, '\n'), nil
+	return payload, nil
 }
 
 type streamOutcome struct {
@@ -276,8 +272,9 @@ type streamOutcome struct {
 }
 
 // streamRecords applies each whole record as it arrives. Records are applied
-// incrementally on purpose: a response that stops early still leaves the records
-// it completed in the proposal, and no partial record ever reaches it.
+// incrementally so validation remains bounded and the caller can inspect a
+// failed proposal; no partial record reaches it and an incomplete proposal is
+// never durably published.
 func streamRecords(
 	reader io.Reader,
 	request remoteprotocol.Request,
@@ -311,7 +308,7 @@ func streamRecords(
 			outcome.coverage = append(outcome.coverage, AgentCoverage{
 				Agent: record.Vendor, CandidateFiles: record.Counts.CandidateFiles,
 				SelectedFiles: record.Counts.SelectedFiles,
-				Truncated:     !record.InventoryComplete,
+				Truncated:     !record.InventoryComplete || record.Counts.SkippedFamilies > 0,
 			})
 		}
 		outcome.records++
@@ -334,14 +331,9 @@ func decodeRecordLine(line []byte) (remoteprotocol.Record, error) {
 	if len(bytes.TrimSpace(line)) == 0 {
 		return remoteprotocol.Record{}, fmt.Errorf("%w: blank record", ErrHelperFailed)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(line))
-	decoder.DisallowUnknownFields()
-	var record remoteprotocol.Record
-	if err := decoder.Decode(&record); err != nil {
+	record, err := remoteprotocol.DecodeRecord(line)
+	if err != nil {
 		return remoteprotocol.Record{}, fmt.Errorf("%w: decode record: %w", ErrHelperFailed, err)
-	}
-	if decoder.Decode(&struct{}{}) != io.EOF {
-		return remoteprotocol.Record{}, fmt.Errorf("%w: trailing JSON value", ErrHelperFailed)
 	}
 	return record, nil
 }

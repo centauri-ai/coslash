@@ -15,9 +15,7 @@ import (
 // FromParsedFamily runs portable composition on a clone before freezing one
 // complete record for every rooted family member.
 func FromParsedFamily(sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
-	composed := collector.ComposePortable(source, map[string]vendors.RemoteCollection{
-		vendor: {Sessions: cloneParsedFamily(parsed), Metadata: metadata},
-	})
+	composed := composePortableFamily(vendor, source, parsed, metadata)
 	records := make([]fullsessionv1.Record, 0, len(composed))
 	for _, item := range composed {
 		record, err := fromSession(sourceID, item.ParentSessionID, *item.Session)
@@ -27,6 +25,24 @@ func FromParsedFamily(sourceID, vendor string, source vendors.ReadSource, parsed
 		records = append(records, record)
 	}
 	return records, nil
+}
+
+// IsServableFamily reports whether portable composition retains the family's
+// root. Session-meta-only and synthesis-generated roots are intentionally not
+// durable remote families.
+func IsServableFamily(familyID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) bool {
+	for _, item := range composePortableFamily(vendor, source, parsed, metadata) {
+		if item.Session.ID == familyID {
+			return true
+		}
+	}
+	return false
+}
+
+func composePortableFamily(vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) []collector.PortableSession {
+	return collector.ComposePortable(source, map[string]vendors.RemoteCollection{
+		vendor: {Sessions: cloneParsedFamily(parsed), Metadata: metadata},
+	})
 }
 
 func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, error) {

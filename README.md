@@ -126,7 +126,7 @@ those facts separately.
 
 Claude Code, Codex, and OpenCode sessions land in the same place, whether they came from a desktop app or a CLI. **List view** gives you a full card per session; **board view** groups sessions by repository and branch, with a column per state, so a repo with four parallel branches reads as four rows instead of a scroll.
 
-Search local sessions by title, repo, branch, prompt, recap, summary, goal, or synthesis. Remote sessions remain searchable by title, repo, branch, and agent. Filter by vendor and by time window (this week, this month, 7 days, 30 days, all). Sort by recency, estimated cost, tokens, or duration. The list refreshes itself every minute, so statuses and "3 min ago" stay honest without a reload.
+Search by title, repo, or branch. Filter by vendor and by time window (this week, this month, 7 days, 30 days, all). Sort by recency, estimated cost, tokens, or duration. The list refreshes itself every minute, so statuses and "3 min ago" stay honest without a reload.
 
 <p align="center">
   <img src="docs/media/list-and-board.gif" alt="Switching from list view to board view, then searching to filter sessions to one repository" width="900">

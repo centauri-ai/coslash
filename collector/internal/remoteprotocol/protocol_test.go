@@ -2,10 +2,12 @@ package remoteprotocol
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -17,6 +19,21 @@ func request() Request {
 		panic(err)
 	}
 	return r
+}
+
+func TestCapabilitiesRequireCompleteRecordSupport(t *testing.T) {
+	capabilities := Capabilities{
+		Protocol:      VersionRange{Min: ProtocolVersion, Max: ProtocolVersion},
+		Schema:        VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion},
+		ParserVersion: "parser-v1",
+	}
+	if capabilities.Compatible() {
+		t.Fatal("helper without complete-record capability is compatible")
+	}
+	capabilities.Capabilities = []string{CapabilityFullSessionRecord}
+	if !capabilities.Compatible() {
+		t.Fatal("helper with complete-record capability is incompatible")
+	}
 }
 
 func TestChangedFamilyWithMultipleLargeDisplaysFitsRecordLimit(t *testing.T) {
@@ -31,6 +48,95 @@ func TestChangedFamilyWithMultipleLargeDisplaysFitsRecordLimit(t *testing.T) {
 	record := Record{Type: RecordChanged, ProtocolVersion: ProtocolVersion, RequestID: strings.Repeat("r", remotefacts.MaxIDBytes), Sequence: MaxRecords, Vendor: "codex", FamilyID: "root", Fingerprint: strings.Repeat("f", remotefacts.MaxIDBytes), Family: &family}
 	if size := encodedSize(record); size > MaxRecordBytes {
 		t.Fatalf("changed family record is %d bytes, limit is %d", size, MaxRecordBytes)
+	}
+}
+
+func TestEncodedSizeMatchesUnescapedWireEncoding(t *testing.T) {
+	record := Record{Type: RecordRequestComplete, ProtocolVersion: ProtocolVersion, RequestID: "a<&>z", Sequence: 1}
+	encoded, err := Encode([]Record{record})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := encodedSize(record)+1, len(encoded); got != want {
+		t.Fatalf("encoded size = %d, wire size = %d", got, want)
+	}
+	if bytes.Contains(encoded, []byte(`\u003c`)) || bytes.Contains(encoded, []byte(`\u0026`)) {
+		t.Fatalf("wire encoding unexpectedly escaped HTML: %s", encoded)
+	}
+}
+
+func TestDecodeRecordRejectsExcessiveCollectionBeforeStructDecode(t *testing.T) {
+	data := append([]byte(`{"full_records":[`), bytes.Repeat([]byte(`{},`), fullsessionv1.MaxItems)...)
+	data = append(data, []byte(`{}]}`)...)
+	if _, err := DecodeRecord(data); err == nil || !strings.Contains(err.Error(), "collection exceeds item limit") {
+		t.Fatalf("DecodeRecord error = %v, want collection limit", err)
+	}
+}
+
+func TestProtocolCollectionBudgetIsScopedPerFullRecord(t *testing.T) {
+	items := bytes.Repeat([]byte(`null,`), fullsessionv1.MaxItems/2-1)
+	record := append([]byte(`{"session":{"commands":[`), items...)
+	record = append(record, []byte(`null]}}`)...)
+	data := append([]byte(`{"full_records":[{"record":`), record...)
+	data = append(data, []byte(`},{"record":`)...)
+	data = append(data, record...)
+	data = append(data, []byte(`}]}`)...)
+	if err := validateRecordCollectionSizes(data); err != nil {
+		t.Fatalf("two individually bounded full records shared a budget: %v", err)
+	}
+}
+
+func TestAccumulatorAcceptsRecordAtExactByteLimit(t *testing.T) {
+	r := request()
+	record := handshake(r)
+	r.Limits.MaxRecordBytes = encodedSize(record)
+	a, err := NewAccumulator(r, Generation{BaselineID: "base-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Apply(record); err != nil {
+		t.Fatalf("Apply record at exact byte limit: %v", err)
+	}
+}
+
+func TestChangedCodexFamilyAcceptsDescendantFullRecords(t *testing.T) {
+	r := request()
+	r.SourceID = "r_0123456789abcdef"
+	facts := family()
+	facts.Sessions = append(facts.Sessions, remotefacts.Session{
+		ID: "child", ParentID: "root", StartedAtMs: 1, LastActivityAtMs: 2,
+		Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{},
+	})
+	fullRecords := make([]FullRecord, 0, 2)
+	for _, id := range []string{"root", "child"} {
+		parentID := ""
+		if id == "child" {
+			parentID = "root"
+		}
+		record, err := fullsessionv1.Freeze(fullsessionv1.Record{
+			SourceID: r.SourceID, Agent: "codex", SessionID: id, ParentSessionID: parentID,
+			Session: fullsessionv1.Session{StartedAtMs: 1, LastActivityAtMs: 2},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fullRecords = append(fullRecords, FullRecord{FamilyID: "root", Record: record})
+	}
+	record := Record{
+		Type: RecordChanged, ProtocolVersion: ProtocolVersion, RequestID: r.RequestID, Sequence: 2,
+		Vendor: "codex", FamilyID: "root", Fingerprint: "new", Family: &facts, FullRecords: fullRecords,
+	}
+	if err := validateRecord(record, r, 2); err != nil {
+		t.Fatalf("descendant full records rejected: %v", err)
+	}
+	record.FullRecords[1].Record.ParentSessionID = "other"
+	if err := validateRecord(record, r, 2); err == nil {
+		t.Fatal("accepted a descendant full record with mismatched parent lineage")
+	}
+	record.FullRecords[1].Record.ParentSessionID = "root"
+	record.FullRecords = record.FullRecords[:1]
+	if err := validateRecord(record, r, 2); err == nil {
+		t.Fatal("accepted a changed family missing its descendant full record")
 	}
 }
 
@@ -54,6 +160,82 @@ func TestBuildRequestOverflowUsesNoBaselineWithoutPartialFingerprints(t *testing
 	}
 	if got.BaselineMode != BaselineNone || got.BaselineID != "" || len(got.Known) != 0 {
 		t.Fatalf("overflow request = %#v", got)
+	}
+}
+
+func TestBuildRequestPreservesBaselineFreePageCursor(t *testing.T) {
+	r := request()
+	r.PageAfter = []PageCursor{{Vendor: "codex", AfterFamilyID: "family-0100"}}
+	got, err := BuildRequest(r, []KnownFamily{{Vendor: "codex", FamilyID: "root", Fingerprint: "fp"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BaselineMode != BaselineNone || got.BaselineID != "" || len(got.Known) != 0 || !reflect.DeepEqual(got.PageAfter, r.PageAfter) {
+		t.Fatalf("paged request = %#v", got)
+	}
+}
+
+func TestAccumulatorMergesBaselineFreePageAndAdvancesCursor(t *testing.T) {
+	r := request()
+	r.BaselineMode, r.BaselineID, r.Known = BaselineNone, "", nil
+	r.PageAfter = []PageCursor{{Vendor: "codex", AfterFamilyID: "old"}}
+	baseline := Generation{Families: map[FamilyKey]CachedFamily{{Vendor: "codex", FamilyID: "stale"}: {}}, PageAfter: append([]PageCursor(nil), r.PageAfter...)}
+	a, err := NewAccumulator(r, baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := family()
+	for _, record := range []Record{
+		handshake(r),
+		{Type: RecordChanged, ProtocolVersion: ProtocolVersion, RequestID: r.RequestID, Sequence: 2, Vendor: "codex", FamilyID: "root", Fingerprint: "new", Family: &facts},
+		{Type: RecordVendorComplete, ProtocolVersion: ProtocolVersion, RequestID: r.RequestID, Sequence: 3, Vendor: "codex", EnumerationComplete: true, InventoryComplete: true, Inventory: []string{"root"}, Counts: Counts{SkippedFamilies: 1}},
+		{Type: RecordRequestComplete, ProtocolVersion: ProtocolVersion, RequestID: r.RequestID, Sequence: 4},
+	} {
+		if err := a.Apply(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proposal := a.Proposal()
+	if len(proposal.Families) != 1 || proposal.Families[FamilyKey{Vendor: "codex", FamilyID: "root"}].Fingerprint != "new" {
+		t.Fatalf("merged families = %#v", proposal.Families)
+	}
+	if len(proposal.PageAfter) != 1 || proposal.PageAfter[0].AfterFamilyID != "root" {
+		t.Fatalf("page cursor = %#v", proposal.PageAfter)
+	}
+}
+
+func TestBuildRequestUsesExactFramedWireSize(t *testing.T) {
+	r := request()
+	known := []KnownFamily{}
+	foundWireOnlyOverflow := false
+	for index := 0; index < MaxKnownFamilies; index++ {
+		known = append(known, KnownFamily{
+			Vendor: "codex", FamilyID: fmt.Sprintf("f%04d%s", index, strings.Repeat("&", 180)), Fingerprint: "fp",
+		})
+		candidate := r
+		candidate.Known = known
+		candidate.BaselineMode = BaselineKnown
+		if encodedSize(candidate) <= MaxRequestBytes && requestWireSize(candidate) > MaxRequestBytes {
+			foundWireOnlyOverflow = true
+			break
+		}
+	}
+	if !foundWireOnlyOverflow {
+		t.Fatal("test data did not distinguish canonical and request wire sizes")
+	}
+	got, err := BuildRequest(r, known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BaselineMode != BaselineNone || got.BaselineID != "" || len(got.Known) != 0 {
+		t.Fatalf("wire-overflow request retained baseline: %#v", got)
+	}
+	payload, err := EncodeRequest(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) > MaxRequestBytes || payload[len(payload)-1] != '\n' {
+		t.Fatalf("encoded request has invalid framing or size: %d", len(payload))
 	}
 }
 
@@ -106,7 +288,10 @@ func TestDecodeRejectsUnknownFieldsAndTrailingContent(t *testing.T) {
 func TestInterruptedBeforeVendorCompletionCannotDelete(t *testing.T) {
 	r := request()
 	baseFamily := family()
-	baseline := Generation{BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "root"}: {Facts: baseFamily, Fingerprint: "old"}}}
+	baseline := Generation{
+		BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "root"}: {Facts: baseFamily, Fingerprint: "old"}},
+		FullRecords: map[FullRecordKey]FullRecord{{"codex", "root"}: {FamilyID: "root"}},
+	}
 	a, err := NewAccumulator(r, baseline)
 	if err != nil {
 		t.Fatal(err)
@@ -120,11 +305,17 @@ func TestInterruptedBeforeVendorCompletionCannotDelete(t *testing.T) {
 	if _, ok := a.Proposal().Families[FamilyKey{"codex", "root"}]; !ok {
 		t.Fatal("provisional tombstone deleted cached family")
 	}
+	if _, ok := a.Proposal().FullRecords[FullRecordKey{"codex", "root"}]; !ok {
+		t.Fatal("provisional tombstone deleted cached full record")
+	}
 }
 
 func TestCompleteInventoryAuthorizesDeletion(t *testing.T) {
 	r := request()
-	baseline := Generation{BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "root"}: {Facts: family(), Fingerprint: "old"}}}
+	baseline := Generation{
+		BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "root"}: {Facts: family(), Fingerprint: "old"}},
+		FullRecords: map[FullRecordKey]FullRecord{{"codex", "root"}: {FamilyID: "root"}},
+	}
 	a, _ := NewAccumulator(r, baseline)
 	_ = a.Apply(handshake(r))
 	_ = a.Apply(Record{Type: RecordTombstone, ProtocolVersion: 1, RequestID: r.RequestID, Sequence: 2, Vendor: "codex", FamilyID: "root"})
@@ -134,9 +325,12 @@ func TestCompleteInventoryAuthorizesDeletion(t *testing.T) {
 	if len(a.Proposal().Families) != 0 {
 		t.Fatal("authorized tombstone was not applied")
 	}
+	if len(a.Proposal().FullRecords) != 0 {
+		t.Fatal("authorized tombstone did not remove full record")
+	}
 }
 
-func TestChangedFamilyPublishesBeforeRequestCompletionAndFailedReplacementStaysGood(t *testing.T) {
+func TestChangedFamilyProposalIsNotACompletedGeneration(t *testing.T) {
 	r := request()
 	baseline := Generation{BaselineID: "base-1", Families: map[FamilyKey]CachedFamily{{"codex", "old"}: {Facts: family(), Fingerprint: "old"}}}
 	a, _ := NewAccumulator(r, baseline)
@@ -156,6 +350,9 @@ func TestChangedFamilyPublishesBeforeRequestCompletionAndFailedReplacementStaysG
 	}
 	if got := a.Proposal().Families[FamilyKey{"codex", "old"}].Facts.State; got != remotefacts.StateComplete {
 		t.Fatalf("skip mutated last-good facts state to %q", got)
+	}
+	if a.Proposal().RequestComplete {
+		t.Fatal("proposal became publishable without request_complete")
 	}
 }
 

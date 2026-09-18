@@ -7,6 +7,8 @@ package remotehelper
 import (
 	"errors"
 	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 )
 
 const (
@@ -24,7 +26,7 @@ const (
 )
 
 // Capabilities is the uniquely sorted capability set the handshake advertises.
-var Capabilities = []string{"claude", "codex", "inventory", "tombstones", "unchanged"}
+var Capabilities = []string{"claude", "codex", remoteprotocol.CapabilityFullSessionRecord, "inventory", "tombstones", "unchanged"}
 
 var (
 	ErrPathDenied  = errors.New("path is outside the helper read allowlist")

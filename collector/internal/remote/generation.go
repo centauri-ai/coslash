@@ -4,6 +4,8 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"sort"
+	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
@@ -17,8 +19,10 @@ import (
 // remoteprotocol accumulator operates on.
 func toGeneration(cached CachedSnapshotV2) remoteprotocol.Generation {
 	gen := remoteprotocol.Generation{
-		BaselineID: cached.BaselineID, CoverageSinceMs: cached.CoverageSinceMs,
-		Families: make(map[remoteprotocol.FamilyKey]remoteprotocol.CachedFamily, len(cached.Families)),
+		SourceID: cached.SourceID, BaselineID: cached.BaselineID, CoverageSinceMs: cached.CoverageSinceMs,
+		Families:    make(map[remoteprotocol.FamilyKey]remoteprotocol.CachedFamily, len(cached.Families)),
+		FullRecords: make(map[remoteprotocol.FullRecordKey]remoteprotocol.FullRecord, len(cached.FullRecords)),
+		PageAfter:   append([]remoteprotocol.PageCursor(nil), cached.PageAfter...),
 	}
 	for _, family := range cached.Families {
 		key := remoteprotocol.FamilyKey{Vendor: family.Vendor, FamilyID: family.FamilyID}
@@ -26,6 +30,9 @@ func toGeneration(cached CachedSnapshotV2) remoteprotocol.Generation {
 			Facts: family.Facts, Fingerprint: family.Fingerprint, StaleReason: family.StaleReason,
 			LastSuccessAtMs: family.LastSuccessAtMs,
 		}
+	}
+	for _, full := range cached.FullRecords {
+		gen.FullRecords[remoteprotocol.FullRecordKey{Vendor: full.Record.Agent, SessionID: full.Record.SessionID}] = full
 	}
 	return gen
 }
@@ -40,10 +47,21 @@ func fromGeneration(
 	codexHeaders []CachedCodexHeader,
 ) CachedSnapshotV2 {
 	snapshot := CachedSnapshotV2{
-		Version: cacheV2Version, BaselineID: gen.BaselineID, CoverageSinceMs: gen.CoverageSinceMs,
+		Version: cacheV2Version, SourceID: gen.SourceID, BaselineID: gen.BaselineID, CoverageSinceMs: gen.CoverageSinceMs,
 		Coverage:    coverage,
 		FetchedAtMs: fetchedAtMs, RoundTripMs: roundTripMs, CodexHeaders: codexHeaders,
+		RequestComplete: gen.RequestComplete,
+		PageAfter:       append([]remoteprotocol.PageCursor(nil), gen.PageAfter...),
 	}
+	for _, full := range gen.FullRecords {
+		snapshot.FullRecords = append(snapshot.FullRecords, full)
+	}
+	sort.Slice(snapshot.FullRecords, func(i, j int) bool {
+		if snapshot.FullRecords[i].Record.Agent == snapshot.FullRecords[j].Record.Agent {
+			return snapshot.FullRecords[i].Record.SessionID < snapshot.FullRecords[j].Record.SessionID
+		}
+		return snapshot.FullRecords[i].Record.Agent < snapshot.FullRecords[j].Record.Agent
+	})
 	for key, family := range gen.Families {
 		snapshot.Families = append(snapshot.Families, CachedFamilyV2{
 			Vendor: key.Vendor, FamilyID: key.FamilyID,
@@ -147,7 +165,42 @@ func snapshotOrEmpty(snapshot *CachedSnapshotV2) CachedSnapshotV2 {
 	if snapshot == nil {
 		return CachedSnapshotV2{Version: cacheV2Version}
 	}
-	return *snapshot
+	copy := *snapshot
+	copy.Families = append([]CachedFamilyV2(nil), snapshot.Families...)
+	copy.FullRecords = append([]remoteprotocol.FullRecord(nil), snapshot.FullRecords...)
+	complete := map[remoteprotocol.FamilyKey]map[string]bool{}
+	for _, full := range copy.FullRecords {
+		key := remoteprotocol.FamilyKey{Vendor: full.Record.Agent, FamilyID: full.FamilyID}
+		if complete[key] == nil {
+			complete[key] = map[string]bool{}
+		}
+		complete[key][full.Record.SessionID] = true
+	}
+	for index := range copy.Families {
+		family := &copy.Families[index]
+		if family.Vendor == vendors.AgentCodex && !completeFamilyRecords(family.Facts, complete[remoteprotocol.FamilyKey{Vendor: family.Vendor, FamilyID: family.FamilyID}]) {
+			// Preserve the legacy family as last-good display data, but make its
+			// comparison fingerprint impossible to equal the remote fingerprint.
+			// Both transports will therefore replace it with a complete record.
+			if !strings.HasPrefix(family.Fingerprint, "complete-record-required-") {
+				family.Fingerprint = "complete-record-required-" + family.Fingerprint
+			}
+		}
+	}
+	copy.Version = cacheV2Version
+	return copy
+}
+
+func completeFamilyRecords(family remotefacts.Family, records map[string]bool) bool {
+	if len(records) != len(family.Sessions) {
+		return false
+	}
+	for _, item := range family.Sessions {
+		if !records[item.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 func baselineFamilies(snapshot CachedSnapshotV2, vendor string) map[string]CachedFamilyV2 {

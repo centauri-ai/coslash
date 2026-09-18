@@ -2,8 +2,9 @@
 
 `coslash-helper` parses Claude and Codex transcripts beside the data and writes
 bounded protocol v1 records to stdout. The Mac keeps settings, cache,
-composition, health, and UI. The helper keeps nothing: no daemon, no listener, no
-state between runs, and no transcript ever leaves the machine.
+composition, health, and UI. The helper keeps nothing: no daemon, no listener,
+and no state between runs. Raw transcript rows never leave the Linux host;
+complete supported parsed Codex records do cross the trusted SSH boundary.
 
 ## Commands
 
@@ -57,6 +58,15 @@ optimisation, not proof of immutability: after parsing, every file is re-stated,
 and a family whose files moved is re-parsed up to twice before it is reported
 skipped with a structured reason.
 
+One changed-family line carries the bounded display facts and exactly one
+complete record for every session in that family. The helper measures the whole
+line with the same wire encoder used for output. If the aggregate cannot fit the
+negotiated per-record limit, it emits a `vendor_budget_exceeded` skip and
+withholds completion; it never publishes only the root or another subset. If
+whole changed families collectively exceed the response limit, it reserves the
+completion envelope, publishes the families that fit as limited coverage, and
+persists a cursor so the next incremental refresh starts with the omitted tail.
+
 Families outside the requested window are neither confirmed nor replaced. Their
 absence from a response is never deletion, and the inventory still proves they
 exist.
@@ -69,7 +79,9 @@ and finished inside the deadline. A missing vendor root is complete coverage of
 zero families; an unreadable directory is not. Tombstones name known families
 that a complete scan did not find, and they commit only against the bounded
 authoritative inventory. An interrupted or incomplete scan therefore cannot
-delete a cached family — it publishes what it collected and leaves the rest.
+delete or replace cached data. Whole records received before the failure remain
+diagnostic proposal state only; the Mac retains its prior complete durable
+generation.
 
 ## Exit codes
 
@@ -88,8 +100,9 @@ the UI can offer the right repair.
 
 ## Privacy
 
-Only the facts in `internal/remotefacts` cross the boundary. stdout carries no
-transcript rows, prompts, tool output, absolute paths, working directories, or
-environment values, and stderr is bounded diagnostics that the Mac redacts before
-showing. Codex's prompt-derived fallback name is cleared at the helper adapter;
-approved session-index names remain available as bounded display text.
+stdout carries bounded `internal/remotefacts` rows plus, for changed Codex
+families, a validated `full-session-record/v1`. The complete record can contain
+parsed prompts, summaries, commands, working directories, subagent detail, and
+file-change bodies. It contains no raw transcript rows, SSH configuration,
+coSlash credentials, sockets, or environment values. stderr remains bounded
+diagnostics that the Mac redacts before showing.
