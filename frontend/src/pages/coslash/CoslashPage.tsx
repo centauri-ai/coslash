@@ -1,78 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { setTheme } from '@/lib/theme';
+import { setTheme, type Theme } from '@/lib/theme';
+import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
-import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
-import { MachineActivity } from '@/pages/coslash/components/MachineActivity';
-import { SessionBoard } from '@/pages/coslash/components/SessionBoard';
-import { SessionCard } from '@/pages/coslash/components/SessionCard';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
-import {
-  SessionSortDropdownMenu,
-  SortKey,
-  sortSessions,
-  type SortDir,
-} from '@/pages/coslash/components/SessionSortDropdownMenu';
-import {
-  SettingsButton,
-  SettingsDialog,
-  type SettingsDialogMode,
-} from '@/pages/coslash/components/SettingsDialog';
-import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
-import {
-  AgentVendorFilterTabMenu,
-  ALL_MACHINES,
-  MachineFilterTabMenu,
-  RepositoryFilterDropdownMenu,
-  ShareStateFilterDropdownMenu,
-  TimeWindowFilterTabMenu,
-  ViewingModeTabMenu,
-  type ViewMode,
-} from '@/pages/coslash/CoslashTabMenus';
+import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
 import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
-import { loadBoardFilters, saveBoardFilters, vendorsForFilterMenu } from '@/pages/coslash/lib/board-filters';
-import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
-import { formatEstimatedCost } from '@/pages/coslash/lib/format';
-import { machinesForSourceFilter, type MachineFact } from '@/pages/coslash/lib/machines';
-import { sessionsEmptyStateCopy } from '@/pages/coslash/lib/page-copy';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
-import { buildReviewIndex, type ReviewerOption } from '@/pages/coslash/lib/review';
-import {
-  getSessionVendors,
-  isLocalSession,
-  LOCAL_SOURCE_ID,
-  sessionKey,
-  sessionsForAggregates,
-  sumKnown,
-  type Session,
-} from '@/pages/coslash/lib/session';
-import {
-  ALL_REPOSITORIES,
-  eligibleSessionCandidates,
-  filterSessionLibrary,
-  latestLogicalSessions,
-  libraryRepositories,
-  type SessionLibraryFilters,
-} from '@/pages/coslash/lib/session-library';
+import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
+import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
+import { loadSessionViewPreferences, type SessionRange } from '@/pages/coslash/lib/session-view-preferences';
 import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
-import { timeWindowStart, type TimeWindow } from '@/pages/coslash/lib/time-window';
-
-const WINDOW_ACTIVITY_LABELS: Record<TimeWindow, string> = {
-  'week': 'active this week',
-  'month': 'active this month',
-  '7d': 'active in the last 7 days',
-  '30d': 'active in the last 30 days',
-  'all': 'across all time',
-};
+import type { TimeWindow } from '@/pages/coslash/lib/time-window';
 
 function fixtureDestination(search: string): DestinationResult {
   const state = new URLSearchParams(search).get('share-state');
@@ -101,34 +48,18 @@ function fixtureDestination(search: string): DestinationResult {
   };
 }
 
-function CoslashPageHeader({
-  onOpenSettings,
-  settingsError,
-}: {
-  onOpenSettings: () => void;
-  settingsError: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 px-4">
-      <div className="flex min-w-0 items-center gap-2">
-        <span aria-label="coSlash">
-          <img src="/brand/coslash-logo.svg" alt="" className="h-12 dark:hidden" />
-          <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden h-12 dark:block" />
-        </span>
-        <span className="text-muted-foreground min-w-0 truncate text-sm font-medium">
-          Run more agents. Lose less context.
-        </span>
-      </div>
-      <SettingsButton onClick={onOpenSettings} hasError={settingsError} />
-    </div>
-  );
+function apiWindowForRange(range: SessionRange): TimeWindow {
+  if (range === 'this-week') return 'week';
+  if (range === 'today' || range === 'week') return '7d';
+  if (range === 'month') return '30d';
+  return 'all';
 }
 
 function SettingsErrorBanner({ message, onOpen }: { message: string; onOpen: () => void }) {
   return (
     <div
       role="alert"
-      className="text-destructive flex items-center justify-between gap-4 border-y bg-neutral-50 px-4 py-2 text-sm"
+      className="text-destructive flex items-center justify-between gap-4 border-b bg-neutral-50 px-5 py-2 text-sm dark:bg-neutral-900"
     >
       <span>{message} Synthesis is off and terminal launches are blocked.</span>
       <Button variant="outline" size="sm" onClick={onOpen}>
@@ -138,197 +69,23 @@ function SettingsErrorBanner({ message, onOpen }: { message: string; onOpen: () 
   );
 }
 
-function SessionSearch({
-  searchTerm,
-  onSearchTermChange,
-}: {
-  searchTerm: string;
-  onSearchTermChange: (value: string) => void;
-}) {
-  return (
-    <div className="relative max-w-sm min-w-32 flex-1">
-      <Search className="text-muted-foreground pointer-events-none absolute top-2 left-2.5 size-4" />
-      <Input
-        placeholder="Search sessions -- title, repo, branch"
-        className="bg-muted h-8 pl-8 text-sm"
-        value={searchTerm}
-        onChange={(event) => onSearchTermChange(event.target.value)}
-      />
-    </div>
-  );
-}
-
-function SessionsStats({
-  sessions,
-  activitySessions,
-  machines,
-  loadFailed,
-  timeWindow,
-  onRemoteRetry,
-  remoteRetryInFlight,
-}: {
-  sessions: Session[];
-  activitySessions: Session[];
-  machines: MachineFact[];
-  loadFailed: boolean;
-  timeWindow: TimeWindow;
-  onRemoteRetry: () => void;
-  remoteRetryInFlight: boolean;
-}) {
-  if (loadFailed) return null;
-
-  const aggregateSessions = sessionsForAggregates(sessions);
-  const cost = sumKnown(aggregateSessions.map((session) => session.cost));
-  return (
-    <div className="flex w-full min-w-0 items-center justify-between gap-3">
-      <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
-        <span className="truncate">
-          <span className="text-foreground font-semibold">
-            {aggregateSessions.length} {aggregateSessions.length === 1 ? 'session' : 'sessions'}
-          </span>{' '}
-          {WINDOW_ACTIVITY_LABELS[timeWindow]} ·{' '}
-          {aggregateSessions.filter((session) => session.agent === 'claude').length} Claude Code,{' '}
-          {aggregateSessions.filter((session) => session.agent === 'codex').length} Codex,{' '}
-          {aggregateSessions.filter((session) => session.agent === 'opencode').length} OpenCode ·
-        </span>
-        <UnpricedModelWarning unpriced={aggregateSessions.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(cost)}
-        </UnpricedModelWarning>
-        <span
-          className="shrink-0 cursor-help underline decoration-dotted underline-offset-2"
-          title="Includes each session’s full history, not only activity in this window."
-        >
-          at list API prices
-        </span>
-      </div>
-      <MachineActivity
-        machines={machines}
-        sessions={activitySessions}
-        onRemoteRetry={onRemoteRetry}
-        remoteRetryInFlight={remoteRetryInFlight}
-      />
-    </div>
-  );
-}
-
-function CoslashContent({
-  loadError,
-  onRetry,
-  visibleSessions,
-  hasSessions,
-  searchTerm,
-  timeWindow,
-  view,
-  showMachineBadge,
-  onSelectSession,
-  diagnostics,
-  diagnosticsLoading,
-  diagnosticsLoadFailed,
-  onRefreshDiagnostics,
-  allSessions,
-  reviewerOptions,
-  onReviewStarted,
-}: {
-  loadError: string | null;
-  onRetry: () => void;
-  visibleSessions: Session[];
-  hasSessions: boolean;
-  searchTerm: string;
-  timeWindow: TimeWindow;
-  view: ViewMode;
-  showMachineBadge: boolean;
-  onSelectSession: (session: Session) => void;
-  diagnostics: Diagnostics | null;
-  diagnosticsLoading: boolean;
-  diagnosticsLoadFailed: boolean;
-  onRefreshDiagnostics: () => void;
-  allSessions: Session[];
-  reviewerOptions: readonly ReviewerOption[];
-  onReviewStarted: () => void;
-}) {
-  const reviewIndex = useMemo(() => buildReviewIndex(allSessions), [allSessions]);
-  if (loadError != null) {
-    return (
-      <div role="alert" className="text-destructive bg-background grid h-full place-items-center text-sm">
-        <div className="flex flex-col items-center gap-3">
-          <div>{loadError}</div>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            Try again
-          </Button>
-        </div>
-      </div>
-    );
-  }
-  if (visibleSessions.length === 0) {
-    const firstRun = diagnostics?.sources.every(
-      (source) => source.state === 'missing' || source.state === 'empty',
-    );
-    if (!hasSessions && (diagnosticsLoading || diagnosticsLoadFailed || firstRun)) {
-      return (
-        <FirstRunOnboarding
-          diagnostics={diagnostics}
-          isLoading={diagnosticsLoading}
-          loadFailed={diagnosticsLoadFailed}
-          onRefresh={onRefreshDiagnostics}
-        />
-      );
-    }
-    const emptyState = sessionsEmptyStateCopy({ hasSessions, searchTerm, timeWindow });
-    return (
-      <div role="status" className="bg-background grid h-full place-items-center text-center">
-        <div>
-          <div className="text-sm font-semibold">{emptyState.title}</div>
-          {emptyState.detail && <div className="text-muted-foreground pt-1 text-xs">{emptyState.detail}</div>}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-full overflow-y-auto">
-      {view === 'board' ? (
-        <SessionBoard
-          sessions={visibleSessions}
-          onSelectSession={onSelectSession}
-          showMachineBadge={showMachineBadge}
-          review={{ index: reviewIndex, reviewerOptions, onStarted: onReviewStarted }}
-        />
-      ) : (
-        <div className="bg-background flex flex-col gap-4 px-4 py-2">
-          {visibleSessions.map((session) => (
-            <SessionCard
-              key={sessionKey(session)}
-              session={session}
-              onClick={() => onSelectSession(session)}
-              showMachineBadge={showMachineBadge}
-              reviewerOptions={reviewerOptions}
-              reviewLink={reviewIndex.links.get(sessionKey(session))}
-              isReview={reviewIndex.reviewSessions.has(sessionKey(session))}
-              reviewActive={session.reviewPending || reviewIndex.activeOrigins.has(sessionKey(session))}
-              onReviewStarted={onReviewStarted}
-              onSelectRelated={onSelectSession}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function CoslashPage() {
-  const [vendor, setVendor] = useState(() => loadBoardFilters().vendor);
-  const [timeWindow, setTimeWindow] = useState(() => loadBoardFilters().timeWindow);
-  const [machineFilter, setMachineFilter] = useState(ALL_MACHINES);
+  const [range, setRange] = useState<SessionRange>(() => loadSessionViewPreferences().range);
   const shareParams = new URLSearchParams(window.location.search);
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
+  const apiWindow = apiWindowForRange(range);
   const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
     useSessions({
-      localWindow: shareEnabled ? 'all' : timeWindow,
-      remoteWindow: timeWindow,
+      localWindow: shareEnabled ? 'all' : apiWindow,
+      remoteWindow: apiWindow,
     });
+  const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [remoteRetryInFlight, setRemoteRetryInFlight] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
   const {
     diagnostics,
@@ -336,21 +93,35 @@ export function CoslashPage() {
     loadFailed: diagnosticsLoadFailed,
     refresh: refreshDiagnostics,
   } = useDiagnostics(diagnosticsEnabled);
-  const [view, setView] = useState<ViewMode>('list');
-  const [sortKey, setSortKey] = useState<SortKey>(SortKey.Recency);
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [repository, setRepository] = useState(ALL_REPOSITORIES);
-  const [shareState, setShareState] = useState<SessionLibraryFilters['shareState']>('all');
-  const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [remoteRetryInFlight, setRemoteRetryInFlight] = useState(false);
   const remoteRetryPromise = useRef<Promise<void> | null>(null);
   const settingsState = useSettings();
-  const settingsHaveError = settingsState.loadError != null || settingsState.response?.valid === false;
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
+  const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
+  const remoteSettings = settingsState.response?.settings.remote;
+  const pageSessions = useMemo(
+    () =>
+      remoteSettings == null
+        ? librarySessions
+        : librarySessions.map((session) =>
+            session.sourceId === remoteSettings.id
+              ? { ...session, sourceLabel: remoteSettings.sshAlias }
+              : session,
+          ),
+    [librarySessions, remoteSettings],
+  );
+  const pageMachines = useMemo(
+    () =>
+      remoteSettings == null
+        ? machines
+        : machines.map((machine) =>
+            machine.sourceId === remoteSettings.id ? { ...machine, label: remoteSettings.sshAlias } : machine,
+          ),
+    [machines, remoteSettings],
+  );
+  const selectedSession = pageSessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
+  const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
+  const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
   const shareCandidates = useMemo(() => {
     const eligible = eligibleSessionCandidates(sessions);
     return eligible.map((session, index) => ({
@@ -358,19 +129,14 @@ export function CoslashPage() {
       previouslyShared: shareFixtureEnabled && index === 0,
     }));
   }, [sessions, shareFixtureEnabled]);
-  const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
-  const repositories = useMemo(() => libraryRepositories(librarySessions), [librarySessions]);
-  const effectiveRepository =
-    repository === ALL_REPOSITORIES || repositories.includes(repository) ? repository : ALL_REPOSITORIES;
-  const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
-  const filterableRemoteMachines = machinesForSourceFilter(machines);
-  const effectiveMachineFilter =
-    machineFilter === ALL_MACHINES ||
-    machineFilter === LOCAL_SOURCE_ID ||
-    filterableRemoteMachines.some((machine) => machine.sourceId === machineFilter)
-      ? machineFilter
-      : ALL_MACHINES;
-  const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
+  const synthesisSettingsKey = settingsState.response
+    ? [
+        settingsState.response.persisted,
+        settingsState.response.settings.synthesis.enabled,
+        settingsState.response.settings.synthesis.backend,
+        settingsState.response.settings.synthesis.model,
+      ].join(':')
+    : 'loading';
 
   const refreshHubDestination = useCallback(async () => {
     const destination = await loadHubDestination();
@@ -386,22 +152,6 @@ export function CoslashPage() {
   useEffect(() => {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
   }, [settingsState.response]);
-  useEffect(() => {
-    saveBoardFilters({ vendor, timeWindow });
-  }, [vendor, timeWindow]);
-  // Held by source-aware key, not by value: the inspector must render the freshest
-  // record each refresh, and a stored object would freeze at click time. Looked up
-  // from the unfiltered list so filters never close an open inspector.
-  const selectedSession =
-    librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
-  const synthesisSettingsKey = settingsState.response
-    ? [
-        settingsState.response.persisted,
-        settingsState.response.settings.synthesis.enabled,
-        settingsState.response.settings.synthesis.backend,
-        settingsState.response.settings.synthesis.model,
-      ].join(':')
-    : 'loading';
 
   useEffect(() => {
     if (
@@ -414,39 +164,8 @@ export function CoslashPage() {
   }, [selectedSession, settingsState.response]);
 
   useEffect(() => {
-    if (selectedSessionKey != null && selectedSession == null) {
-      setSelectedSessionKey(null);
-    }
+    if (selectedSessionKey != null && selectedSession == null) setSelectedSessionKey(null);
   }, [selectedSession, selectedSessionKey]);
-
-  // Keep live sessions visible even when their logs predate the window.
-  const windowStart = timeWindowStart(timeWindow);
-  const sessionsInWindow =
-    windowStart == null
-      ? librarySessions
-      : librarySessions.filter((session) => session.status != null || session.mtime >= windowStart);
-  const sessionsForMachine =
-    effectiveMachineFilter === ALL_MACHINES
-      ? sessionsInWindow
-      : sessionsInWindow.filter((session) => session.sourceId === effectiveMachineFilter);
-  const sessionVendors = vendorsForFilterMenu(getSessionVendors(sessionsForMachine), vendor);
-  const sessionsForVendor = sessionsForMachine.filter(
-    (session) => vendor === 'all' || session.agent === vendor,
-  );
-  const visibleSessions = sortSessions(
-    filterSessionLibrary(sessionsForVendor, {
-      search: searchTerm,
-      repository: effectiveRepository,
-      source: 'all',
-      shareState,
-    }),
-    sortKey,
-    sortDir,
-  );
-  const refreshFirstRun = () => {
-    retrySessions();
-    refreshDiagnostics();
-  };
 
   const handleRemoteRetry = () => {
     if (remoteRetryPromise.current != null) return remoteRetryPromise.current;
@@ -466,128 +185,103 @@ export function CoslashPage() {
 
   const saveSettings = async (...args: Parameters<typeof settingsState.save>) => {
     const ok = await settingsState.save(...args);
-    if (ok) {
-      handleRemoteRetry();
-    }
+    if (ok) handleRemoteRetry();
     return ok;
   };
 
-  return (
-    <div className="flex h-svh flex-col">
-      <CoslashPageHeader
-        onOpenSettings={() => setSettingsDialogMode('full-settings')}
-        settingsError={settingsHaveError}
+  const handleThemeChange = (theme: Theme) => {
+    const response = settingsState.response;
+    if (response == null || response.settings.appearance.theme === theme) return;
+    const previousTheme = response.settings.appearance.theme;
+    setTheme(theme);
+    void settingsState.save({ ...response.settings, appearance: { theme } }).then((saved) => {
+      if (!saved) setTheme(previousTheme);
+    });
+  };
+
+  const firstRun = diagnostics?.sources.every(
+    (source) => source.state === 'missing' || source.state === 'empty',
+  );
+  const emptyContent =
+    librarySessions.length === 0 && (diagnosticsLoading || diagnosticsLoadFailed || firstRun) ? (
+      <FirstRunOnboarding
+        diagnostics={diagnostics}
+        isLoading={diagnosticsLoading}
+        loadFailed={diagnosticsLoadFailed}
+        onRefresh={() => {
+          retrySessions();
+          refreshDiagnostics();
+        }}
       />
-      {settingsState.response?.valid === false && (
-        <SettingsErrorBanner
-          message={settingsState.response.error ?? 'settings.json is invalid.'}
-          onOpen={() => setSettingsDialogMode('full-settings')}
-        />
-      )}
-      <div className="bg-background flex flex-col gap-2 border-b px-4 pb-2">
-        <div className="-m-1 flex items-center gap-2 overflow-x-auto p-1">
-          <SessionSearch searchTerm={searchTerm} onSearchTermChange={setSearchTerm} />
-          <div className="flex shrink-0 items-center gap-2">
-            <AgentVendorFilterTabMenu value={vendor} vendors={sessionVendors} onValueChange={setVendor} />
-            <RepositoryFilterDropdownMenu
-              value={effectiveRepository}
-              repositories={repositories}
-              onValueChange={setRepository}
-            />
-            <ShareStateFilterDropdownMenu value={shareState} onValueChange={setShareState} />
-            {filterableRemoteMachines.length > 0 && (
-              <>
-                <span className="bg-border h-5 w-px" />
-                <MachineFilterTabMenu
-                  value={effectiveMachineFilter}
-                  machines={filterableRemoteMachines}
-                  onValueChange={setMachineFilter}
-                />
-              </>
-            )}
-            <span className="bg-border h-5 w-px" />
-            <TimeWindowFilterTabMenu value={timeWindow} onValueChange={setTimeWindow} />
-            <span className="bg-border h-5 w-px" />
-            <ViewingModeTabMenu value={view} onValueChange={setView} />
-          </div>
-          <SessionSortDropdownMenu
-            sortKey={sortKey}
-            sortDir={sortDir}
-            onSortKeyChange={setSortKey}
-            onSortDirChange={setSortDir}
+    ) : undefined;
+
+  return (
+    <>
+      <CoslashLayout
+        sessions={pageSessions}
+        machines={pageMachines}
+        range={range}
+        onRangeChange={setRange}
+        selectedSessionKey={selectedSessionKey}
+        onSelectSession={(session) => setSelectedSessionKey(sessionKey(session))}
+        diagnostics={
+          <DiagnosticsDialog
+            open={diagnosticsOpen}
+            onOpenChange={setDiagnosticsOpen}
+            diagnostics={diagnostics}
+            isLoading={diagnosticsLoading}
+            loadFailed={diagnosticsLoadFailed}
+            onRefresh={refreshDiagnostics}
+            remoteSessionCount={remoteSessionCount}
           />
-        </div>
-        <div className="flex min-h-7 min-w-0 items-center">
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <LoadingSpinner isLoading={isLoading}>
-                <SessionsStats
-                  sessions={sessionsForVendor}
-                  activitySessions={sessionsInWindow}
-                  machines={machines}
-                  loadFailed={loadError != null}
-                  timeWindow={timeWindow}
-                  onRemoteRetry={handleRemoteRetry}
-                  remoteRetryInFlight={remoteRetryInFlight}
-                />
-              </LoadingSpinner>
-            </div>
-            <DiagnosticsDialog
-              open={diagnosticsOpen}
-              onOpenChange={setDiagnosticsOpen}
-              diagnostics={diagnostics}
-              isLoading={diagnosticsLoading}
-              loadFailed={diagnosticsLoadFailed}
-              onRefresh={refreshDiagnostics}
-              remoteSessionCount={remoteSessionCount}
+        }
+        onSettings={() => setSettingsDialogMode('full-settings')}
+        theme={settingsState.response?.settings.appearance.theme ?? 'light'}
+        onThemeChange={handleThemeChange}
+        themeDisabled={
+          settingsState.isLoading || settingsState.isSaving || settingsState.response?.valid === false
+        }
+        onRetry={handleRemoteRetry}
+        retrying={remoteRetryInFlight}
+        isLoading={isLoading}
+        loadError={loadError}
+        emptyContent={emptyContent}
+        banner={
+          settingsState.response?.valid === false ? (
+            <SettingsErrorBanner
+              message={settingsState.response.error ?? 'settings.json is invalid.'}
+              onOpen={() => setSettingsDialogMode('full-settings')}
             />
-            {shareDestination?.state === 'ready' && (
-              <Badge
-                variant="secondary"
-                className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
-              >
-                <ShieldCheck className="size-3.5" aria-hidden="true" />
-                {shareDestination.destination.workspaceName} paired
-              </Badge>
-            )}
-            {shareEnabled && (
+          ) : undefined
+        }
+        headerActions={
+          shareEnabled ? (
+            <>
+              {shareDestination?.state === 'ready' && (
+                <Badge
+                  variant="secondary"
+                  className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
+                >
+                  <ShieldCheck className="size-3.5" aria-hidden="true" />
+                  {shareDestination.destination.workspaceName} paired
+                </Badge>
+              )}
               <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
                 Share to Hub
               </Button>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
-            <CoslashContent
-              loadError={loadError}
-              onRetry={retrySessions}
-              visibleSessions={visibleSessions}
-              hasSessions={sessionsForMachine.length > 0}
-              searchTerm={searchTerm}
-              timeWindow={timeWindow}
-              view={view}
-              showMachineBadge={configuredRemote}
-              onSelectSession={(session) => setSelectedSessionKey(sessionKey(session))}
-              diagnostics={diagnostics}
-              diagnosticsLoading={diagnosticsLoading}
-              diagnosticsLoadFailed={diagnosticsLoadFailed}
-              onRefreshDiagnostics={refreshFirstRun}
-              allSessions={librarySessions}
-              reviewerOptions={settingsState.response?.options.reviewers ?? []}
-              onReviewStarted={refreshSessions}
-            />
-          </LoadingSpinner>
-        </div>
-      </div>
+            </>
+          ) : undefined
+        }
+        inspectorOpen={selectedSession != null}
+        reviewerOptions={settingsState.response?.options.reviewers ?? []}
+        onReviewStarted={refreshSessions}
+      />
       <SessionInspector
         session={selectedSession}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}
-        machines={machines}
+        machines={pageMachines}
         onRefresh={async () => {
           if (selectedSession != null && !isLocalSession(selectedSession)) await handleRemoteRetry();
           else retrySessions();
@@ -623,6 +317,6 @@ export function CoslashPage() {
         onSave={saveSettings}
         onRemoteConnectionVerified={handleRemoteRetry}
       />
-    </div>
+    </>
   );
 }

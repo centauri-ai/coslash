@@ -448,40 +448,6 @@ export function SettingsDialog({
 
               {mode === 'full-settings' && (
                 <div className="flex flex-col gap-2">
-                  <SectionLabel>Appearance</SectionLabel>
-                  <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-4">
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="text-sm font-semibold">Dark mode</div>
-                      <div className="text-muted-foreground text-xs">Use a darker color palette.</div>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-label="Dark mode"
-                      aria-checked={draft.appearance.theme === 'dark'}
-                      onClick={() => {
-                        const theme = draft.appearance.theme === 'dark' ? 'light' : 'dark';
-                        setTheme(theme);
-                        saveChange({
-                          ...draft,
-                          appearance: { theme },
-                        });
-                      }}
-                      className="bg-input focus-visible:border-ring focus-visible:ring-ring aria-checked:bg-primary relative inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors outline-none focus-visible:ring-3"
-                    >
-                      <span
-                        className={cn(
-                          'bg-background pointer-events-none size-5 rounded-full shadow-sm transition-transform',
-                          { 'translate-x-4': draft.appearance.theme === 'dark' },
-                        )}
-                      />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {mode === 'full-settings' && (
-                <div className="flex flex-col gap-2">
                   <SectionLabel>Launch</SectionLabel>
                   <div className="border-border bg-card overflow-hidden rounded-xl border">
                     <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">

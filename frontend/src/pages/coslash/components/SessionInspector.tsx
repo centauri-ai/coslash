@@ -1370,6 +1370,11 @@ export function SessionInspector({
   const contentRef = useRef<HTMLDivElement>(null);
   const [selectedDiff, setSelectedDiff] = useState<FileSelection | null>(null);
   const [fileDiffRetryToken, setFileDiffRetryToken] = useState(0);
+  const [modal, setModal] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(max-width: 1719px)').matches
+      : true,
+  );
   const {
     changes: fileChanges,
     isLoading: fileDiffLoading,
@@ -1401,8 +1406,17 @@ export function SessionInspector({
     setSelectedDiff(null);
   }, [openSessionRevisionKey]);
 
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(max-width: 1719px)');
+    const updateModal = () => setModal(media.matches);
+    media.addEventListener('change', updateModal);
+    return () => media.removeEventListener('change', updateModal);
+  }, []);
+
   return (
     <Sheet
+      modal={modal}
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) {
@@ -1414,7 +1428,7 @@ export function SessionInspector({
       <SheetContent
         ref={contentRef}
         tabIndex={-1}
-        className="w-full! max-w-none! gap-0 outline-none sm:w-1/2!"
+        className="w-full! max-w-none! gap-0 outline-none sm:w-[440px]!"
         showCloseButton={true}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
