@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DiffList } from '@/pages/coslash/components/DiffList';
 import {
+  DetailLoadError,
   detailPresentation,
   filePanelOpen,
   overlayLiveSessionFields,
@@ -44,6 +45,7 @@ describe('SessionInspector exact-detail boundaries', () => {
     const loaded = {
       ...session,
       sourceId: 'local',
+      mtime: 100,
       status: 'busy',
       commands: ['exact command'],
       commits: ['old commit'],
@@ -54,6 +56,7 @@ describe('SessionInspector exact-detail boundaries', () => {
     } as Session;
     const current = {
       ...loaded,
+      mtime: 200,
       status: null,
       commands: [],
       commits: ['new commit'],
@@ -64,6 +67,7 @@ describe('SessionInspector exact-detail boundaries', () => {
 
     expect(overlayLiveSessionFields(loaded, current)).toMatchObject({
       status: null,
+      mtime: 200,
       commands: ['exact command'],
       commits: ['new commit'],
       git: { baseBranch: 'main', ahead: 1, behind: 0 },
@@ -78,5 +82,18 @@ describe('SessionInspector exact-detail boundaries', () => {
     );
     expect(markup).toContain('stale');
     expect(markup).toContain('Refresh sessions');
+  });
+
+  it('offers direct recovery only for retryable generic detail failures', () => {
+    const generic = renderToStaticMarkup(
+      <DetailLoadError message="network failed" kind="other" onRetry={() => {}} onRefresh={() => {}} />,
+    );
+    const authentication = renderToStaticMarkup(
+      <DetailLoadError message="link expired" kind="authentication" onRetry={() => {}} onRefresh={() => {}} />,
+    );
+
+    expect(generic).toContain('Retry details');
+    expect(authentication).not.toContain('Retry details');
+    expect(authentication).not.toContain('Refresh sessions');
   });
 });

@@ -309,6 +309,9 @@ func localDetailRevision(value session.Session) (string, error) {
 	stable.ReviewError = ""
 	stable.Synthesis = nil
 	stable.SynthesisPending = false
+	if stable.ActivityFallback {
+		stable.LastActivityTime = 0
+	}
 	for index := range stable.Subagents {
 		stable.Subagents[index].Status = ""
 	}
