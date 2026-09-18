@@ -165,7 +165,14 @@ func finalizeSessions(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 ) []*vendors.ParsedSession {
-	return finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource, true, true, false)
+	roots := finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource, true, true, false)
+	for _, root := range roots {
+		revision, err := session.LocalDetailRevision(*root.Session)
+		if err == nil {
+			root.Session.DetailRevision = revision
+		}
+	}
+	return roots
 }
 
 func finalizeSessionsSource(

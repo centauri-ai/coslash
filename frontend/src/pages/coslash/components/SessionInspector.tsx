@@ -131,6 +131,13 @@ export function detailPresentation(session: Session | null): {
     : { detail: null, summaryOnly: false };
 }
 
+export function cachedOfflineWarning(
+  cachedOffline: boolean,
+  state: MachineFact['state'] | undefined,
+): boolean {
+  return state == null ? cachedOffline : state !== 'ok' && state !== 'limited';
+}
+
 export function overlayLiveSessionFields(detail: SessionDetail, current: Session): SessionDetail {
   const currentSubagents = new Map(current.subagents.map((subagent) => [subagent.id, subagent]));
   return {
@@ -1382,8 +1389,7 @@ export function SessionInspector({
     );
   const remoteMachine =
     detail == null ? undefined : machines.find((machine) => machine.sourceId === detail.sourceId);
-  const showCachedOffline =
-    cachedOffline && remoteMachine?.state !== 'ok' && remoteMachine?.state !== 'limited';
+  const showCachedOffline = cachedOfflineWarning(cachedOffline, remoteMachine?.state);
   const remoteLaunchHint =
     detail == null || isLocalSession(detail) || remoteLaunchable
       ? undefined
