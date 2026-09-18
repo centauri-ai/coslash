@@ -13,10 +13,9 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// LoadMetadata reads liveness from lsof (the only signal Codex leaves — no pid
-// file, no status field) and names from session_index.jsonl. Live rollouts
-// get the "interactive" convention so resolveStatus applies the busy/idle
-// refinement.
+// LoadMetadata reads liveness from open rollout handles and names from
+// session_index.jsonl. Live rollouts get the "interactive" convention so
+// resolveStatus applies the busy/idle refinement.
 func LoadMetadata() (*vendors.SessionMetadata, error) {
 	live, err := LoadLiveSessions()
 	if err != nil {
@@ -46,6 +45,13 @@ func sessionIDForOpenRollout(path string, pids []uint32) string {
 		return ""
 	}
 	return SessionIDFromRollout(path)
+}
+
+func preserveOperationError(operationErr, cleanupErr error) error {
+	if operationErr != nil {
+		return operationErr
+	}
+	return cleanupErr
 }
 
 type sessionIndexEntry struct {
