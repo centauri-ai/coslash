@@ -8,8 +8,9 @@ import "os/exec"
 // client in, so cancellation falls back to killing the client itself.
 func configureProcessGroup(*exec.Cmd) {}
 
-func terminateProcessGroup(cmd *exec.Cmd) {
+func terminateProcessGroup(cmd *exec.Cmd) bool {
 	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
+		return cmd.Process.Kill() == nil
 	}
+	return false
 }

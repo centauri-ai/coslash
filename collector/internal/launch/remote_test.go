@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -42,6 +43,7 @@ func TestRemoteCLICommandUsesStagedHandoffName(t *testing.T) {
 }
 
 func TestRemoteCodexCLICommandLoadsBoundaryHandoffWithoutExpandingArguments(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	codexHome := filepath.Join(home, ".codex")
 	handoffDir := filepath.Join(home, ".coslash", "handoffs")
@@ -102,6 +104,7 @@ printf '%s\n' "$@" > "$HOME/codex-args"
 }
 
 func TestRemoteCodexCLICommandStopsWhenHandoffReadFails(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	codexHome := filepath.Join(home, ".codex")
 	bin := filepath.Join(home, "bin")
@@ -129,6 +132,7 @@ func TestRemoteCodexCLICommandStopsWhenHandoffReadFails(t *testing.T) {
 }
 
 func TestRemoteCodexCLICommandCreatesMissingProfileDirectory(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	codexHome := filepath.Join(home, "new-codex-home")
 	handoffDir := filepath.Join(home, ".coslash", "handoffs")
@@ -175,6 +179,7 @@ func TestRemoteCLICommandRejectsInvalidHandoffName(t *testing.T) {
 }
 
 func TestRemoteTerminalCommandRemovesHandoffWhenWorkingDirectoryIsMissing(t *testing.T) {
+	requirePOSIXRemoteShell(t)
 	home := t.TempDir()
 	dir := filepath.Join(home, ".coslash", "handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -197,6 +202,13 @@ func TestRemoteTerminalCommandRemovesHandoffWhenWorkingDirectoryIsMissing(t *tes
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("staged handoff still exists: %v", err)
+	}
+}
+
+func requirePOSIXRemoteShell(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("executes the POSIX command on the Linux SSH peer")
 	}
 }
 

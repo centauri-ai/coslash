@@ -396,8 +396,7 @@ func (process *helperProcess) writeStdin(payload []byte) <-chan error {
 // SSH client is left holding the pipes.
 func (process *helperProcess) finish(aborted bool) (int, error) {
 	if aborted {
-		process.terminated = true
-		terminateProcessGroup(process.cmd)
+		process.terminated = terminateProcessGroup(process.cmd)
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- process.cmd.Wait() }()
@@ -405,8 +404,7 @@ func (process *helperProcess) finish(aborted bool) (int, error) {
 	case err := <-waited:
 		return exitCodeOf(err), err
 	case <-time.After(helperExitGrace):
-		process.terminated = true
-		terminateProcessGroup(process.cmd)
+		process.terminated = terminateProcessGroup(process.cmd)
 		err := <-waited
 		return exitCodeOf(err), err
 	}
@@ -437,10 +435,10 @@ func helperProcessError(
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	// A negative code means the child died from the signal this side sent, so the
-	// stream outcome carries the reason. A child that exited on its own still
-	// reports its own status even when it was killed afterwards.
-	if process.terminated && exitCode < 0 {
+	// Process.Kill reports a negative signal exit on Unix and exit code 1 on
+	// Windows. The successful termination request, rather than its platform-
+	// specific exit code, proves that the stream outcome carries the reason.
+	if process.terminated {
 		return nil
 	}
 	switch exitCode {

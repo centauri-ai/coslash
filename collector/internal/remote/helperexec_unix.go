@@ -17,11 +17,12 @@ func configureProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
-func terminateProcessGroup(cmd *exec.Cmd) {
+func terminateProcessGroup(cmd *exec.Cmd) bool {
 	if cmd.Process == nil {
-		return
+		return false
 	}
 	// The group ID equals the child PID because the child leads its own group.
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	_ = cmd.Process.Kill()
+	groupErr := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	processErr := cmd.Process.Kill()
+	return groupErr == nil || processErr == nil
 }

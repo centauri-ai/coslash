@@ -11,7 +11,7 @@ import (
 )
 
 func TestMarshalDeterministicallyFitsLargeSafeEvidence(t *testing.T) {
-	root := "/repo"
+	root := t.TempDir()
 	repository := "github.com/centauri-ai/coslash"
 	edits := make([]session.FileEdit, snapshotv1.MaxFileEditItems)
 	for i := range edits {

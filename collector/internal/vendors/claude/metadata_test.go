@@ -9,7 +9,9 @@ import (
 func TestLoadMetadataUsesUserConfigDirectory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("APPDATA", filepath.Join(home, "config"))
 
 	metadata, err := LoadMetadata()
 	if err != nil {

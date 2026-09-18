@@ -14,7 +14,8 @@ import (
 )
 
 func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "work", "coslash")
+	root := t.TempDir()
+	outside := t.TempDir()
 	repository := "github.com/centauri-ai/coslash"
 	name := "local-name-secret"
 	summary := "Never retain Authorization: Bearer prose-secret"
@@ -48,7 +49,7 @@ func TestBuildUsesExplicitAllowListAndStructuralRedaction(t *testing.T) {
 			Digest:   []session.DigestEntry{{Category: session.DigestUser, Description: digestDescription, Answer: digestAnswer}},
 			FileEdits: []session.FileEdit{
 				{Path: filepath.Join(root, "collector", "main.go"), Additions: 3, Edits: 1},
-				{Path: filepath.Join(string(filepath.Separator), "Users", "person", ".ssh", "config"), Edits: 1},
+				{Path: filepath.Join(outside, ".ssh", "config"), Edits: 1},
 			},
 			Synthesis:        &session.SessionSynthesis{Outcome: "must stay local"},
 			SynthesisPending: true,
@@ -130,7 +131,8 @@ func TestContentBearingFieldsAreNeverUploaded(t *testing.T) {
 }
 
 func TestBuildResolvesRelativeFileEditsAgainstWorkingDirectory(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "repo")
+	root := t.TempDir()
+	outside := t.TempDir()
 	repository := "github.com/centauri-ai/coslash"
 	local := session.Session{
 		Agent: "opencode", ID: "source", Repository: &repository, StartedAt: 1,
@@ -146,7 +148,7 @@ func TestBuildResolvesRelativeFileEditsAgainstWorkingDirectory(t *testing.T) {
 		t.Fatalf("file edits = %#v", got)
 	}
 
-	local.WorkingDirectory = filepath.Join(string(filepath.Separator), "outside")
+	local.WorkingDirectory = outside
 	snapshot, err = Build(local, BuildOptions{CollectorVersion: "0.1.0", RepositoryRoot: root})
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +159,7 @@ func TestBuildResolvesRelativeFileEditsAgainstWorkingDirectory(t *testing.T) {
 }
 
 func TestBuildKeepsTruncatedPathsValid(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "repo")
+	root := t.TempDir()
 	repository := "github.com/centauri-ai/coslash"
 	paths := []string{
 		strings.Repeat("a/", maxPathBytes/2) + "x",
@@ -202,11 +204,12 @@ func TestBuildOmitsUnprovenRelativeFileEdits(t *testing.T) {
 }
 
 func TestBuildAppliesFileEditBudgetAfterPathRedaction(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "repo")
+	root := t.TempDir()
+	outside := t.TempDir()
 	repository := "github.com/centauri-ai/coslash"
 	edits := make([]session.FileEdit, 0, maxFileEditItems*2+1)
 	for range maxFileEditItems {
-		edits = append(edits, session.FileEdit{Path: filepath.Join(string(filepath.Separator), "outside", "secret.go")})
+		edits = append(edits, session.FileEdit{Path: filepath.Join(outside, "secret.go")})
 	}
 	for i := 0; i < maxFileEditItems+1; i++ {
 		edits = append(edits, session.FileEdit{Path: fmt.Sprintf("safe/%04d.go", i), Edits: 1})
@@ -417,7 +420,8 @@ func TestMarshalIsStableAcrossTokenMapOrder(t *testing.T) {
 }
 
 func TestMetadataPointersUseExportedStructure(t *testing.T) {
-	root := filepath.Join(string(filepath.Separator), "work", "coslash")
+	root := t.TempDir()
+	outside := t.TempDir()
 	repository := "github.com/centauri-ai/coslash"
 	model := strings.Repeat("model/segment", 30)
 	commands := func(count int) []session.SubagentCommand {
@@ -431,14 +435,14 @@ func TestMetadataPointersUseExportedStructure(t *testing.T) {
 	secondCommands[0].Label = secondCommands[0].Command
 	local := session.Session{
 		Agent: "future-agent", ID: "source", Repository: &repository, StartedAt: 1,
-		WorkingDirectory: filepath.Join(string(filepath.Separator), "outside"),
+		WorkingDirectory: outside,
 		Tokens:           map[string]session.ModelTokens{model: {}},
 		Subagents: []session.Subagent{
 			{ID: "one", Name: "one", Status: session.SubagentReturned, Commands: commands(150), Tokens: map[string]session.ModelTokens{}},
 			{ID: "two", Name: "two", Status: session.SubagentReturned, Commands: secondCommands, Tokens: map[string]session.ModelTokens{}},
 		},
 		SessionDetails: session.SessionDetails{FileEdits: []session.FileEdit{
-			{Path: filepath.Join(string(filepath.Separator), "outside", "secret")},
+			{Path: filepath.Join(outside, "secret")},
 			{Path: filepath.Join(root, strings.Repeat("p", maxPathBytes+10))},
 		}},
 	}

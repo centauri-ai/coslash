@@ -280,7 +280,7 @@ func TestLocalMachineFactOmitsRemoteOnlyEnums(t *testing.T) {
 }
 
 func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
-	manager := remote.NewManager(remote.Options{})
+	manager := remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir())})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestBoardRemoteSessionDoesNotSerializeRemoteOperationalOrContentFields(t *t
 }
 
 func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
-	manager := remote.NewManager(remote.Options{})
+	manager := remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir())})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +408,7 @@ func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
 }
 
 func TestHelperSetupRejectsUnsavedAlias(t *testing.T) {
-	manager := remote.NewManager(remote.Options{})
+	manager := remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir())})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "saved-host", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
