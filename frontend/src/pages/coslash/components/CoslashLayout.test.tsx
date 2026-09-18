@@ -94,7 +94,7 @@ describe('CoslashLayout', () => {
 
     expect(markup).toContain('agent-box');
     expect(markup).toContain('lucide-server');
-    expect(markup).toContain('bg-[var(--coslash-green-dot)]" aria-label="Synced no saved history over SSH.');
+    expect(markup).toContain('bg-coslash-green-dot" aria-label="Synced no saved history over SSH.');
     expect(markup).not.toContain('lucide-activity');
     expect(markup).not.toContain('running ·');
     expect(markup).toContain('Filter groups');
@@ -261,7 +261,7 @@ describe('CoslashLayout', () => {
       ],
     });
 
-    expect(markup).toContain('bg-[var(--coslash-amber-dot)]" aria-label="Offline.');
+    expect(markup).toContain('bg-coslash-amber-dot" aria-label="Offline.');
     expect(markup).not.toContain('role="alert"');
   });
 
@@ -277,9 +277,7 @@ describe('CoslashLayout', () => {
       machines: [{ sourceId: 'remote', label: 'agent-box', state: 'limited', complete: false }],
     });
 
-    expect(markup).toContain(
-      'bg-[var(--coslash-amber-dot)]" aria-label="Showing the available remote history."',
-    );
+    expect(markup).toContain('bg-coslash-amber-dot" aria-label="Showing the available remote history."');
   });
 
   it('banners a failed connector with its own reason', () => {

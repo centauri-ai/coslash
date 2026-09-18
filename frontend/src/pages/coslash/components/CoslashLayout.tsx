@@ -113,29 +113,27 @@ const GROUP_LABELS: Record<Group['kind'], string> = {
 };
 
 const styles = {
-  shell:
-    'coslash-shell min-h-svh bg-[var(--coslash-bg)] text-[13px] leading-[1.45] text-[var(--coslash-ink)] antialiased',
+  shell: 'coslash-shell min-h-svh bg-coslash-bg text-ui leading-[1.45] text-coslash-ink antialiased',
   header:
-    'flex h-[60px] items-center justify-between gap-3.5 border-b border-[var(--coslash-line)] bg-[var(--coslash-surface)] px-5 max-[760px]:px-3',
+    'flex h-[60px] items-center justify-between gap-3.5 border-b border-coslash-line bg-coslash-surface px-5 max-compact:px-3',
   banner:
-    'flex items-center gap-2.5 border-b border-[var(--coslash-clay)] bg-[var(--coslash-clay-bg)] px-5 py-2.5 text-xs text-[var(--coslash-clay)] [&>svg]:size-4',
+    'flex items-center gap-2.5 border-b border-coslash-clay bg-coslash-clay-bg px-5 py-2.5 text-xs text-coslash-clay [&>svg]:size-4',
   sidebar:
-    'coslash-sidebar sticky top-0 max-h-[calc(100svh-60px)] min-h-[calc(100svh-60px)] w-[214px] shrink-0 overflow-y-auto border-r border-[var(--coslash-line)] bg-[var(--coslash-surface)] px-3 py-5 max-[1000px]:hidden',
+    'coslash-sidebar sticky top-0 max-h-[calc(100svh-60px)] min-h-[calc(100svh-60px)] w-[214px] shrink-0 overflow-y-auto border-r border-coslash-line bg-coslash-surface px-3 py-5 max-sidebar:hidden',
   sideHeading:
-    'flex min-h-[30px] w-full cursor-pointer items-center gap-[7px] rounded-[7px] px-2.5 py-1.5 text-left text-[11px] font-[650] tracking-[.09em] text-[var(--coslash-muted)] uppercase hover:bg-[var(--coslash-soft)] hover:text-[var(--coslash-ink)]',
+    'flex min-h-[30px] w-full cursor-pointer items-center gap-[7px] rounded-[7px] px-2.5 py-1.5 text-left text-meta font-[650] tracking-[.09em] text-coslash-muted uppercase hover:bg-coslash-soft hover:text-coslash-ink',
   facet:
-    'flex min-h-8 w-full cursor-pointer items-center gap-[9px] rounded-[7px] px-2.5 py-[7px] text-left text-xs leading-[1.45] text-[var(--coslash-muted)] hover:bg-[var(--coslash-soft)] [&>svg]:size-3.5',
-  main: 'coslash-main min-w-0 flex-1 px-6 pt-5 pb-[60px] max-[1000px]:w-full max-[1000px]:p-4',
+    'flex min-h-8 w-full cursor-pointer items-center gap-[9px] rounded-[7px] px-2.5 py-[7px] text-left text-xs leading-[1.45] text-coslash-muted hover:bg-coslash-soft [&>svg]:size-3.5',
+  main: 'coslash-main min-w-0 flex-1 px-6 pt-5 pb-[60px] max-sidebar:w-full max-sidebar:p-4',
   search:
-    'flex h-12 w-full min-w-0 items-center gap-1.5 rounded-[9px] border border-[var(--coslash-line)] bg-[var(--coslash-surface)] px-3.5 focus-within:border-[var(--coslash-accent)] focus-within:shadow-[0_0_0_3px_var(--coslash-tint)]',
-  chip: 'inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-[var(--coslash-tint-line)] bg-[var(--coslash-tint)] pr-1 pl-2 text-[11px] font-[550] whitespace-nowrap text-[var(--coslash-accent-ink)]',
-  segmented: 'inline-flex rounded-[10px] bg-[var(--coslash-soft)] p-0.5',
-  tableWrap:
-    'min-h-[180px] overflow-x-auto rounded-[10px] border border-[var(--coslash-line)] bg-[var(--coslash-surface)]',
-  head: 'sticky top-0 z-12 border-b border-[var(--coslash-line)] bg-[var(--coslash-surface)] text-left text-[11px] font-[650] tracking-[.07em] text-[var(--coslash-muted)] uppercase',
+    'flex h-12 w-full min-w-0 items-center gap-1.5 rounded-[9px] border border-coslash-line bg-coslash-surface px-3.5 focus-within:border-coslash-accent focus-within:shadow-[0_0_0_3px_var(--coslash-tint)]',
+  chip: 'inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-coslash-tint-line bg-coslash-tint pr-1 pl-2 text-meta font-[550] whitespace-nowrap text-coslash-accent-ink',
+  segmented: 'inline-flex rounded-[10px] bg-coslash-soft p-0.5',
+  tableWrap: 'min-h-[180px] overflow-x-auto rounded-[10px] border border-coslash-line bg-coslash-surface',
+  head: 'sticky top-0 z-12 border-b border-coslash-line bg-coslash-surface text-left text-meta font-[650] tracking-[.07em] text-coslash-muted uppercase',
   headButton:
-    'flex min-h-[34px] w-full cursor-pointer items-center gap-[5px] px-2.5 py-[9px] text-left font-[inherit] tracking-[inherit] uppercase hover:bg-[var(--coslash-soft)] hover:text-[var(--coslash-ink)] [&>svg]:size-3',
-  cell: 'overflow-hidden px-2.5 py-2 align-middle text-[12.5px]',
+    'flex min-h-[34px] w-full cursor-pointer items-center gap-[5px] px-2.5 py-[9px] text-left font-[inherit] tracking-[inherit] uppercase hover:bg-coslash-soft hover:text-coslash-ink [&>svg]:size-3',
+  cell: 'overflow-hidden px-2.5 py-2 align-middle text-cell',
   empty: 'flex min-h-60 flex-col items-center justify-center gap-2 px-6 py-11 text-center',
 };
 
@@ -147,18 +145,18 @@ function sessionStatusGroup(session: Session): SessionStatusGroup {
 }
 
 const TONE_DOT: Record<MachineTone, string> = {
-  checking: 'bg-[var(--coslash-accent)] animate-pulse',
-  failed: 'bg-[var(--coslash-clay-dot)]',
-  disabled: 'bg-[var(--coslash-neutral-dot)]',
-  stale: 'bg-[var(--coslash-amber-dot)]',
-  limited: 'bg-[var(--coslash-amber-dot)]',
-  ok: 'bg-[var(--coslash-green-dot)]',
+  checking: 'bg-coslash-accent animate-pulse',
+  failed: 'bg-coslash-clay-dot',
+  disabled: 'bg-coslash-neutral-dot',
+  stale: 'bg-coslash-amber-dot',
+  limited: 'bg-coslash-amber-dot',
+  ok: 'bg-coslash-green-dot',
 };
 
 function statusDot(status: SessionStatusGroup): string {
-  if (status === 'needs') return 'bg-[var(--coslash-amber-dot)]';
-  if (status === 'running') return 'bg-[var(--coslash-green-dot)]';
-  return 'bg-[var(--coslash-neutral-dot)]';
+  if (status === 'needs') return 'bg-coslash-amber-dot';
+  if (status === 'running') return 'bg-coslash-green-dot';
+  return 'bg-coslash-neutral-dot';
 }
 
 function rangeStart(range: SessionRange): number | null {
@@ -306,24 +304,24 @@ function MachineDot({ machine }: { machine: MachineFact }) {
 }
 
 function InlineSpinner() {
-  return <LoaderCircle className="size-3.5 animate-spin text-[var(--coslash-muted)]" aria-hidden="true" />;
+  return <LoaderCircle className="text-coslash-muted size-3.5 animate-spin" aria-hidden="true" />;
 }
 
 function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boolean }) {
   const aggregate = sessionsForAggregates(sessions);
   const unpriced = aggregate.filter((session) => session.cost == null || session.unpricedModels.length > 0);
   return (
-    <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[12.5px] whitespace-nowrap max-[900px]:w-full">
+    <div className="text-cell max-narrow:w-full flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap">
       {isLoading && <span className="sr-only">Refreshing sessions</span>}
       <strong className="flex items-center gap-1 font-[650]">
         {isLoading ? <InlineSpinner /> : sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
       </strong>
-      <span className="text-[var(--coslash-muted)]">active in this scope</span>
-      <span className="text-[var(--coslash-muted)]">·</span>
-      <span className="flex items-center gap-1 text-[var(--coslash-muted)]">
+      <span className="text-coslash-muted">active in this scope</span>
+      <span className="text-coslash-muted">·</span>
+      <span className="text-coslash-muted flex items-center gap-1">
         {isLoading ? <InlineSpinner /> : formatTokens(tokenTotal(aggregate))} tokens
       </span>
-      <span className="text-[var(--coslash-muted)]">·</span>
+      <span className="text-coslash-muted">·</span>
       {isLoading ? (
         <InlineSpinner />
       ) : (
@@ -332,11 +330,9 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
         </UnpricedModelWarning>
       )}
       {!isLoading && unpriced.length > 0 && (
-        <span className="text-[var(--coslash-muted)] max-[1250px]:hidden">
-          · {unpriced.length} not priced
-        </span>
+        <span className="text-coslash-muted max-actions:hidden">· {unpriced.length} not priced</span>
       )}
-      <span className="text-[11px] text-[var(--coslash-muted)] max-[1250px]:hidden">at list API prices</span>
+      <span className="text-meta text-coslash-muted max-actions:hidden">at list API prices</span>
     </div>
   );
 }
@@ -346,7 +342,7 @@ function FacetRow({ label, count, selected, icon, indicator, status, onClick }: 
     <button
       type="button"
       className={cn(styles.facet, {
-        'bg-[var(--coslash-tint)] font-semibold text-[var(--coslash-accent-ink)]': selected,
+        'bg-coslash-tint text-coslash-accent-ink font-semibold': selected,
         'opacity-55': count === 0 && !selected,
       })}
       aria-pressed={selected}
@@ -357,7 +353,7 @@ function FacetRow({ label, count, selected, icon, indicator, status, onClick }: 
         <span className="truncate">{label}</span>
         {indicator}
       </span>
-      <span className="ml-auto text-[11px] tabular-nums">{count}</span>
+      <span className="text-meta ml-auto tabular-nums">{count}</span>
     </button>
   );
 }
@@ -369,7 +365,7 @@ function MachineLegend() {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="grid size-6 shrink-0 cursor-help place-items-center rounded-[7px] text-[var(--coslash-muted)] hover:bg-[var(--coslash-soft)] hover:text-[var(--coslash-ink)] [&>svg]:size-3.5"
+            className="text-coslash-muted hover:bg-coslash-soft hover:text-coslash-ink grid size-6 shrink-0 cursor-help place-items-center rounded-[7px] [&>svg]:size-3.5"
             aria-label="What the connection dots mean"
           >
             <Info />
@@ -416,7 +412,7 @@ function SidebarSection({
           aria-controls={contentId}
           onClick={onToggle}
         >
-          <ChevronRight className={cn('size-[13px] transition-transform', open && 'rotate-90')} />
+          <ChevronRight className={cn('size-[13px] transition-transform', { 'rotate-90': open })} />
           <span className="flex flex-1 items-center justify-between">
             {section.label}
             {isLoading && <InlineSpinner />}
@@ -463,25 +459,25 @@ function CoslashHeader({
             <img src="/brand/coslash-logo.svg" alt="" className="w-[104px] dark:hidden" />
             <img src="/brand/coslash-logo-reverse.svg" alt="" className="hidden w-[104px] dark:block" />
           </span>
-          <span className="truncate text-[11px] text-[var(--coslash-muted)] max-[1000px]:hidden">
+          <span className="text-meta text-coslash-muted max-sidebar:hidden truncate">
             Run more agents. Lose less context.
           </span>
         </div>
         <div className="flex items-center gap-2">
           {actions}
-          <div className="rounded-[10px] bg-[var(--coslash-soft)] p-0.5">{diagnostics}</div>
-          <div className="rounded-[10px] bg-[var(--coslash-soft)] p-0.5">
+          <div className="bg-coslash-soft rounded-[10px] p-0.5">{diagnostics}</div>
+          <div className="bg-coslash-soft rounded-[10px] p-0.5">
             <Button
               variant="ghost"
               size="sm"
-              className="min-h-7 cursor-pointer gap-1.5 rounded-[7px] px-2.5 text-[11px] font-[550] [&>svg]:size-3.5"
+              className="text-meta min-h-7 cursor-pointer gap-1.5 rounded-[7px] px-2.5 font-[550] [&>svg]:size-3.5"
               onClick={onSettings}
             >
               <Settings /> Settings
             </Button>
           </div>
           <div
-            className="inline-flex items-center gap-0.5 rounded-[10px] bg-[var(--coslash-soft)] p-0.5"
+            className="bg-coslash-soft inline-flex items-center gap-0.5 rounded-[10px] p-0.5"
             aria-label="Theme"
           >
             {(
@@ -494,8 +490,8 @@ function CoslashHeader({
                 key={value}
                 type="button"
                 className={cn(
-                  'grid size-7 cursor-pointer place-items-center rounded-[7px] text-[var(--coslash-muted)] hover:bg-[var(--coslash-surface)] [&>svg]:size-3.5',
-                  theme === value && 'bg-[var(--coslash-surface)] text-[var(--coslash-ink)] shadow-sm',
+                  'text-coslash-muted hover:bg-coslash-surface grid size-7 cursor-pointer place-items-center rounded-[7px] [&>svg]:size-3.5',
+                  { 'bg-coslash-surface text-coslash-ink shadow-sm': theme === value },
                 )}
                 aria-label={`${value === 'light' ? 'Light' : 'Dark'} theme`}
                 aria-pressed={theme === value}
@@ -520,11 +516,11 @@ function CoslashHeader({
           <Button
             variant="outline"
             size="sm"
-            className="ml-auto border-[var(--coslash-clay)] bg-transparent text-[var(--coslash-clay)]"
+            className="border-coslash-clay text-coslash-clay ml-auto bg-transparent"
             onClick={onRetry}
             disabled={retrying}
           >
-            <RefreshCw className={cn(retrying && 'animate-spin')} /> Retry
+            <RefreshCw className={cn({ 'animate-spin': retrying })} /> Retry
           </Button>
         </div>
       )}
@@ -578,40 +574,40 @@ function SessionRow({
   const key = sessionKey(session);
   const reviewLink = review.index.links.get(key);
   const showReviewAction = isLocalSession(session) && !review.index.reviewSessions.has(key);
-  const cell = cn(styles.cell, compact && 'py-[5px]');
-  const hideWhenCompact = compact && 'hidden';
+  const cell = cn(styles.cell, { 'py-[5px]': compact });
+  const hideWhenCompact = { hidden: compact };
   return (
     <tr
       className={cn(
-        'coslash-row group cursor-pointer hover:[&>td]:bg-[var(--coslash-soft)]',
-        !compact && 'border-b border-[var(--coslash-line-soft)]',
+        'coslash-row group hover:[&>td]:bg-coslash-soft cursor-pointer',
+        { 'border-coslash-line-soft border-b': !compact },
         selected &&
-          '[&>td]:bg-[var(--coslash-tint)] hover:[&>td]:bg-[var(--coslash-tint)] [&>td:first-child]:shadow-[inset_3px_0_0_var(--coslash-accent)]',
+          '[&>td]:bg-coslash-tint hover:[&>td]:bg-coslash-tint [&>td:first-child]:shadow-[inset_3px_0_0_var(--coslash-accent)]',
       )}
       onClick={onSelect}
     >
       <td className={cn(cell, 'w-auto')}>
         <button
           type="button"
-          className="block w-full truncate px-1.5 py-px text-left text-[13px] leading-[1.35] font-semibold hover:text-[var(--coslash-accent)]"
+          className="text-ui hover:text-coslash-accent block w-full truncate px-1.5 py-px text-left leading-[1.35] font-semibold"
           onClick={onSelect}
         >
           {sessionTitle(session)}
         </button>
         <span
           className={cn(
-            'mt-0.5 block truncate px-1.5 text-[11.5px] leading-[1.4] text-[var(--coslash-muted)]',
+            'text-coslash-muted mt-0.5 block truncate px-1.5 text-[11.5px] leading-[1.4]',
             hideWhenCompact,
           )}
         >
           {getSessionCardSummary(session)}
         </span>
       </td>
-      <td className={cn(cell, 'w-[204px] max-[760px]:hidden')}>
-        <div className="flex min-w-0 items-baseline gap-1.5 text-[var(--coslash-muted)]">
+      <td className={cn(cell, 'max-compact:hidden w-[204px]')}>
+        <div className="text-coslash-muted flex min-w-0 items-baseline gap-1.5">
           <button
             type="button"
-            className="max-w-full truncate px-1.5 py-[1.5px] text-left text-[12.5px] hover:text-[var(--coslash-accent)]"
+            className="text-cell hover:text-coslash-accent max-w-full truncate px-1.5 py-[1.5px] text-left"
             onClick={(event) => {
               event.stopPropagation();
               onToggleGroup();
@@ -628,30 +624,26 @@ function SessionRow({
         <div className={cn('mt-1 flex min-w-0 items-center gap-1', hideWhenCompact)}>
           <span
             className={cn(
-              'max-w-full truncate rounded-full px-[7px] py-0.5 text-[11px] leading-[1.55] font-[550]',
-              session.agent === 'claude'
-                ? 'bg-[#f8ede6] text-[#96552f] dark:bg-[#332318] dark:text-[#e0a483]'
-                : session.agent === 'codex'
-                  ? 'bg-[#eceffc] text-[#4a5ab8] dark:bg-[#252d47] dark:text-[#a9b6f0]'
-                  : 'bg-[var(--coslash-soft)] text-[var(--coslash-muted)]',
+              'text-meta max-w-full truncate rounded-full px-[7px] py-0.5 leading-[1.55] font-[550]',
+              vendor.bg,
+              vendor.fg,
             )}
           >
             {vendor.label}
           </span>
           {!isLocalSession(session) && (
-            <span className="max-w-full truncate rounded-full bg-[var(--coslash-soft)] px-[7px] py-0.5 text-[11px] leading-[1.55] font-medium text-[var(--coslash-muted)]">
+            <span className="bg-coslash-soft text-meta text-coslash-muted max-w-full truncate rounded-full px-[7px] py-0.5 leading-[1.55] font-medium">
               {session.sourceLabel}
             </span>
           )}
         </div>
       </td>
-      <td className={cn(cell, 'w-[168px] max-[1000px]:w-auto max-[760px]:hidden')}>
+      <td className={cn(cell, 'max-sidebar:w-auto max-compact:hidden w-[168px]')}>
         <span
-          className={cn(
-            'flex items-center gap-[7px] text-[12.5px] whitespace-nowrap text-[var(--coslash-muted)]',
-            status === 'needs' && 'text-[#8a5a10] dark:text-[#e2b76d]',
-            status === 'running' && 'text-[#1b6b4c] dark:text-[#82d3aa]',
-          )}
+          className={cn('text-cell text-coslash-muted flex items-center gap-[7px] whitespace-nowrap', {
+            'text-coslash-amber-ink': status === 'needs',
+            'text-coslash-green-ink': status === 'running',
+          })}
           title={STATUS_META[status].hint}
         >
           <i className={cn('size-[7px] rounded-full', statusDot(status))} />
@@ -659,8 +651,8 @@ function SessionRow({
         </span>
         <span
           className={cn(
-            'mt-0.5 block truncate text-[11px] text-[var(--coslash-muted)]',
-            readiness.key === 'fresh' && 'font-[550] text-[var(--coslash-clay)]',
+            'text-meta text-coslash-muted mt-0.5 block truncate',
+            { 'text-coslash-clay font-[550]': readiness.key === 'fresh' },
             hideWhenCompact,
           )}
         >
@@ -668,31 +660,28 @@ function SessionRow({
         </span>
       </td>
       <td
-        className={cn(
-          cell,
-          'w-[92px] whitespace-nowrap text-[var(--coslash-muted)] tabular-nums max-[760px]:hidden',
-        )}
+        className={cn(cell, 'text-coslash-muted max-compact:hidden w-[92px] whitespace-nowrap tabular-nums')}
       >
         {formatTimeAgo(session.mtime)}
       </td>
-      <td className={cn(cell, 'w-[94px] whitespace-nowrap tabular-nums max-[1120px]:hidden')}>
+      <td className={cn(cell, 'max-cost:hidden w-[94px] whitespace-nowrap tabular-nums')}>
         <div>
           <UnpricedModelWarning unpriced={session.unpricedModels}>
             {formatTableCost(session.cost)}
           </UnpricedModelWarning>
         </div>
-        <span className={cn('mt-0.5 block text-[11px] text-[var(--coslash-muted)]', hideWhenCompact)}>
+        <span className={cn('text-meta text-coslash-muted mt-0.5 block', hideWhenCompact)}>
           {formatTokens(getTotalTokens(session.tokens))} tokens
         </span>
       </td>
       <td
         className={cn(
           cell,
-          'coslash-action-column relative w-[96px] overflow-visible pl-0 text-right whitespace-nowrap max-[1250px]:w-10 max-[1250px]:px-0 max-[760px]:hidden',
+          'coslash-action-column max-actions:w-10 max-actions:px-0 max-compact:hidden relative w-[96px] overflow-visible pl-0 text-right whitespace-nowrap',
         )}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="coslash-action-button absolute top-1/2 right-2.5 flex w-max -translate-y-1/2 items-center justify-end gap-[7px] max-[1250px]:hidden [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-7 [&_[data-slot=button]]:gap-[7px] [&_[data-slot=button]]:rounded-lg [&_[data-slot=button]]:px-[9px] [&_[data-slot=button]]:py-[5px] [&_[data-slot=button]]:text-[11px] [&_[data-slot=button]]:leading-[1.45] [&_[data-slot=button]]:font-[550]">
+        <div className="coslash-action-button max-actions:hidden [&_[data-slot=button]]:text-meta absolute top-1/2 right-2.5 flex w-max -translate-y-1/2 items-center justify-end gap-[7px] [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-7 [&_[data-slot=button]]:gap-[7px] [&_[data-slot=button]]:rounded-lg [&_[data-slot=button]]:px-[9px] [&_[data-slot=button]]:py-[5px] [&_[data-slot=button]]:leading-[1.45] [&_[data-slot=button]]:font-[550]">
           {reviewLink != null && (
             <Button
               size="xs"
@@ -720,7 +709,7 @@ function SessionRow({
           <Button
             variant="outline"
             size="sm"
-            className="min-h-[28px] min-w-0 gap-[7px] rounded-lg border-[var(--coslash-line)] bg-[var(--coslash-surface)] px-[9px] py-[5px] text-[11px] font-[550]"
+            className="border-coslash-line bg-coslash-surface text-meta min-h-[28px] min-w-0 gap-[7px] rounded-lg px-[9px] py-[5px] font-[550]"
             onClick={onSelect}
           >
             {status === 'running' ? 'Watch' : readiness.label}
@@ -761,12 +750,12 @@ function SessionListView({
   review: SessionReviewProps;
 }) {
   return (
-    <table className="w-full table-fixed border-collapse max-[760px]:table-auto">
+    <table className="max-compact:table-auto w-full table-fixed border-collapse">
       <thead>
         <tr>
           <SortHeader label="Session" sortKey="title" sort={sort} onSort={onSort} className="w-[300px]" />
-          <th className={cn(styles.head, 'w-[204px] px-2.5 py-[9px] max-[760px]:hidden')}>Where</th>
-          <th className={cn(styles.head, 'w-[168px] px-2.5 py-[9px] max-[1000px]:w-auto max-[760px]:hidden')}>
+          <th className={cn(styles.head, 'max-compact:hidden w-[204px] px-2.5 py-[9px]')}>Where</th>
+          <th className={cn(styles.head, 'max-sidebar:w-auto max-compact:hidden w-[168px] px-2.5 py-[9px]')}>
             Status / context
           </th>
           <SortHeader
@@ -774,19 +763,19 @@ function SessionListView({
             sortKey="recent"
             sort={sort}
             onSort={onSort}
-            className="w-[92px] max-[760px]:hidden [&_button]:justify-start"
+            className="max-compact:hidden w-[92px] [&_button]:justify-start"
           />
           <SortHeader
             label="≈ Cost"
             sortKey="cost"
             sort={sort}
             onSort={onSort}
-            className="w-[94px] max-[1120px]:hidden [&_button]:justify-start"
+            className="max-cost:hidden w-[94px] [&_button]:justify-start"
           />
           <th
             className={cn(
               styles.head,
-              'coslash-action-column w-[96px] px-2.5 py-[9px] text-right max-[1250px]:w-10 max-[1250px]:px-0 max-[760px]:hidden',
+              'coslash-action-column max-actions:w-10 max-actions:px-0 max-compact:hidden w-[96px] px-2.5 py-[9px] text-right',
             )}
           >
             <span className="sr-only">Actions</span>
@@ -803,7 +792,7 @@ function SessionListView({
             <tr>
               <th
                 colSpan={6}
-                className="sticky top-[34px] z-11 border-y border-[var(--coslash-line-soft)] bg-[var(--coslash-soft)] text-left"
+                className="border-coslash-line-soft bg-coslash-soft sticky top-[34px] z-11 border-y text-left"
               >
                 <button
                   type="button"
@@ -811,10 +800,10 @@ function SessionListView({
                   aria-expanded={open}
                   onClick={() => onToggleSection(status)}
                 >
-                  <ChevronRight className={cn('size-4 transition-transform', open && 'rotate-90')} />
+                  <ChevronRight className={cn('size-4 transition-transform', { 'rotate-90': open })} />
                   {STATUS_META[status].label}{' '}
-                  <span className="font-medium text-[var(--coslash-muted)]">{rows.length}</span>
-                  <span className="ml-auto text-[11.5px] font-medium text-[var(--coslash-muted)]">
+                  <span className="text-coslash-muted font-medium">{rows.length}</span>
+                  <span className="text-coslash-muted ml-auto text-[11.5px] font-medium">
                     {formatTokens(tokenTotal(aggregate))} tokens ·{' '}
                     {formatTableCost(sumKnown(aggregate.map((session) => session.cost)))}
                   </span>
@@ -843,7 +832,7 @@ function SessionListView({
                 <td colSpan={6} className="p-0">
                   <button
                     type="button"
-                    className="w-full cursor-pointer p-[9px] text-xs font-semibold text-[var(--coslash-accent)] hover:bg-[var(--coslash-soft)]"
+                    className="text-coslash-accent hover:bg-coslash-soft w-full cursor-pointer p-[9px] text-xs font-semibold"
                     onClick={() => onShowMore(status, limit)}
                   >
                     Show {Math.min(50, rows.length - shown.length)} more · {rows.length - shown.length}{' '}
@@ -1086,7 +1075,7 @@ export function CoslashLayout({
   const reviewIndex = useMemo(() => buildReviewIndex(sessions), [sessions]);
 
   return (
-    <div className={cn(styles.shell, inspectorOpen && 'inspector-open')}>
+    <div className={cn(styles.shell, { 'inspector-open': inspectorOpen })}>
       <CoslashHeader
         machines={machines}
         diagnostics={diagnostics}
@@ -1100,7 +1089,7 @@ export function CoslashLayout({
       />
       {banner}
       <div className="flex items-start">
-        <aside className={styles.sidebar} aria-label="Filters">
+        <div className={styles.sidebar} role="region" aria-label="Filters">
           {facetSections.map((section) => (
             <SidebarSection
               key={section.id}
@@ -1111,7 +1100,7 @@ export function CoslashLayout({
             />
           ))}
           <div className="pb-3.5">
-            <div className="sticky top-[-20px] z-20 bg-[var(--coslash-surface)] pb-1">
+            <div className="bg-coslash-surface sticky top-[-20px] z-20 pb-1">
               <button
                 className={styles.sideHeading}
                 aria-expanded={sideOpen.group}
@@ -1119,7 +1108,7 @@ export function CoslashLayout({
                 onClick={() => setSideOpen((state) => ({ ...state, group: !state.group }))}
               >
                 <ChevronRight
-                  className={cn('size-[13px] transition-transform', sideOpen.group && 'rotate-90')}
+                  className={cn('size-[13px] transition-transform', { 'rotate-90': sideOpen.group })}
                 />
                 <span className="flex flex-1 items-center justify-between">
                   Detected groups
@@ -1127,7 +1116,7 @@ export function CoslashLayout({
                 </span>
               </button>
               {sideOpen.group && (
-                <div className="mx-2 mt-1 mb-1.5 flex items-center gap-1.5 rounded-[7px] border border-[var(--coslash-line)] bg-[var(--coslash-bg)] px-2 py-1.5 text-[var(--coslash-muted)] focus-within:border-[var(--coslash-accent)] [&>svg]:size-3.5">
+                <div className="border-coslash-line bg-coslash-bg text-coslash-muted focus-within:border-coslash-accent mx-2 mt-1 mb-1.5 flex items-center gap-1.5 rounded-[7px] border px-2 py-1.5 [&>svg]:size-3.5">
                   <Search />
                   <input
                     type="search"
@@ -1135,12 +1124,12 @@ export function CoslashLayout({
                     onChange={(event) => setGroupQuery(event.target.value)}
                     placeholder="Filter groups"
                     aria-label="Filter detected groups"
-                    className="min-w-0 flex-1 bg-transparent text-xs text-[var(--coslash-ink)] outline-none [&::-webkit-search-cancel-button]:hidden"
+                    className="text-coslash-ink min-w-0 flex-1 bg-transparent text-xs outline-none [&::-webkit-search-cancel-button]:hidden"
                   />
                   {groupQuery && (
                     <button
                       type="button"
-                      className="grid size-5 place-items-center rounded hover:bg-[var(--coslash-soft)] [&>svg]:size-3"
+                      className="hover:bg-coslash-soft grid size-5 place-items-center rounded [&>svg]:size-3"
                       onClick={() => setGroupQuery('')}
                       aria-label="Clear group filter"
                     >
@@ -1154,7 +1143,7 @@ export function CoslashLayout({
               <div id="coslash-group">
                 {groupSections.map(({ kind, options }) => (
                   <div key={kind}>
-                    <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-[11px] font-semibold text-[var(--coslash-muted)] [&>svg]:size-3.5">
+                    <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
                       {kind === 'Repository' && <FolderGit2 />}
                       {kind === 'Folder' && <Folder />}
                       {GROUP_LABELS[kind]}
@@ -1163,22 +1152,22 @@ export function CoslashLayout({
                   </div>
                 ))}
                 {groupSections.length === 0 && (
-                  <div className="px-2.5 py-2 text-xs text-[var(--coslash-muted)]">
+                  <div className="text-coslash-muted px-2.5 py-2 text-xs">
                     No groups match “{groupQuery}”.
                   </div>
                 )}
               </div>
             )}
           </div>
-        </aside>
+        </div>
 
-        <main className={styles.main}>
+        <div className={styles.main}>
           <div className="flex flex-col gap-3">
             <div className={styles.search}>
               {activeChips.length > 0 && (
                 <button
                   type="button"
-                  className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md border border-[var(--coslash-tint-line)] bg-[var(--coslash-tint)] text-[var(--coslash-accent-ink)] hover:bg-[var(--coslash-tint-line)] [&>svg]:size-3"
+                  className="border-coslash-tint-line bg-coslash-tint text-coslash-accent-ink hover:bg-coslash-tint-line grid size-6 shrink-0 cursor-pointer place-items-center rounded-md border [&>svg]:size-3"
                   onClick={clearFacets}
                   aria-label="Clear all scopes"
                   title="Clear all scopes"
@@ -1192,7 +1181,7 @@ export function CoslashLayout({
                     <span className="font-normal opacity-70">{chip.kind}:</span> {chip.label}
                     <button
                       type="button"
-                      className="grid size-4 cursor-pointer place-items-center rounded hover:bg-[var(--coslash-tint-line)] [&>svg]:size-2.5"
+                      className="hover:bg-coslash-tint-line grid size-4 cursor-pointer place-items-center rounded [&>svg]:size-2.5"
                       aria-label={`Remove ${chip.label}`}
                       onClick={chip.remove}
                     >
@@ -1201,7 +1190,7 @@ export function CoslashLayout({
                   </span>
                 ))}
                 {activeChips.length === 0 && (
-                  <Search className="size-4 shrink-0 text-[var(--coslash-muted)]" aria-hidden="true" />
+                  <Search className="text-coslash-muted size-4 shrink-0" aria-hidden="true" />
                 )}
                 <input
                   type="search"
@@ -1209,13 +1198,13 @@ export function CoslashLayout({
                   onChange={(event) => patchPreferences({ query: event.target.value })}
                   placeholder="Search sessions -- title, repo, branch"
                   aria-label="Search titles, outcomes, files and context"
-                  className="min-w-32 flex-1 bg-transparent text-[13px] outline-none [&::-webkit-search-cancel-button]:hidden"
+                  className="text-ui min-w-32 flex-1 bg-transparent outline-none [&::-webkit-search-cancel-button]:hidden"
                 />
               </div>
               {preferences.query && (
                 <button
                   type="button"
-                  className="grid size-7 cursor-pointer place-items-center rounded-[7px] hover:bg-[var(--coslash-soft)] [&>svg]:size-4"
+                  className="hover:bg-coslash-soft grid size-7 cursor-pointer place-items-center rounded-[7px] [&>svg]:size-4"
                   onClick={() => patchPreferences({ query: '' })}
                   aria-label="Clear search"
                 >
@@ -1223,7 +1212,7 @@ export function CoslashLayout({
                 </button>
               )}
             </div>
-            <div className="flex items-center justify-between gap-3 max-[900px]:flex-wrap">
+            <div className="max-narrow:flex-wrap flex items-center justify-between gap-3">
               <Rollup sessions={visibleSessions} isLoading={isLoading} />
               <div className="flex shrink-0 items-center gap-2">
                 <div className={styles.segmented} aria-label="Time range">
@@ -1232,9 +1221,9 @@ export function CoslashLayout({
                       key={option.value}
                       type="button"
                       className={cn(
-                        'min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 text-[11px] text-[var(--coslash-muted)]',
+                        'text-meta text-coslash-muted min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1',
                         range === option.value &&
-                          'bg-[var(--coslash-surface)] font-semibold text-[var(--coslash-ink)] shadow-sm',
+                          'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
                       )}
                       onClick={() => onRangeChange(option.value)}
                     >
@@ -1242,16 +1231,16 @@ export function CoslashLayout({
                     </button>
                   ))}
                 </div>
-                <span className="h-7 w-px bg-[var(--coslash-line)]" aria-hidden="true" />
+                <span className="bg-coslash-line h-7 w-px" aria-hidden="true" />
                 <div className={styles.segmented} aria-label="View">
                   {(['board', 'list'] as const).map((value) => (
                     <button
                       key={value}
                       type="button"
                       className={cn(
-                        'min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 text-[11px] text-[var(--coslash-muted)]',
+                        'text-meta text-coslash-muted min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1',
                         preferences.view === value &&
-                          'bg-[var(--coslash-surface)] font-semibold text-[var(--coslash-ink)] shadow-sm',
+                          'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
                       )}
                       onClick={() => patchPreferences({ view: value })}
                     >
@@ -1262,7 +1251,7 @@ export function CoslashLayout({
                 {preferences.view === 'list' && (
                   <button
                     type="button"
-                    className="grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-[9px] border border-[var(--coslash-line)] bg-[var(--coslash-surface)] text-[var(--coslash-muted)] hover:bg-[var(--coslash-soft)] [&>svg]:size-3.5"
+                    className="border-coslash-line bg-coslash-surface text-coslash-muted hover:bg-coslash-soft grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-[9px] border [&>svg]:size-3.5"
                     aria-label={
                       preferences.density === 'comfortable' ? 'Use compact rows' : 'Use comfortable rows'
                     }
@@ -1290,11 +1279,9 @@ export function CoslashLayout({
             <LoadingSpinner isLoading={isLoading && sessions.length === 0}>
               {loadError ? (
                 <div className={styles.empty} role="alert">
-                  <AlertTriangle className="size-6 text-[var(--coslash-muted)]" />
+                  <AlertTriangle className="text-coslash-muted size-6" />
                   <h3 className="text-[15px] font-[650]">Sessions could not be loaded</h3>
-                  <p className="max-w-[430px] text-[12.5px] leading-[1.6] text-[var(--coslash-muted)]">
-                    {loadError}
-                  </p>
+                  <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">{loadError}</p>
                   <Button variant="outline" onClick={onRetry}>
                     Try again
                   </Button>
@@ -1302,9 +1289,9 @@ export function CoslashLayout({
               ) : visibleSessions.length === 0 ? (
                 (emptyContent ?? (
                   <div className={styles.empty}>
-                    <Search className="size-6 text-[var(--coslash-muted)]" />
+                    <Search className="text-coslash-muted size-6" />
                     <h3 className="text-[15px] font-[650]">Nothing in this scope</h3>
-                    <p className="max-w-[430px] text-[12.5px] leading-[1.6] text-[var(--coslash-muted)]">
+                    <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">
                       Nothing matched the recorded titles, goals, outcomes, files or context.
                     </p>
                     <Button
@@ -1362,7 +1349,7 @@ export function CoslashLayout({
               )}
             </LoadingSpinner>
           </div>
-        </main>
+        </div>
       </div>
     </div>
   );
