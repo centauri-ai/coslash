@@ -1222,7 +1222,7 @@ export function CoslashLayout({
                     value={preferences.query}
                     onChange={(event) => patchPreferences({ query: event.target.value })}
                     placeholder="Search sessions -- title, repo, branch"
-                    aria-label="Search titles, outcomes, files and context"
+                    aria-label="Search titles, repositories, branches and agents"
                     className="text-ui min-w-32 flex-1 bg-transparent outline-none [&::-webkit-search-cancel-button]:hidden"
                   />
                 </div>
@@ -1317,7 +1317,7 @@ export function CoslashLayout({
                       <Search className="text-coslash-muted size-6" />
                       <h3 className="text-[15px] font-[650]">Nothing in this scope</h3>
                       <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">
-                        Nothing matched the recorded titles, goals, outcomes, files or context.
+                        Nothing matched the recorded titles, repositories, branches or agents.
                       </p>
                       <Button
                         variant="outline"

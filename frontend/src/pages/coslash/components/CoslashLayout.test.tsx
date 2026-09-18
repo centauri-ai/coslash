@@ -314,7 +314,7 @@ describe('CoslashLayout', () => {
     expect(before.lastIndexOf('</button>')).toBeGreaterThan(before.lastIndexOf('<button'));
   });
 
-  it('sends a failed connector to Settings rather than another refresh', () => {
+  it('offers a credential failure a retry, which Settings cannot run for it', () => {
     const markup = renderLayout({
       machines: [
         {
@@ -327,8 +327,8 @@ describe('CoslashLayout', () => {
       ],
     });
 
-    expect(markup).toContain('Open Settings');
-    expect(markup).not.toContain('>Retry<');
+    expect(markup).toContain('Retry</button>');
+    expect(markup).not.toContain('Open Settings');
   });
 
   it('does not paint a degraded remote as connected', () => {
@@ -354,5 +354,6 @@ describe('CoslashLayout', () => {
 
     expect(markup).toContain('role="alert"');
     expect(markup).toContain('Setup failed: helper incompatible. Open Settings to retry.');
+    expect(markup).toContain('Open Settings</button>');
   });
 });

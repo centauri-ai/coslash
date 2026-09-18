@@ -20,9 +20,9 @@ export function machineRetryable(machine: MachineFact): boolean {
   return machineTone(machine) === 'stale';
 }
 
-/** A failed connector or credential needs the consented setup flow, which no refresh runs. */
+/** Only a failed connector needs the consented setup flow; a failed credential retries. */
 export function needsSetup(machine: MachineFact): boolean {
-  return machineTone(machine) === 'failed';
+  return connectorFailed(machine);
 }
 
 function isChecking(machine: MachineFact): boolean {
