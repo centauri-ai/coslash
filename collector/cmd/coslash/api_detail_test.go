@@ -37,8 +37,52 @@ func exactDetailSession(body string) session.Session {
 	}
 }
 
+func mustLocalDetailRevision(t *testing.T, value session.Session) string {
+	t.Helper()
+	revision, err := localDetailRevision(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return revision
+}
+
+func TestLocalDetailRevisionTracksParsedContentNotLiveFacts(t *testing.T) {
+	base := exactDetailSession("@@\n-old\n+new\n")
+	base.Subagents = []session.Subagent{{ID: "subagent", Status: session.SubagentRunning}}
+	revision := mustLocalDetailRevision(t, base)
+
+	live := *session.Clone(&base)
+	status := "busy"
+	branch := "main"
+	repository := "centauri/coslash"
+	lastEditAt := int64(3000)
+	live.Status = &status
+	live.Branch = &branch
+	live.Repository = &repository
+	live.RepositoryLocalOnly = true
+	live.Commits = []string{"live repository commit"}
+	live.Git = &session.GitDrift{BaseBranch: "main", Ahead: 1}
+	live.LastEditAt = &lastEditAt
+	live.ReviewPending = true
+	live.Subagents[0].Status = session.SubagentReturned
+	if got := mustLocalDetailRevision(t, live); got != revision {
+		t.Fatalf("live facts changed detail revision: got %q, want %q", got, revision)
+	}
+
+	live.Commands = append(live.Commands, "untimed parsed command")
+	if got := mustLocalDetailRevision(t, live); got == revision {
+		t.Fatal("parsed command did not change detail revision")
+	}
+	commitOnly := *session.Clone(&base)
+	commitOnly.CommitLog = append(commitOnly.CommitLog, session.CommitObservation{Hash: "abc1234", Subject: "parsed commit"})
+	if got := mustLocalDetailRevision(t, commitOnly); got == revision {
+		t.Fatal("parsed commit observation did not change detail revision")
+	}
+}
+
 func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 	local := exactDetailSession("@@\n-local old\n+local new\n")
+	revision := mustLocalDetailRevision(t, local)
 	reader := func(agent, sessionID string) (*session.Session, error) {
 		if agent != vendors.AgentCodex || sessionID != local.ID {
 			t.Fatalf("local identity = %q/%q", agent, sessionID)
@@ -48,7 +92,7 @@ func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 	}
 
 	detailRequest := httptest.NewRequest(http.MethodGet,
-		"/api/session-detail?source=local&agent=codex&session=same-session&revision=2000", nil)
+		"/api/session-detail?source=local&agent=codex&session=same-session&revision="+revision, nil)
 	detailResponse := httptest.NewRecorder()
 	handleSessionDetail(detailResponse, detailRequest, reader, remote.NewManager(remote.Options{}))
 	if detailResponse.Code != http.StatusOK {
@@ -58,7 +102,7 @@ func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 	if err := json.Unmarshal(detailResponse.Body.Bytes(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if detail.SourceID != localSourceID || detail.Agent != vendors.AgentCodex || detail.SessionID != local.ID || detail.Revision != "2000" {
+	if detail.SourceID != localSourceID || detail.Agent != vendors.AgentCodex || detail.SessionID != local.ID || detail.Revision != revision {
 		t.Fatalf("detail identity = %#v", detail)
 	}
 	if len(detail.Session.FileEdits) != 1 || len(detail.Session.FileEdits[0].ChangeIDs) != 1 {
@@ -67,7 +111,7 @@ func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 	changeID := detail.Session.FileEdits[0].ChangeIDs[0]
 
 	diffRequest := httptest.NewRequest(http.MethodGet,
-		"/api/diff?source=local&agent=codex&session=same-session&revision=2000&path=../../secret&change="+changeID, nil)
+		"/api/diff?source=local&agent=codex&session=same-session&revision="+revision+"&path=../../secret&change="+changeID, nil)
 	diffResponse := httptest.NewRecorder()
 	handleExactDiff(diffResponse, diffRequest, reader, remote.NewManager(remote.Options{}))
 	if diffResponse.Code != http.StatusOK {
@@ -90,7 +134,7 @@ func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 		code   string
 	}{
 		{name: "stale revision", target: "/api/session-detail?source=local&agent=codex&session=same-session&revision=1999", status: http.StatusConflict, code: errCodeDetailStale},
-		{name: "foreign change", target: "/api/diff?source=local&agent=codex&session=same-session&revision=2000&change=change-999999-999999", status: http.StatusNotFound, code: errCodeChangeMissing},
+		{name: "foreign change", target: "/api/diff?source=local&agent=codex&session=same-session&revision=" + revision + "&change=change-999999-999999", status: http.StatusNotFound, code: errCodeChangeMissing},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, test.target, nil)
@@ -119,6 +163,7 @@ func TestExactLocalChangeIDsRemainBoundAfterFileReordering(t *testing.T) {
 	edits.Patch("b.go", "@@\n-old b\n+new b\n")
 	local := exactDetailSession("")
 	local.SessionDetails.FileEdits = edits.Edits
+	revision := mustLocalDetailRevision(t, local)
 
 	reader := func(string, string) (*session.Session, error) {
 		copy := local
@@ -126,7 +171,7 @@ func TestExactLocalChangeIDsRemainBoundAfterFileReordering(t *testing.T) {
 	}
 	detailResponse := httptest.NewRecorder()
 	handleSessionDetail(detailResponse, httptest.NewRequest(http.MethodGet,
-		"/api/session-detail?source=local&agent=codex&session=same-session&revision=2000", nil),
+		"/api/session-detail?source=local&agent=codex&session=same-session&revision="+revision, nil),
 		reader, remote.NewManager(remote.Options{}))
 	if detailResponse.Code != http.StatusOK {
 		t.Fatalf("detail status = %d: %s", detailResponse.Code, detailResponse.Body.String())
@@ -142,13 +187,32 @@ func TestExactLocalChangeIDsRemainBoundAfterFileReordering(t *testing.T) {
 	edits.Add("a.go", 1, 1, false)
 	edits.Patch("a.go", "@@\n-new a\n+newer a\n")
 	local.SessionDetails.FileEdits = edits.Edits
+	updatedRevision := mustLocalDetailRevision(t, local)
+	if updatedRevision == revision {
+		t.Fatal("untimed parsed change did not advance detail revision")
+	}
+	staleDetailResponse := httptest.NewRecorder()
+	handleSessionDetail(staleDetailResponse, httptest.NewRequest(http.MethodGet,
+		"/api/session-detail?source=local&agent=codex&session=same-session&revision="+revision, nil),
+		reader, remote.NewManager(remote.Options{}))
+	if staleDetailResponse.Code != http.StatusConflict {
+		t.Fatalf("stale detail status = %d: %s", staleDetailResponse.Code, staleDetailResponse.Body.String())
+	}
 
 	diffResponse := httptest.NewRecorder()
 	handleExactDiff(diffResponse, httptest.NewRequest(http.MethodGet,
-		"/api/diff?source=local&agent=codex&session=same-session&revision=2000&change="+changeID, nil),
+		"/api/diff?source=local&agent=codex&session=same-session&revision="+revision+"&change="+changeID, nil),
+		reader, remote.NewManager(remote.Options{}))
+	if diffResponse.Code != http.StatusConflict {
+		t.Fatalf("stale diff status = %d: %s", diffResponse.Code, diffResponse.Body.String())
+	}
+
+	diffResponse = httptest.NewRecorder()
+	handleExactDiff(diffResponse, httptest.NewRequest(http.MethodGet,
+		"/api/diff?source=local&agent=codex&session=same-session&revision="+updatedRevision+"&change="+changeID, nil),
 		reader, remote.NewManager(remote.Options{}))
 	if diffResponse.Code != http.StatusOK {
-		t.Fatalf("diff status = %d: %s", diffResponse.Code, diffResponse.Body.String())
+		t.Fatalf("updated diff status = %d: %s", diffResponse.Code, diffResponse.Body.String())
 	}
 	var diff exactDiffResponse
 	if err := json.Unmarshal(diffResponse.Body.Bytes(), &diff); err != nil {
@@ -353,10 +417,11 @@ func TestRemoteDetailAndDiffRemainReadableFromRestartedOfflineCache(t *testing.T
 		copy := remoteSession
 		return &copy, nil
 	}
+	localRevision := mustLocalDetailRevision(t, remoteSession)
 	localDetailResponse := httptest.NewRecorder()
 	handleSessionDetail(
 		localDetailResponse,
-		httptest.NewRequest(http.MethodGet, "/api/session-detail?source=local&agent=codex&session=same-session&revision=2000", nil),
+		httptest.NewRequest(http.MethodGet, "/api/session-detail?source=local&agent=codex&session=same-session&revision="+localRevision, nil),
 		localParityReader,
 		manager,
 	)
@@ -392,7 +457,7 @@ func TestRemoteDetailAndDiffRemainReadableFromRestartedOfflineCache(t *testing.T
 	localDiffResponse := httptest.NewRecorder()
 	handleExactDiff(
 		localDiffResponse,
-		httptest.NewRequest(http.MethodGet, "/api/diff?source=local&agent=codex&session=same-session&revision=2000&change="+localChangeID, nil),
+		httptest.NewRequest(http.MethodGet, "/api/diff?source=local&agent=codex&session=same-session&revision="+localRevision+"&change="+localChangeID, nil),
 		localParityReader,
 		manager,
 	)
