@@ -32,6 +32,30 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 	return loadMetadata(home)
 }
 
+func LoadSelectionMetadata() (*vendors.SessionMetadata, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return loadSelectionMetadata(home)
+}
+
+func loadSelectionMetadata(home string) (*vendors.SessionMetadata, error) {
+	metadata := vendors.EmptySessionMetadata()
+	path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	db, err := openCursorDB(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return metadata, nil
+		}
+		return nil, err
+	}
+	defer db.Close()
+	loadIDERelationships(metadata, db, nil)
+	loadIDETimes(metadata, db, nil)
+	return metadata, nil
+}
+
 func loadMetadata(home string) (*vendors.SessionMetadata, error) {
 	return loadMetadataForSessions(home, nil, nil)
 }

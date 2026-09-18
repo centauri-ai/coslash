@@ -20,8 +20,15 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
-	files = selectCursorFilesSourceWithMetadata(vendors.LocalReadSource, files, since, metadata)
+	selectionMetadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadSelectionMetadata)
+	files = selectCursorFilesSourceWithMetadata(vendors.LocalReadSource, files, since, selectionMetadata)
+	ids := make([]string, 0, len(files))
+	for _, path := range files {
+		ids = append(ids, IDFromPath(path))
+	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
+		return LoadMetadataForSessions(canonicalCursorIDs(ids), files)
+	})
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
 	applyCursorEnrichment(parsed, metadata)
 	applyRelationships(parsed, metadata)
