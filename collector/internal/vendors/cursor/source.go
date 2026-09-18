@@ -30,12 +30,6 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 		return LoadMetadataForSessions(canonicalCursorIDs(ids), files)
 	})
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
-	for _, item := range parsed {
-		if item != nil && item.Session != nil && item.Stopped {
-			// A terminal transcript error is authoritative over a stale open DB.
-			metadata.Session(item.Session.ID).Live = ""
-		}
-	}
 	applyCursorEnrichment(parsed, metadata)
 	applyRelationships(parsed, metadata)
 	return parsed, metadata, nil
@@ -186,6 +180,10 @@ func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.Se
 			continue
 		}
 		enrichment := metadata.Session(item.Session.ID)
+		if item.Stopped {
+			// A terminal transcript error is authoritative over a stale open DB.
+			enrichment.Live = ""
+		}
 		applyMetadataTimes(item.Session, enrichment.StartedAt, enrichment.LastActivityAt)
 		if enrichment.WorkingDirectory != "" {
 			item.Session.WorkingDirectory = enrichment.WorkingDirectory
@@ -334,7 +332,7 @@ func selectCursorFilesSourceWithMetadata(source vendors.ReadSource, files []stri
 			eligibleFamilies[familyID] = true
 			continue
 		}
-		if metadata != nil && metadata.Session(IDFromPath(path)).Live != "" {
+		if enrichment := metadata.Lookup(IDFromPath(path)); enrichment != nil && enrichment.Live != "" {
 			eligibleFamilies[familyID] = true
 			continue
 		}
