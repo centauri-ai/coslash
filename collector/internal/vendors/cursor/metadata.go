@@ -56,6 +56,8 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 	}
 	if stateDB != nil {
 		defer stateDB.Close()
+		loadIDERelationships(metadata, stateDB, ids)
+		ids = cursorMetadataIDs(ids, metadata)
 		query, args := cursorIDQuery(`SELECT composerId, value FROM composerHeaders`, "composerId", ids)
 		loadCursorRowsDB(metadata, lanes, entrypointIDE, statePath, stateDB, query, args, func(id, value string) (string, string, string) {
 			id = canonicalCursorID(id)
@@ -78,7 +80,6 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 		loadIDEDiffs(metadata, stateDB, ids)
 		loadIDECommitObservations(metadata, stateDB, ids)
 		loadIDEModelsDB(metadata, stateDB, ids)
-		loadIDERelationships(metadata, stateDB, ids)
 	}
 	query, args := cursorIDQuery(`SELECT id, title FROM conversations`, "id", ids)
 	query += ` ORDER BY source = 'local' DESC`
@@ -168,6 +169,16 @@ func canonicalCursorIDs(ids []string) []string {
 
 func canonicalCursorID(id string) string {
 	return strings.ToLower(strings.TrimSpace(id))
+}
+
+func cursorMetadataIDs(ids []string, metadata *vendors.SessionMetadata) []string {
+	if ids == nil {
+		return nil
+	}
+	for id, entry := range metadata.Sessions {
+		ids = append(ids, id, entry.Relationship.ParentID)
+	}
+	return canonicalCursorIDs(ids)
 }
 
 func cursorIDQuery(query, column string, ids []string) (string, []any) {
@@ -264,55 +275,77 @@ func cursorSDKStores(home string, ids, transcriptPaths []string) []string {
 }
 
 func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
-	query := `SELECT composerId, value FROM composerHeaders`
-	args := []any(nil)
-	if ids != nil {
-		if len(ids) == 0 {
-			query += ` WHERE 0`
-		} else {
-			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
-			query += ` WHERE LOWER(composerId) IN (` + placeholders + `) OR LOWER(json_extract(value, '$.subagentInfo.parentComposerId')) IN (` + placeholders + `)`
-			for _, id := range ids {
-				args = append(args, id)
+	familyIDs := canonicalCursorIDs(ids)
+	for {
+		query := `SELECT composerId, value FROM composerHeaders`
+		args := []any(nil)
+		if familyIDs != nil {
+			if len(familyIDs) == 0 {
+				query += ` WHERE 0`
+			} else {
+				placeholders := strings.TrimSuffix(strings.Repeat("?,", len(familyIDs)), ",")
+				query += ` WHERE LOWER(composerId) IN (` + placeholders + `) OR LOWER(json_extract(value, '$.subagentInfo.parentComposerId')) IN (` + placeholders + `)`
+				for _, id := range familyIDs {
+					args = append(args, id)
+				}
+				for _, id := range familyIDs {
+					args = append(args, id)
+				}
 			}
-			for _, id := range ids {
-				args = append(args, id)
+		}
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			return
+		}
+		changed := false
+		known := map[string]bool{}
+		for _, id := range familyIDs {
+			known[id] = true
+		}
+		for rows.Next() {
+			var childID, value string
+			if rows.Scan(&childID, &value) != nil {
+				continue
+			}
+			var header struct {
+				SubagentInfo struct {
+					ParentComposerID string `json:"parentComposerId"`
+					ToolCallID       string `json:"toolCallId"`
+				} `json:"subagentInfo"`
+			}
+			if json.Unmarshal([]byte(value), &header) != nil {
+				continue
+			}
+			childID = canonicalCursorID(childID)
+			parentID := canonicalCursorID(header.SubagentInfo.ParentComposerID)
+			if !transcriptIDPattern.MatchString(childID) || !transcriptIDPattern.MatchString(parentID) {
+				continue
+			}
+			metadata.Session(childID).Relationship = vendors.SessionRelationship{ParentID: parentID, SpawnKey: header.SubagentInfo.ToolCallID}
+			metadata.Session(parentID)
+			for _, id := range []string{childID, parentID} {
+				if !known[id] {
+					known[id], changed = true, true
+					familyIDs = append(familyIDs, id)
+				}
 			}
 		}
+		rows.Close()
+		if ids == nil || !changed {
+			break
+		}
 	}
-	rows, err := db.Query(query, args...)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var childID, value string
-		if rows.Scan(&childID, &value) != nil {
-			continue
-		}
-		childID = canonicalCursorID(childID)
-		var header struct {
-			SubagentInfo struct {
-				ParentComposerID string `json:"parentComposerId"`
-				ToolCallID       string `json:"toolCallId"`
-			} `json:"subagentInfo"`
-		}
-		if json.Unmarshal([]byte(value), &header) != nil {
-			continue
-		}
-		parentID := canonicalCursorID(header.SubagentInfo.ParentComposerID)
-		if !transcriptIDPattern.MatchString(childID) || !transcriptIDPattern.MatchString(parentID) {
-			continue
-		}
-		metadata.Session(childID).Relationship = vendors.SessionRelationship{ParentID: parentID, SpawnKey: header.SubagentInfo.ToolCallID}
-	}
-	parentIDs := append([]string(nil), ids...)
+	parentIDs := append([]string(nil), familyIDs...)
 	for _, entry := range metadata.Sessions {
 		if entry.Relationship.ParentID != "" {
 			parentIDs = append(parentIDs, entry.Relationship.ParentID)
 		}
 	}
-	query, args = cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "bubbleId:", canonicalCursorIDs(parentIDs))
+	bubbleIDs := canonicalCursorIDs(parentIDs)
+	if ids == nil {
+		bubbleIDs = nil
+	}
+	query, args := cursorKeyQuery(`SELECT key, value FROM cursorDiskKV`, "bubbleId:", bubbleIDs)
 	rows2, err := db.Query(query, args...)
 	if err != nil {
 		return
@@ -348,6 +381,18 @@ func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB, ids []s
 			continue
 		}
 		childID := canonicalCursorID(result.AgentID)
+		if !transcriptIDPattern.MatchString(childID) && bubble.ToolFormerData.Status == "running" {
+			for candidateID, entry := range metadata.Sessions {
+				rel := entry.Relationship
+				if rel.ParentID == parentID && rel.SpawnKey == bubble.ToolFormerData.ToolCallID {
+					if childID != "" {
+						childID = ""
+						break
+					}
+					childID = candidateID
+				}
+			}
+		}
 		if !transcriptIDPattern.MatchString(childID) {
 			continue
 		}

@@ -153,6 +153,73 @@ func TestLoadIDEModelsCountsOnlyCreatedPullRequests(t *testing.T) {
 	}
 }
 
+func TestLoadMetadataForSessionsExpandsIDEFamily(t *testing.T) {
+	home := t.TempDir()
+	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	if err := createMetadataTestDB(statePath); err != nil {
+		t.Fatal(err)
+	}
+	parentID := "00000000-0000-4000-8000-000000000001"
+	child1ID := "00000000-0000-4000-8000-000000000002"
+	child2ID := "00000000-0000-4000-8000-000000000003"
+	db, err := sql.Open("sqlite", statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ id, value string }{
+		{parentID, `{"name":"Parent"}`},
+		{child1ID, `{"name":"Child one","subagentInfo":{"parentComposerId":"` + parentID + `","toolCallId":"call-1"}}`},
+		{child2ID, `{"name":"Child two","subagentInfo":{"parentComposerId":"` + parentID + `","toolCallId":"call-2"}}`},
+	} {
+		if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value) VALUES (?, ?)`, row.id, row.value); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata, err := loadMetadataForSessions(home, []string{child1ID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{parentID, child1ID, child2ID} {
+		if metadata.Lookup(id) == nil {
+			t.Fatalf("family member %s missing from scoped metadata", id)
+		}
+	}
+}
+
+func TestLoadIDERelationshipsResolvesRunningTaskWithoutResult(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.vscdb")
+	if err := createMetadataTestDB(path); err != nil {
+		t.Fatal(err)
+	}
+	parentID := "00000000-0000-4000-8000-000000000001"
+	childID := "00000000-0000-4000-8000-000000000002"
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	header := `{"subagentInfo":{"parentComposerId":"` + parentID + `","toolCallId":"call-1"}}`
+	bubble := `{"toolFormerData":{"name":"task_v2","toolCallId":"call-1","status":"running","params":"{\"description\":\"inspect\"}","result":""}}`
+	if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value) VALUES (?, ?)`, childID, header); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, "bubbleId:"+parentID+":bubble-1", bubble); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata := vendors.EmptySessionMetadata()
+	loadIDERelationships(metadata, db, nil)
+	relationship := metadata.Session(childID).Relationship
+	if !relationship.Active || relationship.ParentID != parentID || relationship.SpawnKey != "call-1" || relationship.Task != "inspect" {
+		t.Fatalf("relationship = %#v, want active child resolved from header join", relationship)
+	}
+}
+
 func createMetadataTestDB(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

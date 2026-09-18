@@ -25,9 +25,6 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
 	applyCursorEnrichment(parsed, metadata)
 	applyRelationships(parsed, metadata)
-	if since > 0 {
-		parsed = familiesSince(parsed, since)
-	}
 	return parsed, metadata, nil
 }
 
@@ -67,7 +64,16 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
-	familyFiles := cursorFamilyFiles(files, id)
+	requestedFiles := make([]string, 0, 1)
+	for _, path := range files {
+		if IDFromPath(path) == strings.ToLower(id) {
+			requestedFiles = append(requestedFiles, path)
+		}
+	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
+		return LoadMetadataForSessions([]string{id}, requestedFiles)
+	})
+	familyFiles := cursorFamilyFilesWithMetadata(files, id, metadata)
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, familyFiles)
 	ids := make([]string, 0, len(parsed))
 	for _, item := range parsed {
@@ -75,7 +81,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 			ids = append(ids, item.Session.ID)
 		}
 	}
-	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
+	metadata = vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
 		return LoadMetadataForSessions(ids, familyFiles)
 	})
 	applyCursorEnrichment(parsed, metadata)
@@ -113,7 +119,14 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 			item = parent
 		}
 	}
-	for childID, entry := range metadata.Sessions {
+	childIDs := make([]string, 0, len(metadata.Sessions))
+	for childID := range metadata.Sessions {
+		childIDs = append(childIDs, childID)
+	}
+	sort.Strings(childIDs)
+	claimed := map[string]map[int]bool{}
+	for _, childID := range childIDs {
+		entry := metadata.Sessions[childID]
 		value := entry.Relationship
 		child, parent := byID[childID], byID[value.ParentID]
 		if child == nil || parent == nil || child.ParentID == "" {
@@ -126,9 +139,16 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 		spawn.Completed, spawn.Active = value.Completed, value.Active
 		parent.Spawns[value.SpawnKey] = spawn
 		for i, digest := range parent.Session.Digest {
+			if claimed[value.ParentID][i] {
+				continue
+			}
 			if digest.Category != session.DigestSubagent || (digest.SpawnKey != value.SpawnKey && cmp.Or(parent.Spawns[digest.SpawnKey].Task, digest.Description) != value.Task) {
 				continue
 			}
+			if claimed[value.ParentID] == nil {
+				claimed[value.ParentID] = map[int]bool{}
+			}
+			claimed[value.ParentID][i] = true
 			if value.Task == "" {
 				value.Task = digest.Description
 				metadata.Session(childID).Relationship.Task = value.Task
@@ -141,24 +161,6 @@ func applyRelationships(parsed []*vendors.ParsedSession, metadata *vendors.Sessi
 			break
 		}
 	}
-}
-
-func familiesSince(parsed []*vendors.ParsedSession, since int64) []*vendors.ParsedSession {
-	selected := map[string]bool{}
-	for _, item := range parsed {
-		if item != nil && item.LogModifiedAtMs >= since {
-			for _, member := range selectFamily(parsed, item.Session.ID) {
-				selected[member.Session.ID] = true
-			}
-		}
-	}
-	result := make([]*vendors.ParsedSession, 0, len(selected))
-	for _, item := range parsed {
-		if selected[item.Session.ID] {
-			result = append(result, item)
-		}
-	}
-	return result
 }
 
 func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) {
@@ -242,22 +244,29 @@ func normalizedEditPath(cwd, path string) string {
 }
 
 func cursorFamilyFiles(files []string, id string) []string {
-	parents := make(map[string]string, len(files))
+	return cursorFamilyFilesWithMetadata(files, id, nil)
+}
+
+func cursorFamilyFilesWithMetadata(files []string, id string, metadata *vendors.SessionMetadata) []string {
+	union := newCursorFamilyUnion()
 	for _, path := range files {
-		parents[IDFromPath(path)] = ParentIDFromPath(path)
-	}
-	root := func(value string) string {
-		seen := map[string]bool{}
-		for parents[value] != "" && !seen[value] {
-			seen[value] = true
-			value = parents[value]
+		childID := IDFromPath(path)
+		union.add(childID)
+		if parentID := ParentIDFromPath(path); parentID != "" {
+			union.union(childID, parentID)
 		}
-		return value
 	}
-	want := root(id)
+	if metadata != nil {
+		for childID, entry := range metadata.Sessions {
+			if entry.Relationship.ParentID != "" {
+				union.union(childID, entry.Relationship.ParentID)
+			}
+		}
+	}
+	want := union.find(strings.ToLower(id))
 	selected := make([]string, 0, len(files))
 	for _, path := range files {
-		if root(IDFromPath(path)) == want {
+		if union.find(IDFromPath(path)) == want {
 			selected = append(selected, path)
 		}
 	}

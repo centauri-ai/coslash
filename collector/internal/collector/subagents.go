@@ -79,7 +79,7 @@ func subagentStatus(
 				return session.SubagentRunning
 			}
 		}
-		return session.SubagentAborted
+		return session.SubagentRunning
 	}
 	if child.Session.Agent == vendors.AgentCodex {
 		if child.Stopped {
