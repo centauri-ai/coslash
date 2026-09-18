@@ -1,10 +1,39 @@
 package launch
 
 import (
+	"errors"
+	"os"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestTerminalRemovesHandoffWhenTerminalOpenFails(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalOpener := localTerminalOpener
+	t.Cleanup(func() { localTerminalOpener = originalOpener })
+	wantErr := errors.New("terminal open failed")
+	localTerminalOpener = func(_, _, _ string) error { return wantErr }
+
+	err := Terminal(settings.TerminalWindows, vendors.AgentClaude, t.TempDir(), "", NewSession, "private handoff")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Terminal() error = %v, want %v", err, wantErr)
+	}
+	entries, readErr := os.ReadDir(handoffDir())
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failed launch left handoff files: %v", entries)
+	}
+}
+
+func TestRemoveHandoffFileIgnoresMissingFile(t *testing.T) {
+	if err := removeHandoffFile(t.TempDir() + "/missing"); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestRemoteCLICommandPreservesVendorResumeForms(t *testing.T) {
 	tests := []struct {
