@@ -803,6 +803,8 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
 }
 
 const DEBRIEF_PREVIEW_UNITS = 3;
+/** Must stay in sync with the docked-inspector breakpoint in coslash-layout.css. */
+const DOCKED_INSPECTOR_QUERY = '(min-width: 1720px)';
 
 function DebriefProse({
   blocks,
@@ -1372,7 +1374,7 @@ export function SessionInspector({
   const [fileDiffRetryToken, setFileDiffRetryToken] = useState(0);
   const [modal, setModal] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia('(max-width: 1719px)').matches
+      ? !window.matchMedia(DOCKED_INSPECTOR_QUERY).matches
       : true,
   );
   const {
@@ -1408,8 +1410,8 @@ export function SessionInspector({
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia('(max-width: 1719px)');
-    const updateModal = () => setModal(media.matches);
+    const media = window.matchMedia(DOCKED_INSPECTOR_QUERY);
+    const updateModal = () => setModal(!media.matches);
     media.addEventListener('change', updateModal);
     return () => media.removeEventListener('change', updateModal);
   }, []);
@@ -1430,6 +1432,9 @@ export function SessionInspector({
         tabIndex={-1}
         className="w-full! max-w-none! gap-0 outline-none sm:w-[440px]!"
         showCloseButton={true}
+        onInteractOutside={(event) => {
+          if (!modal) event.preventDefault();
+        }}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           contentRef.current?.focus();

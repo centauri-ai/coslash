@@ -18,7 +18,7 @@ import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
 import { loadSessionViewPreferences, type SessionRange } from '@/pages/coslash/lib/session-view-preferences';
-import { shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
+import { initialSettingsDraft, shouldPromptForSynthesisConsent } from '@/pages/coslash/lib/settings';
 import type { TimeWindow } from '@/pages/coslash/lib/time-window';
 
 function fixtureDestination(search: string): DestinationResult {
@@ -194,7 +194,7 @@ export function CoslashPage() {
     if (response == null || response.settings.appearance.theme === theme) return;
     const previousTheme = response.settings.appearance.theme;
     setTheme(theme);
-    void settingsState.save({ ...response.settings, appearance: { theme } }).then((saved) => {
+    void settingsState.save({ ...initialSettingsDraft(response), appearance: { theme } }).then((saved) => {
       if (!saved) setTheme(previousTheme);
     });
   };
