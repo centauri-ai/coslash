@@ -98,7 +98,7 @@ type DetailResponse = {
   session: Partial<Session>;
 };
 
-type DetailErrorKind = Exclude<ExactReadErrorKind, 'too_large'>;
+type DetailErrorKind = Exclude<ExactReadErrorKind, 'too_large'> | 'authentication';
 
 type DetailError = {
   key: string;
@@ -150,7 +150,7 @@ export function overlayLiveSessionFields(detail: SessionDetail, current: Session
     launchable: current.launchable,
     launchBlockReason: current.launchBlockReason,
     ...(isLocalSession(current)
-      ? { commits: current.commits, git: current.git, lastEditAt: current.lastEditAt }
+      ? { mtime: current.mtime, commits: current.commits, git: current.git, lastEditAt: current.lastEditAt }
       : {}),
     subagents: detail.subagents.map((subagent) => {
       const live = currentSubagents.get(subagent.id);
@@ -164,6 +164,35 @@ export function SummaryOnlyBanner() {
     <div role="status" className="text-warning-fg bg-warning-bg mx-4 mb-2 rounded-sm px-3 py-2 text-xs">
       Complete details are unavailable. Showing the bounded summary from the session library; exact file diffs
       are disabled.
+    </div>
+  );
+}
+
+export function DetailLoadError({
+  message,
+  kind,
+  onRetry,
+  onRefresh,
+}: {
+  message: string;
+  kind: DetailErrorKind;
+  onRetry: () => void;
+  onRefresh: () => void;
+}) {
+  const refreshSessions = kind === 'stale' || kind === 'missing' || kind === 'corrupt';
+  return (
+    <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="text-destructive text-sm">{message}</div>
+      {refreshSessions && (
+        <Button variant="outline" size="sm" onClick={onRefresh}>
+          Refresh sessions
+        </Button>
+      )}
+      {kind === 'other' && (
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Retry details
+        </Button>
+      )}
     </div>
   );
 }
@@ -266,7 +295,7 @@ function useSessionDetail(
       } catch (error: unknown) {
         if (controller.signal.aborted) return;
         if (error instanceof ApiAuthenticationError) {
-          setDetailError({ key: detailKey, kind: 'other', message: error.message });
+          setDetailError({ key: detailKey, kind: 'authentication', message: error.message });
           return;
         }
         if (loadedDetailRef.current?.key === detailKey) return;
@@ -1309,7 +1338,6 @@ function InspectorFooter({
 
 export function SessionInspector({
   session,
-  detailRetryToken,
   sessionsVersion,
   synthesisSettingsKey,
   showMachineBadge = false,
@@ -1318,7 +1346,6 @@ export function SessionInspector({
   onClose,
 }: {
   session: Session | null;
-  detailRetryToken: number;
   sessionsVersion: number;
   synthesisSettingsKey: string;
   showMachineBadge?: boolean;
@@ -1326,6 +1353,7 @@ export function SessionInspector({
   onRefresh: () => void;
   onClose: () => void;
 }) {
+  const [detailRetryToken, setDetailRetryToken] = useState(0);
   const { detail, isLoading, loadError, loadErrorKind, cachedOffline, summaryOnly } = useSessionDetail(
     session,
     detailRetryToken,
@@ -1394,18 +1422,16 @@ export function SessionInspector({
             Loading exact session details…
           </div>
         )}
-        {isOpen && loadError != null && (
-          <div
-            role="alert"
-            className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
-          >
-            <div className="text-destructive text-sm">{loadError}</div>
-            {(loadErrorKind === 'stale' || loadErrorKind === 'missing' || loadErrorKind === 'corrupt') && (
-              <Button variant="outline" size="sm" onClick={onRefresh}>
-                Refresh sessions
-              </Button>
-            )}
-          </div>
+        {isOpen && loadError != null && loadErrorKind != null && (
+          <DetailLoadError
+            message={loadError}
+            kind={loadErrorKind}
+            onRetry={() => setDetailRetryToken((token) => token + 1)}
+            onRefresh={() => {
+              onRefresh();
+              setDetailRetryToken((token) => token + 1);
+            }}
+          />
         )}
         {isOpen && detail != null && (
           <>

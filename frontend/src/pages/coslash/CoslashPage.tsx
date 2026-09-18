@@ -328,7 +328,6 @@ export function CoslashPage() {
     machines,
     isLoading,
     loadError,
-    detailRetryToken,
     sessionsVersion,
     retrySessions,
     refreshSessions,
@@ -587,7 +586,6 @@ export function CoslashPage() {
       </div>
       <SessionInspector
         session={selectedSession}
-        detailRetryToken={detailRetryToken}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}

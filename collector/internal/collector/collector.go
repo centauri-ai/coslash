@@ -198,7 +198,12 @@ func promoteFamilyActivity(composition sessionComposition) {
 	for child, parent := range parents {
 		activity := child.Session.LastActivityTime
 		for parent != nil {
-			parent.Session.LastActivityTime = max(parent.Session.LastActivityTime, activity)
+			if activity > parent.Session.LastActivityTime {
+				parent.Session.LastActivityTime = activity
+				parent.Session.ActivityFallback = child.Session.ActivityFallback
+			} else if activity == parent.Session.LastActivityTime && !child.Session.ActivityFallback {
+				parent.Session.ActivityFallback = false
+			}
 			parent = parents[parent]
 		}
 	}
@@ -224,6 +229,7 @@ func applyActivityFallbacks(parsed []*vendors.ParsedSession, allowLocalFallbacks
 			if s.StartedAt == 0 && allowLocalFallbacks {
 				s.StartedAt = collectedAt
 				s.LastActivityTime = collectedAt
+				s.ActivityFallback = true
 			}
 		}
 	}
