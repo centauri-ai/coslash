@@ -2,6 +2,7 @@ package cursor
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -94,6 +95,48 @@ func TestLoadSelectionMetadataReadsOnlySelectionSignals(t *testing.T) {
 	}
 	if got := metadata.Lookup(id); got == nil || got.LastActivityAt != 20 || got.Model != "" {
 		t.Fatalf("selection metadata = %#v, want activity without full enrichment", got)
+	}
+}
+
+func TestApplyCursorLivenessSupportsSelectionWithoutPollutingScopedMetadata(t *testing.T) {
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("requested").Entrypoint = entrypointIDE
+	applyCursorLiveness(metadata, map[string]string{"requested": entrypointIDE, "unrelated": entrypointCLI}, false)
+	if metadata.Lookup("requested").Live != "interactive" || metadata.Lookup("unrelated") != nil {
+		t.Fatalf("scoped liveness = %#v", metadata.Sessions)
+	}
+	applyCursorLiveness(metadata, map[string]string{"live-cli": entrypointCLI}, true)
+	if got := metadata.Lookup("live-cli"); got == nil || got.Live != "interactive" || got.Entrypoint != entrypointCLI {
+		t.Fatalf("selection liveness = %#v", got)
+	}
+}
+
+func TestLoadRelationshipMetadataIncludesCursorCLIParent(t *testing.T) {
+	home := t.TempDir()
+	parentID := "00000000-0000-4000-8000-000000000001"
+	childID := "00000000-0000-4000-8000-000000000002"
+	path := filepath.Join(home, ".cursor", "chats", "one", childID, "store.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE meta (key TEXT, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	value := hex.EncodeToString([]byte(`{"agentId":"` + childID + `","subagentInfo":{"parentAgentId":"` + parentID + `","toolCallId":"call-1"}}`))
+	if _, err := db.Exec(`INSERT INTO meta VALUES ('0', ?)`, value); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	metadata, err := loadRelationshipMetadataForSessions(home, []string{childID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Lookup(childID); got == nil || got.Relationship.ParentID != parentID {
+		t.Fatalf("CLI relationship = %#v", got)
 	}
 }
 

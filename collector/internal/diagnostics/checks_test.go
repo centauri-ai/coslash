@@ -20,6 +20,16 @@ func TestCursorDiagnosticsTreatEitherLaneAsInstalled(t *testing.T) {
 	}
 }
 
+func TestCursorDiagnosticsWarnWhenBothLanesAreMissing(t *testing.T) {
+	source := Source{Agent: "cursor", Label: "Cursor", State: SourceOK, Entries: 1, Sessions: 1, CLI: CLI{Name: "agent"}, IDE: &CLI{Name: "cursor"}}
+	for _, check := range derive(&Snapshot{Sources: []Source{source}}) {
+		if check.ID == "cli.cursor" && strings.Contains(check.Detail, "Neither Cursor IDE nor agent CLI") {
+			return
+		}
+	}
+	t.Fatal("missing combined Cursor launch-tool warning")
+}
+
 func TestCursorEmptySourceNamesBothLanes(t *testing.T) {
 	check := sourceCheck(Source{Agent: "cursor", Label: "Cursor", Root: "/cursor", State: SourceEmpty, CLI: CLI{Name: "agent"}, IDE: &CLI{Name: "cursor"}})
 	if !strings.Contains(check.Fix, "Cursor IDE") || !strings.Contains(check.Fix, "agent") {
@@ -39,5 +49,20 @@ func TestCursorIDEExecutableFindsApplicationBundle(t *testing.T) {
 	}
 	if got := cursorIDEExecutable(home); got != path {
 		t.Fatalf("Cursor executable = %q, want %q", got, path)
+	}
+}
+
+func TestCursorIDEExecutableRejectsNonExecutableBundleBinary(t *testing.T) {
+	t.Setenv("PATH", "")
+	home := t.TempDir()
+	path := filepath.Join(home, "Applications", "Cursor.app", "Contents", "MacOS", "Cursor")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := cursorIDEExecutable(home); got != "" {
+		t.Fatalf("Cursor executable = %q, want empty for non-executable file", got)
 	}
 }

@@ -297,7 +297,7 @@ func cursorIDEExecutable(home string) string {
 		filepath.Join(home, "Applications", "Cursor.app", "Contents", "MacOS", "Cursor"),
 		"/Applications/Cursor.app/Contents/MacOS/Cursor",
 	} {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
 			return path
 		}
 	}

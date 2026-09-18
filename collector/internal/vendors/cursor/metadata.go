@@ -45,14 +45,18 @@ func loadSelectionMetadata(home string) (*vendors.SessionMetadata, error) {
 	path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
 	db, err := openCursorDB(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return metadata, nil
+		if !os.IsNotExist(err) {
+			return nil, err
 		}
-		return nil, err
+	} else {
+		defer db.Close()
+		loadIDERelationships(metadata, db, nil)
+		loadIDETimes(metadata, db, nil)
+		for _, entry := range metadata.Sessions {
+			entry.Entrypoint = entrypointIDE
+		}
 	}
-	defer db.Close()
-	loadIDERelationships(metadata, db, nil)
-	loadIDETimes(metadata, db, nil)
+	applyCursorLiveness(metadata, loadLiveSessions(), true)
 	return metadata, nil
 }
 
@@ -81,14 +85,55 @@ func loadRelationshipMetadataForSessions(home string, ids []string) (*vendors.Se
 	path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
 	db, err := openCursorDB(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return metadata, nil
+		if !os.IsNotExist(err) {
+			return nil, err
 		}
-		return nil, err
+	} else {
+		defer db.Close()
+		loadIDERelationships(metadata, db, canonicalCursorIDs(ids))
+	}
+	for _, path := range cursorChatStores(home, canonicalCursorIDs(ids)) {
+		loadCLIRelationship(metadata, path)
+	}
+	return metadata, nil
+}
+
+func loadCLIRelationship(metadata *vendors.SessionMetadata, path string) {
+	db, err := openCursorDB(path)
+	if err != nil {
+		return
 	}
 	defer db.Close()
-	loadIDERelationships(metadata, db, canonicalCursorIDs(ids))
-	return metadata, nil
+	rows, err := db.Query(`SELECT value FROM meta WHERE key = '0'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var value string
+		if rows.Scan(&value) != nil {
+			continue
+		}
+		data, err := hex.DecodeString(value)
+		if err != nil {
+			continue
+		}
+		var item struct {
+			AgentID      string `json:"agentId"`
+			SubagentInfo struct {
+				ParentAgentID string `json:"parentAgentId"`
+				TypeName      string `json:"typeName"`
+				ToolCallID    string `json:"toolCallId"`
+			} `json:"subagentInfo"`
+		}
+		if json.Unmarshal(data, &item) != nil {
+			continue
+		}
+		id, parentID := canonicalCursorID(item.AgentID), canonicalCursorID(item.SubagentInfo.ParentAgentID)
+		if transcriptIDPattern.MatchString(id) && transcriptIDPattern.MatchString(parentID) {
+			metadata.Session(id).Relationship = vendors.SessionRelationship{ParentID: parentID, SpawnKey: item.SubagentInfo.ToolCallID, Task: item.SubagentInfo.TypeName}
+		}
+	}
 }
 
 func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendors.SessionMetadata, error) {
@@ -195,12 +240,21 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 			metadata.Session(id).Entrypoint = lane
 		}
 	}
-	for id, lane := range loadLiveSessions() {
-		if lane != "" && metadata.Session(id).Entrypoint == lane {
-			metadata.Session(id).Live = "interactive"
+	applyCursorLiveness(metadata, loadLiveSessions(), false)
+	return metadata, nil
+}
+
+func applyCursorLiveness(metadata *vendors.SessionMetadata, live map[string]string, includeUnknown bool) {
+	for id, lane := range live {
+		entry := metadata.Lookup(id)
+		if entry == nil && includeUnknown && lane != "" {
+			entry = metadata.Session(id)
+			entry.Entrypoint = lane
+		}
+		if entry != nil && lane != "" && (entry.Entrypoint == "" || entry.Entrypoint == lane) {
+			entry.Live = "interactive"
 		}
 	}
-	return metadata, nil
 }
 
 func canonicalCursorIDs(ids []string) []string {
