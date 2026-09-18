@@ -381,7 +381,7 @@ func createMetadataTestDB(path string) error {
 	return err
 }
 
-func TestLoadIDEModelsExposesContextUsageAsTokens(t *testing.T) {
+func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -401,8 +401,8 @@ func TestLoadIDEModelsExposesContextUsageAsTokens(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	loadIDEModelsDB(metadata, db, nil)
 	usage := metadata.Session(id).Usage
-	if got := usage.Tokens["claude-opus-4-6"].InputTokens; got != 48200 {
-		t.Fatalf("input tokens = %d, want 48200", got)
+	if len(usage.Tokens) != 0 {
+		t.Fatalf("cumulative tokens = %#v, want unavailable", usage.Tokens)
 	}
 	if usage.ContextTokens == nil || *usage.ContextTokens != 48200 {
 		t.Fatalf("context tokens = %v, want 48200", usage.ContextTokens)
