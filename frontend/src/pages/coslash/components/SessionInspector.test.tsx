@@ -84,6 +84,18 @@ describe('SessionInspector exact-detail boundaries', () => {
     expect(markup).toContain('Refresh sessions');
   });
 
+  it('renders a direct retry path for generic diff failures', () => {
+    const generic = renderToStaticMarkup(
+      <DiffList changes={null} isLoading={false} loadError="network failed" showRetry onRetry={() => {}} />,
+    );
+    const authentication = renderToStaticMarkup(
+      <DiffList changes={null} isLoading={false} loadError="link expired" />,
+    );
+
+    expect(generic).toContain('Retry file changes');
+    expect(authentication).not.toContain('Retry file changes');
+  });
+
   it('offers direct recovery only for retryable generic detail failures', () => {
     const generic = renderToStaticMarkup(
       <DetailLoadError message="network failed" kind="other" onRetry={() => {}} onRefresh={() => {}} />,
