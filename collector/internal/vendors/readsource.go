@@ -66,7 +66,7 @@ func FingerprintSourceFiles(
 		if err != nil {
 			return nil, err
 		}
-		relative, err := filepath.Rel(root, file)
+		relative, err := SourcePathRelative(source, root, file)
 		if err != nil {
 			return nil, err
 		}
@@ -88,6 +88,44 @@ type ReadSource interface {
 	Stat(string) (fs.FileInfo, error)
 }
 
+type sourcePathOperations interface {
+	JoinPath(...string) string
+	RelativePath(string, string) (string, error)
+	DirPath(string) string
+	BasePath(string) string
+}
+
+// SourcePathJoin and SourcePathRelative use the path semantics of the source.
+// Local sources follow the host OS; SSH/SFTP sources use POSIX paths even when
+// the collector itself runs on Windows.
+func SourcePathJoin(source ReadSource, elements ...string) string {
+	if operations, ok := source.(sourcePathOperations); ok {
+		return operations.JoinPath(elements...)
+	}
+	return filepath.Join(elements...)
+}
+
+func SourcePathRelative(source ReadSource, root, name string) (string, error) {
+	if operations, ok := source.(sourcePathOperations); ok {
+		return operations.RelativePath(root, name)
+	}
+	return filepath.Rel(root, name)
+}
+
+func SourcePathDir(source ReadSource, name string) string {
+	if operations, ok := source.(sourcePathOperations); ok {
+		return operations.DirPath(name)
+	}
+	return filepath.Dir(name)
+}
+
+func SourcePathBase(source ReadSource, name string) string {
+	if operations, ok := source.(sourcePathOperations); ok {
+		return operations.BasePath(name)
+	}
+	return filepath.Base(name)
+}
+
 // freshStatSource is implemented by remote sources that cache directory
 // metadata. FreshStat bypasses that manifest cache for post-read stability and
 // path-security checks. Local sources can simply use Stat.
@@ -106,7 +144,7 @@ func FingerprintSourceFilesFresh(source ReadSource, root string, files []string)
 		if err != nil {
 			return nil, err
 		}
-		relative, err := filepath.Rel(root, file)
+		relative, err := SourcePathRelative(source, root, file)
 		if err != nil {
 			return nil, err
 		}
@@ -229,7 +267,7 @@ func walkReadSourceEntry(
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, child := range entries {
-		childPath := filepath.Join(path, child.Name())
+		childPath := SourcePathJoin(source, path, child.Name())
 		if err := walkReadSourceEntry(source, childPath, child, visit); err != nil {
 			if errors.Is(err, fs.SkipDir) {
 				continue

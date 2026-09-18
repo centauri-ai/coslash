@@ -6,7 +6,47 @@ import (
 	"path"
 	"testing"
 	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 )
+
+func TestRemoteSourcePathOperationsUsePOSIXSemantics(t *testing.T) {
+	source := newFakeSource(newFakeFS(), Limits{}).ForVendor(1024)
+	joined := vendors.SourcePathJoin(source, fakeHome, ".codex", "sessions", "rollout.jsonl")
+	if joined != "/home/testuser/.codex/sessions/rollout.jsonl" {
+		t.Fatalf("remote joined path = %q", joined)
+	}
+	relative, err := vendors.SourcePathRelative(source, "/home/testuser/.codex/sessions", joined)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if relative != "rollout.jsonl" {
+		t.Fatalf("remote relative path = %q", relative)
+	}
+	if _, err := vendors.SourcePathRelative(source, "/home/testuser/.codex/sessions", "/etc/passwd"); err == nil {
+		t.Fatal("relative path accepted a name outside the remote root")
+	}
+}
+
+func TestClaudeWorkflowSidecarsUseRemotePOSIXPaths(t *testing.T) {
+	fs := newFakeFS()
+	logPath := path.Join(fakeHome, ".claude/projects/project/root/subagents/workflows/run-1/agent-child.jsonl")
+	statePath := path.Join(fakeHome, ".claude/projects/project/root/workflows/run-1.json")
+	journalPath := path.Join(path.Dir(logPath), "journal.jsonl")
+	fs.writeFile(statePath, `{"durationMs":1,"workflowProgress":[]}`, time.Unix(100, 0))
+	fs.writeFile(journalPath, `{"type":"result","agentId":"child","result":"finished"}`+"\n", time.Unix(100, 0))
+	source := newFakeSource(fs, Limits{}).ForVendor(1024)
+	agents := claude.WorkflowAgentsSource(source, []*vendors.ParsedSession{{
+		Session: &session.Session{ID: "agent-child"},
+		LogPath: logPath,
+	}})
+	agent := agents["agent-child"]
+	if agent == nil || agent.Status() != session.SubagentReturned || agent.ResultPreview != "finished" {
+		t.Fatalf("workflow agent = %#v", agent)
+	}
+}
 
 func TestReadDirCacheAvoidsRedundantValidation(t *testing.T) {
 	fs := newFakeFS()
