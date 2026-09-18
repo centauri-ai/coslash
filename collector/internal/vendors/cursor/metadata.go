@@ -58,6 +58,7 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 		defer stateDB.Close()
 		query, args := cursorIDQuery(`SELECT composerId, value FROM composerHeaders`, "composerId", ids)
 		loadCursorRowsDB(metadata, lanes, entrypointIDE, statePath, stateDB, query, args, func(id, value string) (string, string, string) {
+			id = canonicalCursorID(id)
 			var header struct {
 				Name                string `json:"name"`
 				Subtitle            string `json:"subtitle"`

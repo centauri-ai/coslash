@@ -75,7 +75,7 @@ func TestLoadMetadataForSessionsCanonicalizesStoredIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value, createdAt, lastUpdatedAt) VALUES (?, '{"name":"Uppercase"}', 10, 20)`, upperID); err != nil {
+	if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value, createdAt, lastUpdatedAt) VALUES (?, '{"name":"Uppercase","workspaceIdentifier":{"uri":{"fsPath":"/tmp/project"}}}', 10, 20)`, upperID); err != nil {
 		db.Close()
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestLoadMetadataForSessionsCanonicalizesStoredIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := metadata.Lookup(id); got == nil || got.Name != "Uppercase" || got.Model != "gpt-5" || got.LastActivityAt != 20 {
+	if got := metadata.Lookup(id); got == nil || got.Name != "Uppercase" || got.Model != "gpt-5" || got.WorkingDirectory != "/tmp/project" || got.LastActivityAt != 20 {
 		t.Fatalf("canonical metadata = %#v", got)
 	}
 	if got := metadata.Lookup(upperID); got != nil {
