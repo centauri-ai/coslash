@@ -80,6 +80,19 @@ func TestLocalDetailRevisionTracksParsedContentNotLiveFacts(t *testing.T) {
 	}
 }
 
+func TestLocalDetailRevisionIgnoresCollectionTimeFallback(t *testing.T) {
+	base := exactDetailSession("@@\n-old\n+new\n")
+	base.StartedAt = base.LastActivityTime
+	base.ActivityFallback = true
+	revision := mustLocalDetailRevision(t, base)
+
+	base.StartedAt++
+	base.LastActivityTime++
+	if got := mustLocalDetailRevision(t, base); got != revision {
+		t.Fatalf("collection-time fallback changed detail revision: got %q, want %q", got, revision)
+	}
+}
+
 func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 	local := exactDetailSession("@@\n-local old\n+local new\n")
 	revision := mustLocalDetailRevision(t, local)

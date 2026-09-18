@@ -34,6 +34,9 @@ func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 		t.Fatalf("session without timing data = start %d, activity %d; want equal positive collection time",
 			noTimingData.Session.StartedAt, noTimingData.Session.LastActivityTime)
 	}
+	if !noTimingData.Session.ActivityFallback {
+		t.Fatal("session without timing data did not record collection-time fallback")
+	}
 	if parsed.Session.StartedAt != 100 || parsed.Session.LastActivityTime != 900 {
 		t.Fatalf("parsed timestamps were overwritten: start %d, activity %d",
 			parsed.Session.StartedAt, parsed.Session.LastActivityTime)
