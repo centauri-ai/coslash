@@ -1,5 +1,4 @@
 import { assertOneOf } from '@/pages/coslash/lib/narrow';
-import { LOCAL_SOURCE_ID } from '@/pages/coslash/lib/session';
 
 export const MACHINE_STATES = ['ok', 'connecting', 'limited', 'stale', 'error', 'disabled'] as const;
 export type MachineState = (typeof MACHINE_STATES)[number];
@@ -92,14 +91,6 @@ export type CollectionMetrics = {
   records?: number;
   roundTripMs?: number;
 };
-
-export function machinesForSourceFilter(machines: readonly MachineFact[]): MachineFact[] {
-  return machines.filter(
-    (machine) =>
-      machine.sourceId !== LOCAL_SOURCE_ID &&
-      (machine.helper?.compatible === true || machine.lastSuccessAtMs != null),
-  );
-}
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
