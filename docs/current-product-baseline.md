@@ -66,6 +66,10 @@ All routes are loopback-only and protected by the process access-token guard.
 | `POST /api/hub/pairings/{id}/poll` | Complete pairing and store the device credential |
 | `POST /api/hub/shares` | Submit an explicitly approved `hub-share/v1` request |
 
+Post-baseline C03 adds `GET /api/hub/full-session-preview` and
+`POST /api/hub/full-session-shares` for a separately reviewed and approved
+complete SSH Codex revision.
+
 ## Contracts and privacy boundary
 
 - `collector/snapshot/v1`: canonical `session-snapshot/v1` schema and fixtures.
@@ -74,9 +78,13 @@ All routes are loopback-only and protected by the process access-token guard.
 - `collector/internal/sessionexport`: allow-listed metadata-only serialization.
 - `collector/internal/hubclient`: discovery, pairing, destination, upload,
   status, and canonical Hub handoff client.
-- Local-only categories include raw prompts/transcripts, summaries/goals,
-  commands, todos, detailed subagent content, commit subjects, diffs, and
-  absolute paths. The UI must not imply that previewing uploads anything.
+- At the 2026-09-11 baseline, local-only categories included raw
+  prompts/transcripts, summaries/goals, commands, todos, detailed subagent
+  content, commit subjects, diffs, and absolute paths. C03 preserves that
+  boundary for v1 sharing, but a separately approved full-v2 SSH Codex revision
+  includes the parsed prompts, commands, todos, subagent content, paths, and
+  file-change bodies shown in its complete review. Raw transcript rows remain
+  local. Previewing either flow does not upload anything.
 
 ## Settings and supported agent skills
 
