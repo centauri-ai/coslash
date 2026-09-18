@@ -288,7 +288,7 @@ func HelperPlatformArgs(alias string, connectTimeoutSeconds int) ([]string, erro
 	if !aliasPattern.MatchString(alias) {
 		return nil, ErrInvalidAlias
 	}
-	return append(sshOptions(connectTimeoutSeconds, sshMultiplexing), alias, "uname -s; uname -m; id -u"), nil
+	return append(sshOptions(connectTimeoutSeconds), alias, "uname -s; uname -m; id -u"), nil
 }
 
 func (artifact Artifact) Validate() error {

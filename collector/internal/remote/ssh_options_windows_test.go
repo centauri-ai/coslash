@@ -4,7 +4,10 @@ package remote
 
 import (
 	"context"
+	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -47,6 +50,8 @@ func TestWindowsRemoteCommandsStayPOSIXWithoutMultiplexing(t *testing.T) {
 }
 
 func TestWindowsControlMasterLifecycleIsDisabled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
 	calls := 0
 	options := OpenOptions{command: func(context.Context, string, ...string) *exec.Cmd {
 		calls++
@@ -60,6 +65,9 @@ func TestWindowsControlMasterLifecycleIsDisabled(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("control lifecycle executed %d commands, want none", calls)
+	}
+	if _, err := os.Stat(filepath.Join(home, "ssh")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Unix control directory exists: %v", err)
 	}
 	args, err := ControlExitArgs("linux-host")
 	if err != nil {

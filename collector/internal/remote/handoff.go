@@ -129,5 +129,5 @@ func handoffSSHArgs(alias, command string, connectTimeoutSeconds int) ([]string,
 	if !aliasPattern.MatchString(alias) {
 		return nil, ErrInvalidAlias
 	}
-	return append(sshOptions(connectTimeoutSeconds, sshMultiplexing), alias, command), nil
+	return append(sshOptions(connectTimeoutSeconds), alias, command), nil
 }

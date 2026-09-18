@@ -62,7 +62,7 @@ func HelperArgs(alias, helperPath, subcommand string, connectTimeoutSeconds int)
 	if err != nil {
 		return nil, err
 	}
-	return append(sshOptions(connectTimeoutSeconds, sshMultiplexing), alias, command), nil
+	return append(sshOptions(connectTimeoutSeconds), alias, command), nil
 }
 
 // helperCommand renders the remote command. OpenSSH hands the command to the

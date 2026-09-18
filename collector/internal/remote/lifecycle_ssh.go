@@ -182,7 +182,7 @@ func (remote *SSHLifecycleRemote) runStagedInstaller(ctx context.Context, stagin
 	}
 	runCtx, cancel := context.WithTimeout(ctx, min(limits.Deadline, DefaultHelperInstallTimeout))
 	defer cancel()
-	args := append(sshOptions(int(limits.ConnectTimeout.Seconds()), sshMultiplexing),
+	args := append(sshOptions(int(limits.ConnectTimeout.Seconds())),
 		remote.Alias, shellQuote(staging)+" install "+shellQuote(home)+" "+shellQuote(version)+" "+shellQuote(sha256))
 	cmd := command(runCtx, bin, args...)
 	stdout := &boundedCommandOutput{limit: 128, cancel: cancel}

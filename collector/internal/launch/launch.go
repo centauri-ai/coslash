@@ -171,9 +171,7 @@ func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, h
 }
 
 func remoteSSHCommand(alias, command string) string {
-	return localCommandJoin(
-		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath="+settings.SSHControlPath(), alias, command,
-	)
+	return localCommandJoin(remoteSSHArgs(alias, command)...)
 }
 
 func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName string) (string, error) {

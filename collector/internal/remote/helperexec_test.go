@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -193,6 +192,9 @@ func TestRunSSHCommandBoundsControlOutput(t *testing.T) {
 }
 
 func TestRunSSHCommandKillsProcessGroupOnOutputFlood(t *testing.T) {
+	if !processGroupTestSupported {
+		t.Skip("process groups are unavailable")
+	}
 	marker := filepath.Join(t.TempDir(), "child-pid")
 	t.Setenv("COSLASH_FAKE_SPAWN_CHILD", "1")
 	t.Setenv("COSLASH_FAKE_CHILD_PID", marker)
@@ -211,7 +213,7 @@ func TestRunSSHCommandKillsProcessGroupOnOutputFlood(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+		if processExited(pid) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
