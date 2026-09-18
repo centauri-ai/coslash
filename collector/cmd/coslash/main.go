@@ -138,11 +138,11 @@ func main() {
 		log.Fatalf("coslash: generate API token: %v", err)
 	}
 	if err := writeToken(token); err != nil {
-		log.Printf("write API token: %v", err)
+		log.Fatalf("coslash: write API token: %v", err)
 	}
 	baseURL := "http://" + listener.Addr().String()
 	if err := writeRuntime(baseURL); err != nil {
-		log.Printf("write runtime descriptor: %v", err)
+		log.Fatalf("coslash: write runtime descriptor: %v", err)
 	}
 	accessURL := baseURL + "/#t=" + token
 	log.Printf("listening on %s", baseURL)
@@ -262,7 +262,7 @@ func routes(
 		handleHandoff(w, r, getCanonicalSession)
 	})
 	api.HandleFunc("POST /api/send", func(w http.ResponseWriter, r *http.Request) {
-		handleSend(w, r, settingsStore, getCanonicalSession, launch.TerminalWithPrompt)
+		handleSend(w, r, settingsStore, getCanonicalSession, launch.ReviewerAvailable, launch.TerminalWithPrompt)
 	})
 	api.HandleFunc("POST /api/remote/test", func(w http.ResponseWriter, r *http.Request) {
 		handleRemoteTest(w, r, remoteManager)

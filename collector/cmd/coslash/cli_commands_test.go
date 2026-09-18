@@ -263,7 +263,7 @@ func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 	}
 	response = httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", strings.NewReader("fix it"))
-	handleSend(response, request, store, getSession, open)
+	handleSend(response, request, store, getSession, func(string) bool { return true }, open)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("send response = %d %q", response.Code, response.Body.String())
 	}
@@ -290,9 +290,31 @@ func TestHandleSendDoesNotLaunchAfterRequestCancellation(t *testing.T) {
 	response := httptest.NewRecorder()
 	handleSend(response, request, store, func(string) (*session.Session, error) {
 		return found, nil
-	}, open)
+	}, func(string) bool { return true }, open)
 	if launched {
 		t.Fatal("canceled request launched an agent")
+	}
+}
+
+func TestHandleSendRejectsUnavailableTarget(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	launched := false
+	response := httptest.NewRecorder()
+	handleSend(
+		response,
+		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=codex", nil),
+		settings.Open(),
+		func(string) (*session.Session, error) {
+			return &session.Session{Agent: "claude", ID: "session-1", WorkingDirectory: "/workspace"}, nil
+		},
+		func(string) bool { return false },
+		func(string, string, string, string, string, string, string) error {
+			launched = true
+			return nil
+		},
+	)
+	if response.Code != http.StatusBadRequest || response.Body.String() != "target is not installed or supported\n" || launched {
+		t.Fatalf("response = %d %q, launched = %v", response.Code, response.Body.String(), launched)
 	}
 }
 
@@ -310,6 +332,7 @@ func TestHandleSendRejectsOversizedGeneratedHandoff(t *testing.T) {
 		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", nil),
 		settings.Open(),
 		func(string) (*session.Session, error) { return found, nil },
+		func(string) bool { return true },
 		func(string, string, string, string, string, string, string) error {
 			launched = true
 			return nil
@@ -335,6 +358,7 @@ func TestHandleSendHidesInvalidSettingsDetails(t *testing.T) {
 			t.Fatal("loaded session with invalid settings")
 			return nil, nil
 		},
+		func(string) bool { return true },
 		func(string, string, string, string, string, string, string) error { return nil },
 	)
 	want := "settings are invalid; open Settings to repair them\n"

@@ -21,6 +21,8 @@ import (
 
 const runtimeFilename = "runtime.json"
 
+const sessionListTimeout = 3 * time.Minute
+
 type runtimeDescriptor struct {
 	BaseURL string `json:"baseURL"`
 }
@@ -190,6 +192,7 @@ func runSessions(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
+	client.client.Timeout = sessionListTimeout
 	data, err := client.request(http.MethodGet, "/api/sessions", nil)
 	if err != nil {
 		return err
