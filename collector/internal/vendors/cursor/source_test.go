@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -61,6 +63,55 @@ func TestCursorSourceHealthCountsOnlyRootTranscripts(t *testing.T) {
 	health := cursorSourceHealth("/cursor", scan)
 	if health.Sessions != 1 {
 		t.Fatalf("sessions = %d, want 1", health.Sessions)
+	}
+}
+
+func TestCursorSourceHealthDeduplicatesRootFragments(t *testing.T) {
+	id := "00000000-0000-4000-8000-000000000001"
+	scan := &vendors.SourceScan{Files: []string{
+		filepath.Join("projects", "one", "agent-transcripts", id, id+".jsonl"),
+		filepath.Join("projects", "two", "agent-transcripts", id, id+".jsonl"),
+	}}
+
+	health := cursorSourceHealth("/cursor", scan)
+	if health.Sessions != 1 {
+		t.Fatalf("sessions = %d, want 1", health.Sessions)
+	}
+}
+
+func TestSelectFamilyRejectsParentCycle(t *testing.T) {
+	id := "00000000-0000-4000-8000-000000000001"
+	parsed := []*vendors.ParsedSession{{
+		Session:  &session.Session{ID: id},
+		ParentID: id,
+	}}
+	done := make(chan []*vendors.ParsedSession, 1)
+	go func() { done <- selectFamily(parsed, id) }()
+
+	select {
+	case family := <-done:
+		if family != nil {
+			t.Fatalf("family = %v, want cycle rejected", family)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("selectFamily did not terminate for a self-parent cycle")
+	}
+}
+
+func TestCursorPathIDsAreCanonical(t *testing.T) {
+	upper := "00000000-0000-4000-8000-00000000ABCD"
+	lower := "00000000-0000-4000-8000-00000000abcd"
+	root := filepath.Join("agent-transcripts", upper, lower+".jsonl")
+	child := filepath.Join("agent-transcripts", upper, "subagents", upper+".jsonl")
+
+	if !IsTranscript(root) {
+		t.Fatalf("mixed-case root path %q was rejected", root)
+	}
+	if got := IDFromPath(root); got != lower {
+		t.Fatalf("IDFromPath() = %q, want %q", got, lower)
+	}
+	if got := ParentIDFromPath(child); got != lower {
+		t.Fatalf("ParentIDFromPath() = %q, want %q", got, lower)
 	}
 }
 
