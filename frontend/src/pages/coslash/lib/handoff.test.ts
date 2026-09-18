@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { launchRequestPath } from '@/pages/coslash/hooks/use-launch-terminal';
 import { decodeApiError } from '@/pages/coslash/lib/api';
-import { handoffBrief } from '@/pages/coslash/lib/handoff';
+import { copyHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
 import { decodeMachineFact, HELPER_STATES, MACHINE_REASONS } from '@/pages/coslash/lib/machines';
 import {
   decodeHelperSetup,
@@ -76,6 +76,27 @@ describe('handoffBrief', () => {
 
     expect(brief).toContain('## Current state\nDid the thing');
     expect(brief).toContain('  - Answer: Postgres');
+  });
+});
+
+describe('copyHandoffText', () => {
+  it('waits for a successful clipboard write and surfaces failures', async () => {
+    let copied = '';
+    await copyHandoffText('handoff', {
+      writeText: async (value) => {
+        copied = value;
+      },
+    });
+    expect(copied).toBe('handoff');
+
+    await expect(
+      copyHandoffText('handoff', {
+        writeText: async () => {
+          throw new Error('denied');
+        },
+      }),
+    ).rejects.toThrow('denied');
+    await expect(copyHandoffText('handoff', null)).rejects.toThrow('Clipboard access is unavailable');
   });
 });
 

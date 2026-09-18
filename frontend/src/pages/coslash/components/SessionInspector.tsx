@@ -57,7 +57,7 @@ import {
   formatTimeAgo,
   formatTokens,
 } from '@/pages/coslash/lib/format';
-import { handoffBrief } from '@/pages/coslash/lib/handoff';
+import { copyHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
@@ -680,7 +680,7 @@ function StartNewSessionButton({
 }: {
   detail: SessionDetail;
   brief: string;
-  onCopy: () => void;
+  onCopy: () => Promise<boolean>;
   disabledHint?: string;
 }) {
   const { launch, launchError } = useLaunchTerminal(detail);
@@ -691,16 +691,22 @@ function StartNewSessionButton({
     (!isLocalSession(detail) && (detail.displayStale || detail.launchable === false));
   const opensCursor =
     isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
+  const requiresClipboard = isLocalSession(detail) && detail.agent === 'cursor';
 
-  const startNewSession = () => {
-    onCopy();
+  const startNewSession = async () => {
+    const copied = await onCopy();
+    if (requiresClipboard && !copied) return;
     launch(opensCursor ? 'open' : 'new', brief);
   };
 
   return (
     <div className="flex flex-col gap-1">
       <DisabledLaunchTooltip hint={effectiveHint}>
-        <Button className="bg-brand w-fit p-2 text-xs" onClick={startNewSession} disabled={disabled}>
+        <Button
+          className="bg-brand w-fit p-2 text-xs"
+          onClick={() => void startNewSession()}
+          disabled={disabled}
+        >
           {opensCursor ? <ExternalLinkIcon /> : <TerminalIcon />}
           <span>{opensCursor ? 'Open Cursor with handoff' : 'Start fresh with handoff'}</span>
         </Button>
@@ -722,16 +728,25 @@ function HandoffSection({
   remoteLaunchHint?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const contextFill = contextFillReadiness(detail);
   const branchDrift = branchDriftReadiness(detail.git);
   const treeStale = treeStaleReadiness(detail.lastEditAt);
 
   const brief = handoffBrief(detail);
 
-  const copyBrief = () => {
-    navigator.clipboard?.writeText(brief);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyBrief = async () => {
+    setCopyError(null);
+    try {
+      await copyHandoffText(brief);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      return true;
+    } catch {
+      setCopied(false);
+      setCopyError('Could not copy the handoff. Allow clipboard access and try again.');
+      return false;
+    }
   };
 
   return (
@@ -752,10 +767,15 @@ function HandoffSection({
           onCopy={copyBrief}
           disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
         />
-        <Button variant="outline" className="w-fit p-2 text-xs" onClick={copyBrief}>
+        <Button variant="outline" className="w-fit p-2 text-xs" onClick={() => void copyBrief()}>
           <span>Copy handoff</span>
         </Button>
         {copied && <span className="text-xs text-neutral-300">copied to clipboard</span>}
+        {copyError && (
+          <span role="alert" className="text-destructive text-xs">
+            {copyError}
+          </span>
+        )}
       </div>
       {!isLocalSession(detail) && (
         <div className="text-muted-foreground text-xs">
