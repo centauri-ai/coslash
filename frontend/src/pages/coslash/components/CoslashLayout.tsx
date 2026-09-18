@@ -7,6 +7,7 @@ import {
   Folder,
   FolderGit2,
   GitCompareArrows,
+  Info,
   LoaderCircle,
   Monitor,
   Moon,
@@ -20,12 +21,20 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTimeAgo } from '@/pages/coslash/lib/format';
+import {
+  MACHINE_TONE_LEGEND,
+  machineStatusText,
+  machineTone,
+  needsBanner,
+  type MachineTone,
+} from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { buildReviewIndex, type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
 import {
@@ -75,7 +84,7 @@ type FacetOption = {
   icon?: ReactNode;
   indicator?: ReactNode;
 };
-type FacetSection = { id: FacetKey; label: string; options: FacetOption[] };
+type FacetSection = { id: FacetKey; label: string; options: FacetOption[]; hint?: ReactNode };
 type SessionReviewProps = {
   index: ReviewIndex<Session>;
   reviewerOptions: readonly ReviewerOption[];
@@ -136,6 +145,15 @@ function sessionStatusGroup(session: Session): SessionStatusGroup {
   if (status === 'busy') return 'running';
   return 'idle';
 }
+
+const TONE_DOT: Record<MachineTone, string> = {
+  checking: 'bg-[var(--coslash-accent)] animate-pulse',
+  failed: 'bg-[var(--coslash-clay-dot)]',
+  disabled: 'bg-[var(--coslash-neutral-dot)]',
+  stale: 'bg-[var(--coslash-amber-dot)]',
+  limited: 'bg-[var(--coslash-amber-dot)]',
+  ok: 'bg-[var(--coslash-green-dot)]',
+};
 
 function statusDot(status: SessionStatusGroup): string {
   if (status === 'needs') return 'bg-[var(--coslash-amber-dot)]';
@@ -276,6 +294,17 @@ function sortSessions(sessions: Session[], sort: SessionSort): Session[] {
   });
 }
 
+function MachineDot({ machine }: { machine: MachineFact }) {
+  const status = machineStatusText(machine);
+  return (
+    <span
+      className={cn('size-[7px] shrink-0 rounded-full', TONE_DOT[machineTone(machine)])}
+      aria-label={status}
+      title={status}
+    />
+  );
+}
+
 function InlineSpinner() {
   return <LoaderCircle className="size-3.5 animate-spin text-[var(--coslash-muted)]" aria-hidden="true" />;
 }
@@ -333,6 +362,35 @@ function FacetRow({ label, count, selected, icon, indicator, status, onClick }: 
   );
 }
 
+function MachineLegend() {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="grid size-6 shrink-0 cursor-help place-items-center rounded-[7px] text-[var(--coslash-muted)] hover:bg-[var(--coslash-soft)] hover:text-[var(--coslash-ink)] [&>svg]:size-3.5"
+            aria-label="What the connection dots mean"
+          >
+            <Info />
+          </button>
+        </TooltipTrigger>
+        {/* Portaled outside the shell, so the dot variables must be re-scoped here. */}
+        <TooltipContent align="start" className="coslash-shell max-w-64">
+          <ul className="flex flex-col gap-1.5">
+            {MACHINE_TONE_LEGEND.map(({ tone, label }) => (
+              <li key={tone} className="flex items-start gap-2">
+                <span className={cn('mt-1 size-[7px] shrink-0 rounded-full', TONE_DOT[tone])} />
+                <span>{label}</span>
+              </li>
+            ))}
+          </ul>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function FacetRows({ options }: { options: FacetOption[] }) {
   return options.map((option) => <FacetRow key={option.id} {...option} />);
 }
@@ -351,18 +409,21 @@ function SidebarSection({
   const contentId = `coslash-${section.id}`;
   return (
     <div className="pb-3.5">
-      <button
-        className={styles.sideHeading}
-        aria-expanded={open}
-        aria-controls={contentId}
-        onClick={onToggle}
-      >
-        <ChevronRight className={cn('size-[13px] transition-transform', open && 'rotate-90')} />
-        <span className="flex flex-1 items-center justify-between">
-          {section.label}
-          {isLoading && <InlineSpinner />}
-        </span>
-      </button>
+      <div className="flex items-center">
+        <button
+          className={styles.sideHeading}
+          aria-expanded={open}
+          aria-controls={contentId}
+          onClick={onToggle}
+        >
+          <ChevronRight className={cn('size-[13px] transition-transform', open && 'rotate-90')} />
+          <span className="flex flex-1 items-center justify-between">
+            {section.label}
+            {isLoading && <InlineSpinner />}
+          </span>
+        </button>
+        {section.hint}
+      </div>
       {open && (
         <div id={contentId}>
           <FacetRows options={section.options} />
@@ -393,12 +454,7 @@ function CoslashHeader({
   retrying: boolean;
   actions?: ReactNode;
 }) {
-  const problems = machines.filter(
-    (machine) =>
-      ['stale', 'error'].includes(machine.state) &&
-      machine.reason !== 'initial_refresh' &&
-      !machine.refreshing,
-  );
+  const problems = machines.filter(needsBanner);
   return (
     <>
       <div className={styles.header}>
@@ -457,7 +513,9 @@ function CoslashHeader({
           <AlertTriangle />
           <span>
             <strong className="font-[650]">{problems.map((machine) => machine.label).join(', ')}</strong>{' '}
-            unreachable — remote sessions show their last recorded context.
+            {problems.length === 1
+              ? machineStatusText(problems[0])
+              : 'need attention — open Settings to retry.'}
           </span>
           <Button
             variant="outline"
@@ -757,8 +815,8 @@ function SessionListView({
                   {STATUS_META[status].label}{' '}
                   <span className="font-medium text-[var(--coslash-muted)]">{rows.length}</span>
                   <span className="ml-auto text-[11.5px] font-medium text-[var(--coslash-muted)]">
-                    {formatTokens(sumKnown(aggregate.map((session) => getTotalTokens(session.tokens))))}{' '}
-                    tokens · {formatTableCost(sumKnown(aggregate.map((session) => session.cost)))}
+                    {formatTokens(tokenTotal(aggregate))} tokens ·{' '}
+                    {formatTableCost(sumKnown(aggregate.map((session) => session.cost)))}
                   </span>
                 </button>
               </th>
@@ -947,18 +1005,12 @@ export function CoslashLayout({
     {
       id: 'machine',
       label: 'Connections',
+      hint: <MachineLegend />,
       options: machines.map((machine) => ({
         id: machine.sourceId,
         label: machine.label,
         icon: machine.sourceId === LOCAL_SOURCE_ID ? <Monitor /> : <Server />,
-        indicator:
-          machine.sourceId !== LOCAL_SOURCE_ID && ['ok', 'limited'].includes(machine.state) ? (
-            <span
-              className="size-[7px] shrink-0 rounded-full bg-[var(--coslash-green-dot)]"
-              aria-label="Connected"
-              title="Connected"
-            />
-          ) : undefined,
+        indicator: machine.sourceId === LOCAL_SOURCE_ID ? undefined : <MachineDot machine={machine} />,
         count: countWith((session) => session.sourceId === machine.sourceId, 'machine'),
         selected: preferences.machineFilters.includes(machine.sourceId),
         onClick: () => toggleMachine(machine.sourceId),
