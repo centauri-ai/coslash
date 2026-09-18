@@ -1346,9 +1346,7 @@ export function SessionInspector({
           contentRef.current?.focus();
         }}
       >
-        {session != null && (
-          <SheetTitle className="sr-only">{session.name ?? 'Untitled session'}</SheetTitle>
-        )}
+        {session != null && <SheetTitle className="sr-only">{session.name ?? 'Untitled session'}</SheetTitle>}
         {isOpen && isLoading && (
           <div
             role="status"
