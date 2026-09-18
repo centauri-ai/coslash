@@ -178,6 +178,9 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(shutdownContext)
 	}()
+	if err := markRuntimeReady(runtimeLock); err != nil {
+		log.Fatalf("coslash: mark runtime ready: %v", err)
+	}
 	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", err)
 	}
