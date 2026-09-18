@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"sort"
+	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -160,6 +161,7 @@ func (u *cursorFamilyUnion) union(left, right string) {
 }
 
 func selectFamily(parsed []*vendors.ParsedSession, id string) []*vendors.ParsedSession {
+	id = strings.ToLower(id)
 	byID := make(map[string]*vendors.ParsedSession, len(parsed))
 	for _, item := range parsed {
 		if item != nil && item.Session != nil {
@@ -170,7 +172,12 @@ func selectFamily(parsed []*vendors.ParsedSession, id string) []*vendors.ParsedS
 	if !ok {
 		return nil
 	}
+	ancestors := map[string]bool{}
 	for root.ParentID != "" {
+		if ancestors[root.Session.ID] || root.ParentID == root.Session.ID {
+			return nil
+		}
+		ancestors[root.Session.ID] = true
 		parent, ok := byID[root.ParentID]
 		if !ok {
 			return nil
@@ -218,6 +225,15 @@ func Health() vendors.SourceHealth {
 }
 
 func cursorSourceHealth(root string, scan *vendors.SourceScan) vendors.SourceHealth {
+	seen := map[string]bool{}
 	return vendors.FileSourceHealth(vendors.AgentCursor, root, scan,
-		func(path string) (bool, error) { return ParentIDFromPath(path) == "", nil })
+		func(path string) (bool, error) {
+			if ParentIDFromPath(path) != "" {
+				return false, nil
+			}
+			id := IDFromPath(path)
+			isRoot := !seen[id]
+			seen[id] = true
+			return isRoot, nil
+		})
 }

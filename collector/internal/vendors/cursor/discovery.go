@@ -88,7 +88,7 @@ func IsTranscript(path string) bool {
 }
 
 func IDFromPath(path string) string {
-	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	return strings.ToLower(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
 }
 
 func ParentIDFromPath(path string) string {
@@ -103,5 +103,5 @@ func ParentIDFromPath(path string) string {
 	if !transcriptIDPattern.MatchString(parentID) {
 		return ""
 	}
-	return parentID
+	return strings.ToLower(parentID)
 }

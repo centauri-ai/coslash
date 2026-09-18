@@ -49,7 +49,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	modified := vendors.SourceModificationTime(source, path)
 	digest := session.DigestLog{}
 	commands := session.CommandLog{}
-	commitLog := []session.CommitObservation{}
 	edits := session.NewFileEditSet()
 	todos := []session.Todo{}
 	todoStatus := map[string]string{}
@@ -93,7 +92,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 				case "Shell", "run_terminal_cmd":
 					if input.Command != "" {
 						commands.Note(input.Command, input.Description)
-						commitLog = append(commitLog, session.ParseCommitAttempts(input.Command)...)
 					}
 					if input.WorkingDirectory != "" {
 						cwd = input.WorkingDirectory
@@ -119,10 +117,10 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 					}
 					files := patchFilesFromPatch(patch)
 					if len(files) == 0 && input.Path != "" {
-						files = []patchFile{{path: input.Path, patch: patch}}
+						files = []patchFile{{path: input.Path, patch: patch, unified: true}}
 					}
 					for _, file := range files {
-						adds, dels := patchLineCounts(file.patch)
+						adds, dels := patchLineCounts(file.patch, file.unified)
 						edits.Add(file.path, adds, dels, file.isNew)
 						edits.Patch(file.path, file.patch)
 					}
@@ -177,7 +175,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 		Agent: vendors.AgentCursor, ID: id, WorkingDirectory: cwd,
 		EditedFileCount: len(edits.Edits), StartedAt: startedAt, LastActivityTime: modified,
 		Tokens: map[string]session.ModelTokens{}, UnpricedModels: []string{}, Subagents: []session.Subagent{},
-		CommitLog: commitLog, SessionDetails: details,
+		SessionDetails: details,
 	}
 	if startedAt > 0 && modified >= startedAt {
 		duration := int(modified - startedAt)
@@ -276,9 +274,10 @@ func todosFromTool(items []todoToolItem) []session.Todo {
 }
 
 type patchFile struct {
-	path  string
-	patch string
-	isNew bool
+	path    string
+	patch   string
+	isNew   bool
+	unified bool
 }
 
 func patchFilesFromPatch(patch string) []patchFile {
@@ -310,6 +309,10 @@ func patchFilesFromPatch(patch string) []patchFile {
 			current = &patchFile{path: strings.TrimSpace(path), isNew: add}
 			continue
 		}
+		if movePath, move := strings.CutPrefix(line, "*** Move to: "); move && current != nil {
+			current.path = strings.TrimSpace(movePath)
+			continue
+		}
 		if strings.HasPrefix(line, "*** ") {
 			flush()
 			continue
@@ -322,13 +325,13 @@ func patchFilesFromPatch(patch string) []patchFile {
 	return files
 }
 
-func patchLineCounts(patch string) (int, int) {
+func patchLineCounts(patch string, unified bool) (int, int) {
 	adds, dels := 0, 0
 	for _, line := range strings.Split(patch, "\n") {
 		switch {
-		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+		case strings.HasPrefix(line, "+") && (!unified || !strings.HasPrefix(line, "+++")):
 			adds++
-		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+		case strings.HasPrefix(line, "-") && (!unified || !strings.HasPrefix(line, "---")):
 			dels++
 		}
 	}
