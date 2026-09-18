@@ -166,6 +166,16 @@ func familyFiles(source vendors.ReadSource, files []string, id string) []string 
 			selected = append(selected, owners[root]...)
 		}
 	}
+	include := make(map[string]struct{}, len(selected))
+	for _, file := range selected {
+		include[file] = struct{}{}
+	}
+	selected = selected[:0]
+	for _, file := range files {
+		if _, ok := include[file]; ok {
+			selected = append(selected, file)
+		}
+	}
 	return selected
 }
 

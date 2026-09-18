@@ -146,7 +146,7 @@ func getSessionDetail(agent, id string, probeEnvironment bool) (*session.Session
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", source.name, err)
 		}
-		roots := servableRoots(finalizeSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}))
+		roots := servableRoots(finalizeLocalSessions(parsed, map[string]*vendors.SessionMetadata{source.name: metadata}, true))
 		if probeEnvironment {
 			probeLastEdits(roots)
 			probeGitEnvironment(roots)
@@ -165,11 +165,25 @@ func finalizeSessions(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
 ) []*vendors.ParsedSession {
-	roots := finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource, true, true, false)
+	return finalizeLocalSessions(parsed, metadata, false)
+}
+
+func finalizeLocalSessions(
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+	preserveSubagentText bool,
+) []*vendors.ParsedSession {
+	roots := finalizeSessionsSource(parsed, metadata, vendors.LocalReadSource, true, true, true)
 	for _, root := range roots {
 		revision, err := session.LocalDetailRevision(*root.Session)
 		if err == nil {
 			root.Session.DetailRevision = revision
+		}
+		if !preserveSubagentText {
+			for index := range root.Session.Subagents {
+				root.Session.Subagents[index].Task = session.Truncate(root.Session.Subagents[index].Task, session.TruncateTextLimit)
+				root.Session.Subagents[index].Result = session.Truncate(root.Session.Subagents[index].Result, session.TruncateTextLimit)
+			}
 		}
 	}
 	return roots
