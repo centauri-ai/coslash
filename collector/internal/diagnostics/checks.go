@@ -32,6 +32,15 @@ func derive(snapshot *Snapshot) []Check {
 				Fix:    "Install the CLI or add it to PATH to resume sessions.",
 			})
 		}
+		if source.Entries > 0 && !source.CLI.Found && source.IDE != nil && !source.IDE.Found {
+			checks = append(checks, Check{
+				ID:     "cli." + source.Agent,
+				Title:  source.Label + " launch tools",
+				Status: StatusWarn,
+				Detail: "Neither Cursor IDE nor agent CLI is available; sessions remain browsable.",
+				Fix:    "Install Cursor IDE or the agent CLI to launch sessions.",
+			})
+		}
 	}
 	if noEntries && !scanFailed && snapshot.homeError == "" {
 		checks = append(checks, Check{
