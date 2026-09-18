@@ -85,10 +85,13 @@ func TestFinalizeSessionsDoesNotAllocateMissingMetadata(t *testing.T) {
 		Spawns:  map[string]vendors.SpawnState{},
 	}}
 
-	finalizeSessions(parsed, map[string]*vendors.SessionMetadata{"codex": metadata})
+	finalized := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{"codex": metadata})
 
 	if len(metadata.Sessions) != 0 {
 		t.Fatalf("read-only finalization allocated %d metadata records", len(metadata.Sessions))
+	}
+	if finalized[0].Session.DetailRevision == "" {
+		t.Fatal("local finalization did not retain a detail revision")
 	}
 }
 

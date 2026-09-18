@@ -57,6 +57,7 @@ type Session struct {
 	StartedAt           int64                  `json:"-"`
 	LastActivityTime    int64                  `json:"mtime"`
 	ActivityFallback    bool                   `json:"-"`
+	DetailRevision      string                 `json:"-"`
 	Entrypoint          *string                `json:"entrypoint"`
 	ReviewPending       bool                   `json:"reviewPending,omitempty"`
 	ReviewError         string                 `json:"reviewError,omitempty"`

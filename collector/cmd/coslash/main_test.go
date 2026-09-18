@@ -338,9 +338,15 @@ func TestBoardSessionLibraryNormalizesIdentityEligibilityAndSSHLabel(t *testing.
 	}
 
 	running := "busy"
-	localSession := boardLocalSession(&session.Session{Agent: "claude", ID: "session-2", Status: &running, LastActivityTime: 7})
+	localSession := boardLocalSession(&session.Session{
+		Agent: "claude", ID: "session-2", Status: &running, LastActivityTime: 7,
+		DetailRevision: "retained-revision",
+	})
 	if localSession.SourceClass != "local" || localSession.Completion != "running" || localSession.ShareEligibility != "running" {
 		t.Fatalf("local normalization = %#v", localSession)
+	}
+	if localSession.DetailRevision != "retained-revision" {
+		t.Fatalf("local detail revision = %q, want retained revision", localSession.DetailRevision)
 	}
 }
 
