@@ -158,6 +158,12 @@ export function ShareToHubDialog({
   }, [open]);
   /* oxlint-enable react/set-state-in-effect */
 
+  /* oxlint-disable react/set-state-in-effect -- revoke selections whose source is no longer eligible */
+  useEffect(() => {
+    setSelected((current) => reconcileVisibleSelection(current, candidates));
+  }, [candidates]);
+  /* oxlint-enable react/set-state-in-effect */
+
   useEffect(() => {
     const pairingId = pairing?.pairingId;
     if (!open || fixtureMode || pairing?.state !== 'pending' || !pairingId || pairingRefreshRequired) return;
