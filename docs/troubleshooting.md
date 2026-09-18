@@ -58,7 +58,7 @@ Launching requires macOS, a recorded working directory, the agent CLI, and the t
 
 Cursor CLI **Resume** requires the `agent` command and restores the recorded session. **Open Cursor** for a Cursor IDE session requires the `cursor` command and only opens the recorded workspace; Cursor does not provide a way to restore that specific IDE chat.
 
-For Cursor, **Start fresh with handoff** copies the brief to the clipboard before launch. Paste it into the new IDE or CLI session; Cursor does not provide a way for coSlash to inject it. Other supported agents receive the brief as background context and wait for your next message.
+For Cursor, **Start fresh with handoff** copies the brief to the clipboard. The IDE path opens the workspace; create a fresh chat before pasting the brief. The CLI path launches a new `agent` session; paste the brief there. Cursor does not provide a way for coSlash to inject it. Other supported agents receive the brief as background context and wait for your next message.
 
 Remote Resume and Start fresh require a live SSH connection and a recorded
 working directory. They are disabled while the host is offline; wait for it to
