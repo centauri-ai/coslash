@@ -64,6 +64,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	activeDuration := int64(0)
 	busy := false
 	waiting := false
+	activeTasks := map[string]string{}
 	commitLog := []session.CommitObservation{}
 	pullRequests := 0
 	fileEdits := session.NewFileEditSet()
@@ -82,7 +83,9 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			if prompt == "" {
 				continue
 			}
+			busy = false
 			waiting = false
+			clear(activeTasks)
 			turns++
 			if firstPrompt == "" {
 				firstPrompt = prompt
@@ -97,11 +100,14 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		if message.Role != "assistant" {
 			continue
 		}
+		busy = message.Time.Created > 0 && message.Time.Completed == nil
+		waiting = false
+		clear(activeTasks)
 		if message.Time.Created > 0 {
-			if message.Time.Completed == nil {
-				busy = true
-			} else if elapsed := *message.Time.Completed - message.Time.Created; elapsed > 0 {
-				activeDuration += elapsed
+			if message.Time.Completed != nil {
+				if elapsed := *message.Time.Completed - message.Time.Created; elapsed > 0 {
+					activeDuration += elapsed
+				}
 			}
 		}
 
@@ -182,6 +188,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 						}
 						link.status = part.State.Status
 						tasks[childID] = link
+						activeTasks[childID] = part.State.Status
 						spawn := spawns[childID]
 						spawn.Completed = part.State.Status == "completed"
 						spawns[childID] = spawn
@@ -242,8 +249,8 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			digest.Push(turns, session.DigestRecap, text, message.Time.Created)
 		}
 	}
-	for _, task := range tasks {
-		if task.status == "pending" || task.status == "running" {
+	for _, status := range activeTasks {
+		if status == "pending" || status == "running" {
 			busy = true
 			break
 		}
@@ -312,7 +319,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		Commands:     commands.Labelled(),
 		RecordedCost: &row.cost,
 	}
-	if busy {
+	if busy && !waiting {
 		status := "busy"
 		parsed.StatusHint = &status
 	}
