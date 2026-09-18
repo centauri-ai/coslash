@@ -38,7 +38,7 @@ function groupBy(sessions: Session[], keyOf: (session: Session) => string): [str
 }
 
 function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Session[] }) {
-  const count = sessionsForAggregates(sessions).length;
+  const count = sessions.length;
   return (
     <div className="bg-background sticky top-0 z-10 flex items-center gap-2 border-b border-l px-3 py-2">
       <span className={cn('size-2 rounded-full', status.dot)} />
@@ -55,7 +55,7 @@ function GroupTotals({ sessions }: { sessions: Session[] }) {
 
   return (
     <span className="text-muted-foreground text-xs">
-      {aggregate.length} {aggregate.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
+      {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
       <UnpricedModelWarning unpriced={aggregate.flatMap((session) => session.unpricedModels)}>
         {formatEstimatedCost(cost)}
       </UnpricedModelWarning>

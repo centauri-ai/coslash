@@ -10,8 +10,6 @@ export const TIME_WINDOWS = [
 
 export type TimeWindow = (typeof TIME_WINDOWS)[number]['value'];
 
-export const TIME_WINDOW_VALUES = TIME_WINDOWS.map((window) => window.value);
-
 export function timeWindowStart(window: TimeWindow, now = new Date()): number | null {
   switch (window) {
     case 'week': {
