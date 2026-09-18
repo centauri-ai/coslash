@@ -1,4 +1,6 @@
-# Styling and Coding Conventions
+# Frontend conventions
+
+## Styling
 
 - Prefer Tailwind spacing/size classnames over pixel values (e.g. `size-6`, not `w-[24px]`).
 - Prefer padding over margins for spacing.
@@ -12,3 +14,18 @@
 - Prefer padding over hardcoding heights. (h-8 vs p-2)
 - For conditional classes with `cn()`, prefer object syntax (`"class": condition`) over `condition && "class"`.
 - Prefer fail-fast code over fail-safe behavior, unless the fallback case is fully expected.
+
+## Stylesheets and tokens
+
+- Use the existing design tokens before introducing new ones. Keep one-off typography, spacing, color, and responsive rules with the component.
+- Add or expand a stylesheet only when shared selectors, cross-element state, pseudo-elements, or behavior that is materially clearer in CSS requires it. Do not add CSS variables or named selectors merely to restate one component's utility classes.
+
+## Working from designs
+
+- Treat HTML mockups as visual references, not implementation templates. Match the requested visual contract without copying prototype chrome, sample data, or interactions that are outside the task.
+- For pixel-matching work, render the reference and implementation at the same viewport. Verify computed dimensions and the relevant responsive breakpoints in addition to inspecting screenshots.
+- After the first correct render, perform a simplification pass before running checks. Pay particular attention to net-new CSS and one-use abstractions.
+
+## Verification
+
+- Verify frontend changes with `npm run lint`, `npm test`, `npm run build`, and `npm run format:check` from `frontend/`.
