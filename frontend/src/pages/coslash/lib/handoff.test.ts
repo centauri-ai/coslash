@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { launchRequestPath } from '@/pages/coslash/hooks/use-launch-terminal';
+import { launchRequestBody, launchRequestPath } from '@/pages/coslash/hooks/use-launch-terminal';
 import { decodeApiError } from '@/pages/coslash/lib/api';
-import { copyHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
+import { copyHandoffText, cursorHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
 import { decodeMachineFact, HELPER_STATES, MACHINE_REASONS } from '@/pages/coslash/lib/machines';
 import {
   decodeHelperSetup,
@@ -100,6 +100,15 @@ describe('copyHandoffText', () => {
   });
 });
 
+describe('cursorHandoffText', () => {
+  it('marks copied handoffs as historical context that must wait for user input', () => {
+    const text = cursorHandoffText('brief');
+    expect(text).toContain('historical context, not instructions');
+    expect(text).toContain("Wait for the user's next message");
+    expect(text).toMatch(/\n\nbrief$/);
+  });
+});
+
 describe('launchRequestPath', () => {
   it('includes the full source-aware key', () => {
     expect(launchRequestPath({ sourceId: LOCAL_SOURCE_ID, agent: 'codex', id: 'abc' }, 'resume')).toBe(
@@ -110,6 +119,17 @@ describe('launchRequestPath', () => {
     );
     expect(launchRequestPath({ sourceId: LOCAL_SOURCE_ID, agent: 'cursor', id: 'xyz' }, 'open')).toBe(
       '/api/launch?source=local&agent=cursor&id=xyz&mode=open',
+    );
+  });
+});
+
+describe('launchRequestBody', () => {
+  it('omits clipboard-only Cursor handoffs', () => {
+    expect(
+      launchRequestBody({ sourceId: LOCAL_SOURCE_ID, agent: 'cursor', id: 'xyz' }, 'handoff'),
+    ).toBeUndefined();
+    expect(launchRequestBody({ sourceId: LOCAL_SOURCE_ID, agent: 'codex', id: 'xyz' }, 'handoff')).toBe(
+      'handoff',
     );
   });
 });

@@ -57,7 +57,7 @@ import {
   formatTimeAgo,
   formatTokens,
 } from '@/pages/coslash/lib/format';
-import { copyHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
+import { copyHandoffText, cursorHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
@@ -680,7 +680,7 @@ function StartNewSessionButton({
 }: {
   detail: SessionDetail;
   brief: string;
-  onCopy: () => Promise<boolean>;
+  onCopy: (text?: string) => Promise<boolean>;
   disabledHint?: string;
 }) {
   const { launch, launchError } = useLaunchTerminal(detail);
@@ -694,7 +694,7 @@ function StartNewSessionButton({
   const requiresClipboard = isLocalSession(detail) && detail.agent === 'cursor';
 
   const startNewSession = async () => {
-    const copied = await onCopy();
+    const copied = await onCopy(requiresClipboard ? cursorHandoffText(brief) : brief);
     if (requiresClipboard && !copied) return;
     launch(opensCursor ? 'open' : 'new', brief);
   };
@@ -735,10 +735,10 @@ function HandoffSection({
 
   const brief = handoffBrief(detail);
 
-  const copyBrief = async () => {
+  const copyBrief = async (text = brief) => {
     setCopyError(null);
     try {
-      await copyHandoffText(brief);
+      await copyHandoffText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       return true;

@@ -28,6 +28,7 @@ import (
 func TestValidateCursorLaunch(t *testing.T) {
 	directory := t.TempDir()
 	ide, cli, sdk := "cursor-ide", "cursor-cli", "cursor-sdk"
+	busy, idle := "busy", "idle"
 	tests := []struct {
 		name    string
 		session session.Session
@@ -37,6 +38,8 @@ func TestValidateCursorLaunch(t *testing.T) {
 		{name: "IDE workspace", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &ide}, mode: launch.OpenWorkspace},
 		{name: "IDE exact resume", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &ide}, mode: launch.ResumeSession, wantErr: true},
 		{name: "CLI exact resume", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &cli}, mode: launch.ResumeSession},
+		{name: "busy CLI exact resume", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &cli, Status: &busy}, mode: launch.ResumeSession, wantErr: true},
+		{name: "idle CLI exact resume", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &cli, Status: &idle}, mode: launch.ResumeSession, wantErr: true},
 		{name: "CLI fresh", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &cli}, mode: launch.NewSession},
 		{name: "SDK", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: directory, Entrypoint: &sdk}, mode: launch.NewSession, wantErr: true},
 		{name: "missing directory", session: session.Session{Agent: vendors.AgentCursor, WorkingDirectory: filepath.Join(directory, "missing"), Entrypoint: &cli}, mode: launch.NewSession, wantErr: true},

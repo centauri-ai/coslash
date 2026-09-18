@@ -536,6 +536,9 @@ func validateCursorLaunch(found *session.Session, mode string) error {
 		if mode != launch.ResumeSession && mode != launch.NewSession {
 			return errors.New("workspace launch is only available for Cursor IDE sessions")
 		}
+		if mode == launch.ResumeSession && found.Status != nil && (*found.Status == "busy" || *found.Status == "idle") {
+			return errors.New("session is already active")
+		}
 	default:
 		return fmt.Errorf("launch is not available for %s sessions", entrypoint)
 	}
