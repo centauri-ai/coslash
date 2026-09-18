@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 
@@ -48,12 +47,6 @@ var uuidSessionIDPattern = regexp.MustCompile(
 
 var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
-
-type terminalAdapter struct {
-	label     string
-	available func() error
-	open      func(string, string) error
-}
 
 type ReviewerOption struct {
 	ID         string
@@ -178,7 +171,7 @@ func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, h
 }
 
 func remoteSSHCommand(alias, command string) string {
-	return shellJoin(
+	return localCommandJoin(
 		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath="+settings.SSHControlPath(), alias, command,
 	)
 }
@@ -196,50 +189,6 @@ func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName
 	return changeDirectory + " || { rm -f " + handoffPath + "; exit 1; }; " + command, nil
 }
 
-func openTerminal(terminal, workingDirectory, command string) error {
-	adapter, err := terminalFor(terminal)
-	if err != nil {
-		return err
-	}
-	if runtime.GOOS != "darwin" {
-		return fmt.Errorf("launch: opening a terminal is not supported on %s", runtime.GOOS)
-	}
-	if err := adapter.available(); err != nil {
-		return fmt.Errorf("launch: %s is not installed or available; choose another terminal in Settings", adapter.label)
-	}
-	if err := adapter.open(workingDirectory, command); err != nil {
-		return fmt.Errorf("launch: open %s: %w", adapter.label, err)
-	}
-	return nil
-}
-
-func Available(terminal string) bool {
-	if runtime.GOOS != "darwin" {
-		return false
-	}
-	adapter, err := terminalFor(terminal)
-	return err == nil && adapter.available() == nil
-}
-
-func terminalFor(terminal string) (terminalAdapter, error) {
-	switch terminal {
-	case settings.TerminalApple:
-		return terminalAdapter{
-			label:     "Apple Terminal",
-			available: func() error { return macApplicationAvailable("Terminal") },
-			open:      openMacTerminal,
-		}, nil
-	case settings.TerminalITerm:
-		return terminalAdapter{
-			label:     "iTerm2",
-			available: func() error { return macApplicationAvailable("iTerm2") },
-			open:      openMacITerm,
-		}, nil
-	default:
-		return terminalAdapter{}, fmt.Errorf("launch: unsupported terminal %q", terminal)
-	}
-}
-
 func cliCommand(agent, sessionID, mode, handoff string) (string, string, error) {
 	cli, err := cliName(agent)
 	if err != nil {
@@ -248,64 +197,17 @@ func cliCommand(agent, sessionID, mode, handoff string) (string, string, error) 
 	switch mode {
 	case NewSession:
 		if handoff == "" {
-			return shellJoin(cli), "", nil
+			return localCommandJoin(cli), "", nil
 		}
 		return handoffCommand(agent, cli, handoff)
 	case ResumeSession:
-		validSessionID := uuidSessionIDPattern.MatchString(sessionID)
-		if agent == vendors.AgentOpenCode {
-			validSessionID = openCodeSessionIDPattern.MatchString(sessionID)
-		}
-		if !validSessionID {
-			return "", "", fmt.Errorf("launch: %q is not a session id", sessionID)
-		}
-		resume, err := resumeFlag(agent)
+		arguments, err := resumeArguments(agent, cli, sessionID)
 		if err != nil {
 			return "", "", err
 		}
-		return shellJoin(cli, resume, sessionID), "", nil
+		return localCommandJoin(arguments...), "", nil
 	}
 	return "", "", fmt.Errorf("launch: unknown mode %q", mode)
-}
-
-func handoffCommand(agent, cli, handoff string) (string, string, error) {
-	context := handoffPreamble + handoff
-	switch agent {
-	case vendors.AgentClaude:
-		path, err := writeHandoffFile(context)
-		if err != nil {
-			return "", "", err
-		}
-		return withCleanup(shellJoin(cli, "--append-system-prompt-file", path), path), path, nil
-	case vendors.AgentCodex:
-		// Codex takes instructions only as a -c override
-		encoded, err := json.Marshal(context)
-		if err != nil {
-			return "", "", fmt.Errorf("launch: encoding handoff context: %w", err)
-		}
-		path, err := writeHandoffFile(string(encoded))
-		if err != nil {
-			return "", "", err
-		}
-		// An unreadable file would leave the substitution empty
-		guard := "cat " + shellQuote(path) + " > /dev/null && "
-		override := `"developer_instructions=$(cat ` + shellQuote(path) + `)"`
-		return withCleanup(guard+shellJoin(cli, "-c")+" "+override, path), path, nil
-	case vendors.AgentOpenCode:
-		path, err := writeHandoffFile(context)
-		if err != nil {
-			return "", "", err
-		}
-		config, err := json.Marshal(map[string][]string{"instructions": {path}})
-		if err != nil {
-			os.Remove(path)
-			return "", "", fmt.Errorf("launch: encoding OpenCode handoff config: %w", err)
-		}
-		guard := "cat " + shellQuote(path) + " > /dev/null && "
-		command := guard + "OPENCODE_CONFIG_CONTENT=" + shellQuote(string(config)) + " " + shellJoin(cli)
-		return withCleanup(command, path), path, nil
-	}
-	return "", "", fmt.Errorf("launch: unknown agent %q", agent)
 }
 
 func RemoteHandoffContents(agent, handoff string) ([]byte, error) {
@@ -330,8 +232,11 @@ func remoteCLICommand(agent, sessionID, mode, handoffName string) (string, error
 		return "", err
 	}
 	if mode == ResumeSession {
-		command, _, err := cliCommand(agent, sessionID, mode, "")
-		return command, err
+		arguments, err := resumeArguments(agent, cli, sessionID)
+		if err != nil {
+			return "", err
+		}
+		return shellJoin(arguments...), nil
 	}
 	if mode != NewSession {
 		return "", fmt.Errorf("launch: unknown mode %q", mode)
@@ -414,10 +319,6 @@ func CleanupHandoffs() error {
 	return nil
 }
 
-func withCleanup(command, path string) string {
-	return command + " ; rm -f " + shellQuote(path)
-}
-
 func cliName(agent string) (string, error) {
 	switch agent {
 	case vendors.AgentClaude:
@@ -441,4 +342,31 @@ func resumeFlag(agent string) (string, error) {
 		return "--session", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
+}
+
+func resumeArguments(agent, cli, sessionID string) ([]string, error) {
+	validSessionID := uuidSessionIDPattern.MatchString(sessionID)
+	if agent == vendors.AgentOpenCode {
+		validSessionID = openCodeSessionIDPattern.MatchString(sessionID)
+	}
+	if !validSessionID {
+		return nil, fmt.Errorf("launch: %q is not a session id", sessionID)
+	}
+	resume, err := resumeFlag(agent)
+	if err != nil {
+		return nil, err
+	}
+	return []string{cli, resume, sessionID}, nil
+}
+
+func shellJoin(arguments ...string) string {
+	quoted := make([]string, len(arguments))
+	for i, argument := range arguments {
+		quoted[i] = shellQuote(argument)
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }

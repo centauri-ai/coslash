@@ -1,0 +1,115 @@
+package launch
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+)
+
+var windowsLookPath = exec.LookPath
+
+var windowsStart = func(name, workingDirectory string, arguments ...string) error {
+	command := exec.Command(name, arguments...)
+	command.Dir = workingDirectory
+	if err := command.Start(); err != nil {
+		return err
+	}
+	go func() { _ = command.Wait() }()
+	return nil
+}
+
+func openTerminal(terminal, workingDirectory, command string) error {
+	if terminal != settings.TerminalWindows {
+		return fmt.Errorf("launch: unsupported terminal %q", terminal)
+	}
+	if err := openWindowsTerminal(workingDirectory, command); err != nil {
+		return fmt.Errorf("launch: open Windows Terminal: %w", err)
+	}
+	return nil
+}
+
+func Available(terminal string) bool {
+	if terminal != settings.TerminalWindows {
+		return false
+	}
+	if _, err := windowsLookPath("wt.exe"); err == nil {
+		return true
+	}
+	_, err := windowsLookPath("powershell.exe")
+	return err == nil
+}
+
+func openWindowsTerminal(workingDirectory, command string) error {
+	if terminal, err := windowsLookPath("wt.exe"); err == nil {
+		return windowsStart(terminal, workingDirectory, "-d", workingDirectory, "powershell.exe", "-NoExit", "-Command", command)
+	}
+	powerShell, err := windowsLookPath("powershell.exe")
+	if err != nil {
+		return fmt.Errorf("Windows Terminal and Windows PowerShell are not installed or available")
+	}
+	return windowsStart(powerShell, workingDirectory, "-NoExit", "-Command", command)
+}
+
+func localCommandJoin(arguments ...string) string {
+	quoted := make([]string, len(arguments))
+	for i, argument := range arguments {
+		quoted[i] = powerShellQuote(argument)
+	}
+	return "& " + strings.Join(quoted, " ")
+}
+
+func powerShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func handoffCommand(agent, cli, handoff string) (string, string, error) {
+	context := handoffPreamble + handoff
+	switch agent {
+	case vendors.AgentClaude:
+		path, err := writeHandoffFile(context)
+		if err != nil {
+			return "", "", err
+		}
+		command := localCommandJoin(cli, "--append-system-prompt-file", path)
+		return withPowerShellCleanup(command, path), path, nil
+	case vendors.AgentCodex:
+		encoded, err := json.Marshal(context)
+		if err != nil {
+			return "", "", fmt.Errorf("launch: encoding handoff context: %w", err)
+		}
+		path, err := writeHandoffFile(string(encoded))
+		if err != nil {
+			return "", "", err
+		}
+		command := "$handoff = Get-Content -Raw -LiteralPath " + powerShellQuote(path) + " -ErrorAction Stop; " +
+			localCommandJoin(cli, "-c") + " ('developer_instructions=' + $handoff)"
+		return withPowerShellCleanup(command, path), path, nil
+	case vendors.AgentOpenCode:
+		path, err := writeHandoffFile(context)
+		if err != nil {
+			return "", "", err
+		}
+		config, err := json.Marshal(map[string][]string{"instructions": {path}})
+		if err != nil {
+			os.Remove(path)
+			return "", "", fmt.Errorf("launch: encoding OpenCode handoff config: %w", err)
+		}
+		command := "$env:OPENCODE_CONFIG_CONTENT = " + powerShellQuote(string(config)) + "; " + localCommandJoin(cli)
+		cleanup := "Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; " + powerShellRemove(path)
+		return "try { " + command + " } finally { " + cleanup + " }", path, nil
+	}
+	return "", "", fmt.Errorf("launch: unknown agent %q", agent)
+}
+
+func withPowerShellCleanup(command, path string) string {
+	return "try { " + command + " } finally { " + powerShellRemove(path) + " }"
+}
+
+func powerShellRemove(path string) string {
+	return "Remove-Item -LiteralPath " + powerShellQuote(path) + " -Force -ErrorAction SilentlyContinue"
+}
