@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { DiffList } from '@/pages/coslash/components/DiffList';
 import {
+  cachedOfflineWarning,
   DetailLoadError,
   detailPresentation,
   filePanelOpen,
@@ -34,6 +35,12 @@ describe('SessionInspector exact-detail boundaries', () => {
     const markup = renderToStaticMarkup(<SummaryOnlyBanner />);
     expect(markup).toContain('Showing the bounded summary from the session library');
     expect(markup).toContain('exact file diffs are disabled');
+  });
+
+  it('uses current machine health for the cached-detail warning', () => {
+    expect(cachedOfflineWarning(false, 'stale')).toBe(true);
+    expect(cachedOfflineWarning(true, 'ok')).toBe(false);
+    expect(cachedOfflineWarning(true, undefined)).toBe(true);
   });
 
   it('keeps a loaded diff open only for the selected exact revision', () => {
@@ -86,7 +93,13 @@ describe('SessionInspector exact-detail boundaries', () => {
 
   it('renders a direct retry path for generic diff failures', () => {
     const generic = renderToStaticMarkup(
-      <DiffList changes={null} isLoading={false} loadError="network failed" showRetry onRetry={() => {}} />,
+      <DiffList
+        changes={null}
+        isLoading={false}
+        loadError="network failed"
+        showRetry
+        onRetry={() => {}}
+      />,
     );
     const authentication = renderToStaticMarkup(
       <DiffList changes={null} isLoading={false} loadError="link expired" />,
@@ -98,10 +111,20 @@ describe('SessionInspector exact-detail boundaries', () => {
 
   it('offers direct recovery only for retryable generic detail failures', () => {
     const generic = renderToStaticMarkup(
-      <DetailLoadError message="network failed" kind="other" onRetry={() => {}} onRefresh={() => {}} />,
+      <DetailLoadError
+        message="network failed"
+        kind="other"
+        onRetry={() => {}}
+        onRefresh={() => {}}
+      />,
     );
     const authentication = renderToStaticMarkup(
-      <DetailLoadError message="link expired" kind="authentication" onRetry={() => {}} onRefresh={() => {}} />,
+      <DetailLoadError
+        message="link expired"
+        kind="authentication"
+        onRetry={() => {}}
+        onRefresh={() => {}}
+      />,
     );
 
     expect(generic).toContain('Retry details');
