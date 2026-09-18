@@ -79,18 +79,34 @@ func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.Se
 			item.Session.WorkingDirectory = enrichment.WorkingDirectory
 		}
 		mergeIDEFileEdits(item.Session, enrichment.FileEdits)
+		enrichment.FileEdits = append([]session.FileEdit(nil), item.Session.FileEdits...)
 		if len(enrichment.CommitObservations) > 0 {
 			item.Session.CommitLog = append(item.Session.CommitLog, enrichment.CommitObservations...)
 		}
+		vendors.ApplySessionEnrichment(item, enrichment)
+		if item.Session.ContextWindow == nil && item.Session.Model != nil {
+			item.Session.ContextWindow = session.ContextWindowFor(*item.Session.Model)
+		}
+		session.AttachCost(item.Session, item.RecordedCost)
 	}
 }
 
 func applyMetadataTimes(value *session.Session, startedAt, lastActivityAt int64) {
+	changed := false
 	if startedAt > 0 {
 		value.StartedAt = startedAt
+		changed = true
 	}
 	if lastActivityAt > 0 {
 		value.LastActivityTime = lastActivityAt
+		changed = true
+	}
+	if changed {
+		value.DurationMs = nil
+		if value.StartedAt > 0 && value.LastActivityTime >= value.StartedAt {
+			duration := int(value.LastActivityTime - value.StartedAt)
+			value.DurationMs = &duration
+		}
 	}
 }
 
