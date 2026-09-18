@@ -87,6 +87,52 @@ func TestCursorFamilyFilesSelectsOnlyRequestedFamily(t *testing.T) {
 	}
 }
 
+func TestCursorFamilyFilesUsesMetadataRelationships(t *testing.T) {
+	rootID := "00000000-0000-4000-8000-000000000001"
+	childID := "00000000-0000-4000-8000-000000000002"
+	otherID := "00000000-0000-4000-8000-000000000003"
+	root := filepath.Join("agent-transcripts", rootID, rootID+".jsonl")
+	child := filepath.Join("agent-transcripts", childID, childID+".jsonl")
+	other := filepath.Join("agent-transcripts", otherID, otherID+".jsonl")
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session(childID).Relationship = vendors.SessionRelationship{ParentID: rootID}
+
+	for _, id := range []string{rootID, childID} {
+		got := cursorFamilyFilesWithMetadata([]string{root, child, other}, id, metadata)
+		if len(got) != 2 || got[0] != root || got[1] != child {
+			t.Fatalf("cursorFamilyFilesWithMetadata(%q) = %v, want [%s %s]", id, got, root, child)
+		}
+	}
+}
+
+func TestApplyRelationshipsClaimsDuplicateTaskDigestsOnce(t *testing.T) {
+	parent := &vendors.ParsedSession{
+		Session: &session.Session{ID: "parent", SessionDetails: session.SessionDetails{Digest: []session.DigestEntry{
+			{Category: session.DigestSubagent, Description: "same task", SpawnKey: "transcript-1"},
+			{Category: session.DigestSubagent, Description: "same task", SpawnKey: "transcript-2"},
+		}}},
+		Spawns: map[string]vendors.SpawnState{
+			"transcript-1": {Task: "same task"},
+			"transcript-2": {Task: "same task"},
+		},
+	}
+	child1 := &vendors.ParsedSession{Session: &session.Session{ID: "child-1"}}
+	child2 := &vendors.ParsedSession{Session: &session.Session{ID: "child-2"}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("child-1").Relationship = vendors.SessionRelationship{ParentID: "parent", SpawnKey: "side-1", Task: "same task", Active: true}
+	metadata.Session("child-2").Relationship = vendors.SessionRelationship{ParentID: "parent", SpawnKey: "side-2", Task: "same task", Completed: true}
+
+	applyRelationships([]*vendors.ParsedSession{parent, child1, child2}, metadata)
+
+	if len(parent.Spawns) != 2 || parent.Spawns["side-1"].Active != true || parent.Spawns["side-2"].Completed != true {
+		t.Fatalf("spawns = %#v, want both relationship states", parent.Spawns)
+	}
+	got := []string{parent.Session.Digest[0].SpawnKey, parent.Session.Digest[1].SpawnKey}
+	if !(got[0] == "side-1" && got[1] == "side-2" || got[0] == "side-2" && got[1] == "side-1") {
+		t.Fatalf("digest spawn keys = %v, want each relationship exactly once", got)
+	}
+}
+
 func TestSelectCursorFilesDoesNotCapAllHistory(t *testing.T) {
 	tempFile := filepath.Join(t.TempDir(), "stat")
 	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {
