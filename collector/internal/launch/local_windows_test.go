@@ -12,6 +12,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"golang.org/x/sys/windows"
 )
@@ -36,6 +37,44 @@ func TestPowerShellQuote(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if got := powerShellQuote(test.value); got != test.want {
 				t.Fatalf("powerShellQuote(%q) = %q, want %q", test.value, got, test.want)
+			}
+		})
+	}
+}
+
+func TestWindowsTerminalAvailabilityRequiresPowerShell(t *testing.T) {
+	originalLookPath := windowsLookPath
+	t.Cleanup(func() { windowsLookPath = originalLookPath })
+	tests := []struct {
+		name       string
+		terminal   string
+		windowsWT  bool
+		powerShell bool
+		want       bool
+	}{
+		{name: "PowerShell only", terminal: settings.TerminalWindows, powerShell: true, want: true},
+		{name: "Windows Terminal and PowerShell", terminal: settings.TerminalWindows, windowsWT: true, powerShell: true, want: true},
+		{name: "Windows Terminal only", terminal: settings.TerminalWindows, windowsWT: true, want: false},
+		{name: "neither", terminal: settings.TerminalWindows, want: false},
+		{name: "unsupported terminal", terminal: "invalid", windowsWT: true, powerShell: true, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			windowsLookPath = func(name string) (string, error) {
+				switch name {
+				case "wt.exe":
+					if test.windowsWT {
+						return `C:\Windows\wt.exe`, nil
+					}
+				case "powershell.exe":
+					if test.powerShell {
+						return `C:\Windows\powershell.exe`, nil
+					}
+				}
+				return "", errors.New("not found")
+			}
+			if got := Available(test.terminal); got != test.want {
+				t.Fatalf("Available(%q) = %v, want %v", test.terminal, got, test.want)
 			}
 		})
 	}
