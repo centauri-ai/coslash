@@ -284,7 +284,7 @@ func loadIDERelationships(metadata *vendors.SessionMetadata, db *sql.DB, ids []s
 				query += ` WHERE 0`
 			} else {
 				placeholders := strings.TrimSuffix(strings.Repeat("?,", len(familyIDs)), ",")
-				query += ` WHERE LOWER(composerId) IN (` + placeholders + `) OR LOWER(json_extract(value, '$.subagentInfo.parentComposerId')) IN (` + placeholders + `)`
+				query += ` WHERE LOWER(composerId) IN (` + placeholders + `) OR LOWER(CASE WHEN json_valid(value) THEN json_extract(value, '$.subagentInfo.parentComposerId') ELSE '' END) IN (` + placeholders + `)`
 				for _, id := range familyIDs {
 					args = append(args, id)
 				}

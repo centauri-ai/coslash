@@ -53,6 +53,7 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 		return LoadMetadataForSessions([]string{parsed.Session.ID}, fragments)
 	})
 	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	applyRelationships([]*vendors.ParsedSession{parsed}, metadata)
 	return parsed, nil
 }
 
@@ -440,10 +441,17 @@ func Health() vendors.SourceHealth {
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCursor, Root: root, Err: err}
 	}
-	return cursorSourceHealth(root, scan)
+	ids := make([]string, 0, len(scan.Files))
+	for _, path := range scan.Files {
+		ids = append(ids, IDFromPath(path))
+	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
+		return LoadMetadataForSessions(canonicalCursorIDs(ids), scan.Files)
+	})
+	return cursorSourceHealth(root, scan, metadata)
 }
 
-func cursorSourceHealth(root string, scan *vendors.SourceScan) vendors.SourceHealth {
+func cursorSourceHealth(root string, scan *vendors.SourceScan, metadata *vendors.SessionMetadata) vendors.SourceHealth {
 	seen := map[string]bool{}
 	return vendors.FileSourceHealth(vendors.AgentCursor, root, scan,
 		func(path string) (bool, error) {
@@ -451,6 +459,9 @@ func cursorSourceHealth(root string, scan *vendors.SourceScan) vendors.SourceHea
 				return false, nil
 			}
 			id := IDFromPath(path)
+			if entry := metadata.Lookup(id); entry != nil && entry.Relationship.ParentID != "" {
+				return false, nil
+			}
 			isRoot := !seen[id]
 			seen[id] = true
 			return isRoot, nil

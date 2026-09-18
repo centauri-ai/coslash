@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -67,6 +68,46 @@ func TestCursorEnrichmentRecomputesDurationFromMetadataTimes(t *testing.T) {
 
 	if parsed.Session.DurationMs == nil || *parsed.Session.DurationMs != 100 {
 		t.Fatalf("duration = %v, want 100", parsed.Session.DurationMs)
+	}
+}
+
+func TestGetSessionFactsAppliesMetadataRelationship(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	parentID := "00000000-0000-4000-8000-000000000001"
+	childID := "00000000-0000-4000-8000-000000000002"
+	path := filepath.Join(home, ".cursor", "projects", "repo", "agent-transcripts", childID, childID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := `{"role":"user","message":{"content":[{"type":"text","text":"child prompt"}]}}` + "\n" +
+		`{"type":"turn_ended","status":"success"}` + "\n"
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	if err := createMetadataTestDB(statePath); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := `{"subagentInfo":{"parentComposerId":"` + parentID + `","toolCallId":"call-1"}}`
+	if _, err := db.Exec(`INSERT INTO composerHeaders(composerId, value) VALUES (?, ?)`, childID, header); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := GetSessionFacts(childID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed == nil || parsed.ParentID != parentID {
+		t.Fatalf("facts = %#v, want metadata-linked child of %s", parsed, parentID)
 	}
 }
 
@@ -205,12 +246,16 @@ func TestSelectCursorFilesOrdersFamiliesBySideStoreActivity(t *testing.T) {
 func TestCursorSourceHealthCountsOnlyRootTranscripts(t *testing.T) {
 	rootID := "00000000-0000-4000-8000-000000000001"
 	childID := "00000000-0000-4000-8000-000000000002"
+	standaloneChildID := "00000000-0000-4000-8000-000000000003"
 	scan := &vendors.SourceScan{Files: []string{
 		filepath.Join("agent-transcripts", rootID, rootID+".jsonl"),
 		filepath.Join("agent-transcripts", rootID, "subagents", childID+".jsonl"),
+		filepath.Join("agent-transcripts", standaloneChildID, standaloneChildID+".jsonl"),
 	}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session(standaloneChildID).Relationship = vendors.SessionRelationship{ParentID: rootID}
 
-	health := cursorSourceHealth("/cursor", scan)
+	health := cursorSourceHealth("/cursor", scan, metadata)
 	if health.Sessions != 1 {
 		t.Fatalf("sessions = %d, want 1", health.Sessions)
 	}
@@ -223,7 +268,7 @@ func TestCursorSourceHealthDeduplicatesRootFragments(t *testing.T) {
 		filepath.Join("projects", "two", "agent-transcripts", id, id+".jsonl"),
 	}}
 
-	health := cursorSourceHealth("/cursor", scan)
+	health := cursorSourceHealth("/cursor", scan, vendors.EmptySessionMetadata())
 	if health.Sessions != 1 {
 		t.Fatalf("sessions = %d, want 1", health.Sessions)
 	}
