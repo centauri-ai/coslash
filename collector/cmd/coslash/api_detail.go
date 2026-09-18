@@ -3,12 +3,12 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -74,7 +74,13 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 			writeDetailError(w, errCodeDetailMissing, http.StatusNotFound)
 			return
 		}
-		if identity.Revision != strconv.FormatInt(found.LastActivityTime, 10) {
+		revision, err := localDetailRevision(*found)
+		if err != nil {
+			logExactReadError("fingerprint local session detail", identity, err)
+			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
+			return
+		}
+		if identity.Revision != revision {
 			writeDetailError(w, errCodeDetailStale, http.StatusConflict)
 			return
 		}
@@ -151,7 +157,13 @@ func handleExactDiff(w http.ResponseWriter, r *http.Request, getLocal localDetai
 			writeDetailError(w, errCodeDetailMissing, http.StatusNotFound)
 			return
 		}
-		if identity.Revision != strconv.FormatInt(found.LastActivityTime, 10) {
+		revision, err := localDetailRevision(*found)
+		if err != nil {
+			logExactReadError("fingerprint local session diff", identity, err)
+			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
+			return
+		}
+		if identity.Revision != revision {
 			writeDetailError(w, errCodeDetailStale, http.StatusConflict)
 			return
 		}
@@ -275,6 +287,44 @@ func withLocalChangeIDs(value session.Session) session.Session {
 		}
 	}
 	return value
+}
+
+// localDetailRevision fingerprints parsed content while excluding fields
+// refreshed from process, repository, and synthesis state. Those live facts
+// are overlaid from the session list in the inspector and must not make the
+// exact transcript/diff identity depend on which environment probes a reader
+// performs.
+func localDetailRevision(value session.Session) (string, error) {
+	stable := session.Clone(&value)
+	stable.Status = nil
+	stable.Branch = nil
+	stable.Repository = nil
+	stable.RepositoryLocalOnly = false
+	stable.Commits = nil
+	stable.CommitSHAs = nil
+	stable.Git = nil
+	stable.GitProbed = false
+	stable.LastEditAt = nil
+	stable.ReviewPending = false
+	stable.ReviewError = ""
+	stable.Synthesis = nil
+	stable.SynthesisPending = false
+	for index := range stable.Subagents {
+		stable.Subagents[index].Status = ""
+	}
+
+	payload, err := json.Marshal(struct {
+		Session   session.Session             `json:"session"`
+		CommitLog []session.CommitObservation `json:"commitLog"`
+	}{
+		Session:   sessionWithJSONCollections(withLocalChangeIDs(*stable)),
+		CommitLog: stable.CommitLog,
+	})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func localChangesByID(value session.Session) map[string]session.FileChange {
