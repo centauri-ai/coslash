@@ -23,7 +23,7 @@ func derive(snapshot *Snapshot) []Check {
 		if source.State == SourceUnreadable {
 			scanFailed = true
 		}
-		if source.Entries > 0 && !source.CLI.Found {
+		if source.Entries > 0 && !source.CLI.Found && source.IDE == nil {
 			checks = append(checks, Check{
 				ID:     "cli." + source.Agent,
 				Title:  source.Label + " CLI",
@@ -131,7 +131,11 @@ func sourceCheck(source Source) Check {
 	case source.State == SourceEmpty:
 		check.Status = StatusWarn
 		check.Detail = source.Root + " exists, but no sessions have been recorded yet."
-		check.Fix = "Run " + source.CLI.Name + " in a repo for one turn, then re-run these checks."
+		if source.IDE != nil {
+			check.Fix = "Start a Cursor IDE chat or run " + source.CLI.Name + " in a repo for one turn, then re-run these checks."
+		} else {
+			check.Fix = "Run " + source.CLI.Name + " in a repo for one turn, then re-run these checks."
+		}
 	case source.Entries > 0 && source.Sessions == 0:
 		check.Status = StatusFail
 		check.Detail = fmt.Sprintf("Found %d source entries in %s, but no root sessions.", source.Entries, source.Root)

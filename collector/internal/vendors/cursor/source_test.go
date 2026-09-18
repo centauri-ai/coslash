@@ -282,6 +282,34 @@ func TestSelectCursorFilesOrdersFamiliesBySideStoreActivity(t *testing.T) {
 	t.Fatalf("side-store-newest session %q was omitted from %d selected files", newestID, len(got))
 }
 
+func TestSelectCursorFilesPrioritizesLiveFamiliesAtCandidateLimit(t *testing.T) {
+	tempFile := filepath.Join(t.TempDir(), "stat")
+	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(tempFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make([]string, vendors.MaxCandidateFilesPerAgent+1)
+	metadata := vendors.EmptySessionMetadata()
+	for i := range files {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012x", i)
+		files[i] = filepath.Join("agent-transcripts", id, id+".jsonl")
+		metadata.Session(id).LastActivityAt = int64(i + 1)
+	}
+	liveID := IDFromPath(files[0])
+	metadata.Session(liveID).Live = "interactive"
+
+	got := selectCursorFilesSourceWithMetadata(statReadSource{info: info}, files, 1, metadata)
+	for _, path := range got {
+		if path == files[0] {
+			return
+		}
+	}
+	t.Fatalf("live session %q was omitted from %d selected files", liveID, len(got))
+}
+
 func TestSelectCursorFilesDoesNotCreateMetadataForRejectedHistory(t *testing.T) {
 	tempFile := filepath.Join(t.TempDir(), "stat")
 	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {

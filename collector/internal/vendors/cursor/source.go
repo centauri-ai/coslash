@@ -79,7 +79,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		}
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadMetadataForSessions([]string{id}, requestedFiles)
+		return LoadRelationshipMetadataForSessions([]string{id})
 	})
 	familyFiles := cursorFamilyFilesWithMetadata(files, id, metadata)
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, familyFiles)
@@ -357,6 +357,9 @@ func selectCursorFilesSourceWithMetadata(source vendors.ReadSource, files []stri
 		func(path string) int64 {
 			modified := vendors.SourceModificationTime(source, path)
 			if enrichment := metadata.Lookup(IDFromPath(path)); enrichment != nil {
+				if enrichment.Live != "" {
+					return int64(1<<63 - 1)
+				}
 				modified = max(modified, enrichment.StartedAt, enrichment.LastActivityAt)
 			}
 			return modified

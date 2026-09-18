@@ -68,6 +68,29 @@ func LoadMetadataForSessions(ids, transcriptPaths []string) (*vendors.SessionMet
 	return loadMetadataForSessions(home, ids, transcriptPaths)
 }
 
+func LoadRelationshipMetadataForSessions(ids []string) (*vendors.SessionMetadata, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return loadRelationshipMetadataForSessions(home, ids)
+}
+
+func loadRelationshipMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
+	metadata := vendors.EmptySessionMetadata()
+	path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	db, err := openCursorDB(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return metadata, nil
+		}
+		return nil, err
+	}
+	defer db.Close()
+	loadIDERelationships(metadata, db, canonicalCursorIDs(ids))
+	return metadata, nil
+}
+
 func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendors.SessionMetadata, error) {
 	ids = canonicalCursorIDs(ids)
 	metadata := vendors.EmptySessionMetadata()
