@@ -112,9 +112,17 @@ func FileEditWithChanges(path string, additions, deletions, edits int, isNew boo
 // only through opaque membership-checked IDs. IDs are deliberately separate
 // from paths so API callers never turn a display path into a filesystem read.
 func FileEditWithIdentifiedChanges(path string, additions, deletions, edits int, isNew bool, changeIDs []string, changes []FileChange) FileEdit {
+	var clonedIDs []string
+	if changeIDs != nil {
+		clonedIDs = append(make([]string, 0, len(changeIDs)), changeIDs...)
+	}
+	var clonedChanges []FileChange
+	if changes != nil {
+		clonedChanges = append(make([]FileChange, 0, len(changes)), changes...)
+	}
 	return FileEdit{
 		Path: path, Additions: additions, Deletions: deletions, Edits: edits, IsNew: isNew,
-		ChangeIDs: append([]string(nil), changeIDs...), changes: append([]FileChange(nil), changes...),
+		ChangeIDs: clonedIDs, changes: clonedChanges,
 	}
 }
 
