@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -102,11 +103,12 @@ func loadMetadataForSessions(home string, ids, transcriptPaths []string) (*vendo
 				} `json:"subagentInfo"`
 			}
 			_ = json.Unmarshal(data, &item)
-			if transcriptIDPattern.MatchString(item.AgentID) {
-				metadata.Session(item.AgentID).Model = normalizeCursorModel(item.LastUsedModel)
-				setCursorTimes(metadata, item.AgentID, item.CreatedAt, 0)
+			id := canonicalCursorID(item.AgentID)
+			if transcriptIDPattern.MatchString(id) {
+				metadata.Session(id).Model = normalizeCursorModel(item.LastUsedModel)
+				setCursorTimes(metadata, id, item.CreatedAt, 0)
 			}
-			return item.AgentID, item.Name, ""
+			return id, item.Name, ""
 		})
 	}
 
@@ -149,13 +151,17 @@ func canonicalCursorIDs(ids []string) []string {
 	result := make([]string, 0, len(ids))
 	seen := map[string]bool{}
 	for _, id := range ids {
-		id = strings.ToLower(strings.TrimSpace(id))
+		id = canonicalCursorID(id)
 		if id != "" && !seen[id] {
 			seen[id] = true
 			result = append(result, id)
 		}
 	}
 	return result
+}
+
+func canonicalCursorID(id string) string {
+	return strings.ToLower(strings.TrimSpace(id))
 }
 
 func cursorIDQuery(query, column string, ids []string) (string, []any) {
@@ -170,12 +176,12 @@ func cursorIDQuery(query, column string, ids []string) (string, []any) {
 	for i, id := range ids {
 		args[i] = id
 	}
-	return query + " WHERE " + column + " IN (" + placeholders + ")", args
+	return query + " WHERE LOWER(" + column + ") IN (" + placeholders + ")", args
 }
 
 func cursorKeyQuery(query, prefix string, ids []string) (string, []any) {
 	if ids == nil {
-		return query + " WHERE key LIKE ?", []any{prefix + "%"}
+		return query + " WHERE LOWER(key) LIKE ?", []any{strings.ToLower(prefix) + "%"}
 	}
 	if len(ids) == 0 {
 		return query + " WHERE 0", nil
@@ -183,8 +189,8 @@ func cursorKeyQuery(query, prefix string, ids []string) (string, []any) {
 	clauses := make([]string, len(ids))
 	args := make([]any, len(ids))
 	for i, id := range ids {
-		clauses[i] = "key LIKE ?"
-		args[i] = prefix + id + "%"
+		clauses[i] = "LOWER(key) LIKE ?"
+		args[i] = strings.ToLower(prefix) + id + "%"
 	}
 	return query + " WHERE " + strings.Join(clauses, " OR "), args
 }
@@ -194,13 +200,18 @@ func cursorChatStores(home string, ids []string) []string {
 		stores, _ := filepath.Glob(filepath.Join(home, ".cursor", "chats", "*", "*", "store.db"))
 		return stores
 	}
-	stores := []string{}
+	wanted := map[string]bool{}
 	for _, id := range ids {
-		if strings.HasPrefix(id, "agent-") {
-			continue
+		if !strings.HasPrefix(id, "agent-") {
+			wanted[id] = true
 		}
-		matches, _ := filepath.Glob(filepath.Join(home, ".cursor", "chats", "*", id, "store.db"))
-		stores = append(stores, matches...)
+	}
+	matches, _ := filepath.Glob(filepath.Join(home, ".cursor", "chats", "*", "*", "store.db"))
+	stores := make([]string, 0, len(matches))
+	for _, path := range matches {
+		if wanted[canonicalCursorID(filepath.Base(filepath.Dir(path)))] {
+			stores = append(stores, path)
+		}
 	}
 	return stores
 }
@@ -265,13 +276,14 @@ func loadIDECommitObservations(metadata *vendors.SessionMetadata, db *sql.DB, id
 		if len(parts) != 3 || !transcriptIDPattern.MatchString(parts[1]) {
 			continue
 		}
+		id := canonicalCursorID(parts[1])
 		for _, observation := range commitObservationsFromIDEBubble(value) {
-			if seen[parts[1]] == nil {
-				seen[parts[1]] = map[string]bool{}
+			if seen[id] == nil {
+				seen[id] = map[string]bool{}
 			}
-			if !seen[parts[1]][observation.Hash] {
-				seen[parts[1]][observation.Hash] = true
-				entry := metadata.Session(parts[1])
+			if !seen[id][observation.Hash] {
+				seen[id][observation.Hash] = true
+				entry := metadata.Session(id)
 				entry.CommitObservations = append(entry.CommitObservations, observation)
 			}
 		}
@@ -291,6 +303,7 @@ func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
 			Name    string          `json:"name"`
 			Status  string          `json:"status"`
 			RawArgs json.RawMessage `json:"rawArgs"`
+			Result  string          `json:"result"`
 		} `json:"toolFormerData"`
 	}
 	if json.Unmarshal([]byte(value), &bubble) != nil {
@@ -307,14 +320,22 @@ func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
 	var args struct {
 		Command string `json:"command"`
 	}
-	if json.Unmarshal([]byte(rawArgs), &args) != nil || len(session.ParseCommitAttempts(args.Command)) == 0 {
+	if json.Unmarshal([]byte(rawArgs), &args) != nil {
 		return nil
 	}
+	attempts := session.ParseCommitObservations(args.Command, bubble.Tool.Result, true)
 	observations := []session.CommitObservation{}
 	for workspace, after := range bubble.After.CommitHashesByGitWorkspace {
 		before, ok := bubble.Before.CommitHashesByGitWorkspace[workspace]
-		if ok && before.CommitHash != after.CommitHash && fullCommitHash.MatchString(after.CommitHash) {
-			observations = append(observations, session.CommitObservation{Hash: after.CommitHash, Subject: "(commit)"})
+		if !ok || before.CommitHash == after.CommitHash || !fullCommitHash.MatchString(after.CommitHash) {
+			continue
+		}
+		for _, attempt := range attempts {
+			if attempt.Hash != "" && strings.HasPrefix(strings.ToLower(after.CommitHash), strings.ToLower(attempt.Hash)) {
+				attempt.Hash = after.CommitHash
+				observations = append(observations, attempt)
+				break
+			}
 		}
 	}
 	return observations
@@ -355,6 +376,7 @@ func loadIDEDiffs(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
 			continue
 		}
 		id, ok := strings.CutPrefix(key, "composerData:")
+		id = canonicalCursorID(id)
 		var item struct {
 			LatestCheckpointID string `json:"latestCheckpointId"`
 		}
@@ -365,7 +387,7 @@ func loadIDEDiffs(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
 	rows.Close()
 	for id, checkpointID := range checkpoints {
 		var value string
-		if db.QueryRow(`SELECT value FROM cursorDiskKV WHERE key = ?`, "checkpointId:"+id+":"+checkpointID).Scan(&value) != nil {
+		if db.QueryRow(`SELECT value FROM cursorDiskKV WHERE LOWER(key) = ?`, strings.ToLower("checkpointId:"+id+":"+checkpointID)).Scan(&value) != nil {
 			continue
 		}
 		var checkpoint ideCheckpoint
@@ -452,6 +474,7 @@ func loadSDKTimes(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
 }
 
 func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, lastActivityAt int64) {
+	id = canonicalCursorID(id)
 	if !transcriptIDPattern.MatchString(id) {
 		return
 	}
@@ -472,8 +495,8 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 		}
 		clauses := make([]string, 0, len(ids)*2)
 		for _, id := range ids {
-			clauses = append(clauses, "key LIKE ?", "key = ?")
-			args = append(args, "bubbleId:"+id+":%", "composerData:"+id)
+			clauses = append(clauses, "LOWER(key) LIKE ?", "LOWER(key) = ?")
+			args = append(args, "bubbleid:"+id+":%", "composerdata:"+id)
 		}
 		if len(clauses) > 0 {
 			query = `SELECT key, value FROM cursorDiskKV WHERE ` + strings.Join(clauses, " OR ")
@@ -486,7 +509,8 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 	defer rows.Close()
 	type observed struct {
 		model string
-		time  string
+		time  float64
+		key   string
 	}
 	bubbles := map[string]observed{}
 	fallbacks := map[string]string{}
@@ -497,7 +521,7 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 			continue
 		}
 		var item struct {
-			CreatedAt any `json:"createdAt"`
+			CreatedAt json.RawMessage `json:"createdAt"`
 			ModelInfo struct {
 				ModelName string `json:"modelName"`
 			} `json:"modelInfo"`
@@ -518,11 +542,12 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 			continue
 		}
 		if parts := strings.SplitN(key, ":", 3); len(parts) == 3 && parts[0] == "bubbleId" && transcriptIDPattern.MatchString(parts[1]) {
-			id := parts[1]
+			id := canonicalCursorID(parts[1])
 			model := strings.TrimSpace(item.ModelInfo.ModelName)
-			createdAt, _ := item.CreatedAt.(string)
-			if model != "" && createdAt >= bubbles[id].time {
-				bubbles[id] = observed{model: model, time: createdAt}
+			createdAt := cursorBubbleTime(item.CreatedAt)
+			previous := bubbles[id]
+			if model != "" && (previous.model == "" || createdAt > previous.time || createdAt == previous.time && key > previous.key) {
+				bubbles[id] = observed{model: model, time: createdAt, key: key}
 			}
 			if item.ToolFormerData.Status == "completed" {
 				if pullRequests[id] == nil {
@@ -533,6 +558,7 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 				}
 			}
 		} else if id, ok := strings.CutPrefix(key, "composerData:"); ok && transcriptIDPattern.MatchString(id) {
+			id = canonicalCursorID(id)
 			fallbacks[id] = strings.TrimSpace(item.ModelConfig.ModelName)
 			usage := metadata.Session(id).Usage
 			if item.ContextTokensUsed != nil && *item.ContextTokensUsed >= 0 {
@@ -566,6 +592,22 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 	for id, urls := range pullRequests {
 		metadata.Session(id).PullRequests = len(urls)
 	}
+}
+
+func cursorBubbleTime(raw json.RawMessage) float64 {
+	var number float64
+	if json.Unmarshal(raw, &number) == nil {
+		return number
+	}
+	var value string
+	if json.Unmarshal(raw, &value) != nil {
+		return 0
+	}
+	if parsed, ok := parseTimestamp(value); ok {
+		return float64(parsed.UnixMilli())
+	}
+	number, _ = strconv.ParseFloat(strings.TrimSpace(value), 64)
+	return number
 }
 
 func loadSDKUsage(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
@@ -619,7 +661,7 @@ func loadSDKUsage(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
 }
 
 func sdkTranscriptID(id string) string {
-	id = strings.TrimSpace(id)
+	id = canonicalCursorID(id)
 	if !strings.HasPrefix(id, "agent-") {
 		id = "agent-" + id
 	}
@@ -682,6 +724,7 @@ func loadCursorRowsDB(metadata *vendors.SessionMetadata, lanes map[string]map[st
 			continue
 		}
 		id, name, summary := decode(first, second)
+		id = canonicalCursorID(id)
 		if transcriptIDPattern.MatchString(id) && lane != "" {
 			if lanes[id] == nil {
 				lanes[id] = map[string]bool{}
@@ -726,6 +769,7 @@ func loadCursorSummaries(metadata *vendors.SessionMetadata, path string, ids []s
 		if rows.Scan(&id, &tldr, &overview) != nil || !transcriptIDPattern.MatchString(id) {
 			continue
 		}
+		id = canonicalCursorID(id)
 		if summary := strings.TrimSpace(tldr.String); tldr.Valid && summary != "" {
 			metadata.Session(id).Summary = summary
 		} else if summary := strings.TrimSpace(overview.String); overview.Valid && summary != "" {
