@@ -10,6 +10,7 @@ STAGED := internal/web/dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 DIST := dist
 PLATFORMS := darwin/arm64 darwin/amd64
+WINDOWS_PLATFORMS := windows/amd64 windows/arm64
 ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
 EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)
@@ -87,8 +88,16 @@ dist: check-go check-node stage helper-assets
 		COPYFILE_DISABLE=1 tar --format ustar -cf - -C $(DIST) $$stem | gzip -n > $(DIST)/$$stem.tar.gz; \
 		rm -rf $(DIST)/$$stem; \
 		echo "packaged $(DIST)/$$stem.tar.gz"; \
+	done; \
+	for platform in $(WINDOWS_PLATFORMS); do \
+		goarch=$${platform#*/}; \
+		artifact=$(BINARY)-windows-$${goarch}.exe; \
+		CGO_ENABLED=0 GOOS=windows GOARCH=$$goarch \
+			go build -trimpath -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' \
+			-o $(DIST)/$$artifact $(PKG) || exit 1; \
+		echo "packaged $(DIST)/$$artifact"; \
 	done
-	cd $(DIST) && shasum -a 256 *.tar.gz > checksums.txt
+	cd $(DIST) && shasum -a 256 *.tar.gz *.exe > checksums.txt
 
 # The Linux collection helper, for local iteration on the host platform.
 helper:

@@ -83,3 +83,9 @@ template: |
 
   Substitute the release version and architecture. The binaries are unsigned and unnotarized, so macOS may warn about an archive downloaded through a browser; the Homebrew install above is not affected.
 
+  On Windows, install the matching `coslash-windows-amd64.exe` or
+  `coslash-windows-arm64.exe` in a user-writable directory such as
+  `%LOCALAPPDATA%\Programs\coSlash`, verify it against `checksums.txt`, and add
+  that directory to your user PATH. To upgrade, stop coSlash and replace the
+  executable. Administrator rights are not required. Authenticode signing is
+  not yet provided.
