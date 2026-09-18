@@ -1,0 +1,1493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>coSlash — 02 · Workspace · Navigator v3</title>
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#fff; --soft:#f1f3f6; --ink:#1d2330; --muted:#5c6575;
+  --line:#e3e6ec; --line-soft:#eef0f4;
+  --accent:#3554d1; --accent-ink:#2740a8; --tint:#eef1fd; --tint-line:#c9d3f3;
+  --amber:#8a5a10; --amber-dot:#b9872b; --amber-bg:#fdf4e4;
+  --green:#1b6b4c; --green-dot:#2d8a65; --green-bg:#e8f3ed;
+  --clay:#a8402a; --clay-dot:#c05a42; --clay-bg:#fbeeea;
+  --neutral-dot:#8b93a3;
+  --pill-codex-bg:#eceffc; --pill-codex-ink:#4a5ab8;
+  --pill-claude-bg:#f8ede6; --pill-claude-ink:#96552f;
+  --pill-host-bg:#eef0f4; --pill-host-ink:#5c6779;
+  --shadow:0 10px 30px rgba(28,38,60,.09);
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#11151d; --surface:#191f2a; --soft:#212936; --ink:#e9edf5; --muted:#9aa5b8;
+    --line:#2b3442; --line-soft:#232b38;
+    --accent:#9db0ff; --accent-ink:#c3cfff; --tint:#222c48; --tint-line:#3b4a72;
+    --amber:#e2b76d; --amber-dot:#d6a75c; --amber-bg:#2c2517;
+    --green:#82d3aa; --green-dot:#54b487; --green-bg:#15281e;
+    --clay:#eb9781; --clay-dot:#d4735a; --clay-bg:#2d1c17;
+    --neutral-dot:#6d7889;
+    --pill-codex-bg:#252d47; --pill-codex-ink:#a9b6f0;
+    --pill-claude-bg:#332318; --pill-claude-ink:#e0a483;
+    --pill-host-bg:#262e3b; --pill-host-ink:#9aa5b8;
+    --shadow:0 10px 30px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#11151d; --surface:#191f2a; --soft:#212936; --ink:#e9edf5; --muted:#9aa5b8;
+  --line:#2b3442; --line-soft:#232b38;
+  --accent:#9db0ff; --accent-ink:#c3cfff; --tint:#222c48; --tint-line:#3b4a72;
+  --amber:#e2b76d; --amber-dot:#d6a75c; --amber-bg:#2c2517;
+  --green:#82d3aa; --green-dot:#54b487; --green-bg:#15281e;
+  --clay:#eb9781; --clay-dot:#d4735a; --clay-bg:#2d1c17;
+  --neutral-dot:#6d7889;
+  --pill-codex-bg:#252d47; --pill-codex-ink:#a9b6f0;
+  --pill-claude-bg:#332318; --pill-claude-ink:#e0a483;
+  --pill-host-bg:#262e3b; --pill-host-ink:#9aa5b8;
+  --shadow:0 10px 30px rgba(0,0,0,.4);
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{color-scheme:light dark}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:13px/1.45 Geist,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;color:inherit}
+button:disabled{cursor:default;opacity:.45}
+a{color:var(--accent);text-decoration:none}
+h1,h2,h3,p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+svg{width:16px;height:16px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+mark{background:var(--tint);color:var(--ink);border-radius:3px;padding:0 1px}
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.muted{color:var(--muted)}
+.eyebrow{font-size:11px;font-weight:650;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+kbd{font:11px/1 Geist,system-ui,sans-serif;color:var(--muted);border:1px solid var(--line);
+  border-radius:5px;padding:4px 6px;white-space:nowrap}
+
+/* ---- prototype chrome ---- */
+.prototype-bar{height:38px;display:flex;align-items:center;justify-content:space-between;
+  gap:16px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--line);
+  font-size:11px;color:var(--muted)}
+.concept-links{display:flex;gap:18px}
+.concept-links a.current{color:var(--accent);font-weight:650}
+
+/* ---- header ---- */
+.app-header{height:60px;display:flex;align-items:center;gap:14px;padding:0 20px;
+  background:var(--surface);border-bottom:1px solid var(--line)}
+.brand{width:104px;display:block}
+.header-tagline{min-width:0;color:var(--muted);font-size:11px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.host-chip{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:7px;
+  background:var(--soft);border:1px solid transparent;font-size:11px;color:var(--muted);white-space:nowrap}
+.host-chip strong{font-weight:600;color:var(--ink)}
+.host-chip i{width:7px;height:7px;border-radius:50%;background:var(--green-dot);flex:0 0 7px}
+.host-chip.down{background:var(--clay-bg);border-color:var(--clay);color:var(--clay)}
+.host-chip.down i{background:var(--clay-dot)}
+.host-chip.down strong{color:var(--clay)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:8px 12px;
+  min-height:34px;border:1px solid var(--line);border-radius:8px;background:var(--surface);
+  font-size:12px;font-weight:550;white-space:nowrap}
+.btn:hover{background:var(--soft)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(.94)}
+.btn.quiet{border-color:transparent;background:none}
+.btn.quiet:hover{background:var(--soft)}
+.btn.small{padding:5px 9px;min-height:28px;font-size:11px}
+.icon-btn{display:inline-grid;place-items:center;min-width:32px;height:32px;border-radius:7px}
+.icon-btn:hover{background:var(--soft)}
+.text-btn{font-size:12px;font-weight:550;color:var(--accent);padding:6px 2px;min-height:30px}
+.text-btn:hover{text-decoration:underline}
+
+/* ---- unreachable banner ---- */
+.banner{display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--clay-bg);
+  border-bottom:1px solid var(--clay);color:var(--clay);font-size:12px}
+.banner strong{font-weight:650}
+.banner .btn{border-color:var(--clay);color:var(--clay);background:transparent}
+.banner .btn:hover{background:rgba(168,64,42,.09)}
+.banner[hidden]{display:none}
+
+/* ---- layout ---- */
+.layout{display:flex;align-items:flex-start}
+.sidebar{width:214px;flex:0 0 214px;padding:20px 12px;background:var(--surface);
+  border-right:1px solid var(--line);min-height:calc(100vh - 98px);position:sticky;top:0}
+.side-group{margin-bottom:14px}
+.side-head{display:flex;align-items:center;gap:7px;width:100%;padding:6px 10px;border-radius:7px;
+  font-size:11px;font-weight:650;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+  min-height:30px}
+.side-head:hover{background:var(--soft);color:var(--ink)}
+.side-head .chev{width:13px;height:13px;transition:transform .12s ease}
+.side-head[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.side-body{margin-top:2px}
+.side-none{padding:7px 10px;font-size:12px;color:var(--muted)}
+.saved-row{display:flex;align-items:center}
+.saved-row .facet-item{flex:1;min-width:0}
+.saved-drop{display:grid;place-items:center;width:24px;height:24px;margin-right:6px;border-radius:5px;
+  color:var(--muted);opacity:0}
+.saved-row:hover .saved-drop,.saved-drop:focus-visible{opacity:1}
+.saved-drop:hover{background:var(--soft);color:var(--ink)}
+.saved-drop svg{width:12px;height:12px;stroke-width:2.2}
+.group-filter{display:flex;align-items:center;gap:7px;margin:4px 8px 6px;padding:5px 8px;
+  border:1px solid var(--line);border-radius:7px;background:var(--bg)}
+.group-filter svg{width:13px;height:13px;color:var(--muted)}
+.group-filter input{flex:1;min-width:0;border:0;background:none;font-size:12px;outline:none}
+.group-filter input::-webkit-search-cancel-button{display:none}
+.facet-item{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border-radius:7px;
+  text-align:left;font-size:12px;color:var(--muted);min-height:32px}
+.facet-item:hover{background:var(--soft)}
+.facet-item .count{margin-left:auto;font-size:11px;font-variant-numeric:tabular-nums}
+.facet-item.on{background:var(--tint);color:var(--accent-ink);font-weight:600}
+.facet-item.on .count{color:var(--accent-ink)}
+.facet-item i.dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:var(--neutral-dot)}
+.facet-item i.dot.needs{background:var(--amber-dot)}
+.facet-item i.dot.running{background:var(--green-dot)}
+.facet-item i.dot.archived{background:var(--neutral-dot)}
+/* an empty filter stays put and stays clickable — it just reads as empty */
+.facet-item.zero{opacity:.55}
+.facet-item.zero .count{opacity:.8}
+.facet-item.on.zero{opacity:1}
+.facet-item .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kind-label{font-size:11px;color:var(--muted);padding:8px 10px 4px}
+.side-foot{padding:14px 10px 0;border-top:1px solid var(--line-soft);font-size:11px;
+  color:var(--muted);line-height:1.7}
+.main{flex:1;min-width:0;padding:20px 24px 60px}
+
+/* ---- search ---- */
+.search-wrap{position:relative;max-width:920px}
+.search-box{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--surface);
+  border:1px solid var(--line);border-radius:9px}
+.search-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--tint)}
+.search-box input{flex:1;min-width:0;background:none;border:0;font-size:13px;outline:none}
+.search-box input::-webkit-search-cancel-button{display:none}
+.suggest{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 6px);background:var(--surface);
+  border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);padding:5px;overflow:hidden}
+.suggest[hidden]{display:none}
+.suggest button{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;
+  border-radius:6px;text-align:left;font-size:12.5px;min-height:34px}
+.suggest button:hover,.suggest button:focus-visible{background:var(--soft)}
+.suggest .kind{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;
+  min-width:62px}
+.suggest .n{margin-left:auto;font-size:11px;color:var(--muted)}
+.coverage{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:9px 0 0;font-size:11.5px;color:var(--muted)}
+.coverage summary{cursor:pointer;color:var(--muted)}
+.coverage details p{margin:6px 0 0;max-width:640px;line-height:1.6}
+
+/* ---- facet chips ---- */
+.chipbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:14px 0 0;
+  padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:9px}
+.chipbar .lead{font-size:11.5px;color:var(--muted);margin-right:2px}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:5px 6px 5px 10px;border-radius:999px;
+  background:var(--tint);border:1px solid var(--tint-line);font-size:12px;font-weight:550;
+  color:var(--accent-ink);min-height:28px}
+.chip .kind{font-weight:400;opacity:.72}
+.chip button{display:grid;place-items:center;width:18px;height:18px;border-radius:50%;
+  color:var(--accent-ink);opacity:.65}
+.chip button:hover{opacity:1;background:rgba(53,84,209,.14)}
+.chip button svg{width:11px;height:11px;stroke-width:2.2}
+.chip-add{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  background:var(--surface);border:1px dashed var(--tint-line);font-size:12px;font-weight:600;
+  color:var(--accent);min-height:28px}
+.chip-add:hover{background:var(--tint)}
+/* The sidebar is the add-surface while it is on screen; the menu is what replaces it
+   when it is not (narrow screens) or cannot fit it (a long group list). */
+@media (min-width:1001px){ .chip-add{display:none} }
+.chipbar .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+
+/* ---- add-filter menu ---- */
+.more-groups{color:var(--accent);font-weight:550}
+.menu{position:absolute;z-index:40;width:min(392px,calc(100vw - 24px));background:var(--surface);border:1px solid var(--line);
+  border-radius:11px;box-shadow:var(--shadow);overflow:hidden}
+.menu[hidden]{display:none}
+.menu-search{padding:9px 11px;border-bottom:1px solid var(--line-soft)}
+.menu-search input{width:100%;border:0;background:none;font-size:12.5px;outline:none}
+.menu-body{display:grid;grid-template-columns:118px 1fr;min-height:214px}
+.menu-kinds{border-right:1px solid var(--line-soft);padding:5px}
+.menu-kinds button{display:flex;width:100%;padding:7px 9px;border-radius:6px;font-size:12px;
+  color:var(--muted);text-align:left;min-height:30px;align-items:center}
+.menu-kinds button:hover{background:var(--soft)}
+.menu-kinds button.on{background:var(--tint);color:var(--accent-ink);font-weight:600}
+.menu-values{padding:5px;max-height:262px;overflow:auto}
+.menu-values button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 9px;
+  border-radius:6px;font-size:12px;text-align:left;min-height:30px}
+.menu-values button:hover{background:var(--soft)}
+.menu-values button .n{margin-left:auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.menu-values button.on{color:var(--accent-ink);font-weight:600}
+.menu-values .tick{width:13px;display:inline-grid;place-items:center}
+.menu-values .tick svg{width:13px;height:13px;stroke-width:2.4}
+.menu-empty{padding:16px 12px;font-size:12px;color:var(--muted)}
+
+/* ---- rollup + toolbar ---- */
+.rollup{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:13px 0 0;font-size:12.5px}
+.rollup strong{font-weight:650}
+.rollup .sep{color:var(--muted)}
+.rollup .note{font-size:11px;color:var(--muted)}
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:11px 0 12px}
+.segmented{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  padding:2px}
+.segmented button{padding:5px 11px;border-radius:6px;font-size:12px;color:var(--muted);min-height:28px}
+.segmented button.on{background:var(--tint);color:var(--accent-ink);font-weight:600}
+.toolbar .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.toolbar select{padding:6px 9px;border:1px solid var(--line);border-radius:8px;
+  background:var(--surface);font-size:12px;min-height:30px}
+
+/* ---- group basis / scope rollup ---- */
+.scope{margin:0 0 12px;background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:14px 16px}
+.scope[hidden]{display:none}
+.scope-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.scope-head h2{font-size:14px;font-weight:650}
+.scope-basis{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scope-head .right{margin-left:auto}
+.scope-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+.scope-col .eyebrow{margin-bottom:6px}
+.scope-col p{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;color:var(--muted)}
+.scope-col p strong{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.scope-col .ready-row{display:flex;align-items:center;gap:7px;font-size:12px;padding:2px 0;color:var(--muted)}
+
+/* ---- bulk bar ---- */
+.bulkbar{display:flex;align-items:center;gap:10px;margin:0 0 10px;padding:9px 13px;
+  background:var(--tint);border:1px solid var(--tint-line);border-radius:9px;font-size:12.5px;
+  color:var(--accent-ink)}
+.bulkbar[hidden]{display:none}
+.bulkbar strong{font-weight:650}
+.bulkbar .right{margin-left:auto;display:flex;gap:7px}
+
+/* ---- table ---- */
+.tablewrap{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+thead th{position:sticky;top:0;z-index:12;background:var(--surface);text-align:left;
+  padding:0;border-bottom:1px solid var(--line);
+  font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+thead th .th-in{display:flex;align-items:center;gap:5px;padding:9px 10px;width:100%;min-height:34px;
+  font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;text-align:left}
+thead th button.th-in:hover{background:var(--soft);color:var(--ink)}
+thead th .arrow{opacity:0}
+thead th[aria-sort] .arrow{opacity:1}
+thead th .arrow svg{width:12px;height:12px;stroke-width:2.2}
+tbody.section>tr.section-row th{position:sticky;top:34px;z-index:11;background:var(--soft);
+  padding:0;border-bottom:1px solid var(--line-soft);border-top:1px solid var(--line-soft);text-align:left}
+.section-btn{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;min-height:32px;
+  font-size:12px;font-weight:650;color:var(--ink)}
+.section-btn .chev{transition:transform .12s ease}
+.section-btn[aria-expanded="false"] .chev{transform:rotate(-90deg)}
+.section-btn .n{font-weight:500;color:var(--muted)}
+.section-btn .roll{margin-left:auto;font-weight:500;font-size:11.5px;color:var(--muted)}
+tbody tr.row{border-bottom:1px solid var(--line-soft)}
+tbody tr.row:last-child{border-bottom:0}
+tbody tr.row:hover{background:var(--soft)}
+tbody tr.row.sel{background:var(--tint)}
+tbody tr.row.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+td{padding:8px 10px;vertical-align:middle;font-size:12.5px;overflow:hidden}
+.c-check{width:38px;padding-right:0}
+.pickbox{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;
+  margin:-10px;cursor:pointer}
+.c-check input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.c-where{width:204px}
+.c-state{width:196px}
+.c-time{width:92px;color:var(--muted);font-variant-numeric:tabular-nums}
+.c-cost{width:94px;font-variant-numeric:tabular-nums;font-weight:600}
+.c-act{width:96px;text-align:right;padding-left:0}
+.row-open{display:block;width:100%;text-align:left;font-size:13px;font-weight:600;line-height:1.35;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-open:hover{color:var(--accent)}
+.evidence{display:block;margin-top:2px;font-size:11.5px;color:var(--muted);line-height:1.4;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.evidence .lab{font-weight:600}
+.cell-sub{display:block;margin-top:2px;font-size:11px;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.where-line{display:flex;align-items:baseline;gap:6px;min-width:0}
+.branch{flex-shrink:1;min-width:0;font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.branch:before{content:'·';margin-right:5px;font-family:Geist,system-ui,sans-serif}
+.pills{display:flex;gap:4px;margin-top:4px;min-width:0}
+.pill{display:inline-block;max-width:100%;padding:2px 7px;border-radius:999px;font-size:11px;
+  font-weight:550;line-height:1.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill.codex{background:var(--pill-codex-bg);color:var(--pill-codex-ink)}
+.pill.claude{background:var(--pill-claude-bg);color:var(--pill-claude-ink)}
+.pill.host{background:var(--pill-host-bg);color:var(--pill-host-ink);font-weight:500}
+.density-compact .pills{display:none}
+.facet-link{font-size:12.5px;text-align:left;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;display:block;border-bottom:1px dotted transparent}
+.facet-link:hover{color:var(--accent);border-bottom-color:currentColor}
+.state{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;white-space:nowrap}
+.state i{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:var(--neutral-dot)}
+.state.needs{color:var(--amber)} .state.needs i{background:var(--amber-dot)}
+.state.running{color:var(--green)} .state.running i{background:var(--green-dot)}
+.state.idle{color:var(--muted)} .state.idle i{background:var(--neutral-dot)}
+.state.archived{color:var(--muted)} .state.archived i{background:var(--neutral-dot)}
+.cell-sub.ctx.fresh{color:var(--clay);font-weight:550}
+.cell-sub.ctx.off{font-style:italic}
+.btn.warn{border-color:var(--clay);color:var(--clay)}
+.btn.warn:hover{background:var(--clay-bg)}
+.row-mobile{display:none}
+.row-act{opacity:0;font-size:11.5px}
+tr.row:hover .row-act,tr.row:focus-within .row-act{opacity:1}
+@media (hover:none){.row-act{opacity:1}}
+.more-row td{padding:0}
+.more-btn{display:block;width:100%;padding:9px;font-size:12px;font-weight:600;color:var(--accent)}
+.more-btn:hover{background:var(--soft)}
+
+/* compact density */
+.density-compact td{padding:5px 10px}
+.density-compact .evidence,.density-compact .cell-sub,.density-compact .ready small{display:none}
+
+/* ---- empty ---- */
+.empty{padding:46px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:9px}
+.empty svg{width:24px;height:24px;color:var(--muted)}
+.empty h3{font-size:15px;font-weight:650}
+.empty p{font-size:12.5px;color:var(--muted);max-width:430px;line-height:1.6}
+.empty-actions{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;justify-content:center}
+
+/* ---- drawer ---- */
+.shade{position:fixed;inset:0;background:rgba(18,24,36,.34);z-index:50;opacity:0;pointer-events:none;
+  transition:opacity .15s ease}
+.shade.on{opacity:1;pointer-events:auto}
+.detail{position:fixed;z-index:60;top:0;right:0;width:min(440px,100%);height:100vh;
+  background:var(--surface);border-left:1px solid var(--line);box-shadow:var(--shadow);
+  display:flex;flex-direction:column}
+.detail[hidden]{display:none}
+/* docking the drawer folds the sidebar away rather than squeezing the table:
+   the chip row already states the active scope, and Add filter reaches every facet */
+body.drawer-side .layout{padding-right:440px}
+body.drawer-side .sidebar{display:none}
+.detail-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;
+  border-bottom:1px solid var(--line-soft)}
+.detail-body{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:16px}
+.detail-body h2{font-size:19px;font-weight:650;line-height:1.3;letter-spacing:-.2px}
+.detail-meta{font-size:12px;color:var(--muted)}
+.detail-status{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.readycard{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:9px;
+  background:var(--soft);border:1px solid var(--line-soft)}
+.readycard .big{display:block;font-size:13px;font-weight:650}
+.readycard .det{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
+.readycard.good{background:var(--green-bg)} .readycard.review{background:var(--amber-bg)}
+.readycard.full{background:var(--clay-bg)}
+.sect{display:flex;flex-direction:column;gap:6px}
+.sect .eyebrow{font-size:11px}
+.outcome{font-size:13px;line-height:1.6}
+.artifact{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--line);
+  border-radius:8px;font-size:12.5px;width:100%;text-align:left;min-height:34px}
+.artifact:hover{background:var(--soft)}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.facts div{display:flex;flex-direction:column;gap:2px;font-size:11px;color:var(--muted)}
+.facts strong{font-size:12.5px;font-weight:600;color:var(--ink);word-break:break-word}
+.loc{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);word-break:break-all}
+.detail-pager{display:flex;justify-content:space-between;gap:8px;padding:10px 16px;
+  border-top:1px solid var(--line-soft)}
+.detail-actions{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line-soft)}
+.detail-actions .btn.primary{flex:1}
+.notice{padding:9px 11px;border-radius:8px;background:var(--clay-bg);color:var(--clay);font-size:12px;line-height:1.5}
+
+/* ---- dialog + toast ---- */
+dialog{border:1px solid var(--line);border-radius:12px;padding:20px;max-width:430px;width:calc(100% - 32px);
+  background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+dialog::backdrop{background:rgba(18,24,36,.4)}
+dialog h2{font-size:16px;font-weight:650;margin-bottom:8px}
+dialog p{font-size:13px;line-height:1.6;color:var(--muted)}
+dialog label{display:block;font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--muted);margin:14px 0 5px}
+dialog input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+  background:var(--bg);font-size:13px}
+.dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:80;
+  padding:10px 15px;border-radius:9px;background:var(--ink);color:var(--bg);font-size:12.5px;
+  box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .16s ease}
+.toast.on{opacity:1}
+
+/* ---- responsive ---- */
+@media (max-width:1180px){ .host-chip span.detail-txt{display:none} }
+/* The title is the column worth protecting; Actions and Est. cost both live in the
+   drawer, so they go first as the window narrows. */
+@media (max-width:1250px){ .c-act,thead th.c-act{display:none} }
+@media (max-width:1120px){ .c-cost,thead th.c-cost{display:none} }
+@media (max-width:1000px){
+  .sidebar{display:none}
+  .main{padding:16px}
+  .header-tagline{display:none}
+  .c-state{width:auto}
+  .chipbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+  .chipbar::-webkit-scrollbar{display:none}
+  .chipbar .right{position:sticky;right:0;background:var(--surface);padding-left:8px}
+}
+@media (max-width:760px){
+  /* the table stops being a table: one full-width session cell with a stacked meta line */
+  table{table-layout:auto}
+  .c-where,.c-cost,.c-act,.c-state,.c-time,thead th.c-where,thead th.c-cost,
+  thead th.c-act,thead th.c-state,thead th.c-time{display:none}
+  .c-session{width:auto}
+  .row-mobile{display:flex;flex-direction:column;gap:5px;margin-top:7px;font-size:11px;color:var(--muted)}
+  .mob-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
+  .mob-meta{margin-left:auto;white-space:nowrap}
+  .row-mobile .pills{display:none}
+  .row-mobile .where-line{flex-wrap:wrap}
+  .row-mobile .facet-link{display:inline;font-size:11.5px;color:var(--ink)}
+  .row-mobile .state{font-size:11px}
+  .row-mobile .ctx.fresh{color:var(--clay);font-weight:550}
+  .density-compact .row-mobile{display:none}
+  .evidence{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .row-open{white-space:normal}
+  td{padding:10px}
+  .detail{width:100%;border-left:0}
+  .app-header{padding:0 12px}
+  .host-chip{display:none}
+  .btn span.btn-txt{display:none}
+  .toolbar [aria-label="Row density"]{display:none}
+  .toolbar .right{margin-left:0;width:100%}
+  .toolbar select{flex:1;min-width:0}
+  .prototype-bar .concept-links{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="prototype-bar">
+  <span><a href="../review-v2/02-workspace-navigator.html">Earlier version (v2)</a> · REVIEW V3 · Sample sessions</span>
+  <nav class="concept-links" aria-label="Design concepts">
+    <a href="../review-v2/01-quiet-list.html">01 · Quiet list</a>
+    <a href="02-workspace-navigator.html" class="current" aria-current="page">02 · Workspace</a>
+    <a href="../review-v2/03-glass-finder.html">03 · Glass Recall</a>
+  </nav>
+</div>
+
+<header class="app-header">
+  <img class="brand" alt="coSlash" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNDAgODgiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJ0aXRsZSI+CiAgPHRpdGxlIGlkPSJ0aXRsZSI+Y29TbGFzaCBob3Jpem9udGFsIGxvZ288L3RpdGxlPgogIDxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDggMTIpIj4KICAgIDxyZWN0IHg9IjQiIHk9IjQiIHdpZHRoPSI1NiIgaGVpZ2h0PSI1NiIgcng9IjE4IiBmaWxsPSIjRUVGMUZGIi8+CiAgICA8cGF0aCBkPSJNNDIgN2M1IDEgNyA1IDQgMTBMMjcgNTFjLTMgNS05IDYtMTIgMi0yLTMgMC02IDItMTBsMjAtMzNjMS0yIDMtMyA1LTNaIiBmaWxsPSIjNEI2MUQxIi8+CiAgICA8cGF0aCBkPSJtMjAgNTEtMyA3TTI1IDUybDIgNiIgc3Ryb2tlPSIjMTcyMDMzIiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogICAgPGNpcmNsZSBjeD0iMzgiIGN5PSIyNCIgcj0iNi4zIiBmaWxsPSIjZmZmIi8+CiAgICA8Y2lyY2xlIGN4PSIzOS43IiBjeT0iMjQuOCIgcj0iMi4zIiBmaWxsPSIjMTcyMDMzIi8+CiAgICA8Y2lyY2xlIGN4PSI0MC41IiBjeT0iMjMuOSIgcj0iLjc1IiBmaWxsPSIjZmZmIi8+CiAgPC9nPgogIDx0ZXh0IHg9IjkyIiB5PSI1NyIgZmlsbD0iIzE3MjAzMyIgZm9udC1mYW1pbHk9IkludGVyLCBBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIzOSIgbGV0dGVyLXNwYWNpbmc9Ii0xLjciPjx0c3BhbiBmb250LXdlaWdodD0iNTAwIj5jbzwvdHNwYW4+PHRzcGFuIGZvbnQtd2VpZ2h0PSI3NTAiPlNsYXNoPC90c3Bhbj48L3RleHQ+Cjwvc3ZnPgo=">
+  <span class="header-tagline">Run more agents. Lose less context.</span>
+  <div class="header-right" id="hosts"></div>
+</header>
+
+<div class="banner" id="banner" hidden></div>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Filters"></aside>
+
+  <main class="main">
+    <div class="search-wrap">
+      <div class="search-box">
+        <span data-icon="search"></span>
+        <input id="search" type="search" autocomplete="off"
+               placeholder="Find a session, outcome, or file…  try repo:coslash"
+               aria-label="Search titles, outcomes, files and context"
+               aria-describedby="coverage-note" role="combobox" aria-expanded="false"
+               aria-controls="suggest" aria-autocomplete="list">
+        <button class="icon-btn" data-act="clear-search" aria-label="Clear search" hidden>
+          <span data-icon="x"></span>
+        </button>
+        <kbd>⌘ K</kbd>
+      </div>
+      <div class="suggest" id="suggest" role="listbox" aria-label="Filter suggestions" hidden></div>
+    </div>
+
+    <div class="coverage">
+      <details>
+        <summary>Search recorded context</summary>
+        <p id="coverage-note">Titles, goals, outcomes, filenames, repository, branch, folder and machine.
+        Sessions with no recorded summary stay searchable by their other fields.
+        Prefixes <code>repo:</code> <code>machine:</code> <code>agent:</code> <code>status:</code> filter directly.</p>
+      </details>
+      <button class="text-btn" data-act="updates" id="updates" hidden>1 update available · Refresh</button>
+    </div>
+
+    <div class="chipbar" id="chipbar"></div>
+    <div class="menu" id="menu" hidden></div>
+
+    <p class="rollup" id="rollup"></p>
+    <span class="sr" id="live" role="status" aria-live="polite"></span>
+
+    <div class="toolbar">
+      <div class="segmented" role="group" aria-label="Time range" id="rangeSeg"></div>
+      <div class="segmented" role="group" aria-label="Row density">
+        <button data-density="comfortable">Comfortable</button>
+        <button data-density="compact">Compact</button>
+      </div>
+    </div>
+
+    <section class="scope" id="scope" hidden aria-label="Scope rollup"></section>
+
+    <div class="bulkbar" id="bulkbar" hidden></div>
+
+    <div class="tablewrap" id="results"></div>
+  </main>
+</div>
+
+<div class="shade" id="shade" data-act="close"></div>
+<aside class="detail" id="detail" hidden aria-label="Session preview"></aside>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<dialog id="dialog"></dialog>
+<script>
+const sessions=[{"id":1,"title":"Coslash webapp design modernization","agent":"Claude Code","status":"Active","machine":"This Mac","minutes":2,"branch":"milan/ui","summary":"Exploring quieter session cards and a clearer way to navigate the board.","files":["ui-ideas.md"],"pinned":true,"cost":"1.33","sessionId":"demo-0001","repo":"coslash","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/coslash","cwd":"/Users/milan/git_root/coslash"},{"id":2,"title":"Review GHI CSV exports","agent":"Codex","status":"Waiting","machine":"agent-box","minutes":8,"branch":"hlu/gcp","summary":"Three ambiguous source mappings need your review before the export can continue.","files":["review-log.md","source-mapping.csv"],"pinned":true,"cost":"2.04","sessionId":"demo-0002","repo":"centauri-ai","sourceId":"agent-box","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/centauri-ai","cwd":"/home/milan/repos/centauri-ai"},{"id":3,"title":"Generate 4 kitchen renderings","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":20,"branch":"","summary":"Four corner-perspective renderings comparing Bright White, Sauterne, Light Pewter, and Frosty.","files":["kitchen-four-grout-colors.png"],"pinned":true,"cost":"2.75","sessionId":"demo-0003","repo":"No repository","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Documents/Codex/2026-09-10/ge"},{"id":4,"title":"Choose Laticrete grout color","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":240,"branch":"","summary":"Selected Laticrete Frosty for Zia Feather Flat tile; compared four grout options.","files":["zia-feather-flat-frosty.png","grout-comparison.png"],"pinned":false,"cost":"5.09","sessionId":"demo-0004","repo":"No repository","sourceId":"local","goal":"Choose a grout color for Feather Flat tile","subagents":0,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Documents/Codex/2026-09-10/pick-the-best-grout-color-for"},{"id":5,"title":"Find Laticrete color equivalents","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":260,"branch":"","summary":"**Warm Gray** maps to **Silver Shadow**. [Comparison notes](notes.md) record the difference in warmth.","files":[],"pinned":false,"cost":"4.17","sessionId":"demo-0005","repo":"No repository","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Documents/Codex/2026-09-10/compare-https-www-laticrete-com-products"},{"id":6,"title":"Access Google Sheet","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":300,"branch":"","summary":"Opened the tile takeoff sheet and confirmed view-only access.","files":["tile-takeoff-link.txt"],"pinned":false,"cost":"4.88","sessionId":"demo-0006","repo":"No repository","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Desktop/AgentsWorkspace/tile-takeoff"},{"id":7,"title":"Access Google Sheet","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":315,"branch":"","summary":"The initial access attempt stopped before any substantive work was completed.","files":[],"pinned":false,"cost":"5.59","sessionId":"demo-0007","repo":"No repository","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Desktop/AgentsWorkspace/tile-takeoff"},{"id":8,"title":"Remote machine design fixes","agent":"Claude Code","status":"Inactive","machine":"This Mac","minutes":1260,"branch":"milan/landing","summary":"Refined the remote host section and added the navigation badge.","files":["remote-machine.tsx"],"pinned":false,"cost":"6.30","sessionId":"demo-0008","repo":"coslash","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/coslash","cwd":"/Users/milan/git_root/coslash"},{"id":9,"title":"Update 65-inch TV rendering","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":1140,"branch":"","summary":"Final 75-inch TV version, centered 45 inches above the floor; right shelves retained.","files":["tv-wall-final.png"],"pinned":true,"cost":"7.01","sessionId":"demo-0009","repo":"No repository","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Documents/Codex/2026-09-09/update-the-65inch-tv-rendering-with"},{"id":10,"title":"Update 65-inch TV rendering","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":1200,"branch":"","summary":"Earlier quartzite-base variation with the floating structure still present.","files":["tv-wall-variation-b.png"],"pinned":false,"cost":"7.72","sessionId":"demo-0010","repo":"No repository","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Documents/Codex/2026-09-09/base"},{"id":11,"title":"Compare runs 75 and 80","agent":"Codex","status":"Unknown","machine":"agent-box","minutes":1500,"branch":"hlu/gcp","summary":"Saved comparison is available. The remote machine has not reported its current activity.","files":["run-comparison.md"],"pinned":false,"cost":"8.43","sessionId":"demo-0011","repo":"centauri-ai","sourceId":"agent-box","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/centauri-ai","cwd":"/home/milan/repos/centauri-ai"},{"id":12,"title":"Resume staging machines","agent":"Codex","status":"Active","machine":"agent-box","minutes":15,"branch":"main","summary":"Checking frontend and backend health after restarting the staging services.","files":[],"pinned":false,"cost":"9.14","sessionId":"demo-0012","repo":"centauri-ai","sourceId":"agent-box","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/centauri-ai","cwd":"/home/milan/repos/centauri-ai"},{"id":13,"title":"Analyze missing loan sources","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":2900,"branch":"hlu/gcp","summary":"Source mappings updated; seven unresolved rows retained for manual review.","files":["loan-source-mapping.csv"],"pinned":false,"cost":"9.85","sessionId":"demo-0013","repo":"centauri-ai","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/centauri-ai","cwd":"/Users/milan/git_root/centauri-ai"},{"id":14,"title":"Create GCP placeholder datacubes","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":2960,"branch":"main","summary":"Created three datacubes and six unstarted runs for the next review batch.","files":["datacube-inventory.md"],"pinned":false,"cost":"10.56","sessionId":"demo-0014","repo":"centauri-ai","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/centauri-ai","cwd":"/Users/milan/git_root/centauri-ai"},{"id":15,"title":"Paris fine dining availability","agent":"Claude Code","status":"Inactive","machine":"This Mac","minutes":1600,"branch":"","summary":"Ranked restaurants with addresses, travel times, and October availability.","files":["paris-shortlist.xlsx"],"pinned":false,"cost":"64.45","sessionId":"demo-0015","repo":"No repository","sourceId":"local","goal":"","subagents":7,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Desktop/AgentsWorkspace/travel"},{"id":16,"title":"Fix missing backend virtualenv","agent":"Codex","status":"Unknown","machine":"agent-box","minutes":3100,"branch":"hlu/gcp","summary":"Remote activity is unavailable; the last captured step checked the environment.","files":["environment-check.md"],"pinned":false,"cost":"11.98","sessionId":"demo-0016","repo":"centauri-ai","sourceId":"agent-box","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/centauri-ai","cwd":"/home/milan/repos/centauri-ai"},{"id":17,"title":"Process August rental month","agent":"Codex","status":"Inactive","machine":"This Mac","minutes":4400,"branch":"","summary":"Reconciled six reservations and updated the monthly and annual summaries.","files":["august-reconciliation.xlsx"],"pinned":false,"cost":"12.69","sessionId":"demo-0017","repo":"No repository","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":null,"cwd":"/Users/milan/Desktop/AgentsWorkspace/rental"},{"id":18,"title":"Review session search behavior","agent":"Claude Code","status":"Inactive","machine":"This Mac","minutes":60,"branch":"milan/ui","summary":"Decide whether search should include outcomes and artifact filenames.","files":["search-options.md"],"pinned":false,"cost":"13.40","sessionId":"demo-0018","repo":"coslash","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/coslash","cwd":"/Users/milan/git_root/coslash"},{"id":19,"title":"Draft remote host onboarding","agent":"Claude Code","status":"Inactive","machine":"This Mac","minutes":16000,"branch":"milan/landing","summary":"Explained the SSH connection flow and the information shown for an offline host.","files":["remote-onboarding.md"],"pinned":false,"cost":"14.11","sessionId":"demo-0019","repo":"coslash","sourceId":"local","goal":"","subagents":0,"firstPrompt":"","repoUrl":"github.com/centauri-ai/coslash","cwd":"/Users/milan/git_root/coslash"},{"id":20,"title":"Inspect session cache after refresh","agent":"Codex","status":"Idle","machine":"This Mac","sourceId":"local","minutes":38,"branch":"main","summary":"Cache refresh returned; the session remains open.","files":[],"pinned":false,"cost":"1.42","sessionId":"demo-0020","repoUrl":"github.com/centauri-ai/centauri-ai","cwd":"/Users/milan/git_root/centauri-ai","goal":"","firstPrompt":"","subagents":0},{"id":21,"title":"Untitled session","agent":"Claude Code","status":"Inactive","machine":"This Mac","sourceId":"local","minutes":120,"branch":"","summary":"","files":[],"pinned":false,"cost":null,"sessionId":"demo-0021","repoUrl":null,"cwd":null,"goal":"","firstPrompt":"Check collector health after the upgrade","subagents":0},{"id":22,"title":"Inspect remote render export","agent":"Codex","status":"Unknown","machine":"agent-box","sourceId":"agent-box","minutes":2900,"branch":"","summary":"Last captured check inspected the remote export folder.","files":["export-check.md"],"pinned":false,"cost":"2.86","sessionId":"demo-0022","repoUrl":null,"cwd":"/home/milan/scratch/ge","goal":"","firstPrompt":"","subagents":0}];
+
+/* ------------------------------------------------------------------ icons */
+const I={
+ search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+ x:'<path d="m6 6 12 12M18 6 6 18"/>',
+ chev:'<path d="m9 6 6 6-6 6"/>',
+ chevd:'<path d="m6 9 6 6 6-6"/>',
+ up:'<path d="m6 15 6-6 6 6"/>',
+ down:'<path d="m6 9 6 6 6-6"/>',
+ check:'<path d="m5 12 4 4L19 6"/>',
+ file:'<path d="M5 3h9l5 5v13H5zM14 3v6h5"/>',
+ arrow:'<path d="M4 12h15m-5-5 5 5-5 5"/>',
+ pin:'<path d="m9 3 8 0-1 7 3 3v2H5v-2l3-3zM12 15v6"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ folder:'<path d="M3 6h6l2 2h10v11H3z"/>',
+ inbox:'<path d="m5 4-3 10v6h20v-6L19 4zM2 14h6l2 3h4l2-3h6"/>',
+ clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+ play:'<path d="M7 4v16l13-8z"/>',
+ archive:'<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/>',
+ alert:'<path d="M12 3 2 20h20zM12 10v4M12 17h.01"/>',
+ refresh:'<path d="M20 11a8 8 0 1 0-2 6m2-6V5m0 6h-5"/>',
+ settings:'<circle cx="12" cy="12" r="3"/><path d="M4 12a8 8 0 0 1 .3-2l-1.7-1.3 2-3.4L6.6 6a8 8 0 0 1 3.4-2L10.5 2h3l.5 2a8 8 0 0 1 3.4 2l2-.7 2 3.4-1.7 1.3a8 8 0 0 1 0 4l1.7 1.3-2 3.4-2-.7a8 8 0 0 1-3.4 2l-.5 2h-3l-.5-2a8 8 0 0 1-3.4-2l-2 .7-2-3.4L4.3 14A8 8 0 0 1 4 12Z"/>',
+ activity:'<path d="M3 12h4l2-6 4 12 2-6h6"/>',
+ host:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+ bookmark:'<path d="M6 4h12v17l-6-4-6 4z"/>'
+};
+const ic=(n,c='')=>`<svg class="${c}" viewBox="0 0 24 24" aria-hidden="true">${I[n]||I.file}</svg>`;
+const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id);
+
+/* ------------------------------------------------ policy (named, in one place) */
+/* The only readiness fact worth acting on is "this context is nearly spent, start over
+   with a handoff". Everything below that threshold is simply resumable, so it is stated
+   as context detail rather than graded. */
+const READY={FULL_CONTEXT:82, MAX_COMPACTIONS:2};
+const SECTION_PREVIEW=5, PAGE_STEP=50, RENDER_CAP=400;
+const SEARCH_DEBOUNCE=180, LIVE_DEBOUNCE=500, MODAL_BELOW=1280;
+
+const STATES={
+ needs:{label:'Needs you', hint:'Blocked on your input'},
+ running:{label:'Running', hint:'Working right now'},
+ idle:{label:'Idle', hint:'Stopped — resume whenever you like'},
+ archived:{label:'Archived', hint:'Done or aged out'}
+};
+const STATE_ORDER=['needs','running','idle','archived'];
+const LEGACY_STATE={Waiting:'needs', Active:'running', Idle:'idle', Inactive:'idle', Unknown:'idle'};
+const ARCHIVED_SAMPLE=new Set([15,17,19]);
+
+/* ------------------------------------------------------------ normalisation */
+function detectedGroup(s){
+ if(s.repoUrl){
+  const key='repo:'+s.repoUrl.toLowerCase().replace(/\.git$/,'').replace(/\/$/,'');
+  return {id:key, label:s.repoUrl.split('/').pop(), kind:'Repository', basis:s.repoUrl};
+ }
+ if(s.cwd){
+  const parent=s.cwd.slice(0,s.cwd.lastIndexOf('/'));
+  const leaf=parent.split('/').pop();
+  const nice=leaf==='2026-09-10'?'Sep 10':leaf==='2026-09-09'?'Sep 9':leaf;
+  return {id:'folder:'+s.sourceId+':'+parent, label:(s.sourceId==='local'?'Local':'agent-box')+' · '+nice,
+          kind:'Folder parent', basis:parent};
+ }
+ return {id:'unlocated:'+s.sourceId+':'+s.agent, label:s.agent+' · No location',
+         kind:'Agent fallback', basis:'No repository or folder was recorded'};
+}
+const readinessSamples={2:{contextUsed:42,compactions:0,cache:'Warm',ahead:3,behind:0},
+ 11:{contextUsed:76,compactions:1,cache:'Cold',ahead:4,behind:2},
+ 12:{contextUsed:58,compactions:0,cache:'Warm',ahead:0,behind:0},
+ 13:{contextUsed:88,compactions:2,cache:'Cold',ahead:5,behind:7},
+ 14:{contextUsed:61,compactions:0,cache:'Cold',ahead:0,behind:0},
+ 16:{contextUsed:null,compactions:null,cache:'Unknown',ahead:null,behind:null},
+ 20:{contextUsed:34,compactions:0,cache:'Hot',ahead:0,behind:0}};
+const tokenSamples={2:1300000,11:4800000,12:2600000,13:5100000,14:3400000,16:6200000,20:700000};
+
+const HOSTS=[{id:'local',name:'Local Mac',machine:'This Mac',up:true},
+             {id:'agent-box',name:'agent-box',machine:'agent-box',up:false,via:'SSH'}];
+
+for(const s of sessions){
+ if(s.id===14) s.agent='Claude Code';
+ s.reachable = s.status!=='Unknown';
+ s.state = ARCHIVED_SAMPLE.has(s.id) ? 'archived' : (LEGACY_STATE[s.status]||'idle');
+ s.group = detectedGroup(s);
+ s.key = s.sourceId+':'+s.agent+':'+s.sessionId;
+ s.tokens = tokenSamples[s.id] ?? (s.cost===null?null:Math.round(Number(s.cost)*90000));
+ Object.assign(s, readinessSamples[s.id]||{
+   contextUsed:28+(s.id*7)%59, compactions:s.id%8===0?1:0,
+   cache:s.id%3===0?'Warm':'Cold', ahead:s.branch?s.id%5:0, behind:s.branch?s.id%3:0});
+}
+const groups=[...new Map(sessions.map(s=>[s.group.id,s.group])).values()];
+const aliases={};
+const groupLabel=id=>aliases[id]||groups.find(g=>g.id===id)?.label||id;
+
+function readiness(s){
+ if(!s.reachable) return {key:'off', detail:'last recorded context', action:'Resume'};
+ if(s.contextUsed==null) return {key:'off', detail:'context unknown', action:'Resume'};
+ if(s.contextUsed>=READY.FULL_CONTEXT||s.compactions>=READY.MAX_COMPACTIONS)
+  return {key:'fresh', detail:`${s.contextUsed}% context used · start fresh with a handoff`,
+          action:'Start fresh'};
+ return {key:'ok', detail:`${s.contextUsed}% context used · ${s.cache.toLowerCase()} cache`,
+         action:'Resume'};
+}
+/* --------------------------------------------------------------- formatting */
+const age=s=>s.minutes<60?s.minutes+'m ago':s.minutes<1440?Math.floor(s.minutes/60)+'h ago'
+  :s.minutes<2880?'Yesterday':Math.floor(s.minutes/1440)+'d ago';
+const money=s=>s.cost===null?'—':'≈$'+(Number(s.cost)<10?Number(s.cost).toFixed(2):Math.round(Number(s.cost)));
+const fmtTokens=n=>n==null?'—':n>=1e6?(n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,'')+'M'
+  :n>=1000?Math.round(n/1000)+'k':String(n);
+const plain=v=>String(v||'').replace(/\[([^\]]+)\]\([^)]*\)/g,'$1').replace(/\*\*|__|`/g,'')
+  .replace(/\|/g,' · ').replace(/\s+/g,' ').trim();
+const title=s=>s.title==='Untitled session'&&s.firstPrompt?s.firstPrompt:s.title;
+const folderLeaf=s=>s.cwd?s.cwd.split('/').filter(Boolean).pop():'no location';
+
+/* -------------------------------------------------------------------- state */
+const KINDS=[
+ {id:'status',   label:'Status',   multi:true},
+ {id:'group',    label:'Group',    multi:true},
+ {id:'machine',  label:'Machine',  multi:false},
+ {id:'agent',    label:'Agent',    multi:false},
+ {id:'pinned',   label:'Pinned',   multi:false}
+];
+const kindOf=id=>KINDS.find(k=>k.id===id);
+/* A time window is never absent — there is always some range in force — so it is a
+   standing control with a default, not a chip you add. */
+const RANGE={today:{label:'Today',max:1440}, week:{label:'7 days',max:10080},
+             month:{label:'30 days',max:43200}, all:{label:'All time',max:Infinity}};
+const RANGE_ORDER=['today','week','month','all'];
+
+const state={
+ query:'', range:'week', facets:{status:[],group:[],machine:null,agent:null,pinned:null},
+ density:'comfortable', sort:{key:'recent',dir:'desc'},
+ open:{needs:true,running:true,idle:true,archived:false,all:true},
+ limits:{}, picked:new Set(), selected:null, menu:null, rendered:[],
+ sideOpen:{status:true,saved:true,machine:true,agent:true,group:true}, groupFilter:''
+};
+const savedViews=[{name:'Needs me, everywhere', facets:{status:['needs'],group:[],machine:null,agent:null,pinned:null}, query:'', range:'all'},
+                  {name:'Remote sessions', facets:{status:[],group:[],machine:'agent-box',agent:null,pinned:null}, query:'', range:'all'}];
+
+/* ------------------------------------------------------------------- facets */
+function facetLabel(kind,value){
+ if(kind==='status') return STATES[value].label;
+ if(kind==='group') return groupLabel(value);
+ if(kind==='pinned') return 'Pinned only';
+ return value;
+}
+function hasFacet(kind,value){
+ const cur=state.facets[kind];
+ return kindOf(kind).multi ? cur.includes(value) : cur===value;
+}
+function addFacet(kind,value){
+ const k=kindOf(kind); if(!k) return;
+ if(k.multi){
+  const cur=state.facets[kind];
+  state.facets[kind]= cur.includes(value) ? cur.filter(v=>v!==value) : [...cur,value];
+ }else{
+  state.facets[kind]= state.facets[kind]===value ? null : value;   // add or swap, per kind
+ }
+ state.selected=null; render();
+}
+function removeFacet(kind,value){
+ const k=kindOf(kind);
+ state.facets[kind]= k.multi ? state.facets[kind].filter(v=>v!==value) : null;
+ render();
+}
+function clearFacets(){
+ state.facets={status:[],group:[],machine:null,agent:null,pinned:null};
+ render();
+}
+const activeFacets=()=>KINDS.flatMap(k=>{
+ const v=state.facets[k.id];
+ return (k.multi?v:(v?[v]:[])).map(value=>({kind:k.id,value}));
+});
+const inRange=s=>s.minutes<RANGE[state.range].max;
+function matchesFacets(s,skipKind){
+ const f=state.facets;
+ if(skipKind!=='status' && f.status.length && !f.status.includes(s.state)) return false;
+ if(skipKind!=='group'  && f.group.length  && !f.group.includes(s.group.id)) return false;
+ if(skipKind!=='machine'&& f.machine && s.machine!==f.machine) return false;
+ if(skipKind!=='agent'  && f.agent   && s.agent!==f.agent) return false;
+ if(skipKind!=='pinned' && f.pinned  && !s.pinned) return false;
+ return true;
+}
+/* counts computed against every OTHER facet, so a zero is visible before you pick it */
+function facetKey(kind,s){
+ return kind==='status'?s.state : kind==='group'?s.group.id : kind==='machine'?s.machine
+      : kind==='agent'?s.agent : (s.pinned?'pinned':null);
+}
+/* The vocabulary comes from EVERY session so the list never moves; only the counts
+   respond to the current scope. A zero you can see is information — it says the filter
+   exists and is empty here — and it stops rows appearing and vanishing under the cursor. */
+function facetValues(kind){
+ const pool=sessions.filter(s=>inRange(s)&&matchesFacets(s,kind)&&textMatch(s).ok);
+ const vocab=new Map();
+ if(kind==='status') for(const k of STATE_ORDER) vocab.set(k,0);
+ if(kind==='pinned') vocab.set('pinned',0);
+ for(const s of sessions){ const k=facetKey(kind,s); if(k!=null&&!vocab.has(k)) vocab.set(k,0); }
+ for(const s of pool){ const k=facetKey(kind,s); if(k!=null&&vocab.has(k)) vocab.set(k,vocab.get(k)+1); }
+ let out=[...vocab].map(([value,count])=>({value,label:facetLabel(kind,value),count}));
+ if(kind==='status') out.sort((a,b)=>STATE_ORDER.indexOf(a.value)-STATE_ORDER.indexOf(b.value));
+ else if(kind==='group') out.sort((a,b)=>groupRecency(a.value)-groupRecency(b.value));
+ /* ordered by total weight across all sessions, never by the scope count — otherwise
+    rows swap places the moment you touch a filter */
+ else out.sort((a,b)=>totalFor(kind,b.value)-totalFor(kind,a.value)||a.label.localeCompare(b.label));
+ return out;
+}
+/* Most-recently-touched first: the group you are working in today rises on its own,
+   and the long tail of dated one-off folders sinks without anyone curating it. */
+const totalFor=(kind,value)=>sessions.filter(s=>facetKey(kind,s)===value).length;
+const groupRecency=id=>Math.min(...sessions.filter(s=>s.group.id===id).map(s=>s.minutes));
+
+/* ------------------------------------------------------------------- search */
+const PREFIX={repo:'group', group:'group', machine:'machine', agent:'agent', status:'status'};
+function parseQuery(q){
+ const hints=[], words=[];
+ for(const tok of q.trim().split(/\s+/).filter(Boolean)){
+  const m=tok.match(/^(\w+):(.+)$/);
+  if(m && PREFIX[m[1].toLowerCase()]) hints.push({kind:PREFIX[m[1].toLowerCase()], text:m[2].toLowerCase()});
+  else words.push(tok.toLowerCase());
+ }
+ return {words,hints};
+}
+function fields(s){
+ return [['Title',title(s)],['Goal',s.goal||''],['Outcome',plain(s.summary)],
+  ...s.files.map(f=>['File',f]),['Repository',s.repoUrl||''],['Branch',s.branch||''],
+  ['Folder',s.cwd||''],['Group',groupLabel(s.group.id)],['Agent',s.agent],['Machine',s.machine]];
+}
+/* one match record per session per pass — never rebuilt inside a comparator */
+function textMatch(s){
+ const {words}=parseQuery(state.query);
+ if(!words.length) return {ok:true, score:0, evidence:{label:'', text:plain(s.summary)||s.firstPrompt||''}};
+ const fs=fields(s);
+ let score=0, ev=null;
+ for(const w of words){
+  let hit=false;
+  for(const [label,value] of fs){
+   const v=value.toLowerCase(); const i=v.indexOf(w);
+   if(i<0) continue;
+   hit=true;
+   score += label==='Title'?15:label==='Outcome'?7:label==='Goal'?5:label==='File'?4:2;
+   if(!ev||(ev.label==='Title'&&label!=='Title')){
+    const start=Math.max(0,i-15);
+    ev={label:label==='Title'?'':label, text:(start?'…':'')+value.slice(start,start+150)};
+   }
+  }
+  if(!hit) return {ok:false};
+ }
+ if(title(s).toLowerCase()===state.query.trim().toLowerCase()) score+=100;
+ return {ok:true, score, evidence:ev||{label:'',text:plain(s.summary)||''}};
+}
+function highlight(value){
+ const {words}=parseQuery(state.query);
+ if(!words.length) return esc(value);
+ const pat=words.map(w=>w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+ return String(value).split(new RegExp('('+pat+')','gi'))
+   .map((p,i)=>i%2?'<mark>'+esc(p)+'</mark>':esc(p)).join('');
+}
+function suggestions(){
+ const q=state.query.trim(); if(!q) return [];
+ const {words,hints}=parseQuery(q); const out=[];
+ const push=(kind,v)=>{ if(!hasFacet(kind,v.value)&&!out.some(o=>o.kind===kind&&o.value===v.value))
+   out.push({kind,...v}); };
+ for(const h of hints)
+  for(const v of facetValues(h.kind)) if(v.label.toLowerCase().includes(h.text)) push(h.kind,v);
+ for(const w of words)
+  for(const k of KINDS){ if(k.id==='pinned') continue;
+   for(const v of facetValues(k.id)) if(v.label.toLowerCase().includes(w)) push(k.id,v); }
+ return out.slice(0,5);
+}
+
+/* ---------------------------------------------------------------- selection */
+function visibleSessions(){
+ const rows=[];
+ for(const s of sessions){
+  if(!inRange(s)||!matchesFacets(s)) continue;
+  const m=textMatch(s); if(!m.ok) continue;
+  rows.push({s, score:m.score, evidence:m.evidence});
+ }
+ const {key,dir}=state.sort, mul=dir==='asc'?1:-1;
+ rows.sort((a,b)=>{
+  if(key==='cost'){                                   /* unpriced always last, never sorted into the middle */
+   const an=a.s.cost===null, bn=b.s.cost===null;
+   if(an!==bn) return an?1:-1;
+   if(an&&bn) return a.s.minutes-b.s.minutes;
+   return (Number(a.s.cost)-Number(b.s.cost))*mul || a.s.minutes-b.s.minutes;
+  }
+  if(key==='title') return title(a.s).localeCompare(title(b.s))*mul || a.s.minutes-b.s.minutes;
+  if(key==='relevance') return (b.score-a.score) || a.s.minutes-b.s.minutes;
+  return (a.s.minutes-b.s.minutes)*(dir==='desc'?1:-1);   /* recent: fewer minutes ago = newer */
+ });
+ return rows;
+}
+/* Status sections are the only shape now; an empty one says nothing and is dropped. */
+function sectionsOf(rows){
+ return STATE_ORDER.map(id=>({id, label:STATES[id].label, rows:rows.filter(r=>r.s.state===id)}))
+                   .filter(sec=>sec.rows.length);
+}
+
+/* ------------------------------------------------------------------ rollups */
+function rollup(list){
+ const priced=list.filter(s=>s.cost!==null);
+ const cost=priced.reduce((n,s)=>n+Number(s.cost),0);
+ const tokens=list.reduce((n,s)=>n+(s.tokens||0),0);
+ return {cost:'≈$'+Math.round(cost).toLocaleString(), tokens:fmtTokens(tokens),
+         unpriced:list.length-priced.length, n:list.length};
+}
+function tally(list,fn){
+ const m=new Map(); for(const s of list){const k=fn(s); m.set(k,(m.get(k)||0)+1);} 
+ return [...m].sort((a,b)=>b[1]-a[1]);
+}
+
+/* ------------------------------------------------------------------- render */
+function renderHosts(){
+ $('hosts').innerHTML = HOSTS.map(h=>{
+  const list=sessions.filter(s=>s.machine===h.machine);
+  const needs=list.filter(s=>s.state==='needs').length;
+  const running=list.filter(s=>s.state==='running').length;
+  return `<span class="host-chip ${h.up?'':'down'}" title="${h.up?'Reachable':'Host unreachable'}">
+    <i></i><strong>${esc(h.name)}</strong>
+    <span class="detail-txt">${h.up?`${running} running · ${needs} need you`:`unreachable · ${list.length} sessions`}</span>
+   </span>`;
+ }).join('')
+ + `<button class="btn" data-act="diagnostics">${ic('activity')}<span class="btn-txt">Diagnostics</span></button>`
+ + `<button class="btn" data-act="settings">${ic('settings')}<span class="btn-txt">Settings</span></button>`;
+
+ const down=HOSTS.filter(h=>!h.up);
+ const b=$('banner');
+ b.hidden=!down.length;
+ if(down.length){
+  const n=sessions.filter(s=>!s.reachable).length;
+  b.innerHTML=`${ic('alert')}<span><strong>${esc(down.map(h=>h.name).join(', '))}</strong> unreachable —
+   ${n} session${n===1?'':'s'} showing their last recorded context.</span>
+   <button class="btn small" data-act="retry" style="margin-left:auto">${ic('refresh')}Retry</button>`;
+ }
+}
+
+const GROUP_CAP=8, GROUP_FILTER_AT=8;
+function facetRow(kind,v){
+ const on=hasFacet(kind,v.value);
+ const dot=kind==='status'
+   ? `<i class="dot ${v.value}"></i>`
+   : kind==='pinned' ? ic('pin') : ic('folder');
+ return `<button class="facet-item ${on?'on':''} ${v.count?'':'zero'}" data-facet="${esc(kind)}"
+   data-value="${esc(v.value)}" aria-pressed="${on}">${dot}
+   <span class="lbl">${esc(v.label)}</span><span class="count">${v.count}</span></button>`;
+}
+function sideSection(id,title,body,trailing=''){
+ const open=state.sideOpen[id]!==false;
+ return `<div class="side-group">
+   <button class="side-head" data-side="${id}" aria-expanded="${open}"
+     aria-controls="side-${id}">${ic('chev','chev')}<span>${esc(title)}</span></button>
+   <div class="side-body" id="side-${id}" ${open?'':'hidden'}>${body}${trailing}</div></div>`;
+}
+function groupListHTML(){
+ const q=(state.groupFilter||'').trim().toLowerCase();
+ const all=facetValues('group');
+ const hits=q?all.filter(v=>v.label.toLowerCase().includes(q)):all;
+ if(q){                                  /* while filtering, drop the taxonomy and just answer */
+  const shown=hits.slice(0,GROUP_CAP);
+  return (shown.map(v=>facetRow('group',v)).join('')||'<p class="side-none">No group matches.</p>')
+   + (hits.length>shown.length?`<button class="facet-item more-groups" data-act="open-menu"
+       data-anchor="sidebar" data-kind="group">${ic('plus')}<span class="lbl">${hits.length-shown.length} more…</span></button>`:'');
+ }
+ const byKind=k=>hits.filter(v=>groups.find(g=>g.id===v.value)?.kind===k);
+ let budget=GROUP_CAP, html='';
+ for(const [kind,heading] of [['Repository','Repositories'],['Folder parent','Other folders'],['Agent fallback','No location']]){
+  const vs=byKind(kind); if(!vs.length) continue;
+  const take=vs.slice(0,Math.max(0,budget));
+  if(!take.length) continue;
+  budget-=take.length;
+  html+=`<div class="kind-label">${heading}</div>`+take.map(v=>facetRow('group',v)).join('');
+ }
+ const over=hits.length-(GROUP_CAP-Math.max(0,budget));
+ if(over>0) html+=`<button class="facet-item more-groups" data-act="open-menu" data-anchor="sidebar"
+   data-kind="group">${ic('plus')}<span class="lbl">${over} more…</span></button>`;
+ return html;
+}
+function renderGroupList(){ const el=$('groupList'); if(el) el.innerHTML=groupListHTML(); }
+function renderSidebar(){
+ const total=rollup(sessions);
+ const list=(kind)=>facetValues(kind).map(v=>facetRow(kind,v)).join('');
+ const groupCount=facetValues('group').length;
+ const filterBox = groupCount>GROUP_FILTER_AT
+   ? `<div class="group-filter">${ic('search')}<input id="groupFilter" type="search"
+       placeholder="Filter ${groupCount} groups…" aria-label="Filter detected groups"
+       value="${esc(state.groupFilter||'')}"></div>` : '';
+ $('sidebar').innerHTML =
+  sideSection('status','Status',list('status')) +
+  sideSection('saved','Saved', list('pinned') + savedViews.map((v,i)=>
+    `<span class="saved-row"><button class="facet-item" data-saved="${i}">
+      ${ic('bookmark')}<span class="lbl">${esc(v.name)}</span></button>
+     <button class="saved-drop" data-drop-saved="${i}" aria-label="Delete view ${esc(v.name)}">${ic('x')}</button>
+    </span>`).join('')) +
+  sideSection('machine','Connections',list('machine')) +
+  sideSection('agent','Agent',list('agent')) +
+  sideSection('group','Detected groups', filterBox+`<div id="groupList">${groupListHTML()}</div>`) +
+  `<div class="side-foot">${HOSTS.map(h=>esc(h.name)).join(' + ')}<br>
+    ${sessions.length} sessions · ${total.tokens} tokens · ${total.cost}</div>`;
+}
+
+function renderChips(){
+ const act=activeFacets();
+ /* With the sidebar on screen and nothing applied, the chip row has nothing to say. */
+ $('chipbar').hidden = !act.length && window.innerWidth>1000;
+ $('chipbar').innerHTML =
+  `<span class="lead">Scope</span>` +
+  (act.length ? act.map(f=>
+    `<span class="chip"><span class="kind">${esc(kindOf(f.kind).label)}:</span>${esc(facetLabel(f.kind,f.value))}
+     <button data-act="drop-facet" data-facet="${esc(f.kind)}" data-value="${esc(f.value)}"
+       aria-label="Remove filter ${esc(facetLabel(f.kind,f.value))}">${ic('x')}</button></span>`).join('')
+   : `<span class="lead" style="opacity:.75">No filters — the time range sets the window</span>`) +
+  `<button class="chip-add" data-act="open-menu" data-anchor="chip" aria-haspopup="dialog"
+     aria-expanded="${state.menu?'true':'false'}">${ic('plus')}Add filter</button>` +
+  `<span class="right">${act.length?`<button class="btn small" data-act="save-view">${ic('bookmark')}Save view</button>
+     <button class="text-btn" data-act="clear-facets">Clear all</button>`:''}</span>`;
+}
+
+function renderMenu(){
+ const m=$('menu');
+ if(!state.menu){ m.hidden=true; return; }
+ const kind=state.menu.kind, q=(state.menu.q||'').toLowerCase();
+ const vals=facetValues(kind).filter(v=>v.label.toLowerCase().includes(q));
+ m.hidden=false;
+ m.setAttribute('role','dialog'); m.setAttribute('aria-label','Add a filter');
+ m.innerHTML=`
+  <div class="menu-search"><input id="menuQ" placeholder="Type to filter…" aria-label="Filter values" value="${esc(state.menu.q||'')}"></div>
+  <div class="menu-body">
+   <div class="menu-kinds" role="tablist" aria-label="Filter kind">${KINDS.map(k=>
+     `<button role="tab" aria-selected="${k.id===kind}" class="${k.id===kind?'on':''}"
+       data-menu-kind="${k.id}">${esc(k.label)}</button>`).join('')}</div>
+   <div class="menu-values" role="listbox" aria-label="${esc(kindOf(kind).label)} values">${
+    vals.length? vals.map(v=>
+     `<button role="option" aria-selected="${hasFacet(kind,v.value)}" class="${hasFacet(kind,v.value)?'on':''}"
+       data-facet="${esc(kind)}" data-value="${esc(v.value)}">
+       <span class="tick">${hasFacet(kind,v.value)?ic('check'):''}</span>
+       <span class="lbl">${esc(v.label)}</span><span class="n">${v.count}</span></button>`).join('')
+     : `<p class="menu-empty">No ${esc(kindOf(kind).label.toLowerCase())} values match.</p>`}</div>
+  </div>`;
+ const anchor=(state.menu.anchor==='sidebar' ? document.querySelector('.more-groups') : null)
+   || document.querySelector('.chip-add:not([hidden])')
+   || document.querySelector('.chipbar:not([hidden])')
+   || document.querySelector('.search-box');
+ if(anchor){
+  const r=anchor.getBoundingClientRect();
+  m.style.top=(r.bottom+window.scrollY+6)+'px';
+  m.style.left=Math.max(12,Math.min(r.left+window.scrollX, window.innerWidth-m.offsetWidth-12))+'px';
+ }
+ const qi=$('menuQ'); if(qi&&state.menu.focus){ qi.focus(); state.menu.focus=false; }
+}
+
+function renderSuggest(){
+ const sug=suggestions(), box=$('suggest');
+ box.hidden=!sug.length;
+ $('search').setAttribute('aria-expanded', String(!!sug.length));
+ if(!sug.length) return;
+ box.innerHTML=sug.map(s=>
+  `<button role="option" aria-selected="false" data-facet="${esc(s.kind)}" data-value="${esc(s.value)}">
+    <span class="kind">${esc(kindOf(s.kind).label)}</span>
+    <span>${highlight(s.label)}</span><span class="n">${s.count} session${s.count===1?'':'s'}</span></button>`).join('');
+}
+
+function renderRollup(list){
+ const r=rollup(list);
+ const win = state.range==='all' ? 'all time' : 'the last '+RANGE[state.range].label.toLowerCase();
+ const scopeText = (state.query ? `matching “${esc(state.query)}”`
+   : activeFacets().length ? 'in this scope' : 'active')
+   + (state.range==='today' ? ' today' : ` in ${win}`);
+ $('rollup').innerHTML =
+  `<strong>${r.n} session${r.n===1?'':'s'}</strong><span class="sep">${scopeText}</span>
+   <span class="sep">·</span><span>${r.tokens} tokens</span>
+   <span class="sep">·</span><span>${r.cost}</span>
+   ${r.unpriced?`<span class="sep">·</span><span>${r.unpriced} not priced</span>`:''}
+   <span class="note">at list API prices</span>`;
+}
+
+let liveTimer;
+function announce(n){
+ clearTimeout(liveTimer);
+ liveTimer=setTimeout(()=>{ $('live').textContent=`${n} result${n===1?'':'s'}`; }, LIVE_DEBOUNCE);
+}
+
+function renderScope(list){
+ const sc=$('scope'), picked=state.facets.group;
+ if(picked.length!==1){ sc.hidden=true; return; }
+ const g=groups.find(x=>x.id===picked[0]); if(!g){ sc.hidden=true; return; }
+ sc.hidden=false;
+ const r=rollup(list);
+ const reads=list.reduce((m,s)=>{const k=readiness(s).key; m[k]=(m[k]||0)+1; return m;},{});
+ const col=(label,rows)=>`<div class="scope-col"><div class="eyebrow">${label}</div>${
+   rows.map(([n,c])=>`<p><span>${esc(n)}</span><strong>${c}</strong></p>`).join('')}</div>`;
+ sc.innerHTML=`
+  <div class="scope-head">
+   <h2>${esc(groupLabel(g.id))}</h2>
+   <span class="scope-basis">${esc(g.kind)} · ${esc(g.basis)}</span>
+   <span class="right"><button class="btn small" data-act="alias">Edit label</button></span>
+  </div>
+  <div class="scope-grid">
+   <div class="scope-col"><div class="eyebrow">Total</div>
+    <p><span>Sessions</span><strong>${r.n}</strong></p>
+    <p><span>Tokens</span><strong>${r.tokens}</strong></p>
+    <p><span>Est. cost</span><strong>${r.cost}</strong></p></div>
+   ${col('Vendor',tally(list,s=>s.agent))}
+   ${col('Machine',tally(list,s=>s.machine))}
+   <div class="scope-col"><div class="eyebrow">Context</div>
+    <p><span>Resume as-is</span><strong>${reads.ok||0}</strong></p>
+    <p><span>Start fresh</span><strong>${reads.fresh||0}</strong></p>
+    <p><span>Unknown</span><strong>${reads.off||0}</strong></p></div>
+   ${col('Branch',tally(list,s=>s.branch||'No branch'))}
+  </div>`;
+}
+
+function renderBulk(){
+ const b=$('bulkbar'), n=state.picked.size;
+ b.hidden=!n;
+ if(!n) return;
+ const list=[...state.picked].map(id=>sessions.find(s=>s.id===id));
+ const allArchived=list.every(s=>s.state==='archived');
+ b.innerHTML=`<strong>${n} selected</strong>
+  <span>${rollup(list).tokens} tokens · ${rollup(list).cost}</span>
+  <span class="right">
+   <button class="btn small" data-act="bulk-archive">${ic('archive')}${allArchived?'Unarchive':'Archive'}</button>
+   <button class="btn small" data-act="bulk-pin">${ic('pin')}Pin</button>
+   <button class="btn small" data-act="bulk-clear">Clear</button></span>`;
+}
+
+/* --------------------------------------------------------------- the table */
+const SORTABLE={title:'Session', recent:'Updated', cost:'Est. cost'};
+function th(key,label,cls){
+ const on=state.sort.key===key;
+ const sortAttr=on?` aria-sort="${state.sort.dir==='asc'?'ascending':'descending'}"`:'';
+ if(!SORTABLE[key]) return `<th class="${cls}" scope="col"><span class="th-in">${label}</span></th>`;
+ return `<th class="${cls}" scope="col"${sortAttr}>
+  <button class="th-in" data-sort="${key}">${label}
+   <span class="arrow">${ic(on&&state.sort.dir==='asc'?'up':'down')}</span></button></th>`;
+}
+function cellsFor(r){
+ const s=r.s, ready=readiness(s), st=STATES[s.state];
+ const ev=r.evidence&&r.evidence.text
+   ? `<span class="evidence">${r.evidence.label?`<span class="lab">${esc(r.evidence.label)} · </span>`:''}${highlight(r.evidence.text)}</span>`
+   : `<span class="evidence">${s.firstPrompt?'<span class="lab">First prompt · </span>'+highlight(s.firstPrompt):'<span class="lab">No recorded outcome</span>'}</span>`;
+ return `
+  <td class="c-check"><label class="pickbox"><input type="checkbox" data-pick="${s.id}"
+    ${state.picked.has(s.id)?'checked':''} aria-label="Select ${esc(title(s))}"></label></td>
+  <td class="c-session">
+   <button class="row-open" data-open="${s.id}">${highlight(title(s))}</button>${ev}
+   <span class="row-mobile">
+    <span class="mob-line">
+     <span class="state ${s.state}"><i></i>${esc(st.label)}</span>
+     <span class="ctx ${ready.key}">${esc(ready.detail)}</span></span>
+    <span class="mob-line">
+     <span class="where-line"><span class="facet-link">${esc(groupLabel(s.group.id))}</span>
+      ${s.branch?`<span class="branch">${esc(s.branch)}</span>`:''}</span></span>
+    <span class="mob-line">
+     <span class="pill ${s.agent==='Claude Code'?'claude':'codex'}">${esc(s.agent)}</span>
+     <span class="pill host">${esc(s.machine)}</span>
+     <span class="mob-meta">${age(s)} · ${money(s)}</span></span>
+   </span></td>
+  <td class="c-where">
+   <span class="where-line">
+    <button class="facet-link" data-facet="group" data-value="${esc(s.group.id)}"
+      title="${esc(s.group.kind)}: ${esc(s.group.basis)}">${esc(groupLabel(s.group.id))}</button>
+    ${s.branch?`<span class="branch" title="Branch">${esc(s.branch)}</span>`:''}
+   </span>
+   <span class="pills">
+    <span class="pill ${s.agent==='Claude Code'?'claude':'codex'}">${esc(s.agent)}</span>
+    <span class="pill host ${s.sourceId==='local'?'':'remote'}">${esc(s.machine)}</span>
+   </span></td>
+  <td class="c-state"><span class="state ${s.state}"><i></i>${esc(st.label)}</span>
+   <span class="cell-sub ctx ${ready.key}">${esc(ready.detail)}</span></td>
+  <td class="c-time"><time>${age(s)}</time></td>
+  <td class="c-cost">${money(s)}</td>
+  <td class="c-act"><button class="btn small row-act ${ready.key==='fresh'?'warn':''}" data-open="${s.id}">
+   ${s.state==='running'?'Watch':ready.action}</button></td>`;
+}
+const visibleCols=()=>7-(innerWidth<=1250?1:0)-(innerWidth<=1120?1:0);
+function renderTable(rows){
+ const secs=sectionsOf(rows);
+ state.rendered=[];
+ if(!rows.length){ $('results').innerHTML=emptyState(); return; }
+ const head=`<thead><tr>
+   <th class="c-check" scope="col"><span class="th-in"><label class="pickbox"><input type="checkbox" id="pickAll"
+     aria-label="Select all shown"></label></span></th>
+   ${th('title', state.query?'Session / matched context':'Session','c-session')}
+   ${th('group','Where','c-where')}
+   ${th('state','Status / context','c-state')}
+   ${th('recent','Updated','c-time')}
+   ${th('cost','Est. cost','c-cost')}
+   <th class="c-act" scope="col"><span class="th-in sr">Actions</span></th></tr></thead>`;
+
+ const body=secs.map(sec=>{
+  const open = state.open[sec.id];
+  const lim = state.limits[sec.id] ?? SECTION_PREVIEW;
+  const shown = open ? sec.rows.slice(0, Math.min(lim, RENDER_CAP)) : [];
+  const r=rollup(sec.rows.map(x=>x.s));
+  const header =
+   `<tr class="section-row"><th colspan="${visibleCols()}" scope="colgroup">
+     <button class="section-btn" data-section="${sec.id}" aria-expanded="${open}">
+      ${ic('chev','chev')}${esc(sec.label)}<span class="n">${sec.rows.length}</span>
+      <span class="roll">${r.tokens} tokens · ${r.cost}</span></button></th></tr>`;
+
+  const rowsHtml = shown.map(r=>{
+   state.rendered.push(r.s.id);
+   return `<tr class="row ${state.selected===r.s.id?'sel':''}" data-row="${r.s.id}">${cellsFor(r)}</tr>`;
+  }).join('');
+
+  const more = open && sec.rows.length>shown.length
+   ? `<tr class="more-row"><td colspan="${visibleCols()}"><button class="more-btn" data-more="${sec.id}">
+       Show ${Math.min(PAGE_STEP, sec.rows.length-shown.length)} more · ${sec.rows.length-shown.length} remaining
+      </button></td></tr>` : '';
+
+  return `<tbody class="section">${header}${rowsHtml}${more}</tbody>`;
+ }).join('');
+
+ $('results').innerHTML=`<table class="${state.density==='compact'?'density-compact':''}">${head}${body}</table>`;
+}
+const windowPhrase=r=>r==='today'?'today':r==='all'?'all time':`the last ${RANGE[r].label.toLowerCase()}`;
+function emptyState(){
+ const hit = s=>textMatch(s).ok;
+ /* Each count answers "would relaxing just this one thing help?" — when neither does on
+    its own but matches exist, it takes both, and the copy has to say so. */
+ const beyondWindow = state.range!=='all' && sessions.filter(s=>matchesFacets(s)&&hit(s)).length;
+ const beyondFacets = activeFacets().length && sessions.filter(s=>inRange(s)&&hit(s)).length;
+ const anywhere = sessions.filter(hit).length;
+ const needsBoth = !beyondWindow && !beyondFacets && anywhere;
+ const why = needsBoth ? 'this time range or these filters'
+   : beyondWindow && beyondFacets ? 'this scope'
+   : beyondWindow ? 'this time range' : beyondFacets ? 'these filters' : 'this scope';
+ const body = needsBoth
+   ? `${anywhere} session${anywhere===1?'':'s'} match${anywhere===1?'es':''} your search, but only outside
+      ${windowPhrase(state.range)} <em>and</em> the active filters.`
+   : beyondWindow || beyondFacets
+   ? `${anywhere} session${anywhere===1?'':'s'} match${anywhere===1?'es':''} elsewhere — ${
+       [beyondWindow?`${beyondWindow} outside ${windowPhrase(state.range)}`:'',
+        beyondFacets?`${beyondFacets} outside the active filters`:''].filter(Boolean).join(', ')}.`
+   : 'Nothing matched the recorded titles, goals, outcomes, files or context. Try a different phrase.';
+ return `<div class="empty">${ic('search')}
+  <h3>Nothing in ${why}</h3>
+  <p>${body}</p>
+  <div class="empty-actions">
+   ${beyondWindow?`<button class="btn primary" data-act="all-time">Search all time · ${beyondWindow}</button>`:''}
+   ${beyondFacets?`<button class="btn ${beyondWindow?'':'primary'}" data-act="clear-facets">Clear filters · ${beyondFacets}</button>`:''}
+   <button class="btn ${needsBoth?'primary':''}" data-act="reset">Clear everything${needsBoth?` · ${anywhere}`:''}</button>
+  </div></div>`;
+}
+
+/* ------------------------------------------------------------------ drawer */
+const asModal=()=>window.innerWidth<MODAL_BELOW;
+function renderDetail(){
+ const d=$('detail'), s=sessions.find(x=>x.id===state.selected);
+ d.hidden=!s;
+ $('shade').classList.toggle('on', !!s&&asModal());
+ /* above the breakpoint the drawer sits beside the list instead of covering it */
+ document.body.classList.toggle('drawer-side', !!s&&!asModal());
+ d.setAttribute('role', asModal()?'dialog':'complementary');
+ d.setAttribute('aria-modal', String(!!s&&asModal()));
+ if(!s) return;
+ const ready=readiness(s), st=STATES[s.state];
+ const i=state.rendered.indexOf(s.id);
+ d.innerHTML=`
+  <div class="detail-top"><span class="eyebrow">Session preview</span>
+   <button class="icon-btn" data-act="close" aria-label="Close preview">${ic('x')}</button></div>
+  <div class="detail-body">
+   <div>
+    <div class="detail-status">
+     <span class="state ${s.state}"><i></i>${esc(st.label)}</span>
+     <span class="muted" style="font-size:11.5px">${esc(st.hint)}</span></div>
+    <div class="cell-sub ctx ${ready.key}" style="margin-top:3px">${esc(ready.detail)}</div>
+    <h2 style="margin-top:8px">${highlight(title(s))}</h2>
+    <div class="detail-meta">${esc(s.agent)} on ${esc(s.machine)} · ${age(s)} · ${esc(folderLeaf(s))}</div>
+   </div>
+   ${!s.reachable?`<p class="notice">${esc(s.machine)} is unreachable. Everything below is the last context coSlash recorded.</p>`:''}
+   ${ready.key==='fresh'?`<div class="readycard fresh">
+    <span><span class="big">Context nearly spent</span><span class="det">${esc(ready.detail)}${
+      s.branch?` · ${s.ahead} ahead, ${s.behind} behind`:''}. A fresh session keeps the outcome
+      and the files, and drops the spent history.</span></span></div>`:''}
+   <section class="sect"><div class="eyebrow">${s.summary?'Last outcome':'First prompt'}</div>
+    <p class="outcome">${highlight(plain(s.summary)||s.firstPrompt||'No recorded context.')}</p></section>
+   <section class="sect"><div class="eyebrow">Files · ${s.files.length}</div>
+    ${s.files.map((f,n)=>`<button class="artifact" data-file="${n}">${ic('file')}<span>${highlight(f)}</span></button>`).join('')
+      ||'<p class="muted" style="font-size:12px">No files recorded.</p>'}</section>
+   <section class="sect"><div class="eyebrow">Location</div>
+    <div class="loc">${esc(s.cwd||'No location recorded')}</div>
+    <div class="muted" style="font-size:11.5px">${esc(s.group.kind)}: ${esc(s.group.basis)}</div></section>
+   <section class="sect"><div class="eyebrow">Usage &amp; identity</div>
+    <div class="facts">
+     <div>Estimated cost<strong>${money(s)} ${s.cost===null?'':'<span class="muted" style="font-weight:400">at list prices</span>'}</strong></div>
+     <div>Tokens<strong>${fmtTokens(s.tokens)}</strong></div>
+     <div>Branch<strong>${esc(s.branch||'No branch')}</strong></div>
+     <div>Session ID<strong>${esc(s.sessionId)}</strong></div>
+    </div></section>
+  </div>
+  <div class="detail-pager">
+   <button class="text-btn" data-step="-1" ${i<=0?'disabled':''}>← Previous</button>
+   <button class="text-btn" data-step="1" ${i<0||i>=state.rendered.length-1?'disabled':''}>Next →</button></div>
+  <div class="detail-actions">
+   <button class="btn" data-act="pin">${ic(s.pinned?'check':'pin')}${s.pinned?'Pinned':'Pin session'}</button>
+   ${ready.key==='fresh'&&s.state!=='running'
+     ? `<button class="btn" data-act="resume">Resume anyway</button>
+        <button class="btn primary" data-act="fresh">Start fresh with handoff${ic('arrow')}</button>`
+     : `<button class="btn primary" data-act="resume" ${!s.reachable?'disabled':''}>
+        ${s.state==='running'?'Watch in':'Open in'} ${esc(s.agent)}${ic('arrow')}</button>`}</div>`;
+}
+
+/* ------------------------------------------------------------------- render */
+function render(){
+ const rows=visibleSessions();
+ renderHosts(); renderSidebar(); renderChips(); renderMenu(); renderSuggest();
+ renderRollup(rows.map(r=>r.s)); renderScope(rows.map(r=>r.s)); renderBulk();
+ $('rangeSeg').innerHTML=RANGE_ORDER.map(r=>
+   `<button data-range="${r}" aria-pressed="${state.range===r}" class="${state.range===r?'on':''}"
+     >${esc(RANGE[r].label)}</button>`).join('');
+ document.querySelectorAll('[data-density]').forEach(b=>{
+  const on=b.dataset.density===state.density;
+  b.classList.toggle('on',on); b.setAttribute('aria-pressed',String(on));});
+ document.querySelector('[data-act="clear-search"]').hidden=!state.query;
+ renderTable(rows);
+ announce(rows.length);
+ if(state.selected&&!state.rendered.includes(state.selected)) state.selected=null;
+ renderDetail();
+}
+/* selection highlight never triggers a full rebuild */
+function markSelected(){
+ document.querySelectorAll('tr.row.sel').forEach(el=>el.classList.remove('sel'));
+ if(state.selected!=null)
+  document.querySelector(`tr.row[data-row="${state.selected}"]`)?.classList.add('sel');
+}
+function openSession(id){
+ state.selected=Number(id); markSelected(); renderDetail();
+ $('detail').querySelector('[data-act="close"]')?.focus({preventScroll:true});
+}
+function closeDetail(){
+ const id=state.selected;
+ state.selected=null;
+ markSelected();                    /* the row highlight clears with the drawer */
+ renderDetail();
+ document.querySelector(`[data-open="${id}"]`)?.focus({preventScroll:true});
+}
+let toastTimer;
+function toast(msg){
+ const t=$('toast'); t.textContent=msg; t.classList.add('on');
+ clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('on'),3000);
+}
+function dialog(html){ $('dialog').innerHTML=html; $('dialog').showModal(); }
+
+/* ------------------------------------------------------------------- events */
+document.addEventListener('click',e=>{
+ const el=e.target.closest('button,[data-act]');
+
+ /* clicking anywhere in a row opens it, except on a nested control */
+ if(!el){
+  const tr=e.target.closest('tr.row');
+  if(tr&&!e.target.closest('input,button,a')) openSession(tr.dataset.row);
+  return;
+ }
+ if(el.dataset.open){ openSession(el.dataset.open); return; }
+ if(el.dataset.facet){
+  addFacet(el.dataset.facet, el.dataset.value);
+  if(state.menu) state.menu.q='';
+  if(el.closest('#suggest')){ state.query=''; $('search').value=''; render(); $('search').focus(); }
+  return;
+ }
+ if(el.dataset.saved!==undefined){
+  const v=savedViews[Number(el.dataset.saved)];
+  state.facets=JSON.parse(JSON.stringify(v.facets)); state.query=v.query; state.range=v.range||'week';
+  $('search').value=v.query; state.selected=null; render(); return;
+ }
+ if(el.dataset.dropSaved!==undefined){
+  savedViews.splice(Number(el.dataset.dropSaved),1); render(); toast('View deleted.'); return;
+ }
+ if(el.dataset.side){
+  const id=el.dataset.side;
+  state.sideOpen[id]=state.sideOpen[id]===false;
+  el.setAttribute('aria-expanded',String(state.sideOpen[id]));
+  const body=$('side-'+id); if(body) body.hidden=!state.sideOpen[id];
+  return;
+ }
+ if(el.dataset.menuKind){ state.menu={...state.menu, kind:el.dataset.menuKind, q:'', focus:true}; renderMenu(); return; }
+ if(el.dataset.section){
+  state.open[el.dataset.section]=!state.open[el.dataset.section]; render(); return;
+ }
+ if(el.dataset.more){
+  const id=el.dataset.more;
+  state.limits[id]=(state.limits[id] ?? SECTION_PREVIEW)+PAGE_STEP; render(); return;
+ }
+ if(el.dataset.sort){
+  const k=el.dataset.sort;
+  state.sort = state.sort.key===k
+    ? {key:k, dir:state.sort.dir==='asc'?'desc':'asc'}
+    : {key:k, dir:k==='title'?'asc':'desc'};
+  render(); return;
+ }
+ if(el.dataset.range){ state.range=el.dataset.range; state.selected=null; render(); return; }
+ if(el.dataset.density){ state.density=el.dataset.density; render(); return; }
+ if(el.dataset.step){
+  const i=state.rendered.indexOf(state.selected)+Number(el.dataset.step);
+  if(state.rendered[i]!=null) openSession(state.rendered[i]);
+  return;
+ }
+ if(el.dataset.file!==undefined && el.classList.contains('artifact')){
+  const s=sessions.find(x=>x.id===state.selected);
+  dialog(`<h2>${esc(s.files[Number(el.dataset.file)])}</h2>
+   <p>Sample file from “${esc(title(s))}”. This prototype does not open real artifacts.</p>
+   <div class="dialog-actions"><button class="btn primary" data-act="dismiss">Back</button></div>`);
+  return;
+ }
+
+ switch(el.dataset.act){
+  case 'close': closeDetail(); break;
+  case 'dismiss': $('dialog').close(); break;
+  case 'clear-search': state.query=''; $('search').value=''; render(); $('search').focus(); break;
+  case 'drop-facet': removeFacet(el.dataset.facet, el.dataset.value); break;
+  case 'clear-facets': clearFacets(); break;
+  case 'reset': state.range='all'; clearFacets(); break;
+  case 'all-time': state.range='all'; render(); break;
+  case 'open-menu':
+   state.menu = state.menu ? null
+     : {kind:el.dataset.kind||'status', q:'', anchor:el.dataset.anchor, focus:true};
+   renderChips(); renderMenu(); break;
+  case 'retry':
+   HOSTS.find(h=>h.id==='agent-box').up=true;
+   for(const s of sessions) if(!s.reachable){ s.reachable=true; }
+   render(); toast('Reconnected to agent-box. 3 sessions refreshed.'); break;
+  case 'updates': applyUpdate(); break;
+  case 'bulk-clear': state.picked.clear(); render(); break;
+  case 'bulk-pin': {
+   const list=[...state.picked].map(id=>sessions.find(s=>s.id===id));
+   const on=!list.every(s=>s.pinned);
+   list.forEach(s=>s.pinned=on);
+   toast(`${list.length} session${list.length===1?'':'s'} ${on?'pinned':'unpinned'}.`);
+   state.picked.clear(); render(); break; }
+  case 'bulk-archive': {
+   const list=[...state.picked].map(id=>sessions.find(s=>s.id===id));
+   const un=list.every(s=>s.state==='archived');
+   list.forEach(s=>s.state = un ? (LEGACY_STATE[s.status]||'idle') : 'archived');
+   toast(`${list.length} session${list.length===1?'':'s'} ${un?'restored':'archived'}.`);
+   state.picked.clear(); render(); break; }
+  case 'pin': {
+   const s=sessions.find(x=>x.id===state.selected);
+   s.pinned=!s.pinned; render(); toast(s.pinned?'Pinned.':'Unpinned.'); break; }
+  case 'resume': toast('Prototype: this would open the exact session in its original agent.'); break;
+  case 'fresh': toast('Prototype: this would start a new session seeded with the handoff.'); break;
+  case 'save-view': dialog(`<form id="saveForm"><h2>Save this view</h2>
+    <p>Stores the filter chips, the search text and the time range together. It appears under <strong>Saved</strong> in the sidebar.</p>
+    <label for="viewName">View name</label>
+    <input id="viewName" maxlength="40" required value="${esc(activeFacets().map(f=>facetLabel(f.kind,f.value)).join(' · ')||'My session view')}">
+    <div class="dialog-actions"><button type="button" class="btn" data-act="dismiss">Cancel</button>
+    <button class="btn primary">Save view</button></div></form>`); break;
+  case 'alias': {
+   const g=groups.find(x=>x.id===state.facets.group[0]);
+   dialog(`<form id="aliasForm"><h2>Edit group label</h2>
+    <p>Detected from ${esc(g.basis)}. This changes the display name only — membership keeps following the recorded location.</p>
+    <label for="aliasName">Display label</label>
+    <input id="aliasName" maxlength="35" required value="${esc(groupLabel(g.id))}">
+    <div class="dialog-actions"><button type="button" class="btn" data-act="dismiss">Cancel</button>
+    <button class="btn primary">Apply label</button></div></form>`); break; }
+  case 'diagnostics': dialog(`<h2>Diagnostics</h2>
+   <p>Local Mac is healthy. agent-box is not answering over SSH; its sessions are shown from the last successful collection.
+   Pricing and launch checks passed.</p>
+   <div class="dialog-actions"><button class="btn primary" data-act="dismiss">Done</button></div>`); break;
+  case 'settings': dialog(`<h2>Settings</h2>
+   <p>Vendors, Remote SSH, collection, appearance and launch behaviour live on the production settings surface.</p>
+   <div class="dialog-actions"><button class="btn primary" data-act="dismiss">Done</button></div>`); break;
+ }
+});
+
+document.addEventListener('change',e=>{
+ if(e.target.dataset.pick){
+  const id=Number(e.target.dataset.pick);
+  e.target.checked?state.picked.add(id):state.picked.delete(id);
+  e.target.closest('tr')?.classList.toggle('picked',e.target.checked);
+  renderBulk(); return;
+ }
+ if(e.target.id==='pickAll'){
+  const on=e.target.checked;
+  document.querySelectorAll('[data-pick]').forEach(cb=>{
+   cb.checked=on; const id=Number(cb.dataset.pick);
+   on?state.picked.add(id):state.picked.delete(id);});
+  renderBulk(); return;
+ }
+});
+
+document.addEventListener('submit',e=>{
+ e.preventDefault();
+ if(e.target.id==='saveForm'){
+  const name=$('viewName').value.trim(); if(!name) return;
+  savedViews.push({name, facets:JSON.parse(JSON.stringify(state.facets)), query:state.query, range:state.range});
+  state.sideOpen.saved=true;
+  $('dialog').close(); render(); toast(`“${name}” saved to the sidebar.`);
+ }
+ if(e.target.id==='aliasForm'){
+  const name=$('aliasName').value.trim(); if(!name) return;
+  aliases[state.facets.group[0]]=name; $('dialog').close(); render();
+ }
+});
+
+let searchTimer;
+$('search').addEventListener('input',e=>{
+ state.query=e.target.value;
+ if(state.query && state.sort.key==='recent') state.sort={key:'relevance',dir:'desc'};
+ if(!state.query && state.sort.key==='relevance') state.sort={key:'recent',dir:'desc'};
+ clearTimeout(searchTimer);
+ searchTimer=setTimeout(render, SEARCH_DEBOUNCE);
+});
+document.addEventListener('input',e=>{
+ if(e.target.id==='menuQ'){ state.menu.q=e.target.value; renderMenu(); $('menuQ').focus(); }
+ if(e.target.id==='groupFilter'){ state.groupFilter=e.target.value; renderGroupList(); }
+});
+document.addEventListener('keydown',e=>{
+ if($('dialog').open) return;
+ const editing=/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
+ if(((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k')||(e.key==='/'&&!editing)){
+  e.preventDefault(); if(state.selected!=null) closeDetail();
+  $('search').focus(); $('search').select(); return;
+ }
+ if(e.key==='Escape'){
+  if(state.menu){ state.menu=null; renderChips(); renderMenu(); return; }
+  if(!$('suggest').hidden){ $('suggest').hidden=true; return; }
+  if(state.selected!=null){ closeDetail(); return; }
+ }
+ if(e.key==='Enter'&&document.activeElement===$('search')&&state.rendered.length){
+  e.preventDefault(); openSession(state.rendered[0]); return;
+ }
+ /* arrows walk the rows in the order they are drawn, not in data order */
+ if((e.key==='ArrowDown'||e.key==='ArrowUp')&&(!editing||document.activeElement===$('search'))){
+  if(!state.rendered.length) return;
+  e.preventDefault();
+  const at=state.rendered.indexOf(state.selected);
+  const next=e.key==='ArrowDown'?Math.min(at+1,state.rendered.length-1):Math.max(at-1,0);
+  openSession(state.rendered[at<0?0:next]);
+  return;
+ }
+ if(e.key==='Tab'&&state.selected!=null&&asModal()){
+  const f=[...$('detail').querySelectorAll('button:not([disabled]),input,a[href]')];
+  if(!f.length) return;
+  if(e.shiftKey&&document.activeElement===f[0]){ e.preventDefault(); f[f.length-1].focus(); }
+  else if(!e.shiftKey&&document.activeElement===f[f.length-1]){ e.preventDefault(); f[0].focus(); }
+ }
+});
+document.addEventListener('mousedown',e=>{
+ if(state.menu&&!e.target.closest('#menu,[data-act="open-menu"],.more-groups')){
+  state.menu=null; renderChips(); renderMenu();
+ }
+ if(!$('suggest').hidden&&!e.target.closest('.search-wrap')) $('suggest').hidden=true;
+});
+let resizeTimer, lastCols;
+addEventListener('resize',()=>{
+ renderChips();                    /* cheap, and debouncing it flashes the scope row away */
+ clearTimeout(resizeTimer);
+ resizeTimer=setTimeout(()=>{
+  if(visibleCols()!==lastCols){ lastCols=visibleCols(); render(); return; }
+  if(state.selected!=null) renderDetail(); if(state.menu) renderMenu(); },120);
+});
+
+/* staged live update — batched, never reorders under the cursor */
+function applyUpdate(){
+ const s=sessions.find(x=>x.id===20);
+ s.minutes=1; s.state='needs';
+ s.summary='Cache refresh finished. Two stale entries need a decision before it continues.';
+ Object.assign(s,{contextUsed:36,compactions:0,cache:'Warm',behind:0,ahead:0});
+ $('updates').hidden=true;
+ render(); toast('1 session updated. Your scroll position and selection were kept.');
+}
+setTimeout(()=>{ $('updates').hidden=false; }, 4000);
+
+/* --------------------------------------------------------------------- init */
+lastCols=visibleCols();
+document.querySelectorAll('[data-icon]').forEach(el=>{
+ el.outerHTML=ic(el.dataset.icon);
+});
+render();
+</script>
+</body>
+</html>
