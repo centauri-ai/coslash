@@ -229,12 +229,12 @@ export function ShareToHubDialog({
   }, [clock, retryReadyAt]);
 
   useEffect(() => {
-    if (phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
+    if (!open || phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
     setRecords([]);
     setReviewed(false);
     setProblem('The source revision or destination changed. Review the current selection again.');
     setPhase('select');
-  }, [phase, records.length, reviewStillCurrent]);
+  }, [open, phase, records.length, reviewStillCurrent]);
 
   const replaceSelection = (next: Set<string>) => {
     const limited = new Set([...next].slice(0, MAX_SHARE_ITEMS));
