@@ -50,6 +50,10 @@ func acquireRuntimeLock() (*os.File, error) {
 	return file, nil
 }
 
+func markRuntimeReady(file *os.File) error {
+	return unix.Flock(int(file.Fd()), unix.LOCK_SH)
+}
+
 func writeRuntime(baseURL string) error {
 	home := settings.Home()
 	if err := os.MkdirAll(home, 0o700); err != nil {
@@ -109,11 +113,17 @@ func runtimeOwnerActive() bool {
 		return false
 	}
 	defer file.Close()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		return errors.Is(err, unix.EWOULDBLOCK)
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err == nil {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		return false
+	} else if !errors.Is(err, unix.EWOULDBLOCK) {
+		return false
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
+		return false
 	}
 	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-	return false
+	return true
 }
 
 func readRuntime() (string, string, error) {

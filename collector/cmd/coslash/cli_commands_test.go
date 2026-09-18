@@ -34,6 +34,9 @@ func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
 	if err := writeRuntime("http://127.0.0.1:4321"); err != nil {
 		t.Fatal(err)
 	}
+	if err := markRuntimeReady(lock); err != nil {
+		t.Fatal(err)
+	}
 
 	baseURL, token, err := readRuntime()
 	if err != nil {
@@ -170,6 +173,35 @@ func TestRuntimeLockAcquisitionClearsStaleDiscovery(t *testing.T) {
 	}
 	if called {
 		t.Fatal("stale runtime endpoint received a request during restart")
+	}
+}
+
+func TestExclusiveRuntimeLockIsNotReady(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		io.WriteString(w, "[]")
+	}))
+	defer server.Close()
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	lock, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := writeToken("stale-token"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRuntime(server.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"sessions", "--json"}); code == 0 {
+		t.Fatalf("sessions trusted discovery while startup lock was exclusive: %s", stdout.String())
+	}
+	if called {
+		t.Fatal("runtime endpoint received a request before startup was ready")
 	}
 }
 
@@ -541,6 +573,9 @@ func writeTestRuntime(t *testing.T, baseURL, token string) {
 		t.Fatal(err)
 	}
 	if err := writeRuntime(baseURL); err != nil {
+		t.Fatal(err)
+	}
+	if err := markRuntimeReady(lock); err != nil {
 		t.Fatal(err)
 	}
 }
