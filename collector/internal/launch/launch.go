@@ -200,7 +200,8 @@ func CursorWorkspace(workingDirectory string) error {
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("launch: open Cursor: %w", err)
 	}
-	return command.Process.Release()
+	go func() { _ = command.Wait() }()
+	return nil
 }
 
 // RemoteTerminal opens the selected local terminal and runs an agent CLI on a

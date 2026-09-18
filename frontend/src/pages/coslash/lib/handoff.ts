@@ -8,6 +8,14 @@ import {
   type SessionDetail,
 } from '@/pages/coslash/lib/session';
 
+export async function copyHandoffText(
+  text: string,
+  clipboard: Pick<Clipboard, 'writeText'> | null = globalThis.navigator?.clipboard ?? null,
+): Promise<void> {
+  if (clipboard == null) throw new Error('Clipboard access is unavailable');
+  await clipboard.writeText(text);
+}
+
 export function handoffBrief(detail: SessionDetail): string {
   const goal = resolveGoal(detail);
   const openTodos = detail.todos.filter((todo) => !todo.done);
