@@ -111,6 +111,45 @@ func TestGetSessionFactsAppliesMetadataRelationship(t *testing.T) {
 	}
 }
 
+func TestCursorEnrichmentClearsStaleLivenessForStoppedSession(t *testing.T) {
+	parsed := &vendors.ParsedSession{Session: &session.Session{ID: "stopped"}, Stopped: true}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("stopped").Live = "interactive"
+
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+
+	if got := metadata.Lookup("stopped").Live; got != "" {
+		t.Fatalf("live = %q, want empty after terminal stop", got)
+	}
+}
+
+func TestSelectCursorFilesPreservesLiveFamily(t *testing.T) {
+	tempFile := filepath.Join(t.TempDir(), "stat")
+	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(tempFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID := "00000000-0000-4000-8000-000000000001"
+	childID := "00000000-0000-4000-8000-000000000002"
+	files := []string{
+		filepath.Join("agent-transcripts", rootID, rootID+".jsonl"),
+		filepath.Join("agent-transcripts", rootID, "subagents", childID+".jsonl"),
+	}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session(childID).Live = "interactive"
+
+	got := selectCursorFilesSourceWithMetadata(
+		statReadSource{info: info}, files, info.ModTime().UnixMilli()+1, metadata,
+	)
+
+	if len(got) != 2 {
+		t.Fatalf("selected files = %v, want live family", got)
+	}
+}
+
 func TestCursorFamilyFilesSelectsOnlyRequestedFamily(t *testing.T) {
 	rootID := "00000000-0000-4000-8000-000000000001"
 	childID := "00000000-0000-4000-8000-000000000002"
@@ -243,6 +282,31 @@ func TestSelectCursorFilesOrdersFamiliesBySideStoreActivity(t *testing.T) {
 	t.Fatalf("side-store-newest session %q was omitted from %d selected files", newestID, len(got))
 }
 
+func TestSelectCursorFilesDoesNotCreateMetadataForRejectedHistory(t *testing.T) {
+	tempFile := filepath.Join(t.TempDir(), "stat")
+	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(tempFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "00000000-0000-4000-8000-000000000001"
+	metadata := vendors.EmptySessionMetadata()
+	got := selectCursorFilesSourceWithMetadata(
+		statReadSource{info: info},
+		[]string{filepath.Join("agent-transcripts", id, id+".jsonl")},
+		info.ModTime().UnixMilli()+1,
+		metadata,
+	)
+
+	if len(got) != 0 {
+		t.Fatalf("selected files = %v, want none", got)
+	}
+	if len(metadata.Sessions) != 0 {
+		t.Fatalf("metadata entries = %d, want none", len(metadata.Sessions))
+	}
+}
 func TestCursorSourceHealthCountsOnlyRootTranscripts(t *testing.T) {
 	rootID := "00000000-0000-4000-8000-000000000001"
 	childID := "00000000-0000-4000-8000-000000000002"

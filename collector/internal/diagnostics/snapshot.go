@@ -264,11 +264,7 @@ func collectSource(
 			Error: displayError(userHome, skipped.Error),
 		})
 	}
-	probeName := health.Agent
-	if source.IDE == nil {
-		probeName = source.CLI.Name
-	}
-	if path, err := exec.LookPath(probeName); err == nil {
+	if path, err := exec.LookPath(health.Agent); err == nil {
 		target := &source.CLI
 		if source.IDE != nil {
 			target = source.IDE
