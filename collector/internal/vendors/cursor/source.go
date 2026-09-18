@@ -20,7 +20,7 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 		return nil, nil, err
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
-	files = selectCursorFilesSource(vendors.LocalReadSource, files, since)
+	files = selectCursorFilesSource(vendors.LocalReadSource, files, metadata, since)
 	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, files)
 	applyCursorEnrichment(parsed, metadata)
 	return parsed, metadata, nil
@@ -47,7 +47,10 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if err != nil || parsed == nil {
 		return parsed, err
 	}
-	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata))
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
+		return LoadMetadataForSessions([]string{parsed.Session.ID}, fragments)
+	})
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
 	return parsed, nil
 }
 
@@ -59,8 +62,17 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
-	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, cursorFamilyFiles(files, id))
-	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, LoadMetadata)
+	familyFiles := cursorFamilyFiles(files, id)
+	parsed := parseTranscriptFilesSource(vendors.LocalReadSource, familyFiles)
+	ids := make([]string, 0, len(parsed))
+	for _, item := range parsed {
+		if item != nil && item.Session != nil {
+			ids = append(ids, item.Session.ID)
+		}
+	}
+	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
+		return LoadMetadataForSessions(ids, familyFiles)
+	})
 	applyCursorEnrichment(parsed, metadata)
 	return selectFamily(parsed, id), metadata, nil
 }
@@ -183,7 +195,7 @@ func parseTranscriptFilesSource(source vendors.ReadSource, files []string) []*ve
 	})
 }
 
-func selectCursorFilesSource(source vendors.ReadSource, files []string, since int64) []string {
+func selectCursorFilesSource(source vendors.ReadSource, files []string, metadata *vendors.SessionMetadata, since int64) []string {
 	if len(files) == 0 {
 		return nil
 	}
@@ -203,7 +215,9 @@ func selectCursorFilesSource(source vendors.ReadSource, files []string, since in
 			continue
 		}
 		info, err := source.Stat(path)
-		if err != nil || info.ModTime().UnixMilli() >= since {
+		enrichment := metadata.Lookup(IDFromPath(path))
+		if err != nil || info.ModTime().UnixMilli() >= since ||
+			enrichment != nil && max(enrichment.StartedAt, enrichment.LastActivityAt) >= since {
 			eligibleFamilies[familyID] = true
 		}
 	}
@@ -216,8 +230,15 @@ func selectCursorFilesSource(source vendors.ReadSource, files []string, since in
 	if since <= 0 {
 		return eligible
 	}
-	selected, _ := vendors.LimitNewestSourceFileFamilies(source, eligible, vendors.MaxCandidateFilesPerAgent,
-		func(path string) string { return union.find(IDFromPath(path)) })
+	selected, _ := vendors.LimitNewestFileFamilies(eligible, vendors.MaxCandidateFilesPerAgent,
+		func(path string) string { return union.find(IDFromPath(path)) },
+		func(path string) int64 {
+			modified := vendors.SourceModificationTime(source, path)
+			if enrichment := metadata.Lookup(IDFromPath(path)); enrichment != nil {
+				modified = max(modified, enrichment.StartedAt, enrichment.LastActivityAt)
+			}
+			return modified
+		})
 	return selected
 }
 

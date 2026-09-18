@@ -102,10 +102,58 @@ func TestSelectCursorFilesDoesNotCapAllHistory(t *testing.T) {
 		files[i] = filepath.Join("agent-transcripts", id, id+".jsonl")
 	}
 
-	got := selectCursorFilesSource(statReadSource{info: info}, files, 0)
+	got := selectCursorFilesSource(statReadSource{info: info}, files, nil, 0)
 	if len(got) != len(files) {
 		t.Fatalf("selected %d files, want all %d", len(got), len(files))
 	}
+}
+
+func TestSelectCursorFilesUsesSideStoreActivity(t *testing.T) {
+	id := "00000000-0000-4000-8000-000000000001"
+	path := filepath.Join("agent-transcripts", id, id+".jsonl")
+	tempFile := filepath.Join(t.TempDir(), "stat")
+	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(tempFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	since := info.ModTime().UnixMilli() + 1
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session(id).LastActivityAt = since
+
+	got := selectCursorFilesSource(statReadSource{info: info}, []string{path}, metadata, since)
+	if len(got) != 1 || got[0] != path {
+		t.Fatalf("selected files = %v, want side-store-recent session", got)
+	}
+}
+
+func TestSelectCursorFilesOrdersFamiliesBySideStoreActivity(t *testing.T) {
+	tempFile := filepath.Join(t.TempDir(), "stat")
+	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(tempFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make([]string, vendors.MaxCandidateFilesPerAgent+1)
+	for i := range files {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012x", i)
+		files[i] = filepath.Join("agent-transcripts", id, id+".jsonl")
+	}
+	newestID := IDFromPath(files[len(files)-1])
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session(newestID).LastActivityAt = info.ModTime().UnixMilli() + 1
+
+	got := selectCursorFilesSource(statReadSource{info: info}, files, metadata, 1)
+	for _, path := range got {
+		if path == files[len(files)-1] {
+			return
+		}
+	}
+	t.Fatalf("side-store-newest session %q was omitted from %d selected files", newestID, len(got))
 }
 
 func TestCursorSourceHealthCountsOnlyRootTranscripts(t *testing.T) {
