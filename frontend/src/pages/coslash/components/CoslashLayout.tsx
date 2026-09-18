@@ -31,12 +31,14 @@ import { buildReviewIndex, type ReviewerOption, type ReviewIndex } from '@/pages
 import {
   boardStatusKey,
   getSessionCardSummary,
+  getSessionVendors,
   getTotalTokens,
   getVendor,
   isLocalSession,
   LOCAL_SOURCE_ID,
   sessionKey,
   sessionReadiness,
+  sessionsForAggregates,
   sumKnown,
   type Session,
 } from '@/pages/coslash/lib/session';
@@ -85,9 +87,8 @@ const STATUS_META: Record<SessionStatusGroup, { label: string; hint: string }> =
   needs: { label: 'Needs you', hint: 'Blocked on your input' },
   running: { label: 'Running', hint: 'Working right now' },
   idle: { label: 'Idle', hint: 'Stopped — resume whenever you like' },
-  archived: { label: 'Archived', hint: 'Done or aged out' },
 };
-const STATUS_ORDER: SessionStatusGroup[] = ['needs', 'running', 'idle', 'archived'];
+const STATUS_ORDER: SessionStatusGroup[] = ['needs', 'running', 'idle'];
 const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'this-week', label: 'This week' },
@@ -179,7 +180,8 @@ function detectedGroup(session: Session): Group {
   const cwd = session.cwd.trim();
   if (cwd) {
     const parts = cwd.split('/').filter(Boolean);
-    const parent = parts.slice(0, -1).join('/');
+    // A root-level cwd has no parent, so it groups under itself rather than an empty shared id.
+    const parent = parts.slice(0, -1).join('/') || parts.join('/');
     return {
       id: `folder:${session.sourceId}:${parent}`,
       label: `${session.sourceLabel} · ${parts.at(-2) ?? parts.at(-1) ?? 'Folder'}`,
@@ -273,7 +275,8 @@ function InlineSpinner() {
 }
 
 function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boolean }) {
-  const unpriced = sessions.filter((session) => session.cost == null || session.unpricedModels.length > 0);
+  const aggregate = sessionsForAggregates(sessions);
+  const unpriced = aggregate.filter((session) => session.cost == null || session.unpricedModels.length > 0);
   return (
     <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden text-[12.5px] whitespace-nowrap max-[900px]:w-full">
       {isLoading && <span className="sr-only">Refreshing sessions</span>}
@@ -283,14 +286,14 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
       <span className="text-[var(--coslash-muted)]">active in this scope</span>
       <span className="text-[var(--coslash-muted)]">·</span>
       <span className="flex items-center gap-1 text-[var(--coslash-muted)]">
-        {isLoading ? <InlineSpinner /> : formatTokens(totalTokens(sessions))} tokens
+        {isLoading ? <InlineSpinner /> : formatTokens(totalTokens(aggregate))} tokens
       </span>
       <span className="text-[var(--coslash-muted)]">·</span>
       {isLoading ? (
         <InlineSpinner />
       ) : (
         <UnpricedModelWarning unpriced={unpriced.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(sumKnown(sessions.map((session) => session.cost)))}
+          {formatEstimatedCost(sumKnown(aggregate.map((session) => session.cost)))}
         </UnpricedModelWarning>
       )}
       {!isLoading && unpriced.length > 0 && (
@@ -727,6 +730,7 @@ function SessionListView({
         const open = openSections[status];
         const limit = sectionLimits[status] ?? (compact ? 12 : 5);
         const shown = open ? rows.slice(0, limit) : [];
+        const aggregate = sessionsForAggregates(rows);
         return (
           <tbody key={status}>
             <tr>
@@ -744,8 +748,8 @@ function SessionListView({
                   {STATUS_META[status].label}{' '}
                   <span className="font-medium text-[var(--coslash-muted)]">{rows.length}</span>
                   <span className="ml-auto text-[11.5px] font-medium text-[var(--coslash-muted)]">
-                    {formatTokens(totalTokens(rows))} tokens ·{' '}
-                    {formatTableCost(sumKnown(rows.map((session) => session.cost)))}
+                    {formatTokens(totalTokens(aggregate))} tokens ·{' '}
+                    {formatTableCost(sumKnown(aggregate.map((session) => session.cost)))}
                   </span>
                 </button>
               </th>
@@ -838,7 +842,6 @@ export function CoslashLayout({
     needs: true,
     running: true,
     idle: true,
-    archived: false,
   });
   const [sectionLimits, setSectionLimits] = useState<Record<string, number>>({});
   const [groupQuery, setGroupQuery] = useState('');
@@ -864,13 +867,7 @@ export function CoslashLayout({
       ),
     [sessionGroups],
   );
-  const agents = useMemo(
-    () =>
-      reviewerOptions.length > 0
-        ? reviewerOptions.filter((option) => option.available).map((option) => option.id)
-        : [...new Set(sessions.map((session) => session.agent))],
-    [reviewerOptions, sessions],
-  );
+  const agents = useMemo(() => getSessionVendors(sessions), [sessions]);
   const start = rangeStart(range);
   const sessionsInRange = useMemo(
     () => sessions.filter((session) => start == null || session.status != null || session.mtime >= start),
@@ -934,12 +931,9 @@ export function CoslashLayout({
         id: status,
         status,
         label: STATUS_META[status].label,
-        count:
-          status === 'archived'
-            ? 0
-            : countWith((session) => sessionStatusGroup(session) === status, 'status'),
+        count: countWith((session) => sessionStatusGroup(session) === status, 'status'),
         selected: preferences.statusFilters.includes(status),
-        onClick: () => status !== 'archived' && toggleStatus(status),
+        onClick: () => toggleStatus(status),
       })),
     },
     {

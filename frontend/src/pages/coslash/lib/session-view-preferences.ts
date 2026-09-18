@@ -1,5 +1,5 @@
 export type SessionRange = 'today' | 'this-week' | 'week' | 'month' | 'all';
-export type SessionStatusGroup = 'needs' | 'running' | 'idle' | 'archived';
+export type SessionStatusGroup = 'needs' | 'running' | 'idle';
 export type SessionListDensity = 'comfortable' | 'compact';
 export type SessionView = 'list' | 'board';
 export type SessionSort = {
@@ -21,7 +21,7 @@ export type SessionViewPreferences = {
 
 const STORAGE_KEY = 'coslash.session-view-preferences.v1';
 const RANGES = new Set<SessionRange>(['today', 'this-week', 'week', 'month', 'all']);
-const STATUSES = new Set<SessionStatusGroup>(['needs', 'running', 'idle', 'archived']);
+const STATUSES = new Set<SessionStatusGroup>(['needs', 'running', 'idle']);
 const VIEWS = new Set<SessionView>(['list', 'board']);
 const DENSITIES = new Set<SessionListDensity>(['comfortable', 'compact']);
 const SORT_KEYS = new Set<SessionSort['key']>(['title', 'recent', 'cost']);
