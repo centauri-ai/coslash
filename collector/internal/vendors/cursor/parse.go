@@ -85,11 +85,11 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			digest.Push(turns, category, prompt, timestamp)
 		}
 		if record.Role == "assistant" && record.Message != nil {
+			textBlocks := []string{}
 			for _, block := range record.Message.Content {
 				if block.Type == "text" {
 					if text := strings.TrimSpace(block.Text); text != "" {
-						assistantResult = text
-						turnFinalReply = text
+						textBlocks = append(textBlocks, text)
 					}
 				}
 				if block.Type != "tool_use" {
@@ -159,6 +159,10 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 					spawns[spawnKey] = vendors.SpawnState{Turn: &turn, Task: task}
 					digest.PushSubagentTask(turn, spawnKey, task, 0)
 				}
+			}
+			if len(textBlocks) > 0 {
+				assistantResult = strings.Join(textBlocks, "\n\n")
+				turnFinalReply = assistantResult
 			}
 		}
 		if record.Type == "turn_ended" {

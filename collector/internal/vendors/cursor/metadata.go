@@ -170,7 +170,7 @@ func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadat
 		loadIDETimes(metadata, stateDB, ids)
 		loadIDEDiffs(metadata, stateDB, ids)
 		loadIDECommitObservations(metadata, stateDB, ids)
-		loadIDEModelsDB(metadata, stateDB, ids)
+		loadIDEModelsDB(metadata, lanes, stateDB, ids)
 	}
 	query, args := cursorIDQuery(`SELECT id, title FROM conversations`, "id", ids)
 	query += ` ORDER BY source = 'local' DESC`
@@ -675,10 +675,10 @@ func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, las
 // Each ID adds two OR terms; stay below SQLite's default expression depth.
 const maxIDEModelQueryIDs = 400
 
-func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+func loadIDEModelsDB(metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, db *sql.DB, ids []string) {
 	if len(ids) > maxIDEModelQueryIDs {
 		for start := 0; start < len(ids); start += maxIDEModelQueryIDs {
-			loadIDEModelsDB(metadata, db, ids[start:min(start+maxIDEModelQueryIDs, len(ids))])
+			loadIDEModelsDB(metadata, lanes, db, ids[start:min(start+maxIDEModelQueryIDs, len(ids))])
 		}
 		return
 	}
@@ -762,6 +762,12 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 			}
 		} else if id, ok := strings.CutPrefix(key, "composerData:"); ok && transcriptIDPattern.MatchString(id) {
 			id = canonicalCursorID(id)
+			if lanes != nil {
+				if lanes[id] == nil {
+					lanes[id] = map[string]bool{}
+				}
+				lanes[id][entrypointIDE] = true
+			}
 			fallbacks[id] = strings.TrimSpace(item.ModelConfig.ModelName)
 			metadata.Session(id).CompactionSeed = strings.TrimSpace(item.LatestConversationSummary.Summary.Text)
 			usage := metadata.Session(id).Usage

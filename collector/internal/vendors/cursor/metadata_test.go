@@ -239,7 +239,7 @@ func TestLoadIDEModelsOrdersNumericTimestampsDeterministically(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, db, nil)
+	loadIDEModelsDB(metadata, nil, db, nil)
 	if got := metadata.Session(id).Model; got != "gpt-5" {
 		t.Fatalf("model = %q, want newest model with deterministic key tie-break", got)
 	}
@@ -265,7 +265,7 @@ func TestLoadIDEModelsCountsOnlyCreatedPullRequests(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, db, nil)
+	loadIDEModelsDB(metadata, nil, db, nil)
 	if got := metadata.Session(id).PullRequests; got != 1 {
 		t.Fatalf("pull requests = %d, want only the created pull request", got)
 	}
@@ -291,7 +291,7 @@ func TestLoadIDEModelsBatchesLargeSelections(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, db, ids)
+	loadIDEModelsDB(metadata, nil, db, ids)
 	if got := metadata.Session(target).Model; got != "gpt-5" {
 		t.Fatalf("model = %q, want model from the final query batch", got)
 	}
@@ -401,7 +401,7 @@ func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 	}
 
 	metadata := vendors.EmptySessionMetadata()
-	loadIDEModelsDB(metadata, db, nil)
+	loadIDEModelsDB(metadata, nil, db, nil)
 	usage := metadata.Session(id).Usage
 	if len(usage.Tokens) != 0 {
 		t.Fatalf("cumulative tokens = %#v, want unavailable", usage.Tokens)
@@ -425,7 +425,7 @@ func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 	}
 }
 
-func TestLoadMetadataClearsIDESeedForAmbiguousLane(t *testing.T) {
+func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 	home := t.TempDir()
 	const id = "01234567-89ab-4def-8123-456789abcdef"
 	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
@@ -444,9 +444,6 @@ func TestLoadMetadataClearsIDESeedForAmbiguousLane(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := stateDB.Exec(`INSERT INTO composerHeaders VALUES (?, '{}')`, id); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := stateDB.Exec(`INSERT INTO cursorDiskKV VALUES (?, ?)`,
 		"composerData:"+id, `{"latestConversationSummary":{"summary":{"summary":"IDE-only seed"}}}`,
 	); err != nil {
@@ -461,6 +458,9 @@ func TestLoadMetadataClearsIDESeedForAmbiguousLane(t *testing.T) {
 	}
 	if got := metadata.Session(id).CompactionSeed; got != "IDE-only seed" {
 		t.Fatalf("IDE compaction seed = %q, want fixture seed", got)
+	}
+	if got := metadata.Session(id).Entrypoint; got != entrypointIDE {
+		t.Fatalf("entrypoint = %q, want composer data to register IDE lane", got)
 	}
 
 	chatPath := filepath.Join(home, ".cursor", "chats", "one", "two", "store.db")
