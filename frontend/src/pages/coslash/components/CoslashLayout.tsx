@@ -238,6 +238,8 @@ function matchesSearch(session: Session, group: Group, query: string): boolean {
   return words.every((word) => {
     const prefix = word.match(/^(repo|group|machine|agent|status):(.+)$/);
     if (!prefix) {
+      // Rows title an unnamed session with its first prompt, which the library filter leaves out.
+      if (sessionTitle(session).toLowerCase().includes(word)) return true;
       return (
         filterSessionLibrary([session], {
           search: word,
@@ -879,6 +881,7 @@ export function CoslashLayout({
   onThemeChange,
   themeDisabled,
   onRetry,
+  onRetrySessions,
   retrying,
   isLoading,
   loadError,
@@ -901,6 +904,7 @@ export function CoslashLayout({
   onThemeChange: (theme: Theme) => void;
   themeDisabled: boolean;
   onRetry: () => void;
+  onRetrySessions: () => void;
   retrying: boolean;
   isLoading: boolean;
   loadError: string | null;
@@ -1303,7 +1307,7 @@ export function CoslashLayout({
                     <AlertTriangle className="text-coslash-muted size-6" />
                     <h3 className="text-[15px] font-[650]">Sessions could not be loaded</h3>
                     <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">{loadError}</p>
-                    <Button variant="outline" onClick={onRetry}>
+                    <Button variant="outline" onClick={onRetrySessions}>
                       Try again
                     </Button>
                   </div>

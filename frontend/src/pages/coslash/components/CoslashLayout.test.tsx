@@ -21,6 +21,7 @@ const props: ComponentProps<typeof CoslashLayout> = {
   onThemeChange: () => {},
   themeDisabled: false,
   onRetry: () => {},
+  onRetrySessions: () => {},
   retrying: false,
   isLoading: false,
   loadError: null,
