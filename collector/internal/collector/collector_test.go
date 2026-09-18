@@ -173,6 +173,7 @@ func TestGetSessionChangesSkipsEnvironmentProbes(t *testing.T) {
 			return []*vendors.ParsedSession{{Session: &session.Session{
 				Agent: "test", ID: "root", WorkingDirectory: t.TempDir(),
 				StartedAt: 100, LastActivityTime: 200,
+				SessionDetails: session.SessionDetails{Turns: 1},
 			}}}, vendors.EmptySessionMetadata(), nil
 		},
 	}}
