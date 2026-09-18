@@ -66,6 +66,17 @@ describe('handoffBrief', () => {
     expect(brief).toContain('- Working directory: —');
     expect(brief).not.toContain('undefined');
   });
+
+  it('preserves answers and ignores an empty synthesis outcome', () => {
+    const detail = remoteDetail();
+    detail.synthesis = { goals: [], outcome: '  ', keyDecisions: [], nextStep: '' };
+    detail.digest = [{ turn: 2, category: 'question', description: 'Which database?', answer: ' Postgres ' }];
+
+    const brief = handoffBrief(detail);
+
+    expect(brief).toContain('## Current state\nDid the thing');
+    expect(brief).toContain('  - Answer: Postgres');
+  });
 });
 
 describe('launchRequestPath', () => {

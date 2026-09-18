@@ -69,8 +69,52 @@ func writeRuntime(baseURL string) error {
 	return os.Rename(temporaryPath, filepath.Join(home, runtimeFilename))
 }
 
+func removeRuntime(baseURL, token string) error {
+	home := settings.Home()
+	runtimePath := filepath.Join(home, runtimeFilename)
+	tokenPath := filepath.Join(home, "token")
+	runtimeData, err := os.ReadFile(runtimePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var runtime runtimeDescriptor
+	if json.Unmarshal(runtimeData, &runtime) != nil || runtime.BaseURL != baseURL {
+		return nil
+	}
+	tokenData, err := os.ReadFile(tokenPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(tokenData)) != token {
+		return nil
+	}
+	return errors.Join(os.Remove(runtimePath), os.Remove(tokenPath))
+}
+
+func runtimeOwnerActive() bool {
+	file, err := os.OpenFile(filepath.Join(settings.Home(), "runtime.lock"), os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		return errors.Is(err, unix.EWOULDBLOCK)
+	}
+	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+	return false
+}
+
 func readRuntime() (string, string, error) {
 	home := settings.Home()
+	if !runtimeOwnerActive() {
+		return "", "", fmt.Errorf("coSlash app is not running; start it and retry")
+	}
 	data, err := os.ReadFile(filepath.Join(home, runtimeFilename))
 	if err != nil {
 		return "", "", fmt.Errorf("coSlash app is not running; start it and retry")
@@ -112,7 +156,12 @@ func newLocalAPIClient() (*localAPIClient, error) {
 	return &localAPIClient{
 		baseURL: baseURL,
 		token:   token,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}, nil
 }
 

@@ -311,3 +311,33 @@ func TestGetSessionFactsByAgentSelectsVendor(t *testing.T) {
 		t.Fatalf("session = %#v, want codex session", got)
 	}
 }
+
+func TestSessionIDIndexScansEachSourceOnce(t *testing.T) {
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+	counts := map[string]int{}
+	vendorSources = []vendorSource{
+		{name: "claude", collect: func(int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			counts["claude"]++
+			return []*vendors.ParsedSession{
+				{Session: &session.Session{Agent: "claude", ID: "root"}},
+				{Session: &session.Session{Agent: "claude", ID: "child"}, ParentID: "root"},
+			}, vendors.EmptySessionMetadata(), nil
+		}},
+		{name: "codex", collect: func(int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			counts["codex"]++
+			return []*vendors.ParsedSession{{Session: &session.Session{Agent: "codex", ID: "same"}}}, vendors.EmptySessionMetadata(), nil
+		}},
+	}
+
+	index, err := SessionIDIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["claude"] != 1 || counts["codex"] != 1 {
+		t.Fatalf("source scans = %#v", counts)
+	}
+	if !index["claude"]["root"] || index["claude"]["child"] || !index["codex"]["same"] {
+		t.Fatalf("session index = %#v", index)
+	}
+}

@@ -120,3 +120,14 @@ func TestMigrateLegacyCacheDiscardsAmbiguousSession(t *testing.T) {
 		t.Fatalf("ambiguous legacy cache remains: %v", err)
 	}
 }
+
+func TestMigrateLegacyCachePreservesUnresolvedSession(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	legacy := writeLegacyRecord(t, "unresolved")
+	if err := MigrateLegacyCache(func(string, string) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("unresolved legacy cache was removed: %v", err)
+	}
+}

@@ -80,6 +80,9 @@ func MigrateLegacyCache(exists func(agent, id string) (bool, error)) error {
 		if resolutionFailed {
 			continue
 		}
+		if len(matches) == 0 {
+			continue
+		}
 		if len(matches) == 1 {
 			destination := cache.recordPath(matches[0], id)
 			if _, err := os.Stat(destination); errors.Is(err, os.ErrNotExist) {
