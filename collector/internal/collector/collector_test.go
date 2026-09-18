@@ -3,6 +3,7 @@ package collector
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -193,6 +194,46 @@ func TestGetSessionChangesSkipsEnvironmentProbes(t *testing.T) {
 	}
 	if got.GitProbed || got.LastEditAt != nil {
 		t.Fatalf("diff read probed environment: GitProbed=%t LastEditAt=%v", got.GitProbed, got.LastEditAt)
+	}
+}
+
+func TestGetSessionDetailPreservesExactSubagentText(t *testing.T) {
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+	task := strings.Repeat("task", session.TruncateTextLimit)
+	result := strings.Repeat("result", session.TruncateTextLimit)
+	loadFamily := func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+		return []*vendors.ParsedSession{
+			{Session: &session.Session{Agent: "test", ID: "root", StartedAt: 100, LastActivityTime: 200}},
+			{Session: &session.Session{
+				Agent: "test", ID: "child", StartedAt: 100, LastActivityTime: 200,
+				SessionDetails: session.SessionDetails{FirstPrompt: &task}, Summary: &result,
+			}, ParentID: "root"},
+		}, vendors.EmptySessionMetadata(), nil
+	}
+	vendorSources = []vendorSource{{name: "test", loadFamily: loadFamily}}
+
+	got, err := GetSessionDetail("test", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || len(got.Subagents) != 1 {
+		t.Fatalf("session = %#v, want one subagent", got)
+	}
+	if got.Subagents[0].Task != task || got.Subagents[0].Result != result {
+		t.Fatalf("exact subagent text was truncated: task=%d result=%d", len(got.Subagents[0].Task), len(got.Subagents[0].Result))
+	}
+
+	parsed, metadata, err := loadFamily("root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{"test": metadata})[0].Session
+	if len(listed.Subagents[0].Task) > session.TruncateTextLimit || len(listed.Subagents[0].Result) > session.TruncateTextLimit {
+		t.Fatal("list projection retained unbounded subagent text")
+	}
+	if listed.DetailRevision != got.DetailRevision {
+		t.Fatalf("list revision %q != exact revision %q", listed.DetailRevision, got.DetailRevision)
 	}
 }
 
