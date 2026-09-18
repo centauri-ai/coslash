@@ -279,6 +279,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   useEffect(() => {
     const controller = new AbortController();
     let authenticationFailed = false;
+    let remoteFailureRechecked = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
     const scheduleRefresh = (delay = REFRESH_INTERVAL_MS) => {
@@ -310,10 +311,19 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
           setLoadError(null);
+          const recheckRemoteFailure =
+            !remoteFailureRechecked &&
+            payload.machines.some(
+              (machine) =>
+                !isLocalSource(machine.sourceId) && (machine.state === 'stale' || machine.state === 'error'),
+            );
+          remoteFailureRechecked ||= recheckRemoteFailure;
           scheduleRefresh(
-            payload.sessions.some(({ reviewPending }) => reviewPending)
-              ? ACTIVE_REVIEW_REFRESH_INTERVAL_MS
-              : REFRESH_INTERVAL_MS,
+            recheckRemoteFailure
+              ? 400
+              : payload.sessions.some(({ reviewPending }) => reviewPending)
+                ? ACTIVE_REVIEW_REFRESH_INTERVAL_MS
+                : REFRESH_INTERVAL_MS,
           );
         })
         .catch((error: unknown) => {
