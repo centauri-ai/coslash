@@ -14,11 +14,15 @@ export const MACHINE_TONE_COPY: Record<MachineTone, string> = {
   disabled: 'Remote collection is turned off.',
 };
 
-/** Offline hosts and failed connectors are the ones a refresh can recover. */
+/** Only an offline host recovers from a refresh. */
 export function machineRetryable(machine: MachineFact): boolean {
   if (machine.sourceId === LOCAL_SOURCE_ID) return false;
-  const tone = machineTone(machine);
-  return tone === 'stale' || tone === 'failed';
+  return machineTone(machine) === 'stale';
+}
+
+/** A failed connector or credential needs the consented setup flow, which no refresh runs. */
+export function needsSetup(machine: MachineFact): boolean {
+  return machineTone(machine) === 'failed';
 }
 
 function isChecking(machine: MachineFact): boolean {

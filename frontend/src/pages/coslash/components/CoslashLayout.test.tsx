@@ -216,14 +216,33 @@ describe('CoslashLayout', () => {
     const markup = renderLayout({ sessions, range: 'today' });
     const repositoryHeading = markup.indexOf('Repositories');
     const folderHeading = markup.indexOf('Folders');
-    const groups = [...markup.matchAll(/centauri-ai/g)].map((match) => match.index);
 
-    expect(groups).toHaveLength(2);
-    expect(groups[0]).toBeGreaterThan(repositoryHeading);
-    expect(groups[0]).toBeLessThan(folderHeading);
-    expect(groups[1]).toBeGreaterThan(folderHeading);
+    expect(markup.indexOf('>centauri-ai<')).toBeGreaterThan(repositoryHeading);
+    expect(markup.indexOf('>centauri-ai<')).toBeLessThan(folderHeading);
     expect(markup.match(/lucide-folder(?!-git)/g)).toHaveLength(1);
     expect(markup.match(/lucide-folder-git-2/g)).toHaveLength(1);
+  });
+
+  it('keeps same-named local folders apart by their path', () => {
+    const folder = (id: string, cwd: string) =>
+      ({
+        id,
+        sourceId: 'local',
+        agent: 'codex',
+        repo: 'app',
+        repoLocalOnly: true,
+        cwd,
+        status: null,
+        mtime: 0,
+      }) as Session;
+
+    const markup = renderLayout({
+      sessions: [folder('client', '/work/client/app'), folder('server', '/work/server/app/src')],
+      range: 'today',
+    });
+
+    expect(markup).toContain('>client/app<');
+    expect(markup).toContain('>server/app<');
   });
 
   it('shows loading indicators while refreshing the selected time window', () => {
@@ -268,14 +287,33 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('role="alert"');
   });
 
-  it('makes the dot of an offline host a retry affordance, not a nested button', () => {
+  it('offers the offline retry as a focusable control beside the machine filter', () => {
     const markup = renderLayout({
       machines: [{ sourceId: 'remote', label: 'agent-box', state: 'stale', complete: false }],
     });
-    const dot = dotFor(markup, 'amber');
+    const retry = markup.indexOf('aria-label="Offline.');
+    const tag = markup.lastIndexOf('<', retry);
+    const before = markup.slice(0, tag);
 
-    expect(dot).toContain('cursor-pointer');
-    expect(dot.slice(0, dot.indexOf('>'))).not.toContain('<button');
+    expect(markup.slice(tag, retry)).toContain('<button');
+    expect(before.lastIndexOf('</button>')).toBeGreaterThan(before.lastIndexOf('<button'));
+  });
+
+  it('sends a failed connector to Settings rather than another refresh', () => {
+    const markup = renderLayout({
+      machines: [
+        {
+          sourceId: 'remote',
+          label: 'agent-box',
+          state: 'error',
+          complete: false,
+          reason: 'authentication_failed',
+        },
+      ],
+    });
+
+    expect(markup).toContain('Open Settings');
+    expect(markup).not.toContain('>Retry<');
   });
 
   it('does not paint a degraded remote as connected', () => {

@@ -514,12 +514,14 @@ export function sessionReadiness(
   const cacheReads = sumTokens(session.tokens, 'cache_read_input_tokens');
   const cacheState = cacheReads > 0 ? 'warm cache' : 'cold cache';
 
-  if ((contextUsed != null && contextUsed >= 82) || session.compactions >= 2 || commitsBehind >= 6) {
-    return {
-      key: 'fresh',
-      label: 'Start fresh',
-      detail: contextUsed == null ? `${session.compactions} compactions` : `${contextUsed}% context used`,
-    };
+  if (contextUsed != null && contextUsed >= 82) {
+    return { key: 'fresh', label: 'Start fresh', detail: `${contextUsed}% context used` };
+  }
+  if (session.compactions >= 2) {
+    return { key: 'fresh', label: 'Start fresh', detail: `${session.compactions} compactions` };
+  }
+  if (commitsBehind >= 6) {
+    return { key: 'fresh', label: 'Start fresh', detail: `${commitsBehind} commits behind` };
   }
   if (contextUsed != null && contextUsed <= 62 && cacheReads > 0 && commitsBehind <= 2) {
     return { key: 'resume', label: 'Resume', detail: `${contextUsed}% context · ${cacheState}` };

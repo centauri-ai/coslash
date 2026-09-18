@@ -280,6 +280,16 @@ describe('sessionReadiness', () => {
     });
   });
 
+  it('names the condition that triggered starting fresh', () => {
+    expect(sessionReadiness({ ...base, contextTokens: 85_000 })).toMatchObject({
+      detail: '85% context used',
+    });
+    expect(sessionReadiness({ ...base, compactions: 2 })).toMatchObject({ detail: '2 compactions' });
+    expect(sessionReadiness({ ...base, git: { baseBranch: 'main', ahead: 0, behind: 6 } })).toMatchObject({
+      detail: '6 commits behind',
+    });
+  });
+
   it('does not claim readiness when remote context is unavailable', () => {
     expect(sessionReadiness({ ...base, sourceId: 'r_0123456789abcdef', status: null })).toMatchObject({
       key: 'unavailable',
