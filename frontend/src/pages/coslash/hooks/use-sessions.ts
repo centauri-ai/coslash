@@ -368,6 +368,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     machines,
     isLoading,
     loadError,
+    detailRetryToken: retryCount,
     sessionsVersion,
     retrySessions,
     refreshSessions,
