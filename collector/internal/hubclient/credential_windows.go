@@ -45,27 +45,34 @@ func (s OSKeychain) Load(ctx context.Context) (string, error) {
 	}
 	target, err := windows.UTF16PtrFromString(windowsCredentialTarget(s))
 	if err != nil {
-		return "", ErrNotPaired
+		return "", fmt.Errorf("load Hub credential: invalid target: %w", err)
 	}
 	var credential *windowsCredential
-	ok, _, _ := credReadW.Call(
+	ok, _, callErr := credReadW.Call(
 		uintptr(unsafe.Pointer(target)),
 		windowsCredentialTypeGeneric,
 		0,
 		uintptr(unsafe.Pointer(&credential)),
 	)
 	if ok == 0 {
-		return "", ErrNotPaired
+		return "", windowsCredentialLoadError(callErr)
 	}
 	defer credFree.Call(uintptr(unsafe.Pointer(credential)))
 	if credential.CredentialBlobSize == 0 || credential.CredentialBlob == nil {
-		return "", ErrNotPaired
+		return "", errors.New("load Hub credential: Credential Manager returned an empty credential")
 	}
 	value := strings.TrimSpace(string(unsafe.Slice(credential.CredentialBlob, credential.CredentialBlobSize)))
 	if value == "" {
-		return "", ErrNotPaired
+		return "", errors.New("load Hub credential: Credential Manager returned an empty credential")
 	}
 	return value, nil
+}
+
+func windowsCredentialLoadError(err error) error {
+	if errors.Is(err, windows.ERROR_NOT_FOUND) {
+		return ErrNotPaired
+	}
+	return fmt.Errorf("load Hub credential: Credential Manager failed: %w", err)
 }
 
 func (s OSKeychain) Save(ctx context.Context, value string) error {

@@ -16,6 +16,18 @@ import (
 
 var credDeleteW = advapi32.NewProc("CredDeleteW")
 
+func TestWindowsCredentialLoadErrors(t *testing.T) {
+	if err := windowsCredentialLoadError(windows.ERROR_NOT_FOUND); !errors.Is(err, ErrNotPaired) {
+		t.Fatalf("ERROR_NOT_FOUND = %v; want %v", err, ErrNotPaired)
+	}
+	if err := windowsCredentialLoadError(windows.ERROR_ACCESS_DENIED); !errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, ErrNotPaired) {
+		t.Fatalf("ERROR_ACCESS_DENIED = %v; want wrapped API error", err)
+	}
+	if _, err := (OSKeychain{Service: "invalid\x00target", Account: "test"}).Load(context.Background()); err == nil || errors.Is(err, ErrNotPaired) {
+		t.Fatalf("invalid target error = %v; want distinct construction error", err)
+	}
+}
+
 func TestOSKeychainWindowsLifecycle(t *testing.T) {
 	target := fmt.Sprintf("coslash-test-%d-%d", os.Getpid(), time.Now().UnixNano())
 	store := OSKeychain{Service: target, Account: "disposable"}
