@@ -31,6 +31,9 @@ const (
 
 const MaxHandoffBytes = 64 * 1024
 
+// ErrWorkingDirectoryUnavailable means a session path no longer names a directory.
+var ErrWorkingDirectoryUnavailable = errors.New("launch: working directory is unavailable")
+
 const (
 	HandoffSweepInterval = 24 * time.Hour
 	HandoffMaxAge        = time.Hour
@@ -151,6 +154,10 @@ func Terminal(ctx context.Context, terminal, agent, workingDirectory, sessionID,
 func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, sessionID, mode, handoff, prompt string) error {
 	if workingDirectory == "" {
 		return fmt.Errorf("launch: session has no working directory")
+	}
+	info, err := os.Stat(workingDirectory)
+	if err != nil || !info.IsDir() {
+		return ErrWorkingDirectoryUnavailable
 	}
 	command, handoffPath, err := cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt)
 	if err != nil {
