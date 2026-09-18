@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"sort"
@@ -10,16 +11,28 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	files, err := Files()
+func Collect(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	files, err := FilesContext(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata := vendors.BestEffortMetadata(vendors.AgentClaude, LoadMetadata)
-	if since > 0 {
-		files = FilesSince(files, metadata.LiveSessions(), since)
+	metadata, metadataErr := LoadMetadataContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
 	}
-	return parseFiles(files), metadata, nil
+	if metadataErr != nil {
+		metadata = vendors.BestEffortMetadata(vendors.AgentClaude, func() (*vendors.SessionMetadata, error) {
+			return nil, metadataErr
+		})
+	}
+	if since > 0 {
+		files, err = FilesSinceSourceContext(ctx, vendors.LocalReadSource, files, metadata.LiveSessions(), since)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	parsed, err := parseFilesContext(ctx, files)
+	return parsed, metadata, err
 }
 
 // RemoteMetadata loads best-effort live/name metadata for a remote source
@@ -206,6 +219,14 @@ func parseFiles(files []string) []*vendors.ParsedSession {
 	return parseFilesSource(vendors.LocalReadSource, files)
 }
 
+func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
+	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files, parseSourceContext)
+	if err != nil {
+		return nil, err
+	}
+	return finalizeParsedFilesContext(ctx, vendors.LocalReadSource, parsed)
+}
+
 func parseFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
 	parsed := vendors.ParseSourceFiles(source, files, parseSource)
 	return finalizeParsedFiles(source, parsed)
@@ -223,13 +244,33 @@ func finalizeParsedFiles(
 	source vendors.ReadSource,
 	parsed []*parsedSession,
 ) []*vendors.ParsedSession {
-	applyForkedUsageSource(source, parsed)
-	parsed = collapseBackgroundRehomes(parsed)
+	result, _ := finalizeParsedFilesContext(context.Background(), source, parsed)
+	return result
+}
+
+func finalizeParsedFilesContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	parsed []*parsedSession,
+) ([]*vendors.ParsedSession, error) {
+	if err := applyForkedUsageSourceContext(ctx, source, parsed); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	parsed, err := collapseBackgroundRehomesContext(ctx, parsed)
+	if err != nil {
+		return nil, err
+	}
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		transcripts = append(transcripts, item.transcript)
 	}
-	return transcripts
+	return transcripts, nil
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {

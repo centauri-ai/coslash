@@ -2,6 +2,7 @@ package collector
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -26,7 +27,7 @@ const (
 
 type vendorSource struct {
 	name       string
-	collect    func(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
+	collect    func(context.Context, int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
 	loadFacts  func(id string) (*vendors.ParsedSession, error)
 	loadFamily func(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error)
 	health     func() vendors.SourceHealth
@@ -60,12 +61,15 @@ func Sources() []SourceHealth {
 	return health
 }
 
-func List(since int64) ([]*session.Session, error) {
-	parsed, metadata, err := collect(max(0, since-windowContextBuffer.Milliseconds()))
+func List(ctx context.Context, since int64) ([]*session.Session, error) {
+	parsed, metadata, err := collect(ctx, max(0, since-windowContextBuffer.Milliseconds()))
 	if err != nil {
 		return nil, err
 	}
-	roots := finalizeSessions(parsed, metadata)
+	roots, err := finalizeSessionsContext(ctx, parsed, metadata)
+	if err != nil {
+		return nil, err
+	}
 	if since > 0 {
 		roots = slices.DeleteFunc(roots, func(root *vendors.ParsedSession) bool {
 			live := sessionMetadata(metadata, root.Session.Agent).Lookup(root.Session.ID)
@@ -73,11 +77,24 @@ func List(since int64) ([]*session.Session, error) {
 			return !isLive && root.Session.LastActivityTime < since
 		})
 	}
-	roots = servableRoots(roots)
-	probeLastEdits(roots)
-	probeGitEnvironment(roots)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	roots, err = servableRootsContext(ctx, roots)
+	if err != nil {
+		return nil, err
+	}
+	if err := probeLastEditsContext(ctx, roots); err != nil {
+		return nil, err
+	}
+	if err := probeGitEnvironmentContext(ctx, roots); err != nil {
+		return nil, err
+	}
 	sessions := make([]*session.Session, 0, len(roots))
 	for _, root := range roots {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		sessions = append(sessions, root.Session)
 	}
 	return sessions, nil
@@ -189,6 +206,14 @@ func finalizeLocalSessions(
 	return roots
 }
 
+func finalizeSessionsContext(
+	ctx context.Context,
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+) ([]*vendors.ParsedSession, error) {
+	return finalizeSessionsSourceContext(ctx, parsed, metadata, vendors.LocalReadSource, true, true, false)
+}
+
 func finalizeSessionsSource(
 	parsed []*vendors.ParsedSession,
 	metadata map[string]*vendors.SessionMetadata,
@@ -197,28 +222,80 @@ func finalizeSessionsSource(
 	allowLocalActivityFallbacks bool,
 	preserveSubagentText bool,
 ) []*vendors.ParsedSession {
-	applySessionEnrichment(parsed, metadata)
-	applyActivityFallbacks(parsed, allowLocalActivityFallbacks)
-	enrichModelsAndCosts(parsed)
-	composition := composeSessions(parsed)
-	promoteFamilyActivity(composition)
-	resolveNames(composition.parsed, metadata)
-	enrichSubagents(composition, metadata, claude.WorkflowAgentsSource(source, composition.parsed), preserveSubagentText, useLiveStatus)
-	for _, p := range composition.parsed {
-		removeUnresolvedSpawnRows(p.Session)
+	result, _ := finalizeSessionsSourceContext(context.Background(), parsed, metadata, source, useLiveStatus, allowLocalActivityFallbacks, preserveSubagentText)
+	return result
+}
+
+func finalizeSessionsSourceContext(
+	ctx context.Context,
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+	source vendors.ReadSource,
+	useLiveStatus bool,
+	allowLocalActivityFallbacks bool,
+	preserveSubagentText bool,
+) ([]*vendors.ParsedSession, error) {
+	if err := applySessionEnrichmentContext(ctx, parsed, metadata); err != nil {
+		return nil, err
 	}
-	resolveStatus(composition.roots, metadata, useLiveStatus, source == vendors.LocalReadSource)
-	return composition.roots
+	if err := applyActivityFallbacksContext(ctx, parsed, allowLocalActivityFallbacks); err != nil {
+		return nil, err
+	}
+	if err := enrichModelsAndCostsContext(ctx, parsed); err != nil {
+		return nil, err
+	}
+	composition, err := composeSessionsContext(ctx, parsed)
+	if err != nil {
+		return nil, err
+	}
+	if err := promoteFamilyActivityContext(ctx, composition); err != nil {
+		return nil, err
+	}
+	if err := resolveNamesContext(ctx, composition.parsed, metadata); err != nil {
+		return nil, err
+	}
+	workflowAgents, err := claude.WorkflowAgentsSourceContext(ctx, source, composition.parsed)
+	if err != nil {
+		return nil, err
+	}
+	if err := enrichSubagentsContext(ctx, composition, metadata, workflowAgents, preserveSubagentText, useLiveStatus); err != nil {
+		return nil, err
+	}
+	for _, p := range composition.parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := removeUnresolvedSpawnRowsContext(ctx, p.Session); err != nil {
+			return nil, err
+		}
+	}
+	if err := resolveStatusContext(ctx, composition.roots, metadata, useLiveStatus, source == vendors.LocalReadSource); err != nil {
+		return nil, err
+	}
+	return composition.roots, nil
 }
 
 func promoteFamilyActivity(composition sessionComposition) {
+	_ = promoteFamilyActivityContext(context.Background(), composition)
+}
+
+func promoteFamilyActivityContext(ctx context.Context, composition sessionComposition) error {
 	parents := make(map[*vendors.ParsedSession]*vendors.ParsedSession, len(composition.children))
 	for _, link := range composition.children {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		parents[link.child] = link.parent
 	}
 	for child, parent := range parents {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		activity := child.Session.LastActivityTime
 		for parent != nil {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if activity > parent.Session.LastActivityTime {
 				parent.Session.LastActivityTime = activity
 				parent.Session.ActivityFallback = child.Session.ActivityFallback
@@ -228,14 +305,22 @@ func promoteFamilyActivity(composition sessionComposition) {
 			parent = parents[parent]
 		}
 	}
+	return nil
 }
 
 func applyActivityFallbacks(parsed []*vendors.ParsedSession, allowLocalFallbacks bool) {
+	_ = applyActivityFallbacksContext(context.Background(), parsed, allowLocalFallbacks)
+}
+
+func applyActivityFallbacksContext(ctx context.Context, parsed []*vendors.ParsedSession, allowLocalFallbacks bool) error {
 	var collectedAt int64
 	if allowLocalFallbacks {
 		collectedAt = time.Now().UnixMilli()
 	}
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s := item.Session
 		if s.LastActivityTime == 0 && item.LogModifiedAtMs > 0 {
 			s.LastActivityTime = item.LogModifiedAtMs
@@ -254,27 +339,43 @@ func applyActivityFallbacks(parsed []*vendors.ParsedSession, allowLocalFallbacks
 			}
 		}
 	}
+	return nil
 }
 
 func enrichModelsAndCosts(parsed []*vendors.ParsedSession) {
+	_ = enrichModelsAndCostsContext(context.Background(), parsed)
+}
+
+func enrichModelsAndCostsContext(ctx context.Context, parsed []*vendors.ParsedSession) error {
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s := item.Session
 		if s.ContextWindow == nil && s.Model != nil {
 			s.ContextWindow = session.ContextWindowFor(*s.Model)
 		}
 		session.AttachCost(s, item.RecordedCost)
 	}
+	return nil
 }
 
 func collect(
+	ctx context.Context,
 	since int64,
 ) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata, error) {
 	parsed := []*vendors.ParsedSession{}
 	metadata := map[string]*vendors.SessionMetadata{}
 	var failures []error
 	for _, source := range vendorSources {
-		vendorParsed, vendorMetadata, err := source.collect(since)
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		vendorParsed, vendorMetadata, err := source.collect(ctx, since)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
 			log.Printf("%s session collection failed: %v; serving other vendors", source.name, err)
 			failures = append(failures, fmt.Errorf("%s: %w", source.name, err))
 			continue
@@ -305,12 +406,23 @@ type sessionComposition struct {
 }
 
 func composeSessions(parsed []*vendors.ParsedSession) sessionComposition {
+	composition, _ := composeSessionsContext(context.Background(), parsed)
+	return composition
+}
+
+func composeSessionsContext(ctx context.Context, parsed []*vendors.ParsedSession) (sessionComposition, error) {
 	byID := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return sessionComposition{}, err
+		}
 		byID[sessionKey{agent: p.Session.Agent, id: p.Session.ID}] = p
 	}
 	composition := sessionComposition{parsed: parsed, roots: []*vendors.ParsedSession{}}
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return sessionComposition{}, err
+		}
 		if p.ParentID == "" {
 			composition.roots = append(composition.roots, p)
 			continue
@@ -331,7 +443,7 @@ func composeSessions(parsed []*vendors.ParsedSession) sessionComposition {
 		}
 		composition.children = append(composition.children, childLink{child: p, parent: parent})
 	}
-	return composition
+	return composition, nil
 }
 
 func enrichSubagents(
@@ -341,7 +453,21 @@ func enrichSubagents(
 	preserveText bool,
 	useLiveStatus bool,
 ) {
+	_ = enrichSubagentsContext(context.Background(), composition, metadata, claudeDynamicWorkflows, preserveText, useLiveStatus)
+}
+
+func enrichSubagentsContext(
+	ctx context.Context,
+	composition sessionComposition,
+	metadata map[string]*vendors.SessionMetadata,
+	claudeDynamicWorkflows map[string]*claude.WorkflowAgent,
+	preserveText bool,
+	useLiveStatus bool,
+) error {
 	for _, link := range composition.children {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		p, parent := link.child, link.parent
 		subagent := subagentFrom(
 			p,
@@ -351,9 +477,12 @@ func enrichSubagents(
 			preserveText,
 			useLiveStatus,
 		)
-		linkSpawnDigest(parent.Session, p.SpawnKey, subagent)
+		if err := linkSpawnDigestContext(ctx, parent.Session, p.SpawnKey, subagent); err != nil {
+			return err
+		}
 		parent.Session.Subagents = append(parent.Session.Subagents, subagent)
 	}
+	return nil
 }
 
 // ListRemote composes already-read Claude and Codex facts without probing the
@@ -452,15 +581,22 @@ func belongsToRoot(item *vendors.ParsedSession, byKey map[sessionKey]*vendors.Pa
 }
 
 func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.Subagent) {
+	_ = linkSpawnDigestContext(context.Background(), parent, spawnKey, subagent)
+}
+
+func linkSpawnDigestContext(ctx context.Context, parent *session.Session, spawnKey string, subagent session.Subagent) error {
 	claimed := -1
 	for index, entry := range parent.Digest {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if entry.Category != session.DigestSubagent || entry.SpawnKey != spawnKey {
 			continue
 		}
 		if entry.SubagentID == "" {
 			parent.Digest[index].SubagentID = subagent.ID
 			parent.Digest[index].Description = subagent.Name
-			return
+			return nil
 		}
 		claimed = index
 	}
@@ -469,28 +605,56 @@ func linkSpawnDigest(parent *session.Session, spawnKey string, subagent session.
 		row.SubagentID = subagent.ID
 		row.Description = subagent.Name
 		parent.Digest = slices.Insert(parent.Digest, claimed+1, row)
-		return
+		return nil
 	}
 	log.Printf("%s: subagent %s has no spawn row in the parent transcript, "+
 		"showing it in the rail but not the digest", parent.ID, subagent.ID)
+	return nil
 }
 
 func removeUnresolvedSpawnRows(s *session.Session) {
-	s.Digest = slices.DeleteFunc(s.Digest, func(entry session.DigestEntry) bool {
-		return entry.Category == session.DigestSubagent && entry.SubagentID == ""
-	})
+	_ = removeUnresolvedSpawnRowsContext(context.Background(), s)
+}
+
+func removeUnresolvedSpawnRowsContext(ctx context.Context, s *session.Session) error {
+	kept := s.Digest[:0]
+	for _, entry := range s.Digest {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.Category != session.DigestSubagent || entry.SubagentID != "" {
+			kept = append(kept, entry)
+		}
+	}
+	s.Digest = kept
+	return nil
 }
 
 func probeLastEdits(roots []*vendors.ParsedSession) {
+	_ = probeLastEditsContext(context.Background(), roots)
+}
+
+func probeLastEditsContext(ctx context.Context, roots []*vendors.ParsedSession) error {
 	for _, p := range roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s := p.Session
 		if s.LastEditAt == nil {
-			s.LastEditAt = session.LatestFileModificationTime(s.WorkingDirectory, s.FileEdits)
+			s.LastEditAt = session.LatestFileModificationTimeContext(ctx, s.WorkingDirectory, s.FileEdits)
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func probeGitEnvironment(roots []*vendors.ParsedSession) {
+	_ = probeGitEnvironmentContext(context.Background(), roots)
+}
+
+func probeGitEnvironmentContext(ctx context.Context, roots []*vendors.ParsedSession) error {
 	// Drift is measured for the recorded or best-effort current branch against
 	// the repo's base branch, so it memoizes per (cwd, branch).
 	type driftKey struct{ cwd, branch string }
@@ -503,6 +667,9 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 	branchByCwd := map[string]*string{}
 	drifts := map[driftKey]*driftSlot{}
 	for _, p := range roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s := p.Session
 		if s.WorkingDirectory == "" {
 			continue
@@ -513,13 +680,25 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 		}
 	}
 	for cwd := range repoByCwd {
-		name, localOnly := session.CanonicalRepositoryName(cwd)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		name, localOnly := session.CanonicalRepositoryNameContext(ctx, cwd)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		repoByCwd[cwd] = repository{name: name, localOnly: localOnly}
 		if _, needsBranchProbe := branchByCwd[cwd]; needsBranchProbe {
-			branchByCwd[cwd] = session.CurrentBranch(cwd)
+			branchByCwd[cwd] = session.CurrentBranchContext(ctx, cwd)
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 		}
 	}
 	for _, p := range roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s := p.Session
 		if s.WorkingDirectory == "" {
 			continue
@@ -534,21 +713,42 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 	// which would race the range still spawning goroutines.
 	workers := make(chan struct{}, maxProbeWorkers)
 	var wg sync.WaitGroup
+	canceled := false
 	for key, slot := range drifts {
+		if ctx.Err() != nil {
+			canceled = true
+			break
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			workers <- struct{}{}
+			select {
+			case workers <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-workers }()
+			if ctx.Err() != nil {
+				return
+			}
 			branch := key.branch
-			slot.drift = session.BranchDrift(key.cwd, &branch)
+			slot.drift = session.BranchDriftContext(ctx, key.cwd, &branch)
 		}()
 	}
 	wg.Wait()
-	reconcileCommitFacts := session.NewCommitFactsReconciler()
+	if canceled || ctx.Err() != nil {
+		return ctx.Err()
+	}
+	reconcileCommitFacts := session.NewCommitFactsReconcilerContext(ctx)
 	for _, p := range roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s := p.Session
 		facts := reconcileCommitFacts(s.CommitLog, s.WorkingDirectory, s.Branch)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s.Commits, s.CommitSHAs = facts.Subjects, facts.SHAs
 		s.GitProbed = true // synthesis's lazy probe must not redo this
 		if s.WorkingDirectory == "" {
@@ -559,10 +759,18 @@ func probeGitEnvironment(roots []*vendors.ParsedSession) {
 		s.Repository = &repo.name
 		s.RepositoryLocalOnly = repo.localOnly
 	}
+	return nil
 }
 
 func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
+	_ = resolveNamesContext(context.Background(), roots, metadata)
+}
+
+func resolveNamesContext(ctx context.Context, roots []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) error {
 	for _, p := range roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s := p.Session
 		if s.FirstPrompt != nil {
 			if name, ok := review.NameFromPrompt(*s.FirstPrompt); ok {
@@ -579,12 +787,21 @@ func resolveNames(roots []*vendors.ParsedSession, metadata map[string]*vendors.S
 			s.Name = &name
 		}
 	}
+	return nil
 }
 
 func applySessionEnrichment(parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) {
+	_ = applySessionEnrichmentContext(context.Background(), parsed, metadata)
+}
+
+func applySessionEnrichmentContext(ctx context.Context, parsed []*vendors.ParsedSession, metadata map[string]*vendors.SessionMetadata) error {
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		vendors.ApplySessionEnrichment(p, sessionMetadata(metadata, p.Session.Agent).Lookup(p.Session.ID))
 	}
+	return nil
 }
 
 func resolveStatus(
@@ -593,11 +810,24 @@ func resolveStatus(
 	useLiveStatus bool,
 	livenessAuthoritative bool,
 ) {
+	_ = resolveStatusContext(context.Background(), roots, metadata, useLiveStatus, livenessAuthoritative)
+}
+
+func resolveStatusContext(
+	ctx context.Context,
+	roots []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+	useLiveStatus bool,
+	livenessAuthoritative bool,
+) error {
 	var now int64
 	if useLiveStatus {
 		now = time.Now().UnixMilli()
 	}
 	for _, p := range roots {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s := p.Session
 		if !useLiveStatus {
 			if deref(s.Status) == "waiting" {
@@ -631,6 +861,7 @@ func resolveStatus(
 			s.Status = &status
 		}
 	}
+	return nil
 }
 
 func sessionMetadata(
@@ -647,9 +878,17 @@ func sessionMetadata(
 // claude: drop /clear stub sessions
 // codex: drop session_meta-only sessions
 func servableRoots(roots []*vendors.ParsedSession) []*vendors.ParsedSession {
+	kept, _ := servableRootsContext(context.Background(), roots)
+	return kept
+}
+
+func servableRootsContext(ctx context.Context, roots []*vendors.ParsedSession) ([]*vendors.ParsedSession, error) {
 	synthesisCwd := filepath.Clean(synthesis.SynthesisCwd())
 	kept := []*vendors.ParsedSession{}
 	for _, p := range roots {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		s := p.Session
 		if filepath.Clean(s.WorkingDirectory) == synthesisCwd {
 			continue
@@ -663,7 +902,7 @@ func servableRoots(roots []*vendors.ParsedSession) []*vendors.ParsedSession {
 		}
 		kept = append(kept, p)
 	}
-	return kept
+	return kept, nil
 }
 
 func deref(value *string) string {

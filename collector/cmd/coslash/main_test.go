@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
@@ -66,6 +67,33 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 				t.Fatalf("status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 			}
 		})
+	}
+}
+
+func TestHandleListStopsWhenRequestIsCanceled(t *testing.T) {
+	original := listSessions
+	t.Cleanup(func() { listSessions = original })
+	started := make(chan struct{})
+	listSessions = func(ctx context.Context, _ int64) ([]*session.Session, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	request := httptest.NewRequest(http.MethodGet, "/api/sessions", nil).WithContext(ctx)
+	finished := make(chan struct{})
+	go func() {
+		handleList(httptest.NewRecorder(), request, nil, nil, nil)
+		close(finished)
+	}()
+	<-started
+	cancel()
+
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("handler continued after request cancellation")
 	}
 }
 

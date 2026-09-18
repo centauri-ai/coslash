@@ -1,14 +1,79 @@
 package collector
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestListStopsWhenContextIsCanceled(t *testing.T) {
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+
+	started := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	vendorSources = []vendorSource{{
+		name: "blocked",
+		collect: func(ctx context.Context, _ int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, nil, ctx.Err()
+		},
+	}}
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := List(ctx, 0)
+		result <- err
+	}()
+	<-started
+	cancel()
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("List continued after cancellation")
+	}
+}
+
+type cancelDuringFinalizationContext struct {
+	context.Context
+	remaining int
+}
+
+func (ctx *cancelDuringFinalizationContext) Err() error {
+	ctx.remaining--
+	if ctx.remaining <= 0 {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestFinalizeSessionsStopsDuringWork(t *testing.T) {
+	ctx := &cancelDuringFinalizationContext{Context: context.Background(), remaining: 5}
+	parsed := make([]*vendors.ParsedSession, 100)
+	for index := range parsed {
+		parsed[index] = &vendors.ParsedSession{Session: &session.Session{ID: string(rune(index + 1))}}
+	}
+
+	got, err := finalizeSessionsContext(ctx, parsed, map[string]*vendors.SessionMetadata{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if got != nil {
+		t.Fatalf("results = %#v; want nil partial results", got)
+	}
+}
 
 func TestApplyActivityFallbacksKeepsSessionsExportable(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "session.jsonl")
@@ -179,7 +244,7 @@ func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 	collected := false
 	vendorSources = []vendorSource{{
 		name: "test",
-		collect: func(int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+		collect: func(context.Context, int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 			collected = true
 			return nil, nil, nil
 		},

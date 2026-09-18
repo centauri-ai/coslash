@@ -14,20 +14,32 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+var databasePathLookupTimeout = 2 * time.Second
+
 func Root() (string, error) {
+	return RootContext(context.Background())
+}
+
+func RootContext(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	dataHome := os.Getenv("XDG_DATA_HOME")
 	if dataHome != "" {
 		return filepath.Join(dataHome, "opencode", "opencode.db"), nil
 	}
 	if executable, err := exec.LookPath("opencode"); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		lookupCtx, cancel := context.WithTimeout(ctx, databasePathLookupTimeout)
 		defer cancel()
-		if output, err := exec.CommandContext(ctx, executable, "db", "path").Output(); err == nil {
+		if output, err := exec.CommandContext(lookupCtx, executable, "db", "path").Output(); err == nil {
 			path := strings.TrimSpace(string(output))
 			if filepath.IsAbs(path) {
 				return filepath.Clean(path), nil
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -37,7 +49,11 @@ func Root() (string, error) {
 }
 
 func open() (*sql.DB, error) {
-	path, err := Root()
+	return openContext(context.Background())
+}
+
+func openContext(ctx context.Context) (*sql.DB, error) {
+	path, err := RootContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +74,11 @@ func open() (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, err
 	}
-	if err := validateSchema(db); err != nil {
+	if err := validateSchemaContext(ctx, db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -70,7 +86,11 @@ func open() (*sql.DB, error) {
 }
 
 func validateSchema(db *sql.DB) error {
-	statement, err := db.Prepare(`
+	return validateSchemaContext(context.Background(), db)
+}
+
+func validateSchemaContext(ctx context.Context, db *sql.DB) error {
+	statement, err := db.PrepareContext(ctx, `
 		SELECT s.id, s.parent_id, s.directory, s.title, s.summary_files, s.summary_diffs,
 			s.agent, s.model, s.cost, s.time_updated, s.time_archived,
 			m.id, m.session_id, m.time_created, m.data,

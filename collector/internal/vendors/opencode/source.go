@@ -50,8 +50,11 @@ type skippedFamily struct {
 	err error
 }
 
-func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	db, err := open()
+func Collect(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	db, err := openContext(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return []*vendors.ParsedSession{}, vendors.EmptySessionMetadata(), nil
 	}
@@ -59,9 +62,14 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 		return nil, nil, err
 	}
 	defer db.Close()
-	metadata := vendors.BestEffortMetadata(vendors.AgentOpenCode, func() (*vendors.SessionMetadata, error) {
-		return loadMetadata(db)
-	})
+	metadata, metadataErr := loadMetadataContext(ctx, db)
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+	if metadataErr != nil {
+		log.Printf("%s session metadata failed: %v; continuing without enrichment", vendors.AgentOpenCode, metadataErr)
+		metadata = vendors.EmptySessionMetadata()
+	}
 
 	query := activeFamiliesQuery
 	var args []any
@@ -80,7 +88,10 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	}
 	query += ` ORDER BY selected_roots.family_updated DESC,
 		member.parent_id IS NOT NULL, member.time_updated, member.id`
-	parsed, skipped, err := load(db, query, args...)
+	parsed, skipped, err := loadContext(ctx, db, query, args...)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	for _, family := range skipped {
 		log.Printf("OpenCode session family %q: %v; skipping", family.id, family.err)
 	}
@@ -165,18 +176,34 @@ func load(
 	query string,
 	args ...any,
 ) ([]*vendors.ParsedSession, []skippedFamily, error) {
-	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	return loadContext(context.Background(), db, query, args...)
+}
+
+func loadContext(
+	ctx context.Context,
+	db *sql.DB,
+	query string,
+	args ...any,
+) ([]*vendors.ParsedSession, []skippedFamily, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, nil, err
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.Query(query, args...)
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("query OpenCode sessions: %w", err)
 	}
 	stored := []storedSession{}
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			rows.Close()
+			return nil, nil, err
+		}
 		var row storedSession
 		if err := rows.Scan(
 			&row.id, &row.parentID, &row.directory, &row.title, &row.summaryFiles, &row.summaryDiffs,
@@ -198,6 +225,9 @@ func load(
 	families := map[string][]storedSession{}
 	familyIDs := []string{}
 	for _, row := range stored {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		familyID := row.id
 		if row.parentID.Valid {
 			familyID = row.parentID.String
@@ -210,9 +240,12 @@ func load(
 	parsed := make([]parsedSession, 0, len(stored))
 	skipped := []skippedFamily{}
 	for _, familyID := range familyIDs {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		family := make([]parsedSession, 0, len(families[familyID]))
 		for _, row := range families[familyID] {
-			item, err := parse(tx, row)
+			item, err := parseContext(ctx, tx, row)
 			if err != nil {
 				if !errors.Is(err, errMalformedSession) {
 					return nil, nil, fmt.Errorf("parse OpenCode session %q: %w", row.id, err)
@@ -227,9 +260,15 @@ func load(
 	}
 	byID := make(map[string]*vendors.ParsedSession, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		byID[item.transcript.Session.ID] = item.transcript
 	}
 	for _, parent := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		for childID, task := range parent.tasks {
 			child, ok := byID[childID]
 			if !ok || child.ParentID != parent.transcript.Session.ID {
@@ -247,6 +286,9 @@ func load(
 	}
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		transcripts = append(transcripts, item.transcript)
 	}
 	return transcripts, skipped, nil
