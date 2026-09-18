@@ -126,7 +126,7 @@ while process liveness is unknown; coSlash labels those facts separately.
 
 ### One board for every agent
 
-Claude Code, Codex, and OpenCode sessions land in the same place, whether they came from a desktop app or a CLI. **List view** gives you a full card per session; **board view** groups sessions by repository and branch, with a column per state, so a repo with four parallel branches reads as four rows instead of a scroll.
+Claude Code, Codex, and OpenCode sessions land in the same place, whether they came from a desktop app or a CLI. **List view** gives you a compact, title-first row per session with vendor, activity, machine, resume readiness, update time, and cost aligned for comparison; **board view** groups sessions by repository and branch, with a column per state, so a repo with four parallel branches reads as four rows instead of a scroll.
 
 Search by title, repo, or branch. Filter by vendor and by time window (this week, this month, 7 days, 30 days, all). Sort by recency, estimated cost, tokens, or duration. The list refreshes itself every minute, so statuses and "3 min ago" stay honest without a reload.
 
@@ -219,7 +219,10 @@ It is **off until you explicitly enable and save it**.
 
 ## Settings and data
 
-Settings live behind the top-right button and are stored machine-wide in `~/.coslash/settings.json` — synthesis backend and model, light or dark theme, the terminal used for local launches (Apple Terminal or iTerm2), and one optional SSH alias. See [`settings.schema.json`](settings.schema.json) for the file format.
+Settings are stored machine-wide in `~/.coslash/settings.json`. Use the top-right
+theme controls for light or dark mode, and **Settings** for the synthesis backend
+and model, launch terminal (Apple Terminal or iTerm2), and optional SSH alias.
+See [`settings.schema.json`](settings.schema.json) for the file format.
 
 The dialog offers a short model list per backend, but the model is not restricted to it. Editing `settings.json` directly accepts any model the selected CLI can actually reach — including one served through an API proxy such as `ANTHROPIC_BASE_URL`, or a third-party provider — so long as that CLI is set up to resolve it.
 
