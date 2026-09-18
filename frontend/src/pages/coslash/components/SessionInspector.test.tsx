@@ -93,13 +93,7 @@ describe('SessionInspector exact-detail boundaries', () => {
 
   it('renders a direct retry path for generic diff failures', () => {
     const generic = renderToStaticMarkup(
-      <DiffList
-        changes={null}
-        isLoading={false}
-        loadError="network failed"
-        showRetry
-        onRetry={() => {}}
-      />,
+      <DiffList changes={null} isLoading={false} loadError="network failed" showRetry onRetry={() => {}} />,
     );
     const authentication = renderToStaticMarkup(
       <DiffList changes={null} isLoading={false} loadError="link expired" />,
@@ -111,12 +105,7 @@ describe('SessionInspector exact-detail boundaries', () => {
 
   it('offers direct recovery only for retryable generic detail failures', () => {
     const generic = renderToStaticMarkup(
-      <DetailLoadError
-        message="network failed"
-        kind="other"
-        onRetry={() => {}}
-        onRefresh={() => {}}
-      />,
+      <DetailLoadError message="network failed" kind="other" onRetry={() => {}} onRefresh={() => {}} />,
     );
     const authentication = renderToStaticMarkup(
       <DetailLoadError
