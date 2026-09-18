@@ -41,6 +41,12 @@ func acquireRuntimeLock() (*os.File, error) {
 		file.Close()
 		return nil, errors.New("another coSlash app is already running")
 	}
+	for _, name := range []string{runtimeFilename, "token"} {
+		if err := os.Remove(filepath.Join(home, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			file.Close()
+			return nil, fmt.Errorf("clear stale runtime discovery: %w", err)
+		}
+	}
 	return file, nil
 }
 
