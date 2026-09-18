@@ -101,9 +101,14 @@ func TestLoadSelectionMetadataReadsOnlySelectionSignals(t *testing.T) {
 func TestApplyCursorLivenessSupportsSelectionWithoutPollutingScopedMetadata(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	metadata.Session("requested").Entrypoint = entrypointIDE
+	metadata.Session("ambiguous")
 	applyCursorLiveness(metadata, map[string]string{"requested": entrypointIDE, "unrelated": entrypointCLI}, false)
 	if metadata.Lookup("requested").Live != "interactive" || metadata.Lookup("unrelated") != nil {
 		t.Fatalf("scoped liveness = %#v", metadata.Sessions)
+	}
+	applyCursorLiveness(metadata, map[string]string{"ambiguous": entrypointCLI}, false)
+	if got := metadata.Lookup("ambiguous").Live; got != "" {
+		t.Fatalf("ambiguous liveness = %q, want empty", got)
 	}
 	applyCursorLiveness(metadata, map[string]string{"live-cli": entrypointCLI}, true)
 	if got := metadata.Lookup("live-cli"); got == nil || got.Live != "interactive" || got.Entrypoint != entrypointCLI {
