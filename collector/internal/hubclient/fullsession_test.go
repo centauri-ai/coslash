@@ -33,8 +33,12 @@ func fullSessionRecordForTest(t *testing.T) fullsessionv1.Record {
 }
 
 func fullSessionCapability(max int) string {
+	return fullSessionCapabilityLimits(max, 1<<20)
+}
+
+func fullSessionCapabilityLimits(max, maxRequest int) string {
 	return `{"product":"coslash-server","serverId":"server","displayName":"Hub","protocolVersions":["v1","v2"],"snapshotVersions":["session-snapshot/v1"],"maxSnapshotBytes":262144,"fullSessionVersions":["full-session-record/v1"],"maxFullSessionBytes":` +
-		fmt.Sprint(max) + `,"maxRequestBytes":1048576,"pairingUrl":"https://hub.example/pair","teamUrl":"https://hub.example"}`
+		fmt.Sprint(max) + `,"maxRequestBytes":` + fmt.Sprint(maxRequest) + `,"pairingUrl":"https://hub.example/pair","teamUrl":"https://hub.example"}`
 }
 
 func TestFullSessionPreviewGatesContentOnDestinationCapabilityAndSize(t *testing.T) {
@@ -44,9 +48,11 @@ func TestFullSessionPreviewGatesContentOnDestinationCapabilityAndSize(t *testing
 		name, capability string
 		wantState        string
 		wantLoads        int
+		wantDiagnostic   bool
 	}{
-		{name: "incompatible", capability: `{}`, wantState: "incompatible_server", wantLoads: 0},
+		{name: "incompatible", capability: `{}`, wantState: "incompatible_server", wantLoads: 0, wantDiagnostic: true},
 		{name: "oversized", capability: fullSessionCapability(1), wantState: "oversized", wantLoads: 1},
+		{name: "request oversized", capability: fullSessionCapabilityLimits(1<<20, 1), wantState: "oversized", wantLoads: 1},
 		{name: "ready", capability: fullSessionCapability(1 << 20), wantState: "ready", wantLoads: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -61,7 +67,7 @@ func TestFullSessionPreviewGatesContentOnDestinationCapabilityAndSize(t *testing
 					}
 					switch request.URL.Path {
 					case "/v1/share-destination":
-						return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired"},"configured":true}`), nil
+						return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`), nil
 					case "/.well-known/coslash-server":
 						return response(http.StatusOK, test.capability), nil
 					default:
@@ -75,14 +81,15 @@ func TestFullSessionPreviewGatesContentOnDestinationCapabilityAndSize(t *testing
 					return &copy, fullsessionexport.Repository{Canonical: "github.com/centauri-ai/coslash"}, nil
 				},
 			}
-			preview := client.PreviewFullSession(context.Background(), selection)
-			if preview.State != test.wantState || loads != test.wantLoads || posts != 0 {
-				t.Fatalf("preview=%#v loads=%d posts=%d", preview, loads, posts)
+			preview, diagnostic := client.PreviewFullSession(context.Background(), selection)
+			if preview.State != test.wantState || loads != test.wantLoads || posts != 0 || (diagnostic != nil) != test.wantDiagnostic {
+				t.Fatalf("preview=%#v loads=%d posts=%d diagnostic=%v", preview, loads, posts, diagnostic)
 			}
 			if preview.State != "ready" && preview.Envelope != nil {
 				t.Fatal("error preview leaked the full envelope")
 			}
-			if preview.State == "ready" && (!preview.ApprovalAllowed || preview.RecordBytes != 2318 || preview.PayloadBytes != 2620 || preview.Envelope == nil) {
+			if preview.State == "ready" && (!preview.ApprovalAllowed || preview.RecordBytes != 2318 || preview.PayloadBytes != 2620 ||
+				preview.AudienceVersion != "audience-v1" || preview.Envelope == nil) {
 				t.Fatalf("ready preview = %#v", preview)
 			}
 		})
@@ -107,12 +114,55 @@ func TestFullSessionPreviewRequiresPairedDestinationBeforeLoadingContent(t *test
 			return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"pairing_required","configured":true}`), nil
 		})},
 	}
-	preview := client.PreviewFullSession(context.Background(), FullSessionSelection{
+	preview, _ := client.PreviewFullSession(context.Background(), FullSessionSelection{
 		SourceID: record.SourceID, Agent: record.Agent, SessionID: record.SessionID, RevisionID: record.RevisionID,
 	})
 	if preview.State != "unavailable" || preview.Problem == nil || preview.Problem.Code != "unauthorized" ||
 		preview.Envelope != nil || loads != 0 || capabilityRequests != 0 {
 		t.Fatalf("preview=%#v loads=%d capabilityRequests=%d", preview, loads, capabilityRequests)
+	}
+}
+
+func TestFullSessionShareRejectsRequestOverAdvertisedLimit(t *testing.T) {
+	record := fullSessionRecordForTest(t)
+	repository := fullsessionexport.Repository{Canonical: "github.com/centauri-ai/coslash"}
+	payload, recordBytes, hash, err := fullsessionexport.Marshal(record, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := FullSessionShareRequest{
+		ContractVersion: fullsessionexport.ShareVersion,
+		Selection:       FullSessionSelection{SourceID: record.SourceID, Agent: record.Agent, SessionID: record.SessionID, RevisionID: record.RevisionID},
+		IdempotencyKey:  "full-session-request-limit-0001",
+		Consent: FullSessionConsent{
+			PreviewContractVersion: fullsessionexport.PreviewVersion, RevisionID: record.RevisionID,
+			RecordSHA256: hash, RecordBytes: len(recordBytes), PayloadBytes: len(payload), Repository: repository,
+			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2, AudienceVersion: "audience-v1",
+		},
+	}
+	base, _ := url.Parse("https://hub.example")
+	client := Client{
+		BaseURL: base, Credentials: &memoryCredentials{},
+		LoadFullSession: func(string, string, string, string) (*fullsessionv1.Record, fullsessionexport.Repository, error) {
+			copy := record
+			return &copy, repository, nil
+		},
+		HTTP: &http.Client{Transport: roundTripFunc(func(httpRequest *http.Request) (*http.Response, error) {
+			switch httpRequest.URL.Path {
+			case "/v1/share-destination":
+				return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`), nil
+			case "/.well-known/coslash-server":
+				return response(http.StatusOK, fullSessionCapabilityLimits(1<<20, 1)), nil
+			default:
+				t.Fatalf("unexpected upload after request-size rejection: %s", httpRequest.URL.Path)
+				return nil, nil
+			}
+		})},
+	}
+	result, diagnostic := client.ShareFullSession(context.Background(), request)
+	if diagnostic != nil || result.State != "failed" || result.Error == nil ||
+		result.Error.Code != "full_session_too_large" || result.Error.Retryable {
+		t.Fatalf("result=%#v diagnostic=%v", result, diagnostic)
 	}
 }
 
@@ -125,7 +175,7 @@ func TestFullSessionCapabilityFailuresKeepRetryIdentity(t *testing.T) {
 			PreviewContractVersion: fullsessionexport.PreviewVersion, RevisionID: record.RevisionID,
 			RecordSHA256: "sha256:" + strings.Repeat("a", 64), RecordBytes: 1, PayloadBytes: 1,
 			Repository:             fullsessionexport.Repository{Canonical: "github.com/centauri-ai/coslash"},
-			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2,
+			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2, AudienceVersion: "audience-v1",
 		},
 	}
 	for _, test := range []struct {
@@ -153,7 +203,7 @@ func TestFullSessionCapabilityFailuresKeepRetryIdentity(t *testing.T) {
 				HTTP: &http.Client{Transport: roundTripFunc(func(httpRequest *http.Request) (*http.Response, error) {
 					switch httpRequest.URL.Path {
 					case "/v1/share-destination":
-						return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired"},"configured":true}`), nil
+						return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`), nil
 					case "/.well-known/coslash-server":
 						if test.transport != nil {
 							return nil, test.transport
@@ -165,10 +215,10 @@ func TestFullSessionCapabilityFailuresKeepRetryIdentity(t *testing.T) {
 					}
 				})},
 			}
-			result := client.ShareFullSession(context.Background(), request)
+			result, diagnostic := client.ShareFullSession(context.Background(), request)
 			if result.State != "failed" || result.Error == nil || result.Error.Code != test.wantCode ||
-				result.Error.Retryable != test.wantRetry || result.IdempotencyKey != request.IdempotencyKey || loads != 0 {
-				t.Fatalf("result=%#v loads=%d", result, loads)
+				result.Error.Retryable != test.wantRetry || result.IdempotencyKey != request.IdempotencyKey || loads != 0 || diagnostic == nil {
+				t.Fatalf("result=%#v loads=%d diagnostic=%v", result, loads, diagnostic)
 			}
 		})
 	}
@@ -187,7 +237,7 @@ func TestFullSessionShareUploadsThePreviewedBytesAndReturnsCanonicalRoute(t *tes
 		Consent: FullSessionConsent{
 			PreviewContractVersion: fullsessionexport.PreviewVersion, RevisionID: record.RevisionID,
 			RecordSHA256: hash, RecordBytes: len(recordBytes), PayloadBytes: len(payload), Repository: repository,
-			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2,
+			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2, AudienceVersion: "audience-v1",
 		},
 	}
 	base, _ := url.Parse("https://hub.example")
@@ -200,13 +250,14 @@ func TestFullSessionShareUploadsThePreviewedBytesAndReturnsCanonicalRoute(t *tes
 		HTTP: &http.Client{Transport: roundTripFunc(func(httpRequest *http.Request) (*http.Response, error) {
 			switch httpRequest.URL.Path {
 			case "/v1/share-destination":
-				return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired"},"configured":true}`), nil
+				return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`), nil
 			case "/.well-known/coslash-server":
 				return response(http.StatusOK, fullSessionCapability(1<<20)), nil
 			case "/v2/session-revisions":
 				if httpRequest.Header.Get("Content-Type") != fullsessionexport.MediaType || httpRequest.Header.Get("Content-Encoding") != "gzip" ||
 					httpRequest.Header.Get("Idempotency-Key") != request.IdempotencyKey ||
-					httpRequest.Header.Get("Coslash-Destination-Workspace-Id") != "workspace" {
+					httpRequest.Header.Get("Coslash-Destination-Workspace-Id") != "workspace" ||
+					httpRequest.Header.Get("Coslash-Destination-Audience-Version") != "audience-v1" {
 					t.Fatalf("upload headers = %#v", httpRequest.Header)
 				}
 				reader, err := gzip.NewReader(httpRequest.Body)
@@ -230,14 +281,17 @@ func TestFullSessionShareUploadsThePreviewedBytesAndReturnsCanonicalRoute(t *tes
 			}
 		})},
 	}
-	result := client.ShareFullSession(context.Background(), request)
+	result, err := client.ShareFullSession(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.State != "accepted" || result.Route == nil || result.Route.HubContractVersion != "full-session-read/v1" ||
 		!strings.HasSuffix(result.Route.Path, record.RevisionID) || result.ContentSHA256 != hash {
 		t.Fatalf("share result = %#v", result)
 	}
 }
 
-func TestFullSessionShareRequiresRenewedReviewWhenAudienceChanges(t *testing.T) {
+func TestFullSessionShareRequiresRenewedReviewWhenAudienceVersionChanges(t *testing.T) {
 	record := fullSessionRecordForTest(t)
 	loads := 0
 	base, _ := url.Parse("https://hub.example")
@@ -251,18 +305,21 @@ func TestFullSessionShareRequiresRenewedReviewWhenAudienceChanges(t *testing.T) 
 			if request.URL.Path != "/v1/share-destination" {
 				t.Fatalf("content or upload request occurred after the audience changed: %s", request.URL.Path)
 			}
-			return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":3,"resultingMemberCount":3,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired"},"configured":true}`), nil
+			return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v2"},"configured":true}`), nil
 		})},
 	}
-	result := client.ShareFullSession(context.Background(), FullSessionShareRequest{
+	result, err := client.ShareFullSession(context.Background(), FullSessionShareRequest{
 		ContractVersion: fullsessionexport.ShareVersion,
 		Selection:       FullSessionSelection{SourceID: record.SourceID, Agent: record.Agent, SessionID: record.SessionID, RevisionID: record.RevisionID},
 		IdempotencyKey:  "full-session-key-0001",
 		Consent: FullSessionConsent{PreviewContractVersion: fullsessionexport.PreviewVersion, RevisionID: record.RevisionID,
 			RecordSHA256: "sha256:" + strings.Repeat("a", 64), RecordBytes: 1, PayloadBytes: 1,
 			Repository:             fullsessionexport.Repository{Canonical: "github.com/centauri-ai/coslash"},
-			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2},
+			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2, AudienceVersion: "audience-v1"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.State != "failed" || result.Error == nil || result.Error.Code != "review_binding_changed" || loads != 0 {
 		t.Fatalf("result=%#v loads=%d", result, loads)
 	}
@@ -281,7 +338,7 @@ func TestTimedOutFullSessionUploadResolvesWithTheOriginalKey(t *testing.T) {
 		IdempotencyKey:  "full-session-timeout-0001",
 		Consent: FullSessionConsent{PreviewContractVersion: fullsessionexport.PreviewVersion, RevisionID: record.RevisionID,
 			RecordSHA256: hash, RecordBytes: len(recordBytes), PayloadBytes: len(payload), Repository: repository,
-			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2},
+			DestinationWorkspaceID: "workspace", DestinationName: "Compiler Team", AudienceMemberCount: 2, AudienceVersion: "audience-v1"},
 	}
 	calls := []string{}
 	base, _ := url.Parse("https://hub.example")
@@ -295,7 +352,7 @@ func TestTimedOutFullSessionUploadResolvesWithTheOriginalKey(t *testing.T) {
 			calls = append(calls, httpRequest.Method+" "+httpRequest.URL.Path)
 			switch httpRequest.URL.Path {
 			case "/v1/share-destination":
-				return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired"},"configured":true}`), nil
+				return response(http.StatusOK, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`), nil
 			case "/.well-known/coslash-server":
 				return response(http.StatusOK, fullSessionCapability(1<<20)), nil
 			case "/v2/session-revisions":
@@ -317,11 +374,34 @@ func TestTimedOutFullSessionUploadResolvesWithTheOriginalKey(t *testing.T) {
 			}
 		})},
 	}
-	result := client.ShareFullSession(context.Background(), request)
+	result, err := client.ShareFullSession(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result.State != "already_accepted" || !result.Deduplicated || result.Route == nil {
 		t.Fatalf("result = %#v", result)
 	}
 	if strings.Join(calls, ",") != "GET /v1/share-destination,GET /.well-known/coslash-server,POST /v2/session-revisions,GET /v2/uploads/status" {
 		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestFullSessionUploadUsesSupportedTimeoutAndCredentialMappings(t *testing.T) {
+	client := Client{}
+	if got := client.fullSessionHTTPClient().Timeout; got != fullSessionTimeout {
+		t.Fatalf("full-session HTTP timeout = %v, want %v", got, fullSessionTimeout)
+	}
+	for _, test := range []struct {
+		problem   string
+		code      string
+		retryable bool
+	}{
+		{problem: "device_dormant", code: "credential_dormant", retryable: true},
+		{problem: "device_revoked", code: "credential_revoked", retryable: false},
+	} {
+		code, retryable := mapFullSessionProblem(test.problem)
+		if code != test.code || retryable != test.retryable {
+			t.Fatalf("mapFullSessionProblem(%q) = %q, %t", test.problem, code, retryable)
+		}
 	}
 }

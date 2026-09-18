@@ -180,14 +180,58 @@ func TestFullSessionShareUsesDisclosedLocalOnlyRepositoryFallback(t *testing.T) 
 		t.Fatal(err)
 	}
 	snapshot.FullRecords[0].Record = frozen
+	cost := 1.0
 	manager := &Manager{
 		cfg:      &settings.RemoteSettings{ID: sourceID, Enabled: true},
+		state:    StateOK,
+		complete: true,
 		snapshot: &snapshot,
-		sessions: []*session.Session{{Agent: vendors.AgentCodex, ID: frozen.SessionID}},
+		sessions: []*session.Session{{Agent: vendors.AgentCodex, ID: frozen.SessionID, Cost: &cost}},
 	}
 	got, repository, localOnly, err := manager.ReadFullSessionForShare(sourceID, vendors.AgentCodex, frozen.SessionID, frozen.RevisionID)
 	if err != nil || got == nil || repository != "coslash" || !localOnly {
 		t.Fatalf("record=%#v repository=%q localOnly=%t err=%v", got, repository, localOnly, err)
+	}
+}
+
+func TestFullSessionShareRequiresCurrentEligibleRow(t *testing.T) {
+	const sourceID = "r_0123456789abcdef"
+	snapshot := completeCodexSnapshot(t, "complete-generation", "body\n")
+	record := snapshot.FullRecords[0].Record
+	cost := 1.0
+	running := "busy"
+	for _, test := range []struct {
+		name        string
+		state       State
+		complete    bool
+		private     bool
+		status      *string
+		cost        *float64
+		familyStale bool
+		want        bool
+	}{
+		{name: "eligible", state: StateOK, complete: true, cost: &cost, want: true},
+		{name: "unhealthy", state: StateStale, complete: true, cost: &cost},
+		{name: "incomplete", state: StateOK, cost: &cost},
+		{name: "private", state: StateOK, complete: true, private: true, cost: &cost},
+		{name: "running", state: StateOK, complete: true, status: &running, cost: &cost},
+		{name: "failed", state: StateOK, complete: true},
+		{name: "stale row", state: StateOK, complete: true, cost: &cost, familyStale: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := &Manager{
+				cfg:         &settings.RemoteSettings{ID: sourceID, Enabled: true},
+				state:       test.state,
+				complete:    test.complete,
+				snapshot:    &snapshot,
+				sessions:    []*session.Session{{Agent: record.Agent, ID: record.SessionID, RepositoryLocalOnly: test.private, Status: test.status, Cost: test.cost}},
+				familyStale: map[remoteSessionKey]bool{{Agent: record.Agent, ID: record.SessionID}: test.familyStale},
+			}
+			got, _, _, err := manager.ReadFullSessionForShare(sourceID, record.Agent, record.SessionID, record.RevisionID)
+			if err != nil || (got != nil) != test.want {
+				t.Fatalf("record present=%t err=%v, want present=%t", got != nil, err, test.want)
+			}
+		})
 	}
 }
 

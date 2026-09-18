@@ -53,12 +53,13 @@ func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) 
 				http.Error(response, "bad authorization", http.StatusUnauthorized)
 				return
 			}
-			_, _ = io.WriteString(response, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired"},"configured":true}`)
+			_, _ = io.WriteString(response, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"workspace","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`)
 		case "/.well-known/coslash-server":
 			_, _ = fmt.Fprintf(response, `{"product":"coslash-server","serverId":"server","displayName":"Hub","protocolVersions":["v1","v2"],"snapshotVersions":["session-snapshot/v1"],"maxSnapshotBytes":262144,"fullSessionVersions":["full-session-record/v1"],"maxFullSessionBytes":%d,"maxRequestBytes":1048576,"pairingUrl":"%s/pair","teamUrl":"%s"}`, 1<<20, hubURL(request), hubURL(request))
 		case "/v2/session-revisions":
 			key := request.Header.Get("Idempotency-Key")
 			if key != "full-session-local-api-0001" || request.Header.Get("Coslash-Destination-Workspace-Id") != "workspace" ||
+				request.Header.Get("Coslash-Destination-Audience-Version") != "audience-v1" ||
 				request.Header.Get("Content-Type") != fullsessionexport.MediaType || request.Header.Get("Content-Encoding") != "gzip" {
 				http.Error(response, "bad upload headers", http.StatusBadRequest)
 				return
@@ -123,7 +124,7 @@ func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) 
 			PreviewContractVersion: fullsessionexport.PreviewVersion, RevisionID: preview.Selection.RevisionID,
 			RecordSHA256: preview.RecordSHA256, RecordBytes: preview.RecordBytes, PayloadBytes: preview.PayloadBytes,
 			Repository: preview.Envelope.Repository, DestinationWorkspaceID: "workspace",
-			DestinationName: "Compiler Team", AudienceMemberCount: 2,
+			DestinationName: "Compiler Team", AudienceMemberCount: 2, AudienceVersion: preview.AudienceVersion,
 		},
 	}
 	shareBody, err := json.Marshal(share)
