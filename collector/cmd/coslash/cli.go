@@ -16,6 +16,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"golang.org/x/sys/unix"
 )
 
@@ -205,7 +206,8 @@ func runSessions(stdout io.Writer, args []string) error {
 	for _, value := range sessions {
 		if sessionMatches(value, query) {
 			filtered = append(filtered, cliSession{
-				ID: value.ID, Name: value.Name, Agent: value.Agent, Status: value.Status,
+				Selector: value.Agent + ":" + value.ID,
+				ID:       value.ID, Name: value.Name, Agent: value.Agent, Status: value.Status,
 				Repository: value.Repository, Branch: value.Branch, LastActivityTime: value.LastActivityTime,
 			})
 		}
@@ -214,6 +216,7 @@ func runSessions(stdout io.Writer, args []string) error {
 }
 
 type cliSession struct {
+	Selector         string  `json:"selector"`
 	ID               string  `json:"id"`
 	Name             *string `json:"name"`
 	Agent            string  `json:"agent"`
@@ -221,6 +224,19 @@ type cliSession struct {
 	Repository       *string `json:"repo"`
 	Branch           *string `json:"branch"`
 	LastActivityTime int64   `json:"mtime"`
+}
+
+func parseLocalSessionSelector(value string) (string, string, bool) {
+	agent, id, found := strings.Cut(value, ":")
+	if !found || id == "" {
+		return "", "", false
+	}
+	switch agent {
+	case vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode:
+		return agent, id, true
+	default:
+		return "", "", false
+	}
 }
 
 func sessionMatches(value session.Session, query string) bool {
@@ -238,14 +254,19 @@ func sessionMatches(value session.Session, query string) bool {
 }
 
 func runHandoff(stdout io.Writer, args []string) error {
-	if len(args) != 1 || args[0] == "" {
-		return fmt.Errorf("usage: coslash handoff <session>")
+	if len(args) != 1 {
+		return fmt.Errorf("usage: coslash handoff <agent>:<session>")
+	}
+	agent, id, ok := parseLocalSessionSelector(args[0])
+	if !ok {
+		return fmt.Errorf("usage: coslash handoff <agent>:<session>")
 	}
 	client, err := newLocalAPIClient()
 	if err != nil {
 		return err
 	}
-	data, err := client.request(http.MethodGet, "/api/handoff?id="+url.QueryEscape(args[0]), nil)
+	path := "/api/handoff?agent=" + url.QueryEscape(agent) + "&id=" + url.QueryEscape(id)
+	data, err := client.request(http.MethodGet, path, nil)
 	if err != nil {
 		return err
 	}
@@ -259,8 +280,12 @@ func runHandoff(stdout io.Writer, args []string) error {
 }
 
 func runSend(stdout io.Writer, args []string) error {
-	if len(args) < 3 || args[0] == "" || args[1] != "--to" {
-		return fmt.Errorf("usage: coslash send <session> --to claude|codex [message]")
+	if len(args) < 3 || args[1] != "--to" {
+		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex [message]")
+	}
+	agent, id, ok := parseLocalSessionSelector(args[0])
+	if !ok {
+		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex [message]")
 	}
 	target := args[2]
 	if target != "claude" && target != "codex" {
@@ -271,7 +296,7 @@ func runSend(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	path := "/api/send?id=" + url.QueryEscape(args[0]) + "&to=" + url.QueryEscape(target)
+	path := "/api/send?agent=" + url.QueryEscape(agent) + "&id=" + url.QueryEscape(id) + "&to=" + url.QueryEscape(target)
 	if _, err := client.request(http.MethodPost, path, bytes.NewBufferString(message)); err != nil {
 		return err
 	}
@@ -280,8 +305,12 @@ func runSend(stdout io.Writer, args []string) error {
 }
 
 func runReview(stdout io.Writer, args []string) error {
-	if len(args) != 3 || args[0] == "" || args[1] != "--with" {
-		return fmt.Errorf("usage: coslash review <session> --with claude|codex|opencode")
+	if len(args) != 3 || args[1] != "--with" {
+		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode")
+	}
+	agent, id, ok := parseLocalSessionSelector(args[0])
+	if !ok {
+		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode")
 	}
 	reviewer := args[2]
 	if reviewer != "claude" && reviewer != "codex" && reviewer != "opencode" {
@@ -291,7 +320,7 @@ func runReview(stdout io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	path := "/api/reviews?source=local&id=" + url.QueryEscape(args[0]) + "&reviewer=" + url.QueryEscape(reviewer)
+	path := "/api/reviews?source=local&agent=" + url.QueryEscape(agent) + "&id=" + url.QueryEscape(id) + "&reviewer=" + url.QueryEscape(reviewer)
 	if _, err := client.request(http.MethodPost, path, nil); err != nil {
 		return err
 	}

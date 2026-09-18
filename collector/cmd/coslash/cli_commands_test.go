@@ -93,7 +93,7 @@ func TestRunSessionsFiltersUIFieldsAndPrintsJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &sessions); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, stdout.String())
 	}
-	if len(sessions) != 1 || sessions[0]["id"] != "one" || gotToken != "secret" {
+	if len(sessions) != 1 || sessions[0]["id"] != "one" || sessions[0]["selector"] != "codex:one" || gotToken != "secret" {
 		t.Fatalf("sessions = %#v, token = %q", sessions, gotToken)
 	}
 	if _, present := sessions[0]["firstPrompt"]; present {
@@ -122,17 +122,29 @@ func TestSessionMatchesOnlyUISearchFields(t *testing.T) {
 	}
 }
 
+func TestParseLocalSessionSelector(t *testing.T) {
+	agent, id, ok := parseLocalSessionSelector("codex:session-1")
+	if !ok || agent != "codex" || id != "session-1" {
+		t.Fatalf("selector = %q/%q/%v", agent, id, ok)
+	}
+	for _, value := range []string{"session-1", "cursor:session-1", "codex:"} {
+		if _, _, ok := parseLocalSessionSelector(value); ok {
+			t.Fatalf("accepted selector %q", value)
+		}
+	}
+}
+
 func TestRunHandoffAndSendPreserveServerOutcomes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/handoff":
-			if r.URL.Query().Get("id") != "session-1" {
-				t.Fatalf("handoff id = %q", r.URL.Query().Get("id"))
+			if r.URL.Query().Get("agent") != "codex" || r.URL.Query().Get("id") != "session-1" {
+				t.Fatalf("handoff identity = %q/%q", r.URL.Query().Get("agent"), r.URL.Query().Get("id"))
 			}
 			io.WriteString(w, "# Handoff — Test\n")
 		case "/api/send":
 			body, _ := io.ReadAll(r.Body)
-			if r.URL.Query().Get("id") != "session-1" || r.URL.Query().Get("to") != "claude" || string(body) != "fix it" {
+			if r.URL.Query().Get("agent") != "codex" || r.URL.Query().Get("id") != "session-1" || r.URL.Query().Get("to") != "claude" || string(body) != "fix it" {
 				t.Fatalf("send = %s, body = %q", r.URL.String(), body)
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -144,12 +156,12 @@ func TestRunHandoffAndSendPreserveServerOutcomes(t *testing.T) {
 	writeTestRuntime(t, server.URL, "secret")
 
 	var stdout, stderr bytes.Buffer
-	if code := runCLI(&stdout, &stderr, []string{"handoff", "session-1"}); code != 0 || stdout.String() != "# Handoff — Test\n" {
+	if code := runCLI(&stdout, &stderr, []string{"handoff", "codex:session-1"}); code != 0 || stdout.String() != "# Handoff — Test\n" {
 		t.Fatalf("handoff code = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := runCLI(&stdout, &stderr, []string{"send", "session-1", "--to", "claude", "fix it"}); code != 0 {
+	if code := runCLI(&stdout, &stderr, []string{"send", "codex:session-1", "--to", "claude", "fix it"}); code != 0 {
 		t.Fatalf("send code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Success:") {
@@ -161,7 +173,7 @@ func TestRunReviewPreservesServerOutcomes(t *testing.T) {
 	reviewer := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/api/reviews" ||
-			r.URL.Query().Get("source") != "local" || r.URL.Query().Get("id") != "session-1" ||
+			r.URL.Query().Get("source") != "local" || r.URL.Query().Get("agent") != "codex" || r.URL.Query().Get("id") != "session-1" ||
 			r.URL.Query().Get("reviewer") != reviewer {
 			t.Fatalf("request = %s %s", r.Method, r.URL.String())
 		}
@@ -173,10 +185,10 @@ func TestRunReviewPreservesServerOutcomes(t *testing.T) {
 	for _, selected := range []string{"claude", "codex", "opencode"} {
 		reviewer = selected
 		var stdout, stderr bytes.Buffer
-		if code := runCLI(&stdout, &stderr, []string{"review", "session-1", "--with", selected}); code != 0 {
+		if code := runCLI(&stdout, &stderr, []string{"review", "codex:session-1", "--with", selected}); code != 0 {
 			t.Fatalf("reviewer = %q, code = %d, stderr = %q", selected, code, stderr.String())
 		}
-		if got := stdout.String(); got != "Success: started "+selected+" review for session session-1\n" {
+		if got := stdout.String(); got != "Success: started "+selected+" review for session codex:session-1\n" {
 			t.Fatalf("reviewer = %q, stdout = %q", selected, got)
 		}
 	}
@@ -186,9 +198,10 @@ func TestRunReviewRejectsInvalidArguments(t *testing.T) {
 	for _, args := range [][]string{
 		{"review"},
 		{"review", "session-1"},
-		{"review", "session-1", "--with"},
-		{"review", "session-1", "--with", "cursor"},
-		{"review", "session-1", "--with", "codex", "extra"},
+		{"review", "session-1", "--with", "codex"},
+		{"review", "codex:session-1", "--with"},
+		{"review", "codex:session-1", "--with", "cursor"},
+		{"review", "codex:session-1", "--with", "codex", "extra"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := runCLI(&stdout, &stderr, args); code != 1 || !strings.HasPrefix(stderr.String(), "Error: ") {
@@ -211,7 +224,7 @@ func TestRunReviewReportsAPIError(t *testing.T) {
 			writeTestRuntime(t, server.URL, "secret")
 
 			var stdout, stderr bytes.Buffer
-			if code := runCLI(&stdout, &stderr, []string{"review", "session-1", "--with", "codex"}); code != 1 {
+			if code := runCLI(&stdout, &stderr, []string{"review", "codex:session-1", "--with", "codex"}); code != 1 {
 				t.Fatalf("code = %d", code)
 			}
 			if got := stderr.String(); got != "Error: "+message+"\n" {
@@ -229,7 +242,7 @@ func TestRunCLIReportsServerErrors(t *testing.T) {
 	writeTestRuntime(t, server.URL, "secret")
 
 	var stdout, stderr bytes.Buffer
-	if code := runCLI(&stdout, &stderr, []string{"handoff", "missing"}); code != 1 {
+	if code := runCLI(&stdout, &stderr, []string{"handoff", "codex:missing"}); code != 1 {
 		t.Fatalf("code = %d", code)
 	}
 	if got := stderr.String(); !strings.Contains(got, "Error: session not found") {
@@ -240,15 +253,15 @@ func TestRunCLIReportsServerErrors(t *testing.T) {
 func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 	name := "Test"
 	found := &session.Session{Agent: "codex", ID: "session-1", Name: &name, WorkingDirectory: "/workspace"}
-	getSession := func(id string) (*session.Session, error) {
-		if id != found.ID {
-			t.Fatalf("id = %q", id)
+	getSession := func(agent, id string) (*session.Session, error) {
+		if agent != found.Agent || id != found.ID {
+			t.Fatalf("identity = %q/%q", agent, id)
 		}
 		return found, nil
 	}
 
 	response := httptest.NewRecorder()
-	handleHandoff(response, httptest.NewRequest(http.MethodGet, "/api/handoff?id=session-1", nil), getSession)
+	handleHandoff(response, httptest.NewRequest(http.MethodGet, "/api/handoff?agent=codex&id=session-1", nil), getSession)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "# Handoff — Test") {
 		t.Fatalf("handoff response = %d %q", response.Code, response.Body.String())
 	}
@@ -257,12 +270,12 @@ func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 	t.Setenv("COSLASH_HOME", home)
 	store := settings.Open()
 	var launched []string
-	open := func(terminal, agent, cwd, sessionID, mode, handoff, prompt string) error {
+	open := func(_ context.Context, terminal, agent, cwd, sessionID, mode, handoff, prompt string) error {
 		launched = []string{terminal, agent, cwd, sessionID, mode, handoff, prompt}
 		return nil
 	}
 	response = httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", strings.NewReader("fix it"))
+	request := httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", strings.NewReader("fix it"))
 	handleSend(response, request, store, getSession, func(string) bool { return true }, open)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("send response = %d %q", response.Code, response.Body.String())
@@ -280,15 +293,15 @@ func TestHandleSendDoesNotLaunchAfterRequestCancellation(t *testing.T) {
 	t.Setenv("COSLASH_HOME", home)
 	store := settings.Open()
 	launched := false
-	open := func(string, string, string, string, string, string, string) error {
+	open := func(context.Context, string, string, string, string, string, string, string) error {
 		launched = true
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	request := httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", nil).WithContext(ctx)
+	request := httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil).WithContext(ctx)
 	response := httptest.NewRecorder()
-	handleSend(response, request, store, func(string) (*session.Session, error) {
+	handleSend(response, request, store, func(string, string) (*session.Session, error) {
 		return found, nil
 	}, func(string) bool { return true }, open)
 	if launched {
@@ -304,11 +317,11 @@ func TestHandleSendRejectsUnavailableTarget(t *testing.T) {
 		response,
 		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=codex", nil),
 		settings.Open(),
-		func(string) (*session.Session, error) {
+		func(string, string) (*session.Session, error) {
 			return &session.Session{Agent: "claude", ID: "session-1", WorkingDirectory: "/workspace"}, nil
 		},
 		func(string) bool { return false },
-		func(string, string, string, string, string, string, string) error {
+		func(context.Context, string, string, string, string, string, string, string) error {
 			launched = true
 			return nil
 		},
@@ -329,11 +342,11 @@ func TestHandleSendRejectsOversizedGeneratedHandoff(t *testing.T) {
 	response := httptest.NewRecorder()
 	handleSend(
 		response,
-		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", nil),
+		httptest.NewRequest(http.MethodPost, "/api/send?agent=codex&id=session-1&to=claude", nil),
 		settings.Open(),
-		func(string) (*session.Session, error) { return found, nil },
+		func(string, string) (*session.Session, error) { return found, nil },
 		func(string) bool { return true },
-		func(string, string, string, string, string, string, string) error {
+		func(context.Context, string, string, string, string, string, string, string) error {
 			launched = true
 			return nil
 		},
@@ -354,12 +367,12 @@ func TestHandleSendHidesInvalidSettingsDetails(t *testing.T) {
 		response,
 		httptest.NewRequest(http.MethodPost, "/api/send?id=session-1&to=claude", nil),
 		settings.Open(),
-		func(string) (*session.Session, error) {
+		func(string, string) (*session.Session, error) {
 			t.Fatal("loaded session with invalid settings")
 			return nil, nil
 		},
 		func(string) bool { return true },
-		func(string, string, string, string, string, string, string) error { return nil },
+		func(context.Context, string, string, string, string, string, string, string) error { return nil },
 	)
 	want := "settings are invalid; open Settings to repair them\n"
 	if response.Code != http.StatusConflict || response.Body.String() != want {
@@ -371,9 +384,9 @@ func TestCanonicalSessionUsesListedNameAndSynthesis(t *testing.T) {
 	name := "Resolved name"
 	value := &session.Session{ID: "session-1", Name: &name, LastActivityTime: 42}
 	mgr := synthesis.NewManager(nil)
-	found, err := canonicalSession("session-1", mgr, func(id string, revision int64) (*session.Session, error) {
-		if id != "session-1" || revision != 0 {
-			t.Fatalf("load = %q/%d", id, revision)
+	found, err := canonicalSession("codex", "session-1", mgr, func(agent, id string, revision int64) (*session.Session, error) {
+		if agent != "codex" || id != "session-1" || revision != 0 {
+			t.Fatalf("load = %q/%q/%d", agent, id, revision)
 		}
 		return value, nil
 	})

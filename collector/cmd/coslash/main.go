@@ -205,8 +205,8 @@ func routes(
 ) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
-	getCanonicalSession := func(id string) (*session.Session, error) {
-		return canonicalSession(id, mgr, collector.GetSessionForPreview)
+	getCanonicalSession := func(agent, id string) (*session.Session, error) {
+		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		handleList(w, r, mgr, reviewManager, remoteManager)
@@ -244,13 +244,7 @@ func routes(
 	})
 	api.HandleFunc("POST /api/reviews", func(w http.ResponseWriter, r *http.Request) {
 		getSession := func(agent, id string) (*session.Session, error) {
-			var found *session.Session
-			var err error
-			if agent == "" {
-				found, err = collector.GetSessionForPreview(id, 0)
-			} else {
-				found, err = collector.GetSessionForPreviewByAgent(agent, id, 0)
-			}
+			found, err := collector.GetSessionForPreviewByAgent(agent, id, 0)
 			if found != nil {
 				found.Synthesis = mgr.LookupLatest(found.ID)
 			}

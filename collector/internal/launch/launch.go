@@ -51,8 +51,8 @@ var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 type terminalAdapter struct {
 	label     string
-	available func() error
-	open      func(string, string) error
+	available func(context.Context) error
+	open      func(context.Context, string, string) error
 }
 
 type ReviewerOption struct {
@@ -144,11 +144,11 @@ func (buffer *boundedBuffer) Write(data []byte) (int, error) {
 	return written, nil
 }
 
-func Terminal(terminal, agent, workingDirectory, sessionID, mode, handoff string) error {
-	return TerminalWithPrompt(terminal, agent, workingDirectory, sessionID, mode, handoff, "")
+func Terminal(ctx context.Context, terminal, agent, workingDirectory, sessionID, mode, handoff string) error {
+	return TerminalWithPrompt(ctx, terminal, agent, workingDirectory, sessionID, mode, handoff, "")
 }
 
-func TerminalWithPrompt(terminal, agent, workingDirectory, sessionID, mode, handoff, prompt string) error {
+func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, sessionID, mode, handoff, prompt string) error {
 	if workingDirectory == "" {
 		return fmt.Errorf("launch: session has no working directory")
 	}
@@ -156,7 +156,7 @@ func TerminalWithPrompt(terminal, agent, workingDirectory, sessionID, mode, hand
 	if err != nil {
 		return err
 	}
-	if err := openTerminal(terminal, workingDirectory, command); err != nil {
+	if err := openTerminal(ctx, terminal, workingDirectory, command); err != nil {
 		if handoffPath != "" {
 			os.Remove(handoffPath)
 		}
@@ -167,7 +167,7 @@ func TerminalWithPrompt(terminal, agent, workingDirectory, sessionID, mode, hand
 
 // RemoteTerminal opens the selected local terminal and runs an agent CLI on a
 // configured SSH host.
-func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, handoffName string) error {
+func RemoteTerminal(ctx context.Context, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName string) error {
 	if alias == "" {
 		return errors.New("launch: SSH alias is required")
 	}
@@ -178,7 +178,7 @@ func RemoteTerminal(terminal, alias, agent, workingDirectory, sessionID, mode, h
 	if err != nil {
 		return err
 	}
-	return openTerminal(terminal, ".", remoteSSHCommand(alias, remoteCommand))
+	return openTerminal(ctx, terminal, ".", remoteSSHCommand(alias, remoteCommand))
 }
 
 func remoteSSHCommand(alias, command string) string {
@@ -200,7 +200,7 @@ func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName
 	return changeDirectory + " || { rm -f " + handoffPath + "; exit 1; }; " + command, nil
 }
 
-func openTerminal(terminal, workingDirectory, command string) error {
+func openTerminal(ctx context.Context, terminal, workingDirectory, command string) error {
 	adapter, err := terminalFor(terminal)
 	if err != nil {
 		return err
@@ -208,10 +208,10 @@ func openTerminal(terminal, workingDirectory, command string) error {
 	if runtime.GOOS != "darwin" {
 		return fmt.Errorf("launch: opening a terminal is not supported on %s", runtime.GOOS)
 	}
-	if err := adapter.available(); err != nil {
+	if err := adapter.available(ctx); err != nil {
 		return fmt.Errorf("launch: %s is not installed or available; choose another terminal in Settings", adapter.label)
 	}
-	if err := adapter.open(workingDirectory, command); err != nil {
+	if err := adapter.open(ctx, workingDirectory, command); err != nil {
 		return fmt.Errorf("launch: open %s: %w", adapter.label, err)
 	}
 	return nil
@@ -222,7 +222,7 @@ func Available(terminal string) bool {
 		return false
 	}
 	adapter, err := terminalFor(terminal)
-	return err == nil && adapter.available() == nil
+	return err == nil && adapter.available(context.Background()) == nil
 }
 
 func terminalFor(terminal string) (terminalAdapter, error) {
@@ -230,13 +230,13 @@ func terminalFor(terminal string) (terminalAdapter, error) {
 	case settings.TerminalApple:
 		return terminalAdapter{
 			label:     "Apple Terminal",
-			available: func() error { return macApplicationAvailable("Terminal") },
+			available: func(ctx context.Context) error { return macApplicationAvailable(ctx, "Terminal") },
 			open:      openMacTerminal,
 		}, nil
 	case settings.TerminalITerm:
 		return terminalAdapter{
 			label:     "iTerm2",
-			available: func() error { return macApplicationAvailable("iTerm2") },
+			available: func(ctx context.Context) error { return macApplicationAvailable(ctx, "iTerm2") },
 			open:      openMacITerm,
 		}, nil
 	default:

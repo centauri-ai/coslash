@@ -340,7 +340,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 			found.WorkingDirectory, found.ID, mode, handoff,
 		)
 	} else {
-		err = launch.Terminal(state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
+		err = launch.Terminal(r.Context(), state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
 	}
 	if err != nil {
 		log.Printf("launch: %v", err)
@@ -358,9 +358,14 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 func handleHandoff(
 	w http.ResponseWriter,
 	r *http.Request,
-	getSession func(string) (*session.Session, error),
+	getSession func(string, string) (*session.Session, error),
 ) {
-	found, err := getSession(r.URL.Query().Get("id"))
+	agent := r.URL.Query().Get("agent")
+	if agent == "" {
+		http.Error(w, "agent is required", http.StatusBadRequest)
+		return
+	}
+	found, err := getSession(agent, r.URL.Query().Get("id"))
 	if err != nil {
 		log.Printf("handoff: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
@@ -375,14 +380,14 @@ func handleHandoff(
 }
 
 func canonicalSession(
-	id string,
+	agent, id string,
 	mgr *synthesis.Manager,
-	load func(string, int64) (*session.Session, error),
+	load func(string, string, int64) (*session.Session, error),
 ) (*session.Session, error) {
-	if id == "" {
+	if agent == "" || id == "" {
 		return nil, nil
 	}
-	found, err := load(id, 0)
+	found, err := load(agent, id, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -392,13 +397,13 @@ func canonicalSession(
 	return found, nil
 }
 
-type promptLauncher func(string, string, string, string, string, string, string) error
+type promptLauncher func(context.Context, string, string, string, string, string, string, string) error
 
 func handleSend(
 	w http.ResponseWriter,
 	r *http.Request,
 	settingsStore *settings.Store,
-	getSession func(string) (*session.Session, error),
+	getSession func(string, string) (*session.Session, error),
 	targetAvailable func(string) bool,
 	open promptLauncher,
 ) {
@@ -417,7 +422,12 @@ func handleSend(
 		http.Error(w, "settings are invalid; open Settings to repair them", http.StatusConflict)
 		return
 	}
-	found, err := getSession(r.URL.Query().Get("id"))
+	agent := r.URL.Query().Get("agent")
+	if agent == "" {
+		http.Error(w, "agent is required", http.StatusBadRequest)
+		return
+	}
+	found, err := getSession(agent, r.URL.Query().Get("id"))
 	if err != nil {
 		log.Printf("send: %v", err)
 		http.Error(w, "could not load session", http.StatusInternalServerError)
@@ -441,6 +451,7 @@ func handleSend(
 		return
 	}
 	if err := open(
+		r.Context(),
 		state.Config.Launch.Terminal,
 		target,
 		found.WorkingDirectory,
@@ -473,7 +484,7 @@ func openRemoteTerminalWithHandoff(
 		}
 	}
 	if err := launchRemoteTerminal(
-		terminal, alias, agent, workingDirectory, sessionID, mode, handoffName,
+		ctx, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName,
 	); err != nil {
 		if handoffName != "" {
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), remote.DefaultCapabilityTimeout)
@@ -512,6 +523,10 @@ func handleReview(
 		return
 	}
 	originAgent := query.Get("agent")
+	if originAgent == "" {
+		http.Error(w, "agent is required", http.StatusBadRequest)
+		return
+	}
 	found, err := getSession(originAgent, query.Get("id"))
 	if err != nil {
 		log.Printf("review: %v", err)

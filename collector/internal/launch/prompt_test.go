@@ -1,12 +1,28 @@
 package launch
 
 import (
+	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestOpenMacTerminalPropagatesCancellation(t *testing.T) {
+	original := runOSAScript
+	t.Cleanup(func() { runOSAScript = original })
+	runOSAScript = func(ctx context.Context, _ ...string) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := openMacTerminal(ctx, "/repo", "codex"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context cancellation", err)
+	}
+}
 
 func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
