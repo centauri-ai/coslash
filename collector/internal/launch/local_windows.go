@@ -43,9 +43,6 @@ func Available(terminal string) bool {
 	if terminal != settings.TerminalWindows {
 		return false
 	}
-	if _, err := windowsLookPath("wt.exe"); err == nil {
-		return true
-	}
 	_, err := windowsLookPath("powershell.exe")
 	return err == nil
 }
