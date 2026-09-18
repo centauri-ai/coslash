@@ -14,6 +14,62 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
+func TestCursorEnrichmentPreservesMergedEditsDuringSharedFinalization(t *testing.T) {
+	parsed := &vendors.ParsedSession{Session: &session.Session{
+		ID: "session", EditedFileCount: 1,
+		SessionDetails: session.SessionDetails{FileEdits: []session.FileEdit{{Path: "a.go", Additions: 1}}},
+	}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("session").FileEdits = []session.FileEdit{{Path: "b.go", Additions: 2}}
+
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+	vendors.ApplySessionEnrichment(parsed, metadata.Lookup("session"))
+
+	if len(parsed.Session.FileEdits) != 2 || parsed.Session.FileEdits[0].Path != "a.go" || parsed.Session.FileEdits[1].Path != "b.go" {
+		t.Fatalf("file edits = %#v, want merged transcript and checkpoint edits", parsed.Session.FileEdits)
+	}
+}
+
+func TestCursorEnrichmentAppliesSharedFactsMetadataAndCost(t *testing.T) {
+	parsed := &vendors.ParsedSession{Session: &session.Session{ID: "session", Tokens: map[string]session.ModelTokens{}}}
+	metadata := vendors.EmptySessionMetadata()
+	entry := metadata.Session("session")
+	entry.Model = "composer-2.5-fast"
+	entry.Entrypoint = entrypointIDE
+	entry.PullRequests = 2
+	contextTokens, contextWindow, recordedCost := 100_001, 200_000, 1.25
+	entry.Usage = vendors.SessionUsage{
+		Tokens:        map[string]session.ModelTokens{"composer-2.5-fast": {InputTokens: 10}},
+		ContextTokens: &contextTokens, ContextWindow: &contextWindow, RecordedCost: &recordedCost,
+	}
+
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+
+	if parsed.Session.Model == nil || *parsed.Session.Model != "composer-2.5-fast" ||
+		parsed.Session.Entrypoint == nil || *parsed.Session.Entrypoint != entrypointIDE ||
+		parsed.Session.ContextTokens == nil || *parsed.Session.ContextTokens != contextTokens ||
+		parsed.Session.ContextWindow == nil || *parsed.Session.ContextWindow != contextWindow ||
+		parsed.Session.PullRequests != 2 || parsed.Session.Cost == nil || *parsed.Session.Cost != recordedCost {
+		t.Fatalf("session missing shared metadata or cost: %#v", parsed.Session)
+	}
+}
+
+func TestCursorEnrichmentRecomputesDurationFromMetadataTimes(t *testing.T) {
+	duration := 400
+	parsed := &vendors.ParsedSession{Session: &session.Session{
+		ID: "session", StartedAt: 100, LastActivityTime: 500, DurationMs: &duration,
+	}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session("session").StartedAt = 200
+	metadata.Session("session").LastActivityAt = 300
+
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+
+	if parsed.Session.DurationMs == nil || *parsed.Session.DurationMs != 100 {
+		t.Fatalf("duration = %v, want 100", parsed.Session.DurationMs)
+	}
+}
+
 func TestCursorFamilyFilesSelectsOnlyRequestedFamily(t *testing.T) {
 	rootID := "00000000-0000-4000-8000-000000000001"
 	childID := "00000000-0000-4000-8000-000000000002"
