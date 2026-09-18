@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,6 +23,11 @@ import (
 func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
+	lock, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
 	if err := writeToken("secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +54,73 @@ func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
 	}
 	if _, _, err := readRuntime(); err == nil {
 		t.Fatal("readRuntime accepted a non-loopback URL")
+	}
+}
+
+func TestReadRuntimeRejectsDescriptorWithoutOwnerLock(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	if err := writeToken("secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRuntime("http://127.0.0.1:4321"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"sessions", "--json"}); code == 0 {
+		t.Fatal("sessions trusted stale discovery files")
+	}
+	if !strings.Contains(stderr.String(), "coSlash app is not running") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRemoveRuntimeOnlyRemovesOwnedDiscovery(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	if err := writeToken("replacement"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRuntime("http://127.0.0.1:4321"); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeRuntime("http://127.0.0.1:4321", "original"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"runtime.json", "token"} {
+		if _, err := os.Stat(filepath.Join(home, name)); err != nil {
+			t.Fatalf("replacement %s was removed: %v", name, err)
+		}
+	}
+
+	if err := removeRuntime("http://127.0.0.1:4321", "replacement"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"runtime.json", "token"} {
+		if _, err := os.Stat(filepath.Join(home, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("owned %s remains: %v", name, err)
+		}
+	}
+}
+
+func TestLocalAPIClientRejectsRedirects(t *testing.T) {
+	received := false
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer target.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"send", "codex:session", "--to", "claude", "private task"}); code == 0 {
+		t.Fatalf("send accepted a redirect: %s", stdout.String())
+	}
+	if received {
+		t.Fatal("redirect target received the authenticated request")
 	}
 }
 
@@ -429,6 +503,11 @@ func TestCanonicalSessionUsesListedNameAndSynthesis(t *testing.T) {
 func writeTestRuntime(t *testing.T, baseURL, token string) {
 	t.Helper()
 	t.Setenv("COSLASH_HOME", t.TempDir())
+	lock, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.Close() })
 	if err := writeToken(token); err != nil {
 		t.Fatal(err)
 	}

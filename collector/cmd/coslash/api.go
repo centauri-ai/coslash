@@ -562,6 +562,9 @@ func handleReview(
 		writeTerminalLaunchError(w, err)
 		return
 	}
+	if r.Context().Err() != nil {
+		return
+	}
 	if !startReview(reviewpkg.Key(found.Agent, found.ID), reviewpkg.Launch{
 		Reviewer: reviewer, WorkingDirectory: found.WorkingDirectory, Name: name, Prompt: prompt,
 	}) {

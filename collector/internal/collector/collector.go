@@ -60,6 +60,25 @@ func Sources() []SourceHealth {
 	return health
 }
 
+func SessionIDIndex() (map[string]map[string]bool, error) {
+	index := make(map[string]map[string]bool, len(vendorSources))
+	for _, source := range vendorSources {
+		parsed, _, err := source.collect(0)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", source.name, err)
+		}
+		ids := make(map[string]bool)
+		for _, candidate := range parsed {
+			if candidate.Session != nil && candidate.ParentID == "" &&
+				filepath.Clean(candidate.Session.WorkingDirectory) != filepath.Clean(synthesis.SynthesisCwd()) {
+				ids[candidate.Session.ID] = true
+			}
+		}
+		index[source.name] = ids
+	}
+	return index, nil
+}
+
 func List(since int64) ([]*session.Session, error) {
 	parsed, metadata, err := collect(max(0, since-windowContextBuffer.Milliseconds()))
 	if err != nil {

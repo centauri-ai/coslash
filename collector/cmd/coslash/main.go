@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -104,12 +105,13 @@ func main() {
 	}
 	mgr := synthesis.NewManager(runner)
 	reviewManager := review.NewManager(launch.Review)
+	sessionIDs := sync.OnceValues(collector.SessionIDIndex)
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr.SetRunner(nil)
 	} else if err := synthesis.MigrateLegacyCache(func(agent, id string) (bool, error) {
-		found, err := collector.GetSessionFactsByAgent(agent, id)
-		return found != nil, err
+		index, err := sessionIDs()
+		return index[agent][id], err
 	}); err != nil {
 		log.Printf("migrate synthesis cache: %v", err)
 	}
@@ -149,6 +151,11 @@ func main() {
 	if err := writeRuntime(baseURL); err != nil {
 		log.Fatalf("coslash: write runtime descriptor: %v", err)
 	}
+	defer func() {
+		if err := removeRuntime(baseURL, token); err != nil {
+			log.Printf("remove runtime discovery: %v", err)
+		}
+	}()
 	accessURL := baseURL + "/#t=" + token
 	log.Printf("listening on %s", baseURL)
 	log.Printf("open %s", accessURL)

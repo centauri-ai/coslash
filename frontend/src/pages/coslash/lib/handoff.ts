@@ -21,7 +21,10 @@ export function handoffBrief(detail: SessionDetail): string {
     ? detail.synthesis.keyDecisions.map((decision) => `- ${decision}`)
     : ['- —'];
   const digest = detail.digest.length
-    ? detail.digest.map((entry) => `- [${entry.category} · turn ${entry.turn}] ${entry.description}`)
+    ? detail.digest.flatMap((entry) => [
+        `- [${entry.category} · turn ${entry.turn}] ${entry.description}`,
+        ...(entry.answer?.trim() ? [`  - Answer: ${entry.answer.trim()}`] : []),
+      ])
     : ['- —'];
   const files = detail.fileEdits.length
     ? detail.fileEdits.map((fileEdit) => `- ${fileEdit.path} (+${fileEdit.adds}/-${fileEdit.dels})`)
@@ -36,7 +39,7 @@ export function handoffBrief(detail: SessionDetail): string {
     ...(goal.texts.length === 1 ? goal.texts : goal.texts.map((text) => `- ${text}`)),
     '',
     '## Current state',
-    detail.synthesis?.outcome ?? detail.summary ?? '—',
+    (detail.synthesis?.outcome.trim() || detail.summary) ?? '—',
     '',
     '## Key decisions',
     ...decisions,
