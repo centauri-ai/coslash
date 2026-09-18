@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	_ "modernc.org/sqlite"
@@ -41,12 +42,24 @@ func TestParseMarksNewUserTurnBusyBeforeAssistantIsPersisted(t *testing.T) {
 	db := testDB(t)
 	insertMessage(t, db, 0, `{"role":"user","time":{"created":100}}`)
 	insertMessage(t, db, 1, `{"role":"assistant","time":{"created":200}}`)
-	insertMessage(t, db, 2, `{"role":"user","time":{"created":300}}`)
+	now := time.Now().UnixMilli()
+	insertMessage(t, db, 2, fmt.Sprintf(`{"role":"user","time":{"created":%d}}`, now))
 	insertPart(t, db, "message-2", `{"type":"text","text":"Continue"}`)
 	parsed := parseDB(t, db)
 
 	if !parsed.InTurn || parsed.StatusHint == nil || *parsed.StatusHint != "busy" {
 		t.Fatalf("new user turn = InTurn %t, hint %v; want busy", parsed.InTurn, parsed.StatusHint)
+	}
+}
+
+func TestParseExpiresAbandonedPromptBeforeAssistantIsPersisted(t *testing.T) {
+	db := testDB(t)
+	insertMessage(t, db, 0, `{"role":"user","time":{"created":100}}`)
+	insertPart(t, db, "message-0", `{"type":"text","text":"Continue"}`)
+	parsed := parseDB(t, db)
+
+	if parsed.InTurn || parsed.StatusHint != nil {
+		t.Fatalf("abandoned user turn = InTurn %t, hint %v; want inactive", parsed.InTurn, parsed.StatusHint)
 	}
 }
 
@@ -102,8 +115,12 @@ func TestParseIgnoresRunningTaskFromSupersededTurn(t *testing.T) {
 	insertMessage(t, db, 3, `{"role":"assistant","finish":"stop","time":{"created":400,"completed":500}}`)
 	parsed := parseDB(t, db)
 
-	if parsed.InTurn || parsed.StatusHint != nil {
-		t.Fatalf("superseded task = InTurn %t, hint %v; want inactive", parsed.InTurn, parsed.StatusHint)
+	spawn := parsed.Spawns["child"]
+	if parsed.InTurn || parsed.StatusHint != nil || !spawn.Completed {
+		t.Fatalf(
+			"superseded task = InTurn %t, hint %v, completed %t; want inactive returned spawn",
+			parsed.InTurn, parsed.StatusHint, spawn.Completed,
+		)
 	}
 }
 

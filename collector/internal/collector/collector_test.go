@@ -96,6 +96,35 @@ func TestFinalizeSessionsDoesNotAllocateMissingMetadata(t *testing.T) {
 	}
 }
 
+func TestFinalizeSessionsReturnsSettledOpenCodeChild(t *testing.T) {
+	parent := &vendors.ParsedSession{
+		Session: &session.Session{
+			Agent: vendors.AgentOpenCode, ID: "parent", StartedAt: 1, LastActivityTime: 4,
+			Tokens: map[string]session.ModelTokens{},
+		},
+		Spawns: map[string]vendors.SpawnState{"child": {Completed: true}},
+	}
+	child := &vendors.ParsedSession{
+		Session: &session.Session{
+			Agent: vendors.AgentOpenCode, ID: "child", StartedAt: 2, LastActivityTime: 3,
+			Tokens: map[string]session.ModelTokens{},
+		},
+		ParentID: "parent",
+		SpawnKey: "child",
+		Spawns:   map[string]vendors.SpawnState{},
+	}
+
+	roots := finalizeSessions(
+		[]*vendors.ParsedSession{parent, child},
+		map[string]*vendors.SessionMetadata{vendors.AgentOpenCode: vendors.EmptySessionMetadata()},
+	)
+
+	if len(roots) != 1 || len(roots[0].Session.Subagents) != 1 ||
+		roots[0].Session.Subagents[0].Status != session.SubagentReturned {
+		t.Fatalf("settled OpenCode family = %#v; want returned child", roots)
+	}
+}
+
 func TestResolveNamesPreservesReviewNameFromPrompt(t *testing.T) {
 	prompt := "Review — Fix checkout race (12345678)\n\nReview the current changes."
 	root := &vendors.ParsedSession{
