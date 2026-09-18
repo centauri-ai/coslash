@@ -71,13 +71,18 @@ revision; display paths and change IDs are never treated as files to open.
 
 ## Outbound data
 
-The collector does not upload data itself. If you enable synthesis, it passes a bounded set of session facts—such as prompts or recaps, todos, filenames, commands, and commit text—to your selected local Claude Code, Codex, or OpenCode CLI. That CLI sends the request using its existing authentication, so the selected provider's settings and terms apply.
+Outside an explicitly approved Hub share, the collector does not upload
+session data itself. If you enable synthesis, it passes a bounded set of
+session facts—such as prompts or recaps, todos, filenames, commands, and commit
+text—to your selected local Claude Code, Codex, or OpenCode CLI. That CLI sends
+the request using its existing authentication, so the selected provider's
+settings and terms apply.
 
 OpenCode has no ephemeral mode, so coSlash points each run at its own scratch database under `~/.coslash/synthesis`, discarded once the run ends. Synthesis runs never enter your own OpenCode history.
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 
-## Snapshot preview
+## Share preview and approval
 
 During an active Share to Hub flow, **See what gets shared** builds a local
 `session-snapshot/v1` preview through the same canonical serializer whose bytes
@@ -111,6 +116,35 @@ retries retain their idempotency key and canonical bytes; accepted items are
 not sent again. The server derives workspace authority from authenticated state
 or a workspace-bound device credential and never trusts the client assertion to
 select or retarget a workspace.
+
+The additive **Share full revision** flow is available only for an eligible
+SSH Codex session with a validated `full-session-record/v1` in the last-good
+cache. It does not change the v1 snapshot preview or upload. Before loading the
+record, coSlash verifies the authenticated paired destination and that the Hub
+advertises the v2 protocol, record version, and bounded record limit. Network
+and temporary discovery failures remain retryable; only a valid discovery
+response without full-v2 support is incompatible. Pairing, discovery, and
+oversize errors do not include session content.
+
+The full-v2 review displays the destination, active-member audience, canonical
+record size, total envelope size, revision identity, record SHA-256, repository,
+and the entire canonical envelope, including all prompt text, commands, todos,
+digest entries, subagent fields, paths, and ordered file-change bodies present
+in the record. Full records are not redacted or truncated. The review therefore
+shows an embedded-secret warning and requires a separate checkbox approval.
+
+Approval binds the exact source, agent, session, full-record revision, record
+hash and size, envelope size, repository, destination workspace and name, and
+active-member count. Immediately before one bounded gzip upload, coSlash
+re-loads the immutable record, re-fetches the destination and audience, and
+rebuilds the canonical envelope. Any binding change requires a new review. An
+ambiguous timeout is reconciled with the same idempotency key; a retry cannot
+create a second revision.
+
+The portable SSH record does not claim a Git remote discovered from the remote
+filesystem. If no bounded repository identity is available, the upload uses
+the disclosed working-directory basename and marks the repository local-only;
+the review shows that exact fallback before approval.
 
 ## Local server
 
