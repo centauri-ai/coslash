@@ -406,6 +406,23 @@ func TestLocalMachineFactOmitsRemoteOnlyEnums(t *testing.T) {
 	}
 }
 
+func TestLocalSourceLabelMatchesOperatingSystem(t *testing.T) {
+	for _, test := range []struct {
+		goos string
+		want string
+	}{
+		{goos: "darwin", want: "Local Mac"},
+		{goos: "windows", want: "Local PC"},
+		{goos: "linux", want: "Local machine"},
+	} {
+		t.Run(test.goos, func(t *testing.T) {
+			if got := localSourceLabelFor(test.goos); got != test.want {
+				t.Fatalf("localSourceLabelFor(%q) = %q, want %q", test.goos, got, test.want)
+			}
+		})
+	}
+}
+
 func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
 	manager := remote.NewManager(remote.Options{Cache: remote.NewCache(t.TempDir())})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {

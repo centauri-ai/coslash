@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"runtime"
 	"strings"
 	"unicode"
 
@@ -13,8 +14,7 @@ import (
 )
 
 const (
-	localSourceID    = "local"
-	localSourceLabel = "Local Mac"
+	localSourceID = "local"
 	// Remote aliases are configuration input and may contain a hostname or a
 	// username. They are intentionally never part of the source-aware web
 	// model. The opaque source ID remains available for stable selection and
@@ -26,6 +26,18 @@ const (
 	errCodeRemoteDisabled       = "remote_disabled"
 	errCodeRemoteRetryThrottled = "remote_retry_throttled"
 )
+
+var localSourceLabel = localSourceLabelFor(runtime.GOOS)
+
+func localSourceLabelFor(goos string) string {
+	if goos == "windows" {
+		return "Local PC"
+	}
+	if goos == "darwin" {
+		return "Local Mac"
+	}
+	return "Local machine"
+}
 
 type apiErrorBody struct {
 	Code  string `json:"code"`
