@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronDown, ChevronRight, Settings, TriangleAlert } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { setTheme } from '@/lib/theme';
@@ -157,18 +157,6 @@ function BackendChoice({
         selected && <Check aria-hidden="true" className="size-3.5" strokeWidth={3} />
       )}
     </button>
-  );
-}
-
-export function SettingsButton({ onClick, hasError }: { onClick: () => void; hasError: boolean }) {
-  return (
-    <Button type="button" variant="outline" size="sm" className="relative" onClick={onClick}>
-      <Settings aria-hidden="true" />
-      Settings
-      {hasError && (
-        <span className="bg-destructive absolute -top-1 -right-1 size-2 rounded-full" aria-hidden="true" />
-      )}
-    </Button>
   );
 }
 

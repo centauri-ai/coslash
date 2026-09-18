@@ -1165,9 +1165,6 @@ export function CoslashLayout({
                   <X />
                 </button>
               )}
-              <kbd className="rounded-[5px] border border-[var(--coslash-line)] px-1.5 py-1 text-[11px] leading-none text-[var(--coslash-muted)]">
-                ⌘ K
-              </kbd>
             </div>
             <div className="flex items-center justify-between gap-3 max-[900px]:flex-wrap">
               <Rollup sessions={visibleSessions} isLoading={isLoading} />
