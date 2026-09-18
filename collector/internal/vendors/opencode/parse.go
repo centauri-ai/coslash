@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -24,6 +25,8 @@ type parsedSession struct {
 }
 
 var errMalformedSession = errors.New("malformed OpenCode session data")
+
+const promptOnlyBusyWindow = 2 * time.Minute
 
 func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	modelID := ""
@@ -64,6 +67,8 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	activeDuration := int64(0)
 	busy := false
 	waiting := false
+	promptOnly := false
+	promptAt := int64(0)
 	activeTasks := map[string]string{}
 	commitLog := []session.CommitObservation{}
 	pullRequests := 0
@@ -85,6 +90,8 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			}
 			busy = true
 			waiting = false
+			promptOnly = true
+			promptAt = message.Time.Created
 			clear(activeTasks)
 			turns++
 			if firstPrompt == "" {
@@ -102,6 +109,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		}
 		busy = message.Time.Created > 0 && message.Time.Completed == nil
 		waiting = false
+		promptOnly = false
 		clear(activeTasks)
 		if message.Time.Created > 0 {
 			if message.Time.Completed != nil {
@@ -249,11 +257,22 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 			digest.Push(turns, session.DigestRecap, text, message.Time.Created)
 		}
 	}
+	for childID := range tasks {
+		if _, current := activeTasks[childID]; current {
+			continue
+		}
+		spawn := spawns[childID]
+		spawn.Completed = true
+		spawns[childID] = spawn
+	}
 	for _, status := range activeTasks {
 		if status == "pending" || status == "running" {
 			busy = true
 			break
 		}
+	}
+	if promptOnly && (promptAt <= 0 || time.Now().UnixMilli()-promptAt > promptOnlyBusyWindow.Milliseconds()) {
+		busy = false
 	}
 	mergeFileEditSources(row.directory, fileEdits, summaryEdits, patchEdits)
 
