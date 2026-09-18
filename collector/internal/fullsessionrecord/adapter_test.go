@@ -405,6 +405,7 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 		"EditedFileCount": "included", "DurationMs": "included", "Tokens": "included",
 		"Cost": "included", "UnpricedModels": "included", "Subagents": "included", "StartedAt": "included",
 		"LastActivityTime": "included", "Entrypoint": "included", "CommitLog": "parser-only source observation",
+		"ReviewPending": "excluded local review state", "ReviewError": "excluded local review failure",
 		"SessionDetails": "included field-by-field",
 	}
 	typeOf := reflect.TypeOf(session.Session{})
