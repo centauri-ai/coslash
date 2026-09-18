@@ -81,6 +81,10 @@ export function ShareToHubDialog({
   open,
   onOpenChange,
   candidates,
+  candidatesLoading,
+  candidatesError,
+  window,
+  onWindowChange,
   destinationResult,
   onOpenSettings,
   onDestinationRefresh,
@@ -90,6 +94,10 @@ export function ShareToHubDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   candidates: ShareCandidate[];
+  candidatesLoading: boolean;
+  candidatesError: string | null;
+  window: ShareWindow;
+  onWindowChange: (window: ShareWindow) => void;
   destinationResult: DestinationResult;
   onOpenSettings: () => void;
   onDestinationRefresh: () => Promise<DestinationResult>;
@@ -97,7 +105,6 @@ export function ShareToHubDialog({
   fixtureOutcome?: 'success' | 'partial';
 }) {
   const [search, setSearch] = useState('');
-  const [window, setWindow] = useState<ShareWindow>('7d');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<Phase>('select');
   const [records, setRecords] = useState<ReviewRecord[]>([]);
@@ -142,7 +149,6 @@ export function ShareToHubDialog({
     if (open) return;
     previewGeneration.current += 1;
     setSearch('');
-    setWindow('7d');
     setSelected(new Set());
     setPhase('select');
     setRecords([]);
@@ -246,7 +252,7 @@ export function ShareToHubDialog({
     const nextVisible = filterShareCandidates(candidates, nextSearch, nextWindow);
     replaceSelection(reconcileVisibleSelection(currentSelection, nextVisible));
     setSearch(nextSearch);
-    setWindow(nextWindow);
+    onWindowChange(nextWindow);
   };
 
   const reviewExactPayloads = async () => {
@@ -514,6 +520,7 @@ export function ShareToHubDialog({
                       className="pl-8"
                       placeholder="Filter sessions"
                       value={search}
+                      disabled={candidatesLoading}
                       onChange={(event) => narrow(event.target.value, window)}
                     />
                   </div>
@@ -537,6 +544,18 @@ export function ShareToHubDialog({
                   </div>
                 )}
 
+                {candidatesLoading && (
+                  <div role="status" className="text-muted-foreground rounded-lg border p-3 text-sm">
+                    Loading shareable sessions…
+                  </div>
+                )}
+
+                {candidatesError && (
+                  <div role="alert" className="bg-warning-bg text-warning-fg rounded-lg border p-3 text-sm">
+                    {candidatesError}
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span>
                     {selectedCandidates.length
@@ -547,7 +566,7 @@ export function ShareToHubDialog({
                     variant="ghost"
                     size="sm"
                     onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, visible))}
-                    disabled={visible.length === 0}
+                    disabled={candidatesLoading || candidatesError != null || visible.length === 0}
                   >
                     {visible.length > 0 &&
                     visible.every(({ session }) => currentSelection.has(localSessionId(session)))
@@ -557,62 +576,64 @@ export function ShareToHubDialog({
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
-                  {groups.length === 0 && (
+                  {!candidatesLoading && candidatesError == null && groups.length === 0 && (
                     <div className="text-muted-foreground p-8 text-center text-sm">
                       No sessions match this filter.
                     </div>
                   )}
-                  {groups.map(([repository, rows]) => {
-                    const allSelected = rows.every(({ session }) =>
-                      currentSelection.has(localSessionId(session)),
-                    );
-                    return (
-                      <section key={repository} className="border-b last:border-b-0">
-                        <div className="bg-muted/60 flex items-center justify-between gap-3 px-3 py-2">
-                          <span className="font-mono text-xs font-semibold">{repository}</span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, rows))}
-                          >
-                            {allSelected ? 'Clear repository' : 'Select repository'}
-                          </Button>
-                        </div>
-                        {rows.map((candidate) => {
-                          const key = localSessionId(candidate.session);
-                          return (
-                            <label
-                              key={key}
-                              className="hover:bg-muted/30 flex cursor-pointer items-start gap-3 border-t px-3 py-3 first:border-t-0"
+                  {!candidatesLoading &&
+                    candidatesError == null &&
+                    groups.map(([repository, rows]) => {
+                      const allSelected = rows.every(({ session }) =>
+                        currentSelection.has(localSessionId(session)),
+                      );
+                      return (
+                        <section key={repository} className="border-b last:border-b-0">
+                          <div className="bg-muted/60 flex items-center justify-between gap-3 px-3 py-2">
+                            <span className="font-mono text-xs font-semibold">{repository}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, rows))}
                             >
-                              <input
-                                type="checkbox"
-                                className="mt-1 size-4"
-                                checked={currentSelection.has(key)}
-                                disabled={
-                                  !currentSelection.has(key) && currentSelection.size >= MAX_SHARE_ITEMS
-                                }
-                                onChange={() => replaceSelection(toggleCandidate(currentSelection, key))}
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium">
-                                  {candidate.session.name ?? candidate.session.id}
+                              {allSelected ? 'Clear repository' : 'Select repository'}
+                            </Button>
+                          </div>
+                          {rows.map((candidate) => {
+                            const key = localSessionId(candidate.session);
+                            return (
+                              <label
+                                key={key}
+                                className="hover:bg-muted/30 flex cursor-pointer items-start gap-3 border-t px-3 py-3 first:border-t-0"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="mt-1 size-4"
+                                  checked={currentSelection.has(key)}
+                                  disabled={
+                                    !currentSelection.has(key) && currentSelection.size >= MAX_SHARE_ITEMS
+                                  }
+                                  onChange={() => replaceSelection(toggleCandidate(currentSelection, key))}
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm font-medium">
+                                    {candidate.session.name ?? candidate.session.id}
+                                  </span>
+                                  <span className="text-muted-foreground block truncate pt-0.5 text-xs">
+                                    {candidate.session.sourceLabel} · {candidate.session.agent} ·{' '}
+                                    {candidate.session.branch ?? 'no branch'} · revision{' '}
+                                    {candidate.session.mtime}
+                                  </span>
                                 </span>
-                                <span className="text-muted-foreground block truncate pt-0.5 text-xs">
-                                  {candidate.session.sourceLabel} · {candidate.session.agent} ·{' '}
-                                  {candidate.session.branch ?? 'no branch'} · revision{' '}
-                                  {candidate.session.mtime}
-                                </span>
-                              </span>
-                              {candidate.previouslyShared && (
-                                <Badge variant="secondary">Previously shared · re-share</Badge>
-                              )}
-                            </label>
-                          );
-                        })}
-                      </section>
-                    );
-                  })}
+                                {candidate.previouslyShared && (
+                                  <Badge variant="secondary">Previously shared · re-share</Badge>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </section>
+                      );
+                    })}
                 </div>
               </>
             )}
@@ -772,7 +793,10 @@ export function ShareToHubDialog({
 
         <DialogFooter>
           {phase === 'select' && destinationResult.state === 'ready' && (
-            <Button onClick={reviewExactPayloads} disabled={selectedCandidates.length === 0}>
+            <Button
+              onClick={reviewExactPayloads}
+              disabled={candidatesLoading || candidatesError != null || selectedCandidates.length === 0}
+            >
               See what gets shared
             </Button>
           )}
