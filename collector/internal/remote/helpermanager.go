@@ -110,16 +110,18 @@ func helperRefreshWithOpen(
 	target helperTarget,
 	open OpenOptions,
 ) (refreshOutcome, error) {
+	baseline = snapshotOrEmpty(&baseline)
 	request, err := buildLocalRequest(
-		fmt.Sprintf("helper-%d", now.UnixNano()), since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline),
+		fmt.Sprintf("helper-%d", now.UnixNano()), baseline.SourceID, since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline), baseline.PageAfter,
 	)
 	if err != nil {
 		return refreshOutcome{}, fmt.Errorf("build helper collection request: %w", err)
 	}
 	effectiveBaseline := baseline
 	if request.BaselineMode == remoteprotocol.BaselineNone {
-		// Omitted known data must not be treated as an implicit baseline.
-		effectiveBaseline = CachedSnapshotV2{Version: cacheV2Version, CodexHeaders: baseline.CodexHeaders}
+		// Fingerprints are omitted, but completed pages remain merge state. A
+		// complete inventory is still required before baseline-free deletion.
+		effectiveBaseline.BaselineID = ""
 	}
 	result, collectErr := HelperCollect(ctx, alias, target.path, request, toGeneration(effectiveBaseline), open)
 	snapshot := fromGeneration(result.Proposal, result.Coverage, now.UnixMilli(), result.RoundTrip.Milliseconds(), nil)
@@ -132,13 +134,9 @@ func helperRefreshWithOpen(
 	if collectErr == nil {
 		return outcome, nil
 	}
-	// A helper can have emitted valid family records before a bounded partial
-	// result. Preserve those facts and show the exact limited reason; do not
-	// hide a protocol/data failure behind a second SFTP pass.
-	if result.Records > 1 {
-		outcome.Failures = []error{collectErr}
-		return outcome, nil
-	}
+	// The accumulator may expose a validated proposal for diagnostics, but a
+	// response without request_complete is not a publishable generation.
+	// Return the collection error so Manager retains its durable last-good data.
 	return outcome, collectErr
 }
 

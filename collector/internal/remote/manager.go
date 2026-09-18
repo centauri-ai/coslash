@@ -9,8 +9,10 @@ import (
 	"sync"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
+	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -24,6 +26,8 @@ var (
 	ErrRemoteSessionActive      = errors.New("remote session already has an active writer")
 	ErrRemoteSessionUnavailable = errors.New("remote session details are unavailable")
 	ErrRemoteSessionOversized   = errors.New("remote session details exceed the collection size limit")
+	ErrRemoteRevisionNotFound   = errors.New("remote session revision is unavailable")
+	ErrRemoteChangeNotFound     = errors.New("remote file change is unavailable")
 )
 
 type LaunchBlockReason string
@@ -48,6 +52,7 @@ type IndexedSession struct {
 	LastSeenStatus        *string
 	Launchable            bool
 	LaunchBlockReason     LaunchBlockReason
+	RevisionID            string
 }
 
 type remoteSessionKey struct{ Agent, ID string }
@@ -292,6 +297,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 			return err
 		}
 		manager.startLifeLocked()
+		manager.refreshing = false
 		if manager.snapshot != nil {
 			manager.state = StateStale
 		} else {
@@ -382,13 +388,18 @@ func (manager *Manager) ListView(remoteSinceMs int64) ListResult {
 		manager.startHelperDiscoveryLocked()
 	}
 	if manager.helperProbe == helperProbeProbing {
-		return ListResult{Sessions: manager.sessionsLocked(remoteSinceMs), Health: manager.healthLocked(remoteSinceMs)}
+		return manager.listResultLocked(remoteSinceMs)
 	}
 	if manager.snapshot == nil || age(manager.snapshot.FetchedAtMs, manager.now()) >= FreshnessInterval ||
 		manager.snapshot.CoverageSinceMs > remoteSinceMs {
 		manager.maybeStartRefreshLocked(remoteSinceMs, false)
 	}
-	return ListResult{Sessions: manager.sessionsLocked(remoteSinceMs), Health: manager.healthLocked(remoteSinceMs)}
+	return manager.listResultLocked(remoteSinceMs)
+}
+
+func (manager *Manager) listResultLocked(remoteSinceMs int64) ListResult {
+	sessions := manager.sessionsLocked(remoteSinceMs)
+	return ListResult{Sessions: sessions, Health: manager.healthLockedWithSessionCount(remoteSinceMs, len(sessions))}
 }
 
 // Retry starts one manual refresh unless another one is running or the
@@ -505,6 +516,60 @@ func (manager *Manager) PreviewSession(sourceID, agent, sessionID string, revisi
 		return &copy, nil
 	}
 	return nil, nil
+}
+
+// ReadFullSession returns one exact immutable complete record. It remains
+// available from the last-good cache while the SSH source is offline.
+func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, error) {
+	manager.mu.Lock()
+	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID || manager.snapshot == nil {
+		manager.mu.Unlock()
+		return nil, nil
+	}
+	var selected *fullsessionv1.Record
+	for _, full := range manager.snapshot.FullRecords {
+		if full.Record.Agent != agent || full.Record.SessionID != sessionID {
+			continue
+		}
+		if full.Record.RevisionID != revisionID {
+			manager.mu.Unlock()
+			return nil, ErrRemoteRevisionNotFound
+		}
+		copy := full.Record
+		selected = &copy
+		break
+	}
+	manager.mu.Unlock()
+	if selected == nil {
+		return nil, nil
+	}
+	data, err := fullsessionv1.Marshal(*selected)
+	if err != nil {
+		return nil, ErrRemoteRevisionNotFound
+	}
+	copy, err := fullsessionv1.Decode(data)
+	if err != nil {
+		return nil, ErrRemoteRevisionNotFound
+	}
+	return &copy, nil
+}
+
+// ReadChange verifies the requested opaque change belongs to the exact source,
+// agent, session, and revision before returning its body.
+func (manager *Manager) ReadChange(sourceID, agent, sessionID, revisionID, changeID string) (*fullsessionv1.FileChange, error) {
+	record, err := manager.ReadFullSession(sourceID, agent, sessionID, revisionID)
+	if err != nil || record == nil {
+		return nil, err
+	}
+	for _, edit := range record.Session.FileEdits {
+		for _, change := range edit.Changes {
+			if change.ID == changeID {
+				copy := change
+				return &copy, nil
+			}
+		}
+	}
+	return nil, ErrRemoteChangeNotFound
 }
 
 // SetupAliasMatches reports whether alias is the currently persisted remote
@@ -649,6 +714,7 @@ func (manager *Manager) kickRefreshLocked(remoteSinceMs int64) {
 	}
 	config := *manager.cfg
 	baseline := snapshotOrEmpty(manager.snapshot)
+	baseline.SourceID = config.ID
 	var helper *helperTarget
 	if manager.helperTarget != nil {
 		copy := *manager.helperTarget
@@ -674,14 +740,30 @@ func (manager *Manager) runRefresh(
 		result, err = manager.refresh(ctx, config.SSHAlias, remoteSinceMs, manager.now(), baseline)
 	}
 	fetchedAt := manager.now().UnixMilli()
+	var prepared *preparedCachedSnapshotV2
+	var prepareErr error
+	if err == nil && ctx.Err() == nil && result.Snapshot.RequestComplete {
+		value, valueErr := manager.prepareRefreshSnapshot(config.ID, &result, fetchedAt, maxCacheV2FullRecordBytes)
+		if valueErr != nil {
+			prepareErr = valueErr
+		} else {
+			prepared = &value
+		}
+	}
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	manager.refreshing = false
+	if !manager.refreshIsCurrentLocked(ctx, config) {
+		manager.mu.Unlock()
+		return
+	}
 	manager.lastCheckedAt = int64Ptr(fetchedAt)
-	if manager.cfg == nil || manager.cfg.ID != config.ID || !manager.cfg.Enabled || errors.Is(ctx.Err(), context.Canceled) {
+	if prepareErr != nil {
+		manager.refreshing = false
+		manager.applyFailureLocked(ReasonLocalCacheFailed, "")
+		manager.mu.Unlock()
 		return
 	}
 	if err != nil {
+		manager.refreshing = false
 		diagnostic := result.Stderr
 		if diagnostic == "" {
 			diagnostic = sshErrorStderr(err)
@@ -693,17 +775,44 @@ func (manager *Manager) runRefresh(
 			manager.transport = TransportHelper
 		}
 		manager.applyFailureLocked(reason, diagnostic)
+		manager.mu.Unlock()
 		return
 	}
-	if reason := limitedResultReason(result); reason != nil {
+	if !result.Snapshot.RequestComplete {
+		manager.refreshing = false
 		manager.transport = transportFor(helper)
 		manager.metrics = metricsFor(result)
-		manager.applyLimitedLocked(result, *reason, fetchedAt)
+		manager.applyFailureLocked(ReasonPartialAgentData, "")
+		manager.mu.Unlock()
 		return
 	}
-	if !manager.publishSnapshotLocked(result, fetchedAt) {
+	reason := limitedResultReason(result)
+	// Claim the cache writer while the configuration is still current, then do
+	// the potentially large write without holding the manager publication lock.
+	// Settings removal uses the same cache lock, so it cannot be overtaken by a
+	// stale refresh recreating the removed source directory.
+	manager.cache.mu.Lock()
+	manager.mu.Unlock()
+	storeErr := manager.cache.storePreparedV2Locked(config.ID, *prepared)
+	manager.cache.mu.Unlock()
+
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if !manager.refreshIsCurrentLocked(ctx, config) {
 		return
 	}
+	manager.refreshing = false
+	if storeErr != nil {
+		manager.applyFailureLocked(ReasonLocalCacheFailed, "")
+		return
+	}
+	if reason != nil {
+		manager.transport = transportFor(helper)
+		manager.metrics = metricsFor(result)
+		manager.applyLimitedLocked(result, *prepared, *reason, fetchedAt)
+		return
+	}
+	manager.publishSnapshotLocked(result, *prepared, fetchedAt)
 	manager.failures = 0
 	manager.nextRetryAt = time.Time{}
 	manager.errorCopy = ""
@@ -713,6 +822,25 @@ func (manager *Manager) runRefresh(
 	manager.reason = nil
 	manager.transport = transportFor(helper)
 	manager.metrics = metricsFor(result)
+}
+
+func (manager *Manager) refreshIsCurrentLocked(ctx context.Context, config settings.RemoteSettings) bool {
+	return manager.lifeCtx == ctx && manager.cfg != nil && manager.cfg.ID == config.ID &&
+		manager.cfg.SSHAlias == config.SSHAlias && manager.cfg.Enabled &&
+		!errors.Is(ctx.Err(), context.Canceled)
+}
+
+func (manager *Manager) prepareRefreshSnapshot(sourceID string, result *refreshOutcome, fetchedAt int64, fullRecordBudget int) (preparedCachedSnapshotV2, error) {
+	result.Snapshot.FetchedAtMs = fetchedAt
+	result.Snapshot.RoundTripMs = result.RoundTrip.Milliseconds()
+	prepared, err := prepareCachedSnapshotV2(sourceID, result.Snapshot, fullRecordBudget)
+	if err != nil {
+		return preparedCachedSnapshotV2{}, err
+	}
+	if prepared.pruned && limitedResultReason(*result) == nil {
+		result.Reason = reasonPtr(ReasonHistoryTruncated)
+	}
+	return prepared, nil
 }
 
 func metricsFor(result refreshOutcome) CollectionMetrics {
@@ -730,26 +858,42 @@ func transportFor(helper *helperTarget) Transport {
 	return TransportSFTP
 }
 
-func (manager *Manager) publishSnapshotLocked(result refreshOutcome, fetchedAt int64) bool {
-	snapshot := result.Snapshot
-	snapshot.FetchedAtMs = fetchedAt
-	snapshot.RoundTripMs = result.RoundTrip.Milliseconds()
-	if err := manager.cache.StoreV2(manager.cfg.ID, snapshot); err != nil {
-		manager.applyFailureLocked(ReasonLocalCacheFailed, "")
-		return false
-	}
+func (manager *Manager) publishSnapshotLocked(result refreshOutcome, prepared preparedCachedSnapshotV2, fetchedAt int64) {
+	snapshot := prepared.snapshot
 	manager.snapshot = &snapshot
 	manager.legacyStale = false
 	manager.sessions = result.Sessions
+	if prepared.pruned {
+		manager.sessions = sessionsRetainedBySnapshot(result.Sessions, snapshot)
+	}
 	manager.familyStale = staleSessions(snapshot)
 	manager.lastSuccessAt = int64Ptr(fetchedAt)
-	return true
 }
 
-func (manager *Manager) applyLimitedLocked(result refreshOutcome, reason Reason, fetchedAt int64) {
-	if !manager.publishSnapshotLocked(result, fetchedAt) {
+func sessionsRetainedBySnapshot(sessions []*session.Session, snapshot CachedSnapshotV2) []*session.Session {
+	retained := make(map[remoteprotocol.FullRecordKey]bool)
+	for _, family := range snapshot.Families {
+		for _, record := range family.Facts.Sessions {
+			retained[remoteprotocol.FullRecordKey{Vendor: family.Vendor, SessionID: record.ID}] = true
+		}
+	}
+	result := make([]*session.Session, 0, len(sessions))
+	for _, item := range sessions {
+		if retained[remoteprotocol.FullRecordKey{Vendor: item.Agent, SessionID: item.ID}] {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func (manager *Manager) applyLimitedLocked(result refreshOutcome, prepared preparedCachedSnapshotV2, reason Reason, fetchedAt int64) {
+	if !result.Snapshot.RequestComplete {
+		// A limited but incomplete proposal can contain whole, individually valid
+		// records. It still cannot replace the last complete generation.
+		manager.applyFailureLocked(reason, "")
 		return
 	}
+	manager.publishSnapshotLocked(result, prepared, fetchedAt)
 	manager.failures++
 	manager.nextRetryAt = manager.now().Add(retryBackoff(manager.failures))
 	manager.state = StateLimited
@@ -779,6 +923,7 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 	}
 	eligible := manager.state == StateOK && manager.complete
 	globalStale := manager.state != StateOK && manager.state != StateLimited
+	revisions := fullRecordRevisions(manager.snapshot)
 	result := []IndexedSession{}
 	for _, item := range manager.sessions {
 		if remoteSinceMs > 0 && item.Status == nil && item.LastActivityTime < remoteSinceMs {
@@ -792,6 +937,7 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 			DisplayStale:          globalStale || manager.familyStale[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
 			Launchable:            blockReason == "",
 			LaunchBlockReason:     blockReason,
+			RevisionID:            revisions[remoteSessionKey{Agent: item.Agent, ID: item.ID}],
 		}
 		if indexed.DisplayStale {
 			indexed.LastSeenStatus = item.Status
@@ -799,6 +945,17 @@ func (manager *Manager) sessionsLocked(remoteSinceMs int64) []IndexedSession {
 		result = append(result, indexed)
 	}
 	return result
+}
+
+func fullRecordRevisions(snapshot *CachedSnapshotV2) map[remoteSessionKey]string {
+	revisions := map[remoteSessionKey]string{}
+	if snapshot == nil {
+		return revisions
+	}
+	for _, full := range snapshot.FullRecords {
+		revisions[remoteSessionKey{Agent: full.Record.Agent, ID: full.Record.SessionID}] = full.Record.RevisionID
+	}
+	return revisions
 }
 
 func launchBlockReason(snapshot *CachedSnapshotV2, item *session.Session) LaunchBlockReason {
@@ -821,6 +978,10 @@ func launchBlockReason(snapshot *CachedSnapshotV2, item *session.Session) Launch
 }
 
 func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
+	return manager.healthLockedWithSessionCount(remoteSinceMs, len(manager.sessionsLocked(remoteSinceMs)))
+}
+
+func (manager *Manager) healthLockedWithSessionCount(remoteSinceMs int64, sessionCount int) Health {
 	if manager.cfg == nil {
 		return Health{State: StateDisabled, Complete: true, Reason: reasonPtr(ReasonDisabled)}
 	}
@@ -830,7 +991,7 @@ func (manager *Manager) healthLocked(remoteSinceMs int64) Health {
 		Refreshing:      manager.refreshing,
 		LastSuccessAtMs: manager.lastSuccessAt,
 		LastCheckedAtMs: manager.lastCheckedAt,
-		SessionCount:    len(manager.sessionsLocked(remoteSinceMs)),
+		SessionCount:    sessionCount,
 		Transport:       manager.transport, Helper: manager.helper, Metrics: manager.metrics,
 		HelperInstallationAvailable: manager.helperInstallationAvailable,
 		HelperProbeState:            string(manager.helperProbe),

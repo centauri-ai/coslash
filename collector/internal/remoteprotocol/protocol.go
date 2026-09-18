@@ -9,21 +9,27 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 )
 
 const (
 	ProtocolVersion      = 1
 	MaxRequestBytes      = 256 << 10
-	MaxRecordBytes       = 1 << 20
-	MaxResponseBytes     = 32 << 20
+	MaxRecordBytes       = 72 << 20
+	MaxResponseBytes     = 256 << 20
 	MaxRecords           = 4096
 	MaxKnownFamilies     = 1024
 	MaxKnownHeaders      = 2048
 	MaxInventoryFamilies = 2048
+	MaxEnvelopeItems     = 100_000
+	maxCollectionDepth   = 256
 )
+
+var ErrRequestBounds = errors.New("request exceeds byte limit")
 
 const (
 	BaselineKnown         = "known"
@@ -60,17 +66,23 @@ type KnownHeader struct {
 	SessionID    string `json:"session_id"`
 	ParentID     string `json:"parent_id,omitempty"`
 }
+type PageCursor struct {
+	Vendor        string `json:"vendor"`
+	AfterFamilyID string `json:"after_family_id"`
+}
 type Request struct {
 	RequestID     string        `json:"request_id"`
 	Protocol      VersionRange  `json:"protocol"`
 	Schema        VersionRange  `json:"schema"`
 	ParserVersion string        `json:"parser_version"`
+	SourceID      string        `json:"source_id,omitempty"`
 	BaselineMode  string        `json:"baseline_mode"`
 	BaselineID    string        `json:"baseline_id,omitempty"`
 	SinceMs       int64         `json:"since_ms"`
 	CollectedAtMs int64         `json:"collected_at_ms"`
 	Vendors       []string      `json:"vendors"`
 	Known         []KnownFamily `json:"known"`
+	PageAfter     []PageCursor  `json:"page_after,omitempty"`
 	Limits        Limits        `json:"limits"`
 }
 
@@ -94,7 +106,7 @@ func BuildRequest(request Request, known []KnownFamily) (Request, error) {
 	})
 	request.Known = append([]KnownFamily(nil), known...)
 	request.BaselineMode = BaselineKnown
-	if len(known) > MaxKnownFamilies || headerCount > MaxKnownHeaders || encodedSize(request) > MaxRequestBytes {
+	if len(request.PageAfter) > 0 || len(known) > MaxKnownFamilies || headerCount > MaxKnownHeaders || requestWireSize(request) > MaxRequestBytes {
 		request.BaselineMode, request.BaselineID, request.Known = BaselineNone, "", []KnownFamily{}
 	}
 	if err := ValidateRequest(request); err != nil {
@@ -106,6 +118,9 @@ func BuildRequest(request Request, known []KnownFamily) (Request, error) {
 func ValidateRequest(r Request) error {
 	if !validID(r.RequestID) || !validID(r.ParserVersion) {
 		return errors.New("invalid request identity")
+	}
+	if r.SourceID != "" && !validID(r.SourceID) {
+		return errors.New("invalid source identity")
 	}
 	if !supports(r.Protocol, ProtocolVersion) || !supports(r.Schema, remotefacts.SchemaVersion) {
 		return errors.New("unsupported version range")
@@ -119,6 +134,9 @@ func ValidateRequest(r Request) error {
 	if r.BaselineMode == BaselineNone && (r.BaselineID != "" || len(r.Known) != 0) {
 		return errors.New("baseline none cannot carry baseline data")
 	}
+	if r.BaselineMode != BaselineNone && len(r.PageAfter) != 0 {
+		return errors.New("only baseline none can carry page cursors")
+	}
 	if len(r.Known) > MaxKnownFamilies || len(r.Vendors) == 0 || len(r.Vendors) > 2 {
 		return errors.New("request list exceeds limit")
 	}
@@ -128,6 +146,13 @@ func ValidateRequest(r Request) error {
 			return errors.New("vendors must be uniquely sorted")
 		}
 		previousVendor = vendor
+	}
+	previousCursorVendor := ""
+	for _, cursor := range r.PageAfter {
+		if !requestedVendor(r, cursor.Vendor) || cursor.Vendor <= previousCursorVendor || !validID(cursor.AfterFamilyID) {
+			return errors.New("page cursors must be valid and uniquely sorted")
+		}
+		previousCursorVendor = cursor.Vendor
 	}
 	previousKnown := KnownFamily{}
 	headerCount := 0
@@ -160,10 +185,36 @@ func ValidateRequest(r Request) error {
 	if r.Limits.MaxRecordBytes <= 0 || r.Limits.MaxRecordBytes > MaxRecordBytes || r.Limits.MaxResponseBytes <= 0 || r.Limits.MaxResponseBytes > MaxResponseBytes || r.Limits.MaxRecords <= 0 || r.Limits.MaxRecords > MaxRecords || r.Limits.MaxInventoryFamilies <= 0 || r.Limits.MaxInventoryFamilies > MaxInventoryFamilies {
 		return errors.New("invalid requested limits")
 	}
-	if encodedSize(r) > MaxRequestBytes {
-		return errors.New("request exceeds byte limit")
+	if requestWireSize(r) > MaxRequestBytes {
+		return ErrRequestBounds
 	}
 	return nil
+}
+
+// EncodeRequest returns the exact newline-framed bytes written to helper
+// stdin. BuildRequest and ValidateRequest use the same encoder so a bounded
+// baseline cannot pass validation and then fail at the transport boundary.
+func EncodeRequest(request Request) ([]byte, error) {
+	if err := ValidateRequest(request); err != nil {
+		return nil, err
+	}
+	return encodeRequestLine(request)
+}
+
+func encodeRequestLine(request Request) ([]byte, error) {
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("encode collect request: %w", err)
+	}
+	return append(payload, '\n'), nil
+}
+
+func requestWireSize(request Request) int {
+	payload, err := encodeRequestLine(request)
+	if err != nil {
+		return MaxRequestBytes + 1
+	}
+	return len(payload)
 }
 
 type Counts struct {
@@ -191,12 +242,20 @@ type Record struct {
 	PriorFingerprint    string              `json:"prior_fingerprint,omitempty"`
 	Fingerprint         string              `json:"fingerprint,omitempty"`
 	Family              *remotefacts.Family `json:"family,omitempty"`
+	FullRecords         []FullRecord        `json:"full_records,omitempty"`
 	Reason              string              `json:"reason,omitempty"`
 	EnumerationComplete bool                `json:"enumeration_complete,omitempty"`
 	InventoryComplete   bool                `json:"inventory_complete,omitempty"`
 	Inventory           []string            `json:"inventory,omitempty"`
 	Counts              Counts              `json:"counts,omitempty"`
 	Timing              Timing              `json:"timing,omitempty"`
+}
+
+// FullRecord associates one complete record with the changed family that owns
+// it. The complete record remains separate from the bounded display facts.
+type FullRecord struct {
+	FamilyID string               `json:"family_id"`
+	Record   fullsessionv1.Record `json:"record"`
 }
 
 func Decode(reader io.Reader, request Request) ([]Record, error) {
@@ -222,14 +281,9 @@ func Decode(reader io.Reader, request Request) ([]Record, error) {
 		if len(records) >= request.Limits.MaxRecords {
 			return nil, errors.New("record count exceeds limit")
 		}
-		decoder := json.NewDecoder(bytes.NewReader(line))
-		decoder.DisallowUnknownFields()
-		var record Record
-		if err := decoder.Decode(&record); err != nil {
+		record, err := DecodeRecord(line)
+		if err != nil {
 			return nil, fmt.Errorf("decode record %d: %w", len(records)+1, err)
-		}
-		if decoder.Decode(&struct{}{}) != io.EOF {
-			return nil, errors.New("trailing JSON value")
 		}
 		if err := validateRecord(record, request, len(records)+1); err != nil {
 			return nil, err
@@ -247,6 +301,170 @@ func Decode(reader io.Reader, request Request) ([]Record, error) {
 		return nil, errors.New("response ended before request_complete")
 	}
 	return records, nil
+}
+
+// DecodeRecord decodes one protocol record after bounding collection
+// cardinality. The byte ceiling alone is insufficient: a compact JSON array
+// can otherwise allocate millions of nested structs before semantic
+// validation sees it.
+func DecodeRecord(data []byte) (Record, error) {
+	if err := validateRecordCollectionSizes(data); err != nil {
+		return Record{}, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var record Record
+	if err := decoder.Decode(&record); err != nil {
+		return Record{}, err
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return Record{}, errors.New("trailing JSON value")
+	}
+	return record, nil
+}
+
+func validateRecordCollectionSizes(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	first, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	envelope := collectionBudget{limit: MaxEnvelopeItems}
+	if err := scanProtocolValue(decoder, first, &envelope, true, 0); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
+type collectionBudget struct {
+	total int
+	limit int
+}
+
+func (b *collectionBudget) add() error {
+	b.total++
+	if b.total > b.limit {
+		return errors.New("protocol collection exceeds item limit")
+	}
+	return nil
+}
+
+// scanProtocolValue charges protocol-envelope arrays to one bounded budget,
+// while each embedded full-session record receives its own MaxItems budget.
+// MaxItems is a per-record full-session contract, not a response-wide one.
+func scanProtocolValue(decoder *json.Decoder, token json.Token, budget *collectionBudget, root bool, depth int) error {
+	if depth > maxCollectionDepth {
+		return errors.New("protocol collection nesting exceeds item limit")
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '[':
+		items := 0
+		for decoder.More() {
+			items++
+			if items > fullsessionv1.MaxItems {
+				return errors.New("protocol collection exceeds item limit")
+			}
+			if err := budget.add(); err != nil {
+				return err
+			}
+			item, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			if err := scanProtocolValue(decoder, item, budget, false, depth+1); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	case '{':
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("invalid protocol object key")
+			}
+			value, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			if root && key == "full_records" {
+				if err := scanFullRecordArray(decoder, value, budget, depth+1); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := scanProtocolValue(decoder, value, budget, false, depth+1); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	default:
+		return errors.New("unexpected protocol delimiter")
+	}
+}
+
+func scanFullRecordArray(decoder *json.Decoder, token json.Token, envelope *collectionBudget, depth int) error {
+	if token != json.Delim('[') {
+		return scanProtocolValue(decoder, token, envelope, false, depth)
+	}
+	items := 0
+	for decoder.More() {
+		items++
+		if items > fullsessionv1.MaxItems {
+			return errors.New("protocol collection exceeds item limit")
+		}
+		if err := envelope.add(); err != nil {
+			return err
+		}
+		wrapper, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if wrapper != json.Delim('{') {
+			if err := scanProtocolValue(decoder, wrapper, envelope, false, depth+1); err != nil {
+				return err
+			}
+			continue
+		}
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, _ := keyToken.(string)
+			value, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			valueBudget := envelope
+			if key == "record" {
+				valueBudget = &collectionBudget{limit: fullsessionv1.MaxItems}
+			}
+			if err := scanProtocolValue(decoder, value, valueBudget, false, depth+1); err != nil {
+				return err
+			}
+		}
+		if _, err := decoder.Token(); err != nil {
+			return err
+		}
+	}
+	_, err := decoder.Token()
+	return err
 }
 
 func Encode(records []Record) ([]byte, error) {
@@ -280,12 +498,42 @@ func validateRecord(r Record, request Request, sequence int) error {
 			}
 			previous = capability
 		}
+		if request.SourceID != "" && !slices.Contains(r.Capabilities, CapabilityFullSessionRecord) {
+			return errors.New("helper does not provide complete session records")
+		}
 	case RecordChanged:
 		if !requestedVendor(request, r.Vendor) || !validID(r.FamilyID) || !validID(r.Fingerprint) || r.Family == nil || r.FamilyID != r.Family.FamilyID || r.Vendor != r.Family.Vendor {
 			return errors.New("invalid changed family record")
 		}
 		if err := remotefacts.Validate(*r.Family); err != nil {
 			return fmt.Errorf("invalid changed family: %w", err)
+		}
+		seenSessions := map[string]string{}
+		for _, fact := range r.Family.Sessions {
+			seenSessions[fact.ID] = fact.ParentID
+		}
+		seenRecords := map[string]bool{}
+		for _, full := range r.FullRecords {
+			parentID, sessionExists := seenSessions[full.Record.SessionID]
+			if full.FamilyID != r.FamilyID || full.Record.SourceID != request.SourceID ||
+				full.Record.Agent != r.Vendor || !sessionExists ||
+				full.Record.ParentSessionID != parentID || seenRecords[full.Record.SessionID] {
+				return errors.New("full record identity does not match changed family")
+			}
+			if _, err := fullsessionv1.Marshal(full.Record); err != nil {
+				return fmt.Errorf("invalid full session record: %w", err)
+			}
+			seenRecords[full.Record.SessionID] = true
+		}
+		if request.SourceID != "" && r.Vendor == "codex" {
+			if len(seenRecords) != len(seenSessions) {
+				return errors.New("complete Codex family requires one full record per session")
+			}
+			for sessionID := range seenSessions {
+				if !seenRecords[sessionID] {
+					return errors.New("complete Codex family requires one full record per session")
+				}
+			}
 		}
 	case RecordUnchanged:
 		if !requestedVendor(request, r.Vendor) || !validID(r.FamilyID) || !validID(r.Fingerprint) {
@@ -355,4 +603,15 @@ func validID(value string) bool {
 	}
 	return true
 }
-func encodedSize(value any) int { data, _ := json.Marshal(value); return len(data) }
+func encodedSize(value any) int {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(value) != nil {
+		return 0
+	}
+	return output.Len() - 1 // Encoder appends one framing newline.
+}
+
+// EncodedRecordSize returns the unframed wire size used by Accumulator.
+func EncodedRecordSize(record Record) int { return encodedSize(record) }

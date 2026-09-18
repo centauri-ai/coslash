@@ -1,13 +1,13 @@
 package remote
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -30,16 +30,6 @@ const (
 	sftpCollectorParserVersion = "sftp-collector.1"
 )
 
-func compositeFingerprint(fingerprints []vendors.FileFingerprint) string {
-	sorted := append([]vendors.FileFingerprint(nil), fingerprints...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Key < sorted[j].Key })
-	h := sha256.New()
-	for _, fp := range sorted {
-		fmt.Fprintf(h, "%s:%d:%d\n", fp.Key, fp.Size, fp.ModifiedAtMs)
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 func familySkipReason(err error) string {
 	switch {
 	case errors.Is(err, ErrFileLimit):
@@ -59,6 +49,8 @@ func familySkipReason(err error) string {
 // claude- and codex-specific discovery fill it in before the diff/record
 // logic (shared, and thus tested once) runs.
 type vendorFamilyInput struct {
+	SourceID        string
+	Source          vendors.ReadSource
 	Vendor          string
 	ParserVersion   string
 	Baseline        map[string]CachedFamilyV2
@@ -72,8 +64,13 @@ type vendorFamilyInput struct {
 	Parse           func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error)
 	Fingerprint     func(files []string) ([]vendors.FileFingerprint, error)
 	HeaderMappings  map[string][]remotefacts.HeaderMapping
+	SessionIDs      map[string][]string
 	InitialFailures []vendors.FileFailure
 	FamilyIDOf      func(logPath string) string
+}
+
+func familyFingerprint(in vendorFamilyInput, id string, fingerprints []vendors.FileFingerprint) string {
+	return vendors.AggregateFingerprint(id, fingerprints, in.SessionIDs[id], in.Metadata)
 }
 
 type vendorOutcome struct {
@@ -92,7 +89,7 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	selectedFiles := 0
 	for id, fingerprints := range in.Selected {
 		selectedFiles += len(fingerprints)
-		composite := compositeFingerprint(fingerprints)
+		composite := familyFingerprint(in, id, fingerprints)
 		if cached, ok := in.Baseline[id]; ok && cached.Fingerprint == composite &&
 			cached.Facts.SchemaVersion == remotefacts.SchemaVersion && cached.Facts.ParserVersion == in.ParserVersion {
 			records = append(records, remoteprotocol.Record{
@@ -126,13 +123,14 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 		// cannot cause otherwise valid changed families to be discarded.
 		for id, before := range changed {
 			after, err := in.Fingerprint(in.FilesOf[id])
-			if err != nil || compositeFingerprint(after) != before {
+			if err != nil || familyFingerprint(in, id, after) != before {
 				unstableFamilies[id] = true
 			}
 		}
 	}
 
 	var familyFailures []error
+	intentionallyAbsent := map[string]bool{}
 	for id, composite := range changed {
 		if unstableFamilies[id] {
 			records = append(records, remoteprotocol.Record{
@@ -157,6 +155,25 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 			familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: no_data", in.Vendor))
 			continue
 		}
+		var complete []fullsessionv1.Record
+		if in.Vendor == vendors.AgentCodex {
+			var fullErr error
+			complete, fullErr = fullsessionrecord.FromParsedFamily(in.SourceID, in.Vendor, in.Source, sessions, in.Metadata)
+			if fullErr != nil {
+				records = append(records, remoteprotocol.Record{
+					Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonInvalidData,
+				})
+				familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_full_record", in.Vendor))
+				continue
+			}
+			if !containsFullRecord(complete, id) {
+				intentionallyAbsent[id] = true
+				continue
+			}
+		} else if !fullsessionrecord.IsServableFamily(id, in.Vendor, in.Source, sessions, in.Metadata) {
+			intentionallyAbsent[id] = true
+			continue
+		}
 		family, err := remotefacts.FromParsed(
 			in.Vendor, id, in.ParserVersion, remotefacts.StateComplete, "",
 			sessions, in.Metadata, in.Selected[id], in.HeaderMappings[id],
@@ -168,9 +185,15 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 			familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_family_facts", in.Vendor))
 			continue
 		}
+		var fullRecords []remoteprotocol.FullRecord
+		if in.Vendor == vendors.AgentCodex {
+			for _, completeRecord := range complete {
+				fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: id, Record: completeRecord})
+			}
+		}
 		record := remoteprotocol.Record{
 			Type: remoteprotocol.RecordChanged, Vendor: in.Vendor, FamilyID: id,
-			Fingerprint: composite, Family: &family,
+			Fingerprint: composite, Family: &family, FullRecords: fullRecords,
 		}
 		if cached, known := in.Baseline[id]; known {
 			record.PriorFingerprint = cached.Fingerprint
@@ -180,9 +203,12 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 
 	allSet := make(map[string]struct{}, len(in.AllFamilyIDs))
 	for _, id := range in.AllFamilyIDs {
+		if intentionallyAbsent[id] {
+			continue
+		}
 		allSet[id] = struct{}{}
 	}
-	inventoryComplete := in.SkippedEntries == 0 && len(in.AllFamilyIDs) <= remoteprotocol.MaxInventoryFamilies
+	inventoryComplete := in.SkippedEntries == 0 && len(allSet) <= remoteprotocol.MaxInventoryFamilies
 	if inventoryComplete {
 		for id := range in.Baseline {
 			if _, present := allSet[id]; !present {
@@ -194,7 +220,10 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	}
 	inventory := []string(nil)
 	if inventoryComplete {
-		inventory = append([]string(nil), in.AllFamilyIDs...)
+		inventory = make([]string, 0, len(allSet))
+		for id := range allSet {
+			inventory = append(inventory, id)
+		}
 		sort.Strings(inventory)
 	}
 	var complete *remoteprotocol.Record
@@ -214,7 +243,16 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 	return vendorOutcome{Records: records, Complete: complete, Coverage: coverage, Metadata: in.Metadata, Failures: familyFailures}
 }
 
-func collectClaudeVendor(source vendors.ReadSource, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
+func containsFullRecord(records []fullsessionv1.Record, sessionID string) bool {
+	for _, record := range records {
+		if record.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since int64, now time.Time, baseline map[string]CachedFamilyV2) vendorOutcome {
 	metadata := claude.RemoteMetadata(source, home, now)
 	selectedFamilies, allFamilyIDs, candidateFiles, skippedEntries, truncated, err := claude.BuildRemoteFamilies(source, home, since, metadata.LiveSessions())
 	if err != nil {
@@ -222,14 +260,20 @@ func collectClaudeVendor(source vendors.ReadSource, home string, since int64, no
 	}
 	selected := map[string][]vendors.FileFingerprint{}
 	filesOf := map[string][]string{}
+	sessionIDs := map[string][]string{}
 	for id, family := range selectedFamilies {
 		selected[id] = family.Fingerprints
 		filesOf[id] = family.Files
+		for _, file := range family.Files {
+			sessionIDs[id] = append(sessionIDs[id], claude.SessionIDFromPath(file))
+		}
 	}
 	return collectVendorFamilies(vendorFamilyInput{
+		SourceID: sourceID, Source: source,
 		Vendor: vendors.AgentClaude, ParserVersion: claudeParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
+		SessionIDs: sessionIDs,
 		Parse: func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
 			return claude.ParseRemoteFiles(source, files)
 		},
@@ -241,7 +285,7 @@ func collectClaudeVendor(source vendors.ReadSource, home string, since int64, no
 }
 
 func collectCodexVendor(
-	source vendors.ReadSource, home string, since int64,
+	source vendors.ReadSource, sourceID, home string, since int64,
 	baseline map[string]CachedFamilyV2, cachedHeaders map[string]codex.CachedHeader,
 ) (vendorOutcome, map[string]codex.CachedHeader) {
 	metadata := codex.RemoteMetadata(source, home)
@@ -255,12 +299,14 @@ func collectCodexVendor(
 	filesOf := map[string][]string{}
 	familyIDOf := map[string]string{}
 	headerMappings := map[string][]remotefacts.HeaderMapping{}
+	sessionIDs := map[string][]string{}
 	var initialFailures []vendors.FileFailure
 	for id, family := range selectedFamilies {
 		selected[id] = family.Fingerprints
 		filesOf[id] = family.Files
 		for _, fingerprint := range family.Fingerprints {
 			if header, ok := updatedHeaders[fingerprint.Key]; ok {
+				sessionIDs[id] = append(sessionIDs[id], header.SessionID)
 				headerMappings[id] = append(headerMappings[id], remotefacts.HeaderMapping{
 					Key: fingerprint.Key, SessionID: header.SessionID, ParentID: header.ParentID,
 				})
@@ -274,6 +320,7 @@ func collectCodexVendor(
 		initialFailures = append(initialFailures, vendors.FileFailure{Path: file, Err: failure})
 	}
 	outcome := collectVendorFamilies(vendorFamilyInput{
+		SourceID: sourceID, Source: source,
 		Vendor: vendors.AgentCodex, ParserVersion: codexParserVersion,
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
@@ -284,6 +331,7 @@ func collectCodexVendor(
 			return vendors.FingerprintSourceFilesFresh(source, codex.SessionsRoot(home), files)
 		},
 		HeaderMappings:  headerMappings,
+		SessionIDs:      sessionIDs,
 		InitialFailures: initialFailures,
 		FamilyIDOf: func(logPath string) string {
 			if id, ok := familyIDOf[logPath]; ok {
@@ -295,13 +343,13 @@ func collectCodexVendor(
 	return outcome, updatedHeaders
 }
 
-func buildLocalRequest(requestID string, since, collectedAt int64, baselineID string, known []remoteprotocol.KnownFamily) (remoteprotocol.Request, error) {
+func buildLocalRequest(requestID, sourceID string, since, collectedAt int64, baselineID string, known []remoteprotocol.KnownFamily, pageAfter []remoteprotocol.PageCursor) (remoteprotocol.Request, error) {
 	request := remoteprotocol.Request{
 		RequestID:     requestID,
 		Protocol:      remoteprotocol.VersionRange{Min: remoteprotocol.ProtocolVersion, Max: remoteprotocol.ProtocolVersion},
 		Schema:        remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion},
-		ParserVersion: sftpCollectorParserVersion, SinceMs: since, CollectedAtMs: collectedAt,
-		Vendors: []string{vendors.AgentClaude, vendors.AgentCodex},
+		ParserVersion: sftpCollectorParserVersion, SourceID: sourceID, SinceMs: since, CollectedAtMs: collectedAt,
+		Vendors: []string{vendors.AgentClaude, vendors.AgentCodex}, PageAfter: append([]remoteprotocol.PageCursor(nil), pageAfter...),
 		Limits: remoteprotocol.Limits{
 			MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes,
 			MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies,
@@ -318,35 +366,94 @@ func buildLocalRequest(requestID string, since, collectedAt int64, baselineID st
 	return remoteprotocol.BuildRequest(request, known)
 }
 
+func changedRecordFits(record remoteprotocol.Record, requestID string, sequence, maxBytes int) (int, bool, error) {
+	record.ProtocolVersion = remoteprotocol.ProtocolVersion
+	record.RequestID = requestID
+	record.Sequence = sequence
+	size := remoteprotocol.EncodedRecordSize(record)
+	return size, size <= maxBytes, nil
+}
+
+func boundChangedRecord(record remoteprotocol.Record, requestID string, sequence, maxBytes int) (remoteprotocol.Record, bool, int, error) {
+	if record.Type != remoteprotocol.RecordChanged {
+		return record, false, 0, nil
+	}
+	size, fits, err := changedRecordFits(record, requestID, sequence, maxBytes)
+	if err != nil || fits {
+		return record, false, size, err
+	}
+	return remoteprotocol.Record{
+		Type: remoteprotocol.RecordSkipped, Vendor: record.Vendor,
+		FamilyID: record.FamilyID, Reason: remotefacts.StaleReasonVendorBudgetExceeded,
+	}, true, 0, nil
+}
+
+func pageAfterFor(request remoteprotocol.Request, vendor string) string {
+	for _, cursor := range request.PageAfter {
+		if cursor.Vendor == vendor {
+			return cursor.AfterFamilyID
+		}
+	}
+	return ""
+}
+
+func sortVendorRecords(records []remoteprotocol.Record, after string) {
+	sort.SliceStable(records, func(i, j int) bool {
+		left, right := records[i].FamilyID, records[j].FamilyID
+		if after != "" {
+			leftPage, rightPage := 1, 1
+			if left > after {
+				leftPage = 0
+			}
+			if right > after {
+				rightPage = 0
+			}
+			if leftPage != rightPage {
+				return leftPage < rightPage
+			}
+		}
+		return left < right
+	})
+}
+
 // collectIncremental is the incremental SFTP refresh producer: it diffs each
 // vendor against baseline concurrently under an independent byte budget, then
-// applies the resulting records to one Accumulator to get the same partial-
-// merge and deletion-authority guarantees a helper's protocol response would
-// get.
+// applies the resulting records to one Accumulator to get the same proposal
+// and deletion-authority guarantees as a helper protocol response. Manager
+// publishes that proposal only when it contains request_complete.
 func collectIncremental(
 	source *Source,
 	since int64,
 	now time.Time,
 	baseline CachedSnapshotV2,
 ) (CachedSnapshotV2, []*session.Session, []error, error) {
+	baseline = snapshotOrEmpty(&baseline)
+	if baseline.SourceID == "" {
+		// Direct collector tests and non-manager callers still need a valid
+		// transport identity. Production always supplies the configured ID.
+		baseline.SourceID = "r_0000000000000000"
+	}
 	home := source.Home()
 	parseSince := max(0, since-(24*time.Hour).Milliseconds())
 	perVendorBudget := source.Limits().MaxTotalBytes / 2
 	requestID := fmt.Sprintf("sftp-%d", now.UnixNano())
-	request, err := buildLocalRequest(requestID, since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline))
+	request, err := buildLocalRequest(requestID, baseline.SourceID, since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline), baseline.PageAfter)
 	if err != nil {
 		return CachedSnapshotV2{}, nil, nil, fmt.Errorf("build local collection request: %w", err)
 	}
-	// When the bounded known-family set cannot fit, BuildRequest deliberately
-	// falls back to baseline_mode=none. Do not continue diffing against or
-	// copying the old facts in that mode: it requires a bounded full recollect.
+	// A baseline-free page does not use cached fingerprints for diffing, but the
+	// accumulator retains the last completed page so bounded retries converge.
 	effectiveBaseline := baseline
 	if request.BaselineMode == remoteprotocol.BaselineNone {
-		effectiveBaseline = CachedSnapshotV2{Version: cacheV2Version, CodexHeaders: baseline.CodexHeaders}
+		effectiveBaseline.BaselineID = ""
 	}
 
 	claudeBaseline := baselineFamilies(effectiveBaseline, vendors.AgentClaude)
 	codexBaseline := baselineFamilies(effectiveBaseline, vendors.AgentCodex)
+	if request.BaselineMode == remoteprotocol.BaselineNone {
+		claudeBaseline = map[string]CachedFamilyV2{}
+		codexBaseline = map[string]CachedFamilyV2{}
+	}
 	codexHeaders := codexHeaderCacheFrom(baseline.CodexHeaders)
 
 	type claudeResult struct{ outcome vendorOutcome }
@@ -357,10 +464,10 @@ func collectIncremental(
 	claudeCh := make(chan claudeResult, 1)
 	codexCh := make(chan codexResult, 1)
 	go func() {
-		claudeCh <- claudeResult{collectClaudeVendor(source.ForVendor(perVendorBudget), home, parseSince, now, claudeBaseline)}
+		claudeCh <- claudeResult{collectClaudeVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, now, claudeBaseline)}
 	}()
 	go func() {
-		outcome, headers := collectCodexVendor(source.ForVendor(perVendorBudget), home, parseSince, codexBaseline, codexHeaders)
+		outcome, headers := collectCodexVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, codexBaseline, codexHeaders)
 		codexCh <- codexResult{outcome, headers}
 	}()
 	claudeOut := <-claudeCh
@@ -385,18 +492,55 @@ func collectIncremental(
 	}
 
 	sequence := 1
-	apply := func(record remoteprotocol.Record) error {
+	usedRecords := 0
+	usedBytes := 0
+	apply := func(record remoteprotocol.Record, preparedSize int) error {
 		record.ProtocolVersion = remoteprotocol.ProtocolVersion
 		record.RequestID = requestID
 		record.Sequence = sequence
+		if preparedSize == 0 {
+			preparedSize = remoteprotocol.EncodedRecordSize(record)
+		}
+		if err := accumulator.ApplyEncoded(record, preparedSize); err != nil {
+			return err
+		}
 		sequence++
-		return accumulator.Apply(record)
+		usedRecords++
+		usedBytes += preparedSize + 1
+		return nil
 	}
 	if err := apply(remoteprotocol.Record{
 		Type: remoteprotocol.RecordHandshake, BaselineID: request.BaselineID,
 		SchemaVersion: remotefacts.SchemaVersion, ParserVersion: request.ParserVersion,
-	}); err != nil {
+		Capabilities: []string{remoteprotocol.CapabilityFullSessionRecord},
+	}, 0); err != nil {
 		return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply handshake: %w", err)
+	}
+	completionSize := func(record remoteprotocol.Record) int {
+		record.ProtocolVersion = remoteprotocol.ProtocolVersion
+		record.RequestID = requestID
+		record.Sequence = request.Limits.MaxRecords
+		record.Counts = remoteprotocol.Counts{
+			CandidateFamilies: remotefacts.MaxCount, SelectedFamilies: remotefacts.MaxCount,
+			CandidateFiles: remotefacts.MaxCount, SelectedFiles: remotefacts.MaxCount,
+			SkippedFamilies: remotefacts.MaxCount,
+		}
+		return remoteprotocol.EncodedRecordSize(record) + 1
+	}
+	reservedRecords, reservedBytes := 0, 0
+	allCanComplete := len(failures) == 0
+	for _, outcome := range []vendorOutcome{claudeOut.outcome, codexOut.outcome} {
+		if outcome.Err != nil || outcome.Complete == nil ||
+			(request.BaselineMode == remoteprotocol.BaselineNone && !outcome.Complete.InventoryComplete) {
+			allCanComplete = false
+			continue
+		}
+		reservedRecords++
+		reservedBytes += completionSize(*outcome.Complete)
+	}
+	if allCanComplete {
+		reservedRecords++
+		reservedBytes += completionSize(remoteprotocol.Record{Type: remoteprotocol.RecordRequestComplete})
 	}
 
 	var coverage []AgentCoverage
@@ -413,10 +557,47 @@ func collectIncremental(
 			})
 			continue
 		}
+		vendorLimited := false
+		aggregateLimited := false
+		aggregateSkipped := 0
+		sortVendorRecords(outcome.Records, pageAfterFor(request, vendorName))
 		for _, record := range outcome.Records {
-			if err := apply(record); err != nil {
+			bounded, limited, preparedSize, boundErr := boundChangedRecord(record, requestID, sequence, request.Limits.MaxRecordBytes)
+			if boundErr != nil {
+				return CachedSnapshotV2{}, nil, failures, fmt.Errorf("size %s changed family: %w", vendorName, boundErr)
+			}
+			record = bounded
+			if limited {
+				vendorLimited = true
+				failures = append(failures, fmt.Errorf("%s family skipped: %s", vendorName, remotefacts.StaleReasonVendorBudgetExceeded))
+			}
+			record.ProtocolVersion = remoteprotocol.ProtocolVersion
+			record.RequestID = requestID
+			record.Sequence = sequence
+			if preparedSize == 0 {
+				preparedSize = remoteprotocol.EncodedRecordSize(record)
+			}
+			recordBytes := preparedSize + 1
+			if usedRecords+1+reservedRecords > request.Limits.MaxRecords ||
+				usedBytes+recordBytes+reservedBytes > request.Limits.MaxResponseBytes {
+				aggregateLimited = true
+				aggregateSkipped++
+				continue
+			}
+			if err := apply(record, preparedSize); err != nil {
 				return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply %s record: %w", vendorName, err)
 			}
+		}
+		if aggregateLimited {
+			outcome.Coverage.Truncated = true
+			if outcome.Complete != nil {
+				outcome.Complete.Counts.SkippedFamilies += aggregateSkipped
+			}
+		}
+		if vendorLimited {
+			allVendorsCompleted = false
+			coverage = append(coverage, outcome.Coverage)
+			continue
 		}
 		if outcome.Complete == nil {
 			allVendorsCompleted = false
@@ -431,13 +612,17 @@ func collectIncremental(
 			coverage = append(coverage, outcome.Coverage)
 			continue
 		}
-		if err := apply(*outcome.Complete); err != nil {
+		reservedRecords--
+		reservedBytes -= completionSize(*outcome.Complete)
+		if err := apply(*outcome.Complete, 0); err != nil {
 			return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply %s completion: %w", vendorName, err)
 		}
 		coverage = append(coverage, outcome.Coverage)
 	}
 	if allVendorsCompleted && len(failures) == 0 {
-		if err := apply(remoteprotocol.Record{Type: remoteprotocol.RecordRequestComplete}); err != nil {
+		reservedRecords--
+		reservedBytes -= completionSize(remoteprotocol.Record{Type: remoteprotocol.RecordRequestComplete})
+		if err := apply(remoteprotocol.Record{Type: remoteprotocol.RecordRequestComplete}, 0); err != nil {
 			return CachedSnapshotV2{}, nil, failures, fmt.Errorf("apply request completion: %w", err)
 		}
 	}

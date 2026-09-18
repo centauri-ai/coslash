@@ -320,7 +320,7 @@ func lifecycleFor(remote *fakeLifecycleRemote) Lifecycle {
 }
 
 func compatibleCapabilities() remoteprotocol.Capabilities {
-	return remoteprotocol.Capabilities{Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, ParserVersion: "parsers-1", OS: "linux", Arch: "amd64"}
+	return remoteprotocol.Capabilities{Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1}, Schema: remoteprotocol.VersionRange{Min: remotefacts.SchemaVersion, Max: remotefacts.SchemaVersion}, ParserVersion: "parsers-1", Capabilities: []string{remoteprotocol.CapabilityFullSessionRecord}, OS: "linux", Arch: "amd64"}
 }
 
 func remoteFile(path string, artifact Artifact, uid uint32) RemoteFile {

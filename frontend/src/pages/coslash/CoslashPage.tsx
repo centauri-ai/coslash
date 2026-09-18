@@ -149,7 +149,7 @@ function SessionSearch({
     <div className="relative max-w-sm min-w-32 flex-1">
       <Search className="text-muted-foreground pointer-events-none absolute top-2 left-2.5 size-4" />
       <Input
-        placeholder="Search sessions -- title, repo, prompt, recap"
+        placeholder="Search sessions -- title, repo, branch"
         className="bg-muted h-8 pl-8 text-sm"
         value={searchTerm}
         onChange={(event) => onSearchTermChange(event.target.value)}

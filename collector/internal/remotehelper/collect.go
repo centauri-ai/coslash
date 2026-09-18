@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sort"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -86,12 +89,12 @@ func Collect(
 	completed := []string{}
 	parserTotal := time.Duration(0)
 	totals := remoteprotocol.Counts{}
-	for _, vendor := range request.Vendors {
+	for index, vendor := range request.Vendors {
 		if ctx.Err() != nil {
 			break
 		}
 		result, err := collectVendor(
-			ctx, emitter, request, vendor, source, home, now(), alive,
+			ctx, emitter, request, vendor, request.Vendors[index+1:], source, home, now(), alive,
 		)
 		parserTotal += result.parser
 		addCounts(&totals, result.counts)
@@ -122,6 +125,7 @@ func collectVendor(
 	emitter *emitter,
 	request remoteprotocol.Request,
 	vendor string,
+	remainingVendors []string,
 	source *Source,
 	home string,
 	now time.Time,
@@ -136,31 +140,29 @@ func collectVendor(
 	baselineKnown := request.BaselineMode == remoteprotocol.BaselineKnown
 
 	changed := []*family{}
+	actions := []remoteprotocol.Record{}
 	counts := remoteprotocol.Counts{
 		CandidateFamilies: len(scanned.scan.families),
 		CandidateFiles:    scanned.scan.candidateFiles,
 		SelectedFiles:     scanned.scan.selectedFiles,
 	}
-	for _, item := range scanned.scan.sortedFamilies() {
+	for _, item := range pageFamilies(scanned.scan.sortedFamilies(), pageAfter(request, vendor)) {
 		cached, isKnown := known[item.id]
 		switch {
 		case item.skipReason != "":
+			counts.SkippedFamilies++
 			if !isKnown {
 				continue
 			}
-			if err := emitSkipped(emitter, vendor, item.id, item.skipReason); err != nil {
-				return vendorResult{counts: counts}, err
-			}
-			counts.SkippedFamilies++
+			actions = append(actions, remoteprotocol.Record{
+				Type: remoteprotocol.RecordSkipped, Vendor: vendor,
+				FamilyID: item.id, Reason: item.skipReason,
+			})
 		case baselineKnown && isKnown && cached == item.fingerprint:
-			err := emitter.emit(remoteprotocol.Record{
+			actions = append(actions, remoteprotocol.Record{
 				Type: remoteprotocol.RecordUnchanged, Vendor: vendor,
 				FamilyID: item.id, Fingerprint: item.fingerprint,
 			})
-			if err != nil {
-				return vendorResult{counts: counts}, err
-			}
-			counts.SelectedFamilies++
 		case !item.inWindow:
 			// Outside the requested window a family is neither confirmed nor
 			// replaced. Its absence from the response is never deletion, and the
@@ -171,7 +173,34 @@ func collectVendor(
 		}
 	}
 
+	preliminaryInventory, _ := scanned.scan.inventory(request.Limits.MaxInventoryFamilies)
+	potentialTombstones := potentialTombstoneIDs(scanned, changed, known)
+	reservation, reserveErr := completionReserve(
+		emitter, vendor, preliminaryInventory, potentialTombstones, remainingVendors,
+	)
+	if reserveErr != nil {
+		return vendorResult{counts: counts}, reserveErr
+	}
+	emitter.reservedBytes = reservation.bytes
+	emitter.reservedRecords = reservation.records
+	budgetBefore := emitter.budgetSkipped
+	for _, action := range actions {
+		if action.Type == remoteprotocol.RecordSkipped {
+			if actionErr := emitSkipped(emitter, action.Vendor, action.FamilyID, action.Reason); actionErr != nil {
+				return vendorResult{counts: counts}, actionErr
+			}
+			continue
+		}
+		emitted, actionErr := emitter.emitFamily(action, &counts)
+		if actionErr != nil {
+			return vendorResult{counts: counts}, actionErr
+		}
+		if emitted && action.Type == remoteprotocol.RecordUnchanged {
+			counts.SelectedFamilies++
+		}
+	}
 	parser, err := publishChanged(ctx, emitter, request, scanned, changed, known, &counts)
+	budgetSkipped := emitter.budgetSkipped - budgetBefore
 	result := vendorResult{parser: parser, counts: counts}
 	if err != nil {
 		return result, err
@@ -192,10 +221,11 @@ func collectVendor(
 	}
 
 	inventory, inventoryComplete := scanned.scan.inventory(request.Limits.MaxInventoryFamilies)
+
 	// vendor_complete asserts authoritative enumeration, so it is emitted only
 	// when the scan really saw everything. A baseline-free response must also
 	// carry the complete inventory or it cannot authorise any deletion.
-	if !scanned.scan.complete || ctx.Err() != nil {
+	if !scanned.scan.complete || counts.SkippedFamilies > budgetSkipped || ctx.Err() != nil {
 		return result, nil
 	}
 	if request.BaselineMode == remoteprotocol.BaselineNone && !inventoryComplete {
@@ -212,6 +242,29 @@ func collectVendor(
 	}
 	result.complete = true
 	return result, nil
+}
+
+func pageAfter(request remoteprotocol.Request, vendor string) string {
+	for _, cursor := range request.PageAfter {
+		if cursor.Vendor == vendor {
+			return cursor.AfterFamilyID
+		}
+	}
+	return ""
+}
+
+// pageFamilies starts just after the last family committed by the prior
+// limited page and wraps at the end. Circular ordering keeps later families
+// from starving while still revisiting earlier families on subsequent pages.
+func pageFamilies(families []*family, after string) []*family {
+	if after == "" || len(families) == 0 {
+		return families
+	}
+	index := sort.Search(len(families), func(i int) bool { return families[i].id > after })
+	result := make([]*family, 0, len(families))
+	result = append(result, families[index:]...)
+	result = append(result, families[:index]...)
+	return result
 }
 
 // vendorResult is what one vendor contributed: whether it could be enumerated
@@ -316,6 +369,21 @@ func publishFamily(
 			sessions = groupByFamily(reparsed, []*family{item})[item.id]
 			continue
 		}
+		var complete []fullsessionv1.Record
+		if scanned.vendor == vendors.AgentCodex && request.SourceID != "" {
+			var fullErr error
+			complete, fullErr = fullsessionrecord.FromParsedFamily(request.SourceID, scanned.vendor, scanned.source, sessions, scanned.metadata)
+			if fullErr != nil {
+				return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)
+			}
+			if !containsFullRecord(complete, item.id) {
+				delete(scanned.scan.families, item.id)
+				return parser, nil
+			}
+		} else if !fullsessionrecord.IsServableFamily(item.id, scanned.vendor, scanned.source, sessions, scanned.metadata) {
+			delete(scanned.scan.families, item.id)
+			return parser, nil
+		}
 		facts, err := familyFacts(scanned, item, sessions)
 		if err != nil {
 			return parser, skipFamily(
@@ -323,22 +391,129 @@ func publishFamily(
 				boundedReason(err),
 			)
 		}
+		var fullRecords []remoteprotocol.FullRecord
+		if scanned.vendor == vendors.AgentCodex && request.SourceID != "" {
+			for _, completeRecord := range complete {
+				fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: item.id, Record: completeRecord})
+			}
+		}
 		// A baseline-free response carries no prior fingerprint: the helper was
 		// given no comparison state, and the inventory is the deletion authority.
 		prior := ""
 		if request.BaselineMode == remoteprotocol.BaselineKnown {
 			prior = known[item.id]
 		}
-		emitErr := emitter.emit(remoteprotocol.Record{
+		changedRecord := remoteprotocol.Record{
 			Type: remoteprotocol.RecordChanged, Vendor: scanned.vendor, FamilyID: item.id,
-			PriorFingerprint: prior, Fingerprint: item.fingerprint, Family: &facts,
-		})
+			PriorFingerprint: prior, Fingerprint: item.fingerprint, Family: &facts, FullRecords: fullRecords,
+		}
+		line, fits, fitErr := emitter.prepareBounded(changedRecord)
+		if fitErr != nil {
+			return parser, fitErr
+		}
+		if !fits {
+			return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonVendorBudgetExceeded)
+		}
+		if !emitter.fitsPrepared(line, emitter.reservedBytes) {
+			// The family is valid on its own, but emitting it would prevent a
+			// publishable limited response. Omit it until the next baseline.
+			counts.SkippedFamilies++
+			emitter.budgetSkipped++
+			return parser, nil
+		}
+		emitErr := emitter.emitPrepared(changedRecord, line)
 		if emitErr != nil {
 			return parser, emitErr
 		}
 		counts.SelectedFamilies++
 		return parser, nil
 	}
+}
+
+// completionReserve bounds the final vendor and request records using the
+// largest valid numeric fields and sequence. Actual completion records can
+// therefore never grow beyond the bytes kept aside for them.
+type completionReservation struct {
+	bytes   int
+	records int
+}
+
+func completionReserve(emitter *emitter, vendor string, inventory, tombstones, remainingVendors []string) (completionReservation, error) {
+	counts := remoteprotocol.Counts{
+		CandidateFamilies: remotefacts.MaxCount, SelectedFamilies: remotefacts.MaxCount,
+		CandidateFiles: remotefacts.MaxCount, SelectedFiles: remotefacts.MaxCount,
+		SkippedFamilies: remotefacts.MaxCount,
+	}
+	timing := remoteprotocol.Timing{ParserMs: math.MaxInt64, TotalMs: math.MaxInt64}
+	records := make([]remoteprotocol.Record, 0, len(tombstones)+2)
+	for _, id := range tombstones {
+		records = append(records, remoteprotocol.Record{
+			Type: remoteprotocol.RecordTombstone, Vendor: vendor, FamilyID: id,
+		})
+	}
+	records = append(records,
+		remoteprotocol.Record{Type: remoteprotocol.RecordVendorComplete, Vendor: vendor, EnumerationComplete: true,
+			InventoryComplete: true, Inventory: inventory, Counts: counts, Timing: timing},
+	)
+	maxInventory := make([]string, emitter.request.Limits.MaxInventoryFamilies)
+	for index := range maxInventory {
+		maxInventory[index] = fmt.Sprintf("%0*d", remotefacts.MaxIDBytes, index)
+	}
+	for _, futureVendor := range remainingVendors {
+		for familyID := range knownFamilies(emitter.request, futureVendor) {
+			records = append(records, remoteprotocol.Record{
+				Type: remoteprotocol.RecordTombstone, Vendor: futureVendor, FamilyID: familyID,
+			})
+		}
+		records = append(records, remoteprotocol.Record{
+			Type: remoteprotocol.RecordVendorComplete, Vendor: futureVendor,
+			EnumerationComplete: true, InventoryComplete: true,
+			Inventory: maxInventory, Counts: counts, Timing: timing,
+		})
+	}
+	records = append(records, remoteprotocol.Record{Type: remoteprotocol.RecordRequestComplete, Counts: counts, Timing: timing})
+	total := 0
+	for _, record := range records {
+		record.ProtocolVersion = remoteprotocol.ProtocolVersion
+		record.RequestID = emitter.request.RequestID
+		record.Sequence = emitter.request.Limits.MaxRecords
+		line, err := marshalRecord(record)
+		if err != nil {
+			return completionReservation{}, err
+		}
+		total += len(line)
+	}
+	return completionReservation{bytes: total, records: len(records)}, nil
+}
+
+func potentialTombstoneIDs(scanned *vendorScan, changed []*family, known map[string]string) []string {
+	potential := map[string]bool{}
+	for id := range known {
+		if _, exists := scanned.scan.families[id]; !exists {
+			potential[id] = true
+		}
+	}
+	for _, item := range changed {
+		if _, exists := known[item.id]; exists {
+			// Parsing may prove a scanned family unservable and remove it.
+			potential[item.id] = true
+		}
+	}
+	ids := make([]string, 0, len(potential))
+	for id := range potential {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func containsFullRecord(records []fullsessionv1.Record, sessionID string) bool {
+	for _, record := range records {
+		if record.SessionID == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 // familyFacts assembles one rooted family. Membership comes from the grouping
@@ -442,10 +617,25 @@ func skipFamily(
 }
 
 func emitSkipped(emitter *emitter, vendor, familyID, reason string) error {
-	return emitter.emit(remoteprotocol.Record{
+	record := remoteprotocol.Record{
 		Type: remoteprotocol.RecordSkipped, Vendor: vendor,
 		FamilyID: familyID, Reason: reason,
-	})
+	}
+	line, fits, err := emitter.prepareBounded(record)
+	if err != nil {
+		return err
+	}
+	if !fits {
+		return fmt.Errorf("%w: skipped_family record", ErrRecordLimit)
+	}
+	if !emitter.fitsPrepared(line, emitter.reservedBytes) {
+		// The family was already counted as a real parse/scan skip, which by
+		// itself withholds completion. Omitting its diagnostic action protects
+		// the reserved completion envelope without reclassifying that failure
+		// as a budget-only omission.
+		return nil
+	}
+	return emitter.emitPrepared(record, line)
 }
 
 // groupByFamily maps parsed sessions onto the families the grouping pass built.

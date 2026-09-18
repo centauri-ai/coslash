@@ -1,12 +1,13 @@
 # Remote family facts v2
 
-This package is the transport-independent input to shared session composition.
-It is deliberately separate from both the SSH NDJSON protocol and
-`session-snapshot/v1`.
+This package is the bounded transport-independent input to shared session
+composition. It is deliberately separate from the SSH NDJSON protocol,
+`session-snapshot/v1`, and the complete `full-session-record/v1` carried beside
+changed Codex family facts.
 
 ## Remote display data
 
-Remote collection carries the session fields used by the local board and
+The bounded facts row carries the session fields used by the local board and
 inspector, including prompts, summaries, commands, todo items, digest entries,
 file-edit summaries, subagent details, repository and working-directory facts,
 and Git status. The local coSlash cache persists these details with mode 0600.
@@ -21,7 +22,9 @@ Family identity and incremental-refresh metadata remain separately bounded:
   name/live metadata, opaque file comparison keys with size/mtime, and bounded
   Codex key-to-session/parent header mappings used only for warm discovery.
 
-The adapter still excludes `LogPath`, transcript rows, and fingerprint paths.
+Complete Codex detail and file-change bodies are represented in the separate
+full-record contract, not by widening or disabling this row's bounds. The facts
+adapter still excludes `LogPath`, transcript rows, and fingerprint paths.
 Fingerprint keys are comparison data; consumers must never open them as paths.
 The reflection test makes additions to the source model require a new decision.
 
@@ -56,8 +59,10 @@ other session must descend from that root within the nesting limit. Cycles,
 unknown parents, and additional roots are rejected.
 
 State is `complete`, `partial`, or `stale`. A validated replacement can be
-published independently. A failed/unstable replacement retains the last good
-facts as stale; missing data is not deletion.
+applied independently within an in-memory proposal, but that proposal becomes
+durable only after its enclosing protocol request completes. A failed,
+interrupted, or unstable refresh retains the last good generation as stale;
+missing data is not deletion.
 
 IDs and opaque fingerprint keys reject `/` and `\\` as well as whitespace and
 control characters. This keeps comparison keys from being mistaken for paths;

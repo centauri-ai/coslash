@@ -10,12 +10,51 @@ import (
 	"testing"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestFullRecordRevisionsBuildsSessionIndex(t *testing.T) {
+	snapshot := &CachedSnapshotV2{FullRecords: []remoteprotocol.FullRecord{
+		{Record: fullsessionv1.Record{Agent: vendors.AgentCodex, SessionID: "one", RevisionID: "rev-one"}},
+		{Record: fullsessionv1.Record{Agent: vendors.AgentCodex, SessionID: "two", RevisionID: "rev-two"}},
+	}}
+	revisions := fullRecordRevisions(snapshot)
+	if revisions[remoteSessionKey{Agent: vendors.AgentCodex, ID: "one"}] != "rev-one" ||
+		revisions[remoteSessionKey{Agent: vendors.AgentCodex, ID: "two"}] != "rev-two" {
+		t.Fatalf("revision index = %#v", revisions)
+	}
+}
+
+func TestPrunedRefreshPublishesLimitedCoverage(t *testing.T) {
+	const sourceID = "r_0123456789abcdef"
+	manager := NewManager(Options{Cache: NewCache(t.TempDir())})
+	manager.cfg = &settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}
+	result := refreshOutcome{
+		Snapshot: completeCodexSnapshot(t, "generation", "body\n"),
+		Sessions: []*session.Session{{Agent: vendors.AgentCodex, ID: "root-1"}},
+	}
+	result.Snapshot.RequestComplete = true
+	result.Snapshot.Coverage = []AgentCoverage{{Agent: vendors.AgentCodex, CandidateFiles: 1, SelectedFiles: 1}}
+	prepared, err := manager.prepareRefreshSnapshot(sourceID, &result, 4_000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prepared.pruned || result.Reason == nil || *result.Reason != ReasonHistoryTruncated {
+		t.Fatalf("prepared refresh: pruned=%v reason=%v", prepared.pruned, result.Reason)
+	}
+	manager.mu.Lock()
+	manager.applyLimitedLocked(result, prepared, *result.Reason, 4_000)
+	state, complete := manager.state, manager.complete
+	manager.mu.Unlock()
+	if state != StateLimited || complete {
+		t.Fatalf("pruned refresh health: state=%s complete=%v", state, complete)
+	}
+}
 
 func TestApplySettingsWaitsForFirstListViewWindow(t *testing.T) {
 	home := t.TempDir()
@@ -53,65 +92,67 @@ func TestApplySettingsWaitsForFirstListViewWindow(t *testing.T) {
 	})
 }
 
-func TestApplyLimitedPublishesSessionsAndBacksOff(t *testing.T) {
+func TestIncompleteRefreshRetainsLastCompleteGenerationAcrossRestart(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	now := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	cache := NewCache(filepath.Join(home, "remote-cache"))
+	const sourceID = "r_0123456789abcdef"
+	prior := completeCodexSnapshot(t, "complete-generation", "last good body\n")
+	if err := cache.StoreV2(sourceID, prior); err != nil {
+		t.Fatal(err)
+	}
 	manager := NewManager(Options{
-		Cache: NewCache(filepath.Join(home, "remote-cache")),
-		Now:   func() time.Time { return now },
-		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
+		Cache:        cache,
+		Now:          func() time.Time { return now },
+		HelperVerify: func(context.Context, string, helperTarget) error { return nil },
+		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
 			return refreshOutcome{
-				Sessions: []*session.Session{{
-					Agent: vendors.AgentClaude, ID: "s1", LastActivityTime: now.UnixMilli(),
-				}},
+				Sessions: []*session.Session{{Agent: vendors.AgentCodex, ID: "partial"}},
 				Snapshot: CachedSnapshotV2{
-					Coverage: []AgentCoverage{
-						{Agent: vendors.AgentClaude, CandidateFiles: 12, SelectedFiles: 12},
-						{Agent: vendors.AgentCodex, Error: genericErrorCopy(ReasonRefreshTimeout)},
-					},
+					Version: cacheV2Version, SourceID: sourceID, BaselineID: "incomplete-generation",
+					Families: prior.Families, FullRecords: prior.FullRecords,
+					Coverage: []AgentCoverage{{
+						Agent: vendors.AgentCodex, CandidateFiles: 2, SelectedFiles: 1,
+					}},
 				},
-				Failures: []error{context.DeadlineExceeded},
-			}, nil
+			}, ErrHelperFailed
 		},
 	})
-	if err := manager.ApplySettings(&settings.RemoteSettings{
-		ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true,
-	}); err != nil {
+	if err := manager.ApplySettings(&settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatalf("ApplySettings: %v", err)
 	}
+	manager.mu.Lock()
+	manager.helperTarget = &helperTarget{path: "/helper"}
+	manager.mu.Unlock()
 	manager.ListView(0)
 	waitUntil(t, func() bool {
 		manager.mu.Lock()
 		defer manager.mu.Unlock()
-		return !manager.refreshing && manager.state == StateLimited
+		return !manager.refreshing && manager.state == StateStale
 	})
 
-	view := manager.ListView(0)
-	if view.Health.State != StateLimited {
-		t.Fatalf("state=%s, want limited", view.Health.State)
+	if view := manager.ListView(0); view.Health.State != StateStale {
+		t.Fatalf("state=%s, want stale", view.Health.State)
 	}
-	if len(view.Sessions) != 1 {
-		t.Fatalf("sessions=%d, want 1 published", len(view.Sessions))
-	}
-
-	manager.mu.Lock()
-	if manager.snapshot == nil {
-		t.Fatal("expected limited snapshot to be cached")
-	}
-	if manager.nextRetryAt.IsZero() {
-		t.Fatal("expected retry backoff after limited refresh")
-	}
-	manager.mu.Unlock()
-
-	// A second cache load should see the v2 snapshot committed by the
-	// limited refresh, not a legacy stale shell.
-	loaded, ok, err := manager.cache.LoadV2("r_0123456789abcdef")
+	loaded, ok, err := cache.LoadV2(sourceID)
 	if err != nil || !ok {
-		t.Fatalf("LoadV2 after limited publish: ok=%v err=%v", ok, err)
+		t.Fatalf("LoadV2 after incomplete refresh: ok=%v err=%v", ok, err)
 	}
-	if len(loaded.Families) != 0 {
-		t.Fatalf("no families were produced by this fake refresh, got %d", len(loaded.Families))
+	if loaded.BaselineID != "complete-generation" {
+		t.Fatalf("published incomplete generation: %#v", loaded)
+	}
+	manager.Shutdown()
+
+	restarted := NewManager(Options{Cache: cache})
+	t.Cleanup(restarted.Shutdown)
+	if err := restarted.ApplySettings(&settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	revision := prior.FullRecords[0].Record.RevisionID
+	record, err := restarted.ReadFullSession(sourceID, vendors.AgentCodex, "root-1", revision)
+	if err != nil || record == nil || record.RevisionID != revision {
+		t.Fatalf("restart exact read: record=%#v err=%v", record, err)
 	}
 }
 
@@ -1069,6 +1110,7 @@ func TestSuccessfulAliasTestClearsBackoffAndKicksRefresh(t *testing.T) {
 				Snapshot: CachedSnapshotV2{
 					Version:         cacheV2Version,
 					CoverageSinceMs: now.UnixMilli(),
+					RequestComplete: true,
 					// Non-empty coverage avoids ReasonNoSupportedData, which would
 					// re-arm limited-state backoff and hide the recovery under test.
 					Coverage: []AgentCoverage{{Agent: "claude", CandidateFiles: 1, SelectedFiles: 1}},

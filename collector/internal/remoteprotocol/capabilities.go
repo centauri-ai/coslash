@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 )
@@ -13,6 +14,8 @@ import (
 // MaxCapabilityBytes bounds the capability document a helper prints. It is far
 // smaller than a collect response because it carries versions, not facts.
 const MaxCapabilityBytes = 8 << 10
+
+const CapabilityFullSessionRecord = "full-session-record-v1"
 
 // Capabilities is what a helper answers before any collection: the protocol and
 // schema ranges it supports, plus identity for diagnostics. Compatibility is
@@ -30,7 +33,8 @@ type Capabilities struct {
 
 // Compatible reports whether this Mac can speak to the helper at all.
 func (c Capabilities) Compatible() bool {
-	return supports(c.Protocol, ProtocolVersion) && supports(c.Schema, remotefacts.SchemaVersion)
+	return supports(c.Protocol, ProtocolVersion) && supports(c.Schema, remotefacts.SchemaVersion) &&
+		slices.Contains(c.Capabilities, CapabilityFullSessionRecord)
 }
 
 // Deprecated reports a helper that still works but no longer offers the current
