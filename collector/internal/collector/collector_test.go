@@ -204,7 +204,10 @@ func TestGetSessionDetailPreservesExactSubagentText(t *testing.T) {
 	result := strings.Repeat("result", session.TruncateTextLimit)
 	loadFamily := func(string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 		return []*vendors.ParsedSession{
-			{Session: &session.Session{Agent: "test", ID: "root", StartedAt: 100, LastActivityTime: 200}},
+			{Session: &session.Session{
+				Agent: "test", ID: "root", StartedAt: 100, LastActivityTime: 200,
+				SessionDetails: session.SessionDetails{Turns: 1},
+			}},
 			{Session: &session.Session{
 				Agent: "test", ID: "child", StartedAt: 100, LastActivityTime: 200,
 				SessionDetails: session.SessionDetails{FirstPrompt: &task}, Summary: &result,
@@ -229,8 +232,9 @@ func TestGetSessionDetailPreservesExactSubagentText(t *testing.T) {
 		t.Fatal(err)
 	}
 	listed := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{"test": metadata})[0].Session
-	if len(listed.Subagents[0].Task) > session.TruncateTextLimit || len(listed.Subagents[0].Result) > session.TruncateTextLimit {
-		t.Fatal("list projection retained unbounded subagent text")
+	if listed.Subagents[0].Task != session.Truncate(task, session.TruncateTextLimit) ||
+		listed.Subagents[0].Result != session.Truncate(result, session.TruncateTextLimit) {
+		t.Fatal("list projection did not use bounded subagent text")
 	}
 	if listed.DetailRevision != got.DetailRevision {
 		t.Fatalf("list revision %q != exact revision %q", listed.DetailRevision, got.DetailRevision)
