@@ -138,7 +138,7 @@ Search by title, repo, branch, or agent. Filter by state, machine, vendor, and f
 
 coSlash reads local Cursor IDE and Cursor CLI (`agent`) sessions. Cursor SDK sessions and remote Cursor collection are not supported.
 
-**Resume** restores a Cursor CLI session exactly. For a Cursor IDE session, **Open Cursor** reopens its working directory but cannot restore a specific chat. Cursor IDE token usage is its current context occupancy, not lifetime token use; Cursor CLI does not persist reliable token or compaction data.
+**Resume** restores a Cursor CLI session exactly. For a Cursor IDE session, **Open Cursor** reopens its working directory but cannot restore a specific chat. **Start fresh with handoff** copies the brief to the clipboard before launching Cursor IDE or CLI; paste it into the new session because Cursor cannot load it automatically. Cursor IDE exposes current context occupancy, not cumulative token usage; Cursor CLI does not persist reliable token or compaction data.
 
 <p align="center">
   <img src="docs/media/list-and-board.gif" alt="Switching from list view to board view, then searching to filter sessions to one repository" width="900">
@@ -189,7 +189,7 @@ A session that's 90% full, compacted twice, and 40 commits behind `main` is tell
 ### Three ways back in
 
 - **Resume** reopens the exact session in its own CLI, in its working directory, in your terminal of choice, with its full context intact.
-- **Start fresh with handoff** writes a Markdown brief — objective, current state, key decisions, timeline, files, commits, next steps, environment — and opens a new session with it loaded as background context. The brief is explicitly marked as reference, so the new agent waits for your instruction instead of charging off on stale notes.
+- **Start fresh with handoff** writes a Markdown brief with the objective, current state, key decisions, timeline, files, commits, next steps, and environment. Claude Code, Codex, and OpenCode open with it loaded as background context. Cursor copies it to the clipboard and launches a new IDE or CLI session; paste the brief there manually.
 - **Copy handoff** puts the same brief on your clipboard for a PR description, a standup, a ticket, or another machine entirely.
 
 Terminal launches use Apple Terminal or iTerm2, whichever you pick in Settings.
