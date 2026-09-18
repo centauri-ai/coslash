@@ -6,7 +6,7 @@ Start with `coslash doctor`. It checks session sources, agent CLIs, and storage.
 
 Create at least one local Claude Code, Codex, Cursor, or OpenCode session, then reload. Run `coslash doctor` for unreadable or missing sources. In the UI, select **All** vendors and time windows and clear search.
 
-For Cursor, `coslash doctor` reports the IDE (`cursor`) and CLI (`agent`) separately. coSlash reads only local Cursor IDE and CLI sessions: Cursor SDK sessions and remote Cursor collection are unsupported. Cursor CLI token and compaction data can be unavailable because Cursor does not store them reliably; Cursor IDE token data is its current context occupancy, not lifetime usage.
+For Cursor, `coslash doctor` reports the IDE (`cursor`) and CLI (`agent`) separately. coSlash reads only local Cursor IDE and CLI sessions: Cursor SDK sessions and remote Cursor collection are unsupported. Cursor CLI token and compaction data can be unavailable because Cursor does not store them reliably; Cursor IDE exposes current context occupancy separately, not cumulative token usage.
 
 For a remote machine, choose **Settings → Machines → Add remote host**. coSlash
 uses the Mac's existing OpenSSH configuration, so first run `ssh <alias>` in
@@ -58,7 +58,7 @@ Launching requires macOS, a recorded working directory, the agent CLI, and the t
 
 Cursor CLI **Resume** requires the `agent` command and restores the recorded session. **Open Cursor** for a Cursor IDE session requires the `cursor` command and only opens the recorded workspace; Cursor does not provide a way to restore that specific IDE chat.
 
-A fresh agent waiting silently is expected: handoff context is marked as background, and the agent waits for your next message.
+For Cursor, **Start fresh with handoff** copies the brief to the clipboard before launch. Paste it into the new IDE or CLI session; Cursor does not provide a way for coSlash to inject it. Other supported agents receive the brief as background context and wait for your next message.
 
 Remote Resume and Start fresh require a live SSH connection and a recorded
 working directory. They are disabled while the host is offline; wait for it to
