@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
+	"unsafe"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -15,6 +15,8 @@ import (
 )
 
 var windowsLookPath = exec.LookPath
+var windowsCreateProcess = windows.CreateProcess
+var windowsCloseHandle = windows.CloseHandle
 
 var windowsStart = func(command *exec.Cmd) error {
 	if err := command.Start(); err != nil {
@@ -55,17 +57,43 @@ func openWindowsTerminal(workingDirectory, command string) error {
 	if err != nil {
 		return fmt.Errorf("Windows Terminal and Windows PowerShell are not installed or available")
 	}
-	process := exec.Command(powerShell, "-NoExit", "-Command", command)
-	configureWindowsConsole(process, workingDirectory)
-	return windowsStart(process)
+	return startWindowsConsole(powerShell, workingDirectory, "-NoExit", "-Command", command)
 }
 
-func configureWindowsConsole(command *exec.Cmd, workingDirectory string) {
-	command.Dir = workingDirectory
-	command.Stdin = os.Stdin
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE}
+func startWindowsConsole(executable, workingDirectory string, arguments ...string) error {
+	applicationName, err := windows.UTF16PtrFromString(executable)
+	if err != nil {
+		return err
+	}
+	commandLine, err := windows.UTF16FromString(windows.ComposeCommandLine(append([]string{executable}, arguments...)))
+	if err != nil {
+		return err
+	}
+	currentDirectory, err := windows.UTF16PtrFromString(workingDirectory)
+	if err != nil {
+		return err
+	}
+	startupInfo := windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{}))}
+	var processInformation windows.ProcessInformation
+	err = windowsCreateProcess(
+		applicationName,
+		&commandLine[0],
+		nil,
+		nil,
+		false,
+		windows.CREATE_NEW_CONSOLE,
+		nil,
+		currentDirectory,
+		&startupInfo,
+		&processInformation,
+	)
+	if processInformation.Process != 0 {
+		_ = windowsCloseHandle(processInformation.Process)
+	}
+	if processInformation.Thread != 0 {
+		_ = windowsCloseHandle(processInformation.Thread)
+	}
+	return err
 }
 
 func localCommandJoin(arguments ...string) string {
