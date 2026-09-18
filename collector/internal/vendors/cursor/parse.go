@@ -87,6 +87,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 		if record.Role == "assistant" && record.Message != nil {
 			turnFinalReply = ""
 			textBlocks := []string{}
+			hasToolUse := false
 			for _, block := range record.Message.Content {
 				if block.Type == "text" {
 					if text := strings.TrimSpace(block.Text); text != "" {
@@ -96,6 +97,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 				if block.Type != "tool_use" {
 					continue
 				}
+				hasToolUse = true
 				toolUses++
 				input, rawString := decodeToolInput(block.Input)
 				switch block.Name {
@@ -161,7 +163,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 					digest.PushSubagentTask(turn, spawnKey, task, 0)
 				}
 			}
-			if len(textBlocks) > 0 {
+			if len(textBlocks) > 0 && !hasToolUse {
 				assistantResult = strings.Join(textBlocks, "\n\n")
 				turnFinalReply = assistantResult
 			}
