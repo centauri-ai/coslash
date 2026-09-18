@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 )
@@ -268,7 +269,12 @@ func validFullSessionRequest(request FullSessionShareRequest) bool {
 }
 
 func validAudienceVersion(value string) bool {
-	return value != "" && len(value) <= 200 && !strings.ContainsAny(value, "\r\n")
+	return value != "" && len(value) <= 200 && strings.TrimSpace(value) == value &&
+		!strings.ContainsFunc(value, unicode.IsControl)
+}
+
+func fullSessionProblemDiagnostic(status int, code string) error {
+	return fmt.Errorf("upload full session: Hub request failed (status %d, code %.200q)", status, code)
 }
 
 func (c *Client) ShareFullSession(ctx context.Context, request FullSessionShareRequest) (FullSessionShareResult, error) {
@@ -356,7 +362,7 @@ func (c *Client) ShareFullSession(ctx context.Context, request FullSessionShareR
 	if response.StatusCode != http.StatusCreated && response.StatusCode != http.StatusOK {
 		problem := readProblem(response)
 		code, retryable := mapFullSessionProblem(problem.Code)
-		return fullSessionFailed(request, code, retryable), fmt.Errorf("upload full session: %w", problem)
+		return fullSessionFailed(request, code, retryable), fullSessionProblemDiagnostic(response.StatusCode, problem.Code)
 	}
 	var upload fullSessionUploadResponse
 	if err := decodeBounded(response.Body, &upload); err != nil {

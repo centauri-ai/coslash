@@ -405,3 +405,24 @@ func TestFullSessionUploadUsesSupportedTimeoutAndCredentialMappings(t *testing.T
 		}
 	}
 }
+
+func TestFullSessionShareRejectsUnsafeAudienceVersions(t *testing.T) {
+	for _, value := range []string{" audience-v1", "audience-v1 ", "audience\x00v1", "audience\x7fv1"} {
+		if validAudienceVersion(value) {
+			t.Errorf("validAudienceVersion(%q) = true", value)
+		}
+	}
+	if !validAudienceVersion("audience v1") {
+		t.Error("valid header value was rejected")
+	}
+}
+
+func TestFullSessionProblemDiagnosticBoundsAndSanitizesCode(t *testing.T) {
+	diagnostic := fullSessionProblemDiagnostic(http.StatusBadGateway, "bad\ncode"+strings.Repeat("x", 500)).Error()
+	if strings.Contains(diagnostic, "\n") || len(diagnostic) > 300 {
+		t.Fatalf("unsafe diagnostic: %q", diagnostic)
+	}
+	if !strings.Contains(diagnostic, "status 502") || !strings.Contains(diagnostic, `code "bad\ncode`) {
+		t.Fatalf("diagnostic omitted status or sanitized code: %q", diagnostic)
+	}
+}
