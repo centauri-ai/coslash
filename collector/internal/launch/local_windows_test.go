@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"golang.org/x/sys/windows"
@@ -139,8 +140,10 @@ func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
 }
 
 func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
-	originalLookPath, originalStart := windowsLookPath, windowsStart
-	t.Cleanup(func() { windowsLookPath, windowsStart = originalLookPath, originalStart })
+	originalLookPath, originalCreate, originalClose := windowsLookPath, windowsCreateProcess, windowsCloseHandle
+	t.Cleanup(func() {
+		windowsLookPath, windowsCreateProcess, windowsCloseHandle = originalLookPath, originalCreate, originalClose
+	})
 	windowsLookPath = func(name string) (string, error) {
 		switch name {
 		case "wt.exe":
@@ -152,32 +155,102 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 			return "", nil
 		}
 	}
-	var got *exec.Cmd
-	windowsStart = func(command *exec.Cmd) error {
-		got = command
+	var gotApplication, gotDirectory string
+	var gotArguments []string
+	var gotStartupInfo windows.StartupInfo
+	var gotInheritHandles bool
+	var gotCreationFlags uint32
+	var gotEnvironment *uint16
+	windowsCreateProcess = func(
+		applicationName, commandLine *uint16,
+		_, _ *windows.SecurityAttributes,
+		inheritHandles bool,
+		creationFlags uint32,
+		environment, currentDirectory *uint16,
+		startupInfo *windows.StartupInfo,
+		processInformation *windows.ProcessInformation,
+	) error {
+		gotApplication = windows.UTF16PtrToString(applicationName)
+		gotDirectory = windows.UTF16PtrToString(currentDirectory)
+		var err error
+		gotArguments, err = windows.DecomposeCommandLine(windows.UTF16PtrToString(commandLine))
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotStartupInfo = *startupInfo
+		gotInheritHandles = inheritHandles
+		gotCreationFlags = creationFlags
+		gotEnvironment = environment
+		processInformation.Process = windows.Handle(11)
+		processInformation.Thread = windows.Handle(12)
+		return nil
+	}
+	var closed []windows.Handle
+	windowsCloseHandle = func(handle windows.Handle) error {
+		closed = append(closed, handle)
 		return nil
 	}
 
-	if err := openWindowsTerminal(`C:\work`, `& 'claude'`); err != nil {
+	if err := openWindowsTerminal(`C:\work 卡尔文`, `& 'claude' 'Bob''s session'`); err != nil {
 		t.Fatal(err)
 	}
-	if got.Path != `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` {
-		t.Fatalf("executable = %q", got.Path)
+	if gotApplication != `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` {
+		t.Fatalf("executable = %q", gotApplication)
 	}
-	if got.Dir != `C:\work` {
-		t.Fatalf("working directory = %q", got.Dir)
+	if gotDirectory != `C:\work 卡尔文` {
+		t.Fatalf("working directory = %q", gotDirectory)
 	}
-	wantArgs := []string{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, "-NoExit", "-Command", `& 'claude'`}
-	if !reflect.DeepEqual(got.Args, wantArgs) {
-		t.Fatalf("arguments = %#v, want %#v", got.Args, wantArgs)
+	wantArgs := []string{
+		`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
+		"-NoExit",
+		"-Command",
+		`& 'claude' 'Bob''s session'`,
 	}
-	if got.Stdin != os.Stdin || got.Stdout != os.Stdout || got.Stderr != os.Stderr {
-		t.Fatal("direct PowerShell does not use interactive standard streams")
+	if !reflect.DeepEqual(gotArguments, wantArgs) {
+		t.Fatalf("arguments = %#v, want %#v", gotArguments, wantArgs)
 	}
-	if got.SysProcAttr == nil || got.SysProcAttr.CreationFlags&windows.CREATE_NEW_CONSOLE == 0 {
-		t.Fatalf("creation flags = %#v, want CREATE_NEW_CONSOLE", got.SysProcAttr)
+	if gotStartupInfo.Cb != uint32(unsafe.Sizeof(windows.StartupInfo{})) {
+		t.Fatalf("StartupInfo.Cb = %d", gotStartupInfo.Cb)
 	}
-	if got.SysProcAttr.CreationFlags != windows.CREATE_NEW_CONSOLE {
-		t.Fatalf("creation flags = %#x, want %#x", got.SysProcAttr.CreationFlags, uint32(windows.CREATE_NEW_CONSOLE))
+	if gotStartupInfo.Flags != 0 || gotStartupInfo.StdInput != 0 || gotStartupInfo.StdOutput != 0 || gotStartupInfo.StdErr != 0 {
+		t.Fatalf("StartupInfo uses inherited standard handles: %#v", gotStartupInfo)
+	}
+	if gotInheritHandles || gotEnvironment != nil || gotCreationFlags != windows.CREATE_NEW_CONSOLE {
+		t.Fatalf("CreateProcess inherit=%v environment=%p flags=%#x", gotInheritHandles, gotEnvironment, gotCreationFlags)
+	}
+	if want := []windows.Handle{11, 12}; !reflect.DeepEqual(closed, want) {
+		t.Fatalf("closed handles = %v, want %v", closed, want)
+	}
+}
+
+func TestWindowsPowerShellClosesPartialHandlesOnCreateError(t *testing.T) {
+	originalCreate, originalClose := windowsCreateProcess, windowsCloseHandle
+	t.Cleanup(func() { windowsCreateProcess, windowsCloseHandle = originalCreate, originalClose })
+	wantErr := errors.New("create failed")
+	windowsCreateProcess = func(
+		_, _ *uint16,
+		_, _ *windows.SecurityAttributes,
+		_ bool,
+		_ uint32,
+		_, _ *uint16,
+		_ *windows.StartupInfo,
+		processInformation *windows.ProcessInformation,
+	) error {
+		processInformation.Process = windows.Handle(21)
+		processInformation.Thread = windows.Handle(22)
+		return wantErr
+	}
+	var closed []windows.Handle
+	windowsCloseHandle = func(handle windows.Handle) error {
+		closed = append(closed, handle)
+		return nil
+	}
+
+	err := startWindowsConsole(`C:\Windows\powershell.exe`, `C:\work`, "-NoExit")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("startWindowsConsole() error = %v, want %v", err, wantErr)
+	}
+	if want := []windows.Handle{21, 22}; !reflect.DeepEqual(closed, want) {
+		t.Fatalf("closed handles = %v, want %v", closed, want)
 	}
 }
