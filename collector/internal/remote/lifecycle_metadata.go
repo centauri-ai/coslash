@@ -66,13 +66,7 @@ func (store *FileMetadataSequenceStore) Accept(sequence uint64) error {
 	if err := os.Rename(temporaryPath, store.Path); err != nil {
 		return fmt.Errorf("commit metadata sequence: %w", err)
 	}
-	dir, err := os.Open(directory)
-	if err != nil {
-		return err
-	}
-	syncErr := dir.Sync()
-	closeErr := dir.Close()
-	return errors.Join(syncErr, closeErr)
+	return syncMetadataDirectory(directory)
 }
 
 func readMetadataSequence(path string) (uint64, error) {
