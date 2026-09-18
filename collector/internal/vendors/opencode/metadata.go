@@ -3,7 +3,6 @@ package opencode
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,9 +10,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -142,7 +141,7 @@ func markPendingPermissions(db *sql.DB, metadata *vendors.SessionMetadata, direc
 			continue
 		}
 		var pending pendingPermission
-		if json.Unmarshal(data, &pending) != nil || pending.SessionID == "" || !processAlive(pending.PID) {
+		if json.Unmarshal(data, &pending) != nil || pending.SessionID == "" || !session.IsProcessAlive(pending.PID) {
 			os.Remove(path)
 			continue
 		}
@@ -154,14 +153,6 @@ func markPendingPermissions(db *sql.DB, metadata *vendors.SessionMetadata, direc
 			metadata.Session(rootID).Live = "waiting"
 		}
 	}
-}
-
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func parseTUIProcesses(output string) []tuiProcess {
