@@ -22,9 +22,9 @@ import {
 import type { SessionDetail } from '@/pages/coslash/lib/session';
 
 type LoadState =
-  | { status: 'idle' | 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'loaded'; preview: SnapshotPreview };
+  | { status: 'idle' }
+  | { status: 'error'; key: string; message: string }
+  | { status: 'loaded'; key: string; preview: SnapshotPreview };
 
 function PreviewReady({ preview }: { preview: SnapshotPreview }) {
   let payload: string;
@@ -134,25 +134,29 @@ export function SnapshotPreviewDialog({
   previewOnly = false,
 }: SnapshotPreviewDialogProps) {
   const [load, setLoad] = useState<LoadState>({ status: 'idle' });
+  const loadKey = `${detail.sourceId}\0${detail.agent}\0${detail.id}\0${detail.mtime}`;
 
   useEffect(() => {
-    if (!open) {
-      setLoad({ status: 'idle' });
-      return;
-    }
+    if (!open) return;
     const controller = new AbortController();
-    setLoad({ status: 'loading' });
     fetchSnapshotPreview(detail, detail.mtime, controller.signal)
       .then((preview) => {
-        if (!controller.signal.aborted) setLoad({ status: 'loaded', preview });
+        if (!controller.signal.aborted) setLoad({ status: 'loaded', key: loadKey, preview });
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setLoad({ status: 'error', message: 'Could not build the canonical snapshot preview.' });
+          setLoad({
+            status: 'error',
+            key: loadKey,
+            message: 'Could not build the canonical snapshot preview.',
+          });
         }
       });
     return () => controller.abort();
-  }, [detail, open]);
+  }, [detail, loadKey, open]);
+
+  const displayLoad: LoadState | { status: 'loading' } =
+    open && load.status !== 'idle' && load.key === loadKey ? load : { status: 'loading' };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -175,7 +179,7 @@ export function SnapshotPreviewDialog({
           </div>
         )}
 
-        {load.status === 'loading' && (
+        {displayLoad.status === 'loading' && (
           <div
             role="status"
             className="text-muted-foreground flex min-h-48 items-center justify-center text-sm"
@@ -183,16 +187,16 @@ export function SnapshotPreviewDialog({
             Building the canonical preview…
           </div>
         )}
-        {load.status === 'error' && (
+        {displayLoad.status === 'error' && (
           <div role="alert" className="text-destructive min-h-48 rounded-lg border p-3 text-sm">
-            {load.message} Close this dialog and try again; sharing is blocked.
+            {displayLoad.message} Close this dialog and try again; sharing is blocked.
           </div>
         )}
-        {load.status === 'loaded' &&
-          (load.preview.state === 'ready' && load.preview.approvalAllowed ? (
-            <PreviewReady preview={load.preview} />
+        {displayLoad.status === 'loaded' &&
+          (displayLoad.preview.state === 'ready' && displayLoad.preview.approvalAllowed ? (
+            <PreviewReady preview={displayLoad.preview} />
           ) : (
-            <PreviewBlocked preview={load.preview} />
+            <PreviewBlocked preview={displayLoad.preview} />
           ))}
 
         <DialogFooter showCloseButton />

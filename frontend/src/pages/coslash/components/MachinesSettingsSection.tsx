@@ -34,19 +34,19 @@ export function MachinesSettingsSection({
   const [stage, setStage] = useState<SetupStage>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [machine, setMachine] = useState<MachineFact | null>(null);
+  const currentMachine = remote?.sshAlias ? machine : null;
   const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
   const setupFailed =
     stage === 'error' ||
-    (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
+    (stage === 'idle' &&
+      currentMachine?.helper?.compatible === false &&
+      currentMachine.helper.reason != null);
 
   useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
   useEffect(() => {
-    if (!remote?.sshAlias) {
-      setMachine(null);
-      return;
-    }
+    if (!remote?.sshAlias) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = () => {
@@ -177,11 +177,11 @@ export function MachinesSettingsSection({
               <div className="text-muted-foreground text-xs">
                 {setupFailed
                   ? 'Setup failed'
-                  : machine?.refreshing || machine?.state === 'connecting'
+                  : currentMachine?.refreshing || currentMachine?.state === 'connecting'
                     ? 'Checking'
-                    : machine?.state === 'stale' || machine?.state === 'error'
+                    : currentMachine?.state === 'stale' || currentMachine?.state === 'error'
                       ? 'Offline'
-                      : machine?.state === 'ok' && machine.sessionCount === 0
+                      : currentMachine?.state === 'ok' && currentMachine.sessionCount === 0
                         ? 'Connected · no recent agent sessions found'
                         : 'Connected'}
               </div>
@@ -255,7 +255,7 @@ export function MachinesSettingsSection({
         )}
         {message == null && setupFailed && (
           <div role="alert" className="bg-destructive/10 text-destructive border-t px-4 py-3 text-xs">
-            Setup failed: {connectorFailureCopy(machine)}. Retry setup to verify the connector.
+            Setup failed: {connectorFailureCopy(currentMachine)}. Retry setup to verify the connector.
           </div>
         )}
       </div>

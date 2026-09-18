@@ -591,7 +591,8 @@ function CacheWindowMark({ within, label }: { within: boolean; label: string }) 
 // Cache TTL refreshes on every request, so warmth keys off the transcript's
 // last write: within 5 min both windows hold, within 1 hr only the 1-hr one.
 function PromptCacheCell({ lastAccessAt }: { lastAccessAt: number }) {
-  const ageMin = (Date.now() - lastAccessAt) / MINUTE;
+  const [now] = useState(Date.now);
+  const ageMin = (now - lastAccessAt) / MINUTE;
   const within5m = ageMin <= 5;
   const within1h = ageMin <= 60;
 
@@ -1060,10 +1061,14 @@ function DigestSection({ detail }: { detail: SessionDetail }) {
   const times = digest.map((e) => e.time ?? 0).filter((t) => t > 0);
   const dateRange = formatDigestDateRange(times);
 
+  const startsDayIndices = new Set<number>();
   const endsDayIndices = new Set<number>();
   let lastDate = '';
   for (let i = 0; i < visible.length; i++) {
     const entryDate = visible[i].time != null && visible[i].time! > 0 ? digestDateKey(visible[i].time!) : '';
+    if (entryDate !== '' && entryDate !== lastDate) {
+      startsDayIndices.add(i);
+    }
     if (i > 0 && entryDate !== '' && lastDate !== '' && entryDate !== lastDate) {
       endsDayIndices.add(i - 1);
     }
@@ -1072,16 +1077,10 @@ function DigestSection({ detail }: { detail: SessionDetail }) {
     }
   }
 
-  let previousDate = '';
   const rows = visible.map((entry, index) => {
-    const entryDate = entry.time != null && entry.time > 0 ? digestDateKey(entry.time) : '';
-    const showDivider = entryDate !== '' && entryDate !== previousDate;
-    if (entryDate !== '') {
-      previousDate = entryDate;
-    }
     return (
       <div key={index}>
-        {showDivider && <DateDivider label={formatDigestDateDivider(entry.time!)} />}
+        {startsDayIndices.has(index) && <DateDivider label={formatDigestDateDivider(entry.time!)} />}
         {entry.category === 'subagent' ? (
           <SubagentDigestRow subagentId={entry.subagentId!} detail={detail} />
         ) : (
@@ -1377,7 +1376,8 @@ export function SessionInspector({
     synthesisSettingsKey,
   );
   const contentRef = useRef<HTMLDivElement>(null);
-  const [selectedDiff, setSelectedDiff] = useState<FileSelection | null>(null);
+  const [selectedDiffState, setSelectedDiff] = useState<FileSelection | null>(null);
+  const selectedDiff = filePanelOpen(selectedDiffState, session) ? selectedDiffState : null;
   const [fileDiffRetryToken, setFileDiffRetryToken] = useState(0);
   const [modal, setModal] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -1391,7 +1391,6 @@ export function SessionInspector({
     loadErrorKind: fileDiffErrorKind,
   } = useFileDiff(selectedDiff, fileDiffRetryToken);
   const isOpen = session != null;
-  const openSessionRevisionKey = session == null ? null : `${sessionKey(session)}@${session.detailRevision}`;
   const remoteLaunchable =
     detail != null &&
     !isLocalSession(detail) &&
@@ -1412,17 +1411,12 @@ export function SessionInspector({
     detail == null ? undefined : resumeDisabledHint(detail, remoteLaunchable, remoteLaunchHint);
 
   useEffect(() => {
-    setSelectedDiff(null);
-  }, [openSessionRevisionKey]);
-
-  useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia(DOCKED_INSPECTOR_QUERY);
     const updateModal = () => setModal(!media.matches);
     media.addEventListener('change', updateModal);
     return () => media.removeEventListener('change', updateModal);
   }, []);
-
   return (
     <Sheet
       modal={modal}

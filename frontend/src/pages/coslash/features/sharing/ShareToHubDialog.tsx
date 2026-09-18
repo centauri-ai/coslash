@@ -138,6 +138,7 @@ export function ShareToHubDialog({
     return [...values.entries()];
   }, [visible]);
 
+  /* oxlint-disable react/set-state-in-effect -- clear transient form state when the controlled dialog closes */
   useEffect(() => {
     if (open) return;
     previewGeneration.current += 1;
@@ -155,13 +156,7 @@ export function ShareToHubDialog({
     setPairingRefreshRequired(false);
     setRetryReadyAt(0);
   }, [open]);
-
-  useEffect(() => {
-    setSelected((current) => {
-      const next = reconcileVisibleSelection(current, candidates);
-      return next.size === current.size ? current : next;
-    });
-  }, [candidates]);
+  /* oxlint-enable react/set-state-in-effect */
 
   useEffect(() => {
     const pairingId = pairing?.pairingId;
@@ -222,6 +217,7 @@ export function ShareToHubDialog({
     return () => globalThis.clearTimeout(timeout);
   }, [clock, retryReadyAt]);
 
+  /* oxlint-disable react/set-state-in-effect -- revoke consent when its source revision changes */
   useEffect(() => {
     if (phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
     setRecords([]);
@@ -229,6 +225,7 @@ export function ShareToHubDialog({
     setProblem('The source revision or destination changed. Review the current selection again.');
     setPhase('select');
   }, [phase, records.length, reviewStillCurrent]);
+  /* oxlint-enable react/set-state-in-effect */
 
   const replaceSelection = (next: Set<string>) => {
     const limited = new Set([...next].slice(0, MAX_SHARE_ITEMS));
