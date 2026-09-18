@@ -561,12 +561,14 @@ func cloneFullSessionRecord(record fullsessionv1.Record) (*fullsessionv1.Record,
 	return &copy, nil
 }
 
-// ReadFullSessionForShare returns the exact cached record and its bounded
-// repository binding under one lock. It deliberately remains available from
-// the last-good cache; callers still enforce current share eligibility and Hub
-// authority before upload.
+// ReadFullSessionForShare returns the exact eligible cached record and its
+// bounded repository binding under one lock.
 func (manager *Manager) ReadFullSessionForShare(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, string, bool, error) {
 	manager.mu.Lock()
+	if manager.state != StateOK || !manager.complete {
+		manager.mu.Unlock()
+		return nil, "", false, nil
+	}
 	selected, err := manager.readFullSessionLocked(sourceID, agent, sessionID, revisionID)
 	if err != nil || selected == nil {
 		manager.mu.Unlock()
@@ -575,13 +577,27 @@ func (manager *Manager) ReadFullSessionForShare(sourceID, agent, sessionID, revi
 	repository := ""
 	localOnly := true
 	repositoryFound := false
+	rowFound := false
 	for _, item := range manager.sessions {
-		if item.Agent == agent && item.ID == sessionID && item.Repository != nil {
+		if item.Agent != agent || item.ID != sessionID {
+			continue
+		}
+		if item.RepositoryLocalOnly || item.Status != nil || item.Cost == nil ||
+			manager.familyStale[remoteSessionKey{Agent: agent, ID: sessionID}] {
+			manager.mu.Unlock()
+			return nil, "", false, nil
+		}
+		rowFound = true
+		if item.Repository != nil {
 			repository = *item.Repository
 			localOnly = item.RepositoryLocalOnly
 			repositoryFound = true
-			break
 		}
+		break
+	}
+	if !rowFound {
+		manager.mu.Unlock()
+		return nil, "", false, nil
 	}
 	// FullSessionRecord intentionally excludes filesystem-derived repository
 	// enrichment. Preserve that boundary and use only its disclosed Linux cwd

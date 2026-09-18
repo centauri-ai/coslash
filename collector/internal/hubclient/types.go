@@ -15,6 +15,7 @@ type Destination struct {
 	CurrentApprovedSessionCount int    `json:"currentApprovedSessionCount"`
 	HistoryDisclosure           string `json:"historyDisclosure"`
 	CredentialState             string `json:"credentialState"`
+	AudienceVersion             string `json:"audienceVersion"`
 }
 
 type DestinationResult struct {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -141,7 +142,11 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			SourceID: request.URL.Query().Get("source"), Agent: request.URL.Query().Get("agent"),
 			SessionID: request.URL.Query().Get("id"), RevisionID: request.URL.Query().Get("revision"),
 		}
-		writeJSON(w, client.PreviewFullSession(request.Context(), selection))
+		result, err := client.PreviewFullSession(request.Context(), selection)
+		if err != nil {
+			log.Printf("full-session preview: %v", err)
+		}
+		writeJSON(w, result)
 	})
 	api.HandleFunc("POST /api/hub/full-session-shares", func(w http.ResponseWriter, request *http.Request) {
 		if client == nil {
@@ -153,7 +158,11 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			http.Error(w, "invalid full-session-share/v1 request", http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, client.ShareFullSession(request.Context(), input))
+		result, err := client.ShareFullSession(request.Context(), input)
+		if err != nil {
+			log.Printf("full-session share: %v", err)
+		}
+		writeJSON(w, result)
 	})
 }
 
