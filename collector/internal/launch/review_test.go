@@ -2,6 +2,7 @@ package launch
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +10,16 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/review"
 )
+
+func TestReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
+	err := Review(context.Background(), review.Launch{
+		Reviewer:         "invalid",
+		WorkingDirectory: filepath.Join(t.TempDir(), "missing"),
+	})
+	if !errors.Is(err, ErrWorkingDirectoryUnavailable) {
+		t.Fatalf("Review() error = %v", err)
+	}
+}
 
 func TestReviewCLICommands(t *testing.T) {
 	name := "Review — Bob's change (12345678)"
