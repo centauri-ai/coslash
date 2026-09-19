@@ -182,7 +182,8 @@ func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, 
 // RemoteTerminal opens the selected local terminal and runs an agent CLI on a
 // configured SSH host.
 func RemoteTerminal(ctx context.Context, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName string) error {
-	if alias == "" {
+	destination, err := settings.ParseSSHDestination(alias)
+	if err != nil {
 		return errors.New("launch: SSH alias is required")
 	}
 	if workingDirectory == "" {
@@ -192,13 +193,26 @@ func RemoteTerminal(ctx context.Context, terminal, alias, agent, workingDirector
 	if err != nil {
 		return err
 	}
-	return openTerminal(ctx, terminal, ".", remoteSSHCommand(alias, remoteCommand))
+	return openTerminal(ctx, terminal, ".", remoteSSHCommand(destination, remoteCommand))
 }
 
-func remoteSSHCommand(alias, command string) string {
-	return shellJoin(
-		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath="+settings.SSHControlPath(), alias, command,
-	)
+// SSHAuthentication opens the selected terminal with a fixed coSlash command.
+// The opaque attempt ID resolves to locally stored, validated argv in the
+// ssh-auth subcommand; destination text is never interpolated into this shell.
+func SSHAuthentication(ctx context.Context, terminal, executable, attemptID string) error {
+	if executable == "" || attemptID == "" {
+		return errors.New("launch: authentication command is required")
+	}
+	return openTerminal(ctx, terminal, ".", shellJoin("env", "COSLASH_HOME="+settings.Home(), executable, "ssh-auth", attemptID))
+}
+
+func remoteSSHCommand(destination settings.SSHDestination, command string) string {
+	args := []string{
+		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath=" + settings.SSHControlPath(),
+	}
+	args = append(args, destination.Args()...)
+	args = append(args, command)
+	return shellJoin(args...)
 }
 
 func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName string) (string, error) {

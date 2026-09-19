@@ -70,6 +70,22 @@ func parseOptions(arguments []string) (options, error) {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "ssh-auth":
+			if len(os.Args) != 3 {
+				log.Fatal("coslash ssh-auth requires one attempt ID")
+			}
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+			defer stop()
+			if err := remote.RunAuthAttempt(ctx, os.Args[2]); err != nil {
+				if errors.Is(ctx.Err(), context.Canceled) {
+					fmt.Fprintln(os.Stderr, "SSH authentication cancelled; return to coSlash.")
+				} else {
+					fmt.Fprintln(os.Stderr, "SSH authentication did not complete; return to coSlash and try again.")
+				}
+				return
+			}
+			fmt.Println("SSH authentication ready; return to coSlash.")
+			return
 		case "sessions", "handoff", "send", "review", "doctor":
 			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		}

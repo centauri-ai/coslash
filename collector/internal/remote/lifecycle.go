@@ -286,22 +286,23 @@ func (metadata ReleaseMetadata) Validate() error {
 // HelperPlatformArgs builds the fixed, bounded platform probe. Unlike helper
 // execution, it contains no remote path or caller-provided command text.
 func HelperPlatformArgs(alias string, connectTimeoutSeconds int) ([]string, error) {
-	if !aliasPattern.MatchString(alias) {
-		return nil, ErrInvalidAlias
+	destination, err := parseDestination(alias)
+	if err != nil {
+		return nil, err
 	}
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
-	return []string{
+	args := []string{
 		"-T",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
 		"-o", "ControlMaster=auto",
 		"-o", "ControlPath=" + controlSocketPath(),
 		"-o", "ControlPersist=" + defaultControlPersist,
-		alias,
-		"uname -s; uname -m; id -u",
-	}, nil
+	}
+	args = append(args, destination.Args()...)
+	return append(args, "uname -s; uname -m; id -u"), nil
 }
 
 func (artifact Artifact) Validate() error {
