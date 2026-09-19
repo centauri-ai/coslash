@@ -1,52 +1,60 @@
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
+import { ChevronRight, GitCompareArrows } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { SessionCard } from '@/pages/coslash/components/SessionCard';
+import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
-import { formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
+import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import { type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
 import {
-  boardStatusKey,
+  getSessionCardSummary,
   getTotalTokens,
+  getVendor,
+  isLocalSession,
   sessionKey,
+  sessionReadiness,
   sessionsForAggregates,
-  STATUS_ORDER,
-  STATUSES,
   sumKnown,
   type Session,
-  type Status,
+  type SessionReadiness,
 } from '@/pages/coslash/lib/session';
+import {
+  boardGroupKey,
+  groupSessions,
+  type BoardGroup,
+  type BoardGroupBy,
+  type BoardRowGroupBy,
+} from '@/pages/coslash/lib/session-grouping';
 
 type SessionReviewProps = {
   index: ReviewIndex<Session>;
   reviewerOptions: readonly ReviewerOption[];
   onStarted: () => void;
+  onSelectRelated: (session: Session) => void;
 };
 
-// Preserves insertion order, so sorted input yields groups ordered by their top session.
-function groupBy(sessions: Session[], keyOf: (session: Session) => string): [string, Session[]][] {
-  const groups = new Map<string, Session[]>();
-  for (const session of sessions) {
-    const key = keyOf(session);
-    let group = groups.get(key);
-    if (!group) {
-      groups.set(key, [session]);
-      continue;
-    }
-    group.push(session);
-  }
-  return [...groups.entries()];
-}
+const READINESS_TONE: Record<SessionReadiness['key'], { dot: string; label: string }> = {
+  resume: { dot: 'bg-coslash-green-dot', label: 'text-coslash-green-ink' },
+  review: { dot: 'bg-coslash-amber-dot', label: 'text-coslash-amber-ink' },
+  fresh: { dot: 'bg-coslash-clay-dot', label: 'text-coslash-clay' },
+  unavailable: { dot: 'border border-coslash-neutral-dot', label: 'text-coslash-muted' },
+};
 
-function StatusColumnHeader({ status, sessions }: { status: Status; sessions: Session[] }) {
-  const count = sessions.length;
-  return (
-    <div className="bg-background sticky top-0 z-10 flex items-center gap-2 border-b border-l px-3 py-2">
-      <span className={cn('size-2 rounded-full', status.dot)} />
-      <span className={cn('text-xs font-semibold', status.fg)}>{status.label}</span>
-      <span className="text-muted-foreground font-mono text-xs">{count}</span>
-    </div>
-  );
-}
+// Only dimensions with a liveness meaning of their own get a dot in the column header.
+const COLUMN_DOT: Record<string, string> = {
+  busy: 'bg-coslash-green-dot',
+  waiting: 'bg-coslash-amber-dot',
+  idle: 'bg-coslash-neutral-dot',
+  inactive: 'bg-coslash-neutral-dot',
+  unknown: 'border border-coslash-neutral-dot',
+  resume: 'bg-coslash-green-dot',
+  review: 'bg-coslash-amber-dot',
+  fresh: 'bg-coslash-clay-dot',
+  unavailable: 'border border-coslash-neutral-dot',
+};
+
+const pillClass =
+  'text-meta max-w-full shrink-0 truncate rounded-full px-[7px] py-0.5 leading-[1.55] font-[550]';
 
 function GroupTotals({ sessions }: { sessions: Session[] }) {
   const aggregate = sessionsForAggregates(sessions);
@@ -54,7 +62,7 @@ function GroupTotals({ sessions }: { sessions: Session[] }) {
   const cost = sumKnown(aggregate.map((session) => session.cost));
 
   return (
-    <span className="text-muted-foreground text-xs">
+    <span className="text-meta text-coslash-muted tabular-nums">
       {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'} · {formatTokens(tokens)} tok ·{' '}
       <UnpricedModelWarning unpriced={aggregate.flatMap((session) => session.unpricedModels)}>
         {formatEstimatedCost(cost)}
@@ -63,131 +71,236 @@ function GroupTotals({ sessions }: { sessions: Session[] }) {
   );
 }
 
-function RepoGroupHeader({ repo, sessions }: { repo: string; sessions: Session[] }) {
+function ColumnHeader({ group }: { group: BoardGroup }) {
+  const dot = COLUMN_DOT[group.key];
   return (
-    <div className="bg-muted col-span-full flex items-center justify-between gap-2 border-b px-4 py-2">
-      <span className="font-mono text-sm font-bold">{repo}/</span>
-      <GroupTotals sessions={sessions} />
+    <div className="border-coslash-line bg-coslash-surface sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-l px-3 py-2">
+      <span className="flex min-w-0 items-center gap-[7px] text-[12px] font-[650]">
+        {dot && <i className={cn('size-[7px] shrink-0 rounded-full', dot)} />}
+        <span className="truncate">{group.label}</span>
+      </span>
+      <span className="text-meta text-coslash-muted shrink-0 tabular-nums">{group.sessions.length}</span>
     </div>
   );
 }
 
-function SessionCardColumn({
-  status,
-  sessions,
-  showMachineBadge,
-  onSelectSession,
-  review,
+function RowGroupHeader({
+  group,
+  open,
+  onToggle,
 }: {
-  status: string;
-  sessions: Session[];
-  showMachineBadge: boolean;
-  onSelectSession: (session: Session) => void;
-  review: SessionReviewProps;
+  group: BoardGroup;
+  open: boolean;
+  onToggle: () => void;
 }) {
   return (
-    <>
-      {sessions
-        .filter((session) => boardStatusKey(session) === status)
-        .map((session) => (
-          <SessionCard
-            key={sessionKey(session)}
-            session={session}
-            onClick={() => onSelectSession(session)}
-            variant="compact"
-            showMachineBadge={showMachineBadge}
-            reviewerOptions={review.reviewerOptions}
-            reviewLink={review.index.links.get(sessionKey(session))}
-            isReview={review.index.reviewSessions.has(sessionKey(session))}
-            reviewActive={session.reviewPending || review.index.activeOrigins.has(sessionKey(session))}
-            onReviewStarted={review.onStarted}
-            onSelectRelated={onSelectSession}
-          />
-        ))}
-    </>
+    <div className="border-coslash-line bg-coslash-surface sticky top-[34px] z-9 col-span-full border-b">
+      <button
+        type="button"
+        className="flex w-full cursor-pointer items-center py-[7px] text-left"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span className="sticky left-0 flex items-center gap-2 px-3">
+          <ChevronRight className={cn('size-4 shrink-0 transition-transform', { 'rotate-90': open })} />
+          <span
+            className="font-mono text-[12px] font-[650]"
+            title={group.key === group.label ? undefined : group.key}
+          >
+            {group.label}
+          </span>
+          <GroupTotals sessions={group.sessions} />
+        </span>
+      </button>
+    </div>
   );
 }
 
-function BranchRow({
-  branch,
+function CardActions({ session, review }: { session: Session; review: SessionReviewProps }) {
+  const key = sessionKey(session);
+  const reviewLink = review.index.links.get(key);
+  const showReviewAction = isLocalSession(session) && !review.index.reviewSessions.has(key);
+  if (reviewLink == null && !showReviewAction) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1 pt-2" onClick={(event) => event.stopPropagation()}>
+      {reviewLink != null && (
+        <Button
+          size="xs"
+          variant="ghost"
+          title={
+            reviewLink.kind === 'review' ? 'Review session — open origin' : 'Has review — open latest review'
+          }
+          onClick={() => review.onSelectRelated(reviewLink.target)}
+        >
+          <GitCompareArrows />
+          {reviewLink.kind === 'review' ? 'Open origin' : 'Open review'}
+        </Button>
+      )}
+      {showReviewAction && (
+        <ReviewDialog
+          origin={session}
+          reviewerOptions={review.reviewerOptions}
+          active={session.reviewPending || review.index.activeOrigins.has(key)}
+          reviewError={session.reviewError}
+          onStarted={review.onStarted}
+        />
+      )}
+    </div>
+  );
+}
+
+function BoardCard({
+  session,
+  selected,
+  onSelect,
+  review,
+}: {
+  session: Session;
+  selected: boolean;
+  onSelect: () => void;
+  review: SessionReviewProps;
+}) {
+  const readiness = sessionReadiness(session);
+  const tone = READINESS_TONE[readiness.key];
+  const vendor = getVendor(session.agent);
+  return (
+    <div
+      className={cn(
+        'border-coslash-line bg-coslash-surface hover:border-coslash-tint-line cursor-pointer rounded-lg border p-3',
+        {
+          'border-coslash-tint-line shadow-[inset_3px_0_0_var(--coslash-accent)]': selected,
+          'opacity-75': session.displayStale,
+        },
+      )}
+      onClick={onSelect}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <span className={cn(pillClass, vendor.bg, vendor.fg)}>{vendor.label}</span>
+          {!isLocalSession(session) && (
+            <span className={cn(pillClass, 'bg-coslash-soft text-coslash-muted font-medium')}>
+              {session.sourceLabel}
+            </span>
+          )}
+        </div>
+        <span className="text-meta shrink-0 font-[650] whitespace-nowrap tabular-nums">
+          <UnpricedModelWarning unpriced={session.unpricedModels}>
+            {formatEstimatedCost(session.cost)}
+          </UnpricedModelWarning>
+        </span>
+      </div>
+      <button
+        type="button"
+        className="hover:text-coslash-accent block w-full pt-2 text-left text-[13px] leading-[1.35] font-semibold"
+        onClick={onSelect}
+      >
+        {session.name ?? session.firstPrompt ?? 'Untitled session'}
+      </button>
+      <p className="text-coslash-muted line-clamp-2 pt-1 text-[11.5px] leading-[1.45]">
+        {getSessionCardSummary(session)}
+      </p>
+      <div className="text-meta text-coslash-muted flex items-center justify-between gap-2 pt-2">
+        <span className="min-w-0 truncate font-mono">
+          {session.branch ?? 'No branch'}
+          {session.subagents.length > 0 && ` · ${session.subagents.length} subagents`}
+        </span>
+        <span className="shrink-0 tabular-nums">{formatTimeAgo(session.mtime)}</span>
+      </div>
+      <div className="border-coslash-line-soft text-meta mt-2 flex items-center justify-between gap-2 border-t pt-2">
+        <span className={cn('flex shrink-0 items-center gap-1.5 font-[650]', tone.label)}>
+          <i className={cn('size-[6px] rounded-full', tone.dot)} />
+          {readiness.label}
+        </span>
+        <span className="text-coslash-muted min-w-0 truncate text-right">{readiness.detail}</span>
+      </div>
+      <CardActions session={session} review={review} />
+    </div>
+  );
+}
+
+function BoardCell({
   sessions,
-  visibleStatuses,
-  showMachineBadge,
+  selectedSessionKey,
   onSelectSession,
   review,
 }: {
-  branch: string;
   sessions: Session[];
-  visibleStatuses: [string, Status][];
-  showMachineBadge: boolean;
+  selectedSessionKey: string | null;
   onSelectSession: (session: Session) => void;
   review: SessionReviewProps;
 }) {
   return (
-    <>
-      <div className="flex flex-col gap-1 border-b p-4">
-        <span className="text-muted-foreground font-mono text-xs break-all">{branch}</span>
-        <GroupTotals sessions={sessions} />
-      </div>
-      {visibleStatuses.map(([status]) => (
-        <div key={status} data-status={status} className="flex flex-col gap-2 border-b border-l p-2">
-          <SessionCardColumn
-            status={status}
-            sessions={sessions}
-            showMachineBadge={showMachineBadge}
-            onSelectSession={onSelectSession}
-            review={review}
-          />
-        </div>
+    <div className="border-coslash-line bg-coslash-soft flex flex-col gap-2 border-b border-l p-2">
+      {sessions.map((session) => (
+        <BoardCard
+          key={sessionKey(session)}
+          session={session}
+          selected={selectedSessionKey === sessionKey(session)}
+          onSelect={() => onSelectSession(session)}
+          review={review}
+        />
       ))}
-    </>
+    </div>
   );
 }
 
 export function SessionBoard({
   sessions,
+  columnGroupBy,
+  rowGroupBy,
+  selectedSessionKey = null,
   onSelectSession,
-  showMachineBadge = false,
   review,
 }: {
   sessions: Session[];
+  columnGroupBy: BoardGroupBy;
+  rowGroupBy: BoardRowGroupBy;
+  selectedSessionKey?: string | null;
   onSelectSession: (session: Session) => void;
-  showMachineBadge?: boolean;
   review: SessionReviewProps;
 }) {
-  const visibleStatuses = STATUS_ORDER.filter((status) =>
-    sessions.some((session) => boardStatusKey(session) === status),
-  ).map((status): [string, Status] => [status, STATUSES[status]]);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const columns = groupSessions(sessions, columnGroupBy);
+  const showRowHeaders = rowGroupBy !== 'none';
+  const rows: BoardGroup[] = showRowHeaders
+    ? groupSessions(sessions, rowGroupBy)
+    : [{ key: 'all', label: 'All sessions', sessions }];
+
+  const toggleRow = (key: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
 
   return (
     <div
-      className="bg-background grid"
-      style={{ gridTemplateColumns: `repeat(${visibleStatuses.length + 1}, minmax(0, 1fr))` }}
+      className="bg-coslash-surface grid"
+      style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(240px, 1fr))` }}
     >
-      <div className="bg-background sticky top-0 z-10 border-b" />
-      {visibleStatuses.map(([key, status]) => (
-        <StatusColumnHeader
-          key={key}
-          status={status}
-          sessions={sessions.filter((session) => boardStatusKey(session) === key)}
-        />
+      {columns.map((column) => (
+        <ColumnHeader key={column.key} group={column} />
       ))}
-      {groupBy(sessions, (session) => session.repo ?? '(no repo)').map(([repo, repoSessions]) => (
-        <Fragment key={repo}>
-          <RepoGroupHeader repo={repo} sessions={repoSessions} />
-          {groupBy(repoSessions, (session) => session.branch ?? '—').map(([branch, branchSessions]) => (
-            <BranchRow
-              key={branch}
-              branch={branch}
-              sessions={branchSessions}
-              visibleStatuses={visibleStatuses}
-              showMachineBadge={showMachineBadge}
-              onSelectSession={onSelectSession}
-              review={review}
-            />
-          ))}
-        </Fragment>
-      ))}
+      {rows.map((row) => {
+        const open = !collapsed.has(row.key);
+        return (
+          <Fragment key={row.key}>
+            {showRowHeaders && <RowGroupHeader group={row} open={open} onToggle={() => toggleRow(row.key)} />}
+            {open &&
+              columns.map((column) => (
+                <BoardCell
+                  key={column.key}
+                  sessions={row.sessions.filter(
+                    (session) => boardGroupKey(session, columnGroupBy) === column.key,
+                  )}
+                  selectedSessionKey={selectedSessionKey}
+                  onSelectSession={onSelectSession}
+                  review={review}
+                />
+              ))}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }

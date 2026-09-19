@@ -32,6 +32,8 @@ describe('session view preferences', () => {
       agentFilters: ['codex', 'claude'],
       view: 'board',
       density: 'compact',
+      boardColumns: 'readiness',
+      boardRows: 'branch',
       sort: { key: 'cost', dir: 'asc' },
     };
     saveSessionViewPreferences(preferences, storage);
