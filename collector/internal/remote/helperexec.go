@@ -215,15 +215,16 @@ func HelperCollect(
 		exitCode, waitErr = process.finish(stream.err != nil || !stream.complete)
 	case <-requestCompleted:
 		// Keep draining through EOF so trailing output is rejected. Wait and drain
-		// concurrently: Wait closes stdout on exit, while finish's grace timer kills
-		// a child that emitted completion and then hung.
-		finished := make(chan struct{}, 1)
-		go func() {
-			exitCode, waitErr = process.finish(false)
-			finished <- struct{}{}
-		}()
+		// before Wait closes its pipe, while still bounding a child that emitted
+		// completion and then hung.
+		kill := time.AfterFunc(helperExitGrace, func() {
+			terminateProcessGroup(process.cmd)
+		})
 		stream = <-streamed
-		<-finished
+		if !kill.Stop() {
+			process.terminated = true
+		}
+		exitCode, waitErr = process.finish(false)
 	}
 	writeErr := <-written
 	result := HelperResult{
