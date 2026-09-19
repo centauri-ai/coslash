@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestParseTranscriptPreservesUserQuestionsAsUserTurns(t *testing.T) {
@@ -188,6 +189,7 @@ func TestParseTranscriptAddsRepliesWithoutTurnEndedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, vendors.EmptySessionMetadata())
 	want := []session.DigestEntry{
 		{Turn: 1, Category: session.DigestFirstPrompt, Description: "first prompt"},
 		{Turn: 1, Category: session.DigestRecap, Description: "first reply"},
