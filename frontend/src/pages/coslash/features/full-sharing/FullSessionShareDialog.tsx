@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangleIcon, CheckIcon, ExternalLinkIcon, ShieldCheckIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -63,6 +63,7 @@ export function FullSessionShareDialog({
   const [reviewed, setReviewed] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [result, setResult] = useState<FullSessionShareResult | null>(null);
+  const attemptGeneration = useRef(0);
 
   const destination = destinationResult.state === 'ready' ? destinationResult.destination : null;
   const selected = useMemo(
@@ -86,7 +87,10 @@ export function FullSessionShareDialog({
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) reset();
+    if (!nextOpen) {
+      attemptGeneration.current += 1;
+      reset();
+    }
     onOpenChange(nextOpen);
   };
 
@@ -102,10 +106,12 @@ export function FullSessionShareDialog({
 
   const buildReview = async () => {
     if (!selected || !destination) return;
+    const generation = ++attemptGeneration.current;
     setPhase('loading');
     setProblem(null);
     try {
       const nextPreview = await fetchFullSessionPreview(fullSessionSelection(selected));
+      if (generation !== attemptGeneration.current) return;
       if (nextPreview.state !== 'ready') {
         setProblem(
           nextPreview.problem
@@ -126,6 +132,7 @@ export function FullSessionShareDialog({
       setReviewed(false);
       setPhase('review');
     } catch (error) {
+      if (generation !== attemptGeneration.current) return;
       setProblem(error instanceof Error ? error.message : 'The full-session preview could not be built.');
       setPhase('select');
     }
@@ -133,12 +140,25 @@ export function FullSessionShareDialog({
 
   const upload = async () => {
     if (!request || !reviewed || !reviewCurrent) return;
+    const generation = ++attemptGeneration.current;
     setPhase('loading');
     setProblem(null);
     try {
       const next = await submitFullSessionShare(request);
+      if (generation !== attemptGeneration.current) return;
       if (fullSessionResultNeedsReview(next)) {
-        await onDestinationRefresh().catch(() => undefined);
+        try {
+          await onDestinationRefresh();
+        } catch (error) {
+          if (generation !== attemptGeneration.current) return;
+          setResult(next);
+          setProblem(
+            error instanceof Error ? error.message : 'The Hub destination could not be refreshed.',
+          );
+          setPhase('result');
+          return;
+        }
+        if (generation !== attemptGeneration.current) return;
         setPreview(null);
         setRequest(null);
         setReviewed(false);
@@ -150,8 +170,27 @@ export function FullSessionShareDialog({
       setResult(next);
       setPhase('result');
     } catch (error) {
+      if (generation !== attemptGeneration.current) return;
       setProblem(error instanceof Error ? error.message : 'The full-session upload failed.');
       setPhase('review');
+    }
+  };
+
+  const retryDestinationRefresh = async () => {
+    const generation = ++attemptGeneration.current;
+    setProblem(null);
+    try {
+      await onDestinationRefresh();
+      if (generation !== attemptGeneration.current) return;
+      setPreview(null);
+      setRequest(null);
+      setReviewed(false);
+      setResult(null);
+      setProblem(ERROR_COPY.review_binding_changed);
+      setPhase('select');
+    } catch (error) {
+      if (generation !== attemptGeneration.current) return;
+      setProblem(error instanceof Error ? error.message : 'The Hub destination could not be refreshed.');
     }
   };
 
@@ -375,15 +414,19 @@ export function FullSessionShareDialog({
               </Button>
             </>
           )}
+          {phase === 'result' && result?.error?.code === 'review_binding_changed' && (
+            <Button onClick={retryDestinationRefresh}>Retry destination refresh</Button>
+          )}
           {phase === 'result' &&
             result?.state === 'failed' &&
+            result.error?.code !== 'review_binding_changed' &&
             (result.error?.retryable ? (
               <Button onClick={retry}>Retry with same approval and key</Button>
             ) : (
               <Button onClick={() => setPhase('select')}>Back to selection</Button>
             ))}
           {phase === 'result' && result?.state !== 'failed' && (
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" onClick={() => handleOpenChange(false)}>
               Done
             </Button>
           )}

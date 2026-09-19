@@ -124,7 +124,7 @@ export function CoslashPage() {
       previouslyShared: shareFixtureEnabled && index === 0,
     }));
   }, [sessions, shareFixtureEnabled]);
-  const fullShareCandidates = useMemo(() => fullSessionCandidates(sessions), [sessions]);
+  const fullShareCandidates = useMemo(() => fullSessionCandidates(librarySessions), [librarySessions]);
   const synthesisSettingsKey = settingsState.response
     ? [
         settingsState.response.persisted,
