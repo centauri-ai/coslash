@@ -20,9 +20,10 @@ const openCodeConfigContent = `{"permission":"deny","autoupdate":false}`
 
 const (
 	openCodeScratchPrefix = ".opencode-"
+	cursorScratchPrefix   = ".cursor-"
 	// Well past the 90s run timeout, so a sweep cannot take a live run's
 	// directory from a second collector started on another port.
-	OpenCodeScratchMaxAge = time.Hour
+	scratchMaxAge = time.Hour
 )
 
 // OpenCode has no ephemeral mode, so its runs go to a scratch database rather
@@ -40,10 +41,9 @@ func openCodeScratchDir() (string, error) {
 	return directory, nil
 }
 
-// A crash or SIGKILL skips the defer that removes a run's directory, and that
-// database holds the run's request and response, so abandoned ones are swept
-// rather than kept indefinitely.
-func CleanupOpenCodeScratch() error {
+// A crash or SIGKILL skips deferred cleanup. Scratch directories can hold
+// requests and responses, so old ones are removed at startup.
+func CleanupScratch() error {
 	entries, err := os.ReadDir(SynthesisCwd())
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -51,9 +51,11 @@ func CleanupOpenCodeScratch() error {
 	if err != nil {
 		return err
 	}
-	cutoff := time.Now().Add(-OpenCodeScratchMaxAge)
+	cutoff := time.Now().Add(-scratchMaxAge)
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), openCodeScratchPrefix) {
+		name := entry.Name()
+		if !entry.IsDir() ||
+			(!strings.HasPrefix(name, openCodeScratchPrefix) && !strings.HasPrefix(name, cursorScratchPrefix)) {
 			continue
 		}
 		info, err := entry.Info()

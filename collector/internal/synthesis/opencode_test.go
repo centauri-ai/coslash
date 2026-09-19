@@ -63,7 +63,7 @@ func TestExtractJSONObject(t *testing.T) {
 	}
 }
 
-func TestCleanupOpenCodeScratchRemovesOnlyAbandonedDirs(t *testing.T) {
+func TestCleanupScratchRemovesOnlyAbandonedDirs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	root := SynthesisCwd()
@@ -73,28 +73,39 @@ func TestCleanupOpenCodeScratchRemovesOnlyAbandonedDirs(t *testing.T) {
 
 	stale := filepath.Join(root, openCodeScratchPrefix+"stale")
 	live := filepath.Join(root, openCodeScratchPrefix+"live")
+	staleCursor := filepath.Join(root, cursorScratchPrefix+"stale")
+	liveCursor := filepath.Join(root, cursorScratchPrefix+"live")
 	unrelated := filepath.Join(root, "summaries-ish")
-	for _, directory := range []string{stale, live, unrelated} {
+	for _, directory := range []string{stale, live, staleCursor, liveCursor, unrelated} {
 		if err := os.Mkdir(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	old := time.Now().Add(-2 * OpenCodeScratchMaxAge)
+	old := time.Now().Add(-2 * scratchMaxAge)
 	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(staleCursor, old, old); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(unrelated, old, old); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := CleanupOpenCodeScratch(); err != nil {
-		t.Fatalf("CleanupOpenCodeScratch: %v", err)
+	if err := CleanupScratch(); err != nil {
+		t.Fatalf("CleanupScratch: %v", err)
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Error("abandoned scratch directory survived the sweep")
 	}
+	if _, err := os.Stat(staleCursor); !os.IsNotExist(err) {
+		t.Error("abandoned Cursor scratch directory survived the sweep")
+	}
 	if _, err := os.Stat(live); err != nil {
 		t.Errorf("in-flight scratch directory was swept: %v", err)
+	}
+	if _, err := os.Stat(liveCursor); err != nil {
+		t.Errorf("in-flight Cursor scratch directory was swept: %v", err)
 	}
 	if _, err := os.Stat(unrelated); err != nil {
 		t.Errorf("unrelated directory was swept: %v", err)
