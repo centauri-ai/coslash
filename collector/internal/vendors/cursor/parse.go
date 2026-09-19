@@ -61,6 +61,12 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	inTurn := true
 	stopped := false
 	taskCount := 0
+	pushTurnRecap := func() {
+		if turns > 0 && turnFinalReply != "" {
+			digest.Push(turns, session.DigestRecap, turnFinalReply, 0)
+		}
+		turnFinalReply = ""
+	}
 
 	for _, record := range records {
 		if (record.Role == "user" || record.Role == "assistant") && record.Message != nil && len(record.Message.Content) > 0 {
@@ -71,7 +77,8 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			if text == "" {
 				continue
 			}
-			turnFinalReply = ""
+			pushTurnRecap()
+			assistantResult = ""
 			turns++
 			prompt, timestamp := unwrapUserText(text)
 			if startedAt == 0 && timestamp > 0 {
@@ -85,6 +92,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			digest.Push(turns, category, prompt, timestamp)
 		}
 		if record.Role == "assistant" && record.Message != nil {
+			assistantResult = ""
 			turnFinalReply = ""
 			textBlocks := []string{}
 			hasToolUse := false
@@ -169,10 +177,11 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			}
 		}
 		if record.Type == "turn_ended" {
-			if record.Status == "success" && turns > 0 && turnFinalReply != "" {
-				digest.Push(turns, session.DigestRecap, turnFinalReply, 0)
+			if record.Status == "success" {
+				pushTurnRecap()
+			} else {
+				turnFinalReply = ""
 			}
-			turnFinalReply = ""
 			inTurn = false
 			stopped = record.Status == "error"
 			switch record.Status {
@@ -181,6 +190,7 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			}
 		}
 	}
+	pushTurnRecap()
 	if cwd == "" {
 		cwd = commonEditDirectory(edits.Edits)
 	}
