@@ -670,7 +670,16 @@ func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, las
 	}
 }
 
+// Each ID adds two OR terms; stay below SQLite's default expression depth.
+const maxIDEModelQueryIDs = 400
+
 func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string) {
+	if len(ids) > maxIDEModelQueryIDs {
+		for start := 0; start < len(ids); start += maxIDEModelQueryIDs {
+			loadIDEModelsDB(metadata, db, ids[start:min(start+maxIDEModelQueryIDs, len(ids))])
+		}
+		return
+	}
 	query := `SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%' OR key LIKE 'composerData:%'`
 	args := []any(nil)
 	if ids != nil {
