@@ -1,3 +1,10 @@
+import {
+  BOARD_GROUP_BYS,
+  BOARD_ROW_GROUP_BYS,
+  type BoardGroupBy,
+  type BoardRowGroupBy,
+} from '@/pages/coslash/lib/session-grouping';
+
 export type SessionRange = 'today' | 'this-week' | 'week' | 'month' | 'all';
 export type SessionStatusGroup = 'needs' | 'running' | 'idle';
 export type SessionListDensity = 'comfortable' | 'compact';
@@ -16,6 +23,8 @@ export type SessionViewPreferences = {
   agentFilters: string[];
   view: SessionView;
   density: SessionListDensity;
+  boardColumns: BoardGroupBy;
+  boardRows: BoardRowGroupBy;
   sort: SessionSort;
 };
 
@@ -36,6 +45,8 @@ export const DEFAULT_SESSION_VIEW_PREFERENCES: SessionViewPreferences = {
   agentFilters: [],
   view: 'list',
   density: 'comfortable',
+  boardColumns: 'status',
+  boardRows: 'repo',
   sort: { key: 'recent', dir: 'desc' },
 };
 
@@ -85,6 +96,8 @@ export function loadSessionViewPreferences(storage?: Pick<Storage, 'getItem'>): 
       agentFilters: stringArrayOrLegacy(record.agentFilters, record.agentFilter),
       view: oneOf(record.view, VIEWS, defaults.view),
       density: oneOf(record.density, DENSITIES, defaults.density),
+      boardColumns: oneOf(record.boardColumns, BOARD_GROUP_BYS, defaults.boardColumns),
+      boardRows: oneOf(record.boardRows, BOARD_ROW_GROUP_BYS, defaults.boardRows),
       sort: {
         key: oneOf(storedSort.key, SORT_KEYS, defaults.sort.key),
         dir: oneOf(storedSort.dir, SORT_DIRECTIONS, defaults.sort.dir),
