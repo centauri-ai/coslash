@@ -175,6 +175,8 @@ export function SettingsDialog({
   isSaving,
   onSave,
   onRemoteConnectionVerified,
+  onRemoteRetry,
+  remoteRetryInFlight,
 }: {
   open: boolean;
   mode: SettingsDialogMode;
@@ -186,6 +188,8 @@ export function SettingsDialog({
   isSaving: boolean;
   onSave: (settings: CoslashSettings, remoteOwnershipAction?: RemoteOwnershipAction) => Promise<boolean>;
   onRemoteConnectionVerified?: () => void;
+  onRemoteRetry?: () => void;
+  remoteRetryInFlight?: boolean;
 }) {
   const [draft, setDraft] = useState<CoslashSettings | null>(
     response ? initialSettingsDraft(response) : null,
@@ -484,6 +488,8 @@ export function SettingsDialog({
                   onRemoveHost={removeRemoteHost}
                   onConnectionVerified={onRemoteConnectionVerified}
                   onBusyChange={setRemoteOperationInProgress}
+                  onRetry={onRemoteRetry}
+                  retrying={remoteRetryInFlight}
                 />
               )}
 

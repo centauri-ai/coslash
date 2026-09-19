@@ -302,16 +302,36 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('role="alert"');
   });
 
-  it('offers the offline retry as a focusable control beside the machine filter', () => {
+  it('reports a reachable host whose refresh fell short as connected, not offline', () => {
+    const markup = renderLayout({
+      machines: [
+        { sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true },
+        {
+          sourceId: 'remote',
+          label: 'agent-box',
+          state: 'stale',
+          complete: false,
+          reason: 'partial_agent_data',
+          lastSuccessAtMs: 1000,
+          lastCheckedAtMs: 2000,
+        },
+      ],
+    });
+
+    expect(dotFor(markup, 'amber')).toContain('aria-label="Connected.');
+    expect(markup).not.toContain('Offline');
+    expect(markup).not.toContain('role="alert"');
+  });
+
+  it('leaves the dot itself inert, since retry now lives in its tooltip', () => {
     const markup = renderLayout({
       machines: [{ sourceId: 'remote', label: 'agent-box', state: 'stale', complete: false }],
     });
-    const retry = markup.indexOf('aria-label="Offline.');
-    const tag = markup.lastIndexOf('<', retry);
-    const before = markup.slice(0, tag);
+    const dot = markup.indexOf('aria-label="Offline.');
+    const tag = markup.lastIndexOf('<', dot);
 
-    expect(markup.slice(tag, retry)).toContain('<button');
-    expect(before.lastIndexOf('</button>')).toBeGreaterThan(before.lastIndexOf('<button'));
+    expect(markup.slice(tag, dot)).toContain('<span');
+    expect(markup).not.toContain('Retry the connection');
   });
 
   it('offers a credential failure a retry, which Settings cannot run for it', () => {
@@ -331,12 +351,14 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('Open Settings');
   });
 
-  it('does not paint a degraded remote as connected', () => {
+  it('paints a truncated remote as connected, since its session list is whole', () => {
     const markup = renderLayout({
       machines: [{ sourceId: 'remote', label: 'agent-box', state: 'limited', complete: false }],
     });
 
-    expect(dotFor(markup, 'amber')).toContain('aria-label="Showing the available remote history."');
+    expect(dotFor(markup, 'green')).toContain(
+      'aria-label="Connected. Older history was truncated, so these sessions are left out of the totals."',
+    );
   });
 
   it('banners a failed connector with its own reason', () => {
