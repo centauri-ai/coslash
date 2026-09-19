@@ -101,11 +101,14 @@ coSlash needs at least one local agent session to read. If it finds none, it say
 ### Optional Linux session monitoring
 
 In **Settings → Machines**, use **Add remote host** with an alias from your
-Mac's existing OpenSSH configuration. coSlash checks SSH and SFTP, then installs
-and verifies the matching Linux collector. The helper lives in the SSH user's
-private `~/.coslash/helpers` directory, has no root or network access, and reads
-only supported agent paths. Future coSlash updates replace a helper that it
-previously installed and verified; first-time setup always requires this action.
+Mac's existing OpenSSH configuration or a simple `user@host` destination.
+coSlash checks SSH and SFTP; if native SSH authentication or host-key
+confirmation is needed, choose **Authenticate in Terminal** and setup resumes
+when it succeeds. coSlash then offers to install and verify the matching Linux
+collector. The helper lives in the SSH user's private `~/.coslash/helpers`
+directory, has no root or network access, and reads only supported agent paths.
+Future coSlash updates replace a helper that it previously installed and
+verified; first-time setup always requires this action.
 
 coSlash uses the system `ssh` client and may reuse a control socket under
 `~/.coslash/ssh`; it never edits your SSH config. SFTP remains the visible
@@ -225,7 +228,8 @@ It is **off until you explicitly enable and save it**.
 
 Settings are stored machine-wide in `~/.coslash/settings.json`. Use the top-right
 theme controls for light or dark mode, and **Settings** for the synthesis backend
-and model, launch terminal (Apple Terminal or iTerm2), and optional SSH alias.
+and model, launch terminal (Apple Terminal or iTerm2), and optional SSH alias or
+simple `user@host` destination.
 See [`settings.schema.json`](settings.schema.json) for the file format.
 
 The dialog offers a short model list per backend, but the model is not restricted to it. Editing `settings.json` directly accepts any model the selected CLI can actually reach — including one served through an API proxy such as `ANTHROPIC_BASE_URL`, or a third-party provider — so long as that CLI is set up to resolve it.

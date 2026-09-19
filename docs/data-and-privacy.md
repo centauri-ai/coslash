@@ -27,15 +27,17 @@ coSlash creates the storage directory with mode `0700` and persistent files with
 ## Optional SSH/SFTP access and helper installation
 
 When a remote machine is added, the Mac's system `ssh` client uses the saved
-OpenSSH alias and requests SFTP. The setup action explicitly authorizes the
-first optional collector-helper installation. coSlash verifies the embedded
-helper's digest and platform before uploading a versioned executable to
-`~/.coslash/helpers/<version>/coslash-helper`, owned by the SSH user with mode
-`0700`. Later coSlash releases may automatically replace only that previously
-verified helper. The helper has no root or network access, reads only the fixed
-allowlist below, and streams bounded normalized facts back to the Mac. No path,
-command, prompt, transcript row, cache, or handoff supplied by the Mac can
-choose files the helper opens.
+OpenSSH alias or simple `user@host` destination and requests SFTP. If SSH needs
+interactive authentication, the user explicitly completes its native Terminal
+prompt; credentials and prompt text never enter coSlash. The setup action
+explicitly authorizes the first optional collector-helper installation. coSlash
+verifies the embedded helper's digest and platform before uploading a versioned
+executable to `~/.coslash/helpers/<version>/coslash-helper`, owned by the SSH
+user with mode `0700`. Later coSlash releases may automatically replace only
+that previously verified helper. The helper has no root or network access, reads
+only the fixed allowlist below, and streams bounded normalized facts back to the
+Mac. No path, command, prompt, transcript row, cache, or handoff supplied by
+the Mac can choose files the helper opens.
 
 Builds without authenticated embedded helper assets disable the install action
 explicitly. They continue using SFTP and never upload an unverified helper.

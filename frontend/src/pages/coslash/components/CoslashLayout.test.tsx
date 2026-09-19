@@ -314,7 +314,7 @@ describe('CoslashLayout', () => {
     expect(before.lastIndexOf('</button>')).toBeGreaterThan(before.lastIndexOf('<button'));
   });
 
-  it('offers a credential failure a retry, which Settings cannot run for it', () => {
+  it('routes a credential failure to the Settings authentication flow', () => {
     const markup = renderLayout({
       machines: [
         {
@@ -323,12 +323,13 @@ describe('CoslashLayout', () => {
           state: 'error',
           complete: false,
           reason: 'authentication_failed',
+          actionRequired: 'authenticate',
         },
       ],
     });
 
-    expect(markup).toContain('Retry</button>');
-    expect(markup).not.toContain('Open Settings');
+    expect(markup).toContain('Open Settings');
+    expect(markup).not.toContain('Retry</button>');
   });
 
   it('does not paint a degraded remote as connected', () => {

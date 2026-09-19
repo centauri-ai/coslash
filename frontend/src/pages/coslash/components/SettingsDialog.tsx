@@ -192,8 +192,13 @@ export function SettingsDialog({
   const [remoteOperationInProgress, setRemoteOperationInProgress] = useState(false);
   const initializedForOpen = useRef(false);
   const saveChain = useRef(Promise.resolve());
+  const draftRef = useRef(draft);
   const isFirstRun = requiresFirstRunConsent(response);
   const requiresConsent = mode === 'synthesis-consent' && isFirstRun;
+  const updateDraft = useCallback((next: CoslashSettings) => {
+    draftRef.current = next;
+    setDraft(next);
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -201,10 +206,10 @@ export function SettingsDialog({
       return;
     }
     if (!response || initializedForOpen.current) return;
-    setDraft(initialSettingsDraft(response));
+    updateDraft(initialSettingsDraft(response));
     setDisclosureOpen(false);
     initializedForOpen.current = true;
-  }, [open, response]);
+  }, [open, response, updateDraft]);
 
   const synthesisBackends = availableSynthesisBackends(response?.options.synthesisBackends ?? []);
   const hasSynthesisBackends = synthesisBackends.length > 0;
@@ -235,28 +240,31 @@ export function SettingsDialog({
 
   const saveChange = useCallback(
     (next: CoslashSettings) => {
-      setDraft(next);
+      updateDraft(next);
       if (requiresConsent) return;
       void saveSettings(next).then((saved) => {
         if (saved) setTheme(next.appearance.theme);
       });
     },
-    [requiresConsent, saveSettings],
+    [requiresConsent, saveSettings, updateDraft],
   );
 
   const addRemoteHost = async (sshAlias: string) => {
-    if (!draft) return false;
-    const next = { ...draft, remote: { sshAlias, enabled: true } };
+    const currentDraft = draftRef.current;
+    if (!currentDraft) return false;
+    const next = { ...currentDraft, remote: { sshAlias, enabled: true } };
     const saved = await saveSettings(next);
-    if (saved) setDraft(next);
+    if (saved) updateDraft(next);
     return saved;
   };
 
   const removeRemoteHost = async () => {
-    if (!draft) return false;
-    const { remote: _removed, ...next } = draft;
-    const saved = await saveSettings({ ...next, remote: null }, 'release');
-    if (saved) setDraft({ ...next, remote: null });
+    const currentDraft = draftRef.current;
+    if (!currentDraft) return false;
+    const { remote: _removed, ...next } = currentDraft;
+    const nextDraft = { ...next, remote: null };
+    const saved = await saveSettings(nextDraft, 'release');
+    if (saved) updateDraft(nextDraft);
     return saved;
   };
 
