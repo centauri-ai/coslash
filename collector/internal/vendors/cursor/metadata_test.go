@@ -127,6 +127,32 @@ func TestLoadIDEModelsOrdersNumericTimestampsDeterministically(t *testing.T) {
 	}
 }
 
+func TestLoadIDEModelsCountsOnlyCreatedPullRequests(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	const id = "00000000-0000-4000-8000-000000000001"
+	for _, row := range []struct{ key, value string }{
+		{"bubbleId:" + id + ":view", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr view\"}","result":"https://github.com/centauri-ai/coslash/pull/123"}}`},
+		{"bubbleId:" + id + ":create", `{"toolFormerData":{"name":"run_terminal_cmd","status":"completed","rawArgs":"{\"command\":\"gh pr create\"}","result":"https://github.com/centauri-ai/coslash/pull/124"}}`},
+	} {
+		if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, row.key, row.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	metadata := vendors.EmptySessionMetadata()
+	loadIDEModelsDB(metadata, db, nil)
+	if got := metadata.Session(id).PullRequests; got != 1 {
+		t.Fatalf("pull requests = %d, want only the created pull request", got)
+	}
+}
+
 func createMetadataTestDB(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
