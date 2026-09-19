@@ -75,12 +75,13 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	var label string
 	var args []string
 	var env []string
+	stdin := input
 	var parse func([]byte) (session.SessionSynthesis, error)
 	var schemaPath string
 	switch r.Backend {
 	case settings.BackendClaude:
 		label = "Claude Code"
-		parse = parseEnvelope
+		parse = parseResultEnvelope
 		args = []string{
 			"-p",
 			"--model", r.Model,
@@ -144,9 +145,30 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		args = append(args,
 			"--format", "json",
 			"--pure",
-			systemPrompt+openCodeJSONInstruction,
+			systemPrompt+jsonInstruction,
 		)
 		env = openCodeEnv(scratchDir)
+	case settings.BackendCursor:
+		label = "Cursor"
+		parse = parseResultEnvelope
+		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
+			return session.SessionSynthesis{}, fmt.Errorf("create synthesis directory: %w", err)
+		}
+		scratchDir, err := os.MkdirTemp(SynthesisCwd(), ".cursor-*")
+		if err != nil {
+			return session.SessionSynthesis{}, fmt.Errorf("create Cursor scratch directory: %w", err)
+		}
+		defer os.RemoveAll(scratchDir)
+		args = []string{
+			"-p",
+			"--mode", "ask",
+			"--sandbox", "enabled",
+			"--trust",
+			"--model", r.Model,
+			"--output-format", "json",
+		}
+		stdin = systemPrompt + jsonInstruction + "\n\n" + input
+		env = []string{"CURSOR_DATA_DIR=" + scratchDir}
 	default:
 		return session.SessionSynthesis{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
 	}
@@ -160,7 +182,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		bin:   r.Bin,
 		args:  args,
 		dir:   SynthesisCwd(),
-		stdin: input,
+		stdin: stdin,
 		env:   env,
 	})
 	if runCtx.Err() != nil {
@@ -212,20 +234,20 @@ func safeCommandError(label string, err error) error {
 	return fmt.Errorf("run %s synthesis: %w", label, err)
 }
 
-func parseEnvelope(data []byte) (session.SessionSynthesis, error) {
+func parseResultEnvelope(data []byte) (session.SessionSynthesis, error) {
 	var envelope struct {
 		Type    string `json:"type"`
 		IsError bool   `json:"is_error"`
 		Result  string `json:"result"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
-		return session.SessionSynthesis{}, fmt.Errorf("decode claude envelope: %w", err)
+		return session.SessionSynthesis{}, fmt.Errorf("decode result envelope: %w", err)
 	}
 	if envelope.Type != "result" {
-		return session.SessionSynthesis{}, fmt.Errorf("unexpected claude envelope type %q", envelope.Type)
+		return session.SessionSynthesis{}, fmt.Errorf("unexpected result envelope type %q", envelope.Type)
 	}
 	if envelope.IsError {
-		return session.SessionSynthesis{}, errors.New("claude returned an error result")
+		return session.SessionSynthesis{}, errors.New("CLI returned an error result")
 	}
 	return parseSynthesis([]byte(envelope.Result))
 }

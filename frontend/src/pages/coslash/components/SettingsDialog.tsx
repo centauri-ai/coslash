@@ -111,6 +111,7 @@ const BACKEND_BINARY: Record<string, string> = {
   'claude-cli': 'claude',
   'codex_exec': 'codex',
   'opencode': 'opencode',
+  'cursor-cli': 'agent',
 };
 
 function BackendChoice({
@@ -144,6 +145,7 @@ function BackendChoice({
             'bg-claude': option.id === 'claude-cli',
             'bg-codex': option.id === 'codex_exec',
             'bg-opencode': option.id === 'opencode',
+            'bg-cursor': option.id === 'cursor-cli',
           })}
         />
         <span className="text-[13px] font-semibold">{name}</span>

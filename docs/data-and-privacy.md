@@ -20,7 +20,7 @@ coSlash reads, but does not modify:
 | `settings.json` | Synthesis, appearance, and terminal preferences. |
 | `token` | Access token for the current server process. |
 | `summaries/` | Cached synthesis results. |
-| `synthesis/` | Temporary synthesis files and the OpenCode scratch database. |
+| `synthesis/` | Temporary synthesis files and isolated CLI data. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
@@ -75,13 +75,15 @@ revision; display paths and change IDs are never treated as files to open.
 ## Outbound data
 
 Outside an explicitly approved Hub share, the collector does not upload
-session data itself. If you enable synthesis, it passes a bounded set of
-session facts—such as prompts or recaps, todos, filenames, commands, and commit
-text—to your selected local Claude Code, Codex, or OpenCode CLI. That CLI sends
-the request using its existing authentication, so the selected provider's
-settings and terms apply.
+session data itself. If you enable synthesis, it passes a bounded set of facts
+to your selected local CLI. These facts can include prompts, recaps, todos,
+filenames, commands, and commit text. Supported CLIs are Claude Code, Codex,
+OpenCode, and Cursor. The CLI uses its existing authentication. The selected
+provider's settings and terms apply.
 
 OpenCode has no ephemeral mode, so coSlash points each run at its own scratch database under `~/.coslash/synthesis`, discarded once the run ends. Synthesis runs never enter your own OpenCode history.
+
+Cursor synthesis uses read-only ask mode. Each run uses a temporary data directory under `~/.coslash/synthesis`. coSlash removes the directory after the run. Thus, synthesis chats do not enter your Cursor history.
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 
