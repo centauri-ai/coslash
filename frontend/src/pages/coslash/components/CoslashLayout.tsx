@@ -1,4 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import {
   AlertTriangle,
   ArrowDown,
@@ -144,7 +153,8 @@ const styles = {
     'flex h-12 w-full min-w-0 items-center gap-1.5 rounded-[9px] border border-coslash-line bg-coslash-surface px-3.5 focus-within:border-coslash-accent focus-within:shadow-[0_0_0_3px_var(--coslash-tint)]',
   chip: 'inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-coslash-tint-line bg-coslash-tint pr-1 pl-2 text-meta font-[550] whitespace-nowrap text-coslash-accent-ink',
   segmented: 'inline-flex rounded-[10px] bg-coslash-soft p-0.5',
-  tableWrap: 'min-h-[180px] overflow-x-auto rounded-[10px] border border-coslash-line bg-coslash-surface',
+  tableWrap:
+    'min-h-[180px] max-h-[calc(100svh-240px)] overflow-auto rounded-[10px] border border-coslash-line bg-coslash-surface',
   head: 'sticky top-0 z-12 border-b border-coslash-line bg-coslash-surface text-left text-meta font-[650] tracking-[.07em] text-coslash-muted uppercase',
   headButton:
     'flex min-h-[34px] w-full cursor-pointer items-center gap-[5px] px-2.5 py-[9px] text-left font-[inherit] tracking-[inherit] uppercase hover:bg-coslash-soft hover:text-coslash-ink [&>svg]:size-3',
@@ -814,9 +824,24 @@ function SessionListView({
   onToggleGroup: (id: string) => void;
   review: SessionReviewProps;
 }) {
+  const headRef = useRef<HTMLTableSectionElement>(null);
+  // Section bands pin directly under the header row, whose height changes when its labels wrap.
+  const [headHeight, setHeadHeight] = useState(34);
+
+  useEffect(() => {
+    const head = headRef.current;
+    if (head == null) return;
+    const observer = new ResizeObserver(() => setHeadHeight(head.getBoundingClientRect().height));
+    observer.observe(head);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <table className="max-compact:table-auto w-full table-fixed border-collapse">
-      <thead>
+    <table
+      className="max-compact:table-auto w-full table-fixed border-collapse"
+      style={{ '--coslash-head-height': `${headHeight}px` } as CSSProperties}
+    >
+      <thead ref={headRef}>
         <tr>
           <SortHeader label="Session" sortKey="title" sort={sort} onSort={onSort} className="w-[300px]" />
           <th className={cn(styles.head, 'max-compact:hidden w-[204px] px-2.5 py-[9px]')}>Where</th>
@@ -857,7 +882,7 @@ function SessionListView({
             <tr>
               <th
                 colSpan={6}
-                className="border-coslash-line-soft bg-coslash-soft sticky top-[34px] z-11 border-y text-left"
+                className="border-coslash-line-soft bg-coslash-soft sticky top-[var(--coslash-head-height)] z-11 border-y text-left"
               >
                 <button
                   type="button"
