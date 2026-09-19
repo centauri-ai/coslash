@@ -88,7 +88,6 @@ export function MachinesSettingsSection({
   // Authentication must not use the dialog-wide busy state because that
   // disables Cancel. Lock competing setup actions locally instead.
   const setupActionsLocked = busy || stage === 'authentication_required' || stage === 'authenticating';
-  const messageIsError = stage === 'error' || stage === 'connector_error';
   const setupFailed =
     stage === 'connector_error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
@@ -467,11 +466,12 @@ export function MachinesSettingsSection({
         )}
         {message != null && (
           <div
-            role={messageIsError ? 'alert' : 'status'}
+            role={stage === 'error' || stage === 'connector_error' ? 'alert' : 'status'}
             className={cn('flex items-center gap-3 border-t px-4 py-3 text-xs', {
               'bg-muted text-muted-foreground': busy || stage === 'consent',
               'bg-success-bg text-success-fg': stage === 'ready',
-              'bg-destructive/10 text-destructive': messageIsError,
+              'bg-destructive/10 text-destructive':
+                stage === 'error' || stage === 'connector_error',
             })}
           >
             <span className={cn({ 'animate-pulse': stage === 'installing' || stage === 'authenticating' })}>
