@@ -1533,7 +1533,7 @@ export function SessionInspector({
                 role="status"
                 className="text-warning-fg bg-warning-bg mx-4 mb-2 rounded-sm px-3 py-2 text-xs"
               >
-                Showing the last complete cached details while the SSH workspace is offline or reconnecting.
+                Showing the last complete cached details; the SSH workspace is not fully synced.
               </div>
             )}
             {summaryOnly && <SummaryOnlyBanner />}
