@@ -123,11 +123,13 @@ export function MachinesSettingsSection({
       if (test.state !== 'ok') {
         setStage('error');
         const hint =
-          test.reason === 'connection_failed' ||
-          test.reason === 'authentication_failed' ||
-          test.reason === 'host_key_failed'
-            ? ` Run ssh ${sshAlias} once in Terminal, complete any prompt, then try again.`
-            : '';
+          test.actionRequired === 'verify_host_key'
+            ? ` Verify the identity and host key for ${sshAlias} in Terminal before trying again.`
+            : test.actionRequired === 'authenticate' ||
+                test.reason === 'connection_failed' ||
+                test.reason === 'host_key_failed'
+              ? ` Run ssh ${sshAlias} once in Terminal, complete any prompt, then try again.`
+              : '';
         setMessage(`${testResultCopy(test)}.${hint}`);
         return;
       }
@@ -297,6 +299,13 @@ export function MachinesSettingsSection({
         {message == null && setupFailed && (
           <div role="alert" className="bg-destructive/10 text-destructive border-t px-4 py-3 text-xs">
             Setup failed: {connectorFailureCopy(currentMachine)}. Retry setup to verify the connector.
+          </div>
+        )}
+        {message == null && currentMachine?.actionRequired != null && !setupFailed && (
+          <div role="alert" className="bg-destructive/10 text-destructive border-t px-4 py-3 text-xs">
+            {currentMachine.actionRequired === 'verify_host_key'
+              ? `SSH host identity changed. Verify ${remote?.sshAlias}'s host key in Terminal before reconnecting.`
+              : `Run ssh ${remote?.sshAlias} in Terminal and complete the authentication prompt.`}
           </div>
         )}
       </div>
