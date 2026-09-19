@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"log"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -17,6 +18,10 @@ import (
 // Upstream priority: containment (a fork's ids strictly contain its parent's),
 // then file birthtime, then id count, then a tie yielding no owner.
 func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) {
+	_ = applyForkedUsageSourceContext(context.Background(), source, parsed)
+}
+
+func applyForkedUsageSourceContext(ctx context.Context, source vendors.ReadSource, parsed []*parsedSession) error {
 	type entry struct {
 		p     *parsedSession
 		usage map[string]messageUsage
@@ -25,6 +30,9 @@ func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) 
 	}
 	entries := []*entry{}
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if p.transcript.ParentID != "" {
 			continue // children are never fork-adjusted
 		}
@@ -71,6 +79,9 @@ func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) 
 	owners := map[string]*candidate{}
 	for _, e := range entries {
 		for id := range e.ids {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			c, ok := owners[id]
 			if !ok {
 				owners[id] = &candidate{
@@ -90,6 +101,9 @@ func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) 
 
 	for _, e := range entries {
 		for id, message := range e.usage {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			c, ok := owners[id]
 			if !ok || c.count < 2 || c.tie || c.path == e.p.transcript.LogPath {
 				continue
@@ -106,6 +120,7 @@ func applyForkedUsageSource(source vendors.ReadSource, parsed []*parsedSession) 
 			e.p.transcript.Session.Tokens[message.model] = tokens
 		}
 	}
+	return nil
 }
 
 func strictSubset[V any](a, b map[string]V) bool {
@@ -138,8 +153,16 @@ func fileCreationTime(source vendors.ReadSource, path string) int64 {
 
 // collapseBackgroundRehomes drops a root that a background re-home superseded
 func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
+	result, _ := collapseBackgroundRehomesContext(context.Background(), parsed)
+	return result
+}
+
+func collapseBackgroundRehomesContext(ctx context.Context, parsed []*parsedSession) ([]*parsedSession, error) {
 	roots := []*parsedSession{}
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if p.transcript.ParentID == "" && len(p.rowUUIDs) > 0 {
 			roots = append(roots, p)
 		}
@@ -147,11 +170,17 @@ func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
 	// Each re-home supersedes only the root it copied
 	supersededBy := map[string]*parsedSession{}
 	for _, successor := range roots {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !successor.background {
 			continue
 		}
 		var predecessor *parsedSession
 		for _, candidate := range roots {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if !supersedes(candidate, successor) {
 				continue
 			}
@@ -180,6 +209,9 @@ func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
 
 	survivors := make([]*parsedSession, 0, len(parsed))
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if successor, ok := supersededBy[p.transcript.Session.ID]; ok {
 			final := survivorOf(successor)
 			log.Printf("%s: superseded by background re-home %s",
@@ -194,7 +226,7 @@ func collapseBackgroundRehomes(parsed []*parsedSession) []*parsedSession {
 		}
 		survivors = append(survivors, p)
 	}
-	return survivors
+	return survivors, nil
 }
 
 func supersedes(predecessor, successor *parsedSession) bool {

@@ -213,7 +213,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
-	localParsed, localMetadata, err := codex.Collect(0)
+	localParsed, localMetadata, err := codex.Collect(t.Context(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

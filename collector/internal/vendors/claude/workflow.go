@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -41,9 +42,21 @@ func WorkflowAgentsSource(
 	source vendors.ReadSource,
 	parsed []*vendors.ParsedSession,
 ) map[string]*WorkflowAgent {
+	agents, _ := WorkflowAgentsSourceContext(context.Background(), source, parsed)
+	return agents
+}
+
+func WorkflowAgentsSourceContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	parsed []*vendors.ParsedSession,
+) (map[string]*WorkflowAgent, error) {
 	agents := map[string]*WorkflowAgent{}
 	finished := map[string]bool{}
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		statePath, ok := workflowStatePath(p.LogPath)
 		if !ok {
 			continue
@@ -63,6 +76,9 @@ func WorkflowAgentsSource(
 		}
 		finished[statePath] = run.DurationMs > 0
 		for i := range run.Progress {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			agent := &run.Progress[i]
 			if agent.Type != "workflow_agent" {
 				continue
@@ -73,16 +89,24 @@ func WorkflowAgentsSource(
 	}
 	journals := map[string]map[string]string{}
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		statePath, ok := workflowStatePath(p.LogPath)
 		if !ok || agents[p.Session.ID] != nil || !finished[statePath] {
 			continue
 		}
 		results, cached := journals[statePath]
 		if !cached {
-			results = workflowJournalResultsSource(
+			var err error
+			results, err = workflowJournalResultsSourceContext(
+				ctx,
 				source,
 				filepath.Join(filepath.Dir(p.LogPath), "journal.jsonl"),
 			)
+			if err != nil {
+				return nil, err
+			}
 			journals[statePath] = results
 		}
 		agent := &WorkflowAgent{
@@ -95,24 +119,35 @@ func WorkflowAgentsSource(
 		}
 		agents[p.Session.ID] = agent
 	}
-	return agents
+	return agents, nil
 }
 
 func workflowJournalResultsSource(source vendors.ReadSource, path string) map[string]string {
-	entries, err := vendors.ParseJSONLSource[workflowJournalEntry](source, path)
+	results, _ := workflowJournalResultsSourceContext(context.Background(), source, path)
+	return results
+}
+
+func workflowJournalResultsSourceContext(ctx context.Context, source vendors.ReadSource, path string) (map[string]string, error) {
+	entries, err := vendors.ParseJSONLSourceContext[workflowJournalEntry](ctx, source, path)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
 		if !errors.Is(err, fs.ErrNotExist) {
 			log.Printf("%s: unreadable workflow journal: %v", path, err)
 		}
-		return nil
+		return nil, nil
 	}
 	results := map[string]string{}
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if entry.Type == "result" && entry.AgentID != "" {
 			results[entry.AgentID] = journalResultText(entry.Result)
 		}
 	}
-	return results
+	return results, nil
 }
 
 func journalResultText(raw json.RawMessage) string {

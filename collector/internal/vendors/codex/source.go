@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
@@ -9,16 +10,28 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	files, err := Files()
+func Collect(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	files, err := FilesContext(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata := vendors.BestEffortMetadata(vendors.AgentCodex, LoadMetadata)
-	if since > 0 {
-		files = FilesSince(files, metadata.LiveSessions(), since)
+	metadata, metadataErr := LoadMetadataContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
 	}
-	return parseFiles(files), metadata, nil
+	if metadataErr != nil {
+		metadata = vendors.BestEffortMetadata(vendors.AgentCodex, func() (*vendors.SessionMetadata, error) {
+			return nil, metadataErr
+		})
+	}
+	if since > 0 {
+		files, err = FilesSinceSourceContext(ctx, vendors.LocalReadSource, files, metadata.LiveSessions(), since)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	parsed, err := parseFilesContext(ctx, files)
+	return parsed, metadata, err
 }
 
 // RemoteMetadata loads best-effort live/name metadata for a remote source
@@ -281,6 +294,23 @@ func parseFiles(files []string) []*vendors.ParsedSession {
 	)
 }
 
+func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
+	home := ""
+	if root, err := Root(); err == nil {
+		home = filepath.Dir(filepath.Dir(root))
+	}
+	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files,
+		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+			return parseSourceContext(ctx, source, path, func(command, cwd string) bool {
+				return commandNeedsApprovalContext(ctx, command, cwd)
+			})
+		})
+	if err != nil {
+		return nil, err
+	}
+	return finalizeParsedFilesContext(ctx, vendors.LocalReadSource, filepath.Join(home, ".codex", "archived_sessions"), parsed)
+}
+
 func parseFilesSource(
 	source vendors.ReadSource,
 	archivedDir string,
@@ -310,12 +340,27 @@ func finalizeParsedFiles(
 	archivedDir string,
 	parsed []*parsedSession,
 ) []*vendors.ParsedSession {
-	applyForkedUsageSource(source, archivedDir, parsed)
+	result, _ := finalizeParsedFilesContext(context.Background(), source, archivedDir, parsed)
+	return result
+}
+
+func finalizeParsedFilesContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	archivedDir string,
+	parsed []*parsedSession,
+) ([]*vendors.ParsedSession, error) {
+	if err := applyForkedUsageSourceContext(ctx, source, archivedDir, parsed); err != nil {
+		return nil, err
+	}
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		transcripts = append(transcripts, item.transcript)
 	}
-	return transcripts
+	return transcripts, nil
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {

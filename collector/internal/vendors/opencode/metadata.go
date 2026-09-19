@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -53,14 +54,21 @@ type liveCandidate struct {
 }
 
 func loadMetadata(db *sql.DB) (*vendors.SessionMetadata, error) {
+	return loadMetadataContext(context.Background(), db)
+}
+
+func loadMetadataContext(ctx context.Context, db *sql.DB) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	output, err := exec.Command("ps", "-ww", "-axo", "pid=,lstart=,command=").Output()
+	output, err := exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,lstart=,command=").Output()
 	if err != nil {
 		return nil, fmt.Errorf("list processes: %w", err)
 	}
 	processes := parseTUIProcesses(string(output))
 	for index := range processes {
-		cwd := processWorkingDirectory(processes[index].pid)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		cwd := processWorkingDirectoryContext(ctx, processes[index].pid)
 		if cwd == "" {
 			continue
 		}
@@ -73,14 +81,16 @@ func loadMetadata(db *sql.DB) (*vendors.SessionMetadata, error) {
 		}
 		processes[index].directory = filepath.Clean(cwd)
 	}
-	candidates, err := loadLiveCandidates(db)
+	candidates, err := loadLiveCandidatesContext(ctx, db)
 	if err != nil {
 		return nil, fmt.Errorf("load live candidates: %w", err)
 	}
 	for id := range matchLiveSessions(processes, candidates) {
 		metadata.Session(id).Live = "interactive"
 	}
-	markPendingPermissions(db, metadata, permissionStateDir())
+	if err := markPendingPermissionsContext(ctx, db, metadata, permissionStateDir()); err != nil {
+		return nil, err
+	}
 	return metadata, nil
 }
 
@@ -111,11 +121,21 @@ func clientStateDir() string {
 }
 
 func sessionEntrypoint(id, directory string) *string {
+	return sessionEntrypointContext(context.Background(), id, directory)
+}
+
+func sessionEntrypointContext(ctx context.Context, id, directory string) *string {
 	if !sessionIDPattern.MatchString(id) || directory == "" {
+		return nil
+	}
+	if ctx.Err() != nil {
 		return nil
 	}
 	data, err := os.ReadFile(filepath.Join(directory, id+".json"))
 	if err != nil {
+		return nil
+	}
+	if ctx.Err() != nil {
 		return nil
 	}
 	var record sessionClientRecord
@@ -128,11 +148,23 @@ func sessionEntrypoint(id, directory string) *string {
 }
 
 func markPendingPermissions(db *sql.DB, metadata *vendors.SessionMetadata, directory string) {
+	_ = markPendingPermissionsContext(context.Background(), db, metadata, directory)
+}
+
+func markPendingPermissionsContext(
+	ctx context.Context,
+	db *sql.DB,
+	metadata *vendors.SessionMetadata,
+	directory string,
+) error {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return
+		return nil
 	}
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
@@ -147,13 +179,14 @@ func markPendingPermissions(db *sql.DB, metadata *vendors.SessionMetadata, direc
 			continue
 		}
 		var rootID string
-		if db.QueryRow(
+		if db.QueryRowContext(ctx,
 			`SELECT COALESCE(parent_id, id) FROM session WHERE id = ? AND time_archived IS NULL`,
 			pending.SessionID,
 		).Scan(&rootID) == nil {
 			metadata.Session(rootID).Live = "waiting"
 		}
 	}
+	return nil
 }
 
 func processAlive(pid int) bool {
@@ -239,7 +272,12 @@ func parseTUIArgs(args []string) (project, sessionID string, fork, tui bool) {
 }
 
 func processWorkingDirectory(pid int) string {
-	output, err := exec.Command(
+	return processWorkingDirectoryContext(context.Background(), pid)
+}
+
+func processWorkingDirectoryContext(ctx context.Context, pid int) string {
+	output, err := exec.CommandContext(
+		ctx,
 		"lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn",
 	).Output()
 	if err != nil {
@@ -254,7 +292,11 @@ func processWorkingDirectory(pid int) string {
 }
 
 func loadLiveCandidates(db *sql.DB) ([]liveCandidate, error) {
-	rows, err := db.Query(`
+	return loadLiveCandidatesContext(context.Background(), db)
+}
+
+func loadLiveCandidatesContext(ctx context.Context, db *sql.DB) ([]liveCandidate, error) {
+	rows, err := db.QueryContext(ctx, `
 		SELECT session.id, session.directory, session.time_created, message.time_created
 		FROM session
 		LEFT JOIN message ON message.session_id = session.id
@@ -269,6 +311,9 @@ func loadLiveCandidates(db *sql.DB) ([]liveCandidate, error) {
 
 	var candidates []liveCandidate
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var id, directory string
 		var createdAt int64
 		var messageAt sql.NullInt64

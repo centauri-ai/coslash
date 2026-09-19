@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -19,19 +20,29 @@ import (
 // get the "interactive" convention so resolveStatus applies the busy/idle
 // refinement.
 func LoadMetadata() (*vendors.SessionMetadata, error) {
-	live, err := LoadLiveSessions()
+	return LoadMetadataContext(context.Background())
+}
+
+func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) {
+	live, err := LoadLiveSessionsContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	names, err := loadThreadNames()
+	names, err := loadThreadNamesContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	metadata := vendors.EmptySessionMetadata()
 	for id, name := range names {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		metadata.Session(id).Name = name
 	}
 	for id := range live {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		metadata.Session(id).Live = "interactive"
 	}
 	return metadata, nil
@@ -39,8 +50,15 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 
 // LoadLiveSessions returns the Codex session IDs that lsof reports as open.
 func LoadLiveSessions() (map[string]struct{}, error) {
-	openCodexSessions, err := exec.Command("lsof", "-a", "-c", "codex", "-Fn").Output()
+	return LoadLiveSessionsContext(context.Background())
+}
+
+func LoadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
+	openCodexSessions, err := exec.CommandContext(ctx, "lsof", "-a", "-c", "codex", "-Fn").Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		var exitErr *exec.ExitError
 		if errors.Is(err, exec.ErrNotFound) || errors.As(err, &exitErr) {
 			return map[string]struct{}{}, nil
@@ -49,6 +67,9 @@ func LoadLiveSessions() (map[string]struct{}, error) {
 	}
 	live := map[string]struct{}{}
 	for line := range strings.SplitSeq(string(openCodexSessions), "\n") {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !strings.HasPrefix(line, "n") || !strings.HasSuffix(line, ".jsonl") {
 			continue
 		}
@@ -76,11 +97,15 @@ func jsonString(raw json.RawMessage) (string, bool) {
 }
 
 func loadThreadNames() (map[string]string, error) {
+	return loadThreadNamesContext(context.Background())
+}
+
+func loadThreadNamesContext(ctx context.Context) (map[string]string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return loadThreadNamesSource(vendors.LocalReadSource, filepath.Join(home, ".codex", "session_index.jsonl"))
+	return loadThreadNamesSourceContext(ctx, vendors.LocalReadSource, filepath.Join(home, ".codex", "session_index.jsonl"))
 }
 
 func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.SessionMetadata, error) {
@@ -96,6 +121,10 @@ func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.Sessio
 }
 
 func loadThreadNamesSource(source vendors.ReadSource, path string) (map[string]string, error) {
+	return loadThreadNamesSourceContext(context.Background(), source, path)
+}
+
+func loadThreadNamesSourceContext(ctx context.Context, source vendors.ReadSource, path string) (map[string]string, error) {
 	names := map[string]string{}
 	file, err := source.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -110,6 +139,9 @@ func loadThreadNamesSource(source vendors.ReadSource, path string) (map[string]s
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
