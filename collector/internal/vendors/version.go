@@ -4,4 +4,4 @@ package vendors
 // Remote families cache the version that produced their facts, so bump this
 // whenever parsing changes which facts a transcript yields: cached families
 // then recollect even though their files never changed.
-const ParserVersion = "parsers-2"
+const ParserVersion = "parsers-3"

@@ -10,23 +10,31 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// rolloutID matches UUIDs embedded in a rollout filename, e.g.
+const rolloutIDPattern = `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
+
+// rolloutID matches a UUID embedded in a rollout filename, e.g.
 // rollout-2026-07-10T14-11-18-019f4dde-db5b-7100-bdc0-09b5aaaac56f.jsonl
-var rolloutID = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+var rolloutID = regexp.MustCompile(rolloutIDPattern)
+
+var forkedRolloutIDs = regexp.MustCompile(`(` + rolloutIDPattern + `)_(` + rolloutIDPattern + `)\.jsonl$`)
 
 func SessionIDFromRollout(path string) string {
 	_, threadID := rolloutIDsFromPath(path)
 	return threadID
 }
 
-// Forked rollouts use <root-session-id>_<thread-id>; session_meta keeps the
-// root ID while history_base identifies the source history.
+// Forked rollouts use <root-session-id>_<thread-id>; session_meta may keep the
+// root ID instead of the final thread identity.
 func rolloutIDsFromPath(path string) (rootID, threadID string) {
-	ids := rolloutID.FindAllString(filepath.Base(path), -1)
-	if len(ids) == 0 {
+	base := filepath.Base(path)
+	if ids := forkedRolloutIDs.FindStringSubmatch(base); len(ids) == 3 {
+		return ids[1], ids[2]
+	}
+	id := rolloutID.FindString(base)
+	if id == "" {
 		return "", ""
 	}
-	return ids[0], ids[len(ids)-1]
+	return id, id
 }
 
 func readHeader(path string) (string, string, error) {
@@ -53,15 +61,25 @@ func readHeaderSource(source vendors.ReadSource, path string) (string, string, e
 	if row.Payload.ID == threadID {
 		return threadID, row.Payload.ParentThreadID, nil
 	}
-	if rootID != threadID && row.Payload.ID == rootID &&
-		(row.Payload.SessionID == "" || row.Payload.SessionID == rootID) &&
-		row.Payload.HistoryBase.ThreadID != "" {
+	if rootID != threadID && row.Payload.ID == rootID && sharedRootIdentifiesFork(row.Payload, rootID) {
 		return threadID, row.Payload.ParentThreadID, nil
 	}
 	return "", "", fmt.Errorf(
 		"%w: header session ID %q does not identify filename thread ID %q",
 		vendors.ErrInvalidData, row.Payload.ID, threadID,
 	)
+}
+
+func sharedRootIdentifiesFork(payload codexPayload, rootID string) bool {
+	if payload.HistoryBase.ThreadID != "" {
+		return payload.SessionID == "" || payload.SessionID == rootID
+	}
+	source, _ := jsonString(payload.Source)
+	return payload.SessionID == rootID &&
+		source == "vscode" &&
+		payload.ThreadSource == "user" &&
+		payload.HistoryMode == "paginated" &&
+		(payload.Originator == "Codex Desktop" || payload.Originator == "codex_work_desktop")
 }
 
 func IsRootRollout(path string) (bool, error) {

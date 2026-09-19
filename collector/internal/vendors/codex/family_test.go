@@ -35,9 +35,9 @@ func TestForkedRolloutUsesThreadIDDespiteRootSessionID(t *testing.T) {
 	rootID := "11111111-2222-3333-4444-555555555555"
 	firstForkID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
 	secondForkID := "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
-	root := writeFamilyTestRollout(t, home, rootID, rootID, "")
-	firstFork := writeFamilyTestRollout(t, home, rootID+"_"+firstForkID, rootID, rootID)
-	secondFork := writeFamilyTestRollout(t, home, rootID+"_"+secondForkID, rootID, firstForkID)
+	root := writeFamilyTestRollout(t, home, rootID, rootID, "", "")
+	firstFork := writeFamilyTestRollout(t, home, rootID+"_"+firstForkID, rootID, rootID, "")
+	secondFork := writeFamilyTestRollout(t, home, rootID+"_"+secondForkID, rootID, firstForkID, "")
 
 	if got := SessionIDFromRollout(firstFork); got != firstForkID {
 		t.Fatalf("forked rollout ID = %q, want thread ID %q", got, firstForkID)
@@ -75,11 +75,28 @@ func TestForkedRolloutUsesThreadIDDespiteRootSessionID(t *testing.T) {
 	}
 }
 
-func TestForkedRolloutStillRejectsUnrelatedHeaderID(t *testing.T) {
+func TestDesktopForkedRolloutWithoutHistoryBaseUsesThreadID(t *testing.T) {
+	for _, originator := range []string{"Codex Desktop", "codex_work_desktop"} {
+		t.Run(originator, func(t *testing.T) {
+			home := t.TempDir()
+			rootID := "11111111-2222-3333-4444-555555555555"
+			threadID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+			extra := `,"source":"vscode","originator":"` + originator + `","history_mode":"paginated","thread_source":"user"`
+			file := writeFamilyTestRollout(t, home, rootID+"_"+threadID, rootID, "", extra)
+
+			id, parentID, err := readHeader(file)
+			if err != nil || id != threadID || parentID != "" {
+				t.Fatalf("readHeader = %q, %q, %v; want thread ID %q", id, parentID, err, threadID)
+			}
+		})
+	}
+}
+
+func TestForkedRolloutWithoutHistoryOrDesktopMetadataIsInvalid(t *testing.T) {
 	home := t.TempDir()
 	rootID := "11111111-2222-3333-4444-555555555555"
 	threadID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
-	file := writeFamilyTestRollout(t, home, rootID+"_"+threadID, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", rootID)
+	file := writeFamilyTestRollout(t, home, rootID+"_"+threadID, rootID, "", "")
 
 	_, _, err := readHeader(file)
 	if !errors.Is(err, vendors.ErrInvalidData) {
@@ -87,7 +104,19 @@ func TestForkedRolloutStillRejectsUnrelatedHeaderID(t *testing.T) {
 	}
 }
 
-func writeFamilyTestRollout(t *testing.T, home, filenameIDs, sessionID, historyBaseID string) string {
+func TestForkedRolloutStillRejectsUnrelatedHeaderID(t *testing.T) {
+	home := t.TempDir()
+	rootID := "11111111-2222-3333-4444-555555555555"
+	threadID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	file := writeFamilyTestRollout(t, home, rootID+"_"+threadID, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff", rootID, "")
+
+	_, _, err := readHeader(file)
+	if !errors.Is(err, vendors.ErrInvalidData) {
+		t.Fatalf("readHeader error = %v, want invalid data", err)
+	}
+}
+
+func writeFamilyTestRollout(t *testing.T, home, filenameIDs, sessionID, historyBaseID, extra string) string {
 	t.Helper()
 	file := filepath.Join(home, ".codex", "sessions", "rollout-2026-07-10T14-11-18-"+filenameIDs+".jsonl")
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
@@ -97,7 +126,7 @@ func writeFamilyTestRollout(t *testing.T, home, filenameIDs, sessionID, historyB
 	if historyBaseID != "" {
 		historyBase = `,"history_base":{"thread_id":"` + historyBaseID + `","end_ordinal_exclusive":1,"end_byte_offset":1}`
 	}
-	content := `{"timestamp":"2026-07-10T14:11:18Z","type":"session_meta","payload":{"id":"` + sessionID + `","session_id":"` + sessionID + `"` + historyBase + `}}` + "\n"
+	content := `{"timestamp":"2026-07-10T14:11:18Z","type":"session_meta","payload":{"id":"` + sessionID + `","session_id":"` + sessionID + `"` + historyBase + extra + `}}` + "\n"
 	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

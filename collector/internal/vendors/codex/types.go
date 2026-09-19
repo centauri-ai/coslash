@@ -37,6 +37,7 @@ type codexPayload struct {
 	Content        json.RawMessage   `json:"content"`
 	ParentThreadID string            `json:"parent_thread_id"`
 	HistoryBase    codexHistoryBase  `json:"history_base"`
+	HistoryMode    string            `json:"history_mode"`
 	ThreadSource   string            `json:"thread_source"`
 	Source         json.RawMessage   `json:"source"`
 	AgentNickname  string            `json:"agent_nickname"`
