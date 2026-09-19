@@ -89,6 +89,10 @@ export function MachinesSettingsSection({
   // disables Cancel. Lock competing setup actions locally instead.
   const setupActionsLocked = busy || stage === 'authentication_required' || stage === 'authenticating';
   const messageIsError = stage === 'error' || stage === 'connector_error';
+  const canAuthenticate =
+    machine?.actionRequired === 'authenticate' &&
+    stage !== 'authentication_required' &&
+    stage !== 'authenticating';
   const setupFailed =
     stage === 'connector_error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
@@ -418,13 +422,11 @@ export function MachinesSettingsSection({
                   Retry setup
                 </Button>
               ) : null}
-              {machine?.actionRequired === 'authenticate' &&
-                stage !== 'authentication_required' &&
-                stage !== 'authenticating' ? (
-                  <Button type="button" size="sm" disabled={busy} onClick={reconnect}>
-                    Authenticate in Terminal
-                  </Button>
-                ) : null}
+              {canAuthenticate && (
+                <Button type="button" size="sm" disabled={busy} onClick={reconnect}>
+                  Authenticate in Terminal
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
