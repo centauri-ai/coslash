@@ -135,6 +135,33 @@ func TestCursorEnrichmentAppliesIdleLiveStatusForFacts(t *testing.T) {
 	}
 }
 
+func TestCursorEnrichmentDoesNotFinalizeInteractiveTrailingReply(t *testing.T) {
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	path := filepath.Join(t.TempDir(), "agent-transcripts", id, id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := `{"role":"user","message":{"content":[{"type":"text","text":"prompt"}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"text","text":"reply"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.Session(id).Live = "interactive"
+
+	applyCursorEnrichment([]*vendors.ParsedSession{parsed}, metadata)
+
+	for _, entry := range parsed.Session.Digest {
+		if entry.Category == session.DigestRecap {
+			t.Fatalf("unexpected recap for interactive trailing reply: %#v", entry)
+		}
+	}
+}
+
 func TestSelectCursorFilesPreservesLiveFamily(t *testing.T) {
 	tempFile := filepath.Join(t.TempDir(), "stat")
 	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {

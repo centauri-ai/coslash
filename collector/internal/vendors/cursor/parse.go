@@ -190,7 +190,6 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 			}
 		}
 	}
-	pushTurnRecap()
 	if cwd == "" {
 		cwd = commonEditDirectory(edits.Edits)
 	}

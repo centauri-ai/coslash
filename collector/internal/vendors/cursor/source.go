@@ -179,6 +179,13 @@ func applyCursorEnrichment(parsed []*vendors.ParsedSession, metadata *vendors.Se
 			// A terminal transcript error is authoritative over a stale open DB.
 			enrichment.Live = ""
 		}
+		digest := item.Session.Digest
+		if !item.Stopped && enrichment.Live == "" && item.Result != "" && item.Session.Turns > 0 &&
+			(len(digest) == 0 || digest[len(digest)-1].Turn != item.Session.Turns || digest[len(digest)-1].Category != session.DigestRecap) {
+			item.Session.Digest = append(digest, session.DigestEntry{
+				Turn: item.Session.Turns, Category: session.DigestRecap, Description: item.Result,
+			})
+		}
 		applyMetadataTimes(item.Session, enrichment.StartedAt, enrichment.LastActivityAt)
 		if enrichment.WorkingDirectory != "" {
 			item.Session.WorkingDirectory = enrichment.WorkingDirectory
