@@ -419,8 +419,8 @@ export function MachinesSettingsSection({
                 </Button>
               ) : null}
               {machine?.actionRequired === 'authenticate' &&
-              stage !== 'authentication_required' &&
-              stage !== 'authenticating' ? (
+                stage !== 'authentication_required' &&
+                stage !== 'authenticating' ? (
                 <Button type="button" size="sm" disabled={busy} onClick={reconnect}>
                   Authenticate in Terminal
                 </Button>
