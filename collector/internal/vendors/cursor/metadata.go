@@ -291,6 +291,23 @@ func loadIDECommitObservations(metadata *vendors.SessionMetadata, db *sql.DB, id
 	}
 }
 
+func completedIDETerminalCommand(name, status string, raw json.RawMessage) (string, bool) {
+	if status != "completed" || (name != "run_terminal_cmd" && name != "run_terminal_command_v2") {
+		return "", false
+	}
+	var rawArgs string
+	if json.Unmarshal(raw, &rawArgs) != nil {
+		rawArgs = string(raw)
+	}
+	var args struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal([]byte(rawArgs), &args) != nil {
+		return "", false
+	}
+	return args.Command, true
+}
+
 func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
 	type checkpoint struct {
 		CommitHashesByGitWorkspace map[string]struct {
@@ -310,21 +327,11 @@ func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
 	if json.Unmarshal([]byte(value), &bubble) != nil {
 		return nil
 	}
-	if bubble.Tool.Status != "completed" ||
-		(bubble.Tool.Name != "run_terminal_cmd" && bubble.Tool.Name != "run_terminal_command_v2") {
+	command, ok := completedIDETerminalCommand(bubble.Tool.Name, bubble.Tool.Status, bubble.Tool.RawArgs)
+	if !ok {
 		return nil
 	}
-	var rawArgs string
-	if json.Unmarshal(bubble.Tool.RawArgs, &rawArgs) != nil {
-		rawArgs = string(bubble.Tool.RawArgs)
-	}
-	var args struct {
-		Command string `json:"command"`
-	}
-	if json.Unmarshal([]byte(rawArgs), &args) != nil {
-		return nil
-	}
-	attempts := session.ParseCommitObservations(args.Command, bubble.Tool.Result, true)
+	attempts := session.ParseCommitObservations(command, bubble.Tool.Result, true)
 	observations := []session.CommitObservation{}
 	for workspace, after := range bubble.After.CommitHashesByGitWorkspace {
 		before, ok := bubble.Before.CommitHashesByGitWorkspace[workspace]
@@ -530,8 +537,10 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 				ModelName string `json:"modelName"`
 			} `json:"modelConfig"`
 			ToolFormerData struct {
-				Status string `json:"status"`
-				Result string `json:"result"`
+				Name    string          `json:"name"`
+				Status  string          `json:"status"`
+				RawArgs json.RawMessage `json:"rawArgs"`
+				Result  string          `json:"result"`
 			} `json:"toolFormerData"`
 			UsageData map[string]struct {
 				CostInCents *float64 `json:"costInCents"`
@@ -550,7 +559,8 @@ func loadIDEModelsDB(metadata *vendors.SessionMetadata, db *sql.DB, ids []string
 			if model != "" && (previous.model == "" || createdAt > previous.time || createdAt == previous.time && key > previous.key) {
 				bubbles[id] = observed{model: model, time: createdAt, key: key}
 			}
-			if item.ToolFormerData.Status == "completed" {
+			command, completed := completedIDETerminalCommand(item.ToolFormerData.Name, item.ToolFormerData.Status, item.ToolFormerData.RawArgs)
+			if completed && session.IsPullRequestCreate(command) {
 				if pullRequests[id] == nil {
 					pullRequests[id] = map[string]struct{}{}
 				}
