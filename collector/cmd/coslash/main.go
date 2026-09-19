@@ -115,8 +115,8 @@ func main() {
 	}); err != nil {
 		log.Printf("migrate synthesis cache: %v", err)
 	}
-	if err := synthesis.CleanupOpenCodeScratch(); err != nil {
-		log.Printf("sweep OpenCode scratch directories: %v", err)
+	if err := synthesis.CleanupScratch(); err != nil {
+		log.Printf("sweep synthesis scratch directories: %v", err)
 	}
 	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
 		now := time.Now()

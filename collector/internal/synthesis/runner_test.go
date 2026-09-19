@@ -2,6 +2,7 @@ package synthesis
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,8 @@ import (
 func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	var captured commandSpec
+	var configData []byte
+	var configErr error
 	created, err := NewRunner(settings.SynthesisSettings{
 		Enabled: true,
 		Backend: settings.BackendCursor,
@@ -27,6 +30,7 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	runner.Timeout = time.Second
 	runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
 		captured = spec
+		configData, configErr = os.ReadFile(filepath.Join(spec.dir, ".cursor", "cli.json"))
 		return []byte(`{"type":"result","subtype":"success","is_error":false,"result":"{\"goals\":[\"Ship Cursor synthesis\"],\"outcome\":\"Backend added\",\"keyDecisions\":[],\"nextStep\":\"Open a PR\"}"}`), nil
 	}
 
@@ -47,8 +51,8 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	if !slices.Equal(captured.args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", captured.args, wantArgs)
 	}
-	if captured.dir != SynthesisCwd() {
-		t.Fatalf("dir = %q, want %q", captured.dir, SynthesisCwd())
+	if filepath.Dir(captured.dir) != SynthesisCwd() || !strings.HasPrefix(filepath.Base(captured.dir), ".cursor-") {
+		t.Fatalf("dir = %q, want isolated child of %q", captured.dir, SynthesisCwd())
 	}
 	if !strings.Contains(captured.stdin, systemPrompt) ||
 		!strings.Contains(captured.stdin, "normalized session facts") {
@@ -61,10 +65,33 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 		t.Fatalf("env = %#v, want one isolated CURSOR_DATA_DIR", captured.env)
 	}
 	scratch := strings.TrimPrefix(captured.env[0], "CURSOR_DATA_DIR=")
-	if filepath.Dir(scratch) != SynthesisCwd() {
-		t.Fatalf("scratch dir = %q, want child of %q", scratch, SynthesisCwd())
+	if scratch != captured.dir {
+		t.Fatalf("CURSOR_DATA_DIR = %q, want workspace %q", scratch, captured.dir)
+	}
+	if configErr != nil {
+		t.Fatalf("read Cursor permissions: %v", configErr)
+	}
+	var config struct {
+		Permissions struct {
+			Allow []string `json:"allow"`
+			Deny  []string `json:"deny"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(configData, &config); err != nil {
+		t.Fatalf("decode Cursor permissions: %v", err)
+	}
+	wantDeny := []string{"Read(*)", "Read(**)", "Shell(*)", "Write(*)", "WebFetch(*)", "Mcp(*)"}
+	if len(config.Permissions.Allow) != 0 || !slices.Equal(config.Permissions.Deny, wantDeny) {
+		t.Fatalf("permissions = %#v, want empty allow and deny %#v", config.Permissions, wantDeny)
 	}
 	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
 		t.Fatalf("scratch dir was not removed: %v", err)
+	}
+}
+
+func TestParseResultEnvelopeRejectsIncompleteSynthesis(t *testing.T) {
+	data := []byte(`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\"}"}`)
+	if _, err := parseResultEnvelope(data); err == nil {
+		t.Fatal("parseResultEnvelope succeeded without keyDecisions or nextStep")
 	}
 }

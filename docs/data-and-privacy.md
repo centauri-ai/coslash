@@ -83,7 +83,7 @@ provider's settings and terms apply.
 
 OpenCode has no ephemeral mode, so coSlash points each run at its own scratch database under `~/.coslash/synthesis`, discarded once the run ends. Synthesis runs never enter your own OpenCode history.
 
-Cursor synthesis uses read-only ask mode. Each run uses a temporary data directory under `~/.coslash/synthesis`. coSlash removes the directory after the run. Thus, synthesis chats do not enter your Cursor history.
+Cursor synthesis uses read-only ask mode. coSlash also disables file, shell, write, web, and MCP tools for the run. Each run uses a temporary data directory under `~/.coslash/synthesis`. coSlash removes the directory after the run. At startup, coSlash removes abandoned synthesis directories that are more than one hour old. Synthesis chats do not enter your Cursor history.
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 

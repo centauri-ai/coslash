@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -17,6 +18,8 @@ import (
 )
 
 const synthesisSchema = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"keyDecisions":{"type":"array","items":{"type":"string"},"maxItems":5},"nextStep":{"type":"string"}},"required":["goals","outcome","keyDecisions","nextStep"],"additionalProperties":false}`
+
+const cursorPermissions = `{"permissions":{"allow":[],"deny":["Read(*)","Read(**)","Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
 
 type Runner interface {
 	Run(context.Context, string) (session.SessionSynthesis, error)
@@ -75,6 +78,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	var label string
 	var args []string
 	var env []string
+	dir := SynthesisCwd()
 	stdin := input
 	var parse func([]byte) (session.SessionSynthesis, error)
 	var schemaPath string
@@ -154,11 +158,18 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
 			return session.SessionSynthesis{}, fmt.Errorf("create synthesis directory: %w", err)
 		}
-		scratchDir, err := os.MkdirTemp(SynthesisCwd(), ".cursor-*")
+		scratchDir, err := os.MkdirTemp(SynthesisCwd(), cursorScratchPrefix+"*")
 		if err != nil {
 			return session.SessionSynthesis{}, fmt.Errorf("create Cursor scratch directory: %w", err)
 		}
 		defer os.RemoveAll(scratchDir)
+		configDir := filepath.Join(scratchDir, ".cursor")
+		if err := os.Mkdir(configDir, 0o700); err != nil {
+			return session.SessionSynthesis{}, fmt.Errorf("create Cursor config directory: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(configDir, "cli.json"), []byte(cursorPermissions), 0o600); err != nil {
+			return session.SessionSynthesis{}, fmt.Errorf("write Cursor permissions: %w", err)
+		}
 		args = []string{
 			"-p",
 			"--mode", "ask",
@@ -169,6 +180,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		}
 		stdin = systemPrompt + jsonInstruction + "\n\n" + input
 		env = []string{"CURSOR_DATA_DIR=" + scratchDir}
+		dir = scratchDir
 	default:
 		return session.SessionSynthesis{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
 	}
@@ -181,7 +193,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	output, err := executor(runCtx, commandSpec{
 		bin:   r.Bin,
 		args:  args,
-		dir:   SynthesisCwd(),
+		dir:   dir,
 		stdin: stdin,
 		env:   env,
 	})
@@ -248,6 +260,9 @@ func parseResultEnvelope(data []byte) (session.SessionSynthesis, error) {
 	}
 	if envelope.IsError {
 		return session.SessionSynthesis{}, errors.New("CLI returned an error result")
+	}
+	if err := requireSynthesisFields([]byte(stripJSONFence(envelope.Result))); err != nil {
+		return session.SessionSynthesis{}, err
 	}
 	return parseSynthesis([]byte(envelope.Result))
 }
