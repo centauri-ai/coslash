@@ -179,6 +179,11 @@ export function CoslashPage() {
     return retry;
   };
 
+  const handleRemoteConnectionVerified = () => {
+    retrySessions();
+    if (diagnosticsOpen) refreshDiagnostics();
+  };
+
   const saveSettings = async (...args: Parameters<typeof settingsState.save>) => {
     const ok = await settingsState.save(...args);
     if (ok) handleRemoteRetry();
@@ -337,7 +342,7 @@ export function CoslashPage() {
         saveError={settingsState.saveError}
         isSaving={settingsState.isSaving}
         onSave={saveSettings}
-        onRemoteConnectionVerified={handleRemoteRetry}
+        onRemoteConnectionVerified={handleRemoteConnectionVerified}
       />
     </>
   );

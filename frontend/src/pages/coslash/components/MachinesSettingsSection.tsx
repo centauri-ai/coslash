@@ -10,6 +10,7 @@ import {
   setupRemoteHelper,
   startRemoteAuthentication,
   testRemoteAlias,
+  type RemoteAuthAttempt,
 } from '@/pages/coslash/lib/remote-api';
 import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
 
@@ -22,6 +23,7 @@ type SetupStage =
   | 'consent'
   | 'installing'
   | 'ready'
+  | 'connector_error'
   | 'error'
   | 'removing';
 
@@ -56,6 +58,11 @@ function connectorFailureCopy(machine: MachineFact | null) {
   return machine?.helper?.reason?.replaceAll('_', ' ') ?? 'connector setup failed';
 }
 
+function cancellationFailureCopy(error: unknown) {
+  const reason = error instanceof Error ? `: ${error.message}` : '';
+  return `Could not cancel authentication${reason}. The Terminal attempt is still active.`;
+}
+
 export function MachinesSettingsSection({
   remote,
   onAddHost,
@@ -82,7 +89,7 @@ export function MachinesSettingsSection({
   // disables Cancel. Lock competing setup actions locally instead.
   const setupActionsLocked = busy || stage === 'authentication_required' || stage === 'authenticating';
   const setupFailed =
-    stage === 'error' ||
+    stage === 'connector_error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
 
   useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
@@ -137,7 +144,7 @@ export function MachinesSettingsSection({
       const setup = await setupRemoteHelper(sshAlias, 'install');
       setMachine(setup.machine);
       if (setup.error != null) {
-        setStage('error');
+        setStage('connector_error');
         setMessage(`Setup failed: ${setup.error}. Check SSH access and retry.`);
         return;
       }
@@ -145,7 +152,7 @@ export function MachinesSettingsSection({
       setMessage('Connector installed and verified. SSH monitoring is active.');
       onConnectionVerified?.();
     } catch (error: unknown) {
-      setStage('error');
+      setStage('connector_error');
       setMessage(error instanceof Error ? error.message : 'Setup failed. Check SSH access and retry.');
     }
   };
@@ -160,6 +167,15 @@ export function MachinesSettingsSection({
     }
     setStage('consent');
     setMessage('Install a private connector on this host, or skip installation.');
+  };
+
+  const finishReconnect = async (run: AuthenticationRun) => {
+    const refreshed = await retryRemoteRefreshAndWait(run.controller.signal);
+    if (authenticationRun.current !== run || run.cancelled) return;
+    setMachine(refreshed);
+    setStage(refreshed.state === 'ok' ? 'ready' : 'error');
+    setMessage(refreshed.state === 'ok' ? 'SSH monitoring reconnected.' : `${testResultCopy(refreshed)}.`);
+    if (refreshed.state === 'ok') onConnectionVerified?.();
   };
 
   const waitForAuthentication = async (
@@ -188,14 +204,7 @@ export function MachinesSettingsSection({
           return;
         }
         if (reconnect) {
-          const refreshed = await retryRemoteRefreshAndWait(run.controller.signal);
-          if (authenticationRun.current !== run || run.cancelled) return;
-          setMachine(refreshed);
-          setStage(refreshed.state === 'ok' ? 'ready' : 'error');
-          setMessage(
-            refreshed.state === 'ok' ? 'SSH monitoring reconnected.' : `${testResultCopy(refreshed)}.`,
-          );
-          if (refreshed.state === 'ok') onConnectionVerified?.();
+          await finishReconnect(run);
           return;
         }
         const test = await testRemoteAlias(sshAlias);
@@ -238,9 +247,7 @@ export function MachinesSettingsSection({
       }
       if (attempt.state === 'not_required') {
         if (authReconnect) {
-          setStage('ready');
-          setMessage('SSH monitoring reconnected.');
-          onConnectionVerified?.();
+          await finishReconnect(run);
         } else {
           await saveVerifiedHost(authAlias);
         }
@@ -266,17 +273,31 @@ export function MachinesSettingsSection({
       // A stale click can arrive after status reported ready but before React
       // removes the button. Let the successful follow-up continue in that case.
       if (run.attemptID == null) return;
-      const attempt = await cancelRemoteAuthentication(run.attemptID).catch(() => undefined);
+      let attempt: RemoteAuthAttempt;
+      try {
+        attempt = await cancelRemoteAuthentication(run.attemptID);
+      } catch (error: unknown) {
+        if (authenticationRun.current !== run) return;
+        setMessage(cancellationFailureCopy(error));
+        return;
+      }
       if (authenticationRun.current !== run) return;
-      if (attempt?.state === 'ready') {
+      if (attempt.state === 'ready') {
         run.attemptID = null;
         setAuthAttemptID(null);
         return;
       }
+      if (attempt.state !== 'cancelled') return;
       run.cancelled = true;
       run.controller.abort();
     } else if (authAttemptID != null) {
-      await cancelRemoteAuthentication(authAttemptID).catch(() => undefined);
+      try {
+        const attempt = await cancelRemoteAuthentication(authAttemptID);
+        if (attempt.state !== 'cancelled') return;
+      } catch (error: unknown) {
+        setMessage(cancellationFailureCopy(error));
+        return;
+      }
     }
     setAuthAttemptID(null);
     setStage('error');
@@ -445,18 +466,19 @@ export function MachinesSettingsSection({
         )}
         {message != null && (
           <div
-            role={stage === 'error' ? 'alert' : 'status'}
-            className={cn('border-t px-4 py-3 text-xs', {
+            role={stage === 'error' || stage === 'connector_error' ? 'alert' : 'status'}
+            className={cn('flex items-center gap-3 border-t px-4 py-3 text-xs', {
               'bg-muted text-muted-foreground': busy || stage === 'consent',
               'bg-success-bg text-success-fg': stage === 'ready',
-              'bg-destructive/10 text-destructive': stage === 'error',
+              'bg-destructive/10 text-destructive':
+                stage === 'error' || stage === 'connector_error',
             })}
           >
             <span className={cn({ 'animate-pulse': stage === 'installing' || stage === 'authenticating' })}>
               {message}
             </span>
             {stage === 'authentication_required' && (
-              <Button type="button" size="sm" className="ml-3" onClick={() => void authenticateInTerminal()}>
+              <Button type="button" size="sm" onClick={() => void authenticateInTerminal()}>
                 Authenticate in Terminal
               </Button>
             )}
@@ -465,7 +487,6 @@ export function MachinesSettingsSection({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="ml-3"
                 onClick={() => void cancelAuthentication()}
               >
                 Cancel
