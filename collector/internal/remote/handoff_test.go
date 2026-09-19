@@ -6,12 +6,24 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
 const testHandoffName = "0123456789abcdef0123456789abcdef"
+
+func TestHandoffSSHArgsUseParsedDestination(t *testing.T) {
+	args, err := handoffSSHArgs("developer@agent-box", "true", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"-l", "developer", "agent-box", "true"}
+	if got := args[len(args)-len(want):]; !slices.Equal(got, want) {
+		t.Fatalf("destination arguments = %q, want %q", got, want)
+	}
+}
 
 func TestStageHandoffTransfersBoundaryPayloadOutsideCommandArguments(t *testing.T) {
 	home := t.TempDir()

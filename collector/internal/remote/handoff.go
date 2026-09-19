@@ -126,20 +126,21 @@ func handoffLimits(options OpenOptions) Limits {
 }
 
 func handoffSSHArgs(alias, command string, connectTimeoutSeconds int) ([]string, error) {
-	if !aliasPattern.MatchString(alias) {
-		return nil, ErrInvalidAlias
+	destination, err := parseDestination(alias)
+	if err != nil {
+		return nil, err
 	}
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
-	return []string{
+	args := []string{
 		"-T",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
 		"-o", "ControlMaster=auto",
 		"-o", "ControlPath=" + controlSocketPath(),
 		"-o", "ControlPersist=" + defaultControlPersist,
-		alias,
-		command,
-	}, nil
+	}
+	args = append(args, destination.Args()...)
+	return append(args, command), nil
 }
