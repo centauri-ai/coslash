@@ -7,11 +7,14 @@ Start with `coslash doctor`. It checks session sources, agent CLIs, and storage.
 Create at least one local Claude Code or Codex session, then reload. Run `coslash doctor` for unreadable or missing sources. In the UI, select **All** vendors and time windows and clear search.
 
 For a remote machine, choose **Settings → Machines → Add remote host**. coSlash
-uses the Mac's existing OpenSSH configuration, so first run `ssh <alias>` in
-Terminal if the host key or authentication still needs confirmation. The Linux
-SSH server must enable SFTP and the SSH user must be able to read the
-Claude/Codex paths listed in [Data and privacy](data-and-privacy.md). Setup
-checks the connection, installs the digest-verified helper, and verifies it.
+uses the Mac's existing OpenSSH configuration or a simple `user@host`
+destination. If SSH needs authentication or host-key confirmation, choose
+**Authenticate in Terminal** and complete the native prompt there; coSlash never
+receives the credential. A changed host key requires verification outside the
+authentication flow. The Linux SSH server must enable SFTP and the SSH user
+must be able to read the Claude/Codex paths listed in [Data and
+privacy](data-and-privacy.md). Setup checks the connection, installs the
+digest-verified helper, and verifies it.
 
 If setup fails, **Retry setup** tries again. A host that does not answer SSH is
 shown offline after a short check and retried in the background. coSlash uses

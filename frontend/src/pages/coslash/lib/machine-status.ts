@@ -20,9 +20,14 @@ export function machineRetryable(machine: MachineFact): boolean {
   return machineTone(machine) === 'stale';
 }
 
-/** Only a failed connector needs the consented setup flow; a failed credential retries. */
+/** Setup and credential failures require the settings flow; offline hosts can retry directly. */
 export function needsSetup(machine: MachineFact): boolean {
-  return connectorFailed(machine);
+  return (
+    connectorFailed(machine) ||
+    machine.actionRequired === 'authenticate' ||
+    machine.reason === 'authentication_failed' ||
+    machine.reason === 'host_key_confirmation_required'
+  );
 }
 
 function isChecking(machine: MachineFact): boolean {
@@ -44,7 +49,11 @@ function connectorFailureCopy(machine: MachineFact): string {
 }
 
 function needsAttention(machine: MachineFact): boolean {
-  return machine.reason === 'authentication_failed' || machine.reason === 'host_key_failed';
+  return (
+    machine.reason === 'authentication_failed' ||
+    machine.reason === 'host_key_confirmation_required' ||
+    machine.reason === 'host_key_changed'
+  );
 }
 
 export function machineTone(machine: MachineFact): MachineTone {
@@ -68,6 +77,15 @@ export function machineStatusText(machine: MachineFact): string {
   if (machine.state === 'disabled') return 'Remote collection is disabled.';
   if (connectorFailed(machine)) {
     return `Setup failed: ${connectorFailureCopy(machine)}. Open Settings to retry.`;
+  }
+  if (machine.reason === 'authentication_failed') {
+    return `Authentication required. Saved history from ${savedHistory}. Open Settings to reconnect.`;
+  }
+  if (machine.reason === 'host_key_confirmation_required') {
+    return `SSH host key confirmation required. Open Settings to review and confirm it. Saved history from ${savedHistory}.`;
+  }
+  if (machine.reason === 'host_key_changed') {
+    return `SSH host key changed. Verify the host identity before reconnecting. Saved history from ${savedHistory}.`;
   }
   if (machine.state === 'stale') {
     return `Offline. Last checked ${lastChecked}. Saved history from ${savedHistory}.`;
