@@ -152,9 +152,7 @@ export function FullSessionShareDialog({
         } catch (error) {
           if (generation !== attemptGeneration.current) return;
           setResult(next);
-          setProblem(
-            error instanceof Error ? error.message : 'The Hub destination could not be refreshed.',
-          );
+          setProblem(error instanceof Error ? error.message : 'The Hub destination could not be refreshed.');
           setPhase('result');
           return;
         }
