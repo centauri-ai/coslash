@@ -91,6 +91,17 @@ func writeCodexFixture(fs *fakeFS, id, parentID string, modTime time.Time) strin
 	return filePath
 }
 
+func writeForkedCodexFixture(fs *fakeFS, rootID, threadID, historyBaseID string, modTime time.Time) string {
+	filePath := path.Join(fakeHome, ".codex/sessions/2026/08/18", "rollout-2026-08-18T10-00-00-"+rootID+"_"+threadID+".jsonl")
+	content := fmt.Sprintf(
+		`{"timestamp":"2026-08-18T10:00:00.000Z","type":"session_meta","payload":{"id":%q,"session_id":%q,"cwd":"/test/project","history_base":{"thread_id":%q,"end_ordinal_exclusive":1,"end_byte_offset":1}}}
+{"timestamp":"2026-08-18T10:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"do forked work"}}
+{"timestamp":"2026-08-18T10:00:02.000Z","type":"event_msg","payload":{"type":"task_started"}}
+`, rootID, rootID, historyBaseID)
+	fs.writeFile(filePath, content, modTime)
+	return filePath
+}
+
 func completeCodexFixture(id string) string {
 	return fmt.Sprintf(
 		`{"timestamp":"2026-08-18T10:00:00.000Z","type":"session_meta","payload":{"id":%q,"session_id":%q,"cwd":"/test/project","git":{"branch":"main"}}}
@@ -154,6 +165,41 @@ func TestCodexSessionMetaOnlyRootIsAbsentFromCompleteInventory(t *testing.T) {
 		if record.Type == remoteprotocol.RecordChanged || record.Type == remoteprotocol.RecordSkipped || len(record.Inventory) != 0 {
 			t.Fatalf("helper published meta-only root: %#v", record)
 		}
+	}
+}
+
+func TestCodexForkedRolloutCollectsAsDistinctFamily(t *testing.T) {
+	rootID := "11111111-2222-3333-4444-555555555555"
+	threadID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	fake := newFakeFS()
+	writeCodexFixture(fake, rootID, "", time.Unix(1_000, 0))
+	writeForkedCodexFixture(fake, rootID, threadID, rootID, time.Unix(2_000, 0))
+
+	snapshot, sessions, failures, err := collectIncremental(
+		newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), CachedSnapshotV2{SourceID: "r_0123456789abcdef"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failures) != 0 || !snapshot.RequestComplete {
+		t.Fatalf("forked collection incomplete: failures=%v snapshot=%#v", failures, snapshot)
+	}
+	if len(snapshot.Families) != 2 {
+		t.Fatalf("forked families = %#v, want distinct root and fork families", snapshot.Families)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("top-level sessions = %#v, want root and fork", sessions)
+	}
+	parents := map[string]string{}
+	familyIDs := map[string]bool{}
+	for _, family := range snapshot.Families {
+		familyIDs[family.FamilyID] = true
+		for _, item := range family.Facts.Sessions {
+			parents[item.ID] = item.ParentID
+		}
+	}
+	if !familyIDs[rootID] || !familyIDs[threadID] || len(parents) != 2 || parents[rootID] != "" || parents[threadID] != "" {
+		t.Fatalf("collected thread parentage = %#v", parents)
 	}
 }
 

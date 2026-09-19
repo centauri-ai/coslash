@@ -339,6 +339,56 @@ func TestCollectWithUnknownScanSkippedFamilyWithholdsCompletion(t *testing.T) {
 	}
 }
 
+func TestCollectForkedRolloutReportsCompleteDistinctFamilies(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".codex", "sessions")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rootID := "11111111-2222-3333-4444-555555555555"
+	threadID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	rootFile := filepath.Join(root, "rollout-2026-07-10T14-11-18-"+rootID+".jsonl")
+	forkFile := filepath.Join(root, "rollout-2026-07-10T14-12-18-"+rootID+"_"+threadID+".jsonl")
+	rootContent := `{"timestamp":"2026-07-10T14:11:18Z","type":"session_meta","payload":{"id":"` + rootID + `","session_id":"` + rootID + `","cwd":"/test/project"}}` + "\n" +
+		`{"timestamp":"2026-07-10T14:11:19Z","type":"event_msg","payload":{"type":"user_message","message":"root work"}}` + "\n" +
+		`{"timestamp":"2026-07-10T14:11:20Z","type":"event_msg","payload":{"type":"task_started"}}` + "\n"
+	forkContent := `{"timestamp":"2026-07-10T14:12:18Z","type":"session_meta","payload":{"id":"` + rootID + `","session_id":"` + rootID + `","cwd":"/test/project","history_base":{"thread_id":"` + rootID + `","end_ordinal_exclusive":1,"end_byte_offset":1}}}` + "\n" +
+		`{"timestamp":"2026-07-10T14:12:19Z","type":"event_msg","payload":{"type":"user_message","message":"fork work"}}` + "\n" +
+		`{"timestamp":"2026-07-10T14:12:20Z","type":"event_msg","payload":{"type":"task_started"}}` + "\n"
+	for file, content := range map[string]string{rootFile: rootContent, forkFile: forkContent} {
+		if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	request := validRequest()
+	request.SourceID = "r_0123456789abcdef"
+	var output bytes.Buffer
+	outcome, err := Collect(context.Background(), request, Options{Home: home}, &output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := map[string]bool{}
+	for _, line := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n")) {
+		var record remoteprotocol.Record
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.Type == remoteprotocol.RecordChanged {
+			changed[record.FamilyID] = true
+			if len(record.FullRecords) != 1 || record.FullRecords[0].Record.SessionID != record.FamilyID {
+				t.Fatalf("changed family %q has mismatched full records: %#v", record.FamilyID, record.FullRecords)
+			}
+		}
+		if record.Type == remoteprotocol.RecordSkipped {
+			t.Fatalf("forked rollout was skipped: %#v", record)
+		}
+	}
+	if !outcome.RequestComplete || len(changed) != 2 || !changed[rootID] || !changed[threadID] {
+		t.Fatalf("forked collection incomplete: outcome=%#v changed=%#v output=%s", outcome, changed, output.String())
+	}
+}
+
 func TestPageFamiliesWrapsAfterCursor(t *testing.T) {
 	families := []*family{{id: "a"}, {id: "b"}, {id: "c"}, {id: "d"}}
 	got := pageFamilies(families, "b")

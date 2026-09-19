@@ -10,12 +10,23 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// rolloutID matches the session UUID embedded in a rollout filename, e.g.
+// rolloutID matches UUIDs embedded in a rollout filename, e.g.
 // rollout-2026-07-10T14-11-18-019f4dde-db5b-7100-bdc0-09b5aaaac56f.jsonl
 var rolloutID = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
 func SessionIDFromRollout(path string) string {
-	return rolloutID.FindString(filepath.Base(path))
+	_, threadID := rolloutIDsFromPath(path)
+	return threadID
+}
+
+// Forked rollouts use <root-session-id>_<thread-id>; session_meta keeps the
+// root ID while history_base identifies the source history.
+func rolloutIDsFromPath(path string) (rootID, threadID string) {
+	ids := rolloutID.FindAllString(filepath.Base(path), -1)
+	if len(ids) == 0 {
+		return "", ""
+	}
+	return ids[0], ids[len(ids)-1]
 }
 
 func readHeader(path string) (string, string, error) {
@@ -32,20 +43,25 @@ func readHeaderSource(source vendors.ReadSource, path string) (string, string, e
 	if err := json.NewDecoder(file).Decode(&row); err != nil {
 		return "", "", fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
-	id := SessionIDFromRollout(path)
+	rootID, threadID := rolloutIDsFromPath(path)
 	if row.Type != "session_meta" {
 		return "", "", fmt.Errorf("%w: first row type %q is not session_meta", vendors.ErrInvalidData, row.Type)
 	}
-	if id == "" {
+	if threadID == "" {
 		return "", "", fmt.Errorf("%w: rollout filename has no session ID", vendors.ErrInvalidData)
 	}
-	if row.Payload.ID != id {
-		return "", "", fmt.Errorf(
-			"%w: header session ID %q does not match filename ID %q",
-			vendors.ErrInvalidData, row.Payload.ID, id,
-		)
+	if row.Payload.ID == threadID {
+		return threadID, row.Payload.ParentThreadID, nil
 	}
-	return id, row.Payload.ParentThreadID, nil
+	if rootID != threadID && row.Payload.ID == rootID &&
+		(row.Payload.SessionID == "" || row.Payload.SessionID == rootID) &&
+		row.Payload.HistoryBase.ThreadID != "" {
+		return threadID, row.Payload.ParentThreadID, nil
+	}
+	return "", "", fmt.Errorf(
+		"%w: header session ID %q does not identify filename thread ID %q",
+		vendors.ErrInvalidData, row.Payload.ID, threadID,
+	)
 }
 
 func IsRootRollout(path string) (bool, error) {
