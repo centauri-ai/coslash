@@ -1,8 +1,18 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   ChevronRight,
   Folder,
   FolderGit2,
@@ -20,6 +30,13 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -28,13 +45,12 @@ import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTimeAgo } from '@/pages/coslash/lib/format';
 import {
-  MACHINE_TONE_COPY,
+  MACHINE_TONE_DOT,
   machineRetryable,
   machineStatusText,
   machineTone,
   needsBanner,
   needsSetup,
-  type MachineTone,
 } from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { buildReviewIndex, type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
@@ -52,6 +68,13 @@ import {
   sumKnown,
   type Session,
 } from '@/pages/coslash/lib/session';
+import {
+  BOARD_GROUP_BY_OPTIONS,
+  BOARD_ROW_GROUP_BY_OPTIONS,
+  boardGroupByLabel,
+  type BoardGroupBy,
+  type BoardRowGroupBy,
+} from '@/pages/coslash/lib/session-grouping';
 import { ALL_REPOSITORIES, filterSessionLibrary } from '@/pages/coslash/lib/session-library';
 import {
   loadSessionViewPreferences,
@@ -130,7 +153,8 @@ const styles = {
     'flex h-12 w-full min-w-0 items-center gap-1.5 rounded-[9px] border border-coslash-line bg-coslash-surface px-3.5 focus-within:border-coslash-accent focus-within:shadow-[0_0_0_3px_var(--coslash-tint)]',
   chip: 'inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-coslash-tint-line bg-coslash-tint pr-1 pl-2 text-meta font-[550] whitespace-nowrap text-coslash-accent-ink',
   segmented: 'inline-flex rounded-[10px] bg-coslash-soft p-0.5',
-  tableWrap: 'min-h-[180px] overflow-x-auto rounded-[10px] border border-coslash-line bg-coslash-surface',
+  tableWrap:
+    'min-h-[180px] max-h-[calc(100svh-240px)] overflow-auto rounded-[10px] border border-coslash-line bg-coslash-surface',
   head: 'sticky top-0 z-12 border-b border-coslash-line bg-coslash-surface text-left text-meta font-[650] tracking-[.07em] text-coslash-muted uppercase',
   headButton:
     'flex min-h-[34px] w-full cursor-pointer items-center gap-[5px] px-2.5 py-[9px] text-left font-[inherit] tracking-[inherit] uppercase hover:bg-coslash-soft hover:text-coslash-ink [&>svg]:size-3',
@@ -144,15 +168,6 @@ function sessionStatusGroup(session: Session): SessionStatusGroup {
   if (status === 'busy') return 'running';
   return 'idle';
 }
-
-const TONE_DOT: Record<MachineTone, string> = {
-  checking: 'bg-coslash-accent animate-pulse',
-  failed: 'bg-coslash-clay-dot',
-  disabled: 'bg-coslash-neutral-dot',
-  stale: 'bg-coslash-amber-dot',
-  limited: 'bg-coslash-amber-dot',
-  ok: 'bg-coslash-green-dot',
-};
 
 function statusDot(status: SessionStatusGroup): string {
   if (status === 'needs') return 'bg-coslash-amber-dot';
@@ -313,26 +328,29 @@ function MachineDot({
 }) {
   const tone = machineTone(machine);
   const retryable = machineRetryable(machine) && !retrying;
-  const hint = retrying ? ' Retrying…' : retryable ? ' Retry the connection.' : '';
   const status = machineStatusText(machine);
-  const dot = cn('size-[7px] shrink-0 rounded-full', TONE_DOT[tone]);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        {retryable ? (
-          <button
-            type="button"
-            className={cn(dot, 'cursor-pointer')}
-            aria-label={`${status} Retry.`}
-            onClick={onRetry}
-          />
-        ) : (
-          <span className={dot} role="img" aria-label={status} />
-        )}
+        <span
+          className={cn('size-[7px] shrink-0 rounded-full', MACHINE_TONE_DOT[tone])}
+          role="img"
+          aria-label={status}
+        />
       </TooltipTrigger>
       {/* Portaled outside the shell, so the tokens have to be re-scoped here. */}
-      <TooltipContent className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line [&_svg]:bg-coslash-surface [&_svg]:fill-coslash-surface border">
-        {`${MACHINE_TONE_COPY[tone]}${hint}`}
+      <TooltipContent className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line [&_svg]:bg-coslash-surface [&_svg]:fill-coslash-surface flex-col items-start gap-1 border">
+        <span>{status}</span>
+        {retrying && <span className="text-coslash-muted">Retrying…</span>}
+        {retryable && (
+          <button
+            type="button"
+            className="cursor-pointer font-semibold underline underline-offset-2"
+            onClick={onRetry}
+          >
+            Retry the connection
+          </button>
+        )}
       </TooltipContent>
     </Tooltip>
   );
@@ -740,6 +758,43 @@ function SessionRow({
   );
 }
 
+function BoardGroupByMenu<T extends BoardRowGroupBy>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="border-coslash-line bg-coslash-surface text-coslash-muted hover:bg-coslash-soft text-meta flex min-h-8 cursor-pointer items-center gap-1.5 rounded-[9px] border px-2.5 whitespace-nowrap [&>svg]:size-3"
+          aria-label={`${label} grouped by ${boardGroupByLabel(value)}`}
+        >
+          {label}
+          <span className="text-coslash-ink font-[550]">{boardGroupByLabel(value)}</span>
+          <ChevronDown aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as T)}>
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value} className="text-meta">
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function SessionListView({
   sections,
   groups,
@@ -769,9 +824,24 @@ function SessionListView({
   onToggleGroup: (id: string) => void;
   review: SessionReviewProps;
 }) {
+  const headRef = useRef<HTMLTableSectionElement>(null);
+  // Section bands pin directly under the header row, whose height changes when its labels wrap.
+  const [headHeight, setHeadHeight] = useState(34);
+
+  useEffect(() => {
+    const head = headRef.current;
+    if (head == null) return;
+    const observer = new ResizeObserver(() => setHeadHeight(head.getBoundingClientRect().height));
+    observer.observe(head);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <table className="max-compact:table-auto w-full table-fixed border-collapse">
-      <thead>
+    <table
+      className="max-compact:table-auto w-full table-fixed border-collapse"
+      style={{ '--coslash-head-height': `${headHeight}px` } as CSSProperties}
+    >
+      <thead ref={headRef}>
         <tr>
           <SortHeader label="Session" sortKey="title" sort={sort} onSort={onSort} className="w-[300px]" />
           <th className={cn(styles.head, 'max-compact:hidden w-[204px] px-2.5 py-[9px]')}>Where</th>
@@ -812,7 +882,7 @@ function SessionListView({
             <tr>
               <th
                 colSpan={6}
-                className="border-coslash-line-soft bg-coslash-soft sticky top-[34px] z-11 border-y text-left"
+                className="border-coslash-line-soft bg-coslash-soft sticky top-[var(--coslash-head-height)] z-11 border-y text-left"
               >
                 <button
                   type="button"
@@ -1273,6 +1343,22 @@ export function CoslashLayout({
                       </button>
                     ))}
                   </div>
+                  {preferences.view === 'board' && (
+                    <>
+                      <BoardGroupByMenu<BoardGroupBy>
+                        label="Columns"
+                        value={preferences.boardColumns}
+                        options={BOARD_GROUP_BY_OPTIONS}
+                        onChange={(boardColumns) => patchPreferences({ boardColumns })}
+                      />
+                      <BoardGroupByMenu<BoardRowGroupBy>
+                        label="Rows"
+                        value={preferences.boardRows}
+                        options={BOARD_ROW_GROUP_BY_OPTIONS}
+                        onChange={(boardRows) => patchPreferences({ boardRows })}
+                      />
+                    </>
+                  )}
                   {preferences.view === 'list' && (
                     <button
                       type="button"
@@ -1333,18 +1419,19 @@ export function CoslashLayout({
                   ))
                 ) : preferences.view === 'board' ? (
                   <Suspense fallback={<div className={styles.empty}>Loading board…</div>}>
-                    <div className="min-w-[1120px]">
-                      <SessionBoard
-                        sessions={visibleSessions}
-                        onSelectSession={onSelectSession}
-                        showMachineBadge={machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID)}
-                        review={{
-                          index: reviewIndex,
-                          reviewerOptions,
-                          onStarted: onReviewStarted,
-                        }}
-                      />
-                    </div>
+                    <SessionBoard
+                      sessions={visibleSessions}
+                      columnGroupBy={preferences.boardColumns}
+                      rowGroupBy={preferences.boardRows}
+                      selectedSessionKey={selectedSessionKey}
+                      onSelectSession={onSelectSession}
+                      review={{
+                        index: reviewIndex,
+                        reviewerOptions,
+                        onStarted: onReviewStarted,
+                        onSelectRelated: onSelectSession,
+                      }}
+                    />
                   </Suspense>
                 ) : (
                   <SessionListView

@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import {
+  MACHINE_TONE_DOT,
+  machineRetryable,
+  machineStatusText,
+  machineTone,
+} from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { remoteStatus, setupRemoteHelper, testRemoteAlias } from '@/pages/coslash/lib/remote-api';
 import type { RemoteHostSettings } from '@/pages/coslash/lib/settings';
@@ -23,12 +29,16 @@ export function MachinesSettingsSection({
   onRemoveHost,
   onConnectionVerified,
   onBusyChange,
+  onRetry,
+  retrying = false,
 }: {
   remote: RemoteHostSettings | null | undefined;
   onAddHost: (sshAlias: string) => Promise<boolean>;
   onRemoveHost: () => Promise<boolean>;
   onConnectionVerified?: () => void;
   onBusyChange: (busy: boolean) => void;
+  onRetry?: () => void;
+  retrying?: boolean;
 }) {
   const [alias, setAlias] = useState('');
   const [stage, setStage] = useState<SetupStage>('idle');
@@ -42,6 +52,9 @@ export function MachinesSettingsSection({
     (stage === 'idle' &&
       currentMachine?.helper?.compatible === false &&
       currentMachine.helper.reason != null);
+
+  const showRetry =
+    !setupFailed && onRetry != null && currentMachine != null && machineRetryable(currentMachine);
 
   useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
   useEffect(() => () => onBusyChange(false), [onBusyChange]);
@@ -176,18 +189,36 @@ export function MachinesSettingsSection({
         {remote ? (
           <div className="flex items-center justify-between gap-4 p-4">
             <div className="flex min-w-0 flex-col gap-1">
-              <div className="text-sm font-semibold">{remote.sshAlias} · SSH</div>
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'coslash-shell size-[7px] shrink-0 rounded-full',
+                    MACHINE_TONE_DOT[currentMachine == null ? 'checking' : machineTone(currentMachine)],
+                  )}
+                  aria-hidden="true"
+                />
+                <span className="text-sm font-semibold">{remote.sshAlias} · SSH</span>
+              </div>
               <div className="text-muted-foreground text-xs">
                 {setupFailed
                   ? 'Setup failed'
-                  : currentMachine?.refreshing || currentMachine?.state === 'connecting'
-                    ? 'Checking'
-                    : currentMachine?.state === 'stale' || currentMachine?.state === 'error'
-                      ? 'Offline'
-                      : currentMachine?.state === 'ok' && currentMachine.sessionCount === 0
-                        ? 'Connected · no recent agent sessions found'
-                        : 'Connected'}
+                  : currentMachine == null
+                    ? 'Checking the connection.'
+                    : machineStatusText(currentMachine)}
               </div>
+              {retrying ? (
+                <div className="text-muted-foreground text-xs">Retrying…</div>
+              ) : (
+                showRetry && (
+                  <button
+                    type="button"
+                    className="cursor-pointer text-left text-xs font-semibold underline underline-offset-2"
+                    onClick={onRetry}
+                  >
+                    Retry the connection
+                  </button>
+                )
+              )}
             </div>
             <div className="flex shrink-0 gap-2">
               {stage === 'consent' ? (
