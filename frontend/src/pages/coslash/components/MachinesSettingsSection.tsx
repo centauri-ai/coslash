@@ -421,10 +421,10 @@ export function MachinesSettingsSection({
               {machine?.actionRequired === 'authenticate' &&
                 stage !== 'authentication_required' &&
                 stage !== 'authenticating' ? (
-                <Button type="button" size="sm" disabled={busy} onClick={reconnect}>
-                  Authenticate in Terminal
-                </Button>
-              ) : null}
+                  <Button type="button" size="sm" disabled={busy} onClick={reconnect}>
+                    Authenticate in Terminal
+                  </Button>
+                ) : null}
               <Button
                 type="button"
                 variant="outline"
