@@ -87,12 +87,10 @@ export function MachinesSettingsSection({
   const busy = stage === 'testing' || stage === 'saving' || stage === 'installing' || stage === 'removing';
   // Authentication must not use the dialog-wide busy state because that
   // disables Cancel. Lock competing setup actions locally instead.
-  const setupActionsLocked = busy || stage === 'authentication_required' || stage === 'authenticating';
+  const authenticationPending = stage === 'authentication_required' || stage === 'authenticating';
+  const setupActionsLocked = busy || authenticationPending;
   const messageIsError = stage === 'error' || stage === 'connector_error';
-  const canAuthenticate =
-    machine?.actionRequired === 'authenticate' &&
-    stage !== 'authentication_required' &&
-    stage !== 'authenticating';
+  const canAuthenticate = machine?.actionRequired === 'authenticate' && !authenticationPending;
   const setupFailed =
     stage === 'connector_error' ||
     (stage === 'idle' && machine?.helper?.compatible === false && machine.helper.reason != null);
