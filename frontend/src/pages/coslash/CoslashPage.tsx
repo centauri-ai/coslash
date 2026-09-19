@@ -9,10 +9,14 @@ import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboardin
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
-import { HUB_SHARE_VERSION, type DestinationResult } from '@/pages/coslash/features/sharing/model';
+import {
+  HUB_SHARE_VERSION,
+  type DestinationResult,
+  type ShareWindow,
+} from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
-import { useSessions } from '@/pages/coslash/hooks/use-sessions';
+import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
@@ -90,13 +94,14 @@ export function CoslashPage() {
   const apiWindow = apiWindowForRange(range);
   const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
     useSessions({
-      localWindow: shareEnabled ? 'all' : apiWindow,
+      localWindow: shareFixtureEnabled ? 'all' : apiWindow,
       remoteWindow: apiWindow,
     });
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareWindow, setShareWindow] = useState<ShareWindow>('7d');
   const [remoteRetryInFlight, setRemoteRetryInFlight] = useState(false);
   const diagnosticsEnabled = diagnosticsOpen || (!isLoading && loadError == null && sessions.length === 0);
   const {
@@ -109,18 +114,24 @@ export function CoslashPage() {
   const settingsState = useSettings();
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
+  const shareCandidateResult = useShareCandidates({
+    enabled: shareDialogOpen && !shareFixtureEnabled && shareDestination?.state === 'ready',
+    window: shareWindow,
+  });
   const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
   const selectedSession =
     librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
   const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
   const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
   const shareCandidates = useMemo(() => {
-    const eligible = eligibleSessionCandidates(sessions);
+    const eligible = eligibleSessionCandidates(
+      shareFixtureEnabled ? sessions : shareCandidateResult.sessions,
+    );
     return eligible.map((session, index) => ({
       session,
       previouslyShared: shareFixtureEnabled && index === 0,
     }));
-  }, [sessions, shareFixtureEnabled]);
+  }, [sessions, shareCandidateResult.sessions, shareFixtureEnabled]);
   const synthesisSettingsKey = settingsState.response
     ? [
         settingsState.response.persisted,
@@ -295,14 +306,22 @@ export function CoslashPage() {
       {shareEnabled && shareDestination && (
         <ShareToHubDialog
           open={shareDialogOpen}
-          onOpenChange={setShareDialogOpen}
+          onOpenChange={(open) => {
+            setShareDialogOpen(open);
+            if (!open) setShareWindow('7d');
+          }}
           candidates={shareCandidates}
+          candidatesLoading={!shareFixtureEnabled && shareCandidateResult.isLoading}
+          candidatesError={shareFixtureEnabled ? null : shareCandidateResult.loadError}
+          window={shareWindow}
+          onWindowChange={setShareWindow}
           destinationResult={shareDestination}
           fixtureMode={shareFixtureEnabled}
           fixtureOutcome={shareFixtureOutcome}
           onDestinationRefresh={refreshHubDestination}
           onOpenSettings={() => {
             setShareDialogOpen(false);
+            setShareWindow('7d');
             setSettingsDialogMode('full-settings');
           }}
         />

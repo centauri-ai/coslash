@@ -3,11 +3,15 @@ import {
   decodeSessionsResponse,
   diffRequestPath,
   exactDiffFailure,
+  remoteRefreshInProgress,
   sessionDetailRequestPath,
   sessionsRequestPath,
+  shareCandidatesReducer,
+  shareCandidatesRequestPath,
   synthesisRequestPath,
 } from '@/pages/coslash/hooks/use-sessions';
 import { LOCAL_SOURCE_ID, type Session } from '@/pages/coslash/lib/session';
+import { timeWindowStart } from '@/pages/coslash/lib/time-window';
 
 function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
   const local = sourceId === LOCAL_SOURCE_ID;
@@ -145,6 +149,67 @@ describe('sessionsRequestPath', () => {
     expect(sessionsRequestPath({ localSince: 10, remoteSince: 10 })).toBe(
       '/api/sessions?sourceAware=1&since=10&remoteSince=10',
     );
+  });
+});
+
+describe('shareCandidatesRequestPath', () => {
+  const now = new Date('2026-09-18T12:00:00-07:00');
+
+  it('does not request candidates while Share is closed', () => {
+    expect(shareCandidatesRequestPath({ enabled: false, window: '7d', now })).toBeNull();
+  });
+
+  it('requests seven days when Share first opens', () => {
+    const since = timeWindowStart('7d', now);
+    expect(shareCandidatesRequestPath({ enabled: true, window: '7d', now })).toBe(
+      `/api/sessions?sourceAware=1&since=${since}&remoteSince=${since}`,
+    );
+  });
+
+  it('widens only when the selected Share window widens', () => {
+    const since = timeWindowStart('30d', now);
+    expect(shareCandidatesRequestPath({ enabled: true, window: '30d', now })).toBe(
+      `/api/sessions?sourceAware=1&since=${since}&remoteSince=${since}`,
+    );
+    expect(shareCandidatesRequestPath({ enabled: true, window: 'all', now })).toBe(
+      '/api/sessions?sourceAware=1',
+    );
+  });
+});
+
+describe('shareCandidatesReducer', () => {
+  it('marks a same-window reopen as loading while retaining prior candidates', () => {
+    const sessions = [sampleSession('existing')];
+    const loaded = {
+      window: '7d' as const,
+      sessions,
+      isLoading: false,
+      loadError: null,
+    };
+
+    expect(shareCandidatesReducer(loaded, { type: 'start', window: '7d' })).toEqual({
+      window: '7d',
+      sessions,
+      isLoading: true,
+      loadError: null,
+    });
+  });
+});
+
+describe('remoteRefreshInProgress', () => {
+  it('recognizes a broader-history refresh before Share accepts the cached response', () => {
+    expect(
+      remoteRefreshInProgress([
+        {
+          sourceId: 'r_0123456789abcdef',
+          label: 'SSH workspace',
+          state: 'connecting',
+          complete: false,
+          reason: 'broader_history',
+          refreshing: true,
+        },
+      ]),
+    ).toBe(true);
   });
 });
 
