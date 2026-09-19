@@ -221,7 +221,14 @@ func NewManager(options Options) *Manager {
 
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	aliasesToClose := make([]string, 0, 2)
+	defer func() {
+		manager.mu.Unlock()
+		for _, alias := range aliasesToClose {
+			CancelAuthAttemptsForDestination(alias)
+			exitControlMasterBestEffort(alias)
+		}
+	}()
 	if manager.helperSetup && remoteTargetChanged(manager.cfg, remote) {
 		return ErrHelperSetupInProgress
 	}
@@ -249,7 +256,11 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		return err
 	}
 	if remote == nil {
-		return manager.removeLocked()
+		alias, err := manager.removeLocked()
+		if alias != "" {
+			aliasesToClose = append(aliasesToClose, alias)
+		}
+		return err
 	}
 	ownership, owned, err := manager.cache.LoadHelperOwnership(remote.ID)
 	if errors.Is(err, ErrHelperOwnershipCorrupt) {
@@ -260,14 +271,18 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		return err
 	}
 	if manager.cfg != nil && manager.cfg.ID != remote.ID {
-		if err := manager.removeLocked(); err != nil {
+		alias, err := manager.removeLocked()
+		if alias != "" {
+			aliasesToClose = append(aliasesToClose, alias)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	previous := manager.cfg
 	aliasChanged := previous != nil && previous.SSHAlias != remote.SSHAlias
 	if aliasChanged {
-		exitControlMasterBestEffort(previous.SSHAlias)
+		aliasesToClose = append(aliasesToClose, previous.SSHAlias)
 		if err := manager.cache.RemoveSource(remote.ID); err != nil {
 			return err
 		}
@@ -290,7 +305,7 @@ func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 		manager.complete = true
 		manager.errorCopy = ""
 		manager.transport = TransportSFTP
-		exitControlMasterBestEffort(remote.SSHAlias)
+		aliasesToClose = append(aliasesToClose, remote.SSHAlias)
 		return nil
 	}
 	restart := previous == nil || !previous.Enabled || previous.SSHAlias != remote.SSHAlias
@@ -410,6 +425,9 @@ func (manager *Manager) Retry() (Health, bool) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.cfg == nil || !manager.cfg.Enabled {
+		return manager.healthLocked(manager.lastRequestedMs), false
+	}
+	if AuthAttemptActive(manager.cfg.SSHAlias) {
 		return manager.healthLocked(manager.lastRequestedMs), false
 	}
 	if manager.refreshing || (!manager.lastManualRetryAt.IsZero() &&
@@ -651,12 +669,13 @@ func (manager *Manager) Shutdown() {
 	manager.cancelLifeLocked()
 	manager.refreshing = false
 	manager.mu.Unlock()
+	CancelAuthAttemptsForDestination(alias)
 	exitControlMasterBestEffort(alias)
 }
 
-func (manager *Manager) removeLocked() error {
+func (manager *Manager) removeLocked() (string, error) {
 	if manager.helperVersion != "" {
-		return ErrHelperOwnershipConflict
+		return "", ErrHelperOwnershipConflict
 	}
 	manager.cancelLifeLocked()
 	var sourceID string
@@ -687,11 +706,10 @@ func (manager *Manager) removeLocked() error {
 	manager.helperOwnershipCorrupt = false
 	manager.helperProbe = helperProbeFallback
 	manager.metrics = CollectionMetrics{}
-	exitControlMasterBestEffort(alias)
 	if sourceID != "" {
-		return manager.cache.RemoveSource(sourceID)
+		return alias, manager.cache.RemoveSource(sourceID)
 	}
-	return nil
+	return alias, nil
 }
 
 func (manager *Manager) loadCacheLocked() error {
@@ -750,6 +768,9 @@ func (manager *Manager) cancelLifeLocked() {
 
 func (manager *Manager) maybeStartRefreshLocked(remoteSinceMs int64, manual bool) {
 	if manager.refreshing || manager.cfg == nil || !manager.cfg.Enabled || manager.lifeCtx == nil {
+		return
+	}
+	if AuthAttemptActive(manager.cfg.SSHAlias) {
 		return
 	}
 	if !manual && !manager.nextRetryAt.IsZero() && manager.now().Before(manager.nextRetryAt) {
@@ -1167,14 +1188,18 @@ func classifyError(err error) Reason {
 		return ReasonInvalidData
 	case errors.Is(err, vendors.ErrInvalidData):
 		return ReasonInvalidData
+	case errors.Is(err, ErrAuthAttemptActive):
+		return ReasonAuthentication
 	}
 	message := strings.ToLower(err.Error() + " " + sshErrorStderr(err))
-	if strings.Contains(message, "host key verification failed") ||
-		strings.Contains(message, "remote host identification has changed") ||
-		strings.Contains(message, "no host key is known") {
-		return ReasonHostKey
+	if strings.Contains(message, "remote host identification has changed") ||
+		(strings.Contains(message, "offending ") && strings.Contains(message, " key") && strings.Contains(message, "known_hosts")) {
+		return ReasonHostKeyChanged
 	}
-	if strings.Contains(message, "permission denied (publickey") ||
+	if strings.Contains(message, "host key verification failed") || strings.Contains(message, "no host key is known") {
+		return ReasonHostKeyConfirmation
+	}
+	if strings.Contains(message, "permission denied (") ||
 		strings.Contains(message, "permission denied, please try again") ||
 		strings.Contains(message, "too many authentication failures") {
 		return ReasonAuthentication
