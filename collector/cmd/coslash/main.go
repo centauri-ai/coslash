@@ -77,7 +77,7 @@ func main() {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 			defer stop()
 			if err := remote.RunAuthAttempt(ctx, os.Args[2]); err != nil {
-				if errors.Is(ctx.Err(), context.Canceled) {
+				if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, remote.ErrAuthAttemptCancelled) {
 					fmt.Fprintln(os.Stderr, "SSH authentication cancelled; return to coSlash.")
 				} else {
 					fmt.Fprintln(os.Stderr, "SSH authentication did not complete; return to coSlash and try again.")

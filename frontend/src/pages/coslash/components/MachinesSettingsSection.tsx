@@ -108,11 +108,13 @@ export function MachinesSettingsSection({
       if (test.state !== 'ok') {
         setStage('error');
         const hint =
-          test.reason === 'connection_failed' ||
-          test.reason === 'authentication_failed' ||
-          test.reason === 'host_key_failed'
-            ? ` Run ssh ${sshAlias} once in Terminal, complete any prompt, then try again.`
-            : '';
+          test.actionRequired === 'verify_host_key'
+            ? ` Verify the identity and host key for ${sshAlias} in Terminal before trying again.`
+            : test.actionRequired === 'authenticate' ||
+                test.reason === 'connection_failed' ||
+                test.reason === 'host_key_failed'
+              ? ` Run ssh ${sshAlias} once in Terminal, complete any prompt, then try again.`
+              : '';
         setMessage(`${testResultCopy(test)}.${hint}`);
         return;
       }
@@ -179,11 +181,13 @@ export function MachinesSettingsSection({
                   ? 'Setup failed'
                   : machine?.refreshing || machine?.state === 'connecting'
                     ? 'Checking'
-                    : machine?.state === 'stale' || machine?.state === 'error'
-                      ? 'Offline'
-                      : machine?.state === 'ok' && machine.sessionCount === 0
-                        ? 'Connected · no recent agent sessions found'
-                        : 'Connected'}
+                    : machine?.actionRequired != null
+                      ? 'Needs attention'
+                      : machine?.state === 'stale' || machine?.state === 'error'
+                        ? 'Offline'
+                        : machine?.state === 'ok' && machine.sessionCount === 0
+                          ? 'Connected · no recent agent sessions found'
+                          : 'Connected'}
               </div>
             </div>
             <div className="flex shrink-0 gap-2">
@@ -256,6 +260,13 @@ export function MachinesSettingsSection({
         {message == null && setupFailed && (
           <div role="alert" className="bg-destructive/10 text-destructive border-t px-4 py-3 text-xs">
             Setup failed: {connectorFailureCopy(machine)}. Retry setup to verify the connector.
+          </div>
+        )}
+        {message == null && machine?.actionRequired != null && !setupFailed && (
+          <div role="alert" className="bg-destructive/10 text-destructive border-t px-4 py-3 text-xs">
+            {machine.actionRequired === 'verify_host_key'
+              ? `SSH host identity changed. Verify ${remote?.sshAlias}'s host key in Terminal before reconnecting.`
+              : `Run ssh ${remote?.sshAlias} in Terminal and complete the authentication prompt.`}
           </div>
         )}
       </div>

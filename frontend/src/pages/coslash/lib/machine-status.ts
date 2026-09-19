@@ -25,6 +25,10 @@ export function needsSetup(machine: MachineFact): boolean {
   return connectorFailed(machine);
 }
 
+export function needsSettings(machine: MachineFact): boolean {
+  return needsSetup(machine) || machine.actionRequired != null;
+}
+
 function isChecking(machine: MachineFact): boolean {
   return (
     machine.refreshing === true || machine.reason === 'initial_refresh' || machine.state === 'connecting'
@@ -44,16 +48,17 @@ function connectorFailureCopy(machine: MachineFact): string {
 }
 
 function needsAttention(machine: MachineFact): boolean {
-  return machine.reason === 'authentication_failed' || machine.reason === 'host_key_failed';
+  return machine.actionRequired != null || machine.reason === 'host_key_failed';
 }
 
 export function machineTone(machine: MachineFact): MachineTone {
   if (isChecking(machine)) return 'checking';
   if (machine.state === 'disabled') return 'disabled';
   if (connectorFailed(machine)) return 'failed';
+  if (needsAttention(machine)) return 'failed';
   if (machine.state === 'stale') return 'stale';
   if (machine.state === 'limited') return 'limited';
-  if (machine.state === 'error') return needsAttention(machine) ? 'failed' : 'stale';
+  if (machine.state === 'error') return 'stale';
   return 'ok';
 }
 
@@ -68,6 +73,12 @@ export function machineStatusText(machine: MachineFact): string {
   if (machine.state === 'disabled') return 'Remote collection is disabled.';
   if (connectorFailed(machine)) {
     return `Setup failed: ${connectorFailureCopy(machine)}. Open Settings to retry.`;
+  }
+  if (machine.actionRequired === 'verify_host_key') {
+    return 'SSH host identity changed. Verify its host key in Terminal before reconnecting.';
+  }
+  if (machine.actionRequired === 'authenticate') {
+    return 'SSH authentication is required. Open Settings for Terminal guidance.';
   }
   if (machine.state === 'stale') {
     return `Offline. Last checked ${lastChecked}. Saved history from ${savedHistory}.`;

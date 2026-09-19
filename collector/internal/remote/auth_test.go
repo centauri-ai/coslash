@@ -3,6 +3,8 @@ package remote
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -56,6 +58,27 @@ func TestAuthAttemptCancelAndInvalidID(t *testing.T) {
 	}
 	if _, err := CancelAuthAttempt(context.Background(), "not-an-id"); err == nil {
 		t.Fatal("invalid ID accepted")
+	}
+}
+
+func TestCancelAuthAttemptCoordinatesMasterTeardown(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalExit := exitAuthControlMaster
+	t.Cleanup(func() { exitAuthControlMaster = originalExit })
+
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exitAuthControlMaster = func(destination string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		if err := withDestinationCoordinator(ctx, destination, func() error { return nil }); !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("teardown coordinator error = %v, want deadline exceeded", err)
+		}
+	}
+	if state, err := CancelAuthAttempt(context.Background(), id); err != nil || state != AuthCancelled {
+		t.Fatalf("CancelAuthAttempt state/error = %q/%v", state, err)
 	}
 }
 
@@ -211,11 +234,92 @@ func TestRunAuthAttemptStopsSSHWhenAttemptIsCancelled(t *testing.T) {
 	}
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Fatal("cancelled RunAuthAttempt succeeded")
+		if !errors.Is(err, ErrAuthAttemptCancelled) {
+			t.Fatalf("RunAuthAttempt error = %v, want ErrAuthAttemptCancelled", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("interactive SSH was not stopped after cancellation")
+	}
+}
+
+func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalRun := runInteractiveSSH
+	originalCheck := checkAuthControlMaster
+	originalResolve := resolveAuthControlSocketPath
+	t.Cleanup(func() {
+		runInteractiveSSH = originalRun
+		checkAuthControlMaster = originalCheck
+		resolveAuthControlSocketPath = originalResolve
+	})
+
+	socketPath := filepath.Join(settings.Home(), "ssh", "cm-test")
+	resolveAuthControlSocketPath = func(context.Context, string) (string, error) { return socketPath, nil }
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stale.Close(); err != nil {
+		t.Fatal(err)
+	}
+	checks := 0
+	checkAuthControlMaster = func(context.Context, string) error {
+		checks++
+		if checks == 1 {
+			return errors.New("stale socket")
+		}
+		return nil
+	}
+	runInteractiveSSH = func(context.Context, []string) error {
+		if _, err := os.Lstat(socketPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("stale socket still exists: %v", err)
+		}
+		master, err := net.Listen("unix", socketPath)
+		if err != nil {
+			return err
+		}
+		return master.Close()
+	}
+	if err := RunAuthAttempt(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := AuthAttemptState(context.Background(), id); err != nil || state != AuthReady {
+		t.Fatalf("authentication state/error = %q/%v", state, err)
+	}
+	if checks != 2 {
+		t.Fatalf("control checks = %d, want 2", checks)
+	}
+}
+
+func TestRunAuthAttemptRejectsMissingControlMaster(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalRun := runInteractiveSSH
+	originalCheck := checkAuthControlMaster
+	originalResolve := resolveAuthControlSocketPath
+	t.Cleanup(func() {
+		runInteractiveSSH = originalRun
+		checkAuthControlMaster = originalCheck
+		resolveAuthControlSocketPath = originalResolve
+	})
+
+	resolveAuthControlSocketPath = func(context.Context, string) (string, error) {
+		return filepath.Join(settings.Home(), "ssh", "cm-missing"), nil
+	}
+	runInteractiveSSH = func(context.Context, []string) error { return nil }
+	checkAuthControlMaster = func(context.Context, string) error { return errors.New("no socket") }
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RunAuthAttempt(context.Background(), id); err == nil {
+		t.Fatal("authentication succeeded without a control master")
+	}
+	if state, err := AuthAttemptState(context.Background(), id); err != nil || state != AuthFailed {
+		t.Fatalf("authentication state/error = %q/%v", state, err)
 	}
 }
 

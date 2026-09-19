@@ -33,7 +33,7 @@ import {
   machineStatusText,
   machineTone,
   needsBanner,
-  needsSetup,
+  needsSettings,
   type MachineTone,
 } from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
@@ -519,9 +519,9 @@ function CoslashHeader({
             <strong className="font-[650]">{problems.map((machine) => machine.label).join(', ')}</strong>{' '}
             {problems.length === 1
               ? machineStatusText(problems[0])
-              : 'need attention — open Settings to retry.'}
+              : 'need attention — open Settings for guidance.'}
           </span>
-          {problems.some(needsSetup) ? (
+          {problems.some(needsSettings) ? (
             <Button
               variant="outline"
               size="sm"

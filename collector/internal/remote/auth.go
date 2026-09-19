@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,7 +22,10 @@ const AuthAttemptTTL = 5 * time.Minute
 
 var authAttemptIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-var ErrAuthAttemptActive = errors.New("authentication attempt already active")
+var (
+	ErrAuthAttemptActive    = errors.New("authentication attempt already active")
+	ErrAuthAttemptCancelled = errors.New("authentication attempt was cancelled")
+)
 
 type AuthState string
 
@@ -147,6 +151,74 @@ var runInteractiveSSH = func(ctx context.Context, args []string) error {
 
 var exitAuthControlMaster = exitControlMasterBestEffort
 
+var checkAuthControlMaster = func(ctx context.Context, destination string) error {
+	args, err := controlCheckArgs(destination)
+	if err != nil {
+		return err
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	return runSSHCommand(checkCtx, OpenOptions{}, args)
+}
+
+var resolveAuthControlSocketPath = func(ctx context.Context, destination string) (string, error) {
+	parsed, err := parseDestination(destination)
+	if err != nil {
+		return "", err
+	}
+	args := []string{"-G", "-o", "ControlPath=" + controlSocketPath()}
+	output, err := exec.CommandContext(ctx, "ssh", append(args, parsed.Args()...)...).Output()
+	if err != nil {
+		return "", fmt.Errorf("expand SSH control path: %w", err)
+	}
+	var expanded string
+	for _, line := range strings.Split(string(output), "\n") {
+		if value, found := strings.CutPrefix(line, "controlpath "); found {
+			expanded = strings.TrimSpace(value)
+			break
+		}
+	}
+	if expanded == "" {
+		return "", errors.New("SSH did not report its control path")
+	}
+	expanded, err = filepath.Abs(expanded)
+	if err != nil {
+		return "", err
+	}
+	controlDir, err := filepath.Abs(filepath.Join(settings.Home(), "ssh"))
+	if err != nil {
+		return "", err
+	}
+	if filepath.Dir(expanded) != controlDir || !strings.HasPrefix(filepath.Base(expanded), "cm-") {
+		return "", errors.New("SSH reported an unexpected control path")
+	}
+	return expanded, nil
+}
+
+func prepareAuthControlSocket(ctx context.Context, destination string) (bool, error) {
+	path, err := resolveAuthControlSocketPath(ctx, destination)
+	if err != nil {
+		return false, err
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || info.Mode()&os.ModeSocket == 0 {
+		return false, errors.New("SSH control path is not a socket")
+	}
+	if err := checkAuthControlMaster(ctx, destination); err == nil {
+		return true, nil
+	}
+	if err := os.Remove(path); err != nil {
+		return false, fmt.Errorf("remove stale SSH control socket: %w", err)
+	}
+	return false, nil
+}
+
 func loadAuthAttempt(id string) (authAttempt, error) {
 	path, err := authAttemptPath(id)
 	if err != nil {
@@ -194,13 +266,24 @@ func CancelAuthAttempt(ctx context.Context, id string) (AuthState, error) {
 	if err != nil {
 		return "", err
 	}
-	if attempt.State != AuthWaiting {
-		return attempt.State, nil
-	}
-	state, err := updateAuthAttemptIfWaiting(ctx, id, AuthCancelled)
-	if err == nil && state == AuthCancelled {
-		exitAuthControlMaster(attempt.Destination)
-	}
+	state := attempt.State
+	err = withDestinationCoordinator(ctx, attempt.Destination, func() error {
+		latest, err := loadAuthAttempt(id)
+		if err != nil {
+			return err
+		}
+		state = latest.State
+		if latest.State != AuthWaiting {
+			return nil
+		}
+		exitAuthControlMaster(latest.Destination)
+		latest.State = AuthCancelled
+		if err := writeAuthAttempt(latest); err != nil {
+			return err
+		}
+		state = AuthCancelled
+		return nil
+	})
 	return state, err
 }
 
@@ -211,8 +294,8 @@ func CancelAuthAttemptsForDestination(destination string) {
 	if destination == "" {
 		return
 	}
-	removed := false
 	_ = withDestinationCoordinator(context.Background(), destination, func() error {
+		removed := false
 		entries, err := filepath.Glob(filepath.Join(settings.Home(), "ssh", "auth-*.json"))
 		if err != nil {
 			return err
@@ -232,11 +315,11 @@ func CancelAuthAttemptsForDestination(destination string) {
 			}
 			removed = true
 		}
+		if removed {
+			exitAuthControlMaster(destination)
+		}
 		return nil
 	})
-	if removed {
-		exitAuthControlMaster(destination)
-	}
 }
 
 // updateAuthAttemptIfWaiting preserves a terminal result chosen by another
@@ -279,9 +362,7 @@ func writeAuthAttempt(attempt authAttempt) error {
 	if err != nil {
 		return err
 	}
-	if err := temporary.Chmod(0o600); err == nil {
-		_, err = temporary.Write(data)
-	}
+	_, err = temporary.Write(data)
 	if closeErr := temporary.Close(); err == nil {
 		err = closeErr
 	}
@@ -320,6 +401,9 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 		return errors.New("authentication attempt expired")
 	}
 	if attempt.State != AuthWaiting {
+		if attempt.State == AuthCancelled {
+			return ErrAuthAttemptCancelled
+		}
 		return fmt.Errorf("authentication attempt is %s", attempt.State)
 	}
 	deadline := attempt.CreatedAt.Add(AuthAttemptTTL)
@@ -328,6 +412,39 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 	args, err := interactiveMasterArgs(attempt.Destination)
 	if err != nil {
 		return err
+	}
+	alreadyReady := false
+	err = withDestinationCoordinator(ctx, attempt.Destination, func() error {
+		latest, err := loadAuthAttempt(id)
+		if err != nil {
+			return err
+		}
+		if latest.State != AuthWaiting {
+			return ErrAuthAttemptCancelled
+		}
+		ready, err := prepareAuthControlSocket(ctx, attempt.Destination)
+		if err != nil || !ready {
+			return err
+		}
+		latest.State = AuthReady
+		alreadyReady = true
+		return writeAuthAttempt(latest)
+	})
+	if err != nil {
+		state := AuthFailed
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			state = AuthTimedOut
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			state = AuthCancelled
+		}
+		if state != AuthFailed {
+			_, _ = updateAuthAttemptIfWaiting(context.Background(), id, state)
+		}
+		return err
+	}
+	if alreadyReady {
+		return nil
 	}
 	sshCtx, stopSSH := context.WithCancel(ctx)
 	monitorDone := make(chan struct{})
@@ -360,15 +477,17 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			state = AuthCancelled
 		}
-		_, _ = updateAuthAttemptIfWaiting(context.Background(), id, state)
+		finalState, _ := updateAuthAttemptIfWaiting(context.Background(), id, state)
+		if finalState == AuthCancelled {
+			return ErrAuthAttemptCancelled
+		}
 		return fmt.Errorf("authenticate SSH: %w", runErr)
 	}
-	closeMaster := false
 	err = withDestinationCoordinator(ctx, attempt.Destination, func() error {
 		latest, err := loadAuthAttempt(id)
 		if errors.Is(err, os.ErrNotExist) {
-			closeMaster = true
-			return nil
+			exitAuthControlMaster(attempt.Destination)
+			return ErrAuthAttemptCancelled
 		}
 		if err != nil {
 			return err
@@ -380,18 +499,24 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 			return nil
 		}
 		if latest.State != AuthWaiting {
-			closeMaster = true
-			return nil
+			exitAuthControlMaster(attempt.Destination)
+			return ErrAuthAttemptCancelled
+		}
+		if err := checkAuthControlMaster(ctx, attempt.Destination); err != nil {
+			latest.State = AuthFailed
+			if writeErr := writeAuthAttempt(latest); writeErr != nil {
+				return writeErr
+			}
+			return fmt.Errorf("verify SSH control master: %w", err)
 		}
 		latest.State = AuthReady
 		return writeAuthAttempt(latest)
 	})
 	if err != nil {
+		if errors.Is(err, ErrAuthAttemptCancelled) {
+			return err
+		}
 		return fmt.Errorf("record SSH authentication: %w", err)
-	}
-	if closeMaster {
-		exitAuthControlMaster(attempt.Destination)
-		return errors.New("authentication attempt was cancelled")
 	}
 	return nil
 }
