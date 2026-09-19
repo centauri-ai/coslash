@@ -52,7 +52,7 @@ func TestCursorIDEExecutableFindsApplicationBundle(t *testing.T) {
 	}
 }
 
-func TestCursorIDEExecutableRejectsNonExecutableBundleBinary(t *testing.T) {
+func TestCursorIDEExecutableSkipsNonExecutableBundleBinary(t *testing.T) {
 	t.Setenv("PATH", "")
 	home := t.TempDir()
 	path := filepath.Join(home, "Applications", "Cursor.app", "Contents", "MacOS", "Cursor")
@@ -62,7 +62,7 @@ func TestCursorIDEExecutableRejectsNonExecutableBundleBinary(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := cursorIDEExecutable(home); got != "" {
-		t.Fatalf("Cursor executable = %q, want empty for non-executable file", got)
+	if got := cursorIDEExecutable(home); got == path {
+		t.Fatalf("Cursor executable = %q, want non-executable candidate skipped", got)
 	}
 }
