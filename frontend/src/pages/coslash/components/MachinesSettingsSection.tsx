@@ -470,8 +470,7 @@ export function MachinesSettingsSection({
             className={cn('flex items-center gap-3 border-t px-4 py-3 text-xs', {
               'bg-muted text-muted-foreground': busy || stage === 'consent',
               'bg-success-bg text-success-fg': stage === 'ready',
-              'bg-destructive/10 text-destructive':
-                stage === 'error' || stage === 'connector_error',
+              'bg-destructive/10 text-destructive': stage === 'error' || stage === 'connector_error',
             })}
           >
             <span className={cn({ 'animate-pulse': stage === 'installing' || stage === 'authenticating' })}>
