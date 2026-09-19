@@ -2,6 +2,7 @@ package cursor
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,6 +184,32 @@ func TestLoadIDEModelsCountsOnlyCreatedPullRequests(t *testing.T) {
 	loadIDEModelsDB(metadata, db, nil)
 	if got := metadata.Session(id).PullRequests; got != 1 {
 		t.Fatalf("pull requests = %d, want only the created pull request", got)
+	}
+}
+
+func TestLoadIDEModelsBatchesLargeSelections(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 501)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("00000000-0000-4000-8000-%012x", i)
+	}
+	target := ids[len(ids)-1]
+	if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`,
+		"bubbleId:"+target+":1", `{"modelInfo":{"modelName":"gpt-5"}}`); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata := vendors.EmptySessionMetadata()
+	loadIDEModelsDB(metadata, db, ids)
+	if got := metadata.Session(target).Model; got != "gpt-5" {
+		t.Fatalf("model = %q, want model from the final query batch", got)
 	}
 }
 
