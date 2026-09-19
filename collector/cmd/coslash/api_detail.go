@@ -239,7 +239,7 @@ func parseExactSessionIdentity(w http.ResponseWriter, r *http.Request) (exactSes
 }
 
 func validAgent(agent string) bool {
-	return agent == vendors.AgentClaude || agent == vendors.AgentCodex || agent == vendors.AgentOpenCode
+	return agent == vendors.AgentClaude || agent == vendors.AgentCodex || agent == vendors.AgentCursor || agent == vendors.AgentOpenCode
 }
 
 func validOpaqueIdentifier(value string) bool {
