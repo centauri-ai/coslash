@@ -352,7 +352,7 @@ func TestCollectForkedRolloutReportsCompleteDistinctFamilies(t *testing.T) {
 	rootContent := `{"timestamp":"2026-07-10T14:11:18Z","type":"session_meta","payload":{"id":"` + rootID + `","session_id":"` + rootID + `","cwd":"/test/project"}}` + "\n" +
 		`{"timestamp":"2026-07-10T14:11:19Z","type":"event_msg","payload":{"type":"user_message","message":"root work"}}` + "\n" +
 		`{"timestamp":"2026-07-10T14:11:20Z","type":"event_msg","payload":{"type":"task_started"}}` + "\n"
-	forkContent := `{"timestamp":"2026-07-10T14:12:18Z","type":"session_meta","payload":{"id":"` + rootID + `","session_id":"` + rootID + `","cwd":"/test/project","history_base":{"thread_id":"` + rootID + `","end_ordinal_exclusive":1,"end_byte_offset":1}}}` + "\n" +
+	forkContent := `{"timestamp":"2026-07-10T14:12:18Z","type":"session_meta","payload":{"id":"` + rootID + `","session_id":"` + rootID + `","cwd":"/test/project","source":"vscode","originator":"Codex Desktop","history_mode":"paginated","thread_source":"user"}}` + "\n" +
 		`{"timestamp":"2026-07-10T14:12:19Z","type":"event_msg","payload":{"type":"user_message","message":"fork work"}}` + "\n" +
 		`{"timestamp":"2026-07-10T14:12:20Z","type":"event_msg","payload":{"type":"task_started"}}` + "\n"
 	for file, content := range map[string]string{rootFile: rootContent, forkFile: forkContent} {
