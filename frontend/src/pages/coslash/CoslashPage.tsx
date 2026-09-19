@@ -338,6 +338,8 @@ export function CoslashPage() {
         isSaving={settingsState.isSaving}
         onSave={saveSettings}
         onRemoteConnectionVerified={handleRemoteRetry}
+        onRemoteRetry={handleRemoteRetry}
+        remoteRetryInFlight={remoteRetryInFlight}
       />
     </>
   );

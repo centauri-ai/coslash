@@ -36,13 +36,12 @@ import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTimeAgo } from '@/pages/coslash/lib/format';
 import {
-  MACHINE_TONE_COPY,
+  MACHINE_TONE_DOT,
   machineRetryable,
   machineStatusText,
   machineTone,
   needsBanner,
   needsSetup,
-  type MachineTone,
 } from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { buildReviewIndex, type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
@@ -159,15 +158,6 @@ function sessionStatusGroup(session: Session): SessionStatusGroup {
   if (status === 'busy') return 'running';
   return 'idle';
 }
-
-const TONE_DOT: Record<MachineTone, string> = {
-  checking: 'bg-coslash-accent animate-pulse',
-  failed: 'bg-coslash-clay-dot',
-  disabled: 'bg-coslash-neutral-dot',
-  stale: 'bg-coslash-amber-dot',
-  limited: 'bg-coslash-amber-dot',
-  ok: 'bg-coslash-green-dot',
-};
 
 function statusDot(status: SessionStatusGroup): string {
   if (status === 'needs') return 'bg-coslash-amber-dot';
@@ -328,26 +318,29 @@ function MachineDot({
 }) {
   const tone = machineTone(machine);
   const retryable = machineRetryable(machine) && !retrying;
-  const hint = retrying ? ' Retrying…' : retryable ? ' Retry the connection.' : '';
   const status = machineStatusText(machine);
-  const dot = cn('size-[7px] shrink-0 rounded-full', TONE_DOT[tone]);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        {retryable ? (
-          <button
-            type="button"
-            className={cn(dot, 'cursor-pointer')}
-            aria-label={`${status} Retry.`}
-            onClick={onRetry}
-          />
-        ) : (
-          <span className={dot} role="img" aria-label={status} />
-        )}
+        <span
+          className={cn('size-[7px] shrink-0 rounded-full', MACHINE_TONE_DOT[tone])}
+          role="img"
+          aria-label={status}
+        />
       </TooltipTrigger>
       {/* Portaled outside the shell, so the tokens have to be re-scoped here. */}
-      <TooltipContent className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line [&_svg]:bg-coslash-surface [&_svg]:fill-coslash-surface border">
-        {`${MACHINE_TONE_COPY[tone]}${hint}`}
+      <TooltipContent className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line [&_svg]:bg-coslash-surface [&_svg]:fill-coslash-surface flex-col items-start gap-1 border">
+        <span>{status}</span>
+        {retrying && <span className="text-coslash-muted">Retrying…</span>}
+        {retryable && (
+          <button
+            type="button"
+            className="cursor-pointer font-semibold underline underline-offset-2"
+            onClick={onRetry}
+          >
+            Retry the connection
+          </button>
+        )}
       </TooltipContent>
     </Tooltip>
   );
