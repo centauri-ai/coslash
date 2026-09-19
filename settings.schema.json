@@ -16,7 +16,9 @@
       "required": ["enabled", "backend", "model"],
       "properties": {
         "enabled": { "type": "boolean" },
-        "backend": { "enum": ["claude-cli", "codex_exec", "opencode"] },
+        "backend": {
+          "enum": ["claude-cli", "codex_exec", "opencode", "cursor-cli"]
+        },
         "model": {
           "description": "Model id passed to the selected CLI. Settings offers a short list per backend, but any model that CLI can reach is accepted, including models served through an API proxy or a third-party provider. For the opencode backend, \"default\" passes no model and lets OpenCode resolve one.",
           "type": "string",
@@ -27,6 +29,7 @@
             "claude-haiku-4-5",
             "gpt-5.6-luna",
             "opencode/deepseek-v4-flash-free",
+            "auto",
             "default"
           ]
         }

@@ -1,0 +1,70 @@
+package synthesis
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/settings"
+)
+
+func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	var captured commandSpec
+	created, err := NewRunner(settings.SynthesisSettings{
+		Enabled: true,
+		Backend: settings.BackendCursor,
+		Model:   "auto",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := created.(*CLIRunner)
+	runner.Timeout = time.Second
+	runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+		captured = spec
+		return []byte(`{"type":"result","subtype":"success","is_error":false,"result":"{\"goals\":[\"Ship Cursor synthesis\"],\"outcome\":\"Backend added\",\"keyDecisions\":[],\"nextStep\":\"Open a PR\"}"}`), nil
+	}
+
+	got, err := runner.Run(context.Background(), "normalized session facts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Outcome != "Backend added" {
+		t.Fatalf("outcome = %q, want Backend added", got.Outcome)
+	}
+	if captured.bin != "agent" {
+		t.Fatalf("bin = %q, want agent", captured.bin)
+	}
+	wantArgs := []string{
+		"-p", "--mode", "ask", "--sandbox", "enabled", "--trust",
+		"--model", "auto", "--output-format", "json",
+	}
+	if !slices.Equal(captured.args, wantArgs) {
+		t.Fatalf("args = %#v, want %#v", captured.args, wantArgs)
+	}
+	if captured.dir != SynthesisCwd() {
+		t.Fatalf("dir = %q, want %q", captured.dir, SynthesisCwd())
+	}
+	if !strings.Contains(captured.stdin, systemPrompt) ||
+		!strings.Contains(captured.stdin, "normalized session facts") {
+		t.Fatalf("stdin does not contain the synthesis prompt and facts: %q", captured.stdin)
+	}
+	if strings.Contains(strings.Join(captured.args, " "), "normalized session facts") {
+		t.Fatal("session facts leaked into argv")
+	}
+	if len(captured.env) != 1 || !strings.HasPrefix(captured.env[0], "CURSOR_DATA_DIR=") {
+		t.Fatalf("env = %#v, want one isolated CURSOR_DATA_DIR", captured.env)
+	}
+	scratch := strings.TrimPrefix(captured.env[0], "CURSOR_DATA_DIR=")
+	if filepath.Dir(scratch) != SynthesisCwd() {
+		t.Fatalf("scratch dir = %q, want child of %q", scratch, SynthesisCwd())
+	}
+	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
+		t.Fatalf("scratch dir was not removed: %v", err)
+	}
+}

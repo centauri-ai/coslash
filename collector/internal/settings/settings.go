@@ -20,6 +20,7 @@ const (
 	BackendClaude   = "claude-cli"
 	BackendCodex    = "codex_exec"
 	BackendOpenCode = "opencode"
+	BackendCursor   = "cursor-cli"
 
 	// Passes no model, leaving OpenCode to resolve one: its configured model
 	// key, else the model last selected in the CLI, which varies between runs.
@@ -154,6 +155,13 @@ func BackendOptions() []BackendOption {
 			Label:  "OpenCode CLI",
 			Models: []ModelOption{},
 		},
+		{
+			ID:    BackendCursor,
+			Label: "Cursor CLI",
+			Models: []ModelOption{
+				{ID: "auto", Label: "Auto", Default: true},
+			},
+		},
 	}
 }
 
@@ -196,6 +204,8 @@ func BackendExecutable(backend string) string {
 		return "codex"
 	case BackendOpenCode:
 		return "opencode"
+	case BackendCursor:
+		return "agent"
 	default:
 		return ""
 	}
