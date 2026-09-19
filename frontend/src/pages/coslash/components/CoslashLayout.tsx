@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   ChevronRight,
   Folder,
   FolderGit2,
@@ -20,6 +21,13 @@ import {
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -52,6 +60,13 @@ import {
   sumKnown,
   type Session,
 } from '@/pages/coslash/lib/session';
+import {
+  BOARD_GROUP_BY_OPTIONS,
+  BOARD_ROW_GROUP_BY_OPTIONS,
+  boardGroupByLabel,
+  type BoardGroupBy,
+  type BoardRowGroupBy,
+} from '@/pages/coslash/lib/session-grouping';
 import { ALL_REPOSITORIES, filterSessionLibrary } from '@/pages/coslash/lib/session-library';
 import {
   loadSessionViewPreferences,
@@ -740,6 +755,43 @@ function SessionRow({
   );
 }
 
+function BoardGroupByMenu<T extends BoardRowGroupBy>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="border-coslash-line bg-coslash-surface text-coslash-muted hover:bg-coslash-soft text-meta flex min-h-8 cursor-pointer items-center gap-1.5 rounded-[9px] border px-2.5 whitespace-nowrap [&>svg]:size-3"
+          aria-label={`${label} grouped by ${boardGroupByLabel(value)}`}
+        >
+          {label}
+          <span className="text-coslash-ink font-[550]">{boardGroupByLabel(value)}</span>
+          <ChevronDown aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as T)}>
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value} className="text-meta">
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function SessionListView({
   sections,
   groups,
@@ -1273,6 +1325,22 @@ export function CoslashLayout({
                       </button>
                     ))}
                   </div>
+                  {preferences.view === 'board' && (
+                    <>
+                      <BoardGroupByMenu<BoardGroupBy>
+                        label="Columns"
+                        value={preferences.boardColumns}
+                        options={BOARD_GROUP_BY_OPTIONS}
+                        onChange={(boardColumns) => patchPreferences({ boardColumns })}
+                      />
+                      <BoardGroupByMenu<BoardRowGroupBy>
+                        label="Rows"
+                        value={preferences.boardRows}
+                        options={BOARD_ROW_GROUP_BY_OPTIONS}
+                        onChange={(boardRows) => patchPreferences({ boardRows })}
+                      />
+                    </>
+                  )}
                   {preferences.view === 'list' && (
                     <button
                       type="button"
@@ -1333,18 +1401,19 @@ export function CoslashLayout({
                   ))
                 ) : preferences.view === 'board' ? (
                   <Suspense fallback={<div className={styles.empty}>Loading board…</div>}>
-                    <div className="min-w-[1120px]">
-                      <SessionBoard
-                        sessions={visibleSessions}
-                        onSelectSession={onSelectSession}
-                        showMachineBadge={machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID)}
-                        review={{
-                          index: reviewIndex,
-                          reviewerOptions,
-                          onStarted: onReviewStarted,
-                        }}
-                      />
-                    </div>
+                    <SessionBoard
+                      sessions={visibleSessions}
+                      columnGroupBy={preferences.boardColumns}
+                      rowGroupBy={preferences.boardRows}
+                      selectedSessionKey={selectedSessionKey}
+                      onSelectSession={onSelectSession}
+                      review={{
+                        index: reviewIndex,
+                        reviewerOptions,
+                        onStarted: onReviewStarted,
+                        onSelectRelated: onSelectSession,
+                      }}
+                    />
                   </Suspense>
                 ) : (
                   <SessionListView
