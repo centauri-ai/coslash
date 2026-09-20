@@ -28,3 +28,21 @@ func TestParseFamilyFilesSourceDoesNotExposePromptAsName(t *testing.T) {
 		t.Fatalf("remote parsed name exposed prompt: %#v", parsed)
 	}
 }
+
+func TestParseTranscriptCountsTopLevelCompactions(t *testing.T) {
+	id := "019f4dde-db5b-7100-bdc0-09b5aaaac56f"
+	file := filepath.Join(t.TempDir(), "rollout-2026-07-10T14-11-18-"+id+".jsonl")
+	content := `{"timestamp":"2026-07-10T14:11:18Z","type":"session_meta","payload":{"id":"` + id + `","session_id":"` + id + `"}}` + "\n" +
+		`{"timestamp":"2026-07-10T14:11:19Z","type":"compacted","payload":{"window_number":1}}` + "\n" +
+		`{"timestamp":"2026-07-10T14:11:20Z","type":"compacted","payload":{"window_number":2}}` + "\n"
+	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseTranscript(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Session.Compactions; got != 2 {
+		t.Fatalf("compactions = %d, want 2", got)
+	}
+}
