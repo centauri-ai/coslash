@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { MachinesSettingsSection } from '@/pages/coslash/components/MachinesSettingsSection';
+import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   availableSynthesisBackends,
   initialSettingsDraft,
@@ -188,7 +189,7 @@ export function SettingsDialog({
   isSaving: boolean;
   onSave: (settings: CoslashSettings, remoteOwnershipAction?: RemoteOwnershipAction) => Promise<boolean>;
   onRemoteConnectionVerified?: () => void;
-  onRemoteRetry?: () => void;
+  onRemoteRetry?: () => Promise<MachineFact | undefined>;
   remoteRetryInFlight?: boolean;
 }) {
   const [draft, setDraft] = useState<CoslashSettings | null>(

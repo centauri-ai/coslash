@@ -16,6 +16,7 @@ import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDia
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
+import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
@@ -108,7 +109,7 @@ export function CoslashPage() {
     refresh: refreshDiagnostics,
   } = useDiagnostics(diagnosticsEnabled);
   const [fullShareDialogOpen, setFullShareDialogOpen] = useState(false);
-  const remoteRetryPromise = useRef<Promise<void> | null>(null);
+  const remoteRetryPromise = useRef<Promise<MachineFact | undefined> | null>(null);
   const settingsState = useSettings();
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
   const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
@@ -167,7 +168,6 @@ export function CoslashPage() {
     if (remoteRetryPromise.current != null) return remoteRetryPromise.current;
     setRemoteRetryInFlight(true);
     const retry = retryRemoteRefreshAndWait()
-      .then(() => undefined)
       .catch(() => undefined)
       .finally(() => {
         remoteRetryPromise.current = null;
