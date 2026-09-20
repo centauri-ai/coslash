@@ -37,7 +37,7 @@ export function MachinesSettingsSection({
   onRemoveHost: () => Promise<boolean>;
   onConnectionVerified?: () => void;
   onBusyChange: (busy: boolean) => void;
-  onRetry?: () => void;
+  onRetry?: () => Promise<MachineFact | undefined>;
   retrying?: boolean;
 }) {
   const [alias, setAlias] = useState('');
@@ -152,6 +152,13 @@ export function MachinesSettingsSection({
     setMessage('Install a private connector on this host, or skip installation.');
   };
 
+  const retryConnection = async () => {
+    if (remote == null || onRetry == null) return;
+    const sshAlias = remote.sshAlias;
+    const machine = await onRetry();
+    if (machine != null) setMachineResult({ sshAlias, machine });
+  };
+
   const skipInstallation = () => {
     setStage('ready');
     setMessage('Connector installation skipped. SSH monitoring is active.');
@@ -213,7 +220,7 @@ export function MachinesSettingsSection({
                   <button
                     type="button"
                     className="cursor-pointer text-left text-xs font-semibold underline underline-offset-2"
-                    onClick={onRetry}
+                    onClick={() => void retryConnection()}
                   >
                     Retry the connection
                   </button>

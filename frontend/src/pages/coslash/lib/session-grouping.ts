@@ -20,6 +20,7 @@ type Dimension = {
 };
 
 const READINESS_ORDER = ['resume', 'review', 'fresh', 'unavailable'] as const;
+const MISSING_REPOSITORY_KEY = '\0missing-repository';
 
 function plain(value: string | null | undefined, fallback: string): { key: string; label: string } {
   const trimmed = value?.trim();
@@ -48,7 +49,7 @@ const DIMENSIONS: Record<BoardGroupBy, Dimension> = {
     label: 'Repository',
     of: (session) => {
       const repo = session.repo?.trim();
-      if (!repo) return { key: 'No repository', label: 'No repository' };
+      if (!repo) return { key: MISSING_REPOSITORY_KEY, label: 'No repository' };
       const label = repo.split('/').filter(Boolean).at(-1) ?? repo;
       return { key: repo, label, title: label === repo ? undefined : repo };
     },
