@@ -10,11 +10,11 @@ import {
 export type BoardGroupBy = 'status' | 'readiness' | 'repo' | 'branch' | 'agent' | 'machine';
 export type BoardRowGroupBy = BoardGroupBy | 'none';
 
-export type BoardGroup = { key: string; label: string; sessions: Session[] };
+export type BoardGroup = { key: string; label: string; title?: string; sessions: Session[] };
 
 type Dimension = {
   label: string;
-  of: (session: Session) => { key: string; label: string };
+  of: (session: Session) => { key: string; label: string; title?: string };
   /** Fixed left-to-right order; dimensions without one follow the sorted session order. */
   order?: readonly string[];
 };
@@ -49,7 +49,8 @@ const DIMENSIONS: Record<BoardGroupBy, Dimension> = {
     of: (session) => {
       const repo = session.repo?.trim();
       if (!repo) return { key: 'No repository', label: 'No repository' };
-      return { key: repo, label: repo.split('/').filter(Boolean).at(-1) ?? repo };
+      const label = repo.split('/').filter(Boolean).at(-1) ?? repo;
+      return { key: repo, label, title: label === repo ? undefined : repo };
     },
   },
   branch: { label: 'Branch', of: (session) => plain(session.branch, 'No branch') },
@@ -83,10 +84,10 @@ export function groupSessions(sessions: readonly Session[], groupBy: BoardGroupB
   const dimension = DIMENSIONS[groupBy];
   const groups = new Map<string, BoardGroup>();
   for (const session of sessions) {
-    const { key, label } = dimension.of(session);
+    const { key, label, title } = dimension.of(session);
     const group = groups.get(key);
     if (group) group.sessions.push(session);
-    else groups.set(key, { key, label, sessions: [session] });
+    else groups.set(key, { key, label, title, sessions: [session] });
   }
   const ordered = [...groups.values()];
   const order = dimension.order;
