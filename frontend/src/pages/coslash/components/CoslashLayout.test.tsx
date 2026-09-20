@@ -2,6 +2,8 @@ import { type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
+import { machineRetryable } from '@/pages/coslash/lib/machine-status';
+import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { type Session } from '@/pages/coslash/lib/session';
 import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
 
@@ -334,26 +336,39 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('Retry the connection');
   });
 
-  it('offers a credential failure a retry, which Settings cannot run for it', () => {
+  it.each(['authentication_failed', 'host_key_failed', 'connection_failed'] as const)(
+    'shows %s as a failed, retryable connection',
+    (reason) => {
+      const machine: MachineFact = {
+        sourceId: 'remote',
+        label: 'agent-box',
+        state: 'error',
+        complete: false,
+        reason,
+      };
+      const markup = renderLayout({
+        machines: [machine],
+      });
+
+      expect(dotFor(markup, 'clay')).toContain('aria-label="Connection needs attention.');
+      expect(markup).toContain('role="alert"');
+      expect(markup).toContain('Retry</button>');
+      expect(markup).not.toContain('Open Settings');
+      expect(machineRetryable(machine)).toBe(true);
+    },
+  );
+
+  it('paints a truncated remote as connected, since its session list is whole', () => {
     const markup = renderLayout({
       machines: [
         {
           sourceId: 'remote',
           label: 'agent-box',
-          state: 'error',
+          state: 'limited',
           complete: false,
-          reason: 'authentication_failed',
+          reason: 'history_truncated',
         },
       ],
-    });
-
-    expect(markup).toContain('Retry</button>');
-    expect(markup).not.toContain('Open Settings');
-  });
-
-  it('paints a truncated remote as connected, since its session list is whole', () => {
-    const markup = renderLayout({
-      machines: [{ sourceId: 'remote', label: 'agent-box', state: 'limited', complete: false }],
     });
 
     expect(dotFor(markup, 'green')).toContain(
@@ -361,21 +376,37 @@ describe('CoslashLayout', () => {
     );
   });
 
+  it.each([
+    ['partial_agent_data', 'Connected, but some agent data could not be collected.'],
+    ['no_supported_data', 'Connected, but no supported agent data was found.'],
+  ] as const)('shows %s limited results as retryable incomplete data', (reason, status) => {
+    const machine: MachineFact = {
+      sourceId: 'remote',
+      label: 'agent-box',
+      state: 'limited',
+      complete: false,
+      reason,
+    };
+    const markup = renderLayout({ machines: [machine] });
+
+    expect(dotFor(markup, 'amber')).toContain(`aria-label="${status}`);
+    expect(markup).not.toContain('role="alert"');
+    expect(machineRetryable(machine)).toBe(true);
+  });
+
   it('banners a failed connector with its own reason', () => {
-    const markup = renderLayout({
-      machines: [
-        {
-          sourceId: 'remote',
-          label: 'agent-box',
-          state: 'ok',
-          complete: true,
-          helper: { state: 'ready', compatible: false, fallback: true, reason: 'helper_incompatible' },
-        },
-      ],
-    });
+    const machine: MachineFact = {
+      sourceId: 'remote',
+      label: 'agent-box',
+      state: 'ok',
+      complete: true,
+      helper: { state: 'ready', compatible: false, fallback: true, reason: 'helper_incompatible' },
+    };
+    const markup = renderLayout({ machines: [machine] });
 
     expect(markup).toContain('role="alert"');
     expect(markup).toContain('Setup failed: helper incompatible. Open Settings to retry.');
     expect(markup).toContain('Open Settings</button>');
+    expect(machineRetryable(machine)).toBe(false);
   });
 });

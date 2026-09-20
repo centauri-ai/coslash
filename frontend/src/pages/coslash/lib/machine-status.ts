@@ -30,9 +30,9 @@ const REACHABLE_REASONS: readonly MachineReason[] = [
 
 /** Only a host whose own refresh fell short recovers from another one. */
 export function machineRetryable(machine: MachineFact): boolean {
-  if (machine.sourceId === LOCAL_SOURCE_ID) return false;
+  if (machine.sourceId === LOCAL_SOURCE_ID || connectorFailed(machine)) return false;
   const tone = machineTone(machine);
-  return tone === 'stale' || tone === 'incomplete';
+  return tone === 'failed' || tone === 'stale' || tone === 'incomplete';
 }
 
 /** Only a failed connector needs the consented setup flow; a failed credential retries. */
@@ -58,10 +58,6 @@ function connectorFailureCopy(machine: MachineFact): string {
   return machine.helper?.reason?.replaceAll('_', ' ') ?? 'connector setup failed';
 }
 
-function needsAttention(machine: MachineFact): boolean {
-  return machine.reason === 'authentication_failed' || machine.reason === 'host_key_failed';
-}
-
 export function machineTone(machine: MachineFact): MachineTone {
   if (isChecking(machine)) return 'checking';
   if (machine.state === 'disabled') return 'disabled';
@@ -69,8 +65,10 @@ export function machineTone(machine: MachineFact): MachineTone {
   if (machine.state === 'stale') {
     return machine.reason != null && REACHABLE_REASONS.includes(machine.reason) ? 'incomplete' : 'stale';
   }
-  if (machine.state === 'limited') return 'truncated';
-  if (machine.state === 'error') return needsAttention(machine) ? 'failed' : 'stale';
+  if (machine.state === 'limited') {
+    return machine.reason === 'history_truncated' ? 'truncated' : 'incomplete';
+  }
+  if (machine.state === 'error') return 'failed';
   return 'ok';
 }
 
@@ -86,14 +84,23 @@ export function machineStatusText(machine: MachineFact): string {
   if (connectorFailed(machine)) {
     return `Setup failed: ${connectorFailureCopy(machine)}. Open Settings to retry.`;
   }
+  if (machine.state === 'limited') {
+    if (machine.reason === 'history_truncated') {
+      return 'Connected. Older history was truncated, so these sessions are left out of the totals.';
+    }
+    if (machine.reason === 'partial_agent_data') {
+      return 'Connected, but some agent data could not be collected.';
+    }
+    if (machine.reason === 'no_supported_data') {
+      return 'Connected, but no supported agent data was found.';
+    }
+    return 'Connected, but the collected session data is incomplete.';
+  }
   if (machineTone(machine) === 'incomplete') {
     return `Connected. Synced ${savedHistory}; the refresh ${lastChecked} did not complete.`;
   }
   if (machine.state === 'stale') {
     return `Offline. Last checked ${lastChecked}. Saved history from ${savedHistory}.`;
-  }
-  if (machine.state === 'limited') {
-    return 'Connected. Older history was truncated, so these sessions are left out of the totals.';
   }
   if (machine.state === 'error') return 'Connection needs attention.';
   if (machine.sessionCount === 0) {
@@ -105,5 +112,5 @@ export function machineStatusText(machine: MachineFact): string {
 /** A degraded or offline host is signalled by its dot; only these two interrupt the page. */
 export function needsBanner(machine: MachineFact): boolean {
   if (isChecking(machine) || machine.state === 'disabled') return false;
-  return connectorFailed(machine) || machine.state === 'error';
+  return machineTone(machine) === 'failed';
 }
