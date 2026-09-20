@@ -19,7 +19,6 @@ import {
   type SessionReadiness,
 } from '@/pages/coslash/lib/session';
 import {
-  boardGroupKey,
   groupSessions,
   type BoardGroup,
   type BoardGroupBy,
@@ -77,7 +76,9 @@ function ColumnHeader({ group }: { group: BoardGroup }) {
     <div className="border-coslash-line bg-coslash-surface sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-l px-3 py-2">
       <span className="flex min-w-0 items-center gap-[7px] text-[12px] font-[650]">
         {dot && <i className={cn('size-[7px] shrink-0 rounded-full', dot)} />}
-        <span className="truncate">{group.label}</span>
+        <span className="truncate" title={group.title}>
+          {group.label}
+        </span>
       </span>
       <span className="text-meta text-coslash-muted shrink-0 tabular-nums">{group.sessions.length}</span>
     </div>
@@ -103,10 +104,7 @@ function RowGroupHeader({
       >
         <span className="sticky left-0 flex items-center gap-2 px-3">
           <ChevronRight className={cn('size-4 shrink-0 transition-transform', { 'rotate-90': open })} />
-          <span
-            className="font-mono text-[12px] font-[650]"
-            title={group.key === group.label ? undefined : group.key}
-          >
+          <span className="font-mono text-[12px] font-[650]" title={group.title}>
             {group.label}
           </span>
           <GroupTotals sessions={group.sessions} />
@@ -119,7 +117,8 @@ function RowGroupHeader({
 function CardActions({ session, review }: { session: Session; review: SessionReviewProps }) {
   const key = sessionKey(session);
   const reviewLink = review.index.links.get(key);
-  const showReviewAction = isLocalSession(session) && !review.index.reviewSessions.has(key);
+  const showReviewAction =
+    isLocalSession(session) && session.cwd.trim() !== '' && !review.index.reviewSessions.has(key);
   if (reviewLink == null && !showReviewAction) return null;
   return (
     <div className="flex flex-wrap items-center gap-1 pt-2" onClick={(event) => event.stopPropagation()}>
@@ -191,7 +190,7 @@ function BoardCard({
       </div>
       <button
         type="button"
-        className="hover:text-coslash-accent block w-full pt-2 text-left text-[13px] leading-[1.35] font-semibold"
+        className="hover:text-coslash-accent line-clamp-2 w-full pt-2 text-left text-[13px] leading-[1.35] font-semibold break-words"
         onClick={onSelect}
       >
         {session.name ?? session.firstPrompt ?? 'Untitled session'}
@@ -220,17 +219,22 @@ function BoardCard({
 
 function BoardCell({
   sessions,
+  column,
   selectedSessionKey,
   onSelectSession,
   review,
 }: {
   sessions: Session[];
+  column: number;
   selectedSessionKey: string | null;
   onSelectSession: (session: Session) => void;
   review: SessionReviewProps;
 }) {
   return (
-    <div className="border-coslash-line bg-coslash-soft flex flex-col gap-2 border-b border-l p-2">
+    <div
+      className="border-coslash-line bg-coslash-soft flex flex-col gap-2 border-l p-2"
+      style={{ gridColumn: column }}
+    >
       {sessions.map((session) => (
         <BoardCard
           key={sessionKey(session)}
@@ -265,6 +269,7 @@ export function SessionBoard({
   const rows: BoardGroup[] = showRowHeaders
     ? groupSessions(sessions, rowGroupBy)
     : [{ key: 'all', label: 'All sessions', sessions }];
+  const columnPositions = new Map(columns.map((column, index) => [column.key, index + 1]));
 
   const toggleRow = (key: string) =>
     setCollapsed((current) => {
@@ -282,22 +287,27 @@ export function SessionBoard({
         <ColumnHeader key={column.key} group={column} />
       ))}
       {rows.map((row) => {
-        const open = !collapsed.has(row.key);
+        const collapseKey = `${rowGroupBy}:${row.key}`;
+        const open = !collapsed.has(collapseKey);
         return (
           <Fragment key={row.key}>
-            {showRowHeaders && <RowGroupHeader group={row} open={open} onToggle={() => toggleRow(row.key)} />}
-            {open &&
-              columns.map((column) => (
-                <BoardCell
-                  key={column.key}
-                  sessions={row.sessions.filter(
-                    (session) => boardGroupKey(session, columnGroupBy) === column.key,
-                  )}
-                  selectedSessionKey={selectedSessionKey}
-                  onSelectSession={onSelectSession}
-                  review={review}
-                />
-              ))}
+            {showRowHeaders && (
+              <RowGroupHeader group={row} open={open} onToggle={() => toggleRow(collapseKey)} />
+            )}
+            {open && (
+              <div className="border-coslash-line bg-coslash-soft col-span-full grid grid-cols-subgrid border-b">
+                {groupSessions(row.sessions, columnGroupBy).map((cell) => (
+                  <BoardCell
+                    key={cell.key}
+                    sessions={cell.sessions}
+                    column={columnPositions.get(cell.key)!}
+                    selectedSessionKey={selectedSessionKey}
+                    onSelectSession={onSelectSession}
+                    review={review}
+                  />
+                ))}
+              </div>
+            )}
           </Fragment>
         );
       })}
