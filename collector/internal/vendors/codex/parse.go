@@ -103,6 +103,19 @@ func (analysis *codexSessionAnalysis) noteSubagentStarted(id string, timestamp *
 	analysis.digest.PushSubagent(analysis.prompts, id, ts)
 }
 
+func (analysis *codexSessionAnalysis) noteCompaction(timestamp *int64) {
+	analysis.compactions++
+	ts := int64(0)
+	if timestamp != nil {
+		ts = *timestamp
+	}
+	analysis.digest.Push(analysis.prompts,
+		session.DigestCompaction,
+		fmt.Sprintf("context compacted (%d)", analysis.compactions),
+		ts,
+	)
+}
+
 func completedItemText(item codexItem) string {
 	text := make([]string, 0, len(item.Content))
 	for _, content := range item.Content {
@@ -239,6 +252,8 @@ func analyzeCodexSessionSource(
 			if row.Payload.Model != "" {
 				analysis.model = row.Payload.Model
 			}
+		case "compacted":
+			analysis.noteCompaction(timestamp)
 		case "event_msg":
 			switch row.Payload.Type {
 			case "item_completed":
@@ -297,16 +312,7 @@ func analyzeCodexSessionSource(
 					})
 				}
 			case "context_compacted":
-				analysis.compactions++
-				ts := int64(0)
-				if timestamp != nil {
-					ts = *timestamp
-				}
-				analysis.digest.Push(analysis.prompts,
-					session.DigestCompaction,
-					fmt.Sprintf("context compacted (%d)", analysis.compactions),
-					ts,
-				)
+				analysis.noteCompaction(timestamp)
 			case "task_started":
 				if analysis.turnDepth == 0 {
 					analysis.turnFinalReply = ""
