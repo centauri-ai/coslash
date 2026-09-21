@@ -2,6 +2,7 @@ package codex
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -160,12 +161,24 @@ func parseSource(
 	path string,
 	needsApproval func(string, string) bool,
 ) (*parsedSession, error) {
-	analysis, err := analyzeCodexSessionSource(source, path, needsApproval)
+	return parseSourceContext(context.Background(), source, path, needsApproval)
+}
+
+func parseSourceContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	path string,
+	needsApproval func(string, string) bool,
+) (*parsedSession, error) {
+	analysis, err := analyzeCodexSessionSource(ctx, source, path, needsApproval)
 	if err != nil {
 		return nil, err
 	}
 	if analysis.subagentRole == "guardian" {
 		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	parsed := &vendors.ParsedSession{
 		Session:         analysis.unifiedSession(path),
@@ -195,25 +208,43 @@ func parseSource(
 }
 
 func analyzeCodexSessionSource(
+	ctx context.Context,
 	source vendors.ReadSource,
 	file string,
 	needsApproval func(string, string) bool,
 ) (*codexSessionAnalysis, error) {
-	rows, err := vendors.ParseJSONLSource[codexRow](source, file)
+	rows, err := vendors.ParseJSONLSourceContext[codexRow](ctx, source, file)
 	if err != nil {
 		return nil, err
 	}
-	questionAnswers := questionAnswersByCall(rows)
-	completedCalls := completedCallIDs(rows)
+	questionAnswers, err := questionAnswersByCallContext(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	completedCalls, err := completedCallIDsContext(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	commitLog, err := commitObservationsByCallContext(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	pullRequests, err := pullRequestURLsContext(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
 	ownID := SessionIDFromRollout(file)
 	var metas []codexMeta
 	analysis := &codexSessionAnalysis{
 		spawns:       map[string]vendors.SpawnState{},
 		fileEdits:    session.NewFileEditSet(),
-		commitLog:    commitObservationsByCall(rows),
-		pullRequests: len(pullRequestURLs(rows)),
+		commitLog:    commitLog,
+		pullRequests: len(pullRequests),
 	}
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var timestamp *int64
 		if row.Timestamp != "" {
 			milliseconds, err := session.RFC3339ToUnixEpoch(row.Timestamp)
@@ -378,6 +409,9 @@ func analyzeCodexSessionSource(
 					for _, command := range commands {
 						analysis.approvalPending = analysis.approvalPending ||
 							(!completed && needsApproval(command, analysis.workingDirectory))
+						if err := ctx.Err(); err != nil {
+							return nil, err
+						}
 					}
 				}
 				analysis.notePlan(row.Payload, timestamp)
@@ -733,8 +767,16 @@ func (answer codexQuestionAnswer) values() []string {
 }
 
 func questionAnswersByCall(rows []codexRow) map[string]map[string]codexQuestionAnswer {
+	answers, _ := questionAnswersByCallContext(context.Background(), rows)
+	return answers
+}
+
+func questionAnswersByCallContext(ctx context.Context, rows []codexRow) (map[string]map[string]codexQuestionAnswer, error) {
 	answersByCall := make(map[string]map[string]codexQuestionAnswer)
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if row.Type != "response_item" ||
 			(row.Payload.Type != "function_call_output" && row.Payload.Type != "custom_tool_call_output") ||
 			row.Payload.CallID == "" {
@@ -744,19 +786,27 @@ func questionAnswersByCall(rows []codexRow) map[string]map[string]codexQuestionA
 			answersByCall[row.Payload.CallID] = answers
 		}
 	}
-	return answersByCall
+	return answersByCall, nil
 }
 
 func completedCallIDs(rows []codexRow) map[string]struct{} {
+	completed, _ := completedCallIDsContext(context.Background(), rows)
+	return completed
+}
+
+func completedCallIDsContext(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
 	completed := make(map[string]struct{})
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if row.Type == "response_item" &&
 			(row.Payload.Type == "function_call_output" || row.Payload.Type == "custom_tool_call_output") &&
 			row.Payload.CallID != "" {
 			completed[row.Payload.CallID] = struct{}{}
 		}
 	}
-	return completed
+	return completed, nil
 }
 
 func execApprovalCommands(payload codexPayload) []string {
@@ -793,6 +843,10 @@ func execApprovalCommands(payload codexPayload) []string {
 }
 
 func commandNeedsApproval(command, cwd string) bool {
+	return commandNeedsApprovalContext(context.Background(), command, cwd)
+}
+
+func commandNeedsApprovalContext(ctx context.Context, command, cwd string) bool {
 	if command == "" {
 		return true
 	}
@@ -805,7 +859,7 @@ func commandNeedsApproval(command, cwd string) bool {
 		return true
 	}
 	arguments := execPolicyArguments(rules, command)
-	output, err := exec.Command("codex", arguments...).Output()
+	output, err := exec.CommandContext(ctx, "codex", arguments...).Output()
 	if err != nil {
 		return true
 	}
@@ -862,8 +916,16 @@ type codexCommandResult struct {
 }
 
 func pullRequestURLs(rows []codexRow) map[string]struct{} {
+	urls, _ := pullRequestURLsContext(context.Background(), rows)
+	return urls
+}
+
+func pullRequestURLsContext(ctx context.Context, rows []codexRow) (map[string]struct{}, error) {
 	urls := map[string]struct{}{}
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if row.Type == "event_msg" {
 			item := row.Payload.Item
 			if item.Type == "CommandExecution" && item.ExitCode != nil && *item.ExitCode == 0 &&
@@ -891,13 +953,21 @@ func pullRequestURLs(rows []codexRow) map[string]struct{} {
 			}
 		}
 	}
-	return urls
+	return urls, nil
 }
 
 func commitObservationsByCall(rows []codexRow) []session.CommitObservation {
+	observations, _ := commitObservationsByCallContext(context.Background(), rows)
+	return observations
+}
+
+func commitObservationsByCallContext(ctx context.Context, rows []codexRow) ([]session.CommitObservation, error) {
 	commands := map[string]string{}
 	observations := []session.CommitObservation{}
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if row.Type != "response_item" || row.Payload.CallID == "" {
 			continue
 		}
@@ -921,7 +991,7 @@ func commitObservationsByCall(rows []codexRow) []session.CommitObservation {
 		)...)
 		delete(commands, row.Payload.CallID)
 	}
-	return observations
+	return observations, nil
 }
 
 func decodeCodexCommandResult(raw json.RawMessage) codexCommandResult {
