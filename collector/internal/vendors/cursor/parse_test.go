@@ -1,6 +1,8 @@
 package cursor
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +10,15 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestParseTranscriptStopsWhenContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := parseTranscriptFragmentsSourceContext(ctx, vendors.LocalReadSource, []string{"unused.jsonl"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
 
 func TestParseTranscriptPreservesUserQuestionsAsUserTurns(t *testing.T) {
 	id := "00000000-0000-4000-8000-000000000001"
