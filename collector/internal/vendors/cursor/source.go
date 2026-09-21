@@ -452,7 +452,7 @@ func selectCursorFilesSourceWithMetadataContext(ctx context.Context, source vend
 	if since <= 0 {
 		return eligible, nil
 	}
-	selected, _ := vendors.LimitNewestFileFamilies(eligible, vendors.MaxCandidateFilesPerAgent,
+	selected, _, err := vendors.LimitNewestFileFamiliesContext(ctx, eligible, vendors.MaxCandidateFilesPerAgent,
 		func(path string) string { return union.find(IDFromPath(path)) },
 		func(path string) int64 {
 			modified := vendors.SourceModificationTime(source, path)
@@ -464,7 +464,7 @@ func selectCursorFilesSourceWithMetadataContext(ctx context.Context, source vend
 			}
 			return modified
 		})
-	return selected, ctx.Err()
+	return selected, err
 }
 
 type cursorFamilyUnion struct{ parents map[string]string }

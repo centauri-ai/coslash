@@ -162,8 +162,22 @@ func LimitNewestFileFamilies(
 	familyID func(string) string,
 	modified func(string) int64,
 ) ([]string, bool) {
+	result, truncated, _ := LimitNewestFileFamiliesContext(context.Background(), files, limit, familyID, modified)
+	return result, truncated
+}
+
+func LimitNewestFileFamiliesContext(
+	ctx context.Context,
+	files []string,
+	limit int,
+	familyID func(string) string,
+	modified func(string) int64,
+) ([]string, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	if limit <= 0 || len(files) <= limit {
-		return files, false
+		return files, false, nil
 	}
 	type family struct {
 		id       string
@@ -172,6 +186,9 @@ func LimitNewestFileFamilies(
 	}
 	families := map[string]*family{}
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
 		id := familyID(file)
 		item := families[id]
 		if item == nil {
@@ -183,6 +200,9 @@ func LimitNewestFileFamilies(
 	}
 	ordered := make([]*family, 0, len(families))
 	for _, item := range families {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
 		ordered = append(ordered, item)
 	}
 	sort.Slice(ordered, func(i, j int) bool {
@@ -191,8 +211,14 @@ func LimitNewestFileFamilies(
 		}
 		return ordered[i].modified > ordered[j].modified
 	})
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	selected := map[string]struct{}{}
 	for _, item := range ordered {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
 		if len(selected) > 0 && len(selected)+len(item.files) > limit {
 			continue
 		}
@@ -202,11 +228,14 @@ func LimitNewestFileFamilies(
 	}
 	result := make([]string, 0, len(selected))
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
 		if _, ok := selected[file]; ok {
 			result = append(result, file)
 		}
 	}
-	return result, len(result) < len(files)
+	return result, len(result) < len(files), nil
 }
 
 func walkReadSource(source ReadSource, root string, visit fs.WalkDirFunc) error {
