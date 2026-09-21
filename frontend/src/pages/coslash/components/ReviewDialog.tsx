@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type RefObject } from 'react';
 import { LoaderCircleIcon, ScanSearchIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -85,6 +85,7 @@ export function ReviewDialog({
   open: controlledOpen,
   onOpenChange,
   showTrigger = true,
+  returnFocusRef,
   onStarted,
 }: {
   origin: SessionIdentity;
@@ -95,6 +96,7 @@ export function ReviewDialog({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   showTrigger?: boolean;
+  returnFocusRef?: RefObject<HTMLButtonElement | null>;
   onStarted: () => void;
 }) {
   const reviewers = availableReviewers(reviewerOptions, origin.agent);
@@ -153,7 +155,14 @@ export function ReviewDialog({
             </Button>
           </DialogTrigger>
         )}
-        <DialogContent onClick={(event) => event.stopPropagation()}>
+        <DialogContent
+          onClick={(event) => event.stopPropagation()}
+          onCloseAutoFocus={(event) => {
+            if (returnFocusRef?.current == null) return;
+            event.preventDefault();
+            returnFocusRef.current.focus();
+          }}
+        >
           <ReviewDialogContent
             reviewers={reviewers}
             selected={effectiveSelected}
@@ -165,7 +174,7 @@ export function ReviewDialog({
           />
         </DialogContent>
       </Dialog>
-      {reviewError && (
+      {showTrigger && reviewError && (
         <span role="alert" className="text-destructive text-xs">
           {reviewError}
         </span>
