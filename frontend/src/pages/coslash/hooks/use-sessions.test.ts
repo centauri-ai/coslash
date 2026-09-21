@@ -3,6 +3,7 @@ import {
   decodeSessionsResponse,
   diffRequestPath,
   exactDiffFailure,
+  loadShareCandidatesUntilTerminal,
   remoteRefreshInProgress,
   sessionDetailRequestPath,
   sessionsRequestPath,
@@ -213,6 +214,39 @@ describe('remoteRefreshInProgress', () => {
         },
       ]),
     ).toBe(true);
+  });
+
+  it('waits through an existing refresh and the broader refresh it was blocking', async () => {
+    const refreshingMachine = {
+      sourceId: 'r_0123456789abcdef',
+      label: 'SSH workspace',
+      state: 'connecting' as const,
+      complete: false,
+      reason: 'broader_history' as const,
+      refreshing: true,
+    };
+    const finalSession = sampleSession('remote', refreshingMachine.sourceId);
+    const payloads = [
+      { sessions: [], machines: [refreshingMachine] },
+      { sessions: [], machines: [refreshingMachine] },
+      {
+        sessions: [finalSession],
+        machines: [{ ...refreshingMachine, state: 'ok' as const, complete: true, refreshing: false }],
+      },
+    ];
+    let fetches = 0;
+    let waits = 0;
+
+    const result = await loadShareCandidatesUntilTerminal(
+      async () => payloads[fetches++]!,
+      async () => {
+        waits += 1;
+      },
+    );
+
+    expect(result.sessions).toEqual([finalSession]);
+    expect(fetches).toBe(3);
+    expect(waits).toBe(2);
   });
 });
 
