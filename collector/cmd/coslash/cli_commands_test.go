@@ -18,7 +18,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
-	"golang.org/x/sys/unix"
 )
 
 func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
@@ -168,8 +167,7 @@ func TestRuntimeReadinessPreservesExclusiveOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer probe.Close()
-	if err := unix.Flock(int(probe.Fd()), unix.LOCK_SH|unix.LOCK_NB); err == nil {
-		_ = unix.Flock(int(probe.Fd()), unix.LOCK_UN)
+	if !runtimeFileExclusivelyLocked(probe) {
 		t.Fatal("readiness publication released exclusive singleton ownership")
 	}
 }

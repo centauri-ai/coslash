@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,9 +11,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -166,7 +165,7 @@ func markPendingPermissionsContext(
 			continue
 		}
 		var pending pendingPermission
-		if json.Unmarshal(data, &pending) != nil || pending.SessionID == "" || !processAlive(pending.PID) {
+		if json.Unmarshal(data, &pending) != nil || pending.SessionID == "" || !session.IsProcessAlive(pending.PID) {
 			os.Remove(path)
 			continue
 		}
@@ -179,14 +178,6 @@ func markPendingPermissionsContext(
 		}
 	}
 	return nil
-}
-
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func parseTUIProcesses(output string) []tuiProcess {
