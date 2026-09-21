@@ -243,7 +243,13 @@ func TestRunAuthAttemptStopsSSHWhenAttemptIsCancelled(t *testing.T) {
 }
 
 func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
-	t.Setenv("COSLASH_HOME", t.TempDir())
+	// t.TempDir includes the test name and exceeds the Unix socket path limit on macOS.
+	home, err := os.MkdirTemp("", "csl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	t.Setenv("COSLASH_HOME", home)
 	originalRun := runInteractiveSSH
 	originalCheck := checkAuthControlMaster
 	originalResolve := resolveAuthControlSocketPath
@@ -259,10 +265,13 @@ func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stale, err := net.Listen("unix", socketPath)
+	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Close unlinks a socket that package net created. A stale control socket remains on disk.
+	stale := listener.(*net.UnixListener)
+	stale.SetUnlinkOnClose(false)
 	if err := stale.Close(); err != nil {
 		t.Fatal(err)
 	}
