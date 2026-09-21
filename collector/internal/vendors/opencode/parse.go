@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,13 @@ var errMalformedSession = errors.New("malformed OpenCode session data")
 const promptOnlyBusyWindow = 2 * time.Minute
 
 func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
+	return parseContext(context.Background(), tx, row)
+}
+
+func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSession, error) {
+	if err := ctx.Err(); err != nil {
+		return parsedSession{}, err
+	}
 	modelID := ""
 	if row.model.Valid {
 		var model storedModel
@@ -37,16 +45,19 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		}
 		modelID = modelName(model.ProviderID, model.ID)
 	}
-	messages, err := loadMessages(tx, row.id)
+	messages, err := loadMessagesContext(ctx, tx, row.id)
 	if err != nil {
 		return parsedSession{}, err
 	}
-	todos, err := loadTodos(tx, row.id)
+	todos, err := loadTodosContext(ctx, tx, row.id)
 	if err != nil {
 		return parsedSession{}, err
 	}
 	summaryEdits, err := loadFileEdits(row.summaryDiffs)
 	if err != nil {
+		return parsedSession{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return parsedSession{}, err
 	}
 
@@ -77,6 +88,9 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	var lastEditAt *int64
 	todoStatus := map[string]string{}
 	for _, message := range messages {
+		if err := ctx.Err(); err != nil {
+			return parsedSession{}, err
+		}
 		if message.Role == "user" {
 			for _, part := range message.parts {
 				if part.Type == "compaction" {
@@ -145,6 +159,9 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 
 		texts := []string{}
 		for _, part := range message.parts {
+			if err := ctx.Err(); err != nil {
+				return parsedSession{}, err
+			}
 			switch part.Type {
 			case "text":
 				if text := strings.TrimSpace(part.Text); text != "" {
@@ -304,6 +321,10 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 	if editedFileCount == 0 && row.summaryFiles.Valid {
 		editedFileCount = int(row.summaryFiles.Int64)
 	}
+	entrypoint := sessionEntrypointContext(ctx, row.id, clientStateDir())
+	if err := ctx.Err(); err != nil {
+		return parsedSession{}, err
+	}
 	result := &session.Session{
 		Agent:            vendors.AgentOpenCode,
 		ID:               row.id,
@@ -315,7 +336,7 @@ func parse(tx *sql.Tx, row storedSession) (parsedSession, error) {
 		Tokens:           tokens,
 		Subagents:        []session.Subagent{},
 		SessionDetails:   details,
-		Entrypoint:       sessionEntrypoint(row.id, clientStateDir()),
+		Entrypoint:       entrypoint,
 	}
 	if activeDuration > 0 {
 		value := int(activeDuration)
@@ -518,7 +539,11 @@ func normalizeFilePath(cwd, path string) string {
 }
 
 func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
-	rows, err := tx.Query(`
+	return loadMessagesContext(context.Background(), tx, sessionID)
+}
+
+func loadMessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]storedMessage, error) {
+	rows, err := tx.QueryContext(ctx, `
 		SELECT message.id, message.data, part.data, part.time_updated
 		FROM message
 		LEFT JOIN part ON part.message_id = message.id
@@ -533,6 +558,9 @@ func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 	messages := []storedMessage{}
 	lastID := ""
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var id string
 		var messageJSON string
 		var partJSON sql.NullString
@@ -569,7 +597,11 @@ func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 }
 
 func loadTodos(tx *sql.Tx, sessionID string) ([]session.Todo, error) {
-	rows, err := tx.Query(`
+	return loadTodosContext(context.Background(), tx, sessionID)
+}
+
+func loadTodosContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]session.Todo, error) {
+	rows, err := tx.QueryContext(ctx, `
 		SELECT content, status
 		FROM todo
 		WHERE session_id = ?
@@ -582,6 +614,9 @@ func loadTodos(tx *sql.Tx, sessionID string) ([]session.Todo, error) {
 
 	todos := []session.Todo{}
 	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var todo session.Todo
 		var status string
 		if err := rows.Scan(&todo.Text, &status); err != nil {
