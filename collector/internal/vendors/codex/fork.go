@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,11 +22,24 @@ func applyForkedUsageSource(
 	knownActiveFiles []string,
 	parsed []*parsedSession,
 ) {
+	_ = applyForkedUsageSourceContext(context.Background(), source, archivedDir, knownActiveFiles, parsed)
+}
+
+func applyForkedUsageSourceContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	archivedDir string,
+	knownActiveFiles []string,
+	parsed []*parsedSession,
+) error {
 	forks := []*parsedSession{}
 	index := map[string]string{}
 	activeParents := map[string]bool{}
 	archivedFallbacks := map[string]string{}
 	for _, p := range parsed {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		f := p.fork
 		index[p.transcript.Session.ID] = p.transcript.LogPath
 		if f.forkedFromID != "" {
@@ -33,7 +47,7 @@ func applyForkedUsageSource(
 		}
 	}
 	if len(forks) == 0 {
-		return
+		return nil
 	}
 	// The parent may be an unchanged active session outside this parse batch,
 	// or it may have been archived after the fork. A batch path wins over active
@@ -41,23 +55,35 @@ func applyForkedUsageSource(
 	if knownActiveFiles == nil && archivedDir != "" {
 		activeDir := filepath.Join(filepath.Dir(archivedDir), "sessions")
 		var err error
-		knownActiveFiles, err = vendors.JSONLFilesUnderSource(source, activeDir)
+		knownActiveFiles, err = vendors.JSONLFilesUnderSourceContext(ctx, source, activeDir)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			log.Printf("active sessions dir %q: %v; continuing without fork parents from it", activeDir, err)
 		}
 	}
 	for _, file := range knownActiveFiles {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if id := SessionIDFromRollout(file); id != "" && index[id] == "" {
 			index[id] = file
 			activeParents[id] = true
 		}
 	}
 	if archivedDir != "" {
-		files, err := vendors.JSONLFilesUnderSource(source, archivedDir)
+		files, err := vendors.JSONLFilesUnderSourceContext(ctx, source, archivedDir)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			log.Printf("archived sessions dir %q: %v; continuing without fork parents from it", archivedDir, err)
 		}
 		for _, file := range files {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if id := SessionIDFromRollout(file); id != "" {
 				if index[id] == "" {
 					index[id] = file
@@ -68,6 +94,9 @@ func applyForkedUsageSource(
 		}
 	}
 	for _, p := range forks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		fork := p.fork
 		parentPath := index[fork.forkedFromID]
 		if parentPath == "" || parentPath == p.transcript.LogPath {
@@ -77,12 +106,15 @@ func applyForkedUsageSource(
 		for i, sample := range fork.samples {
 			forkSeq[i] = sample.usage
 		}
-		parentUsages, err := parentForkUsagesSource(source, parentPath, forkSeq)
+		parentUsages, err := parentForkUsagesSourceContext(ctx, source, parentPath, forkSeq)
 		if fallback := archivedFallbacks[fork.forkedFromID]; err != nil && fallback != "" {
 			parentPath = fallback
-			parentUsages, err = parentForkUsagesSource(source, parentPath, forkSeq)
+			parentUsages, err = parentForkUsagesSourceContext(ctx, source, parentPath, forkSeq)
 		}
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
 			log.Printf(
 				"%s: fork parent %q unreadable; counting full usage: %v",
 				p.transcript.LogPath, parentPath, err,
@@ -95,6 +127,7 @@ func applyForkedUsageSource(
 			p.transcript.LogPath,
 		)
 	}
+	return nil
 }
 
 // parentForkUsages streams a parent rollout's cumulative token_count sequence
@@ -108,6 +141,18 @@ func parentForkUsagesSource(
 	path string,
 	forkSeq []codexTokenUsage,
 ) ([]codexTokenUsage, error) {
+	return parentForkUsagesSourceContext(context.Background(), source, path, forkSeq)
+}
+
+func parentForkUsagesSourceContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	path string,
+	forkSeq []codexTokenUsage,
+) ([]codexTokenUsage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	file, err := source.Open(path)
 	if err != nil {
 		return nil, err
@@ -119,6 +164,9 @@ func parentForkUsagesSource(
 	decoder := json.NewDecoder(file)
 	var seq []codexTokenUsage
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var row codexRow
 		if err := decoder.Decode(&row); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
