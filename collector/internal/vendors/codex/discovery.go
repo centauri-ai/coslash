@@ -6,16 +6,28 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-// rolloutID matches the session UUID embedded in a rollout filename, e.g.
+// rolloutID matches a UUID embedded in a rollout filename, e.g.
 // rollout-2026-07-10T14-11-18-019f4dde-db5b-7100-bdc0-09b5aaaac56f.jsonl
 var rolloutID = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
+// rolloutIDs returns every UUID a rollout filename carries, in order. A forked
+// rollout is named <root-session-id>_<thread-id>, so the thread the file
+// actually holds is always the last one.
+func rolloutIDs(path string) []string {
+	return rolloutID.FindAllString(filepath.Base(path), -1)
+}
+
 func SessionIDFromRollout(path string) string {
-	return rolloutID.FindString(filepath.Base(path))
+	ids := rolloutIDs(path)
+	if len(ids) == 0 {
+		return ""
+	}
+	return ids[len(ids)-1]
 }
 
 func readHeader(path string) (string, string, error) {
@@ -32,20 +44,28 @@ func readHeaderSource(source vendors.ReadSource, path string) (string, string, e
 	if err := json.NewDecoder(file).Decode(&row); err != nil {
 		return "", "", fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
-	id := SessionIDFromRollout(path)
+	ids := rolloutIDs(path)
 	if row.Type != "session_meta" {
 		return "", "", fmt.Errorf("%w: first row type %q is not session_meta", vendors.ErrInvalidData, row.Type)
 	}
-	if id == "" {
+	if len(ids) == 0 {
 		return "", "", fmt.Errorf("%w: rollout filename has no session ID", vendors.ErrInvalidData)
 	}
-	if row.Payload.ID != id {
+	threadID := ids[len(ids)-1]
+	// A fork inlines its ancestors' session_meta rows and may label every one
+	// of them with the root ID, so this first row only has to name a thread the
+	// filename names too.
+	if !slices.Contains(ids, row.Payload.ID) {
 		return "", "", fmt.Errorf(
-			"%w: header session ID %q does not match filename ID %q",
-			vendors.ErrInvalidData, row.Payload.ID, id,
+			"%w: header session ID %q does not identify filename thread ID %q",
+			vendors.ErrInvalidData, row.Payload.ID, threadID,
 		)
 	}
-	return id, row.Payload.ParentThreadID, nil
+	if row.Payload.ID != threadID {
+		// An ancestor wrote this row, so its parentage is not the fork's.
+		return threadID, "", nil
+	}
+	return threadID, row.Payload.ParentThreadID, nil
 }
 
 func IsRootRollout(path string) (bool, error) {

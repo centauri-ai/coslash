@@ -205,7 +205,7 @@ func analyzeCodexSessionSource(
 	}
 	questionAnswers := questionAnswersByCall(rows)
 	completedCalls := completedCallIDs(rows)
-	ownID := SessionIDFromRollout(file)
+	ownIDs := rolloutIDs(file)
 	var metas []codexMeta
 	analysis := &codexSessionAnalysis{
 		spawns:       map[string]vendors.SpawnState{},
@@ -397,7 +397,7 @@ func analyzeCodexSessionSource(
 	}
 	// Lineage, parentage, and context all come from the rollout's OWN meta —
 	// a fork's inlined ancestor metas must not win last-write on cwd/branch.
-	own := ownMeta(metas, ownID)
+	own := ownMeta(metas, ownIDs)
 	analysis.sessionID = own.sessionID
 	analysis.forkedFromID = own.forkedFromID
 	analysis.parentThreadID = own.parentThreadID
@@ -415,14 +415,16 @@ func analyzeCodexSessionSource(
 	return analysis, nil
 }
 
-func ownMeta(metas []codexMeta, ownID string) codexMeta {
+// ownMeta finds the rollout's own meta among the ancestor metas a fork inlines.
+// A fork may label every inlined meta with the root ID, so the filename's IDs
+// are tried from the thread it holds back to the root, latest meta first.
+func ownMeta(metas []codexMeta, ownIDs []string) codexMeta {
 	if len(metas) == 0 {
 		return codexMeta{}
 	}
-	if ownID != "" {
-		for i := len(metas) - 1; i >= 0; i-- {
-			meta := metas[i]
-			if cmp.Or(meta.payloadID, meta.sessionID) == ownID {
+	for i := len(ownIDs) - 1; i >= 0; i-- {
+		for j := len(metas) - 1; j >= 0; j-- {
+			if meta := metas[j]; cmp.Or(meta.payloadID, meta.sessionID) == ownIDs[i] {
 				return meta
 			}
 		}
