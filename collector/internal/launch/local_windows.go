@@ -7,16 +7,16 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"golang.org/x/sys/windows"
 )
 
 var windowsLookPath = exec.LookPath
 
-var windowsStart = func(name, workingDirectory string, arguments ...string) error {
-	command := exec.Command(name, arguments...)
-	command.Dir = workingDirectory
+var windowsStart = func(command *exec.Cmd) error {
 	if err := command.Start(); err != nil {
 		return err
 	}
@@ -47,13 +47,25 @@ func Available(terminal string) bool {
 
 func openWindowsTerminal(workingDirectory, command string) error {
 	if terminal, err := windowsLookPath("wt.exe"); err == nil {
-		return windowsStart(terminal, workingDirectory, "-d", workingDirectory, "powershell.exe", "-NoExit", "-Command", command)
+		process := exec.Command(terminal, "-d", workingDirectory, "powershell.exe", "-NoExit", "-Command", command)
+		process.Dir = workingDirectory
+		return windowsStart(process)
 	}
 	powerShell, err := windowsLookPath("powershell.exe")
 	if err != nil {
 		return fmt.Errorf("Windows Terminal and Windows PowerShell are not installed or available")
 	}
-	return windowsStart(powerShell, workingDirectory, "-NoExit", "-Command", command)
+	process := exec.Command(powerShell, "-NoExit", "-Command", command)
+	configureWindowsConsole(process, workingDirectory)
+	return windowsStart(process)
+}
+
+func configureWindowsConsole(command *exec.Cmd, workingDirectory string) {
+	command.Dir = workingDirectory
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE}
 }
 
 func localCommandJoin(arguments ...string) string {
@@ -91,7 +103,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		if err != nil {
 			return "", "", err
 		}
-		command := "$handoff = Get-Content -Raw -LiteralPath " + powerShellQuote(path) + " -ErrorAction Stop; " +
+		command := "$handoff = Get-Content -Raw -Encoding UTF8 -LiteralPath " + powerShellQuote(path) + " -ErrorAction Stop; " +
 			localCommandJoin(cli, "-c") + " ('developer_instructions=' + $handoff)"
 		if prompt != "" {
 			command += " " + powerShellQuote("--") + " " + powerShellQuote(prompt)
@@ -107,12 +119,15 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 			os.Remove(path)
 			return "", "", fmt.Errorf("launch: encoding OpenCode handoff config: %w", err)
 		}
+		setup := "$hadOpenCodeConfigContent = Test-Path Env:OPENCODE_CONFIG_CONTENT; " +
+			"$previousOpenCodeConfigContent = $env:OPENCODE_CONFIG_CONTENT; "
 		command := "$env:OPENCODE_CONFIG_CONTENT = " + powerShellQuote(string(config)) + "; " + localCommandJoin(cli)
 		if prompt != "" {
 			command += " " + powerShellQuote(prompt)
 		}
-		cleanup := "Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue; " + powerShellRemove(path)
-		return "try { " + command + " } finally { " + cleanup + " }", path, nil
+		restore := "if ($hadOpenCodeConfigContent) { $env:OPENCODE_CONFIG_CONTENT = $previousOpenCodeConfigContent } else { " +
+			"Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue }; " + powerShellRemove(path)
+		return setup + "try { " + command + " } finally { " + restore + " }", path, nil
 	case vendors.AgentCursor:
 		return localCommandJoin(cli), "", nil
 	}
