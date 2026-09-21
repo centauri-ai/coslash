@@ -613,6 +613,8 @@ function SessionRow({
   review: SessionReviewProps;
 }) {
   const [reviewOpen, setReviewOpen] = useState(false);
+  const actionButtonRef = useRef<HTMLButtonElement>(null);
+  const openingReviewRef = useRef(false);
   const readiness = sessionReadiness(session);
   const vendor = getVendor(session.agent);
   const key = sessionKey(session);
@@ -732,6 +734,7 @@ function SessionRow({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
+              ref={actionButtonRef}
               type="button"
               className="text-coslash-muted hover:bg-coslash-soft hover:text-coslash-ink grid size-7 cursor-pointer place-items-center rounded-lg [&>svg]:size-4"
               aria-label="Session actions"
@@ -743,6 +746,11 @@ function SessionRow({
           <DropdownMenuContent
             align="end"
             className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line min-w-40 border"
+            onCloseAutoFocus={(event) => {
+              if (!openingReviewRef.current) return;
+              openingReviewRef.current = false;
+              event.preventDefault();
+            }}
           >
             {reviewLink != null && (
               <DropdownMenuItem
@@ -757,7 +765,10 @@ function SessionRow({
               <DropdownMenuItem
                 className="text-meta cursor-pointer"
                 disabled={reviewDisabled}
-                onSelect={() => setReviewOpen(true)}
+                onSelect={() => {
+                  openingReviewRef.current = true;
+                  setReviewOpen(true);
+                }}
               >
                 {reviewActive ? <LoaderCircle className="animate-spin" /> : <ScanSearch />}
                 {reviewActive ? 'Review running' : session.reviewError ? 'Retry review' : 'Send for review'}
@@ -778,6 +789,7 @@ function SessionRow({
             open={reviewOpen}
             onOpenChange={setReviewOpen}
             showTrigger={false}
+            returnFocusRef={actionButtonRef}
             onStarted={review.onStarted}
           />
         )}

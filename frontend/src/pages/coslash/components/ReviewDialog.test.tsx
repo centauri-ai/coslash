@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Dialog } from '@/components/ui/dialog';
-import { ReviewDialogContent } from '@/pages/coslash/components/ReviewDialog';
+import { ReviewDialog, ReviewDialogContent } from '@/pages/coslash/components/ReviewDialog';
 
 describe('ReviewDialogContent', () => {
   it('renders the reviewer picker and both actions', () => {
@@ -62,5 +62,20 @@ describe('ReviewDialogContent', () => {
     );
     expect(markup).toContain('review process exited');
     expect(markup).toContain('role="alert"');
+  });
+
+  it('keeps triggerless review errors out of the surrounding layout', () => {
+    const markup = renderToStaticMarkup(
+      <ReviewDialog
+        origin={{ sourceId: 'local', agent: 'codex', id: 'session' }}
+        reviewerOptions={[{ id: 'claude', label: 'Claude Code', available: true }]}
+        reviewError="review process exited"
+        showTrigger={false}
+        onStarted={() => undefined}
+      />,
+    );
+
+    expect(markup).not.toContain('review process exited');
+    expect(markup).not.toContain('role="alert"');
   });
 });
