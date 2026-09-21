@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -21,10 +22,21 @@ func parseTranscript(path string) (*vendors.ParsedSession, error) {
 }
 
 func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
-	return parseTranscriptFragmentsSource(source, []string{path})
+	return parseTranscriptSourceContext(context.Background(), source, path)
+}
+
+func parseTranscriptSourceContext(ctx context.Context, source vendors.ReadSource, path string) (*vendors.ParsedSession, error) {
+	return parseTranscriptFragmentsSourceContext(ctx, source, []string{path})
 }
 
 func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (*vendors.ParsedSession, error) {
+	return parseTranscriptFragmentsSourceContext(context.Background(), source, paths)
+}
+
+func parseTranscriptFragmentsSourceContext(ctx context.Context, source vendors.ReadSource, paths []string) (*vendors.ParsedSession, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("%w: Cursor transcript has no paths", vendors.ErrInvalidData)
 	}
@@ -35,10 +47,13 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	id := IDFromPath(paths[0])
 	records := []transcriptRecord{}
 	for _, fragment := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !IsTranscript(fragment) || IDFromPath(fragment) != id {
 			return nil, fmt.Errorf("%w: invalid Cursor transcript fragment %q", vendors.ErrInvalidData, fragment)
 		}
-		fragmentRecords, err := vendors.ParseJSONLSource[transcriptRecord](source, fragment)
+		fragmentRecords, err := vendors.ParseJSONLSourceContext[transcriptRecord](ctx, source, fragment)
 		if err != nil {
 			return nil, err
 		}
@@ -69,6 +84,9 @@ func parseTranscriptFragmentsSource(source vendors.ReadSource, paths []string) (
 	}
 
 	for _, record := range records {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if (record.Role == "user" || record.Role == "assistant") && record.Message != nil && len(record.Message.Content) > 0 {
 			inTurn, stopped = true, false
 		}

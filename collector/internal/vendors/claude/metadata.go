@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"log"
@@ -52,11 +53,15 @@ type metadataName struct {
 // → job user-name → desktop title → job name → live name; the transcript name
 // (Parsed.Name) is resolveNames' fallback.
 func LoadMetadata() (*vendors.SessionMetadata, error) {
+	return LoadMetadataContext(context.Background())
+}
+
+func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return loadMetadata(metadataPaths{
+	return loadMetadataContext(ctx, metadataPaths{
 		sessions: filepath.Join(home, ".claude", "sessions"),
 		jobs:     filepath.Join(home, ".claude", "jobs"),
 		desktop: filepath.Join(
@@ -100,8 +105,18 @@ func loadMetadata(
 	now time.Time,
 	processAlive func(int) bool,
 ) (*vendors.SessionMetadata, error) {
+	return loadMetadataContext(context.Background(), paths, now, processAlive)
+}
+
+func loadMetadataContext(
+	ctx context.Context,
+	paths metadataPaths,
+	now time.Time,
+	processAlive func(int) bool,
+) (*vendors.SessionMetadata, error) {
 	desktopTitles := map[string]string{}
-	metadata, live, jobs, err := loadCoreMetadata(
+	metadata, live, jobs, err := loadCoreMetadataContext(
+		ctx,
 		vendors.LocalReadSource, paths, now, processAlive,
 	)
 	if err != nil {
@@ -111,6 +126,9 @@ func loadMetadata(
 	err = filepath.WalkDir(
 		paths.desktop,
 		func(path string, entry fs.DirEntry, walkErr error) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if walkErr != nil {
 				if errors.Is(walkErr, fs.ErrNotExist) {
 					return nil
@@ -149,11 +167,23 @@ func loadMetadata(
 		return nil, err
 	}
 
-	resolveMetadataNames(metadata, live, jobs, desktopTitles)
+	if err := resolveMetadataNamesContext(ctx, metadata, live, jobs, desktopTitles); err != nil {
+		return nil, err
+	}
 	return metadata, nil
 }
 
 func loadCoreMetadata(
+	source vendors.ReadSource,
+	paths metadataPaths,
+	now time.Time,
+	processAlive func(int) bool,
+) (*vendors.SessionMetadata, map[string]metadataName, map[string]metadataName, error) {
+	return loadCoreMetadataContext(context.Background(), source, paths, now, processAlive)
+}
+
+func loadCoreMetadataContext(
+	ctx context.Context,
 	source vendors.ReadSource,
 	paths metadataPaths,
 	now time.Time,
@@ -167,6 +197,9 @@ func loadCoreMetadata(
 		return nil, nil, nil, err
 	}
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, nil, err
+		}
 		if !entry.Type().IsRegular() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
@@ -193,6 +226,9 @@ func loadCoreMetadata(
 		return nil, nil, nil, err
 	}
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, nil, err
+		}
 		if !entry.IsDir() {
 			continue
 		}
@@ -216,17 +252,39 @@ func resolveMetadataNames(
 	jobs map[string]metadataName,
 	desktopTitles map[string]string,
 ) {
+	_ = resolveMetadataNamesContext(context.Background(), metadata, live, jobs, desktopTitles)
+}
+
+func resolveMetadataNamesContext(
+	ctx context.Context,
+	metadata *vendors.SessionMetadata,
+	live map[string]metadataName,
+	jobs map[string]metadataName,
+	desktopTitles map[string]string,
+) error {
 	ids := map[string]struct{}{}
 	for id := range live {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		ids[id] = struct{}{}
 	}
 	for id := range jobs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		ids[id] = struct{}{}
 	}
 	for id := range desktopTitles {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		ids[id] = struct{}{}
 	}
 	for id := range ids {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		liveEntry, jobEntry := live[id], jobs[id]
 		var name string
 		switch {
@@ -245,6 +303,7 @@ func resolveMetadataNames(
 			metadata.Session(id).Name = name
 		}
 	}
+	return nil
 }
 
 func validatedLiveStatus(record liveSessionFile, alive bool, now time.Time) (string, bool) {

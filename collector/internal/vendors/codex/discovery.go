@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,6 +24,13 @@ func readHeader(path string) (string, string, error) {
 }
 
 func readHeaderSource(source vendors.ReadSource, path string) (string, string, error) {
+	return readHeaderSourceContext(context.Background(), source, path)
+}
+
+func readHeaderSourceContext(ctx context.Context, source vendors.ReadSource, path string) (string, string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", err
+	}
 	file, err := source.Open(path)
 	if err != nil {
 		return "", "", err
@@ -31,6 +39,9 @@ func readHeaderSource(source vendors.ReadSource, path string) (string, string, e
 	var row codexRow
 	if err := json.NewDecoder(file).Decode(&row); err != nil {
 		return "", "", fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", err
 	}
 	id := SessionIDFromRollout(path)
 	if row.Type != "session_meta" {
@@ -67,15 +78,23 @@ func SessionsRoot(home string) string {
 }
 
 func Files() ([]string, error) {
+	return FilesContext(context.Background())
+}
+
+func FilesContext(ctx context.Context) ([]string, error) {
 	root, err := Root()
 	if err != nil {
 		return nil, err
 	}
-	return FilesSource(vendors.LocalReadSource, root)
+	return FilesSourceContext(ctx, vendors.LocalReadSource, root)
 }
 
 func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
-	return vendors.JSONLFilesUnderSource(source, root)
+	return FilesSourceContext(context.Background(), source, root)
+}
+
+func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
+	return vendors.JSONLFilesUnderSourceContext(ctx, source, root)
 }
 
 // FilesSince keeps recent/live roots and their complete descendant graph.
@@ -89,12 +108,26 @@ func FilesSinceSource(
 	live map[string]string,
 	since int64,
 ) []string {
+	selected, _ := FilesSinceSourceContext(context.Background(), source, files, live, since)
+	return selected
+}
+
+func FilesSinceSourceContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	files []string,
+	live map[string]string,
+	since int64,
+) ([]string, error) {
 	byID := make(map[string]string, len(files))
 	children := map[string][]string{}
 	selected := map[string]struct{}{}
 	queue := []string{}
 	for _, file := range files {
-		id, parentID, err := readHeaderSource(source, file)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		id, parentID, err := readHeaderSourceContext(ctx, source, file)
 		if err != nil {
 			selected[file] = struct{}{}
 			continue
@@ -111,6 +144,9 @@ func FilesSinceSource(
 		}
 	}
 	for i := 0; i < len(queue); i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		id := queue[i]
 		file, ok := byID[id]
 		if !ok {
@@ -124,11 +160,14 @@ func FilesSinceSource(
 	}
 	result := make([]string, 0, len(selected))
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if _, ok := selected[file]; ok {
 			result = append(result, file)
 		}
 	}
-	return result
+	return result, nil
 }
 
 func FilesForRoot(files []string, rootID string) []string {
@@ -171,13 +210,21 @@ func FilesForRootSource(source vendors.ReadSource, files []string, rootID string
 }
 
 func Scan() (*vendors.SourceScan, error) {
+	return ScanContext(context.Background())
+}
+
+func ScanContext(ctx context.Context) (*vendors.SourceScan, error) {
 	root, err := Root()
 	if err != nil {
 		return nil, err
 	}
-	return ScanSource(vendors.LocalReadSource, root)
+	return ScanSourceContext(ctx, vendors.LocalReadSource, root)
 }
 
 func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
-	return vendors.ScanSource(source, root)
+	return ScanSourceContext(context.Background(), source, root)
+}
+
+func ScanSourceContext(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
+	return vendors.ScanSourceContext(ctx, source, root)
 }

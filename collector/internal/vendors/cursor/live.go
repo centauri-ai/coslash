@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -11,16 +12,23 @@ import (
 // and CLI use different stores, so probe them independently and preserve the
 // lane only when the same ID is not simultaneously reported by both.
 func loadLiveSessions() map[string]string {
+	return loadLiveSessionsContext(context.Background())
+}
+
+func loadLiveSessionsContext(ctx context.Context) map[string]string {
 	live := map[string]string{}
-	if output, err := exec.Command("lsof", "-a", "-c", "Cursor", "-Fn").Output(); err == nil {
-		for id := range liveIDEFromLSOF(string(output)) {
+	if output, err := exec.CommandContext(ctx, "lsof", "-a", "-c", "Cursor", "-Fn").Output(); err == nil {
+		ids, _ := liveIDsFromLSOFContext(ctx, string(output), "/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/", ".sync", "index.sqlite")
+		for id := range ids {
 			live[id] = entrypointIDE
 		}
 	}
-	if output, err := exec.Command("ps", "-ww", "-axo", "pid=,command=").Output(); err == nil {
-		if pids := cursorAgentPIDs(string(output)); len(pids) > 0 {
-			if output, err := exec.Command("lsof", "-a", "-p", strings.Join(pids, ","), "-Fn").Output(); err == nil {
-				for id := range liveCLIFromLSOF(string(output)) {
+	if output, err := exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,command=").Output(); err == nil {
+		pids, _ := cursorAgentPIDsContext(ctx, string(output))
+		if len(pids) > 0 {
+			if output, err := exec.CommandContext(ctx, "lsof", "-a", "-p", strings.Join(pids, ","), "-Fn").Output(); err == nil {
+				ids, _ := liveIDsFromLSOFContext(ctx, string(output), "/.cursor/chats/", "", "store.db")
+				for id := range ids {
 					if lane, exists := live[id]; !exists || lane == entrypointCLI {
 						live[id] = entrypointCLI
 					} else {
@@ -42,8 +50,16 @@ func liveCLIFromLSOF(output string) map[string]bool {
 }
 
 func liveIDsFromLSOF(output, root, child, database string) map[string]bool {
+	live, _ := liveIDsFromLSOFContext(context.Background(), output, root, child, database)
+	return live
+}
+
+func liveIDsFromLSOFContext(ctx context.Context, output, root, child, database string) (map[string]bool, error) {
 	live := map[string]bool{}
 	for line := range strings.SplitSeq(output, "\n") {
+		if err := ctx.Err(); err != nil {
+			return live, err
+		}
 		if !strings.HasPrefix(line, "n") {
 			continue
 		}
@@ -68,12 +84,20 @@ func liveIDsFromLSOF(output, root, child, database string) map[string]bool {
 			live[canonicalCursorID(parts[idIndex])] = true
 		}
 	}
-	return live
+	return live, ctx.Err()
 }
 
 func cursorAgentPIDs(output string) []string {
+	pids, _ := cursorAgentPIDsContext(context.Background(), output)
+	return pids
+}
+
+func cursorAgentPIDsContext(ctx context.Context, output string) ([]string, error) {
 	var pids []string
 	for line := range strings.SplitSeq(output, "\n") {
+		if err := ctx.Err(); err != nil {
+			return pids, err
+		}
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
@@ -88,5 +112,5 @@ func cursorAgentPIDs(output string) []string {
 			}
 		}
 	}
-	return pids
+	return pids, ctx.Err()
 }
