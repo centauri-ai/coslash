@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
 
@@ -44,62 +43,65 @@ func TestPluginSourceForVersion(t *testing.T) {
 	}
 }
 
-func TestInstallPluginDoesNotDowngradeWhenVersionProbeFails(t *testing.T) {
-	resetManagedSourceCacheForTest(t)
-	detectOpenCodeVersion = func() (string, error) {
-		return "", errors.New("probe failed")
+func TestInstallPluginDoesNotDowngradeWhenVersionIsUnknown(t *testing.T) {
+	tests := []struct {
+		name   string
+		detect func() (string, error)
+	}{
+		{name: "missing", detect: func() (string, error) { return "", nil }},
+		{name: "probe failure", detect: func() (string, error) { return "", errors.New("probe failed") }},
 	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setOpenCodeVersionDetectorForTest(t, test.detect)
+			directory := t.TempDir()
+			path := filepath.Join(directory, pluginName)
+			want := pluginSourceForVersion("2.0.6")
+			if err := os.WriteFile(path, want, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := installPlugin(directory); err == nil {
+				t.Fatal("installPlugin succeeded with an unknown OpenCode version")
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatal("unknown OpenCode version changed the installed v2 plugin")
+			}
+		})
+	}
+}
 
-	directory := t.TempDir()
-	path := filepath.Join(directory, pluginName)
-	want := pluginSourceForVersion("2.0.6")
-	if err := os.WriteFile(path, want, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := installPlugin(directory); err == nil {
-		t.Fatal("installPlugin succeeded after an indeterminate version probe")
-	}
-	got, err := os.ReadFile(path)
+func TestManagedPluginSourceRechecksVersion(t *testing.T) {
+	versions := []string{"1.18.28", "2.0.6"}
+	setOpenCodeVersionDetectorForTest(t, func() (string, error) {
+		version := versions[0]
+		versions = versions[1:]
+		return version, nil
+	})
+	v1, err := managedPluginSource()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatal("version probe failure changed the installed v2 plugin")
+	v2, err := managedPluginSource()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(v1, []byte("export default")) {
+		t.Fatal("first source is not the v1 plugin")
+	}
+	if !bytes.Contains(v2, []byte("export default")) {
+		t.Fatal("second source did not refresh to the v2 plugin")
 	}
 }
 
-func TestManagedPluginSourceCachesVersionDecision(t *testing.T) {
-	resetManagedSourceCacheForTest(t)
-	calls := 0
-	detectOpenCodeVersion = func() (string, error) {
-		calls++
-		return "2.0.6", nil
-	}
-	for range 2 {
-		source, err := managedPluginSource()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Contains(source, []byte("export default")) {
-			t.Fatal("cached source is not the v2 plugin")
-		}
-	}
-	if calls != 1 {
-		t.Fatalf("version detector called %d times; want 1", calls)
-	}
-}
-
-func resetManagedSourceCacheForTest(t *testing.T) {
+func setOpenCodeVersionDetectorForTest(t *testing.T, detector func() (string, error)) {
 	t.Helper()
 	originalDetector := detectOpenCodeVersion
-	managedSourceCache.Lock()
-	originalSource := managedSourceCache.source
-	managedSourceCache.source = nil
-	managedSourceCache.Unlock()
+	detectOpenCodeVersion = detector
 	t.Cleanup(func() {
 		detectOpenCodeVersion = originalDetector
-		managedSourceCache.Lock()
-		managedSourceCache.source = originalSource
-		managedSourceCache.Unlock()
 	})
 }
