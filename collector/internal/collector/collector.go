@@ -267,7 +267,10 @@ func finalizeLocalSessionsContext(
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		revision, err := session.LocalDetailRevision(*root.Session)
+		revision, err := session.LocalDetailRevisionContext(ctx, *root.Session)
+		if err != nil && ctx.Err() != nil {
+			return nil, err
+		}
 		if err == nil {
 			root.Session.DetailRevision = revision
 		}
