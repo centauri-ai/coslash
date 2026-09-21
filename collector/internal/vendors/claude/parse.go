@@ -2,6 +2,7 @@ package claude
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -85,8 +86,15 @@ func parseTranscriptSource(source vendors.ReadSource, path string) (*vendors.Par
 }
 
 func parseSource(source vendors.ReadSource, path string) (*parsedSession, error) {
-	analysis, err := analyzeClaudeSessionSource(source, path)
+	return parseSourceContext(context.Background(), source, path)
+}
+
+func parseSourceContext(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
+	analysis, err := analyzeClaudeSessionSource(ctx, source, path)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	parsed := &vendors.ParsedSession{
@@ -109,6 +117,9 @@ func parseSource(source vendors.ReadSource, path string) (*parsedSession, error)
 		if _, err := vendors.ReadJSONSource(source, metaPath, &meta); err != nil {
 			log.Printf("%s: unreadable subagent metadata: %v", metaPath, err)
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		parsed.Name = cmp.Or(meta.Description, meta.AgentType)
 		parsed.SpawnKey = cmp.Or(workflowRunID(path), meta.ToolUseID)
 		parsed.Stopped = meta.StoppedByUser
@@ -123,9 +134,17 @@ func parseSource(source vendors.ReadSource, path string) (*parsedSession, error)
 }
 
 func commitObservationsByToolUse(rows []claudeSessionRecord) []session.CommitObservation {
+	observations, _ := commitObservationsByToolUseContext(context.Background(), rows)
+	return observations
+}
+
+func commitObservationsByToolUseContext(ctx context.Context, rows []claudeSessionRecord) ([]session.CommitObservation, error) {
 	commands := map[string]string{}
 	observations := []session.CommitObservation{}
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if row.Message == nil {
 			continue
 		}
@@ -151,7 +170,7 @@ func commitObservationsByToolUse(rows []claudeSessionRecord) []session.CommitObs
 			delete(commands, block.ToolUseID)
 		}
 	}
-	return observations
+	return observations, nil
 }
 
 func claudeToolOutput(raw json.RawMessage) string {
@@ -173,10 +192,15 @@ func claudeToolOutput(raw json.RawMessage) string {
 }
 
 func analyzeClaudeSessionSource(
+	ctx context.Context,
 	source vendors.ReadSource,
 	file string,
 ) (*claudeSessionAnalysis, error) {
-	rows, err := vendors.ParseJSONLSource[claudeSessionRecord](source, file)
+	rows, err := vendors.ParseJSONLSourceContext[claudeSessionRecord](ctx, source, file)
+	if err != nil {
+		return nil, err
+	}
+	commitLog, err := commitObservationsByToolUseContext(ctx, rows)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +216,7 @@ func analyzeClaudeSessionSource(
 		tokens:                   map[string]session.ModelTokens{},
 		tasks:                    map[string]*taskEntry{},
 		fileEdits:                session.NewFileEditSet(),
-		commitLog:                commitObservationsByToolUse(rows),
+		commitLog:                commitLog,
 	}
 	pendingAssistantText := ""
 	pendingCommand := ""
@@ -212,6 +236,9 @@ func analyzeClaudeSessionSource(
 		analysis.digest.Push(analysis.userPromptCount, category, text, timestamp)
 	}
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if row.SessionID != "" {
 			analysis.sessionID = row.SessionID
 		}
