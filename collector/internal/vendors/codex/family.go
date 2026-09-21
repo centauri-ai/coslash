@@ -1,10 +1,6 @@
 package codex
 
-import (
-	"path/filepath"
-
-	"github.com/centauri-ai/coslash/collector/internal/vendors"
-)
+import "github.com/centauri-ai/coslash/collector/internal/vendors"
 
 // FileHeader is the session identity a rollout's first row carries. Err marks a
 // file whose header could not be read; its family cannot be resolved from it.
@@ -75,7 +71,7 @@ func ParseFamilyFilesSource(
 ) ([]*vendors.ParsedSession, error) {
 	parsed, _, err := parseFilesSourceStrict(
 		source,
-		filepath.Join(home, ".codex", "archived_sessions"),
+		vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"),
 		knownActiveFiles,
 		files,
 		// Remote collection never inspects the remote working directory, so every

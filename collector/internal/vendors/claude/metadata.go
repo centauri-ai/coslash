@@ -74,8 +74,8 @@ func LoadRemoteMetadata(
 	processAlive func(int) bool,
 ) (*vendors.SessionMetadata, error) {
 	return loadRemoteMetadata(source, metadataPaths{
-		sessions: filepath.Join(home, ".claude", "sessions"),
-		jobs:     filepath.Join(home, ".claude", "jobs"),
+		sessions: vendors.SourcePathJoin(source, home, ".claude", "sessions"),
+		jobs:     vendors.SourcePathJoin(source, home, ".claude", "jobs"),
 	}, now, processAlive)
 }
 
@@ -169,7 +169,7 @@ func loadCoreMetadata(
 			continue
 		}
 		var record liveSessionFile
-		path := filepath.Join(paths.sessions, entry.Name())
+		path := vendors.SourcePathJoin(source, paths.sessions, entry.Name())
 		ok, err := vendors.ReadJSONSource(source, path, &record)
 		if err != nil {
 			log.Printf("%s: skipping unreadable session metadata: %v", path, err)
@@ -195,7 +195,7 @@ func loadCoreMetadata(
 			continue
 		}
 		var job jobStateFile
-		path := filepath.Join(paths.jobs, entry.Name(), "state.json")
+		path := vendors.SourcePathJoin(source, paths.jobs, entry.Name(), "state.json")
 		ok, err := vendors.ReadJSONSource(source, path, &job)
 		if err != nil {
 			log.Printf("%s: skipping unreadable job metadata: %v", path, err)

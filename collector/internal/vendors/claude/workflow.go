@@ -44,7 +44,7 @@ func WorkflowAgentsSource(
 	agents := map[string]*WorkflowAgent{}
 	finished := map[string]bool{}
 	for _, p := range parsed {
-		statePath, ok := workflowStatePath(p.LogPath)
+		statePath, ok := workflowStatePathSource(source, p.LogPath)
 		if !ok {
 			continue
 		}
@@ -73,7 +73,7 @@ func WorkflowAgentsSource(
 	}
 	journals := map[string]map[string]string{}
 	for _, p := range parsed {
-		statePath, ok := workflowStatePath(p.LogPath)
+		statePath, ok := workflowStatePathSource(source, p.LogPath)
 		if !ok || agents[p.Session.ID] != nil || !finished[statePath] {
 			continue
 		}
@@ -81,7 +81,7 @@ func WorkflowAgentsSource(
 		if !cached {
 			results = workflowJournalResultsSource(
 				source,
-				filepath.Join(filepath.Dir(p.LogPath), "journal.jsonl"),
+				vendors.SourcePathJoin(source, vendors.SourcePathDir(source, p.LogPath), "journal.jsonl"),
 			)
 			journals[statePath] = results
 		}
@@ -138,16 +138,21 @@ func (agent *WorkflowAgent) Status() string {
 }
 
 func workflowRunID(logPath string) string {
-	if !strings.Contains(logPath, "/subagents/workflows/") {
+	normalized := filepath.ToSlash(logPath)
+	if !strings.Contains(normalized, "/subagents/workflows/") {
 		return ""
 	}
-	return filepath.Base(filepath.Dir(logPath))
+	return filepath.Base(filepath.Dir(normalized))
 }
 
-func workflowStatePath(logPath string) (string, bool) {
-	if !strings.Contains(logPath, "/subagents/workflows/") {
+func workflowStatePathSource(source vendors.ReadSource, logPath string) (string, bool) {
+	normalized := filepath.ToSlash(logPath)
+	if !strings.Contains(normalized, "/subagents/workflows/") {
 		return "", false
 	}
-	runDir := filepath.Dir(strings.Replace(logPath, "/subagents/workflows/", "/workflows/", 1))
+	runDir := vendors.SourcePathDir(
+		source,
+		strings.Replace(normalized, "/subagents/workflows/", "/workflows/", 1),
+	)
 	return runDir + ".json", true
 }
