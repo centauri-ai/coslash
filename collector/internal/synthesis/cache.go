@@ -84,7 +84,11 @@ func MigrateLegacyCache(exists func(agent, id string) (bool, error)) error {
 			continue
 		}
 		if len(matches) == 1 {
-			destination := cache.recordPath(matches[0], id)
+			destination, err := cache.recordPath(matches[0], id)
+			if err != nil {
+				failures = append(failures, fmt.Errorf("resolve synthesis destination %q: %w", id, err))
+				continue
+			}
 			if _, err := os.Stat(destination); errors.Is(err, os.ErrNotExist) {
 				if err := cache.Store(matches[0], id, record); err != nil {
 					failures = append(failures, fmt.Errorf("migrate legacy synthesis %q: %w", id, err))
@@ -103,11 +107,18 @@ func MigrateLegacyCache(exists func(agent, id string) (bool, error)) error {
 }
 
 func (c *Cache) Load(agent, id string) (Record, error) {
+	path, err := c.recordPath(agent, id)
+	if err != nil {
+		return Record{}, err
+	}
 	key := cacheKey{agent: agent, id: id}
 	if value, ok := c.records.Load(key); ok {
 		return value.(Record), nil
 	}
-	data, err := os.ReadFile(c.recordPath(agent, id))
+	if err := protectSynthesisDirectories(filepath.Dir(path)); err != nil {
+		return Record{}, err
+	}
+	data, err := readSynthesisFile(path)
 	if err != nil {
 		return Record{}, err
 	}
@@ -120,8 +131,15 @@ func (c *Cache) Load(agent, id string) (Record, error) {
 }
 
 func (c *Cache) Store(agent, id string, record Record) error {
+	path, err := c.recordPath(agent, id)
+	if err != nil {
+		return err
+	}
 	directory := filepath.Join(SummariesDir(), agent)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	if err := protectSynthesisDirectories(directory); err != nil {
 		return err
 	}
 	record.Agent = agent
@@ -136,7 +154,7 @@ func (c *Cache) Store(agent, id string, record Record) error {
 	}
 	tempName := temp.Name()
 	defer os.Remove(tempName)
-	if err := temp.Chmod(0o600); err != nil {
+	if err := protectSynthesisFile(tempName, temp); err != nil {
 		temp.Close()
 		return err
 	}
@@ -147,7 +165,7 @@ func (c *Cache) Store(agent, id string, record Record) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tempName, c.recordPath(agent, id)); err != nil {
+	if err := os.Rename(tempName, path); err != nil {
 		return err
 	}
 	c.records.Store(cacheKey{agent: agent, id: id}, record)
@@ -175,6 +193,27 @@ func (c *Cache) LookupLatest(agent, id string) *session.SessionSynthesis {
 	return &synthesis
 }
 
-func (c *Cache) recordPath(agent, id string) string {
-	return filepath.Join(SummariesDir(), agent, id+".json")
+func (c *Cache) recordPath(agent, id string) (string, error) {
+	if !validCachePathComponent(agent) {
+		return "", fmt.Errorf("invalid synthesis cache agent")
+	}
+	if !validCachePathComponent(id) {
+		return "", fmt.Errorf("invalid synthesis cache session id")
+	}
+	return filepath.Join(SummariesDir(), agent, id+".json"), nil
+}
+
+func validCachePathComponent(value string) bool {
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') &&
+			(character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') &&
+			character != '-' && character != '_' {
+			return false
+		}
+	}
+	return true
 }

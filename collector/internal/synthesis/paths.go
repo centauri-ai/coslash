@@ -20,9 +20,16 @@ func EnsureDirs() error {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
 			return err
 		}
-		if err := os.Chmod(directory, 0o700); err != nil {
+		if err := protectSynthesisDirectory(directory); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func protectSynthesisDirectories(directory string) error {
+	if err := protectSynthesisDirectory(filepath.Dir(directory)); err != nil {
+		return err
+	}
+	return protectSynthesisDirectory(directory)
 }
