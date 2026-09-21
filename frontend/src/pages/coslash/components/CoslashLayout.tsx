@@ -14,6 +14,7 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
+  Ellipsis,
   Folder,
   FolderGit2,
   GitCompareArrows,
@@ -23,6 +24,7 @@ import {
   RefreshCw,
   Rows3,
   Rows4,
+  ScanSearch,
   Search,
   Server,
   Settings,
@@ -33,6 +35,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
@@ -53,7 +56,12 @@ import {
   needsSetup,
 } from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
-import { buildReviewIndex, type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
+import {
+  availableReviewers,
+  buildReviewIndex,
+  type ReviewerOption,
+  type ReviewIndex,
+} from '@/pages/coslash/lib/review';
 import {
   boardStatusKey,
   getSessionCardSummary,
@@ -606,12 +614,16 @@ function SessionRow({
   onToggleGroup: () => void;
   review: SessionReviewProps;
 }) {
+  const [reviewOpen, setReviewOpen] = useState(false);
   const readiness = sessionReadiness(session);
   const vendor = getVendor(session.agent);
   const key = sessionKey(session);
   const reviewLink = review.index.links.get(key);
   const showReviewAction =
     isLocalSession(session) && session.cwd.trim() !== '' && !review.index.reviewSessions.has(key);
+  const reviewActive = session.reviewPending || review.index.activeOrigins.has(key);
+  const reviewDisabled =
+    reviewActive || availableReviewers(review.reviewerOptions, session.agent).length === 0;
   const cell = cn(styles.cell, { 'py-[5px]': compact });
   const hideWhenCompact = { hidden: compact };
   return (
@@ -715,44 +727,62 @@ function SessionRow({
       <td
         className={cn(
           cell,
-          'coslash-action-column max-actions:w-10 max-actions:px-0 max-compact:hidden relative w-[96px] overflow-visible pl-0 text-right whitespace-nowrap',
+          'coslash-action-column max-compact:hidden w-12 px-2 text-right whitespace-nowrap',
         )}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="coslash-action-button max-actions:hidden [&_[data-slot=button]]:text-meta absolute top-1/2 right-2.5 flex w-max -translate-y-1/2 items-center justify-end gap-[7px] [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-7 [&_[data-slot=button]]:gap-[7px] [&_[data-slot=button]]:rounded-lg [&_[data-slot=button]]:px-[9px] [&_[data-slot=button]]:py-[5px] [&_[data-slot=button]]:leading-[1.45] [&_[data-slot=button]]:font-[550]">
-          {reviewLink != null && (
-            <Button
-              size="xs"
-              variant="ghost"
-              title={
-                reviewLink.kind === 'review'
-                  ? 'Review session — open origin'
-                  : 'Has review — open latest review'
-              }
-              onClick={() => review.onSelectRelated(reviewLink.target)}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="text-coslash-muted hover:bg-coslash-soft hover:text-coslash-ink grid size-7 cursor-pointer place-items-center rounded-lg [&>svg]:size-4"
+              aria-label="Session actions"
+              title="Session actions"
             >
-              <GitCompareArrows />
-              {reviewLink.kind === 'review' ? 'Open origin' : 'Open review'}
-            </Button>
-          )}
-          {showReviewAction && (
-            <ReviewDialog
-              origin={session}
-              reviewerOptions={review.reviewerOptions}
-              active={session.reviewPending || review.index.activeOrigins.has(key)}
-              reviewError={session.reviewError}
-              onStarted={review.onStarted}
-            />
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="border-coslash-line bg-coslash-surface text-meta min-h-[28px] min-w-0 gap-[7px] rounded-lg px-[9px] py-[5px] font-[550]"
-            onClick={onSelect}
+              <Ellipsis aria-hidden="true" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="coslash-shell bg-coslash-surface text-coslash-ink border-coslash-line min-w-40 border"
           >
-            {status === 'running' ? 'Watch' : readiness.label}
-          </Button>
-        </div>
+            {reviewLink != null && (
+              <DropdownMenuItem
+                className="text-meta cursor-pointer"
+                onSelect={() => review.onSelectRelated(reviewLink.target)}
+              >
+                <GitCompareArrows />
+                {reviewLink.kind === 'review' ? 'Open origin' : 'Open review'}
+              </DropdownMenuItem>
+            )}
+            {showReviewAction && (
+              <DropdownMenuItem
+                className="text-meta cursor-pointer"
+                disabled={reviewDisabled}
+                onSelect={() => setReviewOpen(true)}
+              >
+                {reviewActive ? <LoaderCircle className="animate-spin" /> : <ScanSearch />}
+                {reviewActive ? 'Review running' : session.reviewError ? 'Retry review' : 'Send for review'}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem className="text-meta cursor-pointer" onSelect={onSelect}>
+              <ChevronRight />
+              {status === 'running' ? 'Watch' : readiness.label}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {showReviewAction && (
+          <ReviewDialog
+            origin={session}
+            reviewerOptions={review.reviewerOptions}
+            active={reviewActive}
+            reviewError={session.reviewError}
+            open={reviewOpen}
+            onOpenChange={setReviewOpen}
+            showTrigger={false}
+            onStarted={review.onStarted}
+          />
+        )}
       </td>
     </tr>
   );
@@ -865,7 +895,7 @@ function SessionListView({
           <th
             className={cn(
               styles.head,
-              'coslash-action-column max-actions:w-10 max-actions:px-0 max-compact:hidden w-[96px] px-2.5 py-[9px] text-right',
+              'coslash-action-column max-compact:hidden w-12 px-2 py-[9px] text-right',
             )}
           >
             <span className="sr-only">Actions</span>

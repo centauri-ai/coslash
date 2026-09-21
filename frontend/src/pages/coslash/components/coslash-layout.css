@@ -42,31 +42,12 @@
   --coslash-neutral-dot: #6d7889;
 }
 
-.coslash-action-button {
-  visibility: hidden;
-  opacity: 0;
-}
-
-.coslash-row:hover .coslash-action-button,
-.coslash-row:focus-within .coslash-action-button {
-  visibility: visible;
-  opacity: 1;
-}
-
-@media (hover: none) {
-  .coslash-action-button {
-    visibility: visible;
-    opacity: 1;
-  }
-}
-
 @media (min-width: 1720px) {
   .coslash-shell.inspector-open {
     padding-right: 440px;
   }
 
-  .coslash-shell.inspector-open .coslash-sidebar,
-  .coslash-shell.inspector-open .coslash-action-button {
+  .coslash-shell.inspector-open .coslash-sidebar {
     display: none;
   }
 

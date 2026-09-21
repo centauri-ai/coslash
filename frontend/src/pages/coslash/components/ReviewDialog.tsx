@@ -82,6 +82,9 @@ export function ReviewDialog({
   disabled = false,
   active = false,
   reviewError,
+  open: controlledOpen,
+  onOpenChange,
+  showTrigger = true,
   onStarted,
 }: {
   origin: SessionIdentity;
@@ -89,13 +92,22 @@ export function ReviewDialog({
   disabled?: boolean;
   active?: boolean;
   reviewError?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  showTrigger?: boolean;
   onStarted: () => void;
 }) {
   const reviewers = availableReviewers(reviewerOptions, origin.agent);
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [selected, setSelected] = useState<VendorKey>(reviewers[0]?.id ?? 'codex');
   const [state, setState] = useState<ReviewLaunchState>('idle');
   const [error, setError] = useState<string | null>(null);
+  const open = controlledOpen ?? internalOpen;
+
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
 
   const effectiveSelected = reviewers.some(({ id }) => id === selected)
     ? selected
@@ -127,18 +139,20 @@ export function ReviewDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-        <DialogTrigger asChild>
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={disabled || active || reviewers.length === 0}
-            title={reviewers.length === 0 ? 'Install a supported agent to start a review.' : undefined}
-            onClick={(event) => event.stopPropagation()}
-          >
-            {active ? <LoaderCircleIcon className="animate-spin" /> : <ScanSearchIcon />}
-            {active ? 'Review running' : reviewError ? 'Retry review' : 'Send for review'}
-          </Button>
-        </DialogTrigger>
+        {showTrigger && (
+          <DialogTrigger asChild>
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={disabled || active || reviewers.length === 0}
+              title={reviewers.length === 0 ? 'Install a supported agent to start a review.' : undefined}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {active ? <LoaderCircleIcon className="animate-spin" /> : <ScanSearchIcon />}
+              {active ? 'Review running' : reviewError ? 'Retry review' : 'Send for review'}
+            </Button>
+          </DialogTrigger>
+        )}
         <DialogContent onClick={(event) => event.stopPropagation()}>
           <ReviewDialogContent
             reviewers={reviewers}
