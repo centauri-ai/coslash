@@ -23,6 +23,8 @@ func applyForkedUsageSource(
 ) {
 	forks := []*parsedSession{}
 	index := map[string]string{}
+	activeParents := map[string]bool{}
+	archivedFallbacks := map[string]string{}
 	for _, p := range parsed {
 		f := p.fork
 		index[p.transcript.Session.ID] = p.transcript.LogPath
@@ -47,6 +49,7 @@ func applyForkedUsageSource(
 	for _, file := range knownActiveFiles {
 		if id := SessionIDFromRollout(file); id != "" && index[id] == "" {
 			index[id] = file
+			activeParents[id] = true
 		}
 	}
 	if archivedDir != "" {
@@ -55,8 +58,12 @@ func applyForkedUsageSource(
 			log.Printf("archived sessions dir %q: %v; continuing without fork parents from it", archivedDir, err)
 		}
 		for _, file := range files {
-			if id := SessionIDFromRollout(file); id != "" && index[id] == "" {
-				index[id] = file
+			if id := SessionIDFromRollout(file); id != "" {
+				if index[id] == "" {
+					index[id] = file
+				} else if activeParents[id] && archivedFallbacks[id] == "" {
+					archivedFallbacks[id] = file
+				}
 			}
 		}
 	}
@@ -71,6 +78,10 @@ func applyForkedUsageSource(
 			forkSeq[i] = sample.usage
 		}
 		parentUsages, err := parentForkUsagesSource(source, parentPath, forkSeq)
+		if fallback := archivedFallbacks[fork.forkedFromID]; err != nil && fallback != "" {
+			parentPath = fallback
+			parentUsages, err = parentForkUsagesSource(source, parentPath, forkSeq)
+		}
 		if err != nil {
 			log.Printf(
 				"%s: fork parent %q unreadable; counting full usage: %v",
