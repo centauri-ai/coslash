@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -127,6 +128,40 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 		return nil, err
 	}
 	return parsed[0], nil
+}
+
+func NewSessionFactsLoader() (func(string) (*vendors.ParsedSession, error), error) {
+	db, err := open()
+	if errors.Is(err, os.ErrNotExist) {
+		return func(string) (*vendors.ParsedSession, error) { return nil, nil }, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	return newSessionFactsLoader(db)
+}
+
+func newSessionFactsLoader(db *sql.DB) (func(string) (*vendors.ParsedSession, error), error) {
+	rows, err := db.Query(`SELECT id, directory FROM session WHERE parent_id IS NULL AND time_archived IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	facts := map[string]*vendors.ParsedSession{}
+	for rows.Next() {
+		var id, directory string
+		if err := rows.Scan(&id, &directory); err != nil {
+			return nil, err
+		}
+		facts[id] = &vendors.ParsedSession{Session: &session.Session{
+			Agent: vendors.AgentOpenCode, ID: id, WorkingDirectory: directory,
+		}}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return func(id string) (*vendors.ParsedSession, error) { return facts[id], nil }, nil
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {

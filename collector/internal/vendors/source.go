@@ -181,6 +181,27 @@ func FindAndParse(
 	return nil, nil
 }
 
+func NewIndexedParser(
+	files []string,
+	idFromPath func(string) string,
+	parse func(string) (*ParsedSession, error),
+) func(string) (*ParsedSession, error) {
+	byID := make(map[string]string, len(files))
+	for _, file := range files {
+		id := idFromPath(file)
+		if _, exists := byID[id]; id != "" && !exists {
+			byID[id] = file
+		}
+	}
+	return func(id string) (*ParsedSession, error) {
+		file, ok := byID[id]
+		if !ok {
+			return nil, nil
+		}
+		return parse(file)
+	}
+}
+
 func FileSourceHealth(
 	agent string,
 	root string,

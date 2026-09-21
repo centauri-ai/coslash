@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -404,5 +405,64 @@ func TestGetSessionFactsByAgentSelectsVendor(t *testing.T) {
 	}
 	if got == nil || got.Agent != "codex" {
 		t.Fatalf("session = %#v, want codex session", got)
+	}
+}
+
+func TestLegacySessionExistsResolverIndexesEachSourceOnce(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	original := vendorSources
+	t.Cleanup(func() { vendorSources = original })
+	factories := map[string]int{}
+	loads := map[string]int{}
+	newLoader := func(agent string) func() (func(string) (*vendors.ParsedSession, error), error) {
+		return func() (func(string) (*vendors.ParsedSession, error), error) {
+			factories[agent]++
+			return func(id string) (*vendors.ParsedSession, error) {
+				loads[agent]++
+				candidate := &vendors.ParsedSession{Session: &session.Session{Agent: agent, ID: id, WorkingDirectory: "/work"}}
+				switch id {
+				case "child":
+					candidate.ParentID = "root"
+				case "synthesis":
+					candidate.Session.WorkingDirectory = synthesis.SynthesisCwd()
+				case "missing":
+					return nil, nil
+				}
+				return candidate, nil
+			}, nil
+		}
+	}
+	vendorSources = []vendorSource{
+		{name: "claude", newFactsLoader: newLoader("claude")},
+		{name: "codex", newFactsLoader: newLoader("codex")},
+	}
+
+	exists := NewLegacySessionExistsResolver()
+	for _, test := range []struct {
+		agent string
+		id    string
+		want  bool
+	}{
+		{agent: "claude", id: "root", want: true},
+		{agent: "claude", id: "child"},
+		{agent: "claude", id: "synthesis"},
+		{agent: "claude", id: "missing"},
+		{agent: "codex", id: "root", want: true},
+		{agent: "codex", id: "another", want: true},
+	} {
+		got, err := exists(test.agent, test.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != test.want {
+			t.Fatalf("exists(%q, %q) = %t, want %t", test.agent, test.id, got, test.want)
+		}
+	}
+
+	if factories["claude"] != 1 || factories["codex"] != 1 {
+		t.Fatalf("loader factories = %#v, want one call per agent", factories)
+	}
+	if loads["claude"] != 4 || loads["codex"] != 2 {
+		t.Fatalf("session loads = %#v", loads)
 	}
 }

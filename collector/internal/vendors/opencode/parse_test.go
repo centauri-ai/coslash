@@ -25,6 +25,43 @@ func TestLoadContextStopsBeforeOpeningTransaction(t *testing.T) {
 	}
 }
 
+func TestNewSessionFactsLoaderFromDBIndexesActiveRoots(t *testing.T) {
+	db := testDB(t)
+	if _, err := db.Exec(`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, time_archived INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`INSERT INTO session VALUES ('root', NULL, '/work', NULL)`,
+		`INSERT INTO session VALUES ('child', 'root', '/work', NULL)`,
+		`INSERT INTO session VALUES ('archived', NULL, '/work', 1)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	load, err := newSessionFactsLoader(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := load("root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root == nil || root.Session.ID != "root" || root.Session.WorkingDirectory != "/work" {
+		t.Fatalf("root = %#v", root)
+	}
+	for _, id := range []string{"child", "archived", "missing"} {
+		found, err := load(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found != nil {
+			t.Fatalf("load(%q) = %#v, want nil", id, found)
+		}
+	}
+}
+
 func TestEarliestMessageTimeIgnoresMissingTimestamps(t *testing.T) {
 	messages := make([]storedMessage, 4)
 	messages[0].Time.Created = 0
