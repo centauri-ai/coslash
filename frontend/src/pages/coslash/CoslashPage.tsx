@@ -150,13 +150,16 @@ export function CoslashPage() {
     const destination = await loadHubDestination();
     setHubDestination(destination);
     return destination;
-  }, []);
+  }, [setHubDestination]);
 
+  /* oxlint-disable react/set-state-in-effect -- load the Hub destination when fixture mode is inactive */
   useEffect(() => {
     if (shareFixtureEnabled) return;
     void refreshHubDestination().catch(() => undefined);
   }, [refreshHubDestination, shareFixtureEnabled]);
+  /* oxlint-enable react/set-state-in-effect */
 
+  /* oxlint-disable react/set-state-in-effect -- open required synthesis consent when selection changes */
   useEffect(() => {
     if (settingsState.response) setTheme(settingsState.response.settings.appearance.theme);
   }, [settingsState.response]);
@@ -170,10 +173,13 @@ export function CoslashPage() {
       setSettingsDialogMode((current) => current ?? 'synthesis-consent');
     }
   }, [selectedSession, settingsState.response]);
+  /* oxlint-enable react/set-state-in-effect */
 
+  /* oxlint-disable react/set-state-in-effect -- clear a selection removed by a session refresh */
   useEffect(() => {
     if (selectedSessionKey != null && selectedSession == null) setSelectedSessionKey(null);
   }, [selectedSession, selectedSessionKey]);
+  /* oxlint-enable react/set-state-in-effect */
 
   const handleRemoteRetry = () => {
     if (remoteRetryPromise.current != null) return remoteRetryPromise.current;
