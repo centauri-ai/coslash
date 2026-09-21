@@ -20,6 +20,7 @@ import (
 var windowsLookPath = exec.LookPath
 var windowsCreateProcess = windows.CreateProcess
 var windowsCloseHandle = windows.CloseHandle
+var windowsStartConsole = startWindowsConsole
 
 var windowsStart = func(command *exec.Cmd) error {
 	if err := command.Start(); err != nil {
@@ -35,6 +36,23 @@ func openTerminal(_ context.Context, terminal, workingDirectory, command string)
 	}
 	if err := openWindowsTerminal(workingDirectory, command); err != nil {
 		return fmt.Errorf("launch: open Windows Terminal: %w", err)
+	}
+	return nil
+}
+
+func openTerminalForAgent(ctx context.Context, terminal, agent, workingDirectory, command string) error {
+	if agent != vendors.AgentCursor {
+		return openTerminal(ctx, terminal, workingDirectory, command)
+	}
+	if terminal != settings.TerminalWindows {
+		return fmt.Errorf("launch: unsupported terminal %q", terminal)
+	}
+	powerShell, err := windowsLookPath("powershell.exe")
+	if err != nil {
+		return fmt.Errorf("launch: Windows PowerShell is not installed or available")
+	}
+	if err := windowsStartConsole(powerShell, workingDirectory, powerShellCommandArguments(command)...); err != nil {
+		return fmt.Errorf("launch: open Windows PowerShell: %w", err)
 	}
 	return nil
 }

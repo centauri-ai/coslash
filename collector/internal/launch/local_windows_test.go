@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -105,6 +106,36 @@ func TestWindowsTerminalAvailabilityRequiresPowerShell(t *testing.T) {
 				t.Fatalf("Available(%q) = %v, want %v", test.terminal, got, test.want)
 			}
 		})
+	}
+}
+
+func TestCursorUsesStandaloneWindowsPowerShell(t *testing.T) {
+	originalLookPath, originalStart := windowsLookPath, windowsStartConsole
+	t.Cleanup(func() {
+		windowsLookPath = originalLookPath
+		windowsStartConsole = originalStart
+	})
+	windowsLookPath = func(name string) (string, error) {
+		if name != "powershell.exe" {
+			t.Fatalf("LookPath(%q), want powershell.exe without Windows Terminal lookup", name)
+		}
+		return `C:\Windows\powershell.exe`, nil
+	}
+	var gotExecutable, gotDirectory string
+	var gotArguments []string
+	windowsStartConsole = func(executable, workingDirectory string, arguments ...string) error {
+		gotExecutable, gotDirectory = executable, workingDirectory
+		gotArguments = arguments
+		return nil
+	}
+	if err := openTerminalForAgent(context.Background(), settings.TerminalWindows, vendors.AgentCursor, `C:\workspace`, "cursor command"); err != nil {
+		t.Fatal(err)
+	}
+	if gotExecutable != `C:\Windows\powershell.exe` || gotDirectory != `C:\workspace` {
+		t.Fatalf("standalone launch = %q in %q", gotExecutable, gotDirectory)
+	}
+	if want := powerShellCommandArguments("cursor command"); !reflect.DeepEqual(gotArguments, want) {
+		t.Fatalf("arguments = %#v, want %#v", gotArguments, want)
 	}
 }
 

@@ -62,7 +62,7 @@ var uuidSessionIDPattern = regexp.MustCompile(
 
 var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
-var localTerminalOpener = openTerminal
+var localTerminalOpener = openTerminalForAgent
 var reviewCommandContext = exec.CommandContext
 
 type ReviewerOption struct {
@@ -166,7 +166,7 @@ func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, 
 	if err != nil {
 		return err
 	}
-	if err := localTerminalOpener(ctx, terminal, workingDirectory, command); err != nil {
+	if err := localTerminalOpener(ctx, terminal, agent, workingDirectory, command); err != nil {
 		return errors.Join(err, removeHandoffFile(handoffPath))
 	}
 	return nil

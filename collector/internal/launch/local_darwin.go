@@ -27,6 +27,10 @@ func openTerminal(ctx context.Context, terminal, workingDirectory, command strin
 	return nil
 }
 
+func openTerminalForAgent(ctx context.Context, terminal, _ string, workingDirectory, command string) error {
+	return openTerminal(ctx, terminal, workingDirectory, command)
+}
+
 func Available(terminal string) bool {
 	switch terminal {
 	case settings.TerminalApple:
