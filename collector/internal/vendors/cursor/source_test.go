@@ -74,6 +74,7 @@ func TestCursorEnrichmentRecomputesDurationFromMetadataTimes(t *testing.T) {
 func TestGetSessionFactsAppliesMetadataRelationship(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	parentID := "00000000-0000-4000-8000-000000000001"
 	childID := "00000000-0000-4000-8000-000000000002"
 	path := filepath.Join(home, ".cursor", "projects", "repo", "agent-transcripts", childID, childID+".jsonl")
@@ -85,7 +86,7 @@ func TestGetSessionFactsAppliesMetadataRelationship(t *testing.T) {
 	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := createMetadataTestDB(statePath); err != nil {
 		t.Fatal(err)
 	}

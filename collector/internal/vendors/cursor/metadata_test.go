@@ -36,7 +36,7 @@ func TestCommitObservationsRequireCompletedCommitCommand(t *testing.T) {
 
 func TestLoadMetadataForSessionsReturnsOnlyRequestedIDs(t *testing.T) {
 	home := t.TempDir()
-	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := createMetadataTestDB(statePath); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestLoadMetadataForSessionsReturnsOnlyRequestedIDs(t *testing.T) {
 
 func TestLoadSelectionMetadataReadsOnlySelectionSignals(t *testing.T) {
 	home := t.TempDir()
-	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := createMetadataTestDB(statePath); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestLoadRelationshipMetadataIncludesCursorCLIParent(t *testing.T) {
 
 func TestLoadRelationshipMetadataReadsOnlyRelationships(t *testing.T) {
 	home := t.TempDir()
-	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := createMetadataTestDB(statePath); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestLoadRelationshipMetadataReadsOnlyRelationships(t *testing.T) {
 
 func TestLoadMetadataForSessionsCanonicalizesStoredIDs(t *testing.T) {
 	home := t.TempDir()
-	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := createMetadataTestDB(statePath); err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestLoadIDEModelsBatchesLargeSelections(t *testing.T) {
 
 func TestLoadMetadataForSessionsExpandsIDEFamily(t *testing.T) {
 	home := t.TempDir()
-	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := createMetadataTestDB(statePath); err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestLoadIDEModelsKeepsContextSeparateFromCumulativeTokens(t *testing.T) {
 func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 	home := t.TempDir()
 	const id = "01234567-89ab-4def-8123-456789abcdef"
-	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +494,7 @@ func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 func TestMalformedComposerDataStillRegistersIDELane(t *testing.T) {
 	home := t.TempDir()
 	const id = "01234567-89ab-4def-8123-456789abcdef"
-	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := createMetadataTestDB(statePath); err != nil {
 		t.Fatal(err)
 	}

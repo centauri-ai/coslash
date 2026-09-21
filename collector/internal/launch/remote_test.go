@@ -227,7 +227,8 @@ func TestCursorCLICommandResumesValidatedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "'agent' '--resume' '01234567-89ab-cdef-0123-456789abcdef'" {
+	want := localCommandJoin(localCLIExecutable(vendors.AgentCursor, "agent"), "--resume", "01234567-89ab-cdef-0123-456789abcdef")
+	if command != want {
 		t.Fatalf("command = %q", command)
 	}
 }
@@ -237,7 +238,8 @@ func TestCursorFreshSessionLeavesHandoffForClipboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "'agent'" || path != "" {
+	want := localCommandJoin(localCLIExecutable(vendors.AgentCursor, "agent"))
+	if command != want || path != "" {
 		t.Fatalf("command = %q, path = %q", command, path)
 	}
 }

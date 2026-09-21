@@ -41,7 +41,7 @@ func LoadSelectionMetadata() (*vendors.SessionMetadata, error) {
 
 func loadSelectionMetadata(home string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	db, err := openCursorDB(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -81,7 +81,7 @@ func LoadRelationshipMetadataForSessions(ids []string) (*vendors.SessionMetadata
 
 func loadRelationshipMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	db, err := openCursorDB(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -139,7 +139,7 @@ func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadat
 	ids = canonicalCursorIDs(ids)
 	metadata := vendors.EmptySessionMetadata()
 	lanes := map[string]map[string]bool{}
-	globalStorage := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage")
+	globalStorage := cursorGlobalStorage(home)
 	statePath := filepath.Join(globalStorage, "state.vscdb")
 	stateDB, stateErr := openCursorDB(statePath)
 	if stateErr != nil && !os.IsNotExist(stateErr) {
@@ -936,7 +936,11 @@ func openCursorDB(path string) (*sql.DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
-	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: url.Values{
+	dsnPath := filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && !strings.HasPrefix(dsnPath, "/") {
+		dsnPath = "/" + dsnPath
+	}
+	dsn := (&url.URL{Scheme: "file", Path: dsnPath, RawQuery: url.Values{
 		"mode": {"ro"}, "_query_only": {"1"}, "_busy_timeout": {"1000"},
 	}.Encode()}).String()
 	db, err := sql.Open("sqlite", dsn)

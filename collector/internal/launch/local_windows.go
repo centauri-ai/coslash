@@ -122,6 +122,20 @@ func localCommandJoin(arguments ...string) string {
 	return "& " + strings.Join(quoted, " ")
 }
 
+func localCLIExecutable(agent, fallback string) string {
+	if agent != vendors.AgentCursor {
+		return fallback
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fallback
+	}
+	if path := CursorCLIExecutable(home); path != "" {
+		return path
+	}
+	return fallback
+}
+
 func powerShellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

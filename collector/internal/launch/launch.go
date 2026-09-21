@@ -179,20 +179,6 @@ func ValidWorkingDirectory(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// CursorExecutable resolves either a standard app bundle or the optional shell launcher.
-func CursorExecutable(home string) string {
-	for _, path := range []string{
-		filepath.Join(home, "Applications", "Cursor.app", "Contents", "MacOS", "Cursor"),
-		"/Applications/Cursor.app/Contents/MacOS/Cursor",
-	} {
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
-			return path
-		}
-	}
-	path, _ := exec.LookPath("cursor")
-	return path
-}
-
 // CursorWorkspace opens a working directory in the installed Cursor IDE.
 func CursorWorkspace(workingDirectory string) error {
 	if !ValidWorkingDirectory(workingDirectory) {
@@ -253,6 +239,7 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 	if err != nil {
 		return "", "", err
 	}
+	cli = localCLIExecutable(agent, cli)
 	switch mode {
 	case NewSession:
 		if handoff == "" {

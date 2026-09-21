@@ -14,6 +14,10 @@ func localCommandJoin(arguments ...string) string {
 	return shellJoin(arguments...)
 }
 
+func localCLIExecutable(_ string, fallback string) string {
+	return fallback
+}
+
 func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) {
 	context := handoffPreamble + handoff
 	switch agent {

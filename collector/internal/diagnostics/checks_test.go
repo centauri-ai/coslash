@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -41,6 +42,9 @@ func TestCursorIDEExecutableFindsApplicationBundle(t *testing.T) {
 	t.Setenv("PATH", "")
 	home := t.TempDir()
 	path := filepath.Join(home, "Applications", "Cursor.app", "Contents", "MacOS", "Cursor")
+	if runtime.GOOS == "windows" {
+		path = filepath.Join(home, "AppData", "Local", "Programs", "cursor", "Cursor.exe")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +57,9 @@ func TestCursorIDEExecutableFindsApplicationBundle(t *testing.T) {
 }
 
 func TestCursorIDEExecutableSkipsNonExecutableBundleBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows executables do not use Unix execute bits")
+	}
 	t.Setenv("PATH", "")
 	home := t.TempDir()
 	path := filepath.Join(home, "Applications", "Cursor.app", "Contents", "MacOS", "Cursor")
