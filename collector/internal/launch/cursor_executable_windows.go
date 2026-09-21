@@ -18,11 +18,11 @@ func CursorExecutable(home string) string {
 }
 
 func CursorCLIExecutable(home string) string {
-	if path, err := exec.LookPath("agent"); err == nil {
-		return path
-	}
 	path := filepath.Join(home, "AppData", "Local", "cursor-agent", "agent.cmd")
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+		return path
+	}
+	if path, err := exec.LookPath("agent"); err == nil {
 		return path
 	}
 	return ""
