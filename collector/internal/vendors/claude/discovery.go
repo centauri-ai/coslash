@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,15 +38,23 @@ func ParentIDFromPath(path string) string {
 	return ""
 }
 func Files() ([]string, error) {
+	return FilesContext(context.Background())
+}
+
+func FilesContext(ctx context.Context) ([]string, error) {
 	root, err := Root()
 	if err != nil {
 		return nil, err
 	}
-	return FilesSource(vendors.LocalReadSource, root)
+	return FilesSourceContext(ctx, vendors.LocalReadSource, root)
 }
 
 func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
-	files, err := vendors.JSONLFilesUnderSource(source, root)
+	return FilesSourceContext(context.Background(), source, root)
+}
+
+func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
+	files, err := vendors.JSONLFilesUnderSourceContext(ctx, source, root)
 	if err != nil {
 		return nil, err
 	}
@@ -53,15 +62,23 @@ func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
 }
 
 func Scan() (*vendors.SourceScan, error) {
+	return ScanContext(context.Background())
+}
+
+func ScanContext(ctx context.Context) (*vendors.SourceScan, error) {
 	root, err := Root()
 	if err != nil {
 		return nil, err
 	}
-	return ScanSource(vendors.LocalReadSource, root)
+	return ScanSourceContext(ctx, vendors.LocalReadSource, root)
 }
 
 func ScanSource(source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
-	scan, err := vendors.ScanSource(source, root)
+	return ScanSourceContext(context.Background(), source, root)
+}
+
+func ScanSourceContext(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
+	scan, err := vendors.ScanSourceContext(ctx, source, root)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +127,22 @@ func FilesSinceSource(
 	live map[string]string,
 	since int64,
 ) []string {
+	files, _ = FilesSinceSourceContext(context.Background(), source, files, live, since)
+	return files
+}
+
+func FilesSinceSourceContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	files []string,
+	live map[string]string,
+	since int64,
+) ([]string, error) {
 	selectedRoots := map[string]struct{}{}
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if ParentIDFromPath(file) != "" {
 			continue
 		}
@@ -124,6 +155,9 @@ func FilesSinceSource(
 	}
 	selected := make([]string, 0, len(files))
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		rootID := ParentIDFromPath(file)
 		if rootID == "" {
 			rootID = IDFromPath(file)
@@ -132,5 +166,5 @@ func FilesSinceSource(
 			selected = append(selected, file)
 		}
 	}
-	return selected
+	return selected, nil
 }
