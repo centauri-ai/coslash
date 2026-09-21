@@ -159,7 +159,7 @@ $supportedWindows = $os.Caption -match "Windows 11" -and
 
 $environmentChecks = @(
     New-EnvironmentCheck "supported-windows" $supportedWindows "$($os.Caption), build $buildNumber"
-    New-EnvironmentCheck "supported-architecture" ($architecture -in @("amd64", "arm64")) $architecture
+    New-EnvironmentCheck "supported-architecture" ($architecture -eq "amd64") $architecture
     New-EnvironmentCheck "standard-user" (!$isAdministrator) $(if ($isAdministrator) { "PowerShell is elevated" } else { "PowerShell is not elevated" })
     New-EnvironmentCheck "windows-powershell-5.1" ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -eq 1) $PSVersionTable.PSVersion.ToString()
     New-EnvironmentCheck "windows-terminal" $windowsTerminalAvailable $(if ($windowsTerminalAvailable) { "wt.exe is available" } else { "wt.exe is unavailable" })

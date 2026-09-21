@@ -93,15 +93,14 @@ Release binaries are unsigned. macOS may warn about archives downloaded through 
 ### Windows
 
 The release workflow prepares a `windows-release-artifacts` artifact for native
-validation. It is not published as a GitHub Release asset yet. After downloading
-and extracting that workflow artifact, install it for your Windows user without
-administrator rights. In PowerShell, set `$ArtifactDir` to the extracted folder
-and `$Arch` to `amd64` for Intel or AMD Windows, or `arm64` for Windows on Arm:
+validation. It is not published as a GitHub Release asset yet. Windows on Arm is
+not currently supported. After downloading and extracting that workflow
+artifact, install it for your Windows user without administrator rights. In
+PowerShell, set `$ArtifactDir` to the extracted folder:
 
 ```powershell
 $ArtifactDir = "$HOME\Downloads\windows-release-artifacts"
-$Arch = "amd64"
-$Asset = "coslash-windows-$Arch.exe"
+$Asset = "coslash-windows-amd64.exe"
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\coSlash"
 $Download = Join-Path $ArtifactDir $Asset
 New-Item -ItemType Directory -Force $InstallDir | Out-Null

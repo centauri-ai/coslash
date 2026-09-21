@@ -1,9 +1,8 @@
 # Windows validation handoff
 
-Use this procedure on a Windows 11 24H2 machine as a standard, non-administrator
-user. Run it once on amd64 and once on arm64 when both machines are available.
-Enterprise LTSC, Windows multi-session, and Azure Virtual Desktop are outside
-the supported boundary.
+Use this procedure on an amd64 Windows 11 24H2 machine as a standard,
+non-administrator user. Windows on Arm, Enterprise LTSC, Windows multi-session,
+and Azure Virtual Desktop are outside the supported boundary.
 
 The validation output contains versions, test results, the Git commit, Windows
 edition and build, architecture, Defender state, and SmartScreen settings. It
@@ -55,10 +54,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -BinaryPath C:\path\to\coslash-windows-amd64.exe
 ```
 
-Use `windows-arm64.json` on an Arm machine. The script exits nonzero if the
-machine is outside the supported boundary or an automated check fails. It does
-not modify Defender, SmartScreen, or system configuration. The credential test
-creates and removes one disposable Windows Credential Manager entry.
+The script exits nonzero if the machine is outside the supported boundary or an
+automated check fails. It does not modify Defender, SmartScreen, or system
+configuration. The credential test creates and removes one disposable Windows
+Credential Manager entry.
 
 ## Complete the manual checks
 
