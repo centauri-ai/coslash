@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"strings"
 )
 
 var runOSAScript = func(ctx context.Context, arguments ...string) error {
@@ -41,16 +40,4 @@ func openMacITerm(ctx context.Context, workingDirectory, command string) error {
 		"-e", "end run",
 		"--", script,
 	)
-}
-
-func shellJoin(arguments ...string) string {
-	quoted := make([]string, len(arguments))
-	for i, argument := range arguments {
-		quoted[i] = shellQuote(argument)
-	}
-	return strings.Join(quoted, " ")
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
