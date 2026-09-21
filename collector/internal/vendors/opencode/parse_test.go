@@ -1,7 +1,9 @@
 package opencode
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +11,19 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	_ "modernc.org/sqlite"
 )
+
+func TestLoadContextStopsBeforeOpeningTransaction(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	parsed, skipped, err := loadContext(ctx, nil, "unused")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if parsed != nil || skipped != nil {
+		t.Fatalf("parsed = %#v, skipped = %#v; want nil results", parsed, skipped)
+	}
+}
 
 func TestEarliestMessageTimeIgnoresMissingTimestamps(t *testing.T) {
 	messages := make([]storedMessage, 4)
