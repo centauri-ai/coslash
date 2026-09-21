@@ -538,10 +538,6 @@ func normalizeFilePath(cwd, path string) string {
 	return path
 }
 
-func loadMessages(tx *sql.Tx, sessionID string) ([]storedMessage, error) {
-	return loadMessagesContext(context.Background(), tx, sessionID)
-}
-
 func loadMessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]storedMessage, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT message.id, message.data, part.data, part.time_updated
@@ -594,10 +590,6 @@ func loadMessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]s
 		return nil, fmt.Errorf("read messages: %w", err)
 	}
 	return messages, nil
-}
-
-func loadTodos(tx *sql.Tx, sessionID string) ([]session.Todo, error) {
-	return loadTodosContext(context.Background(), tx, sessionID)
 }
 
 func loadTodosContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]session.Todo, error) {
