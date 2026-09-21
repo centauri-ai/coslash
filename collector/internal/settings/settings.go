@@ -34,8 +34,7 @@ const (
 	CodexSynthesisModel    = "gpt-5.6-luna"
 	ClaudeSynthesisModel   = "claude-haiku-4-5"
 
-	TerminalApple = "terminal"
-	TerminalITerm = "iterm2"
+	TerminalWindows = "windows-terminal"
 )
 
 type Config struct {
@@ -127,7 +126,7 @@ func Defaults() Config {
 			Model:   "claude-haiku-4-5",
 		},
 		Appearance: AppearanceSettings{Theme: "light"},
-		Launch:     LaunchSettings{Terminal: TerminalApple},
+		Launch:     LaunchSettings{Terminal: defaultTerminal()},
 	}
 }
 
@@ -224,13 +223,6 @@ func ValidSSHAlias(alias string) bool {
 // ValidRemoteID reports whether id is a Mac-generated path-safe source id.
 func ValidRemoteID(id string) bool {
 	return remoteIDPattern.MatchString(id)
-}
-
-func TerminalOptions() []TerminalOption {
-	return []TerminalOption{
-		{ID: TerminalApple, Label: "Apple Terminal"},
-		{ID: TerminalITerm, Label: "iTerm2"},
-	}
 }
 
 func BackendExecutable(backend string) string {

@@ -143,6 +143,8 @@ type Check struct {
 	Fix    string `json:"fix"`
 }
 
+var terminalAvailable = launch.Available
+
 // Collect turns every probe failure into data so the diagnostic surface itself remains available.
 func Collect(ctx context.Context, version string, includeVersions bool) *Snapshot {
 	return CollectWithRemote(ctx, version, includeVersions, nil)
@@ -180,13 +182,9 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	snapshot := &Snapshot{
 		Version:     version,
 		GeneratedAt: time.Now().UnixMilli(),
-		Platform: Platform{
-			OS:                      runtime.GOOS,
-			Arch:                    runtime.GOARCH,
-			TerminalLaunchSupported: runtime.GOOS == "darwin",
-		},
-		Sources: []Source{},
-		Checks:  []Check{},
+		Platform:    platformSnapshot(state.Config.Launch.Terminal),
+		Sources:     []Source{},
+		Checks:      []Check{},
 	}
 	if userHomeErr != nil {
 		snapshot.homeError = userHomeErr.Error()
@@ -220,6 +218,18 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	}
 	snapshot.Checks = derive(snapshot)
 	return snapshot
+}
+
+func platformSnapshot(terminal string) Platform {
+	supported := runtime.GOOS == "darwin"
+	if runtime.GOOS == "windows" {
+		supported = terminalAvailable(terminal)
+	}
+	return Platform{
+		OS:                      runtime.GOOS,
+		Arch:                    runtime.GOARCH,
+		TerminalLaunchSupported: supported,
+	}
 }
 
 func collectSource(
