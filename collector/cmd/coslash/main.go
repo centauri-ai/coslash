@@ -121,7 +121,7 @@ func main() {
 	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
 		now := time.Now()
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		return collector.List(today.UnixMilli())
+		return collector.List(context.Background(), today.UnixMilli())
 	})
 	go cleanupHandoffs(settingsStore)
 	remoteManager, err := newProductionRemoteManager()

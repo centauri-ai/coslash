@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -23,7 +24,7 @@ func main() {
 	}
 
 	log.SetOutput(io.Discard)
-	values, err := collector.List(0)
+	values, err := collector.List(context.Background(), 0)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "session collection failed")
 		os.Exit(1)

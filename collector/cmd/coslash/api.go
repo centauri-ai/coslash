@@ -31,6 +31,7 @@ var (
 	stageRemoteHandoff   = remote.StageHandoff
 	removeRemoteHandoff  = remote.RemoveHandoff
 	launchRemoteTerminal = launch.RemoteTerminal
+	listSessions         = collector.List
 )
 
 var errRemoteHandoffTransfer = errors.New("remote handoff transfer failed")
@@ -92,19 +93,28 @@ func handleList(
 			return
 		}
 	}
-	sessions, err := collector.List(since)
+	sessions, err := listSessions(r.Context(), since)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+			return
+		}
 		log.Printf("list sessions: %v", err)
 		http.Error(w, "could not list sessions", http.StatusInternalServerError)
 		return
 	}
 	for _, session := range sessions {
+		if r.Context().Err() != nil {
+			return
+		}
 		session.Synthesis = mgr.Lookup(session.Agent, session.ID, session.LastActivityTime)
 		state := reviewManager.Status(reviewpkg.Key(session.Agent, session.ID))
 		session.ReviewPending = state.Pending
 		session.ReviewError = state.Error
 	}
 	if r.URL.Query().Get("sourceAware") != "1" {
+		if r.Context().Err() != nil {
+			return
+		}
 		writeJSON(w, sessions)
 		log.Printf("list sessions: %d", len(sessions))
 		return
@@ -114,14 +124,26 @@ func handleList(
 		Machines: []machineFact{localMachineFact()},
 	}
 	for _, value := range sessions {
+		if r.Context().Err() != nil {
+			return
+		}
 		response.Sessions = append(response.Sessions, boardLocalSession(value))
+	}
+	if r.Context().Err() != nil {
+		return
 	}
 	remoteResult := remoteManager.ListView(remoteSince)
 	if remoteResult.Health.SourceID != "" {
 		response.Machines = append(response.Machines, machineFromHealth(remoteResult.Health))
 		for _, value := range remoteResult.Sessions {
+			if r.Context().Err() != nil {
+				return
+			}
 			response.Sessions = append(response.Sessions, boardRemoteSession(value))
 		}
+	}
+	if r.Context().Err() != nil {
+		return
 	}
 	writeJSON(w, response)
 	log.Printf("list sessions: %d local, %d remote", len(sessions), len(remoteResult.Sessions))
