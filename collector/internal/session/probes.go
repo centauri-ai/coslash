@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"os/exec"
@@ -10,8 +11,15 @@ import (
 )
 
 func LatestFileModificationTime(cwd string, fileEdits []FileEdit) *int64 {
+	return LatestFileModificationTimeContext(context.Background(), cwd, fileEdits)
+}
+
+func LatestFileModificationTimeContext(ctx context.Context, cwd string, fileEdits []FileEdit) *int64 {
 	var newest *int64
 	for _, edit := range fileEdits {
+		if ctx.Err() != nil {
+			return nil
+		}
 		path := edit.Path
 		if !filepath.IsAbs(path) {
 			if cwd == "" {
@@ -40,6 +48,10 @@ func FileModificationTime(filePath string) int64 {
 }
 
 func CanonicalRepositoryName(cwd string) (string, bool) {
+	return CanonicalRepositoryNameContext(context.Background(), cwd)
+}
+
+func CanonicalRepositoryNameContext(ctx context.Context, cwd string) (string, bool) {
 	if cwd == "" {
 		return "", false
 	}
@@ -48,11 +60,11 @@ func CanonicalRepositoryName(cwd string) (string, bool) {
 	if err != nil {
 		return fallback, true
 	}
-	root := RepositoryRoot(resolved)
+	root := RepositoryRootContext(ctx, resolved)
 	if root == "" {
 		return fallback, true
 	}
-	if output, err := exec.Command("git", "-C", root, "remote", "get-url", "origin").Output(); err == nil {
+	if output, err := exec.CommandContext(ctx, "git", "-C", root, "remote", "get-url", "origin").Output(); err == nil {
 		if remote := canonicalRemoteName(string(output)); remote != "" {
 			return remote, false
 		}
@@ -116,11 +128,18 @@ func canonicalRemoteName(remote string) string {
 
 // RepositoryRoot returns the enclosing Git worktree root when one exists.
 func RepositoryRoot(cwd string) string {
+	return RepositoryRootContext(context.Background(), cwd)
+}
+
+func RepositoryRootContext(ctx context.Context, cwd string) string {
 	info, err := os.Stat(cwd)
 	if err != nil || !info.IsDir() {
 		return ""
 	}
 	for current := filepath.Clean(cwd); ; current = filepath.Dir(current) {
+		if ctx.Err() != nil {
+			return ""
+		}
 		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
 			return current
 		}
@@ -132,7 +151,11 @@ func RepositoryRoot(cwd string) string {
 }
 
 func CurrentBranch(cwd string) *string {
-	out, err := exec.Command("git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
+	return CurrentBranchContext(context.Background(), cwd)
+}
+
+func CurrentBranchContext(ctx context.Context, cwd string) *string {
+	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
 	if err != nil {
 		return nil
 	}
@@ -144,6 +167,10 @@ func CurrentBranch(cwd string) *string {
 }
 
 func BranchDrift(cwd string, recordedBranch *string) *GitDrift {
+	return BranchDriftContext(context.Background(), cwd, recordedBranch)
+}
+
+func BranchDriftContext(ctx context.Context, cwd string, recordedBranch *string) *GitDrift {
 	if cwd == "" || recordedBranch == nil {
 		return nil
 	}
@@ -155,7 +182,7 @@ func BranchDrift(cwd string, recordedBranch *string) *GitDrift {
 	if err != nil || !info.IsDir() {
 		return nil
 	}
-	baseBranch, baseRef := findBaseBranch(cwd)
+	baseBranch, baseRef := findBaseBranchContext(ctx, cwd)
 	if baseBranch == "" || branch == baseBranch || branch == "refs/heads/"+baseBranch ||
 		branch == "refs/remotes/origin/"+baseBranch {
 		return nil
@@ -164,7 +191,7 @@ func BranchDrift(cwd string, recordedBranch *string) *GitDrift {
 	if !strings.HasPrefix(branchRef, "refs/") {
 		branchRef = "refs/heads/" + branchRef
 	}
-	out, err := exec.Command(
+	out, err := exec.CommandContext(ctx,
 		"git", "-C", cwd, "rev-list", "--left-right", "--count", branchRef+"..."+baseRef, "--",
 	).
 		Output()
@@ -184,11 +211,15 @@ func BranchDrift(cwd string, recordedBranch *string) *GitDrift {
 }
 
 func findBaseBranch(cwd string) (string, string) {
-	if out, err := exec.Command(
+	return findBaseBranchContext(context.Background(), cwd)
+}
+
+func findBaseBranchContext(ctx context.Context, cwd string) (string, string) {
+	if out, err := exec.CommandContext(ctx,
 		"git", "-C", cwd, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD",
 	).Output(); err == nil {
 		ref := strings.TrimSpace(string(out))
-		if ref != "" && gitRefExists(cwd, ref) {
+		if ref != "" && gitRefExistsContext(ctx, cwd, ref) {
 			return filepath.Base(ref), ref
 		}
 	}
@@ -201,7 +232,7 @@ func findBaseBranch(cwd string) (string, string) {
 		{name: "main", ref: "refs/remotes/origin/main"},
 		{name: "master", ref: "refs/remotes/origin/master"},
 	} {
-		if gitRefExists(cwd, candidate.ref) {
+		if gitRefExistsContext(ctx, cwd, candidate.ref) {
 			return candidate.name, candidate.ref
 		}
 	}
@@ -209,5 +240,9 @@ func findBaseBranch(cwd string) (string, string) {
 }
 
 func gitRefExists(cwd, ref string) bool {
-	return exec.Command("git", "-C", cwd, "rev-parse", "--verify", "--quiet", ref).Run() == nil
+	return gitRefExistsContext(context.Background(), cwd, ref)
+}
+
+func gitRefExistsContext(ctx context.Context, cwd, ref string) bool {
+	return exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--verify", "--quiet", ref).Run() == nil
 }
