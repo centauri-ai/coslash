@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -452,3 +453,44 @@ func (s statReadSource) ReadDir(string) ([]fs.DirEntry, error) {
 }
 
 func (s statReadSource) Stat(string) (fs.FileInfo, error) { return s.info, nil }
+
+type cancelingStatSource struct {
+	statReadSource
+	cancel   context.CancelFunc
+	cancelAt int
+	calls    int
+}
+
+func (source *cancelingStatSource) Stat(string) (fs.FileInfo, error) {
+	source.calls++
+	if source.calls == source.cancelAt {
+		source.cancel()
+	}
+	return source.info, nil
+}
+
+func TestSelectCursorFilesStopsDuringCandidateLimiting(t *testing.T) {
+	tempFile := filepath.Join(t.TempDir(), "stat")
+	if err := os.WriteFile(tempFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(tempFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make([]string, vendors.MaxCandidateFilesPerAgent+1)
+	for i := range files {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012x", i)
+		files[i] = filepath.Join("agent-transcripts", id, id+".jsonl")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	source := &cancelingStatSource{statReadSource: statReadSource{info: info}, cancel: cancel, cancelAt: len(files) + 1}
+
+	_, err = selectCursorFilesSourceWithMetadataContext(ctx, source, files, 1, vendors.EmptySessionMetadata())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if source.calls != len(files)+1 {
+		t.Fatalf("Stat calls = %d, want %d", source.calls, len(files)+1)
+	}
+}
