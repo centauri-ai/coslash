@@ -9,11 +9,14 @@ Create at least one local Claude Code, Codex, Cursor, or OpenCode session, then 
 For Cursor, `coslash doctor` reports the IDE (`cursor`) and CLI (`agent`) separately. coSlash reads only local Cursor IDE and CLI sessions: Cursor SDK sessions and remote Cursor collection are unsupported. Cursor CLI token and compaction data can be unavailable because Cursor does not store them reliably; Cursor IDE exposes current context occupancy separately, not cumulative token usage.
 
 For a remote machine, choose **Settings → Machines → Add remote host**. coSlash
-uses the Mac's existing OpenSSH configuration, so first run `ssh <alias>` in
-Terminal if the host key or authentication still needs confirmation. The Linux
-SSH server must enable SFTP and the SSH user must be able to read the
-Claude/Codex paths listed in [Data and privacy](data-and-privacy.md). Setup
-checks the connection, installs the digest-verified helper, and verifies it.
+uses the Mac's existing OpenSSH configuration or a simple `user@host`
+destination. If SSH needs authentication or host-key confirmation, choose
+**Authenticate in Terminal** and complete the native prompt there; coSlash never
+receives the credential. A changed host key requires verification outside the
+authentication flow. The Linux SSH server must enable SFTP and the SSH user
+must be able to read the Claude/Codex paths listed in [Data and
+privacy](data-and-privacy.md). Setup checks the connection, installs the
+digest-verified helper, and verifies it.
 
 If setup fails, **Retry setup** tries again. A host that does not answer SSH is
 shown offline after a short check and retried in the background. coSlash uses
