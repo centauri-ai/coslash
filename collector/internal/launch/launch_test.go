@@ -15,7 +15,7 @@ func TestTerminalRemovesHandoffWhenTerminalOpenFails(t *testing.T) {
 	originalOpener := localTerminalOpener
 	t.Cleanup(func() { localTerminalOpener = originalOpener })
 	wantErr := errors.New("terminal open failed")
-	localTerminalOpener = func(context.Context, string, string, string) error { return wantErr }
+	localTerminalOpener = func(context.Context, string, string, string, string) error { return wantErr }
 
 	err := Terminal(context.Background(), settings.TerminalWindows, vendors.AgentClaude, t.TempDir(), "", NewSession, "private handoff")
 	if !errors.Is(err, wantErr) {

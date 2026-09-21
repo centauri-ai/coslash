@@ -18,6 +18,7 @@ import (
 var windowsLookPath = exec.LookPath
 var windowsCreateProcess = windows.CreateProcess
 var windowsCloseHandle = windows.CloseHandle
+var windowsStartConsole = startWindowsConsole
 
 var windowsStart = func(command *exec.Cmd) error {
 	if err := command.Start(); err != nil {
@@ -37,6 +38,37 @@ func openTerminal(ctx context.Context, terminal, workingDirectory, command strin
 	if err := openWindowsTerminal(ctx, workingDirectory, command); err != nil {
 		return fmt.Errorf("launch: open Windows Terminal: %w", err)
 	}
+	return nil
+}
+
+func openTerminalForAgent(ctx context.Context, terminal, agent, workingDirectory, command string) error {
+	if agent != vendors.AgentCursor {
+		return openTerminal(ctx, terminal, workingDirectory, command)
+	}
+	if terminal != settings.TerminalWindows {
+		return fmt.Errorf("launch: unsupported terminal %q", terminal)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	powerShell, err := windowsLookPath("powershell.exe")
+	if err != nil {
+		return fmt.Errorf("launch: Windows PowerShell is not installed or available")
+	}
+	script, err := writePowerShellScript(command)
+	if err != nil {
+		return fmt.Errorf("launch: prepare Windows PowerShell: %w", err)
+	}
+	launched := false
+	defer func() {
+		if !launched {
+			_ = os.Remove(script)
+		}
+	}()
+	if err := windowsStartConsole(ctx, powerShell, workingDirectory, powerShellCommandArguments(script, true)...); err != nil {
+		return fmt.Errorf("launch: open Windows PowerShell: %w", err)
+	}
+	launched = true
 	return nil
 }
 
@@ -179,6 +211,9 @@ func startWindowsConsole(ctx context.Context, executable, workingDirectory strin
 }
 
 func localCommandJoin(arguments ...string) string {
+	if len(arguments) > 0 && strings.HasSuffix(strings.ToLower(arguments[0]), ".ps1") {
+		arguments = append([]string{"powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"}, arguments...)
+	}
 	quoted := make([]string, len(arguments))
 	for i, argument := range arguments {
 		quoted[i] = powerShellQuote(argument)
@@ -186,12 +221,18 @@ func localCommandJoin(arguments ...string) string {
 	return "& " + strings.Join(quoted, " ")
 }
 
-func localCommandWithEnv(name, value string, arguments ...string) string {
-	return "$env:" + name + " = " + powerShellQuote(value) + "; " + localCommandJoin(arguments...)
-}
-
-func terminalSSHOptions() []string {
-	return []string{"-o", "ControlMaster=no"}
+func localCLIExecutable(agent, fallback string) string {
+	if agent != vendors.AgentCursor {
+		return fallback
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fallback
+	}
+	if path := CursorCLIExecutable(home); path != "" {
+		return path
+	}
+	return fallback
 }
 
 func powerShellQuote(value string) string {
