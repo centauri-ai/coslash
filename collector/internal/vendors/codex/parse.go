@@ -45,7 +45,7 @@ type codexSessionAnalysis struct {
 	fileEdits        *session.FileEditSet
 	digest           session.DigestLog
 	plan             []planStep
-	turnDepth        int
+	turnActive       bool
 	waitingForInput  bool
 	approvalPending  bool
 	lastTurnAborted  bool
@@ -173,7 +173,7 @@ func parseSource(
 		LogPath:         path,
 		LogModifiedAtMs: vendors.SourceModificationTime(source, path),
 		ParentID:        analysis.parentThreadID,
-		InTurn:          analysis.turnDepth > 0,
+		InTurn:          analysis.turnActive,
 		Stopped:         analysis.lastTurnAborted,
 		Spawns:          analysis.spawns,
 		Commands:        analysis.commands.Labelled(),
@@ -326,14 +326,14 @@ func analyzeCodexSessionSource(
 			case "context_compacted":
 				analysis.noteCompaction(timestamp)
 			case "task_started":
-				if analysis.turnDepth == 0 {
+				if !analysis.turnActive {
 					analysis.turnFinalReply = ""
 					analysis.turnStartTime = timestamp
 				}
 				analysis.turns++
-				analysis.turnDepth++
+				analysis.turnActive = true
 			case "task_complete", "turn_aborted":
-				if row.Payload.Type == "task_complete" && analysis.turnDepth <= 1 &&
+				if row.Payload.Type == "task_complete" && analysis.turnActive &&
 					analysis.prompts > 0 && analysis.turnFinalReply != "" {
 					ts := int64(0)
 					if timestamp != nil {
@@ -348,8 +348,8 @@ func analyzeCodexSessionSource(
 				}
 				analysis.turnFinalReply = ""
 				analysis.lastTurnAborted = row.Payload.Type == "turn_aborted"
-				analysis.turnDepth = max(0, analysis.turnDepth-1)
-				if analysis.turnDepth == 0 && analysis.turnStartTime != nil && timestamp != nil {
+				analysis.turnActive = false
+				if analysis.turnStartTime != nil && timestamp != nil {
 					if span := *timestamp - *analysis.turnStartTime; span > 0 {
 						analysis.activeDurationMs += span
 					}
