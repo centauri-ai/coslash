@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"path/filepath"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -31,14 +32,22 @@ func applyForkedUsageSource(
 	if len(forks) == 0 {
 		return
 	}
-	// A fork's parent can be archived after the fork. Walked only when a fork
-	// exists; a batch (live) path wins over an archived copy of the same id.
+	// The parent may be an unchanged active session outside this parse batch,
+	// or it may have been archived after the fork. Walk only when a fork exists;
+	// a batch path wins over active and archived copies of the same id.
+	var searchDirs []string
 	if archivedDir != "" {
-		archived, err := vendors.JSONLFilesUnderSource(source, archivedDir)
-		if err != nil {
-			log.Printf("archived sessions dir %q: %v; continuing without archived parents", archivedDir, err)
+		searchDirs = []string{
+			filepath.Join(filepath.Dir(archivedDir), "sessions"),
+			archivedDir,
 		}
-		for _, file := range archived {
+	}
+	for _, dir := range searchDirs {
+		files, err := vendors.JSONLFilesUnderSource(source, dir)
+		if err != nil {
+			log.Printf("sessions dir %q: %v; continuing without fork parents from it", dir, err)
+		}
+		for _, file := range files {
 			if id := SessionIDFromRollout(file); id != "" && index[id] == "" {
 				index[id] = file
 			}
