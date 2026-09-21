@@ -242,14 +242,19 @@ func TestRunAuthAttemptStopsSSHWhenAttemptIsCancelled(t *testing.T) {
 	}
 }
 
-func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
-	// t.TempDir includes the test name and exceeds the Unix socket path limit on macOS.
+// shortSSHHome stays under the Unix socket path limit. t.TempDir includes the test name.
+func shortSSHHome(t *testing.T) {
+	t.Helper()
 	home, err := os.MkdirTemp("", "csl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	t.Setenv("COSLASH_HOME", home)
+}
+
+func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
+	shortSSHHome(t)
 	originalRun := runInteractiveSSH
 	originalCheck := checkAuthControlMaster
 	originalResolve := resolveAuthControlSocketPath
@@ -305,7 +310,7 @@ func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
 }
 
 func TestPrepareAuthControlSocketKeepsSocketAfterInconclusiveCheck(t *testing.T) {
-	t.Setenv("COSLASH_HOME", t.TempDir())
+	shortSSHHome(t)
 	originalCheck := checkAuthControlMaster
 	originalResolve := resolveAuthControlSocketPath
 	t.Cleanup(func() {
