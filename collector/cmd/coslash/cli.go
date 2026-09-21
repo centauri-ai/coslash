@@ -17,7 +17,6 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -40,7 +39,7 @@ func acquireRuntimeLock() (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err := lockRuntimeFileExclusive(file, true); err != nil {
 		file.Close()
 		return nil, errors.New("another coSlash app is already running")
 	}
@@ -58,7 +57,7 @@ func acquireRuntimeReadiness() (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+	if err := lockRuntimeFileExclusive(file, false); err != nil {
 		file.Close()
 		return nil, err
 	}
@@ -124,11 +123,7 @@ func exclusiveRuntimeLockHeld(name string) bool {
 		return false
 	}
 	defer file.Close()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
-		return errors.Is(err, unix.EWOULDBLOCK)
-	}
-	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-	return false
+	return runtimeFileExclusivelyLocked(file)
 }
 
 func runtimeOwnerActive() bool {

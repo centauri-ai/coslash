@@ -69,6 +69,8 @@ jobs:
         run: make check
       - name: Test collector
         run: make test
+      - name: Cross-build collector for Windows amd64
+        run: GOOS=windows GOARCH=amd64 go build ./...
 
   release:
     name: Release
