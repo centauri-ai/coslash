@@ -289,7 +289,7 @@ func collectCodexVendor(
 	baseline map[string]CachedFamilyV2, cachedHeaders map[string]codex.CachedHeader,
 ) (vendorOutcome, map[string]codex.CachedHeader) {
 	metadata := codex.RemoteMetadata(source, home)
-	selectedFamilies, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedEntries, truncated, err := codex.BuildRemoteFamilies(
+	selectedFamilies, activeFiles, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedEntries, truncated, err := codex.BuildRemoteFamilies(
 		source, home, since, metadata.LiveSessions(), cachedHeaders,
 	)
 	if err != nil {
@@ -325,7 +325,7 @@ func collectCodexVendor(
 		Baseline: baseline, Selected: selected, FilesOf: filesOf, AllFamilyIDs: allFamilyIDs,
 		CandidateFiles: candidateFiles, SkippedEntries: skippedEntries, Truncated: truncated, Metadata: metadata,
 		Parse: func(files []string) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-			return codex.ParseRemoteFiles(source, home, files)
+			return codex.ParseRemoteFiles(source, home, files, activeFiles)
 		},
 		Fingerprint: func(files []string) ([]vendors.FileFingerprint, error) {
 			return vendors.FingerprintSourceFilesFresh(source, codex.SessionsRoot(home), files)

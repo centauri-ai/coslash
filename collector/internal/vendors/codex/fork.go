@@ -18,6 +18,7 @@ import (
 func applyForkedUsageSource(
 	source vendors.ReadSource,
 	archivedDir string,
+	knownActiveFiles []string,
 	parsed []*parsedSession,
 ) {
 	forks := []*parsedSession{}
@@ -33,19 +34,25 @@ func applyForkedUsageSource(
 		return
 	}
 	// The parent may be an unchanged active session outside this parse batch,
-	// or it may have been archived after the fork. Walk only when a fork exists;
-	// a batch path wins over active and archived copies of the same id.
-	var searchDirs []string
-	if archivedDir != "" {
-		searchDirs = []string{
-			filepath.Join(filepath.Dir(archivedDir), "sessions"),
-			archivedDir,
+	// or it may have been archived after the fork. A batch path wins over active
+	// and archived copies of the same id.
+	if knownActiveFiles == nil && archivedDir != "" {
+		activeDir := filepath.Join(filepath.Dir(archivedDir), "sessions")
+		var err error
+		knownActiveFiles, err = vendors.JSONLFilesUnderSource(source, activeDir)
+		if err != nil {
+			log.Printf("active sessions dir %q: %v; continuing without fork parents from it", activeDir, err)
 		}
 	}
-	for _, dir := range searchDirs {
-		files, err := vendors.JSONLFilesUnderSource(source, dir)
+	for _, file := range knownActiveFiles {
+		if id := SessionIDFromRollout(file); id != "" && index[id] == "" {
+			index[id] = file
+		}
+	}
+	if archivedDir != "" {
+		files, err := vendors.JSONLFilesUnderSource(source, archivedDir)
 		if err != nil {
-			log.Printf("sessions dir %q: %v; continuing without fork parents from it", dir, err)
+			log.Printf("archived sessions dir %q: %v; continuing without fork parents from it", archivedDir, err)
 		}
 		for _, file := range files {
 			if id := SessionIDFromRollout(file); id != "" && index[id] == "" {

@@ -71,10 +71,12 @@ func ParseFamilyFilesSource(
 	source vendors.ReadSource,
 	home string,
 	files []string,
+	knownActiveFiles []string,
 ) ([]*vendors.ParsedSession, error) {
 	parsed, _, err := parseFilesSourceStrict(
 		source,
 		filepath.Join(home, ".codex", "archived_sessions"),
+		knownActiveFiles,
 		files,
 		// Remote collection never inspects the remote working directory, so every
 		// command keeps the approval-required shape both transports agree on.
