@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -10,12 +11,23 @@ import (
 
 // WithLocalChangeIDs binds each parsed change body to an opaque, stable ID.
 func WithLocalChangeIDs(value Session) Session {
+	result, _ := withLocalChangeIDsContext(context.Background(), value)
+	return result
+}
+
+func withLocalChangeIDsContext(ctx context.Context, value Session) (Session, error) {
 	value.FileEdits = append([]FileEdit(nil), value.FileEdits...)
 	occurrences := map[string]int{}
 	for editIndex := range value.FileEdits {
+		if err := ctx.Err(); err != nil {
+			return Session{}, err
+		}
 		changes := value.FileEdits[editIndex].Changes()
 		value.FileEdits[editIndex].ChangeIDs = make([]string, len(changes))
 		for changeIndex, change := range changes {
+			if err := ctx.Err(); err != nil {
+				return Session{}, err
+			}
 			identity, _ := json.Marshal(struct {
 				Path      string `json:"path"`
 				Kind      string `json:"kind"`
@@ -37,13 +49,23 @@ func WithLocalChangeIDs(value Session) Session {
 			value.FileEdits[editIndex].ChangeIDs[changeIndex] = base
 		}
 	}
-	return value
+	return value, nil
 }
 
 // LocalDetailRevision fingerprints parsed content while excluding live facts
 // that are overlaid independently by the session list.
 func LocalDetailRevision(value Session) (string, error) {
+	return LocalDetailRevisionContext(context.Background(), value)
+}
+
+func LocalDetailRevisionContext(ctx context.Context, value Session) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	stable := Clone(&value)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	stable.Status = nil
 	stable.Branch = nil
 	stable.Repository = nil
@@ -62,18 +84,28 @@ func LocalDetailRevision(value Session) (string, error) {
 		stable.LastActivityTime = 0
 	}
 	for index := range stable.Subagents {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		stable.Subagents[index].Status = ""
 	}
 	normalizeDetailCollections(stable)
+	identified, err := withLocalChangeIDsContext(ctx, *stable)
+	if err != nil {
+		return "", err
+	}
 
 	payload, err := json.Marshal(struct {
 		Session   Session             `json:"session"`
 		CommitLog []CommitObservation `json:"commitLog"`
 	}{
-		Session:   WithLocalChangeIDs(*stable),
+		Session:   identified,
 		CommitLog: stable.CommitLog,
 	})
 	if err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	digest := sha256.Sum256(payload)

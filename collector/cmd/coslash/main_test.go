@@ -139,6 +139,59 @@ func TestHandleListStopsWhenRequestIsCanceled(t *testing.T) {
 	}
 }
 
+type cancelingResponseWriter struct {
+	header http.Header
+	body   bytes.Buffer
+	cancel context.CancelFunc
+	writes int
+}
+
+func (writer *cancelingResponseWriter) Header() http.Header { return writer.header }
+func (writer *cancelingResponseWriter) WriteHeader(int)     {}
+
+func (writer *cancelingResponseWriter) Write(value []byte) (int, error) {
+	writer.writes++
+	written, err := writer.body.Write(value)
+	if writer.writes == 2 {
+		writer.cancel()
+	}
+	return written, err
+}
+
+func TestWriteJSONArrayStopsBetweenEntries(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	writer := &cancelingResponseWriter{header: http.Header{}, cancel: cancel}
+
+	err := writeJSONArrayContext(ctx, writer, []*session.Session{{ID: "first"}, {ID: "second"}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if strings.Contains(writer.body.String(), "second") {
+		t.Fatalf("response continued after cancellation: %s", writer.body.String())
+	}
+}
+
+func TestContextJSONWritersPreserveListShapes(t *testing.T) {
+	plain := httptest.NewRecorder()
+	writeSessionListJSON(context.Background(), plain, []*session.Session{{ID: "plain"}})
+	var plainResult []session.Session
+	if err := json.Unmarshal(plain.Body.Bytes(), &plainResult); err != nil || len(plainResult) != 1 || plainResult[0].ID != "plain" {
+		t.Fatalf("plain response = %s, error = %v", plain.Body.String(), err)
+	}
+
+	sourceAware := httptest.NewRecorder()
+	writeSessionsResponseJSON(context.Background(), sourceAware, sessionsResponse{
+		Sessions: []boardSession{{LogicalSessionID: "source"}},
+		Machines: []machineFact{{SourceID: "local"}},
+	})
+	var sourceResult sessionsResponse
+	if err := json.Unmarshal(sourceAware.Body.Bytes(), &sourceResult); err != nil ||
+		len(sourceResult.Sessions) != 1 || sourceResult.Sessions[0].LogicalSessionID != "source" ||
+		len(sourceResult.Machines) != 1 || sourceResult.Machines[0].SourceID != "local" {
+		t.Fatalf("source-aware response = %s, error = %v", sourceAware.Body.String(), err)
+	}
+}
+
 func TestRemoteHandoffTransferFailurePreventsTerminalLaunch(t *testing.T) {
 	originalStage := stageRemoteHandoff
 	originalLaunch := launchRemoteTerminal

@@ -115,7 +115,7 @@ func handleList(
 		if r.Context().Err() != nil {
 			return
 		}
-		writeJSON(w, sessions)
+		writeSessionListJSON(r.Context(), w, sessions)
 		log.Printf("list sessions: %d", len(sessions))
 		return
 	}
@@ -145,7 +145,7 @@ func handleList(
 	if r.Context().Err() != nil {
 		return
 	}
-	writeJSON(w, response)
+	writeSessionsResponseJSON(r.Context(), w, response)
 	log.Printf("list sessions: %d local, %d remote", len(sessions), len(remoteResult.Sessions))
 }
 
@@ -837,4 +837,83 @@ func writeJSON(w http.ResponseWriter, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("encoding response: %v", err)
 	}
+}
+
+func writeSessionListJSON(ctx context.Context, w http.ResponseWriter, sessions []*session.Session) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := writeJSONArrayContext(ctx, w, sessions); err != nil {
+		if ctx.Err() == nil {
+			log.Printf("encoding response: %v", err)
+		}
+		return
+	}
+	_, _ = io.WriteString(w, "\n")
+}
+
+func writeSessionsResponseJSON(ctx context.Context, w http.ResponseWriter, response sessionsResponse) {
+	w.Header().Set("Content-Type", "application/json")
+	_, err := io.WriteString(w, `{"sessions":`)
+	if err == nil {
+		err = writeJSONArrayContext(ctx, w, response.Sessions)
+	}
+	if err == nil {
+		_, err = io.WriteString(w, `,"machines":`)
+	}
+	if err == nil {
+		err = writeJSONValueContext(ctx, w, response.Machines)
+	}
+	if err == nil {
+		_, err = io.WriteString(w, "}\n")
+	}
+	if err != nil && ctx.Err() == nil {
+		log.Printf("encoding response: %v", err)
+	}
+}
+
+func writeJSONArrayContext[T any](ctx context.Context, w io.Writer, values []T) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, "["); err != nil {
+		return err
+	}
+	for index, value := range values {
+		payload, err := marshalJSONContext(ctx, value)
+		if err != nil {
+			return err
+		}
+		if index > 0 {
+			if _, err := io.WriteString(w, ","); err != nil {
+				return err
+			}
+		}
+		if _, err := w.Write(payload); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(w, "]")
+	return err
+}
+
+func writeJSONValueContext(ctx context.Context, w io.Writer, value any) error {
+	payload, err := marshalJSONContext(ctx, value)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(payload)
+	return err
+}
+
+func marshalJSONContext(ctx context.Context, value any) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
