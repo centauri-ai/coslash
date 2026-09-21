@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"os"
 	"sync/atomic"
 	"testing"
 )
@@ -44,6 +45,31 @@ func (unopenedSource) ReadDir(string) ([]fs.DirEntry, error) {
 func (unopenedSource) Stat(string) (fs.FileInfo, error) {
 	panic("Stat called after cancellation")
 }
+
+type cancelingReader struct{ cancel context.CancelFunc }
+
+func (reader cancelingReader) Read([]byte) (int, error) {
+	reader.cancel()
+	return 0, io.EOF
+}
+
+func (cancelingReader) Close() error { return nil }
+
+type cancelingSource struct {
+	cancel context.CancelFunc
+	info   fs.FileInfo
+}
+
+func (source cancelingSource) Open(string) (io.ReadCloser, error) {
+	return cancelingReader{cancel: source.cancel}, nil
+}
+
+func (source cancelingSource) ReadDir(string) ([]fs.DirEntry, error) {
+	source.cancel()
+	return nil, nil
+}
+
+func (source cancelingSource) Stat(string) (fs.FileInfo, error) { return source.info, nil }
 
 func TestParseFilesStopsSchedulingAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -88,5 +114,33 @@ func TestParseJSONLStopsDuringDecode(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("results = %#v; want nil partial results", got)
+	}
+}
+
+func TestParseJSONLReturnsCancellationWhenDecodeReturnsEOF(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	got, err := ParseJSONLSourceContext[map[string]any](ctx, cancelingSource{cancel: cancel}, "sessions.jsonl")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if got != nil {
+		t.Fatalf("results = %#v; want nil", got)
+	}
+}
+
+func TestWalkReadSourceReturnsCancellationAfterEmptyDirectoryRead(t *testing.T) {
+	root := t.TempDir()
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err = walkReadSourceContext(ctx, cancelingSource{cancel: cancel, info: info}, root, func(string, fs.DirEntry, error) error {
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
 	}
 }

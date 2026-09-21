@@ -259,6 +259,9 @@ func walkReadSourceEntryContext(
 		}
 		return nil
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, child := range entries {
 		if err := ctx.Err(); err != nil {
@@ -297,14 +300,14 @@ func ParseJSONLSourceContext[T any](ctx context.Context, source ReadSource, path
 		}
 		var record T
 		err := decoder.Decode(&record)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				break
 			}
 			return nil, fmt.Errorf("%w: %w", ErrInvalidData, err)
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
 		}
 		records = append(records, record)
 	}
