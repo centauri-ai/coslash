@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -15,12 +14,8 @@ func localCommandJoin(arguments ...string) string {
 	return shellJoin(arguments...)
 }
 
-func localCommandWithEnv(name, value string, arguments ...string) string {
-	return name + "=" + shellQuote(value) + " " + shellJoin(arguments...)
-}
-
-func terminalSSHOptions() []string {
-	return []string{"-o", "ControlMaster=auto", "-o", "ControlPath=" + settings.SSHControlPath()}
+func localCLIExecutable(_ string, fallback string) string {
+	return fallback
 }
 
 func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) {

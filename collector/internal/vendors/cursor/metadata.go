@@ -55,7 +55,7 @@ func loadSelectionMetadata(home string) (*vendors.SessionMetadata, error) {
 
 func loadSelectionMetadataContext(ctx context.Context, home string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	db, err := openCursorDBContext(ctx, path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -112,7 +112,7 @@ func LoadRelationshipMetadataForSessions(ids []string) (*vendors.SessionMetadata
 
 func loadRelationshipMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	db, err := openCursorDB(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -177,7 +177,7 @@ func loadMetadataForSessionsContext(ctx context.Context, home string, ids []stri
 	}
 	metadata := vendors.EmptySessionMetadata()
 	lanes := map[string]map[string]bool{}
-	globalStorage := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage")
+	globalStorage := cursorGlobalStorage(home)
 	statePath := filepath.Join(globalStorage, "state.vscdb")
 	stateDB, stateErr := openCursorDBContext(ctx, statePath)
 	if err := ctx.Err(); err != nil {
@@ -262,6 +262,9 @@ func loadMetadataForSessionsContext(ctx context.Context, home string, ids []stri
 			id := canonicalCursorID(item.AgentID)
 			if transcriptIDPattern.MatchString(id) {
 				metadata.Session(id).Model = normalizeCursorModel(item.LastUsedModel)
+				if cwd := cursorCLIWorkingDirectory(path); cwd != "" {
+					metadata.Session(id).WorkingDirectory = cwd
+				}
 				setCursorTimes(metadata, id, item.CreatedAt, 0)
 			}
 			parentID := canonicalCursorID(item.SubagentInfo.ParentAgentID)
@@ -297,6 +300,20 @@ func loadMetadataForSessionsContext(ctx context.Context, home string, ids []stri
 		return nil, err
 	}
 	return metadata, nil
+}
+
+func cursorCLIWorkingDirectory(storePath string) string {
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(storePath), "meta.json"))
+	if err != nil {
+		return ""
+	}
+	var item struct {
+		CWD string `json:"cwd"`
+	}
+	if json.Unmarshal(data, &item) != nil {
+		return ""
+	}
+	return strings.TrimSpace(item.CWD)
 }
 
 func applyCursorLiveness(metadata *vendors.SessionMetadata, live map[string]string, includeUnknown bool) {
@@ -1218,7 +1235,11 @@ func openCursorDBContext(ctx context.Context, path string) (*sql.DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
-	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: url.Values{
+	dsnPath := filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && !strings.HasPrefix(dsnPath, "/") {
+		dsnPath = "/" + dsnPath
+	}
+	dsn := (&url.URL{Scheme: "file", Path: dsnPath, RawQuery: url.Values{
 		"mode": {"ro"}, "_query_only": {"1"}, "_busy_timeout": {"1000"},
 	}.Encode()}).String()
 	db, err := sql.Open("sqlite", dsn)

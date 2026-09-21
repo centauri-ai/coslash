@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -37,6 +38,113 @@ func TestPowerShellQuote(t *testing.T) {
 				t.Fatalf("powerShellQuote(%q) = %q, want %q", test.value, got, test.want)
 			}
 		})
+	}
+}
+
+func TestLocalCommandJoinExecutesPowerShellLauncherWithLiteralArguments(t *testing.T) {
+	directory := t.TempDir()
+	script := filepath.Join(directory, "agent.ps1")
+	output := filepath.Join(directory, "output.txt")
+	sentinel := filepath.Join(directory, "injected.txt")
+	contents := "param([string]$Value) [IO.File]::WriteAllText(" + powerShellQuote(output) + ", $Value)"
+	if err := os.WriteFile(script, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	argument := "'; [IO.File]::WriteAllText(" + powerShellQuote(sentinel) + ", 'injected'); #"
+	command := localCommandJoin(script, argument) + "; exit $LASTEXITCODE"
+	process := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
+	if combined, err := process.CombinedOutput(); err != nil {
+		t.Fatalf("execute launcher: %v\n%s", err, combined)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != argument {
+		t.Fatalf("launcher argument = %q, want %q", data, argument)
+	}
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatalf("metacharacter argument executed; sentinel error = %v", err)
+	}
+}
+
+func TestWindowsTerminalAvailabilityRequiresPowerShell(t *testing.T) {
+	originalLookPath := windowsLookPath
+	t.Cleanup(func() { windowsLookPath = originalLookPath })
+	tests := []struct {
+		name       string
+		terminal   string
+		windowsWT  bool
+		powerShell bool
+		want       bool
+	}{
+		{name: "PowerShell only", terminal: settings.TerminalWindows, powerShell: true, want: true},
+		{name: "Windows Terminal and PowerShell", terminal: settings.TerminalWindows, windowsWT: true, powerShell: true, want: true},
+		{name: "Windows Terminal only", terminal: settings.TerminalWindows, windowsWT: true, want: false},
+		{name: "neither", terminal: settings.TerminalWindows, want: false},
+		{name: "unsupported terminal", terminal: "invalid", windowsWT: true, powerShell: true, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			windowsLookPath = func(name string) (string, error) {
+				switch name {
+				case "wt.exe":
+					if test.windowsWT {
+						return `C:\Windows\wt.exe`, nil
+					}
+				case "powershell.exe":
+					if test.powerShell {
+						return `C:\Windows\powershell.exe`, nil
+					}
+				}
+				return "", errors.New("not found")
+			}
+			if got := Available(test.terminal); got != test.want {
+				t.Fatalf("Available(%q) = %v, want %v", test.terminal, got, test.want)
+			}
+		})
+	}
+}
+
+func TestCursorUsesStandaloneWindowsPowerShell(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalLookPath, originalStart := windowsLookPath, windowsStartConsole
+	t.Cleanup(func() {
+		windowsLookPath = originalLookPath
+		windowsStartConsole = originalStart
+	})
+	windowsLookPath = func(name string) (string, error) {
+		if name != "powershell.exe" {
+			t.Fatalf("LookPath(%q), want powershell.exe without Windows Terminal lookup", name)
+		}
+		return `C:\Windows\powershell.exe`, nil
+	}
+	var gotExecutable, gotDirectory string
+	var gotArguments []string
+	windowsStartConsole = func(_ context.Context, executable, workingDirectory string, arguments ...string) error {
+		gotExecutable, gotDirectory = executable, workingDirectory
+		gotArguments = arguments
+		return nil
+	}
+	if err := openTerminalForAgent(context.Background(), settings.TerminalWindows, vendors.AgentCursor, `C:\workspace`, "cursor command"); err != nil {
+		t.Fatal(err)
+	}
+	if gotExecutable != `C:\Windows\powershell.exe` || gotDirectory != `C:\workspace` {
+		t.Fatalf("standalone launch = %q in %q", gotExecutable, gotDirectory)
+	}
+	if len(gotArguments) == 0 {
+		t.Fatal("standalone launch omitted PowerShell arguments")
+	}
+	script := gotArguments[len(gotArguments)-1]
+	if want := powerShellCommandArguments(script, true); !reflect.DeepEqual(gotArguments, want) {
+		t.Fatalf("arguments = %#v, want %#v", gotArguments, want)
+	}
+	contents, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "cursor command") {
+		t.Fatalf("launch script does not contain Cursor command: %q", contents)
 	}
 }
 
@@ -230,29 +338,6 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 	}
 	if want := []windows.Handle{11, 12}; !reflect.DeepEqual(closed, want) {
 		t.Fatalf("closed handles = %v, want %v", closed, want)
-	}
-}
-
-func TestWindowsTerminalAvailabilityRequiresPowerShell(t *testing.T) {
-	originalLookPath := windowsLookPath
-	t.Cleanup(func() { windowsLookPath = originalLookPath })
-	windowsLookPath = func(name string) (string, error) {
-		if name != "powershell.exe" {
-			t.Fatalf("unexpected LookPath(%q)", name)
-		}
-		return "", errors.New("not found")
-	}
-
-	if Available(settings.TerminalWindows) {
-		t.Fatal("Windows terminal reported available without Windows PowerShell")
-	}
-}
-
-func TestWindowsAuthenticationCommandUsesPowerShellEnvironment(t *testing.T) {
-	got := localCommandWithEnv("COSLASH_HOME", `C:\Users\Calvin Smith\.coslash`, `C:\Program Files\coSlash\coslash.exe`, "ssh-auth", "attempt")
-	want := `$env:COSLASH_HOME = 'C:\Users\Calvin Smith\.coslash'; & 'C:\Program Files\coSlash\coslash.exe' 'ssh-auth' 'attempt'`
-	if got != want {
-		t.Fatalf("command = %q, want %q", got, want)
 	}
 }
 

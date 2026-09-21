@@ -62,7 +62,7 @@ var uuidSessionIDPattern = regexp.MustCompile(
 
 var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
-var localTerminalOpener = openTerminal
+var localTerminalOpener = openTerminalForAgent
 var reviewCommandContext = exec.CommandContext
 
 type ReviewerOption struct {
@@ -166,7 +166,7 @@ func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, 
 	if err != nil {
 		return err
 	}
-	if err := localTerminalOpener(ctx, terminal, workingDirectory, command); err != nil {
+	if err := localTerminalOpener(ctx, terminal, agent, workingDirectory, command); err != nil {
 		return errors.Join(err, removeHandoffFile(handoffPath))
 	}
 	return nil
@@ -177,20 +177,6 @@ func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, 
 func ValidWorkingDirectory(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-// CursorExecutable resolves either a standard app bundle or the optional shell launcher.
-func CursorExecutable(home string) string {
-	for _, path := range []string{
-		filepath.Join(home, "Applications", "Cursor.app", "Contents", "MacOS", "Cursor"),
-		"/Applications/Cursor.app/Contents/MacOS/Cursor",
-	} {
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
-			return path
-		}
-	}
-	path, _ := exec.LookPath("cursor")
-	return path
 }
 
 // CursorWorkspace opens a working directory in the installed Cursor IDE.
@@ -269,6 +255,7 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 	if err != nil {
 		return "", "", err
 	}
+	cli = localCLIExecutable(agent, cli)
 	switch mode {
 	case NewSession:
 		if handoff == "" {

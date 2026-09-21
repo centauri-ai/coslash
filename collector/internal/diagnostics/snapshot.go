@@ -291,7 +291,7 @@ func collectSource(
 		}
 	}
 	if source.IDE != nil {
-		if path, err := exec.LookPath(source.CLI.Name); err == nil {
+		if path := launch.CursorCLIExecutable(userHome); path != "" {
 			source.CLI.Found = true
 			source.CLI.Path = displayPath(userHome, path)
 			if includeVersion {
