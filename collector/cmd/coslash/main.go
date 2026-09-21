@@ -123,10 +123,7 @@ func main() {
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr.SetRunner(nil)
-	} else if err := synthesis.MigrateLegacyCache(func(agent, id string) (bool, error) {
-		found, err := collector.GetSessionFactsByAgent(agent, id)
-		return found != nil, err
-	}); err != nil {
+	} else if err := synthesis.MigrateLegacyCache(collector.NewLegacySessionExistsResolver()); err != nil {
 		log.Printf("migrate synthesis cache: %v", err)
 	}
 	if err := synthesis.CleanupScratch(); err != nil {

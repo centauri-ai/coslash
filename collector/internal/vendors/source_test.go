@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"slices"
 	"sync/atomic"
 	"testing"
 )
@@ -142,5 +143,41 @@ func TestWalkReadSourceReturnsCancellationAfterEmptyDirectoryRead(t *testing.T) 
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+func TestNewIndexedParserIndexesFilesOnce(t *testing.T) {
+	files := []string{"first-a.jsonl", "b.jsonl", "second-a.jsonl"}
+	ids := map[string]string{
+		"first-a.jsonl":  "a",
+		"b.jsonl":        "b",
+		"second-a.jsonl": "a",
+	}
+	idCalls := 0
+	var parsed []string
+	load := NewIndexedParser(
+		files,
+		func(path string) string {
+			idCalls++
+			return ids[path]
+		},
+		func(path string) (*ParsedSession, error) {
+			parsed = append(parsed, path)
+			return &ParsedSession{ParentID: path}, nil
+		},
+	)
+
+	for _, id := range []string{"a", "missing", "b", "a"} {
+		if _, err := load(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if idCalls != len(files) {
+		t.Fatalf("ID extraction calls = %d, want %d", idCalls, len(files))
+	}
+	want := []string{"first-a.jsonl", "b.jsonl", "first-a.jsonl"}
+	if !slices.Equal(parsed, want) {
+		t.Fatalf("parsed files = %v, want %v", parsed, want)
 	}
 }
