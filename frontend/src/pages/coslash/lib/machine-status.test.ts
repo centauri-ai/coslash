@@ -25,7 +25,10 @@ describe('SSH action status', () => {
     expect(machineStatusText(changed)).toContain('Verify its host key in Terminal');
   });
 
-  it('keeps Terminal guidance for an unknown host key', () => {
-    expect(machineStatusText(machine('authenticate'))).toContain('Terminal guidance');
+  it('keeps retry and Terminal guidance for authentication', () => {
+    const authentication = machine('authenticate');
+
+    expect(machineRetryable(authentication)).toBe(true);
+    expect(machineStatusText(authentication)).toContain('Terminal guidance');
   });
 });

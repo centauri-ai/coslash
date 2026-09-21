@@ -270,7 +270,7 @@ func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
 	checkAuthControlMaster = func(context.Context, string) error {
 		checks++
 		if checks == 1 {
-			return errors.New("stale socket")
+			return exec.Command("false").Run()
 		}
 		return nil
 	}
@@ -292,6 +292,56 @@ func TestRunAuthAttemptRepairsStaleSocketAndChecksReplacement(t *testing.T) {
 	}
 	if checks != 2 {
 		t.Fatalf("control checks = %d, want 2", checks)
+	}
+}
+
+func TestPrepareAuthControlSocketKeepsSocketAfterInconclusiveCheck(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalCheck := checkAuthControlMaster
+	originalResolve := resolveAuthControlSocketPath
+	t.Cleanup(func() {
+		checkAuthControlMaster = originalCheck
+		resolveAuthControlSocketPath = originalResolve
+	})
+
+	if err := ensureSSHControlDir(); err != nil {
+		t.Fatal(err)
+	}
+	socketPath := filepath.Join(settings.Home(), "ssh", "cm-live")
+	master, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = master.Close() }()
+	resolveAuthControlSocketPath = func(context.Context, string) (string, error) { return socketPath, nil }
+	checkAuthControlMaster = func(context.Context, string) error { return context.DeadlineExceeded }
+
+	ready, err := prepareAuthControlSocket(context.Background(), "agent-box")
+	if ready || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("prepareAuthControlSocket ready/error = %v/%v, want false/deadline exceeded", ready, err)
+	}
+	if _, err := os.Lstat(socketPath); err != nil {
+		t.Fatalf("live socket was removed: %v", err)
+	}
+}
+
+func TestRunAuthAttemptRecordsPreflightFailure(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalResolve := resolveAuthControlSocketPath
+	t.Cleanup(func() { resolveAuthControlSocketPath = originalResolve })
+
+	resolveAuthControlSocketPath = func(context.Context, string) (string, error) {
+		return "", errors.New("SSH configuration failed")
+	}
+	id, err := CreateAuthAttempt(context.Background(), "agent-box")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RunAuthAttempt(context.Background(), id); err == nil {
+		t.Fatal("RunAuthAttempt succeeded after preflight failure")
+	}
+	if state, err := AuthAttemptState(context.Background(), id); err != nil || state != AuthFailed {
+		t.Fatalf("preflight failure state/error = %q/%v, want failed", state, err)
 	}
 }
 

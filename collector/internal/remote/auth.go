@@ -210,8 +210,13 @@ func prepareAuthControlSocket(ctx context.Context, destination string) (bool, er
 	if info.Mode()&os.ModeSymlink != 0 || info.Mode()&os.ModeSocket == 0 {
 		return false, errors.New("SSH control path is not a socket")
 	}
-	if err := checkAuthControlMaster(ctx, destination); err == nil {
+	checkErr := checkAuthControlMaster(ctx, destination)
+	if checkErr == nil {
 		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(checkErr, &exitErr) {
+		return false, fmt.Errorf("check SSH control master: %w", checkErr)
 	}
 	if err := os.Remove(path); err != nil {
 		return false, fmt.Errorf("remove stale SSH control socket: %w", err)
@@ -438,9 +443,7 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			state = AuthCancelled
 		}
-		if state != AuthFailed {
-			_, _ = updateAuthAttemptIfWaiting(context.Background(), id, state)
-		}
+		_, _ = updateAuthAttemptIfWaiting(context.Background(), id, state)
 		return err
 	}
 	if alreadyReady {

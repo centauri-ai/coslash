@@ -302,7 +302,7 @@ export function MachinesSettingsSection({
           </div>
         )}
         {message == null && currentMachine?.actionRequired != null && !setupFailed && (
-          <div role="alert" className="bg-destructive/10 text-destructive border-t px-4 py-3 text-xs">
+          <div role="alert" className="bg-muted text-destructive border-t px-4 py-3 text-xs">
             {currentMachine.actionRequired === 'verify_host_key'
               ? `SSH host identity changed. Verify ${remote?.sshAlias}'s host key in Terminal before reconnecting.`
               : `Run ssh ${remote?.sshAlias} in Terminal and complete the authentication prompt.`}
