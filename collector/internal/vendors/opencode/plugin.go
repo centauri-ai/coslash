@@ -2,13 +2,17 @@ package opencode
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 const (
@@ -17,7 +21,19 @@ const (
 )
 
 //go:embed coslash-plugin.js
-var pluginSource []byte
+var pluginSourceV1 []byte
+
+const pluginV2Suffix = `
+export default { id: "coslash", setup: setupV2 }
+`
+
+var (
+	detectOpenCodeVersion = openCodeVersion
+	managedSourceCache    struct {
+		sync.Mutex
+		source []byte
+	}
+)
 
 func EnsurePlugin() error {
 	path, err := pluginPath()
@@ -48,7 +64,12 @@ func PluginDiagnostics() PluginHealth {
 		health.Err = err
 		return health
 	}
-	if !bytes.Equal(current, pluginSource) {
+	wanted, err := managedPluginSource()
+	if err != nil {
+		health.Err = err
+		return health
+	}
+	if !bytes.Equal(current, wanted) {
 		health.Err = errors.New("installed plugin differs from the coSlash plugin")
 		return health
 	}
@@ -85,6 +106,14 @@ func pluginPath() (string, error) {
 }
 
 func installPlugin(directory string) error {
+	source, err := managedPluginSource()
+	if err != nil {
+		return err
+	}
+	return installPluginSource(directory, source)
+}
+
+func installPluginSource(directory string, source []byte) error {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return err
 	}
@@ -93,7 +122,7 @@ func installPlugin(directory string) error {
 	if err == nil && !strings.HasPrefix(string(current), "// managed by coSlash;") {
 		return fmt.Errorf("refusing to overwrite unmanaged OpenCode plugin %s", path)
 	}
-	if err == nil && string(current) == string(pluginSource) {
+	if err == nil && bytes.Equal(current, source) {
 		return removeManagedLegacyPlugin(directory)
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -109,7 +138,7 @@ func installPlugin(directory string) error {
 		temporary.Close()
 		return err
 	}
-	if _, err := temporary.Write(pluginSource); err != nil {
+	if _, err := temporary.Write(source); err != nil {
 		temporary.Close()
 		return err
 	}
@@ -120,6 +149,70 @@ func installPlugin(directory string) error {
 		return err
 	}
 	return removeManagedLegacyPlugin(directory)
+}
+
+func managedPluginSource() ([]byte, error) {
+	managedSourceCache.Lock()
+	defer managedSourceCache.Unlock()
+	if managedSourceCache.source != nil {
+		return managedSourceCache.source, nil
+	}
+	version, err := detectOpenCodeVersion()
+	if err != nil {
+		return nil, fmt.Errorf("detect OpenCode version: %w", err)
+	}
+	if version != "" && openCodeMajor(version) == 0 {
+		return nil, fmt.Errorf("detect OpenCode version: unrecognized output %q", version)
+	}
+	managedSourceCache.source = pluginSourceForVersion(version)
+	return managedSourceCache.source, nil
+}
+
+func pluginSourceForVersion(version string) []byte {
+	if openCodeMajor(version) < 2 {
+		return pluginSourceV1
+	}
+	source := make([]byte, 0, len(pluginSourceV1)+len(pluginV2Suffix))
+	source = append(source, pluginSourceV1...)
+	return append(source, pluginV2Suffix...)
+}
+
+func openCodeMajor(version string) int {
+	for _, field := range strings.Fields(version) {
+		field = strings.TrimPrefix(field, "v")
+		major, _, found := strings.Cut(field, ".")
+		if !found {
+			continue
+		}
+		value, err := strconv.Atoi(major)
+		if err == nil {
+			return value
+		}
+	}
+	return 0
+}
+
+func openCodeVersion() (string, error) {
+	executable, err := exec.LookPath("opencode")
+	if err != nil {
+		return "", nil
+	}
+	// OpenCode v2 opens its shared log even for --version. On Windows that file
+	// may be locked by a running TUI, so isolate the probe's data directory.
+	probeData, err := os.MkdirTemp("", "coslash-opencode-version-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(probeData)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, executable, "--version")
+	command.Env = append(os.Environ(), "XDG_DATA_HOME="+probeData)
+	output, err := command.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(strings.SplitN(string(output), "\n", 2)[0]), nil
 }
 
 func removeManagedLegacyPlugin(directory string) error {
