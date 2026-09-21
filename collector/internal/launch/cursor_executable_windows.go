@@ -18,7 +18,7 @@ func CursorExecutable(home string) string {
 }
 
 func CursorCLIExecutable(home string) string {
-	path := filepath.Join(home, "AppData", "Local", "cursor-agent", "agent.cmd")
+	path := filepath.Join(home, "AppData", "Local", "cursor-agent", "agent.ps1")
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
 		return path
 	}

@@ -115,6 +115,9 @@ func startWindowsConsole(executable, workingDirectory string, arguments ...strin
 }
 
 func localCommandJoin(arguments ...string) string {
+	if len(arguments) > 0 && strings.HasSuffix(strings.ToLower(arguments[0]), ".ps1") {
+		arguments = append([]string{"powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"}, arguments...)
+	}
 	quoted := make([]string, len(arguments))
 	for i, argument := range arguments {
 		quoted[i] = powerShellQuote(argument)

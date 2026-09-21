@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,6 +40,33 @@ func TestPowerShellQuote(t *testing.T) {
 				t.Fatalf("powerShellQuote(%q) = %q, want %q", test.value, got, test.want)
 			}
 		})
+	}
+}
+
+func TestLocalCommandJoinExecutesPowerShellLauncherWithLiteralArguments(t *testing.T) {
+	directory := t.TempDir()
+	script := filepath.Join(directory, "agent.ps1")
+	output := filepath.Join(directory, "output.txt")
+	sentinel := filepath.Join(directory, "injected.txt")
+	contents := "param([string]$Value) [IO.File]::WriteAllText(" + powerShellQuote(output) + ", $Value)"
+	if err := os.WriteFile(script, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	argument := "'; [IO.File]::WriteAllText(" + powerShellQuote(sentinel) + ", 'injected'); #"
+	command := localCommandJoin(script, argument) + "; exit $LASTEXITCODE"
+	process := exec.Command("powershell.exe", powerShellCommandArguments(command)...)
+	if combined, err := process.CombinedOutput(); err != nil {
+		t.Fatalf("execute launcher: %v\n%s", err, combined)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != argument {
+		t.Fatalf("launcher argument = %q, want %q", data, argument)
+	}
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatalf("metacharacter argument executed; sentinel error = %v", err)
 	}
 }
 

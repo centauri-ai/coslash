@@ -10,7 +10,7 @@ import (
 
 func TestCursorCLIExecutableFindsDefaultWindowsInstall(t *testing.T) {
 	home := t.TempDir()
-	path := filepath.Join(home, "AppData", "Local", "cursor-agent", "agent.cmd")
+	path := filepath.Join(home, "AppData", "Local", "cursor-agent", "agent.ps1")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
