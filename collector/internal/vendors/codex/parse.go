@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -190,8 +191,19 @@ func parseSource(
 	}
 	return &parsedSession{
 		transcript: parsed,
-		fork:       codexFork{forkedFromID: analysis.forkedFromID, samples: analysis.tokenSamples},
+		fork:       codexFork{forkedFromID: forkParentID(path, analysis.forkedFromID), samples: analysis.tokenSamples},
 	}, nil
+}
+
+func forkParentID(path, metadataID string) string {
+	if metadataID != "" {
+		return metadataID
+	}
+	ids := rolloutIDs(path)
+	if len(ids) < 2 {
+		return ""
+	}
+	return ids[len(ids)-2]
 }
 
 func analyzeCodexSessionSource(
@@ -416,17 +428,16 @@ func analyzeCodexSessionSource(
 }
 
 // ownMeta finds the rollout's own meta among the ancestor metas a fork inlines.
-// A fork may label every inlined meta with the root ID, so the filename's IDs
-// are tried from the thread it holds back to the root, latest meta first.
+// A fork may label its newest meta with any filename ID, so row recency takes
+// precedence over which matching ancestor ID the row carries.
 func ownMeta(metas []codexMeta, ownIDs []string) codexMeta {
 	if len(metas) == 0 {
 		return codexMeta{}
 	}
-	for i := len(ownIDs) - 1; i >= 0; i-- {
-		for j := len(metas) - 1; j >= 0; j-- {
-			if meta := metas[j]; cmp.Or(meta.payloadID, meta.sessionID) == ownIDs[i] {
-				return meta
-			}
+	for i := len(metas) - 1; i >= 0; i-- {
+		meta := metas[i]
+		if slices.Contains(ownIDs, cmp.Or(meta.payloadID, meta.sessionID)) {
+			return meta
 		}
 	}
 	isAncestor := make(map[string]struct{}, len(metas))
