@@ -78,20 +78,21 @@ func TestMatchLiveSessionsNormalizesCapturedWindowsDirectory(t *testing.T) {
 }
 
 func TestInstallPluginReplacesManagedPluginAndProtectsUnmanagedPlugin(t *testing.T) {
+	source := pluginSourceForVersion("2.0.6")
 	t.Run("managed", func(t *testing.T) {
 		directory := t.TempDir()
 		path := filepath.Join(directory, pluginName)
 		if err := os.WriteFile(path, []byte("// managed by coSlash; old\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := installPlugin(directory); err != nil {
+		if err := installPluginSource(directory, source); err != nil {
 			t.Fatal(err)
 		}
 		got, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !reflect.DeepEqual(got, pluginSource) {
+		if !reflect.DeepEqual(got, source) {
 			t.Fatal("managed plugin was not replaced")
 		}
 	})
@@ -103,7 +104,7 @@ func TestInstallPluginReplacesManagedPluginAndProtectsUnmanagedPlugin(t *testing
 		if err := os.WriteFile(path, want, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := installPlugin(directory); err == nil {
+		if err := installPluginSource(directory, source); err == nil {
 			t.Fatal("installPlugin overwrote an unmanaged plugin")
 		}
 		got, err := os.ReadFile(path)
