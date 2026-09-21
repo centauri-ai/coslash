@@ -39,3 +39,38 @@ with_entries(
       | with_entries(select(.value != null))
     )
   )
+| . + {
+    # Repository-owned compatibility entries absent from both upstream catalogs.
+    "composer-2": {
+      "input_cost_per_token": 0.0000005,
+      "output_cost_per_token": 0.0000025,
+      "max_input_tokens": 200000
+    },
+    "composer-2-fast": {
+      "input_cost_per_token": 0.0000015,
+      "output_cost_per_token": 0.0000075,
+      "max_input_tokens": 200000
+    },
+    "composer-2.5": {
+      "input_cost_per_token": 0.0000005,
+      "output_cost_per_token": 0.0000025,
+      "cache_read_input_token_cost": 0.0000002,
+      "max_input_tokens": 200000
+    },
+    "composer-2.5-fast": {
+      "input_cost_per_token": 0.000003,
+      "output_cost_per_token": 0.000015,
+      "cache_read_input_token_cost": 0.0000005,
+      "max_input_tokens": 200000
+    },
+    "gmi/google/gemini-3-pro-preview": {
+      "input_cost_per_token": 0.000002,
+      "output_cost_per_token": 0.000012,
+      "max_input_tokens": 1048576
+    },
+    "opencode/jev-latest": {
+      "input_cost_per_token": 0.000000042,
+      "output_cost_per_token": 0,
+      "max_input_tokens": 64000
+    }
+  }

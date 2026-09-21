@@ -66,3 +66,21 @@ func TestComposer25FastPricing(t *testing.T) {
 		t.Fatalf("cost = %v, want 18", got)
 	}
 }
+
+func TestLegacyGMIModelStaysPriced(t *testing.T) {
+	tokens := map[string]ModelTokens{
+		"gmi/google/gemini-3-pro-preview": {InputTokens: 1_000_000, OutputTokens: 1_000_000},
+	}
+	if got := EstimatedCost(tokens); got != 14 {
+		t.Fatalf("cost = %v, want 14", got)
+	}
+	if got := ContextWindowFor("gmi/google/gemini-3-pro-preview"); got == nil || *got != 1_048_576 {
+		t.Fatalf("context window = %v, want 1048576", got)
+	}
+}
+
+func TestLegacyOpenCodeModelKeepsContextWindow(t *testing.T) {
+	if got := ContextWindowFor("opencode/jev-latest"); got == nil || *got != 64_000 {
+		t.Fatalf("context window = %v, want 64000", got)
+	}
+}
