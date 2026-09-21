@@ -3,6 +3,7 @@ package codex
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,7 +23,7 @@ func TestParseFamilyFilesSourceDoesNotExposePromptAsName(t *testing.T) {
 	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, []string{file})
+	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, []string{file}, []string{file})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestForkedRolloutUsesThreadIDDespiteRootSessionID(t *testing.T) {
 		}
 	}
 
-	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, files)
+	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, files, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +197,17 @@ func TestChainedForkedRolloutPrefersNewestMatchingMeta(t *testing.T) {
 	}
 }
 
-func TestForkedUsageFindsUnchangedActiveParent(t *testing.T) {
+type readDirCountSource struct {
+	vendors.ReadSource
+	readDirs int
+}
+
+func (source *readDirCountSource) ReadDir(path string) ([]fs.DirEntry, error) {
+	source.readDirs++
+	return source.ReadSource.ReadDir(path)
+}
+
+func TestForkedUsageFindsUnchangedActiveParentWithoutRescan(t *testing.T) {
 	home := t.TempDir()
 	rootID := "11111111-2222-3333-4444-555555555555"
 	threadID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
@@ -221,7 +232,8 @@ func TestForkedUsageFindsUnchangedActiveParent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, []string{fork})
+	source := &readDirCountSource{ReadSource: vendors.LocalReadSource}
+	parsed, err := ParseFamilyFilesSource(source, home, []string{fork}, []string{root, fork})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,6 +243,9 @@ func TestForkedUsageFindsUnchangedActiveParent(t *testing.T) {
 	usage := parsed[0].Session.Tokens["gpt-5"]
 	if usage.InputTokens != 60 || usage.OutputTokens != 10 {
 		t.Fatalf("fork tokens = %#v, want 60 input and 10 output", usage)
+	}
+	if source.readDirs != 0 {
+		t.Fatalf("fork normalization read %d directories, want no active-tree rescan", source.readDirs)
 	}
 }
 

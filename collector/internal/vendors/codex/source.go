@@ -82,7 +82,8 @@ type RemoteFamily struct {
 	Fingerprints []vendors.FileFingerprint
 }
 
-// BuildRemoteFamilies discovers every candidate file, resolves each file's
+// BuildRemoteFamilies discovers every candidate file, returns that active-file
+// index for fork normalization, resolves each file's
 // session/parent header (reusing cached headers whose fingerprint is
 // unchanged), and groups files into families rooted at the topmost
 // parent-less session. allFamilyIDs names every family found by a complete,
@@ -103,6 +104,7 @@ func BuildRemoteFamilies(
 	cachedHeaders map[string]CachedHeader,
 ) (
 	selected map[string]RemoteFamily,
+	activeFiles []string,
 	allFamilyIDs []string,
 	updatedHeaders map[string]CachedHeader,
 	headerFailed map[string]error,
@@ -114,14 +116,14 @@ func BuildRemoteFamilies(
 	root := SessionsRoot(home)
 	scan, err := ScanSource(source, root)
 	if err != nil {
-		return nil, nil, nil, nil, 0, 0, false, err
+		return nil, nil, nil, nil, nil, 0, 0, false, err
 	}
 	files := scan.Files
 	skippedTotal = scan.SkippedTotal
 	candidateFiles = len(files)
 	fingerprints, err := vendors.FingerprintSourceFiles(source, root, files)
 	if err != nil {
-		return nil, nil, nil, nil, candidateFiles, skippedTotal, false, err
+		return nil, nil, nil, nil, nil, candidateFiles, skippedTotal, false, err
 	}
 	headers, updatedHeaders, headerFailed := ResolveHeaders(source, files, fingerprints, cachedHeaders)
 
@@ -196,7 +198,7 @@ func BuildRemoteFamilies(
 		windowed[familyOf[file]] = append(windowed[familyOf[file]], file)
 	}
 	if len(windowed) == 0 {
-		return map[string]RemoteFamily{}, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedTotal, false, nil
+		return map[string]RemoteFamily{}, files, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedTotal, false, nil
 	}
 	newest := map[string]int64{}
 	for id, familyFiles := range windowed {
@@ -223,7 +225,7 @@ func BuildRemoteFamilies(
 		selected[id] = entry
 		total += len(familyFiles)
 	}
-	return selected, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedTotal, len(selected) < len(windowed), nil
+	return selected, files, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedTotal, len(selected) < len(windowed), nil
 }
 
 func sortFamiliesByNewest(ids []string, newest map[string]int64) {
@@ -243,8 +245,12 @@ func ParseRemoteFiles(
 	source vendors.ReadSource,
 	home string,
 	files []string,
+	knownActiveFiles []string,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
-	parsed, failures, err := parseFilesSourceStrict(source, ArchivedDir(home), files, func(string, string) bool { return true })
+	parsed, failures, err := parseFilesSourceStrict(
+		source, ArchivedDir(home), knownActiveFiles, files,
+		func(string, string) bool { return true },
+	)
 	clearPromptDerivedNames(parsed)
 	return parsed, failures, err
 }
@@ -276,6 +282,7 @@ func parseFiles(files []string) []*vendors.ParsedSession {
 	return parseFilesSource(
 		vendors.LocalReadSource,
 		filepath.Join(home, ".codex", "archived_sessions"),
+		nil,
 		files,
 		commandNeedsApproval,
 	)
@@ -284,33 +291,36 @@ func parseFiles(files []string) []*vendors.ParsedSession {
 func parseFilesSource(
 	source vendors.ReadSource,
 	archivedDir string,
+	knownActiveFiles []string,
 	files []string,
 	needsApproval func(string, string) bool,
 ) []*vendors.ParsedSession {
 	parsed := vendors.ParseSourceFiles(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
 		return parseSource(source, path, needsApproval)
 	})
-	return finalizeParsedFiles(source, archivedDir, parsed)
+	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed)
 }
 
 func parseFilesSourceStrict(
 	source vendors.ReadSource,
 	archivedDir string,
+	knownActiveFiles []string,
 	files []string,
 	needsApproval func(string, string) bool,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
 	parsed, failures, err := vendors.ParseSourceFilesStrict(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
 		return parseSource(source, path, needsApproval)
 	})
-	return finalizeParsedFiles(source, archivedDir, parsed), failures, err
+	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed), failures, err
 }
 
 func finalizeParsedFiles(
 	source vendors.ReadSource,
 	archivedDir string,
+	knownActiveFiles []string,
 	parsed []*parsedSession,
 ) []*vendors.ParsedSession {
-	applyForkedUsageSource(source, archivedDir, parsed)
+	applyForkedUsageSource(source, archivedDir, knownActiveFiles, parsed)
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
 		transcripts = append(transcripts, item.transcript)

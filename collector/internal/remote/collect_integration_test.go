@@ -312,7 +312,7 @@ func TestCodexRemoteFamiliesSelectRecentChildOfOldRoot(t *testing.T) {
 	root := writeCodexFixture(fs, rootID, "", time.Unix(1000, 0))
 	child := writeCodexFixture(fs, childID, rootID, time.Unix(2000, 0))
 
-	families, _, _, _, _, _, _, err := codex.BuildRemoteFamilies(
+	families, _, _, _, _, _, _, _, err := codex.BuildRemoteFamilies(
 		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(), nil, nil,
 	)
 	if err != nil {
@@ -334,7 +334,7 @@ func TestCodexRemoteFamiliesSelectLiveChildOfOldRoot(t *testing.T) {
 	writeCodexFixture(fs, rootID, "", time.Unix(1000, 0))
 	writeCodexFixture(fs, childID, rootID, time.Unix(1000, 0))
 
-	families, _, _, _, _, _, _, err := codex.BuildRemoteFamilies(
+	families, _, _, _, _, _, _, _, err := codex.BuildRemoteFamilies(
 		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(),
 		map[string]string{childID: "interactive"}, nil,
 	)
@@ -352,7 +352,7 @@ func TestCodexRemoteFamiliesExcludeOldUnreadableFileOutsideWindow(t *testing.T) 
 	file := path.Join(fakeHome, ".codex/sessions/2026/08/18", "rollout-2026-08-18T10-00-00-"+id+".jsonl")
 	fs.writeFile(file, "{not valid json", time.Unix(1000, 0))
 
-	families, _, _, failed, _, _, _, err := codex.BuildRemoteFamilies(
+	families, _, _, _, failed, _, _, _, err := codex.BuildRemoteFamilies(
 		newFakeSource(fs, Limits{}), fakeHome, time.Unix(1500, 0).UnixMilli(), nil, nil,
 	)
 	if err != nil {

@@ -102,6 +102,7 @@ func scanClaude(
 }
 
 func scanCodex(source *Source, home string, request remoteprotocol.Request) *vendorScan {
+	var activeFiles []string
 	metadata := vendors.BestEffortMetadata(
 		vendors.AgentCodex,
 		func() (*vendors.SessionMetadata, error) {
@@ -126,7 +127,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 		metadata:  metadata,
 		fileFacts: map[string]vendors.FileFingerprint{},
 		parse: func(files []string) ([]*vendors.ParsedSession, error) {
-			return codex.ParseFamilyFilesSource(source, home, files)
+			return codex.ParseFamilyFilesSource(source, home, files, activeFiles)
 		},
 	}
 	root := codex.SessionsRoot(home)
@@ -140,6 +141,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 		result.scan.incompleteWhy = "some directories or files were unreadable"
 	}
 	result.scan.candidateFiles = len(found.Files)
+	activeFiles = found.Files
 	known := knownCodexHeaders(request)
 	headers := make(map[string]codex.FileHeader, len(found.Files))
 	fingerprints := make(map[string]vendors.FileFingerprint, len(found.Files))
