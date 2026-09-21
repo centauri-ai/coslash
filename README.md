@@ -132,7 +132,7 @@ unknown; coSlash labels those facts separately.
 
 Claude Code, Codex, Cursor, and OpenCode sessions land in the same place, whether they came from a desktop app or a CLI. **List view** gives you a compact, title-first row per session with vendor, activity, machine, resume readiness, update time, and cost aligned for comparison; **board view** groups sessions by repository and branch, with a column per state, so a repo with four parallel branches reads as four rows instead of a scroll.
 
-Search by title, repo, branch, or agent. Filter by state, machine, vendor, and folder, and narrow to a time window (today, this week, 7 days, 30 days, all time). Sort by recency, title, or estimated cost. The list refreshes itself every minute, so statuses and "3 min ago" stay honest without a reload.
+Search local sessions by title, repo, branch, agent, prompt, recap, summary, goal, or synthesis. Remote sessions remain searchable by title, repo, branch, and agent. Filter by state, machine, vendor, and folder, and narrow to a time window (today, this week, 7 days, 30 days, all time). Sort by recency, title, or estimated cost. The list refreshes itself every minute, so statuses and "3 min ago" stay honest without a reload.
 
 ### Cursor support
 

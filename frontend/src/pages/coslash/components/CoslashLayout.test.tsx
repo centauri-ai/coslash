@@ -105,11 +105,30 @@ describe('CoslashLayout', () => {
     expect(markup).not.toContain('running ·');
     expect(markup).toContain('Filter groups');
     expect(markup).toContain('sticky top-[-20px] z-20');
-    expect(markup).toContain('placeholder="Search sessions -- title, repo, branch"');
-    expect(markup).not.toContain('Search recorded context');
+    expect(markup).toContain('placeholder="Search sessions -- title, repo, prompt, recap"');
+    expect(markup).toContain(
+      'aria-label="Search session metadata and local prompts, recaps, summaries, goals, and syntheses"',
+    );
+    expect(markup).toContain(
+      'Nothing matched session metadata or local prompts, recaps, summaries, goals and syntheses.',
+    );
     expect(markup).toContain('aria-label="View"');
     expect(markup).toContain('>Table<');
     expect(markup).toContain('>Board<');
+  });
+
+  it('does not match an unnamed remote session by its first prompt', () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ query: 'remote-private-prompt' }),
+      setItem: () => {},
+    });
+
+    const markup = renderLayout({
+      sessions: [session({ id: 'remote', firstPrompt: 'remote-private-prompt' })],
+    });
+
+    expect(markup).toContain('Nothing in this scope');
+    expect(markup).not.toContain('>remote-private-prompt<');
   });
 
   it('keeps sessions with truncated history out of the header totals', () => {

@@ -253,8 +253,6 @@ function matchesSearch(session: Session, group: Group, query: string): boolean {
   return words.every((word) => {
     const prefix = word.match(/^(repo|group|machine|agent|status):(.+)$/);
     if (!prefix) {
-      // Rows title an unnamed session with its first prompt, which the library filter leaves out.
-      if (sessionTitle(session).toLowerCase().includes(word)) return true;
       return (
         filterSessionLibrary([session], {
           search: word,
@@ -1291,8 +1289,8 @@ export function CoslashLayout({
                     type="search"
                     value={preferences.query}
                     onChange={(event) => patchPreferences({ query: event.target.value })}
-                    placeholder="Search sessions -- title, repo, branch"
-                    aria-label="Search titles, repositories, branches and agents"
+                    placeholder="Search sessions -- title, repo, prompt, recap"
+                    aria-label="Search session metadata and local prompts, recaps, summaries, goals, and syntheses"
                     className="text-ui min-w-32 flex-1 bg-transparent outline-none [&::-webkit-search-cancel-button]:hidden"
                   />
                 </div>
@@ -1403,7 +1401,8 @@ export function CoslashLayout({
                       <Search className="text-coslash-muted size-6" />
                       <h3 className="text-[15px] font-[650]">Nothing in this scope</h3>
                       <p className="text-cell text-coslash-muted max-w-[430px] leading-[1.6]">
-                        Nothing matched the recorded titles, repositories, branches or agents.
+                        Nothing matched session metadata or local prompts, recaps, summaries, goals and
+                        syntheses.
                       </p>
                       <Button
                         variant="outline"
