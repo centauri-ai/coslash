@@ -1,8 +1,10 @@
 package cursor
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +15,30 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestLoadCursorRowsStopsDuringCancellation(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE rows (id TEXT, value TEXT); INSERT INTO rows VALUES ('a', 'one'), ('b', 'two')`); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	seen := 0
+	err = loadCursorRowsDBContext(ctx, vendors.EmptySessionMetadata(), map[string]map[string]bool{}, "", "memory", db, `SELECT id, value FROM rows`, nil, func(id, value string) (string, string, string) {
+		seen++
+		cancel()
+		return id, value, ""
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if seen != 1 {
+		t.Fatalf("decoded rows = %d, want 1", seen)
+	}
+}
 
 func TestCommitObservationsRequireCompletedCommitCommand(t *testing.T) {
 	const before = "1111111111111111111111111111111111111111"
