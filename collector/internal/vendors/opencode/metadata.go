@@ -120,10 +120,6 @@ func clientStateDir() string {
 	return filepath.Join(home, ".coslash", "opencode-clients")
 }
 
-func sessionEntrypoint(id, directory string) *string {
-	return sessionEntrypointContext(context.Background(), id, directory)
-}
-
 func sessionEntrypointContext(ctx context.Context, id, directory string) *string {
 	if !sessionIDPattern.MatchString(id) || directory == "" {
 		return nil
@@ -145,10 +141,6 @@ func sessionEntrypointContext(ctx context.Context, id, directory string) *string
 	}
 	value := "opencode-" + record.Client
 	return &value
-}
-
-func markPendingPermissions(db *sql.DB, metadata *vendors.SessionMetadata, directory string) {
-	_ = markPendingPermissionsContext(context.Background(), db, metadata, directory)
 }
 
 func markPendingPermissionsContext(
@@ -289,10 +281,6 @@ func processWorkingDirectoryContext(ctx context.Context, pid int) string {
 		}
 	}
 	return ""
-}
-
-func loadLiveCandidates(db *sql.DB) ([]liveCandidate, error) {
-	return loadLiveCandidatesContext(context.Background(), db)
 }
 
 func loadLiveCandidatesContext(ctx context.Context, db *sql.DB) ([]liveCandidate, error) {

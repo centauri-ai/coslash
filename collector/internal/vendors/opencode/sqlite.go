@@ -86,10 +86,6 @@ func openContext(ctx context.Context) (*sql.DB, error) {
 	return db, nil
 }
 
-func validateSchema(db *sql.DB) error {
-	return validateSchemaContext(context.Background(), db)
-}
-
 func validateSchemaContext(ctx context.Context, db *sql.DB) error {
 	statement, err := db.PrepareContext(ctx, `
 		SELECT s.id, s.parent_id, s.directory, s.title, s.summary_files, s.summary_diffs,
