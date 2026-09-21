@@ -1,16 +1,15 @@
 package claude
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 	"time"
-
-	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func TestFilesSinceIncludesBackgroundRehomePredecessorFamily(t *testing.T) {
+func TestFilesSinceContextIncludesBackgroundRehomePredecessorFamily(t *testing.T) {
 	project := t.TempDir()
 	oldRoot := filepath.Join(project, "old.jsonl")
 	oldChild := filepath.Join(project, "old", "subagents", "agent-child.jsonl")
@@ -37,8 +36,11 @@ func TestFilesSinceIncludesBackgroundRehomePredecessorFamily(t *testing.T) {
 	}
 
 	files := []string{oldRoot, oldChild, newRoot}
-	got := FilesSince(files, nil, time.Now().Add(-time.Hour).UnixMilli())
-	want := familyFiles(vendors.LocalReadSource, files, "new")
+	got, err := FilesSinceContext(context.Background(), files, nil, time.Now().Add(-time.Hour).UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{oldRoot, oldChild, newRoot}
 	if !slices.Equal(got, want) {
 		t.Fatalf("window family = %v, exact family = %v", got, want)
 	}

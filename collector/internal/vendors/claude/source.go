@@ -30,7 +30,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		})
 	}
 	if since > 0 {
-		files, err = FilesSinceSourceContext(ctx, vendors.LocalReadSource, files, metadata.LiveSessions(), since)
+		files, err = FilesSinceContext(ctx, files, metadata.LiveSessions(), since)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -154,9 +154,17 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 // picks the transcripts that compose one card: the requested root, its subagents
 // any root a re-home superseded whose subagent directory the re-home did not copy
 func familyFiles(source vendors.ReadSource, files []string, id string) []string {
+	selected, _ := familyFilesContext(context.Background(), source, files, id)
+	return selected
+}
+
+func familyFilesContext(ctx context.Context, source vendors.ReadSource, files []string, id string) ([]string, error) {
 	selected, target := []string{}, ""
 	owners := map[string][]string{}
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if FamilyIDFromPath(file) == id {
 			selected = append(selected, file)
 		}
@@ -167,18 +175,28 @@ func familyFiles(source vendors.ReadSource, files []string, id string) []string 
 		}
 	}
 	if target == "" || len(owners) == 0 {
-		return selected
+		return selected, nil
 	}
-	parsed, err := parseSource(source, target)
+	parsed, err := parseSourceContext(ctx, source, target)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil || !parsed.background {
-		return selected
+		return selected, nil
 	}
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		root := IDFromPath(file)
 		if root == id || ParentIDFromPath(file) != "" || len(owners[root]) == 0 {
 			continue
 		}
-		if sharesConversation(source, file, parsed.rowUUIDs) {
+		shared, err := sharesConversationContext(ctx, source, file, parsed.rowUUIDs)
+		if err != nil {
+			return nil, err
+		}
+		if shared {
 			selected = append(selected, file)
 			selected = append(selected, owners[root]...)
 		}
@@ -189,33 +207,45 @@ func familyFiles(source vendors.ReadSource, files []string, id string) []string 
 	}
 	selected = selected[:0]
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if _, ok := include[file]; ok {
 			selected = append(selected, file)
 		}
 	}
-	return selected
+	return selected, nil
 }
 
-func sharesConversation(source vendors.ReadSource, path string, want map[string]struct{}) bool {
+func sharesConversationContext(ctx context.Context, source vendors.ReadSource, path string, want map[string]struct{}) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	file, err := source.Open(path)
 	if err != nil {
-		return false
+		return false, ctx.Err()
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(file)
 	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
 		var row struct {
 			UUID    string          `json:"uuid"`
 			Message json.RawMessage `json:"message"`
 		}
 		if decoder.Decode(&row) != nil {
-			return false
+			return false, ctx.Err()
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
 		}
 		if row.UUID == "" || len(row.Message) == 0 {
 			continue
 		}
 		_, ok := want[row.UUID]
-		return ok
+		return ok, nil
 	}
 }
 
