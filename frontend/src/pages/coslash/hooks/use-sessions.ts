@@ -22,6 +22,18 @@ export function remoteRefreshInProgress(machines: MachineFact[]) {
   );
 }
 
+export async function loadShareCandidatesUntilTerminal(
+  fetchPayload: () => Promise<SessionsPayload>,
+  waitForRefresh: () => Promise<unknown>,
+): Promise<SessionsPayload> {
+  let payload = await fetchPayload();
+  while (remoteRefreshInProgress(payload.machines)) {
+    await waitForRefresh();
+    payload = await fetchPayload();
+  }
+  return payload;
+}
+
 export type FileSelection = {
   sourceId: string;
   agent: string;
@@ -450,11 +462,9 @@ export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
       };
 
       try {
-        let payload = await fetchPayload();
-        if (remoteRefreshInProgress(payload.machines)) {
-          await waitForRemoteRefresh(undefined, controller.signal);
-          payload = await fetchPayload();
-        }
+        const payload = await loadShareCandidatesUntilTerminal(fetchPayload, () =>
+          waitForRemoteRefresh(undefined, controller.signal),
+        );
         if (controller.signal.aborted) return;
         dispatch({ type: 'success', window, sessions: payload.sessions });
       } catch (error: unknown) {
