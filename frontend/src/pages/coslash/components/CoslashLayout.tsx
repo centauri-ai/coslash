@@ -271,20 +271,20 @@ function matchesSearch(session: Session, group: Group, query: string): boolean {
   });
 }
 
-function matchesFilters(
+function matchesFacets(
   session: Session,
   group: Group,
   preferences: SessionViewPreferences,
   skip?: FacetKey,
 ): boolean {
-  const { statusFilters, groupFilters, machineFilters, agentFilters, query } = preferences;
+  const { statusFilters, groupFilters, machineFilters, agentFilters } = preferences;
   if (skip !== 'status' && statusFilters.length > 0 && !statusFilters.includes(sessionStatusGroup(session)))
     return false;
   if (skip !== 'group' && groupFilters.length > 0 && !groupFilters.includes(group.id)) return false;
   if (skip !== 'machine' && machineFilters.length > 0 && !machineFilters.includes(session.sourceId))
     return false;
   if (skip !== 'agent' && agentFilters.length > 0 && !agentFilters.includes(session.agent)) return false;
-  return matchesSearch(session, group, query);
+  return true;
 }
 
 /** Unlike cost, a session with no recorded tokens contributes nothing rather than voiding the total. */
@@ -1018,20 +1018,33 @@ export function CoslashLayout({
     const start = rangeStart(range);
     return sessions.filter((session) => start == null || session.status != null || session.mtime >= start);
   }, [sessions, range]);
+  const searchMatches = useMemo(
+    () =>
+      new Map(
+        sessionsInRange.map((session) => [
+          sessionKey(session),
+          matchesSearch(session, sessionGroups.get(sessionKey(session))!, preferences.query),
+        ]),
+      ),
+    [preferences.query, sessionGroups, sessionsInRange],
+  );
   const visibleSessions = useMemo(
     () =>
       sortSessions(
-        sessionsInRange.filter((session) =>
-          matchesFilters(session, sessionGroups.get(sessionKey(session))!, preferences),
+        sessionsInRange.filter(
+          (session) =>
+            searchMatches.get(sessionKey(session)) &&
+            matchesFacets(session, sessionGroups.get(sessionKey(session))!, preferences),
         ),
         preferences.sort,
       ),
-    [preferences, sessionGroups, sessionsInRange],
+    [preferences, searchMatches, sessionGroups, sessionsInRange],
   );
   const countWith = (predicate: (session: Session) => boolean, skip: FacetKey) =>
     sessionsInRange.filter(
       (session) =>
-        matchesFilters(session, sessionGroups.get(sessionKey(session))!, preferences, skip) &&
+        searchMatches.get(sessionKey(session)) &&
+        matchesFacets(session, sessionGroups.get(sessionKey(session))!, preferences, skip) &&
         predicate(session),
     ).length;
   const toggleStatus = (status: SessionStatusGroup) =>
