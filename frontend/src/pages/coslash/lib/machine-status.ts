@@ -30,7 +30,11 @@ const REACHABLE_REASONS: readonly MachineReason[] = [
 
 /** Only a host whose own refresh fell short recovers from another one. */
 export function machineRetryable(machine: MachineFact): boolean {
-  if (machine.sourceId === LOCAL_SOURCE_ID || connectorFailed(machine) || needsAttention(machine)) {
+  if (
+    machine.sourceId === LOCAL_SOURCE_ID ||
+    connectorFailed(machine) ||
+    machine.actionRequired === 'verify_host_key'
+  ) {
     return false;
   }
   const tone = machineTone(machine);
