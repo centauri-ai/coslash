@@ -101,24 +101,42 @@ func filterWorkflowTranscripts(all []string) []string {
 // FilesSince keeps recent/live roots, their subagents, and any older family
 // files that a selected background session re-homed.
 func FilesSince(files []string, live map[string]string, since int64) []string {
-	selected := FilesSinceSource(vendors.LocalReadSource, files, live, since)
+	selected, _ := FilesSinceContext(context.Background(), files, live, since)
+	return selected
+}
+
+func FilesSinceContext(ctx context.Context, files []string, live map[string]string, since int64) ([]string, error) {
+	selected, err := FilesSinceSourceContext(ctx, vendors.LocalReadSource, files, live, since)
+	if err != nil {
+		return nil, err
+	}
 	include := make(map[string]struct{}, len(selected))
 	for _, file := range selected {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		include[file] = struct{}{}
 		if ParentIDFromPath(file) != "" {
 			continue
 		}
-		for _, familyFile := range familyFiles(vendors.LocalReadSource, files, IDFromPath(file)) {
+		family, err := familyFilesContext(ctx, vendors.LocalReadSource, files, IDFromPath(file))
+		if err != nil {
+			return nil, err
+		}
+		for _, familyFile := range family {
 			include[familyFile] = struct{}{}
 		}
 	}
 	selected = selected[:0]
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if _, ok := include[file]; ok {
 			selected = append(selected, file)
 		}
 	}
-	return selected
+	return selected, nil
 }
 
 func FilesSinceSource(
