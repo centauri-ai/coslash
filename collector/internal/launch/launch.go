@@ -62,6 +62,7 @@ var uuidSessionIDPattern = regexp.MustCompile(
 
 var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+var localTerminalOpener = openTerminal
 
 type ReviewerOption struct {
 	ID         string
@@ -164,11 +165,8 @@ func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, 
 	if err != nil {
 		return err
 	}
-	if err := openTerminal(ctx, terminal, workingDirectory, command); err != nil {
-		if handoffPath != "" {
-			os.Remove(handoffPath)
-		}
-		return err
+	if err := localTerminalOpener(ctx, terminal, workingDirectory, command); err != nil {
+		return errors.Join(err, removeHandoffFile(handoffPath))
 	}
 	return nil
 }
@@ -347,7 +345,13 @@ func writeHandoffFile(contents string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("launch: creating handoff file: %w", err)
 	}
-	defer file.Close()
+	keepFile := false
+	defer func() {
+		if !keepFile {
+			_ = file.Close()
+			_ = os.Remove(file.Name())
+		}
+	}()
 	if _, err := file.WriteString(contents); err != nil {
 		return "", fmt.Errorf("launch: writing handoff context: %w", err)
 	}
@@ -356,7 +360,21 @@ func writeHandoffFile(contents string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("launch: resolving handoff path: %w", err)
 	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("launch: closing handoff file: %w", err)
+	}
+	keepFile = true
 	return path, nil
+}
+
+func removeHandoffFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("launch: removing handoff file: %w", err)
+	}
+	return nil
 }
 
 func CleanupHandoffs() error {
