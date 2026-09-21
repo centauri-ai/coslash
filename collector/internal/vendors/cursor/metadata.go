@@ -200,6 +200,9 @@ func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadat
 			id := canonicalCursorID(item.AgentID)
 			if transcriptIDPattern.MatchString(id) {
 				metadata.Session(id).Model = normalizeCursorModel(item.LastUsedModel)
+				if cwd := cursorCLIWorkingDirectory(path); cwd != "" {
+					metadata.Session(id).WorkingDirectory = cwd
+				}
 				setCursorTimes(metadata, id, item.CreatedAt, 0)
 			}
 			parentID := canonicalCursorID(item.SubagentInfo.ParentAgentID)
@@ -226,6 +229,20 @@ func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadat
 	}
 	applyCursorLiveness(metadata, loadLiveSessions(), false)
 	return metadata, nil
+}
+
+func cursorCLIWorkingDirectory(storePath string) string {
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(storePath), "meta.json"))
+	if err != nil {
+		return ""
+	}
+	var item struct {
+		CWD string `json:"cwd"`
+	}
+	if json.Unmarshal(data, &item) != nil {
+		return ""
+	}
+	return strings.TrimSpace(item.CWD)
 }
 
 func applyCursorLiveness(metadata *vendors.SessionMetadata, live map[string]string, includeUnknown bool) {

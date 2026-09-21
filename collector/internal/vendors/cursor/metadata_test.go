@@ -67,6 +67,43 @@ func TestLoadMetadataForSessionsReturnsOnlyRequestedIDs(t *testing.T) {
 	}
 }
 
+func TestLoadMetadataReadsCursorCLIWorkingDirectory(t *testing.T) {
+	home := t.TempDir()
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	chatPath := filepath.Join(home, ".cursor", "chats", "workspace", id, "store.db")
+	if err := os.MkdirAll(filepath.Dir(chatPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", chatPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE meta (key TEXT, value TEXT)`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	value := hex.EncodeToString([]byte(`{"agentId":"` + id + `","name":"CLI session"}`))
+	if _, err := db.Exec(`INSERT INTO meta VALUES ('0', ?)`, value); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(home, "project")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(chatPath), "meta.json"), []byte(`{"schemaVersion":1,"cwd":`+fmt.Sprintf("%q", want)+`}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata, err := loadMetadata(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Session(id).WorkingDirectory; got != want {
+		t.Fatalf("working directory = %q, want %q", got, want)
+	}
+}
+
 func TestLoadSelectionMetadataReadsOnlySelectionSignals(t *testing.T) {
 	home := t.TempDir()
 	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
