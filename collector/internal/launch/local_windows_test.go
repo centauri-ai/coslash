@@ -1,12 +1,15 @@
 package launch
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"os"
 	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -130,7 +133,10 @@ func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
 	if got.Dir != `C:\Users\Bob's Project` {
 		t.Fatalf("working directory = %q", got.Dir)
 	}
-	wantArgs := []string{`C:\Windows\wt.exe`, "-d", `C:\Users\Bob's Project`, "powershell.exe", "-NoExit", "-Command", `& 'codex' 'resume' 'session'`}
+	wantArgs := append(
+		[]string{`C:\Windows\wt.exe`, "-d", `C:\Users\Bob's Project`, "powershell.exe"},
+		powerShellCommandArguments(`& 'codex' 'resume' 'session'`)...,
+	)
 	if !reflect.DeepEqual(got.Args, wantArgs) {
 		t.Fatalf("arguments = %#v, want %#v", got.Args, wantArgs)
 	}
@@ -200,12 +206,10 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 	if gotDirectory != `C:\work 卡尔文` {
 		t.Fatalf("working directory = %q", gotDirectory)
 	}
-	wantArgs := []string{
-		`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
-		"-NoExit",
-		"-Command",
-		`& 'claude' 'Bob''s session'`,
-	}
+	wantArgs := append(
+		[]string{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`},
+		powerShellCommandArguments(`& 'claude' 'Bob''s session'`)...,
+	)
 	if !reflect.DeepEqual(gotArguments, wantArgs) {
 		t.Fatalf("arguments = %#v, want %#v", gotArguments, wantArgs)
 	}
@@ -220,6 +224,32 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 	}
 	if want := []windows.Handle{11, 12}; !reflect.DeepEqual(closed, want) {
 		t.Fatalf("closed handles = %v, want %v", closed, want)
+	}
+}
+
+func TestPowerShellCommandArgumentsRoundTripUnicodeWithoutShellMetacharacters(t *testing.T) {
+	command := `try { & 'codex' '-c' ('developer_instructions=' + $handoff) } finally { Write-Output '卡尔文 🦖' }`
+	arguments := powerShellCommandArguments(command)
+	wantFlags := []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-NoExit", "-EncodedCommand"}
+	if !reflect.DeepEqual(arguments[:len(wantFlags)], wantFlags) {
+		t.Fatalf("PowerShell flags = %#v, want %#v", arguments[:len(wantFlags)], wantFlags)
+	}
+	if strings.Contains(arguments[len(arguments)-1], "{") || strings.Contains(arguments[len(arguments)-1], "'") {
+		t.Fatalf("encoded command still contains shell metacharacters: %q", arguments[len(arguments)-1])
+	}
+	encoded, err := base64.StdEncoding.DecodeString(arguments[len(arguments)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded)%2 != 0 {
+		t.Fatalf("encoded command has odd UTF-16LE byte length: %d", len(encoded))
+	}
+	codeUnits := make([]uint16, len(encoded)/2)
+	for i := range codeUnits {
+		codeUnits[i] = binary.LittleEndian.Uint16(encoded[i*2:])
+	}
+	if got := string(utf16.Decode(codeUnits)); got != command {
+		t.Fatalf("decoded command = %q, want %q", got, command)
 	}
 }
 
