@@ -247,6 +247,22 @@ func TestForkedUsageFindsUnchangedActiveParentWithoutRescan(t *testing.T) {
 	if source.readDirs != 0 {
 		t.Fatalf("fork normalization read %d directories, want no active-tree rescan", source.readDirs)
 	}
+
+	archivedDir := filepath.Join(home, ".codex", "archived_sessions")
+	if err := os.MkdirAll(archivedDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(root, filepath.Join(archivedDir, filepath.Base(root))); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = ParseFamilyFilesSource(source, home, []string{fork}, []string{root, fork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage = parsed[0].Session.Tokens["gpt-5"]
+	if usage.InputTokens != 60 || usage.OutputTokens != 10 {
+		t.Fatalf("fork tokens after parent archive = %#v, want 60 input and 10 output", usage)
+	}
 }
 
 func TestForkedRolloutStillRejectsUnrelatedHeaderID(t *testing.T) {
