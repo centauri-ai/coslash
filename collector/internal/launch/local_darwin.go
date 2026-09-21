@@ -21,7 +21,7 @@ func openTerminal(ctx context.Context, terminal, workingDirectory, command strin
 	if err := macApplicationAvailable(ctx, application); err != nil {
 		return fmt.Errorf("launch: %s is not installed or available; choose another terminal in Settings", label)
 	}
-	if err := open(workingDirectory, command); err != nil {
+	if err := open(ctx, workingDirectory, command); err != nil {
 		return fmt.Errorf("launch: open %s: %w", label, err)
 	}
 	return nil

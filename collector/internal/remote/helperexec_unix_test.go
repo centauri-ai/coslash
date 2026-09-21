@@ -14,6 +14,31 @@ import (
 	"time"
 )
 
+func TestHelperCollectDrainsStdoutBeforeWaiting(t *testing.T) {
+	request, baseline, response := completeResponse(t)
+	marker := filepath.Join(t.TempDir(), "child-pid")
+	t.Setenv("COSLASH_FAKE_SPAWN_CHILD", "1")
+	t.Setenv("COSLASH_FAKE_CHILD_PID", marker)
+	oldGrace := helperExitGrace
+	helperExitGrace = 100 * time.Millisecond
+	defer func() { helperExitGrace = oldGrace }()
+	t.Cleanup(func() {
+		data, err := os.ReadFile(marker)
+		if err != nil {
+			return
+		}
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+		if pid > 0 {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+
+	result, err := HelperCollect(context.Background(), "host", "/helper", request, baseline, fakeOptions(response, 0, "", false))
+	if err != nil || !result.RequestComplete || result.Records != 3 {
+		t.Fatalf("HelperCollect result = %#v, error = %v", result, err)
+	}
+}
+
 func TestRunSSHCommandKillsProcessGroupOnOutputFlood(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "child-pid")
 	t.Setenv("COSLASH_FAKE_SPAWN_CHILD", "1")

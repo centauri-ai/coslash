@@ -17,33 +17,37 @@ func TestSynthesisCacheRepairsLegacyBroadACLs(t *testing.T) {
 	t.Setenv("COSLASH_HOME", home)
 	cache := NewCache()
 	record := Record{Revision: 42, Synthesis: session.SessionSynthesis{Outcome: "shipped"}}
-	if err := cache.Store("session", record); err != nil {
+	if err := cache.Store("codex", "session", record); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(SummariesDir(), "session.json")
+	agentDirectory := filepath.Join(SummariesDir(), "codex")
+	path := filepath.Join(agentDirectory, "session.json")
 	setSynthesisWindowsDACL(t, home, "D:(A;OICI;FA;;;WD)", true)
 	setSynthesisWindowsDACL(t, SummariesDir(), "D:(A;OICI;FA;;;WD)", true)
+	setSynthesisWindowsDACL(t, agentDirectory, "D:(A;OICI;FA;;;WD)", true)
 	setSynthesisWindowsDACL(t, path, "D:(A;;FA;;;WD)", false)
 
-	if _, err := NewCache().Load("session"); err != nil {
+	if _, err := NewCache().Load("codex", "session"); err != nil {
 		t.Fatal(err)
 	}
 	assertPrivateSynthesisPath(t, home, true)
 	assertPrivateSynthesisPath(t, SummariesDir(), true)
+	assertPrivateSynthesisPath(t, agentDirectory, true)
 	assertPrivateSynthesisPath(t, path, false)
 }
 
 func TestSynthesisCacheRejectsHardLinkedFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
-	if err := NewCache().Store("session", Record{Revision: 42}); err != nil {
+	if err := NewCache().Store("codex", "session", Record{Revision: 42}); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(SummariesDir(), "session.json")
-	if err := os.Link(path, filepath.Join(SummariesDir(), "session-copy.json")); err != nil {
+	agentDirectory := filepath.Join(SummariesDir(), "codex")
+	path := filepath.Join(agentDirectory, "session.json")
+	if err := os.Link(path, filepath.Join(agentDirectory, "session-copy.json")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewCache().Load("session"); err == nil || !strings.Contains(err.Error(), "must not be hard linked") {
+	if _, err := NewCache().Load("codex", "session"); err == nil || !strings.Contains(err.Error(), "must not be hard linked") {
 		t.Fatalf("hard-linked cache error = %v", err)
 	}
 }
@@ -54,15 +58,16 @@ func TestSynthesisCacheSupportsLongUnicodeHome(t *testing.T) {
 		home = filepath.Join(home, fmt.Sprintf("摘要-%02d-%s", index, strings.Repeat("长", 24)))
 	}
 	t.Setenv("COSLASH_HOME", home)
-	if err := NewCache().Store("session", Record{Revision: 42}); err != nil {
+	if err := NewCache().Store("codex", "session", Record{Revision: 42}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewCache().Load("session"); err != nil {
+	if _, err := NewCache().Load("codex", "session"); err != nil {
 		t.Fatal(err)
 	}
 	assertPrivateSynthesisPath(t, home, true)
 	assertPrivateSynthesisPath(t, SummariesDir(), true)
-	assertPrivateSynthesisPath(t, filepath.Join(SummariesDir(), "session.json"), false)
+	assertPrivateSynthesisPath(t, filepath.Join(SummariesDir(), "codex"), true)
+	assertPrivateSynthesisPath(t, filepath.Join(SummariesDir(), "codex", "session.json"), false)
 }
 
 func TestSynthesisCacheRejectsReparseHome(t *testing.T) {
@@ -76,7 +81,7 @@ func TestSynthesisCacheRejectsReparseHome(t *testing.T) {
 		t.Skipf("directory symlinks unavailable: %v", err)
 	}
 	t.Setenv("COSLASH_HOME", link)
-	if err := NewCache().Store("session", Record{Revision: 42}); err == nil || !strings.Contains(err.Error(), "must not be a reparse point") {
+	if err := NewCache().Store("codex", "session", Record{Revision: 42}); err == nil || !strings.Contains(err.Error(), "must not be a reparse point") {
 		t.Fatalf("reparse home error = %v", err)
 	}
 }

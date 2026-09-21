@@ -198,7 +198,7 @@ func HelperCollect(
 	case stream = <-streamed:
 		// Reap before collecting the write result: a helper that answered without
 		// draining stdin would otherwise leave the writer blocked on a full pipe.
-		exitCode, waitErr = process.finish(stream.err != nil || !stream.complete)
+		exitCode, waitErr = process.finish(stream.err != nil)
 	case <-requestCompleted:
 		// Keep draining through EOF so trailing output is rejected. Wait must run
 		// after the drain because os/exec closes StdoutPipe during Wait.

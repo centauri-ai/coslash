@@ -355,7 +355,7 @@ func TestCacheV2LoadRejectsOversizedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "snapshot-v2.json")
-	file, err := os.Create(path)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,6 +28,9 @@ func EnsureDirs() error {
 }
 
 func protectSynthesisDirectories(directory string) error {
+	if err := protectSynthesisDirectory(settings.Home()); err != nil {
+		return err
+	}
 	if err := protectSynthesisDirectory(filepath.Dir(directory)); err != nil {
 		return err
 	}
