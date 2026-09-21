@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -114,6 +115,10 @@ type CommitFacts struct {
 // NewCommitFactsReconciler caches repository history for one reconciliation
 // pass while retaining resolved full object IDs for the public export mapper.
 func NewCommitFactsReconciler() func([]CommitObservation, string, *string) CommitFacts {
+	return NewCommitFactsReconcilerContext(context.Background())
+}
+
+func NewCommitFactsReconcilerContext(ctx context.Context) func([]CommitObservation, string, *string) CommitFacts {
 	type cacheKey struct{ cwd, branch string }
 	type cachedHistory struct {
 		commits []repositoryCommit
@@ -131,10 +136,10 @@ func NewCommitFactsReconciler() func([]CommitObservation, string, *string) Commi
 		key := cacheKey{cwd: cwd, branch: branchName}
 		history, found := histories[key]
 		if !found {
-			history.commits, history.ok = repositoryHistory(cwd, branch)
+			history.commits, history.ok = repositoryHistoryContext(ctx, cwd, branch)
 			histories[key] = history
 		}
-		return reconcileCommitFacts(observations, history.commits, history.ok)
+		return reconcileCommitFactsContext(ctx, observations, history.commits, history.ok)
 	}
 }
 
@@ -151,20 +156,33 @@ func reconcileCommitFactsFromRepository(observations []CommitObservation, cwd st
 }
 
 func reconcileCommitFacts(observations []CommitObservation, history []repositoryCommit, ok bool) CommitFacts {
+	return reconcileCommitFactsContext(context.Background(), observations, history, ok)
+}
+
+func reconcileCommitFactsContext(ctx context.Context, observations []CommitObservation, history []repositoryCommit, ok bool) CommitFacts {
 	if !ok {
-		return CommitFacts{Subjects: fallbackCommitMessages(observations), SHAs: []string{}}
+		return CommitFacts{Subjects: fallbackCommitMessagesContext(ctx, observations), SHAs: []string{}}
 	}
 	resolved := make([]int, len(observations))
 	hashResolved := make([]bool, len(observations))
 	for i := range resolved {
+		if ctx.Err() != nil {
+			return CommitFacts{}
+		}
 		resolved[i] = -1
 	}
 	used := make([]bool, len(history))
 	for i, observation := range observations {
+		if ctx.Err() != nil {
+			return CommitFacts{}
+		}
 		if observation.Hash == "" {
 			continue
 		}
 		for j, commit := range history {
+			if ctx.Err() != nil {
+				return CommitFacts{}
+			}
 			if !used[j] && strings.HasPrefix(commit.hash, observation.Hash) &&
 				(observation.Subject == "(commit)" || commit.subject == observation.Subject) {
 				resolved[i], hashResolved[i], used[j] = j, true, true
@@ -173,10 +191,16 @@ func reconcileCommitFacts(observations []CommitObservation, history []repository
 		}
 	}
 	for i, observation := range observations {
+		if ctx.Err() != nil {
+			return CommitFacts{}
+		}
 		if resolved[i] >= 0 {
 			continue
 		}
 		for j, commit := range history {
+			if ctx.Err() != nil {
+				return CommitFacts{}
+			}
 			if !used[j] && commit.subject == observation.Subject {
 				resolved[i], used[j] = j, true
 				break
@@ -185,6 +209,9 @@ func reconcileCommitFacts(observations []CommitObservation, history []repository
 	}
 	messages, shas := []string{}, []string{}
 	for i, index := range resolved {
+		if ctx.Err() != nil {
+			return CommitFacts{}
+		}
 		if index >= 0 {
 			messages = append(messages, history[index].subject)
 			if hashResolved[i] {
@@ -197,6 +224,10 @@ func reconcileCommitFacts(observations []CommitObservation, history []repository
 }
 
 func repositoryHistory(cwd string, branch *string) ([]repositoryCommit, bool) {
+	return repositoryHistoryContext(context.Background(), cwd, branch)
+}
+
+func repositoryHistoryContext(ctx context.Context, cwd string, branch *string) ([]repositoryCommit, bool) {
 	if cwd == "" {
 		return nil, false
 	}
@@ -204,18 +235,21 @@ func repositoryHistory(cwd string, branch *string) ([]repositoryCommit, bool) {
 	if branch != nil && strings.TrimSpace(*branch) != "" {
 		ref = strings.TrimSpace(*branch)
 	}
-	output, err := exec.Command(
+	output, err := exec.CommandContext(ctx,
 		"git", "-C", cwd, "log", "--format=%H%x00%s", ref, "--",
 	).Output()
 	if err != nil {
-		if !gitRefExists(cwd, ref) &&
-			exec.Command("git", "-C", cwd, "rev-parse", "--git-dir").Run() == nil {
+		if !gitRefExistsContext(ctx, cwd, ref) &&
+			exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--git-dir").Run() == nil {
 			return []repositoryCommit{}, true
 		}
 		return nil, false
 	}
 	history := []repositoryCommit{}
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if ctx.Err() != nil {
+			return nil, false
+		}
 		hash, subject, found := strings.Cut(line, "\x00")
 		if found && hash != "" {
 			history = append(history, repositoryCommit{hash: hash, subject: subject})
@@ -225,8 +259,15 @@ func repositoryHistory(cwd string, branch *string) ([]repositoryCommit, bool) {
 }
 
 func fallbackCommitMessages(observations []CommitObservation) []string {
+	return fallbackCommitMessagesContext(context.Background(), observations)
+}
+
+func fallbackCommitMessagesContext(ctx context.Context, observations []CommitObservation) []string {
 	messages := []string{}
 	for _, observation := range observations {
+		if ctx.Err() != nil {
+			return nil
+		}
 		if observation.Amend && len(messages) > 0 {
 			messages[len(messages)-1] = observation.Subject
 			continue

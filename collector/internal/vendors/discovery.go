@@ -1,6 +1,7 @@
 package vendors
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"log"
@@ -29,8 +30,15 @@ func (scan *SourceScan) RecordSkipped(path string, err error) {
 }
 
 func ScanSource(source ReadSource, root string) (*SourceScan, error) {
+	return ScanSourceContext(context.Background(), source, root)
+}
+
+func ScanSourceContext(ctx context.Context, source ReadSource, root string) (*SourceScan, error) {
 	scan := &SourceScan{Files: []string{}, Skipped: []SkippedPath{}}
-	err := walkReadSource(source, root, func(path string, entry fs.DirEntry, err error) error {
+	err := walkReadSourceContext(ctx, source, root, func(path string, entry fs.DirEntry, err error) error {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
 		if err != nil {
 			if path == root {
 				if errors.Is(err, fs.ErrNotExist) {
@@ -54,7 +62,11 @@ func ScanSource(source ReadSource, root string) (*SourceScan, error) {
 }
 
 func JSONLFilesUnderSource(source ReadSource, root string) ([]string, error) {
-	scan, err := ScanSource(source, root)
+	return JSONLFilesUnderSourceContext(context.Background(), source, root)
+}
+
+func JSONLFilesUnderSourceContext(ctx context.Context, source ReadSource, root string) ([]string, error) {
+	scan, err := ScanSourceContext(ctx, source, root)
 	if err != nil {
 		return nil, err
 	}

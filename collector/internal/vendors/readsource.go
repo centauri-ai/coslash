@@ -1,6 +1,7 @@
 package vendors
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -209,11 +210,18 @@ func LimitNewestFileFamilies(
 }
 
 func walkReadSource(source ReadSource, root string, visit fs.WalkDirFunc) error {
+	return walkReadSourceContext(context.Background(), source, root, visit)
+}
+
+func walkReadSourceContext(ctx context.Context, source ReadSource, root string, visit fs.WalkDirFunc) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := source.Stat(root)
 	if err != nil {
 		return visit(root, nil, err)
 	}
-	return walkReadSourceEntry(source, root, fs.FileInfoToDirEntry(info), visit)
+	return walkReadSourceEntryContext(ctx, source, root, fs.FileInfoToDirEntry(info), visit)
 }
 
 func walkReadSourceEntry(
@@ -222,6 +230,19 @@ func walkReadSourceEntry(
 	entry fs.DirEntry,
 	visit fs.WalkDirFunc,
 ) error {
+	return walkReadSourceEntryContext(context.Background(), source, path, entry, visit)
+}
+
+func walkReadSourceEntryContext(
+	ctx context.Context,
+	source ReadSource,
+	path string,
+	entry fs.DirEntry,
+	visit fs.WalkDirFunc,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	err := visit(path, entry, nil)
 	if err != nil || !entry.IsDir() {
 		if errors.Is(err, fs.SkipDir) && !entry.IsDir() {
@@ -240,8 +261,11 @@ func walkReadSourceEntry(
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, child := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		childPath := filepath.Join(path, child.Name())
-		if err := walkReadSourceEntry(source, childPath, child, visit); err != nil {
+		if err := walkReadSourceEntryContext(ctx, source, childPath, child, visit); err != nil {
 			if errors.Is(err, fs.SkipDir) {
 				continue
 			}
@@ -253,6 +277,13 @@ func walkReadSourceEntry(
 
 // ParseJSONLSource decodes JSON values from a source file until clean or torn EOF.
 func ParseJSONLSource[T any](source ReadSource, path string) ([]T, error) {
+	return ParseJSONLSourceContext[T](context.Background(), source, path)
+}
+
+func ParseJSONLSourceContext[T any](ctx context.Context, source ReadSource, path string) ([]T, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	file, err := source.Open(path)
 	if err != nil {
 		return nil, err
@@ -261,6 +292,9 @@ func ParseJSONLSource[T any](source ReadSource, path string) ([]T, error) {
 	decoder := json.NewDecoder(file)
 	var records []T
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var record T
 		err := decoder.Decode(&record)
 		if err != nil {
@@ -268,6 +302,9 @@ func ParseJSONLSource[T any](source ReadSource, path string) ([]T, error) {
 				break
 			}
 			return nil, fmt.Errorf("%w: %w", ErrInvalidData, err)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		records = append(records, record)
 	}

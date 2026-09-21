@@ -1,6 +1,7 @@
 package vendors
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -25,24 +26,61 @@ func ParseFiles[T any](
 	files []string,
 	parse func(string) (*T, error),
 ) []*T {
+	parsed, _ := ParseFilesContext(context.Background(), files, func(_ context.Context, path string) (*T, error) {
+		return parse(path)
+	})
+	return parsed
+}
+
+// ParseFilesContext parses concurrently while preserving source order and
+// waits for started workers before returning from cancellation.
+func ParseFilesContext[T any](
+	ctx context.Context,
+	files []string,
+	parse func(context.Context, string) (*T, error),
+) ([]*T, error) {
 	results := make([]*T, len(files))
-	workers := make(chan struct{}, maxParseWorkers)
+	jobs := make(chan int)
 	var wg sync.WaitGroup
-	for index, file := range files {
+	for range min(maxParseWorkers, len(files)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			workers <- struct{}{}
-			defer func() { <-workers }()
-			parsed, err := parse(file)
-			if err != nil {
-				log.Printf("%s: transcript parse failed; skipping: %v", file, err)
-				return
+			for index := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				file := files[index]
+				parsed, err := parse(ctx, file)
+				if err != nil {
+					if ctx.Err() == nil {
+						log.Printf("%s: transcript parse failed; skipping: %v", file, err)
+					}
+					continue
+				}
+				results[index] = parsed
 			}
-			results[index] = parsed
 		}()
 	}
+	for index := range files {
+		if err := ctx.Err(); err != nil {
+			close(jobs)
+			wg.Wait()
+			return nil, err
+		}
+		select {
+		case jobs <- index:
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return nil, ctx.Err()
+		}
+	}
+	close(jobs)
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	parsed := make([]*T, 0, len(files))
 	for _, result := range results {
@@ -50,7 +88,7 @@ func ParseFiles[T any](
 			parsed = append(parsed, result)
 		}
 	}
-	return parsed
+	return parsed, nil
 }
 
 // ParseSourceFiles parses concurrently while preserving source order.
@@ -60,6 +98,17 @@ func ParseSourceFiles[T any](
 	parse func(ReadSource, string) (*T, error),
 ) []*T {
 	return ParseFiles(files, func(path string) (*T, error) { return parse(source, path) })
+}
+
+func ParseSourceFilesContext[T any](
+	ctx context.Context,
+	source ReadSource,
+	files []string,
+	parse func(context.Context, ReadSource, string) (*T, error),
+) ([]*T, error) {
+	return ParseFilesContext(ctx, files, func(ctx context.Context, path string) (*T, error) {
+		return parse(ctx, source, path)
+	})
 }
 
 // FileFailure names one file that failed strict parsing, so a caller can map
