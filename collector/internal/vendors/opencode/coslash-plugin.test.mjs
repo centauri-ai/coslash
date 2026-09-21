@@ -13,7 +13,7 @@ process.env.USERPROFILE = home
 async function load(name, contents) {
   const target = path.join(home, name)
   await writeFile(target, contents)
-  return import(`${pathToFileURL(target).href}?test=${Date.now()}-${name}`)
+  return import(`${pathToFileURL(target).href}?test=${name}`)
 }
 
 async function exists(target) {
@@ -23,14 +23,6 @@ async function exists(target) {
   } catch {
     return false
   }
-}
-
-async function waitFor(predicate) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (await predicate()) return
-    await new Promise((resolve) => setTimeout(resolve, 10))
-  }
-  assert.fail("timed out waiting for plugin lifecycle work")
 }
 
 // OpenCode v1 calls every module export as a plugin factory.
@@ -57,6 +49,11 @@ assert.equal(typeof v2.default.setup, "function")
 
 const queued = []
 let wake
+let acknowledge
+function delivery(item) {
+  acknowledge = item.acknowledge
+  return { value: item.value, done: false }
+}
 const event = {
   subscribe({ signal }) {
     return {
@@ -64,10 +61,12 @@ const event = {
         return this
       },
       next() {
-        if (queued.length > 0) return Promise.resolve({ value: queued.shift(), done: false })
+        acknowledge?.()
+        acknowledge = undefined
+        if (queued.length > 0) return Promise.resolve(delivery(queued.shift()))
         if (signal.aborted) return Promise.resolve({ done: true })
         return new Promise((resolve) => {
-          wake = resolve
+          wake = (item) => resolve(delivery(item))
           signal.addEventListener("abort", () => resolve({ done: true }), {
             once: true,
           })
@@ -77,13 +76,16 @@ const event = {
   },
 }
 function emit(value) {
-  if (wake) {
-    const resolve = wake
-    wake = undefined
-    resolve({ value, done: false })
-  } else {
-    queued.push(value)
-  }
+  return new Promise((resolve) => {
+    const item = { value, acknowledge: resolve }
+    if (wake) {
+      const deliver = wake
+      wake = undefined
+      deliver(item)
+    } else {
+      queued.push(item)
+    }
+  })
 }
 
 const cleanup = await v2.default.setup({ event })
@@ -92,15 +94,15 @@ const requestID = "permission-request"
 const v2Client = path.join(home, ".coslash", "opencode-clients", `${v2Session}.json`)
 const permission = path.join(home, ".coslash", "opencode-permissions", `${requestID}.json`)
 
-emit({ type: "session.viewed", data: { sessionID: v2Session } })
-await waitFor(() => exists(v2Client))
-emit({
+await emit({ type: "session.viewed", data: { sessionID: v2Session } })
+assert.equal(await exists(v2Client), true)
+await emit({
   type: "permission.asked",
   data: { id: requestID, sessionID: v2Session },
 })
-await waitFor(() => exists(permission))
-emit({ type: "session.execution.succeeded", data: { sessionID: v2Session } })
-await waitFor(async () => !(await exists(permission)))
-emit({ type: "session.deleted", data: { sessionID: v2Session } })
-await waitFor(async () => !(await exists(v2Client)))
+assert.equal(await exists(permission), true)
+await emit({ type: "session.execution.succeeded", data: { sessionID: v2Session } })
+assert.equal(await exists(permission), false)
+await emit({ type: "session.deleted", data: { sessionID: v2Session } })
+assert.equal(await exists(v2Client), false)
 await cleanup()

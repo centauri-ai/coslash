@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -27,13 +26,7 @@ const pluginV2Suffix = `
 export default { id: "coslash", setup: setupV2 }
 `
 
-var (
-	detectOpenCodeVersion = openCodeVersion
-	managedSourceCache    struct {
-		sync.Mutex
-		source []byte
-	}
-)
+var detectOpenCodeVersion = openCodeVersion
 
 func EnsurePlugin() error {
 	path, err := pluginPath()
@@ -152,20 +145,14 @@ func installPluginSource(directory string, source []byte) error {
 }
 
 func managedPluginSource() ([]byte, error) {
-	managedSourceCache.Lock()
-	defer managedSourceCache.Unlock()
-	if managedSourceCache.source != nil {
-		return managedSourceCache.source, nil
-	}
 	version, err := detectOpenCodeVersion()
 	if err != nil {
 		return nil, fmt.Errorf("detect OpenCode version: %w", err)
 	}
-	if version != "" && openCodeMajor(version) == 0 {
+	if openCodeMajor(version) == 0 {
 		return nil, fmt.Errorf("detect OpenCode version: unrecognized output %q", version)
 	}
-	managedSourceCache.source = pluginSourceForVersion(version)
-	return managedSourceCache.source, nil
+	return pluginSourceForVersion(version), nil
 }
 
 func pluginSourceForVersion(version string) []byte {
