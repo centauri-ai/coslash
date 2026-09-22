@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -20,10 +19,9 @@ import (
 
 const maxSessionIndexRowBytes = 1 << 20
 
-// LoadMetadata reads liveness from lsof (the only signal Codex leaves — no pid
-// file, no status field) and names from session_index.jsonl. Live rollouts
-// get the "interactive" convention so resolveStatus applies the busy/idle
-// refinement.
+// LoadMetadata reads liveness from open rollout handles and names from
+// session_index.jsonl. Live rollouts get the "interactive" convention so
+// resolveStatus applies the busy/idle refinement.
 func LoadMetadata() (*vendors.SessionMetadata, error) {
 	return LoadMetadataContext(context.Background())
 }
@@ -53,27 +51,13 @@ func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) 
 	return metadata, nil
 }
 
-// LoadLiveSessions returns the Codex session IDs that lsof reports as open.
+// LoadLiveSessions returns the Codex session IDs whose rollouts are open.
 func LoadLiveSessions() (map[string]struct{}, error) {
 	return LoadLiveSessionsContext(context.Background())
 }
 
 func LoadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
-	openCodexSessions, err := exec.CommandContext(ctx, "lsof", "-a", "-c", "codex", "-Fn").Output()
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		var exitErr *exec.ExitError
-		if errors.Is(err, exec.ErrNotFound) || errors.As(err, &exitErr) {
-			return map[string]struct{}{}, nil
-		}
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return LiveSessionIDs(string(openCodexSessions)), nil
+	return loadLiveSessionsContext(ctx)
 }
 
 // LiveSessionIDs reads rollout session IDs from `lsof -Fn` output.
