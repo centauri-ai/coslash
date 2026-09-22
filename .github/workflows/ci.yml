@@ -89,18 +89,33 @@ jobs:
         working-directory: collector
         shell: powershell
         run: |
-          $ErrorActionPreference = "Continue"
-          $output = @(& go test ./... 2>&1)
-          $exitCode = $LASTEXITCODE
           $ErrorActionPreference = "Stop"
-          $output | Write-Output
+          $stdout = Join-Path $env:RUNNER_TEMP "coslash-go-test-stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "coslash-go-test-stderr.log"
+          $process = Start-Process -FilePath "go.exe" -ArgumentList @("test", "./...") -WorkingDirectory (Get-Location).Path -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $exitCode = $process.ExitCode
           if ($exitCode -ne 0) {
-            $tail = (($output | Select-Object -Last 40) -join "`n")
-            $tail = ($tail -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '')
+            function Read-LogTail([string]$path) {
+              $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+              try {
+                $length = [Math]::Min([int64]4096, $stream.Length)
+                $null = $stream.Seek(-$length, [IO.SeekOrigin]::End)
+                $buffer = New-Object byte[] ([int]$length)
+                $read = $stream.Read($buffer, 0, $buffer.Length)
+                return [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+              }
+              finally {
+                $stream.Dispose()
+              }
+            }
+            $tail = (Read-LogTail $stdout) + "`n" + (Read-LogTail $stderr)
+            if ($tail.Length -gt 8192) { $tail = $tail.Substring($tail.Length - 8192) }
+            $tail = ($tail -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '')
             $tail = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=Windows Go tests failed::$tail"
             exit $exitCode
           }
+          Write-Output "Windows Go tests passed."
       - name: Vet collector on Windows
         working-directory: collector
         shell: powershell
