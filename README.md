@@ -293,6 +293,14 @@ make release
 
 If `make release` reports a missing or unsupported Go or Node version, install the toolchain first or switch to the curl/Homebrew install path.
 
+On Windows, build the native release executable and its checksum with Windows
+PowerShell 5.1 or later:
+
+```powershell
+Set-Location collector
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-package.ps1 -Version dev
+```
+
 See [Contributing](CONTRIBUTING.md) for the development loop and checks.
 
 ## Project status

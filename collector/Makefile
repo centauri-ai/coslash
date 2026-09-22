@@ -10,7 +10,6 @@ STAGED := internal/web/dist
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 DIST := dist
 PLATFORMS := darwin/arm64 darwin/amd64
-WINDOWS_PLATFORMS := windows/amd64
 ARGS :=
 LDFLAGS := -X main.version=$(VERSION)
 EMBEDDED_LDFLAGS := -s -w -X main.version=$(VERSION) -X github.com/centauri-ai/coslash/collector/internal/remote.embeddedHelperVersion=$(VERSION)
@@ -21,7 +20,7 @@ GO_REQUIRED := $(shell sed -n 's/^go //p' go.mod)
 NODE_REQUIRED := $(shell tr -d 'v\n' < $(FRONTEND)/.nvmrc)
 VERSION_AT_LEAST = awk -v actual="$(1)" -v required="$(2)" 'BEGIN { if (actual !~ /^[0-9]+(\.[0-9]+)*$$/ || required !~ /^[0-9]+(\.[0-9]+)*$$/) exit 1; actual_count = split(actual, actual_parts, "."); required_count = split(required, required_parts, "."); count = actual_count > required_count ? actual_count : required_count; for (i = 1; i <= count; i++) { actual_part = i <= actual_count ? actual_parts[i] + 0 : 0; required_part = i <= required_count ? required_parts[i] + 0 : 0; if (actual_part > required_part) exit 0; if (actual_part < required_part) exit 1 } }'
 
-.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models check-go check-node \
+.PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist dist-windows models check-go check-node \
 	helper helper-dist helper-assets test-checksums test-embedded-helpers
 
 check-go:
@@ -88,18 +87,11 @@ dist: check-go check-node stage helper-assets
 		COPYFILE_DISABLE=1 tar --format ustar -cf - -C $(DIST) $$stem | gzip -n > $(DIST)/$$stem.tar.gz; \
 		rm -rf $(DIST)/$$stem; \
 		echo "packaged $(DIST)/$$stem.tar.gz"; \
-	done; \
-	mkdir -p $(DIST)/windows; \
-	for platform in $(WINDOWS_PLATFORMS); do \
-		goarch=$${platform#*/}; \
-		artifact=$(BINARY)-windows-$${goarch}.exe; \
-		CGO_ENABLED=0 GOOS=windows GOARCH=$$goarch \
-			go build -trimpath -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' \
-			-o $(DIST)/windows/$$artifact $(PKG) || exit 1; \
-		echo "packaged $(DIST)/windows/$$artifact"; \
 	done
 	node scripts/checksums.mjs $(DIST)/checksums.txt $(DIST)/*.tar.gz
-	node scripts/checksums.mjs $(DIST)/windows/checksums.txt $(DIST)/windows/*.exe
+
+dist-windows:
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows-package.ps1 -Version "$(VERSION)"
 
 # The Linux collection helper, for local iteration on the host platform.
 helper:
