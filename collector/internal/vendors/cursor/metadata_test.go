@@ -297,6 +297,48 @@ func TestLoadIDEModelsCountsOnlyCreatedPullRequests(t *testing.T) {
 	}
 }
 
+func TestLoadIDEModelsMarksOnlyLivePendingQuestionsWaiting(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	const (
+		waitingID = "00000000-0000-4000-8000-000000000001"
+		runningID = "00000000-0000-4000-8000-000000000002"
+		closedID  = "00000000-0000-4000-8000-000000000003"
+	)
+	for id, value := range map[string]string{
+		waitingID: `{"toolFormerData":{"name":"ask_question","status":"completed","additionalData":{"status":"pending"}}}`,
+		runningID: `{"toolFormerData":{"name":"ask_question","status":"completed","additionalData":{"status":"success"}}}`,
+		closedID:  `{"toolFormerData":{"name":"ask_question","status":"completed","additionalData":{"status":"pending"}}}`,
+	} {
+		if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, "bubbleId:"+id+":question", value); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	metadata := vendors.EmptySessionMetadata()
+	loadIDEModelsDB(metadata, nil, db, nil)
+	for _, id := range []string{waitingID, runningID, closedID} {
+		metadata.Session(id).Entrypoint = entrypointIDE
+	}
+	applyCursorLiveness(metadata, map[string]string{
+		waitingID: entrypointIDE, runningID: entrypointIDE,
+	}, false)
+
+	for id, want := range map[string]string{
+		waitingID: "waiting", runningID: "interactive", closedID: "",
+	} {
+		if got := metadata.Session(id).Live; got != want {
+			t.Errorf("session %s live status = %q, want %q", id, got, want)
+		}
+	}
+}
+
 func TestLoadIDEModelsBatchesLargeSelections(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
