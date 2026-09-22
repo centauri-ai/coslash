@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -26,7 +27,12 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err != nil {
 		return nil, nil, err
 	}
-	selectionMetadata, metadataErr := LoadSelectionMetadataContext(ctx)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, nil, err
+	}
+	live := loadLiveSessionsContext(ctx)
+	selectionMetadata, metadataErr := loadSelectionMetadataWithLiveContext(ctx, home, live)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -46,7 +52,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		}
 		ids = append(ids, IDFromPath(path))
 	}
-	metadata, metadataErr := LoadMetadataForSessionsContext(ctx, canonicalCursorIDs(ids))
+	metadata, metadataErr := loadMetadataForSessionsWithLiveContext(ctx, home, canonicalCursorIDs(ids), live)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}

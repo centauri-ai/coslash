@@ -8,49 +8,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+	"slices"
 	"strings"
-	"syscall"
 	"unsafe"
 
+	"github.com/centauri-ai/coslash/collector/internal/winfolders"
+	"github.com/centauri-ai/coslash/collector/internal/winprocess"
 	"golang.org/x/sys/windows"
 )
 
-const (
-	cursorErrorMoreData      = 234
-	cursorRMSessionKeyLength = 32
-	cursorRMMaxAppName       = 255
-	cursorRMMaxServiceName   = 63
-)
+const maxWindowsLiveCursorStores = 256
 
 var (
 	cursorIDEProcessRunning   = cursorProcessRunning
-	cursorCLIStoreProcesses   = processesUsingCursorStore
-	cursorProcessExecutable   = processExecutable
+	cursorCLIStoreProcesses   = winprocess.ProcessesUsingFiles
+	cursorProcessExecutable   = winprocess.CurrentUserExecutable
 	cursorProcessCommandLine  = processCommandLine
 	cursorCLIResumeSessionIDs = loadCursorCLIResumeSessionIDs
 	cursorSameFile            = sameFile
-	cursorRestartManager      = windows.NewLazySystemDLL("rstrtmgr.dll")
-	cursorRMStartSession      = cursorRestartManager.NewProc("RmStartSession")
-	cursorRMRegisterResources = cursorRestartManager.NewProc("RmRegisterResources")
-	cursorRMGetList           = cursorRestartManager.NewProc("RmGetList")
-	cursorRMEndSession        = cursorRestartManager.NewProc("RmEndSession")
 )
-
-type cursorRMUniqueProcess struct {
-	PID       uint32
-	StartTime windows.Filetime
-}
-
-type cursorRMProcessInfo struct {
-	Process          cursorRMUniqueProcess
-	AppName          [cursorRMMaxAppName + 1]uint16
-	ServiceShortName [cursorRMMaxServiceName + 1]uint16
-	ApplicationType  uint32
-	AppStatus        uint32
-	TSSessionID      uint32
-	Restartable      int32
-}
 
 func loadLiveSessions() map[string]string {
 	return loadLiveSessionsContext(context.Background())
@@ -71,19 +47,16 @@ func loadLiveSessionsContext(ctx context.Context) map[string]string {
 		}
 		live[id] = entrypointCLI
 	}
-	for _, store := range cursorChatStores(home, nil) {
+	for store := range liveCursorStoresContext(ctx, home, cursorChatStores(home, nil)) {
 		if ctx.Err() != nil {
 			return live
-		}
-		if !containsCursorAgentProcess(home, cursorCLIStorePIDs(store)) {
-			continue
 		}
 		id := canonicalCursorID(filepath.Base(filepath.Dir(store)))
 		if transcriptIDPattern.MatchString(id) {
 			live[id] = entrypointCLI
 		}
 	}
-	if ctx.Err() == nil && cursorIDEProcessRunning() {
+	if ctx.Err() == nil && cursorIDEProcessRunning(home) {
 		id := selectedCursorIDEChat(home)
 		if transcriptIDPattern.MatchString(id) {
 			if lane, exists := live[id]; exists && lane != entrypointIDE {
@@ -134,7 +107,7 @@ func cursorResumeID(home, executable, commandLine string) string {
 	}
 	expectedEntrypoints := []string{
 		filepath.Join(filepath.Dir(executable), "index.js"),
-		filepath.Join(home, "AppData", "Local", "cursor-agent", filepath.Dir(relative), "index.js"),
+		filepath.Join(winfolders.LocalAppData(home), "cursor-agent", filepath.Dir(relative), "index.js"),
 	}
 	if !equalAnyPath(arguments[1], expectedEntrypoints) {
 		return ""
@@ -160,25 +133,87 @@ func cursorResumeID(home, executable, commandLine string) string {
 	return ""
 }
 
-func cursorCLIStorePIDs(store string) []uint32 {
-	seen := map[uint32]bool{}
-	var pids []uint32
-	for _, path := range []string{store, store + "-wal", store + "-shm"} {
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
-		matches, err := cursorCLIStoreProcesses(path)
-		if err != nil {
-			continue
-		}
-		for _, pid := range matches {
-			if !seen[pid] {
-				seen[pid] = true
-				pids = append(pids, pid)
+func liveCursorStores(home string, stores []string) map[string]bool {
+	return liveCursorStoresContext(context.Background(), home, stores)
+}
+
+func liveCursorStoresContext(ctx context.Context, home string, stores []string) map[string]bool {
+	stores = newestCursorStores(stores, maxWindowsLiveCursorStores)
+	storeByPath := map[string]string{}
+	var paths []string
+	for _, store := range stores {
+		for _, path := range []string{store, store + "-wal", store + "-shm"} {
+			if _, err := os.Stat(path); err == nil {
+				storeByPath[path] = store
+				paths = append(paths, path)
 			}
 		}
 	}
-	return pids
+	accepted := map[uint32]bool{}
+	checked := map[uint32]bool{}
+	used := map[string]bool{}
+	var inspect func([]string)
+	inspect = func(group []string) {
+		if len(group) == 0 || ctx.Err() != nil {
+			return
+		}
+		pids, err := cursorCLIStoreProcesses(group)
+		if err != nil {
+			return
+		}
+		hasCursorAgent := false
+		for _, pid := range pids {
+			if !checked[pid] {
+				checked[pid] = true
+				path, pathErr := cursorProcessExecutable(pid)
+				accepted[pid] = pathErr == nil && isCursorAgentExecutable(home, path)
+			}
+			hasCursorAgent = hasCursorAgent || accepted[pid]
+		}
+		if !hasCursorAgent {
+			return
+		}
+		if len(group) == 1 {
+			used[storeByPath[group[0]]] = true
+			return
+		}
+		middle := len(group) / 2
+		inspect(group[:middle])
+		inspect(group[middle:])
+	}
+	inspect(paths)
+	return used
+}
+
+func newestCursorStores(stores []string, limit int) []string {
+	if len(stores) <= limit {
+		return slices.Clone(stores)
+	}
+	type candidate struct {
+		path       string
+		modifiedAt int64
+	}
+	candidates := make([]candidate, len(stores))
+	for index, path := range stores {
+		candidates[index].path = path
+		if info, err := os.Stat(path); err == nil {
+			candidates[index].modifiedAt = info.ModTime().UnixNano()
+		}
+	}
+	slices.SortFunc(candidates, func(left, right candidate) int {
+		if left.modifiedAt > right.modifiedAt {
+			return -1
+		}
+		if left.modifiedAt < right.modifiedAt {
+			return 1
+		}
+		return strings.Compare(left.path, right.path)
+	})
+	result := make([]string, limit)
+	for index := range result {
+		result[index] = candidates[index].path
+	}
+	return result
 }
 
 func containsCursorAgentProcess(home string, pids []uint32) bool {
@@ -197,12 +232,13 @@ func isCursorAgentExecutable(home, path string) bool {
 }
 
 func cursorAgentExecutableRelative(home, path string) (string, bool) {
-	root := filepath.Join(home, "AppData", "Local", "cursor-agent")
+	local := winfolders.LocalAppData(home)
+	root := filepath.Join(local, "cursor-agent")
 	relative, err := filepath.Rel(root, path)
 	if err == nil && validRelativePath(relative) && isCursorAgentRelativeExecutable(relative) {
 		return relative, true
 	}
-	packagesRoot := filepath.Join(home, "AppData", "Local", "Packages")
+	packagesRoot := filepath.Join(local, "Packages")
 	virtualRelative, err := filepath.Rel(packagesRoot, path)
 	if err != nil || !validRelativePath(virtualRelative) {
 		return "", false
@@ -244,20 +280,6 @@ func equalAnyPath(path string, candidates []string) bool {
 	return false
 }
 
-func processExecutable(pid uint32) (string, error) {
-	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-	if err != nil {
-		return "", err
-	}
-	defer windows.CloseHandle(process)
-	buffer := make([]uint16, 32768)
-	size := uint32(len(buffer))
-	if err := windows.QueryFullProcessImageName(process, 0, &buffer[0], &size); err != nil {
-		return "", err
-	}
-	return windows.UTF16ToString(buffer[:size]), nil
-}
-
 func processCommandLine(pid uint32) (string, error) {
 	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
 	if err != nil {
@@ -270,9 +292,7 @@ func processCommandLine(pid uint32) (string, error) {
 		return "", err
 	}
 	buffer := make([]byte, size)
-	if err := windows.NtQueryInformationProcess(
-		process, windows.ProcessCommandLineInformation, unsafe.Pointer(&buffer[0]), size, &size,
-	); err != nil {
+	if err := windows.NtQueryInformationProcess(process, windows.ProcessCommandLineInformation, unsafe.Pointer(&buffer[0]), size, &size); err != nil {
 		return "", err
 	}
 	value := (*windows.NTUnicodeString)(unsafe.Pointer(&buffer[0]))
@@ -289,78 +309,6 @@ func processCommandLine(pid uint32) (string, error) {
 	return windows.UTF16ToString(unsafe.Slice(value.Buffer, int(value.Length)/2)), nil
 }
 
-func processesUsingCursorStore(path string) (pids []uint32, err error) {
-	var session uint32
-	var key [cursorRMSessionKeyLength + 1]uint16
-	if code, _, _ := cursorRMStartSession.Call(
-		uintptr(unsafe.Pointer(&session)),
-		0,
-		uintptr(unsafe.Pointer(&key[0])),
-	); code != 0 {
-		return nil, fmt.Errorf("RmStartSession: %w", syscall.Errno(code))
-	}
-	defer func() {
-		if code, _, _ := cursorRMEndSession.Call(uintptr(session)); code != 0 && err == nil {
-			err = fmt.Errorf("RmEndSession: %w", syscall.Errno(code))
-		}
-	}()
-
-	pathPointer, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		return nil, err
-	}
-	paths := []*uint16{pathPointer}
-	if code, _, _ := cursorRMRegisterResources.Call(
-		uintptr(session),
-		1,
-		uintptr(unsafe.Pointer(&paths[0])),
-		0,
-		0,
-		0,
-		0,
-	); code != 0 {
-		return nil, fmt.Errorf("RmRegisterResources: %w", syscall.Errno(code))
-	}
-	runtime.KeepAlive(paths)
-
-	var needed, count, rebootReasons uint32
-	code, _, _ := cursorRMGetList.Call(
-		uintptr(session),
-		uintptr(unsafe.Pointer(&needed)),
-		uintptr(unsafe.Pointer(&count)),
-		0,
-		uintptr(unsafe.Pointer(&rebootReasons)),
-	)
-	if code == 0 {
-		return nil, nil
-	}
-	if code != cursorErrorMoreData {
-		return nil, fmt.Errorf("RmGetList: %w", syscall.Errno(code))
-	}
-	for {
-		processes := make([]cursorRMProcessInfo, needed)
-		count = uint32(len(processes))
-		code, _, _ = cursorRMGetList.Call(
-			uintptr(session),
-			uintptr(unsafe.Pointer(&needed)),
-			uintptr(unsafe.Pointer(&count)),
-			uintptr(unsafe.Pointer(&processes[0])),
-			uintptr(unsafe.Pointer(&rebootReasons)),
-		)
-		if code == cursorErrorMoreData {
-			continue
-		}
-		if code != 0 {
-			return nil, fmt.Errorf("RmGetList: %w", syscall.Errno(code))
-		}
-		pids = make([]uint32, count)
-		for i := range count {
-			pids[i] = processes[i].Process.PID
-		}
-		return pids, nil
-	}
-}
-
 func selectedCursorIDEChat(home string) string {
 	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	db, err := openCursorDB(path)
@@ -375,7 +323,7 @@ func selectedCursorIDEChat(home string) string {
 	return canonicalCursorID(id)
 }
 
-func cursorProcessRunning() bool {
+func cursorProcessRunning(home string) bool {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return false
@@ -387,10 +335,21 @@ func cursorProcessRunning() bool {
 	}
 	for {
 		if strings.EqualFold(windows.UTF16ToString(entry.ExeFile[:]), "Cursor.exe") {
-			return true
+			path, pathErr := cursorProcessExecutable(entry.ProcessID)
+			if pathErr == nil && isCursorIDEExecutable(home, path) {
+				return true
+			}
 		}
 		if err := windows.Process32Next(snapshot, &entry); err != nil {
 			return false
 		}
 	}
+}
+
+func isCursorIDEExecutable(home, path string) bool {
+	candidates := []string{filepath.Join(winfolders.LocalAppData(home), "Programs", "cursor", "Cursor.exe")}
+	for _, root := range winfolders.ProgramFiles() {
+		candidates = append(candidates, filepath.Join(root, "cursor", "Cursor.exe"))
+	}
+	return equalAnyPath(path, candidates)
 }

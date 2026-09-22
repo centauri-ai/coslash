@@ -4,17 +4,20 @@ package cursor
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
 
 func TestWindowsCursorLivenessUsesSelectedIDEChat(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("USERPROFILE", home)
+	setWindowsCursorTestHome(t, home)
 	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -44,13 +47,13 @@ func TestWindowsCursorLivenessUsesSelectedIDEChat(t *testing.T) {
 		cursorCLIResumeSessionIDs = originalResume
 	})
 	cursorCLIResumeSessionIDs = func(string) map[string]bool { return nil }
-	cursorCLIStoreProcesses = func(string) ([]uint32, error) { return nil, nil }
+	cursorCLIStoreProcesses = func([]string) ([]uint32, error) { return nil, nil }
 	cursorProcessExecutable = func(uint32) (string, error) { return "", os.ErrNotExist }
-	cursorIDEProcessRunning = func() bool { return true }
+	cursorIDEProcessRunning = func(string) bool { return true }
 	if got := loadLiveSessions(); got[id] != entrypointIDE {
 		t.Fatalf("live sessions = %#v, want selected IDE chat", got)
 	}
-	cursorIDEProcessRunning = func() bool { return false }
+	cursorIDEProcessRunning = func(string) bool { return false }
 	if got := loadLiveSessions(); len(got) != 0 {
 		t.Fatalf("live sessions without Cursor process = %#v", got)
 	}
@@ -58,7 +61,7 @@ func TestWindowsCursorLivenessUsesSelectedIDEChat(t *testing.T) {
 
 func TestWindowsCursorLivenessUsesOpenCLIStore(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("USERPROFILE", home)
+	setWindowsCursorTestHome(t, home)
 	id := "00000000-0000-4000-8000-000000000002"
 	store := filepath.Join(home, ".cursor", "chats", "workspace", id, "store.db")
 	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
@@ -76,9 +79,9 @@ func TestWindowsCursorLivenessUsesOpenCLIStore(t *testing.T) {
 		cursorCLIResumeSessionIDs = originalResume
 	})
 	cursorCLIResumeSessionIDs = func(string) map[string]bool { return nil }
-	cursorIDEProcessRunning = func() bool { return false }
-	cursorCLIStoreProcesses = func(path string) ([]uint32, error) {
-		if path == store {
+	cursorIDEProcessRunning = func(string) bool { return false }
+	cursorCLIStoreProcesses = func(paths []string) ([]uint32, error) {
+		if slices.Contains(paths, store) {
 			return []uint32{1234}, nil
 		}
 		return nil, nil
@@ -96,7 +99,7 @@ func TestWindowsCursorLivenessUsesOpenCLIStore(t *testing.T) {
 
 func TestWindowsCursorLivenessUsesOpenCLISidecar(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("USERPROFILE", home)
+	setWindowsCursorTestHome(t, home)
 	id := "00000000-0000-4000-8000-000000000005"
 	store := filepath.Join(home, ".cursor", "chats", "workspace", id, "store.db")
 	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
@@ -116,9 +119,9 @@ func TestWindowsCursorLivenessUsesOpenCLISidecar(t *testing.T) {
 		cursorCLIResumeSessionIDs = originalResume
 	})
 	cursorCLIResumeSessionIDs = func(string) map[string]bool { return nil }
-	cursorIDEProcessRunning = func() bool { return false }
-	cursorCLIStoreProcesses = func(path string) ([]uint32, error) {
-		if path == store+"-shm" {
+	cursorIDEProcessRunning = func(string) bool { return false }
+	cursorCLIStoreProcesses = func(paths []string) ([]uint32, error) {
+		if slices.Contains(paths, store+"-shm") {
 			return []uint32{4321}, nil
 		}
 		return nil, nil
@@ -133,7 +136,7 @@ func TestWindowsCursorLivenessUsesOpenCLISidecar(t *testing.T) {
 
 func TestWindowsCursorLivenessMarksSameSessionAmbiguousAcrossLanes(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("USERPROFILE", home)
+	setWindowsCursorTestHome(t, home)
 	id := "00000000-0000-4000-8000-000000000003"
 	store := filepath.Join(home, ".cursor", "chats", "workspace", id, "store.db")
 	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
@@ -170,8 +173,8 @@ func TestWindowsCursorLivenessMarksSameSessionAmbiguousAcrossLanes(t *testing.T)
 		cursorCLIResumeSessionIDs = originalResume
 	})
 	cursorCLIResumeSessionIDs = func(string) map[string]bool { return nil }
-	cursorIDEProcessRunning = func() bool { return true }
-	cursorCLIStoreProcesses = func(string) ([]uint32, error) { return []uint32{1234}, nil }
+	cursorIDEProcessRunning = func(string) bool { return true }
+	cursorCLIStoreProcesses = func([]string) ([]uint32, error) { return []uint32{1234}, nil }
 	cursorProcessExecutable = func(uint32) (string, error) {
 		return filepath.Join(home, "AppData", "Local", "cursor-agent", "versions", "2026.09.18-build", "node.exe"), nil
 	}
@@ -182,7 +185,7 @@ func TestWindowsCursorLivenessMarksSameSessionAmbiguousAcrossLanes(t *testing.T)
 
 func TestWindowsCursorLivenessRejectsUnrelatedStoreHolder(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("USERPROFILE", home)
+	setWindowsCursorTestHome(t, home)
 	id := "00000000-0000-4000-8000-000000000004"
 	store := filepath.Join(home, ".cursor", "chats", "workspace", id, "store.db")
 	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
@@ -200,8 +203,8 @@ func TestWindowsCursorLivenessRejectsUnrelatedStoreHolder(t *testing.T) {
 		cursorCLIResumeSessionIDs = originalResume
 	})
 	cursorCLIResumeSessionIDs = func(string) map[string]bool { return nil }
-	cursorIDEProcessRunning = func() bool { return false }
-	cursorCLIStoreProcesses = func(string) ([]uint32, error) { return []uint32{5678}, nil }
+	cursorIDEProcessRunning = func(string) bool { return false }
+	cursorCLIStoreProcesses = func([]string) ([]uint32, error) { return []uint32{5678}, nil }
 	cursorProcessExecutable = func(uint32) (string, error) {
 		return filepath.Join(home, "AppData", "Local", "Microsoft", "WindowsApps", "SearchIndexer.exe"), nil
 	}
@@ -210,20 +213,88 @@ func TestWindowsCursorLivenessRejectsUnrelatedStoreHolder(t *testing.T) {
 	}
 }
 
+func TestWindowsCursorStoreLivenessBatchesProcessQueries(t *testing.T) {
+	home := t.TempDir()
+	setWindowsCursorTestHome(t, home)
+	var stores []string
+	for index := 0; index < 8; index++ {
+		store := filepath.Join(home, ".cursor", "chats", "workspace", fmt.Sprintf("session-%d", index), "store.db")
+		if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(store, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stores = append(stores, store)
+	}
+	target := stores[6]
+	originalCLI, originalExecutable := cursorCLIStoreProcesses, cursorProcessExecutable
+	t.Cleanup(func() {
+		cursorCLIStoreProcesses = originalCLI
+		cursorProcessExecutable = originalExecutable
+	})
+	queries := 0
+	cursorCLIStoreProcesses = func(paths []string) ([]uint32, error) {
+		queries++
+		if slices.Contains(paths, target) {
+			return []uint32{1234}, nil
+		}
+		return nil, nil
+	}
+	cursorProcessExecutable = func(uint32) (string, error) {
+		return filepath.Join(home, "AppData", "Local", "cursor-agent", "node.exe"), nil
+	}
+	if got := liveCursorStores(home, stores); !got[target] || len(got) != 1 {
+		t.Fatalf("live stores = %#v, want only %q", got, target)
+	}
+	if queries >= len(stores) {
+		t.Fatalf("process queries = %d, want fewer than %d per-store queries", queries, len(stores))
+	}
+}
+
+func TestNewestCursorStoresBoundsHistoricalProbes(t *testing.T) {
+	directory := t.TempDir()
+	var stores []string
+	for index := 0; index < 5; index++ {
+		path := filepath.Join(directory, fmt.Sprintf("store-%d.db", index))
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		modified := time.Unix(int64(index+1), 0)
+		if err := os.Chtimes(path, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+		stores = append(stores, path)
+	}
+	got := newestCursorStores(stores, 2)
+	want := []string{stores[4], stores[3]}
+	if !slices.Equal(got, want) {
+		t.Fatalf("newest stores = %#v, want %#v", got, want)
+	}
+}
+
 func TestWindowsCursorLivenessUsesResumeProcessCommandLine(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("USERPROFILE", home)
+	setWindowsCursorTestHome(t, home)
 	id := "00000000-0000-4000-8000-000000000006"
 	originalIDE, originalResume := cursorIDEProcessRunning, cursorCLIResumeSessionIDs
 	t.Cleanup(func() {
 		cursorIDEProcessRunning = originalIDE
 		cursorCLIResumeSessionIDs = originalResume
 	})
-	cursorIDEProcessRunning = func() bool { return false }
+	cursorIDEProcessRunning = func(string) bool { return false }
 	cursorCLIResumeSessionIDs = func(string) map[string]bool { return map[string]bool{id: true} }
 	if got := loadLiveSessions(); got[id] != entrypointCLI {
 		t.Fatalf("live sessions = %#v, want CLI resume process", got)
 	}
+}
+
+func setWindowsCursorTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
 }
 
 func TestCursorResumeIDFromWindowsCommandLine(t *testing.T) {
