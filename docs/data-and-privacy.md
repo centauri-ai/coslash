@@ -9,7 +9,8 @@ coSlash reads, but does not modify:
 - Claude Code, Codex, and OpenCode transcripts and their local session metadata.
 - Cursor IDE and CLI transcripts plus their local read-only metadata stores:
   `~/.cursor/projects`, `~/.cursor/chats`, `~/.cursor/ai-tracking`, and
-  `~/Library/Application Support/Cursor/User/globalStorage`.
+  the platform's Cursor global-storage directory (`~/Library/Application Support/Cursor/User/globalStorage`
+  on macOS or `%APPDATA%\Cursor\User\globalStorage` on Windows).
 - Recorded working directories and Git metadata used for branch and change summaries.
 - Local process information used to identify live sessions.
 
@@ -25,11 +26,13 @@ coSlash reads, but does not modify:
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
 
-coSlash creates the storage directory with mode `0700` and persistent files with mode `0600`. Programs running as your macOS user can still read them.
+coSlash restricts storage to the current account (`0700`/`0600` modes on
+macOS and a protected current-user ACL on Windows). Programs running as that
+same account can still read it.
 
 ## Optional SSH/SFTP access and helper installation
 
-When a remote machine is added, the Mac's system `ssh` client uses the saved
+When a remote machine is added, the system `ssh` client uses the saved
 OpenSSH alias or simple `user@host` destination and requests SFTP. If SSH needs
 interactive authentication, the user explicitly completes its native Terminal
 prompt; credentials and prompt text never enter coSlash. The setup action
@@ -39,8 +42,8 @@ executable to `~/.coslash/helpers/<version>/coslash-helper`, owned by the SSH
 user with mode `0700`. Later coSlash releases may automatically replace only
 that previously verified helper. The helper has no root or network access, reads
 only the fixed allowlist below, and streams bounded normalized facts back to the
-Mac. No path, command, prompt, transcript row, cache, or handoff supplied by
-the Mac can choose files the helper opens.
+local machine. No path, command, prompt, transcript row, cache, or handoff supplied by
+the local machine can choose files the helper opens.
 
 Builds without authenticated embedded helper assets disable the install action
 explicitly. They continue using SFTP and never upload an unverified helper.
@@ -66,7 +69,7 @@ The SFTP interface has no write, delete, rename, or chmod operation. It rejects
 symlinks and canonical paths outside the allowlist. Current ceilings are 32 MiB
 per file, 128 MiB per refresh, 2,000 candidate files per agent, 10,000 directory
 entries, depth 16, and three minutes per refresh. Raw transcript bytes stay in
-bounded Mac memory only while parsing. For the supported Codex path, complete
+bounded local memory only while parsing. For the supported Codex path, complete
 parsed product data—including prompts, commands, edited-file paths, working
 directories, subagent detail, and file-change bodies—is transferred and cached
 locally so exact detail remains available after restart or an SSH outage. The
@@ -152,7 +155,11 @@ shows that exact fallback before approval.
 
 ## Local server
 
-coSlash listens on IPv4 loopback and protects API requests with a new access token on every start. It rejects unexpected hosts, origins, and cross-site browser requests. The token is stored in `~/.coslash/token` with mode `0600`, so other processes running as your macOS user can still read it and access coSlash. Do not proxy or forward the port.
+coSlash listens on IPv4 loopback and protects API requests with a new access
+token on every start. It rejects unexpected hosts, origins, and cross-site
+browser requests. The token is stored in `~/.coslash/token` with current-user
+permissions, so other processes running as the same account can still read it
+and access coSlash. Do not proxy or forward the port.
 
 ## Control and removal
 
