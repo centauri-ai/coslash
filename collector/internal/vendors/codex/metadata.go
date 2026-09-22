@@ -27,7 +27,17 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 }
 
 func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) {
-	live, err := LoadLiveSessionsContext(ctx)
+	return loadMetadataContext(ctx, loadLiveSessionsContext)
+}
+
+func loadMetadataForFilesContext(ctx context.Context, files []string) (*vendors.SessionMetadata, error) {
+	return loadMetadataContext(ctx, func(ctx context.Context) (map[string]struct{}, error) {
+		return loadLiveSessionsForFilesContext(ctx, files)
+	})
+}
+
+func loadMetadataContext(ctx context.Context, loadLive func(context.Context) (map[string]struct{}, error)) (*vendors.SessionMetadata, error) {
+	live, err := loadLive(ctx)
 	if err != nil {
 		return nil, err
 	}
