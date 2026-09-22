@@ -3,6 +3,7 @@ package synthesis
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
@@ -93,5 +95,20 @@ func TestParseResultEnvelopeRejectsIncompleteSynthesis(t *testing.T) {
 	data := []byte(`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\"}"}`)
 	if _, err := parseResultEnvelope(data); err == nil {
 		t.Fatal("parseResultEnvelope succeeded without keyDecisions or nextStep")
+	}
+}
+
+func TestNormalizeKeepsTwelveIntermediateDecisions(t *testing.T) {
+	decisions := make([]string, 13)
+	for index := range decisions {
+		decisions[index] = fmt.Sprintf("decision-%02d", index+1)
+	}
+	synthesis := session.SessionSynthesis{Goals: []string{"ship"}, KeyDecisions: decisions}
+
+	if err := normalize(&synthesis); err != nil {
+		t.Fatal(err)
+	}
+	if len(synthesis.KeyDecisions) != 12 || synthesis.KeyDecisions[11] != "decision-12" {
+		t.Fatalf("key decisions = %#v, want first 12", synthesis.KeyDecisions)
 	}
 }

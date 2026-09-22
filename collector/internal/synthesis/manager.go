@@ -174,7 +174,9 @@ func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (sessi
 		}
 		partials = merged
 	}
-	return partials[0], nil
+	result := partials[0]
+	result.KeyDecisions = result.KeyDecisions[:min(len(result.KeyDecisions), maxFinalKeyDecisions)]
+	return result, nil
 }
 
 func (m *Manager) InCooldown(agent, id string, revision int64) bool {

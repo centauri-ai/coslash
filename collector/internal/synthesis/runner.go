@@ -17,7 +17,11 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
-const synthesisSchema = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"keyDecisions":{"type":"array","items":{"type":"string"},"maxItems":5},"nextStep":{"type":"string"}},"required":["goals","outcome","keyDecisions","nextStep"],"additionalProperties":false}`
+const (
+	maxIntermediateKeyDecisions = 12
+	maxFinalKeyDecisions        = 8
+	synthesisSchema             = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"keyDecisions":{"type":"array","items":{"type":"string"},"maxItems":12},"nextStep":{"type":"string"}},"required":["goals","outcome","keyDecisions","nextStep"],"additionalProperties":false}`
+)
 
 const cursorPermissions = `{"permissions":{"allow":[],"deny":["Read(*)","Read(**)","Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
 
@@ -298,7 +302,7 @@ func normalize(synthesis *session.SessionSynthesis) error {
 	})
 	synthesis.Outcome = strings.Join(strings.Fields(synthesis.Outcome), " ")
 	synthesis.NextStep = concise(synthesis.NextStep, 200)
-	synthesis.KeyDecisions = dedupedLimited(synthesis.KeyDecisions, 5, func(decision string) string {
+	synthesis.KeyDecisions = dedupedLimited(synthesis.KeyDecisions, maxIntermediateKeyDecisions, func(decision string) string {
 		return session.Truncate(strings.TrimSpace(decision), 140)
 	})
 	if len(synthesis.Goals) == 0 && synthesis.Outcome == "" {
