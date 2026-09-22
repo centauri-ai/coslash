@@ -39,7 +39,7 @@ func (store *FileMetadataSequenceStore) Accept(sequence uint64) error {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("create metadata sequence directory: %w", err)
 	}
-	if err := os.Chmod(directory, 0o700); err != nil {
+	if err := protectMetadataSequenceDirectory(directory); err != nil {
 		return fmt.Errorf("secure metadata sequence directory: %w", err)
 	}
 	temporary, err := os.CreateTemp(directory, ".helper-metadata-sequence-*")
@@ -48,7 +48,7 @@ func (store *FileMetadataSequenceStore) Accept(sequence uint64) error {
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := protectMetadataSequenceFile(temporaryPath, temporary); err != nil {
 		_ = temporary.Close()
 		return err
 	}
@@ -66,28 +66,18 @@ func (store *FileMetadataSequenceStore) Accept(sequence uint64) error {
 	if err := os.Rename(temporaryPath, store.Path); err != nil {
 		return fmt.Errorf("commit metadata sequence: %w", err)
 	}
-	dir, err := os.Open(directory)
-	if err != nil {
-		return err
-	}
-	syncErr := dir.Sync()
-	closeErr := dir.Close()
-	return errors.Join(syncErr, closeErr)
+	return syncMetadataDirectory(directory)
 }
 
 func readMetadataSequence(path string) (uint64, error) {
-	content, err := os.ReadFile(path)
+	content, err := readMetadataSequenceContent(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, fmt.Errorf("read metadata sequence: %w", err)
 	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return 0, err
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || len(content) > 32 {
+	if len(content) > 32 {
 		return 0, fmt.Errorf("%w: invalid local sequence state", ErrHelperMetadata)
 	}
 	sequence, err := strconv.ParseUint(strings.TrimSpace(string(content)), 10, 64)

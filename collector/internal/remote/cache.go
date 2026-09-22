@@ -142,7 +142,7 @@ func (c *Cache) Load(sourceID string) (CachedSnapshot, bool, error) {
 	if err != nil {
 		return CachedSnapshot{}, false, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := readCacheFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return CachedSnapshot{}, false, nil
@@ -170,13 +170,13 @@ func (c *Cache) Store(sourceID string, cached CachedSnapshot) error {
 	if err := os.MkdirAll(remotes, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(remotes, 0o700); err != nil {
+	if err := protectCacheDirectory(remotes); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := protectCacheDirectory(dir); err != nil {
 		return err
 	}
 	data, err := json.Marshal(cached)
@@ -189,7 +189,7 @@ func (c *Cache) Store(sourceID string, cached CachedSnapshot) error {
 	}
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
-	if err := temp.Chmod(0o600); err != nil {
+	if err := protectCacheFile(tempPath, temp); err != nil {
 		temp.Close()
 		return err
 	}
@@ -341,7 +341,7 @@ func (c *Cache) LoadHelperOwnership(sourceID string) (helperOwnership, bool, err
 	if err != nil {
 		return helperOwnership{}, false, err
 	}
-	content, err := os.ReadFile(path)
+	content, err := readCacheFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return helperOwnership{}, false, nil
 	}
@@ -377,10 +377,17 @@ func (c *Cache) StoreHelperVersion(sourceID, version, alias string) error {
 	if err != nil {
 		return err
 	}
+	remotes := filepath.Join(c.Root, "remotes")
+	if err := os.MkdirAll(remotes, 0o700); err != nil {
+		return err
+	}
+	if err := protectCacheDirectory(remotes); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := protectCacheDirectory(dir); err != nil {
 		return err
 	}
 	content, err := json.Marshal(helperOwnership{Version: version, Alias: alias})
@@ -393,7 +400,7 @@ func (c *Cache) StoreHelperVersion(sourceID, version, alias string) error {
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := protectCacheFile(temporaryPath, temporary); err != nil {
 		_ = temporary.Close()
 		return err
 	}
@@ -450,7 +457,7 @@ func (c *Cache) LoadV2(sourceID string) (CachedSnapshotV2, bool, error) {
 }
 
 func loadCachedSnapshot(path string) (CachedSnapshotV2, bool, error) {
-	file, err := os.Open(path)
+	file, err := openCacheFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return CachedSnapshotV2{}, false, nil
 	}
@@ -833,13 +840,13 @@ func (c *Cache) storePreparedV2Locked(sourceID string, prepared preparedCachedSn
 	if err := os.MkdirAll(remotes, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(remotes, 0o700); err != nil {
+	if err := protectCacheDirectory(remotes); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := protectCacheDirectory(dir); err != nil {
 		return err
 	}
 	path, err := c.snapshotV2Path(sourceID)
@@ -938,7 +945,7 @@ func cloneFullRecords(records []remoteprotocol.FullRecord) []remoteprotocol.Full
 }
 
 func rotateValidatedCacheFile(dir, current, previous, checksumPath string) error {
-	checksumFile, err := os.Open(checksumPath)
+	checksumFile, err := openCacheFile(checksumPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -957,7 +964,7 @@ func rotateValidatedCacheFile(dir, current, previous, checksumPath string) error
 	if err != nil || len(want) != sha256.Size {
 		return nil
 	}
-	source, err := os.Open(current)
+	source, err := openCacheFile(current)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -978,7 +985,7 @@ func rotateValidatedCacheFile(dir, current, previous, checksumPath string) error
 	}
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
-	if err := temp.Chmod(0o600); err != nil {
+	if err := protectCacheFile(tempPath, temp); err != nil {
 		_ = temp.Close()
 		return err
 	}
@@ -1009,7 +1016,7 @@ func writeAtomicCacheFile(dir, target string, data []byte) error {
 	}
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
-	if err := temp.Chmod(0o600); err != nil {
+	if err := protectCacheFile(tempPath, temp); err != nil {
 		_ = temp.Close()
 		return err
 	}
