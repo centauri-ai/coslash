@@ -175,6 +175,13 @@ func (c *Cache) LookupLatest(agent, id string) *session.SessionSynthesis {
 	return &synthesis
 }
 
+// LoadRecord returns the exact persisted synthesis envelope. Backup capture
+// needs its revision, model, and generation time in addition to the synthesis
+// body already exposed by Lookup.
+func (c *Cache) LoadRecord(agent, id string) (Record, error) {
+	return c.Load(agent, id)
+}
+
 func (c *Cache) recordPath(agent, id string) string {
 	return filepath.Join(SummariesDir(), agent, id+".json")
 }

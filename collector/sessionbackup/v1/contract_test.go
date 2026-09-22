@@ -492,6 +492,33 @@ func TestFreezeIsDeterministicAcrossInputOrder(t *testing.T) {
 	}
 }
 
+func TestFreezeEvidenceMatchesByteFreeze(t *testing.T) {
+	manifest, _, blobs := loadValidFixture(t)
+	evidence := make(map[string]ArtifactEvidence, len(manifest.Artifacts))
+	for _, artifact := range manifest.Artifacts {
+		evidence[artifact.LogicalName] = ArtifactEvidence{ByteLength: artifact.ByteLength, SHA256: artifact.SHA256}
+	}
+	fromBytes, err := Freeze(manifest, blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromEvidence, err := FreezeEvidence(manifest, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byteJSON, _ := json.Marshal(fromBytes)
+	evidenceJSON, _ := json.Marshal(fromEvidence)
+	if !bytes.Equal(byteJSON, evidenceJSON) {
+		t.Fatal("evidence freeze changed canonical manifest bytes")
+	}
+
+	first := manifest.Artifacts[0].LogicalName
+	evidence[first] = ArtifactEvidence{ByteLength: MaxArtifactBytes + 1, SHA256: evidence[first].SHA256}
+	if _, err := FreezeEvidence(manifest, evidence); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized evidence error = %v; want invalid", err)
+	}
+}
+
 func TestFamilyFixtureHasRecursiveMemberWithoutUnrelatedFamily(t *testing.T) {
 	manifest, _, blobs := loadValidFixture(t)
 	if len(manifest.Members) != 2 || manifest.Members[0].ParentMemberID != "" || manifest.Members[1].ParentMemberID != manifest.Members[0].MemberID {

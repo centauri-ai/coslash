@@ -146,6 +146,14 @@ type CaptureProblem struct {
 	Retryable bool   `json:"retryable"`
 }
 
+// ArtifactEvidence is the bounded-memory result of spooling one artifact.
+// FreezeEvidence applies the same canonical ordering and identity rules as
+// Freeze without requiring artifact contents to remain resident in memory.
+type ArtifactEvidence struct {
+	ByteLength int64
+	SHA256     string
+}
+
 type SupportStatus struct {
 	Agent        string
 	SourceKind   string
@@ -167,6 +175,17 @@ var CoverageMatrix = []SupportStatus{
 // Freeze orders a complete family deterministically, fills byte evidence, and
 // computes the family revision over the canonical manifest with an empty hash.
 func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
+	evidence := make(map[string]ArtifactEvidence, len(blobs))
+	for name, blob := range blobs {
+		sum := sha256.Sum256(blob)
+		evidence[name] = ArtifactEvidence{ByteLength: int64(len(blob)), SHA256: hex.EncodeToString(sum[:])}
+	}
+	return FreezeEvidence(manifest, evidence)
+}
+
+// FreezeEvidence orders and hashes a completed manifest from evidence already
+// computed while artifact bytes were streamed to durable storage.
+func FreezeEvidence(manifest Manifest, evidence map[string]ArtifactEvidence) (Manifest, error) {
 	manifest = cloneManifest(manifest)
 	manifest.SchemaVersion = SchemaVersion
 	manifest.CanonicalVersion = CanonicalVersion
@@ -203,21 +222,20 @@ func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 		if seen[artifact.LogicalName] {
 			return Manifest{}, fmt.Errorf("%w: duplicate artifact name", ErrInvalid)
 		}
-		blob, ok := blobs[artifact.LogicalName]
+		item, ok := evidence[artifact.LogicalName]
 		if !ok {
 			return Manifest{}, fmt.Errorf("%w: artifact %q unavailable", ErrIncomplete, artifact.LogicalName)
 		}
-		if int64(len(blob)) > MaxArtifactBytes || totalBytes > MaxTotalBytes-int64(len(blob)) {
+		if item.ByteLength < 0 || item.ByteLength > MaxArtifactBytes || totalBytes > MaxTotalBytes-item.ByteLength {
 			return Manifest{}, fmt.Errorf("%w: artifact byte limit exceeded", ErrInvalid)
 		}
-		totalBytes += int64(len(blob))
+		totalBytes += item.ByteLength
 		artifact.Ordinal = index
-		artifact.ByteLength = int64(len(blob))
-		sum := sha256.Sum256(blob)
-		artifact.SHA256 = hex.EncodeToString(sum[:])
+		artifact.ByteLength = item.ByteLength
+		artifact.SHA256 = item.SHA256
 		seen[artifact.LogicalName] = true
 	}
-	if len(seen) != len(blobs) {
+	if len(seen) != len(evidence) {
 		return Manifest{}, fmt.Errorf("%w: unmanifested artifact bytes", ErrInvalid)
 	}
 	if err := validateArtifactContents(manifest, blobs); err != nil {
