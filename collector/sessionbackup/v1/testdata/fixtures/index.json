@@ -1,0 +1,1 @@
+{"schemaVersion":"session-backup/v1","generator":"fixturegen/1","fixtures":[{"path":"valid/family","valid":true,"reason":""},{"path":"invalid/missing-artifact","valid":false,"reason":"missing artifact"},{"path":"invalid/wrong-size","valid":false,"reason":"wrong artifact size"},{"path":"invalid/wrong-hash","valid":false,"reason":"wrong artifact hash"}]}
