@@ -3,6 +3,7 @@ package sessionexport
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 )
 
 func TestMarshalDeterministicallyFitsLargeSafeEvidence(t *testing.T) {
-	root := "/repo"
+	root := filepath.Join(t.TempDir(), "repo")
 	repository := "github.com/centauri-ai/coslash"
 	edits := make([]session.FileEdit, snapshotv1.MaxFileEditItems)
 	for i := range edits {
