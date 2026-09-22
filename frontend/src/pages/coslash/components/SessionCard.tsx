@@ -329,7 +329,7 @@ export function SubagentDialogContent({
   parentName: string | null;
 }) {
   return (
-    <DialogContent className="sm:max-w-2xl">
+    <DialogContent className="coslash-shell sm:max-w-2xl">
       <DialogHeader className="min-w-0">
         <div className="flex min-w-0 items-center gap-2 pr-8">
           <SubagentBadge />

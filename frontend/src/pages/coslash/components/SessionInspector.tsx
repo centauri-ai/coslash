@@ -1526,7 +1526,7 @@ export function SessionInspector({
                 <div className="flex items-center gap-2 pr-10">
                   <SessionVendorBadge agent={detail.agent} />
                   <div className="min-w-0 flex-1">
-                    <SessionName name={detail.name} />
+                    <SessionName name={detail.name} variant="inspector" />
                   </div>
                   <SessionId id={detail.id} shortened />
                   {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
