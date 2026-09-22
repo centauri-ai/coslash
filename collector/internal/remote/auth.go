@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -112,79 +111,6 @@ var runInteractiveSSH = func(ctx context.Context, args []string) error {
 }
 
 var exitAuthControlMaster = exitControlMasterBestEffort
-
-var checkAuthControlMaster = func(ctx context.Context, destination string) error {
-	args, err := controlCheckArgs(destination)
-	if err != nil {
-		return err
-	}
-	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	return runSSHCommand(checkCtx, OpenOptions{}, args)
-}
-
-var resolveAuthControlSocketPath = func(ctx context.Context, destination string) (string, error) {
-	parsed, err := parseDestination(destination)
-	if err != nil {
-		return "", err
-	}
-	args := []string{"-G", "-o", "ControlPath=" + controlSocketPath()}
-	output, err := exec.CommandContext(ctx, "ssh", append(args, parsed.Args()...)...).Output()
-	if err != nil {
-		return "", fmt.Errorf("expand SSH control path: %w", err)
-	}
-	var expanded string
-	for _, line := range strings.Split(string(output), "\n") {
-		if value, found := strings.CutPrefix(line, "controlpath "); found {
-			expanded = strings.TrimSpace(value)
-			break
-		}
-	}
-	if expanded == "" {
-		return "", errors.New("SSH did not report its control path")
-	}
-	expanded, err = filepath.Abs(expanded)
-	if err != nil {
-		return "", err
-	}
-	controlDir, err := filepath.Abs(filepath.Join(settings.Home(), "ssh"))
-	if err != nil {
-		return "", err
-	}
-	if filepath.Dir(expanded) != controlDir || !strings.HasPrefix(filepath.Base(expanded), "cm-") {
-		return "", errors.New("SSH reported an unexpected control path")
-	}
-	return expanded, nil
-}
-
-func prepareAuthControlSocket(ctx context.Context, destination string) (bool, error) {
-	path, err := resolveAuthControlSocketPath(ctx, destination)
-	if err != nil {
-		return false, err
-	}
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || info.Mode()&os.ModeSocket == 0 {
-		return false, errors.New("SSH control path is not a socket")
-	}
-	checkErr := checkAuthControlMaster(ctx, destination)
-	if checkErr == nil {
-		return true, nil
-	}
-	var exitErr *exec.ExitError
-	if !errors.As(checkErr, &exitErr) {
-		return false, fmt.Errorf("check SSH control master: %w", checkErr)
-	}
-	if err := os.Remove(path); err != nil {
-		return false, fmt.Errorf("remove stale SSH control socket: %w", err)
-	}
-	return false, nil
-}
 
 func loadAuthAttempt(id string) (authAttempt, error) {
 	path, err := authAttemptPath(id)
@@ -340,22 +266,6 @@ func writeAuthAttempt(attempt authAttempt) error {
 	return os.Rename(temporary.Name(), path)
 }
 
-func interactiveMasterArgs(destination string) ([]string, error) {
-	parsed, err := parseDestination(destination)
-	if err != nil {
-		return nil, err
-	}
-	args := []string{
-		"-f", "-N",
-		"-o", "BatchMode=no",
-		"-o", "ConnectTimeout=" + fmt.Sprint(int(DefaultConnectTimeout.Seconds())),
-		"-o", "ControlMaster=yes",
-		"-o", "ControlPath=" + controlSocketPath(),
-		"-o", "ControlPersist=" + defaultControlPersist,
-	}
-	return append(args, parsed.Args()...), nil
-}
-
 // RunAuthAttempt is the ssh-auth subcommand entry point. Its stdin and output
 // belong to the terminal, never to the collector HTTP process.
 func RunAuthAttempt(ctx context.Context, id string) error {
@@ -472,7 +382,7 @@ func RunAuthAttempt(ctx context.Context, id string) error {
 			if writeErr := writeAuthAttempt(latest); writeErr != nil {
 				return writeErr
 			}
-			return fmt.Errorf("verify SSH control master: %w", err)
+			return fmt.Errorf("verify reusable SSH authentication: %w", err)
 		}
 		latest.State = AuthReady
 		return writeAuthAttempt(latest)
@@ -504,13 +414,11 @@ func AuthAttemptState(ctx context.Context, id string) (AuthState, error) {
 		}
 		return state, nil
 	}
-	args, err := controlCheckArgs(attempt.Destination)
+	ready, err := authAttemptConnectionReady(ctx, attempt.Destination)
 	if err != nil {
 		return "", err
 	}
-	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	if err := runSSHCommand(checkCtx, OpenOptions{}, args); err == nil {
+	if ready {
 		state, updateErr := updateAuthAttemptIfWaiting(ctx, id, AuthReady)
 		if updateErr != nil {
 			return "", updateErr

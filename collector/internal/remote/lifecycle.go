@@ -21,7 +21,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -286,22 +285,10 @@ func (metadata ReleaseMetadata) Validate() error {
 // HelperPlatformArgs builds the fixed, bounded platform probe. Unlike helper
 // execution, it contains no remote path or caller-provided command text.
 func HelperPlatformArgs(alias string, connectTimeoutSeconds int) ([]string, error) {
-	destination, err := parseDestination(alias)
+	args, err := sshArgs(alias, connectTimeoutSeconds)
 	if err != nil {
 		return nil, err
 	}
-	if connectTimeoutSeconds <= 0 {
-		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
-	}
-	args := []string{
-		"-T",
-		"-o", "BatchMode=yes",
-		"-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds),
-		"-o", "ControlMaster=auto",
-		"-o", "ControlPath=" + controlSocketPath(),
-		"-o", "ControlPersist=" + defaultControlPersist,
-	}
-	args = append(args, destination.Args()...)
 	return append(args, "uname -s; uname -m; id -u"), nil
 }
 
