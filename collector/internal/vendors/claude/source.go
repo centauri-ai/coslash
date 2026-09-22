@@ -287,6 +287,7 @@ func finalizeParsedFilesContext(
 	source vendors.ReadSource,
 	parsed []*parsedSession,
 ) ([]*vendors.ParsedSession, error) {
+	parsed = deduplicateRoots(parsed)
 	if err := applyForkedUsageSourceContext(ctx, source, parsed); err != nil {
 		return nil, err
 	}
@@ -307,12 +308,42 @@ func finalizeParsedFilesContext(
 	return transcripts, nil
 }
 
+func deduplicateRoots(parsed []*parsedSession) []*parsedSession {
+	rootIndexes := map[string]int{}
+	deduplicated := make([]*parsedSession, 0, len(parsed))
+	for _, item := range parsed {
+		id := item.transcript.Session.ID
+		index, duplicate := rootIndexes[id]
+		if item.transcript.ParentID != "" || id == "" || !duplicate {
+			if item.transcript.ParentID == "" && id != "" {
+				rootIndexes[id] = len(deduplicated)
+			}
+			deduplicated = append(deduplicated, item)
+			continue
+		}
+		current := deduplicated[index].transcript
+		if newerLog(item.transcript.LogModifiedAtMs, item.transcript.LogPath,
+			current.LogModifiedAtMs, current.LogPath) {
+			deduplicated[index] = item
+		}
+	}
+	return deduplicated
+}
+
+func newerLog(modified int64, path string, currentModified int64, currentPath string) bool {
+	return modified > currentModified || modified == currentModified && path < currentPath
+}
+
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	files, err := Files()
 	if err != nil {
 		return nil, err
 	}
-	return vendors.FindAndParse(files, id, IDFromPath, parseTranscript)
+	newest := newestRootPaths(files)[id]
+	if newest == "" {
+		return nil, nil
+	}
+	return parseTranscript(newest)
 }
 
 func NewSessionFactsLoader() (func(string) (*vendors.ParsedSession, error), error) {
@@ -320,7 +351,31 @@ func NewSessionFactsLoader() (func(string) (*vendors.ParsedSession, error), erro
 	if err != nil {
 		return nil, err
 	}
-	return vendors.NewIndexedParser(files, IDFromPath, parseTranscript), nil
+	byID := newestRootPaths(files)
+	return func(id string) (*vendors.ParsedSession, error) {
+		file := byID[id]
+		if file == "" {
+			return nil, nil
+		}
+		return parseTranscript(file)
+	}, nil
+}
+
+func newestRootPaths(files []string) map[string]string {
+	byID := make(map[string]string, len(files))
+	modified := make(map[string]int64, len(files))
+	for _, file := range files {
+		id := IDFromPath(file)
+		if id == "" || ParentIDFromPath(file) != "" {
+			continue
+		}
+		candidateModified := vendors.SourceModificationTime(vendors.LocalReadSource, file)
+		if current := byID[id]; current == "" || newerLog(candidateModified, file, modified[id], current) {
+			byID[id] = file
+			modified[id] = candidateModified
+		}
+	}
+	return byID
 }
 
 func Health() vendors.SourceHealth {
