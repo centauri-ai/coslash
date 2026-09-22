@@ -209,11 +209,13 @@ $automatedChecks += Invoke-ValidationCommand "windows-package-tests" "go" @(
     "./internal/launch",
     "./internal/remote",
     "./internal/session",
+    "./internal/sessionexport",
     "./internal/settings",
     "./internal/vendors/claude",
     "./internal/vendors/codex",
     "./internal/vendors/cursor",
-    "./internal/vendors/opencode"
+    "./internal/vendors/opencode",
+    "./snapshot/v1"
 )
 $automatedChecks += Invoke-ValidationCommand "go-vet" "go" @("vet", "./...")
 

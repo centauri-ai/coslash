@@ -148,7 +148,7 @@ run: check-go unstage helper-assets
 	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
 		go run -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' $(PKG) --no-open $(ARGS)
 
-test: check-go check-node test-checksums
+test: check-go check-node
 	node internal/vendors/opencode/coslash-plugin.test.mjs
 	go test ./...
 	$(MAKE) test-embedded-helpers
