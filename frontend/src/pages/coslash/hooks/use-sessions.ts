@@ -64,13 +64,13 @@ export function exactDiffFailure(status: number, code: string): ExactReadFailure
     case 'session_detail_stale':
       return {
         kind: 'stale',
-        message: 'This session changed before its file changes loaded. Refresh sessions and try again.',
+        message: 'This session changed before its file changes loaded. Refresh the snapshot and try again.',
       };
     case 'session_detail_missing':
     case 'session_change_missing':
       return {
         kind: 'missing',
-        message: 'These exact file changes are no longer available. Refresh sessions and try again.',
+        message: 'These exact file changes are no longer available. Refresh the snapshot and try again.',
       };
     case 'session_detail_corrupt':
       return {
@@ -238,12 +238,13 @@ export function diffRequestPath(selection: FileSelection) {
 
 export function sessionDetailRequestPath(
   session: Pick<Session, 'sourceId' | 'agent' | 'id' | 'detailRevision'>,
+  revision = session.detailRevision,
 ) {
   return `/api/session-detail?${new URLSearchParams({
     source: session.sourceId,
     agent: session.agent,
     session: session.id,
-    revision: session.detailRevision,
+    revision,
   })}`;
 }
 

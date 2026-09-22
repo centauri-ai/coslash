@@ -4,13 +4,21 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { DiffList } from '@/pages/coslash/components/DiffList';
 import {
   cachedOfflineWarning,
+  detailAttemptState,
   DetailLoadError,
   detailPresentation,
+  detailRequestKey,
   filePanelOpen,
   inspectorWidthForKey,
   overlayLiveSessionFields,
+  refreshSourceAndRetry,
   SessionInspectorTitle,
+  snapshotMayBeStale,
+  SnapshotRefreshStatus,
+  SnapshotStalenessNotice,
   SummaryOnlyBanner,
+  synthesisAttemptKey,
+  synthesisMatchesSnapshot,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { Session } from '@/pages/coslash/lib/session';
@@ -69,6 +77,77 @@ describe('SessionInspector exact-detail boundaries', () => {
     expect(filePanelOpen(selection, { ...session, detailRevision: 'revision-2' })).toBe(false);
   });
 
+  it('retains the loaded snapshot as the session list advances', () => {
+    const current = { ...session, detailRevision: 'revision-2', status: 'busy' } as Session;
+    const displayed = { ...current, detailRevision: 'revision-1' };
+    expect(detailRequestKey(current)).toBe(detailRequestKey(displayed));
+    expect(snapshotMayBeStale(displayed, current)).toBe(true);
+    expect(filePanelOpen(selection, displayed)).toBe(true);
+    expect(filePanelOpen(selection, current)).toBe(false);
+    expect(snapshotMayBeStale({ ...displayed, status: null }, { ...displayed, status: null })).toBe(false);
+  });
+
+  it('starts a separate synthesis attempt when the local revision advances', () => {
+    const oldRevision = { ...session, sourceId: 'local', detailRevision: 'revision-1' } as Session;
+    const newRevision = { ...oldRevision, detailRevision: 'revision-2' };
+    expect(detailRequestKey(oldRevision)).toBe(detailRequestKey(newRevision));
+    expect(synthesisAttemptKey(oldRevision)).not.toBe(synthesisAttemptKey(newRevision));
+    expect(synthesisAttemptKey({ ...oldRevision, status: 'busy' })).toBe(synthesisAttemptKey(oldRevision));
+    expect(synthesisAttemptKey(oldRevision)).toBe(synthesisAttemptKey({ ...oldRevision }));
+    expect(synthesisMatchesSnapshot({ revision: 1000 }, 1000)).toBe(true);
+    expect(synthesisMatchesSnapshot({ revision: 2000 }, 1000)).toBe(false);
+  });
+
+  it('retains detail but exposes a failed refresh attempt and its retry', () => {
+    const key = detailRequestKey({ ...session, detailRevision: 'revision-1' } as Session);
+    const loaded = { key, retryToken: 0 };
+    expect(detailAttemptState(loaded, null, key, 1)).toEqual({
+      hasSnapshot: true,
+      isLoading: true,
+      error: null,
+    });
+    const failure = { key, retryToken: 1, kind: 'other' as const, message: 'Network failed' };
+    expect(detailAttemptState(loaded, failure, key, 1)).toEqual({
+      hasSnapshot: true,
+      isLoading: false,
+      error: failure,
+    });
+    expect(detailAttemptState(loaded, failure, key, 2)).toEqual({
+      hasSnapshot: true,
+      isLoading: true,
+      error: null,
+    });
+    expect(detailAttemptState({ key, retryToken: 2 }, null, key, 2).isLoading).toBe(false);
+    expect(renderToStaticMarkup(<SnapshotRefreshStatus isLoading error={null} />)).toContain(
+      'Refreshing snapshot',
+    );
+    const markup = renderToStaticMarkup(
+      <SnapshotRefreshStatus isLoading={false} error="Network failed" onRetry={() => {}} />,
+    );
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain('Network failed');
+    expect(markup).toContain('Retry details');
+    for (const kind of ['missing', 'corrupt'] as const) {
+      const recovery = renderToStaticMarkup(
+        <SnapshotRefreshStatus
+          isLoading={false}
+          error="Unavailable"
+          kind={kind}
+          onRetry={() => {}}
+          onRefresh={() => {}}
+        />,
+      );
+      expect(recovery).toContain('Refresh sessions');
+      expect(recovery).not.toContain('Retry details');
+    }
+  });
+
+  it('labels the running snapshot notice for assistive technology', () => {
+    const markup = renderToStaticMarkup(<SnapshotStalenessNotice />);
+    expect(markup).toContain('Session data may be stale');
+    expect(markup).toContain('tabindex="0"');
+  });
+
   it('overlays current list readiness without replacing exact detail content', () => {
     const loaded = {
       ...session,
@@ -109,7 +188,35 @@ describe('SessionInspector exact-detail boundaries', () => {
       <DiffList changes={null} isLoading={false} loadError="stale" showRefresh onRefresh={() => {}} />,
     );
     expect(markup).toContain('stale');
-    expect(markup).toContain('Refresh sessions');
+    expect(markup).toContain('Refresh snapshot');
+  });
+
+  it('waits for source recovery before retrying details', async () => {
+    let finishRefresh: () => void = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    const calls: string[] = [];
+    const refresh = refreshSourceAndRetry(
+      () => {
+        calls.push('source');
+        return pending;
+      },
+      () => calls.push('details'),
+    );
+    expect(calls).toEqual(['source']);
+    finishRefresh();
+    await refresh;
+    expect(calls).toEqual(['source', 'details']);
+
+    const failure = new Error('source failed');
+    await expect(
+      refreshSourceAndRetry(
+        () => Promise.reject(failure),
+        () => calls.push('details'),
+      ),
+    ).rejects.toBe(failure);
+    expect(calls).toEqual(['source', 'details']);
   });
 
   it('renders a direct retry path for generic diff failures', () => {

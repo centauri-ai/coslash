@@ -49,7 +49,7 @@ export function DiffList({
         <div className="text-danger-fg text-xs">{loadError}</div>
         {showRefresh && onRefresh != null && (
           <Button variant="outline" size="sm" onClick={onRefresh}>
-            Refresh sessions
+            Refresh snapshot
           </Button>
         )}
         {showRetry && onRetry != null && (

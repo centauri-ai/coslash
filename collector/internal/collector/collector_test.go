@@ -261,8 +261,8 @@ func TestGetSessionForPreviewLoadsOnlyTheComposedFamily(t *testing.T) {
 	if collected {
 		t.Fatal("preview replayed the full session list")
 	}
-	if got.LastActivityTime != 200 || len(got.Subagents) != 1 {
-		t.Fatalf("revision = %d, subagents = %d; want 200 and 1", got.LastActivityTime, len(got.Subagents))
+	if got.LastActivityTime != 200 || got.SynthesisRevision != 100 || len(got.Subagents) != 1 {
+		t.Fatalf("activity = %d, synthesis revision = %d, subagents = %d; want 200, 100, 1", got.LastActivityTime, got.SynthesisRevision, len(got.Subagents))
 	}
 }
 

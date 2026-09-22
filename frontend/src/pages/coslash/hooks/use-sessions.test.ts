@@ -271,6 +271,9 @@ describe('exact detail request builders', () => {
     expect(sessionDetailRequestPath(remote)).toBe(
       `/api/session-detail?source=r_0123456789abcdef&agent=codex&session=abc&revision=${'a'.repeat(64)}`,
     );
+    expect(sessionDetailRequestPath(remote, 'latest')).toBe(
+      '/api/session-detail?source=r_0123456789abcdef&agent=codex&session=abc&revision=latest',
+    );
     expect(diffRequestPath(remote)).toBe(
       `/api/diff?source=r_0123456789abcdef&agent=codex&session=abc&revision=${'a'.repeat(64)}&change=change-000000-000000&change=change-000000-000001`,
     );

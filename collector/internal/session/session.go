@@ -57,6 +57,7 @@ type Session struct {
 	Subagents           []Subagent             `json:"subagents"`
 	StartedAt           int64                  `json:"-"`
 	LastActivityTime    int64                  `json:"mtime"`
+	SynthesisRevision   int64                  `json:"-"`
 	ActivityFallback    bool                   `json:"-"`
 	DetailRevision      string                 `json:"-"`
 	Entrypoint          *string                `json:"entrypoint"`
