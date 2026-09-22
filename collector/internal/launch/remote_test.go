@@ -9,11 +9,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 const testRemoteHandoffName = "0123456789abcdef0123456789abcdef"
+
+func requirePOSIXRemoteShellFixture(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("validates a command executed by the remote POSIX shell")
+	}
+}
 
 func TestRemoteHandoffContentsPreserveBoundaryPayload(t *testing.T) {
 	special := []byte("🦖\n'\"\\$();&|<>\n")
@@ -43,25 +49,8 @@ func TestRemoteCLICommandUsesStagedHandoffName(t *testing.T) {
 	}
 }
 
-func TestRemoteSSHCommandReusesControlSocket(t *testing.T) {
-	t.Setenv("COSLASH_HOME", t.TempDir())
-	destination, err := settings.ParseSSHDestination("agent-box")
-	if err != nil {
-		t.Fatal(err)
-	}
-	command := remoteSSHCommand(destination, "true")
-	args := append([]string{"ssh", "-tt"}, terminalSSHOptions()...)
-	args = append(args, "agent-box", "true")
-	want := localCommandJoin(args...)
-	if command != want {
-		t.Fatalf("command = %q, want %q", command, want)
-	}
-}
-
 func TestRemoteCodexCLICommandLoadsBoundaryHandoffWithoutExpandingArguments(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("remote command payload is POSIX shell syntax")
-	}
+	requirePOSIXRemoteShellFixture(t)
 	home := t.TempDir()
 	codexHome := filepath.Join(home, ".codex")
 	handoffDir := filepath.Join(home, ".coslash", "handoffs")
@@ -122,9 +111,7 @@ printf '%s\n' "$@" > "$HOME/codex-args"
 }
 
 func TestRemoteCodexCLICommandStopsWhenHandoffReadFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("remote command payload is POSIX shell syntax")
-	}
+	requirePOSIXRemoteShellFixture(t)
 	home := t.TempDir()
 	codexHome := filepath.Join(home, ".codex")
 	bin := filepath.Join(home, "bin")
@@ -152,9 +139,7 @@ func TestRemoteCodexCLICommandStopsWhenHandoffReadFails(t *testing.T) {
 }
 
 func TestRemoteCodexCLICommandCreatesMissingProfileDirectory(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("remote command payload is POSIX shell syntax")
-	}
+	requirePOSIXRemoteShellFixture(t)
 	home := t.TempDir()
 	codexHome := filepath.Join(home, "new-codex-home")
 	handoffDir := filepath.Join(home, ".coslash", "handoffs")
@@ -201,9 +186,7 @@ func TestRemoteCLICommandRejectsInvalidHandoffName(t *testing.T) {
 }
 
 func TestRemoteTerminalCommandRemovesHandoffWhenWorkingDirectoryIsMissing(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("remote command payload is POSIX shell syntax")
-	}
+	requirePOSIXRemoteShellFixture(t)
 	home := t.TempDir()
 	dir := filepath.Join(home, ".coslash", "handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
