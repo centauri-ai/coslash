@@ -116,7 +116,8 @@ must not assign a complete hash or present it as a verified manifest.
 Required semantic versions are closed for v1. Consumers reject a version they
 do not understand rather than guessing. `requiredVersions` is sorted and must
 contain both `full-session-record/v1` and `session-backup/v1`; the optional
-database projection version does not make that projection a Codex input.
+database projection version does not make that projection a Codex input. This
+is exercised by the published unknown-version fixture.
 
 The canonical manifest is limited to 64 MiB and 100,000 members and artifacts.
 Each artifact is limited to 512 MiB, and all declared artifacts together are
@@ -171,6 +172,48 @@ The verifier checks canonical shape and hash, exact length/hash of every blob,
 parsed-record provenance and parent linkage, exact change-body equality,
 canonical enrichment and persisted synthesis shape, synthesis revision and
 content binding, undeclared files, and traversal names. Published invalid
-fixtures cover a missing artifact, wrong size, and wrong hash. Tests additionally
-reject cross-session generic database rows and delete and mutate every valid
-artifact one at a time.
+fixtures cover a missing or duplicate artifact, wrong size, wrong hash, unsafe
+name, and unknown required version. Tests additionally reject cross-session
+generic database rows and delete and mutate every valid artifact one at a
+time.
+
+## Aggregate measurement and configurable limits
+
+Exact completed bundles can be measured without printing content, paths,
+source IDs, repository IDs, session IDs, or artifact names:
+
+```sh
+go run ./sessionbackup/v1/cmd/measure --collector-version <commit> <bundle-dir>...
+```
+
+Before the producer is available, the approved local Codex corpus lower bound
+can be measured from both `.codex/sessions` and `.codex/archived_sessions`
+with the same privacy property. The command emits the aggregate report but
+exits nonzero if any discovered input is unreadable:
+
+```sh
+go run ./sessionbackup/v1/cmd/measure-codex-source --collector-version <commit>
+```
+
+Raw-source evidence is a lower bound because a complete bundle also carries
+parsed records, exact changes, enrichment, and synthesis. Operational
+per-backup, chunk, and workspace limits are discovery/configuration values, not
+manifest constants. The checked-in contract therefore validates integrity and
+ordering without silently truncating a bundle at an operational threshold.
+
+On 2026-09-22, the approved local Codex corpus measurement at collector commit
+`4a41ab2c870f644d08cfdcf330f18e42b0cb4d30` reported only these aggregates:
+687 families, 1,026 raw artifacts, zero unreadable artifacts, 3,012,306,081
+total raw bytes, family p50 1,519,483 bytes, p95 15,323,010 bytes, p99
+39,774,130 bytes, maximum family 190,894,559 bytes, and maximum artifact
+163,420,007 bytes. No content or identity was recorded.
+
+Initial runtime recommendations are a 1 GiB per-backup limit, 4 MiB upload
+chunks, and a 50 GiB workspace capacity. The per-backup limit is 5.6 times the
+observed maximum raw-family lower bound, leaving room for parsed and processed
+artifacts; a 4 MiB chunk keeps the largest observed raw artifact near 40 chunks
+and a limit-sized backup at 256 chunks; the workspace recommendation is over
+16 times the measured raw corpus so immutable revisions and processed
+artifacts have headroom. HS-02 should rerun exact completed-bundle measurement
+and tune these advertised values if its complete p99/maximum evidence requires
+it. Exceeding any configured value rejects the whole backup before completion.
