@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { DiffList } from '@/pages/coslash/components/DiffList';
 import {
   cachedOfflineWarning,
@@ -7,6 +8,7 @@ import {
   detailPresentation,
   filePanelOpen,
   overlayLiveSessionFields,
+  SessionInspectorTitle,
   SummaryOnlyBanner,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
@@ -30,6 +32,16 @@ const selection: FileSelection = {
 };
 
 describe('SessionInspector exact-detail boundaries', () => {
+  it('uses the truncating title variant in the inspector header', () => {
+    const markup = renderToStaticMarkup(
+      <TooltipProvider>
+        <SessionInspectorTitle detail={session} showMachineBadge={false} />
+      </TooltipProvider>,
+    );
+
+    expect(markup).toContain('min-w-0 truncate block text-sm font-bold');
+  });
+
   it('retains the bounded remote session and labels exact diffs unavailable', () => {
     expect(detailPresentation(session)).toEqual({ detail: session, summaryOnly: true });
     const markup = renderToStaticMarkup(<SummaryOnlyBanner />);
