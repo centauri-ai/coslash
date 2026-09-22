@@ -2,7 +2,7 @@ import { formatTimeAgo } from '@/pages/coslash/lib/format';
 import type { MachineFact, MachineReason } from '@/pages/coslash/lib/machines';
 import { LOCAL_SOURCE_ID } from '@/pages/coslash/lib/session';
 
-export type MachineTone = 'checking' | 'failed' | 'disabled' | 'stale' | 'incomplete' | 'truncated' | 'ok';
+type MachineTone = 'checking' | 'failed' | 'disabled' | 'stale' | 'incomplete' | 'truncated' | 'ok';
 
 /** The dot colour per tone. Its tokens only resolve inside `.coslash-shell`. */
 export const MACHINE_TONE_DOT: Record<MachineTone, string> = {
@@ -42,7 +42,7 @@ export function machineRetryable(machine: MachineFact): boolean {
 }
 
 /** Only a failed connector needs the consented setup flow; a failed credential retries. */
-export function needsSetup(machine: MachineFact): boolean {
+function needsSetup(machine: MachineFact): boolean {
   return connectorFailed(machine);
 }
 

@@ -1,4 +1,4 @@
-export type ModelTokens = {
+type ModelTokens = {
   input_tokens: number;
   output_tokens: number;
   cache_creation_input_tokens: number;
@@ -7,7 +7,7 @@ export type ModelTokens = {
   cost?: number;
 };
 
-export type SessionSynthesis = {
+type SessionSynthesis = {
   goals: string[];
   outcome: string;
   keyDecisions: string[];
@@ -41,12 +41,12 @@ export function subagentParentName(
 }
 
 export const LOCAL_SOURCE_ID = 'local';
-export const LOCAL_SOURCE_LABEL = 'Local Mac';
-export const SSH_SOURCE_LABEL = 'SSH workspace';
+const LOCAL_SOURCE_LABEL = 'Local Mac';
+const SSH_SOURCE_LABEL = 'SSH workspace';
 
 export type SourceClass = 'local' | 'ssh_workspace';
-export type SessionCompletion = 'complete' | 'running' | 'incomplete';
-export type SessionPrivacy = 'shareable' | 'private';
+type SessionCompletion = 'complete' | 'running' | 'incomplete';
+type SessionPrivacy = 'shareable' | 'private';
 export type ShareEligibility =
   'eligible' | 'private' | 'running' | 'failed' | 'incomplete' | 'stale' | 'offline' | 'deleted';
 
@@ -114,10 +114,6 @@ export type SessionIdentity = Pick<Session, 'sourceId' | 'agent' | 'id'>;
 
 export function sessionKey(session: SessionIdentity): string {
   return `${session.sourceId}:${session.agent}:${session.id}`;
-}
-
-export function sameSession(a: SessionIdentity, b: SessionIdentity): boolean {
-  return a.sourceId === b.sourceId && a.agent === b.agent && a.id === b.id;
 }
 
 export function isLocalSource(sourceId: string): boolean {
@@ -260,7 +256,7 @@ export type DigestEntry = {
 
 export type SessionDetail = Session;
 
-export type GoalSource = 'declared' | 'inferred' | 'floor';
+type GoalSource = 'declared' | 'inferred' | 'floor';
 
 export function isSynthesisEligible(
   session: Pick<Session, 'turns' | 'compactions' | 'contextTokens'>,
@@ -285,7 +281,7 @@ export function resolveGoal(
   return { texts: [session.firstPrompt?.trim() || '—'], source: 'floor' };
 }
 
-export function firstSentence(text: string | null | undefined): string | null {
+function firstSentence(text: string | null | undefined): string | null {
   const trimmed = text?.trim();
   if (!trimmed) return null;
   const sentence = trimmed.match(/^.*?[.!?](?=\s|$)/s);
@@ -323,7 +319,7 @@ const VENDORS = {
 
 export type VendorKey = keyof typeof VENDORS;
 
-export const VENDOR_KEYS = ['claude', 'codex', 'opencode', 'cursor'] as const satisfies readonly VendorKey[];
+const VENDOR_KEYS = ['claude', 'codex', 'opencode', 'cursor'] as const satisfies readonly VendorKey[];
 
 export function getSessionVendors(sessions: readonly Pick<Session, 'agent'>[]): VendorKey[] {
   return VENDOR_KEYS.filter((vendor) => sessions.some((session) => session.agent === vendor));
@@ -362,12 +358,12 @@ export const STATUSES = {
   },
 } satisfies Record<string, Status>;
 
-export type StatusKey = keyof typeof STATUSES;
+type StatusKey = keyof typeof STATUSES;
 
 // Board columns render left to right in this order; status sorting uses the same priority.
 export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'inactive', 'unknown'];
 
-export type SubagentStatus = { label: string; fg: string; bg: string };
+type SubagentStatus = { label: string; fg: string; bg: string };
 
 export const SUBAGENT_STATUSES = {
   running: { label: 'running', fg: 'text-warning-fg', bg: 'bg-warning-bg' },
@@ -410,7 +406,7 @@ export function getVendor(agent: string): Vendor {
   };
 }
 
-export function getStatus(status: string | null): StatusKey {
+function getStatus(status: string | null): StatusKey {
   return status !== null && status in STATUSES ? (status as StatusKey) : 'inactive';
 }
 
