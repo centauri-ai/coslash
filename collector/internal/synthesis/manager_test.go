@@ -93,3 +93,27 @@ func TestRunSynthesisStopsOnChunkFailure(t *testing.T) {
 		t.Fatalf("runner called %d times after failure, want 2", calls)
 	}
 }
+
+func TestRunSynthesisRejectsExcessiveWorkBeforeCallingRunner(t *testing.T) {
+	digest := make([]session.DigestEntry, 400)
+	for index := range digest {
+		digest[index] = session.DigestEntry{
+			Turn:        index + 1,
+			Category:    session.DigestRecap,
+			Description: strings.Repeat("界", 500),
+		}
+	}
+	calls := 0
+	runner := runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
+		calls++
+		return session.SessionSynthesis{Outcome: "partial"}, nil
+	})
+
+	_, err := runSynthesis(context.Background(), runner, &session.Session{SessionDetails: session.SessionDetails{Digest: digest}})
+	if err == nil || !strings.Contains(err.Error(), "work limit") {
+		t.Fatalf("runSynthesis() error = %v, want work limit", err)
+	}
+	if calls != 0 {
+		t.Fatalf("runner called %d times before rejecting excessive work", calls)
+	}
+}
