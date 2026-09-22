@@ -3,6 +3,7 @@
 package sessionbackupv1
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -57,7 +58,6 @@ var (
 	ArtifactKinds = []string{
 		KindRawTranscript,
 		KindRawSidecar,
-		KindRawMetadataRows,
 		KindParsedSessionRecord,
 		KindExactChangeBody,
 		KindSessionEnrichment,
@@ -208,6 +208,9 @@ func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 	if len(seen) != len(blobs) {
 		return Manifest{}, fmt.Errorf("%w: unmanifested artifact bytes", ErrInvalid)
 	}
+	if err := validateArtifactContents(manifest, blobs); err != nil {
+		return Manifest{}, err
+	}
 	manifest.Summary = summarize(manifest.Artifacts)
 	sort.Strings(manifest.RequiredVersions)
 	if err := validate(manifest, false); err != nil {
@@ -250,7 +253,7 @@ func validate(manifest Manifest, requireHash bool) error {
 	if manifest.SchemaVersion != SchemaVersion || manifest.CanonicalVersion != CanonicalVersion {
 		return fmt.Errorf("%w: unsupported manifest semantics", ErrInvalid)
 	}
-	knownVersions := map[string]bool{SchemaVersion: true, DatabaseRowsVersion: true, ParsedRecordVersion: true}
+	knownVersions := map[string]bool{SchemaVersion: true, ParsedRecordVersion: true}
 	previous := ""
 	for _, version := range manifest.RequiredVersions {
 		if !knownVersions[version] || version <= previous {
@@ -270,7 +273,7 @@ func validate(manifest Manifest, requireHash bool) error {
 		!identifier(manifest.Family.FamilyID) || !identifier(manifest.Family.RootMemberID) {
 		return fmt.Errorf("%w: invalid repository, producer, or family identity", ErrInvalid)
 	}
-	if len(manifest.CaptureProblems) != 0 {
+	if manifest.CaptureProblems == nil || len(manifest.CaptureProblems) != 0 {
 		return fmt.Errorf("%w: completed manifest contains capture problems", ErrIncomplete)
 	}
 	if len(manifest.Members) == 0 || manifest.Members[0].MemberID != manifest.Family.RootMemberID || manifest.Members[0].ParentMemberID != "" {
@@ -292,11 +295,16 @@ func validate(manifest Manifest, requireHash bool) error {
 		members[member.MemberID] = index
 		seenMembers[member.MemberID] = true
 	}
+	canonicalMembers := Manifest{Family: manifest.Family, Members: append([]Member(nil), manifest.Members...)}
+	if err := orderMembers(&canonicalMembers); err != nil || !reflect.DeepEqual(canonicalMembers.Members, manifest.Members) {
+		return fmt.Errorf("%w: members are not deterministically ordered", ErrInvalid)
+	}
 	if len(manifest.Artifacts) == 0 {
 		return fmt.Errorf("%w: no artifacts", ErrIncomplete)
 	}
 	seenNames := map[string]bool{}
 	seenSourceKeys := map[string]bool{}
+	memberKinds := make(map[string]map[string]int, len(manifest.Members))
 	previousMember := -1
 	previousKind, previousName := "", ""
 	var totalBytes int64
@@ -312,12 +320,6 @@ func validate(manifest Manifest, requireHash bool) error {
 			(!strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != ArtifactSourceCoSlash) {
 			return fmt.Errorf("%w: artifact source does not match kind", ErrInvalid)
 		}
-		if artifact.Kind == KindRawMetadataRows && !contains(manifest.RequiredVersions, DatabaseRowsVersion) {
-			return fmt.Errorf("%w: database row semantics are not required", ErrInvalid)
-		}
-		if artifact.Kind == KindRawMetadataRows && manifest.Source.Agent == "codex" {
-			return fmt.Errorf("%w: Codex v1 has no shared metadata database", ErrInvalid)
-		}
 		sourceKey := artifact.MemberID + "\x00" + artifact.Kind + "\x00" + artifact.SourceKey
 		if seenSourceKeys[sourceKey] {
 			return fmt.Errorf("%w: duplicate artifact source key", ErrInvalid)
@@ -332,7 +334,26 @@ func validate(manifest Manifest, requireHash bool) error {
 		}
 		seenNames[artifact.LogicalName] = true
 		seenSourceKeys[sourceKey] = true
+		if memberKinds[artifact.MemberID] == nil {
+			memberKinds[artifact.MemberID] = map[string]int{}
+		}
+		memberKinds[artifact.MemberID][artifact.Kind]++
 		previousMember, previousKind, previousName = memberPosition, artifact.Kind, artifact.LogicalName
+	}
+	for _, member := range manifest.Members {
+		kinds := memberKinds[member.MemberID]
+		if kinds[KindParsedSessionRecord] == 0 || kinds[KindRawTranscript] == 0 {
+			return fmt.Errorf("%w: member %q lacks required artifacts", ErrIncomplete, member.MemberID)
+		}
+		if kinds[KindParsedSessionRecord] != 1 {
+			return fmt.Errorf("%w: member %q has multiple parsed records", ErrInvalid, member.MemberID)
+		}
+		if member.SynthesisRevisionMs > 0 && kinds[KindSynthesis] == 0 {
+			return fmt.Errorf("%w: member %q lacks required synthesis", ErrIncomplete, member.MemberID)
+		}
+		if kinds[KindSynthesis] > 1 || (member.SynthesisRevisionMs == 0 && kinds[KindSynthesis] != 0) {
+			return fmt.Errorf("%w: member %q has inconsistent synthesis artifacts", ErrInvalid, member.MemberID)
+		}
 	}
 	if !reflect.DeepEqual(manifest.Summary, summarize(manifest.Artifacts)) {
 		return fmt.Errorf("%w: summary mismatch", ErrInvalid)
@@ -342,6 +363,74 @@ func validate(manifest Manifest, requireHash bool) error {
 	}
 	if !requireHash && manifest.CompleteBackupSHA256 != "" {
 		return fmt.Errorf("%w: hash must be empty while freezing", ErrInvalid)
+	}
+	return nil
+}
+
+func validateArtifactContents(manifest Manifest, blobs map[string][]byte) error {
+	members := make(map[string]Member, len(manifest.Members))
+	for _, member := range manifest.Members {
+		members[member.MemberID] = member
+	}
+	records := make(map[string]fullsessionv1.Record, len(manifest.Members))
+	changeArtifacts := make(map[string]map[string][]byte, len(manifest.Members))
+	for _, artifact := range manifest.Artifacts {
+		blob := blobs[artifact.LogicalName]
+		member := members[artifact.MemberID]
+		switch artifact.Kind {
+		case KindParsedSessionRecord:
+			record, err := fullsessionv1.Decode(blob)
+			if err != nil {
+				return fmt.Errorf("%w: parsed record %q: %v", ErrInvalid, artifact.LogicalName, err)
+			}
+			if record.SourceID != manifest.Source.SourceID || record.Agent != manifest.Source.Agent ||
+				record.SessionID != member.MemberID || record.ParentSessionID != member.ParentMemberID || record.RevisionID != artifact.SourceKey {
+				return fmt.Errorf("%w: parsed record %q identity mismatch", ErrInvalid, artifact.LogicalName)
+			}
+			records[member.MemberID] = record
+		case KindSessionEnrichment:
+			if _, err := DecodeEnrichment(blob); err != nil {
+				return fmt.Errorf("%w: enrichment %q: %v", ErrInvalid, artifact.LogicalName, err)
+			}
+		case KindSynthesis:
+			record, err := DecodeSynthesisRecord(blob)
+			if err != nil {
+				return fmt.Errorf("%w: synthesis %q: %v", ErrInvalid, artifact.LogicalName, err)
+			}
+			if record.Agent != manifest.Source.Agent || record.SessionID != member.MemberID || record.Revision != member.SynthesisRevisionMs {
+				return fmt.Errorf("%w: synthesis %q identity mismatch", ErrInvalid, artifact.LogicalName)
+			}
+		case KindExactChangeBody:
+			if changeArtifacts[member.MemberID] == nil {
+				changeArtifacts[member.MemberID] = map[string][]byte{}
+			}
+			if _, exists := changeArtifacts[member.MemberID][artifact.SourceKey]; exists {
+				return fmt.Errorf("%w: duplicate exact change body", ErrInvalid)
+			}
+			changeArtifacts[member.MemberID][artifact.SourceKey] = blob
+		}
+	}
+	for _, member := range manifest.Members {
+		record, ok := records[member.MemberID]
+		if !ok {
+			continue
+		}
+		remaining := changeArtifacts[member.MemberID]
+		for _, edit := range record.Session.FileEdits {
+			for _, change := range edit.Changes {
+				blob, exists := remaining[change.ID]
+				if !exists {
+					return fmt.Errorf("%w: member %q lacks exact change body %q", ErrIncomplete, member.MemberID, change.ID)
+				}
+				if !bytes.Equal(blob, []byte(change.Text)) {
+					return fmt.Errorf("%w: exact change body %q mismatch", ErrInvalid, change.ID)
+				}
+				delete(remaining, change.ID)
+			}
+		}
+		if len(remaining) != 0 {
+			return fmt.Errorf("%w: member %q has unreferenced exact change body", ErrInvalid, member.MemberID)
+		}
 	}
 	return nil
 }

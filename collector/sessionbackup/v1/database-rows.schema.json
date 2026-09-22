@@ -54,12 +54,64 @@
       }
     },
     "value": {
+      "oneOf": [
+        { "$ref": "#/$defs/nullValue" },
+        { "$ref": "#/$defs/integerValue" },
+        { "$ref": "#/$defs/realValue" },
+        { "$ref": "#/$defs/textValue" },
+        { "$ref": "#/$defs/blobValue" }
+      ]
+    },
+    "nullValue": {
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "value"],
       "properties": {
-        "type": { "enum": ["null", "integer", "real", "text", "blob"] },
+        "type": { "const": "null" },
+        "value": { "const": "" }
+      }
+    },
+    "integerValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "const": "integer" },
+        "value": {
+          "type": "string",
+          "pattern": "^(?:0|[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[01][0-9]{17}|92[01][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[01][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-7]|-(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[01][0-9]{17}|92[01][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[01][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-8]))$"
+        }
+      }
+    },
+    "realValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "const": "real" },
+        "value": { "type": "string", "pattern": "^[0-9a-f]{16}$" }
+      }
+    },
+    "textValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "const": "text" },
         "value": { "type": "string", "maxLength": 1048576 }
+      }
+    },
+    "blobValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "const": "blob" },
+        "value": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/][AQgw]==|[A-Za-z0-9+/]{2}[AEIMQUYcgkosw048]=)?$",
+          "maxLength": 1048576
+        }
       }
     }
   }
