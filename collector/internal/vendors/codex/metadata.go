@@ -2,9 +2,12 @@ package codex
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -14,6 +17,8 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+const maxSessionIndexRowBytes = 1 << 20
 
 // LoadMetadata reads liveness from lsof (the only signal Codex leaves — no pid
 // file, no status field) and names from session_index.jsonl. Live rollouts
@@ -90,6 +95,73 @@ type sessionIndexEntry struct {
 	ThreadName json.RawMessage `json:"thread_name"`
 }
 
+// SessionIndexPath is the only shared Codex metadata path admitted by the
+// complete-backup contract.
+func SessionIndexPath(home string) string {
+	return filepath.Join(home, ".codex", "session_index.jsonl")
+}
+
+// ReadSessionIndexRows returns exact matching row bytes, including their
+// original line terminator. Any malformed or duplicate row makes attribution
+// incomplete; callers must not silently omit it from a complete backup.
+func ReadSessionIndexRows(source vendors.ReadSource, home string, ids map[string]bool) (map[string][]byte, bool, error) {
+	rows := map[string][]byte{}
+	file, err := source.Open(SessionIndexPath(home))
+	if errors.Is(err, fs.ErrNotExist) {
+		return rows, false, nil
+	}
+	if err != nil {
+		return nil, true, err
+	}
+	defer file.Close()
+	reader := bufio.NewReaderSize(file, 64*1024)
+	for {
+		line, readErr := readBoundedIndexLine(reader)
+		if errors.Is(readErr, vendors.ErrInvalidData) {
+			return nil, true, readErr
+		}
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) > 0 {
+			var entry sessionIndexEntry
+			if err := json.Unmarshal(trimmed, &entry); err != nil {
+				return nil, true, fmt.Errorf("%w: malformed session index row", vendors.ErrInvalidData)
+			}
+			id, ok := jsonString(entry.ID)
+			if !ok || id == "" {
+				return nil, true, fmt.Errorf("%w: unattributable session index row", vendors.ErrInvalidData)
+			}
+			if ids[id] {
+				if _, duplicate := rows[id]; duplicate {
+					return nil, true, fmt.Errorf("%w: duplicate attributed session index row", vendors.ErrInvalidData)
+				}
+				rows[id] = append([]byte(nil), line...)
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return nil, true, readErr
+		}
+	}
+	return rows, true, nil
+}
+
+func readBoundedIndexLine(reader *bufio.Reader) ([]byte, error) {
+	line := make([]byte, 0, 64*1024)
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if len(line)+len(fragment) > maxSessionIndexRowBytes {
+			return nil, fmt.Errorf("%w: session index row exceeds limit", vendors.ErrInvalidData)
+		}
+		line = append(line, fragment...)
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		return line, err
+	}
+}
+
 func jsonString(raw json.RawMessage) (string, bool) {
 	if len(raw) == 0 || raw[0] != '"' {
 		return "", false
@@ -110,11 +182,11 @@ func loadThreadNamesContext(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return loadThreadNamesSourceContext(ctx, vendors.LocalReadSource, filepath.Join(home, ".codex", "session_index.jsonl"))
+	return loadThreadNamesSourceContext(ctx, vendors.LocalReadSource, SessionIndexPath(home))
 }
 
 func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.SessionMetadata, error) {
-	names, err := loadThreadNamesSource(source, filepath.Join(home, ".codex", "session_index.jsonl"))
+	names, err := loadThreadNamesSource(source, SessionIndexPath(home))
 	if err != nil {
 		return nil, err
 	}

@@ -92,6 +92,7 @@ type Manager struct {
 
 	cache                       *Cache
 	now                         func() time.Time
+	open                        openFunc
 	refresh                     refreshFunc
 	helperRefresh               helperRefreshFunc
 	test                        probeFunc
@@ -208,7 +209,7 @@ func NewManager(options Options) *Manager {
 		resetControlMaster = exitControlMasterBestEffort
 	}
 	return &Manager{
-		cache: cache, now: now, refresh: refresh, helperRefresh: helperRefresh, test: test,
+		cache: cache, now: now, open: open, refresh: refresh, helperRefresh: helperRefresh, test: test,
 		helperVerify:       helperVerify,
 		resetControlMaster: resetControlMaster,
 		releaseProvider:    options.ReleaseProvider, lifecycleFactory: factory,
@@ -217,6 +218,24 @@ func NewManager(options Options) *Manager {
 		state:                       StateDisabled, complete: true, transport: TransportSFTP,
 		helperProbe: helperProbeFallback,
 	}
+}
+
+// OpenBackupSession opens a fresh allowlisted SFTP view for one configured
+// source. Complete backup capture intentionally does not reuse the narrow
+// display cache because that cache does not retain raw vendor artifacts.
+func (manager *Manager) OpenBackupSession(ctx context.Context, sourceID string) (*Session, error) {
+	manager.mu.Lock()
+	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID {
+		manager.mu.Unlock()
+		return nil, ErrRemoteSessionUnavailable
+	}
+	alias := manager.cfg.SSHAlias
+	open := manager.open
+	manager.mu.Unlock()
+	return open(ctx, alias, OpenOptions{Limits: Limits{
+		Deadline: 10 * time.Minute, MaxFileBytes: 1 << 30, MaxTotalBytes: 1 << 30,
+		MaxEntries: 100_000, MaxDepth: DefaultMaxDepth, MaxStderrBytes: DefaultMaxStderrBytes,
+	}})
 }
 
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
