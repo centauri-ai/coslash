@@ -52,6 +52,19 @@ func TestSynthesisCacheRejectsHardLinkedFile(t *testing.T) {
 	}
 }
 
+func TestMigrateLegacyCacheRejectsHardLinkedFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	legacy := writeLegacyRecord(t, "session")
+	if err := os.Link(legacy, filepath.Join(SummariesDir(), "session-copy.json")); err != nil {
+		t.Fatal(err)
+	}
+	err := MigrateLegacyCache(func(string, string) (bool, error) { return true, nil })
+	if err == nil || !strings.Contains(err.Error(), "must not be hard linked") {
+		t.Fatalf("MigrateLegacyCache() error = %v", err)
+	}
+}
+
 func TestSynthesisCacheSupportsLongUnicodeHome(t *testing.T) {
 	home := t.TempDir()
 	for index := 0; len(utf16.Encode([]rune(home))) <= 300; index++ {

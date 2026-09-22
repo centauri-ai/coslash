@@ -55,6 +55,25 @@ func TestLookupLatestIgnoresPreviewRevisionDrift(t *testing.T) {
 	}
 }
 
+func TestStoreClearsCachedMiss(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	cache := NewCache()
+	if _, err := cache.Load("codex", "session"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Load() error = %v, want not found", err)
+	}
+	want := Record{Revision: 42, Synthesis: session.SessionSynthesis{Outcome: "shipped"}}
+	if err := cache.Store("codex", "session", want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := cache.Load("codex", "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Synthesis.Outcome != want.Synthesis.Outcome {
+		t.Fatalf("Load() outcome = %q, want %q", got.Synthesis.Outcome, want.Synthesis.Outcome)
+	}
+}
+
 func TestManagerDoesNotReuseSynthesisAcrossAgents(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	manager := NewManager(runnerFunc(func(_ context.Context, input string) (session.SessionSynthesis, error) {

@@ -48,10 +48,23 @@ func ReadFile(path, subject, directorySubject string) ([]byte, error) {
 	return io.ReadAll(file)
 }
 
+func ReadFileInProtectedDirectory(path, subject string) ([]byte, error) {
+	file, err := openFile(path, subject)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
 func OpenFile(path, subject, directorySubject string) (*os.File, error) {
 	if err := ProtectDirectory(filepath.Dir(path), directorySubject); err != nil {
 		return nil, err
 	}
+	return openFile(path, subject)
+}
+
+func openFile(path, subject string) (*os.File, error) {
 	handle, err := Open(path, windows.GENERIC_READ|windows.READ_CONTROL|windows.WRITE_DAC, false)
 	if err != nil {
 		return nil, err

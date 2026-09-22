@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -23,7 +24,9 @@ type Record struct {
 }
 
 type Cache struct {
-	records sync.Map
+	records              sync.Map
+	missing              sync.Map
+	protectedDirectories sync.Map
 }
 
 type cacheKey struct {
@@ -44,6 +47,9 @@ func MigrateLegacyCache(exists func(agent, id string) (bool, error)) error {
 		return err
 	}
 	cache := NewCache()
+	if err := cache.protectDirectoryTree(SummariesDir()); err != nil {
+		return err
+	}
 	var failures []error
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
@@ -51,7 +57,7 @@ func MigrateLegacyCache(exists func(agent, id string) (bool, error)) error {
 		}
 		id := strings.TrimSuffix(entry.Name(), ".json")
 		legacyPath := filepath.Join(SummariesDir(), entry.Name())
-		data, err := os.ReadFile(legacyPath)
+		data, err := readSynthesisFileInProtectedDirectory(legacyPath)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("read legacy synthesis %q: %w", id, err))
 			continue
@@ -115,11 +121,17 @@ func (c *Cache) Load(agent, id string) (Record, error) {
 	if value, ok := c.records.Load(key); ok {
 		return value.(Record), nil
 	}
-	if err := protectSynthesisDirectories(filepath.Dir(path)); err != nil {
+	if _, ok := c.missing.Load(key); ok {
+		return Record{}, os.ErrNotExist
+	}
+	if err := c.protectDirectoryTree(filepath.Dir(path)); err != nil {
 		return Record{}, err
 	}
-	data, err := readSynthesisFile(path)
+	data, err := readSynthesisFileInProtectedDirectory(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.missing.Store(key, struct{}{})
+		}
 		return Record{}, err
 	}
 	var record Record
@@ -139,7 +151,7 @@ func (c *Cache) Store(agent, id string, record Record) error {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return err
 	}
-	if err := protectSynthesisDirectories(directory); err != nil {
+	if err := c.protectDirectoryTree(directory); err != nil {
 		return err
 	}
 	record.Agent = agent
@@ -168,7 +180,22 @@ func (c *Cache) Store(agent, id string, record Record) error {
 	if err := os.Rename(tempName, path); err != nil {
 		return err
 	}
-	c.records.Store(cacheKey{agent: agent, id: id}, record)
+	key := cacheKey{agent: agent, id: id}
+	c.missing.Delete(key)
+	c.records.Store(key, record)
+	return nil
+}
+
+func (c *Cache) protectDirectoryTree(directory string) error {
+	for _, path := range []string{settings.Home(), SummariesDir(), directory} {
+		if _, ok := c.protectedDirectories.Load(path); ok {
+			continue
+		}
+		if err := protectSynthesisDirectory(path); err != nil {
+			return err
+		}
+		c.protectedDirectories.Store(path, struct{}{})
+	}
 	return nil
 }
 

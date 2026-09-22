@@ -31,3 +31,7 @@ func readSynthesisFile(path string) ([]byte, error) {
 	defer file.Close()
 	return io.ReadAll(file)
 }
+
+func readSynthesisFileInProtectedDirectory(path string) ([]byte, error) {
+	return readSynthesisFile(path)
+}
