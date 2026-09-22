@@ -47,7 +47,7 @@ const COLUMN_DOT: Record<string, string> = {
   inactive: 'bg-coslash-neutral-dot',
   unknown: 'border border-coslash-neutral-dot',
   resume: 'bg-success',
-  review: 'bg-warning',
+  inspect: 'bg-warning',
   fresh: 'bg-danger',
   unavailable: 'border border-coslash-neutral-dot',
 };

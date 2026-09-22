@@ -82,6 +82,23 @@ describe('SessionBoard', () => {
     expect(markup).toContain('title="github.com/other/coslash"');
   });
 
+  it('shows the warning dot on Inspect readiness columns', () => {
+    const markup = renderBoard(
+      [
+        session('inspect', {
+          sourceId: 'local',
+          contextTokens: 124_000,
+          contextWindow: 200_000,
+          mtime: 0,
+        }),
+      ],
+      'readiness',
+      'none',
+    );
+
+    expect(markup).toContain('size-[7px] shrink-0 rounded-full bg-warning');
+  });
+
   it('clamps prompt-derived titles to two lines', () => {
     const markup = renderBoard([session('one', { name: null, firstPrompt: 'A long prompt-derived title' })]);
 

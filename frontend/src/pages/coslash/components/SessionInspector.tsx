@@ -70,6 +70,7 @@ import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
 import {
   boardStatusKey,
+  canResumeSession,
   displayStatusLabel,
   freshLaunchDisabledHint,
   getModality,
@@ -689,7 +690,7 @@ function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; 
   const disabled = resumeDisabled(detail, disabledHint);
   const opensCursor =
     isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
-  const recommended = sessionReadiness(detail).key === 'resume';
+  const recommended = canResumeSession(detail) && sessionReadiness(detail).key === 'resume';
 
   return (
     <div className="flex flex-col gap-1">
