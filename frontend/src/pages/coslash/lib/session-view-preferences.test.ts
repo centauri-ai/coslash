@@ -68,6 +68,16 @@ describe('session view preferences', () => {
     });
   });
 
+  test('migrates legacy per-agent no-location filters into the shared group', () => {
+    const storage = memoryStorage(
+      JSON.stringify({
+        groupFilters: ['unlocated:local:codex', 'repo:coslash', 'unlocated:remote:claude'],
+      }),
+    );
+
+    expect(loadSessionViewPreferences(storage).groupFilters).toEqual(['unlocated', 'repo:coslash']);
+  });
+
   test('recovers from corrupt storage', () => {
     expect(loadSessionViewPreferences(memoryStorage('{not json'))).toEqual(DEFAULT_SESSION_VIEW_PREFERENCES);
   });

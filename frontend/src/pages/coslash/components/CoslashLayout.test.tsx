@@ -120,6 +120,15 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('>Board<');
   });
 
+  it('keeps the control strip reachable when its container is narrow or short', () => {
+    const markup = renderLayout();
+
+    expect(markup).toContain('flex flex-wrap items-center justify-between');
+    expect(markup).toContain('max-w-full shrink-0');
+    expect(markup).toContain('items-center gap-2 overflow-x-auto');
+    expect(markup).toContain('min-h-0 flex-1 overflow-auto');
+  });
+
   it('does not match an unnamed remote session by its first prompt', () => {
     vi.stubGlobal('sessionStorage', {
       getItem: () => JSON.stringify({ query: 'remote-private-prompt' }),
