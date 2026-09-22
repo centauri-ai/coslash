@@ -1,94 +1,33 @@
-import { useState } from 'react';
-import { ChevronDownIcon, ChevronRightIcon, GitCompareArrowsIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
-import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
-import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
-import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
-import { formatDuration, formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
-import { type ReviewerOption, type ReviewLink } from '@/pages/coslash/lib/review';
+import { formatDuration, formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import {
-  boardStatusKey,
-  displayStatusLabel,
-  environmentFact,
-  getModality,
-  getSessionCardSummary,
   getTotalTokens,
   getVendor,
-  isLocalSession,
-  sessionLocationFact,
-  sessionShareEligibility,
-  STATUSES,
   SUBAGENT_STATUSES,
-  subagentParentName,
   sumTokens,
   type Session,
   type Subagent,
   type SubagentCommand,
 } from '@/pages/coslash/lib/session';
 
-const SUBAGENT_PREVIEW_COUNT = 3;
-
-export type SessionCardVariant = 'detailed' | 'compact';
-
-export type SessionCardProps = {
-  session: Session;
-  onClick?: () => void;
-  variant?: SessionCardVariant;
-  showMachineBadge?: boolean;
-  reviewerOptions?: readonly ReviewerOption[];
-  reviewLink?: ReviewLink<Session>;
-  isReview?: boolean;
-  reviewActive?: boolean;
-  onReviewStarted?: () => void;
-  onSelectRelated?: (session: Session) => void;
-};
-
 function shortenSessionId(id: string): string {
   const dashIndex = id.indexOf('-');
   return dashIndex === -1 ? id : id.slice(0, dashIndex);
 }
 
-export function SessionVendorBadge({ agent, abbreviated = false }: { agent: string; abbreviated?: boolean }) {
+export function SessionVendorBadge({ agent }: { agent: string }) {
   const vendor = getVendor(agent);
-  return (
-    <Badge
-      className={cn('text-xs', vendor.fg, vendor.bg, {
-        'font-mono font-bold': abbreviated,
-        'font-semibold': !abbreviated,
-      })}
-    >
-      {abbreviated ? vendor.mono : vendor.label}
-    </Badge>
-  );
+  return <Badge className={cn('text-xs font-semibold', vendor.fg, vendor.bg)}>{vendor.label}</Badge>;
 }
 
-export function SessionName({
-  name,
-  variant = 'detailed',
-}: {
-  name: string | null;
-  variant?: SessionCardVariant | 'inspector';
-}) {
+export function SessionName({ name }: { name: string | null }) {
   return (
     <span
-      className={cn('min-w-0 truncate', {
-        'max-w-80 text-sm font-semibold': variant === 'detailed',
-        'text-xs font-semibold': variant === 'compact',
-        'block text-sm font-bold': variant === 'inspector',
-        'text-muted-foreground font-normal': name == null,
-        'opacity-75': name == null && variant === 'detailed',
+      className={cn('block min-w-0 truncate text-sm font-bold', {
+        'text-coslash-muted font-normal': name == null,
       })}
     >
       {name ?? 'Untitled session'}
@@ -102,126 +41,10 @@ export function SessionId({ id, shortened = false }: { id: string; shortened?: b
       value={id}
       ariaLabel={`Copy session ID ${id}`}
       copiedLabel="Session ID copied"
-      className="text-muted-foreground font-mono text-xs"
+      className="text-coslash-muted font-mono text-xs"
     >
       {shortened ? shortenSessionId(id) : id}
     </CopyableBadge>
-  );
-}
-
-function StatusBadge({ session }: { session: Session }) {
-  const status = STATUSES[boardStatusKey(session)];
-  return (
-    <Badge className={cn('gap-1 text-xs font-semibold', status.fg, status.bg)}>
-      {!session.displayStale && <span className={cn('size-1 rounded-full', status.dot)} />}
-      {displayStatusLabel(session)}
-    </Badge>
-  );
-}
-
-const SHARE_STATE_COPY = {
-  eligible: null,
-  private: 'Private · not shareable',
-  running: 'Running · not shareable',
-  failed: 'Failed · not shareable',
-  incomplete: 'Incomplete source · not shareable',
-  stale: 'Stale source · not shareable',
-  offline: 'Offline source · not shareable',
-  deleted: 'Deleted source · not shareable',
-} as const;
-
-function ShareStateBadge({ session }: { session: Session }) {
-  const label = SHARE_STATE_COPY[sessionShareEligibility(session)];
-  if (label == null) return null;
-  return (
-    <Badge variant="secondary" className="text-muted-foreground shrink-0 text-xs font-semibold">
-      {label}
-    </Badge>
-  );
-}
-
-function Modality({ session }: { session: Session }) {
-  if (session.entrypoint == null) return null;
-  return (
-    <Badge variant="secondary" className="text-muted-foreground text-xs font-semibold">
-      {getModality(session.entrypoint)}
-    </Badge>
-  );
-}
-
-function Metadata({ session }: { session: Session }) {
-  return (
-    <div className="text-muted-foreground pt-2 font-mono text-xs" title={sessionLocationFact(session)}>
-      {sessionLocationFact(session)} · {environmentFact(session.branch)} · {formatTimeAgo(session.mtime)} ·{' '}
-      {formatDuration(session.durationMs)} · {session.files} files
-    </div>
-  );
-}
-
-function TokenUsageAndCost({ session }: { session: Session }) {
-  return (
-    <div className="flex-none text-right">
-      <div className="text-base font-bold">
-        <UnpricedModelWarning unpriced={session.unpricedModels}>
-          {formatEstimatedCost(session.cost)}
-        </UnpricedModelWarning>
-      </div>
-      <div className="text-muted-foreground pt-1 font-mono text-xs">
-        {formatTokens(getTotalTokens(session.tokens))} tok
-      </div>
-    </div>
-  );
-}
-
-function Summary({ session }: { session: Session }) {
-  return <div className="text-muted-foreground pt-2 text-xs">{getSessionCardSummary(session)}</div>;
-}
-
-function CompactSessionCard({ session, showMachineBadge }: { session: Session; showMachineBadge: boolean }) {
-  return (
-    <>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <SessionVendorBadge agent={session.agent} abbreviated />
-          <SessionName name={session.name} variant="compact" />
-          {showMachineBadge && <MachineBadge label={session.sourceLabel} />}
-          <ShareStateBadge session={session} />
-        </div>
-        <span className="text-xs font-semibold whitespace-nowrap">
-          <UnpricedModelWarning unpriced={session.unpricedModels}>
-            {formatEstimatedCost(session.cost)}
-          </UnpricedModelWarning>
-        </span>
-      </div>
-      <div className="text-muted-foreground line-clamp-2 text-xs">{getSessionCardSummary(session)}</div>
-      <div className="flex items-center justify-between gap-2">
-        <SessionId id={session.id} shortened />
-        <div className="text-muted-foreground text-right font-mono text-xs">
-          {formatTimeAgo(session.mtime)}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function DetailedSessionCard({ session, showMachineBadge }: { session: Session; showMachineBadge: boolean }) {
-  return (
-    <div className={cn('flex items-start gap-4', { 'opacity-75': session.displayStale })}>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <SessionVendorBadge agent={session.agent} />
-          <SessionName name={session.name} />
-          <SessionId id={session.id} />
-          <StatusBadge session={session} />
-          {showMachineBadge && <MachineBadge label={session.sourceLabel} />}
-          <ShareStateBadge session={session} />
-          <Modality session={session} />
-        </div>
-        <Summary session={session} />
-        <Metadata session={session} />
-      </div>
-      <TokenUsageAndCost session={session} />
-    </div>
   );
 }
 
@@ -231,7 +54,7 @@ function SubagentBadge() {
 
 export function SubagentModelBadge({ model }: { model: string | null }) {
   return (
-    <Badge variant="secondary" className="text-muted-foreground shrink-0 font-mono text-xs">
+    <Badge variant="secondary" className="text-coslash-muted shrink-0 font-mono text-xs">
       {model ?? '—'}
     </Badge>
   );
@@ -245,10 +68,10 @@ function SubagentStatusBadge({ status }: { status: Subagent['status'] }) {
 // Cache writes fold the 5-minute and 1-hour buckets into one figure.
 export function TokenBreakdown({ tokens }: { tokens: Session['tokens'] }) {
   if (Object.keys(tokens).length === 0) {
-    return <div className="text-muted-foreground pt-1">—</div>;
+    return <div className="text-coslash-muted pt-1">—</div>;
   }
   return (
-    <div className="text-muted-foreground pt-1">
+    <div className="text-coslash-muted pt-1">
       in {formatTokens(sumTokens(tokens, 'input_tokens'))} · out{' '}
       {formatTokens(sumTokens(tokens, 'output_tokens'))} · cache{' '}
       {formatTokens(sumTokens(tokens, 'cache_read_input_tokens'))}r /{' '}
@@ -263,9 +86,9 @@ export function TokenBreakdown({ tokens }: { tokens: Session['tokens'] }) {
 
 function SubagentTokenSummary({ subagent }: { subagent: Subagent }) {
   return (
-    <div className="bg-muted rounded-lg border p-2 font-mono text-xs">
+    <div className="bg-coslash-soft rounded-lg border p-2 font-mono text-xs">
       <div className="flex flex-wrap items-baseline justify-between gap-1">
-        <span className="text-muted-foreground">
+        <span className="text-coslash-muted">
           {formatDuration(subagent.durationMs)} · {subagent.toolUses} tools ·{' '}
           {formatTokens(getTotalTokens(subagent.tokens))} tok
         </span>
@@ -281,12 +104,12 @@ function SubagentCommands({ commands }: { commands: SubagentCommand[] }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className="text-xs font-bold tracking-widest">Steps</div>
-      <div className="bg-muted max-h-44 overflow-auto rounded-lg border p-3">
+      <div className="bg-coslash-soft max-h-44 overflow-auto rounded-lg border p-3">
         <div className="flex w-max flex-col gap-1">
           {commands.map(({ label, command }, index) => (
             <div
               key={index}
-              className="text-muted-foreground flex gap-2 font-mono text-xs whitespace-nowrap"
+              className="text-coslash-muted flex gap-2 font-mono text-xs whitespace-nowrap"
               title={command}
             >
               <span>·</span>
@@ -314,7 +137,7 @@ function SubagentProse({
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className={cn('text-xs font-bold tracking-widest', labelClass)}>{label}</div>
-      <div className={cn('bg-muted max-h-44 overflow-auto rounded-lg border p-3 text-xs', { italic })}>
+      <div className={cn('bg-coslash-soft max-h-44 overflow-auto rounded-lg border p-3 text-xs', { italic })}>
         <div className="wrap-break-word whitespace-pre-wrap">{text}</div>
       </div>
     </div>
@@ -337,14 +160,14 @@ export function SubagentDialogContent({
         </div>
         <DialogDescription asChild>
           <div className="flex flex-col gap-2 pt-1">
-            <div className="text-muted-foreground text-xs">
+            <div className="text-coslash-muted text-xs">
               Subagents run in their own context window and return one result to the parent — they aren't
               resumed on their own.
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-muted-foreground text-xs">
+              <span className="text-coslash-muted text-xs">
                 Spawned by{' '}
-                <span className="text-foreground font-semibold">{parentName ?? 'Untitled session'}</span>
+                <span className="text-coslash-ink font-semibold">{parentName ?? 'Untitled session'}</span>
                 {subagent.spawnedAtTurn != null && ` at turn ${subagent.spawnedAtTurn}`}
               </span>
               <SubagentStatusBadge status={subagent.status} />
@@ -358,178 +181,5 @@ export function SubagentDialogContent({
       <SubagentCommands commands={subagent.commands} />
       <SubagentProse label="Result" labelClass="text-success-fg" text={subagent.result} />
     </DialogContent>
-  );
-}
-
-function DetailedSubagentRow({ subagent }: { subagent: Subagent }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <SubagentBadge />
-        <span className="min-w-0 truncate text-xs font-semibold">{subagent.name}</span>
-        <SubagentModelBadge model={subagent.model} />
-        <SubagentStatusBadge status={subagent.status} />
-      </div>
-      <div className="flex flex-none items-center gap-2">
-        <span className="text-xs font-light whitespace-nowrap">{formatEstimatedCost(subagent.cost)}</span>
-        <span className="text-muted-foreground font-mono text-xs whitespace-nowrap">
-          {formatTokens(getTotalTokens(subagent.tokens))} tok
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function CompactSubagentRow({ subagent }: { subagent: Subagent }) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <SubagentBadge />
-        <span className="min-w-0 truncate text-xs font-semibold">{subagent.name}</span>
-      </div>
-      <span className="text-xs font-light whitespace-nowrap">{formatEstimatedCost(subagent.cost)}</span>
-    </div>
-  );
-}
-
-function SubagentCard({
-  subagent,
-  parentName,
-  variant,
-}: {
-  subagent: Subagent;
-  parentName: string | null;
-  variant: SessionCardVariant;
-}) {
-  const compact = variant === 'compact';
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Card
-          size={compact ? 'sm' : 'default'}
-          className={cn('bg-subagent-card cursor-pointer', compact ? 'px-3' : 'px-4')}
-        >
-          {compact ? <CompactSubagentRow subagent={subagent} /> : <DetailedSubagentRow subagent={subagent} />}
-        </Card>
-      </DialogTrigger>
-      <SubagentDialogContent subagent={subagent} parentName={parentName} />
-    </Dialog>
-  );
-}
-
-function SubagentExpandToggle({
-  hiddenCount,
-  expanded,
-  onToggle,
-}: {
-  hiddenCount: number;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="text-subagent flex w-fit cursor-pointer items-center gap-1 text-xs font-semibold"
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle();
-      }}
-    >
-      {expanded ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
-      {expanded ? 'Show less' : `Show ${hiddenCount} more`}
-    </button>
-  );
-}
-
-function SessionSubagentRail({
-  subagents,
-  parentName,
-  variant,
-}: {
-  subagents: Subagent[];
-  parentName: string | null;
-  variant: SessionCardVariant;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  if (subagents.length === 0) return null;
-
-  const visible = expanded ? subagents : subagents.slice(0, SUBAGENT_PREVIEW_COUNT);
-  const hiddenCount = subagents.length - visible.length;
-
-  return (
-    <div className={cn('flex flex-col', variant === 'compact' ? 'pl-3' : 'pl-20')}>
-      <div className="border-subagent-rail flex flex-col gap-2 border-l-3 pl-4">
-        {visible.map((subagent) => (
-          <SubagentCard
-            key={subagent.id}
-            subagent={subagent}
-            parentName={subagentParentName(subagent, subagents, parentName)}
-            variant={variant}
-          />
-        ))}
-        {(hiddenCount > 0 || expanded) && (
-          <SubagentExpandToggle
-            hiddenCount={hiddenCount}
-            expanded={expanded}
-            onToggle={() => setExpanded(!expanded)}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function SessionCard({
-  session,
-  onClick,
-  variant = 'detailed',
-  showMachineBadge = false,
-  reviewerOptions = [],
-  reviewLink,
-  isReview = false,
-  reviewActive = false,
-  onReviewStarted = () => undefined,
-  onSelectRelated,
-}: SessionCardProps) {
-  const showReviewAction = isLocalSession(session) && session.cwd.trim() !== '' && !isReview;
-  return (
-    <div className="flex flex-col gap-2">
-      <Card className={cn('cursor-pointer', variant === 'compact' ? 'gap-1 p-3' : 'p-4')} onClick={onClick}>
-        {variant === 'compact' ? (
-          <CompactSessionCard session={session} showMachineBadge={showMachineBadge} />
-        ) : (
-          <DetailedSessionCard session={session} showMachineBadge={showMachineBadge} />
-        )}
-        {(reviewLink != null || showReviewAction) && (
-          <div className="flex items-center gap-2 pt-2" onClick={(event) => event.stopPropagation()}>
-            {reviewLink != null && onSelectRelated != null && (
-              <Button
-                size="xs"
-                variant="ghost"
-                title={
-                  reviewLink.kind === 'review'
-                    ? 'Review session — open origin'
-                    : 'Has review — open latest review'
-                }
-                onClick={() => onSelectRelated(reviewLink.target)}
-              >
-                <GitCompareArrowsIcon />
-                {reviewLink.kind === 'review' ? 'Open origin' : 'Open review'}
-              </Button>
-            )}
-            {showReviewAction && (
-              <ReviewDialog
-                origin={session}
-                reviewerOptions={reviewerOptions}
-                active={reviewActive}
-                reviewError={session.reviewError}
-                onStarted={onReviewStarted}
-              />
-            )}
-          </div>
-        )}
-      </Card>
-      <SessionSubagentRail subagents={session.subagents} parentName={session.name} variant={variant} />
-    </div>
   );
 }
