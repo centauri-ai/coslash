@@ -279,7 +279,11 @@ func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since
 			return claude.ParseRemoteFiles(source, files)
 		},
 		Fingerprint: func(files []string) ([]vendors.FileFingerprint, error) {
-			return vendors.FingerprintSourceFilesFresh(source, claude.ProjectsRoot(home), files)
+			return vendors.FingerprintSourceFilesFresh(
+				source,
+				vendors.SourcePathJoin(source, home, ".claude", "projects"),
+				files,
+			)
 		},
 		FamilyIDOf: claude.FamilyIDFromPath,
 	})
@@ -332,7 +336,11 @@ func collectCodexVendor(
 			return codex.ParseRemoteFiles(source, home, files, activeFiles)
 		},
 		Fingerprint: func(files []string) ([]vendors.FileFingerprint, error) {
-			return vendors.FingerprintSourceFilesFresh(source, codex.SessionsRoot(home), files)
+			return vendors.FingerprintSourceFilesFresh(
+				source,
+				vendors.SourcePathJoin(source, home, ".codex", "sessions"),
+				files,
+			)
 		},
 		HeaderMappings:  headerMappings,
 		SessionIDs:      sessionIDs,

@@ -3,7 +3,6 @@ package claude
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"time"
@@ -49,7 +48,7 @@ func RemoteMetadata(source vendors.ReadSource, home string, now time.Time) *vend
 				if pid <= 0 {
 					return false
 				}
-				_, err := source.Stat(filepath.Join("/proc", strconv.Itoa(pid)))
+				_, err := source.Stat(vendors.SourcePathJoin(source, "/proc", strconv.Itoa(pid)))
 				return err == nil
 			})
 		},
@@ -83,7 +82,7 @@ func BuildRemoteFamilies(
 	truncated bool,
 	err error,
 ) {
-	root := ProjectsRoot(home)
+	root := vendors.SourcePathJoin(source, home, ".claude", "projects")
 	scan, err := ScanSource(source, root)
 	if err != nil {
 		return nil, nil, 0, 0, false, err

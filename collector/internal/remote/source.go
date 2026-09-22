@@ -100,6 +100,17 @@ func (source *Source) Home() string {
 	return source.home
 }
 
+func (source *Source) JoinPath(elements ...string) string {
+	return path.Join(elements...)
+}
+
+func (source *Source) RelativePath(root, name string) (string, error) {
+	return remoteRelativePath(root, name)
+}
+
+func (source *Source) DirPath(name string) string  { return path.Dir(name) }
+func (source *Source) BasePath(name string) string { return path.Base(name) }
+
 // Limits returns the effective (default-filled) limits this Source enforces.
 func (source *Source) Limits() Limits {
 	return source.limits
@@ -126,6 +137,30 @@ func (source *Source) ForVendor(maxBytes int64) *VendorSource {
 type VendorSource struct {
 	source *Source
 	budget *vendorBudget
+}
+
+func (v *VendorSource) JoinPath(elements ...string) string {
+	return path.Join(elements...)
+}
+
+func (v *VendorSource) RelativePath(root, name string) (string, error) {
+	return remoteRelativePath(root, name)
+}
+
+func (v *VendorSource) DirPath(name string) string  { return path.Dir(name) }
+func (v *VendorSource) BasePath(name string) string { return path.Base(name) }
+
+func remoteRelativePath(root, name string) (string, error) {
+	root = path.Clean(root)
+	name = path.Clean(name)
+	if name == root {
+		return ".", nil
+	}
+	prefix := strings.TrimSuffix(root, "/") + "/"
+	if !strings.HasPrefix(name, prefix) {
+		return "", fmt.Errorf("remote path %q is outside root %q", name, root)
+	}
+	return strings.TrimPrefix(name, prefix), nil
 }
 
 func (v *VendorSource) Open(name string) (io.ReadCloser, error)    { return v.source.open(name, v.budget) }

@@ -25,11 +25,11 @@ func ProjectsRoot(home string) string {
 }
 
 func IDFromPath(path string) string {
-	return strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	return strings.TrimSuffix(filepath.Base(filepath.ToSlash(path)), ".jsonl")
 }
 
 func ParentIDFromPath(path string) string {
-	parts := strings.Split(path, string(filepath.Separator))
+	parts := strings.Split(filepath.ToSlash(path), "/")
 	for i := len(parts) - 1; i > 0; i-- {
 		if parts[i] == "subagents" {
 			return parts[i-1]
@@ -88,9 +88,10 @@ func ScanSourceContext(ctx context.Context, source vendors.ReadSource, root stri
 
 func filterWorkflowTranscripts(all []string) []string {
 	files := make([]string, 0, len(all))
-	workflowSegment := string(filepath.Separator) + filepath.Join("subagents", "workflows") + string(filepath.Separator)
+	workflowSegment := "/subagents/workflows/"
 	for _, file := range all {
-		if strings.Contains(file, workflowSegment) && !strings.HasPrefix(filepath.Base(file), "agent-") {
+		normalized := filepath.ToSlash(file)
+		if strings.Contains(normalized, workflowSegment) && !strings.HasPrefix(filepath.Base(normalized), "agent-") {
 			continue
 		}
 		files = append(files, file)
