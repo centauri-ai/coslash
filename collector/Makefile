@@ -22,7 +22,7 @@ NODE_REQUIRED := $(shell tr -d 'v\n' < $(FRONTEND)/.nvmrc)
 VERSION_AT_LEAST = awk -v actual="$(1)" -v required="$(2)" 'BEGIN { if (actual !~ /^[0-9]+(\.[0-9]+)*$$/ || required !~ /^[0-9]+(\.[0-9]+)*$$/) exit 1; actual_count = split(actual, actual_parts, "."); required_count = split(required, required_parts, "."); count = actual_count > required_count ? actual_count : required_count; for (i = 1; i <= count; i++) { actual_part = i <= actual_count ? actual_parts[i] + 0 : 0; required_part = i <= required_count ? required_parts[i] + 0 : 0; if (actual_part > required_part) exit 0; if (actual_part < required_part) exit 1 } }'
 
 .PHONY: build run test check tidy clean release stage unstage smoke smoke-dev dist models check-go check-node \
-	helper helper-dist helper-assets test-embedded-helpers
+	helper helper-dist helper-assets test-checksums test-embedded-helpers
 
 check-go:
 	@command -v go >/dev/null 2>&1 || { \
@@ -98,8 +98,8 @@ dist: check-go check-node stage helper-assets
 			-o $(DIST)/windows/$$artifact $(PKG) || exit 1; \
 		echo "packaged $(DIST)/windows/$$artifact"; \
 	done
-	cd $(DIST) && shasum -a 256 *.tar.gz > checksums.txt
-	cd $(DIST)/windows && shasum -a 256 *.exe > checksums.txt
+	node scripts/checksums.mjs $(DIST)/checksums.txt $(DIST)/*.tar.gz
+	node scripts/checksums.mjs $(DIST)/windows/checksums.txt $(DIST)/windows/*.exe
 
 # The Linux collection helper, for local iteration on the host platform.
 helper:
@@ -139,7 +139,7 @@ helper-dist:
 			-o $(HELPER_DIST)/$$stem $(HELPER_PKG) || exit 1; \
 		echo "built $(HELPER_DIST)/$$stem"; \
 	done
-	cd $(HELPER_DIST) && shasum -a 256 $(HELPER)_* > checksums.txt
+	node scripts/checksums.mjs $(HELPER_DIST)/checksums.txt $(HELPER_DIST)/$(HELPER)_*
 	@cat $(HELPER_DIST)/checksums.txt
 
 # Without this a build after `make release` would embed that release's frontend.
@@ -156,10 +156,13 @@ run: check-go unstage helper-assets
 	@set -eu; trap 'rm -rf $(HELPER_ASSETS)' EXIT; \
 		go run -tags embedded_helpers -ldflags '$(EMBEDDED_LDFLAGS)' $(PKG) --no-open $(ARGS)
 
-test: check-go check-node
+test: check-go check-node test-checksums
 	node internal/vendors/opencode/coslash-plugin.test.mjs
 	go test ./...
 	$(MAKE) test-embedded-helpers
+
+test-checksums: check-node
+	node --test scripts/checksums.test.mjs
 
 check: check-go
 	@unformatted=$$(gofmt -l .); \
