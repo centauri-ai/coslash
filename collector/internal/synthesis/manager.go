@@ -133,7 +133,15 @@ func sessionWithDetailProbes(s *session.Session) *session.Session {
 }
 
 func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (session.SessionSynthesis, error) {
+	const (
+		maxSourceSynthesisRuns = 32
+		maxSynthesisRuns       = 64
+	)
 	inputs := BuildInputs(s)
+	if len(inputs) > maxSourceSynthesisRuns {
+		return session.SessionSynthesis{}, fmt.Errorf("synthesis work limit exceeded: %d source chunks", len(inputs))
+	}
+	runs := len(inputs)
 	partials := make([]session.SessionSynthesis, 0, len(inputs))
 	for _, input := range inputs {
 		partial, err := runner.Run(ctx, input)
@@ -147,6 +155,10 @@ func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (sessi
 		if len(inputs) >= len(partials) {
 			return session.SessionSynthesis{}, fmt.Errorf("synthesis merge did not reduce %d partials", len(partials))
 		}
+		if runs+len(inputs) > maxSynthesisRuns {
+			return session.SessionSynthesis{}, fmt.Errorf("synthesis work limit exceeded: more than %d runs", maxSynthesisRuns)
+		}
+		runs += len(inputs)
 		merged := make([]session.SessionSynthesis, 0, len(inputs))
 		for _, input := range inputs {
 			partial, err := runner.Run(ctx, input)
