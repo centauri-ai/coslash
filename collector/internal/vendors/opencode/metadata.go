@@ -325,7 +325,7 @@ func matchUnique(
 			continue
 		}
 		for _, candidate := range candidates {
-			if matchedSessions[candidate.id] || process.directory != candidate.directory ||
+			if matchedSessions[candidate.id] || !sameDirectory(process.directory, candidate.directory) ||
 				!matches(process, candidate) {
 				continue
 			}
