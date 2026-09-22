@@ -130,7 +130,7 @@ func BuildRemoteFamilies(
 	truncated bool,
 	err error,
 ) {
-	root := SessionsRoot(home)
+	root := vendors.SourcePathJoin(source, home, ".codex", "sessions")
 	scan, err := ScanSource(source, root)
 	if err != nil {
 		return nil, nil, nil, nil, nil, 0, 0, false, err
@@ -265,7 +265,10 @@ func ParseRemoteFiles(
 	knownActiveFiles []string,
 ) ([]*vendors.ParsedSession, []vendors.FileFailure, error) {
 	parsed, failures, err := parseFilesSourceStrict(
-		source, ArchivedDir(home), knownActiveFiles, files,
+		source,
+		vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"),
+		knownActiveFiles,
+		files,
 		func(string, string) bool { return true },
 	)
 	clearPromptDerivedNames(parsed)

@@ -3,7 +3,6 @@ package codex
 import (
 	"context"
 	"io"
-	"path/filepath"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -118,7 +117,7 @@ func ParseFamilyFilesSourceContext(
 	finalized, err := finalizeParsedFilesContext(
 		ctx,
 		source,
-		filepath.Join(home, ".codex", "archived_sessions"),
+		vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"),
 		knownActiveFiles,
 		parsed,
 	)

@@ -189,7 +189,7 @@ func loadThreadNamesContext(ctx context.Context) (map[string]string, error) {
 }
 
 func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.SessionMetadata, error) {
-	names, err := loadThreadNamesSource(source, SessionIndexPath(home))
+	names, err := loadThreadNamesSource(source, vendors.SourcePathJoin(source, home, ".codex", "session_index.jsonl"))
 	if err != nil {
 		return nil, err
 	}
