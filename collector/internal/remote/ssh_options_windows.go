@@ -15,7 +15,7 @@ func sshOptions(connectTimeoutSeconds int) []string {
 	if connectTimeoutSeconds <= 0 {
 		connectTimeoutSeconds = int(DefaultConnectTimeout.Seconds())
 	}
-	return []string{"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds)}
+	return []string{"-T", "-o", "ControlMaster=no", "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(connectTimeoutSeconds)}
 }
 
 func ControlExitArgs(alias string) ([]string, error) {
@@ -81,6 +81,7 @@ func interactiveMasterArgs(destination string) ([]string, error) {
 	}
 	args := []string{
 		"-T",
+		"-o", "ControlMaster=no",
 		"-o", "BatchMode=no",
 		"-o", "AddKeysToAgent=yes",
 		"-o", "ConnectTimeout=" + fmt.Sprint(int(DefaultConnectTimeout.Seconds())),

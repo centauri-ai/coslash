@@ -190,6 +190,10 @@ func localCommandWithEnv(name, value string, arguments ...string) string {
 	return "$env:" + name + " = " + powerShellQuote(value) + "; " + localCommandJoin(arguments...)
 }
 
+func terminalSSHOptions() []string {
+	return []string{"-o", "ControlMaster=no"}
+}
+
 func powerShellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

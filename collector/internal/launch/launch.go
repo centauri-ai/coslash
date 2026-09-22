@@ -239,9 +239,7 @@ func SSHAuthentication(ctx context.Context, terminal, executable, attemptID stri
 }
 
 func remoteSSHCommand(destination settings.SSHDestination, command string) string {
-	args := []string{
-		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath=" + settings.SSHControlPath(),
-	}
+	args := append([]string{"ssh", "-tt"}, terminalSSHOptions()...)
 	args = append(args, destination.Args()...)
 	args = append(args, command)
 	return localCommandJoin(args...)
