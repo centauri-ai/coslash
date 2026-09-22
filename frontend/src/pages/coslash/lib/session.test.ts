@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeMachineFact } from '@/pages/coslash/lib/machines';
 import {
   boardStatusKey,
+  canResumeSession,
   environmentFact,
   freshLaunchDisabledHint,
   getModality,
@@ -205,6 +206,13 @@ describe('resumeDisabledHint', () => {
   });
 
   it('distinguishes Cursor CLI resume from IDE workspace opening', () => {
+    expect(canResumeSession({ sourceId: LOCAL_SOURCE_ID, agent: 'cursor', entrypoint: 'cursor-ide' })).toBe(
+      false,
+    );
+    expect(canResumeSession({ sourceId: LOCAL_SOURCE_ID, agent: 'cursor', entrypoint: 'cursor-cli' })).toBe(
+      true,
+    );
+    expect(canResumeSession({ sourceId: LOCAL_SOURCE_ID, agent: 'cursor' })).toBe(false);
     expect(
       resumeDisabledHint({
         sourceId: LOCAL_SOURCE_ID,
@@ -316,6 +324,15 @@ describe('sessionReadiness', () => {
     });
   });
 
+  it('recommends starting fresh after repeated compaction without context metrics', () => {
+    expect(
+      sessionReadiness({ ...base, contextTokens: null, contextWindow: null, compactions: 2 }, NOW),
+    ).toMatchObject({ key: 'fresh', detail: '2 compactions' });
+    expect(
+      sessionReadiness({ ...base, contextTokens: null, contextWindow: null, compactions: 1 }, NOW),
+    ).toMatchObject({ key: 'inspect', detail: '1 compaction' });
+  });
+
   it('reports a single compaction without giving up on the session', () => {
     expect(sessionReadiness({ ...base, compactions: 1 }, NOW)).toMatchObject({
       key: 'resume',
@@ -333,6 +350,17 @@ describe('sessionReadiness', () => {
     expect(sessionReadiness(large, NOW)).toMatchObject({
       key: 'resume',
       detail: '62% context · 12 turns headroom',
+    });
+  });
+
+  it('scales turn estimates when the whole context window is smaller than five median turns', () => {
+    expect(sessionReadiness({ ...base, contextWindow: 32_000, contextTokens: 0 }, NOW)).toMatchObject({
+      key: 'resume',
+      detail: '0% context · 5 turns headroom',
+    });
+    expect(sessionReadiness({ ...base, contextWindow: 32_000, contextTokens: 24_000 }, NOW)).toMatchObject({
+      key: 'fresh',
+      detail: '75% context · 0 turns headroom',
     });
   });
 

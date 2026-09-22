@@ -71,7 +71,10 @@ function storeSort(sort: SessionSort) {
   vi.stubGlobal('sessionStorage', { getItem: () => stored, setItem: () => {} });
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 /** The tone class alone, so `bg-success` does not match the `bg-success-bg` wash. */
 function dotFor(markup: string, tone: 'success' | 'warning' | 'danger'): string {
@@ -155,6 +158,28 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('≈$1.00');
     expect(markup).not.toContain('$10.00');
     expect(markup).toContain('>$9.00<');
+  });
+
+  it('keeps the fresh warning tone when the prompt cache is warm', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    const markup = renderLayout({
+      sessions: [
+        session({
+          id: 'warm-fresh',
+          sourceId: 'local',
+          mtime: 1_700_000_000_000,
+          contextTokens: 160_000,
+          contextWindow: 200_000,
+          compactions: 0,
+        }),
+      ],
+    });
+    const detailAt = markup.indexOf('80% context · warm cache');
+    const detailTag = markup.slice(markup.lastIndexOf('<span', detailAt), markup.indexOf('>', detailAt));
+
+    expect(detailTag).toContain('text-danger-fg');
+    expect(detailTag).not.toContain('text-success-fg');
   });
 
   it('keeps same-named repositories from different owners apart', () => {

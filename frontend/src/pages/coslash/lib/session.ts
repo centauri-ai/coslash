@@ -449,6 +449,13 @@ export function resumeDisabledHint(
   return !isLocalSession(session) && !remoteLaunchable ? remoteLaunchHint : undefined;
 }
 
+export function canResumeSession(
+  session: Pick<Session, 'sourceId' | 'agent'> & Partial<Pick<Session, 'entrypoint'>>,
+): boolean {
+  if (!isLocalSession(session) || session.agent !== 'cursor') return true;
+  return session.entrypoint === 'cursor-cli';
+}
+
 export function freshLaunchDisabledHint(
   session: Pick<Session, 'sourceId' | 'agent'> & Partial<Pick<Session, 'entrypoint' | 'cwd'>>,
 ): string | undefined {
@@ -538,8 +545,10 @@ function contextStanding(
   const used = session.contextTokens;
   const window = session.contextWindow;
   if (used == null || window == null || window <= 0) return null;
+  // An intrinsically small window should not look spent before the session starts.
+  const tokensPerTurn = Math.min(TOKENS_PER_TURN, (window * USABLE_WINDOW) / RESUME_TURNS);
   return {
-    turns: Math.max(0, Math.floor((window * USABLE_WINDOW - used) / TOKENS_PER_TURN)),
+    turns: Math.max(0, Math.floor((window * USABLE_WINDOW - used) / tokensPerTurn)),
     usedPct: Math.round((used / window) * 100),
   };
 }
@@ -568,8 +577,9 @@ export function sessionReadiness(
     [standing && `${standing.usedPct}% context`, signal].filter(Boolean).join(' · ') ||
     'Context estimate unavailable';
 
+  if (session.compactions >= 2) return { key: 'fresh', label: 'Start fresh', detail, cacheWarm };
   if (standing == null) return { key: 'inspect', label: 'Inspect', detail, cacheWarm };
-  if (session.compactions >= 2 || standing.turns < FRESH_TURNS) {
+  if (standing.turns < FRESH_TURNS) {
     return { key: 'fresh', label: 'Start fresh', detail, cacheWarm };
   }
   if (standing.turns >= RESUME_TURNS) return { key: 'resume', label: 'Resume', detail, cacheWarm };
