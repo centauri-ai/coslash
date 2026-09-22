@@ -13,17 +13,37 @@ $stdoutPath = Join-Path $smokeHome "stdout.log"
 $stderrPath = Join-Path $smokeHome "stderr.log"
 $process = $null
 
+function Get-BoundedFileTail {
+    param(
+        [string]$Path,
+        [int]$MaximumBytes = 4096
+    )
+
+    if (!(Test-Path -LiteralPath $Path)) {
+        return ""
+    }
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+    try {
+        $length = [Math]::Min([int64]$MaximumBytes, $stream.Length)
+        $null = $stream.Seek(-$length, [IO.SeekOrigin]::End)
+        $buffer = New-Object byte[] ([int]$length)
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+        return [Text.Encoding]::UTF8.GetString($buffer, 0, $read)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 function Get-SafeServerLog {
     $text = ""
     foreach ($path in @($stdoutPath, $stderrPath)) {
-        if (Test-Path -LiteralPath $path) {
-            $text += "`n" + (Get-Content -LiteralPath $path -Raw)
-        }
+        $text += "`n" + (Get-BoundedFileTail $path)
     }
     if ($text.Length -gt 8192) {
         $text = $text.Substring($text.Length - 8192)
     }
-    return (($text -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '') -replace '#t=[A-Za-z0-9_-]+', '#t=%TOKEN%').Trim()
+    return (($text -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '') -replace '#t=[A-Za-z0-9_-]+', '#t=%TOKEN%').Trim()
 }
 
 function Invoke-SmokeRequest {
