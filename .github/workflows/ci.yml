@@ -72,6 +72,53 @@ jobs:
       - name: Cross-build collector for Windows amd64
         run: GOOS=windows GOARCH=amd64 go build ./...
 
+  windows:
+    name: Windows
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: collector/go.mod
+          cache: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Test collector on Windows
+        working-directory: collector
+        shell: powershell
+        run: |
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test packaging tools
+        working-directory: collector
+        shell: powershell
+        run: node --test scripts/checksums.test.mjs
+      - name: Package native Windows executable
+        shell: powershell
+        env:
+          VERSION: ci-${{ github.sha }}
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-package.ps1 -Version $env:VERSION
+      - name: Smoke-test native Windows executable
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dist = "collector/dist/windows"
+          $artifact = "coslash-windows-amd64.exe"
+          $expected = (Select-String -Path "$dist/checksums-windows.txt" -Pattern "  $([regex]::Escape($artifact))$").Line.Split()[0]
+          if ((Get-FileHash "$dist/$artifact" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw "$artifact checksum does not match checksums-windows.txt"
+          }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-smoke.ps1 -BinaryPath "$dist/$artifact"
+
   release:
     name: Release
     runs-on: macos-latest
@@ -96,6 +143,8 @@ jobs:
           go-version-file: collector/go.mod
           # This module has no dependencies or go.sum to cache.
           cache: false
+      - name: Test packaging tools
+        run: make test-checksums
       - name: Build release binary
         run: make release
       - name: Verify release leaves worktree clean
