@@ -6,10 +6,20 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
 func TestParseWindowsTUIProcessesCapturedFacts(t *testing.T) {
+	originalExecutable := currentUserExecutable
+	currentUserExecutable = func(pid uint32) (string, error) {
+		return map[uint32]string{
+			22648: `C:\Users\calvin\AppData\Roaming\npm\opencode.exe`,
+			23488: `C:\Users\calvin\AppData\Roaming\npm\opencode.exe`,
+			99:    `C:\opencode.exe`,
+		}[pid], nil
+	}
+	t.Cleanup(func() { currentUserExecutable = originalExecutable })
 	tests := []struct {
 		name   string
 		output string
@@ -65,7 +75,7 @@ func TestMatchLiveSessionsNormalizesCapturedWindowsDirectory(t *testing.T) {
 	processes := []tuiProcess{{
 		pid:       22648,
 		startedAt: 1789672200000,
-		directory: filepath.Clean(`C:\coslash-discovery\opencode`),
+		directory: filepath.Clean(`C:\COSLASH-DISCOVERY\OpenCode`),
 	}}
 	candidates := []liveCandidate{{
 		id:        sessionID,
@@ -74,6 +84,45 @@ func TestMatchLiveSessionsNormalizesCapturedWindowsDirectory(t *testing.T) {
 	}}
 	if _, ok := matchLiveSessions(processes, candidates)[sessionID]; !ok {
 		t.Fatal("captured Windows process and database directory did not match")
+	}
+}
+
+func TestParseWindowsTUIProcessesRejectsForeignProcess(t *testing.T) {
+	originalExecutable := currentUserExecutable
+	currentUserExecutable = func(uint32) (string, error) { return "", os.ErrPermission }
+	t.Cleanup(func() { currentUserExecutable = originalExecutable })
+	output := `[{"PID":22648,"StartedAt":1789672200000,"Executable":"C:\\opencode.exe","CommandLine":"opencode"}]`
+	processes, err := parseWindowsTUIProcesses([]byte(output))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(processes) != 0 {
+		t.Fatalf("processes = %#v, want none", processes)
+	}
+}
+
+func TestReplaceFileSupportsLongPath(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), strings.Repeat("long-path-", 24))
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(directory, "plugin.tmp")
+	newPath := filepath.Join(directory, "plugin.js")
+	if err := os.WriteFile(oldPath, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceFile(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(newPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "replacement" {
+		t.Fatalf("replacement content = %q", content)
 	}
 }
 

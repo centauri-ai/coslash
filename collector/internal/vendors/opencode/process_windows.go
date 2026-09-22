@@ -5,13 +5,20 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 	"unsafe"
 
+	"github.com/centauri-ai/coslash/collector/internal/winprocess"
 	"golang.org/x/sys/windows"
 )
+
+const listTUIProcessTimeout = 5 * time.Second
+
+var currentUserExecutable = winprocess.CurrentUserExecutable
 
 const listOpenCodeProcesses = `$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
@@ -33,7 +40,9 @@ type windowsTUIProcess struct {
 }
 
 func listTUIProcesses() ([]tuiProcess, error) {
-	return listTUIProcessesContext(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), listTUIProcessTimeout)
+	defer cancel()
+	return listTUIProcessesContext(ctx)
 }
 
 func listTUIProcessesContext(ctx context.Context) ([]tuiProcess, error) {
@@ -54,8 +63,12 @@ func parseWindowsTUIProcesses(output []byte) ([]tuiProcess, error) {
 	}
 	processes := make([]tuiProcess, 0, len(records))
 	for _, record := range records {
-		if record.PID <= 0 || record.StartedAt <= 0 ||
-			!strings.EqualFold(filepath.Base(record.Executable), "opencode.exe") {
+		if record.PID <= 0 || record.StartedAt <= 0 {
+			continue
+		}
+		executable, err := currentUserExecutable(uint32(record.PID))
+		if err != nil || !strings.EqualFold(filepath.Clean(executable), filepath.Clean(record.Executable)) ||
+			!strings.EqualFold(filepath.Base(executable), "opencode.exe") {
 			continue
 		}
 		args, err := windows.DecomposeCommandLine(record.CommandLine)
@@ -130,5 +143,5 @@ func readProcessMemory[T any](handle windows.Handle, address uintptr, value *T) 
 }
 
 func replaceFile(oldPath, newPath string) error {
-	return windows.Rename(oldPath, newPath)
+	return os.Rename(oldPath, newPath)
 }
