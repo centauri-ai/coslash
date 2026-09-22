@@ -15,3 +15,5 @@ func TerminalOptions() []TerminalOption {
 		{ID: TerminalITerm, Label: "iTerm2"},
 	}
 }
+
+func migrateTerminal(terminal string) string { return terminal }

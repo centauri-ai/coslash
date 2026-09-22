@@ -350,7 +350,7 @@ func Decode(data []byte) (Config, error) {
 			Model:   *document.Synthesis.Model,
 		},
 		Appearance: AppearanceSettings{Theme: "light"},
-		Launch:     LaunchSettings{Terminal: *document.Launch.Terminal},
+		Launch:     LaunchSettings{Terminal: migrateTerminal(*document.Launch.Terminal)},
 	}
 	if document.Appearance != nil {
 		if document.Appearance.Theme == nil {
