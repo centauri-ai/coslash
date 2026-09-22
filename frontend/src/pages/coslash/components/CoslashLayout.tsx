@@ -237,8 +237,9 @@ function detectedGroup(session: Session): Group {
     };
   }
   return {
-    id: `unlocated:${session.sourceId}:${session.agent}`,
-    label: `${getVendor(session.agent).label} · No location`,
+    // One bucket for everything unlocated: the agent and source already show on the row.
+    id: 'unlocated',
+    label: 'No location',
     kind: 'No location',
     basis: 'No repository or folder was recorded',
   };
@@ -1292,11 +1293,14 @@ export function CoslashLayout({
                 <div id="coslash-group">
                   {groupSections.map(({ kind, options }) => (
                     <div key={kind}>
-                      <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
-                        {kind === 'Repository' && <FolderGit2 />}
-                        {kind === 'Folder' && <Folder />}
-                        {GROUP_LABELS[kind]}
-                      </div>
+                      {/* The unlocated bucket is a single row that already reads "No location". */}
+                      {kind !== 'No location' && (
+                        <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
+                          {kind === 'Repository' && <FolderGit2 />}
+                          {kind === 'Folder' && <Folder />}
+                          {GROUP_LABELS[kind]}
+                        </div>
+                      )}
                       <FacetRows options={options} />
                     </div>
                   ))}
