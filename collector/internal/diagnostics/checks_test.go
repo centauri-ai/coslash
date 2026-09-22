@@ -31,9 +31,16 @@ func TestCursorDiagnosticsWarnWhenBothLanesAreMissing(t *testing.T) {
 }
 
 func TestCursorEmptySourceNamesBothLanes(t *testing.T) {
-	check := sourceCheck(Source{Agent: "cursor", Label: "Cursor", Root: "/cursor", State: SourceEmpty, CLI: CLI{Name: "agent"}, IDE: &CLI{Name: "cursor"}})
+	check := sourceCheck(Source{Agent: "cursor", Label: "Cursor", Root: "/cursor", State: SourceEmpty, CLI: CLI{Name: "agent"}, IDE: &CLI{Name: "cursor"}}, "darwin")
 	if !strings.Contains(check.Fix, "Cursor IDE") || !strings.Contains(check.Fix, "agent") {
 		t.Fatalf("fix = %q, want both Cursor lanes", check.Fix)
+	}
+}
+
+func TestWindowsUnreadableSourceUsesNativeGuidance(t *testing.T) {
+	check := sourceCheck(Source{Label: "Codex", Root: `C:\Users\me\.codex\sessions`, State: SourceUnreadable, Error: "access denied"}, "windows")
+	if strings.Contains(check.Fix, "ls -la") || !strings.Contains(check.Fix, "Windows account") {
+		t.Fatalf("fix = %q, want Windows access guidance", check.Fix)
 	}
 }
 

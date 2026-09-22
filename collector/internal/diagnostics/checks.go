@@ -16,7 +16,7 @@ func derive(snapshot *Snapshot) []Check {
 	noEntries := true
 	scanFailed := false
 	for _, source := range snapshot.Sources {
-		checks = append(checks, sourceCheck(source))
+		checks = append(checks, sourceCheck(source, snapshot.Platform.OS))
 		if source.Entries > 0 {
 			noEntries = false
 		}
@@ -121,7 +121,7 @@ func openCodePluginCheck(snapshot *Snapshot) Check {
 	return check
 }
 
-func sourceCheck(source Source) Check {
+func sourceCheck(source Source, platformOS string) Check {
 	check := Check{ID: "source." + source.Agent, Title: source.Label + " sessions", Status: StatusOK}
 	switch {
 	case source.State == SourceUnreadable:
@@ -131,7 +131,7 @@ func sourceCheck(source Source) Check {
 			check.Fix = "Check that the home directory is available and readable."
 		} else {
 			check.Detail = fmt.Sprintf("Could not inspect %s: %s", source.Root, source.Error)
-			check.Fix = "Run ls -la " + source.Root + " and check ownership."
+			check.Fix = sourceAccessFix(source.Root, platformOS)
 		}
 	case source.State == SourceMissing:
 		check.Status = StatusWarn
@@ -152,11 +152,18 @@ func sourceCheck(source Source) Check {
 	case source.SkippedTotal > 0:
 		check.Status = StatusWarn
 		check.Detail = fmt.Sprintf("%d sessions; skipped %d unreadable entries in %s.", source.Sessions, source.SkippedTotal, source.Root)
-		check.Fix = "Run ls -la " + source.Root + " and check ownership."
+		check.Fix = sourceAccessFix(source.Root, platformOS)
 	default:
 		check.Detail = fmt.Sprintf("%d sessions in %s", source.Sessions, source.Root)
 	}
 	return check
+}
+
+func sourceAccessFix(root, platformOS string) string {
+	if platformOS == "windows" {
+		return "Check that your Windows account can read " + root + "."
+	}
+	return "Run ls -la " + root + " and check ownership."
 }
 
 func remoteCheck(remote *Remote) Check {

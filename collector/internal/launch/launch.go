@@ -63,6 +63,7 @@ var uuidSessionIDPattern = regexp.MustCompile(
 var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var localTerminalOpener = openTerminal
+var reviewCommandContext = exec.CommandContext
 
 type ReviewerOption struct {
 	ID         string
@@ -104,7 +105,7 @@ func Review(ctx context.Context, request review.Launch) error {
 	if err != nil {
 		return err
 	}
-	command := exec.CommandContext(ctx, spec.bin, spec.args...)
+	command := reviewCommandContext(ctx, spec.bin, spec.args...)
 	command.Dir = workingDirectory
 	configureReviewProcess(command)
 	command.Stdin = strings.NewReader(spec.stdin)
@@ -131,7 +132,7 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 	case vendors.AgentOpenCode:
 		return reviewCommandSpec{
 			bin:   "opencode",
-			args:  []string{"run", "--title", name, "--dir", workingDirectory},
+			args:  []string{"run", "--title", name},
 			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
 			stdin: prompt,
 		}, nil

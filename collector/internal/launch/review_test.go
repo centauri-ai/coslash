@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -37,7 +38,7 @@ func TestReviewCLICommands(t *testing.T) {
 		},
 		"opencode": {
 			bin:   "opencode",
-			args:  []string{"run", "--title", name, "--dir", "/repo"},
+			args:  []string{"run", "--title", name},
 			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
 			stdin: prompt,
 		},
@@ -82,15 +83,14 @@ func TestReviewCLICommandRejectsUnknownReviewer(t *testing.T) {
 }
 
 func TestReviewSetsPWDToWorkingDirectory(t *testing.T) {
-	bin := t.TempDir()
 	workingDirectory := t.TempDir()
 	output := filepath.Join(t.TempDir(), "pwd")
-	script := filepath.Join(bin, "opencode")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf %s \"$PWD\" > \"$REVIEW_PWD_OUTPUT\"\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("REVIEW_PWD_OUTPUT", output)
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	reviewCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewWorkingDirectoryHelper")
+	}
 
 	if err := Review(context.Background(), review.Launch{Reviewer: "opencode", WorkingDirectory: workingDirectory}); err != nil {
 		t.Fatal(err)
@@ -102,4 +102,19 @@ func TestReviewSetsPWDToWorkingDirectory(t *testing.T) {
 	if string(got) != workingDirectory {
 		t.Fatalf("PWD = %q, want %q", got, workingDirectory)
 	}
+}
+
+func TestReviewWorkingDirectoryHelper(t *testing.T) {
+	output := os.Getenv("REVIEW_PWD_OUTPUT")
+	if output == "" {
+		return
+	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		os.Exit(2)
+	}
+	if err := os.WriteFile(output, []byte(workingDirectory), 0o600); err != nil {
+		os.Exit(2)
+	}
+	os.Exit(0)
 }

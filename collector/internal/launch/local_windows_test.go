@@ -12,6 +12,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"golang.org/x/sys/windows"
 )
@@ -113,10 +114,15 @@ func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
 	originalLookPath, originalStart := windowsLookPath, windowsStart
 	t.Cleanup(func() { windowsLookPath, windowsStart = originalLookPath, originalStart })
 	windowsLookPath = func(name string) (string, error) {
-		if name != "wt.exe" {
-			t.Fatalf("LookPath(%q), want wt.exe", name)
+		switch name {
+		case "powershell.exe":
+			return `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, nil
+		case "wt.exe":
+			return `C:\Windows\wt.exe`, nil
+		default:
+			t.Fatalf("unexpected LookPath(%q)", name)
+			return "", nil
 		}
-		return `C:\Windows\wt.exe`, nil
 	}
 	var got *exec.Cmd
 	windowsStart = func(command *exec.Cmd) error {
@@ -134,7 +140,7 @@ func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
 		t.Fatalf("working directory = %q", got.Dir)
 	}
 	wantArgs := append(
-		[]string{`C:\Windows\wt.exe`, "-d", `C:\Users\Bob's Project`, "powershell.exe"},
+		[]string{`C:\Windows\wt.exe`, "-d", `C:\Users\Bob's Project`, `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`},
 		powerShellCommandArguments(`& 'codex' 'resume' 'session'`)...,
 	)
 	if !reflect.DeepEqual(got.Args, wantArgs) {
@@ -152,10 +158,10 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 	})
 	windowsLookPath = func(name string) (string, error) {
 		switch name {
-		case "wt.exe":
-			return "", errors.New("not found")
 		case "powershell.exe":
 			return `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, nil
+		case "wt.exe":
+			return "", errors.New("not found")
 		default:
 			t.Fatalf("unexpected LookPath(%q)", name)
 			return "", nil
@@ -224,6 +230,21 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 	}
 	if want := []windows.Handle{11, 12}; !reflect.DeepEqual(closed, want) {
 		t.Fatalf("closed handles = %v, want %v", closed, want)
+	}
+}
+
+func TestWindowsTerminalAvailabilityRequiresPowerShell(t *testing.T) {
+	originalLookPath := windowsLookPath
+	t.Cleanup(func() { windowsLookPath = originalLookPath })
+	windowsLookPath = func(name string) (string, error) {
+		if name != "powershell.exe" {
+			t.Fatalf("unexpected LookPath(%q)", name)
+		}
+		return "", errors.New("not found")
+	}
+
+	if Available(settings.TerminalWindows) {
+		t.Fatal("Windows terminal reported available without Windows PowerShell")
 	}
 }
 
