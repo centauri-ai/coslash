@@ -11,3 +11,5 @@ func defaultTerminal() string {
 func TerminalOptions() []TerminalOption {
 	return []TerminalOption{{ID: terminalOther, Label: "Terminal"}}
 }
+
+func migrateTerminal(terminal string) string { return terminal }
