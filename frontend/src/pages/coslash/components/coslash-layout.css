@@ -6,18 +6,36 @@
   --coslash-muted: #5c6575;
   --coslash-line: #e3e6ec;
   --coslash-line-soft: #eef0f4;
-  --coslash-accent: #3554d1;
+  /* One accent blue across the app: --brand already flips with the theme, so the
+     .dark block below does not restate it. --accent-ink is separate — it is text
+     on --coslash-tint and needs its own contrast, which --brand does not carry. */
+  --coslash-accent: var(--brand);
   --coslash-accent-ink: #2740a8;
   --coslash-tint: #eef1fd;
   --coslash-tint-line: #c9d3f3;
-  --coslash-amber-dot: #b9872b;
-  --coslash-amber-ink: #8a5a10;
-  --coslash-green-dot: #2d8a65;
-  --coslash-green-ink: #1b6b4c;
-  --coslash-clay: #a8402a;
-  --coslash-clay-dot: #c05a42;
-  --coslash-clay-bg: #fbeeea;
   --coslash-neutral-dot: #8b93a3;
+}
+
+/* Portaled inspector/dialogs/menus only — the page shell keeps the layout's
+   Button chrome. --primary stays so filled buttons keep their contrast. */
+.coslash-shell[data-slot='dialog-content'],
+.coslash-shell[data-slot='sheet-content'],
+.coslash-shell[data-slot='dropdown-menu-content'],
+.coslash-shell[data-slot='tooltip-content'] {
+  --background: var(--coslash-surface);
+  --foreground: var(--coslash-ink);
+  --popover: var(--coslash-surface);
+  --popover-foreground: var(--coslash-ink);
+  --muted: var(--coslash-soft);
+  --muted-foreground: var(--coslash-muted);
+  --accent: var(--coslash-soft);
+  --accent-foreground: var(--coslash-ink);
+  --secondary: var(--coslash-soft);
+  --secondary-foreground: var(--coslash-ink);
+  --border: var(--coslash-line);
+  --input: var(--coslash-line);
+  --ring: var(--coslash-accent);
+  --destructive: var(--danger-fg);
 }
 
 .dark .coslash-shell {
@@ -28,17 +46,9 @@
   --coslash-muted: #9aa5b8;
   --coslash-line: #2b3442;
   --coslash-line-soft: #232b38;
-  --coslash-accent: #9db0ff;
   --coslash-accent-ink: #c3cfff;
   --coslash-tint: #222c48;
   --coslash-tint-line: #3b4a72;
-  --coslash-amber-dot: #d6a75c;
-  --coslash-amber-ink: #e2b76d;
-  --coslash-green-dot: #54b487;
-  --coslash-green-ink: #82d3aa;
-  --coslash-clay: #eb9781;
-  --coslash-clay-dot: #d4735a;
-  --coslash-clay-bg: #2d1c17;
   --coslash-neutral-dot: #6d7889;
 }
 

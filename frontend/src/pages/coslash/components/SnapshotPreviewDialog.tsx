@@ -68,7 +68,7 @@ function PreviewReady({ preview }: { preview: SnapshotPreview }) {
               >
                 <Badge variant="secondary">{notice.kind}</Badge>
                 <span className="min-w-0 font-mono break-all">{notice.path}</span>
-                <span className="text-muted-foreground ml-auto shrink-0">{notice.reason}</span>
+                <span className="text-coslash-muted ml-auto shrink-0">{notice.reason}</span>
               </div>
             ))}
           </div>
@@ -79,8 +79,8 @@ function PreviewReady({ preview }: { preview: SnapshotPreview }) {
         <h3 id="preview-privacy" className="flex items-center gap-1 text-xs font-bold tracking-wide">
           <LockKeyholeIcon className="size-3" /> PRIVACY BOUNDARY
         </h3>
-        <p className="text-muted-foreground pt-2 text-xs">{PREVIEW_PRIVACY_COPY}</p>
-        <ul className="text-muted-foreground grid list-disc gap-1 pt-2 pl-4 text-xs sm:grid-cols-2">
+        <p className="text-coslash-muted pt-2 text-xs">{PREVIEW_PRIVACY_COPY}</p>
+        <ul className="text-coslash-muted grid list-disc gap-1 pt-2 pl-4 text-xs sm:grid-cols-2">
           {STRUCTURALLY_EXCLUDED.map((item) => (
             <li key={item}>{item}</li>
           ))}
@@ -92,9 +92,9 @@ function PreviewReady({ preview }: { preview: SnapshotPreview }) {
           <h3 id="preview-payload" className="text-xs font-bold tracking-wide">
             EXACT DESTINATION-INDEPENDENT PAYLOAD
           </h3>
-          <span className="text-muted-foreground text-xs">{preview.schemaVersion}</span>
+          <span className="text-coslash-muted text-xs">{preview.schemaVersion}</span>
         </div>
-        <pre className="bg-muted mt-1 max-h-80 overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
+        <pre className="bg-coslash-soft mt-1 max-h-80 overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
           {payload}
         </pre>
       </section>
@@ -165,7 +165,7 @@ export function SnapshotPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[min(56rem,calc(100vw-2rem))] max-w-none! flex-col">
+      <DialogContent className="coslash-shell flex max-h-[calc(100vh-2rem)] w-[min(56rem,calc(100vw-2rem))] max-w-none! flex-col">
         <DialogHeader>
           <DialogTitle>{previewOnly ? 'Team sharing preview' : 'Exact snapshot preview'}</DialogTitle>
           <DialogDescription>
@@ -185,15 +185,12 @@ export function SnapshotPreviewDialog({
         )}
 
         {displayLoad.status === 'loading' && (
-          <div
-            role="status"
-            className="text-muted-foreground flex min-h-48 items-center justify-center text-sm"
-          >
+          <div role="status" className="text-coslash-muted flex min-h-48 items-center justify-center text-sm">
             Building the canonical preview…
           </div>
         )}
         {displayLoad.status === 'error' && (
-          <div role="alert" className="text-destructive min-h-48 rounded-lg border p-3 text-sm">
+          <div role="alert" className="text-danger-fg min-h-48 rounded-lg border p-3 text-sm">
             {displayLoad.message} Close this dialog and try again; sharing is blocked.
           </div>
         )}

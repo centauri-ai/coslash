@@ -428,7 +428,7 @@ export function ShareToHubDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-none! flex-col overflow-x-hidden overflow-y-hidden sm:w-[min(56rem,calc(100vw-2rem))]">
+      <DialogContent className="coslash-shell flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-none! flex-col overflow-x-hidden overflow-y-hidden sm:w-[min(56rem,calc(100vw-2rem))]">
         <DialogHeader className="min-w-0">
           <div className="flex items-center gap-2">
             <DialogTitle>Share to Hub</DialogTitle>
@@ -450,13 +450,13 @@ export function ShareToHubDialog({
           >
             <AlertTriangleIcon className="text-warning-fg size-7" />
             <h3 className="mt-3 font-semibold">{eligibility?.title}</h3>
-            <p className="text-muted-foreground mt-2 max-w-md text-sm">{eligibility?.detail}</p>
+            <p className="text-coslash-muted mt-2 max-w-md text-sm">{eligibility?.detail}</p>
             {!fixtureMode && pairing?.state === 'pending' ? (
               <div className="mt-5 rounded-lg border p-4">
                 <p className="text-sm font-semibold">
                   {pairingRefreshRequired ? 'Pairing approved' : `Approve code ${pairing.userCode}`}
                 </p>
-                <p className="text-muted-foreground pt-1 text-xs">
+                <p className="text-coslash-muted pt-1 text-xs">
                   {pairingRefreshRequired
                     ? 'Refresh the destination to finish enabling sharing.'
                     : 'A Hub sign-in window was opened. This page will update after approval.'}
@@ -487,7 +487,7 @@ export function ShareToHubDialog({
               <p className="text-warning-fg mt-3 text-sm">Pairing expired. Start again.</p>
             )}
             {pairingError && (
-              <p className="text-destructive mt-3 text-sm" role="alert">
+              <p className="text-danger-fg mt-3 text-sm" role="alert">
                 {pairingError}
               </p>
             )}
@@ -511,7 +511,7 @@ export function ShareToHubDialog({
               <>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative min-w-48 flex-1">
-                    <SearchIcon className="text-muted-foreground pointer-events-none absolute top-2 left-2.5 size-4" />
+                    <SearchIcon className="text-coslash-muted pointer-events-none absolute top-2 left-2.5 size-4" />
                     <Input
                       aria-label="Filter shareable sessions"
                       className="pl-8"
@@ -520,7 +520,7 @@ export function ShareToHubDialog({
                       onChange={(event) => narrow(event.target.value, window)}
                     />
                   </div>
-                  <div className="bg-muted flex rounded-lg p-1" aria-label="Share time window">
+                  <div className="bg-coslash-soft flex rounded-lg p-1" aria-label="Share time window">
                     {(['7d', '30d', 'all'] as const).map((value) => (
                       <Button
                         key={value}
@@ -561,7 +561,7 @@ export function ShareToHubDialog({
 
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
                   {groups.length === 0 && (
-                    <div className="text-muted-foreground p-8 text-center text-sm">
+                    <div className="text-coslash-muted p-8 text-center text-sm">
                       No sessions match this filter.
                     </div>
                   )}
@@ -571,7 +571,7 @@ export function ShareToHubDialog({
                     );
                     return (
                       <section key={repository} className="border-b last:border-b-0">
-                        <div className="bg-muted/60 flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="bg-coslash-soft flex items-center justify-between gap-3 px-3 py-2">
                           <span className="font-mono text-xs font-semibold">{repository}</span>
                           <Button
                             variant="ghost"
@@ -586,7 +586,7 @@ export function ShareToHubDialog({
                           return (
                             <label
                               key={key}
-                              className="hover:bg-muted/30 flex cursor-pointer items-start gap-3 border-t px-3 py-3 first:border-t-0"
+                              className="hover:bg-coslash-soft flex cursor-pointer items-start gap-3 border-t px-3 py-3 first:border-t-0"
                             >
                               <input
                                 type="checkbox"
@@ -601,7 +601,7 @@ export function ShareToHubDialog({
                                 <span className="block truncate text-sm font-medium">
                                   {candidate.session.name ?? candidate.session.id}
                                 </span>
-                                <span className="text-muted-foreground block truncate pt-0.5 text-xs">
+                                <span className="text-coslash-muted block truncate pt-0.5 text-xs">
                                   {candidate.session.sourceLabel} · {candidate.session.agent} ·{' '}
                                   {candidate.session.branch ?? 'no branch'} · revision{' '}
                                   {candidate.session.mtime}
@@ -638,10 +638,10 @@ export function ShareToHubDialog({
                   <h3 id="share-stays-local" className="text-xs font-bold tracking-wide">
                     STAYS LOCAL
                   </h3>
-                  <p className="text-muted-foreground pt-1 text-xs">
+                  <p className="text-coslash-muted pt-1 text-xs">
                     Only the exact bounded payload shown below is uploaded. These are never included.
                   </p>
-                  <ul className="text-muted-foreground grid min-w-0 list-disc gap-1 pt-2 pl-4 text-xs sm:grid-cols-2">
+                  <ul className="text-coslash-muted grid min-w-0 list-disc gap-1 pt-2 pl-4 text-xs sm:grid-cols-2">
                     {STRUCTURALLY_EXCLUDED.map((item) => (
                       <li key={item} className="min-w-0 break-words">
                         {item}
@@ -661,10 +661,10 @@ export function ShareToHubDialog({
                         {record.candidate.session.name ?? record.candidate.session.id} ·{' '}
                         {record.preview.payloadBytes?.toLocaleString()} bytes
                       </summary>
-                      <div className="text-muted-foreground mt-2 font-mono text-xs break-all">
+                      <div className="text-coslash-muted mt-2 font-mono text-xs break-all">
                         {record.item.consent.contentHash}
                       </div>
-                      <pre className="bg-muted mt-3 max-h-72 max-w-full overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
+                      <pre className="bg-coslash-soft mt-3 max-h-72 max-w-full overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
                         {record.payload}
                       </pre>
                     </details>
@@ -753,9 +753,9 @@ export function ShareToHubDialog({
                     <div className="flex items-center gap-2 font-semibold">
                       <ExternalLinkIcon className="size-4" /> Canonical Hub handoff
                     </div>
-                    <div className="text-muted-foreground mt-2 font-mono text-xs break-all">{route.path}</div>
+                    <div className="text-coslash-muted mt-2 font-mono text-xs break-all">{route.path}</div>
                     {fixtureMode || !destinationResult.hubUrl ? (
-                      <p className="text-muted-foreground mt-2 text-xs">Fixture mode stays local.</p>
+                      <p className="text-coslash-muted mt-2 text-xs">Fixture mode stays local.</p>
                     ) : (
                       <a
                         className="text-info-fg mt-3 inline-flex items-center gap-2 text-sm font-semibold underline"

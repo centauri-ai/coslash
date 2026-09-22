@@ -15,7 +15,9 @@ export function UnpricedModelWarning({ unpriced, children }: { unpriced: string[
           {children}
         </span>
       </TooltipTrigger>
-      <TooltipContent>No pricing info for {models.join(', ')}, excluded from this estimate.</TooltipContent>
+      <TooltipContent className="coslash-shell">
+        No pricing info for {models.join(', ')}, excluded from this estimate.
+      </TooltipContent>
     </Tooltip>
   );
 }

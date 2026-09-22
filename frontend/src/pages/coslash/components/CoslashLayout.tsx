@@ -149,7 +149,7 @@ const styles = {
   header:
     'flex h-[60px] items-center justify-between gap-3.5 border-b border-coslash-line bg-coslash-surface px-5 max-compact:px-3',
   banner:
-    'flex items-center gap-2.5 border-b border-coslash-clay bg-coslash-clay-bg px-5 py-2.5 text-xs text-coslash-clay [&>svg]:size-4',
+    'flex items-center gap-2.5 border-b border-danger-fg bg-danger-bg px-5 py-2.5 text-xs text-danger-fg [&>svg]:size-4',
   sidebar:
     'coslash-sidebar sticky top-0 max-h-[calc(100svh-60px)] min-h-[calc(100svh-60px)] w-[214px] shrink-0 overflow-y-auto border-r border-coslash-line bg-coslash-surface px-3 py-5 [scrollbar-width:none] max-sidebar:hidden [&::-webkit-scrollbar]:hidden',
   sideHeading:
@@ -178,8 +178,8 @@ function sessionStatusGroup(session: Session): SessionStatusGroup {
 }
 
 function statusDot(status: SessionStatusGroup): string {
-  if (status === 'needs') return 'bg-coslash-amber-dot';
-  if (status === 'running') return 'bg-coslash-green-dot';
+  if (status === 'needs') return 'bg-warning';
+  if (status === 'running') return 'bg-success';
   return 'bg-coslash-neutral-dot';
 }
 
@@ -549,7 +549,7 @@ function CoslashHeader({
             <Button
               variant="outline"
               size="sm"
-              className="border-coslash-clay text-coslash-clay ml-auto bg-transparent"
+              className="border-danger-fg text-danger-fg ml-auto bg-transparent"
               onClick={onSettings}
             >
               <Settings /> Open Settings
@@ -558,7 +558,7 @@ function CoslashHeader({
             <Button
               variant="outline"
               size="sm"
-              className="border-coslash-clay text-coslash-clay ml-auto bg-transparent"
+              className="border-danger-fg text-danger-fg ml-auto bg-transparent"
               onClick={onRetry}
               disabled={retrying}
             >
@@ -691,8 +691,8 @@ function SessionRow({
       <td className={cn(cell, 'max-sidebar:w-auto max-compact:hidden w-[168px]')}>
         <span
           className={cn('text-cell text-coslash-muted flex items-center gap-[7px] whitespace-nowrap', {
-            'text-coslash-amber-ink': status === 'needs',
-            'text-coslash-green-ink': status === 'running',
+            'text-warning-fg': status === 'needs',
+            'text-success-fg': status === 'running',
           })}
           title={STATUS_META[status].hint}
         >
@@ -702,7 +702,7 @@ function SessionRow({
         <span
           className={cn(
             'text-meta text-coslash-muted mt-0.5 block truncate',
-            { 'text-coslash-clay font-[550]': readiness.key === 'fresh' },
+            { 'text-danger-fg font-[550]': readiness.key === 'fresh' },
             hideWhenCompact,
           )}
         >
@@ -822,7 +822,7 @@ function BoardGroupByMenu<T extends BoardRowGroupBy>({
           <ChevronDown aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-40">
+      <DropdownMenuContent align="end" className="coslash-shell min-w-40">
         <DropdownMenuRadioGroup value={value} onValueChange={(next) => onChange(next as T)}>
           {options.map((option) => (
             <DropdownMenuRadioItem key={option.value} value={option.value} className="text-meta">

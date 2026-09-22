@@ -192,7 +192,7 @@ export function DetailLoadError({
   const refreshSessions = kind === 'stale' || kind === 'missing' || kind === 'corrupt';
   return (
     <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-      <div className="text-destructive text-sm">{message}</div>
+      <div className="text-danger-fg text-sm">{message}</div>
       {refreshSessions && (
         <Button variant="outline" size="sm" onClick={onRefresh}>
           Refresh sessions
@@ -451,7 +451,7 @@ function contextFillReadiness(detail: SessionDetail): { value: string; tone: str
   if (detail.contextWindow == null) {
     return {
       value: `${formatTokens(detail.contextTokens)} used - window not available`,
-      tone: 'text-muted-foreground',
+      tone: 'text-coslash-muted',
     };
   }
   const pct = Math.round((detail.contextTokens / detail.contextWindow) * 100);
@@ -472,19 +472,19 @@ function treeStaleReadiness(lastEditAt: number | null): { value: string; tone: s
 }
 
 function fillTone(pct: number): string {
-  if (pct >= 85) return 'text-destructive';
+  if (pct >= 85) return 'text-danger-fg';
   if (pct >= 65) return 'text-warning-fg';
   return 'text-success-fg';
 }
 
 function driftTone(behind: number): string {
-  if (behind > 15) return 'text-destructive';
+  if (behind > 15) return 'text-danger-fg';
   if (behind > 5) return 'text-warning-fg';
   return 'text-success-fg';
 }
 
 function staleTone(ageMs: number): string {
-  if (ageMs > 72 * HOUR) return 'text-destructive';
+  if (ageMs > 72 * HOUR) return 'text-danger-fg';
   if (ageMs > 3 * HOUR) return 'text-warning-fg';
   return 'text-success-fg';
 }
@@ -493,13 +493,13 @@ function SectionLabel({ title, note }: { title: string; note?: string }) {
   return (
     <div className="flex items-baseline gap-2 pb-2">
       <span className="text-brand text-xs font-bold tracking-widest">{title}</span>
-      {note && <span className="text-muted-foreground text-xs">{note}</span>}
+      {note && <span className="text-coslash-muted text-xs">{note}</span>}
     </div>
   );
 }
 
 function FieldLabel({ children }: { children: string }) {
-  return <div className="text-muted-foreground pb-1 text-xs font-semibold tracking-wide">{children}</div>;
+  return <div className="text-coslash-muted pb-1 text-xs font-semibold tracking-wide">{children}</div>;
 }
 
 export function SessionModelUsage({
@@ -517,12 +517,12 @@ export function SessionModelUsage({
     <span className="inline-flex items-center gap-1">
       <span className="inline-flex items-center gap-1">
         {otherModels.map((otherModel) => (
-          <span key={otherModel} aria-hidden="true" className="size-2 rounded-full bg-neutral-200" />
+          <span key={otherModel} aria-hidden="true" className="bg-coslash-neutral-dot size-2 rounded-full" />
         ))}
         <span aria-hidden="true" className={cn('size-2 rounded-full bg-current', vendor.fg)} />
       </span>
       <span className={cn('font-bold', vendor.fg)}>{model}</span>
-      <span className="text-muted-foreground">
+      <span className="text-coslash-muted">
         {otherModels.length === 1 ? `after ${otherModels[0]}` : `with ${otherModels.length} other models`}
       </span>
     </span>
@@ -534,7 +534,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
 
   return (
     <div className="flex flex-col gap-2 pt-2">
-      <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-xs">
+      <div className="text-coslash-muted flex flex-wrap items-center justify-between gap-x-2 gap-y-1 font-mono text-xs">
         <div className="flex min-w-40 flex-1 items-center gap-1 overflow-hidden">
           <Badge variant="secondary">{sessionLocationFact(detail)}</Badge>
           <span>/</span>
@@ -562,7 +562,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
           {displayStatusLabel(detail)} · {getModality(detail.entrypoint)}
         </span>
       </div>
-      <div className="bg-muted rounded-lg border p-2 font-mono text-xs">
+      <div className="bg-coslash-soft rounded-lg border p-2 font-mono text-xs">
         <div className="flex flex-wrap items-baseline justify-between gap-1">
           <SessionModelUsage agent={detail.agent} model={detail.model} tokens={detail.tokens} />
           <span className="font-bold">
@@ -571,7 +571,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
             </UnpricedModelWarning>
           </span>
         </div>
-        <div className="text-muted-foreground pt-1">
+        <div className="text-coslash-muted pt-1">
           {formatDuration(detail.durationMs)} · {detail.turns} turns · {detail.toolUses} tools ·{' '}
           {detail.errors} errors
         </div>
@@ -583,8 +583,8 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
 
 function ReadinessCell({ label, value, tone }: { label: string; value?: string; tone?: string }) {
   return (
-    <div className="bg-background p-2">
-      <div className="text-muted-foreground text-xs">{label}</div>
+    <div className="bg-coslash-surface p-2">
+      <div className="text-coslash-muted text-xs">{label}</div>
       <div className={cn('pt-1 text-xs font-semibold', tone)}>{value ?? '—'}</div>
     </div>
   );
@@ -593,7 +593,7 @@ function ReadinessCell({ label, value, tone }: { label: string; value?: string; 
 function CacheWindowMark({ within, label }: { within: boolean; label: string }) {
   return (
     <span
-      className={cn('flex items-center gap-1 text-xs', within ? 'text-success-fg' : 'text-muted-foreground')}
+      className={cn('flex items-center gap-1 text-xs', within ? 'text-success-fg' : 'text-coslash-muted')}
     >
       {within ? <CheckIcon className="size-3 shrink-0" /> : <XIcon className="size-3 shrink-0" />}
       {label}
@@ -614,13 +614,13 @@ function PromptCacheCell({ lastAccessAt }: { lastAccessAt: number }) {
   }, [nextRefreshAt]);
 
   return (
-    <div className="bg-background p-2">
-      <div className="text-muted-foreground text-xs">Prompt cache</div>
+    <div className="bg-coslash-surface p-2">
+      <div className="text-coslash-muted text-xs">Prompt cache</div>
       <div className="flex flex-wrap items-baseline gap-1 pt-1">
         <span className={cn('text-xs font-semibold', within1h ? 'text-success-fg' : 'text-warning-fg')}>
           {within1h ? 'warm' : 'cold'}
         </span>
-        <span className="text-muted-foreground text-xs">{formatTimeAgo(lastAccessAt)}</span>
+        <span className="text-coslash-muted text-xs">{formatTimeAgo(lastAccessAt)}</span>
       </div>
       <div className="flex flex-wrap gap-2 pt-1">
         <CacheWindowMark within={within5m} label="5 min" />
@@ -630,9 +630,16 @@ function PromptCacheCell({ lastAccessAt }: { lastAccessAt: number }) {
   );
 }
 
+/* Brand-filled CTA. Replaces the Button default variant's fill, text, and hover as
+   one set: overriding only the fill leaves the variant's hover:bg-primary in place,
+   which drops the button to the shadcn neutral on hover. Hover mixes toward
+   --foreground so it gains contrast against the surface in either theme. */
+const brandCta =
+  'bg-brand text-brand-foreground hover:bg-[color-mix(in_oklch,var(--brand),var(--foreground)_10%)]';
+
 function LaunchError({ message }: { message: string | null }) {
   if (message == null) return null;
-  return <span className="text-destructive text-xs">{message}</span>;
+  return <span className="text-danger-fg text-xs">{message}</span>;
 }
 
 function DisabledLaunchTooltip({ hint, children }: { hint?: string; children: ReactNode }) {
@@ -643,7 +650,7 @@ function DisabledLaunchTooltip({ hint, children }: { hint?: string; children: Re
         <TooltipTrigger asChild>
           <span tabIndex={0}>{children}</span>
         </TooltipTrigger>
-        <TooltipContent>{hint}</TooltipContent>
+        <TooltipContent className="coslash-shell">{hint}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );
@@ -659,7 +666,7 @@ function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; 
     <div className="flex flex-col gap-1">
       <DisabledLaunchTooltip hint={disabledHint}>
         <Button
-          className="bg-brand w-fit p-2 text-xs"
+          className={cn(brandCta, 'w-fit p-2 text-xs')}
           onClick={() => launch(opensCursor ? 'open' : 'resume')}
           disabled={disabled}
         >
@@ -703,7 +710,7 @@ function StartNewSessionButton({
     <div className="flex flex-col gap-1">
       <DisabledLaunchTooltip hint={effectiveHint}>
         <Button
-          className="bg-brand w-fit p-2 text-xs"
+          className={cn(brandCta, 'w-fit p-2 text-xs')}
           onClick={() => void startNewSession()}
           disabled={disabled}
         >
@@ -752,7 +759,7 @@ function HandoffSection({
   return (
     <div className="flex flex-col gap-2">
       <SectionLabel title="RESUME OR HAND OFF" />
-      <div className="bg-border grid grid-cols-5 gap-px overflow-hidden rounded-lg border">
+      <div className="bg-coslash-line grid grid-cols-5 gap-px overflow-hidden rounded-lg border">
         <ReadinessCell label="Context used" value={contextFill?.value} tone={contextFill?.tone} />
         <ReadinessCell label="Compactions" value={String(detail.compactions)} />
         <ReadinessCell label="Branch" value={branchDrift?.value} tone={branchDrift?.tone} />
@@ -770,15 +777,15 @@ function HandoffSection({
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={() => void copyBrief()}>
           <span>Copy handoff</span>
         </Button>
-        {copied && <span className="text-xs text-neutral-300">copied to clipboard</span>}
+        {copied && <span className="text-coslash-muted text-xs">copied to clipboard</span>}
         {copyError && (
-          <span role="alert" className="text-destructive text-xs">
+          <span role="alert" className="text-danger-fg text-xs">
             {copyError}
           </span>
         )}
       </div>
       {!isLocalSession(detail) && (
-        <div className="text-muted-foreground text-xs">
+        <div className="text-coslash-muted text-xs">
           {!exactDetailsAvailable
             ? 'This inspector uses the bounded session-library summary. Complete commands and exact file diffs are unavailable for this session.'
             : remoteLaunchable
@@ -794,7 +801,7 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
   const goal = resolveGoal(detail);
   const synthesizing = detail.synthesis == null && detail.synthesisPending;
   const synthesisPlaceholder = (
-    <div className="text-muted-foreground flex items-center gap-1 pt-1 text-xs">
+    <div className="text-coslash-muted flex items-center gap-1 pt-1 text-xs">
       <LoaderCircleIcon className="size-3 animate-spin" />
       <span>Synthesizing…</span>
     </div>
@@ -811,7 +818,7 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
           </div>
         )}
         <div className={cn('flex items-center gap-2', { 'pt-3': detail.synthesisError != null })}>
-          <span className="text-muted-foreground text-xs">GOAL</span>
+          <span className="text-coslash-muted text-xs">GOAL</span>
           <Badge variant="secondary" className="text-xs">
             {goalSourceLabel(goal.source)}
           </Badge>
@@ -820,7 +827,7 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
           <DebriefProse key={`${sessionKey(detail)}:goal`} blocks={blocksFromTexts(goal.texts)} tone="goal" />
         </div>
         <div className="border-b pt-3" />
-        <div className="text-muted-foreground pt-3 text-xs">OUTCOME</div>
+        <div className="text-coslash-muted pt-3 text-xs">OUTCOME</div>
         {synthesizing ? (
           synthesisPlaceholder
         ) : (
@@ -833,14 +840,14 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
             />
           </div>
         )}
-        <div className="text-muted-foreground pt-3 text-xs">KEY DECISIONS</div>
+        <div className="text-coslash-muted pt-3 text-xs">KEY DECISIONS</div>
         {synthesizing ? (
           synthesisPlaceholder
         ) : detail.synthesis?.keyDecisions.length ? (
           <div className="flex flex-col gap-1 pt-1">
             {detail.synthesis.keyDecisions.map((decision) => (
               <div key={decision} className="flex items-start gap-2 text-xs">
-                <span className="bg-muted-foreground mt-1 size-1 shrink-0 rounded-full" />
+                <span className="bg-coslash-muted mt-1 size-1 shrink-0 rounded-full" />
                 <span>{decision}</span>
               </div>
             ))}
@@ -877,9 +884,9 @@ function DebriefProse({
     <div className="flex flex-col gap-2">
       <div
         key={expanded ? 'full' : 'preview'}
-        className={cn('border-border border-l-2 pl-3', {
-          'border-l-brand/40': tone === 'goal',
-          'border-l-recap/40': tone === 'outcome',
+        className={cn('border-coslash-line border-l-2 pl-3', {
+          'border-l-brand': tone === 'goal',
+          'border-l-recap': tone === 'outcome',
         })}
       >
         <DebriefBlocks blocks={shown} tone={tone} />
@@ -940,7 +947,7 @@ function DebriefBlocks({ blocks, tone }: { blocks: DebriefBlock[]; tone: 'goal' 
             >
               {block.items.map((item, itemIndex) => (
                 <li key={`${index}-${itemIndex}`} className="flex items-start gap-2">
-                  <span className="bg-muted-foreground mt-1.5 size-1 shrink-0 rounded-full" />
+                  <span className="bg-coslash-muted mt-1.5 size-1 shrink-0 rounded-full" />
                   <span className="min-w-0 flex-1 leading-relaxed">{item}</span>
                 </li>
               ))}
@@ -970,7 +977,7 @@ const DIGEST_CATEGORIES: Record<DigestCategory, { label: string; fg: string; dot
   first_prompt: { label: 'FIRST PROMPT', fg: 'text-success-fg', dot: 'bg-success-fg' },
   question: { label: 'QUESTION', fg: 'text-question', dot: 'bg-question' },
   subagent: { label: 'Subagent', fg: 'text-subagent', dot: 'bg-subagent' },
-  todos: { label: 'TODOS', fg: 'text-muted-foreground', dot: 'bg-muted-foreground' },
+  todos: { label: 'TODOS', fg: 'text-coslash-muted', dot: 'bg-coslash-muted' },
   recap: { label: 'RECAP', fg: 'text-recap', dot: 'bg-recap' },
   user: { label: 'USER TURN', fg: 'text-brand', dot: 'bg-brand' },
   compaction: { label: 'COMPACTION', fg: 'text-compaction', dot: 'bg-compaction' },
@@ -991,20 +998,20 @@ function CategoryChip({
   return (
     <div
       className={cn('flex cursor-pointer items-center gap-1 rounded-full border px-2 py-1 select-none', {
-        'bg-muted': active,
+        'bg-coslash-soft': active,
         'border-dashed': !active,
       })}
       onClick={onToggle}
     >
-      <span className={cn('size-2 rounded-full', active ? meta.dot : 'bg-neutral-300')} />
+      <span className={cn('size-2 rounded-full', active ? meta.dot : 'bg-coslash-neutral-dot')} />
       <span
         className={cn('text-xs font-semibold', {
-          'text-muted-foreground': !active,
+          'text-coslash-muted': !active,
         })}
       >
         {meta.label}
       </span>
-      <span className="text-muted-foreground text-xs">{count}</span>
+      <span className="text-coslash-muted text-xs">{count}</span>
     </div>
   );
 }
@@ -1015,12 +1022,12 @@ function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }
   const collapsible = entry.category === 'recap' && entry.description.length > 120;
 
   return (
-    <div className={cn('border-border flex items-baseline gap-2 py-1', { 'border-b': !endsDay })}>
+    <div className={cn('border-coslash-line flex items-baseline gap-2 py-1', { 'border-b': !endsDay })}>
       <span className={cn('w-24 shrink-0 text-xs font-bold tracking-wide', meta.fg)}>{meta.label}</span>
       <div className="min-w-0 flex-1">
         <div className={cn('text-xs', { 'line-clamp-1': collapsible && !expanded })}>{entry.description}</div>
         {entry.answer != null && (
-          <div className="border-border text-muted-foreground border-l-2 pl-2 text-xs">{entry.answer}</div>
+          <div className="border-coslash-line text-coslash-muted border-l-2 pl-2 text-xs">{entry.answer}</div>
         )}
         {collapsible && (
           <div
@@ -1032,10 +1039,10 @@ function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }
           </div>
         )}
       </div>
-      <span className="text-muted-foreground flex shrink-0 flex-col items-end font-mono text-xs whitespace-nowrap">
+      <span className="text-coslash-muted flex shrink-0 flex-col items-end font-mono text-xs whitespace-nowrap">
         <span>turn {entry.turn}</span>
         {entry.time != null && entry.time > 0 && (
-          <span className="text-muted-foreground">{formatDigestTime(entry.time)}</span>
+          <span className="text-coslash-muted">{formatDigestTime(entry.time)}</span>
         )}
       </span>
     </div>
@@ -1059,7 +1066,7 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
               <span className="min-w-0 truncate text-sm font-semibold">{subagent.name}</span>
               <SubagentModelBadge model={subagent.model} />
             </div>
-            <div className="text-muted-foreground truncate pt-1 text-xs">
+            <div className="text-coslash-muted truncate pt-1 text-xs">
               {subagent.result === '' ? status : `${status}: ${subagent.result}`}
             </div>
           </div>
@@ -1076,10 +1083,10 @@ function SubagentDigestRow({ subagentId, detail }: { subagentId: string; detail:
 
 function DateDivider({ label }: { label: string }) {
   return (
-    <div className="text-muted-foreground grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 text-xs font-bold tracking-wide">
-      <span className="bg-border h-px" />
+    <div className="text-coslash-muted grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-2 text-xs font-bold tracking-wide">
+      <span className="bg-coslash-line h-px" />
       <span>{label}</span>
-      <span className="bg-border h-px" />
+      <span className="bg-coslash-line h-px" />
     </div>
   );
 }
@@ -1140,10 +1147,10 @@ function DigestSection({ detail }: { detail: SessionDetail }) {
     <div>
       <div className="flex items-baseline justify-between gap-2 pb-2">
         <div className="flex items-baseline gap-2">
-          <span className="text-muted-foreground text-xs font-semibold tracking-wide">TIMELINE</span>
-          <span className="text-muted-foreground text-xs">key events from this session</span>
+          <span className="text-coslash-muted text-xs font-semibold tracking-wide">TIMELINE</span>
+          <span className="text-coslash-muted text-xs">key events from this session</span>
         </div>
-        <span className="text-muted-foreground text-xs">{dateRange}</span>
+        <span className="text-coslash-muted text-xs">{dateRange}</span>
       </div>
       <div className="flex flex-wrap gap-1 pb-2">
         {(Object.keys(DIGEST_CATEGORIES) as DigestCategory[])
@@ -1165,9 +1172,9 @@ function DigestSection({ detail }: { detail: SessionDetail }) {
 
 function StatCell({ value, label }: { value: string; label: string }) {
   return (
-    <div className="bg-background p-2">
+    <div className="bg-coslash-surface p-2">
       <div className="text-base font-bold">{value}</div>
-      <div className="text-muted-foreground text-xs">{label}</div>
+      <div className="text-coslash-muted text-xs">{label}</div>
     </div>
   );
 }
@@ -1183,11 +1190,11 @@ function ArtifactStats({ detail }: { detail: SessionDetail }) {
   return (
     <div>
       <SectionLabel title="ARTIFACTS" note="what this session produced" />
-      <div className="bg-border grid grid-cols-3 gap-px overflow-hidden rounded-lg border">
+      <div className="bg-coslash-line grid grid-cols-3 gap-px overflow-hidden rounded-lg border">
         {cells.map(([value, label]) => (
           <StatCell key={label} value={value} label={label} />
         ))}
-        <div className="bg-background" />
+        <div className="bg-coslash-surface" />
       </div>
     </div>
   );
@@ -1211,7 +1218,7 @@ function FilesChangedList({
             {onSelectFile == null ? (
               <span
                 title={fileEdit.path}
-                className={cn('text-muted-foreground min-w-0 truncate text-left', {
+                className={cn('text-coslash-muted min-w-0 truncate text-left', {
                   'text-success-fg': fileEdit.isNew,
                 })}
               >
@@ -1222,7 +1229,7 @@ function FilesChangedList({
                 type="button"
                 title={fileEdit.path}
                 className={cn(
-                  'text-muted-foreground min-w-0 cursor-pointer truncate text-left hover:underline',
+                  'text-coslash-muted min-w-0 cursor-pointer truncate text-left hover:underline',
                   {
                     'text-success-fg': fileEdit.isNew,
                   },
@@ -1234,8 +1241,8 @@ function FilesChangedList({
             )}
             <span className="whitespace-nowrap">
               <span className="text-success-fg">+{fileEdit.adds}</span>{' '}
-              <span className="text-destructive">−{fileEdit.dels}</span>{' '}
-              <span className="text-muted-foreground">
+              <span className="text-danger-fg">−{fileEdit.dels}</span>{' '}
+              <span className="text-coslash-muted">
                 · {fileEdit.edits} {fileEdit.edits === 1 ? 'edit' : 'edits'}
               </span>
             </span>
@@ -1252,7 +1259,7 @@ function CommitsAndTodos({ detail }: { detail: SessionDetail }) {
       <div className="min-w-0 flex-1">
         <FieldLabel>COMMITS</FieldLabel>
         {detail.commits.length === 0 ? (
-          <div className="text-muted-foreground text-xs">—</div>
+          <div className="text-coslash-muted text-xs">—</div>
         ) : (
           detail.commits.map((commit, index) => (
             <div key={index} className="truncate py-1 font-mono text-xs">
@@ -1264,13 +1271,13 @@ function CommitsAndTodos({ detail }: { detail: SessionDetail }) {
       <div className="min-w-0 flex-1">
         <FieldLabel>TODOS</FieldLabel>
         {detail.todos.length === 0 ? (
-          <div className="text-muted-foreground text-xs">none</div>
+          <div className="text-coslash-muted text-xs">none</div>
         ) : (
           detail.todos.map((todo, index) => (
             <div
               key={index}
               className={cn('flex items-start gap-1 py-1 text-xs', {
-                'text-muted-foreground': todo.done,
+                'text-coslash-muted': todo.done,
               })}
             >
               {todo.done ? (
@@ -1295,16 +1302,16 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
     <div className="pt-4">
       <div className="flex cursor-pointer items-center gap-2" onClick={() => setOpen(!open)}>
         {open ? (
-          <ChevronDownIcon className="text-muted-foreground size-3" />
+          <ChevronDownIcon className="text-coslash-muted size-3" />
         ) : (
-          <ChevronRightIcon className="text-muted-foreground size-3" />
+          <ChevronRightIcon className="text-coslash-muted size-3" />
         )}
         <FieldLabel>{`${detail.commands.length} COMMANDS`}</FieldLabel>
         <div className="flex-1 border-b" />
       </div>
       {open && (
-        <div className="max-h-44 overflow-auto rounded-lg bg-neutral-900 p-3">
-          <pre className="font-mono text-xs leading-relaxed wrap-break-word whitespace-pre-wrap text-neutral-300">
+        <div className="bg-coslash-soft max-h-44 overflow-auto rounded-lg p-3">
+          <pre className="text-coslash-ink font-mono text-xs leading-relaxed wrap-break-word whitespace-pre-wrap">
             {detail.commands.join('\n')}
           </pre>
         </div>
@@ -1365,12 +1372,12 @@ function InspectorFooter({
     isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
 
   return (
-    <SheetFooter className="bg-muted flex-row items-center justify-between gap-4 border-t">
+    <SheetFooter className="bg-coslash-soft flex-row items-center justify-between gap-4 border-t">
       <div className="flex min-w-0 flex-col">
         <span className="text-xs">
           {opensCursor ? 'Open workspace in Cursor' : 'Resume this exact session'}
         </span>
-        <span className="text-muted-foreground text-xs font-light">
+        <span className="text-coslash-muted text-xs font-light">
           {isLocalSession(detail)
             ? opensCursor
               ? 'Cursor does not expose an IDE deep link, so this opens the workspace without restoring this chat.'
@@ -1480,7 +1487,7 @@ export function SessionInspector({
       <SheetContent
         ref={contentRef}
         tabIndex={-1}
-        className="w-full! max-w-none! gap-0 outline-none sm:w-[440px]!"
+        className="coslash-shell w-full! max-w-none! gap-0 outline-none sm:w-[440px]!"
         showCloseButton={true}
         onInteractOutside={(event) => {
           if (!modal) event.preventDefault();
@@ -1494,7 +1501,7 @@ export function SessionInspector({
         {isOpen && isLoading && (
           <div
             role="status"
-            className="text-muted-foreground flex flex-1 items-center justify-center gap-2 text-xs"
+            className="text-coslash-muted flex flex-1 items-center justify-center gap-2 text-xs"
           >
             <LoaderCircleIcon className="size-4 animate-spin" />
             Loading exact session details…
@@ -1519,7 +1526,7 @@ export function SessionInspector({
                 <div className="flex items-center gap-2 pr-10">
                   <SessionVendorBadge agent={detail.agent} />
                   <div className="min-w-0 flex-1">
-                    <SessionName name={detail.name} variant="inspector" />
+                    <SessionName name={detail.name} />
                   </div>
                   <SessionId id={detail.id} shortened />
                   {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
@@ -1570,7 +1577,7 @@ export function SessionInspector({
           if (!open) setSelectedDiff(null);
         }}
       >
-        <SheetContent className="w-full! max-w-none! gap-0 sm:w-1/2!" showCloseButton={true}>
+        <SheetContent className="coslash-shell w-full! max-w-none! gap-0 sm:w-1/2!" showCloseButton={true}>
           {selectedDiff != null && (
             <>
               <SheetHeader className="border-b">

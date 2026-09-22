@@ -20,10 +20,10 @@ import {
 function SectionLabel({ children }: { children: string }) {
   return (
     <div className="flex items-center gap-2 px-0.5">
-      <span className="text-muted-foreground text-[11px] font-semibold tracking-widest uppercase">
+      <span className="text-coslash-muted text-[11px] font-semibold tracking-widest uppercase">
         {children}
       </span>
-      <span className="bg-border h-px flex-1" />
+      <span className="bg-coslash-line h-px flex-1" />
     </div>
   );
 }
@@ -51,7 +51,7 @@ function SelectControl({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className={cn(
-          'border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring h-8 w-full cursor-pointer appearance-none rounded-lg border pr-8 pl-2.5 text-[13px] font-medium outline-none focus-visible:ring-3 sm:min-w-52',
+          'border-coslash-line bg-coslash-surface text-coslash-ink focus-visible:border-coslash-accent focus-visible:ring-coslash-accent h-8 w-full cursor-pointer appearance-none rounded-lg border pr-8 pl-2.5 text-[13px] font-medium outline-none focus-visible:ring-3 sm:min-w-52',
           { 'font-mono text-xs': mono },
         )}
       >
@@ -59,7 +59,7 @@ function SelectControl({
       </select>
       <ChevronDown
         aria-hidden="true"
-        className="text-muted-foreground pointer-events-none absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2"
+        className="text-coslash-muted pointer-events-none absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2"
       />
     </div>
   );
@@ -76,7 +76,7 @@ function SynthesisPreference({
     <div className="flex items-center justify-between gap-4 p-4">
       <div className="flex min-w-0 flex-col gap-1">
         <div className="text-sm font-semibold">AI synthesis</div>
-        <div className="text-muted-foreground text-xs text-pretty">
+        <div className="text-coslash-muted text-xs text-pretty">
           Summarize eligible session transcripts through a local CLI.
         </div>
       </div>
@@ -86,11 +86,11 @@ function SynthesisPreference({
         aria-label="AI synthesis"
         aria-checked={enabled}
         onClick={() => onChange(!enabled)}
-        className="bg-input focus-visible:border-ring focus-visible:ring-ring aria-checked:bg-primary relative inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors outline-none focus-visible:ring-3"
+        className="bg-coslash-line focus-visible:border-coslash-accent focus-visible:ring-coslash-accent aria-checked:bg-primary relative inline-flex h-6 w-10 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors outline-none focus-visible:ring-3"
       >
         <span
           className={cn(
-            'bg-background pointer-events-none size-5 rounded-full shadow-sm transition-transform',
+            'bg-coslash-surface pointer-events-none size-5 rounded-full shadow-sm transition-transform',
             {
               'translate-x-4': enabled,
               'translate-x-0': !enabled,
@@ -133,7 +133,7 @@ function BackendChoice({
       title={option.available ? name : `The ${BACKEND_BINARY[option.id] ?? option.id} CLI is not available`}
       onClick={onSelect}
       className={cn(
-        'border-border bg-background text-foreground focus-visible:ring-ring flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-3 py-3 text-left transition-shadow outline-none focus-visible:ring-3',
+        'border-coslash-line bg-coslash-surface text-coslash-ink focus-visible:ring-coslash-accent flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-3 py-3 text-left transition-shadow outline-none focus-visible:ring-3',
         {
           'ring-foreground ring-2 ring-inset': selected,
           'cursor-not-allowed opacity-50': !option.available,
@@ -276,16 +276,16 @@ export function SettingsDialog({
   };
 
   const status = saveError
-    ? { label: 'Save failed', className: 'text-destructive' }
+    ? { label: 'Save failed', className: 'text-danger-fg' }
     : isSaving
-      ? { label: 'Saving…', className: 'text-muted-foreground' }
+      ? { label: 'Saving…', className: 'text-coslash-muted' }
       : !synthesisBackendAvailable
         ? { label: 'Backend unavailable', className: 'text-warning-fg' }
         : response?.valid === false
           ? { label: 'Repair required', className: 'text-warning-fg' }
           : isFirstRun
             ? { label: 'Not saved yet', className: 'text-warning-fg' }
-            : { label: 'Saved', className: 'text-muted-foreground' };
+            : { label: 'Saved', className: 'text-coslash-muted' };
 
   return (
     <Dialog
@@ -297,7 +297,7 @@ export function SettingsDialog({
       }}
     >
       <DialogContent
-        className="flex max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
+        className="coslash-shell flex max-h-[calc(100svh-2rem)] flex-col gap-0 overflow-hidden p-0 shadow-2xl sm:max-w-xl"
         showCloseButton={!requiresConsent && !remoteOperationInProgress}
         onEscapeKeyDown={(event) => (requiresConsent || remoteOperationInProgress) && event.preventDefault()}
         onPointerDownOutside={(event) =>
@@ -310,7 +310,7 @@ export function SettingsDialog({
           </DialogTitle>
           <DialogDescription className="flex items-center gap-1.5 text-xs">
             <span>Machine-wide.</span>
-            <code className="bg-muted rounded-md px-1.5 py-0.5 font-mono text-[11px]">
+            <code className="bg-coslash-soft rounded-md px-1.5 py-0.5 font-mono text-[11px]">
               ~/.coslash/settings.json
             </code>
           </DialogDescription>
@@ -323,22 +323,22 @@ export function SettingsDialog({
           })}
         >
           {isLoading ? (
-            <div className="text-muted-foreground py-8 text-sm">Loading settings…</div>
+            <div className="text-coslash-muted py-8 text-sm">Loading settings…</div>
           ) : loadError ? (
-            <div role="alert" className="text-destructive py-4 text-sm">
+            <div role="alert" className="text-danger-fg py-4 text-sm">
               Could not load settings: {loadError}
             </div>
           ) : response && draft ? (
             <div className="flex flex-col gap-5">
               {!response.valid && (
-                <div role="alert" className="text-destructive rounded-xl border p-3 text-sm">
+                <div role="alert" className="text-danger-fg rounded-xl border p-3 text-sm">
                   {response.error} Save valid settings below to repair the file.
                 </div>
               )}
 
               <div className="flex flex-col gap-2">
                 <SectionLabel>Synthesis</SectionLabel>
-                <div className="border-border bg-card overflow-hidden rounded-xl border">
+                <div className="border-coslash-line bg-coslash-surface overflow-hidden rounded-xl border">
                   <SynthesisPreference
                     enabled={draft.synthesis.enabled}
                     onChange={(enabled) =>
@@ -347,11 +347,11 @@ export function SettingsDialog({
                   />
 
                   {draft.synthesis.enabled ? (
-                    <div className="bg-muted flex flex-col gap-4 border-t p-4">
+                    <div className="bg-coslash-soft flex flex-col gap-4 border-t p-4">
                       <div className="flex flex-col gap-2">
                         <div className="flex items-baseline justify-between gap-3">
                           <div className="text-[13px] font-semibold">Backend</div>
-                          <div className="text-muted-foreground text-[11px]">
+                          <div className="text-coslash-muted text-[11px]">
                             Runs through your existing CLI account
                           </div>
                         </div>
@@ -374,7 +374,7 @@ export function SettingsDialog({
                             />
                           ))}
                           {!hasSynthesisBackends && (
-                            <div className="text-muted-foreground py-2 text-xs sm:col-span-2">
+                            <div className="text-coslash-muted py-2 text-xs sm:col-span-2">
                               No supported CLI detected
                             </div>
                           )}
@@ -383,19 +383,19 @@ export function SettingsDialog({
 
                       <div
                         className={cn(
-                          'border-border flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between',
+                          'border-coslash-line flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between',
                           { hidden: !hasSynthesisBackends },
                         )}
                       >
                         <div className="flex min-w-0 flex-col gap-1">
                           <div className="text-[13px] font-semibold">Model</div>
-                          <div className="text-muted-foreground text-[11px]">
+                          <div className="text-coslash-muted text-[11px]">
                             {selectedBackend ? `${backendName(selectedBackend)} models` : 'Select a backend'}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
                           {selectedModel?.default && (
-                            <span className="border-border bg-background text-muted-foreground inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold">
+                            <span className="border-coslash-line bg-coslash-surface text-coslash-muted inline-flex rounded-full border px-2 py-1 text-[11px] font-semibold">
                               Default
                             </span>
                           )}
@@ -417,12 +417,12 @@ export function SettingsDialog({
                         </div>
                       </div>
 
-                      <div className="border-border border-t pt-3">
+                      <div className="border-coslash-line border-t pt-3">
                         <button
                           type="button"
                           aria-expanded={disclosureOpen}
                           onClick={() => setDisclosureOpen((current) => !current)}
-                          className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold"
+                          className="text-coslash-muted flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold"
                         >
                           <ChevronRight
                             aria-hidden="true"
@@ -432,7 +432,7 @@ export function SettingsDialog({
                           What synthesis sends
                         </button>
                         {disclosureOpen && (
-                          <div className="text-muted-foreground pt-2 text-[11px] leading-relaxed text-pretty">
+                          <div className="text-coslash-muted pt-2 text-[11px] leading-relaxed text-pretty">
                             coSlash sends derived session facts through the selected CLI using your existing
                             account. This may consume account usage. Results are cached under{' '}
                             <code className="font-mono">~/.coslash</code>. Source transcripts are never
@@ -442,7 +442,7 @@ export function SettingsDialog({
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-muted text-muted-foreground border-t px-4 py-3 text-[11px]">
+                    <div className="bg-coslash-soft text-coslash-muted border-t px-4 py-3 text-[11px]">
                       Off — sessions get deterministic debriefs only. Nothing leaves this machine.
                     </div>
                   )}
@@ -452,11 +452,11 @@ export function SettingsDialog({
               {mode === 'full-settings' && (
                 <div className="flex flex-col gap-2">
                   <SectionLabel>Launch</SectionLabel>
-                  <div className="border-border bg-card overflow-hidden rounded-xl border">
+                  <div className="border-coslash-line bg-coslash-surface overflow-hidden rounded-xl border">
                     <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex min-w-0 flex-col gap-1">
                         <div className="text-sm font-semibold">Terminal</div>
-                        <div className="text-muted-foreground text-xs">
+                        <div className="text-coslash-muted text-xs">
                           Opens new, resumed, and handoff sessions.
                         </div>
                       </div>
@@ -477,7 +477,7 @@ export function SettingsDialog({
                     {selectedTerminal && !selectedTerminal.available && (
                       <div
                         role="alert"
-                        className="bg-muted text-warning-fg flex items-start gap-2 border-t px-4 py-3 text-[11px] text-pretty"
+                        className="bg-coslash-soft text-warning-fg flex items-start gap-2 border-t px-4 py-3 text-[11px] text-pretty"
                       >
                         <TriangleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
                         <span>
@@ -503,7 +503,7 @@ export function SettingsDialog({
               )}
 
               {saveError && (
-                <div role="alert" className="text-destructive text-sm">
+                <div role="alert" className="text-danger-fg text-sm">
                   {saveError}
                 </div>
               )}
@@ -511,7 +511,7 @@ export function SettingsDialog({
           ) : null}
         </div>
 
-        <div className="bg-muted relative z-10 flex shrink-0 items-center justify-between gap-4 border-t px-4 py-3 shadow-[0_-8px_16px_-12px_rgba(0,0,0,0.35)]">
+        <div className="bg-coslash-soft relative z-10 flex shrink-0 items-center justify-between gap-4 border-t px-4 py-3 shadow-[0_-8px_16px_-12px_rgba(0,0,0,0.35)]">
           <div className={cn('flex items-center gap-2 text-xs', status.className)}>
             <span className="size-1.5 rounded-full bg-current" />
             {status.label}

@@ -5,7 +5,7 @@ import type { DiagnosticsCheck } from '@/pages/coslash/lib/diagnostics';
 const CHECK_STYLE = {
   ok: { icon: CircleCheck, label: 'OK', className: 'text-success-fg' },
   warn: { icon: TriangleAlert, label: 'Warning', className: 'text-warning-fg' },
-  fail: { icon: CircleX, label: 'Failed', className: 'text-destructive' },
+  fail: { icon: CircleX, label: 'Failed', className: 'text-danger-fg' },
 } as const;
 
 export function DiagnosticsChecklist({ checks }: { checks: DiagnosticsCheck[] }) {
@@ -22,7 +22,7 @@ export function DiagnosticsChecklist({ checks }: { checks: DiagnosticsCheck[] })
                 <span className="text-sm font-medium">{check.title}</span>
                 <span className={cn('text-xs font-semibold', style.className)}>{style.label}</span>
               </div>
-              <div className="text-muted-foreground pt-1 text-xs">{check.detail}</div>
+              <div className="text-coslash-muted pt-1 text-xs">{check.detail}</div>
               {check.fix && <div className="pt-1 text-xs">Fix: {check.fix}</div>}
             </div>
           </div>

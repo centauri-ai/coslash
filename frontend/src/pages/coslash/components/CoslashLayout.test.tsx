@@ -73,8 +73,11 @@ function storeSort(sort: SessionSort) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-function dotFor(markup: string, colour: 'green' | 'amber' | 'clay'): string {
-  return markup.slice(markup.indexOf(`bg-coslash-${colour}-dot`));
+/** The tone class alone, so `bg-success` does not match the `bg-success-bg` wash. */
+function dotFor(markup: string, tone: 'success' | 'warning' | 'danger'): string {
+  const at = markup.search(new RegExp(`bg-${tone}(?![\\w-])`));
+  if (at === -1) throw new Error(`no bg-${tone} dot in markup`);
+  return markup.slice(at);
 }
 
 function orderOf(markup: string, ...titles: string[]): number[] {
@@ -100,7 +103,7 @@ describe('CoslashLayout', () => {
 
     expect(markup).toContain('agent-box');
     expect(markup).toContain('lucide-server');
-    expect(dotFor(markup, 'green')).toContain('aria-label="Synced no saved history over SSH.');
+    expect(dotFor(markup, 'success')).toContain('aria-label="Synced no saved history over SSH.');
     expect(markup).not.toContain('lucide-activity');
     expect(markup).not.toContain('running ·');
     expect(markup).toContain('Filter groups');
@@ -316,7 +319,7 @@ describe('CoslashLayout', () => {
       ],
     });
 
-    expect(dotFor(markup, 'amber')).toContain('aria-label="Offline.');
+    expect(dotFor(markup, 'warning')).toContain('aria-label="Offline.');
     expect(markup).not.toContain('role="alert"');
   });
 
@@ -336,7 +339,7 @@ describe('CoslashLayout', () => {
       ],
     });
 
-    expect(dotFor(markup, 'amber')).toContain('aria-label="Connected.');
+    expect(dotFor(markup, 'warning')).toContain('aria-label="Connected.');
     expect(markup).not.toContain('Offline');
     expect(markup).not.toContain('role="alert"');
   });
@@ -366,7 +369,7 @@ describe('CoslashLayout', () => {
         machines: [machine],
       });
 
-      expect(dotFor(markup, 'clay')).toContain('aria-label="Connection needs attention.');
+      expect(dotFor(markup, 'danger')).toContain('aria-label="Connection needs attention.');
       expect(markup).toContain('role="alert"');
       expect(markup).toContain('Retry</button>');
       expect(markup).not.toContain('Open Settings');
@@ -387,7 +390,7 @@ describe('CoslashLayout', () => {
       ],
     });
 
-    expect(dotFor(markup, 'green')).toContain(
+    expect(dotFor(markup, 'success')).toContain(
       'aria-label="Connected. Older history was truncated, so these sessions are left out of the totals."',
     );
   });
@@ -405,7 +408,7 @@ describe('CoslashLayout', () => {
     };
     const markup = renderLayout({ machines: [machine] });
 
-    expect(dotFor(markup, 'amber')).toContain(`aria-label="${status}`);
+    expect(dotFor(markup, 'warning')).toContain(`aria-label="${status}`);
     expect(markup).not.toContain('role="alert"');
     expect(machineRetryable(machine)).toBe(true);
   });

@@ -5,7 +5,7 @@ export function LoadingSpinner({ isLoading, children }: { isLoading: boolean; ch
   if (isLoading) {
     return (
       <div role="status" aria-label="Loading" className="grid h-full place-items-center">
-        <LoaderCircle className="text-muted-foreground size-4 animate-spin" />
+        <LoaderCircle className="text-coslash-muted size-4 animate-spin" />
       </div>
     );
   }

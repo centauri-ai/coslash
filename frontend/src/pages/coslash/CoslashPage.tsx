@@ -74,7 +74,7 @@ function SettingsErrorBanner({
   return (
     <div
       role="alert"
-      className="text-destructive flex items-center justify-between gap-4 border-b bg-neutral-50 px-5 py-2 text-sm dark:bg-neutral-900"
+      className="text-danger-fg border-danger-fg bg-danger-bg flex items-center justify-between gap-4 border-b px-5 py-2 text-sm"
     >
       <span>{message}</span>
       <Button variant="outline" size="sm" onClick={onOpen}>

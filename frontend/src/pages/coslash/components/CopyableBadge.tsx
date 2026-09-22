@@ -56,7 +56,7 @@ export function CopyableBadge({
           {children}
         </Badge>
       </TooltipTrigger>
-      <TooltipContent className="font-mono break-all">
+      <TooltipContent className="coslash-shell font-mono break-all">
         {copied ? copiedLabel : `${value} · click to copy`}
       </TooltipContent>
     </Tooltip>

@@ -203,7 +203,7 @@ export function FullSessionShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-none! flex-col overflow-hidden sm:w-[min(64rem,calc(100vw-2rem))]">
+      <DialogContent className="coslash-shell flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-none! flex-col overflow-hidden sm:w-[min(64rem,calc(100vw-2rem))]">
         <DialogHeader className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <DialogTitle>Share full revision</DialogTitle>
@@ -243,7 +243,7 @@ export function FullSessionShareDialog({
             {phase === 'select' && (
               <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
                 {candidates.length === 0 ? (
-                  <div className="text-muted-foreground p-8 text-center text-sm">
+                  <div className="text-coslash-muted p-8 text-center text-sm">
                     No complete C01-backed SSH revision is currently eligible for full sharing.
                   </div>
                 ) : (
@@ -252,7 +252,7 @@ export function FullSessionShareDialog({
                     return (
                       <label
                         key={key}
-                        className="hover:bg-muted flex cursor-pointer items-start gap-3 border-b p-3 last:border-b-0"
+                        className="hover:bg-coslash-soft flex cursor-pointer items-start gap-3 border-b p-3 last:border-b-0"
                       >
                         <input
                           type="radio"
@@ -268,11 +268,11 @@ export function FullSessionShareDialog({
                           <span className="block truncate text-sm font-semibold">
                             {session.name ?? session.id}
                           </span>
-                          <span className="text-muted-foreground block truncate pt-1 text-xs">
+                          <span className="text-coslash-muted block truncate pt-1 text-xs">
                             {session.sourceLabel} · {session.repo ?? 'unknown repository'} ·{' '}
                             {session.branch ?? 'no branch'}
                           </span>
-                          <span className="text-muted-foreground block truncate pt-1 font-mono text-[11px]">
+                          <span className="text-coslash-muted block truncate pt-1 font-mono text-[11px]">
                             revision {session.fullRevision}
                           </span>
                         </span>
@@ -302,7 +302,7 @@ export function FullSessionShareDialog({
                     file-change bodies may contain credentials or other secrets. Review all content below.
                   </p>
                 </div>
-                <dl className="bg-border mt-3 grid gap-px overflow-hidden rounded-lg border text-sm sm:grid-cols-2">
+                <dl className="bg-coslash-line mt-3 grid gap-px overflow-hidden rounded-lg border text-sm sm:grid-cols-2">
                   {[
                     ['Destination', destination.workspaceName],
                     [
@@ -314,8 +314,8 @@ export function FullSessionShareDialog({
                     ['Repository', preview.envelope.repository.canonical],
                     ['Revision', preview.selection.revisionId],
                   ].map(([label, value]) => (
-                    <div key={label} className="bg-background min-w-0 p-3">
-                      <dt className="text-muted-foreground text-xs font-semibold">{label}</dt>
+                    <div key={label} className="bg-coslash-surface min-w-0 p-3">
+                      <dt className="text-coslash-muted text-xs font-semibold">{label}</dt>
                       <dd className="mt-1 truncate font-mono text-xs" title={value}>
                         {value}
                       </dd>
@@ -324,7 +324,7 @@ export function FullSessionShareDialog({
                 </dl>
                 <div className="mt-3 rounded-lg border p-3">
                   <div className="text-xs font-semibold">CANONICAL RECORD SHA-256</div>
-                  <div className="text-muted-foreground mt-1 font-mono text-xs break-all">
+                  <div className="text-coslash-muted mt-1 font-mono text-xs break-all">
                     {preview.recordSha256}
                   </div>
                 </div>
@@ -332,11 +332,11 @@ export function FullSessionShareDialog({
                   <h3 id="full-session-content" className="text-xs font-bold tracking-wide">
                     COMPLETE INCLUDED CONTENT
                   </h3>
-                  <p className="text-muted-foreground pt-1 text-xs">
+                  <p className="text-coslash-muted pt-1 text-xs">
                     This formatted canonical envelope includes every section and every ordered file-change
                     body sent to Hub.
                   </p>
-                  <pre className="bg-muted mt-2 max-h-[42vh] max-w-full overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
+                  <pre className="bg-coslash-soft mt-2 max-h-[42vh] max-w-full overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
                     {JSON.stringify(preview.envelope, null, 2)}
                   </pre>
                 </section>
