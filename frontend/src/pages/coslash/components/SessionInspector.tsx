@@ -609,9 +609,9 @@ export function SessionInspectorTitle({
 
 function ReadinessCell({ label, value, tone }: { label: string; value?: string; tone?: string }) {
   return (
-    <div className="bg-coslash-surface p-2">
-      <div className="text-coslash-muted text-xs">{label}</div>
-      <div className={cn('pt-1 text-xs font-semibold', tone)}>{value ?? '—'}</div>
+    <div className="bg-coslash-surface min-w-0 p-2">
+      <div className="text-coslash-muted text-xs wrap-break-word">{label}</div>
+      <div className={cn('pt-1 text-xs font-semibold wrap-break-word', tone)}>{value ?? '—'}</div>
     </div>
   );
 }
@@ -629,7 +629,7 @@ function CacheWindowMark({ within, label }: { within: boolean; label: string }) 
 
 // Cache TTL refreshes on every request, so warmth keys off the transcript's
 // last write: within 5 min both windows hold, within 1 hr only the 1-hr one.
-function PromptCacheCell({ lastAccessAt }: { lastAccessAt: number }) {
+function PromptCacheCell({ lastAccessAt, className }: { lastAccessAt: number; className?: string }) {
   const [now, setNow] = useState(Date.now);
   const { within5m, within1h, nextRefreshAt } = promptCacheTiming(lastAccessAt, now);
 
@@ -640,7 +640,7 @@ function PromptCacheCell({ lastAccessAt }: { lastAccessAt: number }) {
   }, [nextRefreshAt]);
 
   return (
-    <div className="bg-coslash-surface p-2">
+    <div className={cn('bg-coslash-surface p-2', className)}>
       <div className="text-coslash-muted text-xs">Prompt cache</div>
       <div className="flex flex-wrap items-baseline gap-1 pt-1">
         <span className={cn('text-xs font-semibold', within1h ? 'text-success-fg' : 'text-warning-fg')}>
@@ -783,14 +783,14 @@ function HandoffSection({
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="@container flex flex-col gap-2">
       <SectionLabel title="RESUME OR HAND OFF" />
-      <div className="bg-coslash-line grid grid-cols-5 gap-px overflow-hidden rounded-lg border">
+      <div className="bg-coslash-line grid grid-cols-3 gap-px overflow-hidden rounded-lg border @[560px]:grid-cols-5">
         <ReadinessCell label="Context used" value={contextFill?.value} tone={contextFill?.tone} />
         <ReadinessCell label="Compactions" value={String(detail.compactions)} />
         <ReadinessCell label="Branch" value={branchDrift?.value} tone={branchDrift?.tone} />
         <ReadinessCell label="Working tree" value={treeStale?.value} tone={treeStale?.tone} />
-        <PromptCacheCell lastAccessAt={detail.mtime} />
+        <PromptCacheCell lastAccessAt={detail.mtime} className="col-span-2 @[560px]:col-span-1" />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -1070,9 +1070,13 @@ function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }
     <div className={cn('border-coslash-line flex items-baseline gap-2 py-1', { 'border-b': !endsDay })}>
       <span className={cn('w-24 shrink-0 text-xs font-bold tracking-wide', meta.fg)}>{meta.label}</span>
       <div className="min-w-0 flex-1">
-        <div className={cn('text-xs', { 'line-clamp-1': collapsible && !expanded })}>{entry.description}</div>
+        <div className={cn('text-xs wrap-break-word', { 'line-clamp-1': collapsible && !expanded })}>
+          {entry.description}
+        </div>
         {entry.answer != null && (
-          <div className="border-coslash-line text-coslash-muted border-l-2 pl-2 text-xs">{entry.answer}</div>
+          <div className="border-coslash-line text-coslash-muted border-l-2 pl-2 text-xs wrap-break-word">
+            {entry.answer}
+          </div>
         )}
         {collapsible && (
           <div
@@ -1355,7 +1359,7 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
         <div className="flex-1 border-b" />
       </div>
       {open && (
-        <div className="bg-coslash-soft max-h-44 overflow-auto rounded-lg p-3">
+        <div className="bg-coslash-soft max-h-44 overflow-x-hidden overflow-y-auto rounded-lg p-3">
           <pre className="text-coslash-ink font-mono text-xs leading-relaxed wrap-break-word whitespace-pre-wrap">
             {detail.commands.join('\n')}
           </pre>
@@ -1382,7 +1386,7 @@ function InspectorBody({
   // scroll container shrink to fit instead of overflowing, which collapses
   // the overflow-hidden stat grids
   return (
-    <div className="flex-1 overflow-y-auto pb-2">
+    <div className="flex-1 overflow-x-hidden overflow-y-auto pb-2">
       <div className="flex flex-col gap-2 px-4">
         <HandoffSection
           detail={detail}
