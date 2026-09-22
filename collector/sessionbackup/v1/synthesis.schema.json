@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coslash.io/schemas/session-backup-synthesis-v1.json",
+  "title": "coSlash persisted synthesis cache record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent", "sessionId", "mtime", "model", "generatedAt", "synthesis"],
+  "properties": {
+    "agent": { "$ref": "#/$defs/identifier" },
+    "sessionId": { "$ref": "#/$defs/identifier" },
+    "mtime": { "type": "integer", "minimum": 1, "maximum": 253402300799999 },
+    "model": { "type": "string", "maxLength": 1048576 },
+    "generatedAt": { "type": "integer", "minimum": 0, "maximum": 253402300799999 },
+    "synthesis": { "$ref": "#/$defs/synthesis" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^/\\\\\\u0000-\\u0020\\u007f]+$"
+    },
+    "stringList": {
+      "type": ["array", "null"],
+      "maxItems": 100000,
+      "items": { "type": "string", "maxLength": 1048576 }
+    },
+    "synthesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goals", "outcome", "keyDecisions", "nextStep"],
+      "properties": {
+        "goals": { "$ref": "#/$defs/stringList" },
+        "outcome": { "type": "string", "maxLength": 1048576 },
+        "keyDecisions": { "$ref": "#/$defs/stringList" },
+        "nextStep": { "type": "string", "maxLength": 1048576 }
+      }
+    }
+  }
+}

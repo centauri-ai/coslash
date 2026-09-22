@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coslash.io/schemas/session-backup-v1.json",
+  "title": "coSlash complete session backup manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "canonicalVersion",
+    "requiredVersions",
+    "source",
+    "repository",
+    "producer",
+    "family",
+    "members",
+    "artifacts",
+    "summary",
+    "captureProblems",
+    "completeBackupSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "session-backup/v1" },
+    "canonicalVersion": { "const": "coslash-canonical-json/v1" },
+    "requiredVersions": {
+      "type": "array",
+      "oneOf": [
+        { "const": ["full-session-record/v1", "session-backup/v1"] },
+        { "const": ["full-session-record/v1", "session-backup-db-rows/v1", "session-backup/v1"] }
+      ]
+    },
+    "source": { "$ref": "#/$defs/source" },
+    "repository": { "$ref": "#/$defs/repository" },
+    "producer": { "$ref": "#/$defs/producer" },
+    "family": { "$ref": "#/$defs/family" },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/member" }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "summary": { "$ref": "#/$defs/summary" },
+    "captureProblems": {
+      "type": "array",
+      "maxItems": 0,
+      "items": { "$ref": "#/$defs/captureProblem" }
+    },
+    "completeBackupSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^/\\\\\\u0000-\\u0020\\u007f]+$"
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sourceId", "agent", "sourceRevision"],
+      "properties": {
+        "kind": { "enum": ["local", "ssh"] },
+        "sourceId": { "$ref": "#/$defs/identifier" },
+        "agent": { "const": "codex" },
+        "sourceRevision": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical", "vcs"],
+      "properties": {
+        "canonical": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+        "vcs": { "const": "git" }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "parserVersion"],
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "version": { "$ref": "#/$defs/identifier" },
+        "parserVersion": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "family": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["familyId", "rootMemberId"],
+      "properties": {
+        "familyId": { "$ref": "#/$defs/identifier" },
+        "rootMemberId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "memberId", "parentMemberId", "sourceRevision", "synthesisRevisionMs"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 0 },
+        "memberId": { "$ref": "#/$defs/identifier" },
+        "parentMemberId": { "type": "string", "maxLength": 512 },
+        "sourceRevision": { "$ref": "#/$defs/identifier" },
+        "synthesisRevisionMs": { "type": "integer", "minimum": 0, "maximum": 253402300799999 }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ordinal", "logicalName", "memberId", "source", "kind", "sourceKey", "mediaType", "encoding", "byteLength", "sha256"],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 0 },
+        "logicalName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^(?![A-Za-z]:/)(?!/)(?!.*//)(?!.*(?:^|/)\\.(?:/|$))(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])[^/]+(?:/[^/]+)*$"
+        },
+        "memberId": { "$ref": "#/$defs/identifier" },
+        "source": { "enum": ["codex", "coslash"] },
+        "kind": {
+          "enum": ["exact-change-body", "parsed-session-record", "raw-metadata-rows", "raw-sidecar", "raw-transcript", "session-enrichment", "synthesis"]
+        },
+        "sourceKey": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+        "mediaType": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+        "encoding": { "const": "identity" },
+        "byteLength": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "artifactCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "count"],
+      "properties": {
+        "kind": { "type": "string" },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactCount", "artifactCounts", "totalBytes"],
+      "properties": {
+        "artifactCount": { "type": "integer", "minimum": 1 },
+        "artifactCounts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/artifactCount" } },
+        "totalBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "captureProblem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "memberId", "kind", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "memberId": { "type": "string" },
+        "kind": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  }
+}
