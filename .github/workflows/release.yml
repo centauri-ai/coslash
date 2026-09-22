@@ -1,6 +1,6 @@
 # Stable promotion verifies that the accepted RC contains this workflow
 # generation, including the App-created tag guard below.
-# release-dispatch-v1
+# release-dispatch-v2
 name: release
 
 on:
@@ -170,8 +170,8 @@ jobs:
                 fi
 
                 source_sha="$(git rev-parse "refs/tags/$source_rc^{commit}")"
-                if ! git grep -Fq release-dispatch-v1 "$source_sha" -- .github/workflows/release.yml; then
-                  echo "error: source_rc $source_rc predates the Actions release flow; cut a new RC" >&2
+                if ! git grep -Fq release-dispatch-v2 "$source_sha" -- .github/workflows/release.yml; then
+                  echo "error: source_rc $source_rc predates the Windows release flow; cut a new RC" >&2
                   exit 1
                 fi
                 should_publish=true
@@ -269,35 +269,6 @@ jobs:
           path: |
             collector/dist/*.tar.gz
             collector/dist/checksums.txt
-          if-no-files-found: error
-          retention-days: 1
-
-  build-windows:
-    needs: plan
-    runs-on: windows-2025
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.plan.outputs.source_sha }}
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: collector/go.mod
-          cache: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: frontend/.nvmrc
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Package native Windows executable
-        shell: powershell
-        env:
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-package.ps1 -Version $env:VERSION
-      - name: Save Windows release artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: windows-release-artifacts
-          path: |
             collector/dist/windows/coslash-windows-amd64.exe
             collector/dist/windows/checksums-windows.txt
           if-no-files-found: error
@@ -349,7 +320,7 @@ jobs:
           collector/scripts/smoke.sh "$binary" embedded
 
   smoke-windows:
-    needs: [plan, build-windows]
+    needs: [plan, build]
     runs-on: windows-2025
     steps:
       - name: Check out coSlash source
@@ -359,7 +330,7 @@ jobs:
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: windows-release-artifacts
+          name: release-artifacts
           path: dist
       - name: Smoke-test amd64 executable
         shell: pwsh
@@ -368,18 +339,18 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $artifact = "coslash-windows-amd64.exe"
-          $expected = (Select-String -Path dist/checksums-windows.txt -Pattern "  $([regex]::Escape($artifact))$").Line.Split()[0]
-          if ((Get-FileHash "dist/$artifact" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+          $expected = (Select-String -Path dist/windows/checksums-windows.txt -Pattern "  $([regex]::Escape($artifact))$").Line.Split()[0]
+          if ((Get-FileHash "dist/windows/$artifact" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
             throw "$artifact checksum does not match checksums-windows.txt"
           }
-          $version = & "dist/$artifact" --version
+          $version = & "dist/windows/$artifact" --version
           if ($version -ne $env:VERSION) {
             throw "$artifact reports $version, expected $env:VERSION"
           }
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-smoke.ps1 -BinaryPath "dist/$artifact"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-smoke.ps1 -BinaryPath "dist/windows/$artifact"
 
   publish:
-    needs: [plan, build, build-windows, smoke, smoke-windows]
+    needs: [plan, build, smoke, smoke-windows]
     if: needs.plan.outputs.should_publish == 'true'
     runs-on: macos-15
     # Manual releases use the protected environment. The fallback tag path
@@ -398,11 +369,6 @@ jobs:
         with:
           name: release-artifacts
           path: dist
-      - name: Download Windows release artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: windows-release-artifacts
-          path: dist/windows
       - name: Reject published release
         env:
           GH_TOKEN: ${{ github.token }}

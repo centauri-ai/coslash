@@ -74,6 +74,7 @@ jobs:
 
   windows:
     name: Windows
+    needs: release
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
@@ -84,12 +85,6 @@ jobs:
         with:
           go-version-file: collector/go.mod
           cache: false
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version-file: frontend/.nvmrc
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - name: Test collector on Windows
         working-directory: collector
         shell: powershell
@@ -98,15 +93,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Test packaging tools
-        working-directory: collector
-        shell: powershell
-        run: node --test scripts/checksums.test.mjs
-      - name: Package native Windows executable
-        shell: powershell
-        env:
-          VERSION: ci-${{ github.sha }}
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-package.ps1 -Version $env:VERSION
+      - name: Download release packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coslash-release-packages
+          path: collector/dist
       - name: Smoke-test native Windows executable
         shell: powershell
         run: |
@@ -143,10 +134,8 @@ jobs:
           go-version-file: collector/go.mod
           # This module has no dependencies or go.sum to cache.
           cache: false
-      - name: Test packaging tools
-        run: make test-checksums
-      - name: Build release binary
-        run: make release
+      - name: Build release packages
+        run: make dist
       - name: Verify release leaves worktree clean
         run: |
           status=$(git status --porcelain)
@@ -156,17 +145,26 @@ jobs:
             exit 1
           fi
       - name: Smoke test embedded frontend
-        run: make smoke
-      - name: Preserve release binary
-        run: cp bin/coslash bin/coslash-release
+        run: |
+          arch=$(uname -m)
+          [[ "$arch" == arm64 ]] || arch=amd64
+          stem="coslash_$(git describe --tags --always --dirty)_darwin_${arch}"
+          unpacked=$(mktemp -d)
+          trap 'rm -rf "$unpacked"' EXIT
+          tar -xzf "dist/${stem}.tar.gz" -C "$unpacked"
+          ./scripts/smoke.sh "$unpacked/$stem/coslash" embedded
       - name: Build development binary
         run: make build
       - name: Smoke test development binary
         run: make smoke-dev
-      - name: Upload release binary
+      - name: Upload release packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: coslash-macos
-          path: collector/bin/coslash-release
+          name: coslash-release-packages
+          path: |
+            collector/dist/*.tar.gz
+            collector/dist/checksums.txt
+            collector/dist/windows/coslash-windows-amd64.exe
+            collector/dist/windows/checksums-windows.txt
           retention-days: 7
           if-no-files-found: error
