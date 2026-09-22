@@ -704,6 +704,7 @@ function SessionRow({
           className={cn(
             'text-meta text-coslash-muted mt-0.5 block truncate',
             { 'text-danger-fg font-[550]': readiness.key === 'fresh' },
+            { 'text-success-fg font-[550]': readiness.cacheWarm },
             hideWhenCompact,
           )}
         >

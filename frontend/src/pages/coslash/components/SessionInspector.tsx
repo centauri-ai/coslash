@@ -83,6 +83,7 @@ import {
   resumeDisabledHint,
   sessionKey,
   sessionLocationFact,
+  sessionReadiness,
   STATUSES,
   SUBAGENT_STATUSES,
   subagentParentName,
@@ -688,12 +689,14 @@ function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; 
   const disabled = resumeDisabled(detail, disabledHint);
   const opensCursor =
     isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
+  const recommended = sessionReadiness(detail).key === 'resume';
 
   return (
     <div className="flex flex-col gap-1">
       <DisabledLaunchTooltip hint={disabledHint}>
         <Button
-          className={cn(brandCta, 'w-fit p-2 text-xs')}
+          variant={recommended ? 'default' : 'outline'}
+          className={cn('w-fit p-2 text-xs', { [brandCta]: recommended })}
           onClick={() => launch(opensCursor ? 'open' : 'resume')}
           disabled={disabled}
         >
@@ -726,6 +729,7 @@ function StartNewSessionButton({
   const opensCursor =
     isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
   const requiresClipboard = isLocalSession(detail) && detail.agent === 'cursor';
+  const recommended = sessionReadiness(detail).key === 'fresh';
 
   const startNewSession = async () => {
     const copied = await onCopy(requiresClipboard ? cursorHandoffText(brief) : brief);
@@ -737,7 +741,8 @@ function StartNewSessionButton({
     <div className="flex flex-col gap-1">
       <DisabledLaunchTooltip hint={effectiveHint}>
         <Button
-          className={cn(brandCta, 'w-fit p-2 text-xs')}
+          variant={recommended ? 'default' : 'outline'}
+          className={cn('w-fit p-2 text-xs', { [brandCta]: recommended })}
           onClick={() => void startNewSession()}
           disabled={disabled}
         >

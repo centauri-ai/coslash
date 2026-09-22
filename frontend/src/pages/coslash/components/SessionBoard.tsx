@@ -34,7 +34,7 @@ type SessionReviewProps = {
 
 const READINESS_TONE: Record<SessionReadiness['key'], { dot: string; label: string }> = {
   resume: { dot: 'bg-success', label: 'text-success-fg' },
-  review: { dot: 'bg-warning', label: 'text-warning-fg' },
+  inspect: { dot: 'bg-warning', label: 'text-warning-fg' },
   fresh: { dot: 'bg-danger', label: 'text-danger-fg' },
   unavailable: { dot: 'border border-coslash-neutral-dot', label: 'text-coslash-muted' },
 };
@@ -215,7 +215,13 @@ function BoardCard({
           <i className={cn('size-[6px] rounded-full', tone.dot)} />
           {readiness.label}
         </span>
-        <span className="text-coslash-muted min-w-0 truncate text-right">{readiness.detail}</span>
+        <span
+          className={cn('text-coslash-muted min-w-0 truncate text-right', {
+            'text-success-fg font-[550]': readiness.cacheWarm,
+          })}
+        >
+          {readiness.detail}
+        </span>
       </div>
       <CardActions session={session} review={review} />
     </div>
