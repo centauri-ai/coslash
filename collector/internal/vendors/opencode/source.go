@@ -59,6 +59,11 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
+	if path, err := pluginPath(); err == nil {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			_ = EnsurePlugin()
+		}
+	}
 	db, err := openContext(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		return []*vendors.ParsedSession{}, vendors.EmptySessionMetadata(), nil

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,9 +27,14 @@ const pluginV2Suffix = `
 export default { id: "coslash", setup: setupV2 }
 `
 
-var detectOpenCodeVersion = openCodeVersion
+var (
+	detectOpenCodeVersion = openCodeVersion
+	pluginInstallation    sync.Mutex
+)
 
 func EnsurePlugin() error {
+	pluginInstallation.Lock()
+	defer pluginInstallation.Unlock()
 	path, err := pluginPath()
 	if err != nil {
 		return err
