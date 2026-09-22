@@ -13,10 +13,13 @@ import (
 )
 
 var (
-	getSecurityInfo      = windows.GetSecurityInfo
-	setSecurityInfo      = windows.SetSecurityInfo
-	setNamedSecurityInfo = windows.SetNamedSecurityInfo
-	currentIdentity      = loadCurrentIdentity
+	getSecurityInfo     = windows.GetSecurityInfo
+	setSecurityInfo     = windows.SetSecurityInfo
+	currentIdentity     = loadCurrentIdentity
+	openOwnershipHandle = reopenOwnershipHandle
+	openObject          = Open
+	getFileInformation  = windows.GetFileInformationByHandle
+	closeHandle         = windows.CloseHandle
 )
 
 func ReadFile(path, subject, directorySubject string) ([]byte, error) {
@@ -153,7 +156,12 @@ func protectHandle(handle windows.Handle, path, subject string, directory bool) 
 		if !administrator || !owner.IsWellKnown(windows.WinBuiltinAdministratorsSid) {
 			return fmt.Errorf("%s must be owned by the current user", subject)
 		}
-		if err := setNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, user, nil, nil, nil); err != nil {
+		ownershipHandle, err := openOwnershipHandle(handle, path, directory)
+		if err != nil {
+			return fmt.Errorf("reopen %s for ownership: %w", subject, err)
+		}
+		defer closeHandle(ownershipHandle)
+		if err := setSecurityInfo(ownershipHandle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION, user, nil, nil, nil); err != nil {
 			return fmt.Errorf("establish current-user ownership for %s: %w", subject, err)
 		}
 		descriptor, err = getSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
@@ -183,6 +191,27 @@ func protectHandle(handle windows.Handle, path, subject string, directory bool) 
 		return err
 	}
 	return setSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+}
+
+func reopenOwnershipHandle(original windows.Handle, path string, directory bool) (windows.Handle, error) {
+	handle, err := openObject(path, windows.READ_CONTROL|windows.WRITE_OWNER, directory)
+	if err != nil {
+		return 0, err
+	}
+	var originalInfo, openedInfo windows.ByHandleFileInformation
+	if err := getFileInformation(original, &originalInfo); err != nil {
+		closeHandle(handle)
+		return 0, err
+	}
+	if err := getFileInformation(handle, &openedInfo); err != nil {
+		closeHandle(handle)
+		return 0, err
+	}
+	if !SameFile(originalInfo, openedInfo) {
+		closeHandle(handle)
+		return 0, fmt.Errorf("object changed while establishing ownership")
+	}
+	return handle, nil
 }
 
 func loadCurrentIdentity() (*windows.SID, bool, error) {
