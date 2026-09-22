@@ -581,6 +581,25 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
   );
 }
 
+export function SessionInspectorTitle({
+  detail,
+  showMachineBadge,
+}: {
+  detail: Pick<SessionDetail, 'agent' | 'id' | 'name' | 'sourceLabel'>;
+  showMachineBadge: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2 pr-10">
+      <SessionVendorBadge agent={detail.agent} />
+      <div className="min-w-0 flex-1">
+        <SessionName name={detail.name} variant="inspector" />
+      </div>
+      <SessionId id={detail.id} shortened />
+      {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
+    </div>
+  );
+}
+
 function ReadinessCell({ label, value, tone }: { label: string; value?: string; tone?: string }) {
   return (
     <div className="bg-coslash-surface p-2">
@@ -1523,14 +1542,7 @@ export function SessionInspector({
           <>
             <SheetHeader>
               <div className="flex min-w-0 flex-col gap-2">
-                <div className="flex items-center gap-2 pr-10">
-                  <SessionVendorBadge agent={detail.agent} />
-                  <div className="min-w-0 flex-1">
-                    <SessionName name={detail.name} variant="inspector" />
-                  </div>
-                  <SessionId id={detail.id} shortened />
-                  {showMachineBadge && <MachineBadge label={detail.sourceLabel} />}
-                </div>
+                <SessionInspectorTitle detail={detail} showMachineBadge={showMachineBadge} />
                 <HeaderMeta detail={detail} showMachineBadge={false} />
                 <div className="border-b p-1" />
               </div>
