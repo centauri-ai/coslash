@@ -48,7 +48,7 @@ func BuildInputs(s *session.Session) []string {
 	}
 
 	prefix := untrustedSessionInstruction + untrustedSessionBegin +
-		limitBytes(renderSessionHeader(s), maxChunkContextBytes) + renderCompactionSeed(s) +
+		renderChunkContext(s) +
 		"\nDIGEST CHUNK (chronological)\n"
 	groups := digestGroups(s.Digest)
 	if len(groups) == 0 {
@@ -92,6 +92,12 @@ func buildPrompt(s *session.Session, digest []session.DigestEntry, includeFacts 
 
 func renderSessionContext(s *session.Session) string {
 	return renderSessionHeader(s) + renderCompactionSeed(s)
+}
+
+func renderChunkContext(s *session.Session) string {
+	parts := []string{renderSessionHeader(s), renderCompactionSeed(s)}
+	budgets := distributeBytes(parts, maxChunkContextBytes)
+	return limitBytes(parts[0], budgets[0]) + limitBytes(parts[1], budgets[1])
 }
 
 func renderSessionHeader(s *session.Session) string {

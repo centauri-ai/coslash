@@ -123,6 +123,58 @@ func TestRunSynthesisRejectsExcessiveWorkBeforeCallingRunner(t *testing.T) {
 	}
 }
 
+func TestRunSynthesisKeepsBoundedContextWithinSourceRunLimit(t *testing.T) {
+	goal := "goal-marker " + strings.Repeat("g", 988)
+	repository := strings.Repeat("r", 300)
+	branch := strings.Repeat("b", 300)
+	digest := make([]session.DigestEntry, 100)
+	for index := range digest {
+		digest[index] = session.DigestEntry{
+			Turn:        index + 1,
+			Category:    session.DigestRecap,
+			Description: fmt.Sprintf("history-%03d %s", index, strings.Repeat("d", 488)),
+		}
+	}
+	edits := make([]session.FileEdit, 30)
+	for index := range edits {
+		edits[index].Path = strings.Repeat("artifact", 63)
+	}
+	s := &session.Session{
+		ID:               strings.Repeat("i", 200),
+		Agent:            strings.Repeat("a", 100),
+		Repository:       &repository,
+		Branch:           &branch,
+		WorkingDirectory: strings.Repeat("w", 500),
+		SessionDetails: session.SessionDetails{
+			DeclaredGoal:   &goal,
+			FirstPrompt:    &goal,
+			CompactionSeed: "seed-marker " + strings.Repeat("s", 3_988),
+			Digest:         digest,
+			FileEdits:      edits,
+		},
+	}
+	calls := 0
+	var inputs []string
+	runner := runnerFunc(func(_ context.Context, input string) (session.SessionSynthesis, error) {
+		calls++
+		inputs = append(inputs, input)
+		return session.SessionSynthesis{Outcome: "partial"}, nil
+	})
+
+	if _, err := runSynthesis(context.Background(), runner, s); err != nil {
+		t.Fatalf("runSynthesis() error = %v, want bounded synthesis", err)
+	}
+	if calls == 0 {
+		t.Fatal("runner was not called")
+	}
+	joined := strings.Join(inputs, "\n")
+	for _, marker := range []string{"goal-marker", "seed-marker", "history-000", "history-099"} {
+		if !strings.Contains(joined, marker) {
+			t.Fatalf("synthesis inputs omitted %q", marker)
+		}
+	}
+}
+
 func TestRunSynthesisRejectsImpossibleDigestBeforeBuildingPrompts(t *testing.T) {
 	calls := 0
 	runner := runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
