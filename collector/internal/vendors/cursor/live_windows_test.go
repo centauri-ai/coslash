@@ -273,6 +273,29 @@ func TestNewestCursorStoresBoundsHistoricalProbes(t *testing.T) {
 	}
 }
 
+func TestNewestCursorStoresRanksActiveSidecars(t *testing.T) {
+	directory := t.TempDir()
+	oldActive := filepath.Join(directory, "old-active.db")
+	newIdle := filepath.Join(directory, "new-idle.db")
+	for _, path := range []string{oldActive, newIdle, oldActive + "-wal"} {
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Unix(1, 0)
+	newer := time.Unix(2, 0)
+	active := time.Unix(3, 0)
+	for path, modified := range map[string]time.Time{oldActive: old, newIdle: newer, oldActive + "-wal": active} {
+		if err := os.Chtimes(path, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := newestCursorStores([]string{oldActive, newIdle}, 1); !slices.Equal(got, []string{oldActive}) {
+		t.Fatalf("newest stores = %#v, want active WAL store %q", got, oldActive)
+	}
+}
+
 func TestWindowsCursorLivenessUsesResumeProcessCommandLine(t *testing.T) {
 	home := t.TempDir()
 	setWindowsCursorTestHome(t, home)
