@@ -256,6 +256,17 @@ func TestWindowsAuthenticationCommandUsesPowerShellEnvironment(t *testing.T) {
 	}
 }
 
+func TestWindowsRemoteSSHDisablesConfiguredMultiplexing(t *testing.T) {
+	destination, err := settings.ParseSSHDestination("linux-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := remoteSSHCommand(destination, "true")
+	if !strings.Contains(command, "'ControlMaster=no'") || strings.Contains(command, "'ControlMaster=auto'") {
+		t.Fatalf("command = %q", command)
+	}
+}
+
 func TestOpenTerminalHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

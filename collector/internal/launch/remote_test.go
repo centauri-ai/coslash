@@ -50,9 +50,9 @@ func TestRemoteSSHCommandReusesControlSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := remoteSSHCommand(destination, "true")
-	want := localCommandJoin(
-		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath="+settings.SSHControlPath(), "agent-box", "true",
-	)
+	args := append([]string{"ssh", "-tt"}, terminalSSHOptions()...)
+	args = append(args, "agent-box", "true")
+	want := localCommandJoin(args...)
 	if command != want {
 		t.Fatalf("command = %q, want %q", command, want)
 	}

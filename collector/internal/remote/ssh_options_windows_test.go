@@ -16,7 +16,7 @@ func TestWindowsSSHArgsUseOpenSFTPWithoutMultiplexing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7", "linux-host", "-s", "sftp"}
+	want := []string{"-T", "-o", "ControlMaster=no", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7", "linux-host", "-s", "sftp"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("SSH args = %q, want %q", got, want)
 	}
@@ -28,7 +28,7 @@ func TestWindowsRemoteCommandsStayPOSIXWithoutMultiplexing(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantPlatform := []string{
-		"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7",
+		"-T", "-o", "ControlMaster=no", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7",
 		"linux-host", "uname -s; uname -m; id -u",
 	}
 	if !reflect.DeepEqual(platform, wantPlatform) {
@@ -40,7 +40,7 @@ func TestWindowsRemoteCommandsStayPOSIXWithoutMultiplexing(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantHelper := []string{
-		"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7",
+		"-T", "-o", "ControlMaster=no", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7",
 		"linux-host", `"$HOME"/'.coslash/helpers/v1/coslash-helper' collect`,
 	}
 	if !reflect.DeepEqual(helper, wantHelper) {
@@ -79,7 +79,7 @@ func TestWindowsInteractiveAuthenticationUsesAgentWithoutMultiplexing(t *testing
 		t.Fatal(err)
 	}
 	want := []string{
-		"-T", "-o", "BatchMode=no", "-o", "AddKeysToAgent=yes", "-o", "ConnectTimeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())),
+		"-T", "-o", "ControlMaster=no", "-o", "BatchMode=no", "-o", "AddKeysToAgent=yes", "-o", "ConnectTimeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())),
 		"-l", "jane", "linux-host", "true",
 	}
 	if !reflect.DeepEqual(args, want) {
@@ -95,7 +95,7 @@ func TestWindowsAuthenticationCheckIsNonInteractive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "linux-host", "true"}
+	want := []string{"-T", "-o", "ControlMaster=no", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "linux-host", "true"}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("authentication check args = %q, want %q", args, want)
 	}
