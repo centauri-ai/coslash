@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -156,8 +157,14 @@ export function synthesisMatchesSnapshot(
   return synthesisRevision > 0 && result.revision === synthesisRevision;
 }
 
-export function refreshSourceAndRetry(refresh: () => void | Promise<void>, retry: () => void): Promise<void> {
-  return Promise.resolve(refresh()).then(retry);
+export function refreshSourceAndRetry(
+  refresh: () => void | Promise<void>,
+  retry: () => void,
+  isCurrent: () => boolean,
+): Promise<void> {
+  return Promise.resolve(refresh()).then(() => {
+    if (isCurrent()) retry();
+  });
 }
 
 export function detailAttemptState(
@@ -167,7 +174,7 @@ export function detailAttemptState(
   retryToken: number,
 ) {
   const currentError = error?.key === key && error.retryToken === retryToken ? error : null;
-  const hasSnapshot = loaded?.key === key;
+  const hasSnapshot = loaded?.key === key && currentError?.kind !== 'authentication';
   return {
     hasSnapshot,
     isLoading: currentError == null && (!hasSnapshot || loaded.retryToken !== retryToken),
@@ -259,6 +266,7 @@ export function cachedOfflineWarning(
 }
 
 export function overlayLiveSessionFields(detail: SessionDetail, current: Session): SessionDetail {
+  if (detail.detailRevision !== current.detailRevision && current.mtime <= detail.mtime) return detail;
   const currentSubagents = new Map(current.subagents.map((subagent) => [subagent.id, subagent]));
   return {
     ...detail,
@@ -439,6 +447,8 @@ function useSessionDetail(
       } catch (error: unknown) {
         if (controller.signal.aborted) return;
         if (error instanceof ApiAuthenticationError) {
+          setLoadedDetail(null);
+          setLoadedSynthesis(null);
           setDetailError({
             key: detailKey,
             retryToken: detailRetryToken,
@@ -1619,6 +1629,11 @@ export function SessionInspector({
   onClose: () => void;
 }) {
   const [detailRetryToken, setDetailRetryToken] = useState(0);
+  const detailAttemptIdentity = session == null ? null : `${sessionKey(session)}@${detailRetryToken}`;
+  const detailAttemptRef = useRef(detailAttemptIdentity);
+  useLayoutEffect(() => {
+    detailAttemptRef.current = detailAttemptIdentity;
+  }, [detailAttemptIdentity]);
   const { detail, isLoading, loadError, loadErrorKind, cachedOffline, summaryOnly } = useSessionDetail(
     session,
     detailRetryToken,
@@ -1714,7 +1729,12 @@ export function SessionInspector({
     detail == null ? undefined : resumeDisabledHint(detail, remoteLaunchable, remoteLaunchHint);
 
   const refreshDetailSource = () => {
-    void refreshSourceAndRetry(onRefresh, () => setDetailRetryToken((token) => token + 1));
+    const startingIdentity = detailAttemptIdentity;
+    void refreshSourceAndRetry(
+      onRefresh,
+      () => setDetailRetryToken((token) => token + 1),
+      () => startingIdentity != null && detailAttemptRef.current === startingIdentity,
+    );
   };
 
   useEffect(() => {
