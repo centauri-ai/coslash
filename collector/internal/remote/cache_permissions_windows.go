@@ -21,10 +21,7 @@ func openCacheFile(path string) (*os.File, error) {
 
 func protectCacheParents(path string) error {
 	directory := filepath.Dir(path)
-	if err := protectPrivateWindowsDirectory(filepath.Dir(directory), "remote cache"); err != nil {
-		return err
-	}
-	return protectPrivateWindowsDirectory(directory, "remote cache")
+	return protectPrivateWindowsDirectory(filepath.Dir(directory), "remote cache")
 }
 
 func protectCacheDirectory(path string) error {
