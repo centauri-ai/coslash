@@ -54,7 +54,8 @@
 
 @media (min-width: 1720px) {
   .coslash-shell.inspector-open {
-    padding-right: 440px;
+    /* SessionInspector publishes its rendered width so a resize keeps the list clear of the sheet. */
+    padding-right: var(--coslash-inspector-width, 440px);
   }
 
   .coslash-shell.inspector-open .coslash-sidebar {

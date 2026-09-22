@@ -70,10 +70,15 @@ function GroupTotals({ sessions }: { sessions: Session[] }) {
   );
 }
 
-function ColumnHeader({ group }: { group: BoardGroup }) {
+function ColumnHeader({ group, first }: { group: BoardGroup; first: boolean }) {
   const dot = COLUMN_DOT[group.key];
   return (
-    <div className="border-coslash-line bg-coslash-surface sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-l px-3 py-2">
+    <div
+      className={cn(
+        'border-coslash-line bg-coslash-surface sticky top-0 z-10 flex items-center justify-between gap-2 border-b px-3 py-2',
+        { 'border-l': !first },
+      )}
+    >
       <span className="flex min-w-0 items-center gap-[7px] text-[12px] font-[650]">
         {dot && <i className={cn('size-[7px] shrink-0 rounded-full', dot)} />}
         <span className="truncate" title={group.title}>
@@ -232,7 +237,9 @@ function BoardCell({
 }) {
   return (
     <div
-      className="border-coslash-line bg-coslash-soft flex flex-col gap-2 border-l p-2"
+      className={cn('border-coslash-line bg-coslash-soft flex flex-col gap-2 p-2', {
+        'border-l': column !== 1,
+      })}
       style={{ gridColumn: column }}
     >
       {sessions.map((session) => (
@@ -283,8 +290,8 @@ export function SessionBoard({
       className="bg-coslash-surface grid"
       style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(240px, 1fr))` }}
     >
-      {columns.map((column) => (
-        <ColumnHeader key={column.key} group={column} />
+      {columns.map((column, index) => (
+        <ColumnHeader key={column.key} group={column} first={index === 0} />
       ))}
       {rows.map((row) => {
         const collapseKey = `${rowGroupBy}:${row.key}`;
