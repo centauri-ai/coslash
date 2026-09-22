@@ -180,7 +180,14 @@ func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 		sum := sha256.Sum256(blob)
 		evidence[name] = ArtifactEvidence{ByteLength: int64(len(blob)), SHA256: hex.EncodeToString(sum[:])}
 	}
-	return FreezeEvidence(manifest, evidence)
+	frozen, err := FreezeEvidence(manifest, evidence)
+	if err != nil {
+		return Manifest{}, err
+	}
+	if err := validateArtifactContents(frozen, blobs); err != nil {
+		return Manifest{}, err
+	}
+	return frozen, nil
 }
 
 // FreezeEvidence orders and hashes a completed manifest from evidence already
@@ -237,9 +244,6 @@ func FreezeEvidence(manifest Manifest, evidence map[string]ArtifactEvidence) (Ma
 	}
 	if len(seen) != len(evidence) {
 		return Manifest{}, fmt.Errorf("%w: unmanifested artifact bytes", ErrInvalid)
-	}
-	if err := validateArtifactContents(manifest, blobs); err != nil {
-		return Manifest{}, err
 	}
 	manifest.Summary = summarize(manifest.Artifacts)
 	sort.Strings(manifest.RequiredVersions)
