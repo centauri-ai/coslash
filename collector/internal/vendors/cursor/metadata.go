@@ -50,10 +50,18 @@ func LoadSelectionMetadataContext(ctx context.Context) (*vendors.SessionMetadata
 }
 
 func loadSelectionMetadata(home string) (*vendors.SessionMetadata, error) {
-	return loadSelectionMetadataContext(context.Background(), home)
+	return loadSelectionMetadataWithLiveContext(context.Background(), home, loadLiveSessions())
 }
 
 func loadSelectionMetadataContext(ctx context.Context, home string) (*vendors.SessionMetadata, error) {
+	return loadSelectionMetadataWithLiveContext(ctx, home, loadLiveSessionsContext(ctx))
+}
+
+func loadSelectionMetadataWithLive(home string, live map[string]string) (*vendors.SessionMetadata, error) {
+	return loadSelectionMetadataWithLiveContext(context.Background(), home, live)
+}
+
+func loadSelectionMetadataWithLiveContext(ctx context.Context, home string, live map[string]string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
 	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
 	db, err := openCursorDBContext(ctx, path)
@@ -76,7 +84,7 @@ func loadSelectionMetadataContext(ctx context.Context, home string) (*vendors.Se
 			entry.Entrypoint = entrypointIDE
 		}
 	}
-	if err := applyCursorLivenessContext(ctx, metadata, loadLiveSessionsContext(ctx), true); err != nil {
+	if err := applyCursorLivenessContext(ctx, metadata, live, true); err != nil {
 		return nil, err
 	}
 	return metadata, nil
@@ -167,10 +175,18 @@ func loadCLIRelationship(metadata *vendors.SessionMetadata, path string) {
 }
 
 func loadMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
-	return loadMetadataForSessionsContext(context.Background(), home, ids)
+	return loadMetadataForSessionsWithLiveContext(context.Background(), home, ids, loadLiveSessions())
 }
 
 func loadMetadataForSessionsContext(ctx context.Context, home string, ids []string) (*vendors.SessionMetadata, error) {
+	return loadMetadataForSessionsWithLiveContext(ctx, home, ids, loadLiveSessionsContext(ctx))
+}
+
+func loadMetadataForSessionsWithLive(home string, ids []string, live map[string]string) (*vendors.SessionMetadata, error) {
+	return loadMetadataForSessionsWithLiveContext(context.Background(), home, ids, live)
+}
+
+func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, ids []string, live map[string]string) (*vendors.SessionMetadata, error) {
 	ids, err := canonicalCursorIDsContext(ctx, ids)
 	if err != nil {
 		return nil, err
@@ -296,7 +312,7 @@ func loadMetadataForSessionsContext(ctx context.Context, home string, ids []stri
 			metadata.Session(id).Entrypoint = lane
 		}
 	}
-	if err := applyCursorLivenessContext(ctx, metadata, loadLiveSessionsContext(ctx), false); err != nil {
+	if err := applyCursorLivenessContext(ctx, metadata, live, false); err != nil {
 		return nil, err
 	}
 	return metadata, nil

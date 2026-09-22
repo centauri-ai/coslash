@@ -76,6 +76,8 @@ func TestGetSessionFactsAppliesMetadataRelationship(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
 	parentID := "00000000-0000-4000-8000-000000000001"
 	childID := "00000000-0000-4000-8000-000000000002"
 	path := filepath.Join(home, ".cursor", "projects", "repo", "agent-transcripts", childID, childID+".jsonl")

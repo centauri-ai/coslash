@@ -42,6 +42,9 @@ func TestPowerShellQuote(t *testing.T) {
 }
 
 func TestLocalCommandJoinExecutesPowerShellLauncherWithLiteralArguments(t *testing.T) {
+	if _, err := exec.LookPath("powershell.exe"); err != nil {
+		t.Skip("Windows PowerShell is not installed")
+	}
 	directory := t.TempDir()
 	script := filepath.Join(directory, "agent.ps1")
 	output := filepath.Join(directory, "output.txt")
