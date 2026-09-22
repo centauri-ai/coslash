@@ -162,8 +162,7 @@ const styles = {
     'flex h-12 w-full min-w-0 items-center gap-1.5 rounded-[9px] border border-coslash-line bg-coslash-surface px-3.5 focus-within:border-coslash-accent focus-within:shadow-[0_0_0_3px_var(--coslash-tint)]',
   chip: 'inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-coslash-tint-line bg-coslash-tint pr-1 pl-2 text-meta font-[550] whitespace-nowrap text-coslash-accent-ink',
   segmented: 'inline-flex rounded-[10px] bg-coslash-soft p-0.5',
-  tableWrap:
-    'min-h-[180px] flex-1 overflow-auto rounded-[10px] border border-coslash-line bg-coslash-surface',
+  tableWrap: 'min-h-0 flex-1 overflow-auto rounded-[10px] border border-coslash-line bg-coslash-surface',
   head: 'sticky top-0 z-12 border-b border-coslash-line bg-coslash-surface text-left text-meta font-[650] tracking-[.07em] text-coslash-muted uppercase',
   headButton:
     'flex min-h-[34px] w-full cursor-pointer items-center gap-[5px] px-2.5 py-[9px] text-left font-[inherit] tracking-[inherit] uppercase transition-colors hover:bg-coslash-soft hover:text-coslash-ink [&>svg]:size-3',
@@ -1365,9 +1364,9 @@ export function CoslashLayout({
                   </button>
                 )}
               </div>
-              <div className="max-narrow:flex-wrap flex items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <Rollup sessions={visibleSessions} isLoading={isLoading} />
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex max-w-full shrink-0 [scrollbar-width:none] items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden">
                   <div className={styles.segmented} aria-label="Time range">
                     {RANGE_OPTIONS.map((option) => (
                       <button

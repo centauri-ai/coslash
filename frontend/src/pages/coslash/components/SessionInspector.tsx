@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -893,11 +894,35 @@ const INSPECTOR_WIDTH_KEY = 'coslash.inspector-width.v1';
 const MIN_INSPECTOR_WIDTH = 360;
 const MAX_INSPECTOR_VIEWPORT_SHARE = 0.8;
 const DEFAULT_INSPECTOR_WIDTH = 'clamp(420px, 32vw, 760px)';
+const INSPECTOR_KEYBOARD_STEP = 16;
 
-function clampInspectorWidth(width: number): number {
-  return Math.round(
-    Math.min(Math.max(width, MIN_INSPECTOR_WIDTH), window.innerWidth * MAX_INSPECTOR_VIEWPORT_SHARE),
-  );
+function maximumInspectorWidth(viewportWidth: number): number {
+  return Math.max(MIN_INSPECTOR_WIDTH, Math.round(viewportWidth * MAX_INSPECTOR_VIEWPORT_SHARE));
+}
+
+function clampInspectorWidth(width: number, viewportWidth = window.innerWidth): number {
+  return Math.round(Math.min(Math.max(width, MIN_INSPECTOR_WIDTH), maximumInspectorWidth(viewportWidth)));
+}
+
+function defaultInspectorWidth(viewportWidth: number): number {
+  return clampInspectorWidth(Math.min(Math.max(viewportWidth * 0.32, 420), 760), viewportWidth);
+}
+
+// oxlint-disable-next-line react/only-export-components -- exported for focused keyboard tests
+export function inspectorWidthForKey(
+  key: string,
+  currentWidth: number,
+  viewportWidth: number,
+): number | null {
+  if (key === 'Home') return MIN_INSPECTOR_WIDTH;
+  if (key === 'End') return maximumInspectorWidth(viewportWidth);
+  if (key === 'ArrowLeft') {
+    return clampInspectorWidth(currentWidth + INSPECTOR_KEYBOARD_STEP, viewportWidth);
+  }
+  if (key === 'ArrowRight') {
+    return clampInspectorWidth(currentWidth - INSPECTOR_KEYBOARD_STEP, viewportWidth);
+  }
+  return null;
 }
 
 function readInspectorWidth(): number | null {
@@ -1481,6 +1506,12 @@ export function SessionInspector({
     synthesisSettingsKey,
   );
   const contentRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+    currentWidth: number;
+  } | null>(null);
   const [selectedDiffState, setSelectedDiff] = useState<FileSelection | null>(null);
   const selectedDiff = filePanelOpen(selectedDiffState, session) ? selectedDiffState : null;
   const [fileDiffRetryToken, setFileDiffRetryToken] = useState(0);
@@ -1490,28 +1521,51 @@ export function SessionInspector({
       : true,
   );
   const [width, setWidth] = useState<number | null>(readInspectorWidth);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? 1375 : window.innerWidth,
+  );
+
+  const persistWidth = (nextWidth: number) => {
+    setWidth(nextWidth);
+    try {
+      window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(nextWidth));
+    } catch {
+      // a blocked store just means the width resets next session
+    }
+  };
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = contentRef.current?.offsetWidth ?? MIN_INSPECTOR_WIDTH;
-    const onMove = (move: PointerEvent) => setWidth(clampInspectorWidth(startWidth + startX - move.clientX));
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      setWidth((current) => {
-        if (current != null) {
-          try {
-            window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(current));
-          } catch {
-            // a blocked store just means the width resets next session
-          }
-        }
-        return current;
-      });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startWidth = clampInspectorWidth(contentRef.current?.offsetWidth ?? MIN_INSPECTOR_WIDTH);
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth,
+      currentWidth: startWidth,
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+  };
+  const continueResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const resize = resizeRef.current;
+    if (resize == null || resize.pointerId !== event.pointerId) return;
+    resize.currentWidth = clampInspectorWidth(resize.startWidth + resize.startX - event.clientX);
+    setWidth(resize.currentWidth);
+  };
+  const finishResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const resize = resizeRef.current;
+    if (resize == null || resize.pointerId !== event.pointerId) return;
+    resizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    persistWidth(resize.currentWidth);
+  };
+  const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const currentWidth = contentRef.current?.offsetWidth ?? width ?? MIN_INSPECTOR_WIDTH;
+    const nextWidth = inspectorWidthForKey(event.key, currentWidth, viewportWidth);
+    if (nextWidth == null) return;
+    event.preventDefault();
+    persistWidth(nextWidth);
   };
   const {
     changes: fileChanges,
@@ -1543,12 +1597,19 @@ export function SessionInspector({
     if (typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia(DOCKED_INSPECTOR_QUERY);
     const updateModal = () => setModal(!media.matches);
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
     media.addEventListener('change', updateModal);
-    return () => media.removeEventListener('change', updateModal);
+    window.addEventListener('resize', updateViewportWidth);
+    return () => {
+      media.removeEventListener('change', updateModal);
+      window.removeEventListener('resize', updateViewportWidth);
+    };
   }, []);
 
   const inspectorWidth =
     width == null ? DEFAULT_INSPECTOR_WIDTH : `min(${width}px, ${MAX_INSPECTOR_VIEWPORT_SHARE * 100}vw)`;
+  const ariaWidth = clampInspectorWidth(width ?? defaultInspectorWidth(viewportWidth), viewportWidth);
+  const ariaMaximumWidth = maximumInspectorWidth(viewportWidth);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1585,10 +1646,19 @@ export function SessionInspector({
       >
         <div
           role="separator"
+          tabIndex={0}
           aria-orientation="vertical"
           aria-label="Resize inspector"
+          aria-valuemin={MIN_INSPECTOR_WIDTH}
+          aria-valuemax={ariaMaximumWidth}
+          aria-valuenow={ariaWidth}
           onPointerDown={startResize}
-          className="hover:bg-coslash-accent absolute inset-y-0 left-0 z-20 hidden w-1.5 cursor-col-resize transition-colors sm:block"
+          onPointerMove={continueResize}
+          onPointerUp={finishResize}
+          onPointerCancel={finishResize}
+          onLostPointerCapture={finishResize}
+          onKeyDown={resizeWithKeyboard}
+          className="hover:bg-coslash-accent focus-visible:bg-coslash-accent absolute inset-y-0 left-0 z-20 hidden w-1.5 cursor-col-resize touch-none transition-colors outline-none sm:block"
         />
         {session != null && <SheetTitle className="sr-only">{session.name ?? 'Untitled session'}</SheetTitle>}
         {isOpen && isLoading && (

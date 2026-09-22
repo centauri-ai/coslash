@@ -71,6 +71,12 @@ function stringArrayOrLegacy(array: unknown, single: unknown): string[] {
   return values.length > 0 || legacy == null ? values : [legacy];
 }
 
+function groupFilterArray(value: unknown): string[] {
+  return [
+    ...new Set(stringArray(value).map((filter) => (filter.startsWith('unlocated:') ? 'unlocated' : filter))),
+  ];
+}
+
 export function loadSessionViewPreferences(storage?: Pick<Storage, 'getItem'>): SessionViewPreferences {
   try {
     const raw = (storage ?? sessionStorage).getItem(STORAGE_KEY);
@@ -91,7 +97,7 @@ export function loadSessionViewPreferences(storage?: Pick<Storage, 'getItem'>): 
       statusFilters: stringArray(record.statusFilters).filter((status): status is SessionStatusGroup =>
         STATUSES.has(status as SessionStatusGroup),
       ),
-      groupFilters: stringArray(record.groupFilters),
+      groupFilters: groupFilterArray(record.groupFilters),
       machineFilters: stringArrayOrLegacy(record.machineFilters, record.machineFilter),
       agentFilters: stringArrayOrLegacy(record.agentFilters, record.agentFilter),
       view: oneOf(record.view, VIEWS, defaults.view),

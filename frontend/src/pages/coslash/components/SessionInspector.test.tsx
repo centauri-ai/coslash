@@ -7,6 +7,7 @@ import {
   DetailLoadError,
   detailPresentation,
   filePanelOpen,
+  inspectorWidthForKey,
   overlayLiveSessionFields,
   SessionInspectorTitle,
   SummaryOnlyBanner,
@@ -40,6 +41,14 @@ describe('SessionInspector exact-detail boundaries', () => {
     );
 
     expect(markup).toContain('block min-w-0 truncate text-sm font-bold');
+  });
+
+  it('supports bounded keyboard resizing for the inspector separator', () => {
+    expect(inspectorWidthForKey('ArrowLeft', 440, 1000)).toBe(456);
+    expect(inspectorWidthForKey('ArrowRight', 360, 1000)).toBe(360);
+    expect(inspectorWidthForKey('Home', 600, 1000)).toBe(360);
+    expect(inspectorWidthForKey('End', 400, 1000)).toBe(800);
+    expect(inspectorWidthForKey('Enter', 440, 1000)).toBeNull();
   });
 
   it('retains the bounded remote session and labels exact diffs unavailable', () => {
