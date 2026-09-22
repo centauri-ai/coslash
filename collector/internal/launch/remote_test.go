@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -43,19 +44,24 @@ func TestRemoteCLICommandUsesStagedHandoffName(t *testing.T) {
 }
 
 func TestRemoteSSHCommandReusesControlSocket(t *testing.T) {
-	t.Setenv("COSLASH_HOME", "/tmp/coslash-test")
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	destination, err := settings.ParseSSHDestination("agent-box")
 	if err != nil {
 		t.Fatal(err)
 	}
 	command := remoteSSHCommand(destination, "true")
-	if !strings.Contains(command, "'ControlMaster=auto'") ||
-		!strings.Contains(command, "'ControlPath=/tmp/coslash-test/ssh/cm-%C'") {
-		t.Fatalf("command = %q", command)
+	want := localCommandJoin(
+		"ssh", "-tt", "-o", "ControlMaster=auto", "-o", "ControlPath="+settings.SSHControlPath(), "agent-box", "true",
+	)
+	if command != want {
+		t.Fatalf("command = %q, want %q", command, want)
 	}
 }
 
 func TestRemoteCodexCLICommandLoadsBoundaryHandoffWithoutExpandingArguments(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("remote command payload is POSIX shell syntax")
+	}
 	home := t.TempDir()
 	codexHome := filepath.Join(home, ".codex")
 	handoffDir := filepath.Join(home, ".coslash", "handoffs")
@@ -116,6 +122,9 @@ printf '%s\n' "$@" > "$HOME/codex-args"
 }
 
 func TestRemoteCodexCLICommandStopsWhenHandoffReadFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("remote command payload is POSIX shell syntax")
+	}
 	home := t.TempDir()
 	codexHome := filepath.Join(home, ".codex")
 	bin := filepath.Join(home, "bin")
@@ -143,6 +152,9 @@ func TestRemoteCodexCLICommandStopsWhenHandoffReadFails(t *testing.T) {
 }
 
 func TestRemoteCodexCLICommandCreatesMissingProfileDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("remote command payload is POSIX shell syntax")
+	}
 	home := t.TempDir()
 	codexHome := filepath.Join(home, "new-codex-home")
 	handoffDir := filepath.Join(home, ".coslash", "handoffs")
@@ -189,6 +201,9 @@ func TestRemoteCLICommandRejectsInvalidHandoffName(t *testing.T) {
 }
 
 func TestRemoteTerminalCommandRemovesHandoffWhenWorkingDirectoryIsMissing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("remote command payload is POSIX shell syntax")
+	}
 	home := t.TempDir()
 	dir := filepath.Join(home, ".coslash", "handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -325,7 +340,7 @@ func TestCursorCLICommandResumesValidatedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "'cursor-agent' '--resume' '01234567-89ab-cdef-0123-456789abcdef'" {
+	if command != localCommandJoin("cursor-agent", "--resume", "01234567-89ab-cdef-0123-456789abcdef") {
 		t.Fatalf("command = %q", command)
 	}
 }
@@ -336,7 +351,7 @@ func TestCursorFreshSessionLeavesHandoffForClipboard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "'cursor-agent'" || path != "" {
+	if command != localCommandJoin("cursor-agent") || path != "" {
 		t.Fatalf("command = %q, path = %q", command, path)
 	}
 }

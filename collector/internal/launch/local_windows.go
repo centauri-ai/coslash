@@ -2,18 +2,16 @@ package launch
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
-	"unicode/utf16"
 	"unsafe"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/windowsprivate"
 	"golang.org/x/sys/windows"
 )
 
@@ -29,11 +27,14 @@ var windowsStart = func(command *exec.Cmd) error {
 	return nil
 }
 
-func openTerminal(_ context.Context, terminal, workingDirectory, command string) error {
+func openTerminal(ctx context.Context, terminal, workingDirectory, command string) error {
 	if terminal != settings.TerminalWindows {
 		return fmt.Errorf("launch: unsupported terminal %q", terminal)
 	}
-	if err := openWindowsTerminal(workingDirectory, command); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := openWindowsTerminal(ctx, workingDirectory, command); err != nil {
 		return fmt.Errorf("launch: open Windows Terminal: %w", err)
 	}
 	return nil
@@ -47,38 +48,101 @@ func Available(terminal string) bool {
 	return err == nil
 }
 
-func openWindowsTerminal(workingDirectory, command string) error {
-	arguments := powerShellCommandArguments(command)
+func openWindowsTerminal(ctx context.Context, workingDirectory, command string) error {
+	return openWindowsTerminalMode(ctx, workingDirectory, command, true)
+}
+
+func openWindowsTerminalMode(ctx context.Context, workingDirectory, command string, keepOpen bool) error {
+	script, err := writePowerShellScript(command)
+	if err != nil {
+		return err
+	}
+	launched := false
+	defer func() {
+		if !launched {
+			_ = os.Remove(script)
+		}
+	}()
+	arguments := powerShellCommandArguments(script, keepOpen)
 	powerShell, err := windowsLookPath("powershell.exe")
 	if err != nil {
 		return fmt.Errorf("Windows PowerShell is not installed or available")
 	}
 	if terminal, err := windowsLookPath("wt.exe"); err == nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		process := exec.Command(terminal, append([]string{"-d", workingDirectory, powerShell}, arguments...)...)
 		process.Dir = workingDirectory
-		return windowsStart(process)
+		if err := windowsStart(process); err != nil {
+			return err
+		}
+		launched = true
+		return nil
 	}
-	return startWindowsConsole(powerShell, workingDirectory, arguments...)
+	if err := startWindowsConsole(ctx, powerShell, workingDirectory, arguments...); err != nil {
+		return err
+	}
+	launched = true
+	return nil
 }
 
-func powerShellCommandArguments(command string) []string {
-	command = "$env:TERM = 'xterm-256color'; " + command
-	utf16Command := utf16.Encode([]rune(command))
-	encodedCommand := make([]byte, len(utf16Command)*2)
-	for i, codeUnit := range utf16Command {
-		binary.LittleEndian.PutUint16(encodedCommand[i*2:], codeUnit)
-	}
-	return []string{
+func powerShellCommandArguments(script string, keepOpen bool) []string {
+	arguments := []string{
 		"-NoLogo",
 		"-NoProfile",
 		"-NonInteractive",
-		"-NoExit",
-		"-EncodedCommand",
-		base64.StdEncoding.EncodeToString(encodedCommand),
+		"-ExecutionPolicy",
+		"Bypass",
 	}
+	if keepOpen {
+		arguments = append(arguments, "-NoExit")
+	}
+	return append(arguments, "-File", script)
 }
 
-func startWindowsConsole(executable, workingDirectory string, arguments ...string) error {
+func writePowerShellScript(command string) (string, error) {
+	directory := handoffDir()
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", err
+	}
+	if err := windowsprivate.ProtectDirectory(settings.Home(), "launch"); err != nil {
+		return "", err
+	}
+	if err := windowsprivate.ProtectDirectory(directory, "launch"); err != nil {
+		return "", err
+	}
+	file, err := os.CreateTemp(directory, ".launch-*.ps1")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	keep := false
+	defer func() {
+		_ = file.Close()
+		if !keep {
+			_ = os.Remove(path)
+		}
+	}()
+	if err := windowsprivate.ProtectFile(path, file, "launch script"); err != nil {
+		return "", err
+	}
+	script := "\ufeff$env:TERM = 'xterm-256color'\r\ntry {\r\n" + command +
+		"\r\n} finally {\r\n" + powerShellRemove(path) + "\r\n}\r\n"
+	if _, err := file.WriteString(script); err != nil {
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	keep = true
+	return path, nil
+}
+
+func startWindowsConsole(ctx context.Context, executable, workingDirectory string, arguments ...string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	applicationName, err := windows.UTF16PtrFromString(executable)
 	if err != nil {
 		return err
@@ -120,6 +184,10 @@ func localCommandJoin(arguments ...string) string {
 		quoted[i] = powerShellQuote(argument)
 	}
 	return "& " + strings.Join(quoted, " ")
+}
+
+func localCommandWithEnv(name, value string, arguments ...string) string {
+	return "$env:" + name + " = " + powerShellQuote(value) + "; " + localCommandJoin(arguments...)
 }
 
 func powerShellQuote(value string) string {

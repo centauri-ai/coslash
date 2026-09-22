@@ -235,7 +235,7 @@ func SSHAuthentication(ctx context.Context, terminal, executable, attemptID stri
 	if executable == "" || attemptID == "" {
 		return errors.New("launch: authentication command is required")
 	}
-	return openTerminal(ctx, terminal, ".", shellJoin("env", "COSLASH_HOME="+settings.Home(), executable, "ssh-auth", attemptID))
+	return openTerminal(ctx, terminal, ".", localCommandWithEnv("COSLASH_HOME", settings.Home(), executable, "ssh-auth", attemptID))
 }
 
 func remoteSSHCommand(destination settings.SSHDestination, command string) string {
@@ -244,7 +244,7 @@ func remoteSSHCommand(destination settings.SSHDestination, command string) strin
 	}
 	args = append(args, destination.Args()...)
 	args = append(args, command)
-	return shellJoin(args...)
+	return localCommandJoin(args...)
 }
 
 func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName string) (string, error) {

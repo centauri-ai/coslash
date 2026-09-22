@@ -1,15 +1,13 @@
 package launch
 
 import (
-	"encoding/base64"
-	"encoding/binary"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
-	"unicode/utf16"
 	"unsafe"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -111,6 +109,7 @@ func TestWindowsHandoffCommandsUsePowerShellCleanup(t *testing.T) {
 }
 
 func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	originalLookPath, originalStart := windowsLookPath, windowsStart
 	t.Cleanup(func() { windowsLookPath, windowsStart = originalLookPath, originalStart })
 	windowsLookPath = func(name string) (string, error) {
@@ -130,7 +129,7 @@ func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
 		return nil
 	}
 
-	if err := openWindowsTerminal(`C:\Users\Bob's Project`, `& 'codex' 'resume' 'session'`); err != nil {
+	if err := openWindowsTerminal(context.Background(), `C:\Users\Bob's Project`, `& 'codex' 'resume' 'session'`); err != nil {
 		t.Fatal(err)
 	}
 	if got.Path != `C:\Windows\wt.exe` {
@@ -141,7 +140,7 @@ func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
 	}
 	wantArgs := append(
 		[]string{`C:\Windows\wt.exe`, "-d", `C:\Users\Bob's Project`, `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`},
-		powerShellCommandArguments(`& 'codex' 'resume' 'session'`)...,
+		powerShellCommandArguments(got.Args[len(got.Args)-1], true)...,
 	)
 	if !reflect.DeepEqual(got.Args, wantArgs) {
 		t.Fatalf("arguments = %#v, want %#v", got.Args, wantArgs)
@@ -152,6 +151,7 @@ func TestOpenWindowsTerminalPrefersWindowsTerminal(t *testing.T) {
 }
 
 func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	originalLookPath, originalCreate, originalClose := windowsLookPath, windowsCreateProcess, windowsCloseHandle
 	t.Cleanup(func() {
 		windowsLookPath, windowsCreateProcess, windowsCloseHandle = originalLookPath, originalCreate, originalClose
@@ -203,7 +203,7 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 		return nil
 	}
 
-	if err := openWindowsTerminal(`C:\work 卡尔文`, `& 'claude' 'Bob''s session'`); err != nil {
+	if err := openWindowsTerminal(context.Background(), `C:\work 卡尔文`, `& 'claude' 'Bob''s session'`); err != nil {
 		t.Fatal(err)
 	}
 	if gotApplication != `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` {
@@ -214,7 +214,7 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 	}
 	wantArgs := append(
 		[]string{`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`},
-		powerShellCommandArguments(`& 'claude' 'Bob''s session'`)...,
+		powerShellCommandArguments(gotArguments[len(gotArguments)-1], true)...,
 	)
 	if !reflect.DeepEqual(gotArguments, wantArgs) {
 		t.Fatalf("arguments = %#v, want %#v", gotArguments, wantArgs)
@@ -248,30 +248,47 @@ func TestWindowsTerminalAvailabilityRequiresPowerShell(t *testing.T) {
 	}
 }
 
-func TestPowerShellCommandArgumentsRoundTripUnicodeWithoutShellMetacharacters(t *testing.T) {
-	command := `try { & 'codex' '-c' ('developer_instructions=' + $handoff) } finally { Write-Output '卡尔文 🦖' }`
-	arguments := powerShellCommandArguments(command)
-	wantFlags := []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-NoExit", "-EncodedCommand"}
-	if !reflect.DeepEqual(arguments[:len(wantFlags)], wantFlags) {
-		t.Fatalf("PowerShell flags = %#v, want %#v", arguments[:len(wantFlags)], wantFlags)
+func TestWindowsAuthenticationCommandUsesPowerShellEnvironment(t *testing.T) {
+	got := localCommandWithEnv("COSLASH_HOME", `C:\Users\Calvin Smith\.coslash`, `C:\Program Files\coSlash\coslash.exe`, "ssh-auth", "attempt")
+	want := `$env:COSLASH_HOME = 'C:\Users\Calvin Smith\.coslash'; & 'C:\Program Files\coSlash\coslash.exe' 'ssh-auth' 'attempt'`
+	if got != want {
+		t.Fatalf("command = %q, want %q", got, want)
 	}
-	if strings.Contains(arguments[len(arguments)-1], "{") || strings.Contains(arguments[len(arguments)-1], "'") {
-		t.Fatalf("encoded command still contains shell metacharacters: %q", arguments[len(arguments)-1])
+}
+
+func TestOpenTerminalHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := openTerminal(ctx, settings.TerminalWindows, `C:\work`, "Write-Output 'stale'")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("openTerminal() error = %v, want context canceled", err)
 	}
-	encoded, err := base64.StdEncoding.DecodeString(arguments[len(arguments)-1])
+}
+
+func TestPowerShellCommandUsesPrivateScriptInsteadOfArgv(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	command := "Write-Output " + powerShellQuote(strings.Repeat("卡尔文 🦖", 16<<10))
+	path, err := writePowerShellScript(command)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(encoded)%2 != 0 {
-		t.Fatalf("encoded command has odd UTF-16LE byte length: %d", len(encoded))
+	t.Cleanup(func() { _ = os.Remove(path) })
+	arguments := powerShellCommandArguments(path, true)
+	want := []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-NoExit", "-File", path}
+	if !reflect.DeepEqual(arguments, want) {
+		t.Fatalf("PowerShell arguments = %#v, want %#v", arguments, want)
 	}
-	codeUnits := make([]uint16, len(encoded)/2)
-	for i := range codeUnits {
-		codeUnits[i] = binary.LittleEndian.Uint16(encoded[i*2:])
+	for _, argument := range arguments {
+		if strings.Contains(argument, "卡尔文") {
+			t.Fatal("prompt content was exposed in argv")
+		}
 	}
-	wantCommand := "$env:TERM = 'xterm-256color'; " + command
-	if got := string(utf16.Decode(codeUnits)); got != wantCommand {
-		t.Fatalf("decoded command = %q, want %q", got, wantCommand)
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), command) || !strings.Contains(string(contents), "Remove-Item -LiteralPath") {
+		t.Fatal("launch script does not contain the command and self-cleanup")
 	}
 }
 
@@ -298,7 +315,7 @@ func TestWindowsPowerShellClosesPartialHandlesOnCreateError(t *testing.T) {
 		return nil
 	}
 
-	err := startWindowsConsole(`C:\Windows\powershell.exe`, `C:\work`, "-NoExit")
+	err := startWindowsConsole(context.Background(), `C:\Windows\powershell.exe`, `C:\work`, "-NoExit")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("startWindowsConsole() error = %v, want %v", err, wantErr)
 	}

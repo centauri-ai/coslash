@@ -14,6 +14,10 @@ func localCommandJoin(arguments ...string) string {
 	return shellJoin(arguments...)
 }
 
+func localCommandWithEnv(name, value string, arguments ...string) string {
+	return name + "=" + shellQuote(value) + " " + shellJoin(arguments...)
+}
+
 func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) {
 	context := handoffPreamble + handoff
 	switch agent {
