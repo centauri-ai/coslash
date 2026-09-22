@@ -303,6 +303,16 @@ func applyCursorLiveness(metadata *vendors.SessionMetadata, live map[string]stri
 }
 
 func applyCursorLivenessContext(ctx context.Context, metadata *vendors.SessionMetadata, live map[string]string, includeUnknown bool) error {
+	blockingActions := map[string]bool{}
+	for id, entry := range metadata.Sessions {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.Live == "waiting" {
+			blockingActions[id] = true
+			entry.Live = ""
+		}
+	}
 	for id, lane := range live {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -314,6 +324,9 @@ func applyCursorLivenessContext(ctx context.Context, metadata *vendors.SessionMe
 		}
 		if entry != nil && lane != "" && entry.Entrypoint == lane {
 			entry.Live = "interactive"
+			if blockingActions[id] {
+				entry.Live = "waiting"
+			}
 		}
 	}
 	return ctx.Err()
@@ -892,10 +905,13 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 				ModelName string `json:"modelName"`
 			} `json:"modelConfig"`
 			ToolFormerData struct {
-				Name    string          `json:"name"`
-				Status  string          `json:"status"`
-				RawArgs json.RawMessage `json:"rawArgs"`
-				Result  string          `json:"result"`
+				Name           string          `json:"name"`
+				Status         string          `json:"status"`
+				RawArgs        json.RawMessage `json:"rawArgs"`
+				Result         string          `json:"result"`
+				AdditionalData struct {
+					Status string `json:"status"`
+				} `json:"additionalData"`
 			} `json:"toolFormerData"`
 			UsageData map[string]struct {
 				CostInCents *float64 `json:"costInCents"`
@@ -913,6 +929,9 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 		}
 		if parts := strings.SplitN(key, ":", 3); len(parts) == 3 && parts[0] == "bubbleId" && transcriptIDPattern.MatchString(parts[1]) {
 			id := canonicalCursorID(parts[1])
+			if item.ToolFormerData.Name == "ask_question" && item.ToolFormerData.AdditionalData.Status == "pending" {
+				metadata.Session(id).Live = "waiting"
+			}
 			model := strings.TrimSpace(item.ModelInfo.ModelName)
 			createdAt := cursorBubbleTime(item.CreatedAt)
 			previous := bubbles[id]
