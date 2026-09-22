@@ -153,9 +153,9 @@ const styles = {
   sidebar:
     'coslash-sidebar sticky top-0 max-h-[calc(100svh-60px)] min-h-[calc(100svh-60px)] w-[214px] shrink-0 overflow-y-auto border-r border-coslash-line bg-coslash-surface px-3 py-5 [scrollbar-width:none] max-sidebar:hidden [&::-webkit-scrollbar]:hidden',
   sideHeading:
-    'flex min-h-[30px] w-full cursor-pointer items-center gap-[7px] rounded-[7px] px-2.5 py-1.5 text-left text-meta font-[650] tracking-[.09em] text-coslash-muted uppercase hover:bg-coslash-soft hover:text-coslash-ink',
+    'flex min-h-[30px] w-full cursor-pointer items-center gap-[7px] rounded-[7px] px-2.5 py-1.5 text-left text-meta font-[650] tracking-[.09em] text-coslash-muted uppercase transition-colors hover:bg-coslash-soft hover:text-coslash-ink',
   facet:
-    'flex min-h-8 w-full cursor-pointer items-center gap-[9px] rounded-[7px] px-2.5 py-[7px] text-left text-xs leading-[1.45] text-coslash-muted hover:bg-coslash-soft [&>svg]:size-3.5',
+    'flex min-h-8 w-full cursor-pointer items-center gap-[9px] rounded-[7px] px-2.5 py-[7px] text-left text-xs leading-[1.45] text-coslash-muted transition-colors hover:bg-coslash-soft [&>svg]:size-3.5',
   main: 'coslash-main min-w-0 flex-1 px-6 pt-5 pb-[60px] max-sidebar:w-full max-sidebar:p-4',
   search:
     'flex h-12 w-full min-w-0 items-center gap-1.5 rounded-[9px] border border-coslash-line bg-coslash-surface px-3.5 focus-within:border-coslash-accent focus-within:shadow-[0_0_0_3px_var(--coslash-tint)]',
@@ -165,7 +165,7 @@ const styles = {
     'min-h-[180px] max-h-[calc(100svh-240px)] overflow-auto rounded-[10px] border border-coslash-line bg-coslash-surface',
   head: 'sticky top-0 z-12 border-b border-coslash-line bg-coslash-surface text-left text-meta font-[650] tracking-[.07em] text-coslash-muted uppercase',
   headButton:
-    'flex min-h-[34px] w-full cursor-pointer items-center gap-[5px] px-2.5 py-[9px] text-left font-[inherit] tracking-[inherit] uppercase hover:bg-coslash-soft hover:text-coslash-ink [&>svg]:size-3',
+    'flex min-h-[34px] w-full cursor-pointer items-center gap-[5px] px-2.5 py-[9px] text-left font-[inherit] tracking-[inherit] uppercase transition-colors hover:bg-coslash-soft hover:text-coslash-ink [&>svg]:size-3',
   cell: 'overflow-hidden px-2.5 py-2 align-middle text-cell',
   empty: 'flex min-h-60 flex-col items-center justify-center gap-2 px-6 py-11 text-center',
 };
@@ -629,7 +629,7 @@ function SessionRow({
   return (
     <tr
       className={cn(
-        'group hover:[&>td]:bg-coslash-soft cursor-pointer',
+        'group hover:[&>td]:bg-coslash-soft cursor-pointer [&>td]:transition-colors',
         { 'border-coslash-line-soft border-b': !compact },
         selected &&
           '[&>td]:bg-coslash-tint hover:[&>td]:bg-coslash-tint [&>td:first-child]:shadow-[inset_3px_0_0_var(--coslash-accent)]',
@@ -639,7 +639,7 @@ function SessionRow({
       <td className={cn(cell, 'w-auto')}>
         <button
           type="button"
-          className="text-ui hover:text-coslash-accent block w-full truncate px-1.5 py-px text-left leading-[1.35] font-semibold"
+          className="text-ui group-hover:text-coslash-accent block w-full cursor-pointer truncate px-1.5 py-px text-left leading-[1.35] font-semibold transition-colors"
           onClick={onSelect}
         >
           {sessionTitle(session)}
@@ -657,7 +657,7 @@ function SessionRow({
         <div className="text-coslash-muted flex min-w-0 items-baseline gap-1.5">
           <button
             type="button"
-            className="text-cell hover:text-coslash-accent max-w-full truncate px-1.5 py-[1.5px] text-left"
+            className="text-cell hover:text-coslash-accent max-w-full cursor-pointer truncate px-1.5 py-[1.5px] text-left transition-colors"
             onClick={(event) => {
               event.stopPropagation();
               onToggleGroup();
@@ -926,7 +926,7 @@ function SessionListView({
               >
                 <button
                   type="button"
-                  className="flex min-h-8 w-full cursor-pointer items-center gap-2 px-2.5 py-[7px] text-xs font-[650]"
+                  className="hover:bg-coslash-line-soft flex min-h-8 w-full cursor-pointer items-center gap-2 px-2.5 py-[7px] text-xs font-[650] transition-colors"
                   aria-expanded={open}
                   onClick={() => onToggleSection(status)}
                 >
@@ -1277,7 +1277,7 @@ export function CoslashLayout({
                     {groupQuery && (
                       <button
                         type="button"
-                        className="hover:bg-coslash-soft grid size-5 place-items-center rounded [&>svg]:size-3"
+                        className="hover:bg-coslash-soft grid size-5 cursor-pointer place-items-center rounded transition-colors [&>svg]:size-3"
                         onClick={() => setGroupQuery('')}
                         aria-label="Clear group filter"
                       >
@@ -1369,7 +1369,7 @@ export function CoslashLayout({
                         key={option.value}
                         type="button"
                         className={cn(
-                          'text-meta text-coslash-muted min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1',
+                          'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
                           range === option.value &&
                             'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
                         )}
@@ -1386,7 +1386,7 @@ export function CoslashLayout({
                         key={value}
                         type="button"
                         className={cn(
-                          'text-meta text-coslash-muted min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1',
+                          'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
                           preferences.view === value &&
                             'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
                         )}

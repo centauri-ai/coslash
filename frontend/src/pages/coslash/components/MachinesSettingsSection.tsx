@@ -440,7 +440,7 @@ export function MachinesSettingsSection({
                 showRetry && (
                   <button
                     type="button"
-                    className="cursor-pointer text-left text-xs font-semibold underline underline-offset-2"
+                    className="hover:text-coslash-accent cursor-pointer text-left text-xs font-semibold underline underline-offset-2 transition-colors"
                     onClick={() => void retryConnection()}
                   >
                     Retry the connection

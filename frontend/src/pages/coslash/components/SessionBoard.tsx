@@ -165,7 +165,7 @@ function BoardCard({
   return (
     <div
       className={cn(
-        'border-coslash-line bg-coslash-surface hover:border-coslash-tint-line cursor-pointer rounded-lg border p-3',
+        'group border-coslash-line bg-coslash-surface hover:border-coslash-tint-line hover:ring-coslash-tint-line cursor-pointer rounded-lg border p-3 transition-all hover:ring-1',
         {
           'border-coslash-tint-line shadow-[inset_3px_0_0_var(--coslash-accent)]': selected,
           'opacity-75': session.displayStale,
@@ -190,7 +190,7 @@ function BoardCard({
       </div>
       <button
         type="button"
-        className="hover:text-coslash-accent line-clamp-2 w-full pt-2 text-left text-[13px] leading-[1.35] font-semibold break-words"
+        className="group-hover:text-coslash-accent line-clamp-2 w-full cursor-pointer pt-2 text-left text-[13px] leading-[1.35] font-semibold break-words transition-colors"
         onClick={onSelect}
       >
         {session.name ?? session.firstPrompt ?? 'Untitled session'}
