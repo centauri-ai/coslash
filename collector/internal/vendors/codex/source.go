@@ -19,7 +19,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata, metadataErr := LoadMetadataContext(ctx)
+	metadata, metadataErr := loadMetadataForFilesContext(ctx, files)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}

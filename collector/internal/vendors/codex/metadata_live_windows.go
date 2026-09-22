@@ -5,15 +5,13 @@ package codex
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/winprocess"
 )
 
-const maxWindowsLiveRolloutCandidates = 256
+const maxFilesPerRestartManagerQuery = 128
 
 var (
 	processesUsingRollouts = winprocess.ProcessesUsingFiles
@@ -21,18 +19,24 @@ var (
 )
 
 func loadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
-	files, err := Files()
+	files, err := FilesContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return loadLiveSessionsFromFiles(ctx, files)
 }
 
+func loadLiveSessionsForFilesContext(ctx context.Context, files []string) (map[string]struct{}, error) {
+	return loadLiveSessionsFromFiles(ctx, files)
+}
+
 func loadLiveSessionsFromFiles(ctx context.Context, files []string) (map[string]struct{}, error) {
 	live := map[string]struct{}{}
-	candidates := newestRolloutCandidates(files, maxWindowsLiveRolloutCandidates)
-	if err := findOpenRollouts(ctx, candidates, live); err != nil {
-		return nil, err
+	for start := 0; start < len(files); start += maxFilesPerRestartManagerQuery {
+		end := min(start+maxFilesPerRestartManagerQuery, len(files))
+		if err := findOpenRollouts(ctx, files[start:end], live); err != nil {
+			return nil, err
+		}
 	}
 	return live, nil
 }
@@ -69,37 +73,6 @@ func findOpenRollouts(ctx context.Context, files []string, live map[string]struc
 		return err
 	}
 	return findOpenRollouts(ctx, files[middle:], live)
-}
-
-func newestRolloutCandidates(files []string, limit int) []string {
-	if len(files) <= limit {
-		return slices.Clone(files)
-	}
-	type candidate struct {
-		path       string
-		modifiedAt int64
-	}
-	candidates := make([]candidate, len(files))
-	for index, path := range files {
-		candidates[index].path = path
-		if info, err := os.Stat(path); err == nil {
-			candidates[index].modifiedAt = info.ModTime().UnixNano()
-		}
-	}
-	slices.SortFunc(candidates, func(left, right candidate) int {
-		if left.modifiedAt > right.modifiedAt {
-			return -1
-		}
-		if left.modifiedAt < right.modifiedAt {
-			return 1
-		}
-		return strings.Compare(left.path, right.path)
-	})
-	result := make([]string, limit)
-	for index := range result {
-		result[index] = candidates[index].path
-	}
-	return result
 }
 
 func isCurrentUserCodexProcess(pid uint32) bool {

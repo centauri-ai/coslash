@@ -72,13 +72,35 @@ func TestLoadLiveSessionsBatchesInactiveRollouts(t *testing.T) {
 	}
 }
 
-func TestLoadLiveSessionsCapsCandidateRollouts(t *testing.T) {
-	files := make([]string, maxWindowsLiveRolloutCandidates+10)
+func TestLoadLiveSessionsQueriesEveryBoundedChunk(t *testing.T) {
+	files := make([]string, maxFilesPerRestartManagerQuery*2+10)
 	for index := range files {
-		files[index] = fmt.Sprintf(`C:\rollout-%04d.jsonl`, index)
+		files[index] = fmt.Sprintf(`C:\rollout-00000000-0000-0000-0000-%012d.jsonl`, index)
 	}
-	if got := newestRolloutCandidates(files, maxWindowsLiveRolloutCandidates); len(got) != maxWindowsLiveRolloutCandidates {
-		t.Fatalf("candidate count = %d", len(got))
+	want := files[0]
+	queried := map[string]bool{}
+	stubWindowsLiveness(t, func(paths []string) ([]uint32, error) {
+		if len(paths) > maxFilesPerRestartManagerQuery {
+			t.Fatalf("query contains %d paths", len(paths))
+		}
+		for _, path := range paths {
+			queried[path] = true
+		}
+		if slices.Contains(paths, want) {
+			return []uint32{42}, nil
+		}
+		return nil, nil
+	}, func(pid uint32) bool { return pid == 42 })
+
+	live, err := loadLiveSessionsFromFiles(context.Background(), files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queried) != len(files) {
+		t.Fatalf("queried %d of %d rollout paths", len(queried), len(files))
+	}
+	if _, ok := live[SessionIDFromRollout(want)]; !ok {
+		t.Fatalf("live sessions = %v, want oldest rollout", live)
 	}
 }
 

@@ -25,3 +25,7 @@ func loadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
 	}
 	return LiveSessionIDs(string(openCodexSessions)), nil
 }
+
+func loadLiveSessionsForFilesContext(ctx context.Context, _ []string) (map[string]struct{}, error) {
+	return loadLiveSessionsContext(ctx)
+}
