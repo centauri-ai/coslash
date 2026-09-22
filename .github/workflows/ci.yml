@@ -88,7 +88,19 @@ jobs:
       - name: Test collector on Windows
         working-directory: collector
         shell: powershell
-        run: go test ./...
+        run: |
+          $ErrorActionPreference = "Continue"
+          $output = @(& go test ./... 2>&1)
+          $exitCode = $LASTEXITCODE
+          $ErrorActionPreference = "Stop"
+          $output | Write-Output
+          if ($exitCode -ne 0) {
+            $tail = (($output | Select-Object -Last 40) -join "`n")
+            $tail = ($tail -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '')
+            $tail = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows Go tests failed::$tail"
+            exit $exitCode
+          }
       - name: Vet collector on Windows
         working-directory: collector
         shell: powershell
