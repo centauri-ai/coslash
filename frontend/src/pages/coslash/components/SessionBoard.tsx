@@ -33,22 +33,22 @@ type SessionReviewProps = {
 };
 
 const READINESS_TONE: Record<SessionReadiness['key'], { dot: string; label: string }> = {
-  resume: { dot: 'bg-coslash-green-dot', label: 'text-coslash-green-ink' },
-  review: { dot: 'bg-coslash-amber-dot', label: 'text-coslash-amber-ink' },
-  fresh: { dot: 'bg-coslash-clay-dot', label: 'text-coslash-clay' },
+  resume: { dot: 'bg-success', label: 'text-success-fg' },
+  review: { dot: 'bg-warning', label: 'text-warning-fg' },
+  fresh: { dot: 'bg-danger', label: 'text-danger-fg' },
   unavailable: { dot: 'border border-coslash-neutral-dot', label: 'text-coslash-muted' },
 };
 
 // Only dimensions with a liveness meaning of their own get a dot in the column header.
 const COLUMN_DOT: Record<string, string> = {
-  busy: 'bg-coslash-green-dot',
-  waiting: 'bg-coslash-amber-dot',
+  busy: 'bg-success',
+  waiting: 'bg-warning',
   idle: 'bg-coslash-neutral-dot',
   inactive: 'bg-coslash-neutral-dot',
   unknown: 'border border-coslash-neutral-dot',
-  resume: 'bg-coslash-green-dot',
-  review: 'bg-coslash-amber-dot',
-  fresh: 'bg-coslash-clay-dot',
+  resume: 'bg-success',
+  review: 'bg-warning',
+  fresh: 'bg-danger',
   unavailable: 'border border-coslash-neutral-dot',
 };
 

@@ -37,7 +37,7 @@ export function DiffList({
 }) {
   if (isLoading) {
     return (
-      <div className="text-muted-foreground flex flex-1 items-center justify-center gap-1 text-xs">
+      <div className="text-coslash-muted flex flex-1 items-center justify-center gap-1 text-xs">
         <LoaderCircleIcon className="size-3 animate-spin" />
         Loading file changes…
       </div>
@@ -46,7 +46,7 @@ export function DiffList({
   if (loadError != null) {
     return (
       <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-        <div className="text-destructive text-xs">{loadError}</div>
+        <div className="text-danger-fg text-xs">{loadError}</div>
         {showRefresh && onRefresh != null && (
           <Button variant="outline" size="sm" onClick={onRefresh}>
             Refresh sessions
@@ -62,7 +62,7 @@ export function DiffList({
   }
   if (changes?.length === 0) {
     return (
-      <div className="text-muted-foreground flex flex-1 items-center justify-center text-xs">
+      <div className="text-coslash-muted flex flex-1 items-center justify-center text-xs">
         No recorded changes from this session.
       </div>
     );
@@ -73,14 +73,14 @@ export function DiffList({
     <div className="flex-1 space-y-3 overflow-auto p-3">
       {changes.map((change, changeIndex) => (
         <section key={changeIndex} className="overflow-hidden rounded-lg border">
-          <div className="bg-muted flex items-center justify-between gap-2 border-b px-3 py-2 text-xs">
+          <div className="bg-coslash-soft flex items-center justify-between gap-2 border-b px-3 py-2 text-xs">
             <span className="font-medium">{fileChangeLabel(change, changeIndex)}</span>
             {change.kind === 'content' ? (
-              <span className="text-muted-foreground">Full content</span>
+              <span className="text-coslash-muted">Full content</span>
             ) : (
               <span className="flex gap-2">
                 <span className="text-success-fg">+{change.additions}</span>
-                <span className="text-destructive">−{change.deletions}</span>
+                <span className="text-danger-fg">−{change.deletions}</span>
               </span>
             )}
           </div>
@@ -96,7 +96,7 @@ export function DiffList({
                     className={cn('block min-w-max px-3', {
                       'text-brand': kind === 'hunk',
                       'bg-success-bg text-success-fg': kind === 'addition',
-                      'text-destructive bg-red-50 dark:bg-red-950': kind === 'deletion',
+                      'text-danger-fg bg-danger-bg': kind === 'deletion',
                     })}
                   >
                     {line || ' '}

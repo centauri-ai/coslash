@@ -350,15 +350,15 @@ export const STATUSES = {
   },
   inactive: {
     label: 'Inactive',
-    fg: 'text-muted-foreground',
-    bg: 'bg-muted',
-    dot: 'bg-muted-foreground',
+    fg: 'text-coslash-muted',
+    bg: 'bg-coslash-soft',
+    dot: 'bg-coslash-muted',
   },
   unknown: {
     label: 'Unknown',
-    fg: 'text-muted-foreground',
-    bg: 'bg-muted',
-    dot: 'bg-muted-foreground',
+    fg: 'text-coslash-muted',
+    bg: 'bg-coslash-soft',
+    dot: 'bg-coslash-muted',
   },
 } satisfies Record<string, Status>;
 
@@ -372,7 +372,7 @@ export type SubagentStatus = { label: string; fg: string; bg: string };
 export const SUBAGENT_STATUSES = {
   running: { label: 'running', fg: 'text-warning-fg', bg: 'bg-warning-bg' },
   returned: { label: 'returned', fg: 'text-subagent', bg: 'bg-subagent-bg' },
-  aborted: { label: 'aborted', fg: 'text-destructive', bg: 'bg-muted' },
+  aborted: { label: 'aborted', fg: 'text-danger-fg', bg: 'bg-coslash-soft' },
 } satisfies Record<Subagent['status'], SubagentStatus>;
 
 const MODALITIES: Record<string, string> = {
@@ -405,8 +405,8 @@ export function getVendor(agent: string): Vendor {
   return {
     label: agent,
     mono: '??',
-    fg: 'text-muted-foreground',
-    bg: 'bg-muted',
+    fg: 'text-coslash-muted',
+    bg: 'bg-coslash-soft',
   };
 }
 

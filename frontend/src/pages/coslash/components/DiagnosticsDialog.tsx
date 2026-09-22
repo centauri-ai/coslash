@@ -59,7 +59,7 @@ export function DiagnosticsDialog({
       <DialogTrigger asChild>
         <DiagnosticsButton status={diagnostics ? worstStatus(diagnostics.checks) : 'ok'} />
       </DialogTrigger>
-      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="coslash-shell max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>coSlash diagnostics</DialogTitle>
           <DialogDescription>
@@ -67,7 +67,7 @@ export function DiagnosticsDialog({
           </DialogDescription>
         </DialogHeader>
         {loadFailed ? (
-          <div role="alert" className="text-destructive py-4 text-sm">
+          <div role="alert" className="text-danger-fg py-4 text-sm">
             Diagnostics could not be loaded. Re-run the checks to try again.
           </div>
         ) : diagnostics ? (
@@ -75,7 +75,7 @@ export function DiagnosticsDialog({
             <DiagnosticsChecklist checks={diagnostics.checks} />
             <div className="border-t pt-4">
               <div className="pb-2 text-sm font-semibold">Facts</div>
-              <div className="text-muted-foreground flex flex-col gap-2 text-xs">
+              <div className="text-coslash-muted flex flex-col gap-2 text-xs">
                 <div>
                   coSlash {diagnostics.version} · {diagnostics.platform.os}/{diagnostics.platform.arch}
                 </div>
@@ -94,7 +94,7 @@ export function DiagnosticsDialog({
                 ))}
                 {remoteFacts && (
                   <div>
-                    <div className="text-foreground pb-1 font-semibold">Remote host</div>
+                    <div className="text-coslash-ink pb-1 font-semibold">Remote host</div>
                     {remoteFacts.map((line) => (
                       <div key={line}>{line}</div>
                     ))}
@@ -107,7 +107,7 @@ export function DiagnosticsDialog({
             </div>
           </div>
         ) : (
-          <div className="text-muted-foreground py-6 text-sm">Checking local session sources…</div>
+          <div className="text-coslash-muted py-6 text-sm">Checking local session sources…</div>
         )}
         <DialogFooter className="sm:justify-between">
           <Button variant="outline" onClick={onRefresh} disabled={isLoading}>
@@ -125,7 +125,7 @@ export function DiagnosticsDialog({
                     : 'Copy diagnostics'}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>
+            <TooltipContent className="coslash-shell">
               Copies paths, counts, versions, and checks — never transcript content or session names.
             </TooltipContent>
           </Tooltip>

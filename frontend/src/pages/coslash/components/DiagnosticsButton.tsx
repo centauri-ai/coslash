@@ -24,7 +24,7 @@ export function DiagnosticsButton({
         className={cn('absolute -top-1 -right-1 size-2 rounded-full', {
           'hidden': status === 'ok',
           'bg-warning': status === 'warn',
-          'bg-destructive': status === 'fail',
+          'bg-danger': status === 'fail',
         })}
         aria-hidden="true"
       />

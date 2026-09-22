@@ -53,6 +53,7 @@
 @theme inline {
   /* brand accent (logo, primary actions) */
   --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
 
   /* status: active */
   --color-success: var(--success);
@@ -68,6 +69,11 @@
   --color-warning: var(--warning);
   --color-warning-fg: var(--warning-fg);
   --color-warning-bg: var(--warning-bg);
+
+  /* status: failed/destructive — a warm clay, distinct from shadcn's --destructive red */
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-bg: var(--danger-bg);
 
   /* vendor: Claude Code */
   --color-claude: var(--claude);
@@ -98,13 +104,6 @@
   --color-coslash-accent-ink: var(--coslash-accent-ink);
   --color-coslash-tint: var(--coslash-tint);
   --color-coslash-tint-line: var(--coslash-tint-line);
-  --color-coslash-amber-dot: var(--coslash-amber-dot);
-  --color-coslash-amber-ink: var(--coslash-amber-ink);
-  --color-coslash-green-dot: var(--coslash-green-dot);
-  --color-coslash-green-ink: var(--coslash-green-ink);
-  --color-coslash-clay: var(--coslash-clay);
-  --color-coslash-clay-dot: var(--coslash-clay-dot);
-  --color-coslash-clay-bg: var(--coslash-clay-bg);
   --color-coslash-neutral-dot: var(--coslash-neutral-dot);
 
   /* session-view type ramp, below the default text-xs */
@@ -133,7 +132,11 @@
 }
 
 :root {
+  /* Keeps native scrollbars and form controls on the active theme. */
+  color-scheme: light;
+
   --brand: #3554d1;
+  --brand-foreground: #ffffff;
   --success: #2f9e63;
   --success-fg: #2f7d55;
   --success-bg: #e4f2ea;
@@ -143,6 +146,9 @@
   --warning: #c08a2e;
   --warning-fg: #8a6316;
   --warning-bg: #f7efdd;
+  --danger: #c05a42;
+  --danger-fg: #a8402a;
+  --danger-bg: #fbeeea;
   --claude: #96552f;
   --claude-bg: #f8ede6;
   --codex: #4a5ab8;
@@ -194,10 +200,13 @@
 }
 
 .dark {
+  color-scheme: dark;
+
   /* Light triples are (solid, darkened-for-text, pale wash). On dark that inverts to
      (solid slightly brightened, lightened-for-text, deep low-chroma wash). Every -fg
      clears 5.9:1 on its own -bg. */
   --brand: #6f89ee;
+  --brand-foreground: #11151d;
   --success: #35b073;
   --success-fg: #5fd39b;
   --success-bg: #10291d;
@@ -207,6 +216,9 @@
   --warning: #d69f3f;
   --warning-fg: #e8bd6b;
   --warning-bg: #2e2311;
+  --danger: #d4735a;
+  --danger-fg: #eb9781;
+  --danger-bg: #2d1c17;
   --claude: #e0a483;
   --claude-bg: #332318;
   --codex: #a9b6f0;

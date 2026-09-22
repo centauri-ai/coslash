@@ -44,7 +44,7 @@ export function ReviewDialogContent({
         {reviewers.map((reviewer) => (
           <label
             key={reviewer.id}
-            className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded-lg border p-3"
+            className="hover:bg-coslash-soft flex cursor-pointer items-center gap-2 rounded-lg border p-3"
           >
             <input
               type="radio"
@@ -59,7 +59,7 @@ export function ReviewDialogContent({
         ))}
       </div>
       {error != null && (
-        <div role="alert" className="text-destructive text-xs">
+        <div role="alert" className="text-danger-fg text-xs">
           {error}
         </div>
       )}
@@ -156,6 +156,7 @@ export function ReviewDialog({
           </DialogTrigger>
         )}
         <DialogContent
+          className="coslash-shell"
           onClick={(event) => event.stopPropagation()}
           onCloseAutoFocus={(event) => {
             if (returnFocusRef?.current == null) return;
@@ -175,7 +176,7 @@ export function ReviewDialog({
         </DialogContent>
       </Dialog>
       {showTrigger && reviewError && (
-        <span role="alert" className="text-destructive text-xs">
+        <span role="alert" className="text-danger-fg text-xs">
           {reviewError}
         </span>
       )}

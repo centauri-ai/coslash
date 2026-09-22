@@ -408,26 +408,26 @@ export function MachinesSettingsSection({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-0.5">
-        <span className="text-muted-foreground text-[11px] font-semibold tracking-widest uppercase">
+        <span className="text-coslash-muted text-[11px] font-semibold tracking-widest uppercase">
           SSH monitoring
         </span>
-        <span className="bg-border h-px flex-1" />
+        <span className="bg-coslash-line h-px flex-1" />
       </div>
-      <div className="border-border bg-card overflow-hidden rounded-xl border">
+      <div className="border-coslash-line bg-coslash-surface overflow-hidden rounded-xl border">
         {remote ? (
           <div className="flex items-center justify-between gap-4 p-4">
             <div className="flex min-w-0 flex-col gap-1">
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    'coslash-shell size-[7px] shrink-0 rounded-full',
+                    'size-[7px] shrink-0 rounded-full',
                     MACHINE_TONE_DOT[currentMachine == null ? 'checking' : machineTone(currentMachine)],
                   )}
                   aria-hidden="true"
                 />
                 <span className="text-sm font-semibold">{remote.sshAlias} · SSH</span>
               </div>
-              <div className="text-muted-foreground text-xs">
+              <div className="text-coslash-muted text-xs">
                 {setupFailed
                   ? 'Setup failed'
                   : currentMachine == null
@@ -435,7 +435,7 @@ export function MachinesSettingsSection({
                     : machineStatusText(currentMachine)}
               </div>
               {retrying ? (
-                <div className="text-muted-foreground text-xs">Retrying…</div>
+                <div className="text-coslash-muted text-xs">Retrying…</div>
               ) : (
                 showRetry && (
                   <button
@@ -483,7 +483,7 @@ export function MachinesSettingsSection({
           <div className="flex flex-col gap-3 p-4">
             <div>
               <div className="text-sm font-semibold">Add remote host</div>
-              <div className="text-muted-foreground mt-1 text-xs text-pretty">
+              <div className="text-coslash-muted mt-1 text-xs text-pretty">
                 Connect through an SSH alias or a simple user@host destination.
               </div>
             </div>
@@ -494,7 +494,7 @@ export function MachinesSettingsSection({
                 disabled={setupActionsLocked}
                 onChange={(event) => setAlias(event.target.value)}
                 placeholder="agent-box"
-                className="border-border bg-background text-foreground focus-visible:border-ring focus-visible:ring-ring h-8 min-w-0 flex-1 rounded-lg border px-2.5 font-mono text-xs outline-none focus-visible:ring-3 disabled:opacity-50"
+                className="border-coslash-line bg-coslash-surface text-coslash-ink focus-visible:border-coslash-accent focus-visible:ring-coslash-accent h-8 min-w-0 flex-1 rounded-lg border px-2.5 font-mono text-xs outline-none focus-visible:ring-3 disabled:opacity-50"
               />
               <Button type="button" size="sm" disabled={setupActionsLocked} onClick={() => void addHost()}>
                 {stage === 'testing'
@@ -512,9 +512,9 @@ export function MachinesSettingsSection({
           <div
             role={messageIsError ? 'alert' : 'status'}
             className={cn('flex items-center gap-3 border-t px-4 py-3 text-xs', {
-              'bg-muted text-muted-foreground': busy || stage === 'consent' || authenticationPending,
+              'bg-coslash-soft text-coslash-muted': busy || stage === 'consent' || authenticationPending,
               'bg-success-bg text-success-fg': stage === 'ready',
-              'bg-destructive/10 text-destructive': messageIsError,
+              'bg-danger-bg text-danger-fg': messageIsError,
             })}
           >
             <span className={cn({ 'animate-pulse': stage === 'installing' || stage === 'authenticating' })}>
@@ -533,12 +533,12 @@ export function MachinesSettingsSection({
           </div>
         )}
         {message == null && setupFailed && (
-          <div role="alert" className="bg-destructive/10 text-destructive border-t px-4 py-3 text-xs">
+          <div role="alert" className="bg-danger-bg text-danger-fg border-t px-4 py-3 text-xs">
             Setup failed: {connectorFailureCopy(currentMachine)}. Retry setup to verify the connector.
           </div>
         )}
         {message == null && currentMachine?.actionRequired != null && !setupFailed && (
-          <div role="alert" className="bg-muted text-destructive border-t px-4 py-3 text-xs">
+          <div role="alert" className="bg-danger-bg text-danger-fg border-t px-4 py-3 text-xs">
             {currentMachine.actionRequired === 'verify_host_key'
               ? `SSH host identity changed. Verify ${remote?.sshAlias}'s host key in Terminal before reconnecting.`
               : `Run ssh ${remote?.sshAlias} in Terminal and complete the authentication prompt.`}

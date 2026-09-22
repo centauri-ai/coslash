@@ -7,12 +7,12 @@ export type MachineTone = 'checking' | 'failed' | 'disabled' | 'stale' | 'incomp
 /** The dot colour per tone. Its tokens only resolve inside `.coslash-shell`. */
 export const MACHINE_TONE_DOT: Record<MachineTone, string> = {
   checking: 'bg-coslash-accent animate-pulse',
-  failed: 'bg-coslash-clay-dot',
+  failed: 'bg-danger',
   disabled: 'bg-coslash-neutral-dot',
-  stale: 'bg-coslash-amber-dot',
-  incomplete: 'bg-coslash-amber-dot',
-  truncated: 'bg-coslash-green-dot',
-  ok: 'bg-coslash-green-dot',
+  stale: 'bg-warning',
+  incomplete: 'bg-warning',
+  truncated: 'bg-success',
+  ok: 'bg-success',
 };
 
 // The host answered and the helper ran; only the data came back short. Any

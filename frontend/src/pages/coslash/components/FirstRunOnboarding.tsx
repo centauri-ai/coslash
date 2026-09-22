@@ -15,22 +15,22 @@ export function FirstRunOnboarding({
   onRefresh: () => void;
 }) {
   return (
-    <div role="status" className="bg-background h-full overflow-y-auto px-4 py-8">
-      <div className="bg-background mx-auto flex max-w-2xl flex-col gap-5 rounded-xl border p-6 text-left shadow-sm">
+    <div role="status" className="bg-coslash-surface h-full overflow-y-auto px-4 py-8">
+      <div className="bg-coslash-surface mx-auto flex max-w-2xl flex-col gap-5 rounded-xl border p-6 text-left shadow-sm">
         <div>
           <div className="text-lg font-semibold">No agent sessions found on this machine.</div>
-          <div className="text-muted-foreground pt-2 text-sm">
+          <div className="text-coslash-muted pt-2 text-sm">
             coSlash reads Claude Code and Codex transcripts from your home directory. Nothing to read yet.
           </div>
         </div>
         {loadFailed ? (
-          <div role="alert" className="text-destructive text-sm">
+          <div role="alert" className="text-danger-fg text-sm">
             Diagnostics could not be loaded. Re-run the checks to try again.
           </div>
         ) : diagnostics ? (
           <DiagnosticsChecklist checks={diagnostics.checks} />
         ) : (
-          <div className="text-muted-foreground text-sm">Checking local session sources…</div>
+          <div className="text-coslash-muted text-sm">Checking local session sources…</div>
         )}
         <div className="border-t pt-4 text-sm">
           <span className="font-semibold">Next:</span> run <code>claude</code> or <code>codex</code> in a
