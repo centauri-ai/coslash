@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -241,10 +242,24 @@ func BackendExecutable(backend string) string {
 	case BackendOpenCode:
 		return "opencode"
 	case BackendCursor:
-		return "agent"
+		return CursorExecutable()
 	default:
 		return ""
 	}
+}
+
+func CursorExecutable() string {
+	if _, err := exec.LookPath("cursor-agent"); err != nil {
+		if path, err := exec.LookPath("agent"); err == nil && isCursorInstall(path) {
+			return "agent"
+		}
+	}
+	return "cursor-agent"
+}
+
+func isCursorInstall(path string) bool {
+	resolved, err := filepath.EvalSymlinks(path)
+	return err == nil && strings.Contains(filepath.ToSlash(resolved), "/cursor-agent/versions/")
 }
 
 func Validate(config Config) error {

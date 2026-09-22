@@ -112,7 +112,7 @@ const BACKEND_BINARY: Record<string, string> = {
   'claude-cli': 'claude',
   'codex_exec': 'codex',
   'opencode': 'opencode',
-  'cursor-cli': 'agent',
+  'cursor-cli': 'cursor-agent',
 };
 
 function BackendChoice({
