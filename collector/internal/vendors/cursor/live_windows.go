@@ -196,8 +196,10 @@ func newestCursorStores(stores []string, limit int) []string {
 	candidates := make([]candidate, len(stores))
 	for index, path := range stores {
 		candidates[index].path = path
-		if info, err := os.Stat(path); err == nil {
-			candidates[index].modifiedAt = info.ModTime().UnixNano()
+		for _, activePath := range []string{path, path + "-wal", path + "-shm"} {
+			if info, err := os.Stat(activePath); err == nil {
+				candidates[index].modifiedAt = max(candidates[index].modifiedAt, info.ModTime().UnixNano())
+			}
 		}
 	}
 	slices.SortFunc(candidates, func(left, right candidate) int {
