@@ -114,6 +114,9 @@ func validDocumentString(value string) bool {
 }
 
 func decodeCanonicalDocument(data []byte, destination any) error {
+	if err := validateDocumentBounds(data); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
@@ -130,4 +133,46 @@ func decodeCanonicalDocument(data []byte, destination any) error {
 		return fmt.Errorf("non-canonical document")
 	}
 	return nil
+}
+
+func validateDocumentBounds(data []byte) error {
+	if len(data) > fullsessionv1.MaxRecordBytes {
+		return fmt.Errorf("document exceeds byte limit")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	type container struct {
+		kind  json.Delim
+		items int
+	}
+	stack := []container{}
+	totalItems := 0
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		delim, isDelim := token.(json.Delim)
+		if isDelim && (delim == ']' || delim == '}') {
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+			continue
+		}
+		if len(stack) > 0 && stack[len(stack)-1].kind == '[' {
+			stack[len(stack)-1].items++
+			totalItems++
+			if stack[len(stack)-1].items > fullsessionv1.MaxItems || totalItems > fullsessionv1.MaxItems {
+				return fmt.Errorf("document exceeds item limit")
+			}
+		}
+		if isDelim && (delim == '[' || delim == '{') {
+			if len(stack) >= fullsessionv1.MaxItems {
+				return fmt.Errorf("document exceeds nesting limit")
+			}
+			stack = append(stack, container{kind: delim})
+		}
+	}
 }

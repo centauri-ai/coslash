@@ -41,6 +41,7 @@ type DatabaseValue struct {
 }
 
 func FreezeDatabaseRows(rows DatabaseRows) ([]byte, error) {
+	rows = cloneDatabaseRows(rows)
 	rows.SchemaVersion = DatabaseRowsVersion
 	for tableIndex := range rows.Tables {
 		table := &rows.Tables[tableIndex]
@@ -58,6 +59,9 @@ func FreezeDatabaseRows(rows DatabaseRows) ([]byte, error) {
 }
 
 func DecodeDatabaseRows(data []byte, memberID string) (DatabaseRows, error) {
+	if err := validateDocumentBounds(data); err != nil {
+		return DatabaseRows{}, fmt.Errorf("%w: database rows bounds: %v", ErrInvalid, err)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var rows DatabaseRows
@@ -75,6 +79,19 @@ func DecodeDatabaseRows(data []byte, memberID string) (DatabaseRows, error) {
 		return DatabaseRows{}, fmt.Errorf("%w: non-canonical database rows", ErrInvalid)
 	}
 	return rows, nil
+}
+
+func cloneDatabaseRows(rows DatabaseRows) DatabaseRows {
+	rows.Tables = append([]DatabaseTable(nil), rows.Tables...)
+	for tableIndex := range rows.Tables {
+		table := &rows.Tables[tableIndex]
+		table.Columns = append([]string(nil), table.Columns...)
+		table.Rows = append([]DatabaseRow(nil), table.Rows...)
+		for rowIndex := range table.Rows {
+			table.Rows[rowIndex].Values = append([]DatabaseValue(nil), table.Rows[rowIndex].Values...)
+		}
+	}
+	return rows
 }
 
 func ValidateDatabaseRows(rows DatabaseRows, memberID string) error {
@@ -128,7 +145,7 @@ func validDatabaseValue(value DatabaseValue) bool {
 		return valueText(value.Value)
 	case "blob":
 		decoded, err := base64.StdEncoding.DecodeString(value.Value)
-		return err == nil && base64.StdEncoding.EncodeToString(decoded) == value.Value
+		return err == nil && len(value.Value) <= 1<<20 && base64.StdEncoding.EncodeToString(decoded) == value.Value
 	default:
 		return false
 	}
