@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,7 +36,11 @@ func TestManagerRunSkipsListUntilRunnerConfigured(t *testing.T) {
 }
 
 func overflowSession() *session.Session {
-	digest := make([]session.DigestEntry, 30)
+	return overflowSessionWithTurns(30)
+}
+
+func overflowSessionWithTurns(turns int) *session.Session {
+	digest := make([]session.DigestEntry, turns)
 	for index := range digest {
 		digest[index] = session.DigestEntry{
 			Turn:        index + 1,
@@ -133,5 +138,70 @@ func TestRunSynthesisRejectsImpossibleDigestBeforeBuildingPrompts(t *testing.T) 
 	}
 	if calls != 0 {
 		t.Fatalf("runner called %d times before rejecting impossible digest", calls)
+	}
+}
+
+func TestRunSynthesisCarriesEarlyAndLateDecisionsAcrossMergeRounds(t *testing.T) {
+	s := overflowSessionWithTurns(120)
+	sourceCount := len(BuildInputs(s))
+	if sourceCount < 3 {
+		t.Fatalf("test session produced %d source chunks, want at least 3", sourceCount)
+	}
+	sourceCalls := 0
+	mergeCalls := 0
+	sawCombinedMarkers := false
+	runner := runnerFunc(func(_ context.Context, input string) (session.SessionSynthesis, error) {
+		if !strings.Contains(input, "PARTIAL SYNTHESES") {
+			index := sourceCalls
+			sourceCalls++
+			decisions := make([]string, maxIntermediateKeyDecisions)
+			for decisionIndex := range decisions {
+				decisions[decisionIndex] = fmt.Sprintf("source-%02d-%02d", index, decisionIndex)
+			}
+			if index == 0 {
+				decisions[0] = "early-decision-marker"
+			}
+			if index == sourceCount-1 {
+				decisions[len(decisions)-1] = "late-decision-marker"
+			}
+			return session.SessionSynthesis{Outcome: strings.Repeat("o", 2_000), KeyDecisions: decisions}, nil
+		}
+
+		mergeCalls++
+		var decisions []string
+		for _, line := range strings.Split(input, "\n") {
+			if decision, ok := strings.CutPrefix(line, "Decision: "); ok {
+				decisions = append(decisions, decision)
+			}
+		}
+		if strings.Contains(input, "early-decision-marker") && strings.Contains(input, "late-decision-marker") {
+			sawCombinedMarkers = true
+		}
+		ranked := make([]string, 0, len(decisions))
+		for _, marker := range []string{"early-decision-marker", "late-decision-marker"} {
+			if slices.Contains(decisions, marker) {
+				ranked = append(ranked, marker)
+			}
+		}
+		for _, decision := range decisions {
+			if decision != "early-decision-marker" && decision != "late-decision-marker" {
+				ranked = append(ranked, decision)
+			}
+		}
+		decisions = ranked[:min(len(ranked), maxIntermediateKeyDecisions)]
+		return session.SessionSynthesis{Outcome: strings.Repeat("m", 2_000), KeyDecisions: decisions}, nil
+	})
+
+	got, err := runSynthesis(context.Background(), runner, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mergeCalls < 3 || !sawCombinedMarkers {
+		t.Fatalf("merge calls = %d, combined markers = %v; want recursive merge carrying both", mergeCalls, sawCombinedMarkers)
+	}
+	if len(got.KeyDecisions) != maxFinalKeyDecisions ||
+		!slices.Contains(got.KeyDecisions, "early-decision-marker") ||
+		!slices.Contains(got.KeyDecisions, "late-decision-marker") {
+		t.Fatalf("final key decisions = %#v, want 8 including early and late markers", got.KeyDecisions)
 	}
 }
