@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
@@ -63,6 +64,11 @@ func main() {
 			delete(b, m.Artifacts[0].LogicalName)
 			return m, b, m.Artifacts[0].LogicalName
 		}},
+		{"duplicate-artifact", "duplicate artifact", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
+			m.Artifacts = append(m.Artifacts, m.Artifacts[0])
+			m.CompleteBackupSHA256 = rehash(m)
+			return m, b, ""
+		}},
 		{"wrong-size", "wrong artifact size", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
 			for index := range m.Artifacts {
 				if m.Artifacts[index].Kind == sessionbackupv1.KindRawTranscript {
@@ -76,6 +82,17 @@ func main() {
 		}},
 		{"wrong-hash", "wrong artifact hash", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
 			m.Artifacts[0].SHA256 = fmt.Sprintf("%064d", 0)
+			m.CompleteBackupSHA256 = rehash(m)
+			return m, b, ""
+		}},
+		{"unsafe-logical-name", "unsafe logical name", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
+			m.Artifacts[0].LogicalName = "../escape.jsonl"
+			m.CompleteBackupSHA256 = rehash(m)
+			return m, b, ""
+		}},
+		{"unknown-required-version", "unknown required version", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
+			m.RequiredVersions = append(m.RequiredVersions, "session-backup/future")
+			sort.Strings(m.RequiredVersions)
 			m.CompleteBackupSHA256 = rehash(m)
 			return m, b, ""
 		}},

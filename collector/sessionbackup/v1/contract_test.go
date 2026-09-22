@@ -684,6 +684,33 @@ func TestVerifierRejectsOmittedDeclaredKindCoverage(t *testing.T) {
 	t.Fatal("fixture contains no exact change")
 }
 
+func TestMeasurementContainsOnlyAggregateEvidence(t *testing.T) {
+	manifest, _, _ := loadValidFixture(t)
+	measurer, err := NewMeasurer("test-revision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := measurer.Add(manifest); err != nil {
+		t.Fatal(err)
+	}
+	report, err := measurer.Report()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range manifest.Members {
+		if bytes.Contains(data, []byte(member.MemberID)) {
+			t.Fatal("measurement leaked member identity")
+		}
+	}
+	if report.BundleCount != 1 || report.ArtifactCount != len(manifest.Artifacts) || report.MaximumBytes != manifest.Summary.TotalBytes {
+		t.Fatalf("report = %#v", report)
+	}
+}
+
 func loadValidFixture(t *testing.T) (Manifest, []byte, map[string][]byte) {
 	t.Helper()
 	root := filepath.Join("testdata", "fixtures", "valid", "family")
