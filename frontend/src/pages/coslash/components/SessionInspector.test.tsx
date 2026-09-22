@@ -32,14 +32,14 @@ const selection: FileSelection = {
 };
 
 describe('SessionInspector exact-detail boundaries', () => {
-  it('uses the truncating title variant in the inspector header', () => {
+  it('uses the truncating title style in the inspector header', () => {
     const markup = renderToStaticMarkup(
       <TooltipProvider>
         <SessionInspectorTitle detail={session} showMachineBadge={false} />
       </TooltipProvider>,
     );
 
-    expect(markup).toContain('min-w-0 truncate block text-sm font-bold');
+    expect(markup).toContain('block min-w-0 truncate text-sm font-bold');
   });
 
   it('retains the bounded remote session and labels exact diffs unavailable', () => {
