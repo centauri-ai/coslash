@@ -97,6 +97,40 @@ func TestManagedPluginSourceRechecksVersion(t *testing.T) {
 	}
 }
 
+func TestCollectRetriesPluginInstallation(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	versions := []string{"", "1.18.28", "unexpected extra probe"}
+	setOpenCodeVersionDetectorForTest(t, func() (string, error) {
+		version := versions[0]
+		versions = versions[1:]
+		return version, nil
+	})
+	if err := EnsurePlugin(); err == nil {
+		t.Fatal("initial plugin installation succeeded without OpenCode")
+	}
+	if _, _, err := Collect(0); err != nil {
+		t.Fatal(err)
+	}
+	path, err := pluginPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(installed, pluginSourceForVersion("1.18.28")) {
+		t.Fatal("collection did not install the detected OpenCode plugin")
+	}
+	if _, _, err := Collect(0); err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 1 {
+		t.Fatal("collection re-probed OpenCode after installing the plugin")
+	}
+}
+
 func setOpenCodeVersionDetectorForTest(t *testing.T, detector func() (string, error)) {
 	t.Helper()
 	originalDetector := detectOpenCodeVersion
