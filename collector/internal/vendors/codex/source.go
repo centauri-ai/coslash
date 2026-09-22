@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"path/filepath"
 	"sort"
 
@@ -24,9 +25,10 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		return nil, nil, err
 	}
 	if metadataErr != nil {
-		metadata = vendors.BestEffortMetadata(vendors.AgentCodex, func() (*vendors.SessionMetadata, error) {
-			return nil, metadataErr
-		})
+		log.Printf("%s session liveness failed: %v; continuing without live status", vendors.AgentCodex, metadataErr)
+		if metadata == nil {
+			metadata = vendors.EmptySessionMetadata()
+		}
 	}
 	if since > 0 {
 		files, err = FilesSinceSourceContext(ctx, vendors.LocalReadSource, files, metadata.LiveSessions(), since)

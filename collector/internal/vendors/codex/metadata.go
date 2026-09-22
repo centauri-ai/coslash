@@ -37,10 +37,6 @@ func loadMetadataForFilesContext(ctx context.Context, files []string) (*vendors.
 }
 
 func loadMetadataContext(ctx context.Context, loadLive func(context.Context) (map[string]struct{}, error)) (*vendors.SessionMetadata, error) {
-	live, err := loadLive(ctx)
-	if err != nil {
-		return nil, err
-	}
 	names, err := loadThreadNamesContext(ctx)
 	if err != nil {
 		return nil, err
@@ -51,6 +47,10 @@ func loadMetadataContext(ctx context.Context, loadLive func(context.Context) (ma
 			return nil, err
 		}
 		metadata.Session(id).Name = name
+	}
+	live, err := loadLive(ctx)
+	if err != nil {
+		return metadata, err
 	}
 	for id := range live {
 		if err := ctx.Err(); err != nil {

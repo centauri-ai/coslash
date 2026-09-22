@@ -113,7 +113,8 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 			}
 			live, err := codex.LoadLiveSessions()
 			if err != nil {
-				log.Printf("codex liveness probe failed: %v", err)
+				log.Printf("%s session liveness failed: %v; continuing without live status", vendors.AgentCodex, err)
+				return metadata, nil
 			}
 			for id := range live {
 				metadata.Session(id).Live = "interactive"
