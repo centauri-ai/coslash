@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -882,6 +889,25 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
 const DEBRIEF_PREVIEW_UNITS = 3;
 /** Must stay in sync with the docked-inspector breakpoint in coslash-layout.css. */
 const DOCKED_INSPECTOR_QUERY = '(min-width: 1720px)';
+const INSPECTOR_WIDTH_KEY = 'coslash.inspector-width.v1';
+const MIN_INSPECTOR_WIDTH = 360;
+const MAX_INSPECTOR_VIEWPORT_SHARE = 0.8;
+const DEFAULT_INSPECTOR_WIDTH = 'clamp(420px, 32vw, 760px)';
+
+function clampInspectorWidth(width: number): number {
+  return Math.round(
+    Math.min(Math.max(width, MIN_INSPECTOR_WIDTH), window.innerWidth * MAX_INSPECTOR_VIEWPORT_SHARE),
+  );
+}
+
+function readInspectorWidth(): number | null {
+  try {
+    const stored = Number(window.localStorage.getItem(INSPECTOR_WIDTH_KEY));
+    return Number.isFinite(stored) && stored > 0 ? Math.max(stored, MIN_INSPECTOR_WIDTH) : null;
+  } catch {
+    return null;
+  }
+}
 
 function DebriefProse({
   blocks,
@@ -1459,6 +1485,30 @@ export function SessionInspector({
       ? !window.matchMedia(DOCKED_INSPECTOR_QUERY).matches
       : true,
   );
+  const [width, setWidth] = useState<number | null>(readInspectorWidth);
+
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = contentRef.current?.offsetWidth ?? MIN_INSPECTOR_WIDTH;
+    const onMove = (move: PointerEvent) => setWidth(clampInspectorWidth(startWidth + startX - move.clientX));
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      setWidth((current) => {
+        if (current != null) {
+          try {
+            window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(current));
+          } catch {
+            // a blocked store just means the width resets next session
+          }
+        }
+        return current;
+      });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
   const {
     changes: fileChanges,
     isLoading: fileDiffLoading,
@@ -1492,6 +1542,18 @@ export function SessionInspector({
     media.addEventListener('change', updateModal);
     return () => media.removeEventListener('change', updateModal);
   }, []);
+
+  const inspectorWidth =
+    width == null ? DEFAULT_INSPECTOR_WIDTH : `min(${width}px, ${MAX_INSPECTOR_VIEWPORT_SHARE * 100}vw)`;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const root = document.documentElement;
+    root.style.setProperty('--coslash-inspector-width', inspectorWidth);
+    return () => {
+      root.style.removeProperty('--coslash-inspector-width');
+    };
+  }, [isOpen, inspectorWidth]);
   return (
     <Sheet
       modal={modal}
@@ -1506,7 +1568,8 @@ export function SessionInspector({
       <SheetContent
         ref={contentRef}
         tabIndex={-1}
-        className="coslash-shell w-full! max-w-none! gap-0 outline-none sm:w-[440px]!"
+        className="coslash-shell w-full! max-w-none! gap-0 outline-none sm:w-[var(--coslash-inspector-w)]!"
+        style={{ '--coslash-inspector-w': inspectorWidth } as CSSProperties}
         showCloseButton={true}
         onInteractOutside={(event) => {
           if (!modal) event.preventDefault();
@@ -1516,6 +1579,13 @@ export function SessionInspector({
           contentRef.current?.focus();
         }}
       >
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize inspector"
+          onPointerDown={startResize}
+          className="hover:bg-coslash-accent absolute inset-y-0 left-0 z-20 hidden w-1.5 cursor-col-resize transition-colors sm:block"
+        />
         {session != null && <SheetTitle className="sr-only">{session.name ?? 'Untitled session'}</SheetTitle>}
         {isOpen && isLoading && (
           <div
