@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,6 +35,37 @@ func compileECMA(expression string) (jsonschema.Regexp, error) {
 	return (*ecmaRegexp)(compiled), err
 }
 
+type fixtureIndex struct {
+	Fixtures []struct {
+		Path  string `json:"path"`
+		Valid bool   `json:"valid"`
+	} `json:"fixtures"`
+}
+
+func TestPublishedFixtures(t *testing.T) {
+	root := filepath.Join("testdata", "fixtures")
+	data, err := os.ReadFile(filepath.Join(root, "index.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var index fixtureIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		t.Fatal(err)
+	}
+	for _, fixture := range index.Fixtures {
+		fixture := fixture
+		t.Run(fixture.Path, func(t *testing.T) {
+			_, err := VerifyDirectory(filepath.Join(root, filepath.FromSlash(fixture.Path)))
+			if fixture.Valid && err != nil {
+				t.Fatalf("valid fixture rejected: %v", err)
+			}
+			if !fixture.Valid && err == nil {
+				t.Fatal("invalid fixture accepted")
+			}
+		})
+	}
+}
+
 func TestPublishedSchemasAreValidJSON(t *testing.T) {
 	for _, name := range []string{"schema.json", "database-rows.schema.json", "enrichment.schema.json", "synthesis.schema.json"} {
 		data, err := os.ReadFile(name)
@@ -46,7 +78,7 @@ func TestPublishedSchemasAreValidJSON(t *testing.T) {
 	}
 }
 
-func TestValidFixtureSatisfiesContractAndSchemas(t *testing.T) {
+func TestValidFixtureSatisfiesPublishedSchemas(t *testing.T) {
 	manifest, manifestBytes, blobs := loadValidFixture(t)
 	validateAgainstSchema(t, "schema.json", manifestBytes)
 	if !bytes.Contains(manifestBytes, []byte(`"captureProblems":[]`)) || bytes.Contains(manifestBytes, []byte(`"captureProblems":null`)) {
@@ -56,14 +88,8 @@ func TestValidFixtureSatisfiesContractAndSchemas(t *testing.T) {
 		switch artifact.Kind {
 		case KindSessionEnrichment:
 			validateAgainstSchema(t, "enrichment.schema.json", blobs[artifact.LogicalName])
-			if _, err := DecodeEnrichment(blobs[artifact.LogicalName]); err != nil {
-				t.Fatal(err)
-			}
 		case KindSynthesis:
 			validateAgainstSchema(t, "synthesis.schema.json", blobs[artifact.LogicalName])
-			if _, err := DecodeSynthesisRecord(blobs[artifact.LogicalName]); err != nil {
-				t.Fatal(err)
-			}
 		}
 	}
 }
@@ -119,6 +145,27 @@ func TestFreezeRequiresCoreArtifactsForEveryMember(t *testing.T) {
 			manifest.Artifacts = artifacts
 			if _, err := Freeze(manifest, blobs); !errors.Is(err, ErrIncomplete) {
 				t.Fatalf("Freeze() error = %v; want incomplete", err)
+			}
+		})
+	}
+}
+
+func TestEveryArtifactDeletionAndMutationIsRejected(t *testing.T) {
+	manifest, manifestBytes, blobs := loadValidFixture(t)
+	for _, artifact := range manifest.Artifacts {
+		artifact := artifact
+		t.Run("delete/"+artifact.LogicalName, func(t *testing.T) {
+			candidate := cloneBlobMap(blobs)
+			delete(candidate, artifact.LogicalName)
+			if _, err := Verify(manifestBytes, blobOpener(candidate)); !errors.Is(err, ErrIncomplete) {
+				t.Fatalf("deletion error = %v; want incomplete", err)
+			}
+		})
+		t.Run("mutate/"+artifact.LogicalName, func(t *testing.T) {
+			candidate := cloneBlobMap(blobs)
+			candidate[artifact.LogicalName][0] ^= 1
+			if _, err := Verify(manifestBytes, blobOpener(candidate)); err == nil {
+				t.Fatal("one-byte mutation accepted")
 			}
 		})
 	}
@@ -393,6 +440,131 @@ func TestFreezeIsDeterministicAcrossInputOrder(t *testing.T) {
 	}
 }
 
+func TestFamilyFixtureHasRecursiveMemberWithoutUnrelatedFamily(t *testing.T) {
+	manifest, _, blobs := loadValidFixture(t)
+	if len(manifest.Members) != 2 || manifest.Members[0].ParentMemberID != "" || manifest.Members[1].ParentMemberID != manifest.Members[0].MemberID {
+		t.Fatalf("members = %#v", manifest.Members)
+	}
+	for name, blob := range blobs {
+		if strings.Contains(name, "unrelated-family") || bytes.Contains(blob, []byte("unrelated-family")) {
+			t.Fatalf("unrelated family leaked through %q", name)
+		}
+	}
+}
+
+func TestInventoryAndProducerCoverageAreExplicit(t *testing.T) {
+	manifest, _, _ := loadValidFixture(t)
+	seenKinds := map[string]bool{}
+	for _, artifact := range manifest.Artifacts {
+		seenKinds[artifact.Kind] = true
+	}
+	for _, kind := range []string{KindRawTranscript, KindRawSidecar, KindParsedSessionRecord, KindExactChangeBody, KindSessionEnrichment, KindSynthesis} {
+		if !seenKinds[kind] {
+			t.Fatalf("Codex fixture does not cover expected kind %q", kind)
+		}
+	}
+	if seenKinds[KindRawMetadataRows] {
+		t.Fatal("Codex v1 fixture invented a shared metadata database")
+	}
+	wantCoverage := map[string]bool{
+		"codex/local": true, "codex/ssh": true,
+		"claude/local": false, "claude/ssh": false,
+		"cursor/local": false, "cursor/ssh": false,
+		"opencode/local": false, "opencode/ssh": false,
+	}
+	for _, status := range CoverageMatrix {
+		key := status.Agent + "/" + status.SourceKind
+		want, ok := wantCoverage[key]
+		if !ok || want != status.Supported || (!status.Supported && status.BlockingCode == "") {
+			t.Fatalf("coverage status = %#v", status)
+		}
+		delete(wantCoverage, key)
+	}
+	if len(wantCoverage) != 0 {
+		t.Fatalf("missing coverage combinations: %v", wantCoverage)
+	}
+}
+
+func TestVerifierRejectsParsedRecordLineageMismatch(t *testing.T) {
+	for _, memberID := range []string{rootFixtureMemberID(t), childFixtureMemberID(t)} {
+		memberID := memberID
+		t.Run(memberID, func(t *testing.T) {
+			manifest, _, blobs := loadValidFixture(t)
+			for _, artifact := range manifest.Artifacts {
+				if artifact.MemberID != memberID || artifact.Kind != KindParsedSessionRecord {
+					continue
+				}
+				record, err := fullsessionv1.Decode(blobs[artifact.LogicalName])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if memberID == manifest.Family.RootMemberID {
+					record.ParentSessionID = manifest.Members[1].MemberID
+				} else {
+					record.ParentSessionID = ""
+				}
+				record, err = fullsessionv1.Freeze(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				blobs[artifact.LogicalName], err = fullsessionv1.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			data := freezeFixture(t, manifest, blobs)
+			if _, err := Verify(data, blobOpener(blobs)); err == nil || !strings.Contains(err.Error(), "family linkage") {
+				t.Fatalf("lineage mismatch error = %v", err)
+			}
+		})
+	}
+}
+
+func TestVerifierPinsEnrichmentAndSynthesisDocuments(t *testing.T) {
+	t.Run("enrichment shape", func(t *testing.T) {
+		manifest, _, blobs := loadValidFixture(t)
+		for _, artifact := range manifest.Artifacts {
+			if artifact.Kind == KindSessionEnrichment {
+				blobs[artifact.LogicalName] = []byte(`{"repository":null}`)
+				break
+			}
+		}
+		data := freezeFixture(t, manifest, blobs)
+		if _, err := Verify(data, blobOpener(blobs)); err == nil {
+			t.Fatal("non-contract enrichment accepted")
+		}
+	})
+	t.Run("synthesis revision", func(t *testing.T) {
+		manifest, _, blobs := loadValidFixture(t)
+		manifest.Members[0].SynthesisRevisionMs++
+		data := freezeFixture(t, manifest, blobs)
+		if _, err := Verify(data, blobOpener(blobs)); err == nil || !strings.Contains(err.Error(), "synthesis revision mismatch") {
+			t.Fatalf("synthesis revision error = %v", err)
+		}
+	})
+	t.Run("parsed synthesis equality", func(t *testing.T) {
+		manifest, _, blobs := loadValidFixture(t)
+		for _, artifact := range manifest.Artifacts {
+			if artifact.Kind != KindSynthesis {
+				continue
+			}
+			record, err := DecodeSynthesisRecord(blobs[artifact.LogicalName])
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.Synthesis.Outcome = "different"
+			blobs[artifact.LogicalName], err = MarshalSynthesisRecord(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		data := freezeFixture(t, manifest, blobs)
+		if _, err := Verify(data, blobOpener(blobs)); err == nil || !strings.Contains(err.Error(), "persisted synthesis mismatch") {
+			t.Fatalf("synthesis equality error = %v", err)
+		}
+	})
+}
+
 func TestDatabaseRowsRejectCrossSessionAttribution(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "database-rows", "invalid-cross-session.json"))
 	if err != nil {
@@ -403,7 +575,21 @@ func TestDatabaseRowsRejectCrossSessionAttribution(t *testing.T) {
 	}
 }
 
-func TestLogicalNameSchemaMatchesContract(t *testing.T) {
+func TestWrongSizeFixtureReachesArtifactLengthCheck(t *testing.T) {
+	root := filepath.Join("testdata", "fixtures", "invalid", "wrong-size")
+	manifestBytes, err := os.ReadFile(filepath.Join(root, ManifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Verify(manifestBytes, func(name string) (io.ReadCloser, error) {
+		return os.Open(filepath.Join(root, filepath.FromSlash(name)))
+	})
+	if err == nil || !strings.Contains(err.Error(), "length mismatch") {
+		t.Fatalf("wrong-size error = %v; want artifact length mismatch", err)
+	}
+}
+
+func TestLogicalNameSchemaMatchesVerifier(t *testing.T) {
 	manifest, _, _ := loadValidFixture(t)
 	for _, name := range []string{"foo/./bar", "foo/../bar", "foo//bar", "foo/bar/", "/foo", `foo\\bar`, "C:/foo", "foo\x1fbar"} {
 		if logicalName(name) {
@@ -423,10 +609,27 @@ func TestLogicalNameSchemaMatchesContract(t *testing.T) {
 
 func TestCaptureProblemBlocksFreeze(t *testing.T) {
 	manifest, _, blobs := loadValidFixture(t)
-	manifest.CaptureProblems = []CaptureProblem{{Code: ProblemUnreadable, MemberID: manifest.Family.RootMemberID, Kind: KindRawTranscript, Retryable: true}}
+	manifest.CaptureProblems = []CaptureProblem{{Code: "artifact_unreadable", MemberID: manifest.Family.RootMemberID, Kind: KindRawTranscript, Retryable: true}}
 	if _, err := Freeze(manifest, blobs); !errors.Is(err, ErrIncomplete) {
 		t.Fatalf("freeze error = %v; want incomplete", err)
 	}
+}
+
+func TestVerifierRejectsOmittedDeclaredKindCoverage(t *testing.T) {
+	manifest, _, blobs := loadValidFixture(t)
+	for index, artifact := range manifest.Artifacts {
+		if artifact.Kind != KindExactChangeBody {
+			continue
+		}
+		delete(blobs, artifact.LogicalName)
+		manifest.Artifacts = append(manifest.Artifacts[:index], manifest.Artifacts[index+1:]...)
+		data := freezeFixture(t, manifest, blobs)
+		if _, err := Verify(data, blobOpener(blobs)); !errors.Is(err, ErrIncomplete) {
+			t.Fatalf("omitted change error = %v; want incomplete", err)
+		}
+		return
+	}
+	t.Fatal("fixture contains no exact change")
 }
 
 func loadValidFixture(t *testing.T) (Manifest, []byte, map[string][]byte) {
@@ -436,11 +639,8 @@ func loadValidFixture(t *testing.T) (Manifest, []byte, map[string][]byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var manifest Manifest
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	if err := Validate(manifest); err != nil {
+	manifest, err := Decode(manifestBytes)
+	if err != nil {
 		t.Fatal(err)
 	}
 	blobs := map[string][]byte{}
@@ -452,6 +652,68 @@ func loadValidFixture(t *testing.T) (Manifest, []byte, map[string][]byte) {
 		blobs[artifact.LogicalName] = blob
 	}
 	return manifest, manifestBytes, blobs
+}
+
+func blobOpener(blobs map[string][]byte) OpenArtifact {
+	return func(name string) (io.ReadCloser, error) {
+		blob, ok := blobs[name]
+		if !ok {
+			return nil, os.ErrNotExist
+		}
+		return io.NopCloser(bytes.NewReader(blob)), nil
+	}
+}
+
+func cloneBlobMap(blobs map[string][]byte) map[string][]byte {
+	cloned := make(map[string][]byte, len(blobs))
+	for name, blob := range blobs {
+		cloned[name] = append([]byte(nil), blob...)
+	}
+	return cloned
+}
+
+func freezeFixture(t *testing.T, manifest Manifest, blobs map[string][]byte) []byte {
+	t.Helper()
+	manifest = cloneManifest(manifest)
+	for index := range manifest.Artifacts {
+		artifact := &manifest.Artifacts[index]
+		blob, ok := blobs[artifact.LogicalName]
+		if !ok {
+			t.Fatalf("missing fixture blob %q", artifact.LogicalName)
+		}
+		artifact.Ordinal = index
+		artifact.ByteLength = int64(len(blob))
+		sum := sha256.Sum256(blob)
+		artifact.SHA256 = hex.EncodeToString(sum[:])
+	}
+	manifest.Summary = summarize(manifest.Artifacts)
+	manifest.CompleteBackupSHA256 = ""
+	preimage, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(preimage)
+	manifest.CompleteBackupSHA256 = hex.EncodeToString(sum[:])
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func rootFixtureMemberID(t *testing.T) string {
+	t.Helper()
+	manifest, _, _ := loadValidFixture(t)
+	return manifest.Family.RootMemberID
+}
+
+func childFixtureMemberID(t *testing.T) string {
+	t.Helper()
+	manifest, _, _ := loadValidFixture(t)
+	if len(manifest.Members) < 2 {
+		t.Fatal("fixture has no child member")
+	}
+	return manifest.Members[1].MemberID
 }
 
 func validateAgainstSchema(t *testing.T, name string, data []byte) {
