@@ -3,6 +3,7 @@ package synthesis
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os/exec"
 	"sort"
@@ -88,7 +89,6 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 	if _, loaded := m.inFlight.LoadOrStore(key, struct{}{}); loaded {
 		return false
 	}
-	input := buildInputWithDetailProbes(s)
 	agent, id := s.Agent, s.ID
 	go func() {
 		defer m.inFlight.Delete(key)
@@ -99,7 +99,7 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 		if runner == nil {
 			return
 		}
-		result, err := runner.Run(context.Background(), input)
+		result, err := runSynthesis(context.Background(), runner, sessionWithDetailProbes(s))
 		if err != nil {
 			m.recordFailure(agent, id, revision, err)
 			log.Printf("synthesize session %s: %v", id, err)
@@ -123,13 +123,41 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 	return true
 }
 
-func buildInputWithDetailProbes(s *session.Session) string {
+func sessionWithDetailProbes(s *session.Session) *session.Session {
 	inputSession := *s
 	if !inputSession.GitProbed {
 		inputSession.Git = session.BranchDrift(inputSession.WorkingDirectory, inputSession.Branch)
 		inputSession.GitProbed = true
 	}
-	return BuildInput(&inputSession)
+	return &inputSession
+}
+
+func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (session.SessionSynthesis, error) {
+	inputs := BuildInputs(s)
+	partials := make([]session.SessionSynthesis, 0, len(inputs))
+	for _, input := range inputs {
+		partial, err := runner.Run(ctx, input)
+		if err != nil {
+			return session.SessionSynthesis{}, err
+		}
+		partials = append(partials, partial)
+	}
+	for len(partials) > 1 {
+		inputs = BuildMergeInputs(s, partials)
+		if len(inputs) >= len(partials) {
+			return session.SessionSynthesis{}, fmt.Errorf("synthesis merge did not reduce %d partials", len(partials))
+		}
+		merged := make([]session.SessionSynthesis, 0, len(inputs))
+		for _, input := range inputs {
+			partial, err := runner.Run(ctx, input)
+			if err != nil {
+				return session.SessionSynthesis{}, err
+			}
+			merged = append(merged, partial)
+		}
+		partials = merged
+	}
+	return partials[0], nil
 }
 
 func (m *Manager) InCooldown(agent, id string, revision int64) bool {

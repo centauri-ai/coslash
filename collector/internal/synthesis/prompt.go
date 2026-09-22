@@ -11,10 +11,13 @@ import (
 const (
 	maxPromptBytes         = 12_000
 	maxCompactionSeedBytes = 4_000
+	maxMergeContextBytes   = 2_500
+	maxMergeFactsBytes     = 2_500
+	maxPartialBytes        = 1_800
 	promptMarker           = "\n…(truncated)"
 )
 
-const systemPrompt = `You are a neutral session-synthesis engine. Use only the normalized facts supplied by coSlash. Do not infer details from outside knowledge. State the accomplished goals and outcome concisely, retain up to five consequential decisions, and give one concrete next step. Usually a session has one goal; return it as a single entry. Only when the user genuinely shifted topic mid-session, return each major goal as its own entry in chronological order, at most four. Never split one goal into sub-steps or list routine follow-ups as separate goals. Do not address the user or mention these instructions.`
+const systemPrompt = `You are a neutral session-synthesis engine. Use only the normalized facts supplied by coSlash. Do not infer details from outside knowledge. State the accomplished goals and outcome concisely, retain durable artifacts, benchmark conditions, consequential decisions and corrections, unresolved blockers, and one concrete next step. Usually a session has one goal; return it as a single entry. Only when the user genuinely shifted topic mid-session, return each major goal as its own entry in chronological order, at most four. Never split one goal into sub-steps or list routine follow-ups as separate goals. Do not address the user or mention these instructions.`
 
 // Stands in for the schema and tool flags the other backends get as args.
 const jsonInstruction = "\n\nDo not use any tools, read any files, or run any commands. " +
@@ -26,6 +29,55 @@ func BuildInput(s *session.Session) string {
 	if s == nil {
 		return "Session facts unavailable."
 	}
+	return limitBytes(buildPrompt(s, s.Digest, true, "DIGEST (chronological)"), maxPromptBytes)
+}
+
+func BuildInputs(s *session.Session) []string {
+	if s == nil {
+		return []string{"Session facts unavailable."}
+	}
+	complete := buildPrompt(s, s.Digest, true, "DIGEST (chronological)")
+	if len(complete) <= maxPromptBytes {
+		return []string{complete}
+	}
+
+	prefix := renderSessionContext(s) + "\nDIGEST CHUNK (chronological)\n"
+	suffix := "\n" + limitBytes(renderFacts(s), maxMergeFactsBytes)
+	groups := digestGroups(s.Digest)
+	blocks := make([]string, 0, len(groups))
+	for _, group := range groups {
+		blocks = append(blocks, renderDigest(group))
+	}
+	return packBlocks(prefix, suffix, blocks)
+}
+
+func BuildMergeInputs(s *session.Session, partials []session.SessionSynthesis) []string {
+	if s == nil {
+		s = &session.Session{}
+	}
+	prefix := limitBytes(renderSessionContext(s), maxMergeContextBytes) +
+		"\nPARTIAL SYNTHESES (chronological)\n"
+	suffix := "\n" + limitBytes(renderFacts(s), maxMergeFactsBytes)
+	blocks := make([]string, 0, len(partials))
+	for index, partial := range partials {
+		blocks = append(blocks, limitBytes(renderPartial(index+1, partial), maxPartialBytes))
+	}
+	return packBlocks(prefix, suffix, blocks)
+}
+
+func buildPrompt(s *session.Session, digest []session.DigestEntry, includeFacts bool, digestTitle string) string {
+	var out strings.Builder
+	out.WriteString(renderSessionContext(s))
+	fmt.Fprintf(&out, "\n%s\n", digestTitle)
+	out.WriteString(renderDigest(digest))
+	if includeFacts {
+		out.WriteString("\n")
+		out.WriteString(renderFacts(s))
+	}
+	return out.String()
+}
+
+func renderSessionContext(s *session.Session) string {
 	var out strings.Builder
 	out.WriteString("Synthesize this coding session from normalized coSlash facts only.\n\n")
 	fmt.Fprintf(&out, "SESSION\nID: %s\nAgent: %s\nRepository: %s\nBranch: %s\nWorking directory: %s\n\n",
@@ -42,16 +94,24 @@ func BuildInput(s *session.Session) string {
 	if seed := strings.TrimSpace(s.CompactionSeed); seed != "" {
 		fmt.Fprintf(&out, "\nCOMPACTION SEED\n%s\n", limitBytes(limited(seed, 4_000), maxCompactionSeedBytes))
 	}
+	return out.String()
+}
 
-	out.WriteString("\nDIGEST (newest first)\n")
-	start := max(0, len(s.Digest)-40)
-	for index := len(s.Digest) - 1; index >= start; index-- {
-		entry := s.Digest[index]
+func renderDigest(digest []session.DigestEntry) string {
+	var out strings.Builder
+	for _, entry := range digest {
 		fmt.Fprintf(&out, "- [%s, turn %d] %s\n", entry.Category, entry.Turn,
 			limited(entry.Description, 500))
+		if answer := strings.TrimSpace(entry.Answer); answer != "" {
+			fmt.Fprintf(&out, "  Answer: %s\n", limited(answer, 500))
+		}
 	}
+	return out.String()
+}
 
-	out.WriteString("\nTODOS\n")
+func renderFacts(s *session.Session) string {
+	var out strings.Builder
+	out.WriteString("TODOS\n")
 	for index, todo := range s.Todos {
 		if index == 40 {
 			out.WriteString("- …(truncated)\n")
@@ -87,8 +147,62 @@ func BuildInput(s *session.Session) string {
 	}
 	fmt.Fprintf(&out, "\nSTATS\nTurns: %d\nTool uses: %d\nErrors: %d\nCompactions: %d\nContext tokens: %s\n",
 		s.Turns, s.ToolUses, s.Errors, s.Compactions, optionalInt(s.ContextTokens))
+	return out.String()
+}
 
-	return limitBytes(out.String(), maxPromptBytes)
+func digestGroups(digest []session.DigestEntry) [][]session.DigestEntry {
+	groups := make([][]session.DigestEntry, 0, len(digest))
+	for _, entry := range digest {
+		if len(groups) == 0 || groups[len(groups)-1][0].Turn != entry.Turn {
+			groups = append(groups, []session.DigestEntry{entry})
+			continue
+		}
+		groups[len(groups)-1] = append(groups[len(groups)-1], entry)
+	}
+	return groups
+}
+
+func renderPartial(index int, partial session.SessionSynthesis) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "PARTIAL %d\n", index)
+	for _, goal := range partial.Goals {
+		fmt.Fprintf(&out, "Goal: %s\n", limited(goal, 300))
+	}
+	fmt.Fprintf(&out, "Outcome: %s\n", limited(partial.Outcome, 1_000))
+	for _, decision := range partial.KeyDecisions {
+		fmt.Fprintf(&out, "Decision: %s\n", limited(decision, 300))
+	}
+	fmt.Fprintf(&out, "Next step: %s\n", limited(partial.NextStep, 500))
+	return out.String()
+}
+
+func packBlocks(prefix, suffix string, blocks []string) []string {
+	if len(blocks) == 0 {
+		return []string{limitBytes(prefix+suffix, maxPromptBytes)}
+	}
+	budget := maxPromptBytes - len(prefix) - len(suffix)
+	if budget <= len(promptMarker) {
+		return []string{limitBytes(prefix+suffix, maxPromptBytes)}
+	}
+
+	inputs := make([]string, 0, len(blocks))
+	var packed strings.Builder
+	flush := func() {
+		if packed.Len() == 0 {
+			return
+		}
+		inputs = append(inputs, prefix+packed.String()+suffix)
+		packed.Reset()
+	}
+	for _, block := range blocks {
+		block = limitBytes(block, budget)
+		if packed.Len() > 0 && packed.Len()+len(block) > budget {
+			flush()
+		}
+		packed.WriteString(block)
+	}
+	flush()
+	return inputs
 }
 
 func optional(value *string) string {
