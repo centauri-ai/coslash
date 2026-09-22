@@ -19,6 +19,9 @@ import (
 type OpenArtifact func(logicalName string) (io.ReadCloser, error)
 
 func Decode(data []byte) (Manifest, error) {
+	if int64(len(data)) > MaxManifestBytes {
+		return Manifest{}, fmt.Errorf("%w: manifest exceeds byte limit", ErrInvalid)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var manifest Manifest
@@ -45,60 +48,76 @@ func Verify(manifestBytes []byte, open OpenArtifact) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
-	records := map[string]fullsessionv1.Record{}
-	syntheses := map[string]SynthesisRecord{}
-	blobs := map[string][]byte{}
-	kindCounts := map[string]map[string]int{}
+	members := make(map[string]Member, len(manifest.Members))
+	for _, member := range manifest.Members {
+		members[member.MemberID] = member
+	}
+	records := make(map[string]fullsessionv1.Record, len(manifest.Members))
+	changes := make(map[string]map[string]fullsessionv1.FileChange, len(manifest.Members))
 	for _, artifact := range manifest.Artifacts {
-		reader, err := open(artifact.LogicalName)
+		if artifact.Kind != KindParsedSessionRecord {
+			continue
+		}
+		blob, err := readAndVerifyArtifact(artifact, open, true)
 		if err != nil {
-			return Manifest{}, fmt.Errorf("%w: open artifact %q", ErrIncomplete, artifact.LogicalName)
+			return Manifest{}, err
 		}
-		blob, readErr := io.ReadAll(io.LimitReader(reader, artifact.ByteLength+1))
-		closeErr := reader.Close()
-		if readErr != nil || closeErr != nil || int64(len(blob)) != artifact.ByteLength {
-			return Manifest{}, fmt.Errorf("%w: artifact %q length mismatch", ErrIncomplete, artifact.LogicalName)
+		record, err := fullsessionv1.Decode(blob)
+		if err != nil {
+			return Manifest{}, fmt.Errorf("%w: parsed record is invalid", ErrInvalid)
 		}
-		sum := sha256.Sum256(blob)
-		if hex.EncodeToString(sum[:]) != artifact.SHA256 {
-			return Manifest{}, fmt.Errorf("%w: artifact %q hash mismatch", ErrInvalid, artifact.LogicalName)
+		if record.ParentSessionID != members[artifact.MemberID].ParentMemberID {
+			return Manifest{}, fmt.Errorf("%w: parsed record family linkage mismatch", ErrInvalid)
 		}
-		blobs[artifact.LogicalName] = blob
-		if kindCounts[artifact.MemberID] == nil {
-			kindCounts[artifact.MemberID] = map[string]int{}
+		if !parsedRecordIdentityMatches(manifest, members[artifact.MemberID], artifact, record) {
+			return Manifest{}, fmt.Errorf("%w: parsed record identity mismatch", ErrInvalid)
 		}
-		kindCounts[artifact.MemberID][artifact.Kind]++
-		if artifact.Kind == KindParsedSessionRecord {
-			record, err := fullsessionv1.Decode(blob)
-			if err != nil || record.SourceID != manifest.Source.SourceID || record.Agent != manifest.Source.Agent || record.SessionID != artifact.MemberID {
-				return Manifest{}, fmt.Errorf("%w: parsed record provenance mismatch", ErrInvalid)
+		records[artifact.MemberID] = record
+		changes[artifact.MemberID] = make(map[string]fullsessionv1.FileChange)
+		for _, edit := range record.Session.FileEdits {
+			for _, change := range edit.Changes {
+				changes[artifact.MemberID][change.ID] = change
 			}
-			records[artifact.MemberID] = record
 		}
-		if artifact.Kind == KindRawMetadataRows {
+	}
+	syntheses := make(map[string]SynthesisRecord, len(manifest.Members))
+	foundChanges := make(map[string]map[string]bool, len(manifest.Members))
+	for _, artifact := range manifest.Artifacts {
+		if artifact.Kind == KindParsedSessionRecord {
+			continue
+		}
+		capture := artifact.Kind == KindRawMetadataRows || artifact.Kind == KindSessionEnrichment || artifact.Kind == KindSynthesis
+		blob, err := readAndVerifyArtifact(artifact, open, capture)
+		if err != nil {
+			return Manifest{}, err
+		}
+		switch artifact.Kind {
+		case KindRawMetadataRows:
 			if _, err := DecodeDatabaseRows(blob, artifact.MemberID); err != nil {
 				return Manifest{}, err
 			}
-		}
-		if artifact.Kind == KindSessionEnrichment {
+		case KindSessionEnrichment:
 			if _, err := DecodeEnrichment(blob); err != nil {
 				return Manifest{}, err
 			}
-		}
-		if artifact.Kind == KindSynthesis {
+		case KindSynthesis:
 			record, err := DecodeSynthesisRecord(blob)
 			if err != nil || record.Agent != manifest.Source.Agent || record.SessionID != artifact.MemberID {
 				return Manifest{}, fmt.Errorf("%w: synthesis provenance mismatch", ErrInvalid)
 			}
 			syntheses[artifact.MemberID] = record
+		case KindExactChangeBody:
+			change, ok := changes[artifact.MemberID][artifact.SourceKey]
+			if !ok || int64(change.ByteCount) != artifact.ByteLength || change.SHA256 != artifact.SHA256 {
+				return Manifest{}, fmt.Errorf("%w: exact change body mismatch", ErrInvalid)
+			}
+			if foundChanges[artifact.MemberID] == nil {
+				foundChanges[artifact.MemberID] = map[string]bool{}
+			}
+			foundChanges[artifact.MemberID][artifact.SourceKey] = true
 		}
 	}
 	for _, member := range manifest.Members {
-		counts := kindCounts[member.MemberID]
-		if counts[KindRawTranscript] == 0 || counts[KindRawMetadataRows] != 0 ||
-			counts[KindParsedSessionRecord] > 1 || counts[KindSessionEnrichment] != 1 || counts[KindSynthesis] > 1 {
-			return Manifest{}, fmt.Errorf("%w: member artifact coverage is incomplete", ErrIncomplete)
-		}
 		synthesis, hasSynthesis := syntheses[member.MemberID]
 		if (member.SynthesisRevisionMs > 0) != hasSynthesis {
 			return Manifest{}, fmt.Errorf("%w: synthesis revision binding mismatch", ErrIncomplete)
@@ -107,59 +126,63 @@ func Verify(manifestBytes []byte, open OpenArtifact) (Manifest, error) {
 			return Manifest{}, fmt.Errorf("%w: synthesis revision mismatch", ErrInvalid)
 		}
 		if record, hasRecord := records[member.MemberID]; hasRecord {
-			if record.ParentSessionID != member.ParentMemberID {
-				return Manifest{}, fmt.Errorf("%w: parsed record family linkage mismatch", ErrInvalid)
-			}
 			if record.Session.Synthesis != nil && (!hasSynthesis || !reflect.DeepEqual(*record.Session.Synthesis, synthesis.Synthesis)) {
 				return Manifest{}, fmt.Errorf("%w: parsed and persisted synthesis mismatch", ErrInvalid)
 			}
 		}
-	}
-	if _, ok := records[manifest.Family.RootMemberID]; !ok {
-		return Manifest{}, fmt.Errorf("%w: root parsed record is missing", ErrIncomplete)
-	}
-	foundChanges := map[string]bool{}
-	for _, artifact := range manifest.Artifacts {
-		if artifact.Kind != KindExactChangeBody {
-			continue
-		}
-		record, ok := records[artifact.MemberID]
-		if !ok {
-			return Manifest{}, fmt.Errorf("%w: exact change has no parsed member record", ErrInvalid)
-		}
-		matched := false
-		for _, edit := range record.Session.FileEdits {
-			for _, change := range edit.Changes {
-				if change.ID == artifact.SourceKey && bytes.Equal(blobs[artifact.LogicalName], []byte(change.Text)) {
-					matched = true
-				}
-			}
-		}
-		if !matched {
-			return Manifest{}, fmt.Errorf("%w: exact change body mismatch", ErrInvalid)
-		}
-		key := artifact.MemberID + "\x00" + artifact.SourceKey
-		if foundChanges[key] {
-			return Manifest{}, fmt.Errorf("%w: duplicate exact change body", ErrInvalid)
-		}
-		foundChanges[key] = true
-	}
-	for memberID, record := range records {
-		for _, edit := range record.Session.FileEdits {
-			for _, change := range edit.Changes {
-				if !foundChanges[memberID+"\x00"+change.ID] {
-					return Manifest{}, fmt.Errorf("%w: exact change body is missing", ErrIncomplete)
-				}
+		for changeID := range changes[member.MemberID] {
+			if !foundChanges[member.MemberID][changeID] {
+				return Manifest{}, fmt.Errorf("%w: exact change body is missing", ErrIncomplete)
 			}
 		}
 	}
 	return manifest, nil
 }
 
+func readAndVerifyArtifact(artifact Artifact, open OpenArtifact, capture bool) ([]byte, error) {
+	reader, err := open(artifact.LogicalName)
+	if err != nil {
+		return nil, fmt.Errorf("%w: open artifact %q", ErrIncomplete, artifact.LogicalName)
+	}
+	hash := sha256.New()
+	limited := io.LimitReader(reader, artifact.ByteLength+1)
+	var blob []byte
+	var readBytes int64
+	if capture {
+		if artifact.ByteLength > fullsessionv1.MaxRecordBytes {
+			_ = reader.Close()
+			return nil, fmt.Errorf("%w: semantic artifact %q exceeds byte limit", ErrInvalid, artifact.LogicalName)
+		}
+		blob, err = io.ReadAll(io.TeeReader(limited, hash))
+		readBytes = int64(len(blob))
+	} else {
+		readBytes, err = io.Copy(hash, limited)
+	}
+	closeErr := reader.Close()
+	if err != nil || closeErr != nil {
+		return nil, fmt.Errorf("%w: read artifact %q", ErrIncomplete, artifact.LogicalName)
+	}
+	if readBytes != artifact.ByteLength {
+		return nil, fmt.Errorf("%w: artifact %q length mismatch", ErrIncomplete, artifact.LogicalName)
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != artifact.SHA256 {
+		return nil, fmt.Errorf("%w: artifact %q hash mismatch", ErrInvalid, artifact.LogicalName)
+	}
+	return blob, nil
+}
+
 func VerifyDirectory(root string) (Manifest, error) {
-	manifestBytes, err := os.ReadFile(filepath.Join(root, ManifestFileName))
+	manifestFile, err := openRegularArtifact(root, ManifestFileName)
 	if err != nil {
 		return Manifest{}, err
+	}
+	manifestBytes, readErr := io.ReadAll(io.LimitReader(manifestFile, MaxManifestBytes+1))
+	closeErr := manifestFile.Close()
+	if readErr != nil || closeErr != nil {
+		return Manifest{}, fmt.Errorf("%w: read manifest", ErrInvalid)
+	}
+	if int64(len(manifestBytes)) > MaxManifestBytes {
+		return Manifest{}, fmt.Errorf("%w: manifest exceeds byte limit", ErrInvalid)
 	}
 	manifest, err := Verify(manifestBytes, func(name string) (io.ReadCloser, error) {
 		if !logicalName(name) {

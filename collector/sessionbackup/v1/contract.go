@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"path"
 	"reflect"
 	"sort"
@@ -26,6 +25,11 @@ const (
 	DatabaseRowsVersion = "session-backup-db-rows/v1"
 	ParsedRecordVersion = "full-session-record/v1"
 	ManifestFileName    = "manifest.json"
+	MaxManifestBytes    = 64 << 20
+	MaxArtifactBytes    = 512 << 20
+	MaxTotalBytes       = 4 << 30
+	MaxMembers          = fullsessionv1.MaxItems
+	MaxArtifacts        = fullsessionv1.MaxItems
 
 	SourceLocal = "local"
 	SourceSSH   = "ssh"
@@ -174,6 +178,9 @@ func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 	if err := orderMembers(&manifest); err != nil {
 		return Manifest{}, err
 	}
+	if len(manifest.Members) > MaxMembers || len(manifest.Artifacts) > MaxArtifacts {
+		return Manifest{}, fmt.Errorf("%w: manifest collection exceeds item limit", ErrInvalid)
+	}
 	memberOrdinal := make(map[string]int, len(manifest.Members))
 	for index := range manifest.Members {
 		manifest.Members[index].Ordinal = index
@@ -190,6 +197,7 @@ func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 		return left.LogicalName < right.LogicalName
 	})
 	seen := map[string]bool{}
+	var totalBytes int64
 	for index := range manifest.Artifacts {
 		artifact := &manifest.Artifacts[index]
 		if seen[artifact.LogicalName] {
@@ -199,6 +207,10 @@ func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 		if !ok {
 			return Manifest{}, fmt.Errorf("%w: artifact %q unavailable", ErrIncomplete, artifact.LogicalName)
 		}
+		if int64(len(blob)) > MaxArtifactBytes || totalBytes > MaxTotalBytes-int64(len(blob)) {
+			return Manifest{}, fmt.Errorf("%w: artifact byte limit exceeded", ErrInvalid)
+		}
+		totalBytes += int64(len(blob))
 		artifact.Ordinal = index
 		artifact.ByteLength = int64(len(blob))
 		sum := sha256.Sum256(blob)
@@ -220,6 +232,9 @@ func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
+	if int64(len(preimage))+sha256.Size*2 > MaxManifestBytes {
+		return Manifest{}, fmt.Errorf("%w: manifest exceeds byte limit", ErrInvalid)
+	}
 	sum := sha256.Sum256(preimage)
 	manifest.CompleteBackupSHA256 = hex.EncodeToString(sum[:])
 	return manifest, Validate(manifest)
@@ -229,7 +244,14 @@ func Marshal(manifest Manifest) ([]byte, error) {
 	if err := Validate(manifest); err != nil {
 		return nil, err
 	}
-	return json.Marshal(manifest)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > MaxManifestBytes {
+		return nil, fmt.Errorf("%w: manifest exceeds byte limit", ErrInvalid)
+	}
+	return data, nil
 }
 
 func Validate(manifest Manifest) error {
@@ -276,7 +298,8 @@ func validate(manifest Manifest, requireHash bool) error {
 	if manifest.CaptureProblems == nil || len(manifest.CaptureProblems) != 0 {
 		return fmt.Errorf("%w: completed manifest contains capture problems", ErrIncomplete)
 	}
-	if len(manifest.Members) == 0 || manifest.Members[0].MemberID != manifest.Family.RootMemberID || manifest.Members[0].ParentMemberID != "" {
+	if len(manifest.Members) == 0 || len(manifest.Members) > MaxMembers || len(manifest.Artifacts) > MaxArtifacts ||
+		manifest.Members[0].MemberID != manifest.Family.RootMemberID || manifest.Members[0].ParentMemberID != "" {
 		return fmt.Errorf("%w: invalid family root", ErrInvalid)
 	}
 	members := map[string]int{}
@@ -313,7 +336,7 @@ func validate(manifest Manifest, requireHash bool) error {
 		if artifact.Ordinal != index || !ok || !logicalName(artifact.LogicalName) || seenNames[artifact.LogicalName] ||
 			(artifact.Source != ArtifactSourceCodex && artifact.Source != ArtifactSourceCoSlash) || !contains(ArtifactKinds, artifact.Kind) ||
 			artifact.SourceKey == "" || !plainText(artifact.SourceKey) || artifact.MediaType == "" || !plainText(artifact.MediaType) || artifact.Encoding != EncodingIdentity ||
-			artifact.ByteLength < 0 || !digest(artifact.SHA256) {
+			artifact.ByteLength < 0 || artifact.ByteLength > MaxArtifactBytes || !digest(artifact.SHA256) {
 			return fmt.Errorf("%w: invalid artifact", ErrInvalid)
 		}
 		if (strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != ArtifactSourceCodex) ||
@@ -324,8 +347,8 @@ func validate(manifest Manifest, requireHash bool) error {
 		if seenSourceKeys[sourceKey] {
 			return fmt.Errorf("%w: duplicate artifact source key", ErrInvalid)
 		}
-		if totalBytes > math.MaxInt64-artifact.ByteLength {
-			return fmt.Errorf("%w: artifact byte total overflow", ErrInvalid)
+		if totalBytes > MaxTotalBytes-artifact.ByteLength {
+			return fmt.Errorf("%w: artifact byte total exceeds limit", ErrInvalid)
 		}
 		totalBytes += artifact.ByteLength
 		if memberPosition < previousMember || (memberPosition == previousMember &&
@@ -342,11 +365,11 @@ func validate(manifest Manifest, requireHash bool) error {
 	}
 	for _, member := range manifest.Members {
 		kinds := memberKinds[member.MemberID]
-		if kinds[KindParsedSessionRecord] == 0 || kinds[KindRawTranscript] == 0 {
+		if kinds[KindParsedSessionRecord] == 0 || kinds[KindRawTranscript] == 0 || kinds[KindSessionEnrichment] == 0 {
 			return fmt.Errorf("%w: member %q lacks required artifacts", ErrIncomplete, member.MemberID)
 		}
-		if kinds[KindParsedSessionRecord] != 1 {
-			return fmt.Errorf("%w: member %q has multiple parsed records", ErrInvalid, member.MemberID)
+		if kinds[KindParsedSessionRecord] != 1 || kinds[KindSessionEnrichment] != 1 {
+			return fmt.Errorf("%w: member %q has duplicate singleton artifacts", ErrInvalid, member.MemberID)
 		}
 		if member.SynthesisRevisionMs > 0 && kinds[KindSynthesis] == 0 {
 			return fmt.Errorf("%w: member %q lacks required synthesis", ErrIncomplete, member.MemberID)
@@ -383,8 +406,7 @@ func validateArtifactContents(manifest Manifest, blobs map[string][]byte) error 
 			if err != nil {
 				return fmt.Errorf("%w: parsed record %q: %v", ErrInvalid, artifact.LogicalName, err)
 			}
-			if record.SourceID != manifest.Source.SourceID || record.Agent != manifest.Source.Agent ||
-				record.SessionID != member.MemberID || record.ParentSessionID != member.ParentMemberID || record.RevisionID != artifact.SourceKey {
+			if !parsedRecordIdentityMatches(manifest, member, artifact, record) {
 				return fmt.Errorf("%w: parsed record %q identity mismatch", ErrInvalid, artifact.LogicalName)
 			}
 			records[member.MemberID] = record
@@ -433,6 +455,11 @@ func validateArtifactContents(manifest Manifest, blobs map[string][]byte) error 
 		}
 	}
 	return nil
+}
+
+func parsedRecordIdentityMatches(manifest Manifest, member Member, artifact Artifact, record fullsessionv1.Record) bool {
+	return record.SourceID == manifest.Source.SourceID && record.Agent == manifest.Source.Agent &&
+		record.SessionID == member.MemberID && record.ParentSessionID == member.ParentMemberID && record.RevisionID == artifact.SourceKey
 }
 
 func orderMembers(manifest *Manifest) error {

@@ -24,7 +24,7 @@ success.
 | `raw-transcript` | Exact rollout JSONL for each family member under `.codex/sessions` or `.codex/archived_sessions` | Read every discovered family rollout from both trees | Read every discovered family rollout from both trees during freeze | Exactly one per discovered rollout; an absent, unreadable, malformed, or changing discovered file blocks completion |
 | `raw-sidecar` | Exactly attributed `session_index.jsonl` row whose `id` is a family member | Project matching rows when the file exists | Project matching rows when the file exists | A missing index file may be omitted; a malformed or unreadable matching row blocks completion |
 | `raw-metadata-rows` | Not a Codex v1 input | Prohibited | Prohibited | Codex v1 has no shared SQLite artifact; `session_index.jsonl` is its only shared metadata source |
-| `parsed-session-record` | Canonical `full-session-record/v1` | Required for the root; include each child record the parser exposes | Same | Root is required; a declared member record must match source, agent, and member identity |
+| `parsed-session-record` | Canonical `full-session-record/v1` | Required for every represented member | Same | Exactly one per declared member; it must match source, agent, member identity, lineage, and revision |
 | `exact-change-body` | Exact UTF-8 body keyed by the parsed record's change ID | Present for every parsed change | Same | Bytes must equal the body in the referenced parsed record |
 | `session-enrichment` | Canonical [`enrichment.schema.json`](enrichment.schema.json) document containing only repository identity, repository-local-only state, filesystem fallback branch, Git drift, and last-edit time | Required per represented member | Required from the remote cached/frozen overlay | Capture all five fields, using JSON `null` for absent nullable values |
 | `synthesis` | Canonical [`synthesis.schema.json`](synthesis.schema.json) persisted cache record: `agent`, `sessionId`, `mtime`, `model`, `generatedAt`, and `synthesis` | Present when persisted for the frozen revision | Present when persisted for the frozen revision | `mtime` must equal the member's `synthesisRevisionMs`; parsed synthesis, when present, must equal the cache record's synthesis object |
@@ -99,8 +99,9 @@ valid Unicode directly as UTF-8 except `<`, `>`, `&`, U+2028, and U+2029,
 which are `\u003c`, `\u003e`, `\u0026`, `\u2028`, and `\u2029`. Integers use
 the shortest base-10 form; booleans and null use lowercase JSON literals.
 
-`summary` gives bounded review data: total artifacts, counts by kind, total
-bytes, and the complete hash. Preparation may carry a `CaptureProblem`, but a
+`summary` gives bounded review data: total artifacts, counts by kind, and total
+bytes. The top-level `completeBackupSha256` field carries the complete hash.
+Preparation may carry a `CaptureProblem`, but a
 completed canonical manifest requires `captureProblems` to be empty. An
 unavailable, unreadable, unstable, un-attributable, or expected-but-missing
 artifact is therefore a visible blocker, never an omission.
@@ -116,6 +117,11 @@ Required semantic versions are closed for v1. Consumers reject a version they
 do not understand rather than guessing. `requiredVersions` is sorted and must
 contain both `full-session-record/v1` and `session-backup/v1`; the optional
 database projection version does not make that projection a Codex input.
+
+The canonical manifest is limited to 64 MiB and 100,000 members and artifacts.
+Each artifact is limited to 512 MiB, and all declared artifacts together are
+limited to 4 GiB. Consumers must reject these bounds before allocating artifact
+buffers and may stream artifacts that do not require semantic decoding.
 
 ## Shared metadata databases
 
