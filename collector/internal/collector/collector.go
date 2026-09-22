@@ -311,6 +311,9 @@ func finalizeSessionsSourceContext(
 	if err != nil {
 		return nil, err
 	}
+	for _, root := range composition.roots {
+		root.Session.SynthesisRevision = root.Session.LastActivityTime
+	}
 	if err := promoteFamilyActivityContext(ctx, composition); err != nil {
 		return nil, err
 	}

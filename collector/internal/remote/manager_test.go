@@ -231,6 +231,22 @@ func TestReadFullSessionReportsCorruptCurrentRecord(t *testing.T) {
 	}
 }
 
+func TestReadLatestFullSessionDoesNotChangeExactReads(t *testing.T) {
+	const sourceID = "r_0123456789abcdef"
+	snapshot := completeCodexSnapshot(t, "generation-1", "original body\n")
+	manager := NewManager(Options{Cache: NewCache(t.TempDir())})
+	manager.cfg = &settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}
+	manager.snapshot = &snapshot
+
+	latest, err := manager.ReadLatestFullSession(sourceID, vendors.AgentCodex, "root-1")
+	if err != nil || latest == nil || latest.RevisionID != snapshot.FullRecords[0].Record.RevisionID {
+		t.Fatalf("latest read: record=%#v err=%v", latest, err)
+	}
+	if _, err := manager.ReadFullSession(sourceID, vendors.AgentCodex, "root-1", ""); !errors.Is(err, ErrRemoteRevisionNotFound) {
+		t.Fatalf("empty exact revision: %v", err)
+	}
+}
+
 func TestFullSessionShareUsesDisclosedLocalOnlyRepositoryFallback(t *testing.T) {
 	const sourceID = "r_0123456789abcdef"
 	snapshot := completeCodexSnapshot(t, "complete-generation", "body\n")

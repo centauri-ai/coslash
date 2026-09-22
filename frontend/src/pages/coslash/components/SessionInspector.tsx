@@ -13,6 +13,7 @@ import {
   ChevronRightIcon,
   ExternalLinkIcon,
   EyeIcon,
+  InfoIcon,
   LoaderCircleIcon,
   PlayIcon,
   SquareCheckIcon,
@@ -99,6 +100,7 @@ type SynthesisResponse = {
   synthesis: SessionDetail['synthesis'];
   synthesisPending: boolean;
   synthesisError?: string;
+  revision: number;
 };
 
 type DetailResponse = {
@@ -106,6 +108,7 @@ type DetailResponse = {
   agent: string;
   sessionId: string;
   revision: string;
+  synthesisRevision?: number;
   cachedOffline: boolean;
   session: Partial<Session>;
 };
@@ -118,6 +121,10 @@ type DetailError = {
   kind: DetailErrorKind;
   message: string;
 };
+
+function needsSourceRefresh(kind: DetailErrorKind): boolean {
+  return kind === 'stale' || kind === 'missing' || kind === 'corrupt';
+}
 
 /* oxlint-disable react/only-export-components -- exported for focused rendering tests */
 export function filePanelOpen(
@@ -132,6 +139,106 @@ export function filePanelOpen(
     selection.sessionId === session.id &&
     selection.revision === session.detailRevision
   );
+}
+
+export function detailRequestKey(session: Session): string {
+  return `${sessionKey(session)}@${session.detailRevision === '' ? 'summary' : 'full'}`;
+}
+
+export function synthesisAttemptKey(session: Session): string {
+  return `${detailRequestKey(session)}@${session.detailRevision}`;
+}
+
+export function synthesisMatchesSnapshot(
+  result: Pick<SynthesisResponse, 'revision'>,
+  synthesisRevision: number,
+): boolean {
+  return synthesisRevision > 0 && result.revision === synthesisRevision;
+}
+
+export function refreshSourceAndRetry(refresh: () => void | Promise<void>, retry: () => void): Promise<void> {
+  return Promise.resolve(refresh()).then(retry);
+}
+
+export function detailAttemptState(
+  loaded: { key: string; retryToken: number } | null,
+  error: DetailError | null,
+  key: string,
+  retryToken: number,
+) {
+  const currentError = error?.key === key && error.retryToken === retryToken ? error : null;
+  const hasSnapshot = loaded?.key === key;
+  return {
+    hasSnapshot,
+    isLoading: currentError == null && (!hasSnapshot || loaded.retryToken !== retryToken),
+    error: currentError,
+  };
+}
+
+export function snapshotMayBeStale(detail: SessionDetail, current: Session): boolean {
+  return current.status != null || detail.detailRevision !== current.detailRevision;
+}
+
+export function SnapshotStalenessNotice() {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            role="status"
+            tabIndex={0}
+            aria-label="Session data may be stale"
+            className="text-warning-fg inline-flex w-fit items-center gap-1 text-xs"
+          >
+            <InfoIcon className="size-3" aria-hidden="true" />
+            Snapshot may be stale
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          Activity recorded after this snapshot is not shown. Close and reopen to inspect newer details.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+export function SnapshotRefreshStatus({
+  isLoading,
+  error,
+  kind,
+  onRetry,
+  onRefresh,
+}: {
+  isLoading: boolean;
+  error: string | null;
+  kind?: DetailErrorKind | null;
+  onRetry?: () => void;
+  onRefresh?: () => void;
+}) {
+  if (error != null) {
+    return (
+      <div
+        role="alert"
+        className="text-destructive flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-xs"
+      >
+        <span>Snapshot refresh failed: {error}</span>
+        {kind != null && needsSourceRefresh(kind) && onRefresh != null ? (
+          <Button variant="outline" size="sm" onClick={onRefresh}>
+            Refresh sessions
+          </Button>
+        ) : onRetry != null && kind !== 'authentication' ? (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            Retry details
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+  return isLoading ? (
+    <div role="status" className="text-muted-foreground px-4 py-2 text-xs">
+      Refreshing snapshot…
+    </div>
+  ) : null;
 }
 
 export function detailPresentation(session: Session | null): {
@@ -199,7 +306,7 @@ export function DetailLoadError({
   onRetry: () => void;
   onRefresh: () => void;
 }) {
-  const refreshSessions = kind === 'stale' || kind === 'missing' || kind === 'corrupt';
+  const refreshSessions = needsSourceRefresh(kind);
   return (
     <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
       <div className="text-danger-fg text-sm">{message}</div>
@@ -233,14 +340,18 @@ function useSessionDetail(
 } {
   const [loadedDetail, setLoadedDetail] = useState<{
     key: string;
+    retryToken: number;
     detail: SessionDetail;
+    synthesisRevision: number;
     cachedOffline: boolean;
   } | null>(null);
-  const loadedDetailRef = useRef(loadedDetail);
   const [detailError, setDetailError] = useState<DetailError | null>(null);
   const [loadedSynthesis, setLoadedSynthesis] = useState<({ key: string } & SynthesisResponse) | null>(null);
   const pollDeadline = useRef<{ key: string; deadline: number } | null>(null);
-  const detailKey = session == null ? null : `${sessionKey(session)}@${session.detailRevision}`;
+  const detailKey = session == null ? null : detailRequestKey(session);
+  const snapshot = loadedDetail?.key === detailKey ? loadedDetail.detail : null;
+  const synthesisRevision = snapshot == null ? 0 : (loadedDetail?.synthesisRevision ?? 0);
+  const synthesisKey = snapshot == null ? null : synthesisAttemptKey(snapshot);
   const sessionRef = useRef(session);
 
   useEffect(() => {
@@ -255,7 +366,9 @@ function useSessionDetail(
     const controller = new AbortController();
     const load = async () => {
       try {
-        const response = await apiFetch(sessionDetailRequestPath(current), { signal: controller.signal });
+        const response = await apiFetch(sessionDetailRequestPath(current, 'latest'), {
+          signal: controller.signal,
+        });
         if (!response.ok) {
           let code = '';
           try {
@@ -286,7 +399,8 @@ function useSessionDetail(
           body.sourceId !== current.sourceId ||
           body.agent !== current.agent ||
           body.sessionId !== current.id ||
-          body.revision !== current.detailRevision ||
+          typeof body.revision !== 'string' ||
+          body.revision === '' ||
           body.session == null ||
           typeof body.session !== 'object'
         ) {
@@ -304,15 +418,21 @@ function useSessionDetail(
           sourceClass: current.sourceClass,
           logicalSessionId: current.logicalSessionId,
           revision: current.revision,
-          detailRevision: current.detailRevision,
+          detailRevision: body.revision,
+          fullRevision: isLocalSession(current) ? current.fullRevision : body.revision,
           eligibleForAggregates: current.eligibleForAggregates,
           displayStale: current.displayStale,
           launchable: current.launchable,
           launchBlockReason: current.launchBlockReason,
         });
         if (!controller.signal.aborted) {
-          const loaded = { key: detailKey, detail, cachedOffline: body.cachedOffline };
-          loadedDetailRef.current = loaded;
+          const loaded = {
+            key: detailKey,
+            retryToken: detailRetryToken,
+            detail,
+            synthesisRevision: body.synthesisRevision ?? 0,
+            cachedOffline: body.cachedOffline,
+          };
           setLoadedDetail(loaded);
           setDetailError(null);
         }
@@ -327,7 +447,6 @@ function useSessionDetail(
           });
           return;
         }
-        if (loadedDetailRef.current?.key === detailKey) return;
         const failure = error as Partial<Omit<DetailError, 'key' | 'retryToken'>>;
         setDetailError({
           key: detailKey,
@@ -343,7 +462,7 @@ function useSessionDetail(
 
   useEffect(() => {
     const current = session;
-    if (current == null || detailKey == null) {
+    if (current == null || synthesisKey == null || snapshot == null) {
       pollDeadline.current = null;
       return;
     }
@@ -351,7 +470,7 @@ function useSessionDetail(
       pollDeadline.current = null;
       return;
     }
-    if (pollDeadline.current?.key !== detailKey) {
+    if (pollDeadline.current?.key !== synthesisKey) {
       pollDeadline.current = null;
     }
     const identity = {
@@ -362,23 +481,26 @@ function useSessionDetail(
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
+      if (controller.signal.aborted) return;
       try {
         const res = await apiFetch(synthesisRequestPath(identity), {
           signal: controller.signal,
         });
         if (!res.ok) return;
         const result = (await res.json()) as SynthesisResponse;
+        if (controller.signal.aborted) return;
+        if (!synthesisMatchesSnapshot(result, synthesisRevision)) return;
         if (result.synthesis == null && result.synthesisPending) {
-          pollDeadline.current ??= { key: detailKey, deadline: Date.now() + 2 * MINUTE };
+          pollDeadline.current ??= { key: synthesisKey, deadline: Date.now() + 2 * MINUTE };
           if (Date.now() < pollDeadline.current.deadline) {
             timer = setTimeout(load, 3_000);
-            setLoadedSynthesis({ key: detailKey, ...result });
+            setLoadedSynthesis({ key: synthesisKey, ...result });
           } else {
-            setLoadedSynthesis({ key: detailKey, ...result, synthesisPending: false });
+            setLoadedSynthesis({ key: synthesisKey, ...result, synthesisPending: false });
           }
         } else {
           pollDeadline.current = null;
-          setLoadedSynthesis({ key: detailKey, ...result });
+          setLoadedSynthesis({ key: synthesisKey, ...result });
         }
       } catch (error: unknown) {
         // Detail loading owns the visible request error. Synthesis failures
@@ -391,7 +513,7 @@ function useSessionDetail(
       controller.abort();
       if (timer != null) clearTimeout(timer);
     };
-  }, [detailKey, session, sessionsVersion, synthesisSettingsKey]);
+  }, [synthesisKey, snapshot, synthesisRevision, session, sessionsVersion, synthesisSettingsKey]);
 
   const presentation = detailPresentation(session);
   if (session == null || detailKey == null) {
@@ -414,29 +536,21 @@ function useSessionDetail(
       summaryOnly: true,
     };
   }
-  const currentError =
-    detailError?.key === detailKey && detailError.retryToken === detailRetryToken ? detailError : null;
-  if (currentError != null) {
+  const attempt = detailAttemptState(loadedDetail, detailError, detailKey, detailRetryToken);
+  if (!attempt.hasSnapshot || loadedDetail == null) {
     return {
       detail: null,
-      isLoading: false,
-      loadError: currentError.message,
-      loadErrorKind: currentError.kind,
+      isLoading: attempt.isLoading,
+      loadError: attempt.error?.message ?? null,
+      loadErrorKind: attempt.error?.kind ?? null,
       cachedOffline: false,
       summaryOnly: false,
     };
   }
-  if (loadedDetail?.key !== detailKey) {
-    return {
-      detail: null,
-      isLoading: true,
-      loadError: null,
-      loadErrorKind: null,
-      cachedOffline: false,
-      summaryOnly: false,
-    };
-  }
-  const synthesis = loadedSynthesis?.key === detailKey ? loadedSynthesis : null;
+  const synthesis =
+    loadedSynthesis?.key === synthesisKey && synthesisMatchesSnapshot(loadedSynthesis, synthesisRevision)
+      ? loadedSynthesis
+      : null;
   const detail = overlayLiveSessionFields(loadedDetail.detail, session);
   return {
     detail:
@@ -448,9 +562,9 @@ function useSessionDetail(
             synthesisPending: synthesis.synthesisPending,
             synthesisError: synthesis.synthesisError,
           },
-    isLoading: false,
-    loadError: null,
-    loadErrorKind: null,
+    isLoading: attempt.isLoading,
+    loadError: attempt.error?.message ?? null,
+    loadErrorKind: attempt.error?.kind ?? null,
     cachedOffline: loadedDetail.cachedOffline,
     summaryOnly: false,
   };
@@ -1519,7 +1633,7 @@ export function SessionInspector({
     currentWidth: number;
   } | null>(null);
   const [selectedDiffState, setSelectedDiff] = useState<FileSelection | null>(null);
-  const selectedDiff = filePanelOpen(selectedDiffState, session) ? selectedDiffState : null;
+  const selectedDiff = filePanelOpen(selectedDiffState, detail) ? selectedDiffState : null;
   const [fileDiffRetryToken, setFileDiffRetryToken] = useState(0);
   const [modal, setModal] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -1599,6 +1713,10 @@ export function SessionInspector({
   const remoteResumeHint =
     detail == null ? undefined : resumeDisabledHint(detail, remoteLaunchable, remoteLaunchHint);
 
+  const refreshDetailSource = () => {
+    void refreshSourceAndRetry(onRefresh, () => setDetailRetryToken((token) => token + 1));
+  };
+
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia(DOCKED_INSPECTOR_QUERY);
@@ -1632,6 +1750,7 @@ export function SessionInspector({
       onOpenChange={(open) => {
         if (!open) {
           setSelectedDiff(null);
+          setDetailRetryToken((token) => token + 1);
           onClose();
         }
       }}
@@ -1667,7 +1786,7 @@ export function SessionInspector({
           className="hover:bg-coslash-accent focus-visible:bg-coslash-accent absolute inset-y-0 left-0 z-20 hidden w-1.5 cursor-col-resize touch-none transition-colors outline-none sm:block"
         />
         {session != null && <SheetTitle className="sr-only">{session.name ?? 'Untitled session'}</SheetTitle>}
-        {isOpen && isLoading && (
+        {isOpen && detail == null && isLoading && (
           <div
             role="status"
             className="text-coslash-muted flex flex-1 items-center justify-center gap-2 text-xs"
@@ -1676,16 +1795,12 @@ export function SessionInspector({
             Loading exact session details…
           </div>
         )}
-        {isOpen && loadError != null && loadErrorKind != null && (
+        {isOpen && detail == null && loadError != null && loadErrorKind != null && (
           <DetailLoadError
             message={loadError}
             kind={loadErrorKind}
             onRetry={() => setDetailRetryToken((token) => token + 1)}
-            onRefresh={() => {
-              void Promise.resolve(onRefresh()).then(() => {
-                setDetailRetryToken((token) => token + 1);
-              });
-            }}
+            onRefresh={refreshDetailSource}
           />
         )}
         {isOpen && detail != null && (
@@ -1694,9 +1809,21 @@ export function SessionInspector({
               <div className="flex min-w-0 flex-col gap-2">
                 <SessionInspectorTitle detail={detail} showMachineBadge={showMachineBadge} />
                 <HeaderMeta detail={detail} showMachineBadge={false} />
+                {session != null && snapshotMayBeStale(detail, session) && <SnapshotStalenessNotice />}
                 <div className="border-b p-1" />
               </div>
             </SheetHeader>
+            <SnapshotRefreshStatus
+              isLoading={isLoading}
+              error={loadError}
+              kind={loadErrorKind}
+              onRetry={
+                loadErrorKind === 'authentication'
+                  ? undefined
+                  : () => setDetailRetryToken((token) => token + 1)
+              }
+              onRefresh={refreshDetailSource}
+            />
             {showCachedOffline && (
               <div
                 role="status"
@@ -1765,7 +1892,7 @@ export function SessionInspector({
                 onRetry={() => setFileDiffRetryToken((token) => token + 1)}
                 onRefresh={() => {
                   setSelectedDiff(null);
-                  void onRefresh();
+                  refreshDetailSource();
                 }}
               />
             </>

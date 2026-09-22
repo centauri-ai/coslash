@@ -407,8 +407,9 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 		"Repository": "excluded local filesystem enrichment", "RepositoryLocalOnly": "excluded local filesystem enrichment",
 		"EditedFileCount": "included", "DurationMs": "included", "Tokens": "included",
 		"Cost": "included", "UnpricedModels": "included", "Subagents": "included", "StartedAt": "included",
-		"LastActivityTime": "included", "ActivityFallback": "excluded local collection-time marker",
-		"DetailRevision": "excluded local detail cache revision", "Entrypoint": "included", "CommitLog": "parser-only source observation",
+		"LastActivityTime": "included", "SynthesisRevision": "excluded local synthesis revision",
+		"ActivityFallback": "excluded local collection-time marker",
+		"DetailRevision":   "excluded local detail cache revision", "Entrypoint": "included", "CommitLog": "parser-only source observation",
 		"ReviewPending": "excluded transient local review state", "ReviewError": "excluded transient local review state",
 		"SessionDetails": "included field-by-field",
 	}

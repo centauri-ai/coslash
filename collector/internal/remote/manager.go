@@ -542,7 +542,7 @@ func (manager *Manager) PreviewSession(sourceID, agent, sessionID string, revisi
 // available from the last-good cache while the SSH source is offline.
 func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, error) {
 	manager.mu.Lock()
-	selected, err := manager.readFullSessionLocked(sourceID, agent, sessionID, revisionID)
+	selected, err := manager.readFullSessionLocked(sourceID, agent, sessionID, revisionID, false)
 	manager.mu.Unlock()
 	if err != nil || selected == nil {
 		return selected, err
@@ -550,7 +550,17 @@ func (manager *Manager) ReadFullSession(sourceID, agent, sessionID, revisionID s
 	return cloneFullSessionRecord(*selected)
 }
 
-func (manager *Manager) readFullSessionLocked(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, error) {
+func (manager *Manager) ReadLatestFullSession(sourceID, agent, sessionID string) (*fullsessionv1.Record, error) {
+	manager.mu.Lock()
+	selected, err := manager.readFullSessionLocked(sourceID, agent, sessionID, "", true)
+	manager.mu.Unlock()
+	if err != nil || selected == nil {
+		return selected, err
+	}
+	return cloneFullSessionRecord(*selected)
+}
+
+func (manager *Manager) readFullSessionLocked(sourceID, agent, sessionID, revisionID string, latest bool) (*fullsessionv1.Record, error) {
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID || manager.snapshot == nil {
 		return nil, nil
 	}
@@ -558,7 +568,7 @@ func (manager *Manager) readFullSessionLocked(sourceID, agent, sessionID, revisi
 		if full.Record.Agent != agent || full.Record.SessionID != sessionID {
 			continue
 		}
-		if full.Record.RevisionID != revisionID {
+		if !latest && full.Record.RevisionID != revisionID {
 			return nil, ErrRemoteRevisionNotFound
 		}
 		copy := full.Record
@@ -587,7 +597,7 @@ func (manager *Manager) ReadFullSessionForShare(sourceID, agent, sessionID, revi
 		manager.mu.Unlock()
 		return nil, "", false, nil
 	}
-	selected, err := manager.readFullSessionLocked(sourceID, agent, sessionID, revisionID)
+	selected, err := manager.readFullSessionLocked(sourceID, agent, sessionID, revisionID, false)
 	if err != nil || selected == nil {
 		manager.mu.Unlock()
 		return selected, "", false, err

@@ -39,12 +39,13 @@ type exactSessionIdentity struct {
 }
 
 type sessionDetailResponse struct {
-	SourceID      string          `json:"sourceId"`
-	Agent         string          `json:"agent"`
-	SessionID     string          `json:"sessionId"`
-	Revision      string          `json:"revision"`
-	CachedOffline bool            `json:"cachedOffline"`
-	Session       session.Session `json:"session"`
+	SourceID          string          `json:"sourceId"`
+	Agent             string          `json:"agent"`
+	SessionID         string          `json:"sessionId"`
+	Revision          string          `json:"revision"`
+	SynthesisRevision int64           `json:"synthesisRevision,omitempty"`
+	CachedOffline     bool            `json:"cachedOffline"`
+	Session           session.Session `json:"session"`
 }
 
 type exactDiffResponse struct {
@@ -76,14 +77,21 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 			writeDetailError(w, errCodeDetailCorrupt, http.StatusInternalServerError)
 			return
 		}
-		if identity.Revision != revision {
+		if identity.Revision != "latest" && identity.Revision != revision {
 			writeDetailError(w, errCodeDetailStale, http.StatusConflict)
 			return
 		}
+		identity.Revision = revision
 		copy := withLocalChangeIDs(*found)
 		value = &copy
 	} else {
-		record, err := remoteManager.ReadFullSession(identity.SourceID, identity.Agent, identity.SessionID, identity.Revision)
+		var record *fullsessionv1.Record
+		var err error
+		if identity.Revision == "latest" {
+			record, err = remoteManager.ReadLatestFullSession(identity.SourceID, identity.Agent, identity.SessionID)
+		} else {
+			record, err = remoteManager.ReadFullSession(identity.SourceID, identity.Agent, identity.SessionID, identity.Revision)
+		}
 		if err != nil {
 			if !errors.Is(err, remote.ErrRemoteRevisionNotFound) {
 				logExactReadError("read remote session detail", identity, err)
@@ -95,6 +103,7 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 			writeDetailError(w, errCodeDetailMissing, http.StatusNotFound)
 			return
 		}
+		identity.Revision = record.RevisionID
 		value, err = fullsessionrecord.ToSession(*record)
 		if err != nil {
 			logExactReadError("decode remote session detail", identity, err)
@@ -107,7 +116,7 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request, getLocal localD
 
 	writeJSON(w, sessionDetailResponse{
 		SourceID: identity.SourceID, Agent: identity.Agent, SessionID: identity.SessionID,
-		Revision: identity.Revision, CachedOffline: cachedOffline,
+		Revision: identity.Revision, SynthesisRevision: value.SynthesisRevision, CachedOffline: cachedOffline,
 		Session: sessionWithJSONCollections(*value),
 	})
 }

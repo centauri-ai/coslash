@@ -269,8 +269,10 @@ func handleSynthesis(w http.ResponseWriter, agent, id string, mgr *synthesis.Man
 		Synthesis        *session.SessionSynthesis `json:"synthesis"`
 		SynthesisPending bool                      `json:"synthesisPending"`
 		SynthesisError   string                    `json:"synthesisError,omitempty"`
+		Revision         int64                     `json:"revision"`
 	}{}
 	revision := found.LastActivityTime
+	response.Revision = revision
 	if revision > 0 {
 		response.Synthesis = mgr.Lookup(found.Agent, found.ID, revision)
 		mgr.Ensure(found, revision)

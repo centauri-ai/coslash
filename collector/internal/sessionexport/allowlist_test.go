@@ -37,6 +37,7 @@ var census = map[string]decision{
 	"Subagents":           {false, "subagent task, result, and command details remain local"},
 	"StartedAt":           {true, "envelope sessionStartedAtMs"},
 	"LastActivityTime":    {true, "session.lastActivityAtMs"},
+	"SynthesisRevision":   {false, "local synthesis revision"},
 	"ActivityFallback":    {false, "local collection-time fallback marker"},
 	"DetailRevision":      {false, "local detail cache revision"},
 	"Entrypoint":          {true, "bounded session.entrypoint"},

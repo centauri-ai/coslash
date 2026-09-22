@@ -46,6 +46,46 @@ func mustLocalDetailRevision(t *testing.T, value session.Session) string {
 	return revision
 }
 
+func TestLatestLocalDetailReturnsParsedRevisionAfterListChanges(t *testing.T) {
+	current := exactDetailSession("@@\n-old\n+new\n")
+	listedRevision := mustLocalDetailRevision(t, current)
+	current.Commands = append(current.Commands, "new command")
+	response := httptest.NewRecorder()
+	handleSessionDetail(response, httptest.NewRequest(http.MethodGet,
+		"/api/session-detail?source=local&agent=codex&session=same-session&revision=latest", nil),
+		func(string, string) (*session.Session, error) { return &current, nil }, remote.NewManager(remote.Options{}))
+	if response.Code != http.StatusOK {
+		t.Fatalf("detail status = %d: %s", response.Code, response.Body.String())
+	}
+	var detail sessionDetailResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Revision == listedRevision || detail.Revision != mustLocalDetailRevision(t, current) ||
+		len(detail.Session.Commands) != 1 || len(detail.Session.FileEdits[0].ChangeIDs) != 1 {
+		t.Fatalf("latest detail = %#v, listed revision = %q", detail, listedRevision)
+	}
+}
+
+func TestLocalDetailReturnsParentSynthesisRevision(t *testing.T) {
+	current := exactDetailSession("@@\n-old\n+new\n")
+	current.SynthesisRevision = 1000
+	response := httptest.NewRecorder()
+	handleSessionDetail(response, httptest.NewRequest(http.MethodGet,
+		"/api/session-detail?source=local&agent=codex&session=same-session&revision=latest", nil),
+		func(string, string) (*session.Session, error) { return &current, nil }, remote.NewManager(remote.Options{}))
+	if response.Code != http.StatusOK {
+		t.Fatalf("detail status = %d: %s", response.Code, response.Body.String())
+	}
+	var detail sessionDetailResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Session.LastActivityTime != 2000 || detail.SynthesisRevision != 1000 {
+		t.Fatalf("family activity = %d, parent synthesis revision = %d", detail.Session.LastActivityTime, detail.SynthesisRevision)
+	}
+}
+
 func TestLocalDetailRevisionTracksParsedContentNotLiveFacts(t *testing.T) {
 	base := exactDetailSession("@@\n-old\n+new\n")
 	base.Subagents = []session.Subagent{{ID: "subagent", Status: session.SubagentRunning}}
@@ -432,6 +472,19 @@ func TestRemoteDetailAndDiffRemainReadableFromRestartedOfflineCache(t *testing.T
 		return nil, errors.New("remote request reached local parser")
 	}
 	detailTarget := "/api/session-detail?source=" + testRemoteSourceID + "&agent=codex&session=" + remoteSession.ID + "&revision=" + record.RevisionID
+	latestResponse := httptest.NewRecorder()
+	handleSessionDetail(latestResponse, httptest.NewRequest(http.MethodGet,
+		"/api/session-detail?source="+testRemoteSourceID+"&agent=codex&session="+remoteSession.ID+"&revision=latest", nil), localReader, manager)
+	if latestResponse.Code != http.StatusOK {
+		t.Fatalf("latest remote detail status = %d: %s", latestResponse.Code, latestResponse.Body.String())
+	}
+	var latest sessionDetailResponse
+	if err := json.Unmarshal(latestResponse.Body.Bytes(), &latest); err != nil {
+		t.Fatal(err)
+	}
+	if latest.Revision != record.RevisionID || len(latest.Session.FileEdits) != 1 {
+		t.Fatalf("latest remote detail = %#v", latest)
+	}
 	detailResponse := httptest.NewRecorder()
 	handleSessionDetail(detailResponse, httptest.NewRequest(http.MethodGet, detailTarget, nil), localReader, manager)
 	if detailResponse.Code != http.StatusOK {
