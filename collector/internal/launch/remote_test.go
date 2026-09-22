@@ -225,21 +225,23 @@ func TestRemoteCLICommandResumesValidatedSession(t *testing.T) {
 }
 
 func TestCursorCLICommandResumesValidatedSession(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	command, _, err := cliCommand(vendors.AgentCursor, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "'agent' '--resume' '01234567-89ab-cdef-0123-456789abcdef'" {
+	if command != "'cursor-agent' '--resume' '01234567-89ab-cdef-0123-456789abcdef'" {
 		t.Fatalf("command = %q", command)
 	}
 }
 
 func TestCursorFreshSessionLeavesHandoffForClipboard(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	command, path, err := cliCommand(vendors.AgentCursor, "", NewSession, "handoff")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "'agent'" || path != "" {
+	if command != "'cursor-agent'" || path != "" {
 		t.Fatalf("command = %q, path = %q", command, path)
 	}
 }

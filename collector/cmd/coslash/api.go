@@ -24,6 +24,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 )
 
@@ -373,7 +374,11 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 	} else if mode == launch.OpenWorkspace {
 		err = launch.CursorWorkspace(found.WorkingDirectory)
 	} else {
-		err = launch.Terminal(r.Context(), state.Config.Launch.Terminal, found.Agent, found.WorkingDirectory, found.ID, mode, handoff)
+		workingDirectory := found.WorkingDirectory
+		if found.Agent == vendors.AgentCursor && mode == launch.ResumeSession {
+			workingDirectory = cursor.ResumeDirectory(found)
+		}
+		err = launch.Terminal(r.Context(), state.Config.Launch.Terminal, found.Agent, workingDirectory, found.ID, mode, handoff)
 	}
 	if err != nil {
 		log.Printf("launch: %v", err)

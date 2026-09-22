@@ -521,7 +521,7 @@ func cliName(agent string) (string, error) {
 	case vendors.AgentOpenCode:
 		return "opencode", nil
 	case vendors.AgentCursor:
-		return "agent", nil
+		return settings.CursorExecutable(), nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }

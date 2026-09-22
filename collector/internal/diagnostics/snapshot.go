@@ -240,7 +240,7 @@ func collectSource(
 		CLI:          CLI{Name: health.Agent},
 	}
 	if health.Agent == "cursor" {
-		source.CLI.Name = "agent"
+		source.CLI.Name = settings.CursorExecutable()
 		source.IDE = &CLI{Name: "cursor"}
 	}
 	switch {

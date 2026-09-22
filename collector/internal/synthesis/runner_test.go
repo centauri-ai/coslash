@@ -14,6 +14,7 @@ import (
 )
 
 func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	var captured commandSpec
 	var configData []byte
@@ -41,8 +42,8 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	if got.Outcome != "Backend added" {
 		t.Fatalf("outcome = %q, want Backend added", got.Outcome)
 	}
-	if captured.bin != "agent" {
-		t.Fatalf("bin = %q, want agent", captured.bin)
+	if captured.bin != "cursor-agent" {
+		t.Fatalf("bin = %q, want cursor-agent", captured.bin)
 	}
 	wantArgs := []string{
 		"-p", "--mode", "ask", "--sandbox", "enabled", "--trust",
