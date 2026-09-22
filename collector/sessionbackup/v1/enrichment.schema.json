@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coslash.io/schemas/session-backup-enrichment-v1.json",
+  "title": "coSlash session backup enrichment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["repository", "repositoryLocalOnly", "filesystemFallbackBranch", "git", "lastEditAtMs"],
+  "properties": {
+    "repository": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 1048576
+    },
+    "repositoryLocalOnly": { "type": "boolean" },
+    "filesystemFallbackBranch": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 1048576
+    },
+    "git": {
+      "anyOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/gitDrift" }
+      ]
+    },
+    "lastEditAtMs": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 253402300799999
+    }
+  },
+  "$defs": {
+    "gitDrift": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseBranch", "ahead", "behind"],
+      "properties": {
+        "baseBranch": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

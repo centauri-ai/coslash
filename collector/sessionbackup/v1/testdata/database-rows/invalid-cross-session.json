@@ -1,0 +1,1 @@
+{"schemaVersion":"session-backup-db-rows/v1","database":"future-cache","tables":[{"name":"records","columns":["session_id"],"rows":[{"memberId":"member-a","values":[{"type":"text","value":"member-a"}]}]}]}

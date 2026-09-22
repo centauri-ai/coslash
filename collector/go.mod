@@ -3,9 +3,13 @@ module github.com/centauri-ai/coslash/collector
 go 1.26.5
 
 require (
+	github.com/dlclark/regexp2 v1.12.0
 	github.com/pkg/sftp v1.13.11
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	modernc.org/sqlite v1.58.0
 )
+
+require golang.org/x/text v0.40.0 // indirect
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

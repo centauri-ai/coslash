@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coslash.io/schemas/session-backup-db-rows-v1.json",
+  "title": "coSlash attributed shared-database rows v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "database", "tables"],
+  "properties": {
+    "schemaVersion": { "const": "session-backup-db-rows/v1" },
+    "database": { "$ref": "#/$defs/identifier" },
+    "tables": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/table" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^/\\\\\\u0000-\\u0020\\u007f]+$"
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "columns", "rows"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 1048576 }
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/row" }
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memberId", "values"],
+      "properties": {
+        "memberId": { "$ref": "#/$defs/identifier" },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/value" }
+        }
+      }
+    },
+    "value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "enum": ["null", "integer", "real", "text", "blob"] },
+        "value": { "type": "string", "maxLength": 1048576 }
+      }
+    }
+  }
+}
