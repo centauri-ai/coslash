@@ -3,7 +3,6 @@ package launch
 import (
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +46,7 @@ func TestWindowsPowerShell51UnicodeConsoleSmoke(t *testing.T) {
 		if err == nil {
 			break
 		}
-		if !errors.Is(err, fs.ErrNotExist) || time.Now().After(deadline) {
+		if time.Now().After(deadline) {
 			t.Fatal(err)
 		}
 		time.Sleep(50 * time.Millisecond)
