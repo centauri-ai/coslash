@@ -6,14 +6,14 @@ import type { FileChange } from '@/pages/coslash/hooks/use-sessions';
 type DiffLineKind = 'hunk' | 'addition' | 'deletion' | 'context';
 
 /* oxlint-disable react/only-export-components -- exported for focused rendering tests */
-export function diffLineKind(line: string): DiffLineKind {
+function diffLineKind(line: string): DiffLineKind {
   if (line.startsWith('@@')) return 'hunk';
   if (line.startsWith('+')) return 'addition';
   if (line.startsWith('-')) return 'deletion';
   return 'context';
 }
 
-export function fileChangeLabel(change: Pick<FileChange, 'operation'>, index: number) {
+function fileChangeLabel(change: Pick<FileChange, 'operation'>, index: number) {
   return `${change.operation} ${index + 1}`;
 }
 /* oxlint-enable react/only-export-components */

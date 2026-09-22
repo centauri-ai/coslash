@@ -629,7 +629,7 @@ function SessionRow({
   return (
     <tr
       className={cn(
-        'coslash-row group hover:[&>td]:bg-coslash-soft cursor-pointer',
+        'group hover:[&>td]:bg-coslash-soft cursor-pointer',
         { 'border-coslash-line-soft border-b': !compact },
         selected &&
           '[&>td]:bg-coslash-tint hover:[&>td]:bg-coslash-tint [&>td:first-child]:shadow-[inset_3px_0_0_var(--coslash-accent)]',
