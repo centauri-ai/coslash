@@ -236,7 +236,7 @@ function detectedGroup(session: Session): Group {
     };
   }
   return {
-    // One bucket for everything unlocated: the agent and source already show on the row.
+    // One bucket, so the sidebar shows a single row rather than one per agent.
     id: 'unlocated',
     label: 'No location',
     kind: 'No location',
@@ -1293,7 +1293,6 @@ export function CoslashLayout({
                 <div id="coslash-group">
                   {groupSections.map(({ kind, options }) => (
                     <div key={kind}>
-                      {/* The unlocated bucket is a single row that already reads "No location". */}
                       {kind !== 'No location' && (
                         <div className="text-meta text-coslash-muted flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-semibold [&>svg]:size-3.5">
                           {kind === 'Repository' && <FolderGit2 />}

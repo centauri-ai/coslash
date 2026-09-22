@@ -521,7 +521,6 @@ export type SessionReadiness = {
   key: 'resume' | 'inspect' | 'fresh' | 'unavailable';
   label: 'Resume' | 'Inspect' | 'Start fresh' | 'Check host';
   detail: string;
-  /** Views tint the detail while the prompt cache is still worth catching. */
   cacheWarm: boolean;
 };
 
@@ -532,13 +531,17 @@ const USABLE_WINDOW = 0.85;
 const FRESH_TURNS = 2;
 const RESUME_TURNS = 5;
 
-/** Turns of work left before compaction, which is what resuming actually buys. */
-function turnsOfHeadroom(session: Pick<Session, 'contextTokens' | 'contextWindow'>): number | null {
-  if (session.contextTokens == null || session.contextWindow == null || session.contextWindow <= 0) {
-    return null;
-  }
-  const room = session.contextWindow * USABLE_WINDOW - session.contextTokens;
-  return Math.max(0, Math.floor(room / TOKENS_PER_TURN));
+/** Null when the session carries no measurable context, which both readings depend on. */
+function contextStanding(
+  session: Pick<Session, 'contextTokens' | 'contextWindow'>,
+): { turns: number; usedPct: number } | null {
+  const used = session.contextTokens;
+  const window = session.contextWindow;
+  if (used == null || window == null || window <= 0) return null;
+  return {
+    turns: Math.max(0, Math.floor((window * USABLE_WINDOW - used) / TOKENS_PER_TURN)),
+    usedPct: Math.round((used / window) * 100),
+  };
 }
 
 export function sessionReadiness(
@@ -557,27 +560,23 @@ export function sessionReadiness(
   if (session.displayStale) return unavailable;
 
   const cacheWarm = promptCacheTiming(session.mtime, now).within1h;
-  const turns = turnsOfHeadroom(session);
-  // A remote session reports no live status until its host syncs, but the cached context it
-  // already carries still describes it. Only a session we cannot measure is unassessable.
-  if (turns == null && !isLocalSession(session)) return unavailable;
-  const contextUsed =
-    session.contextTokens != null && session.contextWindow != null && session.contextWindow > 0
-      ? `${Math.round((session.contextTokens / session.contextWindow) * 100)}% context`
-      : null;
+  const standing = contextStanding(session);
+  // A remote session has no live status until its host syncs, but its cached context still describes it.
+  if (standing == null && !isLocalSession(session)) return unavailable;
+
   const signal = cacheWarm
     ? 'warm cache'
     : session.compactions >= 1
       ? `${session.compactions} ${session.compactions === 1 ? 'compaction' : 'compactions'}`
-      : turns == null
-        ? null
-        : `${turns} ${turns === 1 ? 'turn' : 'turns'} headroom`;
-  const detail = [contextUsed, signal].filter(Boolean).join(' · ') || 'Context estimate unavailable';
+      : standing && `${standing.turns} ${standing.turns === 1 ? 'turn' : 'turns'} headroom`;
+  const detail =
+    [standing && `${standing.usedPct}% context`, signal].filter(Boolean).join(' · ') ||
+    'Context estimate unavailable';
 
-  if (turns == null) return { key: 'inspect', label: 'Inspect', detail, cacheWarm };
-  if (session.compactions >= 2 || turns < FRESH_TURNS) {
+  if (standing == null) return { key: 'inspect', label: 'Inspect', detail, cacheWarm };
+  if (session.compactions >= 2 || standing.turns < FRESH_TURNS) {
     return { key: 'fresh', label: 'Start fresh', detail, cacheWarm };
   }
-  if (turns >= RESUME_TURNS) return { key: 'resume', label: 'Resume', detail, cacheWarm };
+  if (standing.turns >= RESUME_TURNS) return { key: 'resume', label: 'Resume', detail, cacheWarm };
   return { key: 'inspect', label: 'Inspect', detail, cacheWarm };
 }
