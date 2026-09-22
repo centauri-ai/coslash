@@ -37,7 +37,7 @@ func MarshalEnrichment(document Enrichment) ([]byte, error) {
 	if err := validateEnrichment(document); err != nil {
 		return nil, err
 	}
-	return json.Marshal(document)
+	return marshalBoundedDocument(document, "enrichment")
 }
 
 func DecodeEnrichment(data []byte) (Enrichment, error) {
@@ -55,7 +55,7 @@ func MarshalSynthesisRecord(record SynthesisRecord) ([]byte, error) {
 	if err := validateSynthesisRecord(record); err != nil {
 		return nil, err
 	}
-	return json.Marshal(record)
+	return marshalBoundedDocument(record, "synthesis")
 }
 
 func DecodeSynthesisRecord(data []byte) (SynthesisRecord, error) {
@@ -96,6 +96,7 @@ func validateSynthesisRecord(record SynthesisRecord) error {
 
 func validSynthesis(value fullsessionv1.SessionSynthesis) bool {
 	if len(value.Goals) > fullsessionv1.MaxItems || len(value.KeyDecisions) > fullsessionv1.MaxItems ||
+		len(value.Goals) > fullsessionv1.MaxItems-len(value.KeyDecisions) ||
 		!validDocumentString(value.Outcome) || !validDocumentString(value.NextStep) {
 		return false
 	}
@@ -111,6 +112,17 @@ func validSynthesis(value fullsessionv1.SessionSynthesis) bool {
 
 func validDocumentString(value string) bool {
 	return utf8.ValidString(value) && len(value) <= fullsessionv1.MaxStringBytes
+}
+
+func marshalBoundedDocument(document any, kind string) ([]byte, error) {
+	data, err := json.Marshal(document)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateDocumentBounds(data); err != nil {
+		return nil, fmt.Errorf("%w: %s bounds: %v", ErrInvalid, kind, err)
+	}
+	return data, nil
 }
 
 func decodeCanonicalDocument(data []byte, destination any) error {

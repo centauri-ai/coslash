@@ -2,8 +2,11 @@ package sessionbackupv1
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -170,16 +173,59 @@ func TestFreezeBindsExactChangeBodies(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsNilProblemsAndNonCanonicalMembers(t *testing.T) {
+func TestValidateRejectsNilProblems(t *testing.T) {
 	manifest, _, _ := loadValidFixture(t)
 	manifest.CaptureProblems = nil
 	if err := Validate(manifest); !errors.Is(err, ErrIncomplete) {
 		t.Fatalf("Validate() error = %v; want incomplete", err)
 	}
+}
 
-	manifest, _, _ = loadValidFixture(t)
-	manifest.Members[1].Ordinal = 2
-	if err := Validate(manifest); !errors.Is(err, ErrInvalid) {
+func TestValidateRejectsNonCanonicalSiblingOrder(t *testing.T) {
+	manifest, _, _ := loadValidFixture(t)
+	childID := manifest.Members[1].MemberID
+	sibling := manifest.Members[1]
+	sibling.MemberID = childID + "-sibling"
+	sibling.SourceRevision = "sibling-source-revision"
+	manifest.Members = []Member{manifest.Members[0], sibling, manifest.Members[1]}
+	for index := range manifest.Members {
+		manifest.Members[index].Ordinal = index
+	}
+
+	artifacts := make([]Artifact, 0, len(manifest.Artifacts)*2)
+	for _, artifact := range manifest.Artifacts {
+		if artifact.MemberID == manifest.Family.RootMemberID {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	for _, artifact := range manifest.Artifacts {
+		if artifact.MemberID != childID {
+			continue
+		}
+		copy := artifact
+		copy.MemberID = sibling.MemberID
+		copy.LogicalName = strings.Replace(copy.LogicalName, "members/child/", "members/sibling/", 1)
+		artifacts = append(artifacts, copy)
+	}
+	for _, artifact := range manifest.Artifacts {
+		if artifact.MemberID == childID {
+			artifacts = append(artifacts, artifact)
+		}
+	}
+	for index := range artifacts {
+		artifacts[index].Ordinal = index
+	}
+	manifest.Artifacts = artifacts
+	manifest.Summary = summarize(artifacts)
+	manifest.CompleteBackupSHA256 = ""
+	preimage, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(preimage)
+	manifest.CompleteBackupSHA256 = hex.EncodeToString(digest[:])
+
+	if err := Validate(manifest); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "members are not deterministically ordered") {
 		t.Fatalf("Validate() error = %v; want invalid", err)
 	}
 }
@@ -216,6 +262,72 @@ func TestDocumentDecodersRejectAggregateItemOverflow(t *testing.T) {
 	if _, err := DecodeSynthesisRecord(data); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("DecodeSynthesisRecord() error = %v; want invalid", err)
 	}
+}
+
+func TestDocumentProducersEnforceDecoderBounds(t *testing.T) {
+	t.Run("synthesis aggregate", func(t *testing.T) {
+		record := SynthesisRecord{
+			Agent: "codex", SessionID: "session", Revision: 1, Model: "model", GeneratedAt: 1,
+			Synthesis: fullsessionv1.SessionSynthesis{
+				Goals: make([]string, fullsessionv1.MaxItems-1), KeyDecisions: []string{"decision"},
+			},
+		}
+		data, err := MarshalSynthesisRecord(record)
+		if err != nil {
+			t.Fatalf("MarshalSynthesisRecord() at item limit: %v", err)
+		}
+		if _, err := DecodeSynthesisRecord(data); err != nil {
+			t.Fatalf("DecodeSynthesisRecord() at item limit: %v", err)
+		}
+		record.Synthesis.KeyDecisions = append(record.Synthesis.KeyDecisions, "overflow")
+		if _, err := MarshalSynthesisRecord(record); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("MarshalSynthesisRecord() error = %v; want invalid", err)
+		}
+	})
+
+	t.Run("synthesis bytes", func(t *testing.T) {
+		item := strings.Repeat("x", fullsessionv1.MaxStringBytes)
+		record := SynthesisRecord{
+			Agent: "codex", SessionID: "session", Revision: 1, Model: "model", GeneratedAt: 1,
+			Synthesis: fullsessionv1.SessionSynthesis{Goals: make([]string, fullsessionv1.MaxRecordBytes/fullsessionv1.MaxStringBytes)},
+		}
+		for index := range record.Synthesis.Goals {
+			record.Synthesis.Goals[index] = item
+		}
+		if _, err := MarshalSynthesisRecord(record); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("MarshalSynthesisRecord() error = %v; want invalid", err)
+		}
+	})
+
+	t.Run("database rows aggregate", func(t *testing.T) {
+		rows := databaseRowsForItemLimit(fullsessionv1.MaxItems/2 - 1)
+		data, err := FreezeDatabaseRows(rows)
+		if err != nil {
+			t.Fatalf("FreezeDatabaseRows() at item limit: %v", err)
+		}
+		if _, err := DecodeDatabaseRows(data, "member"); err != nil {
+			t.Fatalf("DecodeDatabaseRows() at item limit: %v", err)
+		}
+		rows.Tables[0].Rows = append(rows.Tables[0].Rows, DatabaseRow{
+			MemberID: "member", Values: []DatabaseValue{{Type: "text", Value: "overflow"}},
+		})
+		if _, err := FreezeDatabaseRows(rows); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("FreezeDatabaseRows() error = %v; want invalid", err)
+		}
+	})
+}
+
+func databaseRowsForItemLimit(rowCount int) DatabaseRows {
+	rows := make([]DatabaseRow, rowCount)
+	for index := range rows {
+		rows[index] = DatabaseRow{
+			MemberID: "member",
+			Values:   []DatabaseValue{{Type: "text", Value: fmt.Sprintf("%05d", index)}},
+		}
+	}
+	return DatabaseRows{Database: "cache", Tables: []DatabaseTable{{
+		Name: "records", Columns: []string{"value"}, Rows: rows,
+	}}}
 }
 
 func TestDatabaseValueSchemaMatchesDecoder(t *testing.T) {

@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coslash.io/schemas/session-backup-synthesis-v1.json",
   "title": "coSlash persisted synthesis cache record",
+  "description": "Canonical documents are limited to 67108864 encoded bytes and 100000 array items in aggregate.",
   "type": "object",
   "additionalProperties": false,
   "required": ["agent", "sessionId", "mtime", "model", "generatedAt", "synthesis"],
