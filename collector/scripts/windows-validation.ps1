@@ -29,6 +29,7 @@ function ConvertTo-SafeText {
             $text = $text.Replace($path, "%USERPROFILE%")
         }
     }
+    $text = $text -replace '#t=[A-Za-z0-9_-]+', '#t=%TOKEN%'
     if ($text.Length -gt 2000) {
         $text = $text.Substring($text.Length - 2000)
     }
@@ -81,7 +82,7 @@ function Get-ToolVersion {
         [string[]]$Arguments = @("--version")
     )
 
-    $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $command = Get-Command $Name -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -eq $command) {
         return [PSCustomObject]@{ name = $Name; available = $false; version = "" }
     }
@@ -141,7 +142,22 @@ finally {
     Pop-Location
 }
 
-$os = Get-CimInstance Win32_OperatingSystem
+$os = try {
+    Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+}
+catch {
+    $version = [Environment]::OSVersion.Version
+    $productName = Get-RegistryValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "ProductName"
+    $currentBuild = Get-RegistryValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" "CurrentBuildNumber"
+    if (![string]::IsNullOrWhiteSpace($productName) -and [int]$currentBuild -ge 22000) {
+        $productName = $productName -replace 'Windows 10', 'Windows 11'
+    }
+    [PSCustomObject]@{
+        Caption = $(if ([string]::IsNullOrWhiteSpace($productName)) { "Microsoft Windows" } else { $productName })
+        Version = $version.ToString()
+        BuildNumber = $(if ([string]::IsNullOrWhiteSpace($currentBuild)) { $version.Build } else { $currentBuild })
+    }
+}
 $buildNumber = [int]$os.BuildNumber
 $architecture = if (![string]::IsNullOrWhiteSpace($env:PROCESSOR_ARCHITEW6432)) {
     $env:PROCESSOR_ARCHITEW6432
@@ -153,6 +169,7 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 $isAdministrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 $windowsTerminalAvailable = $null -ne (Get-Command "wt.exe" -ErrorAction SilentlyContinue | Select-Object -First 1)
+$windowsPowerShellAvailable = $null -ne (Get-Command "powershell.exe" -ErrorAction SilentlyContinue | Select-Object -First 1)
 $supportedWindows = $os.Caption -match "Windows 11" -and
     $os.Caption -notmatch "(?i)(LTSC|multi-session)" -and
     $buildNumber -ge 26100
@@ -162,7 +179,7 @@ $environmentChecks = @(
     New-EnvironmentCheck "supported-architecture" ($architecture -eq "amd64") $architecture
     New-EnvironmentCheck "standard-user" (!$isAdministrator) $(if ($isAdministrator) { "PowerShell is elevated" } else { "PowerShell is not elevated" })
     New-EnvironmentCheck "windows-powershell-5.1" ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -eq 1) $PSVersionTable.PSVersion.ToString()
-    New-EnvironmentCheck "windows-terminal" $windowsTerminalAvailable $(if ($windowsTerminalAvailable) { "wt.exe is available" } else { "wt.exe is unavailable" })
+    New-EnvironmentCheck "terminal-launcher" $windowsPowerShellAvailable $(if ($windowsTerminalAvailable) { "Windows Terminal and Windows PowerShell are available" } elseif ($windowsPowerShellAvailable) { "Windows Terminal is unavailable; Windows PowerShell fallback is available" } else { "Windows PowerShell is unavailable" })
 )
 
 $defender = $null
@@ -211,6 +228,12 @@ try {
     if (![string]::IsNullOrWhiteSpace($BinaryPath) -and (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
         $candidate = (Resolve-Path -LiteralPath $BinaryPath).Path
         $automatedChecks += Invoke-ValidationCommand "candidate-version" $candidate @("--version")
+        $automatedChecks += Invoke-ValidationCommand "candidate-packaged-smoke" "powershell.exe" @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", (Join-Path $PSScriptRoot "windows-smoke.ps1"),
+            "-BinaryPath", $candidate
+        )
         $candidateArtifact = [PSCustomObject]@{
             supplied = $true
             sha256 = (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
