@@ -61,16 +61,14 @@ func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) 
 	if err != nil {
 		return nil, err
 	}
+	config, err := os.UserConfigDir()
+	if err != nil {
+		return nil, err
+	}
 	return loadMetadataContext(ctx, metadataPaths{
 		sessions: filepath.Join(home, ".claude", "sessions"),
 		jobs:     filepath.Join(home, ".claude", "jobs"),
-		desktop: filepath.Join(
-			home,
-			"Library",
-			"Application Support",
-			"Claude",
-			"claude-code-sessions",
-		),
+		desktop:  filepath.Join(config, "Claude", "claude-code-sessions"),
 	}, time.Now(), session.IsProcessAlive)
 }
 
