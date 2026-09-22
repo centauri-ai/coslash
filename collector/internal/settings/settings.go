@@ -397,20 +397,10 @@ func Open() *Store {
 }
 
 func load() State {
-	info, err := os.Lstat(Path())
+	data, err := readSettingsFile(Path())
 	if errors.Is(err, fs.ErrNotExist) {
 		return State{Config: Defaults(), Valid: true}
 	}
-	if err != nil {
-		return State{Config: Defaults(), Persisted: true, Error: "read settings.json: " + err.Error()}
-	}
-	if !info.Mode().IsRegular() {
-		return State{Config: Defaults(), Persisted: true, Error: "settings.json must be a regular file"}
-	}
-	if info.Mode().Perm() != 0o600 {
-		return State{Config: Defaults(), Persisted: true, Error: "settings.json permissions must be 0600"}
-	}
-	data, err := os.ReadFile(Path())
 	if err != nil {
 		return State{Config: Defaults(), Persisted: true, Error: "read settings.json: " + err.Error()}
 	}
@@ -443,7 +433,7 @@ func (store *Store) Save(config Config) error {
 	if err := os.MkdirAll(Home(), 0o700); err != nil {
 		return fmt.Errorf("create coSlash directory: %w", err)
 	}
-	if err := os.Chmod(Home(), 0o700); err != nil {
+	if err := protectSettingsDirectory(Home()); err != nil {
 		return fmt.Errorf("secure coSlash directory: %w", err)
 	}
 	temp, err := os.CreateTemp(Home(), ".settings-*.tmp")
@@ -452,7 +442,7 @@ func (store *Store) Save(config Config) error {
 	}
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
-	if err := temp.Chmod(0o600); err != nil {
+	if err := protectSettingsFile(tempPath, temp); err != nil {
 		temp.Close()
 		return fmt.Errorf("secure settings temporary file: %w", err)
 	}

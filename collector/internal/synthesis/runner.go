@@ -214,6 +214,9 @@ func writeSchemaFile() (string, error) {
 	if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
 		return "", fmt.Errorf("create synthesis directory: %w", err)
 	}
+	if err := protectSynthesisDirectories(SynthesisCwd()); err != nil {
+		return "", fmt.Errorf("secure synthesis directory: %w", err)
+	}
 	file, err := os.CreateTemp(SynthesisCwd(), ".schema-*.json")
 	if err != nil {
 		return "", fmt.Errorf("create synthesis schema: %w", err)
@@ -226,7 +229,7 @@ func writeSchemaFile() (string, error) {
 			os.Remove(path)
 		}
 	}()
-	if err := file.Chmod(0o600); err != nil {
+	if err := protectSynthesisFile(path, file); err != nil {
 		return "", fmt.Errorf("secure synthesis schema: %w", err)
 	}
 	if _, err := io.WriteString(file, synthesisSchema); err != nil {
