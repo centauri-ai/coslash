@@ -3643,6 +3643,14 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000004
   },
+  "bedrock_mantle/anthropic.claude-haiku-4-5": {
+    "cache_creation_input_token_cost": 0.00000125,
+    "cache_creation_input_token_cost_above_1hr": 0.000002,
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0.000005
+  },
   "bedrock_mantle/google.gemma-4-26b-a4b": {
     "input_cost_per_token": 1.3E-7,
     "max_input_tokens": 256000,
@@ -9656,7 +9664,7 @@
   },
   "minimax.minimax-m2": {
     "input_cost_per_token": 3E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000012
   },
   "minimax.minimax-m2.1": {
@@ -9666,7 +9674,7 @@
   },
   "minimax.minimax-m2.5": {
     "input_cost_per_token": 3E-7,
-    "max_input_tokens": 1000000,
+    "max_input_tokens": 196000,
     "output_cost_per_token": 0.0000012
   },
   "minimax/MiniMax-M2": {
@@ -10187,7 +10195,7 @@
   },
   "moonshot.kimi-k2-thinking": {
     "input_cost_per_token": 6E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 256000,
     "output_cost_per_token": 0.0000025
   },
   "moonshot/kimi-k2-0711-preview": {
@@ -10328,6 +10336,13 @@
     "input_cost_per_token": 6E-7,
     "max_input_tokens": 256000,
     "output_cost_per_token": 0.000003
+  },
+  "moonshotai.kimi-k3": {
+    "cache_creation_input_token_cost": 0.00000375,
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000015
   },
   "morph/morph-v3-fast": {
     "input_cost_per_token": 8E-7,
@@ -12284,6 +12299,12 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0
   },
+  "opencode/mimo-v2.6-flash-free": {
+    "cache_read_input_token_cost": 0,
+    "input_cost_per_token": 0,
+    "max_input_tokens": 200000,
+    "output_cost_per_token": 0
+  },
   "opencode/minimax-m2.1": {
     "cache_read_input_token_cost": 1.0000000000000001e-07,
     "input_cost_per_token": 3e-07,
@@ -12830,16 +12851,16 @@
     "output_cost_per_token": 4.1E-7
   },
   "openrouter/deepseek/deepseek-v4-flash": {
-    "cache_read_input_token_cost": 1.1088E-8,
-    "input_cost_per_token": 5.544E-8,
+    "cache_read_input_token_cost": 1.77212E-8,
+    "input_cost_per_token": 8.8606E-8,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 1.1088E-7
+    "output_cost_per_token": 1.77212E-7
   },
   "openrouter/deepseek/deepseek-v4-flash-0731": {
     "cache_read_input_token_cost": 1.6E-8,
     "input_cost_per_token": 4E-8,
     "max_input_tokens": 1310720,
-    "output_cost_per_token": 1.6E-7
+    "output_cost_per_token": 6.4E-7
   },
   "openrouter/deepseek/deepseek-v4-flash-0731:batch": {
     "cache_read_input_token_cost": 3.5E-9,
@@ -12865,16 +12886,16 @@
     "output_cost_per_token": 3.3E-7
   },
   "openrouter/deepseek/deepseek-v4-pro": {
-    "cache_read_input_token_cost": 7.7314E-8,
-    "input_cost_per_token": 9.27768E-7,
+    "cache_read_input_token_cost": 7.9605E-8,
+    "input_cost_per_token": 9.5526E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000001855536
+    "output_cost_per_token": 0.00000191052
   },
   "openrouter/deepseek/deepseek-v4-pro-0813": {
-    "cache_read_input_token_cost": 1.9008E-8,
-    "input_cost_per_token": 5.7024E-7,
+    "cache_read_input_token_cost": 1.86208E-8,
+    "input_cost_per_token": 5.58624E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.00000171072
+    "output_cost_per_token": 0.000001675872
   },
   "openrouter/deepseek/deepseek-v4-pro-0813:batch": {
     "cache_read_input_token_cost": 2.2E-8,
@@ -13288,9 +13309,9 @@
     "output_cost_per_token": 3.2E-7
   },
   "openrouter/meta-llama/llama-4-maverick": {
-    "input_cost_per_token": 2E-7,
+    "input_cost_per_token": 1.875E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 8E-7
+    "output_cost_per_token": 6.525E-7
   },
   "openrouter/meta-llama/llama-4-scout": {
     "input_cost_per_token": 1E-7,
@@ -13648,9 +13669,9 @@
   },
   "openrouter/nvidia/nemotron-3-nano-30b-a3b": {
     "cache_read_input_token_cost": 3E-8,
-    "input_cost_per_token": 6E-8,
+    "input_cost_per_token": 5E-8,
     "max_input_tokens": 262144,
-    "output_cost_per_token": 2.4E-7
+    "output_cost_per_token": 2E-7
   },
   "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
     "input_cost_per_token": 0.0,
@@ -14908,6 +14929,24 @@
     "max_input_tokens": 1050000,
     "output_cost_per_token": 8.7E-7
   },
+  "openrouter/xiaomi/mimo-v2.6-flash": {
+    "cache_read_input_token_cost": 2.8E-9,
+    "input_cost_per_token": 1.4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2.8E-7
+  },
+  "openrouter/xiaomi/mimo-v2.6-pro": {
+    "cache_read_input_token_cost": 3.6E-9,
+    "input_cost_per_token": 4.35E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 8.7E-7
+  },
+  "openrouter/xiaomi/mimo-v2.6-pro-ultraspeed": {
+    "cache_read_input_token_cost": 3.6E-8,
+    "input_cost_per_token": 0.00000435,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000087
+  },
   "openrouter/z-ai/glm-4.5": {
     "cache_read_input_token_cost": 1.1E-7,
     "input_cost_per_token": 6E-7,
@@ -15000,10 +15039,10 @@
     "output_cost_per_token": 0.00000286
   },
   "openrouter/z-ai/glm-5.3-flash": {
-    "cache_read_input_token_cost": 1.8E-8,
-    "input_cost_per_token": 9E-8,
+    "cache_read_input_token_cost": 5E-8,
+    "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 1310720,
-    "output_cost_per_token": 3E-7
+    "output_cost_per_token": 5E-7
   },
   "openrouter/z-ai/glm-5.3-flash:batch": {
     "cache_read_input_token_cost": 1.5E-8,
@@ -15068,16 +15107,16 @@
     "output_cost_per_token": 0.0000012
   },
   "openrouter/~deepseek/deepseek-pro-latest": {
-    "cache_read_input_token_cost": 1.9008E-8,
-    "input_cost_per_token": 5.7024E-7,
+    "cache_read_input_token_cost": 1.86208E-8,
+    "input_cost_per_token": 5.58624E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.00000171072
+    "output_cost_per_token": 0.000001675872
   },
   "openrouter/~deepseek/deepseek-v4-flash-latest": {
     "cache_read_input_token_cost": 1.6E-8,
     "input_cost_per_token": 4E-8,
     "max_input_tokens": 1310720,
-    "output_cost_per_token": 1.6E-7
+    "output_cost_per_token": 6.4E-7
   },
   "openrouter/~google/gemini-flash-latest": {
     "cache_creation_input_token_cost": 4.16666666666667E-8,
@@ -15140,10 +15179,10 @@
     "output_cost_per_token": 0.0000048
   },
   "openrouter/~z-ai/glm-flash-latest": {
-    "cache_read_input_token_cost": 1.8E-8,
-    "input_cost_per_token": 9E-8,
+    "cache_read_input_token_cost": 5E-8,
+    "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 1310720,
-    "output_cost_per_token": 3E-7
+    "output_cost_per_token": 5E-7
   },
   "openrouter/~z-ai/glm-latest": {
     "cache_read_input_token_cost": 1.69E-7,
@@ -15648,17 +15687,17 @@
   },
   "qwen.qwen3-coder-next": {
     "input_cost_per_token": 5E-7,
-    "max_input_tokens": 262144,
+    "max_input_tokens": 256000,
     "output_cost_per_token": 0.0000012
   },
   "qwen.qwen3-next-80b-a3b": {
     "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 256000,
     "output_cost_per_token": 0.0000012
   },
   "qwen.qwen3-vl-235b-a22b": {
     "input_cost_per_token": 5.3E-7,
-    "max_input_tokens": 128000,
+    "max_input_tokens": 256000,
     "output_cost_per_token": 0.00000266
   },
   "qwen_ai_platform/deepseek-v4-flash": {
@@ -17323,6 +17362,13 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.000006
+  },
+  "us.moonshotai.kimi-k3": {
+    "cache_creation_input_token_cost": 0.000004125,
+    "cache_read_input_token_cost": 3.3E-7,
+    "input_cost_per_token": 0.0000033,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000165
   },
   "us.openai.gpt-5.6-luna": {
     "cache_creation_input_token_cost": 2.75E-7,
@@ -19174,6 +19220,12 @@
     "max_input_tokens": 500000,
     "output_cost_per_token": 0.000006
   },
+  "xai/grok-4.7": {
+    "cache_read_input_token_cost": 5E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 0.000006
+  },
   "xai/grok-build-0.1": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.000001,
@@ -19204,14 +19256,26 @@
     "max_input_tokens": 256000,
     "output_cost_per_token": 0.000002
   },
+  "xiaomi_mimo/mimo-v2.6-flash": {
+    "cache_read_input_token_cost": 2.8E-9,
+    "input_cost_per_token": 1.4E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2.8E-7
+  },
+  "xiaomi_mimo/mimo-v2.6-pro": {
+    "cache_read_input_token_cost": 3.6E-9,
+    "input_cost_per_token": 4.35E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 8.7E-7
+  },
   "zai.glm-4.7": {
     "input_cost_per_token": 6E-7,
-    "max_input_tokens": 200000,
+    "max_input_tokens": 203000,
     "output_cost_per_token": 0.0000022
   },
   "zai.glm-4.7-flash": {
     "input_cost_per_token": 7E-8,
-    "max_input_tokens": 200000,
+    "max_input_tokens": 203000,
     "output_cost_per_token": 4E-7
   },
   "zai.glm-5": {
