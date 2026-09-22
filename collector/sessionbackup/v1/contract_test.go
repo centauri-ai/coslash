@@ -220,6 +220,23 @@ func TestValidateRejectsArtifactByteLimits(t *testing.T) {
 	}
 }
 
+func TestManifestCollectionPreflightRejectsItemOverflow(t *testing.T) {
+	manifestWithMembers := func(count int) []byte {
+		return []byte(`{"members":[` + strings.Repeat(`{},`, count-1) + `{}` + `]}`)
+	}
+
+	if err := validateManifestCollectionSizes(manifestWithMembers(MaxMembers)); err != nil {
+		t.Fatalf("boundary collection rejected: %v", err)
+	}
+	overflow := manifestWithMembers(MaxMembers + 1)
+	if err := validateManifestCollectionSizes(overflow); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("overflow collection error = %v; want invalid", err)
+	}
+	if _, err := Decode(overflow); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "collection exceeds item limit") {
+		t.Fatalf("Decode() overflow error = %v; want preflight item limit", err)
+	}
+}
+
 func TestFreezeBindsSynthesisToMemberRevision(t *testing.T) {
 	manifest, _, blobs := loadValidFixture(t)
 	for _, artifact := range manifest.Artifacts {
