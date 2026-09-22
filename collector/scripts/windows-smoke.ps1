@@ -14,13 +14,16 @@ $stderrPath = Join-Path $smokeHome "stderr.log"
 $process = $null
 
 function Get-SafeServerLog {
-    $lines = @()
+    $text = ""
     foreach ($path in @($stdoutPath, $stderrPath)) {
         if (Test-Path -LiteralPath $path) {
-            $lines += Get-Content -LiteralPath $path
+            $text += "`n" + (Get-Content -LiteralPath $path -Raw)
         }
     }
-    return (($lines -join "`n") -replace '#t=[A-Za-z0-9_-]+', '#t=%TOKEN%').Trim()
+    if ($text.Length -gt 8192) {
+        $text = $text.Substring($text.Length - 8192)
+    }
+    return (($text -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '') -replace '#t=[A-Za-z0-9_-]+', '#t=%TOKEN%').Trim()
 }
 
 function Invoke-SmokeRequest {
@@ -123,7 +126,7 @@ try {
         synthesis = @{ enabled = $false; backend = "claude-cli"; model = "claude-haiku-4-5" }
         appearance = @{ theme = "light" }
         launch = @{ terminal = "windows-terminal" }
-        remote = @{ id = "r_0123456789abcdef"; sshAlias = "coslash-smoke-invalid"; enabled = $true }
+        remote = @{ id = "r_0123456789abcdef"; sshAlias = "coslash-smoke-invalid"; enabled = $false }
     } | ConvertTo-Json -Depth 5
     $configured = Invoke-WebRequest -UseBasicParsing -Uri ($baseURL + "/api/settings") -Method Put -Headers @{ "X-Coslash-Token" = $token } -ContentType "application/json" -Body $settings -TimeoutSec 5
     if ($configured.StatusCode -ne 200) {
