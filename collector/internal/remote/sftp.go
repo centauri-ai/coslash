@@ -51,15 +51,14 @@ func runSSHCommand(ctx context.Context, options OpenOptions, args []string) erro
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := command(runCtx, bin, args...)
-	configureProcessGroup(cmd)
 	output := &cappedStderr{limit: options.Limits.withDefaults().MaxStderrBytes, cancel: cancel}
 	cmd.Stdout = output
 	cmd.Stderr = output
-	if err := cmd.Start(); err != nil {
+	if err := startProcessGroup(cmd); err != nil {
 		return fmt.Errorf("start SSH command: %w", err)
 	}
 	waited := make(chan error, 1)
-	go func() { waited <- cmd.Wait() }()
+	go func() { waited <- waitProcessGroup(cmd) }()
 	var err error
 	select {
 	case err = <-waited:
@@ -175,7 +174,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 	}
 	stderr := &cappedStderr{limit: limits.MaxStderrBytes, cancel: cancel}
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
+	if err := startProcessGroup(cmd); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start SSH: %w", err)
 	}
@@ -198,14 +197,14 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 		cancelHandshake()
 		_ = stdin.Close()
 		cancel()
-		_ = cmd.Wait()
+		_ = waitProcessGroup(cmd)
 		return nil, handshakeCtx.Err()
 	}
 	if err != nil {
 		_ = stdin.Close()
 		sessionErr := sessionCtx.Err()
 		cancel()
-		_ = cmd.Wait()
+		_ = waitProcessGroup(cmd)
 		if stderr.overflow {
 			return nil, ErrStderrLimit
 		}
@@ -235,7 +234,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 	}
 	if err != nil {
 		_ = client.Close()
-		_ = cmd.Wait()
+		_ = waitProcessGroup(cmd)
 		cancel()
 		return nil, wrapSSHError(err, stderr.String())
 	}
@@ -259,7 +258,7 @@ func (session *Session) Close() error {
 	session.closeOnce.Do(func() {
 		// Wait before cancel so a clean SFTP close does not SIGKILL the child first.
 		clientErr := session.client.Close()
-		waitErr := session.cmd.Wait()
+		waitErr := waitProcessGroup(session.cmd)
 		ctxErr := session.ctx.Err()
 		session.cancel()
 		if ctxErr != nil {

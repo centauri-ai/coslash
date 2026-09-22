@@ -364,7 +364,6 @@ func startHelper(
 		command = exec.CommandContext
 	}
 	cmd := command(ctx, bin, args...)
-	configureProcessGroup(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("open SSH stdin: %w", err)
@@ -375,7 +374,7 @@ func startHelper(
 	}
 	stderr := &cappedStderr{limit: limits.MaxStderrBytes, cancel: cancel}
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
+	if err := startProcessGroup(cmd); err != nil {
 		return nil, fmt.Errorf("start SSH: %w", err)
 	}
 	return &helperProcess{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr}, nil
@@ -405,7 +404,7 @@ func (process *helperProcess) finish(aborted bool) (int, error) {
 		terminateProcessGroup(process.cmd)
 	}
 	waited := make(chan error, 1)
-	go func() { waited <- process.cmd.Wait() }()
+	go func() { waited <- waitProcessGroup(process.cmd) }()
 	select {
 	case err := <-waited:
 		return exitCodeOf(err), err

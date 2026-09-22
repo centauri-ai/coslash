@@ -55,16 +55,15 @@ func (remote *SSHLifecycleRemote) ProbePlatform(ctx context.Context) (Platform, 
 	runCtx, cancel := context.WithTimeout(ctx, limits.ConnectTimeout)
 	defer cancel()
 	cmd := command(runCtx, bin, args...)
-	configureProcessGroup(cmd)
 	stdout := &boundedCommandOutput{limit: 128, cancel: cancel}
 	stderr := &boundedCommandOutput{limit: limits.MaxStderrBytes, cancel: cancel}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
+	if err := startProcessGroup(cmd); err != nil {
 		return Platform{}, fmt.Errorf("start helper platform probe: %w", err)
 	}
 	waited := make(chan error, 1)
-	go func() { waited <- cmd.Wait() }()
+	go func() { waited <- waitProcessGroup(cmd) }()
 	var runErr error
 	select {
 	case runErr = <-waited:
