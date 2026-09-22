@@ -117,3 +117,21 @@ func TestRunSynthesisRejectsExcessiveWorkBeforeCallingRunner(t *testing.T) {
 		t.Fatalf("runner called %d times before rejecting excessive work", calls)
 	}
 }
+
+func TestRunSynthesisRejectsImpossibleDigestBeforeBuildingPrompts(t *testing.T) {
+	calls := 0
+	runner := runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
+		calls++
+		return session.SessionSynthesis{}, nil
+	})
+
+	_, err := runSynthesis(context.Background(), runner, &session.Session{SessionDetails: session.SessionDetails{
+		Digest: make([]session.DigestEntry, 27_429),
+	}})
+	if err == nil || !strings.Contains(err.Error(), "digest item limit") {
+		t.Fatalf("runSynthesis() error = %v, want digest item limit", err)
+	}
+	if calls != 0 {
+		t.Fatalf("runner called %d times before rejecting impossible digest", calls)
+	}
+}

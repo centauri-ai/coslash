@@ -134,9 +134,14 @@ func sessionWithDetailProbes(s *session.Session) *session.Session {
 
 func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (session.SessionSynthesis, error) {
 	const (
-		maxSourceSynthesisRuns = 32
-		maxSynthesisRuns       = 64
+		maxSourceSynthesisRuns      = 32
+		maxSynthesisRuns            = 64
+		minRenderedDigestEntryBytes = 14
+		maxSynthesisDigestItems     = maxSourceSynthesisRuns * maxPromptBytes / minRenderedDigestEntryBytes
 	)
+	if s != nil && len(s.Digest) > maxSynthesisDigestItems {
+		return session.SessionSynthesis{}, fmt.Errorf("synthesis digest item limit exceeded: %d entries", len(s.Digest))
+	}
 	inputs := BuildInputs(s)
 	if len(inputs) > maxSourceSynthesisRuns {
 		return session.SessionSynthesis{}, fmt.Errorf("synthesis work limit exceeded: %d source chunks", len(inputs))
