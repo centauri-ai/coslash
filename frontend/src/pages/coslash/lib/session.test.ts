@@ -284,14 +284,13 @@ describe('sessionReadiness', () => {
   const base = {
     sourceId: LOCAL_SOURCE_ID,
     status: null,
-    displayStale: false,
     contextTokens: 40_000,
     contextWindow: 200_000,
     compactions: 0,
     mtime: NOW - 2 * HOUR,
   } satisfies Pick<
     Session,
-    'sourceId' | 'status' | 'displayStale' | 'contextTokens' | 'contextWindow' | 'compactions' | 'mtime'
+    'sourceId' | 'status' | 'contextTokens' | 'contextWindow' | 'compactions' | 'mtime'
   >;
 
   it('recommends resuming while several turns of headroom remain', () => {
@@ -358,9 +357,6 @@ describe('sessionReadiness', () => {
         NOW,
       ),
     ).toMatchObject({ key: 'unavailable', label: 'Check host' });
-    expect(sessionReadiness({ ...base, displayStale: true }, NOW)).toMatchObject({
-      key: 'unavailable',
-    });
   });
 });
 
