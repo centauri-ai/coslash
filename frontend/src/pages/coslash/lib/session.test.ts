@@ -18,6 +18,7 @@ import {
   withLocalSourceDefaults,
   type Session,
 } from '@/pages/coslash/lib/session';
+import { HOUR } from '@/pages/coslash/lib/time';
 
 describe('getModality', () => {
   it('labels OpenCode client entrypoints without changing the shared CLI modality', () => {
@@ -279,73 +280,86 @@ describe('resumeDisabled', () => {
 });
 
 describe('sessionReadiness', () => {
+  const NOW = 1_700_000_000_000;
   const base = {
     sourceId: LOCAL_SOURCE_ID,
     status: null,
     displayStale: false,
-    launchable: true,
     contextTokens: 40_000,
-    contextWindow: 100_000,
+    contextWindow: 200_000,
     compactions: 0,
-    tokens: {
-      model: {
-        input_tokens: 1,
-        output_tokens: 1,
-        cache_creation_input_tokens: 0,
-        cache_creation_1h_input_tokens: 0,
-        cache_read_input_tokens: 1_000,
-      },
-    },
-    git: { baseBranch: 'main', ahead: 0, behind: 0 },
+    mtime: NOW - 2 * HOUR,
   } satisfies Pick<
     Session,
-    | 'sourceId'
-    | 'status'
-    | 'displayStale'
-    | 'launchable'
-    | 'contextTokens'
-    | 'contextWindow'
-    | 'compactions'
-    | 'tokens'
-    | 'git'
+    'sourceId' | 'status' | 'displayStale' | 'contextTokens' | 'contextWindow' | 'compactions' | 'mtime'
   >;
 
-  it('recommends resuming a low-context session with a warm prompt cache', () => {
-    expect(sessionReadiness(base)).toMatchObject({ key: 'resume', label: 'Resume' });
-    expect(sessionReadiness({ ...base, launchable: false })).toMatchObject({
+  it('recommends resuming while several turns of headroom remain', () => {
+    expect(sessionReadiness(base, NOW)).toMatchObject({
       key: 'resume',
       label: 'Resume',
+      detail: '20% context · 7 turns headroom',
     });
   });
 
-  it('recommends starting fresh when context pressure or branch drift is high', () => {
-    expect(sessionReadiness({ ...base, contextTokens: 85_000 })).toMatchObject({
+  it('recommends starting fresh once the window is nearly spent', () => {
+    expect(sessionReadiness({ ...base, contextTokens: 160_000 }, NOW)).toMatchObject({
       key: 'fresh',
       label: 'Start fresh',
+      detail: '80% context · 0 turns headroom',
     });
-    expect(sessionReadiness({ ...base, git: { baseBranch: 'main', ahead: 0, behind: 6 } })).toMatchObject({
+  });
+
+  it('recommends starting fresh after repeated compaction', () => {
+    expect(sessionReadiness({ ...base, compactions: 2 }, NOW)).toMatchObject({
       key: 'fresh',
+      detail: '20% context · 2 compactions',
     });
   });
 
-  it('names the condition that triggered starting fresh', () => {
-    expect(sessionReadiness({ ...base, contextTokens: 85_000 })).toMatchObject({
-      detail: '85% context used',
-    });
-    expect(sessionReadiness({ ...base, compactions: 2 })).toMatchObject({ detail: '2 compactions' });
-    expect(sessionReadiness({ ...base, git: { baseBranch: 'main', ahead: 0, behind: 6 } })).toMatchObject({
-      detail: '6 commits behind',
+  it('reports a single compaction without giving up on the session', () => {
+    expect(sessionReadiness({ ...base, compactions: 1 }, NOW)).toMatchObject({
+      key: 'resume',
+      detail: '20% context · 1 compaction',
     });
   });
 
-  it('does not claim readiness when remote context is unavailable', () => {
-    expect(sessionReadiness({ ...base, sourceId: 'r_0123456789abcdef', status: null })).toMatchObject({
-      key: 'unavailable',
-      label: 'Check host',
+  it('measures headroom in tokens, so the same percentage differs by window size', () => {
+    const small = { ...base, contextWindow: 200_000, contextTokens: 124_000 };
+    const large = { ...base, contextWindow: 1_000_000, contextTokens: 620_000 };
+    expect(sessionReadiness(small, NOW)).toMatchObject({
+      key: 'inspect',
+      detail: '62% context · 2 turns headroom',
     });
-    expect(sessionReadiness({ ...base, sourceId: 'r_0123456789abcdef', launchable: false })).toMatchObject({
+    expect(sessionReadiness(large, NOW)).toMatchObject({
+      key: 'resume',
+      detail: '62% context · 12 turns headroom',
+    });
+  });
+
+  it('shows a warm cache ahead of compaction counts and headroom', () => {
+    expect(sessionReadiness({ ...base, compactions: 3, mtime: NOW }, NOW)).toMatchObject({
+      detail: '20% context · warm cache',
+      cacheWarm: true,
+    });
+  });
+
+  it('assesses a remote session from cached context even with no live status', () => {
+    expect(sessionReadiness({ ...base, sourceId: 'r_0123456789abcdef', status: null }, NOW)).toMatchObject({
+      key: 'resume',
+      detail: '20% context · 7 turns headroom',
+    });
+  });
+
+  it('checks the host only when the context cannot be measured at all', () => {
+    expect(
+      sessionReadiness(
+        { ...base, sourceId: 'r_0123456789abcdef', contextTokens: null, contextWindow: null },
+        NOW,
+      ),
+    ).toMatchObject({ key: 'unavailable', label: 'Check host' });
+    expect(sessionReadiness({ ...base, displayStale: true }, NOW)).toMatchObject({
       key: 'unavailable',
-      label: 'Check host',
     });
   });
 });

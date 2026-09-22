@@ -1,3 +1,5 @@
+import { promptCacheTiming } from '@/pages/coslash/lib/time';
+
 type ModelTokens = {
   input_tokens: number;
   output_tokens: number;
@@ -516,55 +518,66 @@ export function getTotalTokens(tokens: Session['tokens']): number | null {
 }
 
 export type SessionReadiness = {
-  key: 'resume' | 'review' | 'fresh' | 'unavailable';
-  label: 'Resume' | 'Review' | 'Start fresh' | 'Check host';
+  key: 'resume' | 'inspect' | 'fresh' | 'unavailable';
+  label: 'Resume' | 'Inspect' | 'Start fresh' | 'Check host';
   detail: string;
+  /** Views tint the detail while the prompt cache is still worth catching. */
+  cacheWarm: boolean;
 };
+
+/** Median context growth per turn measured across the local session corpus. */
+const TOKENS_PER_TURN = 18_400;
+/** Agents compact near this share of the window, so room above it is not usable. */
+const USABLE_WINDOW = 0.85;
+const FRESH_TURNS = 2;
+const RESUME_TURNS = 5;
+
+/** Turns of work left before compaction, which is what resuming actually buys. */
+function turnsOfHeadroom(session: Pick<Session, 'contextTokens' | 'contextWindow'>): number | null {
+  if (session.contextTokens == null || session.contextWindow == null || session.contextWindow <= 0) {
+    return null;
+  }
+  const room = session.contextWindow * USABLE_WINDOW - session.contextTokens;
+  return Math.max(0, Math.floor(room / TOKENS_PER_TURN));
+}
 
 export function sessionReadiness(
   session: Pick<
     Session,
-    | 'sourceId'
-    | 'status'
-    | 'displayStale'
-    | 'launchable'
-    | 'contextTokens'
-    | 'contextWindow'
-    | 'compactions'
-    | 'tokens'
-    | 'git'
+    'sourceId' | 'status' | 'displayStale' | 'contextTokens' | 'contextWindow' | 'compactions' | 'mtime'
   >,
+  now = Date.now(),
 ): SessionReadiness {
-  if (
-    session.displayStale ||
-    (!isLocalSession(session) && (session.launchable === false || session.status == null))
-  ) {
-    return { key: 'unavailable', label: 'Check host', detail: 'Live context unavailable' };
-  }
+  const unavailable: SessionReadiness = {
+    key: 'unavailable',
+    label: 'Check host',
+    detail: 'Live context unavailable',
+    cacheWarm: false,
+  };
+  if (session.displayStale) return unavailable;
 
+  const cacheWarm = promptCacheTiming(session.mtime, now).within1h;
+  const turns = turnsOfHeadroom(session);
+  // A remote session reports no live status until its host syncs, but the cached context it
+  // already carries still describes it. Only a session we cannot measure is unassessable.
+  if (turns == null && !isLocalSession(session)) return unavailable;
   const contextUsed =
     session.contextTokens != null && session.contextWindow != null && session.contextWindow > 0
-      ? Math.round((session.contextTokens / session.contextWindow) * 100)
+      ? `${Math.round((session.contextTokens / session.contextWindow) * 100)}% context`
       : null;
-  const commitsBehind = session.git?.behind ?? 0;
-  const cacheReads = sumTokens(session.tokens, 'cache_read_input_tokens');
-  const cacheState = cacheReads > 0 ? 'warm cache' : 'cold cache';
+  const signal = cacheWarm
+    ? 'warm cache'
+    : session.compactions >= 1
+      ? `${session.compactions} ${session.compactions === 1 ? 'compaction' : 'compactions'}`
+      : turns == null
+        ? null
+        : `${turns} ${turns === 1 ? 'turn' : 'turns'} headroom`;
+  const detail = [contextUsed, signal].filter(Boolean).join(' · ') || 'Context estimate unavailable';
 
-  if (contextUsed != null && contextUsed >= 82) {
-    return { key: 'fresh', label: 'Start fresh', detail: `${contextUsed}% context used` };
+  if (turns == null) return { key: 'inspect', label: 'Inspect', detail, cacheWarm };
+  if (session.compactions >= 2 || turns < FRESH_TURNS) {
+    return { key: 'fresh', label: 'Start fresh', detail, cacheWarm };
   }
-  if (session.compactions >= 2) {
-    return { key: 'fresh', label: 'Start fresh', detail: `${session.compactions} compactions` };
-  }
-  if (commitsBehind >= 6) {
-    return { key: 'fresh', label: 'Start fresh', detail: `${commitsBehind} commits behind` };
-  }
-  if (contextUsed != null && contextUsed <= 62 && cacheReads > 0 && commitsBehind <= 2) {
-    return { key: 'resume', label: 'Resume', detail: `${contextUsed}% context · ${cacheState}` };
-  }
-  return {
-    key: 'review',
-    label: 'Review',
-    detail: contextUsed == null ? 'Context estimate unavailable' : `${contextUsed}% context · ${cacheState}`,
-  };
+  if (turns >= RESUME_TURNS) return { key: 'resume', label: 'Resume', detail, cacheWarm };
+  return { key: 'inspect', label: 'Inspect', detail, cacheWarm };
 }

@@ -19,7 +19,7 @@ type Dimension = {
   order?: readonly string[];
 };
 
-const READINESS_ORDER = ['resume', 'review', 'fresh', 'unavailable'] as const;
+const READINESS_ORDER = ['resume', 'inspect', 'fresh', 'unavailable'] as const;
 const MISSING_REPOSITORY_KEY = '\0missing-repository';
 
 function plain(value: string | null | undefined, fallback: string): { key: string; label: string } {
