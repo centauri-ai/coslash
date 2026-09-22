@@ -178,10 +178,7 @@ func TestValidateRejectsNilProblemsAndNonCanonicalMembers(t *testing.T) {
 	}
 
 	manifest, _, _ = loadValidFixture(t)
-	manifest.Members = append(manifest.Members, Member{
-		Ordinal: 2, MemberID: "a-child", ParentMemberID: manifest.Family.RootMemberID,
-		SourceRevision: "sibling-source-revision", SynthesisRevisionMs: 0,
-	})
+	manifest.Members[1].Ordinal = 2
 	if err := Validate(manifest); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Validate() error = %v; want invalid", err)
 	}
