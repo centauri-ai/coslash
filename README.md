@@ -94,31 +94,33 @@ Release binaries are unsigned. macOS may warn about archives downloaded through 
 
 ### Windows
 
-Download, verify, and install the amd64 executable from Windows PowerShell:
+Download [coSlash for Windows (amd64)](https://github.com/centauri-ai/coslash/releases/latest/download/coslash-windows-amd64.exe),
+then double-click the executable. coSlash runs as a portable application and
+opens its UI in your browser; no administrator privileges, WSL, Go, Node, or
+GNU tools are required.
+
+Move the executable to a permanent folder if desired. To upgrade, download the
+new release and replace the previous executable. Removing the executable
+uninstalls coSlash but leaves its data in `~\.coslash`.
+
+<details>
+<summary>Verify the Windows download checksum</summary>
+
+Open Windows PowerShell in the directory containing the downloaded executable,
+then run:
 
 ```powershell
-$Version = "v0.0.1" # or the desired version tag
 $Asset = "coslash-windows-amd64.exe"
-$BaseURL = "https://github.com/centauri-ai/coslash/releases/download/$Version"
-$InstallDirectory = Join-Path $env:LOCALAPPDATA "Programs\coSlash"
-
-Invoke-WebRequest -UseBasicParsing "$BaseURL/$Asset" -OutFile $Asset
-Invoke-WebRequest -UseBasicParsing "$BaseURL/checksums-windows.txt" -OutFile checksums-windows.txt
+Invoke-WebRequest -UseBasicParsing "https://github.com/centauri-ai/coslash/releases/latest/download/checksums-windows.txt" -OutFile checksums-windows.txt
 $Expected = (Select-String -Path checksums-windows.txt -Pattern "  $([regex]::Escape($Asset))$").Line.Split()[0]
 $Actual = (Get-FileHash $Asset -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($Actual -ne $Expected) { throw "$Asset checksum does not match" }
-
-New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
-Copy-Item -LiteralPath $Asset -Destination (Join-Path $InstallDirectory "coslash.exe") -Force
-& (Join-Path $InstallDirectory "coslash.exe")
 ```
 
-Run the same commands with a newer version to upgrade. Removing
-`$env:LOCALAPPDATA\Programs\coSlash\coslash.exe` uninstalls the executable but
-leaves coSlash data in `~\.coslash`.
+</details>
 
 Windows release binaries are not currently code-signed. Windows may display a
-SmartScreen warning even after the checksum succeeds; do not bypass an
+SmartScreen warning; do not bypass an
 organization's security policy.
 
 ### First run
