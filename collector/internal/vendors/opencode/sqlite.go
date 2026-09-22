@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -61,16 +62,7 @@ func openContext(ctx context.Context) (*sql.DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
-	dsn := (&url.URL{
-		Scheme: "file",
-		Path:   path,
-		// does not use immutable=1, to ignore WAL files
-		RawQuery: url.Values{
-			"mode":          {"ro"},   // read-only
-			"_query_only":   {"1"},    // prevent accidental writes
-			"_busy_timeout": {"1000"}, // waits briefly if another process holds a lock
-		}.Encode(),
-	}).String()
+	dsn := readOnlyDatabaseDSN(path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -84,6 +76,26 @@ func openContext(ctx context.Context) (*sql.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func readOnlyDatabaseDSN(path string) string {
+	urlPath := path
+	if runtime.GOOS == "windows" {
+		urlPath = filepath.ToSlash(path)
+		if filepath.VolumeName(path) != "" && !strings.HasPrefix(urlPath, "/") {
+			urlPath = "/" + urlPath
+		}
+	}
+	return (&url.URL{
+		Scheme: "file",
+		Path:   urlPath,
+		// does not use immutable=1, to ignore WAL files
+		RawQuery: url.Values{
+			"mode":          {"ro"},   // read-only
+			"_query_only":   {"1"},    // prevent accidental writes
+			"_busy_timeout": {"1000"}, // waits briefly if another process holds a lock
+		}.Encode(),
+	}).String()
 }
 
 func validateSchemaContext(ctx context.Context, db *sql.DB) error {
