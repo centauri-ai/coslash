@@ -49,6 +49,8 @@ or explicitly approve a Hub share.
 
 ## Install
 
+### macOS
+
 macOS on Apple Silicon or Intel.
 
 ```sh
@@ -89,6 +91,35 @@ tar -xzf "${ASSET}"
 Release binaries are unsigned. macOS may warn about archives downloaded through a browser; the supported Homebrew install is unaffected.
 
 </details>
+
+### Windows
+
+Download, verify, and install the amd64 executable from Windows PowerShell:
+
+```powershell
+$Version = "v0.0.1" # or the desired version tag
+$Asset = "coslash-windows-amd64.exe"
+$BaseURL = "https://github.com/centauri-ai/coslash/releases/download/$Version"
+$InstallDirectory = Join-Path $env:LOCALAPPDATA "Programs\coSlash"
+
+Invoke-WebRequest -UseBasicParsing "$BaseURL/$Asset" -OutFile $Asset
+Invoke-WebRequest -UseBasicParsing "$BaseURL/checksums-windows.txt" -OutFile checksums-windows.txt
+$Expected = (Select-String -Path checksums-windows.txt -Pattern "  $([regex]::Escape($Asset))$").Line.Split()[0]
+$Actual = (Get-FileHash $Asset -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($Actual -ne $Expected) { throw "$Asset checksum does not match" }
+
+New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
+Copy-Item -LiteralPath $Asset -Destination (Join-Path $InstallDirectory "coslash.exe") -Force
+& (Join-Path $InstallDirectory "coslash.exe")
+```
+
+Run the same commands with a newer version to upgrade. Removing
+`$env:LOCALAPPDATA\Programs\coSlash\coslash.exe` uninstalls the executable but
+leaves coSlash data in `~\.coslash`.
+
+Windows release binaries are not currently code-signed. Windows may display a
+SmartScreen warning even after the checksum succeeds; do not bypass an
+organization's security policy.
 
 ### First run
 
