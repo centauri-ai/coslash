@@ -117,6 +117,12 @@ describe('SessionInspector exact-detail boundaries', () => {
       isLoading: true,
       error: null,
     });
+    const authentication = { key, retryToken: 1, kind: 'authentication' as const, message: 'Link expired' };
+    expect(detailAttemptState(loaded, authentication, key, 1)).toEqual({
+      hasSnapshot: false,
+      isLoading: false,
+      error: authentication,
+    });
     expect(detailAttemptState({ key, retryToken: 2 }, null, key, 2).isLoading).toBe(false);
     expect(renderToStaticMarkup(<SnapshotRefreshStatus isLoading error={null} />)).toContain(
       'Refreshing snapshot',
@@ -153,6 +159,7 @@ describe('SessionInspector exact-detail boundaries', () => {
       ...session,
       sourceId: 'local',
       mtime: 100,
+      detailRevision: 'revision-1',
       status: 'busy',
       commands: ['exact command'],
       commits: ['old commit'],
@@ -164,6 +171,7 @@ describe('SessionInspector exact-detail boundaries', () => {
     const current = {
       ...loaded,
       mtime: 200,
+      detailRevision: 'revision-2',
       status: null,
       commands: [],
       commits: ['new commit'],
@@ -176,6 +184,15 @@ describe('SessionInspector exact-detail boundaries', () => {
       status: null,
       mtime: 200,
       commands: ['exact command'],
+      commits: ['new commit'],
+      git: { baseBranch: 'main', ahead: 1, behind: 0 },
+      lastEditAt: 20,
+      launchable: true,
+    });
+
+    expect(overlayLiveSessionFields(current, loaded)).toMatchObject({
+      status: null,
+      mtime: 200,
       commits: ['new commit'],
       git: { baseBranch: 'main', ahead: 1, behind: 0 },
       lastEditAt: 20,
@@ -203,6 +220,7 @@ describe('SessionInspector exact-detail boundaries', () => {
         return pending;
       },
       () => calls.push('details'),
+      () => true,
     );
     expect(calls).toEqual(['source']);
     finishRefresh();
@@ -214,9 +232,28 @@ describe('SessionInspector exact-detail boundaries', () => {
       refreshSourceAndRetry(
         () => Promise.reject(failure),
         () => calls.push('details'),
+        () => true,
       ),
     ).rejects.toBe(failure);
     expect(calls).toEqual(['source', 'details']);
+  });
+
+  it('ignores a source refresh completed after its inspector selection was superseded', async () => {
+    let finishRefresh: () => void = () => {};
+    let selectedSession = 'A';
+    const pending = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    const calls: string[] = [];
+    const refresh = refreshSourceAndRetry(
+      () => pending,
+      () => calls.push('retry A'),
+      () => selectedSession === 'A',
+    );
+    selectedSession = 'B';
+    finishRefresh();
+    await refresh;
+    expect(calls).toEqual([]);
   });
 
   it('renders a direct retry path for generic diff failures', () => {
