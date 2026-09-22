@@ -233,7 +233,8 @@ A session that's 90% full, compacted twice, and 40 commits behind `main` is tell
 - **Start fresh with handoff** writes a Markdown brief with the objective, current state, key decisions, timeline, files, commits, next steps, and environment. Claude Code, Codex, and OpenCode open with it loaded as background context. Cursor copies it to the clipboard. The IDE path opens the workspace, where you must create a fresh chat before pasting the brief; the CLI path launches a new `agent` session, where you paste the brief manually.
 - **Copy handoff** puts the same brief on your clipboard for a PR description, a standup, a ticket, or another machine entirely.
 
-Terminal launches use Apple Terminal or iTerm2, whichever you pick in Settings.
+Terminal launches use Windows Terminal with Windows PowerShell on Windows, or
+Apple Terminal or iTerm2 on macOS, as configured in Settings.
 
 <p align="center">
   <img src="docs/media/handoff.gif" alt="Clicking Start fresh with handoff opens a new Claude Code terminal with the session brief loaded" width="900">
@@ -272,8 +273,9 @@ It is **off until you explicitly enable and save it**.
 
 Settings are stored machine-wide in `~/.coslash/settings.json`. Use the top-right
 theme controls for light or dark mode, and **Settings** for the synthesis backend
-and model, launch terminal (Apple Terminal or iTerm2), and optional SSH alias or
-simple `user@host` destination.
+and model, launch terminal (Windows Terminal with Windows PowerShell on Windows,
+or Apple Terminal or iTerm2 on macOS), and optional SSH alias or simple
+`user@host` destination.
 See [`settings.schema.json`](settings.schema.json) for the file format.
 
 The dialog offers a short model list per backend, but the model is not restricted to it. Editing `settings.json` directly accepts any model the selected CLI can actually reach — including one served through an API proxy such as `ANTHROPIC_BASE_URL`, or a third-party provider — so long as that CLI is set up to resolve it.
