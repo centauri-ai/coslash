@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coslash.io/schemas/session-backup-db-rows-v1.json",
   "title": "coSlash attributed shared-database rows v1",
+  "description": "Canonical documents are limited to 67108864 encoded bytes and 100000 array items in aggregate.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "database", "tables"],
@@ -11,6 +12,7 @@
     "tables": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 100000,
       "items": { "$ref": "#/$defs/table" }
     }
   },
@@ -30,12 +32,14 @@
         "columns": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 100000,
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1, "maxLength": 1048576 }
         },
         "rows": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 100000,
           "items": { "$ref": "#/$defs/row" }
         }
       }
@@ -49,6 +53,7 @@
         "values": {
           "type": "array",
           "minItems": 1,
+          "maxItems": 100000,
           "items": { "$ref": "#/$defs/value" }
         }
       }

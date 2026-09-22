@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 )
 
 // DatabaseRows is the canonical projection of rows selected from a shared
@@ -41,6 +43,9 @@ type DatabaseValue struct {
 }
 
 func FreezeDatabaseRows(rows DatabaseRows) ([]byte, error) {
+	if !databaseRowsWithinItemLimit(rows) {
+		return nil, fmt.Errorf("%w: database rows exceed item limit", ErrInvalid)
+	}
 	rows = cloneDatabaseRows(rows)
 	rows.SchemaVersion = DatabaseRowsVersion
 	for tableIndex := range rows.Tables {
@@ -55,7 +60,7 @@ func FreezeDatabaseRows(rows DatabaseRows) ([]byte, error) {
 	if err := ValidateDatabaseRows(rows, ""); err != nil {
 		return nil, err
 	}
-	return json.Marshal(rows)
+	return marshalBoundedDocument(rows, "database rows")
 }
 
 func DecodeDatabaseRows(data []byte, memberID string) (DatabaseRows, error) {
@@ -95,7 +100,7 @@ func cloneDatabaseRows(rows DatabaseRows) DatabaseRows {
 }
 
 func ValidateDatabaseRows(rows DatabaseRows, memberID string) error {
-	if rows.SchemaVersion != DatabaseRowsVersion || !identifier(rows.Database) || len(rows.Tables) == 0 {
+	if rows.SchemaVersion != DatabaseRowsVersion || !identifier(rows.Database) || len(rows.Tables) == 0 || !databaseRowsWithinItemLimit(rows) {
 		return fmt.Errorf("%w: invalid database row envelope", ErrInvalid)
 	}
 	previousTable := ""
@@ -129,6 +134,28 @@ func ValidateDatabaseRows(rows DatabaseRows, memberID string) error {
 		previousTable = table.Name
 	}
 	return nil
+}
+
+func databaseRowsWithinItemLimit(rows DatabaseRows) bool {
+	total := len(rows.Tables)
+	if total > fullsessionv1.MaxItems {
+		return false
+	}
+	for _, table := range rows.Tables {
+		for _, count := range []int{len(table.Columns), len(table.Rows)} {
+			if count > fullsessionv1.MaxItems-total {
+				return false
+			}
+			total += count
+		}
+		for _, row := range table.Rows {
+			if len(row.Values) > fullsessionv1.MaxItems-total {
+				return false
+			}
+			total += len(row.Values)
+		}
+	}
+	return true
 }
 
 func validDatabaseValue(value DatabaseValue) bool {
