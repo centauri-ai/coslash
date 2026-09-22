@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -58,11 +56,10 @@ func loadMetadata(db *sql.DB) (*vendors.SessionMetadata, error) {
 
 func loadMetadataContext(ctx context.Context, db *sql.DB) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	output, err := exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,lstart=,command=").Output()
+	processes, err := listTUIProcessesContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list processes: %w", err)
 	}
-	processes := parseTUIProcesses(string(output))
 	for index := range processes {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -180,37 +177,6 @@ func markPendingPermissionsContext(
 	return nil
 }
 
-func parseTUIProcesses(output string) []tuiProcess {
-	var processes []tuiProcess
-	for line := range strings.SplitSeq(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 7 || filepath.Base(fields[6]) != "opencode" {
-			continue
-		}
-		pid, err := strconv.Atoi(fields[0])
-		if err != nil {
-			continue
-		}
-		started, err := time.ParseInLocation(
-			"Mon Jan 2 15:04:05 2006",
-			strings.Join(fields[1:6], " "),
-			time.Local,
-		)
-		if err != nil {
-			continue
-		}
-		project, sessionID, fork, tui := parseTUIArgs(fields[7:])
-		if !tui {
-			continue
-		}
-		processes = append(processes, tuiProcess{
-			pid: pid, startedAt: started.UnixMilli(), project: project,
-			sessionID: sessionID, fork: fork,
-		})
-	}
-	return processes
-}
-
 func parseTUIArgs(args []string) (project, sessionID string, fork, tui bool) {
 	tui = true
 	for index := 0; index < len(args); index++ {
@@ -252,26 +218,6 @@ func parseTUIArgs(args []string) (project, sessionID string, fork, tui bool) {
 		tui = false
 	}
 	return
-}
-
-func processWorkingDirectory(pid int) string {
-	return processWorkingDirectoryContext(context.Background(), pid)
-}
-
-func processWorkingDirectoryContext(ctx context.Context, pid int) string {
-	output, err := exec.CommandContext(
-		ctx,
-		"lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn",
-	).Output()
-	if err != nil {
-		return ""
-	}
-	for line := range strings.SplitSeq(string(output), "\n") {
-		if strings.HasPrefix(line, "n") {
-			return strings.TrimPrefix(line, "n")
-		}
-	}
-	return ""
 }
 
 func loadLiveCandidatesContext(ctx context.Context, db *sql.DB) ([]liveCandidate, error) {

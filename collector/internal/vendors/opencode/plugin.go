@@ -78,12 +78,12 @@ func PluginDiagnostics() PluginHealth {
 		health.Err = err
 		return health
 	}
-	output, err := exec.Command("ps", "-ww", "-axo", "pid=,lstart=,command=").Output()
+	processes, err := listTUIProcesses()
 	if err != nil {
 		health.Err = fmt.Errorf("list OpenCode processes: %w", err)
 		return health
 	}
-	for _, process := range parseTUIProcesses(string(output)) {
+	for _, process := range processes {
 		if processWorkingDirectory(process.pid) != "" && process.startedAt < info.ModTime().UnixMilli() {
 			health.RestartRequired = true
 			break
@@ -144,7 +144,7 @@ func installPluginSource(directory string, source []byte) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
+	if err := replaceFile(temporaryPath, path); err != nil {
 		return err
 	}
 	return removeManagedLegacyPlugin(directory)
