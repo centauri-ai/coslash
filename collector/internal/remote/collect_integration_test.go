@@ -9,7 +9,6 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -247,11 +246,6 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 		t.Fatal("legacy unchanged family was not recollected for its complete record")
 	}
 
-	// The helper models a Linux host and requires POSIX home-path semantics.
-	// The SFTP and warm-refresh assertions above remain portable to Windows.
-	if runtime.GOOS == "windows" {
-		return
-	}
 	home := t.TempDir()
 	realFile := filepath.Join(home, ".codex", "sessions", "2026", "08", "18", filepath.Base(file))
 	if err := os.MkdirAll(filepath.Dir(realFile), 0o700); err != nil {
@@ -268,6 +262,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	localParsed, localMetadata, err := codex.CollectContext(t.Context(), 0)
 	if err != nil {
 		t.Fatal(err)
