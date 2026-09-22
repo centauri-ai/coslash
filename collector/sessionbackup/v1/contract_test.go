@@ -130,7 +130,7 @@ func TestManifestSchemaRejectsNullProblemsAndRequiredVersionDrift(t *testing.T) 
 }
 
 func TestFreezeRequiresCoreArtifactsForEveryMember(t *testing.T) {
-	for _, kind := range []string{KindParsedSessionRecord, KindRawTranscript} {
+	for _, kind := range []string{KindParsedSessionRecord, KindRawTranscript, KindSessionEnrichment} {
 		t.Run(kind, func(t *testing.T) {
 			manifest, _, blobs := loadValidFixture(t)
 			childID := manifest.Members[1].MemberID
@@ -182,6 +182,41 @@ func TestFreezeBindsTypedArtifactsToMembers(t *testing.T) {
 	blobs[records[0]], blobs[records[1]] = blobs[records[1]], blobs[records[0]]
 	if _, err := Freeze(manifest, blobs); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Freeze() error = %v; want invalid", err)
+	}
+}
+
+func TestVerifierBindsParsedRecordRevision(t *testing.T) {
+	manifest, _, blobs := loadValidFixture(t)
+	for index := range manifest.Artifacts {
+		artifact := &manifest.Artifacts[index]
+		if artifact.Kind == KindParsedSessionRecord {
+			artifact.SourceKey = "different-revision"
+			break
+		}
+	}
+	data := freezeFixture(t, manifest, blobs)
+	if _, err := Verify(data, blobOpener(blobs)); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "identity mismatch") {
+		t.Fatalf("revision mismatch error = %v; want invalid identity", err)
+	}
+}
+
+func TestValidateRejectsArtifactByteLimits(t *testing.T) {
+	manifest, _, _ := loadValidFixture(t)
+	manifest.CompleteBackupSHA256 = ""
+	manifest.Artifacts[0].ByteLength = MaxArtifactBytes + 1
+	manifest.Summary = summarize(manifest.Artifacts)
+	if err := validate(manifest, false); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("per-artifact limit error = %v; want invalid", err)
+	}
+
+	manifest, _, _ = loadValidFixture(t)
+	manifest.CompleteBackupSHA256 = ""
+	for index := range manifest.Artifacts {
+		manifest.Artifacts[index].ByteLength = MaxArtifactBytes
+	}
+	manifest.Summary = summarize(manifest.Artifacts)
+	if err := validate(manifest, false); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("aggregate limit error = %v; want invalid", err)
 	}
 }
 
