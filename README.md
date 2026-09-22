@@ -30,7 +30,7 @@ Then it gets you back in — resume a session in its own terminal with full cont
 Everything runs locally. Nothing leaves your machine unless you turn on synthesis
 or explicitly approve a Hub share.
 
-**Early preview · macOS only**
+**Early preview · macOS and Windows 11 amd64**
 
 <table>
 <tr>
@@ -123,6 +123,11 @@ Windows release binaries are not currently code-signed. Windows may display a
 SmartScreen warning; do not bypass an
 organization's security policy.
 
+Windows support is validated on Windows 11 24H2 (build 26100 or later), amd64,
+as a standard user with Windows PowerShell 5.1. WSL is not required. See the
+[Windows validation checklist](docs/windows-validation.md) for the release
+contract and remaining manual checks.
+
 ### First run
 
 coSlash needs at least one local agent session to read. If it finds none, it says so and runs a checklist of every source it looked at — run Claude Code, Codex, Cursor (IDE or `agent` CLI), or OpenCode in a repo, take one turn, and re-run the checks. `coslash doctor` prints the same diagnostics from the terminal.
@@ -134,7 +139,7 @@ coSlash needs at least one local agent session to read. If it finds none, it say
 ### Optional Linux session monitoring
 
 In **Settings → Machines**, use **Add remote host** with an alias from your
-Mac's existing OpenSSH configuration or a simple `user@host` destination.
+system's existing OpenSSH configuration or a simple `user@host` destination.
 coSlash checks SSH and SFTP; if native SSH authentication or host-key
 confirmation is needed, choose **Authenticate in Terminal** and setup resumes
 when it succeeds. coSlash then offers to install and verify the matching Linux
@@ -326,13 +331,10 @@ make release
 
 If `make release` reports a missing or unsupported Go or Node version, install the toolchain first or switch to the curl/Homebrew install path.
 
-On Windows, build the native release executable and its checksum with Windows
-PowerShell 5.1 or later:
-
-```powershell
-Set-Location collector
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows-package.ps1 -Version dev
-```
+Release packaging uses `make dist` on macOS to build both macOS archives and
+the native Windows executable from one staged frontend/helper build. Windows
+contributors can use `go build` for local collector development; end users
+should download the prebuilt executable above.
 
 See [Contributing](CONTRIBUTING.md) for the development loop and checks.
 

@@ -9,7 +9,7 @@ Create at least one local Claude Code, Codex, Cursor, or OpenCode session, then 
 For Cursor, `coslash doctor` reports the IDE (`cursor`) and CLI (`agent`) separately. coSlash reads only local Cursor IDE and CLI sessions: Cursor SDK sessions and remote Cursor collection are unsupported. Cursor CLI token and compaction data can be unavailable because Cursor does not store them reliably; Cursor IDE exposes current context occupancy separately, not cumulative token usage.
 
 For a remote machine, choose **Settings → Machines → Add remote host**. coSlash
-uses the Mac's existing OpenSSH configuration or a simple `user@host`
+uses the system's existing OpenSSH configuration or a simple `user@host`
 destination. If SSH needs authentication or host-key confirmation, choose
 **Authenticate in Terminal** and complete the native prompt there; coSlash never
 receives the credential. A changed host key requires verification outside the
@@ -47,7 +47,7 @@ coslash --port 8888
 
 `make release` in `collector/` needs supported Go and Node versions. It checks them before building and prints install hints if either is missing or unsupported.
 
-- **End users** should not build from source. Install a prebuilt binary with `curl -fsSL https://coslash.io/install.sh | bash`, Homebrew, or a release archive (see the README Install section).
+- **End users** should not build from source. On macOS, use the install script, Homebrew, or a release archive. On Windows, download the release executable (see the README Install section).
 - **Developers** need Go 1.26+ (`brew install go` or https://go.dev/dl/) and Node 24+ (`brew install node` or https://nodejs.org/). Versions are pinned in `collector/go.mod` and `frontend/.nvmrc`.
 - If the binary starts but the UI is missing, it was built with `make build` instead of `make release`. Rebuild with `make release` so the frontend is embedded.
 
@@ -57,7 +57,7 @@ Confirm that synthesis is enabled in Settings and that the selected CLI is insta
 
 ## Resume or Start fresh fails
 
-Launching requires macOS, a recorded working directory, the agent CLI, and the terminal selected in Settings. Confirm Apple Terminal or iTerm2 is installed and allow automation under **System Settings → Privacy & Security → Automation**.
+Launching requires a recorded working directory, the agent CLI, and the terminal selected in Settings. On macOS, confirm Apple Terminal or iTerm2 is installed and allow automation under **System Settings → Privacy & Security → Automation**. On Windows, confirm Windows PowerShell 5.1 is available; coSlash uses Windows Terminal when it is installed and otherwise opens Windows PowerShell directly.
 
 Cursor CLI **Resume** requires the `agent` command and restores the recorded session. **Open Cursor** for a Cursor IDE session requires the `cursor` command and only opens the recorded workspace; Cursor does not provide a way to restore that specific IDE chat.
 
