@@ -545,10 +545,7 @@ function contextStanding(
 }
 
 export function sessionReadiness(
-  session: Pick<
-    Session,
-    'sourceId' | 'status' | 'displayStale' | 'contextTokens' | 'contextWindow' | 'compactions' | 'mtime'
-  >,
+  session: Pick<Session, 'sourceId' | 'status' | 'contextTokens' | 'contextWindow' | 'compactions' | 'mtime'>,
   now = Date.now(),
 ): SessionReadiness {
   const unavailable: SessionReadiness = {
@@ -557,8 +554,6 @@ export function sessionReadiness(
     detail: 'Live context unavailable',
     cacheWarm: false,
   };
-  if (session.displayStale) return unavailable;
-
   const cacheWarm = promptCacheTiming(session.mtime, now).within1h;
   const standing = contextStanding(session);
   // A remote session has no live status until its host syncs, but its cached context still describes it.
