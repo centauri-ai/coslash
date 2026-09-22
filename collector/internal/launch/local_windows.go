@@ -43,23 +43,20 @@ func Available(terminal string) bool {
 	if terminal != settings.TerminalWindows {
 		return false
 	}
-	if _, err := windowsLookPath("wt.exe"); err == nil {
-		return true
-	}
 	_, err := windowsLookPath("powershell.exe")
 	return err == nil
 }
 
 func openWindowsTerminal(workingDirectory, command string) error {
 	arguments := powerShellCommandArguments(command)
-	if terminal, err := windowsLookPath("wt.exe"); err == nil {
-		process := exec.Command(terminal, append([]string{"-d", workingDirectory, "powershell.exe"}, arguments...)...)
-		process.Dir = workingDirectory
-		return windowsStart(process)
-	}
 	powerShell, err := windowsLookPath("powershell.exe")
 	if err != nil {
-		return fmt.Errorf("Windows Terminal and Windows PowerShell are not installed or available")
+		return fmt.Errorf("Windows PowerShell is not installed or available")
+	}
+	if terminal, err := windowsLookPath("wt.exe"); err == nil {
+		process := exec.Command(terminal, append([]string{"-d", workingDirectory, powerShell}, arguments...)...)
+		process.Dir = workingDirectory
+		return windowsStart(process)
 	}
 	return startWindowsConsole(powerShell, workingDirectory, arguments...)
 }
