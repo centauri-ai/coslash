@@ -12,12 +12,13 @@ func startInteractiveProcess(cmd *exec.Cmd) error { return cmd.Start() }
 
 func waitProcessGroup(cmd *exec.Cmd) error { return cmd.Wait() }
 
-func terminateProcessGroup(cmd *exec.Cmd) {
+func terminateProcessGroup(cmd *exec.Cmd) bool {
 	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
+		return cmd.Process.Kill() == nil
 	}
+	return false
 }
 
 func terminateInteractiveProcess(cmd *exec.Cmd) { terminateProcessGroup(cmd) }
 
-func processGroupTerminationExit(exitCode int) bool { return exitCode < 0 }
+func processWasTerminated(exitCode int) bool { return exitCode < 0 }
