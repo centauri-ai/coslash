@@ -47,7 +47,7 @@ func TestSSHLifecycleRemotePreservesPlatformProbeExitError(t *testing.T) {
 
 func TestLifecycleSFTPPrimitivesCreateVerifyAndRejectSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("validates POSIX SFTP ownership and permission semantics")
+		t.Skip("the in-process SFTP fixture cannot model a POSIX remote root on Windows")
 	}
 	root := t.TempDir()
 	if err := os.Chmod(root, 0o700); err != nil {

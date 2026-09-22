@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,6 +26,13 @@ func TestHelperCollectRejectsTrailingOutput(t *testing.T) {
 	_, err := HelperCollect(context.Background(), "host", "/helper", request, baseline, fakeOptions(response, 0, "", false))
 	if !errors.Is(err, ErrHelperFailed) {
 		t.Fatalf("HelperCollect error = %v, want ErrHelperFailed", err)
+	}
+}
+
+func TestHelperProcessErrorPreservesUnrelatedExitCodeAfterCleanup(t *testing.T) {
+	process := &helperProcess{terminationRequested: true, stderr: &cappedStderr{}}
+	if err := helperProcessError(context.Background(), 1, errors.New("leader failed"), process); err == nil {
+		t.Fatal("helperProcessError() hid the leader's exit status")
 	}
 }
 
@@ -157,6 +165,33 @@ func TestHelperCollectCleansUpChildThatHangsAfterCompletion(t *testing.T) {
 	}
 	if time.Since(started) > 2*time.Second {
 		t.Fatal("hung helper cleanup exceeded bound")
+	}
+}
+
+func TestHelperCollectPreservesLeaderFailureWhenCleanupKillsDescendant(t *testing.T) {
+	request, baseline, response := completeResponse(t)
+	oldGrace := helperExitGrace
+	helperExitGrace = 100 * time.Millisecond
+	defer func() { helperExitGrace = oldGrace }()
+	pidPath := filepath.Join(t.TempDir(), "child.pid")
+	options := OpenOptions{
+		Limits: Limits{Deadline: 2 * time.Second, MaxStderrBytes: 1024},
+		command: func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestHelperExecProcess", "--")
+			cmd.Env = append(os.Environ(),
+				"COSLASH_FAKE_HELPER=1",
+				"COSLASH_FAKE_SPAWN_CHILD=1",
+				"COSLASH_FAKE_CHILD_PID="+pidPath,
+				"COSLASH_FAKE_OUTPUT="+string(response),
+				"COSLASH_FAKE_STDERR=genuine leader failure",
+				"COSLASH_FAKE_EXIT="+strconv.Itoa(helperExitInternal),
+			)
+			return cmd
+		},
+	}
+	_, err := HelperCollect(context.Background(), "host", "/helper", request, baseline, options)
+	if !errors.Is(err, ErrHelperFailed) {
+		t.Fatalf("HelperCollect error = %v, want ErrHelperFailed", err)
 	}
 }
 

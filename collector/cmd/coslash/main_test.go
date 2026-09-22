@@ -505,6 +505,7 @@ func TestLocalSourceLabelMatchesOperatingSystem(t *testing.T) {
 }
 
 func TestHelperSetupRequiresExactlyOneConsent(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	manager := remote.NewManager(remote.Options{})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatal(err)
@@ -613,6 +614,7 @@ func TestBoardRemoteSessionDoesNotSerializeRemoteOperationalOrContentFields(t *t
 }
 
 func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	manager := remote.NewManager(remote.Options{})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}); err != nil {
 		t.Fatal(err)
@@ -633,6 +635,7 @@ func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
 }
 
 func TestHelperSetupRejectsUnsavedAlias(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	manager := remote.NewManager(remote.Options{})
 	if err := manager.ApplySettings(&settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "saved-host", Enabled: true}); err != nil {
 		t.Fatal(err)

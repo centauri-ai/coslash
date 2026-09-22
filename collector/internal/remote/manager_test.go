@@ -693,6 +693,7 @@ func TestRestartAutomaticallyUpdatesAnOwnedHelper(t *testing.T) {
 }
 
 func TestLaunchSessionRequiresCurrentHealthyRemote(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	manager := NewManager(Options{})
 	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
 	if err := manager.ApplySettings(config); err != nil {

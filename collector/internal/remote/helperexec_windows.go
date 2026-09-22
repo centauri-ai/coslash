@@ -13,7 +13,7 @@ import (
 var windowsProcessJobs sync.Map
 var ntResumeProcess = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtResumeProcess")
 
-const windowsProcessGroupTerminationExit = 0x5a5a0001
+const windowsProcessTerminationCode = 0xc05a5a5a
 
 func startProcessGroup(cmd *exec.Cmd) error {
 	job, err := windows.CreateJobObject(nil, nil)
@@ -83,18 +83,20 @@ func waitProcessGroup(cmd *exec.Cmd) error {
 	return err
 }
 
-func terminateProcessGroup(cmd *exec.Cmd) {
+func terminateProcessGroup(cmd *exec.Cmd) bool {
 	if value, ok := windowsProcessJobs.Load(cmd); ok {
-		_ = windows.TerminateJobObject(value.(windows.Handle), windowsProcessGroupTerminationExit)
-		return
+		if windows.TerminateJobObject(value.(windows.Handle), windowsProcessTerminationCode) == nil {
+			return true
+		}
 	}
 	if cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
+	return false
 }
 
-func terminateInteractiveProcess(cmd *exec.Cmd) { terminateProcessGroup(cmd) }
-
-func processGroupTerminationExit(exitCode int) bool {
-	return exitCode == windowsProcessGroupTerminationExit
+func processWasTerminated(exitCode int) bool {
+	return uint32(exitCode) == uint32(windowsProcessTerminationCode)
 }
+
+func terminateInteractiveProcess(cmd *exec.Cmd) { _ = terminateProcessGroup(cmd) }

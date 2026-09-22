@@ -203,15 +203,16 @@ func HelperCollect(
 	case stream = <-streamed:
 		// Reap before collecting the write result: a helper that answered without
 		// draining stdin would otherwise leave the writer blocked on a full pipe.
-		exitCode, waitErr = process.finish(stream.err != nil || !stream.complete)
+		// Clean EOF can carry a meaningful helper or shell exit status; finish is
+		// already bounded if the child closed stdout without exiting.
+		exitCode, waitErr = process.finish(stream.err != nil)
 	case <-requestCompleted:
 		// Keep draining through EOF so trailing output is rejected. Wait must run
 		// after the drain because os/exec closes StdoutPipe during Wait.
 		select {
 		case stream = <-streamed:
 		case <-time.After(helperExitGrace):
-			process.terminated = true
-			terminateProcessGroup(process.cmd)
+			process.terminationRequested = terminateProcessGroup(process.cmd)
 			stream = <-streamed
 		}
 		exitCode, waitErr = process.finish(false)
@@ -332,13 +333,11 @@ func decodeRecordLine(line []byte) (remoteprotocol.Record, error) {
 
 // helperProcess owns one SSH child and its bounded pipes.
 type helperProcess struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-	stderr *cappedStderr
-	// terminated records that this side killed the child, so the resulting
-	// "signal: killed" wait error is expected rather than a helper failure.
-	terminated bool
+	cmd                  *exec.Cmd
+	stdin                io.WriteCloser
+	stdout               io.ReadCloser
+	stderr               *cappedStderr
+	terminationRequested bool
 }
 
 func startHelper(
@@ -424,8 +423,7 @@ func (process *helperProcess) writeStdin(payload []byte) <-chan error {
 // SSH client is left holding the pipes.
 func (process *helperProcess) finish(aborted bool) (int, error) {
 	if aborted {
-		process.terminated = true
-		terminateProcessGroup(process.cmd)
+		process.terminationRequested = terminateProcessGroup(process.cmd)
 	}
 	waited := make(chan error, 1)
 	go func() { waited <- waitProcessGroup(process.cmd) }()
@@ -433,8 +431,7 @@ func (process *helperProcess) finish(aborted bool) (int, error) {
 	case err := <-waited:
 		return exitCodeOf(err), err
 	case <-time.After(helperExitGrace):
-		process.terminated = true
-		terminateProcessGroup(process.cmd)
+		process.terminationRequested = terminateProcessGroup(process.cmd)
 		err := <-waited
 		return exitCodeOf(err), err
 	}
@@ -465,10 +462,9 @@ func helperProcessError(
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	// A negative code means the child died from the signal this side sent, so the
-	// stream outcome carries the reason. A child that exited on its own still
-	// reports its own status even when it was killed afterwards.
-	if process.terminated && processGroupTerminationExit(exitCode) {
+	// A child terminated by this side can report a platform-specific exit code;
+	// the stream outcome or context carries the reason for ending it.
+	if process.terminationRequested && processWasTerminated(exitCode) {
 		return nil
 	}
 	switch exitCode {
