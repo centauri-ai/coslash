@@ -55,8 +55,8 @@ Both collection paths may read these paths beneath the SSH user's home:
 - the Git configuration that `git remote get-url origin` reads, only in a
   working directory that a collected session recorded with a branch. The Mac
   runs this over SSH, not the helper, for at most 64 directories per refresh.
-  The directory may be outside the home directory, and only the canonical
-  origin comes back.
+  The directory may be outside the home directory. The raw origin crosses SSH
+  transiently; the Mac canonicalizes it before caching or exposure.
 
 The SFTP interface has no write, delete, rename, or chmod operation. It rejects
 symlinks and canonical paths outside the allowlist. Current ceilings are 32 MiB
