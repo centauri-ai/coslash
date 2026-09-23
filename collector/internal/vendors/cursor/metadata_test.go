@@ -259,6 +259,7 @@ func TestLoadIDEModelsRetainsHistoryAndSelectsNewestDeterministically(t *testing
 		{"bubbleId:" + id + ":z", `{"createdAt":200,"modelInfo":{"modelName":"gpt-5"}}`},
 		{"bubbleId:" + id + ":a", `{"createdAt":200,"modelInfo":{"modelName":"gpt-4"}}`},
 		{"bubbleId:" + id + ":old", `{"createdAt":100,"modelInfo":{"modelName":"gpt-3"}}`},
+		{"composerData:" + id, `{"modelConfig":{"modelName":"unused-fallback"}}`},
 	} {
 		if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, row.key, row.value); err != nil {
 			t.Fatal(err)
@@ -273,6 +274,44 @@ func TestLoadIDEModelsRetainsHistoryAndSelectsNewestDeterministically(t *testing
 	wantModels := []string{"gpt-3", "gpt-4", "gpt-5"}
 	if got := metadata.Session(id).ObservedModels; !slices.Equal(got, wantModels) {
 		t.Fatalf("observed models = %v, want %v", got, wantModels)
+	}
+}
+
+func TestLoadIDEModelsBoundsObservedHistory(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	const id = "00000000-0000-4000-8000-000000000001"
+	for index := range maxObservedModels + 2 {
+		key := fmt.Sprintf("bubbleId:%s:%02d", id, index)
+		value := fmt.Sprintf(`{"modelInfo":{"modelName":"model-%02d"}}`, index)
+		if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oversized := strings.Repeat("m", maxObservedModelBytes+1)
+	if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, "bubbleId:"+id+":oversized", fmt.Sprintf(`{"modelInfo":{"modelName":"%s"}}`, oversized)); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata := vendors.EmptySessionMetadata()
+	loadIDEModelsDB(metadata, nil, db, nil)
+	got := metadata.Session(id).ObservedModels
+	if len(got) != maxObservedModels {
+		t.Fatalf("observed model count = %d, want %d", len(got), maxObservedModels)
+	}
+	if !slices.IsSorted(got) {
+		t.Fatalf("observed models = %v, want sorted", got)
+	}
+	for _, model := range got {
+		if len(model) > maxObservedModelBytes {
+			t.Fatalf("observed model length = %d, want at most %d", len(model), maxObservedModelBytes)
+		}
 	}
 }
 
@@ -518,7 +557,7 @@ func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 		}
 	}
 	if _, err := stateDB.Exec(`INSERT INTO cursorDiskKV VALUES (?, ?)`,
-		"composerData:"+id, `{"latestConversationSummary":{"summary":{"summary":"IDE-only seed"}}}`,
+		"composerData:"+id, `{"modelConfig":{"modelName":"gpt-5"},"latestConversationSummary":{"summary":{"summary":"IDE-only seed"}}}`,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -534,6 +573,9 @@ func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 	}
 	if got := metadata.Session(id).Entrypoint; got != entrypointIDE {
 		t.Fatalf("entrypoint = %q, want composer data to register IDE lane", got)
+	}
+	if got := metadata.Session(id).ObservedModels; !slices.Equal(got, []string{"gpt-5"}) {
+		t.Fatalf("IDE observed models = %v, want configured fallback", got)
 	}
 
 	chatPath := filepath.Join(home, ".cursor", "chats", "one", "two", "store.db")
@@ -561,6 +603,9 @@ func TestLoadMetadataTreatsComposerDataAsIDELane(t *testing.T) {
 	}
 	if got := metadata.Session(id).CompactionSeed; got != "" {
 		t.Fatalf("ambiguous compaction seed = %q, want empty", got)
+	}
+	if got := metadata.Session(id).ObservedModels; len(got) != 0 {
+		t.Fatalf("ambiguous observed models = %v, want empty", got)
 	}
 }
 
