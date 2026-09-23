@@ -286,7 +286,7 @@ func loadMetadataForSessionsContext(ctx context.Context, home string, ids []stri
 			entry.Model, entry.WorkingDirectory, entry.CompactionSeed = "", "", ""
 			entry.PullRequests, entry.StartedAt, entry.LastActivityAt = 0, 0, 0
 			entry.Usage = vendors.SessionUsage{}
-			entry.FileEdits, entry.CommitObservations = nil, nil
+			entry.FileEdits, entry.CommitObservations, entry.ObservedModels = nil, nil, nil
 			continue
 		}
 		for lane := range matches {
@@ -854,8 +854,12 @@ func setCursorTimes(metadata *vendors.SessionMetadata, id string, startedAt, las
 	}
 }
 
-// Each ID adds two OR terms; stay below SQLite's default expression depth.
-const maxIDEModelQueryIDs = 400
+const (
+	// Each ID adds two OR terms; stay below SQLite's default expression depth.
+	maxIDEModelQueryIDs   = 400
+	maxObservedModels     = 16
+	maxObservedModelBytes = 120
+)
 
 func loadIDEModelsDB(metadata *vendors.SessionMetadata, lanes map[string]map[string]bool, db *sql.DB, ids []string) {
 	_ = loadIDEModelsDBContext(context.Background(), metadata, lanes, db, ids)
@@ -897,16 +901,24 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 	}
 	bubbles := map[string]observed{}
 	fallbacks := map[string]string{}
+	observedModels := map[string]map[string]struct{}{}
 	pullRequests := map[string]map[string]struct{}{}
 	observeModel := func(id, model string) {
-		model = normalizeCursorModel(model)
-		if model == "" {
+		model = strings.TrimSpace(model)
+		if model == "" || len(model) > maxObservedModelBytes {
 			return
 		}
-		entry := metadata.Session(id)
-		if !slices.Contains(entry.ObservedModels, model) {
-			entry.ObservedModels = append(entry.ObservedModels, model)
-			slices.Sort(entry.ObservedModels)
+		model = normalizeCursorModel(model)
+		if model == "" || len(model) > maxObservedModelBytes {
+			return
+		}
+		models := observedModels[id]
+		if models == nil {
+			models = map[string]struct{}{}
+			observedModels[id] = models
+		}
+		if len(models) < maxObservedModels {
+			models[model] = struct{}{}
 		}
 	}
 	for rows.Next() {
@@ -1012,14 +1024,22 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 		}
 		if bubbles[id].model == "" && model != "" {
 			metadata.Session(id).Model = normalizeCursorModel(model)
+			observeModel(id, model)
 		}
-		observeModel(id, model)
 	}
 	for id, value := range bubbles {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		metadata.Session(id).Model = normalizeCursorModel(value.model)
+	}
+	for id, models := range observedModels {
+		entry := metadata.Session(id)
+		entry.ObservedModels = make([]string, 0, len(models))
+		for model := range models {
+			entry.ObservedModels = append(entry.ObservedModels, model)
+		}
+		slices.Sort(entry.ObservedModels)
 	}
 	for id, urls := range pullRequests {
 		if err := ctx.Err(); err != nil {
