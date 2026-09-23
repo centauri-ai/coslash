@@ -3,12 +3,32 @@
 package opencode
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestWindowsTUIProcessDiscoveryBoundsBackgroundContext(t *testing.T) {
+	originalTimeout, originalQuery := listTUIProcessTimeout, runTUIProcessQuery
+	t.Cleanup(func() {
+		listTUIProcessTimeout = originalTimeout
+		runTUIProcessQuery = originalQuery
+	})
+	listTUIProcessTimeout = 0
+	runTUIProcessQuery = func(ctx context.Context) ([]byte, error) {
+		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			t.Fatalf("query context error = %v, want deadline exceeded", ctx.Err())
+		}
+		return []byte("[]"), nil
+	}
+	if _, err := listTUIProcessesContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestParseWindowsTUIProcessesCapturedFacts(t *testing.T) {
 	originalExecutable := currentUserExecutable
