@@ -3,6 +3,7 @@
 package fullsessionrecord
 
 import (
+	"context"
 	"math"
 	"sort"
 
@@ -15,11 +16,24 @@ import (
 // FromParsedFamily runs portable composition on a clone before freezing one
 // complete record for every rooted family member.
 func FromParsedFamily(sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
-	composed := composePortableFamily(vendor, source, parsed, metadata)
+	return FromParsedFamilyContext(context.Background(), sourceID, vendor, source, parsed, metadata)
+}
+
+func FromParsedFamilyContext(ctx context.Context, sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
+	composed, err := composePortableFamilyContext(ctx, vendor, source, parsed, metadata)
+	if err != nil {
+		return nil, err
+	}
 	records := make([]fullsessionv1.Record, 0, len(composed))
 	for _, item := range composed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		record, err := fromSession(sourceID, item.ParentSessionID, *item.Session)
 		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		records = append(records, record)
@@ -40,8 +54,17 @@ func IsServableFamily(familyID, vendor string, source vendors.ReadSource, parsed
 }
 
 func composePortableFamily(vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) []collector.PortableSession {
-	return collector.ComposePortable(source, map[string]vendors.RemoteCollection{
-		vendor: {Sessions: cloneParsedFamily(parsed), Metadata: metadata},
+	composed, _ := composePortableFamilyContext(context.Background(), vendor, source, parsed, metadata)
+	return composed
+}
+
+func composePortableFamilyContext(ctx context.Context, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]collector.PortableSession, error) {
+	cloned, err := cloneParsedFamilyContext(ctx, parsed)
+	if err != nil {
+		return nil, err
+	}
+	return collector.ComposePortableContext(ctx, source, map[string]vendors.RemoteCollection{
+		vendor: {Sessions: cloned, Metadata: metadata},
 	})
 }
 
@@ -252,16 +275,30 @@ func tokensFromUsage(usage []fullsessionv1.ModelUsage) map[string]session.ModelT
 }
 
 func cloneParsedFamily(parsed []*vendors.ParsedSession) []*vendors.ParsedSession {
+	cloned, _ := cloneParsedFamilyContext(context.Background(), parsed)
+	return cloned
+}
+
+func cloneParsedFamilyContext(ctx context.Context, parsed []*vendors.ParsedSession) ([]*vendors.ParsedSession, error) {
 	cloned := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if item == nil {
 			cloned = append(cloned, nil)
 			continue
 		}
 		copy := *item
 		copy.Session = session.Clone(item.Session)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		copy.Spawns = make(map[string]vendors.SpawnState, len(item.Spawns))
 		for key, spawn := range item.Spawns {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if spawn.Turn != nil {
 				turn := *spawn.Turn
 				spawn.Turn = &turn
@@ -276,7 +313,7 @@ func cloneParsedFamily(parsed []*vendors.ParsedSession) []*vendors.ParsedSession
 		}
 		cloned = append(cloned, &copy)
 	}
-	return cloned
+	return cloned, nil
 }
 
 func micros(value float64) int64  { return int64(math.Round(value * 1_000_000)) }

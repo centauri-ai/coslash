@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -26,6 +27,12 @@ import (
 var (
 	ErrNotPrepared = errors.New("session backup is not prepared")
 	ErrIncomplete  = errors.New("session backup preparation is incomplete")
+	ErrBusy        = errors.New("too many session backup preparations")
+)
+
+const (
+	maxOperations      = 32
+	operationRetention = 15 * time.Minute
 )
 
 type Selection struct {
@@ -66,9 +73,10 @@ type Preparation struct {
 }
 
 type operation struct {
-	state  Preparation
-	cancel context.CancelFunc
-	done   chan struct{}
+	state       Preparation
+	cancel      context.CancelFunc
+	done        chan struct{}
+	completedAt time.Time
 }
 
 type PreparationError struct {
@@ -89,9 +97,10 @@ type SynthesisStore interface {
 }
 
 type SourceHandle struct {
-	Source vendors.ReadSource
-	Home   string
-	Close  func() error
+	Source     vendors.ReadSource
+	Home       string
+	Enrichment map[string]remote.BackupSessionEnrichment
+	Close      func() error
 }
 
 type OpenSource func(context.Context, Selection) (SourceHandle, error)
@@ -105,6 +114,8 @@ type Options struct {
 	OpenSource       OpenSource
 	LocalHome        func() (string, error)
 	AfterRawCopy     func() // deterministic mutation hook for focused tests
+	Lifecycle        context.Context
+	Now              func() time.Time
 }
 
 type Manager struct {
@@ -114,6 +125,9 @@ type Manager struct {
 	synthesis        SynthesisStore
 	openSource       OpenSource
 	afterRawCopy     func()
+	lifecycle        context.Context
+	lifecycleCancel  context.CancelFunc
+	now              func() time.Time
 	mu               sync.Mutex
 	operations       map[string]*operation
 }
@@ -138,23 +152,35 @@ func New(options Options) *Manager {
 				if options.Remote == nil {
 					return SourceHandle{}, remote.ErrRemoteSessionUnavailable
 				}
+				enrichment := options.Remote.BackupEnrichment(selection.SourceID, selection.Agent, selection.SessionID)
 				remoteSession, err := options.Remote.OpenBackupSession(ctx, selection.SourceID)
 				if err != nil {
 					return SourceHandle{}, err
 				}
 				return SourceHandle{
 					Source: remoteSession.Source().ForVendor(1 << 30), Home: remoteSession.Source().Home(),
-					Close: remoteSession.Close,
+					Enrichment: enrichment,
+					Close:      remoteSession.Close,
 				}, nil
 			default:
 				return SourceHandle{}, ErrIncomplete
 			}
 		}
 	}
+	lifecycle := options.Lifecycle
+	if lifecycle == nil {
+		lifecycle = context.Background()
+	}
+	lifecycle, lifecycleCancel := context.WithCancel(lifecycle)
+	now := options.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &Manager{
 		root: root, collectorVersion: identifierOr(options.CollectorVersion, "development"),
 		parserVersion: identifierOr(options.ParserVersion, vendors.ParserVersion),
 		synthesis:     options.Synthesis, openSource: openSource, afterRawCopy: options.AfterRawCopy,
+		lifecycle: lifecycle, lifecycleCancel: lifecycleCancel, now: now,
 		operations: map[string]*operation{},
 	}
 }
@@ -163,20 +189,36 @@ func New(options Options) *Manager {
 // request goroutine. Status and Wait expose the product-visible preparing
 // state while the source is being frozen.
 func (manager *Manager) Start(ctx context.Context, selection Selection) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
 		return "", err
 	}
 	id := hex.EncodeToString(random)
-	operationContext, cancel := context.WithCancel(ctx)
+	manager.mu.Lock()
+	if err := manager.lifecycle.Err(); err != nil {
+		manager.mu.Unlock()
+		return "", err
+	}
+	manager.pruneOperationsLocked(manager.now())
+	if len(manager.operations) >= maxOperations {
+		manager.evictTerminalOperationLocked()
+	}
+	if len(manager.operations) >= maxOperations {
+		manager.mu.Unlock()
+		return "", ErrBusy
+	}
+	operationContext, cancel := context.WithCancel(manager.lifecycle)
 	item := &operation{
 		state:  Preparation{ID: id, State: StatePreparing, Selection: selection, Coverage: Coverage{Problems: []sessionbackupv1.CaptureProblem{}}},
 		cancel: cancel, done: make(chan struct{}),
 	}
-	manager.mu.Lock()
 	manager.operations[id] = item
 	manager.mu.Unlock()
 	go func() {
+		defer cancel()
 		prepared, err := manager.Prepare(operationContext, selection)
 		manager.mu.Lock()
 		defer manager.mu.Unlock()
@@ -196,6 +238,7 @@ func (manager *Manager) Start(ctx context.Context, selection Selection) (string,
 			item.state.Prepared = prepared
 			item.state.Coverage = prepared.Coverage
 		}
+		item.completedAt = manager.now()
 		close(item.done)
 	}()
 	return id, nil
@@ -204,6 +247,7 @@ func (manager *Manager) Start(ctx context.Context, selection Selection) (string,
 func (manager *Manager) Status(id string) (Preparation, bool) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	manager.pruneOperationsLocked(manager.now())
 	item, ok := manager.operations[id]
 	if !ok {
 		return Preparation{}, false
@@ -214,6 +258,7 @@ func (manager *Manager) Status(id string) (Preparation, bool) {
 func (manager *Manager) Cancel(id string) bool {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	manager.pruneOperationsLocked(manager.now())
 	item, ok := manager.operations[id]
 	if !ok || item.state.State != StatePreparing {
 		return false
@@ -233,9 +278,40 @@ func (manager *Manager) Wait(ctx context.Context, id string) (Preparation, error
 	case <-ctx.Done():
 		return Preparation{}, ctx.Err()
 	case <-item.done:
-		state, _ := manager.Status(id)
+		manager.mu.Lock()
+		state := item.state
+		delete(manager.operations, id)
+		manager.mu.Unlock()
 		return state, nil
 	}
+}
+
+// Close cancels every in-flight preparation owned by the manager.
+func (manager *Manager) Close() {
+	manager.lifecycleCancel()
+}
+
+func (manager *Manager) pruneOperationsLocked(now time.Time) {
+	for id, item := range manager.operations {
+		if !item.completedAt.IsZero() && now.Sub(item.completedAt) >= operationRetention {
+			delete(manager.operations, id)
+		}
+	}
+	for len(manager.operations) > maxOperations {
+		if !manager.evictTerminalOperationLocked() {
+			break
+		}
+	}
+}
+
+func (manager *Manager) evictTerminalOperationLocked() bool {
+	for id, item := range manager.operations {
+		if !item.completedAt.IsZero() {
+			delete(manager.operations, id)
+			return true
+		}
+	}
+	return false
 }
 
 func identifierOr(value, fallback string) string {
@@ -332,7 +408,17 @@ func (manager *Manager) Discard(bundleID string) error {
 	} else if err != nil {
 		return err
 	}
-	return os.RemoveAll(path)
+	if err := os.RemoveAll(path); err != nil {
+		return err
+	}
+	manager.mu.Lock()
+	for id, item := range manager.operations {
+		if item.state.Prepared != nil && item.state.Prepared.BundleID == bundleID {
+			delete(manager.operations, id)
+		}
+	}
+	manager.mu.Unlock()
+	return nil
 }
 
 func verifySpool(root string, manifest sessionbackupv1.Manifest) error {

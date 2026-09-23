@@ -238,6 +238,53 @@ func (manager *Manager) OpenBackupSession(ctx context.Context, sourceID string) 
 	}})
 }
 
+// BackupEnrichment snapshots the bounded cached overlay for one family before
+// a fresh raw capture starts.
+func (manager *Manager) BackupEnrichment(sourceID, agent, familyID string) map[string]BackupSessionEnrichment {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	result := map[string]BackupSessionEnrichment{}
+	if manager.cfg == nil || manager.cfg.ID != sourceID || manager.snapshot == nil {
+		return result
+	}
+	for _, family := range manager.snapshot.Families {
+		if family.Vendor != agent || family.FamilyID != familyID {
+			continue
+		}
+		for _, item := range family.Facts.Sessions {
+			display := item.Display
+			value := BackupSessionEnrichment{RepositoryLocalOnly: display.RepositoryLocalOnly}
+			if display.Repository != nil {
+				repository := *display.Repository
+				value.Repository = &repository
+			}
+			if display.Branch != nil {
+				branch := *display.Branch
+				value.Branch = &branch
+			}
+			if display.Git != nil {
+				git := *display.Git
+				value.Git = &git
+			}
+			if display.LastEditAt != nil {
+				lastEdit := *display.LastEditAt
+				value.LastEditAt = &lastEdit
+			}
+			result[item.ID] = value
+		}
+		break
+	}
+	return result
+}
+
+type BackupSessionEnrichment struct {
+	Repository          *string
+	RepositoryLocalOnly bool
+	Branch              *string
+	Git                 *session.GitDrift
+	LastEditAt          *int64
+}
+
 func (manager *Manager) ApplySettings(remote *settings.RemoteSettings) error {
 	manager.mu.Lock()
 	aliasesToClose := make([]string, 0, 2)

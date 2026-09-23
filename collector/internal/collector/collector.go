@@ -593,23 +593,48 @@ func ComposePortable(
 	source vendors.ReadSource,
 	collections map[string]vendors.RemoteCollection,
 ) []PortableSession {
+	portable, _ := ComposePortableContext(context.Background(), source, collections)
+	return portable
+}
+
+func ComposePortableContext(
+	ctx context.Context,
+	source vendors.ReadSource,
+	collections map[string]vendors.RemoteCollection,
+) ([]PortableSession, error) {
 	parsed, metadata := remoteInputs(collections)
-	roots := servableRoots(finalizeSessionsSource(parsed, metadata, source, false, false, true))
+	finalized, err := finalizeSessionsSourceContext(ctx, parsed, metadata, source, false, false, true)
+	if err != nil {
+		return nil, err
+	}
+	roots, err := servableRootsContext(ctx, finalized)
+	if err != nil {
+		return nil, err
+	}
 	rootKeys := make(map[sessionKey]bool, len(roots))
 	byKey := make(map[sessionKey]*vendors.ParsedSession, len(parsed))
 	for _, root := range roots {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		rootKeys[sessionKey{agent: root.Session.Agent, id: root.Session.ID}] = true
 	}
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		byKey[sessionKey{agent: item.Session.Agent, id: item.Session.ID}] = item
 	}
 	portable := make([]PortableSession, 0, len(parsed))
 	for _, item := range parsed {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if belongsToRoot(item, byKey, rootKeys) {
 			portable = append(portable, PortableSession{ParentSessionID: item.ParentID, Session: item.Session})
 		}
 	}
-	return portable
+	return portable, nil
 }
 
 func listRemote(

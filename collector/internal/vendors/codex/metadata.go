@@ -105,6 +105,13 @@ func SessionIndexPath(home string) string {
 // original line terminator. Any malformed or duplicate row makes attribution
 // incomplete; callers must not silently omit it from a complete backup.
 func ReadSessionIndexRows(source vendors.ReadSource, home string, ids map[string]bool) (map[string][]byte, bool, error) {
+	return ReadSessionIndexRowsContext(context.Background(), source, home, ids)
+}
+
+func ReadSessionIndexRowsContext(ctx context.Context, source vendors.ReadSource, home string, ids map[string]bool) (map[string][]byte, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	rows := map[string][]byte{}
 	file, err := source.Open(SessionIndexPath(home))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -114,8 +121,11 @@ func ReadSessionIndexRows(source vendors.ReadSource, home string, ids map[string
 		return nil, true, err
 	}
 	defer file.Close()
-	reader := bufio.NewReaderSize(file, 64*1024)
+	reader := bufio.NewReaderSize(contextReader{ctx: ctx, reader: file}, 64*1024)
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, true, err
+		}
 		line, readErr := readBoundedIndexLine(reader)
 		if errors.Is(readErr, vendors.ErrInvalidData) {
 			return nil, true, readErr
