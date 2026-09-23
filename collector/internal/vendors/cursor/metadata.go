@@ -676,7 +676,16 @@ func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
 	if !ok {
 		return nil
 	}
-	attempts := session.ParseCommitObservations(command, bubble.Tool.Result, true)
+	output := bubble.Tool.Result
+	if bubble.Tool.Name == "run_terminal_command_v2" {
+		var result struct {
+			Output string `json:"output"`
+		}
+		if json.Unmarshal([]byte(output), &result) == nil {
+			output = result.Output
+		}
+	}
+	attempts := session.ParseCommitObservations(command, output, true)
 	if bubble.Tool.Name == "run_terminal_command_v2" && len(bubble.Before.CommitHashesByGitWorkspace) == 0 && len(bubble.After.CommitHashesByGitWorkspace) == 0 {
 		for _, attempt := range attempts {
 			if attempt.Hash == "" {

@@ -12,6 +12,14 @@ func TestParseCommitObservationsIgnoresHexLikeBranchNames(t *testing.T) {
 	}
 }
 
+func TestParseCommitObservationsSupportsStandaloneFullHash(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	got := ParseCommitObservations("git commit --quiet -m 'ship it' && git rev-parse HEAD", hash+"\n", true)
+	if len(got) != 1 || got[0].Hash != hash {
+		t.Fatalf("commit observations = %v, want standalone commit hash", got)
+	}
+}
+
 func TestReconcileCommitFactsExportsOnlyResolvedFullObjectIDs(t *testing.T) {
 	full := strings.Repeat("a", 40)
 	facts := reconcileCommitFacts(
