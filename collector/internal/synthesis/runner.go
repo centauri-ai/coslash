@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
@@ -41,13 +42,14 @@ type commandSpec struct {
 type commandExecutor func(context.Context, commandSpec) ([]byte, error)
 
 func executeCommand(ctx context.Context, spec commandSpec) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, spec.bin, spec.args...)
+	cmd := agentexec.CommandContext(ctx, spec.bin, spec.args...)
 	cmd.Dir = spec.dir
 	cmd.Stdin = strings.NewReader(spec.stdin)
+	cmd.WaitDelay = 5 * time.Second
 	if len(spec.env) > 0 {
 		cmd.Env = append(os.Environ(), spec.env...)
 	}
-	return cmd.Output()
+	return agentexec.Output(cmd)
 }
 
 type CLIRunner struct {
