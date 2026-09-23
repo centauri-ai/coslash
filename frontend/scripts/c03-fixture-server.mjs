@@ -208,6 +208,7 @@ const destination = {
     currentApprovedSessionCount: 3,
     historyDisclosure: 'Current members can see approved revisions.',
     credentialState: 'paired',
+    audienceVersion: 'audience-fixture-v1',
   },
 };
 
@@ -368,7 +369,7 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, '127.0.0.1', () => {
   console.log(`C03 fixture listening at http://127.0.0.1:${port}`);
-  console.log('Open Share full revision to verify review, approval, and canonical route states.');
+  console.log('Legacy full-session endpoints are available for compatibility checks only.');
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

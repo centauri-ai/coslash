@@ -101,22 +101,24 @@ Resume and Start fresh launch your installed agent CLI. Its later network and da
 ## Share preview and approval
 
 During an active Share to Hub flow, **See what gets shared** builds a local
-`session-snapshot/v1` preview through the same canonical serializer whose bytes
-a future opt-in upload will use. Local-only session details do not show this
-action. Previewing does not upload or approve anything. If the source revision
-changes, validation fails, or the mandatory snapshot exceeds 256 KiB, approval
-remains blocked.
+`session-backup/v1` bundle for each selected local or SSH Codex session family.
+The frozen bundle contains the raw attributable Codex rollout and sidecar
+bytes, canonical parsed records, exact file-change bodies, session enrichment,
+and revision-matched persisted synthesis. Previewing does not upload or approve
+anything. Claude, Cursor, and OpenCode remain visibly unsupported for complete
+backup v1; coSlash never falls back to a metadata-only upload.
 
 For opt-in user testing before the Team flow ships, append
 `?team-preview=1` to the local coSlash URL. This reveals a clearly labeled
 preview-only trigger in session details; it does not enable a Team workspace,
 approval, or upload.
 
-The preview contains metadata and repository-relative file-change statistics.
-Session titles, summaries, declared goals, prompts, digests, todos, commit
-subjects, subagent details, commands, transcripts, assistant reasoning, tool
-output, file diffs, environment variables, and unresolved local paths stay on
-the device. Redaction and truncation records identify affected canonical paths.
+The review shows artifact counts by class, the exact total byte count and
+complete-backup SHA-256, the Hub's advertised capacity, and the paired
+destination and audience. Complete backups are not redacted. Raw prompts,
+commands, tool output, paths, environment fragments, and file bodies may
+contain credentials or other secrets and become visible to active members of
+the destination workspace after acceptance.
 
 The fixture-backed Share flow is available to source builds with
 `?team-share=1`. It exercises eligibility, destination, selection, exact review,
@@ -125,37 +127,20 @@ contacts a cloud service. Use `&share-state=signed_out`, `pairing_required`,
 `credential_dormant`, or `credential_revoked` to inspect eligibility states,
 and `&share-result=partial` to inspect retry.
 
-The production flow will bind approval to the source revision, canonical hash
-and byte count, and displayed destination. Failures that require renewed review
-refresh the preview or destination and require explicit approval. Unchanged
-retries retain their idempotency key and canonical bytes; accepted items are
-not sent again. The server derives workspace authority from authenticated state
-or a workspace-bound device credential and never trusts the client assertion to
-select or retarget a workspace.
+Approval binds the frozen source revision, complete hash and byte count,
+destination workspace and name, audience version and member count, server
+identity, and advertised per-backup, chunk, and workspace capacities. A changed
+source, destination, audience, manifest, or capacity assertion requires a new
+review. Uploads use bounded verified chunks and reconcile server status with
+the same idempotency key. Frozen bundles and their upload identities survive a
+dialog or app restart, so retry reads only the approved spool and never uses
+changed source bytes as upload content. Accepted batch items remain accepted
+while eligible failed items resume only missing chunks.
 
-The additive **Share full revision** flow is available only for an eligible
-SSH Codex session with a validated `full-session-record/v1` in the last-good
-cache. It does not change the v1 snapshot preview or upload. Before loading the
-record, coSlash verifies the authenticated paired destination and that the Hub
-advertises the v2 protocol, record version, and bounded record limit. Network
-and temporary discovery failures remain retryable; only a valid discovery
-response without full-v2 support is incompatible. Pairing, discovery, and
-oversize errors do not include session content.
-
-The full-v2 review displays the destination, active-member audience, canonical
-record size, total envelope size, revision identity, record SHA-256, repository,
-and the entire canonical envelope, including all prompt text, commands, todos,
-digest entries, subagent fields, paths, and ordered file-change bodies present
-in the record. Full records are not redacted or truncated. The review therefore
-shows an embedded-secret warning and requires a separate checkbox approval.
-
-Approval binds the exact source, agent, session, full-record revision, record
-hash and size, envelope size, repository, destination workspace and name, and
-active-member count. Immediately before one bounded gzip upload, coSlash
-re-loads the immutable record, re-fetches the destination and audience, and
-rebuilds the canonical envelope. Any binding change requires a new review. An
-ambiguous timeout is reconciled with the same idempotency key; a retry cannot
-create a second revision.
+The older metadata snapshot and single-request full-v2 protocols remain in the
+client for compatibility, but the normal **Share to Hub** action does not use
+them. A Hub without v3 complete-backup support shows an update requirement and
+receives no downgraded payload.
 
 The library card for an SSH session carries the canonical origin remote when
 `git remote get-url origin` succeeds on that host, and its live status from the

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangleIcon, CheckIcon, ExternalLinkIcon, SearchIcon, ShieldCheckIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,16 +11,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { beginHubPairing, pollHubPairing, prepareBackup, submitHubShare, type PairingResult } from './api';
 import {
-  canonicalPayloadText,
-  fetchSnapshotPreview,
-  formatCanonicalJson,
-  STRUCTURALLY_EXCLUDED,
-  type SnapshotPreview,
-} from '@/pages/coslash/lib/preview';
-import { beginHubPairing, pollHubPairing, submitHubShare, type PairingResult } from './api';
-import {
-  bindPreviewConsent,
+  backupSelection,
+  bindBackupConsent,
+  completeBackupUnsupportedReason,
   consentStillCurrent,
   filterShareCandidates,
   HUB_SHARE_VERSION,
@@ -33,21 +28,27 @@ import {
   RETRY_RULES,
   toggleCandidate,
   toggleCandidateGroup,
+  type BackupPreview,
   type DestinationResult,
   type ShareCandidate,
   type ShareItemRequest,
   type ShareResult,
   type ShareWindow,
 } from './model';
+import {
+  attemptStillCurrent,
+  DRAFT_STORAGE_KEY,
+  pendingReviewRecords,
+  restoredDraftWindow,
+  storeShareDraft,
+  type ReviewRecord,
+} from './workflow';
 
-type ReviewRecord = {
-  candidate: ShareCandidate;
-  preview: SnapshotPreview;
-  item: ShareItemRequest;
-  payload: string;
-};
+type Phase = 'select' | 'preparing' | 'review' | 'uploading' | 'result';
 
-type Phase = 'select' | 'loading' | 'review' | 'result';
+function removeDraft() {
+  localStorage.removeItem(DRAFT_STORAGE_KEY);
+}
 
 const ELIGIBILITY_COPY: Record<
   Exclude<DestinationResult['state'], 'ready'>,
@@ -76,6 +77,78 @@ const ELIGIBILITY_COPY: Record<
     action: 'Open pairing settings',
   },
 };
+
+function fixtureBackupPreview(
+  selection: ReturnType<typeof backupSelection>,
+  audienceVersion: string,
+): BackupPreview {
+  const hash = 'a'.repeat(64);
+  return {
+    adapterVersion: 'backup-preview/v1',
+    state: 'ready',
+    approvalAllowed: true,
+    selection,
+    bundleId: hash,
+    sourceRevision: 'fixture-revision',
+    coverage: {
+      artifactCount: 6,
+      artifactCounts: [
+        { kind: 'raw-transcript', count: 1 },
+        { kind: 'parsed-session-record', count: 1 },
+        { kind: 'exact-change-body', count: 2 },
+        { kind: 'session-enrichment', count: 1 },
+        { kind: 'synthesis', count: 1 },
+      ],
+      totalBytes: 98_304,
+      revisionSha256: hash,
+      problems: [],
+    },
+    capability: {
+      serverId: 'fixture-hub',
+      maxBackupBytes: 1_073_741_824,
+      maxBackupChunkBytes: 1_048_576,
+      backupWorkspaceBytes: 53_687_091_200,
+      backupUploadExpiresSeconds: 86_400,
+    },
+    audienceVersion,
+  };
+}
+
+export function CompleteBackupDisclosure({ workspaceName }: { workspaceName: string }) {
+  return (
+    <section
+      data-testid="complete-backup-disclosure"
+      className="mt-3 rounded-lg border p-3"
+      aria-labelledby="complete-backup-disclosure"
+    >
+      <h3 id="complete-backup-disclosure" className="text-xs font-bold tracking-wide">
+        COMPLETE UNREDACTED BACKUP
+      </h3>
+      <p className="text-muted-foreground pt-1 text-xs leading-relaxed">
+        Raw prompts, commands, tool output, paths, environment fragments, and exact file-change bodies may
+        contain credentials or other secrets. coSlash does not redact this backup. Active members of{' '}
+        {workspaceName} can access the accepted revision.
+      </p>
+    </section>
+  );
+}
+
+export function BackupUploadProgress({ items }: { items: { id: string; label: string; state: string }[] }) {
+  return (
+    <div role="status" className="min-h-72 overflow-y-auto rounded-lg border">
+      {items.map((item) => (
+        <div
+          key={item.id}
+          data-testid="backup-upload-progress"
+          className="flex items-center justify-between gap-3 border-b p-3 text-sm last:border-b-0"
+        >
+          <span className="min-w-0 truncate">{item.label}</span>
+          <Badge variant="secondary">{item.state}</Badge>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function ShareToHubDialog({
   open,
@@ -117,7 +190,28 @@ export function ShareToHubDialog({
   const [pairingRefreshRequired, setPairingRefreshRequired] = useState(false);
   const [retryReadyAt, setRetryReadyAt] = useState(0);
   const [clock, setClock] = useState(() => Date.now());
+  const [progress, setProgress] = useState<
+    Record<string, 'queued' | 'resuming' | 'uploading' | 'accepted' | 'failed'>
+  >({});
+  const [resumingDraft, setResumingDraft] = useState(false);
   const previewGeneration = useRef(0);
+  const previewAbort = useRef<AbortController | null>(null);
+  const uploadGeneration = useRef(0);
+  const uploadAbort = useRef<AbortController | null>(null);
+  const restoredForOpen = useRef(false);
+  const openRef = useRef(open);
+
+  useLayoutEffect(() => {
+    openRef.current = open;
+    if (open) return;
+    restoredForOpen.current = false;
+    previewGeneration.current += 1;
+    previewAbort.current?.abort();
+    previewAbort.current = null;
+    uploadGeneration.current += 1;
+    uploadAbort.current?.abort();
+    uploadAbort.current = null;
+  }, [open]);
 
   const visible = useMemo(
     () => filterShareCandidates(candidates, search, window),
@@ -126,12 +220,14 @@ export function ShareToHubDialog({
   const selectedCandidates = candidates.filter(({ session }) => selected.has(localSessionId(session)));
   const currentSelection = new Set(selectedCandidates.map(({ session }) => localSessionId(session)));
   const destination = destinationResult.state === 'ready' ? destinationResult.destination : null;
+  const candidatesById = useMemo(
+    () => new Map(candidates.map((candidate) => [localSessionId(candidate.session), candidate])),
+    [candidates],
+  );
   const reviewStillCurrent =
     destination != null &&
     records.every((record) => {
-      const current = candidates.find(
-        ({ session }) => localSessionId(session) === record.item.localSessionId,
-      );
+      const current = candidatesById.get(record.item.localSessionId);
       return (
         current != null && consentStillCurrent(record.item, current.session, record.preview, destination)
       );
@@ -144,11 +240,14 @@ export function ShareToHubDialog({
     }
     return [...values.entries()];
   }, [visible]);
+  const supportedVisible = useMemo(
+    () => visible.filter(({ session }) => completeBackupUnsupportedReason(session) == null),
+    [visible],
+  );
 
   /* oxlint-disable react/set-state-in-effect -- clear transient form state when the controlled dialog closes */
   useEffect(() => {
     if (open) return;
-    previewGeneration.current += 1;
     setSearch('');
     setSelected(new Set());
     setPhase('select');
@@ -161,13 +260,67 @@ export function ShareToHubDialog({
     setPairingError(null);
     setPairingRefreshRequired(false);
     setRetryReadyAt(0);
+    setProgress({});
+    setResumingDraft(false);
   }, [open]);
   /* oxlint-enable react/set-state-in-effect */
 
+  /* oxlint-disable react/set-state-in-effect -- restore a frozen, explicitly reviewed upload after dialog/app restart */
+  useEffect(() => {
+    if (!open || destination == null || restoredForOpen.current) return;
+    try {
+      const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) return;
+      const stored = JSON.parse(raw) as {
+        reviewed?: boolean;
+        window?: ShareWindow;
+        records?: { preview?: BackupPreview; item?: ShareItemRequest }[];
+      };
+      const storedWindow = restoredDraftWindow(stored.window);
+      if (storedWindow !== window) {
+        onWindowChange(storedWindow);
+        return;
+      }
+      if (candidatesLoading || candidatesError != null) return;
+      restoredForOpen.current = true;
+      const restored: ReviewRecord[] = [];
+      for (const value of stored.records ?? []) {
+        if (!value.preview || !value.item) continue;
+        const candidate = candidatesById.get(value.item.localSessionId);
+        if (candidate && consentStillCurrent(value.item, candidate.session, value.preview, destination)) {
+          restored.push({ candidate, preview: value.preview, item: value.item });
+        }
+      }
+      if (restored.length === 0) {
+        removeDraft();
+        return;
+      }
+      setRecords(restored);
+      setSelected(new Set(restored.map(({ item }) => item.localSessionId)));
+      setReviewed(stored.reviewed === true);
+      setProblem('Resuming frozen complete backups with their original review and upload identities.');
+      setResumingDraft(true);
+      setPhase('review');
+    } catch {
+      removeDraft();
+    }
+  }, [candidatesById, candidatesError, candidatesLoading, destination, onWindowChange, open, window]);
+  /* oxlint-enable react/set-state-in-effect */
+
+  useEffect(() => {
+    if (records.length > 0 && phase !== 'uploading') {
+      storeShareDraft(localStorage, records, reviewed, window);
+    }
+  }, [phase, records, reviewed, window]);
+
+  useEffect(() => {
+    if (result?.state === 'succeeded') removeDraft();
+  }, [result?.state]);
+
   /* oxlint-disable react/set-state-in-effect -- revoke selections whose source is no longer eligible */
   useEffect(() => {
-    setSelected((current) => reconcileVisibleSelection(current, visible));
-  }, [visible]);
+    setSelected((current) => reconcileVisibleSelection(current, supportedVisible));
+  }, [supportedVisible]);
   /* oxlint-enable react/set-state-in-effect */
 
   useEffect(() => {
@@ -233,6 +386,7 @@ export function ShareToHubDialog({
   useEffect(() => {
     if (!open || phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
     setRecords([]);
+    removeDraft();
     setReviewed(false);
     setProblem('The source revision or destination changed. Review the current selection again.');
     setPhase('select');
@@ -241,14 +395,18 @@ export function ShareToHubDialog({
 
   const replaceSelection = (next: Set<string>) => {
     const limited = new Set([...next].slice(0, MAX_SHARE_ITEMS));
+    const nextRecords = records.filter((record) => limited.has(record.item.localSessionId));
     setSelected(limited);
-    setRecords((current) => current.filter((record) => limited.has(record.item.localSessionId)));
+    setRecords(nextRecords);
+    if (nextRecords.length > 0) storeShareDraft(localStorage, nextRecords, false, window);
+    else removeDraft();
     setReviewed(false);
     setProblem(null);
     setResult(null);
     setPhase('select');
     setFixtureAttempt(0);
     setRetryReadyAt(0);
+    setResumingDraft(false);
   };
 
   const narrow = (nextSearch: string, nextWindow: ShareWindow) => {
@@ -261,40 +419,64 @@ export function ShareToHubDialog({
   const reviewExactPayloads = async () => {
     if (destination == null || selectedCandidates.length === 0) return;
     const generation = ++previewGeneration.current;
+    previewAbort.current?.abort();
+    const controller = new AbortController();
+    previewAbort.current = controller;
     const prior = new Map(records.map((record) => [record.item.localSessionId, record]));
-    setPhase('loading');
+    const nextRecords: ReviewRecord[] = [];
+    setPhase('preparing');
     setProblem(null);
     try {
-      const nextRecords = await Promise.all(
-        selectedCandidates.map(async (candidate) => {
-          const { session } = candidate;
-          const existing = prior.get(localSessionId(session));
-          if (existing && consentStillCurrent(existing.item, session, existing.preview, destination)) {
-            return existing;
-          }
-          const preview = await fetchSnapshotPreview(session, session.mtime);
-          const item = bindPreviewConsent(
-            session,
-            preview,
-            destination,
-            `${HUB_SHARE_VERSION}:${crypto.randomUUID()}`,
+      for (const candidate of selectedCandidates) {
+        if (!attemptStillCurrent(openRef.current, generation, previewGeneration.current, controller.signal)) {
+          return;
+        }
+        const { session } = candidate;
+        const existing = prior.get(localSessionId(session));
+        if (existing && consentStillCurrent(existing.item, session, existing.preview, destination)) {
+          nextRecords.push(existing);
+          continue;
+        }
+        const selection = backupSelection(session);
+        const preview = fixtureMode
+          ? fixtureBackupPreview(selection, destination.audienceVersion)
+          : await prepareBackup(selection, controller.signal);
+        if (!attemptStillCurrent(openRef.current, generation, previewGeneration.current, controller.signal)) {
+          return;
+        }
+        if (preview.state !== 'ready') {
+          throw new Error(
+            `${preview.problem?.message ?? 'A complete backup could not be prepared.'} ${preview.problem?.action ?? ''}`.trim(),
           );
-          return { candidate, preview, item, payload: formatCanonicalJson(canonicalPayloadText(preview)) };
-        }),
-      );
-      if (generation !== previewGeneration.current) return;
+        }
+        const item = bindBackupConsent(
+          session,
+          preview,
+          destination,
+          `${HUB_SHARE_VERSION}:${crypto.randomUUID()}`,
+        );
+        nextRecords.push({ candidate, preview, item });
+        setRecords([...nextRecords]);
+        storeShareDraft(localStorage, nextRecords, false, window);
+      }
       setRecords(nextRecords);
       setReviewed(false);
       setPhase('review');
     } catch (error) {
-      if (generation !== previewGeneration.current) return;
-      setProblem(error instanceof Error ? error.message : 'The exact preview could not be built.');
+      if (!attemptStillCurrent(openRef.current, generation, previewGeneration.current, controller.signal)) {
+        return;
+      }
+      setRecords(nextRecords);
+      setProblem(error instanceof Error ? error.message : 'The complete backup could not be prepared.');
       setPhase('select');
+    } finally {
+      if (previewAbort.current === controller) previewAbort.current = null;
     }
   };
 
   const exerciseFixtureResult = () => {
     if (!reviewed || records.length === 0 || !reviewStillCurrent) return;
+    storeShareDraft(localStorage, records, true, window);
     const partial = fixtureOutcome === 'partial' && fixtureAttempt === 0 && records.length > 1;
     const results: ShareResult['results'] = records.map((record, index) => {
       if (partial && index === records.length - 1) {
@@ -313,25 +495,27 @@ export function ShareToHubDialog({
         localSessionId: record.item.localSessionId,
         idempotencyKey: record.item.idempotencyKey,
         state: alreadyAccepted ? 'already_accepted' : 'accepted',
-        sessionId: `60000000-0000-4000-8000-${suffix}`,
         revisionId: `70000000-0000-4000-8000-${suffix}`,
         deduplicated: alreadyAccepted,
         sharedAt: '2026-08-18T18:00:00Z',
-        briefState: 'pending',
         route: {
-          hubContractVersion: 'hub-read/v1',
+          hubContractVersion: 'session-backup-read/v1',
           repositoryId,
-          canonicalWeekStart: '2026-08-17',
-          path: `/repos/${repositoryId}/sessions/2026-08-17`,
+          path: `/v3/session-backups/70000000-0000-4000-8000-${suffix}`,
         },
       };
     });
-    showResult({
+    const nextResult: ShareResult = {
       contractVersion: HUB_SHARE_VERSION,
       requestId: crypto.randomUUID(),
       state: partial ? 'partial' : 'succeeded',
       results,
-    });
+    };
+    const pending = pendingReviewRecords(records, results);
+    setRecords(pending);
+    if (pending.length > 0) storeShareDraft(localStorage, pending, true, window);
+    else removeDraft();
+    showResult(nextResult);
   };
 
   const showResult = (next: ShareResult) => {
@@ -354,18 +538,84 @@ export function ShareToHubDialog({
       return;
     }
     if (!reviewed || records.length === 0 || !reviewStillCurrent) return;
-    setPhase('loading');
+    const generation = ++uploadGeneration.current;
+    uploadAbort.current?.abort();
+    const controller = new AbortController();
+    uploadAbort.current = controller;
+    setPhase('uploading');
     setProblem(null);
+    setProgress(
+      Object.fromEntries(
+        records.map((record) => [record.item.localSessionId, resumingDraft ? 'resuming' : 'queued']),
+      ),
+    );
+    const results: ShareResult['results'] = [];
+    let pendingRecords = [...records];
+    let activeRecord: ReviewRecord | null = null;
+    const active = () =>
+      attemptStillCurrent(openRef.current, generation, uploadGeneration.current, controller.signal);
     try {
-      const response = await submitHubShare({
+      for (const record of records) {
+        if (!active()) return;
+        activeRecord = record;
+        if (!resumingDraft) {
+          setProgress((current) => ({ ...current, [record.item.localSessionId]: 'uploading' }));
+        }
+        const response = await submitHubShare(
+          {
+            contractVersion: HUB_SHARE_VERSION,
+            requestId: crypto.randomUUID(),
+            items: [record.item],
+          },
+          controller.signal,
+        );
+        if (!active()) return;
+        const item = response.results[0];
+        if (!item) throw new Error('The Hub returned no item result.');
+        results.push(item);
+        if (item.state !== 'failed') {
+          pendingRecords = pendingReviewRecords(pendingRecords, [item]);
+          setRecords(pendingRecords);
+          if (pendingRecords.length > 0) {
+            storeShareDraft(localStorage, pendingRecords, true, window);
+          } else removeDraft();
+        }
+        setProgress((current) => ({
+          ...current,
+          [record.item.localSessionId]: item.state === 'failed' ? 'failed' : 'accepted',
+        }));
+      }
+      const accepted = results.filter((item) => item.state !== 'failed').length;
+      showResult({
         contractVersion: HUB_SHARE_VERSION,
         requestId: crypto.randomUUID(),
-        items: records.map((record) => record.item),
+        state: accepted === results.length ? 'succeeded' : accepted === 0 ? 'failed' : 'partial',
+        results,
       });
-      showResult(response);
+      setResumingDraft(false);
     } catch (error) {
+      if (!active()) return;
+      if (activeRecord != null) {
+        results.push({
+          localSessionId: activeRecord.item.localSessionId,
+          idempotencyKey: activeRecord.item.idempotencyKey,
+          state: 'failed',
+          deduplicated: false,
+          error: { code: 'share_failed', retryable: true },
+        });
+      }
+      setRecords(pendingRecords);
+      if (pendingRecords.length > 0) storeShareDraft(localStorage, pendingRecords, true, window);
       setProblem(error instanceof Error ? error.message : 'The Hub share request failed.');
-      setPhase('review');
+      const accepted = results.filter((item) => item.state !== 'failed').length;
+      showResult({
+        contractVersion: HUB_SHARE_VERSION,
+        requestId: crypto.randomUUID(),
+        state: accepted > 0 ? 'partial' : 'failed',
+        results,
+      });
+    } finally {
+      if (uploadAbort.current === controller) uploadAbort.current = null;
     }
   };
 
@@ -408,7 +658,11 @@ export function ShareToHubDialog({
       }
     }
     setSelected(retry);
-    setRecords((current) => current.filter((record) => plan.unchanged.has(record.item.localSessionId)));
+    const nextRecords = records.filter((record) => plan.unchanged.has(record.item.localSessionId));
+    setRecords(nextRecords);
+    if (nextRecords.length > 0) {
+      storeShareDraft(localStorage, nextRecords, plan.renewedReview.size === 0, window);
+    } else removeDraft();
     setReviewed(plan.renewedReview.size === 0);
     setProblem(
       plan.renewedReview.size > 0
@@ -418,12 +672,14 @@ export function ShareToHubDialog({
     setResult(null);
     setRetryReadyAt(0);
     setFixtureAttempt((current) => current + 1);
+    if (plan.renewedReview.size > 0) setResumingDraft(false);
     setPhase(plan.renewedReview.size > 0 ? 'select' : 'review');
   };
 
   const restartFailed = () => {
     replaceSelection(currentSelection);
     setRecords([]);
+    removeDraft();
   };
 
   const eligibility = destinationResult.state === 'ready' ? null : ELIGIBILITY_COPY[destinationResult.state];
@@ -434,7 +690,10 @@ export function ShareToHubDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="coslash-shell flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-none! flex-col overflow-x-hidden overflow-y-hidden sm:w-[min(56rem,calc(100vw-2rem))]">
+      <DialogContent
+        data-testid="share-to-hub-dialog"
+        className="coslash-shell flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-none! flex-col overflow-x-hidden overflow-y-hidden sm:w-[min(56rem,calc(100vw-2rem))]"
+      >
         <DialogHeader className="min-w-0">
           <div className="flex items-center gap-2">
             <DialogTitle>Share to Hub</DialogTitle>
@@ -444,8 +703,8 @@ export function ShareToHubDialog({
           </div>
           <DialogDescription>
             {fixtureMode
-              ? 'Select sessions, review the exact canonical bytes, and exercise retry and result states.'
-              : 'Select sessions, review the exact canonical bytes, then upload only the revisions you approve.'}
+              ? 'Select sessions, review complete-backup inventory, and exercise retry and result states.'
+              : 'Select local or SSH Codex sessions, review each complete unredacted backup, then upload only what you approve.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -568,11 +827,11 @@ export function ShareToHubDialog({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, visible))}
-                    disabled={candidatesLoading || candidatesError != null || visible.length === 0}
+                    onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, supportedVisible))}
+                    disabled={candidatesLoading || candidatesError != null || supportedVisible.length === 0}
                   >
-                    {visible.length > 0 &&
-                    visible.every(({ session }) => currentSelection.has(localSessionId(session)))
+                    {supportedVisible.length > 0 &&
+                    supportedVisible.every(({ session }) => currentSelection.has(localSessionId(session)))
                       ? 'Clear filtered'
                       : 'Select all filtered'}
                   </Button>
@@ -587,9 +846,12 @@ export function ShareToHubDialog({
                   {!candidatesLoading &&
                     candidatesError == null &&
                     groups.map(([repository, rows]) => {
-                      const allSelected = rows.every(({ session }) =>
-                        currentSelection.has(localSessionId(session)),
+                      const supportedRows = rows.filter(
+                        ({ session }) => completeBackupUnsupportedReason(session) == null,
                       );
+                      const allSelected =
+                        supportedRows.length > 0 &&
+                        supportedRows.every(({ session }) => currentSelection.has(localSessionId(session)));
                       return (
                         <section key={repository} className="border-b last:border-b-0">
                           <div className="bg-coslash-soft flex items-center justify-between gap-3 px-3 py-2">
@@ -597,13 +859,17 @@ export function ShareToHubDialog({
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, rows))}
+                              onClick={() =>
+                                replaceSelection(toggleCandidateGroup(currentSelection, supportedRows))
+                              }
+                              disabled={supportedRows.length === 0}
                             >
                               {allSelected ? 'Clear repository' : 'Select repository'}
                             </Button>
                           </div>
                           {rows.map((candidate) => {
                             const key = localSessionId(candidate.session);
+                            const unsupportedReason = completeBackupUnsupportedReason(candidate.session);
                             return (
                               <label
                                 key={key}
@@ -614,7 +880,8 @@ export function ShareToHubDialog({
                                   className="mt-1 size-4"
                                   checked={currentSelection.has(key)}
                                   disabled={
-                                    !currentSelection.has(key) && currentSelection.size >= MAX_SHARE_ITEMS
+                                    unsupportedReason != null ||
+                                    (!currentSelection.has(key) && currentSelection.size >= MAX_SHARE_ITEMS)
                                   }
                                   onChange={() => replaceSelection(toggleCandidate(currentSelection, key))}
                                 />
@@ -628,9 +895,11 @@ export function ShareToHubDialog({
                                     {candidate.session.mtime}
                                   </span>
                                 </span>
-                                {candidate.previouslyShared && (
+                                {unsupportedReason != null ? (
+                                  <Badge variant="secondary">Codex complete backups only</Badge>
+                                ) : candidate.previouslyShared ? (
                                   <Badge variant="secondary">Previously shared · re-share</Badge>
-                                )}
+                                ) : null}
                               </label>
                             );
                           })}
@@ -641,53 +910,68 @@ export function ShareToHubDialog({
               </>
             )}
 
-            {phase === 'loading' && (
+            {phase === 'preparing' && (
               <div role="status" className="grid min-h-72 place-items-center text-sm">
-                {records.length > 0 && !fixtureMode
-                  ? 'Uploading approved canonical snapshots…'
-                  : 'Building exact canonical previews…'}
+                Preparing complete frozen backups…
               </div>
+            )}
+
+            {phase === 'uploading' && (
+              <BackupUploadProgress
+                items={records.map((record) => ({
+                  id: record.item.localSessionId,
+                  label: record.candidate.session.name ?? record.candidate.session.id,
+                  state: progress[record.item.localSessionId] ?? 'queued',
+                }))}
+              />
             )}
 
             {phase === 'review' && (
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <div className="bg-warning-bg text-warning-fg rounded-lg border p-3 text-sm">
-                  Review binds these exact source revisions and payload hashes to {destination.workspaceName}.
-                  Any change requires a new review.
+                  Review binds each complete-backup hash, exact byte count, destination, audience version, and
+                  advertised capacity to {destination.workspaceName}. Any change requires a new review.
                 </div>
-                <section className="mt-3 rounded-lg border p-3" aria-labelledby="share-stays-local">
-                  <h3 id="share-stays-local" className="text-xs font-bold tracking-wide">
-                    STAYS LOCAL
-                  </h3>
-                  <p className="text-coslash-muted pt-1 text-xs">
-                    Only the exact bounded payload shown below is uploaded. These are never included.
-                  </p>
-                  <ul className="text-coslash-muted grid min-w-0 list-disc gap-1 pt-2 pl-4 text-xs sm:grid-cols-2">
-                    {STRUCTURALLY_EXCLUDED.map((item) => (
-                      <li key={item} className="min-w-0 break-words">
-                        {item}
-                      </li>
-                    ))}
-                    <li className="min-w-0 break-words">Unselected or ineligible sessions</li>
-                  </ul>
-                </section>
+                <CompleteBackupDisclosure workspaceName={destination.workspaceName} />
                 <div className="mt-3 space-y-3">
                   {records.map((record) => (
                     <details
                       key={record.item.localSessionId}
+                      data-testid="complete-backup-review-item"
                       className="rounded-lg border p-3"
                       open={records.length === 1}
                     >
                       <summary className="cursor-pointer text-sm font-semibold">
                         {record.candidate.session.name ?? record.candidate.session.id} ·{' '}
-                        {record.preview.payloadBytes?.toLocaleString()} bytes
+                        {record.preview.coverage.totalBytes.toLocaleString()} bytes ·{' '}
+                        {record.preview.coverage.artifactCount} artifacts
                       </summary>
                       <div className="text-coslash-muted mt-2 font-mono text-xs break-all">
-                        {record.item.consent.contentHash}
+                        {record.item.consent.completeBackupSha256}
                       </div>
-                      <pre className="bg-coslash-soft mt-3 max-h-72 max-w-full overflow-auto rounded-lg border p-3 font-mono text-[11px] leading-relaxed whitespace-pre">
-                        {record.payload}
-                      </pre>
+                      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                        {record.preview.coverage.artifactCounts.map(({ kind, count }) => (
+                          <div
+                            key={kind}
+                            className="bg-coslash-soft flex justify-between gap-3 rounded-md p-2"
+                          >
+                            <dt>{kind}</dt>
+                            <dd className="font-mono">{count}</dd>
+                          </div>
+                        ))}
+                        <div className="bg-coslash-soft flex justify-between gap-3 rounded-md p-2">
+                          <dt>Per-backup capacity</dt>
+                          <dd className="font-mono">
+                            {record.item.consent.maxBackupBytes.toLocaleString()} bytes
+                          </dd>
+                        </div>
+                        <div className="bg-coslash-soft flex justify-between gap-3 rounded-md p-2">
+                          <dt>Workspace capacity</dt>
+                          <dd className="font-mono">
+                            {record.item.consent.backupWorkspaceBytes.toLocaleString()} bytes
+                          </dd>
+                        </div>
+                      </dl>
                     </details>
                   ))}
                 </div>
@@ -699,9 +983,9 @@ export function ShareToHubDialog({
                     onChange={(event) => setReviewed(event.target.checked)}
                   />
                   <span>
-                    I approve these exact {records.length} {records.length === 1 ? 'revision' : 'revisions'}{' '}
+                    I approve these exact, unredacted complete {records.length === 1 ? 'backup' : 'backups'}{' '}
                     for {destination.workspaceName} and its {destination.currentMemberCount}{' '}
-                    {destination.currentMemberCount === 1 ? 'member' : 'members'}.
+                    {destination.currentMemberCount === 1 ? 'active member' : 'active members'}.
                   </span>
                 </label>
               </div>
@@ -742,14 +1026,15 @@ export function ShareToHubDialog({
                   </div>
                   <p className="pt-2 text-sm">
                     {result.state === 'failed'
-                      ? 'Nothing was uploaded. Resolve the failures before trying again.'
-                      : 'Accepted uploads are visible immediately; their brief remains pending. No synthesis completion is claimed.'}
+                      ? 'No complete revision was accepted. Resolve the failures before trying again.'
+                      : 'Accepted complete backups are visible through their stable Hub revision routes.'}
                   </p>
                 </div>
                 <div className="mt-3 rounded-lg border">
                   {result.results.map((item) => (
                     <div
                       key={item.localSessionId}
+                      data-testid="complete-backup-result-item"
                       className="flex items-center justify-between gap-3 border-b p-3 text-sm last:border-b-0"
                     >
                       <span className="min-w-0 truncate font-mono text-xs">{item.localSessionId}</span>
@@ -762,9 +1047,7 @@ export function ShareToHubDialog({
                               : 'Ready to retry'}
                         </Badge>
                       ) : (
-                        <Badge variant="secondary">
-                          {item.state} · brief {item.briefState}
-                        </Badge>
+                        <Badge variant="secondary">{item.state}</Badge>
                       )}
                     </div>
                   ))}
@@ -809,7 +1092,7 @@ export function ShareToHubDialog({
                 Back to selection
               </Button>
               <Button onClick={submitReviewed} disabled={!reviewed}>
-                {fixtureMode ? 'Exercise fixture result' : 'Approve and share'}
+                {fixtureMode ? 'Exercise fixture result' : 'Approve and upload complete backup'}
               </Button>
             </>
           )}

@@ -69,7 +69,6 @@ All routes are loopback-only and protected by the process access-token guard.
 | `POST /api/hub/pairings` | Start device pairing |
 | `POST /api/hub/pairings/{id}/poll` | Complete pairing and store the device credential |
 | `POST /api/hub/backup-previews` | Freeze and review a complete `session-backup/v1` bundle |
-| `DELETE /api/hub/backup-previews/{bundle}` | Discard an abandoned prepared backup |
 | `POST /api/hub/shares` | Resumably upload an explicitly approved complete backup through v3 |
 
 The legacy `GET /api/hub/full-session-preview` and

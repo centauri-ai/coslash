@@ -8,8 +8,6 @@ import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog'
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
-import { FullSessionShareDialog } from '@/pages/coslash/features/full-sharing/FullSessionShareDialog';
-import { fullSessionCandidates } from '@/pages/coslash/features/full-sharing/model';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
 import {
   HUB_SHARE_VERSION,
@@ -55,6 +53,7 @@ function fixtureDestination(search: string): DestinationResult {
       historyDisclosure:
         "Sharing this revision makes it visible to the workspace's current members. Membership and approved-session counts are current when viewed.",
       credentialState: 'paired',
+      audienceVersion: 'audience-fixture-v1',
     },
   };
 }
@@ -113,7 +112,6 @@ export function CoslashPage() {
     loadFailed: diagnosticsLoadFailed,
     refresh: refreshDiagnostics,
   } = useDiagnostics(diagnosticsEnabled);
-  const [fullShareDialogOpen, setFullShareDialogOpen] = useState(false);
   const remoteRetryPromise = useRef<Promise<MachineFact | undefined> | null>(null);
   const settingsState = useSettings();
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
@@ -136,7 +134,6 @@ export function CoslashPage() {
       previouslyShared: shareFixtureEnabled && index === 0,
     }));
   }, [sessions, shareCandidateResult.sessions, shareFixtureEnabled]);
-  const fullShareCandidates = useMemo(() => fullSessionCandidates(librarySessions), [librarySessions]);
   const synthesisSettingsKey = settingsState.response
     ? [
         settingsState.response.persisted,
@@ -299,11 +296,6 @@ export function CoslashPage() {
               <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
                 Share to Hub
               </Button>
-              {shareDestination?.state === 'ready' && fullShareCandidates.length > 0 && (
-                <Button variant="outline" size="sm" onClick={() => setFullShareDialogOpen(true)}>
-                  Share full revision
-                </Button>
-              )}
             </>
           ) : undefined
         }
@@ -344,15 +336,6 @@ export function CoslashPage() {
             setShareWindow('7d');
             setSettingsDialogMode('full-settings');
           }}
-        />
-      )}
-      {shareDestination && (
-        <FullSessionShareDialog
-          open={fullShareDialogOpen}
-          onOpenChange={setFullShareDialogOpen}
-          candidates={fullShareCandidates}
-          destinationResult={shareDestination}
-          onDestinationRefresh={refreshHubDestination}
         />
       )}
       <SettingsDialog

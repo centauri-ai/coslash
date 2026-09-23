@@ -16,6 +16,7 @@ const destination: ShareDestination = {
   currentApprovedSessionCount: 0,
   historyDisclosure: 'Current members can see approved revisions.',
   credentialState: 'paired',
+  audienceVersion: 'audience-v1',
 };
 
 function session(sourceId = 'r_0123456789abcdef'): Session {

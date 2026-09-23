@@ -24,14 +24,10 @@ const (
 	BackupShareVersion   = "hub-share/v1"
 	backupUploadVersion  = "backup-upload/v1"
 	backupTimeout        = 30 * time.Minute
-	minBackupChunkBytes  = 64 << 10
-	maxBackupChunkBytes  = 16 << 20
-	maxBackupChunks      = 100_000
 )
 
 type BackupCapability struct {
 	ServerID                   string `json:"serverId"`
-	MaxRequestBytes            int64  `json:"maxRequestBytes"`
 	MaxBackupBytes             int64  `json:"maxBackupBytes"`
 	MaxBackupChunkBytes        int64  `json:"maxBackupChunkBytes"`
 	BackupWorkspaceBytes       int64  `json:"backupWorkspaceBytes"`
@@ -70,7 +66,6 @@ type BackupConsent struct {
 	AudienceMemberCount    int    `json:"audienceMemberCount"`
 	AudienceVersion        string `json:"audienceVersion"`
 	ServerID               string `json:"serverId"`
-	MaxRequestBytes        int64  `json:"maxRequestBytes"`
 	MaxBackupBytes         int64  `json:"maxBackupBytes"`
 	MaxBackupChunkBytes    int64  `json:"maxBackupChunkBytes"`
 	BackupWorkspaceBytes   int64  `json:"backupWorkspaceBytes"`
@@ -161,14 +156,12 @@ func (c *Client) loadBackupCapabilities(ctx context.Context) (BackupCapability, 
 		!slices.Contains(value.ProtocolVersions, "v3") ||
 		!slices.Contains(value.BackupVersions, sessionbackupv1.SchemaVersion) ||
 		!slices.Contains(value.BackupUploadVersions, backupUploadVersion) ||
-		value.MaxRequestBytes <= 0 || value.MaxBackupBytes <= 0 ||
-		value.MaxBackupChunkBytes < minBackupChunkBytes || value.MaxBackupChunkBytes > maxBackupChunkBytes ||
-		value.BackupWorkspaceBytes <= 0 ||
+		value.MaxBackupBytes <= 0 || value.MaxBackupChunkBytes <= 0 || value.BackupWorkspaceBytes <= 0 ||
 		value.BackupUploadExpiresSeconds <= 0 {
 		return BackupCapability{}, capabilityFailure("incompatible_server", false, errors.New("Hub does not advertise compatible complete-backup support"))
 	}
 	return BackupCapability{
-		ServerID: value.ServerID, MaxRequestBytes: value.MaxRequestBytes, MaxBackupBytes: value.MaxBackupBytes,
+		ServerID: value.ServerID, MaxBackupBytes: value.MaxBackupBytes,
 		MaxBackupChunkBytes: value.MaxBackupChunkBytes, BackupWorkspaceBytes: value.BackupWorkspaceBytes,
 		BackupUploadExpiresSeconds: value.BackupUploadExpiresSeconds,
 	}, nil
@@ -217,35 +210,11 @@ func (c *Client) PrepareBackup(ctx context.Context, selection sessionbackupprodu
 		return preview, err
 	}
 	if prepared.Coverage.TotalBytes > capability.MaxBackupBytes {
-		if err := c.discardPreparedBackup(prepared.BundleID); err != nil {
-			return backupPreviewFailure(selection, "unavailable", "temporary_unavailable", "The rejected backup could not be removed safely.", "Retry the preparation.", true), err
-		}
 		return BackupPreview{
 			AdapterVersion: BackupPreviewVersion, State: "capacity_rejected", Selection: selection,
-			SourceRevision: prepared.Manifest.Source.SourceRevision,
-			Coverage:       prepared.Coverage, Capability: &capability, AudienceVersion: destination.Destination.AudienceVersion,
+			BundleID: prepared.BundleID, SourceRevision: prepared.Manifest.Source.SourceRevision,
+			Coverage: prepared.Coverage, Capability: &capability, AudienceVersion: destination.Destination.AudienceVersion,
 			Problem: &BackupPreviewProblem{Code: "backup_capacity_exceeded", Message: "This complete backup exceeds the Hub per-backup capacity.", Action: "Ask the Hub operator to raise the configured capacity.", Retryable: false},
-		}, nil
-	}
-	plan, err := c.backupChunkPlan(prepared, capability.MaxBackupChunkBytes)
-	if err != nil {
-		err = errors.Join(err, c.discardPreparedBackup(prepared.BundleID))
-		return backupPreviewFailure(selection, "blocked", "artifact_unavailable", "The prepared backup could not be read safely.", "Prepare the backup again.", true), err
-	}
-	body, err := c.backupCreateRequest(prepared, prepared.Coverage.RevisionSHA256, plan)
-	if err != nil {
-		err = errors.Join(err, c.discardPreparedBackup(prepared.BundleID))
-		return backupPreviewFailure(selection, "blocked", "artifact_unavailable", "The prepared backup could not be encoded safely.", "Prepare the backup again.", true), err
-	}
-	if int64(len(body)) > capability.MaxRequestBytes {
-		if err := c.discardPreparedBackup(prepared.BundleID); err != nil {
-			return backupPreviewFailure(selection, "unavailable", "temporary_unavailable", "The rejected backup could not be removed safely.", "Retry the preparation.", true), err
-		}
-		return BackupPreview{
-			AdapterVersion: BackupPreviewVersion, State: "capacity_rejected", Selection: selection,
-			SourceRevision: prepared.Manifest.Source.SourceRevision,
-			Coverage:       prepared.Coverage, Capability: &capability, AudienceVersion: destination.Destination.AudienceVersion,
-			Problem: &BackupPreviewProblem{Code: "backup_capacity_exceeded", Message: "This complete backup exceeds the Hub request capacity.", Action: "Ask the Hub operator to raise the configured request capacity.", Retryable: false},
 		}, nil
 	}
 	return BackupPreview{
@@ -253,13 +222,6 @@ func (c *Client) PrepareBackup(ctx context.Context, selection sessionbackupprodu
 		Selection: selection, BundleID: prepared.BundleID, SourceRevision: prepared.Manifest.Source.SourceRevision,
 		Coverage: prepared.Coverage, Capability: &capability, AudienceVersion: destination.Destination.AudienceVersion,
 	}, nil
-}
-
-func (c *Client) discardPreparedBackup(bundleID string) error {
-	if err := c.Backup.Discard(bundleID); err != nil {
-		return fmt.Errorf("discard prepared backup: %w", err)
-	}
-	return nil
 }
 
 type backupChunkSpec struct {
@@ -326,7 +288,7 @@ func validBackupShareItem(item BackupShareItemRequest) bool {
 		consent.PreviewContractVersion == BackupPreviewVersion && consent.BundleID == consent.CompleteBackupSHA256 &&
 		len(consent.BundleID) == 64 && consent.SourceRevision != "" && consent.SelectedRevision > 0 && consent.TotalBytes >= 0 &&
 		consent.DestinationWorkspaceID != "" && consent.DestinationName != "" && consent.AudienceMemberCount >= 0 &&
-		validAudienceVersion(consent.AudienceVersion) && consent.ServerID != "" && consent.MaxRequestBytes > 0 && consent.MaxBackupBytes > 0 &&
+		validAudienceVersion(consent.AudienceVersion) && consent.ServerID != "" && consent.MaxBackupBytes > 0 &&
 		consent.MaxBackupChunkBytes > 0 && consent.BackupWorkspaceBytes > 0
 }
 
@@ -336,9 +298,7 @@ func (c *Client) ShareBackups(ctx context.Context, request BackupShareRequest) (
 		strings.TrimSpace(request.RequestID) == "" || len(request.Items) == 0 || len(request.Items) > 100 {
 		return result, errors.New("invalid complete-backup share request")
 	}
-	shareContext, cancel := context.WithTimeout(ctx, backupTimeout)
-	defer cancel()
-	credential, err := c.Credentials.Load(shareContext)
+	credential, err := c.Credentials.Load(ctx)
 	if errors.Is(err, ErrNotPaired) {
 		for _, item := range request.Items {
 			result.Results = append(result.Results, failedBackup(item, "unauthorized", true, nil))
@@ -349,6 +309,8 @@ func (c *Client) ShareBackups(ctx context.Context, request BackupShareRequest) (
 	if err != nil {
 		return result, err
 	}
+	shareContext, cancel := context.WithTimeout(ctx, backupTimeout)
+	defer cancel()
 	accepted := 0
 	for _, item := range request.Items {
 		itemResult, _ := c.shareBackupItem(shareContext, credential, item)
@@ -390,7 +352,7 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 		code, retryable := classifyCapabilityFailure(err)
 		return failedBackup(item, code, retryable, nil), errors.New("load backup capabilities")
 	}
-	if capability.ServerID != consent.ServerID || capability.MaxRequestBytes != consent.MaxRequestBytes || capability.MaxBackupBytes != consent.MaxBackupBytes ||
+	if capability.ServerID != consent.ServerID || capability.MaxBackupBytes != consent.MaxBackupBytes ||
 		capability.MaxBackupChunkBytes != consent.MaxBackupChunkBytes || capability.BackupWorkspaceBytes != consent.BackupWorkspaceBytes {
 		return failedBackup(item, "stale_backup_review", true, nil), nil
 	}
@@ -415,7 +377,7 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 		return failedBackup(item, "idempotency_conflict", false, nil), nil
 	}
 	if status.Result != nil {
-		if !validBackupUploadResult(status.Result, consent.CompleteBackupSHA256) {
+		if status.Result.CompleteBackupSHA256 != consent.CompleteBackupSHA256 || status.Result.RevisionURL == "" {
 			return failedBackup(item, "idempotency_conflict", false, nil), nil
 		}
 		return acceptedBackup(item, status, true), nil
@@ -445,15 +407,10 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 	if err != nil {
 		return failedBackup(item, problem.Code, backupRetryable(problem.Code), problem.RetryAfterSeconds), err
 	}
-	if !validBackupUploadResult(status.Result, consent.CompleteBackupSHA256) {
+	if status.Result == nil || status.Result.CompleteBackupSHA256 != consent.CompleteBackupSHA256 || status.Result.RevisionURL == "" {
 		return failedBackup(item, "temporary_unavailable", true, nil), errors.New("complete backup response mismatch")
 	}
 	return acceptedBackup(item, status, false), nil
-}
-
-func validBackupUploadResult(result *backupUploadResult, completeBackupSHA256 string) bool {
-	return result != nil && result.RevisionID != "" && result.CompleteBackupSHA256 == completeBackupSHA256 &&
-		result.RepositoryID != "" && !result.SharedAt.IsZero() && result.RevisionURL != ""
 }
 
 func validBackupStatusBinding(status backupUploadStatus, consent BackupConsent, expectedChunks int) bool {
@@ -462,27 +419,10 @@ func validBackupStatusBinding(status backupUploadStatus, consent BackupConsent, 
 }
 
 func (c *Client) backupChunkPlan(prepared *sessionbackupproducer.Prepared, chunkBytes int64) ([]backupChunkSpec, error) {
-	if prepared == nil || chunkBytes < minBackupChunkBytes || chunkBytes > maxBackupChunkBytes || chunkBytes > int64(^uint(0)>>1) {
+	if chunkBytes <= 0 || chunkBytes > int64(^uint(0)>>1) {
 		return nil, errors.New("invalid chunk capacity")
 	}
-	if len(prepared.Manifest.Artifacts) > maxBackupChunks {
-		return nil, errors.New("backup chunk count exceeds limit")
-	}
-	totalChunks := int64(0)
-	for _, artifact := range prepared.Manifest.Artifacts {
-		if artifact.ByteLength < 0 || artifact.ByteLength > sessionbackupv1.MaxArtifactBytes {
-			return nil, errors.New("artifact byte count outside limits")
-		}
-		count := (artifact.ByteLength + chunkBytes - 1) / chunkBytes
-		if count == 0 {
-			count = 1
-		}
-		if count > maxBackupChunks-totalChunks {
-			return nil, errors.New("backup chunk count exceeds limit")
-		}
-		totalChunks += count
-	}
-	plan := make([]backupChunkSpec, 0, int(totalChunks))
+	plan := make([]backupChunkSpec, 0)
 	for _, artifact := range prepared.Manifest.Artifacts {
 		count := (artifact.ByteLength + chunkBytes - 1) / chunkBytes
 		if count == 0 {
@@ -524,16 +464,22 @@ func (c *Client) readBackupChunk(prepared *sessionbackupproducer.Prepared, chunk
 }
 
 func (c *Client) createOrResumeBackup(ctx context.Context, credential string, item BackupShareItemRequest, prepared *sessionbackupproducer.Prepared, plan []backupChunkSpec) (backupUploadStatus, Problem, error) {
-	body, err := c.backupCreateRequest(prepared, item.Consent.CompleteBackupSHA256, plan)
+	manifest, err := sessionbackupv1.Marshal(prepared.Manifest)
 	if err != nil {
-		code := "temporary_unavailable"
-		if errors.Is(err, errBackupManifest) {
-			code = "backup_manifest_invalid"
-		}
-		return backupUploadStatus{}, Problem{Code: code}, err
+		return backupUploadStatus{}, Problem{Code: "backup_manifest_invalid"}, err
 	}
-	if int64(len(body)) > item.Consent.MaxRequestBytes {
-		return backupUploadStatus{}, Problem{Code: "backup_capacity_exceeded"}, errors.New("backup create request exceeds advertised limit")
+	repositoryLocalOnly, err := c.repositoryLocalOnly(prepared)
+	if err != nil {
+		return backupUploadStatus{}, Problem{Code: "temporary_unavailable"}, err
+	}
+	body, err := json.Marshal(struct {
+		Manifest                     json.RawMessage   `json:"manifest"`
+		RepositoryLocalOnly          bool              `json:"repositoryLocalOnly"`
+		ReviewedCompleteBackupSHA256 string            `json:"reviewedCompleteBackupSha256"`
+		Chunks                       []backupChunkSpec `json:"chunks"`
+	}{json.RawMessage(manifest), repositoryLocalOnly, item.Consent.CompleteBackupSHA256, plan})
+	if err != nil {
+		return backupUploadStatus{}, Problem{Code: "temporary_unavailable"}, err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint("/v3/backup-uploads"), bytes.NewReader(body))
 	if err != nil {
@@ -554,25 +500,6 @@ func (c *Client) createOrResumeBackup(ctx context.Context, credential string, it
 		}
 	}
 	return status, problem, err
-}
-
-var errBackupManifest = errors.New("invalid backup manifest")
-
-func (c *Client) backupCreateRequest(prepared *sessionbackupproducer.Prepared, completeBackupSHA256 string, plan []backupChunkSpec) ([]byte, error) {
-	manifest, err := sessionbackupv1.Marshal(prepared.Manifest)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errBackupManifest, err)
-	}
-	repositoryLocalOnly, err := c.repositoryLocalOnly(prepared)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(struct {
-		Manifest                     json.RawMessage   `json:"manifest"`
-		RepositoryLocalOnly          bool              `json:"repositoryLocalOnly"`
-		ReviewedCompleteBackupSHA256 string            `json:"reviewedCompleteBackupSha256"`
-		Chunks                       []backupChunkSpec `json:"chunks"`
-	}{json.RawMessage(manifest), repositoryLocalOnly, completeBackupSHA256, plan})
 }
 
 func (c *Client) repositoryLocalOnly(prepared *sessionbackupproducer.Prepared) (bool, error) {
