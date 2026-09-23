@@ -32,7 +32,10 @@ The allowlist matches the SFTP transport, so both transports read the same files
 ```
 
 Process liveness is the only probe outside those paths: signal 0 against a PID
-that Claude's own session metadata names.
+that Claude's own session metadata names. Separately from the helper, the Mac
+runs one bounded `git remote get-url origin` over SSH for up to 64 working
+directories that sessions recorded with a branch; see
+[data and privacy](../../../docs/data-and-privacy.md).
 
 ## Limits
 

@@ -47,28 +47,23 @@ func remoteOriginLookup(alias string, options OpenOptions) originLookup {
 }
 
 func probeRemoteOrigins(ctx context.Context, alias string, options OpenOptions, cwds []string) map[string]string {
-	found := map[string]string{}
-	safe := make([]string, 0, len(cwds))
+	safe := make([]string, 0, min(len(cwds), maxOriginProbes))
 	for _, cwd := range cwds {
+		if len(safe) == maxOriginProbes {
+			break
+		}
 		if probeableGitCwd(cwd) {
 			safe = append(safe, cwd)
 		}
 	}
-	for start := 0; start < len(safe); start += maxOriginProbes {
-		if ctx.Err() != nil {
-			return found
-		}
-		end := min(start+maxOriginProbes, len(safe))
-		batch := safe[start:end]
-		output, err := runOriginProbe(ctx, alias, options, batch)
-		if err != nil {
-			return found
-		}
-		for cwd, name := range parseOriginProbeOutput(batch, output) {
-			found[cwd] = name
-		}
+	if len(safe) == 0 {
+		return map[string]string{}
 	}
-	return found
+	output, err := runOriginProbe(ctx, alias, options, safe)
+	if err != nil {
+		return map[string]string{}
+	}
+	return parseOriginProbeOutput(safe, output)
 }
 
 func runOriginProbe(ctx context.Context, alias string, options OpenOptions, cwds []string) (string, error) {
