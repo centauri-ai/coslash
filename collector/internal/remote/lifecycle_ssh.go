@@ -191,7 +191,10 @@ func (remote *SSHLifecycleRemote) runStagedInstaller(ctx context.Context, stagin
 	stderr := &boundedCommandOutput{limit: limits.MaxStderrBytes, cancel: cancel}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
+	if err := startProcessGroup(cmd); err != nil {
+		return fmt.Errorf("start secure helper installer: %w", err)
+	}
+	if err := waitProcessGroup(cmd); err != nil {
 		if stderr.overflow {
 			return ErrStderrLimit
 		}

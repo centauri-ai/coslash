@@ -107,7 +107,10 @@ func createAuthAttempt(ctx context.Context, destination string) (string, error) 
 var runInteractiveSSH = func(ctx context.Context, args []string) error {
 	cmd := exec.CommandContext(ctx, "ssh", args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return cmd.Run()
+	if err := startProcessGroup(cmd); err != nil {
+		return err
+	}
+	return waitProcessGroup(cmd)
 }
 
 var exitAuthControlMaster = exitControlMasterBestEffort

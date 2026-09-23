@@ -444,7 +444,7 @@ func helperProcessError(
 	// A negative code means the child died from the signal this side sent, so the
 	// stream outcome carries the reason. A child that exited on its own still
 	// reports its own status even when it was killed afterwards.
-	if process.terminated && exitCode < 0 {
+	if process.terminated && processGroupTerminationExit(exitCode) {
 		return nil
 	}
 	switch exitCode {

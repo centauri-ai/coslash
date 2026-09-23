@@ -28,3 +28,5 @@ func terminateProcessGroup(cmd *exec.Cmd) {
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	_ = cmd.Process.Kill()
 }
+
+func processGroupTerminationExit(exitCode int) bool { return exitCode < 0 }
