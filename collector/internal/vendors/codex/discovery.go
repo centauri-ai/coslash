@@ -49,7 +49,7 @@ func readHeaderSourceContext(ctx context.Context, source vendors.ReadSource, pat
 	}
 	defer file.Close()
 	var row codexRow
-	if err := json.NewDecoder(file).Decode(&row); err != nil {
+	if err := json.NewDecoder(contextReader{ctx: ctx, reader: file}).Decode(&row); err != nil {
 		return "", "", fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
 	if err := ctx.Err(); err != nil {

@@ -61,8 +61,20 @@ func FingerprintSourceFiles(
 	root string,
 	files []string,
 ) ([]FileFingerprint, error) {
+	return FingerprintSourceFilesContext(context.Background(), source, root, files)
+}
+
+func FingerprintSourceFilesContext(
+	ctx context.Context,
+	source ReadSource,
+	root string,
+	files []string,
+) ([]FileFingerprint, error) {
 	fingerprints := make([]FileFingerprint, 0, len(files))
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		info, err := source.Stat(file)
 		if err != nil {
 			return nil, err
@@ -97,12 +109,19 @@ type freshStatSource interface {
 }
 
 func FingerprintSourceFilesFresh(source ReadSource, root string, files []string) ([]FileFingerprint, error) {
+	return FingerprintSourceFilesFreshContext(context.Background(), source, root, files)
+}
+
+func FingerprintSourceFilesFreshContext(ctx context.Context, source ReadSource, root string, files []string) ([]FileFingerprint, error) {
 	fresh, ok := source.(freshStatSource)
 	if !ok {
-		return FingerprintSourceFiles(source, root, files)
+		return FingerprintSourceFilesContext(ctx, source, root, files)
 	}
 	fingerprints := make([]FileFingerprint, 0, len(files))
 	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		info, err := fresh.FreshStat(file)
 		if err != nil {
 			return nil, err
@@ -321,7 +340,7 @@ func ParseJSONLSourceContext[T any](ctx context.Context, source ReadSource, path
 		return nil, err
 	}
 	defer file.Close()
-	decoder := json.NewDecoder(file)
+	decoder := json.NewDecoder(contextReader{ctx: ctx, reader: file})
 	var records []T
 	for {
 		if err := ctx.Err(); err != nil {

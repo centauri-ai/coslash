@@ -18,6 +18,7 @@ import (
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
+	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
@@ -25,10 +26,11 @@ import (
 )
 
 type artifactWriter struct {
-	root      string
-	ctx       context.Context
-	evidence  map[string]sessionbackupv1.ArtifactEvidence
-	artifacts []sessionbackupv1.Artifact
+	root       string
+	ctx        context.Context
+	evidence   map[string]sessionbackupv1.ArtifactEvidence
+	artifacts  []sessionbackupv1.Artifact
+	totalBytes int64
 }
 
 func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prepared, error) {
@@ -108,21 +110,34 @@ func captureFailure(code, kind string, retryable bool) error {
 }
 
 func (manager *Manager) capture(ctx context.Context, staging string, selection Selection, handle SourceHandle) (*Prepared, error) {
-	activeScan, err := codex.ScanSource(handle.Source, codex.SessionsRoot(handle.Home))
+	activeScan, err := codex.ScanSourceContext(ctx, handle.Source, codex.SessionsRoot(handle.Home))
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
-	archivedScan, err := codex.ScanSource(handle.Source, codex.ArchivedDir(handle.Home))
+	archivedScan, err := codex.ScanSourceContext(ctx, handle.Source, codex.ArchivedDir(handle.Home))
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
-	for _, skipped := range append(activeScan.Skipped, archivedScan.Skipped...) {
-		if codex.SessionIDFromRollout(skipped.Path) == selection.SessionID {
-			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
-		}
+	if activeScan.SkippedTotal > 0 || archivedScan.SkippedTotal > 0 {
+		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
 	}
 	allFiles := append(append([]string(nil), activeScan.Files...), archivedScan.Files...)
-	headers := codex.HeadersSource(handle.Source, allFiles)
+	for _, file := range allFiles {
+		if err := ctx.Err(); err != nil {
+			return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
+		}
+		info, statErr := handle.Source.Stat(file)
+		if statErr != nil {
+			return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
+		}
+		if info.Size() < 0 || info.Size() > sessionbackupv1.MaxArtifactBytes {
+			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
+		}
+	}
+	headers, err := codex.HeadersSourceContext(ctx, handle.Source, allFiles)
+	if err != nil {
+		return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
+	}
 	roots := codex.FamilyRoots(headers)
 	var familyFiles []string
 	for _, file := range allFiles {
@@ -143,60 +158,45 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		}
 		return left < right
 	})
-	before, err := vendors.FingerprintSourceFiles(handle.Source, handle.Home, familyFiles)
+	before, err := vendors.FingerprintSourceFilesContext(ctx, handle.Source, handle.Home, familyFiles)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
+	}
+	if !withinKnownBounds(before) {
+		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 	}
 
 	memberIDs := map[string]bool{}
 	for _, file := range familyFiles {
 		memberIDs[headers[file].SessionID] = true
 	}
+	if len(memberIDs) > sessionbackupv1.MaxMembers {
+		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
+	}
 	indexPath := codex.SessionIndexPath(handle.Home)
 	var indexBefore []vendors.FileFingerprint
 	if _, statErr := handle.Source.Stat(indexPath); statErr == nil {
-		indexBefore, err = vendors.FingerprintSourceFiles(handle.Source, handle.Home, []string{indexPath})
+		indexBefore, err = vendors.FingerprintSourceFilesContext(ctx, handle.Source, handle.Home, []string{indexPath})
 		if err != nil {
 			return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
 		}
 	} else if !errors.Is(statErr, fs.ErrNotExist) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
 	}
-	indexRows, indexPresent, err := codex.ReadSessionIndexRows(handle.Source, handle.Home, memberIDs)
+	indexRows, indexPresent, err := codex.ReadSessionIndexRowsContext(ctx, handle.Source, handle.Home, memberIDs)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawSidecar, false)
 	}
 	if indexPresent != (len(indexBefore) == 1) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
 	}
-	metadata := metadataFromRows(indexRows)
-	parsed, err := codex.ParseFamilyFilesSource(handle.Source, handle.Home, familyFiles, activeScan.Files)
+	metadata, err := metadataFromRows(ctx, indexRows)
 	if err != nil {
-		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
-	}
-	if len(parsed) != len(memberIDs) {
-		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindParsedSessionRecord, false)
-	}
-	records, err := fullsessionrecord.FromParsedFamily(selection.SourceID, vendors.AgentCodex, handle.Source, parsed, metadata)
-	if err != nil {
-		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+		return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawSidecar, true)
 	}
 	synthesisRecords := map[string]sessionbackupv1.SynthesisRecord{}
-	recordByID := make(map[string]fullsessionv1.Record, len(records))
-	for _, record := range records {
-		if _, duplicate := recordByID[record.SessionID]; duplicate {
-			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindParsedSessionRecord, false)
-		}
-		recordByID[record.SessionID] = record
-	}
-	rootRecord, ok := recordByID[selection.SessionID]
-	if !ok || len(recordByID) != len(memberIDs) {
-		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindParsedSessionRecord, false)
-	}
-
-	repository, repositoryLocalOnly := repositoryIdentity(selection.SourceKind, rootRecord.Session.WorkingDirectory)
-	if repository == "" {
-		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindSessionEnrichment, false)
+	if len(familyFiles)+len(indexRows)+2*len(memberIDs) > sessionbackupv1.MaxArtifacts {
+		return nil, captureFailure(sessionbackupv1.ProblemInvalid, "", false)
 	}
 	writes := &artifactWriter{root: staging, ctx: ctx, evidence: map[string]sessionbackupv1.ArtifactEvidence{}}
 	rawEvidenceByMember := map[string][]string{}
@@ -216,6 +216,9 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			MediaType: "application/x-ndjson", Encoding: sessionbackupv1.EncodingIdentity,
 		}
 		if err := writes.stream(ctx, artifact, func() (io.ReadCloser, error) { return handle.Source.Open(file) }); err != nil {
+			if errors.Is(err, sessionbackupv1.ErrInvalid) {
+				return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
+			}
 			return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 		}
 		frozenFiles[file] = filepath.Join(staging, filepath.FromSlash(name))
@@ -236,19 +239,18 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	if manager.afterRawCopy != nil {
 		manager.afterRawCopy()
 	}
-	after, err := vendors.FingerprintSourceFilesFresh(handle.Source, handle.Home, familyFiles)
+	after, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, familyFiles)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}
 	if indexPresent {
-		indexAfter, statErr := vendors.FingerprintSourceFilesFresh(handle.Source, handle.Home, []string{indexPath})
+		indexAfter, statErr := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, []string{indexPath})
 		if statErr != nil || !reflect.DeepEqual(indexBefore, indexAfter) {
 			return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
 		}
 	}
-	// Reparse from the exact frozen rollout bytes. The initial parse establishes
-	// that the selected live family is complete; this parse binds every
-	// processed artifact to the bytes that will actually be uploaded.
+	// Parse only the exact frozen rollout bytes so processed artifacts and raw
+	// evidence share one source snapshot.
 	frozenSource := snapshotSource{ReadSource: handle.Source, files: frozenFiles}
 	activeFamilyFiles := make([]string, 0, len(familyFiles))
 	activeSet := map[string]bool{}
@@ -260,11 +262,11 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			activeFamilyFiles = append(activeFamilyFiles, file)
 		}
 	}
-	parsed, err = codex.ParseFamilyFilesSource(frozenSource, handle.Home, familyFiles, activeFamilyFiles)
+	parsed, err := codex.ParseFamilyFilesSourceContext(ctx, frozenSource, handle.Home, familyFiles, activeFamilyFiles)
 	if err != nil || len(parsed) != len(memberIDs) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
-	records, err = fullsessionrecord.FromParsedFamily(selection.SourceID, vendors.AgentCodex, frozenSource, parsed, metadata)
+	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentCodex, frozenSource, parsed, metadata)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}
@@ -273,17 +275,23 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		for _, record := range records {
 			revisionByID[record.SessionID] = record.Session.LastActivityAtMs
 		}
-		attached := false
 		for _, item := range parsed {
+			if err := ctx.Err(); err != nil {
+				return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindSynthesis, true)
+			}
 			persisted, loadErr := manager.synthesis.LoadRecord(vendors.AgentCodex, item.Session.ID)
+			if err := ctx.Err(); err != nil {
+				return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindSynthesis, true)
+			}
 			if errors.Is(loadErr, fs.ErrNotExist) {
 				continue
 			}
-			if loadErr != nil || persisted.Revision != revisionByID[item.Session.ID] {
+			if loadErr != nil {
 				return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindSynthesis, false)
 			}
-			item.Session.Synthesis = &persisted.Synthesis
-			attached = true
+			if persisted.Revision != revisionByID[item.Session.ID] {
+				continue
+			}
 			synthesisRecords[item.Session.ID] = sessionbackupv1.SynthesisRecord{
 				Agent: vendors.AgentCodex, SessionID: item.Session.ID, Revision: persisted.Revision,
 				Model: persisted.Model, GeneratedAt: persisted.GeneratedAt,
@@ -293,25 +301,28 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 				},
 			}
 		}
-		if attached {
-			records, err = fullsessionrecord.FromParsedFamily(selection.SourceID, vendors.AgentCodex, frozenSource, parsed, metadata)
-			if err != nil {
-				return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
-			}
+	}
+	expectedArtifacts := len(writes.artifacts) + 2*len(records) + len(synthesisRecords)
+	for _, record := range records {
+		for _, edit := range record.Session.FileEdits {
+			expectedArtifacts += len(edit.Changes)
 		}
 	}
-	recordByID = make(map[string]fullsessionv1.Record, len(records))
+	if expectedArtifacts > sessionbackupv1.MaxArtifacts {
+		return nil, captureFailure(sessionbackupv1.ProblemInvalid, "", false)
+	}
+	recordByID := make(map[string]fullsessionv1.Record, len(records))
 	for _, record := range records {
 		if _, duplicate := recordByID[record.SessionID]; duplicate {
 			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindParsedSessionRecord, false)
 		}
 		recordByID[record.SessionID] = record
 	}
-	rootRecord, ok = recordByID[selection.SessionID]
+	rootRecord, ok := recordByID[selection.SessionID]
 	if !ok || len(recordByID) != len(memberIDs) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindParsedSessionRecord, false)
 	}
-	repository, repositoryLocalOnly = repositoryIdentity(selection.SourceKind, rootRecord.Session.WorkingDirectory)
+	repository, repositoryLocalOnly := repositoryIdentity(ctx, selection.SourceKind, rootRecord.Session.WorkingDirectory, handle.Enrichment[selection.SessionID])
 	if repository == "" {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindSessionEnrichment, false)
 	}
@@ -329,7 +340,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			MemberID: memberID, ParentMemberID: record.ParentSessionID,
 			SourceRevision: memberRevision, SynthesisRevisionMs: synthesisRevision,
 		})
-		if err := writes.addProcessed(record, selection.SourceKind, repository, repositoryLocalOnly, synthesisRecords[memberID]); err != nil {
+		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, repositoryLocalOnly, handle.Enrichment[memberID], synthesisRecords[memberID]); err != nil {
 			return nil, captureFailure(sessionbackupv1.ProblemInvalid, "", false)
 		}
 	}
@@ -363,9 +374,12 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	return &Prepared{BundleID: frozen.CompleteBackupSHA256, Selection: selection, Manifest: frozen, Coverage: coverage(frozen)}, nil
 }
 
-func metadataFromRows(rows map[string][]byte) *vendors.SessionMetadata {
+func metadataFromRows(ctx context.Context, rows map[string][]byte) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
 	for id, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var entry struct {
 			ThreadName string `json:"thread_name"`
 		}
@@ -373,12 +387,15 @@ func metadataFromRows(rows map[string][]byte) *vendors.SessionMetadata {
 			metadata.Session(id).Name = entry.ThreadName
 		}
 	}
-	return metadata
+	return metadata, nil
 }
 
-func repositoryIdentity(sourceKind, workingDirectory string) (string, bool) {
+func repositoryIdentity(ctx context.Context, sourceKind, workingDirectory string, frozen remote.BackupSessionEnrichment) (string, bool) {
 	if sourceKind == sessionbackupv1.SourceLocal {
-		return session.CanonicalRepositoryName(workingDirectory)
+		return session.CanonicalRepositoryNameContext(ctx, workingDirectory)
+	}
+	if frozen.Repository != nil && *frozen.Repository != "" {
+		return *frozen.Repository, frozen.RepositoryLocalOnly
 	}
 	name := path.Base(path.Clean(workingDirectory))
 	if name == "." || name == "/" {
@@ -387,7 +404,7 @@ func repositoryIdentity(sourceKind, workingDirectory string) (string, bool) {
 	return name, true
 }
 
-func (writes *artifactWriter) addProcessed(record fullsessionv1.Record, sourceKind, repository string, repositoryLocalOnly bool, persisted sessionbackupv1.SynthesisRecord) error {
+func (writes *artifactWriter) addProcessed(ctx context.Context, record fullsessionv1.Record, sourceKind, repository string, repositoryLocalOnly bool, frozen remote.BackupSessionEnrichment, persisted sessionbackupv1.SynthesisRecord) error {
 	prefix := fmt.Sprintf("members/%s/processed", record.SessionID)
 	recordBytes, err := fullsessionv1.Marshal(record)
 	if err != nil {
@@ -422,17 +439,29 @@ func (writes *artifactWriter) addProcessed(record fullsessionv1.Record, sourceKi
 	if sourceKind == sessionbackupv1.SourceLocal {
 		branch := record.Session.Branch
 		if branch == nil {
-			branch = session.CurrentBranch(record.Session.WorkingDirectory)
+			branch = session.CurrentBranchContext(ctx, record.Session.WorkingDirectory)
 			enrichment.FilesystemFallbackBranch = branch
 		}
-		if drift := session.BranchDrift(record.Session.WorkingDirectory, branch); drift != nil {
+		if drift := session.BranchDriftContext(ctx, record.Session.WorkingDirectory, branch); drift != nil {
 			enrichment.Git = &sessionbackupv1.GitDrift{BaseBranch: drift.BaseBranch, Ahead: drift.Ahead, Behind: drift.Behind}
 		}
 		value, err := fullsessionrecord.ToSession(record)
 		if err != nil {
 			return err
 		}
-		enrichment.LastEditAtMs = session.LatestFileModificationTime(value.WorkingDirectory, value.FileEdits)
+		enrichment.LastEditAtMs = session.LatestFileModificationTimeContext(ctx, value.WorkingDirectory, value.FileEdits)
+	} else {
+		if frozen.Repository != nil {
+			enrichment.Repository = frozen.Repository
+			enrichment.RepositoryLocalOnly = frozen.RepositoryLocalOnly
+		}
+		if record.Session.Branch == nil {
+			enrichment.FilesystemFallbackBranch = frozen.Branch
+		}
+		if frozen.Git != nil {
+			enrichment.Git = &sessionbackupv1.GitDrift{BaseBranch: frozen.Git.BaseBranch, Ahead: frozen.Git.Ahead, Behind: frozen.Git.Behind}
+		}
+		enrichment.LastEditAtMs = frozen.LastEditAt
 	}
 	enrichmentBytes, err := sessionbackupv1.MarshalEnrichment(enrichment)
 	if err != nil {
@@ -460,6 +489,9 @@ func (writes *artifactWriter) addProcessed(record fullsessionv1.Record, sourceKi
 }
 
 func (writes *artifactWriter) stream(ctx context.Context, artifact sessionbackupv1.Artifact, open func() (io.ReadCloser, error)) error {
+	if len(writes.artifacts) >= sessionbackupv1.MaxArtifacts || writes.totalBytes >= sessionbackupv1.MaxTotalBytes {
+		return sessionbackupv1.ErrInvalid
+	}
 	destination := filepath.Join(writes.root, filepath.FromSlash(artifact.LogicalName))
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 		return err
@@ -474,15 +506,43 @@ func (writes *artifactWriter) stream(ctx context.Context, artifact sessionbackup
 		return err
 	}
 	hash := sha256.New()
-	count, copyErr := io.CopyBuffer(io.MultiWriter(output, hash), &contextReader{ctx: ctx, reader: source}, make([]byte, 128*1024))
+	maximum := min(sessionbackupv1.MaxArtifactBytes, sessionbackupv1.MaxTotalBytes-writes.totalBytes)
+	bounded := &boundedWriter{writer: io.MultiWriter(output, hash), remaining: maximum}
+	count, copyErr := io.CopyBuffer(bounded, &contextReader{ctx: ctx, reader: source}, make([]byte, 128*1024))
 	outputErr := output.Close()
 	sourceErr := source.Close()
 	if copyErr != nil || outputErr != nil || sourceErr != nil {
 		return errors.Join(copyErr, outputErr, sourceErr)
 	}
+	if count > maximum {
+		return sessionbackupv1.ErrInvalid
+	}
 	writes.evidence[artifact.LogicalName] = sessionbackupv1.ArtifactEvidence{ByteLength: count, SHA256: hex.EncodeToString(hash.Sum(nil))}
 	writes.artifacts = append(writes.artifacts, artifact)
+	writes.totalBytes += count
 	return nil
+}
+
+type boundedWriter struct {
+	writer    io.Writer
+	remaining int64
+}
+
+func (writer *boundedWriter) Write(data []byte) (int, error) {
+	if int64(len(data)) <= writer.remaining {
+		written, err := writer.writer.Write(data)
+		writer.remaining -= int64(written)
+		return written, err
+	}
+	if writer.remaining == 0 {
+		return 0, sessionbackupv1.ErrInvalid
+	}
+	written, err := writer.writer.Write(data[:writer.remaining])
+	writer.remaining -= int64(written)
+	if err != nil {
+		return written, err
+	}
+	return written, sessionbackupv1.ErrInvalid
 }
 
 func (writes *artifactWriter) bytes(artifact sessionbackupv1.Artifact, data []byte) error {
@@ -530,4 +590,15 @@ func hashStrings(values []string) string {
 		hash.Write([]byte{'\n'})
 	}
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func withinKnownBounds(fingerprints []vendors.FileFingerprint) bool {
+	var total int64
+	for _, fingerprint := range fingerprints {
+		if fingerprint.Size < 0 || fingerprint.Size > sessionbackupv1.MaxArtifactBytes || total > sessionbackupv1.MaxTotalBytes-fingerprint.Size {
+			return false
+		}
+		total += fingerprint.Size
+	}
+	return true
 }

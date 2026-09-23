@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"sync"
 )
@@ -19,6 +20,18 @@ type SourceHealth struct {
 	Skipped      []SkippedPath
 	SkippedTotal int
 	Err          error
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextReader) Read(destination []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return reader.reader.Read(destination)
 }
 
 // ParseFiles parses concurrently while preserving source order.
@@ -165,6 +178,56 @@ func ParseSourceFilesStrict[T any](
 		return parsed, fileFailures, errors.Join(joined...)
 	}
 	return parsed, nil, nil
+}
+
+func ParseSourceFilesStrictContext[T any](
+	ctx context.Context,
+	source ReadSource,
+	files []string,
+	parse func(context.Context, ReadSource, string) (*T, error),
+) ([]*T, []FileFailure, error) {
+	results := make([]*T, len(files))
+	failures := make([]error, len(files))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range min(maxParseWorkers, len(files)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				results[index], failures[index] = parse(ctx, source, files[index])
+			}
+		}()
+	}
+	for index := range files {
+		select {
+		case jobs <- index:
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return nil, nil, ctx.Err()
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	parsed := make([]*T, 0, len(files))
+	var fileFailures []FileFailure
+	var joined []error
+	for index, result := range results {
+		if failures[index] != nil {
+			fileFailures = append(fileFailures, FileFailure{Path: files[index], Err: failures[index]})
+			joined = append(joined, fmt.Errorf("%s: %w", files[index], failures[index]))
+		} else if result != nil {
+			parsed = append(parsed, result)
+		}
+	}
+	return parsed, fileFailures, errors.Join(joined...)
 }
 
 func FindAndParse(
