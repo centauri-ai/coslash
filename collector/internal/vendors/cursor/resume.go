@@ -16,7 +16,11 @@ func ResumeDirectory(value *session.Session) string {
 		wanted := filepath.Base(filepath.Dir(filepath.Dir(stores[0])))
 		candidates := []string{value.WorkingDirectory}
 		for _, edit := range value.FileEdits {
-			candidates = append(candidates, filepath.Dir(edit.Path))
+			path := edit.Path
+			if path != "" && !filepath.IsAbs(path) {
+				path = filepath.Join(value.WorkingDirectory, path)
+			}
+			candidates = append(candidates, filepath.Dir(path))
 		}
 		for _, candidate := range candidates {
 			for dir := candidate; filepath.IsAbs(dir); dir = filepath.Dir(dir) {
