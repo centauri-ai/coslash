@@ -148,10 +148,11 @@ rebuilds the canonical envelope. Any binding change requires a new review. An
 ambiguous timeout is reconciled with the same idempotency key; a retry cannot
 create a second revision.
 
-The portable SSH record does not claim a Git remote discovered from the remote
-filesystem. If no bounded repository identity is available, the upload uses
-the disclosed working-directory basename and marks the repository local-only;
-the review shows that exact fallback before approval.
+The library card for an SSH session carries the canonical origin remote when
+`git remote get-url origin` succeeds on that host. The portable record itself
+still omits that field. If no bounded repository identity is available, the
+upload uses the disclosed working-directory basename and marks the repository
+local-only; the review shows that exact fallback before approval.
 
 ## Local server
 

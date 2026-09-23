@@ -101,8 +101,16 @@ func CanonicalRepositoryNameContext(ctx context.Context, cwd string) (string, bo
 	return filepath.Base(root), true
 }
 
+// CanonicalOriginURL returns host/owner/repo for an scp-style or URL remote.
+func CanonicalOriginURL(remote string) string {
+	return canonicalRemoteName(remote)
+}
+
 func canonicalRemoteName(remote string) string {
 	remote = strings.TrimSpace(remote)
+	if strings.IndexFunc(remote, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		return ""
+	}
 	if !strings.Contains(remote, "://") {
 		host, path, ok := strings.Cut(remote, ":")
 		if !ok || host == "" || path == "" || strings.ContainsAny(host, `/\\`) {

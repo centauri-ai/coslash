@@ -53,14 +53,21 @@ var (
 // never appears here: the request travels on stdin, so the remote command line
 // is a validated path plus one word from a closed set.
 func HelperArgs(alias, helperPath, subcommand string, connectTimeoutSeconds int) ([]string, error) {
-	destination, err := parseDestination(alias)
-	if err != nil {
+	if _, err := parseDestination(alias); err != nil {
 		return nil, err
 	}
 	if subcommand != HelperCommandCapabilities && subcommand != HelperCommandCollect {
 		return nil, fmt.Errorf("%w: %q", ErrInvalidHelperArgs, subcommand)
 	}
 	command, err := helperCommand(helperPath, subcommand)
+	if err != nil {
+		return nil, err
+	}
+	return sshCommandArgs(alias, connectTimeoutSeconds, command)
+}
+
+func sshCommandArgs(alias string, connectTimeoutSeconds int, remoteCommand string) ([]string, error) {
+	destination, err := parseDestination(alias)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +83,7 @@ func HelperArgs(alias, helperPath, subcommand string, connectTimeoutSeconds int)
 		"-o", "ControlPersist=" + defaultControlPersist,
 	}
 	args = append(args, destination.Args()...)
-	return append(args, command), nil
+	return append(args, remoteCommand), nil
 }
 
 // helperCommand renders the remote command. OpenSSH hands the command to the

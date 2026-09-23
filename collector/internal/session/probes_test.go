@@ -42,6 +42,15 @@ func TestCurrentBranchContextCancelsGit(t *testing.T) {
 	}
 }
 
+func TestCanonicalOriginURLRejectsControlCharacters(t *testing.T) {
+	if got := CanonicalOriginURL("git@github.com:victim/private.git\n1\tgit@github.com:other/repo.git"); got != "" {
+		t.Fatalf("origin = %q", got)
+	}
+	if got := CanonicalOriginURL("git@github.com:Centauri-AI/coSlash.git\n"); got != "github.com/Centauri-AI/coSlash" {
+		t.Fatalf("origin = %q", got)
+	}
+}
+
 func waitForFile(t *testing.T, path string) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
