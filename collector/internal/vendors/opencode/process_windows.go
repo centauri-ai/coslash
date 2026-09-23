@@ -16,9 +16,17 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const listTUIProcessTimeout = 5 * time.Second
+var listTUIProcessTimeout = 5 * time.Second
 
-var currentUserExecutable = winprocess.CurrentUserExecutable
+var (
+	currentUserExecutable = winprocess.CurrentUserExecutable
+	runTUIProcessQuery    = func(ctx context.Context) ([]byte, error) {
+		return exec.CommandContext(
+			ctx,
+			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command", listOpenCodeProcesses,
+		).Output()
+	}
+)
 
 const listOpenCodeProcesses = `$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
@@ -40,16 +48,13 @@ type windowsTUIProcess struct {
 }
 
 func listTUIProcesses() ([]tuiProcess, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), listTUIProcessTimeout)
-	defer cancel()
-	return listTUIProcessesContext(ctx)
+	return listTUIProcessesContext(context.Background())
 }
 
 func listTUIProcessesContext(ctx context.Context) ([]tuiProcess, error) {
-	output, err := exec.CommandContext(
-		ctx,
-		"powershell.exe", "-NoProfile", "-NonInteractive", "-Command", listOpenCodeProcesses,
-	).Output()
+	ctx, cancel := context.WithTimeout(ctx, listTUIProcessTimeout)
+	defer cancel()
+	output, err := runTUIProcessQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
