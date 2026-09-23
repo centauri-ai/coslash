@@ -3,13 +3,18 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestCursorExecutableOnlyFallsBackToAgentOwnedByCursor(t *testing.T) {
 	root := t.TempDir()
-	cursorBinary := filepath.Join(root, "cursor-agent", "versions", "1", "cursor-agent")
-	otherBinary := filepath.Join(root, "grok", "agent")
+	executableSuffix := ""
+	if runtime.GOOS == "windows" {
+		executableSuffix = ".exe"
+	}
+	cursorBinary := filepath.Join(root, "cursor-agent", "versions", "1", "cursor-agent"+executableSuffix)
+	otherBinary := filepath.Join(root, "grok", "agent"+executableSuffix)
 	for _, path := range []string{cursorBinary, otherBinary} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -31,7 +36,7 @@ func TestCursorExecutableOnlyFallsBackToAgentOwnedByCursor(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			bin := t.TempDir()
 			for name, target := range test.links {
-				if err := os.Symlink(target, filepath.Join(bin, name)); err != nil {
+				if err := os.Symlink(target, filepath.Join(bin, name+executableSuffix)); err != nil {
 					t.Fatal(err)
 				}
 			}
