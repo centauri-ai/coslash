@@ -83,7 +83,10 @@ func interactiveMasterArgs(destination string) ([]string, error) {
 		"-T",
 		"-o", "ControlMaster=no",
 		"-o", "BatchMode=no",
-		"-o", "AddKeysToAgent=yes",
+		"-o", "PreferredAuthentications=publickey",
+		"-o", "PasswordAuthentication=no",
+		"-o", "KbdInteractiveAuthentication=no",
+		"-o", "AddKeysToAgent=1h",
 		"-o", "ConnectTimeout=" + fmt.Sprint(int(DefaultConnectTimeout.Seconds())),
 	}
 	args = append(args, parsed.Args()...)
