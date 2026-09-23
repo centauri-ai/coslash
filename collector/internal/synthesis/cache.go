@@ -1,6 +1,7 @@
 package synthesis
 
 import (
+	"container/list"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,54 +39,67 @@ type cacheKey struct {
 
 func NewCache() *Cache {
 	return &Cache{
-		missingRecords: newNegativeCache[cacheKey](1024, time.Minute),
+		missingRecords: newNegativeCache[cacheKey](4*vendors.MaxCandidateFilesPerAgent, time.Minute),
 		missingAgents:  newNegativeCache[string](16, time.Minute),
 	}
 }
 
 type negativeCache[K comparable] struct {
 	mu      sync.Mutex
-	entries map[K]time.Time
+	entries map[K]*list.Element
+	order   list.List
 	limit   int
 	ttl     time.Duration
 	now     func() time.Time
 }
 
+type negativeEntry[K comparable] struct {
+	key     K
+	expires time.Time
+}
+
 func newNegativeCache[K comparable](limit int, ttl time.Duration) *negativeCache[K] {
-	return &negativeCache[K]{entries: map[K]time.Time{}, limit: limit, ttl: ttl, now: time.Now}
+	return &negativeCache[K]{entries: map[K]*list.Element{}, limit: limit, ttl: ttl, now: time.Now}
 }
 
 func (c *negativeCache[K]) contains(key K) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	expires, ok := c.entries[key]
-	if ok && c.now().Before(expires) {
+	element, ok := c.entries[key]
+	if ok && c.now().Before(element.Value.(negativeEntry[K]).expires) {
 		return true
 	}
-	delete(c.entries, key)
+	c.remove(element)
 	return false
 }
 
 func (c *negativeCache[K]) add(key K) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, exists := c.entries[key]; !exists && len(c.entries) >= c.limit {
-		var oldestKey K
-		var oldest time.Time
-		for candidate, expires := range c.entries {
-			if oldest.IsZero() || expires.Before(oldest) {
-				oldestKey, oldest = candidate, expires
-			}
-		}
-		delete(c.entries, oldestKey)
+	expires := c.now().Add(c.ttl)
+	if element, exists := c.entries[key]; exists {
+		element.Value = negativeEntry[K]{key: key, expires: expires}
+		c.order.MoveToBack(element)
+		return
 	}
-	c.entries[key] = c.now().Add(c.ttl)
+	if len(c.entries) >= c.limit {
+		c.remove(c.order.Front())
+	}
+	c.entries[key] = c.order.PushBack(negativeEntry[K]{key: key, expires: expires})
 }
 
 func (c *negativeCache[K]) delete(key K) {
 	c.mu.Lock()
-	delete(c.entries, key)
+	c.remove(c.entries[key])
 	c.mu.Unlock()
+}
+
+func (c *negativeCache[K]) remove(element *list.Element) {
+	if element == nil {
+		return
+	}
+	delete(c.entries, element.Value.(negativeEntry[K]).key)
+	c.order.Remove(element)
 }
 
 func MigrateLegacyCache(exists func(agent, id string) (bool, error)) error {

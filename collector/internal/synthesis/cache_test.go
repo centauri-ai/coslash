@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func writeLegacyRecord(t *testing.T, id string) string {
@@ -122,6 +124,22 @@ func TestNegativeCacheIsBoundedAndExpiring(t *testing.T) {
 	now = now.Add(2 * time.Minute)
 	if cache.contains("two") || cache.contains("three") {
 		t.Fatalf("expired entries remain active: %#v", cache.entries)
+	}
+}
+
+func TestRecordMissCacheCoversSupportedSessionSet(t *testing.T) {
+	cache := NewCache()
+	for agentIndex, agent := range []string{"claude", "codex", "cursor", "opencode"} {
+		for sessionIndex := range vendors.MaxCandidateFilesPerAgent {
+			cache.missingRecords.add(cacheKey{agent: agent, id: fmt.Sprintf("%d-%d", agentIndex, sessionIndex)})
+		}
+	}
+	want := 4 * vendors.MaxCandidateFilesPerAgent
+	if got := len(cache.missingRecords.entries); got != want {
+		t.Fatalf("record misses = %d, want %d", got, want)
+	}
+	if !cache.missingRecords.contains(cacheKey{agent: "claude", id: "0-0"}) {
+		t.Fatal("supported working set evicted its earliest miss")
 	}
 }
 
