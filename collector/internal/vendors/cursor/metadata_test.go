@@ -60,6 +60,21 @@ func TestCommitObservationsRequireCompletedCommitCommand(t *testing.T) {
 	}
 }
 
+func TestCommitObservationsSupportCursorV2TerminalBubbles(t *testing.T) {
+	value := `{"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","rawArgs":"","params":"{\"command\":\"git commit -m 'ship it'\"}","result":"{\"output\":\"[main 6a875286] ship it\\n\",\"rejected\":false,\"notInterrupted\":true}"}}`
+	got := commitObservationsFromIDEBubble(value)
+	if len(got) != 1 || got[0].Hash != "6a875286" || got[0].Subject != "ship it" {
+		t.Fatalf("commit observations = %v, want v2 terminal commit", got)
+	}
+}
+
+func TestCommitObservationsRejectCursorV2AttemptsWithoutOutputHash(t *testing.T) {
+	value := `{"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","params":"{\"command\":\"git commit -m 'ship it'\"}","result":"{\"output\":\"nothing to commit\\n\",\"rejected\":false,\"notInterrupted\":true}"}}`
+	if got := commitObservationsFromIDEBubble(value); len(got) != 0 {
+		t.Fatalf("commit observations = %v, want no unverified commits", got)
+	}
+}
+
 func TestLoadMetadataForSessionsReturnsOnlyRequestedIDs(t *testing.T) {
 	home := t.TempDir()
 	statePath := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
