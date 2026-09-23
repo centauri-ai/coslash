@@ -517,6 +517,12 @@ func TestFreezeEvidenceMatchesByteFreeze(t *testing.T) {
 	if _, err := FreezeEvidence(manifest, evidence); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("oversized evidence error = %v; want invalid", err)
 	}
+
+	evidence[first] = ArtifactEvidence{ByteLength: manifest.Artifacts[0].ByteLength, SHA256: manifest.Artifacts[0].SHA256}
+	evidence["unmanifested"] = ArtifactEvidence{ByteLength: 1, SHA256: strings.Repeat("0", sha256.Size*2)}
+	if _, err := FreezeEvidence(manifest, evidence); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unmanifested evidence error = %v; want invalid", err)
+	}
 }
 
 func TestFamilyFixtureHasRecursiveMemberWithoutUnrelatedFamily(t *testing.T) {

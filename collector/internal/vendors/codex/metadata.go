@@ -120,10 +120,9 @@ func ReadSessionIndexRows(source vendors.ReadSource, home string, ids map[string
 		if errors.Is(readErr, vendors.ErrInvalidData) {
 			return nil, true, readErr
 		}
-		trimmed := bytes.TrimSpace(line)
-		if len(trimmed) > 0 {
+		if len(bytes.Trim(line, " \t\r\n")) > 0 {
 			var entry sessionIndexEntry
-			if err := json.Unmarshal(trimmed, &entry); err != nil {
+			if err := json.Unmarshal(line, &entry); err != nil {
 				return nil, true, fmt.Errorf("%w: malformed session index row", vendors.ErrInvalidData)
 			}
 			id, ok := jsonString(entry.ID)

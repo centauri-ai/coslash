@@ -179,10 +179,9 @@ time.
 
 ## Aggregate measurement and configurable limits
 
-The concrete local/SSH capture and retry-spool implementation lives in
-`internal/sessionbackupproducer`. It finalizes this manifest from streamed
-artifact length/hash evidence, then verifies retained bytes without changing
-the canonical contract.
+A future local/SSH capture and retry-spool implementation will finalize this
+manifest from streamed artifact length/hash evidence, then verify retained
+bytes without changing the canonical contract.
 
 Exact completed bundles can be measured without printing content, paths,
 source IDs, repository IDs, session IDs, or artifact names:

@@ -177,10 +177,18 @@ var CoverageMatrix = []SupportStatus{
 func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 	evidence := make(map[string]ArtifactEvidence, len(blobs))
 	for name, blob := range blobs {
-		sum := sha256.Sum256(blob)
-		evidence[name] = ArtifactEvidence{ByteLength: int64(len(blob)), SHA256: hex.EncodeToString(sum[:])}
+		evidence[name] = ArtifactEvidence{ByteLength: int64(len(blob))}
 	}
-	frozen, err := FreezeEvidence(manifest, evidence)
+	prepared, err := prepareManifest(manifest, evidence)
+	if err != nil {
+		return Manifest{}, err
+	}
+	for index := range prepared.Artifacts {
+		artifact := &prepared.Artifacts[index]
+		sum := sha256.Sum256(blobs[artifact.LogicalName])
+		artifact.SHA256 = hex.EncodeToString(sum[:])
+	}
+	frozen, err := freezePreparedManifest(prepared)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -193,6 +201,14 @@ func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
 // FreezeEvidence orders and hashes a completed manifest from evidence already
 // computed while artifact bytes were streamed to durable storage.
 func FreezeEvidence(manifest Manifest, evidence map[string]ArtifactEvidence) (Manifest, error) {
+	prepared, err := prepareManifest(manifest, evidence)
+	if err != nil {
+		return Manifest{}, err
+	}
+	return freezePreparedManifest(prepared)
+}
+
+func prepareManifest(manifest Manifest, evidence map[string]ArtifactEvidence) (Manifest, error) {
 	manifest = cloneManifest(manifest)
 	manifest.SchemaVersion = SchemaVersion
 	manifest.CanonicalVersion = CanonicalVersion
@@ -247,6 +263,10 @@ func FreezeEvidence(manifest Manifest, evidence map[string]ArtifactEvidence) (Ma
 	}
 	manifest.Summary = summarize(manifest.Artifacts)
 	sort.Strings(manifest.RequiredVersions)
+	return manifest, nil
+}
+
+func freezePreparedManifest(manifest Manifest) (Manifest, error) {
 	if err := validate(manifest, false); err != nil {
 		return Manifest{}, err
 	}
