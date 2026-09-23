@@ -94,10 +94,12 @@ Release binaries are unsigned. macOS may warn about archives downloaded through 
 
 ### Windows
 
-Download [coSlash for Windows (amd64)](https://github.com/centauri-ai/coslash/releases/latest/download/coslash-windows-amd64.exe),
-then double-click the executable. coSlash runs as a portable application and
-opens its UI in your browser; no administrator privileges, WSL, Go, Node, or
-GNU tools are required.
+Open the [coSlash releases](https://github.com/centauri-ai/coslash/releases)
+page and download `coslash-windows-amd64.exe` from the newest stable release
+that includes it. If none does, use the newest prerelease with that executable.
+Double-click the executable. coSlash runs as a portable application and opens
+its UI in your browser; no administrator privileges, WSL, Go, Node, or GNU
+tools are required.
 
 Move the executable to a permanent folder if desired. To upgrade, download the
 new release and replace the previous executable. Removing the executable
@@ -106,12 +108,11 @@ uninstalls coSlash but leaves its data in `~\.coslash`.
 <details>
 <summary>Verify the Windows download checksum</summary>
 
-Open Windows PowerShell in the directory containing the downloaded executable,
-then run:
+Download `checksums-windows.txt` from the same release as the executable. Open
+Windows PowerShell in the directory containing both files, then run:
 
 ```powershell
 $Asset = "coslash-windows-amd64.exe"
-Invoke-WebRequest -UseBasicParsing "https://github.com/centauri-ai/coslash/releases/latest/download/checksums-windows.txt" -OutFile checksums-windows.txt
 $Expected = (Select-String -Path checksums-windows.txt -Pattern "  $([regex]::Escape($Asset))$").Line.Split()[0]
 $Actual = (Get-FileHash $Asset -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($Actual -ne $Expected) { throw "$Asset checksum does not match" }
