@@ -1,5 +1,6 @@
 import { apiFetch } from '@/pages/coslash/lib/api';
 import {
+  isCanonicalBackupRoute,
   RETRY_RULES,
   type BackupPreview,
   type BackupSelection,
@@ -96,12 +97,15 @@ function isShareResult(value: unknown): value is ShareResult {
     return (
       (item.state === 'accepted' || item.state === 'already_accepted') &&
       typeof item.revisionId === 'string' &&
+      item.revisionId.length > 0 &&
       typeof item.deduplicated === 'boolean' &&
       typeof item.sharedAt === 'string' &&
       isRecord(item.route) &&
       item.route.hubContractVersion === 'session-backup-read/v1' &&
       typeof item.route.repositoryId === 'string' &&
-      typeof item.route.path === 'string'
+      item.route.repositoryId.length > 0 &&
+      typeof item.route.path === 'string' &&
+      isCanonicalBackupRoute(item.revisionId, item.route.path)
     );
   });
 }
@@ -113,18 +117,18 @@ function isBackupPreview(value: unknown): value is BackupPreview {
     typeof value.state !== 'string' ||
     typeof value.approvalAllowed !== 'boolean' ||
     !isRecord(value.selection) ||
-    !isRecord(value.coverage)
+    !isRecord(value.coverage) ||
+    typeof value.coverage.artifactCount !== 'number' ||
+    !Array.isArray(value.coverage.artifactCounts) ||
+    typeof value.coverage.totalBytes !== 'number' ||
+    typeof value.coverage.revisionSha256 !== 'string' ||
+    !Array.isArray(value.coverage.problems)
   ) {
     return false;
   }
   if (value.state !== 'ready') return isRecord(value.problem);
   return (
     value.approvalAllowed === true &&
-    typeof value.coverage.artifactCount === 'number' &&
-    Array.isArray(value.coverage.artifactCounts) &&
-    typeof value.coverage.totalBytes === 'number' &&
-    typeof value.coverage.revisionSha256 === 'string' &&
-    Array.isArray(value.coverage.problems) &&
     typeof value.bundleId === 'string' &&
     typeof value.sourceRevision === 'string' &&
     typeof value.audienceVersion === 'string' &&
@@ -168,29 +172,24 @@ export async function pollHubPairing(pairingId: string): Promise<PairingResult> 
   );
 }
 
-export async function submitHubShare(request: ShareRequest, signal?: AbortSignal): Promise<ShareResult> {
+export async function submitHubShare(request: ShareRequest): Promise<ShareResult> {
   return jsonResponse<ShareResult>(
     await apiFetch('/api/hub/shares', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
-      signal,
     }),
     'The Hub share request failed',
     isShareResult,
   );
 }
 
-export async function prepareBackup(
-  selection: BackupSelection,
-  signal?: AbortSignal,
-): Promise<BackupPreview> {
+export async function prepareBackup(selection: BackupSelection): Promise<BackupPreview> {
   return jsonResponse<BackupPreview>(
     await apiFetch('/api/hub/backup-previews', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(selection),
-      signal,
     }),
     'The complete backup could not be prepared',
     isBackupPreview,

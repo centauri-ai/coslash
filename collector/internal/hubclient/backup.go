@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -180,6 +181,9 @@ func (c *Client) PrepareBackup(ctx context.Context, selection sessionbackupprodu
 		(selection.SourceKind != sessionbackupv1.SourceLocal && selection.SourceKind != sessionbackupv1.SourceSSH) {
 		return backupPreviewFailure(selection, "invalid", "invalid_share_request", "This session selection is invalid.", "Refresh sessions and select it again.", false), nil
 	}
+	if selection.Agent != "codex" {
+		return backupPreviewFailure(selection, "blocked", "complete_backup_unsupported", "Complete backup currently supports local and SSH Codex sessions only.", "Choose a Codex session to share. This session remains local.", false), nil
+	}
 	destination, err := c.Destination(ctx)
 	if err != nil {
 		return backupPreviewFailure(selection, "unavailable", "temporary_unavailable", "The paired destination could not be verified.", "Retry the preparation.", true), err
@@ -281,6 +285,14 @@ func acceptedBackup(item BackupShareItemRequest, status backupUploadStatus, alre
 	}
 }
 
+func validCompletedBackupResult(result *backupUploadResult, consent BackupConsent) bool {
+	if result == nil || result.RevisionID == "" || result.RepositoryID == "" || result.SharedAt.IsZero() ||
+		result.CompleteBackupSHA256 != consent.CompleteBackupSHA256 {
+		return false
+	}
+	return result.RevisionURL == "/v3/session-backups/"+url.PathEscape(result.RevisionID)
+}
+
 func validBackupShareItem(item BackupShareItemRequest) bool {
 	consent := item.Consent
 	return item.LocalSessionID != "" && item.Selection.SourceID != "" && item.Selection.Agent != "" && item.Selection.SessionID != "" &&
@@ -290,6 +302,21 @@ func validBackupShareItem(item BackupShareItemRequest) bool {
 		consent.DestinationWorkspaceID != "" && consent.DestinationName != "" && consent.AudienceMemberCount >= 0 &&
 		validAudienceVersion(consent.AudienceVersion) && consent.ServerID != "" && consent.MaxBackupBytes > 0 &&
 		consent.MaxBackupChunkBytes > 0 && consent.BackupWorkspaceBytes > 0
+}
+
+func backupShareEligibility(item BackupShareItemRequest) string {
+	selection := item.Selection
+	if selection.SourceKind != sessionbackupv1.SourceLocal && selection.SourceKind != sessionbackupv1.SourceSSH {
+		return "invalid_share_request"
+	}
+	if selection.Agent != "codex" {
+		return "complete_backup_unsupported"
+	}
+	sourceID, agent, sessionID, ok := parseShareSessionID(item.LocalSessionID)
+	if !ok || sourceID != selection.SourceID || agent != selection.Agent || sessionID != selection.SessionID {
+		return "invalid_share_request"
+	}
+	return ""
 }
 
 func (c *Client) ShareBackups(ctx context.Context, request BackupShareRequest) (BackupShareResult, error) {
@@ -335,6 +362,9 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 	if !validBackupShareItem(item) {
 		return failedBackup(item, "invalid_share_request", false, nil), nil
 	}
+	if code := backupShareEligibility(item); code != "" {
+		return failedBackup(item, code, false, nil), nil
+	}
 	destination, err := c.Destination(ctx)
 	if err != nil {
 		return failedBackup(item, "temporary_unavailable", true, nil), errors.New("verify backup destination")
@@ -357,7 +387,26 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 		return failedBackup(item, "stale_backup_review", true, nil), nil
 	}
 	prepared, err := c.Backup.Open(consent.BundleID)
-	if err != nil || prepared.Selection != item.Selection || prepared.Manifest.Source.SourceRevision != consent.SourceRevision ||
+	if err != nil {
+		status, problem, statusErr := c.lookupBackupStatus(ctx, credential, item.IdempotencyKey)
+		if statusErr != nil {
+			if problem.Status == http.StatusNotFound || problem.Code == "not_found" {
+				return failedBackup(item, "stale_backup_review", true, nil), nil
+			}
+			return failedBackup(item, problem.Code, backupRetryable(problem.Code), problem.RetryAfterSeconds), errors.New("lookup backup status")
+		}
+		if status.CompleteBackupSHA256 != consent.CompleteBackupSHA256 || status.TotalBytes != consent.TotalBytes {
+			return failedBackup(item, "idempotency_conflict", false, nil), nil
+		}
+		if status.Result == nil {
+			return failedBackup(item, "stale_backup_review", true, nil), nil
+		}
+		if status.State != "completed" || !validCompletedBackupResult(status.Result, consent) {
+			return failedBackup(item, "idempotency_conflict", false, nil), nil
+		}
+		return acceptedBackup(item, status, true), nil
+	}
+	if prepared.Selection != item.Selection || prepared.Manifest.Source.SourceRevision != consent.SourceRevision ||
 		prepared.Coverage.RevisionSHA256 != consent.CompleteBackupSHA256 || prepared.Coverage.TotalBytes != consent.TotalBytes {
 		return failedBackup(item, "stale_backup_review", true, nil), nil
 	}
@@ -377,7 +426,7 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 		return failedBackup(item, "idempotency_conflict", false, nil), nil
 	}
 	if status.Result != nil {
-		if status.Result.CompleteBackupSHA256 != consent.CompleteBackupSHA256 || status.Result.RevisionURL == "" {
+		if status.State != "completed" || !validCompletedBackupResult(status.Result, consent) {
 			return failedBackup(item, "idempotency_conflict", false, nil), nil
 		}
 		return acceptedBackup(item, status, true), nil
@@ -407,7 +456,7 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 	if err != nil {
 		return failedBackup(item, problem.Code, backupRetryable(problem.Code), problem.RetryAfterSeconds), err
 	}
-	if status.Result == nil || status.Result.CompleteBackupSHA256 != consent.CompleteBackupSHA256 || status.Result.RevisionURL == "" {
+	if status.State != "completed" || !validCompletedBackupResult(status.Result, consent) {
 		return failedBackup(item, "temporary_unavailable", true, nil), errors.New("complete backup response mismatch")
 	}
 	return acceptedBackup(item, status, false), nil

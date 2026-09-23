@@ -1,4 +1,4 @@
-import { isEligibleForSharing, isLocalSession, sessionKey, type Session } from '@/pages/coslash/lib/session';
+import { isEligibleForSharing, isLocalSession, type Session } from '@/pages/coslash/lib/session';
 
 // C4 contract; provider fixtures live in coslash-server/testdata/hub-share-v1.
 export const HUB_SHARE_VERSION = 'hub-share/v1' as const;
@@ -157,9 +157,7 @@ export type ShareResult = {
 export type ShareWindow = '7d' | '30d' | 'all';
 export type ShareCandidate = { session: Session; previouslyShared: boolean };
 
-export function completeBackupUnsupportedReason(session: Pick<Session, 'agent'>): string | null {
-  return session.agent === 'codex' ? null : 'Complete backup v1 supports Codex sessions only.';
-}
+export const COMPLETE_BACKUP_SUPPORT_MESSAGE = 'Complete backup supports local and SSH Codex sessions only.';
 
 export const RETRY_RULES: Record<
   ShareError,
@@ -268,7 +266,7 @@ export function localSessionId(session: Pick<Session, 'sourceId' | 'agent' | 'id
   // The opaque source ID is part of the local orchestration identity only. It
   // lets a local and SSH session with the same vendor ID remain independently
   // reviewable without putting a host, username, or path in the request.
-  return sessionKey(session);
+  return `${session.sourceId}:${session.agent}:${session.id}`;
 }
 
 /**
@@ -298,13 +296,26 @@ export function filterShareCandidates(
   });
 }
 
+export function isCompleteBackupCandidate(candidate: ShareCandidate): boolean {
+  return candidate.session.agent === 'codex';
+}
+
 // Hidden approval is unsafe. Narrowing either filter removes newly hidden rows.
 export function reconcileVisibleSelection(
   selected: ReadonlySet<string>,
   visible: ShareCandidate[],
 ): Set<string> {
-  const visibleKeys = new Set(visible.map(({ session }) => localSessionId(session)));
+  const visibleKeys = new Set(
+    visible.filter(isCompleteBackupCandidate).map(({ session }) => localSessionId(session)),
+  );
   return new Set([...selected].filter((key) => visibleKeys.has(key)));
+}
+
+export function limitShareSelection(
+  selected: ReadonlySet<string>,
+  candidates: ShareCandidate[],
+): Set<string> {
+  return new Set([...reconcileVisibleSelection(selected, candidates)].slice(0, MAX_SHARE_ITEMS));
 }
 
 export function toggleCandidate(selected: ReadonlySet<string>, key: string): Set<string> {
@@ -319,7 +330,7 @@ export function toggleCandidateGroup(
   candidates: ShareCandidate[],
 ): Set<string> {
   const next = new Set(selected);
-  const keys = candidates.map(({ session }) => localSessionId(session));
+  const keys = candidates.filter(isCompleteBackupCandidate).map(({ session }) => localSessionId(session));
   const allSelected = keys.length > 0 && keys.every((key) => next.has(key));
   for (const key of keys) {
     if (allSelected) next.delete(key);
@@ -435,9 +446,27 @@ export function planShareRetry(result: ShareResult): {
 }
 
 export function primarySuccessRoute(result: ShareResult): RouteHandoff | null {
-  return result.results.find((item) => item.state !== 'failed')?.route ?? null;
+  const success = result.results.find(
+    (item): item is Extract<ShareItemResult, { state: 'accepted' | 'already_accepted' }> =>
+      item.state !== 'failed' &&
+      item.route.repositoryId.length > 0 &&
+      isCanonicalBackupRoute(item.revisionId, item.route.path),
+  );
+  return success?.route ?? null;
+}
+
+export function isCanonicalBackupRoute(revisionId: string, path: string): boolean {
+  return revisionId.length > 0 && path === `/v3/session-backups/${encodeURIComponent(revisionId)}`;
 }
 
 export function hubRouteURL(hubURL: string, path: string): string {
-  return new URL(path.replace(/^\/+/, ''), `${hubURL.replace(/\/+$/, '')}/`).toString();
+  if (!/^\/(?!\/)[^?#]+$/.test(path)) {
+    throw new Error('The Hub route is outside the expected contract.');
+  }
+  const base = new URL(`${hubURL.replace(/\/+$/, '')}/`);
+  const route = new URL(path.slice(1), base);
+  if (route.origin !== base.origin || !route.pathname.startsWith(base.pathname)) {
+    throw new Error('The Hub route is outside the expected contract.');
+  }
+  return route.toString();
 }
