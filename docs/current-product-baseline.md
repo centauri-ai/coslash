@@ -23,9 +23,10 @@ also contains the two maintenance commits that were already on `origin/main`.
 - Discover local and SSH sessions in one source-aware library while keeping
   host names, user names, absolute paths, prompts, commands, and transcripts
   out of the browser source summary.
-- Pair with a configured coSlash Hub, preview the exact bounded outgoing
-  snapshot, review destination/audience/revision/exclusions, and explicitly
-  share one session or a bounded batch. There is no standing auto-share rule.
+- Pair with a configured coSlash Hub, freeze the complete local/SSH Codex
+  session-family backup, review its inventory/hash/bytes/capacity and the
+  destination audience, and explicitly share one session or a bounded batch.
+  There is no standing auto-share rule.
 - Open the server-confirmed Hub route after an accepted upload and preserve
   idempotent retry behavior.
 
@@ -39,7 +40,7 @@ also contains the two maintenance commits that were already on `origin/main`.
 | Remote source | SSH manager plus versioned `coslash-helper` for Linux amd64/arm64 |
 | Local state | `~/.coslash/settings.json`, cached derived summaries, temporary handoffs, and normalized remote facts |
 | Hub credential | OS keychain entry scoped to the configured Hub host |
-| Raw source policy | Local and remote transcripts are read-only; raw remote transcript bytes are not persisted |
+| Raw source policy | Local and remote transcripts are read-only; an explicitly prepared complete backup persists exact attributable bytes in a private retry spool until discarded |
 
 ## Local HTTP API
 
@@ -67,11 +68,13 @@ All routes are loopback-only and protected by the process access-token guard.
 | `GET /api/hub/destination` | Read pairing and destination readiness |
 | `POST /api/hub/pairings` | Start device pairing |
 | `POST /api/hub/pairings/{id}/poll` | Complete pairing and store the device credential |
-| `POST /api/hub/shares` | Submit an explicitly approved `hub-share/v1` request |
+| `POST /api/hub/backup-previews` | Freeze and review a complete `session-backup/v1` bundle |
+| `DELETE /api/hub/backup-previews/{bundle}` | Discard an abandoned prepared backup |
+| `POST /api/hub/shares` | Resumably upload an explicitly approved complete backup through v3 |
 
-Post-baseline C03 adds `GET /api/hub/full-session-preview` and
-`POST /api/hub/full-session-shares` for a separately reviewed and approved
-complete SSH Codex revision.
+The legacy `GET /api/hub/full-session-preview` and
+`POST /api/hub/full-session-shares` compatibility routes remain available to
+older clients, but there is no separate full-revision action in the normal UI.
 
 ## Contracts and privacy boundary
 
@@ -79,6 +82,10 @@ complete SSH Codex revision.
 - `collector/internal/sessionpreview`: exact review document presented before
   an upload.
 - `collector/internal/sessionexport`: allow-listed metadata-only serialization.
+- `collector/sessionbackup/v1`: canonical complete logical-family manifest,
+  artifact taxonomy, hashing, fixtures, and verifier.
+- `collector/internal/sessionbackupproducer`: frozen local/SSH Codex bundle
+  production and restart-safe spools.
 - `collector/internal/hubclient`: discovery, pairing, destination, upload,
   status, and canonical Hub handoff client.
 - At the 2026-09-11 baseline, local-only categories included raw

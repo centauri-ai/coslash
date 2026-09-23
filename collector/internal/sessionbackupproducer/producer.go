@@ -51,10 +51,11 @@ type Coverage struct {
 }
 
 type Prepared struct {
-	BundleID  string                   `json:"bundleId"`
-	Selection Selection                `json:"selection"`
-	Manifest  sessionbackupv1.Manifest `json:"manifest"`
-	Coverage  Coverage                 `json:"coverage"`
+	BundleID   string                   `json:"bundleId"`
+	Selection  Selection                `json:"selection"`
+	Manifest   sessionbackupv1.Manifest `json:"manifest"`
+	Coverage   Coverage                 `json:"coverage"`
+	ownsBundle bool
 }
 
 const (
@@ -223,21 +224,26 @@ func (manager *Manager) Start(ctx context.Context, selection Selection) (string,
 		defer cancel()
 		prepared, err := manager.Prepare(operationContext, selection)
 		manager.mu.Lock()
-		if err == nil {
-			item.state.State = StateReady
-			item.state.Prepared = prepared
-			item.state.Coverage = prepared.Coverage
-		} else if operationContext.Err() != nil {
+		if operationContext.Err() != nil {
+			manager.mu.Unlock()
+			if prepared != nil && prepared.ownsBundle {
+				_ = manager.Discard(prepared.BundleID)
+			}
+			manager.mu.Lock()
 			item.state.State = StateCancelled
 			item.state.Coverage = Coverage{Problems: []sessionbackupv1.CaptureProblem{{
 				Code: sessionbackupv1.ProblemUnavailable, MemberID: selection.SessionID, Retryable: true,
 			}}}
-		} else {
+		} else if err != nil {
 			item.state.State = StateFailed
 			var preparationError *PreparationError
 			if errors.As(err, &preparationError) {
 				item.state.Coverage = preparationError.Coverage
 			}
+		} else {
+			item.state.State = StateReady
+			item.state.Prepared = prepared
+			item.state.Coverage = prepared.Coverage
 		}
 		item.completedAt = manager.now()
 		close(item.done)

@@ -19,9 +19,10 @@ files; processed records and exact changes therefore describe the same bytes
 that the bundle retains without a second full SSH read. Revision-matched
 persisted synthesis is attached for local sources. The spool
 survives collector restarts and remains available through `Open` and bounded
-`Read` calls until `Discard` is explicit. Cancellation observed before
-publication leaves only private staging behind; the atomic rename is the commit
-point, after which cancellation cannot discard a published or reused bundle.
+`Read` calls until `Discard` is explicit. The local Hub API exposes discard for
+an abandoned ready preview and removes non-approvable bundles immediately.
+Cancellation observed through the
+publishing handoff removes its new bundle but never discards a reused bundle.
 The spool root and bundle directories are mode `0700`; artifact files and
 manifests are mode `0600`.
 

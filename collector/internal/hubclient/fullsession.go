@@ -50,17 +50,23 @@ type FullSessionPreview struct {
 }
 
 type fullSessionCapabilities struct {
-	Product             string   `json:"product"`
-	ServerID            string   `json:"serverId"`
-	DisplayName         string   `json:"displayName"`
-	ProtocolVersions    []string `json:"protocolVersions"`
-	SnapshotVersions    []string `json:"snapshotVersions"`
-	MaxSnapshotBytes    int64    `json:"maxSnapshotBytes"`
-	FullSessionVersions []string `json:"fullSessionVersions"`
-	MaxFullSessionBytes int64    `json:"maxFullSessionBytes"`
-	MaxRequestBytes     int64    `json:"maxRequestBytes"`
-	PairingURL          string   `json:"pairingUrl"`
-	TeamURL             string   `json:"teamUrl"`
+	Product                    string   `json:"product"`
+	ServerID                   string   `json:"serverId"`
+	DisplayName                string   `json:"displayName"`
+	ProtocolVersions           []string `json:"protocolVersions"`
+	SnapshotVersions           []string `json:"snapshotVersions"`
+	MaxSnapshotBytes           int64    `json:"maxSnapshotBytes"`
+	FullSessionVersions        []string `json:"fullSessionVersions"`
+	MaxFullSessionBytes        int64    `json:"maxFullSessionBytes"`
+	MaxRequestBytes            int64    `json:"maxRequestBytes"`
+	BackupVersions             []string `json:"backupVersions"`
+	BackupUploadVersions       []string `json:"backupUploadVersions"`
+	MaxBackupBytes             int64    `json:"maxBackupBytes"`
+	MaxBackupChunkBytes        int64    `json:"maxBackupChunkBytes"`
+	BackupWorkspaceBytes       int64    `json:"backupWorkspaceBytes"`
+	BackupUploadExpiresSeconds int64    `json:"backupUploadExpiresSeconds"`
+	PairingURL                 string   `json:"pairingUrl"`
+	TeamURL                    string   `json:"teamUrl"`
 }
 
 type fullSessionCapabilityError struct {

@@ -25,6 +25,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
@@ -215,7 +216,7 @@ func newServer(
 		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      3 * time.Minute,
+		WriteTimeout:      31 * time.Minute,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 16,
 	}
@@ -302,7 +303,13 @@ func routes(
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
-	registerHubRoutes(api, hub, remoteManager)
+	var backupManager *sessionbackupproducer.Manager
+	if hub != nil {
+		backupManager = sessionbackupproducer.New(sessionbackupproducer.Options{
+			CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
+		})
+	}
+	registerHubRoutes(api, hub, remoteManager, backupManager)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
 

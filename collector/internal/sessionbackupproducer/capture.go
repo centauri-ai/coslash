@@ -86,14 +86,8 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 		if openErr != nil {
 			return problem(selection, sessionbackupv1.ProblemInvalid, "", false)
 		}
-		if ctx.Err() != nil {
-			return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
-		}
 		return existing, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
-	}
-	if ctx.Err() != nil {
 		return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
 	}
 	if err := os.Rename(staging, destination); err != nil {
@@ -102,7 +96,12 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 	if manager.afterRename != nil {
 		manager.afterRename()
 	}
+	if ctx.Err() != nil {
+		_ = os.RemoveAll(destination)
+		return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
+	}
 	keep = true
+	prepared.ownsBundle = true
 	return prepared, nil
 }
 
