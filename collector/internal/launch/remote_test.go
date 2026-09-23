@@ -213,6 +213,7 @@ func TestRemoteTerminalCommandRemovesHandoffWhenWorkingDirectoryIsMissing(t *tes
 }
 
 func TestRemoteTerminalCommandRemovesHandoffWhenClaudeSetupFails(t *testing.T) {
+	requirePOSIXRemoteShellFixture(t)
 	home := t.TempDir()
 	dir := filepath.Join(home, ".coslash", "handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -250,6 +251,7 @@ func TestRemoteCLICommandResumesValidatedSession(t *testing.T) {
 }
 
 func TestRemoteTerminalCommandLoadsPerUserAgentSetup(t *testing.T) {
+	requirePOSIXRemoteShellFixture(t)
 	tests := []struct {
 		name, agent, want string
 		claudeKeys        bool
