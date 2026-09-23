@@ -53,7 +53,9 @@ Both collection paths may read these paths beneath the SSH user's home:
 - for Claude liveness, a numeric `/proc/<pid>` entry only to validate a PID
   already present in Claude metadata;
 - for Codex liveness, the list of rollout files that local Codex processes have
-  open, from `lsof -a -c codex -Fn`. It does not contact the network;
+  open, from `lsof -a -c codex -Fn`. The SFTP fallback filters this list on the
+  remote host so only Codex rollout file paths cross SSH. It does not contact the
+  network;
 - the Git configuration that `git remote get-url origin` reads, only in a
   working directory that a collected session recorded with a branch. The Mac
   runs this over SSH, not the helper, for at most 64 directories per refresh.

@@ -44,7 +44,7 @@ describe('session view preferences', () => {
     const storage = memoryStorage(
       JSON.stringify({
         range: 'forever',
-        statusFilters: ['needs', 'invented'],
+        statusFilters: ['waiting', 'invented'],
         view: 'grid',
         density: 'tiny',
         sort: { key: 'unknown', dir: 'sideways' },
