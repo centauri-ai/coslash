@@ -870,7 +870,7 @@ function SessionListView({
 
   return (
     <table
-      className="max-compact:table-auto w-full table-fixed border-collapse"
+      className="max-compact:table-auto w-full table-fixed border-separate border-spacing-0"
       style={{ '--coslash-head-height': `${headHeight}px` } as CSSProperties}
     >
       <thead ref={headRef}>
