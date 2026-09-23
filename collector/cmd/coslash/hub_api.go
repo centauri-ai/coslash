@@ -160,17 +160,6 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		}
 		writeJSON(w, result)
 	})
-	api.HandleFunc("DELETE /api/hub/backup-previews/{bundle}", func(w http.ResponseWriter, request *http.Request) {
-		if backupManager == nil {
-			http.Error(w, "complete backup sharing is not configured", http.StatusConflict)
-			return
-		}
-		if err := backupManager.Discard(request.PathValue("bundle")); err != nil {
-			http.Error(w, "prepared backup not found", http.StatusNotFound)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
 	api.HandleFunc("GET /api/hub/full-session-preview", func(w http.ResponseWriter, request *http.Request) {
 		if client == nil {
 			writeJSON(w, hubclient.FullSessionPreview{

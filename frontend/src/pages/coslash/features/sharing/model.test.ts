@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { SnapshotPreview } from '@/pages/coslash/lib/preview';
 import type { Session } from '@/pages/coslash/lib/session';
 import {
-  bindPreviewConsent,
+  backupSelection,
+  bindBackupConsent,
+  completeBackupUnsupportedReason,
   consentStillCurrent,
   filterShareCandidates,
   hubRouteURL,
@@ -13,6 +14,7 @@ import {
   reconcileVisibleSelection,
   RETRY_RULES,
   toggleCandidateGroup,
+  type BackupPreview,
   type ShareCandidate,
   type ShareDestination,
   type ShareResult,
@@ -26,6 +28,7 @@ const destination: ShareDestination = {
   currentApprovedSessionCount: 3,
   historyDisclosure: 'Current members can see approved revisions.',
   credentialState: 'paired',
+  audienceVersion: 'audience-v1',
 };
 
 function session(id: string, repo: string, mtime: number): Session {
@@ -74,20 +77,32 @@ function session(id: string, repo: string, mtime: number): Session {
   };
 }
 
-function preview(sourceRevision: number, hash = `sha256:${'a'.repeat(64)}`): SnapshotPreview {
-  const snapshot = { schemaVersion: 'session-snapshot/v1', contentHash: hash } as SnapshotPreview['snapshot'];
-  const payload = JSON.stringify(snapshot);
+function preview(chosen: Session, hash = 'a'.repeat(64)): BackupPreview {
   return {
-    adapterVersion: 'snapshot-preview/v1',
+    adapterVersion: 'backup-preview/v1',
     state: 'ready',
     approvalAllowed: true,
-    sourceRevision,
-    schemaVersion: 'session-snapshot/v1',
-    mediaType: 'application/vnd.coslash.session-snapshot.v1+json',
-    payloadBytes: new TextEncoder().encode(payload).byteLength,
-    maxPayloadBytes: 262_144,
-    canonicalPayloadBase64: btoa(payload),
-    snapshot,
+    selection: backupSelection(chosen),
+    bundleId: hash,
+    sourceRevision: 'source-revision',
+    coverage: {
+      artifactCount: 2,
+      artifactCounts: [
+        { kind: 'raw-transcript', count: 1 },
+        { kind: 'parsed-session-record', count: 1 },
+      ],
+      totalBytes: 4096,
+      revisionSha256: hash,
+      problems: [],
+    },
+    capability: {
+      serverId: 'server-v3',
+      maxBackupBytes: 1 << 30,
+      maxBackupChunkBytes: 1 << 20,
+      backupWorkspaceBytes: 50 * (1 << 30),
+      backupUploadExpiresSeconds: 86_400,
+    },
+    audienceVersion: destination.audienceVersion,
   };
 }
 
@@ -99,6 +114,21 @@ describe('localShareCandidates', () => {
       previouslyShared: false,
     };
     expect(localShareCandidates([local, remote])).toEqual([local]);
+  });
+});
+
+describe('complete backup support', () => {
+  it('keeps Codex selectable and gives every other agent a visible blocker', () => {
+    expect(completeBackupUnsupportedReason({ agent: 'codex' })).toBeNull();
+    expect(completeBackupUnsupportedReason({ agent: 'claude' })).toBe(
+      'Complete backup v1 supports Codex sessions only.',
+    );
+    expect(completeBackupUnsupportedReason({ agent: 'cursor' })).toBe(
+      'Complete backup v1 supports Codex sessions only.',
+    );
+    expect(completeBackupUnsupportedReason({ agent: 'opencode' })).toBe(
+      'Complete backup v1 supports Codex sessions only.',
+    );
   });
 });
 
@@ -130,20 +160,26 @@ describe('hub-share/v1 public consumer', () => {
     expect(localSessionId(ssh)).toBe('r_0123456789abcdef:codex:same-id');
   });
 
-  it('binds approval to exact canonical bytes, source revision, and destination', () => {
+  it('binds approval to the complete hash, source, destination, audience, and capacity', () => {
     const chosen = candidates[0]!.session;
-    const exact = preview(chosen.mtime);
-    const item = bindPreviewConsent(chosen, exact, destination, 'synthetic-idempotency-key-0001');
-    expect(item.consent.contentHash).toBe('a'.repeat(64));
+    const exact = preview(chosen);
+    const item = bindBackupConsent(chosen, exact, destination, 'synthetic-idempotency-key-0001');
+    expect(item.consent.completeBackupSha256).toBe('a'.repeat(64));
     expect(consentStillCurrent(item, chosen, exact, destination)).toBe(true);
-    expect(
-      consentStillCurrent(item, chosen, preview(chosen.mtime, `sha256:${'b'.repeat(64)}`), destination),
-    ).toBe(false);
+    expect(consentStillCurrent(item, chosen, preview(chosen, 'b'.repeat(64)), destination)).toBe(false);
     expect(consentStillCurrent(item, chosen, exact, { ...destination, workspaceId: 'changed' })).toBe(false);
     expect(consentStillCurrent(item, { ...chosen, mtime: chosen.mtime + 1 }, exact, destination)).toBe(false);
-    expect(() =>
-      bindPreviewConsent(chosen, preview(chosen.mtime + 1), destination, 'synthetic-idempotency-key-0001'),
-    ).toThrow(/source revision/);
+    expect(consentStillCurrent(item, chosen, exact, { ...destination, audienceVersion: 'changed' })).toBe(
+      false,
+    );
+    expect(
+      consentStillCurrent(
+        item,
+        chosen,
+        { ...exact, capability: { ...exact.capability!, maxBackupBytes: 1 } },
+        destination,
+      ),
+    ).toBe(false);
   });
 
   it('preserves only retryable partial failures and returns the canonical success route', () => {
@@ -156,16 +192,13 @@ describe('hub-share/v1 public consumer', () => {
           localSessionId: 'codex:new',
           idempotencyKey: 'key-accepted-0000001',
           state: 'accepted',
-          sessionId: 'session',
           revisionId: 'revision',
           deduplicated: false,
           sharedAt: '2026-08-18T18:00:00Z',
-          briefState: 'pending',
           route: {
-            hubContractVersion: 'hub-read/v1',
+            hubContractVersion: 'session-backup-read/v1',
             repositoryId: 'repo',
-            canonicalWeekStart: '2026-08-17',
-            path: '/repos/repo/sessions/2026-08-17',
+            path: '/v3/session-backups/revision',
           },
         },
         {
@@ -180,19 +213,18 @@ describe('hub-share/v1 public consumer', () => {
           idempotencyKey: 'key-stale-0000000001',
           state: 'failed',
           deduplicated: false,
-          error: { code: 'consent_stale', retryable: true },
+          error: { code: 'stale_backup_review', retryable: true },
         },
       ],
     };
     const plan = planShareRetry(result);
     expect([...plan.unchanged]).toEqual(['codex:old']);
     expect([...plan.renewedReview]).toEqual(['codex:stale']);
-    expect(primarySuccessRoute(result)?.path).toBe('/repos/repo/sessions/2026-08-17');
-    expect(result.results[0]!.state !== 'failed' && result.results[0]!.briefState).toBe('pending');
+    expect(primarySuccessRoute(result)?.path).toBe('/v3/session-backups/revision');
   });
 
   it('publishes a complete retry decision for every stable error', () => {
-    expect(Object.keys(RETRY_RULES)).toHaveLength(16);
+    expect(Object.keys(RETRY_RULES)).toHaveLength(23);
     expect(RETRY_RULES.timeout).toEqual(expect.objectContaining({ renewedReview: false }));
     expect(RETRY_RULES.destination_changed).toEqual(expect.objectContaining({ renewedReview: true }));
     expect(RETRY_RULES.source_deleted).toEqual(expect.objectContaining({ renewedReview: false }));
@@ -203,7 +235,7 @@ describe('hub-share/v1 public consumer', () => {
       contractVersion: 'hub-share/v1',
       requestId: 'request',
       state: 'failed',
-      results: (['destination_changed', 'credential_revoked', 'consent_stale'] as const).map(
+      results: (['destination_changed', 'credential_revoked', 'stale_backup_review'] as const).map(
         (code, index) => ({
           localSessionId: `codex:${index}`,
           idempotencyKey: `key-${index}-000000000000`,

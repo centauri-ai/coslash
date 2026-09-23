@@ -1,5 +1,4 @@
-import { canonicalUploadBytes, type SnapshotPreview } from '@/pages/coslash/lib/preview';
-import { isEligibleForSharing, isLocalSession, type Session } from '@/pages/coslash/lib/session';
+import { isEligibleForSharing, isLocalSession, sessionKey, type Session } from '@/pages/coslash/lib/session';
 
 // C4 contract; provider fixtures live in coslash-server/testdata/hub-share-v1.
 export const HUB_SHARE_VERSION = 'hub-share/v1' as const;
@@ -16,6 +15,7 @@ export type ShareDestination = {
   currentApprovedSessionCount: number;
   historyDisclosure: string;
   credentialState: 'paired' | 'dormant' | 'revoked';
+  audienceVersion: string;
 };
 
 type DestinationBase = {
@@ -31,15 +31,61 @@ export type DestinationResult = DestinationBase &
   );
 
 export type ConsentBinding = {
-  previewContractVersion: 'snapshot-preview/v1';
-  sourceRevision: number;
-  contentHash: string;
-  payloadBytes: number;
+  previewContractVersion: 'backup-preview/v1';
+  bundleId: string;
+  sourceRevision: string;
+  selectedRevision: number;
+  completeBackupSha256: string;
+  totalBytes: number;
   destinationWorkspaceId: string;
+  destinationName: string;
+  audienceMemberCount: number;
+  audienceVersion: string;
+  serverId: string;
+  maxBackupBytes: number;
+  maxBackupChunkBytes: number;
+  backupWorkspaceBytes: number;
+};
+
+export type BackupSelection = {
+  sourceKind: 'local' | 'ssh';
+  sourceId: string;
+  agent: string;
+  sessionId: string;
+};
+
+export type BackupCoverage = {
+  artifactCount: number;
+  artifactCounts: { kind: string; count: number }[];
+  totalBytes: number;
+  revisionSha256: string;
+  problems: { code: string; memberId: string; kind: string; retryable: boolean }[];
+};
+
+export type BackupCapability = {
+  serverId: string;
+  maxBackupBytes: number;
+  maxBackupChunkBytes: number;
+  backupWorkspaceBytes: number;
+  backupUploadExpiresSeconds: number;
+};
+
+export type BackupPreview = {
+  adapterVersion: 'backup-preview/v1';
+  state: 'ready' | 'blocked' | 'invalid' | 'unavailable' | 'incompatible_server' | 'capacity_rejected';
+  approvalAllowed: boolean;
+  selection: BackupSelection;
+  bundleId?: string;
+  sourceRevision?: string;
+  coverage: BackupCoverage;
+  capability?: BackupCapability;
+  audienceVersion?: string;
+  problem?: { code: string; message: string; action: string; retryable: boolean };
 };
 
 export type ShareItemRequest = {
   localSessionId: string;
+  selection: BackupSelection;
   idempotencyKey: string;
   consent: ConsentBinding;
 };
@@ -52,14 +98,21 @@ export type ShareRequest = {
 
 export type ShareError =
   | 'invalid_share_request'
-  | 'unsupported_snapshot_version'
-  | 'snapshot_invalid'
-  | 'snapshot_too_large'
+  | 'complete_backup_unsupported'
+  | 'incompatible_server'
+  | 'backup_manifest_invalid'
+  | 'stale_backup_review'
+  | 'backup_chunk_invalid'
+  | 'backup_incomplete'
+  | 'backup_capacity_exceeded'
+  | 'backup_upload_expired'
+  | 'backup_upload_aborted'
+  | 'not_found'
+  | 'forbidden'
   | 'source_deleted'
   | 'unauthorized'
   | 'credential_dormant'
   | 'credential_revoked'
-  | 'consent_stale'
   | 'destination_changed'
   | 'idempotency_conflict'
   | 'rate_limited'
@@ -71,9 +124,8 @@ export type ShareError =
 export type ItemError = { code: ShareError; retryable: boolean; retryAfterSeconds?: number };
 
 export type RouteHandoff = {
-  hubContractVersion: 'hub-read/v1';
+  hubContractVersion: 'session-backup-read/v1';
   repositoryId: string;
-  canonicalWeekStart: string;
   path: string;
 };
 
@@ -82,11 +134,9 @@ export type ShareItemResult =
       localSessionId: string;
       idempotencyKey: string;
       state: 'accepted' | 'already_accepted';
-      sessionId: string;
       revisionId: string;
       deduplicated: boolean;
       sharedAt: string;
-      briefState: 'pending' | 'ready' | 'failed' | 'unavailable';
       route: RouteHandoff;
     }
   | {
@@ -107,6 +157,10 @@ export type ShareResult = {
 export type ShareWindow = '7d' | '30d' | 'all';
 export type ShareCandidate = { session: Session; previouslyShared: boolean };
 
+export function completeBackupUnsupportedReason(session: Pick<Session, 'agent'>): string | null {
+  return session.agent === 'codex' ? null : 'Complete backup v1 supports Codex sessions only.';
+}
+
 export const RETRY_RULES: Record<
   ShareError,
   { renewedReview: boolean; refreshDestination?: boolean; action: string }
@@ -115,17 +169,50 @@ export const RETRY_RULES: Record<
     renewedReview: true,
     action: 'Review the selected sessions again.',
   },
-  unsupported_snapshot_version: {
+  complete_backup_unsupported: {
     renewedReview: true,
-    action: 'Update coSlash and build a new preview.',
+    action: 'Complete backup currently supports local and SSH Codex sessions only.',
   },
-  snapshot_invalid: {
+  incompatible_server: {
     renewedReview: true,
-    action: 'Refresh the source and build a new preview.',
+    action: 'Update the Hub before sharing a complete backup.',
   },
-  snapshot_too_large: {
+  backup_manifest_invalid: {
     renewedReview: true,
-    action: 'Reduce the source evidence and build a new preview.',
+    action: 'Rebuild and review the complete backup.',
+  },
+  stale_backup_review: {
+    renewedReview: true,
+    action: 'Review the current backup, destination, audience, and capacity again.',
+  },
+  backup_chunk_invalid: {
+    renewedReview: true,
+    action: 'Rebuild the frozen backup before retrying.',
+  },
+  backup_incomplete: {
+    renewedReview: false,
+    action: 'Resume the missing verified chunks with the same upload identity.',
+  },
+  backup_capacity_exceeded: {
+    renewedReview: true,
+    action: 'The Hub cannot accept this complete backup at its current capacity.',
+  },
+  backup_upload_expired: {
+    renewedReview: true,
+    action: 'Build a fresh upload intent and review it again.',
+  },
+  backup_upload_aborted: {
+    renewedReview: true,
+    action: 'Build a fresh upload intent and review it again.',
+  },
+  not_found: {
+    renewedReview: false,
+    action: 'Retry with the frozen backup and original idempotency key.',
+  },
+  forbidden: {
+    renewedReview: true,
+    refreshDestination: true,
+    action: 'Restore workspace access and review the destination again.',
   },
   source_deleted: {
     renewedReview: false,
@@ -145,10 +232,6 @@ export const RETRY_RULES: Record<
     renewedReview: true,
     refreshDestination: true,
     action: 'Pair this device again before sharing.',
-  },
-  consent_stale: {
-    renewedReview: true,
-    action: 'Review the changed source revision and approve it again.',
   },
   destination_changed: {
     renewedReview: true,
@@ -185,7 +268,7 @@ export function localSessionId(session: Pick<Session, 'sourceId' | 'agent' | 'id
   // The opaque source ID is part of the local orchestration identity only. It
   // lets a local and SSH session with the same vendor ID remain independently
   // reviewable without putting a host, username, or path in the request.
-  return `${session.sourceId}:${session.agent}:${session.id}`;
+  return sessionKey(session);
 }
 
 /**
@@ -245,21 +328,35 @@ export function toggleCandidateGroup(
   return next;
 }
 
-export function bindPreviewConsent(
+export function backupSelection(session: Pick<Session, 'sourceId' | 'id' | 'agent'>): BackupSelection {
+  return {
+    sourceKind: isLocalSession(session) ? 'local' : 'ssh',
+    sourceId: session.sourceId,
+    agent: session.agent,
+    sessionId: session.id,
+  };
+}
+
+export function bindBackupConsent(
   session: Pick<Session, 'sourceId' | 'id' | 'agent' | 'mtime'>,
-  preview: SnapshotPreview,
+  preview: BackupPreview,
   destination: ShareDestination,
   idempotencyKey: string,
 ): ShareItemRequest {
-  canonicalUploadBytes(preview);
-  const contentHash = hubContentHash(preview);
   if (
-    preview.adapterVersion !== 'snapshot-preview/v1' ||
-    preview.sourceRevision !== session.mtime ||
-    contentHash == null ||
-    preview.payloadBytes == null
+    preview.adapterVersion !== 'backup-preview/v1' ||
+    preview.state !== 'ready' ||
+    !preview.approvalAllowed ||
+    preview.bundleId == null ||
+    preview.sourceRevision == null ||
+    preview.coverage.revisionSha256 !== preview.bundleId ||
+    preview.capability == null ||
+    preview.audienceVersion !== destination.audienceVersion ||
+    preview.selection.sourceId !== session.sourceId ||
+    preview.selection.agent !== session.agent ||
+    preview.selection.sessionId !== session.id
   ) {
-    throw new Error('The preview no longer matches the selected source revision.');
+    throw new Error('The complete backup preview no longer matches the selected session.');
   }
   if (destination.credentialState !== 'paired') {
     throw new Error('The destination credential is not ready.');
@@ -269,13 +366,23 @@ export function bindPreviewConsent(
   }
   return {
     localSessionId: localSessionId(session),
+    selection: preview.selection,
     idempotencyKey,
     consent: {
       previewContractVersion: preview.adapterVersion,
+      bundleId: preview.bundleId,
       sourceRevision: preview.sourceRevision,
-      contentHash,
-      payloadBytes: preview.payloadBytes,
+      selectedRevision: session.mtime,
+      completeBackupSha256: preview.coverage.revisionSha256,
+      totalBytes: preview.coverage.totalBytes,
       destinationWorkspaceId: destination.workspaceId,
+      destinationName: destination.workspaceName,
+      audienceMemberCount: destination.currentMemberCount,
+      audienceVersion: destination.audienceVersion,
+      serverId: preview.capability.serverId,
+      maxBackupBytes: preview.capability.maxBackupBytes,
+      maxBackupChunkBytes: preview.capability.maxBackupChunkBytes,
+      backupWorkspaceBytes: preview.capability.backupWorkspaceBytes,
     },
   };
 }
@@ -283,28 +390,29 @@ export function bindPreviewConsent(
 export function consentStillCurrent(
   item: ShareItemRequest,
   session: Pick<Session, 'sourceId' | 'id' | 'agent' | 'mtime'>,
-  preview: SnapshotPreview,
+  preview: BackupPreview,
   destination: ShareDestination,
 ): boolean {
-  const hash = hubContentHash(preview);
   return (
     preview.state === 'ready' &&
     preview.approvalAllowed &&
     item.localSessionId === localSessionId(session) &&
     item.consent.previewContractVersion === preview.adapterVersion &&
-    item.consent.sourceRevision === session.mtime &&
     item.consent.sourceRevision === preview.sourceRevision &&
-    item.consent.contentHash === hash &&
-    item.consent.payloadBytes === preview.payloadBytes &&
+    item.consent.selectedRevision === session.mtime &&
+    item.consent.bundleId === preview.bundleId &&
+    item.consent.completeBackupSha256 === preview.coverage.revisionSha256 &&
+    item.consent.totalBytes === preview.coverage.totalBytes &&
     item.consent.destinationWorkspaceId === destination.workspaceId &&
+    item.consent.destinationName === destination.workspaceName &&
+    item.consent.audienceMemberCount === destination.currentMemberCount &&
+    item.consent.audienceVersion === destination.audienceVersion &&
+    item.consent.serverId === preview.capability?.serverId &&
+    item.consent.maxBackupBytes === preview.capability?.maxBackupBytes &&
+    item.consent.maxBackupChunkBytes === preview.capability?.maxBackupChunkBytes &&
+    item.consent.backupWorkspaceBytes === preview.capability?.backupWorkspaceBytes &&
     destination.credentialState === 'paired'
   );
-}
-
-function hubContentHash(preview: SnapshotPreview): string | null {
-  const value = preview.snapshot?.contentHash;
-  const match = typeof value === 'string' ? /^sha256:([0-9a-f]{64})$/.exec(value) : null;
-  return match?.[1] ?? null;
 }
 
 export function planShareRetry(result: ShareResult): {

@@ -216,7 +216,7 @@ func newServer(
 		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      31 * time.Minute,
+		WriteTimeout:      3 * time.Minute,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 16,
 	}
