@@ -302,6 +302,168 @@ func TestPrepareRejectsMutatedSourceWithoutPublishing(t *testing.T) {
 	}
 }
 
+func TestPrepareReadsLiveFamilyOnceWithinSourceBudget(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 64<<10)
+	var budget int64 = 2 * 1024
+	for _, name := range []string{familyFile(home, false, testRootID), familyFile(home, true, testChildID), codex.SessionIndexPath(home)} {
+		info, err := os.Stat(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		budget += info.Size()
+	}
+	source := &byteBudgetSource{ReadSource: vendors.LocalReadSource, remaining: budget}
+	manager := New(Options{
+		Root: t.TempDir(),
+		OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+			return SourceHandle{Source: source, Home: home}, nil
+		},
+	})
+	selection := localSelection()
+	selection.SourceKind, selection.SourceID = sessionbackupv1.SourceSSH, "remote-budget"
+	if _, err := manager.Prepare(t.Context(), selection); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrepareScopesPersistedSynthesisToLocalSource(t *testing.T) {
+	for _, sourceKind := range []string{sessionbackupv1.SourceLocal, sessionbackupv1.SourceSSH} {
+		t.Run(sourceKind, func(t *testing.T) {
+			home, _ := writeFamilyFixture(t, 0)
+			store := &missingSynthesisStore{}
+			manager := New(Options{
+				Root: t.TempDir(), Synthesis: store,
+				OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+					return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+				},
+			})
+			selection := localSelection()
+			selection.SourceKind = sourceKind
+			if sourceKind == sessionbackupv1.SourceSSH {
+				selection.SourceID = "remote-fixture"
+			}
+			if _, err := manager.Prepare(t.Context(), selection); err != nil {
+				t.Fatal(err)
+			}
+			wantLoads := 2
+			if sourceKind == sessionbackupv1.SourceSSH {
+				wantLoads = 0
+			}
+			if store.loads != wantLoads {
+				t.Fatalf("synthesis loads = %d; want %d", store.loads, wantLoads)
+			}
+		})
+	}
+}
+
+func TestSuccessfulRenameWinsConcurrentCancellation(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	spool := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var publishedBundle string
+	manager := New(Options{
+		Root: spool, Lifecycle: ctx,
+		OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+			return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+		},
+		AfterRename: func() {
+			entries, _ := os.ReadDir(spool)
+			for _, entry := range entries {
+				if !strings.HasPrefix(entry.Name(), ".preparing-") {
+					publishedBundle = entry.Name()
+				}
+			}
+			cancel()
+		},
+	})
+	id, err := manager.Start(t.Context(), localSelection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.Wait(t.Context(), id)
+	if err != nil || state.State != StateReady || state.Prepared == nil || state.Prepared.BundleID != publishedBundle {
+		t.Fatalf("ready state = %#v, published=%q, err=%v", state, publishedBundle, err)
+	}
+	if _, err := manager.Open(publishedBundle); err != nil {
+		t.Fatalf("open published bundle = %v", err)
+	}
+}
+
+func TestSuccessfulPrepareWinsOverConcurrentCancellationAndReuse(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	spool := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var manager *Manager
+	var reused Preparation
+	var reuseErr error
+	manager = New(Options{
+		Root: spool, Lifecycle: ctx,
+		OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+			return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+		},
+		AfterRename: func() {
+			var id string
+			id, reuseErr = manager.Start(t.Context(), localSelection())
+			if reuseErr == nil {
+				reused, reuseErr = manager.Wait(t.Context(), id)
+			}
+			cancel()
+		},
+	})
+	id, err := manager.Start(t.Context(), localSelection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.Wait(t.Context(), id)
+	if err != nil || state.State != StateReady || state.Prepared == nil {
+		t.Fatalf("publisher state = %#v, err=%v", state, err)
+	}
+	if reuseErr != nil || reused.State != StateReady || reused.Prepared == nil || reused.Prepared.BundleID != state.Prepared.BundleID {
+		t.Fatalf("reused state = %#v, err=%v", reused, reuseErr)
+	}
+	if _, err := manager.Open(reused.Prepared.BundleID); err != nil {
+		t.Fatalf("open reused bundle = %v", err)
+	}
+}
+
+func TestSuccessfulReuseWinsConcurrentCancellation(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	spool := t.TempDir()
+	openSource := func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}
+	seed := New(Options{Root: spool, OpenSource: openSource})
+	prepared, err := seed.Prepare(t.Context(), localSelection())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	manager := New(Options{
+		Root: spool, Lifecycle: ctx,
+		OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+			return SourceHandle{Source: vendors.LocalReadSource, Home: home, Close: func() error {
+				cancel()
+				return nil
+			}}, nil
+		},
+	})
+	id, err := manager.Start(t.Context(), localSelection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.Wait(t.Context(), id)
+	if err != nil || state.State != StateReady || state.Prepared == nil || state.Prepared.BundleID != prepared.BundleID {
+		t.Fatalf("ready state = %#v, err=%v", state, err)
+	}
+	if _, err := manager.Open(prepared.BundleID); err != nil {
+		t.Fatalf("open reused bundle = %v", err)
+	}
+}
+
 func writeFamilyFixture(t *testing.T, padding int) (string, string) {
 	t.Helper()
 	home := t.TempDir()
@@ -366,6 +528,45 @@ type trackingSource struct {
 	vendors.ReadSource
 	maxRead   atomic.Int64
 	totalRead atomic.Int64
+}
+
+type byteBudgetSource struct {
+	vendors.ReadSource
+	remaining int64
+}
+
+type missingSynthesisStore struct {
+	loads int
+}
+
+func (store *missingSynthesisStore) LoadRecord(string, string) (synthesis.Record, error) {
+	store.loads++
+	return synthesis.Record{}, os.ErrNotExist
+}
+
+func (source *byteBudgetSource) Open(name string) (io.ReadCloser, error) {
+	reader, err := source.ReadSource.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return &byteBudgetReader{ReadCloser: reader, source: source}, nil
+}
+
+type byteBudgetReader struct {
+	io.ReadCloser
+	source *byteBudgetSource
+}
+
+func (reader *byteBudgetReader) Read(destination []byte) (int, error) {
+	if reader.source.remaining <= 0 {
+		return 0, errors.New("source byte budget exhausted")
+	}
+	if int64(len(destination)) > reader.source.remaining {
+		destination = destination[:reader.source.remaining]
+	}
+	count, err := reader.ReadCloser.Read(destination)
+	reader.source.remaining -= int64(count)
+	return count, err
 }
 
 func (source *trackingSource) Open(name string) (io.ReadCloser, error) {

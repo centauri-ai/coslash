@@ -86,12 +86,21 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 		if openErr != nil {
 			return problem(selection, sessionbackupv1.ProblemInvalid, "", false)
 		}
+		if ctx.Err() != nil {
+			return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
+		}
 		return existing, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
 	}
+	if ctx.Err() != nil {
+		return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
+	}
 	if err := os.Rename(staging, destination); err != nil {
 		return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
+	}
+	if manager.afterRename != nil {
+		manager.afterRename()
 	}
 	keep = true
 	return prepared, nil
@@ -107,6 +116,13 @@ func (err *captureError) Error() string { return err.code }
 
 func captureFailure(code, kind string, retryable bool) error {
 	return &captureError{code: code, kind: kind, retryable: retryable}
+}
+
+func sourceReadFailure(err error, kind string) error {
+	if errors.Is(err, vendors.ErrInvalidData) {
+		return captureFailure(sessionbackupv1.ProblemUnattributable, kind, false)
+	}
+	return captureFailure(sessionbackupv1.ProblemUnreadable, kind, true)
 }
 
 func (manager *Manager) capture(ctx context.Context, staging string, selection Selection, handle SourceHandle) (*Prepared, error) {
@@ -142,9 +158,6 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	var familyFiles []string
 	for _, file := range allFiles {
 		if roots[file] == selection.SessionID {
-			if headers[file].Err != nil {
-				return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
-			}
 			familyFiles = append(familyFiles, file)
 		}
 	}
@@ -185,7 +198,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	}
 	indexRows, indexPresent, err := codex.ReadSessionIndexRowsContext(ctx, handle.Source, handle.Home, memberIDs)
 	if err != nil {
-		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawSidecar, false)
+		return nil, sourceReadFailure(err, sessionbackupv1.KindRawSidecar)
 	}
 	if indexPresent != (len(indexBefore) == 1) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
@@ -249,8 +262,9 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
 		}
 	}
-	// Parse only the exact frozen rollout bytes so processed artifacts and raw
-	// evidence share one source snapshot.
+	// Parse only from the exact frozen rollout bytes, binding every processed
+	// artifact to the bytes that will actually be uploaded without consuming a
+	// second full read from the live SSH byte budget.
 	frozenSource := snapshotSource{ReadSource: handle.Source, files: frozenFiles}
 	activeFamilyFiles := make([]string, 0, len(familyFiles))
 	activeSet := map[string]bool{}
