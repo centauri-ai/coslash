@@ -74,6 +74,57 @@ func TestStoreClearsCachedMiss(t *testing.T) {
 	}
 }
 
+func TestMissingAgentDirectoryIsMemoizedAndExpires(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	if err := os.MkdirAll(SummariesDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(100, 0)
+	cache := NewCache()
+	cache.missingAgents.now = func() time.Time { return now }
+	if _, err := cache.Load("codex", "session"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Load() error = %v, want not found", err)
+	}
+	record := Record{Revision: 42, Synthesis: session.SessionSynthesis{Outcome: "restored"}}
+	directory := filepath.Join(SummariesDir(), "codex")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "session.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.Load("codex", "session"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("memoized Load() error = %v, want not found", err)
+	}
+	now = now.Add(2 * time.Minute)
+	if got, err := cache.Load("codex", "session"); err != nil || got.Synthesis.Outcome != "restored" {
+		t.Fatalf("Load() after expiry = %#v, %v", got, err)
+	}
+}
+
+func TestNegativeCacheIsBoundedAndExpiring(t *testing.T) {
+	now := time.Unix(100, 0)
+	cache := newNegativeCache[string](2, time.Minute)
+	cache.now = func() time.Time { return now }
+	cache.add("one")
+	now = now.Add(time.Second)
+	cache.add("two")
+	now = now.Add(time.Second)
+	cache.add("three")
+	if len(cache.entries) != 2 || cache.contains("one") {
+		t.Fatalf("bounded entries = %#v", cache.entries)
+	}
+	now = now.Add(2 * time.Minute)
+	if cache.contains("two") || cache.contains("three") {
+		t.Fatalf("expired entries remain active: %#v", cache.entries)
+	}
+}
+
 func TestManagerDoesNotReuseSynthesisAcrossAgents(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	manager := NewManager(runnerFunc(func(_ context.Context, input string) (session.SessionSynthesis, error) {

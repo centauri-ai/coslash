@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -25,7 +26,8 @@ type Record struct {
 
 type Cache struct {
 	records              sync.Map
-	missing              sync.Map
+	missingRecords       *negativeCache[cacheKey]
+	missingAgents        *negativeCache[string]
 	protectedDirectories sync.Map
 }
 
@@ -35,7 +37,55 @@ type cacheKey struct {
 }
 
 func NewCache() *Cache {
-	return &Cache{}
+	return &Cache{
+		missingRecords: newNegativeCache[cacheKey](1024, time.Minute),
+		missingAgents:  newNegativeCache[string](16, time.Minute),
+	}
+}
+
+type negativeCache[K comparable] struct {
+	mu      sync.Mutex
+	entries map[K]time.Time
+	limit   int
+	ttl     time.Duration
+	now     func() time.Time
+}
+
+func newNegativeCache[K comparable](limit int, ttl time.Duration) *negativeCache[K] {
+	return &negativeCache[K]{entries: map[K]time.Time{}, limit: limit, ttl: ttl, now: time.Now}
+}
+
+func (c *negativeCache[K]) contains(key K) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	expires, ok := c.entries[key]
+	if ok && c.now().Before(expires) {
+		return true
+	}
+	delete(c.entries, key)
+	return false
+}
+
+func (c *negativeCache[K]) add(key K) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.entries[key]; !exists && len(c.entries) >= c.limit {
+		var oldestKey K
+		var oldest time.Time
+		for candidate, expires := range c.entries {
+			if oldest.IsZero() || expires.Before(oldest) {
+				oldestKey, oldest = candidate, expires
+			}
+		}
+		delete(c.entries, oldestKey)
+	}
+	c.entries[key] = c.now().Add(c.ttl)
+}
+
+func (c *negativeCache[K]) delete(key K) {
+	c.mu.Lock()
+	delete(c.entries, key)
+	c.mu.Unlock()
 }
 
 func MigrateLegacyCache(exists func(agent, id string) (bool, error)) error {
@@ -121,16 +171,19 @@ func (c *Cache) Load(agent, id string) (Record, error) {
 	if value, ok := c.records.Load(key); ok {
 		return value.(Record), nil
 	}
-	if _, ok := c.missing.Load(key); ok {
+	if c.missingRecords.contains(key) || c.missingAgents.contains(agent) {
 		return Record{}, os.ErrNotExist
 	}
 	if err := c.protectDirectoryTree(filepath.Dir(path)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.missingAgents.add(agent)
+		}
 		return Record{}, err
 	}
 	data, err := readSynthesisFileInProtectedDirectory(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			c.missing.Store(key, struct{}{})
+			c.missingRecords.add(key)
 		}
 		return Record{}, err
 	}
@@ -151,6 +204,7 @@ func (c *Cache) Store(agent, id string, record Record) error {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return err
 	}
+	c.missingAgents.delete(agent)
 	if err := c.protectDirectoryTree(directory); err != nil {
 		return err
 	}
@@ -181,7 +235,7 @@ func (c *Cache) Store(agent, id string, record Record) error {
 		return err
 	}
 	key := cacheKey{agent: agent, id: id}
-	c.missing.Delete(key)
+	c.missingRecords.delete(key)
 	c.records.Store(key, record)
 	return nil
 }
