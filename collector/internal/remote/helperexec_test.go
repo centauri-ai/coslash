@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -270,6 +271,12 @@ func TestHelperExecProcess(t *testing.T) {
 		}
 		if err := os.WriteFile(os.Getenv("COSLASH_FAKE_CHILD_PID"), []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil {
 			os.Exit(98)
+		}
+	}
+	if path := os.Getenv("COSLASH_FAKE_STDIN_FILE"); path != "" {
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil || os.WriteFile(path, input, 0o600) != nil {
+			os.Exit(99)
 		}
 	}
 	_, _ = os.Stdout.WriteString(os.Getenv("COSLASH_FAKE_OUTPUT"))
