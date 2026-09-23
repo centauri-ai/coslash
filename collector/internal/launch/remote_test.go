@@ -214,6 +214,33 @@ func TestRemoteTerminalCommandRemovesHandoffWhenWorkingDirectoryIsMissing(t *tes
 	}
 }
 
+func TestRemoteTerminalCommandRemovesHandoffWhenClaudeSetupFails(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, ".coslash", "handoffs")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, testRemoteHandoffName)
+	if err := os.WriteFile(path, []byte("private handoff"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".agent-keys.sh"), []byte("false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command, err := remoteTerminalCommand(vendors.AgentClaude, home, "", NewSession, testRemoteHandoffName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := exec.Command("/bin/sh", "-c", command)
+	process.Env = append(os.Environ(), "HOME="+home)
+	if err := process.Run(); err == nil {
+		t.Fatal("remote command succeeded with failing Claude setup")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("staged handoff still exists: %v", err)
+	}
+}
+
 func TestRemoteCLICommandResumesValidatedSession(t *testing.T) {
 	command, err := remoteCLICommand(vendors.AgentCodex, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "")
 	if err != nil {
