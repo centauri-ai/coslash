@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
