@@ -12,18 +12,47 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionexport"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 )
 
 type fixedHubCredential string
 
 func (credential fixedHubCredential) Load(context.Context) (string, error) {
 	return string(credential), nil
+}
+
+func TestBackupPreviewDiscardRemovesAbandonedBundle(t *testing.T) {
+	root := t.TempDir()
+	bundleID := strings.Repeat("a", 64)
+	bundlePath := filepath.Join(root, bundleID)
+	if err := os.Mkdir(bundlePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: root})
+	api := http.NewServeMux()
+	registerHubRoutes(api, nil, nil, manager)
+
+	request := httptest.NewRequest(http.MethodDelete, "/api/hub/backup-previews/"+bundleID, nil)
+	response := httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(bundlePath); !os.IsNotExist(err) {
+		t.Fatalf("abandoned bundle still exists: %v", err)
+	}
+	response = httptest.NewRecorder()
+	api.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("second discard status=%d", response.Code)
+	}
 }
 
 func (fixedHubCredential) Save(context.Context, string) error { return nil }
@@ -107,7 +136,7 @@ func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) 
 		},
 	}
 	api := http.NewServeMux()
-	registerHubRoutes(api, client, nil)
+	registerHubRoutes(api, client, nil, nil)
 
 	previewRequest := httptest.NewRequest(http.MethodGet, "/api/hub/full-session-preview?source="+record.SourceID+"&agent="+record.Agent+"&id="+record.SessionID+"&revision="+record.RevisionID, nil)
 	previewResponse := httptest.NewRecorder()

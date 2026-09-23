@@ -356,7 +356,7 @@ func TestPrepareScopesPersistedSynthesisToLocalSource(t *testing.T) {
 	}
 }
 
-func TestSuccessfulRenameWinsConcurrentCancellation(t *testing.T) {
+func TestStartCancellationAfterRenameDropsPublishedBundle(t *testing.T) {
 	home, _ := writeFamilyFixture(t, 0)
 	spool := t.TempDir()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -382,34 +382,33 @@ func TestSuccessfulRenameWinsConcurrentCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, err := manager.Wait(t.Context(), id)
-	if err != nil || state.State != StateReady || state.Prepared == nil || state.Prepared.BundleID != publishedBundle {
-		t.Fatalf("ready state = %#v, published=%q, err=%v", state, publishedBundle, err)
+	if err != nil || state.State != StateCancelled || state.Prepared != nil || publishedBundle == "" {
+		t.Fatalf("cancelled state = %#v, published=%q, err=%v", state, publishedBundle, err)
 	}
-	if _, err := manager.Open(publishedBundle); err != nil {
-		t.Fatalf("open published bundle = %v", err)
+	if _, err := manager.Open(publishedBundle); !errors.Is(err, ErrNotPrepared) {
+		t.Fatalf("open cancelled bundle = %v", err)
 	}
 }
 
-func TestSuccessfulPrepareWinsOverConcurrentCancellationAndReuse(t *testing.T) {
+func TestStartCancellationAfterPrepareDropsOwnedBundle(t *testing.T) {
 	home, _ := writeFamilyFixture(t, 0)
 	spool := t.TempDir()
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	var manager *Manager
-	var reused Preparation
-	var reuseErr error
-	manager = New(Options{
+	var publishedBundle string
+	manager := New(Options{
 		Root: spool, Lifecycle: ctx,
 		OpenSource: func(context.Context, Selection) (SourceHandle, error) {
-			return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
-		},
-		AfterRename: func() {
-			var id string
-			id, reuseErr = manager.Start(t.Context(), localSelection())
-			if reuseErr == nil {
-				reused, reuseErr = manager.Wait(t.Context(), id)
-			}
-			cancel()
+			return SourceHandle{Source: vendors.LocalReadSource, Home: home, Close: func() error {
+				entries, _ := os.ReadDir(spool)
+				for _, entry := range entries {
+					if !strings.HasPrefix(entry.Name(), ".preparing-") {
+						publishedBundle = entry.Name()
+					}
+				}
+				cancel()
+				return nil
+			}}, nil
 		},
 	})
 	id, err := manager.Start(t.Context(), localSelection())
@@ -417,18 +416,15 @@ func TestSuccessfulPrepareWinsOverConcurrentCancellationAndReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, err := manager.Wait(t.Context(), id)
-	if err != nil || state.State != StateReady || state.Prepared == nil {
-		t.Fatalf("publisher state = %#v, err=%v", state, err)
+	if err != nil || state.State != StateCancelled || state.Prepared != nil || publishedBundle == "" {
+		t.Fatalf("cancelled state = %#v, published=%q, err=%v", state, publishedBundle, err)
 	}
-	if reuseErr != nil || reused.State != StateReady || reused.Prepared == nil || reused.Prepared.BundleID != state.Prepared.BundleID {
-		t.Fatalf("reused state = %#v, err=%v", reused, reuseErr)
-	}
-	if _, err := manager.Open(reused.Prepared.BundleID); err != nil {
-		t.Fatalf("open reused bundle = %v", err)
+	if _, err := manager.Open(publishedBundle); !errors.Is(err, ErrNotPrepared) {
+		t.Fatalf("open cancelled bundle = %v", err)
 	}
 }
 
-func TestSuccessfulReuseWinsConcurrentCancellation(t *testing.T) {
+func TestStartCancellationAfterReusingBundleKeepsPublishedBundle(t *testing.T) {
 	home, _ := writeFamilyFixture(t, 0)
 	spool := t.TempDir()
 	openSource := func(context.Context, Selection) (SourceHandle, error) {
@@ -456,8 +452,8 @@ func TestSuccessfulReuseWinsConcurrentCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, err := manager.Wait(t.Context(), id)
-	if err != nil || state.State != StateReady || state.Prepared == nil || state.Prepared.BundleID != prepared.BundleID {
-		t.Fatalf("ready state = %#v, err=%v", state, err)
+	if err != nil || state.State != StateCancelled {
+		t.Fatalf("cancelled state = %#v, err=%v", state, err)
 	}
 	if _, err := manager.Open(prepared.BundleID); err != nil {
 		t.Fatalf("open reused bundle = %v", err)
