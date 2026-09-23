@@ -49,6 +49,7 @@ function sampleSession(id: string, sourceId = LOCAL_SOURCE_ID): Session {
     synthesisPending: false,
     declaredGoal: null,
     model: null,
+    observedModels: [],
     contextTokens: null,
     contextWindow: null,
     turns: 0,
@@ -101,6 +102,7 @@ describe('decodeSessionsResponse', () => {
     const sparse = {
       ...sampleSession('remote', 'r_0123456789abcdef'),
       tokens: null,
+      observedModels: null,
       unpricedModels: null,
       subagents: null,
       commands: null,
@@ -112,6 +114,7 @@ describe('decodeSessionsResponse', () => {
     const decoded = decodeSessionsResponse({ sessions: [sparse], machines: [] }).sessions[0];
     expect(decoded).toMatchObject({
       tokens: {},
+      observedModels: [],
       unpricedModels: [],
       subagents: [],
       commands: [],

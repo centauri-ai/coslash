@@ -166,7 +166,7 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"CommitLog": true, "SessionDetails": true,
 	})
 	assertCensus(t, reflect.TypeOf(session.SessionDetails{}), map[string]bool{
-		"Model": true, "ContextTokens": true, "ContextWindow": true, "Turns": true,
+		"Model": true, "ObservedModels": false, "ContextTokens": true, "ContextWindow": true, "Turns": true,
 		"ToolUses": true, "Errors": true, "Compactions": true, "FirstPrompt": true,
 		"Commands": true, "Commits": true, "PullRequests": true, "Todos": true,
 		"CommitSHAs": false, // recomputed only from local repository history

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -897,6 +898,17 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 	bubbles := map[string]observed{}
 	fallbacks := map[string]string{}
 	pullRequests := map[string]map[string]struct{}{}
+	observeModel := func(id, model string) {
+		model = normalizeCursorModel(model)
+		if model == "" {
+			return
+		}
+		entry := metadata.Session(id)
+		if !slices.Contains(entry.ObservedModels, model) {
+			entry.ObservedModels = append(entry.ObservedModels, model)
+			slices.Sort(entry.ObservedModels)
+		}
+	}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -954,6 +966,7 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 				metadata.Session(id).Live = "waiting"
 			}
 			model := strings.TrimSpace(item.ModelInfo.ModelName)
+			observeModel(id, model)
 			createdAt := cursorBubbleTime(item.CreatedAt)
 			previous := bubbles[id]
 			if model != "" && (previous.model == "" || createdAt > previous.time || createdAt == previous.time && key > previous.key) {
@@ -1000,6 +1013,7 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 		if bubbles[id].model == "" && model != "" {
 			metadata.Session(id).Model = normalizeCursorModel(model)
 		}
+		observeModel(id, model)
 	}
 	for id, value := range bubbles {
 		if err := ctx.Err(); err != nil {

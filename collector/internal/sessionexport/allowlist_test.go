@@ -46,6 +46,7 @@ var census = map[string]decision{
 
 	// session.SessionDetails
 	"Model":            {true, "session.model"},
+	"ObservedModels":   {false, "local Cursor IDE model observations"},
 	"ContextTokens":    {true, "session.contextTokens"},
 	"ContextWindow":    {true, "session.contextWindow"},
 	"Turns":            {true, "session.counts.turns"},

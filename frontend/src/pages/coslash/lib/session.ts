@@ -95,6 +95,7 @@ export type Session = {
   synthesisError?: string;
   declaredGoal: string | null;
   model: string | null;
+  observedModels?: string[];
   contextTokens: number | null;
   contextWindow: number | null;
   turns: number;

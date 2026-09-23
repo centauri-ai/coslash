@@ -639,12 +639,15 @@ function FieldLabel({ children }: { children: string }) {
 export function SessionModelUsage({
   agent,
   model,
+  observedModels,
   tokens,
-}: Pick<SessionDetail, 'agent' | 'model' | 'tokens'>) {
+}: Pick<SessionDetail, 'agent' | 'model' | 'observedModels' | 'tokens'>) {
   const vendor = getVendor(agent);
   if (model == null) return <span className={cn('font-bold', vendor.fg)}>unknown model</span>;
 
-  const otherModels = Object.keys(tokens).filter((tokenModel) => tokenModel !== model);
+  const otherModels = [...new Set([...(observedModels ?? []), ...Object.keys(tokens)])].filter(
+    (tokenModel) => tokenModel !== model,
+  );
   if (otherModels.length === 0) return <span className={cn('font-bold', vendor.fg)}>{model}</span>;
 
   return (
@@ -698,7 +701,12 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
       </div>
       <div className="bg-coslash-soft rounded-lg border p-2 font-mono text-xs">
         <div className="flex flex-wrap items-baseline justify-between gap-1">
-          <SessionModelUsage agent={detail.agent} model={detail.model} tokens={detail.tokens} />
+          <SessionModelUsage
+            agent={detail.agent}
+            model={detail.model}
+            observedModels={detail.observedModels}
+            tokens={detail.tokens}
+          />
           <span className="font-bold">
             <UnpricedModelWarning unpriced={detail.unpricedModels}>
               {formatEstimatedCost(detail.cost)}

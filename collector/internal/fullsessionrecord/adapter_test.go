@@ -425,7 +425,7 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 	}
 
 	detailDecisions := map[string]string{
-		"Model": "included", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
+		"Model": "included", "ObservedModels": "excluded local Cursor IDE enrichment", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
 		"ToolUses": "included", "Errors": "included", "Compactions": "included", "FirstPrompt": "included",
 		"Commands": "included", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included",
 		"Todos": "included", "Digest": "included", "FileEdits": "included with bodies", "Git": "excluded local filesystem enrichment",

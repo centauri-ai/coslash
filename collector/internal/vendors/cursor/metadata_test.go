@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -268,7 +269,7 @@ func TestLoadMetadataForSessionsCanonicalizesStoredIDs(t *testing.T) {
 	}
 }
 
-func TestLoadIDEModelsOrdersNumericTimestampsDeterministically(t *testing.T) {
+func TestLoadIDEModelsRetainsHistoryAndSelectsNewestDeterministically(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -292,6 +293,10 @@ func TestLoadIDEModelsOrdersNumericTimestampsDeterministically(t *testing.T) {
 	loadIDEModelsDB(metadata, nil, db, nil)
 	if got := metadata.Session(id).Model; got != "gpt-5" {
 		t.Fatalf("model = %q, want newest model with deterministic key tie-break", got)
+	}
+	wantModels := []string{"gpt-3", "gpt-4", "gpt-5"}
+	if got := metadata.Session(id).ObservedModels; !slices.Equal(got, wantModels) {
+		t.Fatalf("observed models = %v, want %v", got, wantModels)
 	}
 }
 

@@ -237,6 +237,9 @@ func sessionWithJSONCollections(value session.Session) session.Session {
 	if value.Tokens == nil {
 		value.Tokens = map[string]session.ModelTokens{}
 	}
+	if value.ObservedModels == nil {
+		value.ObservedModels = []string{}
+	}
 	if value.UnpricedModels == nil {
 		value.UnpricedModels = []string{}
 	}
