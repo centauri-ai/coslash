@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
@@ -15,38 +15,21 @@ import (
 )
 
 const (
-	maxOriginProbes       = 64
-	maxOriginProbeBytes   = 32 << 10
-	originProbeSSHTimeout = 15 * time.Second
+	maxOriginProbes     = 64
+	maxOriginProbeBytes = 32 << 10
+	sshProbeTimeout     = 15 * time.Second
 )
 
-// probeableGitCwd reports whether cwd can be sent as one stdin line. The remote
-// command is fixed; paths are not interpolated into the shell. Newlines and
-// other controls would split that line protocol, so those checkouts stay
-// unidentified.
 func probeableGitCwd(cwd string) bool {
-	if cwd == "" || len(cwd) > 4096 || !strings.HasPrefix(cwd, "/") || !utf8.ValidString(cwd) {
-		return false
-	}
-	for _, r := range cwd {
-		if r < 0x20 || r == 0x7f {
-			return false
-		}
-	}
-	return true
+	return strings.HasPrefix(cwd, "/") && len(cwd) <= 4096 && utf8.ValidString(cwd) && strings.IndexFunc(cwd, unicode.IsControl) < 0
 }
 
-// originLookup resolves canonical repository identities for working directories.
-// The map contains only directories whose origin remote canonicalized.
-type originLookup func(ctx context.Context, cwds []string) map[string]string
-
-func remoteOriginLookup(alias string, options OpenOptions) originLookup {
-	return func(ctx context.Context, cwds []string) map[string]string {
-		return probeRemoteOrigins(ctx, alias, options, cwds)
-	}
+type sshTarget struct {
+	alias   string
+	options OpenOptions
 }
 
-func probeRemoteOrigins(ctx context.Context, alias string, options OpenOptions, cwds []string) map[string]string {
+func (target sshTarget) origins(ctx context.Context, cwds []string) map[string]string {
 	safe := make([]string, 0, min(len(cwds), maxOriginProbes))
 	for _, cwd := range cwds {
 		if len(safe) == maxOriginProbes {
@@ -59,36 +42,17 @@ func probeRemoteOrigins(ctx context.Context, alias string, options OpenOptions, 
 	if len(safe) == 0 {
 		return map[string]string{}
 	}
-	output, err := runOriginProbe(ctx, alias, options, safe)
+	output, err := target.run(ctx, "sh -c "+shellQuote(originProbeScript), maxOriginProbeBytes, strings.Join(safe, "\n")+"\n")
 	if err != nil {
 		return map[string]string{}
 	}
 	return parseOriginProbeOutput(safe, output)
 }
 
-func runOriginProbe(ctx context.Context, alias string, options OpenOptions, cwds []string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	probeCtx, cancel := context.WithTimeout(ctx, originProbeSSHTimeout)
-	defer cancel()
-	args, err := sshCommandArgs(alias, int(options.Limits.withDefaults().ConnectTimeout.Seconds()), "sh -c "+shellQuote(originProbeScript))
-	if err != nil {
-		return "", err
-	}
-	return runSSHStdout(probeCtx, options, args, maxOriginProbeBytes, strings.NewReader(originProbeInput(cwds)))
-}
-
-// originProbeScript is one line because csh and tcsh reject a newline inside
-// the single quotes that wrap it for sh -c. It reads one absolute path per
-// stdin line and prints one sanitized origin line per path. Control characters
-// in the URL are removed before the record separator, so one checkout cannot
-// invent a record for another index.
+// One line because csh and tcsh reject a newline inside the quotes for sh -c.
+// Stripping control characters from the URL stops one checkout from forging
+// another index's record.
 const originProbeScript = `set +e; export GIT_TERMINAL_PROMPT=0; i=0; while IFS= read -r cwd || [ -n "$cwd" ]; do url=$(git -C "$cwd" remote get-url origin 2>/dev/null | tr -d "[:cntrl:]"); printf "%s\t%s\n" "$i" "$url"; i=$((i + 1)); done`
-
-func originProbeInput(cwds []string) string {
-	return strings.Join(cwds, "\n") + "\n"
-}
 
 func parseOriginProbeOutput(cwds []string, output string) map[string]string {
 	found := map[string]string{}
@@ -110,65 +74,41 @@ func parseOriginProbeOutput(cwds []string, output string) map[string]string {
 	return found
 }
 
-func runSSHStdout(ctx context.Context, options OpenOptions, args []string, limit int, stdin io.Reader) (string, error) {
-	bin := options.SSHBin
-	if bin == "" {
-		bin = "ssh"
+func (target sshTarget) run(ctx context.Context, remoteCommand string, limit int, stdin string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-	command := options.command
-	if command == nil {
-		command = exec.CommandContext
-	}
-	cmd := command(ctx, bin, args...)
-	configureProcessGroup(cmd)
-	cmd.Stdin = stdin
-	stdout, err := cmd.StdoutPipe()
+	runCtx, cancel := context.WithTimeout(ctx, sshProbeTimeout)
+	defer cancel()
+	args, err := sshCommandArgs(target.alias, int(target.options.Limits.withDefaults().ConnectTimeout.Seconds()), remoteCommand)
 	if err != nil {
 		return "", err
 	}
-	stderr := &cappedStderr{limit: options.Limits.withDefaults().MaxStderrBytes, cancel: func() {}}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
+	process, err := startHelper(runCtx, target.alias, args, cancel, target.options)
+	if err != nil {
 		return "", err
 	}
-	buf, readErr := io.ReadAll(io.LimitReader(stdout, int64(limit+1)))
+	written := process.writeStdin([]byte(stdin))
+	buf, readErr := io.ReadAll(io.LimitReader(process.stdout, int64(limit+1)))
 	overLimit := len(buf) > limit
-	if overLimit || ctx.Err() != nil {
-		terminateProcessGroup(cmd)
-	}
-	_, drainErr := io.Copy(io.Discard, stdout)
-	waitErr := cmd.Wait()
-	if ctx.Err() != nil {
-		return "", ctx.Err()
-	}
-	if overLimit {
-		return "", errors.New("origin probe output too long")
-	}
-	if readErr != nil {
+	_, waitErr := process.finish(overLimit || readErr != nil)
+	<-written
+	switch {
+	case runCtx.Err() != nil:
+		return "", runCtx.Err()
+	case overLimit:
+		return "", errors.New("SSH probe output too long")
+	case readErr != nil:
 		return "", readErr
-	}
-	if drainErr != nil {
-		return "", drainErr
-	}
-	if waitErr != nil {
+	case waitErr != nil:
 		return "", waitErr
 	}
 	return string(buf), nil
 }
 
-func repairRemoteDisplayOverSSH(ctx context.Context, alias string, options OpenOptions, snapshot *CachedSnapshotV2) {
-	if snapshot == nil || options.command != nil || alias == "" {
-		return
-	}
-	repairRemoteDisplay(ctx, snapshot, remoteOriginLookup(alias, options))
-}
-
-// repairRemoteDisplay sets a canonical origin on sessions that recorded a branch.
-// Sessions are copied first so a failed validation leaves the cached family unchanged.
-func repairRemoteDisplay(ctx context.Context, snapshot *CachedSnapshotV2, lookup originLookup) {
-	if snapshot == nil || lookup == nil {
-		return
-	}
+// repairRemoteDisplay copies sessions before editing so a failed validation
+// leaves the cached family unchanged.
+func repairRemoteDisplay(ctx context.Context, snapshot *CachedSnapshotV2, lookup func(context.Context, []string) map[string]string) {
 	cwds := []string{}
 	seen := map[string]bool{}
 	for _, family := range snapshot.Families {
@@ -187,25 +127,22 @@ func repairRemoteDisplay(ctx context.Context, snapshot *CachedSnapshotV2, lookup
 	origins := lookup(ctx, cwds)
 	for index := range snapshot.Families {
 		family := snapshot.Families[index].Facts
-		family.Sessions = append([]remotefacts.Session(nil), family.Sessions...)
 		changed := false
-		for sessionIndex := range family.Sessions {
-			item := &family.Sessions[sessionIndex]
+		for sessionIndex, item := range family.Sessions {
 			name := origins[item.Display.WorkingDirectory]
 			if name == "" || hasRepository(item.Display) {
 				continue
 			}
-			item.Display.Repository = &name
-			item.Display.RepositoryLocalOnly = false
-			changed = true
+			if !changed {
+				family.Sessions = append([]remotefacts.Session(nil), family.Sessions...)
+				changed = true
+			}
+			family.Sessions[sessionIndex].Display.Repository = &name
+			family.Sessions[sessionIndex].Display.RepositoryLocalOnly = false
 		}
-		if !changed {
-			continue
+		if changed && remotefacts.Validate(family) == nil {
+			snapshot.Families[index].Facts = family
 		}
-		if err := remotefacts.Validate(family); err != nil {
-			continue
-		}
-		snapshot.Families[index].Facts = family
 	}
 }
 

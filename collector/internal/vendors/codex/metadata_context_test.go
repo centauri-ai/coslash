@@ -10,6 +10,18 @@ import (
 	"time"
 )
 
+func TestLiveSessionIDsReadsRolloutPaths(t *testing.T) {
+	const id = "019f4dde-db5b-7100-bdc0-09b5aaaac56f"
+	output := "p123\nn/home/dev/.codex/sessions/rollout-2026-07-10T14-11-18-" + id + ".jsonl\ncodex\n"
+	live := LiveSessionIDs(output)
+	if _, ok := live[id]; !ok || len(live) != 1 {
+		t.Fatalf("live = %#v", live)
+	}
+	if len(LiveSessionIDs("n/tmp/notes.txt\n")) != 0 {
+		t.Fatal("non-rollout file was treated as live")
+	}
+}
+
 func TestLoadLiveSessionsContextCancelsLsof(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture")

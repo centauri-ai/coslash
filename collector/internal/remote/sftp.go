@@ -365,10 +365,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 		return nil, wrapSSHError(err, stderr.String())
 	}
 	if source != nil {
-		source.collectCtx = sessionCtx
-		if options.command == nil {
-			source.originLookup = remoteOriginLookup(alias, options)
-		}
+		source.ssh = sshTarget{alias: alias, options: options}
 	}
 	return &Session{
 		client: client, source: source, ctx: sessionCtx, cancel: cancel, cmd: cmd, stderr: stderr,

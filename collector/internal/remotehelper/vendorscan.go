@@ -2,6 +2,7 @@ package remotehelper
 
 import (
 	"io/fs"
+	"log"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
@@ -112,7 +113,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 			}
 			live, err := codex.LoadLiveSessions()
 			if err != nil {
-				return nil, err
+				log.Printf("codex liveness probe failed: %v", err)
 			}
 			for id := range live {
 				metadata.Session(id).Live = "interactive"

@@ -26,7 +26,7 @@ func TestProbeRemoteOriginsRejectsUnsafePaths(t *testing.T) {
 		t.Fatal("unsafe working directory reached SSH")
 		return nil
 	}}
-	found := probeRemoteOrigins(context.Background(), "host", options, []string{"/tmp/ok\ntouch owned", "relative", ""})
+	found := sshTarget{"host", options}.origins(context.Background(), []string{"/tmp/ok\ntouch owned", "relative", ""})
 	if len(found) != 0 {
 		t.Fatalf("origins = %#v", found)
 	}
@@ -48,7 +48,7 @@ func TestProbeRemoteOriginsUsesOneRemoteCommand(t *testing.T) {
 		script = args[len(args)-1]
 		return exec.Command("sh", "-c", "cat > \"$1\"; printf '0\\thttps://github.com/centauri-ai/agent-tooling.git\\n'", "sh", marker)
 	}}
-	found := probeRemoteOrigins(context.Background(), "host", options, []string{"/home/dev/my repo"})
+	found := sshTarget{"host", options}.origins(context.Background(), []string{"/home/dev/my repo"})
 	if found["/home/dev/my repo"] != "github.com/centauri-ai/agent-tooling" {
 		t.Fatalf("origins = %#v", found)
 	}
@@ -104,7 +104,7 @@ func TestProbeRemoteOriginsStopsAfterSSHFailure(t *testing.T) {
 	for i := range cwds {
 		cwds[i] = "/repo/" + strconv.Itoa(i)
 	}
-	found := probeRemoteOrigins(context.Background(), "host", options, cwds)
+	found := sshTarget{"host", options}.origins(context.Background(), cwds)
 	if calls != 1 || len(found) != 0 {
 		t.Fatalf("calls=%d origins=%#v", calls, found)
 	}
@@ -117,7 +117,7 @@ func TestProbeRemoteOriginsStopsWhenCancelled(t *testing.T) {
 		t.Fatal("probe ran after cancellation")
 		return nil
 	}}
-	found := probeRemoteOrigins(ctx, "host", options, []string{"/home/dev/repos/coslash"})
+	found := sshTarget{"host", options}.origins(ctx, []string{"/home/dev/repos/coslash"})
 	if len(found) != 0 {
 		t.Fatalf("origins = %#v", found)
 	}
@@ -136,16 +136,16 @@ func TestProbeRemoteOriginsCapsTotalDirectories(t *testing.T) {
 		calls++
 		return fake.command(ctx, name, args...)
 	}}
-	found := probeRemoteOrigins(context.Background(), "host", options, cwds)
+	found := sshTarget{"host", options}.origins(context.Background(), cwds)
 	if calls != 1 || len(found) != maxOriginProbes || found[cwds[maxOriginProbes]] != "" {
 		t.Fatalf("calls=%d origins=%d", calls, len(found))
 	}
 }
 
 // The fake hangs after writing, so this returns only if the overlong read kills it.
-func TestRunSSHStdoutKillsOverlongOutput(t *testing.T) {
+func TestSSHTargetRunKillsOverlongOutput(t *testing.T) {
 	options := fakeOptions([]byte(strings.Repeat("x", 256)), 0, "", true)
-	if _, err := runSSHStdout(context.Background(), options, []string{"ignored"}, 128, nil); err == nil {
+	if _, err := (sshTarget{"host", options}).run(context.Background(), "ignored", 128, ""); err == nil {
 		t.Fatal("overlong output was accepted")
 	}
 }

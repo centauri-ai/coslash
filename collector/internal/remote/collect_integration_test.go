@@ -2,6 +2,7 @@ package remote
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -133,7 +134,7 @@ func TestCodexSessionMetaOnlyRootIsAbsentFromCompleteInventory(t *testing.T) {
 	fake.writeFile(file, content, modTime)
 
 	snapshot, sessions, failures, err := collectIncremental(
-		newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), CachedSnapshotV2{SourceID: "r_0123456789abcdef"},
+		context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), CachedSnapshotV2{SourceID: "r_0123456789abcdef"},
 	)
 	if err != nil || len(failures) != 0 || !snapshot.RequestComplete || len(snapshot.Families) != 0 || len(sessions) != 0 {
 		t.Fatalf("SFTP meta-only collection: snapshot=%#v sessions=%d failures=%v err=%v", snapshot, len(sessions), failures, err)
@@ -178,7 +179,7 @@ func TestCodexForkedRolloutCollectsAsDistinctFamily(t *testing.T) {
 	writeForkedCodexFixture(fake, rootID, threadID, time.Unix(2_000, 0))
 
 	snapshot, sessions, failures, err := collectIncremental(
-		newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), CachedSnapshotV2{SourceID: "r_0123456789abcdef"},
+		context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), CachedSnapshotV2{SourceID: "r_0123456789abcdef"},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +214,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 	index := fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Complete fixture\"}\n", id)
 	fake.writeFile(path.Join(fakeHome, ".codex", "session_index.jsonl"), index, modTime)
 	baseline := CachedSnapshotV2{SourceID: "r_0123456789abcdef"}
-	sftp, _, failures, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), baseline)
+	sftp, _, failures, err := collectIncremental(context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), baseline)
 	if err != nil || len(failures) != 0 || len(sftp.FullRecords) != 1 {
 		t.Fatalf("SFTP collect: records=%d failures=%v err=%v", len(sftp.FullRecords), failures, err)
 	}
@@ -224,7 +225,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 	}
 
 	before := fake.openCounts()[file]
-	warm, _, failures, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(4_000, 0), sftp)
+	warm, _, failures, err := collectIncremental(context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(4_000, 0), sftp)
 	if err != nil || len(failures) != 0 || len(warm.FullRecords) != 1 ||
 		warm.FullRecords[0].Record.RevisionID != sftp.FullRecords[0].Record.RevisionID {
 		t.Fatalf("warm collect = %#v failures=%v err=%v", warm.FullRecords, failures, err)
@@ -237,7 +238,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 	legacy.SourceID = ""
 	legacy.FullRecords = nil
 	beforeMigration := fake.openCounts()[file]
-	migrated, _, failures, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(4_500, 0), legacy)
+	migrated, _, failures, err := collectIncremental(context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(4_500, 0), legacy)
 	if err != nil || len(failures) != 0 || len(migrated.FullRecords) != 1 {
 		t.Fatalf("legacy migration: records=%d failures=%v err=%v", len(migrated.FullRecords), failures, err)
 	}
@@ -395,7 +396,7 @@ func TestCollectIncrementalHandlesMissingVendorRoots(t *testing.T) {
 				test.setup(fs)
 			}
 			snapshot, sessions, failures, err := collectIncremental(
-				newFakeSource(fs, Limits{}), 0, time.Unix(2000, 0), CachedSnapshotV2{},
+				context.Background(), newFakeSource(fs, Limits{}), 0, time.Unix(2000, 0), CachedSnapshotV2{},
 			)
 			if err != nil {
 				t.Fatalf("collectIncremental: %v", err)
@@ -418,7 +419,7 @@ func TestCollectIncrementalSkipsUnchangedFamiliesAndHeaders(t *testing.T) {
 	codexPath := writeCodexFixture(fs, codexID, "", time.Unix(1000, 0))
 	source := newFakeSource(fs, Limits{})
 
-	snapshot, sessions, failures, err := collectIncremental(source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
+	snapshot, sessions, failures, err := collectIncremental(context.Background(), source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
 	if err != nil {
 		t.Fatalf("cold collectIncremental: %v", err)
 	}
@@ -435,7 +436,7 @@ func TestCollectIncrementalSkipsUnchangedFamiliesAndHeaders(t *testing.T) {
 	// Warm refresh: nothing on disk changed, so neither transcript body nor
 	// the Codex header should be reopened.
 	before := fs.openCounts()
-	snapshot2, sessions2, failures2, err := collectIncremental(source, 0, time.Unix(3000, 0), snapshot)
+	snapshot2, sessions2, failures2, err := collectIncremental(context.Background(), source, 0, time.Unix(3000, 0), snapshot)
 	if err != nil {
 		t.Fatalf("warm collectIncremental: %v", err)
 	}
@@ -468,7 +469,7 @@ func TestCollectIncrementalIsolatesCorruptFamily(t *testing.T) {
 	fs.writeFile(path.Join(fakeHome, ".claude/projects/proj1", badID+".jsonl"), "{not valid jsonl", time.Unix(1000, 0))
 	source := newFakeSource(fs, Limits{})
 
-	snapshot, sessions, failures, err := collectIncremental(source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
+	snapshot, sessions, failures, err := collectIncremental(context.Background(), source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
 	if err != nil {
 		t.Fatalf("collectIncremental: %v", err)
 	}
@@ -508,7 +509,7 @@ func TestCollectIncrementalRejectsFamilyChangedDuringParse(t *testing.T) {
 	}
 	source := newFakeSource(fs, Limits{})
 
-	snapshot, _, failures, err := collectIncremental(source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
+	snapshot, _, failures, err := collectIncremental(context.Background(), source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
 	if err != nil {
 		t.Fatalf("collectIncremental: %v", err)
 	}
@@ -525,7 +526,7 @@ func TestCollectIncrementalReparsesOldParserVersion(t *testing.T) {
 	id := "aaaaaaaa-0000-0000-0000-000000000010"
 	file := writeClaudeFixture(fs, "proj1", id, 1, 1, time.Unix(1000, 0))
 	source := newFakeSource(fs, Limits{})
-	baseline, _, _, err := collectIncremental(source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
+	baseline, _, _, err := collectIncremental(context.Background(), source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +536,7 @@ func TestCollectIncrementalReparsesOldParserVersion(t *testing.T) {
 		}
 	}
 	before := fs.openCounts()[file]
-	_, _, _, err = collectIncremental(source, 0, time.Unix(3000, 0), baseline)
+	_, _, _, err = collectIncremental(context.Background(), source, 0, time.Unix(3000, 0), baseline)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +559,7 @@ func TestCollectIncrementalFallsBackToFullCollectionWhenKnownSetIsTooLarge(t *te
 		})
 	}
 
-	snapshot, _, _, err := collectIncremental(newFakeSource(fs, Limits{}), 0, time.Unix(2000, 0), baseline)
+	snapshot, _, _, err := collectIncremental(context.Background(), newFakeSource(fs, Limits{}), 0, time.Unix(2000, 0), baseline)
 	if err != nil {
 		t.Fatalf("baseline-free fallback failed: %v", err)
 	}
@@ -573,7 +574,7 @@ func TestCollectIncrementalNeverTombstonesOnHardVendorFailure(t *testing.T) {
 	writeClaudeFixture(fs, "proj1", claudeID, 1, 1, time.Unix(1000, 0))
 	source := newFakeSource(fs, Limits{})
 
-	firstSnapshot, _, _, err := collectIncremental(source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
+	firstSnapshot, _, _, err := collectIncremental(context.Background(), source, 0, time.Unix(2000, 0), CachedSnapshotV2{})
 	if err != nil || len(firstSnapshot.Families) != 1 {
 		t.Fatalf("seed refresh: snapshot=%+v err=%v", firstSnapshot, err)
 	}
@@ -584,7 +585,7 @@ func TestCollectIncrementalNeverTombstonesOnHardVendorFailure(t *testing.T) {
 	fs.files[path.Join(fakeHome, ".codex/sessions")] = &fakeEntry{isDir: true, symlink: true}
 	fs.mu.Unlock()
 
-	secondSnapshot, _, failures, err := collectIncremental(source, 0, time.Unix(3000, 0), firstSnapshot)
+	secondSnapshot, _, failures, err := collectIncremental(context.Background(), source, 0, time.Unix(3000, 0), firstSnapshot)
 	if err != nil {
 		t.Fatalf("a single hard vendor failure should not fail the whole refresh: %v", err)
 	}
@@ -609,7 +610,7 @@ func TestCollectIncrementalNeverTombstonesAfterSkippedDirectory(t *testing.T) {
 	fake := newFakeFS()
 	retainedID := "aaaaaaaa-0000-0000-0000-000000000011"
 	writeClaudeFixture(fake, "unreadable", retainedID, 1, 1, time.Unix(1000, 0))
-	baseline, _, _, err := collectIncremental(newFakeSource(fake, Limits{}), 0, time.Unix(2000, 0), CachedSnapshotV2{})
+	baseline, _, _, err := collectIncremental(context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(2000, 0), CachedSnapshotV2{})
 	if err != nil || len(baseline.Families) != 1 {
 		t.Fatalf("seed refresh: snapshot=%+v err=%v", baseline, err)
 	}
@@ -627,7 +628,7 @@ func TestCollectIncrementalNeverTombstonesAfterSkippedDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, _, failures, err := collectIncremental(source, time.Unix(2500, 0).UnixMilli(), time.Unix(3000, 0), baseline)
+	after, _, failures, err := collectIncremental(context.Background(), source, time.Unix(2500, 0).UnixMilli(), time.Unix(3000, 0), baseline)
 	if err != nil {
 		t.Fatalf("partial refresh: %v", err)
 	}
@@ -659,7 +660,7 @@ func TestCollectIncrementalTombstonesGenuinelyDeletedFamily(t *testing.T) {
 	writeClaudeFixture(fs, "proj1", stayID, 1, 1, time.Unix(1000, 0))
 	source := newFakeSource(fs, Limits{})
 
-	baseline, _, _, err := collectIncremental(source, 0, time.Unix(1500, 0), CachedSnapshotV2{})
+	baseline, _, _, err := collectIncremental(context.Background(), source, 0, time.Unix(1500, 0), CachedSnapshotV2{})
 	if err != nil || len(baseline.Families) != 2 {
 		t.Fatalf("seed refresh: snapshot=%+v err=%v", baseline, err)
 	}
@@ -668,7 +669,7 @@ func TestCollectIncrementalTombstonesGenuinelyDeletedFamily(t *testing.T) {
 	delete(fs.files, path.Join(fakeHome, ".claude/projects/proj1", goneID+".jsonl"))
 	fs.mu.Unlock()
 
-	after, _, _, err := collectIncremental(source, 0, time.Unix(2500, 0), baseline)
+	after, _, _, err := collectIncremental(context.Background(), source, 0, time.Unix(2500, 0), baseline)
 	if err != nil {
 		t.Fatalf("collectIncremental: %v", err)
 	}
@@ -695,7 +696,7 @@ func TestCollectIncrementalPreservesFamilyOutsideNarrowerWindow(t *testing.T) {
 	writeClaudeFixture(fs, "proj1", oldID, 1, 1, time.Unix(1000, 0))
 	source := newFakeSource(fs, Limits{})
 
-	baseline, _, _, err := collectIncremental(source, 0, time.Unix(1500, 0), CachedSnapshotV2{})
+	baseline, _, _, err := collectIncremental(context.Background(), source, 0, time.Unix(1500, 0), CachedSnapshotV2{})
 	if err != nil || len(baseline.Families) != 1 {
 		t.Fatalf("seed refresh: snapshot=%+v err=%v", baseline, err)
 	}
@@ -704,7 +705,7 @@ func TestCollectIncrementalPreservesFamilyOutsideNarrowerWindow(t *testing.T) {
 	// not tombstone the old family: it still exists on disk, just outside
 	// the requested display window.
 	writeClaudeFixture(fs, "proj1", newID, 2, 2, time.Unix(9_000_000, 0))
-	narrow, sessions, _, err := collectIncremental(source, 8_000_000_000, time.Unix(9_000_001, 0), baseline)
+	narrow, sessions, _, err := collectIncremental(context.Background(), source, 8_000_000_000, time.Unix(9_000_001, 0), baseline)
 	if err != nil {
 		t.Fatalf("collectIncremental: %v", err)
 	}

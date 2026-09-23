@@ -50,8 +50,10 @@ Both collection paths may read these paths beneath the SSH user's home:
 - `.claude/projects`, `.claude/sessions`, and `.claude/jobs`;
 - `.codex/sessions`, `.codex/archived_sessions`, and
   `.codex/session_index.jsonl`;
-- a numeric `/proc/<pid>` entry only to validate a PID already present in Claude
-  metadata;
+- for Claude liveness, a numeric `/proc/<pid>` entry only to validate a PID
+  already present in Claude metadata;
+- for Codex liveness, the list of rollout files that local Codex processes have
+  open, from `lsof -a -c codex -Fn`. It does not contact the network;
 - the Git configuration that `git remote get-url origin` reads, only in a
   working directory that a collected session recorded with a branch. The Mac
   runs this over SSH, not the helper, for at most 64 directories per refresh.
@@ -154,10 +156,12 @@ ambiguous timeout is reconciled with the same idempotency key; a retry cannot
 create a second revision.
 
 The library card for an SSH session carries the canonical origin remote when
-`git remote get-url origin` succeeds on that host. The portable record itself
-still omits that field. If no bounded repository identity is available, the
-upload uses the disclosed working-directory basename and marks the repository
-local-only; the review shows that exact fallback before approval.
+`git remote get-url origin` succeeds on that host, and its live status from the
+Claude or Codex liveness probe listed above. A missing or failed probe shows the
+session as Inactive. The portable record itself still omits the origin. If no
+bounded repository identity is available, the upload uses the disclosed
+working-directory basename and marks the repository local-only; the review
+shows that exact fallback before approval.
 
 ## Local server
 
