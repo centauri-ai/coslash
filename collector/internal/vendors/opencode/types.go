@@ -6,6 +6,7 @@ import (
 )
 
 type storedSession struct {
+	v2           bool
 	id           string
 	parentID     sql.NullString
 	directory    string

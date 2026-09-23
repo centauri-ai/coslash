@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"os/exec"
@@ -10,6 +11,40 @@ import (
 	"testing"
 	"time"
 )
+
+func TestOpenV2DatabaseFromDataHome(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	path := filepath.Join(dataHome, "opencode", "opencode.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+		`INSERT INTO session_v2 VALUES ('s', NULL, '/work', 'session', NULL, NULL, NULL, NULL, 0, 1, NULL)`,
+	} {
+		if _, err := writer.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openContext(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM session_v2`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("v2 rows = %d, error %v", count, err)
+	}
+}
 
 func TestRootContextCancelsOpenCodeLookup(t *testing.T) {
 	if runtime.GOOS == "windows" {

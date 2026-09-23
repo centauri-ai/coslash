@@ -45,13 +45,22 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 		}
 		modelID = modelName(model.ProviderID, model.ID)
 	}
-	messages, err := loadMessagesContext(ctx, tx, row.id)
+	var messages []storedMessage
+	var err error
+	if row.v2 {
+		messages, err = loadV2MessagesContext(ctx, tx, row.id)
+	} else {
+		messages, err = loadMessagesContext(ctx, tx, row.id)
+	}
 	if err != nil {
 		return parsedSession{}, err
 	}
-	todos, err := loadTodosContext(ctx, tx, row.id)
-	if err != nil {
-		return parsedSession{}, err
+	todos := []session.Todo{}
+	if !row.v2 {
+		todos, err = loadTodosContext(ctx, tx, row.id)
+		if err != nil {
+			return parsedSession{}, err
+		}
 	}
 	summaryEdits, err := loadFileEdits(row.summaryDiffs)
 	if err != nil {
@@ -364,6 +373,84 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 		parsed.StatusHint = &status
 	}
 	return parsedSession{transcript: parsed, tasks: tasks}, nil
+}
+
+func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([]storedMessage, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT type, data, time_created FROM session_message WHERE session_id = ? ORDER BY seq`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("query v2 messages: %w", err)
+	}
+	defer rows.Close()
+	messages := []storedMessage{}
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var kind, raw string
+		var created int64
+		if err := rows.Scan(&kind, &raw, &created); err != nil {
+			return nil, err
+		}
+		var value struct {
+			Text    string            `json:"text"`
+			Content []json.RawMessage `json:"content"`
+			Model   struct {
+				ProviderID string `json:"providerID"`
+				ID         string `json:"id"`
+			} `json:"model"`
+			Cost   float64      `json:"cost"`
+			Tokens storedTokens `json:"tokens"`
+			Finish string       `json:"finish"`
+			Time   struct {
+				Created   int64  `json:"created"`
+				Completed *int64 `json:"completed"`
+			} `json:"time"`
+		}
+		if err := json.Unmarshal([]byte(raw), &value); err != nil {
+			return nil, fmt.Errorf("%w: decode v2 message: %w", errMalformedSession, err)
+		}
+		message := storedMessage{Role: kind, ProviderID: value.Model.ProviderID, ModelID: value.Model.ID,
+			Cost: value.Cost, Tokens: value.Tokens, Finish: value.Finish}
+		message.Time.Created = value.Time.Created
+		if message.Time.Created == 0 {
+			message.Time.Created = created
+		}
+		message.Time.Completed = value.Time.Completed
+		switch kind {
+		case "user":
+			message.parts = append(message.parts, storedPart{Type: "text", Text: value.Text})
+		case "assistant":
+			for _, content := range value.Content {
+				var part storedPart
+				if err := json.Unmarshal(content, &part); err != nil {
+					return nil, fmt.Errorf("%w: decode v2 content: %w", errMalformedSession, err)
+				}
+				var extra struct {
+					Name string `json:"name"`
+					Time struct {
+						Completed *int64 `json:"completed"`
+					} `json:"time"`
+				}
+				if err := json.Unmarshal(content, &extra); err != nil {
+					return nil, err
+				}
+				part.Tool = extra.Name
+				part.State.Time.End = extra.Time.Completed
+				message.parts = append(message.parts, part)
+			}
+		case "idle":
+			message.Role = "assistant"
+			message.Time.Completed = &message.Time.Created
+		case "compaction":
+			message.Role = "user"
+			message.parts = append(message.parts, storedPart{Type: "compaction"})
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 
 func earliestMessageTime(messages []storedMessage) int64 {
