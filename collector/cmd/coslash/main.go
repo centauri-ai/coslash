@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -394,23 +393,5 @@ func writeToken(token string) error {
 	if err := protectTokenDirectory(home); err != nil {
 		return err
 	}
-	path := filepath.Join(home, "token")
-	temporary, err := os.CreateTemp(home, ".token-*")
-	if err != nil {
-		return err
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := protectTokenFile(temporaryPath, temporary); err != nil {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.WriteString(token + "\n"); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, path)
+	return writeTokenFile(home, token)
 }
