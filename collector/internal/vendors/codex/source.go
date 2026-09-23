@@ -288,7 +288,10 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	if err != nil {
 		return nil, nil, err
 	}
-	return parseFiles(FilesForRoot(files, id)), vendors.BestEffortMetadata(vendors.AgentCodex, LoadMetadata), nil
+	metadata := vendors.BestEffortMetadata(vendors.AgentCodex, func() (*vendors.SessionMetadata, error) {
+		return loadMetadataForFilesContext(context.Background(), files)
+	})
+	return parseFiles(FilesForRoot(files, id)), metadata, nil
 }
 
 func parseFiles(files []string) []*vendors.ParsedSession {
