@@ -169,6 +169,25 @@ func TestHelperCollectHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestWaitProcessContextTerminatesBeforeWaitingOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	waitStarted := make(chan struct{})
+	terminated := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- waitProcessContext(ctx, func() error {
+			close(waitStarted)
+			<-terminated
+			return errors.New("terminated")
+		}, func() { close(terminated) })
+	}()
+	<-waitStarted
+	cancel()
+	if err := <-done; err == nil || err.Error() != "terminated" {
+		t.Fatalf("waitProcessContext() error = %v, want terminated", err)
+	}
+}
+
 func TestHelperArgsRejectInjection(t *testing.T) {
 	for _, input := range []struct{ alias, path string }{
 		{alias: "-oProxyCommand=bad", path: "/helper"},

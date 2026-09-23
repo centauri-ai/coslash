@@ -380,6 +380,30 @@ func startHelper(
 	return &helperProcess{cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr}, nil
 }
 
+func waitProcessGroupContext(ctx context.Context, cmd *exec.Cmd) error {
+	return waitProcessContext(ctx, func() error { return waitProcessGroup(cmd) }, func() {
+		terminateProcessGroup(cmd)
+	})
+}
+
+func waitInteractiveProcessContext(ctx context.Context, cmd *exec.Cmd) error {
+	return waitProcessContext(ctx, func() error { return waitProcessGroup(cmd) }, func() {
+		terminateInteractiveProcess(cmd)
+	})
+}
+
+func waitProcessContext(ctx context.Context, wait func() error, terminate func()) error {
+	waited := make(chan error, 1)
+	go func() { waited <- wait() }()
+	select {
+	case err := <-waited:
+		return err
+	case <-ctx.Done():
+		terminate()
+		return <-waited
+	}
+}
+
 // writeStdin sends the request without blocking record reading, and reports the
 // write result on a channel so the caller never leaves the goroutine running.
 func (process *helperProcess) writeStdin(payload []byte) <-chan error {

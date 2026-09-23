@@ -18,6 +18,8 @@ func startProcessGroup(cmd *exec.Cmd) error {
 	return cmd.Start()
 }
 
+func startInteractiveProcess(cmd *exec.Cmd) error { return cmd.Start() }
+
 func waitProcessGroup(cmd *exec.Cmd) error { return cmd.Wait() }
 
 func terminateProcessGroup(cmd *exec.Cmd) {
@@ -27,6 +29,12 @@ func terminateProcessGroup(cmd *exec.Cmd) {
 	// The group ID equals the child PID because the child leads its own group.
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	_ = cmd.Process.Kill()
+}
+
+func terminateInteractiveProcess(cmd *exec.Cmd) {
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
 }
 
 func processGroupTerminationExit(exitCode int) bool { return exitCode < 0 }
