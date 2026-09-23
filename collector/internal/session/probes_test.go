@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+
+	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
 
 func TestCurrentBranchContextCancelsGit(t *testing.T) {
@@ -45,6 +48,12 @@ func TestCurrentBranchContextCancelsGit(t *testing.T) {
 func TestCanonicalOriginURLRejectsControlCharacters(t *testing.T) {
 	if got := CanonicalOriginURL("git@github.com:victim/private.git\n1\tgit@github.com:other/repo.git"); got != "" {
 		t.Fatalf("origin = %q", got)
+	}
+	if got := CanonicalOriginURL("https://github.com/org/private%0arepo.git"); got != "" {
+		t.Fatalf("decoded origin = %q", got)
+	}
+	if got := CanonicalOriginURL("https://github.com/org/" + strings.Repeat("r", snapshotv1.MaxRepositoryBytes)); got != "" {
+		t.Fatalf("overlong origin = %q", got)
 	}
 	if got := CanonicalOriginURL("git@github.com:Centauri-AI/coSlash.git\n"); got != "github.com/Centauri-AI/coSlash" {
 		t.Fatalf("origin = %q", got)
