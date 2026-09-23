@@ -156,7 +156,7 @@ func TestCodexSessionMetaOnlyRootIsAbsentFromCompleteInventory(t *testing.T) {
 		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},
 	}
 	var output bytes.Buffer
-	outcome, err := remotehelper.Collect(t.Context(), request, remotehelper.Options{Home: home}, &output)
+	outcome, err := remotehelper.Collect(t.Context(), request, remoteHelperOptions(home), &output)
 	if err != nil || !outcome.RequestComplete {
 		t.Fatalf("helper meta-only collection: outcome=%#v err=%v", outcome, err)
 	}
@@ -281,7 +281,7 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},
 	}
 	var output bytes.Buffer
-	if _, err := remotehelper.Collect(t.Context(), request, remotehelper.Options{Home: home}, &output); err != nil {
+	if _, err := remotehelper.Collect(t.Context(), request, remoteHelperOptions(home), &output); err != nil {
 		t.Fatal(err)
 	}
 	records, err := remoteprotocol.Decode(&output, request)
@@ -304,6 +304,15 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 	sftpBytes, _ := fullsessionv1.Marshal(sftp.FullRecords[0].Record)
 	if !bytes.Equal(localBytes, helperBytes) || !bytes.Equal(localBytes, sftpBytes) {
 		t.Fatal("canonical local/helper/SFTP record bytes differ")
+	}
+}
+
+func remoteHelperOptions(home string) remotehelper.Options {
+	return remotehelper.Options{
+		Home: home,
+		CodexLiveSessions: func() (map[string]struct{}, error) {
+			return map[string]struct{}{}, nil
+		},
 	}
 }
 

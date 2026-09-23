@@ -22,11 +22,12 @@ import (
 // Options are the helper's run inputs. Nothing here comes from the request: the
 // home directory is the SSH user's own, and the limits are helper-owned.
 type Options struct {
-	Home         string
-	Now          func() time.Time
-	Limits       Limits
-	Deadline     time.Duration
-	ProcessAlive func(int) bool
+	Home              string
+	Now               func() time.Time
+	Limits            Limits
+	Deadline          time.Duration
+	ProcessAlive      func(int) bool
+	CodexLiveSessions func() (map[string]struct{}, error)
 }
 
 // Outcome reports what the response contained. RequestComplete is false when a
@@ -68,6 +69,10 @@ func Collect(
 	if alive == nil {
 		alive = session.IsProcessAlive
 	}
+	codexLiveSessions := options.CodexLiveSessions
+	if codexLiveSessions == nil {
+		codexLiveSessions = codex.LoadLiveSessions
+	}
 	deadline := options.Deadline
 	if deadline <= 0 {
 		deadline = CollectDeadline
@@ -94,7 +99,7 @@ func Collect(
 			break
 		}
 		result, err := collectVendor(
-			ctx, emitter, request, vendor, request.Vendors[index+1:], source, home, now(), alive,
+			ctx, emitter, request, vendor, request.Vendors[index+1:], source, home, now(), alive, codexLiveSessions,
 		)
 		parserTotal += result.parser
 		addCounts(&totals, result.counts)
@@ -130,9 +135,10 @@ func collectVendor(
 	home string,
 	now time.Time,
 	alive func(int) bool,
+	codexLiveSessions func() (map[string]struct{}, error),
 ) (vendorResult, error) {
 	started := time.Now()
-	scanned := scanVendor(vendor, source, home, request, now, alive)
+	scanned := scanVendor(vendor, source, home, request, now, alive, codexLiveSessions)
 	if scanned == nil {
 		return vendorResult{}, nil
 	}
@@ -672,12 +678,13 @@ func scanVendor(
 	request remoteprotocol.Request,
 	now time.Time,
 	alive func(int) bool,
+	codexLiveSessions func() (map[string]struct{}, error),
 ) *vendorScan {
 	switch vendor {
 	case vendors.AgentClaude:
 		return scanClaude(source, home, request.SinceMs, now, alive)
 	case vendors.AgentCodex:
-		return scanCodex(source, home, request)
+		return scanCodex(source, home, request, codexLiveSessions)
 	default:
 		return nil
 	}

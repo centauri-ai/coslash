@@ -114,7 +114,7 @@ func TestCodexScanReusesUnchangedCachedHeader(t *testing.T) {
 			Key: fp.Key, Size: fp.Size, ModifiedAtMs: fp.ModifiedAtMs, SessionID: id,
 		}},
 	}}
-	scan := scanCodex(source, home, request)
+	scan := scanCodex(source, home, request, noCodexLiveSessions)
 	item := scan.scan.families[id]
 	if item == nil || item.skipReason != "" || len(item.headerMappings) != 1 {
 		t.Fatalf("cached header was not reused: %#v", item)
@@ -125,7 +125,7 @@ func TestEmitterReportsNegotiatedOutputLimit(t *testing.T) {
 	request := validRequest()
 	request.Limits.MaxRecords = 1
 	var output discardWriter
-	_, err := Collect(context.Background(), request, Options{Home: t.TempDir()}, &output)
+	_, err := Collect(context.Background(), request, testOptions(t.TempDir()), &output)
 	if !errors.Is(err, ErrRecordLimit) {
 		t.Fatalf("Collect error = %v, want ErrRecordLimit", err)
 	}
@@ -308,7 +308,7 @@ func TestCollectWithSkippedFamilyWithholdsCompletion(t *testing.T) {
 		}},
 	}}
 	var output bytes.Buffer
-	outcome, err := Collect(context.Background(), request, Options{Home: home}, &output)
+	outcome, err := Collect(context.Background(), request, testOptions(home), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestCollectWithUnknownScanSkippedFamilyWithholdsCompletion(t *testing.T) {
 	}
 	request := validRequest()
 	var output bytes.Buffer
-	outcome, err := Collect(context.Background(), request, Options{Home: home}, &output)
+	outcome, err := Collect(context.Background(), request, testOptions(home), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +364,7 @@ func TestCollectForkedRolloutReportsCompleteDistinctFamilies(t *testing.T) {
 	request := validRequest()
 	request.SourceID = "r_0123456789abcdef"
 	var output bytes.Buffer
-	outcome, err := Collect(context.Background(), request, Options{Home: home}, &output)
+	outcome, err := Collect(context.Background(), request, testOptions(home), &output)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,6 +410,14 @@ func validRequest() remoteprotocol.Request {
 			MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: 100,
 			MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},
 	}
+}
+
+func testOptions(home string) Options {
+	return Options{Home: home, CodexLiveSessions: noCodexLiveSessions}
+}
+
+func noCodexLiveSessions() (map[string]struct{}, error) {
+	return map[string]struct{}{}, nil
 }
 
 type discardWriter struct{}
