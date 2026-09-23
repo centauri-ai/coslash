@@ -344,6 +344,34 @@ func TestOpenWindowsTerminalFallsBackToWindowsPowerShell(t *testing.T) {
 	}
 }
 
+func TestWindowsConsoleResolvesRelativeWorkingDirectory(t *testing.T) {
+	originalCreate := windowsCreateProcess
+	t.Cleanup(func() { windowsCreateProcess = originalCreate })
+	var gotDirectory string
+	windowsCreateProcess = func(
+		_, _ *uint16,
+		_, _ *windows.SecurityAttributes,
+		_ bool,
+		_ uint32,
+		_, currentDirectory *uint16,
+		_ *windows.StartupInfo,
+		_ *windows.ProcessInformation,
+	) error {
+		gotDirectory = windows.UTF16PtrToString(currentDirectory)
+		return nil
+	}
+	if err := startWindowsConsole(context.Background(), `C:\Windows\powershell.exe`, ".", "-NoExit"); err != nil {
+		t.Fatal(err)
+	}
+	wantDirectory, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDirectory != wantDirectory {
+		t.Fatalf("CreateProcess directory = %q, want %q", gotDirectory, wantDirectory)
+	}
+}
+
 func TestWindowsRemoteSSHDisablesConfiguredMultiplexing(t *testing.T) {
 	destination, err := settings.ParseSSHDestination("linux-host")
 	if err != nil {

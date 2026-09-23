@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"unsafe"
 
@@ -173,6 +174,10 @@ func writePowerShellScript(command string) (string, error) {
 
 func startWindowsConsole(ctx context.Context, executable, workingDirectory string, arguments ...string) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	workingDirectory, err := filepath.Abs(workingDirectory)
+	if err != nil {
 		return err
 	}
 	applicationName, err := windows.UTF16PtrFromString(executable)
