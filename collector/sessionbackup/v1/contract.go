@@ -333,7 +333,13 @@ func validate(manifest Manifest, requireHash bool) error {
 	var totalBytes int64
 	for index, artifact := range manifest.Artifacts {
 		memberPosition, ok := members[artifact.MemberID]
-		if artifact.Ordinal != index || !ok || !logicalName(artifact.LogicalName) || seenNames[artifact.LogicalName] ||
+		if seenNames[artifact.LogicalName] {
+			return fmt.Errorf("%w: duplicate artifact name", ErrInvalid)
+		}
+		if !logicalName(artifact.LogicalName) {
+			return fmt.Errorf("%w: unsafe artifact name", ErrInvalid)
+		}
+		if artifact.Ordinal != index || !ok ||
 			(artifact.Source != ArtifactSourceCodex && artifact.Source != ArtifactSourceCoSlash) || !contains(ArtifactKinds, artifact.Kind) ||
 			artifact.SourceKey == "" || !plainText(artifact.SourceKey) || artifact.MediaType == "" || !plainText(artifact.MediaType) || artifact.Encoding != EncodingIdentity ||
 			artifact.ByteLength < 0 || artifact.ByteLength > MaxArtifactBytes || !digest(artifact.SHA256) {

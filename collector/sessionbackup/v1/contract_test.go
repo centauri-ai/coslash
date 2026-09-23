@@ -641,6 +641,43 @@ func TestWrongSizeFixtureReachesArtifactLengthCheck(t *testing.T) {
 	}
 }
 
+func TestDuplicateArtifactFixtureReachesDuplicateCheck(t *testing.T) {
+	root := filepath.Join("testdata", "fixtures", "invalid", "duplicate-artifact")
+	_, err := VerifyDirectory(root)
+	if err == nil || !strings.Contains(err.Error(), "duplicate artifact name") {
+		t.Fatalf("duplicate-artifact error = %v; want duplicate artifact name", err)
+	}
+}
+
+func TestUnsafeNameFixtureHasMatchingBytesOnlyAtEscapeTarget(t *testing.T) {
+	root := filepath.Join("testdata", "fixtures", "invalid", "unsafe-logical-name")
+	manifestBytes, err := os.ReadFile(filepath.Join(root, ManifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	artifact := manifest.Artifacts[0]
+	blob, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.LogicalName)))
+	if err != nil {
+		t.Fatalf("read escape target: %v", err)
+	}
+	sum := sha256.Sum256(blob)
+	if int64(len(blob)) != artifact.ByteLength || hex.EncodeToString(sum[:]) != artifact.SHA256 {
+		t.Fatal("escape target bytes do not match the unsafe artifact declaration")
+	}
+	valid, _, _ := loadValidFixture(t)
+	stale := filepath.Join(root, filepath.FromSlash(valid.Artifacts[artifact.Ordinal].LogicalName))
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale in-bundle artifact stat error = %v", err)
+	}
+	if _, err := VerifyDirectory(root); err == nil || !strings.Contains(err.Error(), "unsafe artifact name") {
+		t.Fatalf("unsafe-logical-name error = %v; want unsafe artifact name", err)
+	}
+}
+
 func TestLogicalNameSchemaMatchesVerifier(t *testing.T) {
 	manifest, _, _ := loadValidFixture(t)
 	for _, name := range []string{"foo/./bar", "foo/../bar", "foo//bar", "foo/bar/", "/foo", `foo\\bar`, "C:/foo", "foo\x1fbar"} {
@@ -685,7 +722,7 @@ func TestVerifierRejectsOmittedDeclaredKindCoverage(t *testing.T) {
 }
 
 func TestMeasurementContainsOnlyAggregateEvidence(t *testing.T) {
-	manifest, _, _ := loadValidFixture(t)
+	manifest, manifestBytes, _ := loadValidFixture(t)
 	measurer, err := NewMeasurer("test-revision")
 	if err != nil {
 		t.Fatal(err)
@@ -706,8 +743,30 @@ func TestMeasurementContainsOnlyAggregateEvidence(t *testing.T) {
 			t.Fatal("measurement leaked member identity")
 		}
 	}
-	if report.BundleCount != 1 || report.ArtifactCount != len(manifest.Artifacts) || report.MaximumBytes != manifest.Summary.TotalBytes {
+	wantBytes := manifest.Summary.TotalBytes + int64(len(manifestBytes))
+	if report.BundleCount != 1 || report.ArtifactCount != len(manifest.Artifacts) || report.MaximumBytes != wantBytes ||
+		report.P50Bytes != wantBytes || report.P95Bytes != wantBytes || report.P99Bytes != wantBytes {
 		t.Fatalf("report = %#v", report)
+	}
+}
+
+func TestMeasurementRejectsInvalidManifest(t *testing.T) {
+	manifest, _, _ := loadValidFixture(t)
+	manifest.Artifacts[0].ByteLength = MaxArtifactBytes + 1
+	manifest.Summary = summarize(manifest.Artifacts)
+	manifest.CompleteBackupSHA256 = ""
+	preimage, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(preimage)
+	manifest.CompleteBackupSHA256 = hex.EncodeToString(sum[:])
+	measurer, err := NewMeasurer("test-revision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := measurer.Add(manifest); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Add() error = %v; want invalid manifest", err)
 	}
 }
 

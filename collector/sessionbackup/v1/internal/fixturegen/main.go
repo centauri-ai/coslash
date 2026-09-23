@@ -65,7 +65,21 @@ func main() {
 			return m, b, m.Artifacts[0].LogicalName
 		}},
 		{"duplicate-artifact", "duplicate artifact", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
-			m.Artifacts = append(m.Artifacts, m.Artifacts[0])
+			duplicate := m.Artifacts[0]
+			m.Summary.ArtifactCounts = append([]sessionbackupv1.ArtifactCount(nil), m.Summary.ArtifactCounts...)
+			m.Artifacts = append(m.Artifacts, sessionbackupv1.Artifact{})
+			copy(m.Artifacts[2:], m.Artifacts[1:])
+			m.Artifacts[1] = duplicate
+			for index := range m.Artifacts {
+				m.Artifacts[index].Ordinal = index
+			}
+			m.Summary.ArtifactCount++
+			m.Summary.TotalBytes += duplicate.ByteLength
+			for index := range m.Summary.ArtifactCounts {
+				if m.Summary.ArtifactCounts[index].Kind == duplicate.Kind {
+					m.Summary.ArtifactCounts[index].Count++
+				}
+			}
 			m.CompleteBackupSHA256 = rehash(m)
 			return m, b, ""
 		}},
@@ -73,12 +87,12 @@ func main() {
 			for index := range m.Artifacts {
 				if m.Artifacts[index].Kind == sessionbackupv1.KindRawTranscript {
 					m.Artifacts[index].ByteLength++
-					break
+					m.Summary.TotalBytes++
+					m.CompleteBackupSHA256 = rehash(m)
+					return m, b, ""
 				}
 			}
-			m.Summary.TotalBytes++
-			m.CompleteBackupSHA256 = rehash(m)
-			return m, b, ""
+			panic("valid fixture has no raw transcript")
 		}},
 		{"wrong-hash", "wrong artifact hash", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
 			m.Artifacts[0].SHA256 = fmt.Sprintf("%064d", 0)
@@ -86,7 +100,10 @@ func main() {
 			return m, b, ""
 		}},
 		{"unsafe-logical-name", "unsafe logical name", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
+			original := m.Artifacts[0].LogicalName
 			m.Artifacts[0].LogicalName = "../escape.jsonl"
+			b[m.Artifacts[0].LogicalName] = b[original]
+			delete(b, original)
 			m.CompleteBackupSHA256 = rehash(m)
 			return m, b, ""
 		}},

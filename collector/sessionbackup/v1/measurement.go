@@ -2,6 +2,7 @@ package sessionbackupv1
 
 import (
 	"fmt"
+	"math"
 	"sort"
 )
 
@@ -35,12 +36,16 @@ func NewMeasurer(collectorVersion string) (*Measurer, error) {
 }
 
 func (m *Measurer) Add(manifest Manifest) error {
-	if err := Validate(manifest); err != nil {
+	manifestBytes, err := Marshal(manifest)
+	if err != nil {
 		return err
+	}
+	if manifest.Summary.TotalBytes > math.MaxInt64-int64(len(manifestBytes)) {
+		return fmt.Errorf("%w: bundle byte total overflow", ErrInvalid)
 	}
 	m.report.BundleCount++
 	m.report.ArtifactCount += len(manifest.Artifacts)
-	m.sizes = append(m.sizes, manifest.Summary.TotalBytes)
+	m.sizes = append(m.sizes, manifest.Summary.TotalBytes+int64(len(manifestBytes)))
 	for _, artifact := range manifest.Artifacts {
 		m.counts[artifact.Kind]++
 		m.report.MaximumArtifact = max(m.report.MaximumArtifact, artifact.ByteLength)
