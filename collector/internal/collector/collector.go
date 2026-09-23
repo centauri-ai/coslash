@@ -497,7 +497,12 @@ func composeSessionsContext(ctx context.Context, parsed []*vendors.ParsedSession
 		}
 		parent, ok := byID[sessionKey{agent: p.Session.Agent, id: p.ParentID}]
 		if !ok {
-			log.Printf("session family contains an unresolved parent; dropping child")
+			log.Printf(
+				"%s: %s parent %s not found, dropping child",
+				p.Session.Agent,
+				p.Session.ID,
+				p.ParentID,
+			)
 			continue
 		}
 		if deref(p.Session.Status) == "waiting" {
@@ -688,7 +693,8 @@ func linkSpawnDigestContext(ctx context.Context, parent *session.Session, spawnK
 		parent.Digest = slices.Insert(parent.Digest, claimed+1, row)
 		return nil
 	}
-	log.Printf("session family contains an unresolved subagent spawn row; omitting it from the digest")
+	log.Printf("%s: subagent %s has no spawn row in the parent transcript, "+
+		"showing it in the rail but not the digest", parent.ID, subagent.ID)
 	return nil
 }
 
