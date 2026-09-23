@@ -23,6 +23,25 @@ func TestWindowsCredentialLoadErrors(t *testing.T) {
 	}
 }
 
+func TestWindowsCredentialEmptyValuesRequirePairing(t *testing.T) {
+	originalRead, originalFree := readWindowsCredential, freeWindowsCredential
+	t.Cleanup(func() {
+		readWindowsCredential = originalRead
+		freeWindowsCredential = originalFree
+	})
+	freeWindowsCredential = func(*windowsCredential) {}
+	store := OSKeychain{Service: "coslash-test", Account: "empty"}
+	for _, credential := range []*windowsCredential{
+		{},
+		{CredentialBlobSize: 3, CredentialBlob: func() *byte { value := []byte(" \t\n"); return &value[0] }()},
+	} {
+		readWindowsCredential = func(*uint16) (*windowsCredential, error) { return credential, nil }
+		if _, err := store.Load(context.Background()); !errors.Is(err, ErrNotPaired) {
+			t.Fatalf("empty credential error = %v, want %v", err, ErrNotPaired)
+		}
+	}
+}
+
 func TestOSKeychainWindowsLifecycle(t *testing.T) {
 	originalRead, originalWrite, originalFree := readWindowsCredential, writeWindowsCredential, freeWindowsCredential
 	t.Cleanup(func() {
