@@ -218,13 +218,11 @@ func analyzeClaudeSessionSource(
 		fileEdits:                session.NewFileEditSet(),
 		commitLog:                commitLog,
 	}
-	pendingAssistantText := ""
 	pendingCommand := ""
 	emitPrompt := func(text string, timestamp int64) {
 		analysis.inTurn = true
 		analysis.waitingForQuestion = false
 		analysis.pendingQuestionToolUseID = ""
-		pendingAssistantText = ""
 		analysis.userPromptCount++
 		if analysis.firstUserPrompt == "" {
 			analysis.firstUserPrompt = text
@@ -265,7 +263,6 @@ func analyzeClaudeSessionSource(
 			analysis.durationMs += *row.TurnDurationMs
 			analysis.turns++
 			analysis.inTurn = false
-			pendingAssistantText = ""
 		}
 		var rowTimestamp int64
 		if row.Timestamp != "" {
@@ -326,7 +323,6 @@ func analyzeClaudeSessionSource(
 				switch {
 				case strings.HasPrefix(text, interruptMarker):
 					analysis.inTurn = false
-					pendingAssistantText = ""
 				case text != "":
 					emitPrompt(text, rowTimestamp)
 				}
@@ -334,11 +330,6 @@ func analyzeClaudeSessionSource(
 		}
 		resultToolUseID := ""
 		if row.Message != nil {
-			if row.Type == "assistant" {
-				if text := strings.TrimSpace(row.Message.textContent()); text != "" {
-					pendingAssistantText = text
-				}
-			}
 			blocks, err := row.Message.contentBlocks()
 			if err != nil {
 				log.Printf("%s: skipping malformed message content: %v", file, err)
@@ -377,16 +368,6 @@ func analyzeClaudeSessionSource(
 				}
 				if block.IsError {
 					analysis.errors++
-				}
-				if block.Name == "ExitPlanMode" && analysis.userPromptCount > 0 &&
-					pendingAssistantText != "" {
-					analysis.digest.Push(
-						analysis.userPromptCount,
-						session.DigestRecap,
-						pendingAssistantText,
-						rowTimestamp,
-					)
-					pendingAssistantText = ""
 				}
 				if block.Name == "TaskUpdate" {
 					if task, ok := analysis.tasks[block.Input.TaskID]; ok {
@@ -427,7 +408,6 @@ func analyzeClaudeSessionSource(
 							rowTimestamp,
 						)
 					}
-					pendingAssistantText = ""
 				}
 			}
 		}
@@ -436,7 +416,12 @@ func analyzeClaudeSessionSource(
 			if err != nil {
 				log.Printf("%s: skipping malformed toolUseResult: %v", file, err)
 			}
-			if result != nil && result.FilePath != "" {
+			// An approved ExitPlanMode result names its plan file in filePath; it is not an edit.
+			if result != nil && result.Plan != "" {
+				if analysis.userPromptCount > 0 {
+					analysis.digest.Push(analysis.userPromptCount, session.DigestPlan, result.Plan, rowTimestamp)
+				}
+			} else if result != nil && result.FilePath != "" {
 				var diffLines []string
 				createdContent := ""
 				for _, patch := range result.StructuredPatch {

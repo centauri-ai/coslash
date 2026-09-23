@@ -110,6 +110,7 @@ func (answer claudeAnswer) String() string {
 
 type claudeToolUseResult struct {
 	FilePath        string          `json:"filePath"`
+	Plan            string          `json:"plan"` // approved ExitPlanMode
 	Type            string          `json:"type"`
 	Content         json.RawMessage `json:"content"`
 	StructuredPatch []struct {
