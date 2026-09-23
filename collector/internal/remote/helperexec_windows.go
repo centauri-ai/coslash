@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"os/exec"
 	"sync"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 var windowsProcessJobs sync.Map
+var ntResumeProcess = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtResumeProcess")
+
+const windowsProcessGroupTerminationExit = 0x5a5a0001
 
 func startProcessGroup(cmd *exec.Cmd) error {
 	job, err := windows.CreateJobObject(nil, nil)
@@ -27,6 +31,10 @@ func startProcessGroup(cmd *exec.Cmd) error {
 		windows.CloseHandle(job)
 		return err
 	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
 	if err := cmd.Start(); err != nil {
 		windows.CloseHandle(job)
 		return err
@@ -42,7 +50,26 @@ func startProcessGroup(cmd *exec.Cmd) error {
 		windows.CloseHandle(job)
 		return fmt.Errorf("assign process job: %w", err)
 	}
+	if err := resumeProcess(cmd.Process.Pid); err != nil {
+		_ = windows.TerminateJobObject(job, 1)
+		_ = cmd.Wait()
+		windows.CloseHandle(job)
+		return fmt.Errorf("resume process: %w", err)
+	}
 	windowsProcessJobs.Store(cmd, job)
+	return nil
+}
+
+func resumeProcess(pid int) error {
+	process, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME, false, uint32(pid))
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(process)
+	status, _, _ := ntResumeProcess.Call(uintptr(process))
+	if status != 0 {
+		return windows.NTStatus(status)
+	}
 	return nil
 }
 
@@ -56,9 +83,14 @@ func waitProcessGroup(cmd *exec.Cmd) error {
 
 func terminateProcessGroup(cmd *exec.Cmd) {
 	if value, ok := windowsProcessJobs.Load(cmd); ok {
-		_ = windows.TerminateJobObject(value.(windows.Handle), 1)
+		_ = windows.TerminateJobObject(value.(windows.Handle), windowsProcessGroupTerminationExit)
+		return
 	}
 	if cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
+}
+
+func processGroupTerminationExit(exitCode int) bool {
+	return exitCode == windowsProcessGroupTerminationExit
 }

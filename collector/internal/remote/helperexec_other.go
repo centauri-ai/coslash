@@ -15,3 +15,5 @@ func terminateProcessGroup(cmd *exec.Cmd) {
 		_ = cmd.Process.Kill()
 	}
 }
+
+func processGroupTerminationExit(exitCode int) bool { return exitCode < 0 }
