@@ -1136,7 +1136,7 @@ func refreshIncrementalWithOpen(
 	if err != nil {
 		return refreshOutcome{}, err
 	}
-	snapshot, sessions, failures, err := collectIncremental(ctx, connection.Source(), since, now, baseline)
+	snapshot, sessions, failures, err := collectIncremental(connection.ctx, connection.Source(), since, now, baseline)
 	stderr := connection.Stderr()
 	if err != nil {
 		closeErr := connection.Close()

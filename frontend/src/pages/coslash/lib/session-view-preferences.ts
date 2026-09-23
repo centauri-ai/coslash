@@ -71,13 +71,6 @@ function stringArrayOrLegacy(array: unknown, single: unknown): string[] {
   return values.length > 0 || legacy == null ? values : [legacy];
 }
 
-const LEGACY_STATUSES: Record<string, string> = { needs: 'waiting', running: 'busy' };
-
-function statusFilters(value: unknown): StatusKey[] {
-  const mapped = stringArray(value).map((status) => LEGACY_STATUSES[status] ?? status);
-  return [...new Set(mapped)].filter((status): status is StatusKey => STATUSES.has(status as StatusKey));
-}
-
 function groupFilterArray(value: unknown): string[] {
   return [
     ...new Set(stringArray(value).map((filter) => (filter.startsWith('unlocated:') ? 'unlocated' : filter))),
@@ -101,7 +94,9 @@ export function loadSessionViewPreferences(storage?: Pick<Storage, 'getItem'>): 
     return {
       query: stringOrNull(record.query) ?? defaults.query,
       range: oneOf(record.range, RANGES, defaults.range),
-      statusFilters: statusFilters(record.statusFilters),
+      statusFilters: stringArray(record.statusFilters).filter((status): status is StatusKey =>
+        STATUSES.has(status as StatusKey),
+      ),
       groupFilters: groupFilterArray(record.groupFilters),
       machineFilters: stringArrayOrLegacy(record.machineFilters, record.machineFilter),
       agentFilters: stringArrayOrLegacy(record.agentFilters, record.agentFilter),
