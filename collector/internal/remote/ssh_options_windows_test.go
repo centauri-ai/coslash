@@ -79,7 +79,10 @@ func TestWindowsInteractiveAuthenticationUsesAgentWithoutMultiplexing(t *testing
 		t.Fatal(err)
 	}
 	want := []string{
-		"-T", "-o", "ControlMaster=no", "-o", "BatchMode=no", "-o", "AddKeysToAgent=yes", "-o", "ConnectTimeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())),
+		"-T", "-o", "ControlMaster=no", "-o", "BatchMode=no",
+		"-o", "PreferredAuthentications=publickey", "-o", "PasswordAuthentication=no",
+		"-o", "KbdInteractiveAuthentication=no", "-o", "AddKeysToAgent=1h",
+		"-o", "ConnectTimeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())),
 		"-l", "jane", "linux-host", "true",
 	}
 	if !reflect.DeepEqual(args, want) {
