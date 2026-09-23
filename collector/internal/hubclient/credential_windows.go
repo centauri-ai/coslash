@@ -77,11 +77,11 @@ func (s OSKeychain) Load(ctx context.Context) (string, error) {
 	}
 	defer freeWindowsCredential(credential)
 	if credential.CredentialBlobSize == 0 || credential.CredentialBlob == nil {
-		return "", errors.New("load Hub credential: Credential Manager returned an empty credential")
+		return "", ErrNotPaired
 	}
 	value := strings.TrimSpace(string(unsafe.Slice(credential.CredentialBlob, credential.CredentialBlobSize)))
 	if value == "" {
-		return "", errors.New("load Hub credential: Credential Manager returned an empty credential")
+		return "", ErrNotPaired
 	}
 	return value, nil
 }
