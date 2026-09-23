@@ -1187,6 +1187,7 @@ const DIGEST_CATEGORIES: Record<DigestCategory, { label: string; fg: string; dot
   subagent: { label: 'Subagent', fg: 'text-subagent', dot: 'bg-subagent' },
   todos: { label: 'TODOS', fg: 'text-coslash-muted', dot: 'bg-coslash-muted' },
   recap: { label: 'RECAP', fg: 'text-recap', dot: 'bg-recap' },
+  plan: { label: 'PLAN', fg: 'text-recap', dot: 'bg-recap' },
   user: { label: 'USER TURN', fg: 'text-brand', dot: 'bg-brand' },
   compaction: { label: 'COMPACTION', fg: 'text-compaction', dot: 'bg-compaction' },
 };
@@ -1204,7 +1205,9 @@ function CategoryChip({
 }) {
   const meta = DIGEST_CATEGORIES[category];
   return (
-    <div
+    <button
+      type="button"
+      aria-pressed={active}
       className={cn('flex cursor-pointer items-center gap-1 rounded-full border px-2 py-1 select-none', {
         'bg-coslash-soft': active,
         'border-dashed': !active,
@@ -1220,20 +1223,26 @@ function CategoryChip({
         {meta.label}
       </span>
       <span className="text-coslash-muted text-xs">{count}</span>
-    </div>
+    </button>
   );
 }
 
 function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const meta = DIGEST_CATEGORIES[entry.category];
-  const collapsible = entry.category === 'recap' && entry.description.length > 120;
+  const collapsible =
+    (entry.category === 'recap' || entry.category === 'plan') && entry.description.length > 120;
 
   return (
     <div className={cn('border-coslash-line flex items-baseline gap-2 py-1', { 'border-b': !endsDay })}>
       <span className={cn('w-24 shrink-0 text-xs font-bold tracking-wide', meta.fg)}>{meta.label}</span>
       <div className="min-w-0 flex-1">
-        <div className={cn('text-xs wrap-break-word', { 'line-clamp-1': collapsible && !expanded })}>
+        <div
+          className={cn('text-xs wrap-break-word', {
+            'line-clamp-1': collapsible && !expanded,
+            'whitespace-pre-wrap': entry.category === 'plan',
+          })}
+        >
           {entry.description}
         </div>
         {entry.answer != null && (
@@ -1242,13 +1251,15 @@ function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }
           </div>
         )}
         {collapsible && (
-          <div
+          <button
+            type="button"
+            aria-expanded={expanded}
             className="text-brand flex cursor-pointer items-center gap-1 pt-1 text-xs"
             onClick={() => setExpanded(!expanded)}
           >
             {expanded ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
-            <span>{expanded ? 'collapse' : 'expand full recap'}</span>
-          </div>
+            <span>{expanded ? 'collapse' : `expand full ${entry.category}`}</span>
+          </button>
         )}
       </div>
       <span className="text-coslash-muted flex shrink-0 flex-col items-end font-mono text-xs whitespace-nowrap">
@@ -1303,7 +1314,7 @@ function DateDivider({ label }: { label: string }) {
   );
 }
 
-function DigestSection({ detail }: { detail: SessionDetail }) {
+export function DigestSection({ detail }: { detail: SessionDetail }) {
   const [hiddenCategories, setHiddenCategories] = useState<Set<DigestCategory>>(
     () => new Set(DEFAULT_HIDDEN_CATEGORIES),
   );

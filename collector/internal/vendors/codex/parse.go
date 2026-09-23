@@ -34,6 +34,7 @@ type codexSessionAnalysis struct {
 	firstUserPrompt  string
 	prompts          int
 	turnFinalReply   string
+	turnPlanText     string
 	turns            int
 	toolUseCount     int
 	compactions      int
@@ -311,6 +312,8 @@ func analyzeCodexSessionSource(
 					if item.Phase == "final_answer" || item.Phase == "" {
 						analysis.turnFinalReply = strings.TrimSpace(completedItemText(item))
 					}
+				case "Plan":
+					analysis.turnPlanText = strings.TrimSpace(item.Text)
 				case "FileChange":
 					analysis.noteFileChanges(item.Changes)
 				case "SubAgentActivity":
@@ -359,25 +362,31 @@ func analyzeCodexSessionSource(
 			case "task_started":
 				if !analysis.turnActive {
 					analysis.turnFinalReply = ""
+					analysis.turnPlanText = ""
 					analysis.turnStartTime = timestamp
 					analysis.turns++
 				}
 				analysis.turnActive = true
 			case "task_complete", "turn_aborted":
 				if row.Payload.Type == "task_complete" && analysis.turnActive &&
-					analysis.prompts > 0 && analysis.turnFinalReply != "" {
+					analysis.prompts > 0 && (analysis.turnPlanText != "" || analysis.turnFinalReply != "") {
 					ts := int64(0)
 					if timestamp != nil {
 						ts = *timestamp
 					}
+					category, description := session.DigestRecap, analysis.turnFinalReply
+					if analysis.turnPlanText != "" {
+						category, description = session.DigestPlan, analysis.turnPlanText
+					}
 					analysis.digest.Push(
 						analysis.prompts,
-						session.DigestRecap,
-						analysis.turnFinalReply,
+						category,
+						description,
 						ts,
 					)
 				}
 				analysis.turnFinalReply = ""
+				analysis.turnPlanText = ""
 				analysis.lastTurnAborted = row.Payload.Type == "turn_aborted"
 				analysis.turnActive = false
 				if analysis.turnStartTime != nil && timestamp != nil {

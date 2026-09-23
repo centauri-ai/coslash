@@ -250,7 +250,7 @@ type GitDrift = { baseBranch: string; ahead: number; behind: number };
 
 export type DigestEntry = {
   turn: number;
-  category: 'first_prompt' | 'user' | 'question' | 'todos' | 'compaction' | 'recap' | 'subagent';
+  category: 'first_prompt' | 'user' | 'question' | 'todos' | 'compaction' | 'recap' | 'plan' | 'subagent';
   description: string;
   answer?: string;
   subagentId?: string;
