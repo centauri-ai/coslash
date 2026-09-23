@@ -125,14 +125,12 @@ func helperRefreshWithOpen(
 	}
 	result, collectErr := HelperCollect(ctx, alias, target.path, request, toGeneration(effectiveBaseline), open)
 	snapshot := fromGeneration(result.Proposal, result.Coverage, now.UnixMilli(), result.RoundTrip.Milliseconds(), nil)
-	sessions := composeFromGeneration(result.Proposal, nullReadSource{}, nil, since)
 	if collectErr == nil {
-		repairRemoteDisplayOverSSH(ctx, alias, open, &snapshot)
-		sessions = composeFromGeneration(toGeneration(snapshot), nullReadSource{}, nil, since)
+		repairRemoteDisplay(ctx, &snapshot, sshTarget{alias: alias, options: open}.origins)
 	}
 	outcome := refreshOutcome{
 		Snapshot: snapshot,
-		Sessions: sessions,
+		Sessions: composeFromGeneration(toGeneration(snapshot), nullReadSource{}, nil, since),
 		Stderr:   result.Stderr, RoundTrip: result.RoundTrip,
 		Metrics: CollectionMetrics{RequestBytes: result.RequestBytes, ResponseBytes: result.ResponseBytes, Records: result.Records, RoundTripMs: result.RoundTrip.Milliseconds()},
 	}

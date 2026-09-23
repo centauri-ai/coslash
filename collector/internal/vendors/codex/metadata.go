@@ -65,11 +65,16 @@ func LoadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
 		}
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return LiveSessionIDs(string(openCodexSessions)), nil
+}
+
+// LiveSessionIDs reads rollout session IDs from `lsof -Fn` output.
+func LiveSessionIDs(output string) map[string]struct{} {
 	live := map[string]struct{}{}
-	for line := range strings.SplitSeq(string(openCodexSessions), "\n") {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
+	for line := range strings.SplitSeq(output, "\n") {
 		if !strings.HasPrefix(line, "n") || !strings.HasSuffix(line, ".jsonl") {
 			continue
 		}
@@ -77,7 +82,7 @@ func LoadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
 			live[id] = struct{}{}
 		}
 	}
-	return live, nil
+	return live
 }
 
 type sessionIndexEntry struct {

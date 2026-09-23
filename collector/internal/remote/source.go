@@ -1,7 +1,6 @@
 package remote
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -52,9 +51,8 @@ type Source struct {
 	entries atomic.Int64
 	bytes   atomic.Int64
 
-	dirCache     sync.Map // cleaned lexical path -> dirCacheEntry
-	originLookup originLookup
-	collectCtx   context.Context
+	dirCache sync.Map // cleaned lexical path -> dirCacheEntry
+	ssh      sshTarget
 }
 
 var homeAllowlist = []struct {

@@ -287,9 +287,12 @@ func collectClaudeVendor(source vendors.ReadSource, sourceID, home string, since
 
 func collectCodexVendor(
 	source vendors.ReadSource, sourceID, home string, since int64,
-	baseline map[string]CachedFamilyV2, cachedHeaders map[string]codex.CachedHeader,
+	baseline map[string]CachedFamilyV2, cachedHeaders map[string]codex.CachedHeader, live map[string]struct{},
 ) (vendorOutcome, map[string]codex.CachedHeader) {
 	metadata := codex.RemoteMetadata(source, home)
+	for id := range live {
+		metadata.Session(id).Live = "interactive"
+	}
 	selectedFamilies, activeFiles, allFamilyIDs, updatedHeaders, headerFailed, candidateFiles, skippedEntries, truncated, err := codex.BuildRemoteFamilies(
 		source, home, since, metadata.LiveSessions(), cachedHeaders,
 	)
@@ -423,6 +426,7 @@ func sortVendorRecords(records []remoteprotocol.Record, after string) {
 // and deletion-authority guarantees as a helper protocol response. Manager
 // publishes that proposal only when it contains request_complete.
 func collectIncremental(
+	ctx context.Context,
 	source *Source,
 	since int64,
 	now time.Time,
@@ -468,7 +472,7 @@ func collectIncremental(
 		claudeCh <- claudeResult{collectClaudeVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, now, claudeBaseline)}
 	}()
 	go func() {
-		outcome, headers := collectCodexVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, codexBaseline, codexHeaders)
+		outcome, headers := collectCodexVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, codexBaseline, codexHeaders, source.ssh.codexLive(ctx))
 		codexCh <- codexResult{outcome, headers}
 	}()
 	claudeOut := <-claudeCh
@@ -638,11 +642,7 @@ func collectIncremental(
 	if codexOut.outcome.Err == nil {
 		freshMetadata[vendors.AgentCodex] = codexOut.outcome.Metadata
 	}
-	ctx := source.collectCtx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	repairRemoteDisplay(ctx, &snapshot, source.originLookup)
+	repairRemoteDisplay(ctx, &snapshot, source.ssh.origins)
 	sessions := composeFromGeneration(toGeneration(snapshot), source, freshMetadata, since)
 	return snapshot, sessions, failures, nil
 }

@@ -69,7 +69,7 @@ func CanonicalRepositoryNameContext(ctx context.Context, cwd string) (string, bo
 		return fallback, true
 	}
 	if output, err := exec.CommandContext(ctx, "git", "-C", root, "remote", "get-url", "origin").Output(); err == nil {
-		if remote := canonicalRemoteName(string(output)); remote != "" {
+		if remote := CanonicalOriginURL(string(output)); remote != "" {
 			return remote, false
 		}
 	}
@@ -107,10 +107,6 @@ func CanonicalRepositoryNameContext(ctx context.Context, cwd string) (string, bo
 
 // CanonicalOriginURL returns host/owner/repo for an scp-style or URL remote.
 func CanonicalOriginURL(remote string) string {
-	return canonicalRemoteName(remote)
-}
-
-func canonicalRemoteName(remote string) string {
 	remote = strings.TrimSpace(remote)
 	if !strings.Contains(remote, "://") {
 		host, path, ok := strings.Cut(remote, ":")

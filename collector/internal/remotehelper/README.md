@@ -31,10 +31,13 @@ The allowlist matches the SFTP transport, so both transports read the same files
 .codex/sessions    .codex/archived_sessions   .codex/session_index.jsonl
 ```
 
-Process liveness is the only probe outside those paths: signal 0 against a PID
-that Claude's own session metadata names. Separately from the helper, the Mac
-runs one bounded `git remote get-url origin` over SSH for up to 64 working
-directories that sessions recorded with a branch; see
+Process liveness is probed outside those paths. Claude uses signal 0 against
+a PID named in its own session metadata. Codex uses `lsof -a -c codex -Fn`,
+which lists rollout files a local Codex process has open and does not contact
+the network. The SFTP fallback runs that same `lsof` command over SSH. A
+missing or failed probe leaves the session without a live status. Separately
+from the helper, the Mac runs one bounded `git remote get-url origin` over SSH
+for up to 64 working directories that sessions recorded with a branch; see
 [data and privacy](../../../docs/data-and-privacy.md).
 
 ## Limits
