@@ -224,6 +224,74 @@ func TestRemoteCLICommandResumesValidatedSession(t *testing.T) {
 	}
 }
 
+func TestRemoteTerminalCommandLoadsPerUserAgentSetup(t *testing.T) {
+	tests := []struct {
+		name, agent, want string
+		claudeKeys        bool
+	}{
+		{name: "codex wrapper", agent: vendors.AgentCodex, want: "wrapper"},
+		{name: "claude keys", agent: vendors.AgentClaude, claudeKeys: true, want: "documented-setup"},
+		{name: "missing claude keys", agent: vendors.AgentClaude, want: "missing"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			bin := filepath.Join(home, "bin")
+			if err := os.MkdirAll(bin, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if test.agent == vendors.AgentCodex {
+				if err := os.WriteFile(filepath.Join(bin, "codex"), []byte(
+					"#!/bin/sh\nprintf system > \"$HOME/agent-state\"\n",
+				), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				localBin := filepath.Join(home, ".local", "bin")
+				if err := os.MkdirAll(localBin, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(localBin, "codex"), []byte(
+					"#!/bin/sh\nprintf wrapper > \"$HOME/agent-state\"\n",
+				), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(
+					"#!/bin/sh\nprintf %s \"${ANTHROPIC_API_KEY:-missing}\" > \"$HOME/agent-state\"\n",
+				), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if test.claudeKeys {
+					if err := os.WriteFile(filepath.Join(home, ".agent-keys.sh"), []byte(
+						"export ANTHROPIC_API_KEY=documented-setup\n",
+					), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+
+			command, err := remoteTerminalCommand(
+				test.agent, home, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			process := exec.Command("/bin/sh", "-c", command)
+			process.Env = []string{"HOME=" + home, "PATH=" + bin}
+			if output, err := process.CombinedOutput(); err != nil {
+				t.Fatalf("command failed: %v: %s", err, output)
+			}
+			state, err := os.ReadFile(filepath.Join(home, "agent-state"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(state) != test.want {
+				t.Fatalf("agent state = %q, want %q", state, test.want)
+			}
+		})
+	}
+}
+
 func TestCursorCLICommandResumesValidatedSession(t *testing.T) {
 	command, _, err := cliCommand(vendors.AgentCursor, "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "")
 	if err != nil {

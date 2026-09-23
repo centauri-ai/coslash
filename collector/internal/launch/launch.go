@@ -260,12 +260,16 @@ func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName
 	if err != nil {
 		return "", err
 	}
+	setup := `PATH="$HOME/.local/bin:$PATH"; export PATH; `
+	if agent == vendors.AgentClaude {
+		setup += `if [ -f "$HOME/.agent-keys.sh" ]; then . "$HOME/.agent-keys.sh" || exit 1; fi; `
+	}
 	changeDirectory := "cd " + shellQuote(workingDirectory)
 	if handoffName == "" {
-		return changeDirectory + " && " + command, nil
+		return setup + changeDirectory + " && " + command, nil
 	}
 	handoffPath := `"$HOME"/` + shellQuote(".coslash/handoffs/"+handoffName)
-	return changeDirectory + " || { rm -f " + handoffPath + "; exit 1; }; " + command, nil
+	return setup + changeDirectory + " || { rm -f " + handoffPath + "; exit 1; }; " + command, nil
 }
 
 func openTerminal(ctx context.Context, terminal, workingDirectory, command string) error {
