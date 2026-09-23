@@ -23,14 +23,28 @@ func TestForkedLifecycleUsesLatestTaskEvent(t *testing.T) {
 	if parsed.InTurn {
 		t.Fatal("settled child remained in turn")
 	}
-	if parsed.Session.Turns != 3 {
-		t.Fatalf("turns = %d; want 3", parsed.Session.Turns)
+	if parsed.Session.Turns != 2 {
+		t.Fatalf("turns = %d; want 2", parsed.Session.Turns)
 	}
 	if parsed.Session.DurationMs == nil || *parsed.Session.DurationMs != 11_000 {
 		t.Fatalf("duration = %v; want 11000ms", parsed.Session.DurationMs)
 	}
 	if parsed.Session.Summary == nil || *parsed.Session.Summary != "review approved" {
 		t.Fatalf("summary = %v; want review approved", parsed.Session.Summary)
+	}
+}
+
+func TestForkedLifecycleDoesNotCountInheritedOpenTurn(t *testing.T) {
+	parsed := parseLifecycleRows(t, []string{
+		lifecycleRow("2026-09-21T17:55:15Z", "task_started"),
+		lifecycleRow("2026-09-21T17:55:16Z", "task_started"),
+		`{"timestamp":"2026-09-21T17:55:17Z","type":"event_msg","payload":{"type":"user_message","message":"review the fix"}}`,
+		`{"timestamp":"2026-09-21T17:55:18Z","type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"review approved"}}`,
+		lifecycleRow("2026-09-21T17:55:19Z", "task_complete"),
+	})
+	if parsed.InTurn || parsed.Session.Turns != 1 || parsed.Session.Summary == nil || *parsed.Session.Summary != "review approved" {
+		t.Fatalf("completed child = in turn %t, turns %d, summary %v; want false, 1, review approved",
+			parsed.InTurn, parsed.Session.Turns, parsed.Session.Summary)
 	}
 }
 

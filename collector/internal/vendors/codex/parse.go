@@ -360,8 +360,8 @@ func analyzeCodexSessionSource(
 				if !analysis.turnActive {
 					analysis.turnFinalReply = ""
 					analysis.turnStartTime = timestamp
+					analysis.turns++
 				}
-				analysis.turns++
 				analysis.turnActive = true
 			case "task_complete", "turn_aborted":
 				if row.Payload.Type == "task_complete" && analysis.turnActive &&
