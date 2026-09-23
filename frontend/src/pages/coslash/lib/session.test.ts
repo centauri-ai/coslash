@@ -160,15 +160,14 @@ describe('sessionShareEligibility', () => {
 });
 
 describe('boardStatusKey', () => {
-  it('keeps sessions with unavailable or stale remote liveness out of Inactive', () => {
-    expect(boardStatusKey({ sourceId: 'r_0123456789abcdef', status: null, displayStale: false })).toBe(
-      'unknown',
-    );
-    expect(boardStatusKey({ sourceId: 'local', status: 'busy', displayStale: true })).toBe('unknown');
+  it('puts a session with no live status in Inactive, including an unprobed SSH host', () => {
+    expect(boardStatusKey({ status: null, displayStale: false })).toBe('inactive');
+    expect(boardStatusKey({ status: 'unknown', displayStale: false })).toBe('inactive');
   });
 
-  it('uses Inactive only for local sessions with no status', () => {
-    expect(boardStatusKey({ sourceId: 'local', status: null, displayStale: false })).toBe('inactive');
+  it('puts a stale snapshot in Inactive even when it was last seen live', () => {
+    expect(boardStatusKey({ status: 'busy', displayStale: true })).toBe('inactive');
+    expect(boardStatusKey({ status: null, displayStale: true })).toBe('inactive');
   });
 });
 
@@ -185,6 +184,15 @@ describe('resumeDisabledHint', () => {
     ).toBeUndefined();
     expect(
       resumeDisabledHint({ sourceId: LOCAL_SOURCE_ID, agent: 'claude', status: 'busy', displayStale: false }),
+    ).toBeUndefined();
+  });
+
+  it('does not treat a stale remote session as still active', () => {
+    expect(
+      resumeDisabledHint(
+        { sourceId: 'r_0123456789abcdef', agent: 'codex', status: 'busy', displayStale: true },
+        true,
+      ),
     ).toBeUndefined();
   });
 

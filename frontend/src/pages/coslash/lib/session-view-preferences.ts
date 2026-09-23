@@ -1,3 +1,4 @@
+import { STATUS_ORDER, type StatusKey } from '@/pages/coslash/lib/session';
 import {
   BOARD_GROUP_BYS,
   BOARD_ROW_GROUP_BYS,
@@ -6,7 +7,6 @@ import {
 } from '@/pages/coslash/lib/session-grouping';
 
 export type SessionRange = 'today' | 'this-week' | 'week' | 'month' | 'all';
-export type SessionStatusGroup = 'needs' | 'running' | 'idle';
 export type SessionListDensity = 'comfortable' | 'compact';
 export type SessionView = 'list' | 'board';
 export type SessionSort = {
@@ -17,7 +17,7 @@ export type SessionSort = {
 export type SessionViewPreferences = {
   query: string;
   range: SessionRange;
-  statusFilters: SessionStatusGroup[];
+  statusFilters: StatusKey[];
   groupFilters: string[];
   machineFilters: string[];
   agentFilters: string[];
@@ -30,7 +30,7 @@ export type SessionViewPreferences = {
 
 const STORAGE_KEY = 'coslash.session-view-preferences.v1';
 const RANGES = new Set<SessionRange>(['today', 'this-week', 'week', 'month', 'all']);
-const STATUSES = new Set<SessionStatusGroup>(['needs', 'running', 'idle']);
+const STATUSES = new Set<StatusKey>(STATUS_ORDER);
 const VIEWS = new Set<SessionView>(['list', 'board']);
 const DENSITIES = new Set<SessionListDensity>(['comfortable', 'compact']);
 const SORT_KEYS = new Set<SessionSort['key']>(['title', 'recent', 'cost']);
@@ -71,6 +71,13 @@ function stringArrayOrLegacy(array: unknown, single: unknown): string[] {
   return values.length > 0 || legacy == null ? values : [legacy];
 }
 
+const LEGACY_STATUSES: Record<string, string> = { needs: 'waiting', running: 'busy' };
+
+function statusFilters(value: unknown): StatusKey[] {
+  const mapped = stringArray(value).map((status) => LEGACY_STATUSES[status] ?? status);
+  return [...new Set(mapped)].filter((status): status is StatusKey => STATUSES.has(status as StatusKey));
+}
+
 function groupFilterArray(value: unknown): string[] {
   return [
     ...new Set(stringArray(value).map((filter) => (filter.startsWith('unlocated:') ? 'unlocated' : filter))),
@@ -94,9 +101,7 @@ export function loadSessionViewPreferences(storage?: Pick<Storage, 'getItem'>): 
     return {
       query: stringOrNull(record.query) ?? defaults.query,
       range: oneOf(record.range, RANGES, defaults.range),
-      statusFilters: stringArray(record.statusFilters).filter((status): status is SessionStatusGroup =>
-        STATUSES.has(status as SessionStatusGroup),
-      ),
+      statusFilters: statusFilters(record.statusFilters),
       groupFilters: groupFilterArray(record.groupFilters),
       machineFilters: stringArrayOrLegacy(record.machineFilters, record.machineFilter),
       agentFilters: stringArrayOrLegacy(record.agentFilters, record.agentFilter),

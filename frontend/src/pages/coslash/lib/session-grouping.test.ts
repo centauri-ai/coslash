@@ -52,7 +52,7 @@ describe('boardGroupKey', () => {
   it('matches the key a session was grouped under, so cells find their column', () => {
     const remote = session({ sourceId: 'remote', status: null, repo: 'github.com/centauri-ai/coslash' });
 
-    expect(boardGroupKey(remote, 'status')).toBe('unknown');
+    expect(boardGroupKey(remote, 'status')).toBe('inactive');
     expect(boardGroupKey(remote, 'repo')).toBe('github.com/centauri-ai/coslash');
   });
 });
