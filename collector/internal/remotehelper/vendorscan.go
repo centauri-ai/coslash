@@ -102,7 +102,12 @@ func scanClaude(
 	return result
 }
 
-func scanCodex(source *Source, home string, request remoteprotocol.Request) *vendorScan {
+func scanCodex(
+	source *Source,
+	home string,
+	request remoteprotocol.Request,
+	loadLiveSessions func() (map[string]struct{}, error),
+) *vendorScan {
 	var activeFiles []string
 	metadata := vendors.BestEffortMetadata(
 		vendors.AgentCodex,
@@ -111,7 +116,7 @@ func scanCodex(source *Source, home string, request remoteprotocol.Request) *ven
 			if err != nil {
 				return nil, err
 			}
-			live, err := codex.LoadLiveSessions()
+			live, err := loadLiveSessions()
 			if err != nil {
 				log.Printf("%s session liveness failed: %v; continuing without live status", vendors.AgentCodex, err)
 				return metadata, nil
