@@ -67,9 +67,9 @@ func AssertPrivateACL(t testing.TB, path string, directory bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{user.User.Sid.String(): false, "S-1-5-18": false, "S-1-5-32-544": false}
-	if dacl.AceCount != uint16(len(want)) {
-		t.Fatalf("ACE count = %d, want %d: %s", dacl.AceCount, len(want), descriptor.String())
+	want := privateACLTrustees(user.User.Sid.String())
+	if dacl.AceCount != 3 {
+		t.Fatalf("ACE count = %d, want 3: %s", dacl.AceCount, descriptor.String())
 	}
 	for index := uint16(0); index < dacl.AceCount; index++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
@@ -84,14 +84,22 @@ func AssertPrivateACL(t testing.TB, path string, directory bool) {
 			t.Fatalf("unexpected ACE %d: %s", index, descriptor.String())
 		}
 		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart)).String()
-		if _, ok := want[sid]; !ok {
+		if want[sid] == 0 {
 			t.Fatalf("unexpected trustee %s: %s", sid, descriptor.String())
 		}
-		want[sid] = true
+		want[sid]--
 	}
-	for sid, found := range want {
-		if !found {
+	for sid, remaining := range want {
+		if remaining != 0 {
 			t.Fatalf("missing trustee %s: %s", sid, descriptor.String())
 		}
 	}
+}
+
+func privateACLTrustees(user string) map[string]int {
+	want := map[string]int{}
+	for _, sid := range []string{user, "S-1-5-18", "S-1-5-32-544"} {
+		want[sid]++
+	}
+	return want
 }
