@@ -15,9 +15,11 @@ Before releasing, perform this manual check on the packaged
 1. Start it without elevation from a path containing spaces. Confirm the
    browser opens, Settings can be saved, and diagnostics complete. Repeat from
    one non-ASCII path when practical.
-2. For Claude Code, Codex, OpenCode, and Cursor IDE/CLI, confirm local session
-   discovery, resume, and Start fresh with handoff. Confirm a missing agent is
-   reported as unavailable rather than as a collector failure.
+2. For Claude Code, Codex, OpenCode, and Cursor CLI, confirm local session
+   discovery, resume, and Start fresh with handoff. For Cursor IDE, confirm
+   discovery, **Open Cursor** reopening the working directory, and Start fresh
+   opening the workspace with the handoff on the clipboard. Confirm a missing
+   agent is reported as unavailable rather than as a collector failure.
 3. With a configured Linux OpenSSH destination, inspect `Get-Service ssh-agent`
    and `ssh-add.exe -l` without changing either. Authenticate through the UI,
    complete the native key-based prompt in Windows Terminal or Windows
