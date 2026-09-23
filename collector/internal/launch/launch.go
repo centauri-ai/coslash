@@ -269,7 +269,8 @@ func remoteTerminalCommand(agent, workingDirectory, sessionID, mode, handoffName
 		return setup + changeDirectory + " && " + command, nil
 	}
 	handoffPath := `"$HOME"/` + shellQuote(".coslash/handoffs/"+handoffName)
-	return setup + changeDirectory + " || { rm -f " + handoffPath + "; exit 1; }; " + command, nil
+	cleanup := `handoff=` + handoffPath + `; trap 'rm -f "$handoff"' EXIT HUP INT TERM; `
+	return cleanup + setup + changeDirectory + " || exit 1; " + command, nil
 }
 
 func openTerminal(ctx context.Context, terminal, workingDirectory, command string) error {
