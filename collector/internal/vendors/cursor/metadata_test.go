@@ -289,14 +289,10 @@ func TestLoadIDEModelsBoundsObservedHistory(t *testing.T) {
 	const id = "00000000-0000-4000-8000-000000000001"
 	for index := range maxObservedModels + 2 {
 		key := fmt.Sprintf("bubbleId:%s:%02d", id, index)
-		value := fmt.Sprintf(`{"modelInfo":{"modelName":"model-%02d"}}`, index)
+		value := fmt.Sprintf(`{"createdAt":%d,"modelInfo":{"modelName":"model-%02d"}}`, index, index)
 		if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, key, value); err != nil {
 			t.Fatal(err)
 		}
-	}
-	oversized := strings.Repeat("m", maxObservedModelBytes+1)
-	if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, "bubbleId:"+id+":oversized", fmt.Sprintf(`{"modelInfo":{"modelName":"%s"}}`, oversized)); err != nil {
-		t.Fatal(err)
 	}
 
 	metadata := vendors.EmptySessionMetadata()
@@ -305,13 +301,43 @@ func TestLoadIDEModelsBoundsObservedHistory(t *testing.T) {
 	if len(got) != maxObservedModels {
 		t.Fatalf("observed model count = %d, want %d", len(got), maxObservedModels)
 	}
-	if !slices.IsSorted(got) {
-		t.Fatalf("observed models = %v, want sorted", got)
+	want := make([]string, 0, maxObservedModels)
+	for index := 2; index < maxObservedModels+2; index++ {
+		want = append(want, fmt.Sprintf("model-%02d", index))
 	}
-	for _, model := range got {
-		if len(model) > maxObservedModelBytes {
-			t.Fatalf("observed model length = %d, want at most %d", len(model), maxObservedModelBytes)
+	if !slices.Equal(got, want) {
+		t.Fatalf("observed models = %v, want newest models %v", got, want)
+	}
+}
+
+func TestLoadIDEModelsBoundsObservedModelBytes(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	const id = "00000000-0000-4000-8000-000000000001"
+	atLimit := strings.Repeat("m", maxObservedModelBytes)
+	overLimit := strings.Repeat("n", maxObservedModelBytes+1)
+	for _, row := range []struct{ key, value string }{
+		{"bubbleId:" + id + ":allowed", fmt.Sprintf(`{"createdAt":1,"modelInfo":{"modelName":"%s"}}`, atLimit)},
+		{"bubbleId:" + id + ":rejected", fmt.Sprintf(`{"createdAt":2,"modelInfo":{"modelName":"%s"}}`, overLimit)},
+	} {
+		if _, err := db.Exec(`INSERT INTO cursorDiskKV(key, value) VALUES (?, ?)`, row.key, row.value); err != nil {
+			t.Fatal(err)
 		}
+	}
+
+	metadata := vendors.EmptySessionMetadata()
+	loadIDEModelsDB(metadata, nil, db, nil)
+	if got := metadata.Session(id).ObservedModels; !slices.Equal(got, []string{atLimit}) {
+		t.Fatalf("observed models = %v, want only %d-byte model", got, maxObservedModelBytes)
+	}
+	if got := metadata.Session(id).Model; got != atLimit {
+		t.Fatalf("model length = %d, want bounded model length %d", len(got), maxObservedModelBytes)
 	}
 }
 

@@ -881,25 +881,39 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 	}
 	bubbles := map[string]observed{}
 	fallbacks := map[string]string{}
-	observedModels := map[string]map[string]struct{}{}
+	observedModels := map[string]map[string]observed{}
 	pullRequests := map[string]map[string]struct{}{}
-	observeModel := func(id, model string) {
+	newer := func(candidate, current observed) bool {
+		return candidate.time > current.time || candidate.time == current.time && candidate.key > current.key
+	}
+	observeModel := func(id, model string, observation observed) string {
 		model = strings.TrimSpace(model)
 		if model == "" || len(model) > maxObservedModelBytes {
-			return
+			return ""
 		}
 		model = normalizeCursorModel(model)
 		if model == "" || len(model) > maxObservedModelBytes {
-			return
+			return ""
 		}
 		models := observedModels[id]
 		if models == nil {
-			models = map[string]struct{}{}
+			models = map[string]observed{}
 			observedModels[id] = models
 		}
-		if len(models) < maxObservedModels {
-			models[model] = struct{}{}
+		observation.model = model
+		if previous, ok := models[model]; !ok || newer(observation, previous) {
+			models[model] = observation
 		}
+		if len(models) > maxObservedModels {
+			oldestModel := model
+			for candidateModel, candidate := range models {
+				if newer(models[oldestModel], candidate) {
+					oldestModel = candidateModel
+				}
+			}
+			delete(models, oldestModel)
+		}
+		return model
 	}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -956,12 +970,13 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 			if item.ToolFormerData.Name == "ask_question" && item.ToolFormerData.AdditionalData.Status == "pending" {
 				metadata.Session(id).Live = "waiting"
 			}
-			model := strings.TrimSpace(item.ModelInfo.ModelName)
-			observeModel(id, model)
 			createdAt := cursorBubbleTime(item.CreatedAt)
+			observation := observed{time: createdAt, key: key}
+			model := observeModel(id, item.ModelInfo.ModelName, observation)
 			previous := bubbles[id]
-			if model != "" && (previous.model == "" || createdAt > previous.time || createdAt == previous.time && key > previous.key) {
-				bubbles[id] = observed{model: model, time: createdAt, key: key}
+			observation.model = model
+			if model != "" && (previous.model == "" || newer(observation, previous)) {
+				bubbles[id] = observation
 			}
 			command, completed := completedIDETerminalCommand(item.ToolFormerData.Name, item.ToolFormerData.Status, item.ToolFormerData.RawArgs)
 			if completed && session.IsPullRequestCreate(command) {
@@ -1002,15 +1017,14 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 			return err
 		}
 		if bubbles[id].model == "" && model != "" {
-			metadata.Session(id).Model = normalizeCursorModel(model)
-			observeModel(id, model)
+			metadata.Session(id).Model = observeModel(id, model, observed{})
 		}
 	}
 	for id, value := range bubbles {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		metadata.Session(id).Model = normalizeCursorModel(value.model)
+		metadata.Session(id).Model = value.model
 	}
 	for id, models := range observedModels {
 		entry := metadata.Session(id)
