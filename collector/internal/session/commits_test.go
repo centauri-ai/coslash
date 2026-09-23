@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func TestParseCommitObservationsIgnoresHexLikeBranchNames(t *testing.T) {
+	got := ParseCommitObservations("git commit -m 'ship it'", "[cursor/4721ccdf 6a875286] ship it\n", true)
+	if len(got) != 1 || got[0].Hash != "6a875286" {
+		t.Fatalf("commit observations = %v, want commit hash", got)
+	}
+}
+
 func TestReconcileCommitFactsExportsOnlyResolvedFullObjectIDs(t *testing.T) {
 	full := strings.Repeat("a", 40)
 	facts := reconcileCommitFacts(

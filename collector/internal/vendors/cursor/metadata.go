@@ -633,21 +633,23 @@ func loadIDECommitObservationsContext(ctx context.Context, metadata *vendors.Ses
 	return ctx.Err()
 }
 
-func completedIDETerminalCommand(name, status string, raw json.RawMessage) (string, bool) {
+func completedIDETerminalCommand(name, status string, rawArgs, params json.RawMessage) (string, bool) {
 	if status != "completed" || (name != "run_terminal_cmd" && name != "run_terminal_command_v2") {
 		return "", false
 	}
-	var rawArgs string
-	if json.Unmarshal(raw, &rawArgs) != nil {
-		rawArgs = string(raw)
+	for _, raw := range []json.RawMessage{rawArgs, params} {
+		var value string
+		if json.Unmarshal(raw, &value) != nil {
+			value = string(raw)
+		}
+		var args struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal([]byte(value), &args) == nil && args.Command != "" {
+			return args.Command, true
+		}
 	}
-	var args struct {
-		Command string `json:"command"`
-	}
-	if json.Unmarshal([]byte(rawArgs), &args) != nil {
-		return "", false
-	}
-	return args.Command, true
+	return "", false
 }
 
 func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
@@ -663,17 +665,26 @@ func commitObservationsFromIDEBubble(value string) []session.CommitObservation {
 			Name    string          `json:"name"`
 			Status  string          `json:"status"`
 			RawArgs json.RawMessage `json:"rawArgs"`
+			Params  json.RawMessage `json:"params"`
 			Result  string          `json:"result"`
 		} `json:"toolFormerData"`
 	}
 	if json.Unmarshal([]byte(value), &bubble) != nil {
 		return nil
 	}
-	command, ok := completedIDETerminalCommand(bubble.Tool.Name, bubble.Tool.Status, bubble.Tool.RawArgs)
+	command, ok := completedIDETerminalCommand(bubble.Tool.Name, bubble.Tool.Status, bubble.Tool.RawArgs, bubble.Tool.Params)
 	if !ok {
 		return nil
 	}
 	attempts := session.ParseCommitObservations(command, bubble.Tool.Result, true)
+	if bubble.Tool.Name == "run_terminal_command_v2" && len(bubble.Before.CommitHashesByGitWorkspace) == 0 && len(bubble.After.CommitHashesByGitWorkspace) == 0 {
+		for _, attempt := range attempts {
+			if attempt.Hash == "" {
+				return nil
+			}
+		}
+		return attempts
+	}
 	observations := []session.CommitObservation{}
 	for workspace, after := range bubble.After.CommitHashesByGitWorkspace {
 		before, ok := bubble.Before.CommitHashesByGitWorkspace[workspace]
@@ -908,6 +919,7 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 				Name           string          `json:"name"`
 				Status         string          `json:"status"`
 				RawArgs        json.RawMessage `json:"rawArgs"`
+				Params         json.RawMessage `json:"params"`
 				Result         string          `json:"result"`
 				AdditionalData struct {
 					Status string `json:"status"`
@@ -938,7 +950,7 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 			if model != "" && (previous.model == "" || createdAt > previous.time || createdAt == previous.time && key > previous.key) {
 				bubbles[id] = observed{model: model, time: createdAt, key: key}
 			}
-			command, completed := completedIDETerminalCommand(item.ToolFormerData.Name, item.ToolFormerData.Status, item.ToolFormerData.RawArgs)
+			command, completed := completedIDETerminalCommand(item.ToolFormerData.Name, item.ToolFormerData.Status, item.ToolFormerData.RawArgs, item.ToolFormerData.Params)
 			if completed && session.IsPullRequestCreate(command) {
 				if pullRequests[id] == nil {
 					pullRequests[id] = map[string]struct{}{}

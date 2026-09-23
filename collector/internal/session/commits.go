@@ -20,7 +20,7 @@ var commitFileFlag = regexp.MustCompile(`(?:--file|-[a-zA-Z]*F)[=\s]+(\S+)`)
 
 var commitAmend = regexp.MustCompile(`--amend\b`)
 
-var commitHashToken = regexp.MustCompile(`(?:^|[^0-9a-fA-F])([0-9a-fA-F]{7,64})(?:$|[^0-9a-fA-F])`)
+var commitSummaryHash = regexp.MustCompile(`\[[^\]\r\n]*[ \t]([0-9a-fA-F]{7,64})\]`)
 
 // multilineBlockOpener matches the start of a shell here-document (<<EOF, <<'EOF', <<"EOF", <<-EOF)
 var multilineBlockOpener = regexp.MustCompile(`<<-?\s*['"]?(\w+)['"]?`)
@@ -48,7 +48,7 @@ func ParseCommitObservations(command, output string, succeeded bool) []CommitObs
 
 func commitOutputHashes(output string) []string {
 	hashes := []string{}
-	for _, match := range commitHashToken.FindAllStringSubmatch(output, -1) {
+	for _, match := range commitSummaryHash.FindAllStringSubmatch(output, -1) {
 		hashes = append(hashes, match[1])
 	}
 	return hashes
