@@ -1,11 +1,34 @@
 package synthesis
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestOpenCodeCommandDiagnostic(t *testing.T) {
+	output := []byte("{\"type\":\"text\",\"part\":{\"text\":\"private transcript\"}}\n" +
+		"{\"type\":\"error\",\"error\":{\"name\":\"ProviderAuthError\",\"data\":{\"message\":\"login required\"}}}\n")
+	if got := openCodeCommandDiagnostic(&exec.ExitError{}, output); got != "ProviderAuthError login required" {
+		t.Fatalf("error event diagnostic = %q", got)
+	}
+	if got := openCodeCommandDiagnostic(&exec.ExitError{Stderr: []byte("EPERM\r\nprivate\x00")}, output); got != "EPERM  private" {
+		t.Fatalf("stderr diagnostic = %q", got)
+	}
+	if got := openCodeCommandDiagnostic(errors.New("start failed"), output); got != "" {
+		t.Fatalf("non-exit diagnostic = %q", got)
+	}
+	if got := openCodeCommandDiagnostic(&exec.ExitError{}, []byte(`{"type":"text","part":{"text":"private transcript"}}`)); got != "" {
+		t.Fatalf("text event diagnostic = %q", got)
+	}
+	if got := boundedCommandDiagnostic([]byte(strings.Repeat("x", 4096))); len(got) != 2048 {
+		t.Fatalf("diagnostic length = %d, want 2048", len(got))
+	}
+}
 
 func TestParseOpenCodeSynthesisRejectsIncompleteObject(t *testing.T) {
 	cases := map[string]string{

@@ -3,20 +3,24 @@ package synthesis
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
 const openCodeConfigContent = `{"permission":"deny","autoupdate":false}`
+const openCodeV2ConfigContent = `{"permission":"deny","update":"disable","plugins":["-*"]}`
 
 const (
 	openCodeScratchPrefix = ".opencode-"
@@ -70,9 +74,13 @@ func CleanupScratch() error {
 	return nil
 }
 
-func openCodeEnv(scratchDir string) []string {
+func openCodeEnv(scratchDir string, v2 bool) []string {
+	config := openCodeConfigContent
+	if v2 {
+		config = openCodeV2ConfigContent
+	}
 	return []string{
-		"OPENCODE_CONFIG_CONTENT=" + openCodeConfigContent,
+		"OPENCODE_CONFIG_CONTENT=" + config,
 		"OPENCODE_DB=" + filepath.Join(scratchDir, "opencode.db"),
 		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
 		"OPENCODE_DISABLE_AUTOUPDATE=1",
@@ -82,6 +90,28 @@ func openCodeEnv(scratchDir string) []string {
 		"PWD=" + SynthesisCwd(),
 		"NO_COLOR=1",
 	}
+}
+
+func detectOpenCodeV2(bin string) bool {
+	dataDir, err := os.MkdirTemp("", "coslash-opencode-version-")
+	if err != nil {
+		return false
+	}
+	defer os.RemoveAll(dataDir)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "--version")
+	cmd.Env = append(os.Environ(), "XDG_DATA_HOME="+dataDir)
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	for _, field := range strings.Fields(string(output)) {
+		if strings.HasPrefix(strings.TrimPrefix(field, "v"), "2.") {
+			return true
+		}
+	}
+	return false
 }
 
 type openCodeEvent struct {
@@ -141,6 +171,50 @@ func parseOpenCodeStream(data []byte) (string, error) {
 		}
 	}
 	return strings.Join(parts, "\n"), nil
+}
+
+func openCodeCommandDiagnostic(err error, output []byte) string {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return ""
+	}
+	if diagnostic := boundedCommandDiagnostic(exitErr.Stderr); diagnostic != "" {
+		return diagnostic
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	scanner.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var event struct {
+			Type  string `json:"type"`
+			Error struct {
+				Name    string `json:"name"`
+				Message string `json:"message"`
+				Data    struct {
+					Message string `json:"message"`
+				} `json:"data"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(line, &event) != nil || event.Type != "error" {
+			continue
+		}
+		if diagnostic := boundedCommandDiagnostic([]byte(strings.Join(strings.Fields(event.Error.Name+" "+event.Error.Message+" "+event.Error.Data.Message), " "))); diagnostic != "" {
+			return diagnostic
+		}
+	}
+	return ""
+}
+
+func boundedCommandDiagnostic(data []byte) string {
+	if len(data) > 2048 {
+		data = data[:2048]
+	}
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, string(data)))
 }
 
 // OpenCode cannot enforce an output schema, so prose around the object is tolerated.
