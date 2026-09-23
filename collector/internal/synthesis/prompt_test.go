@@ -129,6 +129,34 @@ func TestBuildInputsReservesBytesForDigestAfterMultibyteContext(t *testing.T) {
 	}
 }
 
+func TestBuildInputsPreservesGoalCandidateAfterMultibyteMetadata(t *testing.T) {
+	repository := strings.Repeat("界", 300)
+	goal := "declared-goal-marker"
+	digest := make([]session.DigestEntry, 30)
+	for index := range digest {
+		digest[index] = session.DigestEntry{
+			Turn: index + 1, Category: session.DigestRecap, Description: strings.Repeat("d", 500),
+		}
+	}
+	inputs := BuildInputs(&session.Session{
+		ID:               strings.Repeat("界", 200),
+		Agent:            strings.Repeat("界", 100),
+		Repository:       &repository,
+		WorkingDirectory: strings.Repeat("界", 200),
+		SessionDetails: session.SessionDetails{
+			DeclaredGoal:   &goal,
+			CompactionSeed: strings.Repeat("界", 4_000),
+			Digest:         digest,
+		},
+	})
+	if len(inputs) < 2 {
+		t.Fatalf("BuildInputs() returned %d prompt, want overflow chunks", len(inputs))
+	}
+	if !strings.Contains(strings.Join(inputs, "\n"), goal) {
+		t.Fatalf("BuildInputs() omitted goal candidate after multibyte metadata")
+	}
+}
+
 func TestBuildInputsContinuesOversizedTurnWithoutDroppingEntries(t *testing.T) {
 	digest := make([]session.DigestEntry, 500)
 	for index := range digest {

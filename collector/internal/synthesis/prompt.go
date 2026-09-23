@@ -103,10 +103,6 @@ func renderChunkContext(s *session.Session) string {
 func renderSessionHeader(s *session.Session) string {
 	var out strings.Builder
 	out.WriteString("Synthesize this coding session from normalized coSlash facts only.\n\n")
-	fmt.Fprintf(&out, "SESSION\nID: %s\nAgent: %s\nRepository: %s\nBranch: %s\nWorking directory: %s\n\n",
-		limited(s.ID, 200), limited(s.Agent, 100), optional(s.Repository), optional(s.Branch),
-		limited(s.WorkingDirectory, 500))
-
 	out.WriteString("GOAL CANDIDATES\n")
 	if s.DeclaredGoal != nil && strings.TrimSpace(*s.DeclaredGoal) != "" {
 		fmt.Fprintf(&out, "Declared goal: %s\n", limited(*s.DeclaredGoal, 1_000))
@@ -114,6 +110,9 @@ func renderSessionHeader(s *session.Session) string {
 	if s.FirstPrompt != nil && strings.TrimSpace(*s.FirstPrompt) != "" {
 		fmt.Fprintf(&out, "First prompt: %s\n", limited(*s.FirstPrompt, 1_000))
 	}
+	fmt.Fprintf(&out, "\nSESSION\nID: %s\nAgent: %s\nRepository: %s\nBranch: %s\nWorking directory: %s\n",
+		limited(s.ID, 200), limited(s.Agent, 100), optional(s.Repository), optional(s.Branch),
+		limited(s.WorkingDirectory, 500))
 	return out.String()
 }
 
