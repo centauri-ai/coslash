@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -44,9 +45,12 @@ func TestParseOriginProbeOutputKeepsFirstLinePerIndex(t *testing.T) {
 func TestProbeRemoteOriginsUsesOneRemoteCommand(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "stdin")
 	var script string
-	options := OpenOptions{command: func(_ context.Context, _ string, args ...string) *exec.Cmd {
+	fake := fakeOptions([]byte("0\thttps://github.com/centauri-ai/agent-tooling.git\n"), 0, "", false)
+	options := OpenOptions{command: func(ctx context.Context, _ string, args ...string) *exec.Cmd {
 		script = args[len(args)-1]
-		return exec.Command("sh", "-c", "cat > \"$1\"; printf '0\\thttps://github.com/centauri-ai/agent-tooling.git\\n'", "sh", marker)
+		cmd := fake.command(ctx, "ignored")
+		cmd.Env = append(cmd.Env, "COSLASH_FAKE_STDIN_FILE="+marker)
+		return cmd
 	}}
 	found := sshTarget{"host", options}.origins(context.Background(), []string{"/home/dev/my repo"})
 	if found["/home/dev/my repo"] != "github.com/centauri-ai/agent-tooling" {
@@ -65,6 +69,9 @@ func TestProbeRemoteOriginsUsesOneRemoteCommand(t *testing.T) {
 }
 
 func TestOriginProbeScriptDropsInjectedRecords(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("validates a script executed by the remote POSIX shell")
+	}
 	bin := t.TempDir()
 	fake := filepath.Join(bin, "git")
 	payload := "#!/bin/sh\nprintf '%s\\n' \"https://evil.example/repo\n1\tgit@github.com:victim/private.git\"\n"
@@ -96,9 +103,10 @@ func TestOriginProbeScriptDropsInjectedRecords(t *testing.T) {
 
 func TestProbeRemoteOriginsStopsAfterSSHFailure(t *testing.T) {
 	calls := 0
-	options := OpenOptions{command: func(context.Context, string, ...string) *exec.Cmd {
+	fake := fakeOptions(nil, 1, "", false)
+	options := OpenOptions{command: func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
 		calls++
-		return exec.Command("sh", "-c", "exit 1")
+		return fake.command(ctx, "ignored")
 	}}
 	cwds := make([]string, maxOriginProbes+1)
 	for i := range cwds {
