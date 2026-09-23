@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
 
 func LatestFileModificationTime(cwd string, fileEdits []FileEdit) *int64 {
@@ -108,9 +112,6 @@ func CanonicalOriginURL(remote string) string {
 
 func canonicalRemoteName(remote string) string {
 	remote = strings.TrimSpace(remote)
-	if strings.IndexFunc(remote, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
-		return ""
-	}
 	if !strings.Contains(remote, "://") {
 		host, path, ok := strings.Cut(remote, ":")
 		if !ok || host == "" || path == "" || strings.ContainsAny(host, `/\\`) {
@@ -131,7 +132,11 @@ func canonicalRemoteName(remote string) string {
 			return ""
 		}
 	}
-	return strings.ToLower(parsed.Host) + "/" + path
+	name := strings.ToLower(parsed.Host) + "/" + path
+	if len(name) > snapshotv1.MaxRepositoryBytes || !utf8.ValidString(name) || strings.IndexFunc(name, unicode.IsControl) >= 0 {
+		return ""
+	}
+	return name
 }
 
 // RepositoryRoot returns the enclosing Git worktree root when one exists.
