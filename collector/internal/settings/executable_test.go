@@ -8,6 +8,7 @@ import (
 )
 
 func TestCursorExecutableOnlyFallsBackToAgentOwnedByCursor(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	root := t.TempDir()
 	executableSuffix := ""
 	if runtime.GOOS == "windows" {

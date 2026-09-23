@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -245,13 +246,30 @@ func CursorExecutable() string {
 		if path, err := exec.LookPath("agent"); err == nil && isCursorInstall(path) {
 			return "agent"
 		}
+		if runtime.GOOS == "windows" {
+			root := filepath.Join(os.Getenv("LOCALAPPDATA"), "cursor-agent")
+			if os.Getenv("LOCALAPPDATA") != "" {
+				for _, name := range []string{"cursor-agent", "agent"} {
+					if path, err := exec.LookPath(filepath.Join(root, name)); err == nil {
+						return path
+					}
+				}
+			}
+		}
 	}
 	return "cursor-agent"
 }
 
 func isCursorInstall(path string) bool {
+	if runtime.GOOS == "windows" && os.Getenv("LOCALAPPDATA") != "" &&
+		strings.EqualFold(filepath.Dir(path), filepath.Join(os.Getenv("LOCALAPPDATA"), "cursor-agent")) {
+		return true
+	}
 	resolved, err := filepath.EvalSymlinks(path)
-	return err == nil && strings.Contains(filepath.ToSlash(resolved), "/cursor-agent/versions/")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(filepath.ToSlash(resolved), "/cursor-agent/versions/")
 }
 
 func Validate(config Config) error {
