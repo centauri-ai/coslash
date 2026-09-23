@@ -19,16 +19,17 @@ WITH selected_roots AS (
 		MAX(root.time_updated,
 			COALESCE(MAX(child.time_updated), root.time_updated),
 			COALESCE(MAX(child.time_archived), root.time_updated)) AS family_updated
-	FROM session AS root
-	LEFT JOIN session AS child ON child.parent_id = root.id
+	FROM sessions AS root
+	LEFT JOIN sessions AS child ON child.parent_id = root.id
 	WHERE root.parent_id IS NULL AND root.time_archived IS NULL
 	GROUP BY root.id
 )
 SELECT member.id, member.parent_id, member.directory, member.title, member.summary_files,
 	member.summary_diffs, member.agent, member.model, member.cost,
-	CASE WHEN member.id = selected_roots.id THEN selected_roots.family_updated ELSE member.time_updated END
+	CASE WHEN member.id = selected_roots.id THEN selected_roots.family_updated ELSE member.time_updated END,
+	member.v2
 FROM selected_roots
-JOIN session AS member ON member.id = selected_roots.id OR member.parent_id = selected_roots.id
+JOIN sessions AS member ON member.id = selected_roots.id OR member.parent_id = selected_roots.id
 WHERE member.time_archived IS NULL`
 
 const activeRootQuery = `
@@ -36,14 +37,14 @@ SELECT root.id, root.parent_id, root.directory, root.title, root.summary_files,
 	root.summary_diffs, root.agent, root.model, root.cost,
 	MAX(root.time_updated, COALESCE((
 		SELECT MAX(child.time_updated)
-		FROM session AS child
+		FROM sessions AS child
 		WHERE child.parent_id = root.id
 	), root.time_updated), COALESCE((
 		SELECT MAX(child.time_archived)
-		FROM session AS child
+		FROM sessions AS child
 		WHERE child.parent_id = root.id
-	), root.time_updated))
-FROM session AS root
+	), root.time_updated)), root.v2
+FROM sessions AS root
 WHERE root.parent_id IS NULL AND root.time_archived IS NULL`
 
 type skippedFamily struct {
@@ -148,7 +149,11 @@ func NewSessionFactsLoader() (func(string) (*vendors.ParsedSession, error), erro
 }
 
 func newSessionFactsLoader(db *sql.DB) (func(string) (*vendors.ParsedSession, error), error) {
-	rows, err := db.Query(`SELECT id, directory FROM session WHERE parent_id IS NULL AND time_archived IS NULL`)
+	source, err := sessionSourceContext(context.Background(), db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(source + ` SELECT id, directory FROM sessions WHERE parent_id IS NULL AND time_archived IS NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -206,9 +211,14 @@ func Health() vendors.SourceHealth {
 	defer db.Close()
 
 	health := vendors.SourceHealth{Agent: vendors.AgentOpenCode, Root: root}
-	err = db.QueryRow(`
+	source, err := sessionSourceContext(context.Background(), db)
+	if err != nil {
+		health.Err = err
+		return health
+	}
+	err = db.QueryRow(source+`
 		SELECT COUNT(*), COALESCE(SUM(parent_id IS NULL), 0)
-		FROM session
+		FROM sessions
 		WHERE time_archived IS NULL
 	`).Scan(&health.Entries, &health.Sessions)
 	health.Err = err
@@ -232,11 +242,21 @@ func loadContext(
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
+	source, err := sessionSourceContext(ctx, db)
+	if err != nil {
+		return nil, nil, err
+	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, nil, err
 	}
 	defer tx.Rollback()
+	query = strings.TrimSpace(query)
+	if strings.HasPrefix(query, "WITH ") {
+		query = source + ", " + strings.TrimPrefix(query, "WITH ")
+	} else {
+		query = source + " " + query
+	}
 
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -251,7 +271,7 @@ func loadContext(
 		var row storedSession
 		if err := rows.Scan(
 			&row.id, &row.parentID, &row.directory, &row.title, &row.summaryFiles, &row.summaryDiffs,
-			&row.agent, &row.model, &row.cost, &row.updatedAt,
+			&row.agent, &row.model, &row.cost, &row.updatedAt, &row.v2,
 		); err != nil {
 			rows.Close()
 			return nil, nil, fmt.Errorf("read OpenCode session: %w", err)

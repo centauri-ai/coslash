@@ -99,17 +99,74 @@ func readOnlyDatabaseDSN(path string) string {
 }
 
 func validateSchemaContext(ctx context.Context, db *sql.DB) error {
-	statement, err := db.PrepareContext(ctx, `
-		SELECT s.id, s.parent_id, s.directory, s.title, s.summary_files, s.summary_diffs,
-			s.agent, s.model, s.cost, s.time_updated, s.time_archived,
-			m.id, m.session_id, m.time_created, m.data,
-			p.id, p.message_id, p.session_id, p.time_updated, p.data,
-			t.session_id, t.content, t.status, t.position
-		FROM session AS s, message AS m, part AS p, todo AS t
-		WHERE 0
-	`)
+	_, err := sessionSourceContext(ctx, db)
 	if err != nil {
-		return fmt.Errorf("unsupported OpenCode database schema; update OpenCode or coSlash to a compatible version: %w", err)
+		return err
 	}
-	return statement.Close()
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'session'`).Scan(&count); err != nil {
+		return err
+	}
+	checks := []string{}
+	if count != 0 {
+		checks = append(checks, `SELECT m.id, m.session_id, m.time_created, m.data, p.id, p.message_id, p.time_updated, p.data, t.session_id, t.content, t.status, t.position FROM message AS m, part AS p, todo AS t WHERE 0`)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'session_v2'`).Scan(&count); err != nil {
+		return err
+	}
+	if count != 0 {
+		checks = append(checks, `SELECT id, session_id, type, seq, time_created, data FROM session_message WHERE 0`)
+	}
+	for _, query := range checks {
+		statement, err := db.PrepareContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("unsupported OpenCode database schema; update OpenCode or coSlash to a compatible version: %w", err)
+		}
+		if err := statement.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sessionSourceContext(ctx context.Context, db *sql.DB) (string, error) {
+	var v1, v2 bool
+	for _, table := range []struct {
+		name  string
+		found *bool
+	}{{"session", &v1}, {"session_v2", &v2}} {
+		var count int
+		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table.name).Scan(&count); err != nil {
+			return "", err
+		}
+		*table.found = count != 0
+	}
+	if !v1 && !v2 {
+		return "", fmt.Errorf("unsupported OpenCode database schema: no session table")
+	}
+	projection := `id, parent_id, directory, COALESCE(title, '') AS title, summary_files,
+		summary_diffs, agent, model, cost, time_updated, time_archived`
+	parts := []string{}
+	if v2 {
+		parts = append(parts, `SELECT `+projection+`, 1 AS v2 FROM session_v2`)
+	}
+	if v1 {
+		query := `SELECT ` + projection + `, 0 AS v2 FROM session`
+		if v2 {
+			query += ` WHERE NOT EXISTS (SELECT 1 FROM session_v2 WHERE session_v2.id = session.id)`
+		}
+		parts = append(parts, query)
+	}
+	source := `WITH sessions AS (` + strings.Join(parts, ` UNION ALL `) + `)`
+	statement, err := db.PrepareContext(ctx, source+`, validated AS (
+		SELECT id, parent_id, directory, title, summary_files, summary_diffs,
+			agent, model, cost, time_updated, time_archived, v2 FROM sessions WHERE 0
+	) SELECT * FROM validated`)
+	if err != nil {
+		return "", fmt.Errorf("unsupported OpenCode database schema; update OpenCode or coSlash to a compatible version: %w", err)
+	}
+	if err := statement.Close(); err != nil {
+		return "", err
+	}
+	return source, nil
 }

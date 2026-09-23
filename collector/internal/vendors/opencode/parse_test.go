@@ -27,13 +27,13 @@ func TestLoadContextStopsBeforeOpeningTransaction(t *testing.T) {
 
 func TestNewSessionFactsLoaderFromDBIndexesActiveRoots(t *testing.T) {
 	db := testDB(t)
-	if _, err := db.Exec(`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, time_archived INTEGER)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`INSERT INTO session VALUES ('root', NULL, '/work', NULL)`,
-		`INSERT INTO session VALUES ('child', 'root', '/work', NULL)`,
-		`INSERT INTO session VALUES ('archived', NULL, '/work', 1)`,
+		`INSERT INTO session (id, parent_id, directory) VALUES ('root', NULL, '/work')`,
+		`INSERT INTO session (id, parent_id, directory) VALUES ('child', 'root', '/work')`,
+		`INSERT INTO session (id, parent_id, directory, time_archived) VALUES ('archived', NULL, '/work', 1)`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -59,6 +59,69 @@ func TestNewSessionFactsLoaderFromDBIndexesActiveRoots(t *testing.T) {
 		if found != nil {
 			t.Fatalf("load(%q) = %#v, want nil", id, found)
 		}
+	}
+}
+
+func TestMixedOpenCodeSchemasPreferV2AndKeepV1(t *testing.T) {
+	db := testDB(t)
+	for _, statement := range []string{
+		`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+		`INSERT INTO session VALUES ('legacy', NULL, '/v1', 'old', NULL, NULL, NULL, NULL, 0, 100, NULL)`,
+		`INSERT INTO session VALUES ('shared', NULL, '/stale', 'stale', NULL, NULL, NULL, NULL, 0, 100, NULL)`,
+		`INSERT INTO session_v2 VALUES ('shared', NULL, '/current', 'current', NULL, NULL, NULL, NULL, 2, 300, NULL)`,
+		`INSERT INTO message VALUES ('m1', 'legacy', 100, '{"role":"user","time":{"created":100}}')`,
+		`INSERT INTO part VALUES ('p1', 'm1', 100, '{"type":"text","text":"old prompt"}')`,
+		`INSERT INTO session_message VALUES ('m2', 'shared', 'user', 1, 200, '{"text":"new prompt","time":{"created":200}}')`,
+		`INSERT INTO session_message VALUES ('m3', 'shared', 'assistant', 2, 250, '{"model":{"providerID":"openai","id":"gpt"},"content":[{"type":"text","text":"new answer"}],"finish":"stop","time":{"created":250,"completed":300}}')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parsed, skipped, err := load(db, activeFamiliesQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skipped) != 0 || len(parsed) != 2 {
+		t.Fatalf("parsed %d, skipped %v", len(parsed), skipped)
+	}
+	byID := map[string]*vendors.ParsedSession{}
+	for _, item := range parsed {
+		byID[item.Session.ID] = item
+	}
+	if byID["legacy"] == nil || byID["legacy"].Session.WorkingDirectory != "/v1" {
+		t.Fatalf("v1 session = %#v", byID["legacy"])
+	}
+	shared := byID["shared"]
+	if shared == nil || shared.Session.WorkingDirectory != "/current" || shared.Session.SessionDetails.FirstPrompt == nil || *shared.Session.SessionDetails.FirstPrompt != "new prompt" {
+		t.Fatalf("v2 session = %#v", shared)
+	}
+	if shared.Session.Summary == nil || *shared.Session.Summary != "new answer" || shared.RecordedCost == nil || *shared.RecordedCost != 2 {
+		t.Fatalf("v2 summary and cost = %#v", shared)
+	}
+}
+
+func TestV2OnlyOpenCodeDatabase(t *testing.T) {
+	db := testDB(t)
+	for _, statement := range []string{
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+		`INSERT INTO session_v2 VALUES ('v2', NULL, '/work', 'current', NULL, NULL, NULL, NULL, 0, 300, NULL)`,
+		`INSERT INTO session_message VALUES ('m1', 'v2', 'user', 1, 100, '{"text":"hello","time":{"created":100}}')`,
+		`INSERT INTO session_message VALUES ('m2', 'v2', 'assistant', 2, 200, '{"content":[{"type":"text","text":"hi"}],"finish":"stop","time":{"created":200,"completed":300}}')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parsed, skipped, err := load(db, activeFamiliesQuery)
+	if err != nil || len(skipped) != 0 || len(parsed) != 1 {
+		t.Fatalf("parsed %d, skipped %v, error %v", len(parsed), skipped, err)
+	}
+	if parsed[0].Session.SessionDetails.Turns != 1 || parsed[0].Session.StartedAt != 100 {
+		t.Fatalf("v2 session = %#v", parsed[0].Session)
 	}
 }
 
