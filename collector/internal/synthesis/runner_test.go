@@ -17,6 +17,7 @@ import (
 
 func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
+	t.Setenv("LOCALAPPDATA", t.TempDir())
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	var captured commandSpec
 	var configData []byte
