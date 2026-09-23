@@ -352,18 +352,12 @@ export const STATUSES = {
     bg: 'bg-coslash-soft',
     dot: 'bg-coslash-muted',
   },
-  unknown: {
-    label: 'Unknown',
-    fg: 'text-coslash-muted',
-    bg: 'bg-coslash-soft',
-    dot: 'bg-coslash-muted',
-  },
 } satisfies Record<string, Status>;
 
-type StatusKey = keyof typeof STATUSES;
+export type StatusKey = keyof typeof STATUSES;
 
 // Board columns render left to right in this order; status sorting uses the same priority.
-export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'inactive', 'unknown'];
+export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'inactive'];
 
 type SubagentStatus = { label: string; fg: string; bg: string };
 
@@ -412,11 +406,9 @@ function getStatus(status: string | null): StatusKey {
   return status !== null && status in STATUSES ? (status as StatusKey) : 'inactive';
 }
 
-/** Board column and live status for a card; stale or unavailable liveness is unknown. */
-export function boardStatusKey(session: Pick<Session, 'sourceId' | 'status' | 'displayStale'>): StatusKey {
-  if (session.displayStale || (isLocalSource(session.sourceId) === false && session.status == null)) {
-    return 'unknown';
-  }
+/** A missing status or a stale snapshot is Inactive; the badge still says what was last seen. */
+export function boardStatusKey(session: Pick<Session, 'status' | 'displayStale'>): StatusKey {
+  if (session.displayStale) return 'inactive';
   return getStatus(session.status);
 }
 
@@ -489,18 +481,13 @@ export function remoteLaunchDisabledHint(
   return 'Waiting for remote session details';
 }
 
-/** Badge label: live status, or "Last seen …" when the remote snapshot is stale/incomplete. */
+/** Badge label: live status, or "Last seen …" when the remote snapshot is stale. */
 export function displayStatusLabel(
-  session: Pick<Session, 'status' | 'displayStale' | 'lastSeenStatus'> & { sourceId?: string },
+  session: Pick<Session, 'status' | 'displayStale' | 'lastSeenStatus'>,
 ): string {
-  const remoteUnknown = session.sourceId != null && session.sourceId !== LOCAL_SOURCE_ID;
-  if (remoteUnknown && session.status == null && session.lastSeenStatus == null) {
-    return session.displayStale ? 'Liveness unknown · stale view' : 'Liveness unknown';
-  }
   if (!session.displayStale) return STATUSES[getStatus(session.status)].label;
   const seen = getStatus(session.lastSeenStatus ?? session.status);
-  const label = STATUSES[seen].label.toLowerCase();
-  return `Last seen ${label}`;
+  return `Last seen ${STATUSES[seen].label.toLowerCase()}`;
 }
 
 export function sumTokens(

@@ -43,9 +43,8 @@ const READINESS_TONE: Record<SessionReadiness['key'], { dot: string; label: stri
 const COLUMN_DOT: Record<string, string> = {
   busy: 'bg-success',
   waiting: 'bg-warning',
-  idle: 'bg-coslash-neutral-dot',
+  idle: 'bg-info',
   inactive: 'bg-coslash-neutral-dot',
-  unknown: 'border border-coslash-neutral-dot',
   resume: 'bg-success',
   inspect: 'bg-warning',
   fresh: 'bg-danger',

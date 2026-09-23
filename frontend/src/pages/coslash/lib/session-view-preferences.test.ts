@@ -26,7 +26,7 @@ describe('session view preferences', () => {
     const preferences: SessionViewPreferences = {
       query: 'repo:coslash',
       range: 'month',
-      statusFilters: ['needs', 'running'],
+      statusFilters: ['waiting', 'busy'],
       groupFilters: ['repo:coslash'],
       machineFilters: ['local', 'remote'],
       agentFilters: ['codex', 'claude'],
@@ -52,7 +52,7 @@ describe('session view preferences', () => {
     );
     expect(loadSessionViewPreferences(storage)).toMatchObject({
       range: 'this-week',
-      statusFilters: ['needs'],
+      statusFilters: ['waiting'],
       view: 'list',
       density: 'comfortable',
       sort: { key: 'recent', dir: 'desc' },
@@ -94,7 +94,7 @@ describe('session view preferences', () => {
       const preferences: SessionViewPreferences = {
         ...DEFAULT_SESSION_VIEW_PREFERENCES,
         query: 'workspace',
-        statusFilters: ['running'],
+        statusFilters: ['busy'],
       };
       saveSessionViewPreferences(preferences);
       expect(loadSessionViewPreferences()).toEqual(preferences);

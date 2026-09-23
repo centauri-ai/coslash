@@ -73,8 +73,11 @@ import {
   sessionKey,
   sessionReadiness,
   sessionsForAggregates,
+  STATUS_ORDER,
+  STATUSES,
   sumKnown,
   type Session,
+  type StatusKey,
 } from '@/pages/coslash/lib/session';
 import {
   BOARD_GROUP_BY_OPTIONS,
@@ -89,7 +92,6 @@ import {
   saveSessionViewPreferences,
   type SessionRange,
   type SessionSort,
-  type SessionStatusGroup,
   type SessionViewPreferences,
 } from '@/pages/coslash/lib/session-view-preferences';
 import { DAY } from '@/pages/coslash/lib/time';
@@ -112,7 +114,7 @@ type FacetOption = {
   count: number;
   selected: boolean;
   onClick: () => void;
-  status?: SessionStatusGroup;
+  status?: StatusKey;
   icon?: ReactNode;
   indicator?: ReactNode;
 };
@@ -124,12 +126,12 @@ type SessionReviewProps = {
   onSelectRelated: (session: Session) => void;
 };
 
-const STATUS_META: Record<SessionStatusGroup, { label: string; hint: string }> = {
-  needs: { label: 'Needs you', hint: 'Blocked on your input' },
-  running: { label: 'Running', hint: 'Working right now' },
-  idle: { label: 'Idle', hint: 'Stopped — resume whenever you like' },
+const STATUS_HINT: Record<StatusKey, string> = {
+  busy: 'Working right now',
+  waiting: 'Blocked on your input',
+  idle: 'Open, but quiet',
+  inactive: 'Not running',
 };
-const STATUS_ORDER: SessionStatusGroup[] = ['needs', 'running', 'idle'];
 const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'this-week', label: 'This week' },
@@ -170,17 +172,8 @@ const styles = {
   empty: 'flex min-h-60 flex-col items-center justify-center gap-2 px-6 py-11 text-center',
 };
 
-function sessionStatusGroup(session: Session): SessionStatusGroup {
-  const status = boardStatusKey(session);
-  if (status === 'waiting') return 'needs';
-  if (status === 'busy') return 'running';
-  return 'idle';
-}
-
-function statusDot(status: SessionStatusGroup): string {
-  if (status === 'needs') return 'bg-warning';
-  if (status === 'running') return 'bg-success';
-  return 'bg-coslash-neutral-dot';
+function statusDot(status: StatusKey): string {
+  return status === 'inactive' ? 'bg-coslash-neutral-dot' : STATUSES[status].dot;
 }
 
 function rangeStart(range: SessionRange): number | null {
@@ -276,7 +269,7 @@ function matchesSearch(session: Session, group: Group, query: string): boolean {
     if (kind === 'group') return group.label.toLowerCase().includes(value);
     if (kind === 'machine') return session.sourceLabel.toLowerCase().includes(value);
     if (kind === 'agent') return vendor.toLowerCase().includes(value);
-    return STATUS_META[sessionStatusGroup(session)].label.toLowerCase().includes(value);
+    return STATUSES[boardStatusKey(session)].label.toLowerCase().includes(value);
   });
 }
 
@@ -287,7 +280,7 @@ function matchesFacets(
   skip?: FacetKey,
 ): boolean {
   const { statusFilters, groupFilters, machineFilters, agentFilters } = preferences;
-  if (skip !== 'status' && statusFilters.length > 0 && !statusFilters.includes(sessionStatusGroup(session)))
+  if (skip !== 'status' && statusFilters.length > 0 && !statusFilters.includes(boardStatusKey(session)))
     return false;
   if (skip !== 'group' && groupFilters.length > 0 && !groupFilters.includes(group.id)) return false;
   if (skip !== 'machine' && machineFilters.length > 0 && !machineFilters.includes(session.sourceId))
@@ -606,7 +599,7 @@ function SessionRow({
 }: {
   session: Session;
   group: Group;
-  status: SessionStatusGroup;
+  status: StatusKey;
   selected: boolean;
   compact: boolean;
   onSelect: () => void;
@@ -691,14 +684,11 @@ function SessionRow({
       </td>
       <td className={cn(cell, 'max-sidebar:w-auto max-compact:hidden w-[168px]')}>
         <span
-          className={cn('text-cell text-coslash-muted flex items-center gap-[7px] whitespace-nowrap', {
-            'text-warning-fg': status === 'needs',
-            'text-success-fg': status === 'running',
-          })}
-          title={STATUS_META[status].hint}
+          className={cn('text-cell flex items-center gap-[7px] whitespace-nowrap', STATUSES[status].fg)}
+          title={STATUS_HINT[status]}
         >
           <i className={cn('size-[7px] rounded-full', statusDot(status))} />
-          {STATUS_META[status].label}
+          {STATUSES[status].label}
         </span>
         <span
           className={cn(
@@ -778,7 +768,7 @@ function SessionRow({
             )}
             <DropdownMenuItem className="text-meta cursor-pointer" onSelect={onSelect}>
               <ChevronRight />
-              {status === 'running' ? 'Watch' : readiness.label}
+              {status === 'busy' ? 'Watch' : readiness.label}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -852,16 +842,16 @@ function SessionListView({
   onToggleGroup,
   review,
 }: {
-  sections: { status: SessionStatusGroup; rows: Session[] }[];
+  sections: { status: StatusKey; rows: Session[] }[];
   groups: Map<string, Group>;
   selectedSessionKey: string | null;
   compact: boolean;
   sort: SessionSort;
-  openSections: Record<SessionStatusGroup, boolean>;
+  openSections: Record<StatusKey, boolean>;
   sectionLimits: Record<string, number>;
   onSort: (key: SessionSort['key']) => void;
-  onToggleSection: (status: SessionStatusGroup) => void;
-  onShowMore: (status: SessionStatusGroup, limit: number) => void;
+  onToggleSection: (status: StatusKey) => void;
+  onShowMore: (status: StatusKey, limit: number) => void;
   onSelectSession: (session: Session) => void;
   onToggleGroup: (id: string) => void;
   review: SessionReviewProps;
@@ -933,7 +923,7 @@ function SessionListView({
                   onClick={() => onToggleSection(status)}
                 >
                   <ChevronRight className={cn('size-4 transition-transform', { 'rotate-90': open })} />
-                  {STATUS_META[status].label}{' '}
+                  {STATUSES[status].label}{' '}
                   <span className="text-coslash-muted font-medium">{rows.length}</span>
                   <span className="text-coslash-muted ml-auto text-[11.5px] font-medium">
                     {formatTokens(tokenTotal(aggregate))} tokens ·{' '}
@@ -1028,10 +1018,11 @@ export function CoslashLayout({
   onReviewStarted: () => void;
 }) {
   const [preferences, setPreferences] = useState(loadSessionViewPreferences);
-  const [openSections, setOpenSections] = useState<Record<SessionStatusGroup, boolean>>({
-    needs: true,
-    running: true,
+  const [openSections, setOpenSections] = useState<Record<StatusKey, boolean>>({
+    busy: true,
+    waiting: true,
     idle: true,
+    inactive: true,
   });
   const [sectionLimits, setSectionLimits] = useState<Record<string, number>>({});
   const [groupQuery, setGroupQuery] = useState('');
@@ -1091,7 +1082,7 @@ export function CoslashLayout({
         matchesFacets(session, sessionGroups.get(sessionKey(session))!, preferences, skip) &&
         predicate(session),
     ).length;
-  const toggleStatus = (status: SessionStatusGroup) =>
+  const toggleStatus = (status: StatusKey) =>
     patchPreferences({
       statusFilters: preferences.statusFilters.includes(status)
         ? preferences.statusFilters.filter((value) => value !== status)
@@ -1132,8 +1123,8 @@ export function CoslashLayout({
       options: STATUS_ORDER.map((status) => ({
         id: status,
         status,
-        label: STATUS_META[status].label,
-        count: countWith((session) => sessionStatusGroup(session) === status, 'status'),
+        label: STATUSES[status].label,
+        count: countWith((session) => boardStatusKey(session) === status, 'status'),
         selected: preferences.statusFilters.includes(status),
         onClick: () => toggleStatus(status),
       })),
@@ -1187,7 +1178,7 @@ export function CoslashLayout({
     ...preferences.statusFilters.map((value) => ({
       kind: 'Status',
       value,
-      label: STATUS_META[value].label,
+      label: STATUSES[value].label,
       remove: () =>
         patchPreferences({
           statusFilters: preferences.statusFilters.filter((item) => item !== value),
@@ -1219,7 +1210,7 @@ export function CoslashLayout({
   ];
   const sections = STATUS_ORDER.map((status) => ({
     status,
-    rows: visibleSessions.filter((session) => sessionStatusGroup(session) === status),
+    rows: visibleSessions.filter((session) => boardStatusKey(session) === status),
   })).filter(({ rows }) => rows.length > 0);
   const reviewIndex = useMemo(() => buildReviewIndex(sessions), [sessions]);
 
