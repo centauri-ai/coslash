@@ -125,7 +125,8 @@ describe('session library', () => {
           answer: 'Use bounded violet jitter',
         },
         { turn: 4, category: 'recap', description: 'The indigo migration completed' },
-        { turn: 5, category: 'compaction', description: 'Do not index the silver compaction' },
+        { turn: 5, category: 'plan', description: 'The saffron rollout plan' },
+        { turn: 6, category: 'compaction', description: 'Do not index the silver compaction' },
       ],
       synthesis: {
         goals: ['Protect the quartz workflow'],
@@ -143,6 +144,7 @@ describe('session library', () => {
       'retries use jitter',
       'bounded violet jitter',
       'indigo migration',
+      'saffron rollout',
       'reliable refresh behavior',
       'quartz workflow',
       'topaz release',

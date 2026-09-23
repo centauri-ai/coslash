@@ -46,6 +46,7 @@ type codexPayload struct {
 
 type codexItem struct {
 	Type             string            `json:"type"`
+	Text             string            `json:"text"`
 	Phase            string            `json:"phase"`
 	Content          []codexText       `json:"content"`
 	Changes          codexPatchChanges `json:"changes"`

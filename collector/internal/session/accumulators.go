@@ -15,12 +15,12 @@ type DigestLog struct {
 	entries []DigestEntry
 }
 
-// Push appends an entry attributed to turn (at least 1). A recap keeps its
-// full text; everything else is truncated for display. time is the epoch
+// Push appends an entry attributed to turn (at least 1). Recaps and plans keep
+// their full text; everything else is truncated for display. time is the epoch
 // milliseconds when the event occurred (0 if unknown).
 func (log *DigestLog) Push(turn int, category, description string, time int64) {
 	text := Truncate(description, TruncateTextLimit)
-	if category == DigestRecap {
+	if category == DigestRecap || category == DigestPlan {
 		text = strings.TrimSpace(description)
 	}
 	log.entries = append(log.entries, DigestEntry{

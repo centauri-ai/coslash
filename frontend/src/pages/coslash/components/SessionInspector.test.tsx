@@ -8,6 +8,7 @@ import {
   DetailLoadError,
   detailPresentation,
   detailRequestKey,
+  DigestSection,
   filePanelOpen,
   inspectorWidthForKey,
   overlayLiveSessionFields,
@@ -42,6 +43,19 @@ const selection: FileSelection = {
 };
 
 describe('SessionInspector exact-detail boundaries', () => {
+  it('shows a full plan with a timeline filter and expansion control', () => {
+    const plan = '# Plan\n' + 'Keep the full plan text. '.repeat(20) + 'Done.';
+    const markup = renderToStaticMarkup(
+      <DigestSection
+        detail={{ ...session, digest: [{ turn: 1, category: 'plan', description: plan }] } as Session}
+      />,
+    );
+    expect(markup).toContain('PLAN');
+    expect(markup).toContain('expand full plan');
+    expect(markup).toContain('whitespace-pre-wrap');
+    expect(markup).toContain(plan);
+  });
+
   it('shows Cursor model switches without token usage', () => {
     const markup = renderToStaticMarkup(
       <SessionModelUsage

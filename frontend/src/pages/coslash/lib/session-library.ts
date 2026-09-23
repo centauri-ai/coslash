@@ -19,7 +19,7 @@ export type SessionLibraryFilters = {
 export const ALL_REPOSITORIES = 'all-repositories';
 
 const sessionSearchDocuments = new WeakMap<Session, string>();
-const searchableDigestCategories = new Set(['first_prompt', 'user', 'question', 'recap']);
+const searchableDigestCategories = new Set(['first_prompt', 'user', 'question', 'recap', 'plan']);
 
 function sessionSearchDocument(session: Session): string {
   const cached = sessionSearchDocuments.get(session);

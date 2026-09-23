@@ -74,6 +74,7 @@ const (
 	DigestTodos       = "todos"
 	DigestCompaction  = "compaction"
 	DigestRecap       = "recap"
+	DigestPlan        = "plan"
 	DigestSubagent    = "subagent"
 )
 
