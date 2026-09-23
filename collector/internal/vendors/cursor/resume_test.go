@@ -38,6 +38,10 @@ func TestResumeDirectoryFindsTheDirectoryTheChatWasFiledUnder(t *testing.T) {
 	if got := ResumeDirectory(value); got != frontend {
 		t.Fatalf("with a parent working directory, ResumeDirectory = %q, want %q from the edited files", got, frontend)
 	}
+	value.FileEdits = []session.FileEdit{{Path: filepath.Join("frontend", "src", "app.ts")}}
+	if got := ResumeDirectory(value); got != frontend {
+		t.Fatalf("with a relative edit path, ResumeDirectory = %q, want %q", got, frontend)
+	}
 
 	value.WorkingDirectory, value.FileEdits = filepath.Join(home, "elsewhere"), nil
 	if got := ResumeDirectory(value); got != value.WorkingDirectory {
