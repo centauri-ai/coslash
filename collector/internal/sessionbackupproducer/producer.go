@@ -114,6 +114,7 @@ type Options struct {
 	OpenSource       OpenSource
 	LocalHome        func() (string, error)
 	AfterRawCopy     func() // deterministic mutation hook for focused tests
+	AfterRename      func() // deterministic post-publish cancellation hook for focused tests
 	Lifecycle        context.Context
 	Now              func() time.Time
 }
@@ -125,6 +126,7 @@ type Manager struct {
 	synthesis        SynthesisStore
 	openSource       OpenSource
 	afterRawCopy     func()
+	afterRename      func()
 	lifecycle        context.Context
 	lifecycleCancel  context.CancelFunc
 	now              func() time.Time
@@ -180,7 +182,7 @@ func New(options Options) *Manager {
 		root: root, collectorVersion: identifierOr(options.CollectorVersion, "development"),
 		parserVersion: identifierOr(options.ParserVersion, vendors.ParserVersion),
 		synthesis:     options.Synthesis, openSource: openSource, afterRawCopy: options.AfterRawCopy,
-		lifecycle: lifecycle, lifecycleCancel: lifecycleCancel, now: now,
+		afterRename: options.AfterRename, lifecycle: lifecycle, lifecycleCancel: lifecycleCancel, now: now,
 		operations: map[string]*operation{},
 	}
 }
@@ -221,25 +223,25 @@ func (manager *Manager) Start(ctx context.Context, selection Selection) (string,
 		defer cancel()
 		prepared, err := manager.Prepare(operationContext, selection)
 		manager.mu.Lock()
-		defer manager.mu.Unlock()
-		if operationContext.Err() != nil {
+		if err == nil {
+			item.state.State = StateReady
+			item.state.Prepared = prepared
+			item.state.Coverage = prepared.Coverage
+		} else if operationContext.Err() != nil {
 			item.state.State = StateCancelled
 			item.state.Coverage = Coverage{Problems: []sessionbackupv1.CaptureProblem{{
 				Code: sessionbackupv1.ProblemUnavailable, MemberID: selection.SessionID, Retryable: true,
 			}}}
-		} else if err != nil {
+		} else {
 			item.state.State = StateFailed
 			var preparationError *PreparationError
 			if errors.As(err, &preparationError) {
 				item.state.Coverage = preparationError.Coverage
 			}
-		} else {
-			item.state.State = StateReady
-			item.state.Prepared = prepared
-			item.state.Coverage = prepared.Coverage
 		}
 		item.completedAt = manager.now()
 		close(item.done)
+		manager.mu.Unlock()
 	}()
 	return id, nil
 }
