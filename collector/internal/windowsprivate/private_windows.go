@@ -3,14 +3,31 @@
 package windowsprivate
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+type PendingFile struct {
+	File      *os.File
+	directory windows.Handle
+	committed bool
+}
+
+type fileRenameInformation struct {
+	ReplaceIfExists uint32
+	RootDirectory   windows.Handle
+	FileNameLength  uint32
+	FileName        [1]uint16
+}
 
 var (
 	getSecurityInfo     = windows.GetSecurityInfo
@@ -89,6 +106,147 @@ func ProtectFile(path string, file *os.File, subject string) error {
 		return fmt.Errorf("%s temporary file changed while securing it", subject)
 	}
 	return protectHandle(handle, path, subject, false)
+}
+
+func CreatePrivateTempFile(directoryPath, prefix, subject string) (*PendingFile, error) {
+	if prefix == "" || filepath.Base(prefix) != prefix {
+		return nil, fmt.Errorf("invalid %s temporary file prefix", subject)
+	}
+	directory, err := Open(directoryPath, windows.FILE_LIST_DIRECTORY|windows.FILE_WRITE_DATA|windows.READ_CONTROL|windows.WRITE_DAC, true)
+	if err != nil {
+		return nil, err
+	}
+	keepDirectory := false
+	defer func() {
+		if !keepDirectory {
+			windows.CloseHandle(directory)
+		}
+	}()
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(directory, &info); err != nil {
+		return nil, err
+	}
+	if info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
+		return nil, fmt.Errorf("%s directory must not be a reparse point", subject)
+	}
+	if err := protectHandle(directory, directoryPath, subject+" directory", true); err != nil {
+		return nil, err
+	}
+	user, _, err := currentIdentity()
+	if err != nil {
+		return nil, err
+	}
+	descriptor, err := privateSecurityDescriptor(user, false)
+	if err != nil {
+		return nil, err
+	}
+	for range 100 {
+		name, err := randomPrivateName(prefix)
+		if err != nil {
+			return nil, err
+		}
+		objectName, err := windows.NewNTUnicodeString(name)
+		if err != nil {
+			return nil, err
+		}
+		attributes := &windows.OBJECT_ATTRIBUTES{
+			Length:             uint32(unsafe.Sizeof(windows.OBJECT_ATTRIBUTES{})),
+			RootDirectory:      directory,
+			ObjectName:         objectName,
+			Attributes:         windows.OBJ_CASE_INSENSITIVE | windows.OBJ_DONT_REPARSE,
+			SecurityDescriptor: descriptor,
+		}
+		var handle windows.Handle
+		var status windows.IO_STATUS_BLOCK
+		err = windows.NtCreateFile(
+			&handle,
+			windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.DELETE|windows.SYNCHRONIZE,
+			attributes,
+			&status,
+			nil,
+			windows.FILE_ATTRIBUTE_NORMAL,
+			0,
+			windows.FILE_CREATE,
+			windows.FILE_NON_DIRECTORY_FILE|windows.FILE_SYNCHRONOUS_IO_NONALERT,
+			0,
+			0,
+		)
+		if err == windows.STATUS_OBJECT_NAME_COLLISION {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("create private %s: %w", subject, err)
+		}
+		file := os.NewFile(uintptr(handle), filepath.Join(directoryPath, name))
+		if file == nil {
+			windows.CloseHandle(handle)
+			return nil, fmt.Errorf("create private %s file handle", subject)
+		}
+		keepDirectory = true
+		return &PendingFile{File: file, directory: directory}, nil
+	}
+	return nil, fmt.Errorf("create private %s: temporary name collisions", subject)
+}
+
+func (file *PendingFile) Commit(name string) error {
+	if file == nil || file.File == nil || file.directory == 0 {
+		return errors.New("commit private file: file is closed")
+	}
+	if name == "" || filepath.Base(name) != name {
+		return errors.New("commit private file: invalid destination name")
+	}
+	if err := file.File.Sync(); err != nil {
+		return err
+	}
+	nameUTF16, err := windows.UTF16FromString(name)
+	if err != nil {
+		return err
+	}
+	nameLength := len(nameUTF16) - 1
+	var layout fileRenameInformation
+	buffer := make([]byte, int(unsafe.Offsetof(layout.FileName))+nameLength*2)
+	rename := (*fileRenameInformation)(unsafe.Pointer(&buffer[0]))
+	rename.ReplaceIfExists = windows.FILE_RENAME_REPLACE_IF_EXISTS | windows.FILE_RENAME_POSIX_SEMANTICS
+	rename.RootDirectory = file.directory
+	rename.FileNameLength = uint32(nameLength * 2)
+	copy(unsafe.Slice(&rename.FileName[0], nameLength), nameUTF16[:nameLength])
+	var status windows.IO_STATUS_BLOCK
+	if err := windows.NtSetInformationFile(windows.Handle(file.File.Fd()), &status, &buffer[0], uint32(len(buffer)), windows.FileRenameInformation); err != nil {
+		return err
+	}
+	file.committed = true
+	return nil
+}
+
+func (file *PendingFile) Close() error {
+	if file == nil {
+		return nil
+	}
+	var disposeErr error
+	if file.File != nil && !file.committed {
+		var status windows.IO_STATUS_BLOCK
+		disposition := byte(1)
+		disposeErr = windows.NtSetInformationFile(windows.Handle(file.File.Fd()), &status, &disposition, 1, windows.FileDispositionInformation)
+	}
+	var fileErr error
+	if file.File != nil {
+		fileErr = file.File.Close()
+		file.File = nil
+	}
+	var directoryErr error
+	if file.directory != 0 {
+		directoryErr = windows.CloseHandle(file.directory)
+		file.directory = 0
+	}
+	return errors.Join(disposeErr, fileErr, directoryErr)
+}
+
+func randomPrivateName(prefix string) (string, error) {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	return prefix + hex.EncodeToString(random[:]), nil
 }
 
 func Open(path string, access uint32, directory bool) (windows.Handle, error) {
@@ -176,13 +334,7 @@ func protectHandle(handle windows.Handle, path, subject string, directory bool) 
 			return fmt.Errorf("%s ownership changed before it could be secured", subject)
 		}
 	}
-	inheritance := ""
-	if directory {
-		inheritance = "OICI"
-	}
-	sddl := "D:P(A;" + inheritance + ";FA;;;" + user.String() + ")" +
-		"(A;" + inheritance + ";FA;;;SY)(A;" + inheritance + ";FA;;;BA)"
-	descriptor, err = windows.SecurityDescriptorFromString(sddl)
+	descriptor, err = privateSecurityDescriptor(user, directory)
 	if err != nil {
 		return err
 	}
@@ -191,6 +343,16 @@ func protectHandle(handle windows.Handle, path, subject string, directory bool) 
 		return err
 	}
 	return setSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
+}
+
+func privateSecurityDescriptor(user *windows.SID, directory bool) (*windows.SECURITY_DESCRIPTOR, error) {
+	inheritance := ""
+	if directory {
+		inheritance = "OICI"
+	}
+	sddl := "O:" + user.String() + "D:P(A;" + inheritance + ";FA;;;" + user.String() + ")" +
+		"(A;" + inheritance + ";FA;;;SY)(A;" + inheritance + ";FA;;;BA)"
+	return windows.SecurityDescriptorFromString(sddl)
 }
 
 func reopenOwnershipHandle(original windows.Handle, path string, directory bool) (windows.Handle, error) {
