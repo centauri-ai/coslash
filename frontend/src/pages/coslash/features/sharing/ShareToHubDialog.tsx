@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangleIcon, CheckIcon, ExternalLinkIcon, SearchIcon, ShieldCheckIcon } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,13 +13,25 @@ import {
 import { Input } from '@/components/ui/input';
 import { beginHubPairing, pollHubPairing, prepareBackup, submitHubShare, type PairingResult } from './api';
 import {
+  COMPLETE_BACKUP_DRAFT_STORAGE_KEY,
+  restoreDraft,
+  retainRetryDraftSelection,
+  retryDraftForResult,
+  storeDraft,
+  updateRetryDraft,
+  type RetryDraft,
+  type ReviewRecord,
+} from './draft';
+import {
   backupSelection,
   bindBackupConsent,
-  completeBackupUnsupportedReason,
+  COMPLETE_BACKUP_SUPPORT_MESSAGE,
   consentStillCurrent,
   filterShareCandidates,
   HUB_SHARE_VERSION,
   hubRouteURL,
+  isCompleteBackupCandidate,
+  limitShareSelection,
   localSessionId,
   MAX_SHARE_ITEMS,
   planShareRetry,
@@ -31,23 +43,19 @@ import {
   type BackupPreview,
   type DestinationResult,
   type ShareCandidate,
-  type ShareItemRequest,
   type ShareResult,
   type ShareWindow,
 } from './model';
-import {
-  attemptStillCurrent,
-  DRAFT_STORAGE_KEY,
-  pendingReviewRecords,
-  restoredDraftWindow,
-  storeShareDraft,
-  type ReviewRecord,
-} from './workflow';
 
 type Phase = 'select' | 'preparing' | 'review' | 'uploading' | 'result';
 
-function removeDraft() {
-  localStorage.removeItem(DRAFT_STORAGE_KEY);
+export function CompleteBackupSupport({ candidate }: { candidate: ShareCandidate }) {
+  if (isCompleteBackupCandidate(candidate)) return null;
+  return (
+    <span data-testid="complete-backup-unsupported" className="text-warning-fg block pt-1 text-xs">
+      {COMPLETE_BACKUP_SUPPORT_MESSAGE}
+    </span>
+  );
 }
 
 const ELIGIBILITY_COPY: Record<
@@ -194,40 +202,28 @@ export function ShareToHubDialog({
     Record<string, 'queued' | 'resuming' | 'uploading' | 'accepted' | 'failed'>
   >({});
   const [resumingDraft, setResumingDraft] = useState(false);
+  const [renewedReviewIds, setRenewedReviewIds] = useState<Set<string>>(new Set());
+  const [uploadRecords, setUploadRecords] = useState<ReviewRecord[]>([]);
   const previewGeneration = useRef(0);
-  const previewAbort = useRef<AbortController | null>(null);
   const uploadGeneration = useRef(0);
-  const uploadAbort = useRef<AbortController | null>(null);
   const restoredForOpen = useRef(false);
-  const openRef = useRef(open);
-
-  useLayoutEffect(() => {
-    openRef.current = open;
-    if (open) return;
-    restoredForOpen.current = false;
-    previewGeneration.current += 1;
-    previewAbort.current?.abort();
-    previewAbort.current = null;
-    uploadGeneration.current += 1;
-    uploadAbort.current?.abort();
-    uploadAbort.current = null;
-  }, [open]);
 
   const visible = useMemo(
     () => filterShareCandidates(candidates, search, window),
     [candidates, search, window],
   );
-  const selectedCandidates = candidates.filter(({ session }) => selected.has(localSessionId(session)));
+  const supportedVisible = visible.filter(isCompleteBackupCandidate);
+  const selectedCandidates = candidates.filter(
+    (candidate) => isCompleteBackupCandidate(candidate) && selected.has(localSessionId(candidate.session)),
+  );
   const currentSelection = new Set(selectedCandidates.map(({ session }) => localSessionId(session)));
   const destination = destinationResult.state === 'ready' ? destinationResult.destination : null;
-  const candidatesById = useMemo(
-    () => new Map(candidates.map((candidate) => [localSessionId(candidate.session), candidate])),
-    [candidates],
-  );
   const reviewStillCurrent =
     destination != null &&
     records.every((record) => {
-      const current = candidatesById.get(record.item.localSessionId);
+      const current = candidates.find(
+        ({ session }) => localSessionId(session) === record.item.localSessionId,
+      );
       return (
         current != null && consentStillCurrent(record.item, current.session, record.preview, destination)
       );
@@ -240,14 +236,13 @@ export function ShareToHubDialog({
     }
     return [...values.entries()];
   }, [visible]);
-  const supportedVisible = useMemo(
-    () => visible.filter(({ session }) => completeBackupUnsupportedReason(session) == null),
-    [visible],
-  );
 
   /* oxlint-disable react/set-state-in-effect -- clear transient form state when the controlled dialog closes */
   useEffect(() => {
     if (open) return;
+    restoredForOpen.current = false;
+    previewGeneration.current += 1;
+    uploadGeneration.current += 1;
     setSearch('');
     setSelected(new Set());
     setPhase('select');
@@ -262,65 +257,56 @@ export function ShareToHubDialog({
     setRetryReadyAt(0);
     setProgress({});
     setResumingDraft(false);
+    setRenewedReviewIds(new Set());
+    setUploadRecords([]);
   }, [open]);
   /* oxlint-enable react/set-state-in-effect */
 
   /* oxlint-disable react/set-state-in-effect -- restore a frozen, explicitly reviewed upload after dialog/app restart */
   useEffect(() => {
     if (!open || destination == null || restoredForOpen.current) return;
+    restoredForOpen.current = true;
     try {
-      const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+      const raw = localStorage.getItem(COMPLETE_BACKUP_DRAFT_STORAGE_KEY);
       if (!raw) return;
-      const stored = JSON.parse(raw) as {
-        reviewed?: boolean;
-        window?: ShareWindow;
-        records?: { preview?: BackupPreview; item?: ShareItemRequest }[];
-      };
-      const storedWindow = restoredDraftWindow(stored.window);
-      if (storedWindow !== window) {
-        onWindowChange(storedWindow);
+      const restored = restoreDraft(raw, candidates, destination);
+      if (restored == null) {
+        localStorage.removeItem(COMPLETE_BACKUP_DRAFT_STORAGE_KEY);
         return;
       }
-      if (candidatesLoading || candidatesError != null) return;
-      restoredForOpen.current = true;
-      const restored: ReviewRecord[] = [];
-      for (const value of stored.records ?? []) {
-        if (!value.preview || !value.item) continue;
-        const candidate = candidatesById.get(value.item.localSessionId);
-        if (candidate && consentStillCurrent(value.item, candidate.session, value.preview, destination)) {
-          restored.push({ candidate, preview: value.preview, item: value.item });
-        }
-      }
-      if (restored.length === 0) {
-        removeDraft();
-        return;
-      }
-      setRecords(restored);
-      setSelected(new Set(restored.map(({ item }) => item.localSessionId)));
-      setReviewed(stored.reviewed === true);
-      setProblem('Resuming frozen complete backups with their original review and upload identities.');
-      setResumingDraft(true);
-      setPhase('review');
+      setRecords(restored.records);
+      setRenewedReviewIds(restored.renewedReviewIds);
+      setSelected(
+        new Set([...restored.records.map(({ item }) => item.localSessionId), ...restored.renewedReviewIds]),
+      );
+      setReviewed(restored.reviewed);
+      setProblem(
+        restored.renewedReviewIds.size > 0
+          ? 'Some failed sessions require a refreshed preview and explicit approval.'
+          : 'Resuming frozen complete backups with their original review and upload identities.',
+      );
+      setResumingDraft(restored.records.length > 0);
+      setPhase(restored.renewedReviewIds.size > 0 ? 'select' : 'review');
     } catch {
-      removeDraft();
+      localStorage.removeItem(COMPLETE_BACKUP_DRAFT_STORAGE_KEY);
     }
-  }, [candidatesById, candidatesError, candidatesLoading, destination, onWindowChange, open, window]);
+  }, [candidates, destination, open]);
   /* oxlint-enable react/set-state-in-effect */
 
   useEffect(() => {
-    if (records.length > 0 && phase !== 'uploading') {
-      storeShareDraft(localStorage, records, reviewed, window);
+    if (records.length > 0 || renewedReviewIds.size > 0) {
+      storeDraft(records, reviewed && renewedReviewIds.size === 0, renewedReviewIds);
     }
-  }, [phase, records, reviewed, window]);
+  }, [records, renewedReviewIds, reviewed]);
 
   useEffect(() => {
-    if (result?.state === 'succeeded') removeDraft();
+    if (result?.state === 'succeeded') localStorage.removeItem(COMPLETE_BACKUP_DRAFT_STORAGE_KEY);
   }, [result?.state]);
 
   /* oxlint-disable react/set-state-in-effect -- revoke selections whose source is no longer eligible */
   useEffect(() => {
-    setSelected((current) => reconcileVisibleSelection(current, supportedVisible));
-  }, [supportedVisible]);
+    setSelected((current) => reconcileVisibleSelection(current, visible));
+  }, [visible]);
   /* oxlint-enable react/set-state-in-effect */
 
   useEffect(() => {
@@ -386,7 +372,6 @@ export function ShareToHubDialog({
   useEffect(() => {
     if (!open || phase !== 'review' || records.length === 0 || reviewStillCurrent) return;
     setRecords([]);
-    removeDraft();
     setReviewed(false);
     setProblem('The source revision or destination changed. Review the current selection again.');
     setPhase('select');
@@ -394,12 +379,12 @@ export function ShareToHubDialog({
   /* oxlint-enable react/set-state-in-effect */
 
   const replaceSelection = (next: Set<string>) => {
-    const limited = new Set([...next].slice(0, MAX_SHARE_ITEMS));
-    const nextRecords = records.filter((record) => limited.has(record.item.localSessionId));
+    uploadGeneration.current += 1;
+    const limited = limitShareSelection(next, candidates);
+    const retained = retainRetryDraftSelection({ records, renewedReviewIds }, limited);
     setSelected(limited);
-    setRecords(nextRecords);
-    if (nextRecords.length > 0) storeShareDraft(localStorage, nextRecords, false, window);
-    else removeDraft();
+    setRecords(retained.records);
+    setRenewedReviewIds(retained.renewedReviewIds);
     setReviewed(false);
     setProblem(null);
     setResult(null);
@@ -407,6 +392,7 @@ export function ShareToHubDialog({
     setFixtureAttempt(0);
     setRetryReadyAt(0);
     setResumingDraft(false);
+    storeDraft(retained.records, false, retained.renewedReviewIds);
   };
 
   const narrow = (nextSearch: string, nextWindow: ShareWindow) => {
@@ -419,64 +405,50 @@ export function ShareToHubDialog({
   const reviewExactPayloads = async () => {
     if (destination == null || selectedCandidates.length === 0) return;
     const generation = ++previewGeneration.current;
-    previewAbort.current?.abort();
-    const controller = new AbortController();
-    previewAbort.current = controller;
     const prior = new Map(records.map((record) => [record.item.localSessionId, record]));
-    const nextRecords: ReviewRecord[] = [];
     setPhase('preparing');
     setProblem(null);
     try {
-      for (const candidate of selectedCandidates) {
-        if (!attemptStillCurrent(openRef.current, generation, previewGeneration.current, controller.signal)) {
-          return;
-        }
-        const { session } = candidate;
-        const existing = prior.get(localSessionId(session));
-        if (existing && consentStillCurrent(existing.item, session, existing.preview, destination)) {
-          nextRecords.push(existing);
-          continue;
-        }
-        const selection = backupSelection(session);
-        const preview = fixtureMode
-          ? fixtureBackupPreview(selection, destination.audienceVersion)
-          : await prepareBackup(selection, controller.signal);
-        if (!attemptStillCurrent(openRef.current, generation, previewGeneration.current, controller.signal)) {
-          return;
-        }
-        if (preview.state !== 'ready') {
-          throw new Error(
-            `${preview.problem?.message ?? 'A complete backup could not be prepared.'} ${preview.problem?.action ?? ''}`.trim(),
+      const nextRecords = await Promise.all(
+        selectedCandidates.map(async (candidate) => {
+          const { session } = candidate;
+          const existing = prior.get(localSessionId(session));
+          if (existing && consentStillCurrent(existing.item, session, existing.preview, destination)) {
+            return existing;
+          }
+          const selection = backupSelection(session);
+          const preview = fixtureMode
+            ? fixtureBackupPreview(selection, destination.audienceVersion)
+            : await prepareBackup(selection);
+          if (preview.state !== 'ready') {
+            throw new Error(
+              `${preview.problem?.message ?? 'A complete backup could not be prepared.'} ${preview.problem?.action ?? ''}`.trim(),
+            );
+          }
+          const item = bindBackupConsent(
+            session,
+            preview,
+            destination,
+            `${HUB_SHARE_VERSION}:${crypto.randomUUID()}`,
           );
-        }
-        const item = bindBackupConsent(
-          session,
-          preview,
-          destination,
-          `${HUB_SHARE_VERSION}:${crypto.randomUUID()}`,
-        );
-        nextRecords.push({ candidate, preview, item });
-        setRecords([...nextRecords]);
-        storeShareDraft(localStorage, nextRecords, false, window);
-      }
+          return { candidate, preview, item };
+        }),
+      );
+      if (generation !== previewGeneration.current) return;
       setRecords(nextRecords);
+      setRenewedReviewIds(new Set());
       setReviewed(false);
       setPhase('review');
     } catch (error) {
-      if (!attemptStillCurrent(openRef.current, generation, previewGeneration.current, controller.signal)) {
-        return;
-      }
-      setRecords(nextRecords);
+      if (generation !== previewGeneration.current) return;
       setProblem(error instanceof Error ? error.message : 'The complete backup could not be prepared.');
       setPhase('select');
-    } finally {
-      if (previewAbort.current === controller) previewAbort.current = null;
     }
   };
 
   const exerciseFixtureResult = () => {
     if (!reviewed || records.length === 0 || !reviewStillCurrent) return;
-    storeShareDraft(localStorage, records, true, window);
+    storeDraft(records, true);
     const partial = fixtureOutcome === 'partial' && fixtureAttempt === 0 && records.length > 1;
     const results: ShareResult['results'] = records.map((record, index) => {
       if (partial && index === records.length - 1) {
@@ -505,17 +477,12 @@ export function ShareToHubDialog({
         },
       };
     });
-    const nextResult: ShareResult = {
+    showResult({
       contractVersion: HUB_SHARE_VERSION,
       requestId: crypto.randomUUID(),
       state: partial ? 'partial' : 'succeeded',
       results,
-    };
-    const pending = pendingReviewRecords(records, results);
-    setRecords(pending);
-    if (pending.length > 0) storeShareDraft(localStorage, pending, true, window);
-    else removeDraft();
-    showResult(nextResult);
+    });
   };
 
   const showResult = (next: ShareResult) => {
@@ -526,6 +493,18 @@ export function ShareToHubDialog({
       ),
     );
     const now = Date.now();
+    const retryPlan = planShareRetry(next);
+    const retryDraft = retryDraftForResult(records, next);
+    const retryable = new Set([...retryPlan.unchanged, ...retryPlan.renewedReview]);
+    setRecords(retryDraft.records);
+    setRenewedReviewIds(retryDraft.renewedReviewIds);
+    setSelected(retryable);
+    setReviewed(retryDraft.renewedReviewIds.size === 0 && retryDraft.records.length > 0);
+    storeDraft(
+      retryDraft.records,
+      retryDraft.renewedReviewIds.size === 0 && retryDraft.records.length > 0,
+      retryDraft.renewedReviewIds,
+    );
     setResult(next);
     setClock(now);
     setRetryReadyAt(now + delay * 1000);
@@ -539,47 +518,47 @@ export function ShareToHubDialog({
     }
     if (!reviewed || records.length === 0 || !reviewStillCurrent) return;
     const generation = ++uploadGeneration.current;
-    uploadAbort.current?.abort();
-    const controller = new AbortController();
-    uploadAbort.current = controller;
+    const activeRecords = records;
     setPhase('uploading');
     setProblem(null);
+    setUploadRecords(activeRecords);
     setProgress(
       Object.fromEntries(
-        records.map((record) => [record.item.localSessionId, resumingDraft ? 'resuming' : 'queued']),
+        activeRecords.map((record) => [record.item.localSessionId, resumingDraft ? 'resuming' : 'queued']),
       ),
     );
-    const results: ShareResult['results'] = [];
-    let pendingRecords = [...records];
-    let activeRecord: ReviewRecord | null = null;
-    const active = () =>
-      attemptStillCurrent(openRef.current, generation, uploadGeneration.current, controller.signal);
+    let pendingDraft: RetryDraft = { records: [...activeRecords], renewedReviewIds: new Set() };
+    const persistPending = () => {
+      const pendingIds = new Set([
+        ...pendingDraft.records.map(({ item }) => item.localSessionId),
+        ...pendingDraft.renewedReviewIds,
+      ]);
+      setRecords(pendingDraft.records);
+      setRenewedReviewIds(new Set(pendingDraft.renewedReviewIds));
+      setSelected(pendingIds);
+      storeDraft(
+        pendingDraft.records,
+        pendingDraft.renewedReviewIds.size === 0 && pendingDraft.records.length > 0,
+        pendingDraft.renewedReviewIds,
+      );
+    };
     try {
-      for (const record of records) {
-        if (!active()) return;
-        activeRecord = record;
+      const results: ShareResult['results'] = [];
+      for (const record of activeRecords) {
         if (!resumingDraft) {
           setProgress((current) => ({ ...current, [record.item.localSessionId]: 'uploading' }));
         }
-        const response = await submitHubShare(
-          {
-            contractVersion: HUB_SHARE_VERSION,
-            requestId: crypto.randomUUID(),
-            items: [record.item],
-          },
-          controller.signal,
-        );
-        if (!active()) return;
+        const response = await submitHubShare({
+          contractVersion: HUB_SHARE_VERSION,
+          requestId: crypto.randomUUID(),
+          items: [record.item],
+        });
+        if (generation !== uploadGeneration.current) return;
         const item = response.results[0];
         if (!item) throw new Error('The Hub returned no item result.');
         results.push(item);
-        if (item.state !== 'failed') {
-          pendingRecords = pendingReviewRecords(pendingRecords, [item]);
-          setRecords(pendingRecords);
-          if (pendingRecords.length > 0) {
-            storeShareDraft(localStorage, pendingRecords, true, window);
-          } else removeDraft();
-        }
+        pendingDraft = updateRetryDraft(pendingDraft, item);
+        persistPending();
         setProgress((current) => ({
           ...current,
           [record.item.localSessionId]: item.state === 'failed' ? 'failed' : 'accepted',
@@ -593,30 +572,21 @@ export function ShareToHubDialog({
         results,
       });
       setResumingDraft(false);
+      setUploadRecords([]);
     } catch (error) {
-      if (!active()) return;
-      if (activeRecord != null) {
-        results.push({
-          localSessionId: activeRecord.item.localSessionId,
-          idempotencyKey: activeRecord.item.idempotencyKey,
-          state: 'failed',
-          deduplicated: false,
-          error: { code: 'share_failed', retryable: true },
-        });
-      }
-      setRecords(pendingRecords);
-      if (pendingRecords.length > 0) storeShareDraft(localStorage, pendingRecords, true, window);
+      if (generation !== uploadGeneration.current) return;
+      persistPending();
+      setReviewed(pendingDraft.renewedReviewIds.size === 0 && pendingDraft.records.length > 0);
+      setResumingDraft(pendingDraft.records.length > 0);
       setProblem(error instanceof Error ? error.message : 'The Hub share request failed.');
-      const accepted = results.filter((item) => item.state !== 'failed').length;
-      showResult({
-        contractVersion: HUB_SHARE_VERSION,
-        requestId: crypto.randomUUID(),
-        state: accepted > 0 ? 'partial' : 'failed',
-        results,
-      });
-    } finally {
-      if (uploadAbort.current === controller) uploadAbort.current = null;
+      setPhase(pendingDraft.renewedReviewIds.size > 0 ? 'select' : 'review');
+      setUploadRecords([]);
     }
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) uploadGeneration.current += 1;
+    onOpenChange(nextOpen);
   };
 
   const beginPairing = async () => {
@@ -658,11 +628,8 @@ export function ShareToHubDialog({
       }
     }
     setSelected(retry);
-    const nextRecords = records.filter((record) => plan.unchanged.has(record.item.localSessionId));
-    setRecords(nextRecords);
-    if (nextRecords.length > 0) {
-      storeShareDraft(localStorage, nextRecords, plan.renewedReview.size === 0, window);
-    } else removeDraft();
+    setRecords((current) => current.filter((record) => plan.unchanged.has(record.item.localSessionId)));
+    setRenewedReviewIds(plan.renewedReview);
     setReviewed(plan.renewedReview.size === 0);
     setProblem(
       plan.renewedReview.size > 0
@@ -679,7 +646,7 @@ export function ShareToHubDialog({
   const restartFailed = () => {
     replaceSelection(currentSelection);
     setRecords([]);
-    removeDraft();
+    setRenewedReviewIds(new Set());
   };
 
   const eligibility = destinationResult.state === 'ready' ? null : ELIGIBILITY_COPY[destinationResult.state];
@@ -689,7 +656,7 @@ export function ShareToHubDialog({
   const retryWait = Math.max(0, Math.ceil((retryReadyAt - clock) / 1000));
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         data-testid="share-to-hub-dialog"
         className="coslash-shell flex max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-none! flex-col overflow-x-hidden overflow-y-hidden sm:w-[min(56rem,calc(100vw-2rem))]"
@@ -827,7 +794,7 @@ export function ShareToHubDialog({
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, supportedVisible))}
+                    onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, visible))}
                     disabled={candidatesLoading || candidatesError != null || supportedVisible.length === 0}
                   >
                     {supportedVisible.length > 0 &&
@@ -846,9 +813,7 @@ export function ShareToHubDialog({
                   {!candidatesLoading &&
                     candidatesError == null &&
                     groups.map(([repository, rows]) => {
-                      const supportedRows = rows.filter(
-                        ({ session }) => completeBackupUnsupportedReason(session) == null,
-                      );
+                      const supportedRows = rows.filter(isCompleteBackupCandidate);
                       const allSelected =
                         supportedRows.length > 0 &&
                         supportedRows.every(({ session }) => currentSelection.has(localSessionId(session)));
@@ -859,9 +824,7 @@ export function ShareToHubDialog({
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() =>
-                                replaceSelection(toggleCandidateGroup(currentSelection, supportedRows))
-                              }
+                              onClick={() => replaceSelection(toggleCandidateGroup(currentSelection, rows))}
                               disabled={supportedRows.length === 0}
                             >
                               {allSelected ? 'Clear repository' : 'Select repository'}
@@ -869,21 +832,27 @@ export function ShareToHubDialog({
                           </div>
                           {rows.map((candidate) => {
                             const key = localSessionId(candidate.session);
-                            const unsupportedReason = completeBackupUnsupportedReason(candidate.session);
+                            const supported = isCompleteBackupCandidate(candidate);
                             return (
                               <label
                                 key={key}
-                                className="hover:bg-coslash-soft flex cursor-pointer items-start gap-3 border-t px-3 py-3 first:border-t-0"
+                                className={
+                                  supported
+                                    ? 'hover:bg-coslash-soft flex cursor-pointer items-start gap-3 border-t px-3 py-3 first:border-t-0'
+                                    : 'bg-coslash-soft flex cursor-not-allowed items-start gap-3 border-t px-3 py-3 first:border-t-0'
+                                }
                               >
                                 <input
                                   type="checkbox"
                                   className="mt-1 size-4"
                                   checked={currentSelection.has(key)}
                                   disabled={
-                                    unsupportedReason != null ||
+                                    !supported ||
                                     (!currentSelection.has(key) && currentSelection.size >= MAX_SHARE_ITEMS)
                                   }
-                                  onChange={() => replaceSelection(toggleCandidate(currentSelection, key))}
+                                  onChange={() => {
+                                    if (supported) replaceSelection(toggleCandidate(currentSelection, key));
+                                  }}
                                 />
                                 <span className="min-w-0 flex-1">
                                   <span className="block truncate text-sm font-medium">
@@ -894,12 +863,11 @@ export function ShareToHubDialog({
                                     {candidate.session.branch ?? 'no branch'} · revision{' '}
                                     {candidate.session.mtime}
                                   </span>
+                                  <CompleteBackupSupport candidate={candidate} />
                                 </span>
-                                {unsupportedReason != null ? (
-                                  <Badge variant="secondary">Codex complete backups only</Badge>
-                                ) : candidate.previouslyShared ? (
+                                {candidate.previouslyShared && (
                                   <Badge variant="secondary">Previously shared · re-share</Badge>
-                                ) : null}
+                                )}
                               </label>
                             );
                           })}
@@ -918,7 +886,7 @@ export function ShareToHubDialog({
 
             {phase === 'uploading' && (
               <BackupUploadProgress
-                items={records.map((record) => ({
+                items={uploadRecords.map((record) => ({
                   id: record.item.localSessionId,
                   label: record.candidate.session.name ?? record.candidate.session.id,
                   state: progress[record.item.localSessionId] ?? 'queued',

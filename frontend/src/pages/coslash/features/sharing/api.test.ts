@@ -71,90 +71,6 @@ describe('Hub sharing local adapter', () => {
     );
   });
 
-  it('preserves collector problems on non-ready previews with an empty inventory', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      Response.json({
-        adapterVersion: 'backup-preview/v1',
-        state: 'blocked',
-        approvalAllowed: false,
-        selection: { sourceKind: 'local', sourceId: 'local', agent: 'claude', sessionId: 'one' },
-        coverage: {
-          artifactCount: 0,
-          artifactCounts: null,
-          totalBytes: 0,
-          revisionSha256: '',
-          problems: [],
-        },
-        problem: {
-          code: 'complete_backup_unsupported',
-          message: 'Complete backups are not supported for this agent.',
-          action: 'Choose a Codex session.',
-          retryable: false,
-        },
-      }),
-    );
-    installBrowser(fetchMock);
-
-    await expect(
-      prepareBackup({ sourceKind: 'local', sourceId: 'local', agent: 'claude', sessionId: 'one' }),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        state: 'blocked',
-        problem: expect.objectContaining({ code: 'complete_backup_unsupported' }),
-      }),
-    );
-  });
-
-  it('passes cancellation through preparation and upload requests', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        Response.json({
-          adapterVersion: 'backup-preview/v1',
-          state: 'blocked',
-          approvalAllowed: false,
-          selection: { sourceKind: 'local', sourceId: 'local', agent: 'codex', sessionId: 'one' },
-          coverage: {},
-          problem: {
-            code: 'temporary_unavailable',
-            message: 'Unavailable.',
-            action: 'Retry.',
-            retryable: true,
-          },
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          contractVersion: 'hub-share/v1',
-          requestId: 'request-1',
-          state: 'succeeded',
-          results: [],
-        }),
-      );
-    installBrowser(fetchMock);
-    const controller = new AbortController();
-
-    await prepareBackup(
-      { sourceKind: 'local', sourceId: 'local', agent: 'codex', sessionId: 'one' },
-      controller.signal,
-    );
-    await submitHubShare(
-      { contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] },
-      controller.signal,
-    );
-
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      '/api/hub/backup-previews',
-      expect.objectContaining({ signal: controller.signal }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      '/api/hub/shares',
-      expect.objectContaining({ signal: controller.signal }),
-    );
-  });
-
   it('uses only local authenticated endpoints for pairing and approved shares', async () => {
     const fetchMock = vi
       .fn()
@@ -210,6 +126,68 @@ describe('Hub sharing local adapter', () => {
             state: 'failed',
             deduplicated: false,
             error: { code, retryable: true },
+          },
+        ],
+      }),
+    );
+    installBrowser(fetchMock);
+    await expect(
+      submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] }),
+    ).rejects.toThrow('outside the expected contract');
+  });
+
+  it('accepts only the canonical completed-backup route', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        contractVersion: 'hub-share/v1',
+        requestId: 'request-1',
+        state: 'succeeded',
+        results: [
+          {
+            localSessionId: 'local:codex:one',
+            idempotencyKey: 'key-000000000000',
+            state: 'accepted',
+            revisionId: 'revision-one',
+            deduplicated: false,
+            sharedAt: '2026-09-22T20:00:00Z',
+            route: {
+              hubContractVersion: 'session-backup-read/v1',
+              repositoryId: 'repository-one',
+              path: '/v3/session-backups/revision-one',
+            },
+          },
+        ],
+      }),
+    );
+    installBrowser(fetchMock);
+    await expect(
+      submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] }),
+    ).resolves.toEqual(expect.objectContaining({ state: 'succeeded' }));
+  });
+
+  it.each([
+    'https://evil.example/v3/session-backups/revision-one',
+    '/v3/session-backups/revision-two',
+    '/v2/session-revisions/revision-one',
+  ])('rejects non-canonical completed-backup route %s', async (path) => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        contractVersion: 'hub-share/v1',
+        requestId: 'request-1',
+        state: 'succeeded',
+        results: [
+          {
+            localSessionId: 'local:codex:one',
+            idempotencyKey: 'key-000000000000',
+            state: 'accepted',
+            revisionId: 'revision-one',
+            deduplicated: false,
+            sharedAt: '2026-09-22T20:00:00Z',
+            route: {
+              hubContractVersion: 'session-backup-read/v1',
+              repositoryId: 'repository-one',
+              path,
+            },
           },
         ],
       }),

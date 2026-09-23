@@ -1,15 +1,28 @@
 package hubclient
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+)
+
+const (
+	backupWorkspace = "10000000-0000-4000-8000-000000000001"
+	backupRevision  = "30000000-0000-4000-8000-000000000001"
 )
 
 func TestBackupChunkPlanPreservesReviewedExactBytes(t *testing.T) {
@@ -40,6 +53,167 @@ func TestBackupChunkPlanPreservesReviewedExactBytes(t *testing.T) {
 	status.CompleteBackupSHA256 = strings.Repeat("0", 64)
 	if validBackupStatusBinding(status, consent, len(plan)) {
 		t.Fatal("retargeted status was accepted")
+	}
+}
+
+func TestCompletedBackupRetryDoesNotRequireDiscardedSpool(t *testing.T) {
+	manager, prepared := openBackupFixture(t)
+	selection, sourceRevision, totalBytes := prepared.Selection, prepared.Manifest.Source.SourceRevision, prepared.Coverage.TotalBytes
+	if err := manager.Discard(prepared.BundleID); err != nil {
+		t.Fatal(err)
+	}
+	statusRequests, uploadRequests := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/v1/share-destination":
+			_, _ = io.WriteString(w, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"`+backupWorkspace+`","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`)
+		case r.URL.Path == "/.well-known/coslash-server":
+			_, _ = io.WriteString(w, `{"product":"coslash-server","serverId":"server-v3","displayName":"Hub","protocolVersions":["v3"],"snapshotVersions":[],"maxSnapshotBytes":0,"fullSessionVersions":[],"maxFullSessionBytes":0,"maxRequestBytes":1048576,"backupVersions":["session-backup/v1"],"backupUploadVersions":["backup-upload/v1"],"maxBackupBytes":1073741824,"maxBackupChunkBytes":128,"backupWorkspaceBytes":53687091200,"backupUploadExpiresSeconds":86400,"pairingUrl":"","teamUrl":""}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/v3/backup-uploads/status":
+			statusRequests++
+			_ = json.NewEncoder(w).Encode(backupUploadStatus{
+				UploadID: "20000000-0000-4000-8000-000000000001", State: "completed",
+				CompleteBackupSHA256: prepared.BundleID, TotalBytes: totalBytes,
+				Result: &backupUploadResult{
+					RevisionID: backupRevision, CompleteBackupSHA256: prepared.BundleID,
+					RepositoryID: "40000000-0000-4000-8000-000000000001", SharedAt: time.Date(2026, 9, 22, 20, 0, 0, 0, time.UTC),
+					RevisionURL: "/v3/session-backups/" + backupRevision,
+				},
+			})
+		case strings.HasPrefix(r.URL.Path, "/v3/backup-uploads"):
+			uploadRequests++
+			http.Error(w, "unexpected upload", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	base, _ := url.Parse(server.URL)
+	client := Client{
+		BaseURL: base, Credentials: &memoryCredentials{}, Backup: manager,
+		LoadSourceSession: func(string, string, string, int64) (*session.Session, error) {
+			return nil, errors.New("completed retry must not reload the source")
+		},
+	}
+	result, err := client.ShareBackups(context.Background(), BackupShareRequest{
+		ContractVersion: BackupShareVersion, RequestID: "request-2", Items: []BackupShareItemRequest{{
+			LocalSessionID: selection.SourceID + ":codex:" + selection.SessionID, Selection: selection,
+			IdempotencyKey: "backup-idempotency-key-0001", Consent: BackupConsent{
+				PreviewContractVersion: BackupPreviewVersion, BundleID: prepared.BundleID,
+				SourceRevision: sourceRevision, SelectedRevision: 123,
+				CompleteBackupSHA256: prepared.BundleID, TotalBytes: totalBytes,
+				DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2,
+				AudienceVersion: "audience-v1", ServerID: "server-v3", MaxBackupBytes: 1 << 30,
+				MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 50 << 30,
+			},
+		}},
+	})
+	if err != nil || result.State != "succeeded" || result.Results[0].State != "already_accepted" ||
+		!result.Results[0].Deduplicated || statusRequests != 1 || uploadRequests != 0 {
+		t.Fatalf("result=%#v status=%d uploads=%d err=%v", result, statusRequests, uploadRequests, err)
+	}
+}
+
+func TestBackupShareRejectsUnsupportedCachedSelectionBeforeLookup(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	t.Cleanup(server.Close)
+	base, _ := url.Parse(server.URL)
+	item := BackupShareItemRequest{
+		LocalSessionID: "local:claude:session", IdempotencyKey: "backup-idempotency-key-0001",
+		Selection: sessionbackupproducer.Selection{SourceKind: "local", SourceID: "local", Agent: "claude", SessionID: "session"},
+		Consent: BackupConsent{
+			PreviewContractVersion: BackupPreviewVersion, BundleID: strings.Repeat("a", 64),
+			SourceRevision: "source-revision", SelectedRevision: 123,
+			CompleteBackupSHA256: strings.Repeat("a", 64), TotalBytes: 1,
+			DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2,
+			AudienceVersion: "audience-v1", ServerID: "server-v3", MaxBackupBytes: 1 << 30,
+			MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 50 << 30,
+		},
+	}
+	result, err := (&Client{BaseURL: base}).shareBackupItem(context.Background(), "credential", item)
+	if err != nil || result.State != "failed" || result.Error == nil ||
+		result.Error.Code != "complete_backup_unsupported" || requests != 0 {
+		t.Fatalf("result=%#v requests=%d err=%v", result, requests, err)
+	}
+}
+
+func TestRetainedBackupUsesIdempotentCreateWithoutStatusProbe(t *testing.T) {
+	manager, prepared := openBackupFixture(t)
+	plan, err := (&Client{Backup: manager}).backupChunkPlan(prepared, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusRequests, createRequests := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/v1/share-destination":
+			_, _ = io.WriteString(w, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"`+backupWorkspace+`","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`)
+		case r.URL.Path == "/.well-known/coslash-server":
+			_, _ = io.WriteString(w, `{"product":"coslash-server","serverId":"server-v3","displayName":"Hub","protocolVersions":["v3"],"snapshotVersions":[],"maxSnapshotBytes":0,"fullSessionVersions":[],"maxFullSessionBytes":0,"maxRequestBytes":1048576,"backupVersions":["session-backup/v1"],"backupUploadVersions":["backup-upload/v1"],"maxBackupBytes":1073741824,"maxBackupChunkBytes":128,"backupWorkspaceBytes":53687091200,"backupUploadExpiresSeconds":86400,"pairingUrl":"","teamUrl":""}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/v3/backup-uploads/status":
+			statusRequests++
+			http.Error(w, "status unavailable", http.StatusServiceUnavailable)
+		case r.Method == http.MethodPost && r.URL.Path == "/v3/backup-uploads":
+			createRequests++
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(backupUploadStatus{
+				UploadID: "20000000-0000-4000-8000-000000000001", State: "completed",
+				CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
+				ExpectedChunks: len(plan), Result: &backupUploadResult{
+					RevisionID: backupRevision, CompleteBackupSHA256: prepared.BundleID,
+					RepositoryID: "40000000-0000-4000-8000-000000000001",
+					SharedAt:     time.Date(2026, 9, 22, 20, 0, 0, 0, time.UTC),
+					RevisionURL:  "/v3/session-backups/" + backupRevision,
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	base, _ := url.Parse(server.URL)
+	client := Client{
+		BaseURL: base, Credentials: &memoryCredentials{}, Backup: manager,
+		LoadSourceSession: func(string, string, string, int64) (*session.Session, error) {
+			return &session.Session{Agent: prepared.Selection.Agent, LastActivityTime: 123}, nil
+		},
+	}
+	result, err := client.ShareBackups(context.Background(), BackupShareRequest{
+		ContractVersion: BackupShareVersion, RequestID: "request-3", Items: []BackupShareItemRequest{{
+			LocalSessionID: prepared.Selection.SourceID + ":codex:" + prepared.Selection.SessionID, Selection: prepared.Selection,
+			IdempotencyKey: "backup-idempotency-key-0002", Consent: BackupConsent{
+				PreviewContractVersion: BackupPreviewVersion, BundleID: prepared.BundleID,
+				SourceRevision: prepared.Manifest.Source.SourceRevision, SelectedRevision: 123,
+				CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
+				DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2,
+				AudienceVersion: "audience-v1", ServerID: "server-v3", MaxBackupBytes: 1 << 30,
+				MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 50 << 30,
+			},
+		}},
+	})
+	if err != nil || result.State != "succeeded" || statusRequests != 0 || createRequests != 1 {
+		t.Fatalf("result=%#v status=%d creates=%d err=%v", result, statusRequests, createRequests, err)
+	}
+}
+
+func TestCompletedBackupResultRequiresCanonicalRevisionRoute(t *testing.T) {
+	consent := BackupConsent{CompleteBackupSHA256: strings.Repeat("a", 64)}
+	valid := backupUploadResult{
+		RevisionID: backupRevision, CompleteBackupSHA256: consent.CompleteBackupSHA256,
+		RepositoryID: "40000000-0000-4000-8000-000000000001", SharedAt: time.Now(),
+		RevisionURL: "/v3/session-backups/" + backupRevision,
+	}
+	if !validCompletedBackupResult(&valid, consent) {
+		t.Fatal("canonical completed result was rejected")
+	}
+	valid.RevisionURL = "https://evil.example/v3/session-backups/" + backupRevision
+	if validCompletedBackupResult(&valid, consent) {
+		t.Fatal("absolute result URL was accepted")
 	}
 }
 

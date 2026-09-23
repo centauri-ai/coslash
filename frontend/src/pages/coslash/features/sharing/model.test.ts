@@ -3,10 +3,11 @@ import type { Session } from '@/pages/coslash/lib/session';
 import {
   backupSelection,
   bindBackupConsent,
-  completeBackupUnsupportedReason,
   consentStillCurrent,
   filterShareCandidates,
   hubRouteURL,
+  isCanonicalBackupRoute,
+  limitShareSelection,
   localSessionId,
   localShareCandidates,
   planShareRetry,
@@ -117,21 +118,6 @@ describe('localShareCandidates', () => {
   });
 });
 
-describe('complete backup support', () => {
-  it('keeps Codex selectable and gives every other agent a visible blocker', () => {
-    expect(completeBackupUnsupportedReason({ agent: 'codex' })).toBeNull();
-    expect(completeBackupUnsupportedReason({ agent: 'claude' })).toBe(
-      'Complete backup v1 supports Codex sessions only.',
-    );
-    expect(completeBackupUnsupportedReason({ agent: 'cursor' })).toBe(
-      'Complete backup v1 supports Codex sessions only.',
-    );
-    expect(completeBackupUnsupportedReason({ agent: 'opencode' })).toBe(
-      'Complete backup v1 supports Codex sessions only.',
-    );
-  });
-});
-
 describe('hub-share/v1 public consumer', () => {
   const now = Date.UTC(2026, 7, 18);
   const candidates: ShareCandidate[] = [
@@ -147,6 +133,19 @@ describe('hub-share/v1 public consumer', () => {
     expect([...reconcileVisibleSelection(selected, narrowed)]).toEqual([
       localSessionId(candidates[0]!.session),
     ]);
+  });
+
+  it('applies the share cap in caller selection order', () => {
+    const values = Array.from({ length: 101 }, (_, index) => ({
+      session: session(String(index), 'coslash', now),
+      previouslyShared: false,
+    }));
+    const lastKey = localSessionId(values[100]!.session);
+    const selected = toggleCandidateGroup(new Set([lastKey]), values.slice(0, 100));
+    const limited = limitShareSelection(selected, values);
+    expect(limited.size).toBe(100);
+    expect(limited.has(lastKey)).toBe(true);
+    expect(limited.has(localSessionId(values[99]!.session))).toBe(false);
   });
 
   it('keeps local and SSH candidates with matching vendor IDs independently bound', () => {
@@ -248,9 +247,27 @@ describe('hub-share/v1 public consumer', () => {
     expect([...planShareRetry(result).refreshDestination]).toEqual(['codex:0']);
   });
 
-  it('preserves a path-prefixed Hub URL for route handoffs', () => {
-    expect(hubRouteURL('https://hub.example.test/coSlash', '/repos/one/sessions/week')).toBe(
-      'https://hub.example.test/coSlash/repos/one/sessions/week',
+  it('preserves a path-prefixed Hub URL for canonical backup handoffs', () => {
+    expect(hubRouteURL('https://hub.example.test/coSlash', '/v3/session-backups/revision-one')).toBe(
+      'https://hub.example.test/coSlash/v3/session-backups/revision-one',
+    );
+    expect(isCanonicalBackupRoute('revision-one', '/v3/session-backups/revision-one')).toBe(true);
+    expect(isCanonicalBackupRoute('revision-one', 'https://evil.example/revision-one')).toBe(false);
+    expect(isCanonicalBackupRoute('revision-one', '/v3/session-backups/revision-two')).toBe(false);
+    expect(isCanonicalBackupRoute('revision-one', '/v2/session-revisions/revision-one')).toBe(false);
+    expect(() => hubRouteURL('https://hub.example.test', 'https://evil.example/revision-one')).toThrow(
+      'outside the expected contract',
+    );
+    expect(
+      hubRouteURL(
+        'https://hub.example.test/coSlash',
+        '/v2/sources/source/agents/codex/sessions/session/revisions/revision-one',
+      ),
+    ).toBe(
+      'https://hub.example.test/coSlash/v2/sources/source/agents/codex/sessions/session/revisions/revision-one',
+    );
+    expect(() => hubRouteURL('https://hub.example.test/coSlash', '/../outside')).toThrow(
+      'outside the expected contract',
     );
   });
 });
