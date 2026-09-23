@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -63,7 +64,7 @@ var uuidSessionIDPattern = regexp.MustCompile(
 var openCodeSessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var remoteHandoffNamePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var localTerminalOpener = openTerminalForAgent
-var reviewCommandContext = exec.CommandContext
+var reviewCommandContext = agentexec.CommandContext
 
 type ReviewerOption struct {
 	ID         string
@@ -114,7 +115,7 @@ func Review(ctx context.Context, request review.Launch) error {
 	command.Stderr = &stderr
 	command.Env = append(command.Environ(), spec.env...)
 	command.WaitDelay = 5 * time.Second
-	if err := command.Run(); err != nil {
+	if err := agentexec.Run(command); err != nil {
 		if message := strings.TrimSpace(stderr.String()); message != "" {
 			return fmt.Errorf("%s: %w", message, err)
 		}
