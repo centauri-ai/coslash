@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -124,14 +123,30 @@ func TestProbeRemoteOriginsStopsWhenCancelled(t *testing.T) {
 	}
 }
 
-func TestRunSSHStdoutKillsOverlongOutput(t *testing.T) {
-	options := OpenOptions{command: func(context.Context, string, ...string) *exec.Cmd {
-		return exec.Command("sh", "-c", "head -c 100000 /dev/zero; sleep 30")
+func TestProbeRemoteOriginsCapsTotalDirectories(t *testing.T) {
+	var output strings.Builder
+	cwds := make([]string, maxOriginProbes+1)
+	for i := range cwds {
+		cwds[i] = "/repo/" + strconv.Itoa(i)
+		output.WriteString(strconv.Itoa(i) + "\thttps://github.com/o/r" + strconv.Itoa(i) + "\n")
+	}
+	fake := fakeOptions([]byte(output.String()), 0, "", false)
+	calls := 0
+	options := OpenOptions{command: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		calls++
+		return fake.command(ctx, name, args...)
 	}}
-	started := time.Now()
-	_, err := runSSHStdout(context.Background(), options, []string{"ignored"}, 128, nil)
-	if err == nil || time.Since(started) > 5*time.Second {
-		t.Fatalf("err=%v elapsed=%s", err, time.Since(started))
+	found := probeRemoteOrigins(context.Background(), "host", options, cwds)
+	if calls != 1 || len(found) != maxOriginProbes || found[cwds[maxOriginProbes]] != "" {
+		t.Fatalf("calls=%d origins=%d", calls, len(found))
+	}
+}
+
+// The fake hangs after writing, so this returns only if the overlong read kills it.
+func TestRunSSHStdoutKillsOverlongOutput(t *testing.T) {
+	options := fakeOptions([]byte(strings.Repeat("x", 256)), 0, "", true)
+	if _, err := runSSHStdout(context.Background(), options, []string{"ignored"}, 128, nil); err == nil {
+		t.Fatal("overlong output was accepted")
 	}
 }
 
