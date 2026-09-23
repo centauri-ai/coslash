@@ -16,6 +16,7 @@ func Clone(source *Session) *Session {
 	cloned.Cost = clonePointer(source.Cost)
 	cloned.Entrypoint = clonePointer(source.Entrypoint)
 	cloned.Model = clonePointer(source.Model)
+	cloned.ObservedModels = cloneSlice(source.ObservedModels)
 	cloned.ContextTokens = clonePointer(source.ContextTokens)
 	cloned.ContextWindow = clonePointer(source.ContextWindow)
 	cloned.FirstPrompt = clonePointer(source.FirstPrompt)

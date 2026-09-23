@@ -13,6 +13,7 @@ import {
   overlayLiveSessionFields,
   refreshSourceAndRetry,
   SessionInspectorTitle,
+  SessionModelUsage,
   snapshotMayBeStale,
   SnapshotRefreshStatus,
   SnapshotStalenessNotice,
@@ -41,6 +42,20 @@ const selection: FileSelection = {
 };
 
 describe('SessionInspector exact-detail boundaries', () => {
+  it('shows Cursor model switches without token usage', () => {
+    const markup = renderToStaticMarkup(
+      <SessionModelUsage
+        agent="cursor"
+        model="claude-opus-5-5"
+        observedModels={['xai/grok-4.7', 'claude-opus-5-5']}
+        tokens={{}}
+      />,
+    );
+
+    expect(markup).toContain('claude-opus-5-5');
+    expect(markup).toContain('after xai/grok-4.7');
+  });
+
   it('uses the truncating title style in the inspector header', () => {
     const markup = renderToStaticMarkup(
       <TooltipProvider>

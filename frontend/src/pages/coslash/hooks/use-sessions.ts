@@ -187,6 +187,7 @@ export function decodeSession(value: unknown): Session {
   return {
     ...withLocalSourceDefaults(raw),
     tokens: raw.tokens != null && typeof raw.tokens === 'object' ? raw.tokens : {},
+    observedModels: arrayOrEmpty(raw.observedModels),
     unpricedModels: arrayOrEmpty(raw.unpricedModels),
     subagents: arrayOrEmpty(raw.subagents),
     commands: arrayOrEmpty(raw.commands),

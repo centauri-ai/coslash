@@ -118,6 +118,7 @@ type SessionSynthesis struct {
 
 type SessionDetails struct {
 	Model            *string           `json:"model"`
+	ObservedModels   []string          `json:"observedModels,omitempty"`
 	ContextTokens    *int              `json:"contextTokens"`
 	ContextWindow    *int              `json:"contextWindow"`
 	Turns            int               `json:"turns"`

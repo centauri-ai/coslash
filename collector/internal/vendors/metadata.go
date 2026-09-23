@@ -30,6 +30,7 @@ type SessionRelationship struct {
 type SessionEnrichment struct {
 	Name, Live, Summary, Entrypoint, WorkingDirectory, Model string
 	CompactionSeed                                           string
+	ObservedModels                                           []string
 	StartedAt, LastActivityAt                                int64
 	FileEdits                                                []session.FileEdit
 	CommitObservations                                       []session.CommitObservation
@@ -79,6 +80,9 @@ func ApplySessionEnrichment(parsed *ParsedSession, enrichment *SessionEnrichment
 	}
 	if enrichment.Model != "" {
 		s.Model = &enrichment.Model
+	}
+	if enrichment.ObservedModels != nil {
+		s.ObservedModels = append([]string(nil), enrichment.ObservedModels...)
 	}
 	if enrichment.StartedAt != 0 {
 		s.StartedAt = enrichment.StartedAt
