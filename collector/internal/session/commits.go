@@ -20,7 +20,7 @@ var commitFileFlag = regexp.MustCompile(`(?:--file|-[a-zA-Z]*F)[=\s]+(\S+)`)
 
 var commitAmend = regexp.MustCompile(`--amend\b`)
 
-var commitSummaryHash = regexp.MustCompile(`\[[^\]\r\n]*[ \t]([0-9a-fA-F]{7,64})\]`)
+var commitOutputHash = regexp.MustCompile(`(?m)\[[^\]\r\n]*[ \t]([0-9a-fA-F]{7,64})\]|^[ \t]*([0-9a-fA-F]{40}|[0-9a-fA-F]{64})[ \t]*\r?$`)
 
 // multilineBlockOpener matches the start of a shell here-document (<<EOF, <<'EOF', <<"EOF", <<-EOF)
 var multilineBlockOpener = regexp.MustCompile(`<<-?\s*['"]?(\w+)['"]?`)
@@ -33,6 +33,9 @@ type CommitObservation struct {
 
 func ParseCommitObservations(command, output string, succeeded bool) []CommitObservation {
 	invocations := ParseCommitAttempts(command)
+	if len(invocations) == 0 {
+		return invocations
+	}
 	hashes := commitOutputHashes(output)
 	if len(invocations) == len(hashes) {
 		for i := range invocations {
@@ -48,8 +51,12 @@ func ParseCommitObservations(command, output string, succeeded bool) []CommitObs
 
 func commitOutputHashes(output string) []string {
 	hashes := []string{}
-	for _, match := range commitSummaryHash.FindAllStringSubmatch(output, -1) {
-		hashes = append(hashes, match[1])
+	for _, match := range commitOutputHash.FindAllStringSubmatch(output, -1) {
+		hash := match[1]
+		if hash == "" {
+			hash = match[2]
+		}
+		hashes = append(hashes, hash)
 	}
 	return hashes
 }

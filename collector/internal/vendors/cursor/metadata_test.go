@@ -68,6 +68,15 @@ func TestCommitObservationsSupportCursorV2TerminalBubbles(t *testing.T) {
 	}
 }
 
+func TestCommitObservationsSupportCursorV2QuietCommitWithRevParse(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	value := `{"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","params":"{\"command\":\"git commit --quiet -m 'ship it' && git rev-parse HEAD\"}","result":"{\"output\":\"` + hash + `\\n\",\"rejected\":false,\"notInterrupted\":true}"}}`
+	got := commitObservationsFromIDEBubble(value)
+	if len(got) != 1 || got[0].Hash != hash || got[0].Subject != "ship it" {
+		t.Fatalf("commit observations = %v, want quiet v2 terminal commit", got)
+	}
+}
+
 func TestCommitObservationsRejectCursorV2AttemptsWithoutOutputHash(t *testing.T) {
 	value := `{"toolFormerData":{"name":"run_terminal_command_v2","status":"completed","params":"{\"command\":\"git commit -m 'ship it'\"}","result":"{\"output\":\"nothing to commit\\n\",\"rejected\":false,\"notInterrupted\":true}"}}`
 	if got := commitObservationsFromIDEBubble(value); len(got) != 0 {
