@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -637,6 +638,11 @@ func collectIncremental(
 	if codexOut.outcome.Err == nil {
 		freshMetadata[vendors.AgentCodex] = codexOut.outcome.Metadata
 	}
-	sessions := composeFromGeneration(proposal, source, freshMetadata, since)
+	ctx := source.collectCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	repairRemoteDisplay(ctx, &snapshot, source.originLookup)
+	sessions := composeFromGeneration(toGeneration(snapshot), source, freshMetadata, since)
 	return snapshot, sessions, failures, nil
 }
