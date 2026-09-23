@@ -14,6 +14,7 @@ func TestResumeDirectoryFindsTheDirectoryTheChatWasFiledUnder(t *testing.T) {
 	const id = "a7c28665-5abb-453d-9cf9-72e64c7a7b06"
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	frontend := filepath.Join(home, "repo", "frontend")
 	value := &session.Session{ID: id, WorkingDirectory: filepath.Join(frontend, "src")}
 
