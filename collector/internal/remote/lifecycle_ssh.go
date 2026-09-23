@@ -194,7 +194,7 @@ func (remote *SSHLifecycleRemote) runStagedInstaller(ctx context.Context, stagin
 	if err := startProcessGroup(cmd); err != nil {
 		return fmt.Errorf("start secure helper installer: %w", err)
 	}
-	if err := waitProcessGroup(cmd); err != nil {
+	if err := waitProcessGroupContext(runCtx, cmd); err != nil {
 		if stderr.overflow {
 			return ErrStderrLimit
 		}

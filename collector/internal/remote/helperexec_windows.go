@@ -60,6 +60,8 @@ func startProcessGroup(cmd *exec.Cmd) error {
 	return nil
 }
 
+func startInteractiveProcess(cmd *exec.Cmd) error { return startProcessGroup(cmd) }
+
 func resumeProcess(pid int) error {
 	process, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME, false, uint32(pid))
 	if err != nil {
@@ -90,6 +92,8 @@ func terminateProcessGroup(cmd *exec.Cmd) {
 		_ = cmd.Process.Kill()
 	}
 }
+
+func terminateInteractiveProcess(cmd *exec.Cmd) { terminateProcessGroup(cmd) }
 
 func processGroupTerminationExit(exitCode int) bool {
 	return exitCode == windowsProcessGroupTerminationExit

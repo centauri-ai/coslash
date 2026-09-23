@@ -8,6 +8,8 @@ import "os/exec"
 // client in, so cancellation falls back to killing the client itself.
 func startProcessGroup(cmd *exec.Cmd) error { return cmd.Start() }
 
+func startInteractiveProcess(cmd *exec.Cmd) error { return cmd.Start() }
+
 func waitProcessGroup(cmd *exec.Cmd) error { return cmd.Wait() }
 
 func terminateProcessGroup(cmd *exec.Cmd) {
@@ -15,5 +17,7 @@ func terminateProcessGroup(cmd *exec.Cmd) {
 		_ = cmd.Process.Kill()
 	}
 }
+
+func terminateInteractiveProcess(cmd *exec.Cmd) { terminateProcessGroup(cmd) }
 
 func processGroupTerminationExit(exitCode int) bool { return exitCode < 0 }

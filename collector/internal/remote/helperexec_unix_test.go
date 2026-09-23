@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +14,19 @@ import (
 	"testing"
 	"time"
 )
+
+func TestInteractiveProcessStaysInForegroundProcessGroup(t *testing.T) {
+	cmd := exec.Command("true")
+	if err := startInteractiveProcess(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid {
+		t.Fatal("interactive process was placed in a background process group")
+	}
+	if err := waitProcessGroup(cmd); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestHelperCollectDrainsStdoutBeforeWaiting(t *testing.T) {
 	request, baseline, response := completeResponse(t)
