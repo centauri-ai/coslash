@@ -137,18 +137,24 @@ func TestStartOutlivesRequestAndExplicitCancelStopsPreparation(t *testing.T) {
 		t.Fatalf("request cancellation result = %#v, %v", prepared, err)
 	}
 
+	started := make(chan struct{})
 	blocked := make(chan struct{})
 	manager = New(Options{
 		Root: t.TempDir(),
 		OpenSource: func(ctx context.Context, _ Selection) (SourceHandle, error) {
+			close(started)
 			<-ctx.Done()
 			close(blocked)
 			return SourceHandle{}, ctx.Err()
 		},
 	})
 	id, err = manager.Start(t.Context(), localSelection())
-	if err != nil || !manager.Cancel(id) {
-		t.Fatalf("cancel start = %q, %v", id, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if !manager.Cancel(id) {
+		t.Fatalf("cancel start = %q", id)
 	}
 	<-blocked
 	cancelled, err := manager.Wait(t.Context(), id)
