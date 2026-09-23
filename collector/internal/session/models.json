@@ -553,26 +553,12 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
-  "anthropic.claude-3-haiku-20240307-v1:0": {
-    "cache_creation_input_token_cost": 3.125E-7,
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00000125
-  },
   "anthropic.claude-3-opus-20240229-v1:0": {
     "cache_creation_input_token_cost": 0.00001875,
     "cache_read_input_token_cost": 0.0000015,
     "input_cost_per_token": 0.000015,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000075
-  },
-  "anthropic.claude-3-sonnet-20240229-v1:0": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015
   },
   "anthropic.claude-fable-5": {
     "cache_creation_input_token_cost": 0.0000125,
@@ -669,6 +655,14 @@
     "input_cost_per_token": 0.000005,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000025
+  },
+  "anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_above_1hr": 0.000008,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00002
   },
   "anthropic.claude-sonnet-4-20250514-v1:0": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -801,34 +795,6 @@
     "max_input_tokens": 300000,
     "output_cost_per_token": 0.00000336
   },
-  "apac.anthropic.claude-3-5-sonnet-20240620-v1:0": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015
-  },
-  "apac.anthropic.claude-3-5-sonnet-20241022-v2:0": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015
-  },
-  "apac.anthropic.claude-3-haiku-20240307-v1:0": {
-    "cache_creation_input_token_cost": 3.125E-7,
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00000125
-  },
-  "apac.anthropic.claude-3-sonnet-20240229-v1:0": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015
-  },
   "apac.anthropic.claude-haiku-4-5-20251001-v1:0": {
     "cache_creation_input_token_cost": 0.000001375,
     "cache_read_input_token_cost": 1.1E-7,
@@ -882,6 +848,14 @@
     "input_cost_per_token": 0.0000055,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000275
+  },
+  "au.anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.0000055,
+    "cache_creation_input_token_cost_above_1hr": 0.0000088,
+    "cache_read_input_token_cost": 2.2E-7,
+    "input_cost_per_token": 0.0000044,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000022
   },
   "au.anthropic.claude-sonnet-4-5-20250929-v1:0": {
     "cache_creation_input_token_cost": 0.000004125,
@@ -1024,12 +998,6 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.000011
   },
-  "azure/eu/gpt-5.1-chat": {
-    "cache_read_input_token_cost": 1.375E-7,
-    "input_cost_per_token": 0.000001375,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000011
-  },
   "azure/eu/gpt-5.1-codex": {
     "cache_read_input_token_cost": 1.375E-7,
     "input_cost_per_token": 0.000001375,
@@ -1052,11 +1020,6 @@
     "input_cost_per_token": 0.000001925,
     "output_cost_per_token": 0.0000154
   },
-  "azure/eu/gpt-5.2-chat": {
-    "cache_read_input_token_cost": 1.925E-7,
-    "input_cost_per_token": 0.000001925,
-    "output_cost_per_token": 0.0000154
-  },
   "azure/eu/gpt-5.2-codex": {
     "cache_read_input_token_cost": 1.925E-7,
     "input_cost_per_token": 0.000001925,
@@ -1065,11 +1028,6 @@
   "azure/eu/gpt-5.2-pro": {
     "input_cost_per_token": 0.0000231,
     "output_cost_per_token": 0.0001848
-  },
-  "azure/eu/gpt-5.3-chat": {
-    "cache_read_input_token_cost": 1.925E-7,
-    "input_cost_per_token": 0.000001925,
-    "output_cost_per_token": 0.0000154
   },
   "azure/eu/gpt-5.3-codex": {
     "cache_read_input_token_cost": 1.925E-7,
@@ -1171,17 +1129,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.00000484
   },
-  "azure/eu/o1-preview": {
-    "cache_read_input_token_cost": 0.00000825,
-    "input_cost_per_token": 0.0000165,
-    "output_cost_per_token": 0.000066
-  },
-  "azure/eu/o1-preview-2024-09-12": {
-    "cache_read_input_token_cost": 0.00000825,
-    "input_cost_per_token": 0.0000165,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000066
-  },
   "azure/eu/o3-2025-04-16": {
     "cache_read_input_token_cost": 5.5E-7,
     "input_cost_per_token": 0.0000022,
@@ -1238,12 +1185,6 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.00001
   },
-  "azure/global/gpt-5.1-chat": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
   "azure/global/gpt-5.1-codex": {
     "cache_read_input_token_cost": 1.25E-7,
     "input_cost_per_token": 0.00000125,
@@ -1261,25 +1202,10 @@
     "max_input_tokens": 4097,
     "output_cost_per_token": 0.0000015
   },
-  "azure/gpt-3.5-turbo-0125": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 16384,
-    "output_cost_per_token": 0.0000015
-  },
   "azure/gpt-35-turbo": {
     "input_cost_per_token": 5E-7,
     "max_input_tokens": 4097,
     "output_cost_per_token": 0.0000015
-  },
-  "azure/gpt-35-turbo-0125": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 16384,
-    "output_cost_per_token": 0.0000015
-  },
-  "azure/gpt-35-turbo-1106": {
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 16384,
-    "output_cost_per_token": 0.000002
   },
   "azure/gpt-35-turbo-16k": {
     "input_cost_per_token": 0.000003,
@@ -1435,18 +1361,6 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.00001
   },
-  "azure/gpt-5-chat": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
-  "azure/gpt-5-chat-latest": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
   "azure/gpt-5-codex": {
     "cache_read_input_token_cost": 1.25E-7,
     "input_cost_per_token": 0.00000125,
@@ -1494,18 +1408,6 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.00001
   },
-  "azure/gpt-5.1-chat": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
-  "azure/gpt-5.1-chat-2025-11-13": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
   "azure/gpt-5.1-codex": {
     "cache_read_input_token_cost": 1.25E-7,
     "input_cost_per_token": 0.00000125,
@@ -1548,18 +1450,6 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.000014
   },
-  "azure/gpt-5.2-chat": {
-    "cache_read_input_token_cost": 1.75E-7,
-    "input_cost_per_token": 0.00000175,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000014
-  },
-  "azure/gpt-5.2-chat-2025-12-11": {
-    "cache_read_input_token_cost": 1.75E-7,
-    "input_cost_per_token": 0.00000175,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000014
-  },
   "azure/gpt-5.2-codex": {
     "cache_read_input_token_cost": 1.75E-7,
     "input_cost_per_token": 0.00000175,
@@ -1575,12 +1465,6 @@
     "input_cost_per_token": 0.000021,
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.000168
-  },
-  "azure/gpt-5.3-chat": {
-    "cache_read_input_token_cost": 1.75E-7,
-    "input_cost_per_token": 0.00000175,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000014
   },
   "azure/gpt-5.3-codex": {
     "cache_read_input_token_cost": 1.75E-7,
@@ -1789,18 +1673,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.0000044
   },
-  "azure/o1-preview": {
-    "cache_read_input_token_cost": 0.0000075,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00006
-  },
-  "azure/o1-preview-2024-09-12": {
-    "cache_read_input_token_cost": 0.0000075,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00006
-  },
   "azure/o3": {
     "cache_read_input_token_cost": 5E-7,
     "input_cost_per_token": 0.000002,
@@ -1978,12 +1850,6 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.000011
   },
-  "azure/us/gpt-5.1-chat": {
-    "cache_read_input_token_cost": 1.375E-7,
-    "input_cost_per_token": 0.000001375,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000011
-  },
   "azure/us/gpt-5.1-codex": {
     "cache_read_input_token_cost": 1.375E-7,
     "input_cost_per_token": 0.000001375,
@@ -2006,11 +1872,6 @@
     "input_cost_per_token": 0.000001925,
     "output_cost_per_token": 0.0000154
   },
-  "azure/us/gpt-5.2-chat": {
-    "cache_read_input_token_cost": 1.925E-7,
-    "input_cost_per_token": 0.000001925,
-    "output_cost_per_token": 0.0000154
-  },
   "azure/us/gpt-5.2-codex": {
     "cache_read_input_token_cost": 1.925E-7,
     "input_cost_per_token": 0.000001925,
@@ -2019,11 +1880,6 @@
   "azure/us/gpt-5.2-pro": {
     "input_cost_per_token": 0.0000231,
     "output_cost_per_token": 0.0001848
-  },
-  "azure/us/gpt-5.3-chat": {
-    "cache_read_input_token_cost": 1.925E-7,
-    "input_cost_per_token": 0.000001925,
-    "output_cost_per_token": 0.0000154
   },
   "azure/us/gpt-5.3-codex": {
     "cache_read_input_token_cost": 1.925E-7,
@@ -2131,17 +1987,6 @@
     "input_cost_per_token": 0.00000121,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.00000484
-  },
-  "azure/us/o1-preview": {
-    "cache_read_input_token_cost": 0.00000825,
-    "input_cost_per_token": 0.0000165,
-    "output_cost_per_token": 0.000066
-  },
-  "azure/us/o1-preview-2024-09-12": {
-    "cache_read_input_token_cost": 0.00000825,
-    "input_cost_per_token": 0.0000165,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000066
   },
   "azure/us/o3-2025-04-16": {
     "cache_read_input_token_cost": 5.5E-7,
@@ -2267,16 +2112,6 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 2.2E-7
   },
-  "azure_ai/Llama-3.2-11B-Vision-Instruct": {
-    "input_cost_per_token": 3.7E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 3.7E-7
-  },
-  "azure_ai/Llama-3.2-90B-Vision-Instruct": {
-    "input_cost_per_token": 0.00000204,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00000204
-  },
   "azure_ai/Llama-3.3-70B-Instruct": {
     "input_cost_per_token": 7.1E-7,
     "max_input_tokens": 128000,
@@ -2308,20 +2143,10 @@
     "max_input_tokens": 8192,
     "output_cost_per_token": 3.7E-7
   },
-  "azure_ai/Meta-Llama-3.1-405B-Instruct": {
-    "input_cost_per_token": 0.00000533,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000016
-  },
   "azure_ai/Meta-Llama-3.1-70B-Instruct": {
     "input_cost_per_token": 0.00000268,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.00000354
-  },
-  "azure_ai/Meta-Llama-3.1-8B-Instruct": {
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 6.1E-7
   },
   "azure_ai/Phi-3-medium-128k-instruct": {
     "input_cost_per_token": 1.7E-7,
@@ -2417,14 +2242,6 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000005
   },
-  "azure_ai/claude-opus-4-1": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
   "azure_ai/claude-opus-4-5": {
     "cache_creation_input_token_cost": 0.00000625,
     "cache_creation_input_token_cost_above_1hr": 0.00001,
@@ -2465,6 +2282,14 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000025
   },
+  "azure_ai/claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_above_1hr": 0.000008,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00002
+  },
   "azure_ai/claude-sonnet-4-5": {
     "cache_creation_input_token_cost": 0.00000375,
     "cache_creation_input_token_cost_above_1hr": 0.000006,
@@ -2500,25 +2325,10 @@
     "max_input_tokens": 131072,
     "output_cost_per_token": 0.00001
   },
-  "azure_ai/deepseek-r1": {
-    "input_cost_per_token": 0.00000135,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.0000054
-  },
   "azure_ai/deepseek-v3": {
     "input_cost_per_token": 0.00000114,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.00000456
-  },
-  "azure_ai/deepseek-v3-0324": {
-    "input_cost_per_token": 0.00000114,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00000456
-  },
-  "azure_ai/deepseek-v3.1": {
-    "input_cost_per_token": 0.00000123,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.00000494
   },
   "azure_ai/deepseek-v3.2": {
     "input_cost_per_token": 5.8E-7,
@@ -2541,16 +2351,6 @@
     "input_cost_per_token": 0.00000174,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00000348
-  },
-  "azure_ai/global/grok-3": {
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000015
-  },
-  "azure_ai/global/grok-3-mini": {
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.00000127
   },
   "azure_ai/gpt-5.4": {
     "cache_read_input_token_cost": 2.5E-7,
@@ -2636,16 +2436,6 @@
     "max_input_tokens": 131072,
     "output_cost_per_token": 6E-7
   },
-  "azure_ai/grok-3": {
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000015
-  },
-  "azure_ai/grok-3-mini": {
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.00000127
-  },
   "azure_ai/grok-4": {
     "input_cost_per_token": 0.000003,
     "max_input_tokens": 131072,
@@ -2672,16 +2462,6 @@
     "input_cost_per_token": 0.00000125,
     "max_input_tokens": 262000,
     "output_cost_per_token": 0.0000025
-  },
-  "azure_ai/grok-4-fast-non-reasoning": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 5E-7
-  },
-  "azure_ai/grok-4-fast-reasoning": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 5E-7
   },
   "azure_ai/grok-4.3": {
     "cache_read_input_token_cost": 2E-7,
@@ -2795,6 +2575,30 @@
     "input_cost_per_token": 5E-7,
     "output_cost_per_token": 0.0000015
   },
+  "baseten/deepseek-ai/DeepSeek-V4-Flash-0731": {
+    "cache_read_input_token_cost": 2.8E-8,
+    "input_cost_per_token": 1.3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 2.6E-7
+  },
+  "baseten/deepseek-ai/DeepSeek-V4-Pro": {
+    "cache_read_input_token_cost": 1.45E-7,
+    "input_cost_per_token": 0.00000174,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000348
+  },
+  "baseten/deepseek-ai/DeepSeek-V4-Pro-0813": {
+    "cache_read_input_token_cost": 1.32E-7,
+    "input_cost_per_token": 0.00000132,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000396
+  },
+  "baseten/deepseek-ai/DeepSeek-V4.1-Flash": {
+    "cache_read_input_token_cost": 7E-9,
+    "input_cost_per_token": 3E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
+  },
   "baseten/moonshotai/Kimi-K2-Instruct-0905": {
     "input_cost_per_token": 6E-7,
     "output_cost_per_token": 0.0000025
@@ -2807,31 +2611,89 @@
     "input_cost_per_token": 6E-7,
     "output_cost_per_token": 0.000003
   },
+  "baseten/moonshotai/Kimi-K2.6": {
+    "cache_read_input_token_cost": 1.6E-7,
+    "input_cost_per_token": 9.5E-7,
+    "max_input_tokens": 262000,
+    "output_cost_per_token": 0.000004
+  },
+  "baseten/moonshotai/Kimi-K2.7-Code": {
+    "cache_read_input_token_cost": 1.6E-7,
+    "input_cost_per_token": 9.5E-7,
+    "max_input_tokens": 262000,
+    "output_cost_per_token": 0.000004
+  },
+  "baseten/moonshotai/Kimi-K3": {
+    "cache_read_input_token_cost": 3E-7,
+    "input_cost_per_token": 0.000003,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.000015
+  },
+  "baseten/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B": {
+    "cache_read_input_token_cost": 1.2E-7,
+    "input_cost_per_token": 6E-7,
+    "max_input_tokens": 202800,
+    "output_cost_per_token": 0.0000024
+  },
   "baseten/nvidia/Nemotron-120B-A12B": {
     "input_cost_per_token": 3E-7,
     "output_cost_per_token": 7.5E-7
   },
   "baseten/openai/gpt-oss-120b": {
+    "cache_read_input_token_cost": 1E-7,
     "input_cost_per_token": 1E-7,
+    "max_input_tokens": 128072,
     "output_cost_per_token": 5E-7
+  },
+  "baseten/thinkingmachines/inkling": {
+    "cache_read_input_token_cost": 1.7E-7,
+    "input_cost_per_token": 0.000001,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.00000405
+  },
+  "baseten/thinkingmachines/inkling-small": {
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000012
   },
   "baseten/zai-org/GLM-4.6": {
     "input_cost_per_token": 6E-7,
     "output_cost_per_token": 0.0000022
   },
   "baseten/zai-org/GLM-4.7": {
+    "cache_read_input_token_cost": 1.2E-7,
     "input_cost_per_token": 6E-7,
+    "max_input_tokens": 200000,
     "output_cost_per_token": 0.0000022
   },
   "baseten/zai-org/GLM-5": {
     "input_cost_per_token": 9.5E-7,
     "output_cost_per_token": 0.00000315
   },
+  "baseten/zai-org/GLM-5.2": {
+    "cache_read_input_token_cost": 1.4E-7,
+    "input_cost_per_token": 0.0000014,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000044
+  },
+  "baseten/zai-org/GLM-5.2-Fast": {
+    "cache_read_input_token_cost": 2.1E-7,
+    "input_cost_per_token": 0.0000021,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 0.0000066
+  },
   "baseten/zai-org/GLM-5.3": {
     "cache_read_input_token_cost": 1.4E-7,
     "input_cost_per_token": 0.0000014,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000044
+  },
+  "baseten/zai-org/GLM-5.3-Flash": {
+    "cache_read_input_token_cost": 3E-8,
+    "input_cost_per_token": 1.5E-7,
+    "max_input_tokens": 1048576,
+    "output_cost_per_token": 5E-7
   },
   "bedrock/ap-northeast-1/anthropic.claude-instant-v1": {
     "input_cost_per_token": 0.00000223,
@@ -3088,6 +2950,11 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00000186
   },
+  "bedrock/eu-west-2/nvidia.nemotron-super-3-120b": {
+    "input_cost_per_token": 2.3E-7,
+    "max_input_tokens": 256000,
+    "output_cost_per_token": 0.00000101
+  },
   "bedrock/eu-west-2/qwen.qwen3-coder-next": {
     "input_cost_per_token": 7.8E-7,
     "max_input_tokens": 262144,
@@ -3301,20 +3168,6 @@
     "max_input_tokens": 42000,
     "output_cost_per_token": 0.0000015
   },
-  "bedrock/us-gov-east-1/anthropic.claude-3-5-sonnet-20240620-v1:0": {
-    "cache_creation_input_token_cost": 0.0000045,
-    "cache_read_input_token_cost": 3.6E-7,
-    "input_cost_per_token": 0.0000036,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000018
-  },
-  "bedrock/us-gov-east-1/anthropic.claude-3-haiku-20240307-v1:0": {
-    "cache_creation_input_token_cost": 3.75E-7,
-    "cache_read_input_token_cost": 3E-8,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.0000015
-  },
   "bedrock/us-gov-east-1/anthropic.claude-fable-5-1": {
     "cache_creation_input_token_cost": 0.000015,
     "cache_creation_input_token_cost_above_1hr": 0.000024,
@@ -3346,6 +3199,14 @@
     "input_cost_per_token": 0.000006,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00003
+  },
+  "bedrock/us-gov-east-1/anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.000006,
+    "cache_creation_input_token_cost_above_1hr": 0.0000096,
+    "cache_read_input_token_cost": 2.4E-7,
+    "input_cost_per_token": 0.0000048,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000024
   },
   "bedrock/us-gov-east-1/anthropic.claude-sonnet-4-5-20250929-v1:0": {
     "cache_creation_input_token_cost": 0.0000045,
@@ -3444,27 +3305,6 @@
     "max_input_tokens": 42000,
     "output_cost_per_token": 0.0000015
   },
-  "bedrock/us-gov-west-1/anthropic.claude-3-5-sonnet-20240620-v1:0": {
-    "cache_creation_input_token_cost": 0.0000045,
-    "cache_read_input_token_cost": 3.6E-7,
-    "input_cost_per_token": 0.0000036,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000018
-  },
-  "bedrock/us-gov-west-1/anthropic.claude-3-7-sonnet-20250219-v1:0": {
-    "cache_creation_input_token_cost": 0.0000045,
-    "cache_read_input_token_cost": 3.6E-7,
-    "input_cost_per_token": 0.0000036,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000018
-  },
-  "bedrock/us-gov-west-1/anthropic.claude-3-haiku-20240307-v1:0": {
-    "cache_creation_input_token_cost": 3.75E-7,
-    "cache_read_input_token_cost": 3E-8,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.0000015
-  },
   "bedrock/us-gov-west-1/anthropic.claude-fable-5-1": {
     "cache_creation_input_token_cost": 0.000015,
     "cache_creation_input_token_cost_above_1hr": 0.000024,
@@ -3496,6 +3336,14 @@
     "input_cost_per_token": 0.000006,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00003
+  },
+  "bedrock/us-gov-west-1/anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.000006,
+    "cache_creation_input_token_cost_above_1hr": 0.0000096,
+    "cache_read_input_token_cost": 2.4E-7,
+    "input_cost_per_token": 0.0000048,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000024
   },
   "bedrock/us-gov-west-1/anthropic.claude-sonnet-4-5-20250929-v1:0": {
     "cache_creation_input_token_cost": 0.0000045,
@@ -3866,16 +3714,6 @@
     "max_input_tokens": 65536,
     "output_cost_per_token": 0.00000149
   },
-  "cerebras/zai-glm-4.6": {
-    "input_cost_per_token": 0.00000225,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00000275
-  },
-  "cerebras/zai-glm-4.7": {
-    "input_cost_per_token": 0.00000225,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00000275
-  },
   "chat-latest": {
     "cache_read_input_token_cost": 5E-7,
     "input_cost_per_token": 0.000005,
@@ -3886,49 +3724,6 @@
     "input_cost_per_token": 5E-7,
     "max_input_tokens": 16384,
     "output_cost_per_token": 5E-7
-  },
-  "chatgpt-4o-latest": {
-    "input_cost_per_token": 0.000005,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000015
-  },
-  "claude-3-7-sonnet-20250219": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_creation_input_token_cost_above_1hr": 0.000006,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015
-  },
-  "claude-3-haiku-20240307": {
-    "cache_creation_input_token_cost": 3E-7,
-    "cache_creation_input_token_cost_above_1hr": 5E-7,
-    "cache_read_input_token_cost": 3E-8,
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00000125
-  },
-  "claude-3-opus-20240229": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
-  "claude-4-opus-20250514": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
-  "claude-4-sonnet-20250514": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.000015
   },
   "claude-fable-5": {
     "cache_creation_input_token_cost": 0.0000125,
@@ -3985,30 +3780,6 @@
     "input_cost_per_token": 0.00001,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00005
-  },
-  "claude-opus-4-1": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
-  "claude-opus-4-1-20250805": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
-  "claude-opus-4-20250514": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
   },
   "claude-opus-4-5": {
     "cache_creation_input_token_cost": 0.00000625,
@@ -4074,13 +3845,13 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000025
   },
-  "claude-sonnet-4-20250514": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_creation_input_token_cost_above_1hr": 0.000006,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
+  "claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_above_1hr": 0.000008,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.000015
+    "output_cost_per_token": 0.00002
   },
   "claude-sonnet-4-5": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -4285,12 +4056,6 @@
     "max_input_tokens": 32000,
     "output_cost_per_token": 0.0
   },
-  "codex-mini-latest": {
-    "cache_read_input_token_cost": 3.75E-7,
-    "input_cost_per_token": 0.0000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000006
-  },
   "cognition/swe-1.6": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 5E-7,
@@ -4311,16 +4076,6 @@
     "max_input_tokens": 4096,
     "output_cost_per_token": 6E-7
   },
-  "cohere.command-r-plus-v1:0": {
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000015
-  },
-  "cohere.command-r-v1:0": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.0000015
-  },
   "cohere.command-text-v14": {
     "input_cost_per_token": 0.0000015,
     "max_input_tokens": 4096,
@@ -4336,25 +4091,10 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.0
   },
-  "command-light": {
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 4096,
-    "output_cost_per_token": 6E-7
-  },
-  "command-r": {
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 6E-7
-  },
   "command-r-08-2024": {
     "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 6E-7
-  },
-  "command-r-plus": {
-    "input_cost_per_token": 0.0000025,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
   },
   "command-r-plus-08-2024": {
     "input_cost_per_token": 0.0000025,
@@ -4584,13 +4324,6 @@
     "max_input_tokens": 98304,
     "output_cost_per_token": 0.0000024
   },
-  "databricks/databricks-claude-3-7-sonnet": {
-    "cache_creation_input_token_cost": 0.00000374997,
-    "cache_read_input_token_cost": 3.0002E-7,
-    "input_cost_per_token": 0.0000029999900000000002,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015000020000000002
-  },
   "databricks/databricks-claude-fable-5": {
     "cache_creation_input_token_cost": 0.00001250004,
     "cache_read_input_token_cost": 0.00000100002,
@@ -4815,28 +4548,7 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.000009999990000000002
   },
-  "databricks/databricks-gpt-5-1-codex-max": {
-    "cache_creation_input_token_cost": 0.00000124999,
-    "cache_read_input_token_cost": 1.2502E-7,
-    "input_cost_per_token": 0.00000124999,
-    "max_input_tokens": 272000,
-    "output_cost_per_token": 0.000009999990000000002
-  },
-  "databricks/databricks-gpt-5-1-codex-mini": {
-    "cache_creation_input_token_cost": 2.4997E-7,
-    "cache_read_input_token_cost": 2.499E-8,
-    "input_cost_per_token": 2.4997E-7,
-    "max_input_tokens": 272000,
-    "output_cost_per_token": 0.00000199997
-  },
   "databricks/databricks-gpt-5-2": {
-    "cache_creation_input_token_cost": 0.00000175,
-    "cache_read_input_token_cost": 1.75E-7,
-    "input_cost_per_token": 0.00000175,
-    "max_input_tokens": 272000,
-    "output_cost_per_token": 0.000014
-  },
-  "databricks/databricks-gpt-5-2-codex": {
     "cache_creation_input_token_cost": 0.00000175,
     "cache_read_input_token_cost": 1.75E-7,
     "input_cost_per_token": 0.00000175,
@@ -4955,26 +4667,12 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00001500002
   },
-  "databricks/databricks-llama-2-70b-chat": {
-    "cache_creation_input_token_cost": 5.0001E-7,
-    "cache_read_input_token_cost": 5.0001E-7,
-    "input_cost_per_token": 5.0001E-7,
-    "max_input_tokens": 4096,
-    "output_cost_per_token": 0.0000015000300000000002
-  },
   "databricks/databricks-llama-4-maverick": {
     "cache_creation_input_token_cost": 5.0001E-7,
     "cache_read_input_token_cost": 5.0001E-7,
     "input_cost_per_token": 5.0001E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.0000015000300000000002
-  },
-  "databricks/databricks-meta-llama-3-1-405b-instruct": {
-    "cache_creation_input_token_cost": 0.00000500003,
-    "cache_read_input_token_cost": 0.00000500003,
-    "input_cost_per_token": 0.00000500003,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000015000020000000002
   },
   "databricks/databricks-meta-llama-3-1-8b-instruct": {
     "cache_creation_input_token_cost": 1.5001E-7,
@@ -4989,34 +4687,6 @@
     "input_cost_per_token": 5.0001E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.0000015000300000000002
-  },
-  "databricks/databricks-meta-llama-3-70b-instruct": {
-    "cache_creation_input_token_cost": 0.00000100002,
-    "cache_read_input_token_cost": 0.00000100002,
-    "input_cost_per_token": 0.00000100002,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.0000029999900000000002
-  },
-  "databricks/databricks-mixtral-8x7b-instruct": {
-    "cache_creation_input_token_cost": 5.0001E-7,
-    "cache_read_input_token_cost": 5.0001E-7,
-    "input_cost_per_token": 5.0001E-7,
-    "max_input_tokens": 4096,
-    "output_cost_per_token": 0.00000100002
-  },
-  "databricks/databricks-mpt-30b-instruct": {
-    "cache_creation_input_token_cost": 0.00000100002,
-    "cache_read_input_token_cost": 0.00000100002,
-    "input_cost_per_token": 0.00000100002,
-    "max_input_tokens": 8192,
-    "output_cost_per_token": 0.00000100002
-  },
-  "databricks/databricks-mpt-7b-instruct": {
-    "cache_creation_input_token_cost": 5.0001E-7,
-    "cache_read_input_token_cost": 5.0001E-7,
-    "input_cost_per_token": 5.0001E-7,
-    "max_input_tokens": 8192,
-    "output_cost_per_token": 0.0
   },
   "databricks/databricks-qwen3-next-80b-a3b-instruct": {
     "cache_creation_input_token_cost": 1.5001E-7,
@@ -5423,11 +5093,6 @@
     "input_cost_per_token": 0.0000013,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000026
-  },
-  "deepinfra/google/gemini-2.0-flash-001": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1000000,
-    "output_cost_per_token": 4E-7
   },
   "deepinfra/google/gemini-2.5-flash": {
     "input_cost_per_token": 3E-7,
@@ -5949,26 +5614,12 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
-  "eu.anthropic.claude-3-haiku-20240307-v1:0": {
-    "cache_creation_input_token_cost": 3.125E-7,
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00000125
-  },
   "eu.anthropic.claude-3-opus-20240229-v1:0": {
     "cache_creation_input_token_cost": 0.00001875,
     "cache_read_input_token_cost": 0.0000015,
     "input_cost_per_token": 0.000015,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000075
-  },
-  "eu.anthropic.claude-3-sonnet-20240229-v1:0": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015
   },
   "eu.anthropic.claude-fable-5": {
     "cache_creation_input_token_cost": 0.00001375,
@@ -6047,6 +5698,14 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000275
   },
+  "eu.anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.0000055,
+    "cache_creation_input_token_cost_above_1hr": 0.0000088,
+    "cache_read_input_token_cost": 2.2E-7,
+    "input_cost_per_token": 0.0000044,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000022
+  },
   "eu.anthropic.claude-sonnet-4-20250514-v1:0": {
     "cache_creation_input_token_cost": 0.00000375,
     "cache_read_input_token_cost": 3E-7,
@@ -6097,6 +5756,10 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.000006
+  },
+  "fal_ai/fal-ai/moondream3-preview/query": {
+    "input_cost_per_token": 4E-7,
+    "output_cost_per_token": 0.0000035
   },
   "fireworks_ai/accounts/fireworks/models/chronos-hermes-13b-v2": {
     "input_cost_per_token": 2E-7,
@@ -6360,12 +6023,6 @@
     "input_cost_per_token": 2.2E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 6.6E-7
-  },
-  "fireworks_ai/accounts/fireworks/models/deepseek-v4-pro": {
-    "cache_read_input_token_cost": 6E-7,
-    "input_cost_per_token": 0.0000012,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000012
   },
   "fireworks_ai/accounts/fireworks/models/deepseek-v4-pro-0813": {
     "cache_read_input_token_cost": 4.4E-8,
@@ -6795,12 +6452,6 @@
     "cache_read_input_token_cost": 3E-8,
     "input_cost_per_token": 3E-7,
     "max_input_tokens": 204800,
-    "output_cost_per_token": 0.0000012
-  },
-  "fireworks_ai/accounts/fireworks/models/minimax-m2p7": {
-    "cache_read_input_token_cost": 6E-8,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 196608,
     "output_cost_per_token": 0.0000012
   },
   "fireworks_ai/accounts/fireworks/models/minimax-m3": {
@@ -7500,12 +7151,6 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 6.6E-7
   },
-  "fireworks_ai/deepseek-v4-pro": {
-    "cache_read_input_token_cost": 6E-7,
-    "input_cost_per_token": 0.0000012,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000012
-  },
   "fireworks_ai/deepseek-v4-pro-0813": {
     "cache_read_input_token_cost": 4.4E-8,
     "input_cost_per_token": 0.00000132,
@@ -7638,12 +7283,6 @@
     "max_input_tokens": 204800,
     "output_cost_per_token": 0.0000012
   },
-  "fireworks_ai/minimax-m2p7": {
-    "cache_read_input_token_cost": 6E-8,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 196608,
-    "output_cost_per_token": 0.0000012
-  },
   "fireworks_ai/minimax-m3": {
     "cache_read_input_token_cost": 6E-8,
     "input_cost_per_token": 3E-7,
@@ -7679,12 +7318,6 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.000006
-  },
-  "friendliai/LGAI-EXAONE/K-EXAONE-2.0-750B-A37B": {
-    "cache_read_input_token_cost": 1.2E-7,
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000024
   },
   "friendliai/MiniMaxAI/MiniMax-M2.5": {
     "cache_read_input_token_cost": 6E-8,
@@ -7794,30 +7427,6 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000016
   },
-  "gemini-2.0-flash": {
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 6E-7
-  },
-  "gemini-2.0-flash-001": {
-    "cache_read_input_token_cost": 3.75E-8,
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 6E-7
-  },
-  "gemini-2.0-flash-lite": {
-    "cache_read_input_token_cost": 1.875E-8,
-    "input_cost_per_token": 7.5E-8,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 3E-7
-  },
-  "gemini-2.0-flash-lite-001": {
-    "cache_read_input_token_cost": 1.875E-8,
-    "input_cost_per_token": 7.5E-8,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 3E-7
-  },
   "gemini-2.5-computer-use-preview-10-2025": {
     "input_cost_per_token": 0.00000125,
     "max_input_tokens": 128000,
@@ -7830,12 +7439,6 @@
     "output_cost_per_token": 0.0000025
   },
   "gemini-2.5-flash-lite": {
-    "cache_read_input_token_cost": 1E-8,
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 4E-7
-  },
-  "gemini-2.5-flash-lite-preview-06-17": {
     "cache_read_input_token_cost": 1E-8,
     "input_cost_per_token": 1E-7,
     "max_input_tokens": 1048576,
@@ -7870,12 +7473,6 @@
     "input_cost_per_token": 5E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000003
-  },
-  "gemini-3-pro-preview": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000012
   },
   "gemini-3.1-flash-lite": {
     "cache_read_input_token_cost": 2.5E-8,
@@ -7966,30 +7563,6 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000025
   },
-  "gemini/gemini-2.0-flash": {
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 4E-7
-  },
-  "gemini/gemini-2.0-flash-001": {
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 4E-7
-  },
-  "gemini/gemini-2.0-flash-lite": {
-    "cache_read_input_token_cost": 1.875E-8,
-    "input_cost_per_token": 7.5E-8,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 3E-7
-  },
-  "gemini/gemini-2.0-flash-lite-001": {
-    "cache_read_input_token_cost": 1.875E-8,
-    "input_cost_per_token": 7.5E-8,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 3E-7
-  },
   "gemini/gemini-2.5-computer-use-preview-10-2025": {
     "input_cost_per_token": 0.00000125,
     "max_input_tokens": 128000,
@@ -8006,24 +7579,6 @@
     "input_cost_per_token": 1E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 4E-7
-  },
-  "gemini/gemini-2.5-flash-lite-preview-06-17": {
-    "cache_read_input_token_cost": 1E-8,
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 4E-7
-  },
-  "gemini/gemini-2.5-flash-lite-preview-09-2025": {
-    "cache_read_input_token_cost": 1E-8,
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 4E-7
-  },
-  "gemini/gemini-2.5-flash-preview-09-2025": {
-    "cache_read_input_token_cost": 3E-8,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000025
   },
   "gemini/gemini-2.5-pro": {
     "cache_read_input_token_cost": 1.25E-7,
@@ -8043,19 +7598,7 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000003
   },
-  "gemini/gemini-3-pro-preview": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000012
-  },
   "gemini/gemini-3.1-flash-lite": {
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000015
-  },
-  "gemini/gemini-3.1-flash-lite-preview": {
     "cache_read_input_token_cost": 2.5E-8,
     "input_cost_per_token": 2.5E-7,
     "max_input_tokens": 1048576,
@@ -8148,17 +7691,6 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000012
-  },
-  "gemini/gemini-robotics-er-1.5-preview": {
-    "cache_read_input_token_cost": 0,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000025
-  },
-  "gemini/gemini-robotics-er-1.6-preview": {
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000005
   },
   "gemini/gemini-robotics-er-2-preview": {
     "cache_read_input_token_cost": 1E-7,
@@ -8316,6 +7848,14 @@
     "input_cost_per_token": 0.000005,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000025
+  },
+  "global.anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_above_1hr": 0.000008,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00002
   },
   "global.anthropic.claude-sonnet-4-20250514-v1:0": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -8509,16 +8049,6 @@
     "max_input_tokens": 8192,
     "output_cost_per_token": 0.00006
   },
-  "gpt-4-0125-preview": {
-    "input_cost_per_token": 0.00001,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00003
-  },
-  "gpt-4-0314": {
-    "input_cost_per_token": 0.00003,
-    "max_input_tokens": 8192,
-    "output_cost_per_token": 0.00006
-  },
   "gpt-4-0613": {
     "input_cost_per_token": 0.00003,
     "max_input_tokens": 8192,
@@ -8535,11 +8065,6 @@
     "output_cost_per_token": 0.00003
   },
   "gpt-4-turbo-2024-04-09": {
-    "input_cost_per_token": 0.00001,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00003
-  },
-  "gpt-4-turbo-preview": {
     "input_cost_per_token": 0.00001,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.00003
@@ -8603,11 +8128,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.00001
   },
-  "gpt-4o-audio-preview": {
-    "input_cost_per_token": 0.0000025,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
   "gpt-4o-audio-preview-2024-12-17": {
     "input_cost_per_token": 0.0000025,
     "max_input_tokens": 128000,
@@ -8630,11 +8150,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 6E-7
   },
-  "gpt-4o-mini-audio-preview": {
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 6E-7
-  },
   "gpt-4o-mini-audio-preview-2024-12-17": {
     "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 128000,
@@ -8646,19 +8161,7 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 6E-7
   },
-  "gpt-4o-mini-search-preview-2025-03-11": {
-    "cache_read_input_token_cost": 7.5E-8,
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 6E-7
-  },
   "gpt-4o-search-preview": {
-    "cache_read_input_token_cost": 0.00000125,
-    "input_cost_per_token": 0.0000025,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
-  "gpt-4o-search-preview-2025-03-11": {
     "cache_read_input_token_cost": 0.00000125,
     "input_cost_per_token": 0.0000025,
     "max_input_tokens": 128000,
@@ -8680,18 +8183,6 @@
     "cache_read_input_token_cost": 1.25E-7,
     "input_cost_per_token": 0.00000125,
     "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
-  "gpt-5-chat-latest": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
-  "gpt-5-codex": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 272000,
     "output_cost_per_token": 0.00001
   },
   "gpt-5-mini": {
@@ -8752,30 +8243,6 @@
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.00001
   },
-  "gpt-5.1-chat-latest": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00001
-  },
-  "gpt-5.1-codex": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 272000,
-    "output_cost_per_token": 0.00001
-  },
-  "gpt-5.1-codex-max": {
-    "cache_read_input_token_cost": 1.25E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 272000,
-    "output_cost_per_token": 0.00001
-  },
-  "gpt-5.1-codex-mini": {
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 272000,
-    "output_cost_per_token": 0.000002
-  },
   "gpt-5.2": {
     "cache_read_input_token_cost": 1.75E-7,
     "input_cost_per_token": 0.00000175,
@@ -8783,18 +8250,6 @@
     "output_cost_per_token": 0.000014
   },
   "gpt-5.2-2025-12-11": {
-    "cache_read_input_token_cost": 1.75E-7,
-    "input_cost_per_token": 0.00000175,
-    "max_input_tokens": 272000,
-    "output_cost_per_token": 0.000014
-  },
-  "gpt-5.2-chat-latest": {
-    "cache_read_input_token_cost": 1.75E-7,
-    "input_cost_per_token": 0.00000175,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000014
-  },
-  "gpt-5.2-codex": {
     "cache_read_input_token_cost": 1.75E-7,
     "input_cost_per_token": 0.00000175,
     "max_input_tokens": 272000,
@@ -8809,12 +8264,6 @@
     "input_cost_per_token": 0.000021,
     "max_input_tokens": 272000,
     "output_cost_per_token": 0.000168
-  },
-  "gpt-5.3-chat-latest": {
-    "cache_read_input_token_cost": 1.75E-7,
-    "input_cost_per_token": 0.00000175,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000014
   },
   "gpt-5.3-codex": {
     "cache_read_input_token_cost": 1.75E-7,
@@ -8937,6 +8386,20 @@
     "max_input_tokens": 922000,
     "output_cost_per_token": 0.00005
   },
+  "gpt-6-luna": {
+    "cache_creation_input_token_cost": 1.25E-7,
+    "cache_read_input_token_cost": 1E-8,
+    "input_cost_per_token": 1E-7,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 5E-7
+  },
+  "gpt-6-sol": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 922000,
+    "output_cost_per_token": 0.00001
+  },
   "gpt-audio": {
     "input_cost_per_token": 0.0000025,
     "max_input_tokens": 128000,
@@ -8953,11 +8416,6 @@
     "output_cost_per_token": 0.00001
   },
   "gpt-audio-mini": {
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.0000024
-  },
-  "gpt-audio-mini-2025-10-06": {
     "input_cost_per_token": 6E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 0.0000024
@@ -9036,32 +8494,7 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.0000044
   },
-  "groq/gemma-7b-it": {
-    "input_cost_per_token": 5E-8,
-    "max_input_tokens": 8192,
-    "output_cost_per_token": 8E-8
-  },
-  "groq/llama-3.1-8b-instant": {
-    "input_cost_per_token": 5E-8,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 8E-8
-  },
-  "groq/llama-3.3-70b-versatile": {
-    "input_cost_per_token": 5.9E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 7.9E-7
-  },
-  "groq/meta-llama/llama-4-maverick-17b-128e-instruct": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 6E-7
-  },
-  "groq/meta-llama/llama-4-scout-17b-16e-instruct": {
-    "input_cost_per_token": 1.1E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 3.4E-7
-  },
-  "groq/meta-llama/llama-guard-4-12b": {
+  "groq/llama-guard-3-8b": {
     "input_cost_per_token": 2E-7,
     "max_input_tokens": 8192,
     "output_cost_per_token": 2E-7
@@ -9075,12 +8508,6 @@
     "input_cost_per_token": 4E-8,
     "max_input_tokens": 512,
     "output_cost_per_token": 4E-8
-  },
-  "groq/moonshotai/kimi-k2-instruct-0905": {
-    "cache_read_input_token_cost": 5E-7,
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.000003
   },
   "groq/openai/gpt-oss-120b": {
     "cache_read_input_token_cost": 7.5E-8,
@@ -9099,16 +8526,6 @@
     "input_cost_per_token": 7.5E-8,
     "max_input_tokens": 131072,
     "output_cost_per_token": 3E-7
-  },
-  "groq/qwen/qwen3-32b": {
-    "input_cost_per_token": 2.9E-7,
-    "max_input_tokens": 131000,
-    "output_cost_per_token": 5.9E-7
-  },
-  "groq/qwen/qwen3.6-27b": {
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000003
   },
   "groq/qwen/qwen3.8-27b": {
     "input_cost_per_token": 8E-7,
@@ -9282,6 +8699,14 @@
     "input_cost_per_token": 0.0000055,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000275
+  },
+  "jp.anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.0000055,
+    "cache_creation_input_token_cost_above_1hr": 0.0000088,
+    "cache_read_input_token_cost": 2.2E-7,
+    "input_cost_per_token": 0.0000044,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000022
   },
   "jp.anthropic.claude-sonnet-4-5-20250929-v1:0": {
     "cache_creation_input_token_cost": 0.000004125,
@@ -9783,11 +9208,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 3E-7
   },
-  "mistral/codestral-2405": {
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 32000,
-    "output_cost_per_token": 0.000003
-  },
   "mistral/codestral-2508": {
     "cache_read_input_token_cost": 3E-8,
     "input_cost_per_token": 3E-7,
@@ -9806,20 +9226,10 @@
     "max_input_tokens": 256000,
     "output_cost_per_token": 2.5E-7
   },
-  "mistral/devstral-2512": {
-    "input_cost_per_token": 4E-7,
-    "max_input_tokens": 256000,
-    "output_cost_per_token": 0.000002
-  },
   "mistral/devstral-latest": {
     "cache_read_input_token_cost": 4E-8,
     "input_cost_per_token": 4E-7,
     "max_input_tokens": 256000,
-    "output_cost_per_token": 0.000002
-  },
-  "mistral/devstral-medium-2507": {
-    "input_cost_per_token": 4E-7,
-    "max_input_tokens": 128000,
     "output_cost_per_token": 0.000002
   },
   "mistral/devstral-medium-latest": {
@@ -9827,16 +9237,6 @@
     "input_cost_per_token": 4E-7,
     "max_input_tokens": 256000,
     "output_cost_per_token": 0.000002
-  },
-  "mistral/devstral-small-2505": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 3E-7
-  },
-  "mistral/devstral-small-2507": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 3E-7
   },
   "mistral/devstral-small-latest": {
     "cache_read_input_token_cost": 1E-8,
@@ -9850,11 +9250,6 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000044
   },
-  "mistral/labs-devstral-small-2512": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 256000,
-    "output_cost_per_token": 3E-7
-  },
   "mistral/labs-leanstral-1-5": {
     "input_cost_per_token": 0.0,
     "max_input_tokens": 262144,
@@ -9865,36 +9260,11 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0
   },
-  "mistral/magistral-medium-1-2-2509": {
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 40000,
-    "output_cost_per_token": 0.000005
-  },
-  "mistral/magistral-medium-2506": {
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 40000,
-    "output_cost_per_token": 0.000005
-  },
-  "mistral/magistral-medium-2509": {
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 40000,
-    "output_cost_per_token": 0.000005
-  },
   "mistral/magistral-medium-latest": {
     "cache_read_input_token_cost": 1.5E-7,
     "input_cost_per_token": 0.0000015,
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0000075
-  },
-  "mistral/magistral-small-1-2-2509": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 40000,
-    "output_cost_per_token": 0.0000015
-  },
-  "mistral/magistral-small-2506": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 40000,
-    "output_cost_per_token": 0.0000015
   },
   "mistral/magistral-small-latest": {
     "cache_read_input_token_cost": 1.5E-8,
@@ -9974,21 +9344,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 9E-7
   },
-  "mistral/mistral-large-2402": {
-    "input_cost_per_token": 0.000004,
-    "max_input_tokens": 32000,
-    "output_cost_per_token": 0.000012
-  },
-  "mistral/mistral-large-2407": {
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000009
-  },
-  "mistral/mistral-large-2411": {
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000006
-  },
   "mistral/mistral-large-2512": {
     "cache_read_input_token_cost": 5E-8,
     "input_cost_per_token": 5E-7,
@@ -10013,21 +9368,6 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0000075
   },
-  "mistral/mistral-medium-2312": {
-    "input_cost_per_token": 0.0000027,
-    "max_input_tokens": 32000,
-    "output_cost_per_token": 0.0000081
-  },
-  "mistral/mistral-medium-2505": {
-    "input_cost_per_token": 4E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000002
-  },
-  "mistral/mistral-medium-2508": {
-    "input_cost_per_token": 4E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000002
-  },
   "mistral/mistral-medium-2604": {
     "cache_read_input_token_cost": 1.5E-7,
     "input_cost_per_token": 0.0000015,
@@ -10039,11 +9379,6 @@
     "input_cost_per_token": 0.0000015,
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0000075
-  },
-  "mistral/mistral-medium-3-1-2508": {
-    "input_cost_per_token": 4E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000002
   },
   "mistral/mistral-medium-3-5": {
     "cache_read_input_token_cost": 1.5E-7,
@@ -10075,11 +9410,6 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 6E-7
   },
-  "mistral/mistral-small-3-2-2506": {
-    "input_cost_per_token": 6E-8,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 1.8E-7
-  },
   "mistral/mistral-small-latest": {
     "cache_read_input_token_cost": 1.5E-8,
     "input_cost_per_token": 1.5E-7,
@@ -10110,46 +9440,11 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0000075
   },
-  "mistral/open-codestral-mamba": {
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 256000,
-    "output_cost_per_token": 2.5E-7
-  },
-  "mistral/open-mistral-7b": {
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 32000,
-    "output_cost_per_token": 2.5E-7
-  },
   "mistral/open-mistral-nemo": {
     "cache_read_input_token_cost": 3E-8,
     "input_cost_per_token": 3E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 3E-7
-  },
-  "mistral/open-mistral-nemo-2407": {
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 3E-7
-  },
-  "mistral/open-mixtral-8x22b": {
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 65336,
-    "output_cost_per_token": 0.000006
-  },
-  "mistral/open-mixtral-8x7b": {
-    "input_cost_per_token": 7E-7,
-    "max_input_tokens": 32000,
-    "output_cost_per_token": 7E-7
-  },
-  "mistral/pixtral-12b-2409": {
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 1.5E-7
-  },
-  "mistral/pixtral-large-2411": {
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000006
   },
   "mistral/pixtral-large-latest": {
     "cache_read_input_token_cost": 2E-7,
@@ -10198,36 +9493,6 @@
     "max_input_tokens": 256000,
     "output_cost_per_token": 0.0000025
   },
-  "moonshot/kimi-k2-0711-preview": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "moonshot/kimi-k2-0905-preview": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000025
-  },
-  "moonshot/kimi-k2-thinking": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000025
-  },
-  "moonshot/kimi-k2-thinking-turbo": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 0.00000115,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.000008
-  },
-  "moonshot/kimi-k2-turbo-preview": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 0.00000115,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.000008
-  },
   "moonshot/kimi-k2.5": {
     "cache_read_input_token_cost": 1E-7,
     "input_cost_per_token": 6E-7,
@@ -10252,42 +9517,7 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000015
   },
-  "moonshot/kimi-latest": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000005
-  },
-  "moonshot/kimi-latest-128k": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000005
-  },
-  "moonshot/kimi-latest-32k": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 32768,
-    "output_cost_per_token": 0.000003
-  },
-  "moonshot/kimi-latest-8k": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 8192,
-    "output_cost_per_token": 0.000002
-  },
-  "moonshot/kimi-thinking-preview": {
-    "cache_read_input_token_cost": 1.5E-7,
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
   "moonshot/moonshot-v1-128k": {
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.000005
-  },
-  "moonshot/moonshot-v1-128k-0430": {
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 131072,
     "output_cost_per_token": 0.000005
@@ -10302,22 +9532,12 @@
     "max_input_tokens": 32768,
     "output_cost_per_token": 0.000003
   },
-  "moonshot/moonshot-v1-32k-0430": {
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 32768,
-    "output_cost_per_token": 0.000003
-  },
   "moonshot/moonshot-v1-32k-vision-preview": {
     "input_cost_per_token": 0.000001,
     "max_input_tokens": 32768,
     "output_cost_per_token": 0.000003
   },
   "moonshot/moonshot-v1-8k": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 8192,
-    "output_cost_per_token": 0.000002
-  },
-  "moonshot/moonshot-v1-8k-0430": {
     "input_cost_per_token": 2E-7,
     "max_input_tokens": 8192,
     "output_cost_per_token": 0.000002
@@ -11437,18 +10657,6 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000008
   },
-  "o3-deep-research": {
-    "cache_read_input_token_cost": 0.0000025,
-    "input_cost_per_token": 0.00001,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00004
-  },
-  "o3-deep-research-2025-06-26": {
-    "cache_read_input_token_cost": 0.0000025,
-    "input_cost_per_token": 0.00001,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00004
-  },
   "o3-mini": {
     "cache_read_input_token_cost": 5.5E-7,
     "input_cost_per_token": 0.0000011,
@@ -11482,18 +10690,6 @@
     "input_cost_per_token": 0.0000011,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.0000044
-  },
-  "o4-mini-deep-research": {
-    "cache_read_input_token_cost": 5E-7,
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000008
-  },
-  "o4-mini-deep-research-2025-06-26": {
-    "cache_read_input_token_cost": 5E-7,
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000008
   },
   "oci/cohere.command-a-03-2025": {
     "input_cost_per_token": 0.00000156,
@@ -11872,6 +11068,13 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 2.5e-05
   },
+  "opencode/claude-opus-5-5": {
+    "cache_creation_input_token_cost": 5e-06,
+    "cache_read_input_token_cost": 2.0000000000000002e-07,
+    "input_cost_per_token": 4e-06,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 2e-05
+  },
   "opencode/claude-sonnet-4": {
     "cache_creation_input_token_cost": 3.75e-06,
     "cache_read_input_token_cost": 3e-07,
@@ -12162,6 +11365,20 @@
     "max_input_tokens": 1050000,
     "output_cost_per_token": 5e-05
   },
+  "opencode/gpt-6-luna": {
+    "cache_creation_input_token_cost": 1.25e-07,
+    "cache_read_input_token_cost": 1e-08,
+    "input_cost_per_token": 1.0000000000000001e-07,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 5e-07
+  },
+  "opencode/gpt-6-sol": {
+    "cache_creation_input_token_cost": 2.5e-06,
+    "cache_read_input_token_cost": 2.0000000000000002e-07,
+    "input_cost_per_token": 2e-06,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 1e-05
+  },
   "opencode/grok-4.5": {
     "cache_read_input_token_cost": 3e-07,
     "input_cost_per_token": 2e-06,
@@ -12173,6 +11390,12 @@
     "input_cost_per_token": 2e-06,
     "max_input_tokens": 500000,
     "output_cost_per_token": 6e-06
+  },
+  "opencode/grok-4.7": {
+    "cache_read_input_token_cost": 3.5e-07,
+    "input_cost_per_token": 1.4e-06,
+    "max_input_tokens": 500000,
+    "output_cost_per_token": 4.2000000000000004e-06
   },
   "opencode/grok-build-0.1": {
     "cache_read_input_token_cost": 2.0000000000000002e-07,
@@ -12445,19 +11668,19 @@
   "openrouter/aion-labs/aion-2.0": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 8E-7,
-    "max_input_tokens": 131072,
+    "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000016
   },
   "openrouter/aion-labs/aion-3.0": {
     "cache_read_input_token_cost": 7.5E-7,
     "input_cost_per_token": 0.000003,
-    "max_input_tokens": 131072,
+    "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000006
   },
   "openrouter/aion-labs/aion-3.0-mini": {
     "cache_read_input_token_cost": 1.8E-7,
     "input_cost_per_token": 7E-7,
-    "max_input_tokens": 131072,
+    "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000014
   },
   "openrouter/aion-labs/aion-rp-llama-3.1-8b": {
@@ -12562,14 +11785,6 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.0000025
   },
-  "openrouter/anthropic/claude-opus-4": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
   "openrouter/anthropic/claude-opus-4.1": {
     "cache_creation_input_token_cost": 0.00001875,
     "cache_creation_input_token_cost_above_1hr": 0.00003,
@@ -12657,6 +11872,14 @@
     "input_cost_per_token": 0.000005,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000025
+  },
+  "openrouter/anthropic/claude-opus-5.5": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_above_1hr": 0.000008,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00002
   },
   "openrouter/anthropic/claude-opus-5:batch": {
     "cache_creation_input_token_cost": 0.000003125,
@@ -12851,10 +12074,10 @@
     "output_cost_per_token": 4.1E-7
   },
   "openrouter/deepseek/deepseek-v4-flash": {
-    "cache_read_input_token_cost": 1.77212E-8,
-    "input_cost_per_token": 8.8606E-8,
+    "cache_read_input_token_cost": 9.8E-9,
+    "input_cost_per_token": 4.9E-8,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 1.77212E-7
+    "output_cost_per_token": 9.8E-8
   },
   "openrouter/deepseek/deepseek-v4-flash-0731": {
     "cache_read_input_token_cost": 1.6E-8,
@@ -12862,46 +12085,23 @@
     "max_input_tokens": 1310720,
     "output_cost_per_token": 6.4E-7
   },
-  "openrouter/deepseek/deepseek-v4-flash-0731:batch": {
-    "cache_read_input_token_cost": 3.5E-9,
-    "input_cost_per_token": 1.1E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 3.3E-7
-  },
-  "openrouter/deepseek/deepseek-v4-flash-0731:free": {
-    "input_cost_per_token": 0.0,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0
-  },
   "openrouter/deepseek/deepseek-v4-flash-vision-exp": {
     "cache_read_input_token_cost": 7E-9,
     "input_cost_per_token": 2.2E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 6.6E-7
   },
-  "openrouter/deepseek/deepseek-v4-flash-vision-exp:batch": {
-    "cache_read_input_token_cost": 3.5E-9,
-    "input_cost_per_token": 1.1E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 3.3E-7
-  },
   "openrouter/deepseek/deepseek-v4-pro": {
-    "cache_read_input_token_cost": 7.9605E-8,
-    "input_cost_per_token": 9.5526E-7,
+    "cache_read_input_token_cost": 7.4356E-8,
+    "input_cost_per_token": 8.92272E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.00000191052
+    "output_cost_per_token": 0.000001784544
   },
   "openrouter/deepseek/deepseek-v4-pro-0813": {
-    "cache_read_input_token_cost": 1.86208E-8,
-    "input_cost_per_token": 5.58624E-7,
+    "cache_read_input_token_cost": 4.4E-8,
+    "input_cost_per_token": 0.00000132,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000001675872
-  },
-  "openrouter/deepseek/deepseek-v4-pro-0813:batch": {
-    "cache_read_input_token_cost": 2.2E-8,
-    "input_cost_per_token": 6.6E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.00000198
+    "output_cost_per_token": 0.00000396
   },
   "openrouter/deepseek/deepseek-v4.1-flash": {
     "cache_read_input_token_cost": 6E-9,
@@ -12913,11 +12113,6 @@
     "input_cost_per_token": 0.0,
     "max_input_tokens": 512000,
     "output_cost_per_token": 0.0
-  },
-  "openrouter/google/gemini-2.0-flash-001": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 4E-7
   },
   "openrouter/google/gemini-2.5-flash": {
     "cache_creation_input_token_cost": 8.33333333333333E-8,
@@ -13249,12 +12444,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 1.5E-7
   },
-  "openrouter/kwaipilot/kat-coder-pro-v2": {
-    "cache_read_input_token_cost": 6E-8,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000012
-  },
   "openrouter/kwaipilot/kat-coder-pro-v2.5": {
     "cache_read_input_token_cost": 1.5E-7,
     "input_cost_per_token": 7.4E-7,
@@ -13328,12 +12517,6 @@
     "input_cost_per_token": 3E-7,
     "max_input_tokens": 131072,
     "output_cost_per_token": 0.0000012
-  },
-  "openrouter/meta/muse-glimmer-30b:batch": {
-    "cache_read_input_token_cost": 2E-8,
-    "input_cost_per_token": 1.75E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 7.5E-7
   },
   "openrouter/meta/muse-spark-1.1": {
     "cache_read_input_token_cost": 1.5E-7,
@@ -13426,12 +12609,6 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000012
   },
-  "openrouter/minimax/minimax-m3:batch": {
-    "cache_read_input_token_cost": 6E-8,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 524288,
-    "output_cost_per_token": 0.0000012
-  },
   "openrouter/minimax/minimax-m3:free": {
     "input_cost_per_token": 0.0,
     "max_input_tokens": 1048576,
@@ -13495,12 +12672,6 @@
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 131072,
     "output_cost_per_token": 0.000006
-  },
-  "openrouter/mistralai/mistral-large-2512": {
-    "cache_read_input_token_cost": 5.5E-8,
-    "input_cost_per_token": 5.5E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.00000165
   },
   "openrouter/mistralai/mistral-large-2512:batch": {
     "cache_read_input_token_cost": 2.5E-8,
@@ -13618,7 +12789,7 @@
     "cache_read_input_token_cost": 1.8E-7,
     "input_cost_per_token": 7.062E-7,
     "max_input_tokens": 262144,
-    "output_cost_per_token": 0.00000321
+    "output_cost_per_token": 0.0000033
   },
   "openrouter/moonshotai/kimi-k3": {
     "cache_read_input_token_cost": 3E-7,
@@ -13627,10 +12798,10 @@
     "output_cost_per_token": 0.000015
   },
   "openrouter/moonshotai/kimi-k3:batch": {
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
+    "cache_read_input_token_cost": 2.28E-7,
+    "input_cost_per_token": 0.00000228,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000015
+    "output_cost_per_token": 0.0000114
   },
   "openrouter/morph/morph-v3-fast": {
     "input_cost_per_token": 8E-7,
@@ -13642,10 +12813,22 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0000019
   },
+  "openrouter/nex-agi/nex-n2.5-mini": {
+    "cache_read_input_token_cost": 2.5E-9,
+    "input_cost_per_token": 2.5E-8,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 1E-7
+  },
   "openrouter/nex-agi/nex-n2.5-mini:free": {
     "input_cost_per_token": 0.0,
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0
+  },
+  "openrouter/nex-agi/nex-n2.5-pro": {
+    "cache_read_input_token_cost": 1.5E-8,
+    "input_cost_per_token": 7.5E-8,
+    "max_input_tokens": 262144,
+    "output_cost_per_token": 2.5E-7
   },
   "openrouter/nex-agi/nex-n2.5-pro:free": {
     "input_cost_per_token": 0.0,
@@ -14170,6 +13353,34 @@
     "max_input_tokens": 1050000,
     "output_cost_per_token": 0.000025
   },
+  "openrouter/openai/gpt-6-luna": {
+    "cache_creation_input_token_cost": 1.25E-7,
+    "cache_read_input_token_cost": 1E-8,
+    "input_cost_per_token": 1E-7,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 5E-7
+  },
+  "openrouter/openai/gpt-6-luna-pro": {
+    "cache_creation_input_token_cost": 1.25E-7,
+    "cache_read_input_token_cost": 1E-8,
+    "input_cost_per_token": 1E-7,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 5E-7
+  },
+  "openrouter/openai/gpt-6-sol": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.00001
+  },
+  "openrouter/openai/gpt-6-sol-pro": {
+    "cache_creation_input_token_cost": 0.0000025,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000002,
+    "max_input_tokens": 1050000,
+    "output_cost_per_token": 0.00001
+  },
   "openrouter/openai/gpt-audio": {
     "input_cost_per_token": 0.0000025,
     "max_input_tokens": 128000,
@@ -14192,16 +13403,11 @@
     "max_input_tokens": 131072,
     "output_cost_per_token": 6E-7
   },
-  "openrouter/openai/gpt-oss-120b:batch": {
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 6E-7
-  },
   "openrouter/openai/gpt-oss-20b": {
     "cache_read_input_token_cost": 3E-8,
-    "input_cost_per_token": 3E-8,
+    "input_cost_per_token": 1.8E-8,
     "max_input_tokens": 131072,
-    "output_cost_per_token": 1.3E-7
+    "output_cost_per_token": 9E-8
   },
   "openrouter/openai/gpt-oss-safeguard-20b": {
     "cache_read_input_token_cost": 3.75E-8,
@@ -14548,11 +13754,6 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 1.5E-7
   },
-  "openrouter/qwen/qwen3.5-9b:batch": {
-    "input_cost_per_token": 1.7E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 2.5E-7
-  },
   "openrouter/qwen/qwen3.5-flash-02-23": {
     "input_cost_per_token": 6.5E-8,
     "max_input_tokens": 1000000,
@@ -14570,10 +13771,10 @@
     "output_cost_per_token": 0.0000018
   },
   "openrouter/qwen/qwen3.6-27b": {
-    "cache_read_input_token_cost": 3E-8,
-    "input_cost_per_token": 3E-7,
+    "cache_read_input_token_cost": 1.5E-7,
+    "input_cost_per_token": 3.2E-7,
     "max_input_tokens": 262144,
-    "output_cost_per_token": 0.000002
+    "output_cost_per_token": 0.0000027
   },
   "openrouter/qwen/qwen3.6-35b-a3b": {
     "cache_read_input_token_cost": 5E-8,
@@ -14624,12 +13825,6 @@
     "cache_read_input_token_cost": 2.5E-7,
     "input_cost_per_token": 0.000002,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000006
-  },
-  "openrouter/qwen/qwen3.8-2.4t-a95b:batch": {
-    "cache_read_input_token_cost": 2.5E-7,
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 1010000,
     "output_cost_per_token": 0.000006
   },
   "openrouter/qwen/qwen3.8-27b": {
@@ -14723,11 +13918,6 @@
     "max_input_tokens": 131072,
     "output_cost_per_token": 7.5E-7
   },
-  "openrouter/stealth/union-alpha": {
-    "input_cost_per_token": 0.0,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0
-  },
   "openrouter/stepfun/step-3.5-flash": {
     "input_cost_per_token": 1E-7,
     "max_input_tokens": 262144,
@@ -14815,12 +14005,6 @@
     "input_cost_per_token": 0.0,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0
-  },
-  "openrouter/thinkingmachines/inkling:batch": {
-    "cache_read_input_token_cost": 1.7E-7,
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 524288,
-    "output_cost_per_token": 0.00000405
   },
   "openrouter/thinkingmachines/inkling:free": {
     "input_cost_per_token": 0.0,
@@ -15021,22 +14205,16 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000020416
   },
-  "openrouter/z-ai/glm-5.2:batch": {
-    "cache_read_input_token_cost": 7E-8,
-    "input_cost_per_token": 7E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000022
-  },
   "openrouter/z-ai/glm-5.2:free": {
     "input_cost_per_token": 0.0,
     "max_input_tokens": 32768,
     "output_cost_per_token": 0.0
   },
   "openrouter/z-ai/glm-5.3": {
-    "cache_read_input_token_cost": 1.69E-7,
-    "input_cost_per_token": 9.1E-7,
+    "cache_read_input_token_cost": 1.2142E-7,
+    "input_cost_per_token": 6.538E-7,
     "max_input_tokens": 1310720,
-    "output_cost_per_token": 0.00000286
+    "output_cost_per_token": 0.0000020548
   },
   "openrouter/z-ai/glm-5.3-flash": {
     "cache_read_input_token_cost": 5E-8,
@@ -15045,10 +14223,10 @@
     "output_cost_per_token": 5E-7
   },
   "openrouter/z-ai/glm-5.3-flash:batch": {
-    "cache_read_input_token_cost": 1.5E-8,
-    "input_cost_per_token": 7.5E-8,
+    "cache_read_input_token_cost": 1.2E-8,
+    "input_cost_per_token": 6E-8,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 2.5E-7
+    "output_cost_per_token": 2E-7
   },
   "openrouter/z-ai/glm-5.3-flashx": {
     "cache_read_input_token_cost": 7.5E-8,
@@ -15057,10 +14235,10 @@
     "output_cost_per_token": 0.00000125
   },
   "openrouter/z-ai/glm-5.3:batch": {
-    "cache_read_input_token_cost": 1.3E-7,
-    "input_cost_per_token": 7E-7,
+    "cache_read_input_token_cost": 1.2E-7,
+    "input_cost_per_token": 7.2E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000022
+    "output_cost_per_token": 0.0000024
   },
   "openrouter/z-ai/glm-5v-turbo": {
     "cache_read_input_token_cost": 2.4E-7,
@@ -15085,12 +14263,12 @@
     "output_cost_per_token": 0.000005
   },
   "openrouter/~anthropic/claude-opus-latest": {
-    "cache_creation_input_token_cost": 0.00000625,
-    "cache_creation_input_token_cost_above_1hr": 0.00001,
-    "cache_read_input_token_cost": 5E-7,
-    "input_cost_per_token": 0.000005,
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_above_1hr": 0.000008,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.000025
+    "output_cost_per_token": 0.00002
   },
   "openrouter/~anthropic/claude-sonnet-latest": {
     "cache_creation_input_token_cost": 0.0000025,
@@ -15101,22 +14279,22 @@
     "output_cost_per_token": 0.00001
   },
   "openrouter/~deepseek/deepseek-flash-latest": {
-    "cache_read_input_token_cost": 6E-9,
-    "input_cost_per_token": 3E-7,
+    "cache_read_input_token_cost": 3.6E-9,
+    "input_cost_per_token": 1.2E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000012
+    "output_cost_per_token": 4.8E-7
   },
   "openrouter/~deepseek/deepseek-pro-latest": {
-    "cache_read_input_token_cost": 1.86208E-8,
-    "input_cost_per_token": 5.58624E-7,
+    "cache_read_input_token_cost": 1.2726E-8,
+    "input_cost_per_token": 3.9996E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000001675872
+    "output_cost_per_token": 0.00000119988
   },
   "openrouter/~deepseek/deepseek-v4-flash-latest": {
-    "cache_read_input_token_cost": 1.6E-8,
-    "input_cost_per_token": 4E-8,
+    "cache_read_input_token_cost": 8E-9,
+    "input_cost_per_token": 3E-8,
     "max_input_tokens": 1310720,
-    "output_cost_per_token": 6.4E-7
+    "output_cost_per_token": 8E-7
   },
   "openrouter/~google/gemini-flash-latest": {
     "cache_creation_input_token_cost": 4.16666666666667E-8,
@@ -15134,9 +14312,9 @@
   },
   "openrouter/~moonshotai/kimi-latest": {
     "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
+    "input_cost_per_token": 0.0000014989,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000015
+    "output_cost_per_token": 0.000010758
   },
   "openrouter/~openai/gpt-astra-latest": {
     "cache_creation_input_token_cost": 0.0000125,
@@ -15146,11 +14324,11 @@
     "output_cost_per_token": 0.00005
   },
   "openrouter/~openai/gpt-luna-latest": {
-    "cache_creation_input_token_cost": 2.5E-7,
-    "cache_read_input_token_cost": 2E-8,
-    "input_cost_per_token": 2E-7,
+    "cache_creation_input_token_cost": 1.25E-7,
+    "cache_read_input_token_cost": 1E-8,
+    "input_cost_per_token": 1E-7,
     "max_input_tokens": 1050000,
-    "output_cost_per_token": 0.0000012
+    "output_cost_per_token": 5E-7
   },
   "openrouter/~openai/gpt-mini-latest": {
     "cache_read_input_token_cost": 7.5E-8,
@@ -15179,16 +14357,16 @@
     "output_cost_per_token": 0.0000048
   },
   "openrouter/~z-ai/glm-flash-latest": {
-    "cache_read_input_token_cost": 5E-8,
-    "input_cost_per_token": 1.5E-7,
+    "cache_read_input_token_cost": 1.5E-8,
+    "input_cost_per_token": 7.5E-8,
     "max_input_tokens": 1310720,
-    "output_cost_per_token": 5E-7
+    "output_cost_per_token": 2.5E-7
   },
   "openrouter/~z-ai/glm-latest": {
-    "cache_read_input_token_cost": 1.69E-7,
-    "input_cost_per_token": 9.1E-7,
+    "cache_read_input_token_cost": 1.2142E-7,
+    "input_cost_per_token": 6.538E-7,
     "max_input_tokens": 1310720,
-    "output_cost_per_token": 0.00000286
+    "output_cost_per_token": 0.0000020548
   },
   "ovhcloud/DeepSeek-R1-Distill-Llama-70B": {
     "input_cost_per_token": 6.7E-7,
@@ -16175,16 +15353,6 @@
     "max_input_tokens": 32768,
     "output_cost_per_token": 0.000007
   },
-  "sambanova/DeepSeek-R1-Distill-Llama-70B": {
-    "input_cost_per_token": 7E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000014
-  },
-  "sambanova/DeepSeek-V3-0324": {
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 32768,
-    "output_cost_per_token": 0.0000045
-  },
   "sambanova/DeepSeek-V3.1": {
     "input_cost_per_token": 0.000003,
     "max_input_tokens": 131072,
@@ -16200,60 +15368,15 @@
     "max_input_tokens": 131072,
     "output_cost_per_token": 0.0000018
   },
-  "sambanova/Llama-4-Scout-17B-16E-Instruct": {
-    "input_cost_per_token": 4E-7,
-    "max_input_tokens": 8192,
-    "output_cost_per_token": 7E-7
-  },
-  "sambanova/Meta-Llama-3.1-405B-Instruct": {
-    "input_cost_per_token": 0.000005,
-    "max_input_tokens": 16384,
-    "output_cost_per_token": 0.00001
-  },
-  "sambanova/Meta-Llama-3.1-8B-Instruct": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 16384,
-    "output_cost_per_token": 2E-7
-  },
-  "sambanova/Meta-Llama-3.2-1B-Instruct": {
-    "input_cost_per_token": 4E-8,
-    "max_input_tokens": 16384,
-    "output_cost_per_token": 8E-8
-  },
-  "sambanova/Meta-Llama-3.2-3B-Instruct": {
-    "input_cost_per_token": 8E-8,
-    "max_input_tokens": 4096,
-    "output_cost_per_token": 1.6E-7
-  },
   "sambanova/Meta-Llama-3.3-70B-Instruct": {
     "input_cost_per_token": 6E-7,
     "max_input_tokens": 131072,
     "output_cost_per_token": 0.0000012
   },
-  "sambanova/Meta-Llama-Guard-3-8B": {
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 16384,
-    "output_cost_per_token": 3E-7
-  },
   "sambanova/MiniMax-M2.7": {
     "input_cost_per_token": 6E-7,
     "max_input_tokens": 196608,
     "output_cost_per_token": 0.0000024
-  },
-  "sambanova/QwQ-32B": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 16384,
-    "output_cost_per_token": 0.000001
-  },
-  "sambanova/Qwen2-Audio-7B-Instruct": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 4096,
-    "output_cost_per_token": 0.0001
-  },
-  "sambanova/Qwen3-32B": {
-    "input_cost_per_token": 4E-7,
-    "max_input_tokens": 8192,
-    "output_cost_per_token": 8E-7
   },
   "sambanova/gemma-4-31B-it": {
     "input_cost_per_token": 3.8E-7,
@@ -16284,30 +15407,15 @@
     "max_input_tokens": 256000,
     "output_cost_per_token": 0.0000055
   },
-  "scaleway/google/gemma-3-27b-it": {
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 40000,
-    "output_cost_per_token": 5E-7
-  },
   "scaleway/google/gemma-4-26b-a4b-it": {
     "input_cost_per_token": 2.5E-7,
     "max_input_tokens": 256000,
     "output_cost_per_token": 5E-7
   },
-  "scaleway/hcompany/holo2-30b-a3b": {
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 22000,
-    "output_cost_per_token": 7E-7
-  },
   "scaleway/meta/llama-3.3-70b-instruct": {
     "input_cost_per_token": 9E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 9E-7
-  },
-  "scaleway/mistralai/devstral-2-123b-instruct-2512": {
-    "input_cost_per_token": 4E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000002
   },
   "scaleway/mistralai/mistral-medium-3.5-128b": {
     "input_cost_per_token": 0.0000015,
@@ -16323,11 +15431,6 @@
     "input_cost_per_token": 2E-7,
     "max_input_tokens": 128000,
     "output_cost_per_token": 2E-7
-  },
-  "scaleway/mistralai/voxtral-small-24b-2507": {
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 32000,
-    "output_cost_per_token": 3.5E-7
   },
   "scaleway/openai/gpt-oss-120b": {
     "input_cost_per_token": 1.5E-7,
@@ -16587,31 +15690,14 @@
     "max_input_tokens": 524288,
     "output_cost_per_token": 0.0000012
   },
-  "together_ai/NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO": {
-    "input_cost_per_token": 6E-7,
-    "output_cost_per_token": 6E-7
-  },
   "together_ai/Prism-ML/Ternary-Bonsai-27B": {
     "input_cost_per_token": 0.0,
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0
   },
-  "together_ai/Qwen/QwQ-32B": {
-    "input_cost_per_token": 0.0000012,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000012
-  },
   "together_ai/Qwen/Qwen2-1.5B-Instruct": {
     "input_cost_per_token": 2E-8,
     "output_cost_per_token": 2E-8
-  },
-  "together_ai/Qwen/Qwen2-72B-Instruct": {
-    "input_cost_per_token": 9E-7,
-    "output_cost_per_token": 9E-7
-  },
-  "together_ai/Qwen/Qwen2-VL-72B-Instruct": {
-    "input_cost_per_token": 0.0000012,
-    "output_cost_per_token": 0.0000012
   },
   "together_ai/Qwen/Qwen2.5-14B-Instruct": {
     "input_cost_per_token": 8E-7,
@@ -16621,74 +15707,10 @@
     "input_cost_per_token": 0.0000012,
     "output_cost_per_token": 0.0000012
   },
-  "together_ai/Qwen/Qwen2.5-72B-Instruct-Turbo": {
-    "input_cost_per_token": 0.0000012,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000012
-  },
   "together_ai/Qwen/Qwen2.5-7B-Instruct-Turbo": {
     "input_cost_per_token": 3E-7,
     "max_input_tokens": 32768,
     "output_cost_per_token": 3E-7
-  },
-  "together_ai/Qwen/Qwen2.5-Coder-32B-Instruct": {
-    "input_cost_per_token": 8E-7,
-    "output_cost_per_token": 8E-7
-  },
-  "together_ai/Qwen/Qwen2.5-VL-72B-Instruct": {
-    "input_cost_per_token": 0.00000195,
-    "output_cost_per_token": 0.000008
-  },
-  "together_ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 262000,
-    "output_cost_per_token": 0.000006
-  },
-  "together_ai/Qwen/Qwen3-235B-A22B-Thinking-2507": {
-    "input_cost_per_token": 6.5E-7,
-    "max_input_tokens": 256000,
-    "output_cost_per_token": 0.000003
-  },
-  "together_ai/Qwen/Qwen3-235B-A22B-fp8-tput": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 40000,
-    "output_cost_per_token": 6E-7
-  },
-  "together_ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8": {
-    "input_cost_per_token": 0.000002,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.000002
-  },
-  "together_ai/Qwen/Qwen3-Coder-Next-FP8": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000012
-  },
-  "together_ai/Qwen/Qwen3-Next-80B-A3B-Instruct": {
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000015
-  },
-  "together_ai/Qwen/Qwen3-Next-80B-A3B-Thinking": {
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000015
-  },
-  "together_ai/Qwen/Qwen3-VL-32B-Instruct": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000015
-  },
-  "together_ai/Qwen/Qwen3-VL-8B-Instruct": {
-    "input_cost_per_token": 1.8E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 6.8E-7
-  },
-  "together_ai/Qwen/Qwen3.5-397B-A17B": {
-    "cache_read_input_token_cost": 3.5E-7,
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000036
   },
   "together_ai/Qwen/Qwen3.5-9B": {
     "input_cost_per_token": 1.7E-7,
@@ -16731,54 +15753,21 @@
     "max_input_tokens": 32768,
     "output_cost_per_token": 1E-7
   },
-  "together_ai/deepseek-ai/DeepSeek-R1": {
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.000007
-  },
   "together_ai/deepseek-ai/DeepSeek-R1-0528": {
     "input_cost_per_token": 0.000003,
     "max_input_tokens": 163840,
     "output_cost_per_token": 0.000007
-  },
-  "together_ai/deepseek-ai/DeepSeek-R1-0528-tput": {
-    "input_cost_per_token": 5.5E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.00000219
-  },
-  "together_ai/deepseek-ai/DeepSeek-R1-Distill-Llama-70B": {
-    "input_cost_per_token": 0.000002,
-    "output_cost_per_token": 0.000002
-  },
-  "together_ai/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": {
-    "input_cost_per_token": 1.8E-7,
-    "output_cost_per_token": 1.8E-7
-  },
-  "together_ai/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": {
-    "input_cost_per_token": 0.0000016,
-    "output_cost_per_token": 0.0000016
   },
   "together_ai/deepseek-ai/DeepSeek-V3": {
     "input_cost_per_token": 0.00000125,
     "max_input_tokens": 65536,
     "output_cost_per_token": 0.00000125
   },
-  "together_ai/deepseek-ai/DeepSeek-V3.1": {
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000017
-  },
   "together_ai/deepseek-ai/DeepSeek-V4-Flash-0731": {
     "cache_read_input_token_cost": 3E-8,
     "input_cost_per_token": 1.4E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 2.8E-7
-  },
-  "together_ai/deepseek-ai/DeepSeek-V4-Pro": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000174,
-    "max_input_tokens": 512000,
-    "output_cost_per_token": 0.00000348
   },
   "together_ai/deepseek-ai/DeepSeek-V4-Pro-0813": {
     "cache_read_input_token_cost": 1.3E-7,
@@ -16791,28 +15780,6 @@
     "input_cost_per_token": 3E-7,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.0000012
-  },
-  "together_ai/deepseek-ai/deepseek-coder-33b-instruct": {
-    "input_cost_per_token": 8E-7,
-    "output_cost_per_token": 8E-7
-  },
-  "together_ai/google/gemma-2-27b-it": {
-    "input_cost_per_token": 8E-7,
-    "output_cost_per_token": 8E-7
-  },
-  "together_ai/google/gemma-3n-E4B-it": {
-    "input_cost_per_token": 6E-8,
-    "max_input_tokens": 32768,
-    "output_cost_per_token": 1.2E-7
-  },
-  "together_ai/google/gemma-4-31B-it": {
-    "input_cost_per_token": 3.9E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 9.7E-7
-  },
-  "together_ai/meta-llama/Llama-3-8b-chat-hf": {
-    "input_cost_per_token": 2E-7,
-    "output_cost_per_token": 2E-7
   },
   "together_ai/meta-llama/Llama-3.1-405B-Instruct": {
     "input_cost_per_token": 0.0000035,
@@ -16831,43 +15798,6 @@
     "max_input_tokens": 131072,
     "output_cost_per_token": 0.00000104
   },
-  "together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo-Free": {
-    "input_cost_per_token": 0,
-    "output_cost_per_token": 0
-  },
-  "together_ai/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
-    "input_cost_per_token": 2.7E-7,
-    "output_cost_per_token": 8.5E-7
-  },
-  "together_ai/meta-llama/Llama-4-Scout-17B-16E-Instruct": {
-    "input_cost_per_token": 1.8E-7,
-    "output_cost_per_token": 5.9E-7
-  },
-  "together_ai/meta-llama/Llama-Guard-4-12B": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 2E-7
-  },
-  "together_ai/meta-llama/Meta-Llama-3-70B-Instruct-Turbo": {
-    "input_cost_per_token": 8.8E-7,
-    "output_cost_per_token": 8.8E-7
-  },
-  "together_ai/meta-llama/Meta-Llama-3-8B-Instruct": {
-    "input_cost_per_token": 2E-7,
-    "output_cost_per_token": 2E-7
-  },
-  "together_ai/meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo": {
-    "input_cost_per_token": 0.0000035,
-    "output_cost_per_token": 0.0000035
-  },
-  "together_ai/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": {
-    "input_cost_per_token": 8.8E-7,
-    "output_cost_per_token": 8.8E-7
-  },
-  "together_ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {
-    "input_cost_per_token": 1.8E-7,
-    "output_cost_per_token": 1.8E-7
-  },
   "together_ai/meta-models/Muse-Glimmer-30B": {
     "cache_read_input_token_cost": 4E-8,
     "input_cost_per_token": 3.5E-7,
@@ -16879,55 +15809,19 @@
     "max_input_tokens": 262144,
     "output_cost_per_token": 2E-7
   },
-  "together_ai/mistralai/Mistral-7B-Instruct-v0.1": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 32768,
-    "output_cost_per_token": 2E-7
-  },
   "together_ai/mistralai/Mistral-7B-Instruct-v0.3": {
     "input_cost_per_token": 2E-7,
     "max_input_tokens": 32768,
     "output_cost_per_token": 2E-7
   },
-  "together_ai/mistralai/Mistral-Small-24B-Instruct-2501": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 32768,
-    "output_cost_per_token": 3E-7
-  },
-  "together_ai/mistralai/Mixtral-8x7B-Instruct-v0.1": {
-    "input_cost_per_token": 6E-7,
-    "output_cost_per_token": 6E-7
-  },
   "together_ai/moonshotai/Kimi-K2-Instruct": {
     "input_cost_per_token": 0.000001,
     "output_cost_per_token": 0.000003
-  },
-  "together_ai/moonshotai/Kimi-K2-Instruct-0905": {
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.000003
-  },
-  "together_ai/moonshotai/Kimi-K2.5": {
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 256000,
-    "output_cost_per_token": 0.0000028
   },
   "together_ai/moonshotai/Kimi-K2.5-fp4": {
     "input_cost_per_token": 5E-7,
     "max_input_tokens": 262144,
     "output_cost_per_token": 0.0000028
-  },
-  "together_ai/moonshotai/Kimi-K2.6": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.0000012,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000045
-  },
-  "together_ai/moonshotai/Kimi-K2.7-Code": {
-    "cache_read_input_token_cost": 1.9E-7,
-    "input_cost_per_token": 9.5E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.000004
   },
   "together_ai/moonshotai/Kimi-K3": {
     "cache_read_input_token_cost": 3E-7,
@@ -16935,35 +15829,15 @@
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.000015
   },
-  "together_ai/nvidia/Llama-3.1-Nemotron-70B-Instruct-HF": {
-    "input_cost_per_token": 8.8E-7,
-    "output_cost_per_token": 8.8E-7
-  },
   "together_ai/nvidia/NVIDIA-Nemotron-Nano-9B-v2": {
     "input_cost_per_token": 6E-8,
     "max_input_tokens": 131072,
     "output_cost_per_token": 2.5E-7
   },
-  "together_ai/nvidia/nemotron-3-ultra-550b-a55b": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 512288,
-    "output_cost_per_token": 0.0000036
-  },
   "together_ai/openai/gpt-oss-120b": {
     "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 131072,
     "output_cost_per_token": 6E-7
-  },
-  "together_ai/openai/gpt-oss-20b": {
-    "input_cost_per_token": 5E-8,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 2E-7
-  },
-  "together_ai/pearl-ai/gemma-4-31b-it": {
-    "input_cost_per_token": 2.8E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 8.6E-7
   },
   "together_ai/thinkingmachines/Inkling": {
     "cache_read_input_token_cost": 1.7E-7,
@@ -16971,37 +15845,10 @@
     "max_input_tokens": 524288,
     "output_cost_per_token": 0.00000405
   },
-  "together_ai/thinkingmachines/Inkling-Small": {
-    "cache_read_input_token_cost": 1E-7,
-    "input_cost_per_token": 5E-7,
-    "max_input_tokens": 524288,
-    "output_cost_per_token": 0.0000012
-  },
-  "together_ai/zai-org/GLM-4.5-Air-FP8": {
-    "input_cost_per_token": 2E-7,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000011
-  },
   "together_ai/zai-org/GLM-4.6": {
     "input_cost_per_token": 6E-7,
     "max_input_tokens": 202752,
     "output_cost_per_token": 0.0000022
-  },
-  "together_ai/zai-org/GLM-4.7": {
-    "input_cost_per_token": 4.5E-7,
-    "max_input_tokens": 202752,
-    "output_cost_per_token": 0.000002
-  },
-  "together_ai/zai-org/GLM-5": {
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 202752,
-    "output_cost_per_token": 0.0000032
-  },
-  "together_ai/zai-org/GLM-5.1": {
-    "cache_read_input_token_cost": 2.6E-7,
-    "input_cost_per_token": 0.0000014,
-    "max_input_tokens": 202752,
-    "output_cost_per_token": 0.0000044
   },
   "together_ai/zai-org/GLM-5.2": {
     "cache_read_input_token_cost": 2.6E-7,
@@ -17020,13 +15867,6 @@
     "input_cost_per_token": 1.5E-7,
     "max_input_tokens": 1048575,
     "output_cost_per_token": 5E-7
-  },
-  "us-gov.anthropic.claude-3-haiku-20240307-v1:0": {
-    "cache_creation_input_token_cost": 3.75E-7,
-    "cache_read_input_token_cost": 3E-8,
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.0000015
   },
   "us-gov.anthropic.claude-fable-5-1": {
     "cache_creation_input_token_cost": 0.000015,
@@ -17051,6 +15891,14 @@
     "input_cost_per_token": 0.000006,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.00003
+  },
+  "us-gov.anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.000006,
+    "cache_creation_input_token_cost_above_1hr": 0.0000096,
+    "cache_read_input_token_cost": 2.4E-7,
+    "input_cost_per_token": 0.0000048,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000024
   },
   "us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0": {
     "cache_creation_input_token_cost": 0.0000045,
@@ -17128,12 +15976,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 1.4E-7
   },
-  "us.amazon.nova-premier-v1:0": {
-    "cache_read_input_token_cost": 6.25E-7,
-    "input_cost_per_token": 0.0000025,
-    "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.0000125
-  },
   "us.amazon.nova-pro-v1:0": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 8E-7,
@@ -17168,26 +16010,12 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
-  "us.anthropic.claude-3-haiku-20240307-v1:0": {
-    "cache_creation_input_token_cost": 3.125E-7,
-    "cache_read_input_token_cost": 2.5E-8,
-    "input_cost_per_token": 2.5E-7,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.00000125
-  },
   "us.anthropic.claude-3-opus-20240229-v1:0": {
     "cache_creation_input_token_cost": 0.00001875,
     "cache_read_input_token_cost": 0.0000015,
     "input_cost_per_token": 0.000015,
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000075
-  },
-  "us.anthropic.claude-3-sonnet-20240229-v1:0": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015
   },
   "us.anthropic.claude-fable-5": {
     "cache_creation_input_token_cost": 0.00001375,
@@ -17266,6 +16094,14 @@
     "input_cost_per_token": 0.0000055,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000275
+  },
+  "us.anthropic.claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.0000055,
+    "cache_creation_input_token_cost_above_1hr": 0.0000088,
+    "cache_read_input_token_cost": 2.2E-7,
+    "input_cost_per_token": 0.0000044,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.000022
   },
   "us.anthropic.claude-sonnet-4-20250514-v1:0": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -17628,16 +16464,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 9E-7
   },
-  "vercel_ai_gateway/google/gemini-2.0-flash": {
-    "input_cost_per_token": 1.5E-7,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 6E-7
-  },
-  "vercel_ai_gateway/google/gemini-2.0-flash-lite": {
-    "input_cost_per_token": 7.5E-8,
-    "max_input_tokens": 1048576,
-    "output_cost_per_token": 3E-7
-  },
   "vercel_ai_gateway/google/gemini-2.5-flash": {
     "cache_read_input_token_cost": 3E-8,
     "input_cost_per_token": 3E-7,
@@ -17979,14 +16805,6 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000015
   },
-  "vertex_ai/claude-3-7-sonnet@20250219": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_creation_input_token_cost_above_1hr": 0.000006,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000015
-  },
   "vertex_ai/claude-3-haiku": {
     "input_cost_per_token": 2.5E-7,
     "max_input_tokens": 200000,
@@ -18065,30 +16883,6 @@
     "max_input_tokens": 200000,
     "output_cost_per_token": 0.000005
   },
-  "vertex_ai/claude-opus-4": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
-  "vertex_ai/claude-opus-4-1": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
-  "vertex_ai/claude-opus-4-1@20250805": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
   "vertex_ai/claude-opus-4-5": {
     "cache_creation_input_token_cost": 0.00000625,
     "cache_creation_input_token_cost_above_1hr": 0.00001,
@@ -18153,14 +16947,6 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000025
   },
-  "vertex_ai/claude-opus-4@20250514": {
-    "cache_creation_input_token_cost": 0.00001875,
-    "cache_creation_input_token_cost_above_1hr": 0.00003,
-    "cache_read_input_token_cost": 0.0000015,
-    "input_cost_per_token": 0.000015,
-    "max_input_tokens": 200000,
-    "output_cost_per_token": 0.000075
-  },
   "vertex_ai/claude-opus-5": {
     "cache_creation_input_token_cost": 0.00000625,
     "cache_creation_input_token_cost_above_1hr": 0.00001,
@@ -18169,6 +16955,22 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000025
   },
+  "vertex_ai/claude-opus-5-5": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_above_1hr": 0.000008,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00002
+  },
+  "vertex_ai/claude-opus-5-5@default": {
+    "cache_creation_input_token_cost": 0.000005,
+    "cache_creation_input_token_cost_above_1hr": 0.000008,
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.000004,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.00002
+  },
   "vertex_ai/claude-opus-5@default": {
     "cache_creation_input_token_cost": 0.00000625,
     "cache_creation_input_token_cost_above_1hr": 0.00001,
@@ -18176,14 +16978,6 @@
     "input_cost_per_token": 0.000005,
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000025
-  },
-  "vertex_ai/claude-sonnet-4": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_creation_input_token_cost_above_1hr": 0.000006,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.000015
   },
   "vertex_ai/claude-sonnet-4-5": {
     "cache_creation_input_token_cost": 0.00000375,
@@ -18210,14 +17004,6 @@
     "output_cost_per_token": 0.000015
   },
   "vertex_ai/claude-sonnet-4-6@default": {
-    "cache_creation_input_token_cost": 0.00000375,
-    "cache_creation_input_token_cost_above_1hr": 0.000006,
-    "cache_read_input_token_cost": 3E-7,
-    "input_cost_per_token": 0.000003,
-    "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.000015
-  },
-  "vertex_ai/claude-sonnet-4@20250514": {
     "cache_creation_input_token_cost": 0.00000375,
     "cache_creation_input_token_cost_above_1hr": 0.000006,
     "cache_read_input_token_cost": 3E-7,
@@ -18350,11 +17136,6 @@
   "vertex_ai/gemini-omni-1.1-flash": {
     "input_cost_per_token": 0.0000015,
     "output_cost_per_token": 0.000009
-  },
-  "vertex_ai/gemini-robotics-er-2": {
-    "cache_read_input_token_cost": 1E-7,
-    "input_cost_per_token": 0.000001,
-    "output_cost_per_token": 0.000005
   },
   "vertex_ai/gemma-4-26b-a4b-it": {
     "cache_read_input_token_cost": 1.5E-8,
@@ -18621,11 +17402,6 @@
     "max_input_tokens": 131000,
     "output_cost_per_token": 1E-7
   },
-  "wandb/MiniMaxAI/MiniMax-M2.5": {
-    "input_cost_per_token": 3E-7,
-    "max_input_tokens": 197000,
-    "output_cost_per_token": 0.0000012
-  },
   "wandb/MiniMaxAI/MiniMax-M3": {
     "cache_read_input_token_cost": 5E-8,
     "input_cost_per_token": 2.3E-7,
@@ -18637,25 +17413,10 @@
     "max_input_tokens": 32800,
     "output_cost_per_token": 2.2E-7
   },
-  "wandb/Qwen/Qwen3-235B-A22B-Instruct-2507": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 1E-7
-  },
-  "wandb/Qwen/Qwen3-235B-A22B-Thinking-2507": {
-    "input_cost_per_token": 1E-7,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 1E-7
-  },
   "wandb/Qwen/Qwen3-30B-A3B-Instruct-2507": {
     "input_cost_per_token": 1E-7,
     "max_input_tokens": 262000,
     "output_cost_per_token": 3E-7
-  },
-  "wandb/Qwen/Qwen3-Coder-480B-A35B-Instruct": {
-    "input_cost_per_token": 0.000001,
-    "max_input_tokens": 262144,
-    "output_cost_per_token": 0.0000015
   },
   "wandb/Qwen/Qwen3.5-35B-A3B": {
     "input_cost_per_token": 2.5E-7,
@@ -18678,16 +17439,6 @@
     "input_cost_per_token": 4E-7,
     "max_input_tokens": 262000,
     "output_cost_per_token": 0.000003
-  },
-  "wandb/deepseek-ai/DeepSeek-R1-0528": {
-    "input_cost_per_token": 0.00000135,
-    "max_input_tokens": 161000,
-    "output_cost_per_token": 0.0000054
-  },
-  "wandb/deepseek-ai/DeepSeek-V3-0324": {
-    "input_cost_per_token": 0.00000114,
-    "max_input_tokens": 161000,
-    "output_cost_per_token": 0.00000275
   },
   "wandb/deepseek-ai/DeepSeek-V3.1": {
     "input_cost_per_token": 5.5E-7,
@@ -18749,21 +17500,6 @@
     "max_input_tokens": 128000,
     "output_cost_per_token": 7.1E-7
   },
-  "wandb/meta-llama/Llama-4-Scout-17B-16E-Instruct": {
-    "input_cost_per_token": 1.7E-7,
-    "max_input_tokens": 64000,
-    "output_cost_per_token": 6.6E-7
-  },
-  "wandb/microsoft/Phi-4-mini-instruct": {
-    "input_cost_per_token": 0.008,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.035
-  },
-  "wandb/moonshotai/Kimi-K2-Instruct": {
-    "input_cost_per_token": 6E-7,
-    "max_input_tokens": 128000,
-    "output_cost_per_token": 0.0000025
-  },
   "wandb/moonshotai/Kimi-K2.5": {
     "cache_read_input_token_cost": 1E-7,
     "input_cost_per_token": 6E-7,
@@ -18803,11 +17539,6 @@
     "input_cost_per_token": 3E-8,
     "max_input_tokens": 131000,
     "output_cost_per_token": 1.3E-7
-  },
-  "wandb/zai-org/GLM-4.5": {
-    "input_cost_per_token": 0.055,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.2
   },
   "wandb/zai-org/GLM-5.2": {
     "cache_read_input_token_cost": 1.4E-7,
@@ -18986,133 +17717,13 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.000006
   },
-  "xai/grok-3": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-beta": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-fast-beta": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-fast-latest": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-latest": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-mini": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-mini-beta": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-mini-fast": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-mini-fast-beta": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-mini-fast-latest": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-3-mini-latest": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 131072,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 256000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-0709": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 256000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-1-fast": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 2000000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-1-fast-non-reasoning": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 2000000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-1-fast-non-reasoning-latest": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 2000000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-1-fast-reasoning": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 2000000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-1-fast-reasoning-latest": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 2000000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-fast-non-reasoning": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 2000000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-fast-reasoning": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 2000000,
-    "output_cost_per_token": 0.0000025
-  },
-  "xai/grok-4-latest": {
-    "cache_read_input_token_cost": 2E-7,
-    "input_cost_per_token": 0.00000125,
-    "max_input_tokens": 256000,
-    "output_cost_per_token": 0.0000025
-  },
   "xai/grok-4.20": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-0309": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.00000125,
     "max_input_tokens": 1000000,
@@ -19130,6 +17741,18 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000025
   },
+  "xai/grok-4.20-beta": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-beta-0309": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
   "xai/grok-4.20-beta-0309-non-reasoning": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.00000125,
@@ -19137,6 +17760,72 @@
     "output_cost_per_token": 0.0000025
   },
   "xai/grok-4.20-beta-0309-reasoning": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-beta-latest": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-beta-latest-non-reasoning": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-beta-latest-reasoning": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-beta-non-reasoning": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-beta-reasoning": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-experimental-beta-0304": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-experimental-beta-0304-non-reasoning": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-experimental-beta-0304-reasoning": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-experimental-beta-latest": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-experimental-beta-non-reasoning-latest": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-experimental-beta-reasoning-latest": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.00000125,
     "max_input_tokens": 1000000,
@@ -19160,6 +17849,24 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000025
   },
+  "xai/grok-4.20-multi-agent-beta-latest": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-multi-agent-experimental-beta-0304": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-multi-agent-experimental-beta-latest": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
   "xai/grok-4.20-multi-agent-latest": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.00000125,
@@ -19172,6 +17879,12 @@
     "max_input_tokens": 1000000,
     "output_cost_per_token": 0.0000025
   },
+  "xai/grok-4.20-non-reasoning-gv2": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
   "xai/grok-4.20-non-reasoning-latest": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.00000125,
@@ -19179,6 +17892,12 @@
     "output_cost_per_token": 0.0000025
   },
   "xai/grok-4.20-reasoning": {
+    "cache_read_input_token_cost": 2E-7,
+    "input_cost_per_token": 0.00000125,
+    "max_input_tokens": 1000000,
+    "output_cost_per_token": 0.0000025
+  },
+  "xai/grok-4.20-reasoning-gv2": {
     "cache_read_input_token_cost": 2E-7,
     "input_cost_per_token": 0.00000125,
     "max_input_tokens": 1000000,
