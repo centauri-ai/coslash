@@ -98,6 +98,42 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	}
 }
 
+func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	for _, test := range []struct {
+		name       string
+		v2         bool
+		model      string
+		wantArgs   []string
+		wantConfig string
+	}{
+		{"v1", false, settings.OpenCodeSynthesisModel, []string{"run", "--dir", SynthesisCwd(), "--model", settings.OpenCodeSynthesisModel, "--variant", "high", "--format", "json", "--pure", "--", systemPrompt + jsonInstruction}, openCodeConfigContent},
+		{"v2", true, settings.OpenCodeSynthesisModel, []string{"run", "--standalone", "--model", settings.OpenCodeSynthesisModel + "#high", "--format", "json", "--", systemPrompt + jsonInstruction}, openCodeV2ConfigContent},
+		{"v2 default", true, settings.OpenCodeDefaultModel, []string{"run", "--standalone", "--format", "json", "--", systemPrompt + jsonInstruction}, openCodeV2ConfigContent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var captured commandSpec
+			runner := &CLIRunner{Backend: settings.BackendOpenCode, Bin: "opencode", Model: test.model, Timeout: time.Second, openCodeV2: test.v2}
+			runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+				captured = spec
+				return []byte("{\"type\":\"text\",\"part\":{\"id\":\"answer\",\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"keyDecisions\\\":[],\\\"nextStep\\\":\\\"review\\\"}\"}}\n"), nil
+			}
+			if _, err := runner.Run(context.Background(), "facts"); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(captured.args, test.wantArgs) {
+				t.Fatalf("args = %#v, want %#v", captured.args, test.wantArgs)
+			}
+			if !slices.Contains(captured.env, "OPENCODE_CONFIG_CONTENT="+test.wantConfig) {
+				t.Fatalf("config override missing from env: %#v", captured.env)
+			}
+			if captured.stdin != "facts" {
+				t.Fatalf("stdin = %q, want facts", captured.stdin)
+			}
+		})
+	}
+}
+
 func TestParseResultEnvelopeRejectsIncompleteSynthesis(t *testing.T) {
 	data := []byte(`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\"}"}`)
 	if _, err := parseResultEnvelope(data); err == nil {

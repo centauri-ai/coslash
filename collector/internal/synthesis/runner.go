@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,11 +55,12 @@ func executeCommand(ctx context.Context, spec commandSpec) ([]byte, error) {
 }
 
 type CLIRunner struct {
-	Backend string
-	Bin     string
-	Model   string
-	Timeout time.Duration
-	exec    commandExecutor
+	Backend    string
+	Bin        string
+	Model      string
+	Timeout    time.Duration
+	openCodeV2 bool
+	exec       commandExecutor
 }
 
 func NewRunner(config settings.SynthesisSettings) (Runner, error) {
@@ -70,10 +72,11 @@ func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 		return nil, fmt.Errorf("unsupported synthesis backend %q", config.Backend)
 	}
 	return &CLIRunner{
-		Backend: config.Backend,
-		Bin:     bin,
-		Model:   config.Model,
-		Timeout: 90 * time.Second,
+		Backend:    config.Backend,
+		Bin:        bin,
+		Model:      config.Model,
+		Timeout:    90 * time.Second,
+		openCodeV2: config.Backend == settings.BackendOpenCode && detectOpenCodeV2(bin),
 	}, nil
 }
 
@@ -146,19 +149,28 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		defer os.RemoveAll(scratchDir)
 		// OpenCode has no system-prompt or schema flag, so both ride along
 		// with the message.
-		args = []string{"run", "--dir", SynthesisCwd()}
-		if r.Model != settings.OpenCodeDefaultModel {
-			args = append(args, "--model", r.Model)
+		args = []string{"run"}
+		if r.openCodeV2 {
+			args = append(args, "--standalone")
+		} else {
+			args = append(args, "--dir", SynthesisCwd())
 		}
-		if r.Model == settings.OpenCodeSynthesisModel {
+		if r.Model != settings.OpenCodeDefaultModel {
+			model := r.Model
+			if r.openCodeV2 && model == settings.OpenCodeSynthesisModel {
+				model += "#high"
+			}
+			args = append(args, "--model", model)
+		}
+		if !r.openCodeV2 && r.Model == settings.OpenCodeSynthesisModel {
 			args = append(args, "--variant", "high")
 		}
-		args = append(args,
-			"--format", "json",
-			"--pure",
-			systemPrompt+jsonInstruction,
-		)
-		env = openCodeEnv(scratchDir)
+		args = append(args, "--format", "json")
+		if !r.openCodeV2 {
+			args = append(args, "--pure")
+		}
+		args = append(args, "--", systemPrompt+jsonInstruction)
+		env = openCodeEnv(scratchDir, r.openCodeV2)
 	case settings.BackendCursor:
 		label = "Cursor"
 		parse = parseResultEnvelope
@@ -212,6 +224,11 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		return session.SessionSynthesis{}, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())
 	}
 	if err != nil {
+		if r.Backend == settings.BackendOpenCode {
+			if diagnostic := openCodeCommandDiagnostic(err, output); diagnostic != "" {
+				log.Printf("OpenCode synthesis CLI: %s", diagnostic)
+			}
+		}
 		return session.SessionSynthesis{}, safeCommandError(label, err)
 	}
 	return parse(output)
