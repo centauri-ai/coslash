@@ -61,6 +61,8 @@ template: |
 
   ## How to install
 
+  ### macOS
+
   ```sh
   brew install centauri-ai/tap/coslash
   ```
@@ -83,3 +85,10 @@ template: |
 
   Substitute the release version and architecture. The binaries are unsigned and unnotarized, so macOS may warn about an archive downloaded through a browser; the Homebrew install above is not affected.
 
+  ### Windows 11 (amd64)
+
+  Download [coslash-windows-amd64.exe](https://github.com/centauri-ai/coslash/releases/download/v$RESOLVED_VERSION/coslash-windows-amd64.exe) and double-click it. coSlash runs as a portable application and opens in your browser; no administrator privileges or WSL are required.
+
+  To verify the download, save [checksums-windows.txt](https://github.com/centauri-ai/coslash/releases/download/v$RESOLVED_VERSION/checksums-windows.txt) beside the executable. Open Windows PowerShell in that folder, run `Get-FileHash .\coslash-windows-amd64.exe -Algorithm SHA256`, and compare the hash with the entry for that file in `checksums-windows.txt`.
+
+  Windows binaries are not currently code-signed. Windows may display a SmartScreen warning; do not bypass your organization's security policy.
