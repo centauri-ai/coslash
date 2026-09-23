@@ -64,7 +64,12 @@ func main() {
 			return m, b, m.Artifacts[0].LogicalName
 		}},
 		{"wrong-size", "wrong artifact size", func(m sessionbackupv1.Manifest, b map[string][]byte) (sessionbackupv1.Manifest, map[string][]byte, string) {
-			m.Artifacts[0].ByteLength++
+			for index := range m.Artifacts {
+				if m.Artifacts[index].Kind == sessionbackupv1.KindRawTranscript {
+					m.Artifacts[index].ByteLength++
+					break
+				}
+			}
 			m.Summary.TotalBytes++
 			m.CompleteBackupSHA256 = rehash(m)
 			return m, b, ""
