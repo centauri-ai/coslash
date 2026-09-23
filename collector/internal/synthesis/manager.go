@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"sort"
 	"sync"
@@ -73,6 +74,15 @@ func (m *Manager) LookupLatest(agent, id string) *session.SessionSynthesis {
 		return nil
 	}
 	return m.cache.LookupLatest(agent, id)
+}
+
+// LoadRecord returns the exact persisted synthesis record for immutable
+// backup capture. A nil manager behaves like an empty cache.
+func (m *Manager) LoadRecord(agent, id string) (Record, error) {
+	if m == nil {
+		return Record{}, os.ErrNotExist
+	}
+	return m.cache.LoadRecord(agent, id)
 }
 
 func (m *Manager) Ensure(s *session.Session, revision int64) bool {
