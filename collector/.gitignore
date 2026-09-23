@@ -5,3 +5,6 @@
 # Frontend assets staged for go:embed by `make release`.
 internal/web/dist/*
 !internal/web/dist/.gitkeep
+
+# Helper binaries staged for go:embed by embedded release builds.
+/internal/remote/helperassets/
