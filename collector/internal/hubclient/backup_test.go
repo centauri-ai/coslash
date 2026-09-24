@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +55,142 @@ func TestBackupChunkPlanPreservesReviewedExactBytes(t *testing.T) {
 	status.CompleteBackupSHA256 = strings.Repeat("0", 64)
 	if validBackupStatusBinding(status, consent, len(plan)) {
 		t.Fatal("retargeted status was accepted")
+	}
+}
+
+func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T) {
+	manager, prepared := openBackupFixture(t)
+	plan := []backupChunkSpec(nil)
+	received := []backupChunkReceipt(nil)
+	var receivedBytes int64
+	chunkRequests := 0
+	createSeen, finalizeSeen := false, false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/share-destination":
+			_, _ = io.WriteString(w, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"`+backupWorkspace+`","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"`+backupAudienceVersion+`"},"configured":true}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/.well-known/coslash-server":
+			_, _ = io.WriteString(w, `{"product":"coslash-server","serverId":"server-v3","displayName":"Hub","protocolVersions":["v3"],"snapshotVersions":[],"maxSnapshotBytes":0,"fullSessionVersions":[],"maxFullSessionBytes":0,"maxRequestBytes":1048576,"backupVersions":["session-backup/v1"],"backupUploadVersions":["backup-upload/v1"],"maxBackupBytes":1073741824,"maxBackupChunkBytes":128,"backupWorkspaceBytes":53687091200,"backupUploadExpiresSeconds":86400,"pairingUrl":"","teamUrl":""}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/v3/backup-uploads":
+			if r.Header.Get("Idempotency-Key") != "backup-idempotency-key-0001" ||
+				r.Header.Get(backupWorkspaceHeader) != backupWorkspace || r.Header.Get(backupAudienceHeader) != backupAudienceVersion {
+				t.Errorf("create headers = %#v", r.Header)
+			}
+			var create struct {
+				Reviewed string            `json:"reviewedCompleteBackupSha256"`
+				Chunks   []backupChunkSpec `json:"chunks"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			plan = create.Chunks
+			if create.Reviewed != prepared.BundleID || len(plan) < 2 {
+				t.Errorf("create review=%q chunks=%d", create.Reviewed, len(plan))
+			}
+			createSeen = true
+			first := plan[0]
+			received = []backupChunkReceipt{{ArtifactOrdinal: first.ArtifactOrdinal, ChunkOrdinal: first.ChunkOrdinal,
+				ByteCount: first.ByteCount, SHA256: first.SHA256}}
+			receivedBytes = first.ByteCount
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(backupUploadStatus{UploadID: "20000000-0000-4000-8000-000000000001",
+				State: "active", CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
+				ExpectedChunks: len(plan), ReceivedBytes: receivedBytes, ReceivedChunks: received})
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/v3/backup-uploads/20000000-0000-4000-8000-000000000001/artifacts/"):
+			if r.Header.Get(backupWorkspaceHeader) != backupWorkspace || r.Header.Get(backupAudienceHeader) != backupAudienceVersion {
+				t.Errorf("chunk headers = %#v", r.Header)
+			}
+			parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+			if len(parts) != 7 || parts[3] != "artifacts" || parts[5] != "chunks" {
+				t.Errorf("unexpected chunk path: %s", r.URL.Path)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			artifact, artifactErr := strconv.Atoi(parts[4])
+			chunk, chunkErr := strconv.Atoi(parts[6])
+			if artifactErr != nil || chunkErr != nil {
+				t.Errorf("invalid chunk coordinates: %s", r.URL.Path)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			var expected backupChunkSpec
+			found := false
+			for _, candidate := range plan {
+				if candidate.ArtifactOrdinal == artifact && candidate.ChunkOrdinal == chunk {
+					expected = candidate
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("chunk %d/%d was absent from create plan", artifact, chunk)
+			}
+			body, _ := io.ReadAll(r.Body)
+			sum := sha256.Sum256(body)
+			if int64(len(body)) != expected.ByteCount || hex.EncodeToString(sum[:]) != expected.SHA256 {
+				t.Errorf("chunk %d/%d did not match the reviewed plan", artifact, chunk)
+			}
+			chunkRequests++
+			received = append(received, backupChunkReceipt{ArtifactOrdinal: artifact, ChunkOrdinal: chunk,
+				ByteCount: expected.ByteCount, SHA256: expected.SHA256})
+			receivedBytes += expected.ByteCount
+			_ = json.NewEncoder(w).Encode(backupUploadStatus{UploadID: "20000000-0000-4000-8000-000000000001",
+				State: "active", CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
+				ExpectedChunks: len(plan), ReceivedBytes: receivedBytes, ReceivedChunks: received})
+		case r.Method == http.MethodPost && r.URL.Path == "/v3/backup-uploads/20000000-0000-4000-8000-000000000001/finalize":
+			if r.Header.Get(backupWorkspaceHeader) != backupWorkspace || r.Header.Get(backupAudienceHeader) != backupAudienceVersion {
+				t.Errorf("finalize headers = %#v", r.Header)
+			}
+			if len(received) != len(plan) {
+				t.Errorf("finalize received %d of %d chunks", len(received), len(plan))
+			}
+			finalizeSeen = true
+			_ = json.NewEncoder(w).Encode(backupUploadStatus{UploadID: "20000000-0000-4000-8000-000000000001",
+				State: "completed", CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
+				ExpectedChunks: len(plan), ReceivedBytes: receivedBytes, ReceivedChunks: received,
+				Result: &backupUploadResult{RevisionID: backupRevision, CompleteBackupSHA256: prepared.BundleID,
+					RepositoryID: "40000000-0000-4000-8000-000000000001",
+					SharedAt:     time.Date(2026, 9, 22, 20, 0, 0, 0, time.UTC),
+					RevisionURL:  "/v3/session-backups/" + backupRevision}})
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	base, _ := url.Parse(server.URL)
+	client := Client{
+		BaseURL: base, Credentials: &memoryCredentials{}, Backup: manager,
+		LoadSourceSession: func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
+			if sourceID != prepared.Selection.SourceID || agent != prepared.Selection.Agent ||
+				sessionID != prepared.Selection.SessionID || revision != 123 {
+				return nil, errors.New("unexpected source binding")
+			}
+			return &session.Session{Agent: agent, ID: sessionID, LastActivityTime: revision}, nil
+		},
+	}
+	result, err := client.ShareBackups(context.Background(), BackupShareRequest{
+		ContractVersion: BackupShareVersion, RequestID: "request-full-upload", Items: []BackupShareItemRequest{{
+			LocalSessionID: prepared.Selection.SourceID + ":" + prepared.Selection.Agent + ":" + prepared.Selection.SessionID,
+			Selection:      prepared.Selection, IdempotencyKey: "backup-idempotency-key-0001",
+			Consent: BackupConsent{
+				PreviewContractVersion: BackupPreviewVersion, BundleID: prepared.BundleID,
+				SourceRevision: prepared.Manifest.Source.SourceRevision, SelectedRevision: 123,
+				CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
+				DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2,
+				AudienceVersion: backupAudienceVersion, ServerID: "server-v3", MaxBackupBytes: 1 << 30,
+				MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 50 << 30,
+			},
+		}},
+	})
+	if err != nil || result.State != "succeeded" || len(result.Results) != 1 || result.Results[0].State != "accepted" ||
+		result.Results[0].Route == nil || result.Results[0].Route.Path != "/v3/session-backups/"+backupRevision {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if !createSeen || !finalizeSeen || chunkRequests != len(plan)-1 {
+		t.Fatalf("create=%v chunks=%d/%d finalize=%v", createSeen, chunkRequests, len(plan)-1, finalizeSeen)
 	}
 }
 
