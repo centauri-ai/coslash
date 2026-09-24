@@ -102,11 +102,11 @@ func Files() ([]string, error) {
 }
 
 func FilesContext(ctx context.Context) ([]string, error) {
-	root, err := Root()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
-	return FilesSourceContext(ctx, vendors.LocalReadSource, root)
+	return filesForHomeSourceContext(ctx, vendors.LocalReadSource, home)
 }
 
 func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
@@ -115,6 +115,34 @@ func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
 
 func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
 	return vendors.JSONLFilesUnderSourceContext(ctx, source, root)
+}
+
+// filesForHomeSourceContext lists Codex rollouts from both supported trees.
+// Active copies win when a session is present in both locations, so a move to
+// archived storage cannot create duplicate cards or duplicate family members.
+func filesForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) ([]string, error) {
+	active, err := FilesSourceContext(ctx, source, SessionsRoot(home))
+	if err != nil {
+		return nil, err
+	}
+	archived, err := FilesSourceContext(ctx, source, ArchivedDir(home))
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(active)+len(archived))
+	seen := make(map[string]struct{}, len(active)+len(archived))
+	for _, group := range [][]string{active, archived} {
+		for _, file := range group {
+			if id := SessionIDFromRollout(file); id != "" {
+				if _, exists := seen[id]; exists {
+					continue
+				}
+				seen[id] = struct{}{}
+			}
+			files = append(files, file)
+		}
+	}
+	return files, nil
 }
 
 // FilesSince keeps recent/live roots and their complete descendant graph.
