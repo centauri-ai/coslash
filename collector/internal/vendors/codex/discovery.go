@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -129,6 +130,33 @@ func filesForHomeSourceContext(ctx context.Context, source vendors.ReadSource, h
 	if err != nil {
 		return nil, err
 	}
+	return mergeActiveAndArchivedFiles(active, archived), nil
+}
+
+func scanForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) (*vendors.SourceScan, error) {
+	active, err := ScanSourceContext(ctx, source, SessionsRoot(home))
+	if err != nil {
+		return nil, err
+	}
+	archived, err := ScanSourceContext(ctx, source, ArchivedDir(home))
+	if err != nil {
+		return nil, err
+	}
+	scan := &vendors.SourceScan{
+		Files:       mergeActiveAndArchivedFiles(active.Files, archived.Files),
+		RootMissing: active.RootMissing && archived.RootMissing,
+	}
+	for _, part := range []*vendors.SourceScan{active, archived} {
+		total := scan.SkippedTotal
+		for _, skipped := range part.Skipped {
+			scan.RecordSkipped(skipped.Path, errors.New(skipped.Error))
+		}
+		scan.SkippedTotal = total + part.SkippedTotal
+	}
+	return scan, nil
+}
+
+func mergeActiveAndArchivedFiles(active, archived []string) []string {
 	files := make([]string, 0, len(active)+len(archived))
 	seen := make(map[string]struct{}, len(active)+len(archived))
 	for _, group := range [][]string{active, archived} {
@@ -142,7 +170,7 @@ func filesForHomeSourceContext(ctx context.Context, source vendors.ReadSource, h
 			files = append(files, file)
 		}
 	}
-	return files, nil
+	return files
 }
 
 // FilesSince keeps recent/live roots and their complete descendant graph.
