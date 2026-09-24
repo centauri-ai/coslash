@@ -190,7 +190,7 @@ func (c *Client) PrepareBackup(ctx context.Context, selection sessionbackupprodu
 	if err != nil {
 		return backupPreviewFailure(selection, "unavailable", "temporary_unavailable", "The paired destination could not be verified.", "Retry the preparation.", true), err
 	}
-	if destination.State != "ready" || destination.Destination == nil || !validBackupAudienceVersion(destination.Destination.AudienceVersion) {
+	if destination.State != "ready" || destination.Destination == nil || !validAudienceVersion(destination.Destination.AudienceVersion) {
 		return backupPreviewFailure(selection, "unavailable", "unauthorized", "A paired Hub destination is required.", "Pair this device and select a workspace.", true), nil
 	}
 	capability, err := c.loadBackupCapabilities(ctx)
@@ -302,7 +302,7 @@ func validBackupShareItem(item BackupShareItemRequest) bool {
 		consent.PreviewContractVersion == BackupPreviewVersion && consent.BundleID == consent.CompleteBackupSHA256 &&
 		len(consent.BundleID) == 64 && consent.SourceRevision != "" && consent.SelectedRevision > 0 && consent.TotalBytes >= 0 &&
 		consent.DestinationWorkspaceID != "" && consent.DestinationName != "" && consent.AudienceMemberCount >= 0 &&
-		validBackupAudienceVersion(consent.AudienceVersion) && consent.ServerID != "" && consent.MaxBackupBytes > 0 &&
+		validAudienceVersion(consent.AudienceVersion) && consent.ServerID != "" && consent.MaxBackupBytes > 0 &&
 		consent.MaxBackupChunkBytes > 0 && consent.BackupWorkspaceBytes > 0
 }
 
@@ -610,15 +610,6 @@ func (c *Client) finalizeBackup(ctx context.Context, credential, destination, au
 	request.Header.Set(backupWorkspaceHeader, destination)
 	request.Header.Set(backupAudienceHeader, audienceVersion)
 	return c.doBackupStatus(request, http.StatusOK)
-}
-
-func validBackupAudienceVersion(value string) bool {
-	const prefix = "audience-v1:"
-	if len(value) != len(prefix)+64 || !strings.HasPrefix(value, prefix) || strings.ToLower(value) != value {
-		return false
-	}
-	_, err := hex.DecodeString(strings.TrimPrefix(value, prefix))
-	return err == nil
 }
 
 func (c *Client) doBackupStatus(request *http.Request, accepted ...int) (backupUploadStatus, Problem, error) {
