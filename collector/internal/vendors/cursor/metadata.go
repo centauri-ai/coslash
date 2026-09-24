@@ -419,7 +419,7 @@ func cursorIDQuery(query, column string, ids []string) (string, []any) {
 	if len(ids) == 0 {
 		return query + " WHERE 0", nil
 	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	placeholders := sqlPlaceholders(len(ids))
 	args := make([]any, len(ids))
 	for i, id := range ids {
 		args[i] = id
@@ -434,13 +434,28 @@ func cursorKeyQuery(query, prefix string, ids []string) (string, []any) {
 	if len(ids) == 0 {
 		return query + " WHERE 0", nil
 	}
-	clauses := make([]string, len(ids))
+	args := []any{strings.ToLower(prefix) + "%"}
+	args = append(args, cursorKeyIDArgs(ids)...)
+	return query + " WHERE LOWER(key) LIKE ? AND " + cursorKeyIDSegment + " IN (" + sqlPlaceholders(len(ids)) + ")", args
+}
+
+// cursorKeyIDSegment is the session ID between the first and second colon of
+// a cursorDiskKV key. Matching it with IN lets SQLite test each key once,
+// instead of one LIKE pattern per session ID.
+const cursorKeyIDSegment = `LOWER(CASE WHEN instr(substr(key, instr(key, ':') + 1), ':') > 0 ` +
+	`THEN substr(key, instr(key, ':') + 1, instr(substr(key, instr(key, ':') + 1), ':') - 1) ` +
+	`ELSE substr(key, instr(key, ':') + 1) END)`
+
+func cursorKeyIDArgs(ids []string) []any {
 	args := make([]any, len(ids))
 	for i, id := range ids {
-		clauses[i] = "LOWER(key) LIKE ?"
-		args[i] = strings.ToLower(prefix) + id + "%"
+		args[i] = strings.ToLower(id)
 	}
-	return query + " WHERE " + strings.Join(clauses, " OR "), args
+	return args
+}
+
+func sqlPlaceholders(count int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
 }
 
 func cursorChatStores(home string, ids []string) []string {
@@ -491,7 +506,7 @@ func loadIDERelationshipsContext(ctx context.Context, metadata *vendors.SessionM
 			if len(familyIDs) == 0 {
 				query += ` WHERE 0`
 			} else {
-				placeholders := strings.TrimSuffix(strings.Repeat("?,", len(familyIDs)), ",")
+				placeholders := sqlPlaceholders(len(familyIDs))
 				query += ` WHERE LOWER(composerId) IN (` + placeholders + `) OR LOWER(CASE WHEN json_valid(value) THEN json_extract(value, '$.subagentInfo.parentComposerId') ELSE '' END) IN (` + placeholders + `)`
 				for _, id := range familyIDs {
 					args = append(args, id)
@@ -913,13 +928,11 @@ func loadIDEModelsDBContext(ctx context.Context, metadata *vendors.SessionMetada
 		if len(ids) == 0 {
 			query = `SELECT key, value FROM cursorDiskKV WHERE 0`
 		}
-		clauses := make([]string, 0, len(ids)*2)
-		for _, id := range ids {
-			clauses = append(clauses, "LOWER(key) LIKE ?", "LOWER(key) = ?")
-			args = append(args, "bubbleid:"+id+":%", "composerdata:"+id)
-		}
-		if len(clauses) > 0 {
-			query = `SELECT key, value FROM cursorDiskKV WHERE ` + strings.Join(clauses, " OR ")
+		if len(ids) > 0 {
+			query = `SELECT key, value FROM cursorDiskKV WHERE (LOWER(key) LIKE 'bubbleid:%:%' OR ` +
+				`(LOWER(key) LIKE 'composerdata:%' AND LOWER(key) NOT LIKE 'composerdata:%:%')) AND ` +
+				cursorKeyIDSegment + ` IN (` + sqlPlaceholders(len(ids)) + `)`
+			args = cursorKeyIDArgs(ids)
 		}
 	}
 	rows, err := db.QueryContext(ctx, query, args...)
