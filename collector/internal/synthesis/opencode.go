@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -21,6 +22,12 @@ import (
 
 const openCodeConfigContent = `{"permission":"deny","autoupdate":false}`
 const openCodeV2ConfigContent = `{"permission":"deny","update":"disable","plugins":["-*"]}`
+
+var cachedOpenCodeV2 = newOpenCodeV2Detector(detectOpenCodeV2)
+
+func newOpenCodeV2Detector(detect func(string) bool) func() bool {
+	return sync.OnceValue(func() bool { return detect("opencode") })
+}
 
 const (
 	openCodeScratchPrefix = ".opencode-"

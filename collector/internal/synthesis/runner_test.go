@@ -92,6 +92,36 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	}
 }
 
+func TestOpenCodeRunnerCachesVersionAcrossSettingsSaves(t *testing.T) {
+	original := cachedOpenCodeV2
+	t.Cleanup(func() { cachedOpenCodeV2 = original })
+	for _, v2 := range []bool{true, false} {
+		t.Run(fmt.Sprint(v2), func(t *testing.T) {
+			probes := 0
+			cachedOpenCodeV2 = newOpenCodeV2Detector(func(bin string) bool {
+				if bin != "opencode" {
+					t.Fatalf("version probe binary = %q", bin)
+				}
+				probes++
+				return v2
+			})
+			config := settings.SynthesisSettings{Enabled: true, Backend: settings.BackendOpenCode, Model: settings.OpenCodeSynthesisModel}
+			for range 2 {
+				created, err := NewRunner(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if created.(*CLIRunner).openCodeV2 != v2 {
+					t.Fatalf("OpenCode v2 = %v, want %v", created.(*CLIRunner).openCodeV2, v2)
+				}
+			}
+			if probes != 1 {
+				t.Fatalf("version probes = %d, want 1", probes)
+			}
+		})
+	}
+}
+
 func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	for _, test := range []struct {
