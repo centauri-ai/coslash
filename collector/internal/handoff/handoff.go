@@ -23,16 +23,13 @@ func Build(value *session.Session) string {
 	if value.Synthesis != nil && strings.TrimSpace(value.Synthesis.Outcome) != "" {
 		current = strings.TrimSpace(value.Synthesis.Outcome)
 	}
-	decisions := []string{"—"}
-	if value.Synthesis != nil && len(value.Synthesis.KeyDecisions) > 0 {
-		decisions = value.Synthesis.KeyDecisions
-	}
-
 	var lines []string
 	lines = append(lines, "# Handoff — "+title, "", "## Objective ("+goalSource+")")
 	lines = appendListOrText(lines, goals)
-	lines = append(lines, "", "## Current state", current, "", "## Key decisions")
-	lines = appendBullets(lines, decisions)
+	lines = append(lines, "", "## Current state", current)
+	if value.Synthesis != nil && len(value.Synthesis.KeyDecisions) > 0 {
+		lines = appendBullets(append(lines, "", "## Key decisions"), value.Synthesis.KeyDecisions)
+	}
 	lines = append(lines, "", "## Timeline")
 	if len(value.Digest) == 0 {
 		lines = append(lines, "- —")
@@ -44,30 +41,27 @@ func Build(value *session.Session) string {
 			}
 		}
 	}
-	lines = append(lines, "", "## Files")
-	if len(value.FileEdits) == 0 {
-		lines = append(lines, "- —")
-	} else {
+	if len(value.FileEdits) > 0 {
+		lines = append(lines, "", "## Files")
 		for _, edit := range value.FileEdits {
 			lines = append(lines, fmt.Sprintf("- %s (+%d/-%d)", edit.Path, edit.Additions, edit.Deletions))
 		}
 	}
-	lines = append(lines, "", "## Commits")
-	lines = appendBullets(lines, fallback(value.Commits))
-	lines = append(lines, "", "## Next steps")
-	next := []string{"—"}
+	if len(value.Commits) > 0 {
+		lines = appendBullets(append(lines, "", "## Commits"), value.Commits)
+	}
+	var next []string
 	for _, todo := range value.Todos {
 		if !todo.Done {
-			if len(next) == 1 && next[0] == "—" {
-				next = nil
-			}
 			next = append(next, todo.Text)
 		}
 	}
-	if len(next) == 1 && next[0] == "—" && value.Synthesis != nil && value.Synthesis.NextStep != "" {
-		next[0] = value.Synthesis.NextStep
+	if len(next) == 0 && value.Synthesis != nil && value.Synthesis.NextStep != "" {
+		next = append(next, value.Synthesis.NextStep)
 	}
-	lines = appendBullets(lines, next)
+	if len(next) > 0 {
+		lines = appendBullets(append(lines, "", "## Next steps"), next)
+	}
 
 	costLabel := "Estimated cost at list API prices"
 	if value.Agent == "opencode" {
@@ -119,13 +113,6 @@ func appendBullets(lines, values []string) []string {
 		lines = append(lines, "- "+value)
 	}
 	return lines
-}
-
-func fallback(values []string) []string {
-	if len(values) == 0 {
-		return []string{"—"}
-	}
-	return values
 }
 
 func environment(value *string) string {

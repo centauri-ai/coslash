@@ -34,10 +34,10 @@ export function handoffBrief(detail: SessionDetail): string {
       ? openTodos.map((todo) => `- ${todo.text}`)
       : detail.synthesis?.nextStep
         ? [`- ${detail.synthesis.nextStep}`]
-        : ['- —'];
+        : [];
   const decisions = detail.synthesis?.keyDecisions.length
     ? detail.synthesis.keyDecisions.map((decision) => `- ${decision}`)
-    : ['- —'];
+    : [];
   const digest = detail.digest.length
     ? detail.digest.flatMap((entry) => [
         `- [${entry.category} · turn ${entry.turn}] ${entry.description}`,
@@ -46,8 +46,8 @@ export function handoffBrief(detail: SessionDetail): string {
     : ['- —'];
   const files = detail.fileEdits.length
     ? detail.fileEdits.map((fileEdit) => `- ${fileEdit.path} (+${fileEdit.adds}/-${fileEdit.dels})`)
-    : ['- —'];
-  const commits = detail.commits.length ? detail.commits.map((commit) => `- ${commit}`) : ['- —'];
+    : [];
+  const commits = detail.commits.map((commit) => `- ${commit}`);
   const costLabel = detail.agent === 'opencode' ? 'Recorded cost' : 'Estimated cost at list API prices';
 
   return [
@@ -58,21 +58,13 @@ export function handoffBrief(detail: SessionDetail): string {
     '',
     '## Current state',
     (detail.synthesis?.outcome.trim() || detail.summary) ?? '—',
-    '',
-    '## Key decisions',
-    ...decisions,
+    ...(decisions.length ? ['', '## Key decisions', ...decisions] : []),
     '',
     '## Timeline',
     ...digest,
-    '',
-    '## Files',
-    ...files,
-    '',
-    '## Commits',
-    ...commits,
-    '',
-    '## Next steps',
-    ...nextSteps,
+    ...(files.length ? ['', '## Files', ...files] : []),
+    ...(commits.length ? ['', '## Commits', ...commits] : []),
+    ...(nextSteps.length ? ['', '## Next steps', ...nextSteps] : []),
     '',
     '## Environment',
     `- Vendor: ${getVendor(detail.agent).label}`,

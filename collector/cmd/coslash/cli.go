@@ -219,6 +219,23 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 0 {
 		return 2
 	}
+	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+		switch args[0] {
+		case "sessions":
+			fmt.Fprintln(stdout, "usage: coslash sessions [query] --json")
+		case "handoff":
+			fmt.Fprintln(stdout, "usage: coslash handoff <agent>:<session>")
+		case "send":
+			fmt.Fprintln(stdout, "usage: coslash send <agent>:<session> --to claude|codex [message]")
+		case "review":
+			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode")
+		case "doctor":
+			fmt.Fprintln(stdout, "usage: coslash doctor [--json]")
+		default:
+			return 2
+		}
+		return 0
+	}
 	var err error
 	switch args[0] {
 	case "sessions":
