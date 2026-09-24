@@ -149,6 +149,10 @@ func markPendingPermissionsContext(
 	if err != nil {
 		return nil
 	}
+	source, err := sessionSourceContext(ctx, db)
+	if err != nil {
+		return err
+	}
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -168,7 +172,7 @@ func markPendingPermissionsContext(
 		}
 		var rootID string
 		if db.QueryRowContext(ctx,
-			`SELECT COALESCE(parent_id, id) FROM session WHERE id = ? AND time_archived IS NULL`,
+			source+` SELECT COALESCE(parent_id, id) FROM sessions WHERE id = ? AND time_archived IS NULL`,
 			pending.SessionID,
 		).Scan(&rootID) == nil {
 			metadata.Session(rootID).Live = "waiting"
@@ -221,14 +225,30 @@ func parseTUIArgs(args []string) (project, sessionID string, fork, tui bool) {
 }
 
 func loadLiveCandidatesContext(ctx context.Context, db *sql.DB) ([]liveCandidate, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT session.id, session.directory, session.time_created, message.time_created
-		FROM session
-		LEFT JOIN message ON message.session_id = session.id
-			AND json_extract(message.data, '$.role') = 'user'
-		WHERE session.parent_id IS NULL AND session.time_archived IS NULL
-		ORDER BY session.id, message.time_created
-	`)
+	source, err := sessionSourceContext(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	var v1, v2 bool
+	if err := db.QueryRowContext(ctx, `SELECT
+		EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session'),
+		EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_v2')`,
+	).Scan(&v1, &v2); err != nil {
+		return nil, err
+	}
+	messageSources := []string{}
+	if v1 {
+		messageSources = append(messageSources, `SELECT session_id, time_created, 0 AS v2 FROM message WHERE json_extract(data, '$.role') = 'user'`)
+	}
+	if v2 {
+		messageSources = append(messageSources, `SELECT session_id, time_created, 1 AS v2 FROM session_message WHERE type = 'user'`)
+	}
+	rows, err := db.QueryContext(ctx, source+`, user_messages AS (`+strings.Join(messageSources, ` UNION ALL `)+`)
+		SELECT sessions.id, sessions.directory, sessions.time_created, user_messages.time_created
+		FROM sessions
+		LEFT JOIN user_messages ON user_messages.session_id = sessions.id AND user_messages.v2 = sessions.v2
+		WHERE sessions.parent_id IS NULL AND sessions.time_archived IS NULL
+		ORDER BY sessions.id, user_messages.time_created`)
 	if err != nil {
 		return nil, err
 	}

@@ -27,7 +27,7 @@ func TestLoadContextStopsBeforeOpeningTransaction(t *testing.T) {
 
 func TestNewSessionFactsLoaderFromDBIndexesActiveRoots(t *testing.T) {
 	db := testDB(t)
-	if _, err := db.Exec(`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
@@ -65,12 +65,12 @@ func TestNewSessionFactsLoaderFromDBIndexesActiveRoots(t *testing.T) {
 func TestMixedOpenCodeSchemasPreferV2AndKeepV1(t *testing.T) {
 	db := testDB(t)
 	for _, statement := range []string{
-		`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`,
-		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
 		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
-		`INSERT INTO session VALUES ('legacy', NULL, '/v1', 'old', NULL, NULL, NULL, NULL, 0, 100, NULL)`,
-		`INSERT INTO session VALUES ('shared', NULL, '/stale', 'stale', NULL, NULL, NULL, NULL, 0, 100, NULL)`,
-		`INSERT INTO session_v2 VALUES ('shared', NULL, '/current', 'current', NULL, NULL, NULL, NULL, 2, 300, NULL)`,
+		`INSERT INTO session VALUES ('legacy', NULL, '/v1', 'old', NULL, NULL, NULL, NULL, 0, 50, 100, NULL)`,
+		`INSERT INTO session VALUES ('shared', NULL, '/stale', 'stale', NULL, NULL, NULL, NULL, 0, 50, 100, NULL)`,
+		`INSERT INTO session_v2 VALUES ('shared', NULL, '/current', 'current', NULL, NULL, NULL, NULL, 2, 150, 300, NULL)`,
 		`INSERT INTO message VALUES ('m1', 'legacy', 100, '{"role":"user","time":{"created":100}}')`,
 		`INSERT INTO part VALUES ('p1', 'm1', 100, '{"type":"text","text":"old prompt"}')`,
 		`INSERT INTO session_message VALUES ('m2', 'shared', 'user', 1, 200, '{"text":"new prompt","time":{"created":200}}')`,
@@ -106,9 +106,9 @@ func TestMixedOpenCodeSchemasPreferV2AndKeepV1(t *testing.T) {
 func TestV2OnlyOpenCodeDatabase(t *testing.T) {
 	db := testDB(t)
 	for _, statement := range []string{
-		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
 		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
-		`INSERT INTO session_v2 VALUES ('v2', NULL, '/work', 'current', NULL, NULL, NULL, NULL, 0, 300, NULL)`,
+		`INSERT INTO session_v2 VALUES ('v2', NULL, '/work', 'current', NULL, NULL, NULL, NULL, 0, 50, 300, NULL)`,
 		`INSERT INTO session_message VALUES ('m1', 'v2', 'user', 1, 100, '{"text":"hello","time":{"created":100}}')`,
 		`INSERT INTO session_message VALUES ('m2', 'v2', 'assistant', 2, 200, '{"content":[{"type":"text","text":"hi"}],"finish":"stop","time":{"created":200,"completed":300}}')`,
 	} {
@@ -122,6 +122,64 @@ func TestV2OnlyOpenCodeDatabase(t *testing.T) {
 	}
 	if parsed[0].Session.SessionDetails.Turns != 1 || parsed[0].Session.StartedAt != 100 {
 		t.Fatalf("v2 session = %#v", parsed[0].Session)
+	}
+}
+
+func TestV2MessageFlagsAndTodos(t *testing.T) {
+	db := testDB(t)
+	for _, statement := range []string{
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+		`INSERT INTO session_message VALUES ('u', 'session', 'user', 1, 100, '{"text":"hello"}')`,
+		`INSERT INTO session_message VALUES ('a1', 'session', 'assistant', 2, 200, '{"summary":true,"error":{"name":"APIError"},"content":[{"type":"text","text":"internal summary"},{"type":"tool","name":"todowrite","state":{"status":"completed","input":{"todos":[{"content":"first","status":"completed"},{"content":"removed","status":"pending"}]}}}],"finish":"stop"}')`,
+		`INSERT INTO session_message VALUES ('a2', 'session', 'assistant', 3, 300, '{"content":[{"type":"tool","name":"todowrite","state":{"status":"completed","input":{"todos":[{"content":"first","status":"completed"},{"content":"second","status":"pending"}]}}},{"type":"text","text":"public answer"}],"finish":"stop"}')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	parsed, err := parse(tx, storedSession{v2: true, id: "session", directory: "/work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := parsed.transcript.Session
+	if got.SessionDetails.Errors != 1 || got.SessionDetails.CompactionSeed != "internal summary" ||
+		got.Summary == nil || *got.Summary != "public answer" {
+		t.Fatalf("v2 assistant fields = errors %d, compaction %q, summary %v", got.SessionDetails.Errors, got.SessionDetails.CompactionSeed, got.Summary)
+	}
+	todos := got.SessionDetails.Todos
+	if len(todos) != 2 || todos[0].Text != "first" || !todos[0].Done || todos[1].Text != "second" || todos[1].Done {
+		t.Fatalf("v2 todos = %#v", todos)
+	}
+}
+
+func TestMalformedV2ContentSkipsOnlyItsFamily(t *testing.T) {
+	for _, content := range []string{`{"type":"tool","name":3}`, `{"type":"tool","time":{"completed":"bad"}}`} {
+		t.Run(content, func(t *testing.T) {
+			db := testDB(t)
+			for _, statement := range []string{
+				`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
+				`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+				`INSERT INTO session_v2 VALUES ('bad', NULL, '/work', 'bad', NULL, NULL, NULL, NULL, 0, 100, 200, NULL)`,
+				`INSERT INTO session_v2 VALUES ('good', NULL, '/work', 'good', NULL, NULL, NULL, NULL, 0, 100, 200, NULL)`,
+				`INSERT INTO session_message VALUES ('good-message', 'good', 'user', 1, 100, '{"text":"hello"}')`,
+			} {
+				if _, err := db.Exec(statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.Exec(`INSERT INTO session_message VALUES ('bad-message', 'bad', 'assistant', 1, 100, ?)`, `{"content":[`+content+`]}`); err != nil {
+				t.Fatal(err)
+			}
+			parsed, skipped, err := load(db, activeFamiliesQuery)
+			if err != nil || len(parsed) != 1 || parsed[0].Session.ID != "good" || len(skipped) != 1 || skipped[0].id != "bad" {
+				t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
+			}
+		})
 	}
 }
 

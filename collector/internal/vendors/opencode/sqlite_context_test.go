@@ -24,9 +24,9 @@ func TestOpenV2DatabaseFromDataHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
 		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
-		`INSERT INTO session_v2 VALUES ('s', NULL, '/work', 'session', NULL, NULL, NULL, NULL, 0, 1, NULL)`,
+		`INSERT INTO session_v2 VALUES ('s', NULL, '/work', 'session', NULL, NULL, NULL, NULL, 0, 0, 1, NULL)`,
 	} {
 		if _, err := writer.Exec(statement); err != nil {
 			t.Fatal(err)

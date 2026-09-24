@@ -145,7 +145,7 @@ func sessionSourceContext(ctx context.Context, db *sql.DB) (string, error) {
 		return "", fmt.Errorf("unsupported OpenCode database schema: no session table")
 	}
 	projection := `id, parent_id, directory, COALESCE(title, '') AS title, summary_files,
-		summary_diffs, agent, model, cost, time_updated, time_archived`
+		summary_diffs, agent, model, cost, time_created, time_updated, time_archived`
 	parts := []string{}
 	if v2 {
 		parts = append(parts, `SELECT `+projection+`, 1 AS v2 FROM session_v2`)
@@ -160,7 +160,7 @@ func sessionSourceContext(ctx context.Context, db *sql.DB) (string, error) {
 	source := `WITH sessions AS (` + strings.Join(parts, ` UNION ALL `) + `)`
 	statement, err := db.PrepareContext(ctx, source+`, validated AS (
 		SELECT id, parent_id, directory, title, summary_files, summary_diffs,
-			agent, model, cost, time_updated, time_archived, v2 FROM sessions WHERE 0
+			agent, model, cost, time_created, time_updated, time_archived, v2 FROM sessions WHERE 0
 	) SELECT * FROM validated`)
 	if err != nil {
 		return "", fmt.Errorf("unsupported OpenCode database schema; update OpenCode or coSlash to a compatible version: %w", err)

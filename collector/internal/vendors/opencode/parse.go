@@ -253,6 +253,12 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 						lastEditAt = &endedAt
 					}
 					if part.Tool == "todowrite" {
+						if row.v2 {
+							todos = make([]session.Todo, 0, len(part.State.Input.Todos))
+							for _, todo := range part.State.Input.Todos {
+								todos = append(todos, session.Todo{Text: todo.Content, Done: todo.Status == "completed"})
+							}
+						}
 						for _, todo := range part.State.Input.Todos {
 							if todo.Status == "completed" &&
 								todoStatus[todo.Content] != "completed" {
@@ -398,10 +404,12 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 				ProviderID string `json:"providerID"`
 				ID         string `json:"id"`
 			} `json:"model"`
-			Cost   float64      `json:"cost"`
-			Tokens storedTokens `json:"tokens"`
-			Finish string       `json:"finish"`
-			Time   struct {
+			Cost    float64         `json:"cost"`
+			Tokens  storedTokens    `json:"tokens"`
+			Finish  string          `json:"finish"`
+			Summary json.RawMessage `json:"summary"`
+			Error   json.RawMessage `json:"error"`
+			Time    struct {
 				Created   int64  `json:"created"`
 				Completed *int64 `json:"completed"`
 			} `json:"time"`
@@ -410,7 +418,7 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 			return nil, fmt.Errorf("%w: decode v2 message: %w", errMalformedSession, err)
 		}
 		message := storedMessage{Role: kind, ProviderID: value.Model.ProviderID, ModelID: value.Model.ID,
-			Cost: value.Cost, Tokens: value.Tokens, Finish: value.Finish}
+			Cost: value.Cost, Tokens: value.Tokens, Finish: value.Finish, Summary: value.Summary, Error: value.Error}
 		message.Time.Created = value.Time.Created
 		if message.Time.Created == 0 {
 			message.Time.Created = created
@@ -432,7 +440,7 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 					} `json:"time"`
 				}
 				if err := json.Unmarshal(content, &extra); err != nil {
-					return nil, err
+					return nil, fmt.Errorf("%w: decode v2 content: %w", errMalformedSession, err)
 				}
 				part.Tool = extra.Name
 				part.State.Time.End = extra.Time.Completed
