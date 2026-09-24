@@ -235,6 +235,42 @@ func TestLoadRelationshipMetadataIncludesCursorCLIParent(t *testing.T) {
 	}
 }
 
+func TestHealthCountsCLIChildAsSubagent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	parentID := "00000000-0000-4000-8000-000000000001"
+	childID := "00000000-0000-4000-8000-000000000002"
+	for _, id := range []string{parentID, childID} {
+		path := filepath.Join(ProjectsRoot(home), "one", "agent-transcripts", id, id+".jsonl")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := filepath.Join(home, ".cursor", "chats", "one", childID, "store.db")
+	if err := os.MkdirAll(filepath.Dir(store), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := hex.EncodeToString([]byte(`{"agentId":"` + childID + `","subagentInfo":{"parentAgentId":"` + parentID + `"}}`))
+	if _, err := db.Exec(`CREATE TABLE meta (key TEXT, value TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO meta VALUES ('0', ?)`, value); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	if health := Health(); health.Err != nil || health.Entries != 2 || health.Sessions != 1 {
+		t.Fatalf("health = %#v, want 2 entries and 1 session", health)
+	}
+}
+
 func TestLoadRelationshipMetadataReadsOnlyRelationships(t *testing.T) {
 	home := t.TempDir()
 	statePath := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
