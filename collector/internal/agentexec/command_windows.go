@@ -3,40 +3,16 @@ package agentexec
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/binary"
 	"fmt"
 	"os/exec"
-	"path/filepath"
-	"strings"
 	"syscall"
-	"unicode/utf16"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 func CommandContext(ctx context.Context, bin string, args ...string) *exec.Cmd {
-	path := bin
-	if resolved, err := exec.LookPath(bin); err == nil {
-		path = resolved
-	}
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".cmd", ".bat", ".ps1":
-		parts := append([]string{path}, args...)
-		for i, part := range parts {
-			parts[i] = "'" + strings.ReplaceAll(part, "'", "''") + "'"
-		}
-		script := "& " + strings.Join(parts, " ") + "; exit $LASTEXITCODE"
-		units := utf16.Encode([]rune(script))
-		encoded := make([]byte, 2*len(units))
-		for i, unit := range units {
-			binary.LittleEndian.PutUint16(encoded[2*i:], unit)
-		}
-		return exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", base64.StdEncoding.EncodeToString(encoded))
-	default:
-		return exec.CommandContext(ctx, bin, args...)
-	}
+	return exec.CommandContext(ctx, bin, args...)
 }
 
 func Run(cmd *exec.Cmd) error {

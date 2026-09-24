@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,13 +17,17 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestCommandContextRunsWindowsShims(t *testing.T) {
+func TestCommandContextDoesNotWrapWindowsShims(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if err := os.WriteFile(filepath.Join(directory, "agent.cmd"), []byte("@echo off\r\nif not \"%~1\"==\"Bob's & project\" exit /b 2\r\nexit /b 7\r\n"), 0o600); err != nil {
+	path := filepath.Join(directory, "agent.cmd")
+	if err := os.WriteFile(path, []byte("@echo off\r\nif not \"%~1\"==\"Bob's & project\" exit /b 2\r\nexit /b 7\r\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := CommandContext(context.Background(), "agent", "Bob's & project")
+	if cmd.Path != path || !reflect.DeepEqual(cmd.Args, []string{"agent", "Bob's & project"}) {
+		t.Fatalf("batch command = %q %q, want direct shim invocation", cmd.Path, cmd.Args)
+	}
 	_, err := Output(cmd)
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.ExitCode() != 7 {
@@ -34,10 +39,11 @@ func TestCommandContextRunsWindowsShims(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd = CommandContext(context.Background(), script, "Bob's & project")
-	cmd.Stdin = strings.NewReader("private prompt")
-	output, err := Output(cmd)
-	if err != nil || string(output) != "Bob's & project:private prompt" {
-		t.Fatalf("PowerShell output = %q, %v", output, err)
+	if cmd.Path != script || !reflect.DeepEqual(cmd.Args, []string{script, "Bob's & project"}) {
+		t.Fatalf("PowerShell command = %q %q, want direct shim invocation", cmd.Path, cmd.Args)
+	}
+	if _, err := Output(cmd); err == nil {
+		t.Fatal("PowerShell script unexpectedly ran without a shell")
 	}
 }
 
