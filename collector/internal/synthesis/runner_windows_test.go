@@ -3,6 +3,7 @@ package synthesis
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,7 +21,11 @@ func TestCursorCmdShimRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("LOCALAPPDATA", localAppData)
-	t.Setenv("PATH", t.TempDir())
+	powershell, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(powershell))
 
 	output, err := executeCommand(context.Background(), commandSpec{
 		bin:  settings.BackendExecutable(settings.BackendCursor),
