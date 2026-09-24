@@ -59,6 +59,28 @@ function remoteDetail(): SessionDetail {
 }
 
 describe('handoffBrief', () => {
+  it('omits unavailable Cursor sections and keeps populated ones', () => {
+    const detail = remoteDetail();
+    detail.agent = 'cursor';
+    detail.digest = [{ turn: 1, category: 'first_prompt', description: 'Investigate the issue' }];
+    const brief = handoffBrief(detail);
+    for (const section of ['Key decisions', 'Files', 'Commits', 'Next steps']) {
+      expect(brief).not.toContain(`## ${section}`);
+    }
+    expect(brief).toContain('## Timeline');
+    expect(brief).toContain('## Environment');
+
+    detail.fileEdits = [{ path: 'fix.ts', adds: 2, dels: 1, edits: 1, isNew: false }];
+    detail.commits = ['abc123 Fix issue'];
+    detail.todos = [{ text: 'Run tests', done: false }];
+    detail.synthesis = { goals: [], outcome: '', keyDecisions: ['Reuse parser'], nextStep: '' };
+    const populated = handoffBrief(detail);
+    expect(populated).toContain('## Key decisions\n- Reuse parser');
+    expect(populated).toContain('## Files\n- fix.ts (+2/-1)');
+    expect(populated).toContain('## Commits\n- abc123 Fix issue');
+    expect(populated).toContain('## Next steps\n- Run tests');
+  });
+
   it('formats missing remote environment facts without literal undefined', () => {
     const brief = handoffBrief(remoteDetail());
     expect(brief).toContain('- Repository: —');

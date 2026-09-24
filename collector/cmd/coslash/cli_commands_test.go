@@ -395,6 +395,30 @@ func TestRunHandoffAndSendPreserveServerOutcomes(t *testing.T) {
 	}
 }
 
+func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		usage   string
+	}{
+		{"sessions", "usage: coslash sessions [query] --json\n"},
+		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
+		{"send", "usage: coslash send <agent>:<session> --to claude|codex [message]\n"},
+		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode\n"},
+		{"doctor", "usage: coslash doctor [--json]\n"},
+	} {
+		for _, flag := range []string{"--help", "-h"} {
+			var stdout, stderr bytes.Buffer
+			if code := runCLI(&stdout, &stderr, []string{test.command, flag}); code != 0 || stdout.String() != test.usage || stderr.Len() != 0 {
+				t.Fatalf("%s %s: code=%d stdout=%q stderr=%q", test.command, flag, code, stdout.String(), stderr.String())
+			}
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"sessions", "--bad"}); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage:") {
+		t.Fatalf("invalid flag: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunReviewPreservesServerOutcomes(t *testing.T) {
 	reviewer := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

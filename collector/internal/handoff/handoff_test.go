@@ -87,3 +87,21 @@ func TestBuildKeepsSummaryWhenSynthesisOutcomeIsBlank(t *testing.T) {
 		t.Fatalf("handoff discarded the summary:\n%s", got)
 	}
 }
+
+func TestBuildOmitsUnavailableCursorSections(t *testing.T) {
+	prompt := "Investigate the issue"
+	got := Build(&session.Session{Agent: "cursor", ID: "cursor-1", SessionDetails: session.SessionDetails{
+		FirstPrompt: &prompt,
+		Digest:      []session.DigestEntry{{Turn: 1, Category: session.DigestFirstPrompt, Description: prompt}},
+	}})
+	for _, absent := range []string{"## Key decisions", "## Files", "## Commits", "## Next steps"} {
+		if strings.Contains(got, absent) {
+			t.Fatalf("handoff includes empty %q:\n%s", absent, got)
+		}
+	}
+	for _, present := range []string{"## Objective (first prompt)", "## Timeline", "## Environment"} {
+		if !strings.Contains(got, present) {
+			t.Fatalf("handoff missing %q:\n%s", present, got)
+		}
+	}
+}
