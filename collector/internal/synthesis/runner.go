@@ -73,7 +73,7 @@ func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 		Bin:        bin,
 		Model:      config.Model,
 		Timeout:    90 * time.Second,
-		openCodeV2: config.Backend == settings.BackendOpenCode && cachedOpenCodeV2(),
+		openCodeV2: config.Backend == settings.BackendOpenCode && cachedOpenCodeV2(bin),
 	}, nil
 }
 

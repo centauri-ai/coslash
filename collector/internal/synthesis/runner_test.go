@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -92,33 +93,47 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	}
 }
 
-func TestOpenCodeRunnerCachesVersionAcrossSettingsSaves(t *testing.T) {
+func TestOpenCodeRunnerRefreshesVersionWhenExecutableChanges(t *testing.T) {
 	original := cachedOpenCodeV2
 	t.Cleanup(func() { cachedOpenCodeV2 = original })
-	for _, v2 := range []bool{true, false} {
-		t.Run(fmt.Sprint(v2), func(t *testing.T) {
-			probes := 0
-			cachedOpenCodeV2 = newOpenCodeV2Detector(func(bin string) bool {
-				if bin != "opencode" {
-					t.Fatalf("version probe binary = %q", bin)
-				}
-				probes++
-				return v2
-			})
-			config := settings.SynthesisSettings{Enabled: true, Backend: settings.BackendOpenCode, Model: settings.OpenCodeSynthesisModel}
-			for range 2 {
-				created, err := NewRunner(config)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if created.(*CLIRunner).openCodeV2 != v2 {
-					t.Fatalf("OpenCode v2 = %v, want %v", created.(*CLIRunner).openCodeV2, v2)
-				}
-			}
-			if probes != 1 {
-				t.Fatalf("version probes = %d, want 1", probes)
-			}
-		})
+	directory := t.TempDir()
+	name := "opencode"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(directory, name)
+	if err := os.WriteFile(path, []byte("v1"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory)
+	probes := 0
+	cachedOpenCodeV2 = newOpenCodeV2Detector(func(bin string) bool {
+		if bin != path {
+			t.Fatalf("version probe binary = %q, want %q", bin, path)
+		}
+		probes++
+		return probes == 2
+	})
+	config := settings.SynthesisSettings{Enabled: true, Backend: settings.BackendOpenCode, Model: settings.OpenCodeSynthesisModel}
+	check := func(wantV2 bool) {
+		t.Helper()
+		created, err := NewRunner(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if created.(*CLIRunner).openCodeV2 != wantV2 {
+			t.Fatalf("OpenCode v2 = %v, want %v", created.(*CLIRunner).openCodeV2, wantV2)
+		}
+	}
+	check(false)
+	check(false)
+	if err := os.WriteFile(path, []byte("version two"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	check(true)
+	check(true)
+	if probes != 2 {
+		t.Fatalf("version probes = %d, want 2", probes)
 	}
 }
 

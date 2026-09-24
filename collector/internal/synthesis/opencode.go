@@ -25,8 +25,30 @@ const openCodeV2ConfigContent = `{"permission":"deny","update":"disable","plugin
 
 var cachedOpenCodeV2 = newOpenCodeV2Detector(detectOpenCodeV2)
 
-func newOpenCodeV2Detector(detect func(string) bool) func() bool {
-	return sync.OnceValue(func() bool { return detect("opencode") })
+func newOpenCodeV2Detector(detect func(string) bool) func(string) bool {
+	var mutex sync.Mutex
+	var cachedPath string
+	var cachedInfo os.FileInfo
+	var cachedV2 bool
+	return func(bin string) bool {
+		path, err := exec.LookPath(bin)
+		if err != nil {
+			return false
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return false
+		}
+		mutex.Lock()
+		defer mutex.Unlock()
+		if cachedInfo != nil && cachedPath == path && os.SameFile(cachedInfo, info) &&
+			cachedInfo.Size() == info.Size() && cachedInfo.ModTime().Equal(info.ModTime()) {
+			return cachedV2
+		}
+		cachedV2 = detect(path)
+		cachedPath, cachedInfo = path, info
+		return cachedV2
+	}
 }
 
 const (
