@@ -235,6 +235,47 @@ func TestLoadRelationshipMetadataIncludesCursorCLIParent(t *testing.T) {
 	}
 }
 
+func TestCursorKeyQueryMatchesWholeIDSegmentIgnoringCase(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	id := "abcdefab-cdef-4abc-8def-abcdefabcdef"
+	if _, err := db.Exec(`CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"bubbleId:" + strings.ToUpper(id) + ":1",
+		"bubbleId:" + id + ":2",
+		"bubbleId:" + id + "0:3",
+		"bubbleId:00000000-0000-4000-8000-000000000001:4",
+		"composerData:" + id,
+	} {
+		if _, err := db.Exec(`INSERT INTO cursorDiskKV VALUES (?, '')`, key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	query, args := cursorKeyQuery(`SELECT key FROM cursorDiskKV`, "bubbleId:", []string{strings.ToUpper(id)})
+	rows, err := db.Query(query+` ORDER BY key`, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, key)
+	}
+	want := []string{"bubbleId:" + strings.ToUpper(id) + ":1", "bubbleId:" + id + ":2"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("keys = %q, want %q", got, want)
+	}
+}
+
 func TestHealthCountsCLIChildAsSubagent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
