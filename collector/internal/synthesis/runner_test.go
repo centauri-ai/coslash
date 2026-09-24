@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -48,8 +49,12 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	if captured.bin != "cursor-agent" {
 		t.Fatalf("bin = %q, want cursor-agent", captured.bin)
 	}
+	wantSandboxMode := "enabled"
+	if runtime.GOOS == "windows" {
+		wantSandboxMode = "disabled"
+	}
 	wantArgs := []string{
-		"-p", "--mode", "ask", "--sandbox", "enabled", "--trust",
+		"-p", "--mode", "ask", "--sandbox", wantSandboxMode, "--trust",
 		"--model", "auto", "--output-format", "json",
 	}
 	if !slices.Equal(captured.args, wantArgs) {
