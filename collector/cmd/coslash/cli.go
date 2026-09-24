@@ -301,7 +301,7 @@ func parseLocalSessionSelector(value string) (string, string, bool) {
 		return "", "", false
 	}
 	switch agent {
-	case vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode:
+	case vendors.AgentClaude, vendors.AgentCodex, vendors.AgentCursor, vendors.AgentOpenCode:
 		return agent, id, true
 	default:
 		return "", "", false

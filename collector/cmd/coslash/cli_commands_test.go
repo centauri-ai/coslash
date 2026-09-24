@@ -283,11 +283,13 @@ func TestSessionMatchesOnlyUISearchFields(t *testing.T) {
 }
 
 func TestParseLocalSessionSelector(t *testing.T) {
-	agent, id, ok := parseLocalSessionSelector("codex:session-1")
-	if !ok || agent != "codex" || id != "session-1" {
-		t.Fatalf("selector = %q/%q/%v", agent, id, ok)
+	for _, want := range []string{"codex", "cursor"} {
+		agent, id, ok := parseLocalSessionSelector(want + ":session-1")
+		if !ok || agent != want || id != "session-1" {
+			t.Fatalf("selector = %q/%q/%v", agent, id, ok)
+		}
 	}
-	for _, value := range []string{"session-1", "cursor:session-1", "codex:"} {
+	for _, value := range []string{"session-1", "gemini:session-1", "codex:"} {
 		if _, _, ok := parseLocalSessionSelector(value); ok {
 			t.Fatalf("accepted selector %q", value)
 		}
