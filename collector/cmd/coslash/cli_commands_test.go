@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -237,6 +238,10 @@ func TestRunSessionsFiltersUIFieldsAndPrintsJSON(t *testing.T) {
 		if r.URL.Path != "/api/sessions" || r.URL.Query().Get("sourceAware") != "" {
 			t.Fatalf("request = %s", r.URL.String())
 		}
+		if r.URL.Query().Has("id") {
+			io.WriteString(w, `[]`)
+			return
+		}
 		io.WriteString(w, `[
 			{"agent":"codex","id":"one","name":"Auth work","repo":"centauri/coslash","branch":"main","cwd":"/secret/path","firstPrompt":"SECRET"},
 			{"agent":"claude","id":"two","name":"Docs","repo":"other/repo","branch":"docs"}
@@ -261,6 +266,60 @@ func TestRunSessionsFiltersUIFieldsAndPrintsJSON(t *testing.T) {
 	}
 	if _, present := sessions[0]["cwd"]; present {
 		t.Fatalf("sessions exposed working directory: %#v", sessions)
+	}
+}
+
+func TestRunSessionsLooksUpExactIDWithoutListing(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.RawQuery)
+		if !r.URL.Query().Has("id") {
+			io.WriteString(w, `[{"agent":"codex","id":"listed","name":"Remote collection duplication"}]`)
+			return
+		}
+		io.WriteString(w, `[{"agent":"claude","id":"abc-123","name":"Exact"}]`)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+
+	for _, test := range []struct {
+		query    string
+		requests []string
+		selector string
+	}{
+		{query: "claude:abc-123", requests: []string{"agent=claude&id=abc-123"}, selector: "claude:abc-123"},
+		{query: "abc-123", requests: []string{"agent=&id=abc-123"}, selector: "claude:abc-123"},
+		{query: "Remote collection", requests: []string{""}, selector: "codex:listed"},
+	} {
+		requests = nil
+		var stdout, stderr bytes.Buffer
+		if code := runCLI(&stdout, &stderr, []string{"sessions", test.query, "--json"}); code != 0 {
+			t.Fatalf("%q: code = %d, stderr = %s", test.query, code, stderr.String())
+		}
+		var sessions []map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &sessions); err != nil {
+			t.Fatalf("%q: invalid JSON: %v", test.query, err)
+		}
+		if len(sessions) != 1 || sessions[0]["selector"] != test.selector || !slices.Equal(requests, test.requests) {
+			t.Fatalf("%q: sessions = %#v, requests = %q", test.query, sessions, requests)
+		}
+	}
+}
+
+func TestHandleExactSessionReturnsOneOrNone(t *testing.T) {
+	load := func(agent, id string, _ int64) (*session.Session, error) {
+		if agent == "" && id == "abc-123" {
+			return &session.Session{Agent: "claude", ID: id}, nil
+		}
+		return nil, nil
+	}
+	for query, want := range map[string]int{"id=abc-123": 1, "agent=codex&id=abc-123": 0} {
+		recorder := httptest.NewRecorder()
+		handleExactSession(recorder, httptest.NewRequest(http.MethodGet, "/api/sessions?"+query, nil), load)
+		var sessions []session.Session
+		if err := json.Unmarshal(recorder.Body.Bytes(), &sessions); err != nil || len(sessions) != want {
+			t.Fatalf("%s: status = %d, body = %s", query, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 

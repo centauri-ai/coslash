@@ -294,7 +294,7 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 | `coslash --port N` | Use another loopback port. |
 | `coslash --no-open` | Do not open the browser. |
 | `coslash --version` | Print the version. |
-| `coslash sessions [query] --json` | List local sessions as JSON, optionally filtering by title, repository, branch, or agent. Requires the app to be running. |
+| `coslash sessions [query] --json` | List local sessions as JSON, optionally filtering by title, repository, branch, or agent. A query that is an exact session ID or `<agent>:<session>` selector returns only that session without a full list. Requires the app to be running. |
 | `coslash handoff <agent>:<session>` | Print canonical handoff Markdown for the selector returned by `coslash sessions`. Requires the app to be running. |
 | `coslash send <agent>:<session> --to claude\|codex [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Requires the app to be running. |
 | `coslash review <agent>:<session> --with claude\|codex\|opencode` | Start a review of the selected local session with the selected installed agent. Requires the app to be running. |

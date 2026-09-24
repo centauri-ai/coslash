@@ -435,6 +435,28 @@ func canonicalSession(
 	return found, nil
 }
 
+// handleExactSession loads one local session family by vendor ID, so an exact
+// CLI lookup does not pay for a machine-wide collection. An empty agent
+// checks every vendor.
+func handleExactSession(
+	w http.ResponseWriter,
+	r *http.Request,
+	load func(string, string, int64) (*session.Session, error),
+) {
+	query := r.URL.Query()
+	found, err := load(query.Get("agent"), query.Get("id"), 0)
+	if err != nil {
+		log.Printf("exact session: %v", err)
+		http.Error(w, "could not load session", http.StatusInternalServerError)
+		return
+	}
+	sessions := []*session.Session{}
+	if found != nil {
+		sessions = append(sessions, found)
+	}
+	writeSessionListJSON(r.Context(), w, sessions)
+}
+
 type promptLauncher func(context.Context, string, string, string, string, string, string, string) error
 
 func handleSend(
