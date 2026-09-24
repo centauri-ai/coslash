@@ -264,7 +264,7 @@ Debriefs work without any model: goals, outcomes, timelines, and artifacts are d
 
 When enabled, coSlash passes no more than 12 KB of derived facts to a local agent CLI. Facts can include goals, digest entries, todos, filenames, commits, and statistics. Supported CLIs are Claude Code, Codex, OpenCode, and Cursor. Each CLI uses its existing account. Results are cached under `~/.coslash`. Only substantial sessions qualify, so short runs do not use a model.
 
-For OpenCode, the model list includes *OpenCode default for a new run* and, when the installed CLI supports listing them, free OpenCode Zen models. The default option passes no model to a fresh, isolated OpenCode process, which selects its current catalog default. It may differ from the model shown in an existing OpenCode session. If the resolved model is paid, it will bill your account per debrief.
+For OpenCode, the model list includes *OpenCode default for a new run* and, when the installed CLI supports listing them, free OpenCode Zen models. The default option passes no model. OpenCode v2 selects its current catalog default in a fresh, isolated process; v1 may instead use a model from the user's configuration. Either may differ from the model shown in an existing OpenCode session. If the resolved model is paid, it will bill your account per debrief.
 
 It is **off until you explicitly enable and save it**.
 <p align="center">

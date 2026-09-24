@@ -144,6 +144,8 @@ func TestOpenCodeRunnerRefreshesVersionWhenExecutableChanges(t *testing.T) {
 
 func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("OPENCODE_CONFIG_DIR", filepath.Join(t.TempDir(), "user-config"))
+	t.Setenv("OPENCODE_CONFIG", filepath.Join(t.TempDir(), "user.json"))
 	for _, test := range []struct {
 		name       string
 		v2         bool
@@ -182,6 +184,13 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 			}
 			if !test.v2 && configHome != "" {
 				t.Fatalf("v1 config home = %q, want inherited config", configHome)
+			}
+			if test.v2 && (!slices.Contains(captured.env, "OPENCODE_CONFIG_DIR="+filepath.Join(configHome, "opencode")) ||
+				!slices.Contains(captured.env, "OPENCODE_CONFIG=")) {
+				t.Fatalf("v2 inherited explicit config paths: %#v", captured.env)
+			}
+			if !test.v2 && (slices.Contains(captured.env, "OPENCODE_CONFIG=") || slices.Contains(captured.env, "OPENCODE_CONFIG_DIR=")) {
+				t.Fatalf("v1 overrides user config paths: %#v", captured.env)
 			}
 			if disabled := slices.Contains(captured.env, "OPENCODE_DISABLE_MODELS_FETCH=1"); disabled == test.v2 {
 				t.Fatalf("v2 = %v, disabled model fetch = %v", test.v2, disabled)
