@@ -412,7 +412,7 @@ func Health() vendors.SourceHealth {
 }
 
 func healthForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) vendors.SourceHealth {
-	root := SessionsRoot(home)
+	root := filepath.Dir(SessionsRoot(home))
 	scan, err := scanForHomeSourceContext(ctx, source, home)
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Root: root, Err: err}
