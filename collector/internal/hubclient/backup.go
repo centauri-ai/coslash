@@ -239,10 +239,11 @@ type backupChunkSpec struct {
 }
 
 type backupChunkReceipt struct {
-	ArtifactOrdinal int    `json:"artifactOrdinal"`
-	ChunkOrdinal    int    `json:"chunkOrdinal"`
-	ByteCount       int64  `json:"byteCount"`
-	SHA256          string `json:"sha256"`
+	ArtifactOrdinal int       `json:"artifactOrdinal"`
+	ChunkOrdinal    int       `json:"chunkOrdinal"`
+	ByteCount       int64     `json:"byteCount"`
+	SHA256          string    `json:"sha256"`
+	ReceivedAt      time.Time `json:"receivedAt"`
 }
 
 type backupUploadResult struct {
@@ -446,13 +447,13 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 		if readErr != nil {
 			return failedBackup(item, "temporary_unavailable", true, nil), errors.New("read frozen backup chunk")
 		}
-		status, problem, err = c.sendBackupChunk(ctx, credential, consent.DestinationWorkspaceID,
+		receipt, problem, err := c.sendBackupChunk(ctx, credential, consent.DestinationWorkspaceID,
 			consent.AudienceVersion, status.UploadID, chunk, body)
 		if err != nil {
 			return failedBackup(item, problem.Code, backupRetryable(problem.Code), problem.RetryAfterSeconds), err
 		}
-		if status.CompleteBackupSHA256 != consent.CompleteBackupSHA256 || status.TotalBytes != consent.TotalBytes {
-			return failedBackup(item, "temporary_unavailable", true, nil), errors.New("backup chunk status mismatch")
+		if !validBackupChunkReceipt(receipt, chunk) {
+			return failedBackup(item, "temporary_unavailable", true, nil), errors.New("backup chunk receipt mismatch")
 		}
 	}
 	status, problem, err = c.finalizeBackup(ctx, credential, consent.DestinationWorkspaceID,
@@ -469,6 +470,11 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 func validBackupStatusBinding(status backupUploadStatus, consent BackupConsent, expectedChunks int) bool {
 	return status.CompleteBackupSHA256 == consent.CompleteBackupSHA256 && status.TotalBytes == consent.TotalBytes &&
 		status.ExpectedChunks == expectedChunks
+}
+
+func validBackupChunkReceipt(receipt backupChunkReceipt, chunk backupChunkSpec) bool {
+	return receipt.ArtifactOrdinal == chunk.ArtifactOrdinal && receipt.ChunkOrdinal == chunk.ChunkOrdinal &&
+		receipt.ByteCount == chunk.ByteCount && receipt.SHA256 == chunk.SHA256
 }
 
 func (c *Client) backupChunkPlan(prepared *sessionbackupproducer.Prepared, chunkBytes int64) ([]backupChunkSpec, error) {
@@ -588,17 +594,55 @@ func (c *Client) lookupBackupStatus(ctx context.Context, credential, key string)
 	return c.doBackupStatus(request, http.StatusOK)
 }
 
-func (c *Client) sendBackupChunk(ctx context.Context, credential, destination, audienceVersion, uploadID string, chunk backupChunkSpec, body []byte) (backupUploadStatus, Problem, error) {
+func (c *Client) sendBackupChunk(ctx context.Context, credential, destination, audienceVersion, uploadID string, chunk backupChunkSpec, body []byte) (backupChunkReceipt, Problem, error) {
 	path := fmt.Sprintf("/v3/backup-uploads/%s/artifacts/%d/chunks/%d", uploadID, chunk.ArtifactOrdinal, chunk.ChunkOrdinal)
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint(path), bytes.NewReader(body))
-	if err != nil {
-		return backupUploadStatus{}, Problem{Code: "temporary_unavailable"}, err
+	for attempt := 0; ; attempt++ {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint(path), bytes.NewReader(body))
+		if err != nil {
+			return backupChunkReceipt{}, Problem{Code: "temporary_unavailable"}, err
+		}
+		request.Header.Set("Authorization", "Device "+credential)
+		request.Header.Set("Content-Type", "application/octet-stream")
+		request.Header.Set(backupWorkspaceHeader, destination)
+		request.Header.Set(backupAudienceHeader, audienceVersion)
+		response, err := c.httpClient().Do(request)
+		if err != nil {
+			return backupChunkReceipt{}, Problem{Code: "network_unavailable"}, err
+		}
+		if response.StatusCode != http.StatusOK {
+			problem := readProblem(response)
+			response.Body.Close()
+			if response.StatusCode == http.StatusTooManyRequests && problem.Code == "rate_limited" && attempt < 4 {
+				seconds := 1
+				if problem.RetryAfterSeconds != nil {
+					seconds = *problem.RetryAfterSeconds
+				}
+				if err := waitForBackupRetry(ctx, time.Duration(seconds)*time.Second); err != nil {
+					return backupChunkReceipt{}, Problem{Code: "timeout"}, err
+				}
+				continue
+			}
+			return backupChunkReceipt{}, problem, fmt.Errorf("backup chunk request failed (status %d, code %.200q)", response.StatusCode, problem.Code)
+		}
+		var receipt backupChunkReceipt
+		err = decodeBounded(response.Body, &receipt)
+		response.Body.Close()
+		if err != nil {
+			return backupChunkReceipt{}, Problem{Code: "temporary_unavailable"}, errors.New("decode backup chunk receipt")
+		}
+		return receipt, Problem{}, nil
 	}
-	request.Header.Set("Authorization", "Device "+credential)
-	request.Header.Set("Content-Type", "application/octet-stream")
-	request.Header.Set(backupWorkspaceHeader, destination)
-	request.Header.Set(backupAudienceHeader, audienceVersion)
-	return c.doBackupStatus(request, http.StatusOK)
+}
+
+func waitForBackupRetry(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (c *Client) finalizeBackup(ctx context.Context, credential, destination, audienceVersion, uploadID string) (backupUploadStatus, Problem, error) {
