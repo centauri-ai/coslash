@@ -17,7 +17,13 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-const maxSessionIndexRowBytes = 1 << 20
+// Matching rows are retained for exact sidecar capture, so keep the projection
+// bounded before copying bytes from the source index into memory.
+const (
+	maxSessionIndexRowBytes       = 1 << 20
+	maxSessionIndexAttributedRows = 100_000
+	maxSessionIndexAttributedSize = int64(512 << 20)
+)
 
 // LoadMetadata reads liveness from open rollout handles and names from
 // session_index.jsonl. Live rollouts get the "interactive" convention so
@@ -95,18 +101,21 @@ func SessionIndexPath(home string) string {
 	return filepath.Join(home, ".codex", "session_index.jsonl")
 }
 
-// ReadSessionIndexRows returns exact matching row bytes, including their
-// original line terminator. Any malformed or duplicate row makes attribution
-// incomplete; callers must not silently omit it from a complete backup.
-func ReadSessionIndexRows(source vendors.ReadSource, home string, ids map[string]bool) (map[string][]byte, bool, error) {
+// ReadSessionIndexRows returns every exact matching row, including its original
+// line terminator. Repeated rows with the same member ID are still attributable
+// and must all be preserved. A malformed or unidentifiable row makes attribution
+// incomplete because it could belong to a selected member.
+func ReadSessionIndexRows(source vendors.ReadSource, home string, ids map[string]bool) (map[string][][]byte, bool, error) {
 	return ReadSessionIndexRowsContext(context.Background(), source, home, ids)
 }
 
-func ReadSessionIndexRowsContext(ctx context.Context, source vendors.ReadSource, home string, ids map[string]bool) (map[string][]byte, bool, error) {
+func ReadSessionIndexRowsContext(ctx context.Context, source vendors.ReadSource, home string, ids map[string]bool) (map[string][][]byte, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	rows := map[string][]byte{}
+	rows := map[string][][]byte{}
+	var attributedSize int64
+	attributedRows := 0
 	file, err := source.Open(SessionIndexPath(home))
 	if errors.Is(err, fs.ErrNotExist) {
 		return rows, false, nil
@@ -134,10 +143,12 @@ func ReadSessionIndexRowsContext(ctx context.Context, source vendors.ReadSource,
 				return nil, true, fmt.Errorf("%w: unattributable session index row", vendors.ErrInvalidData)
 			}
 			if ids[id] {
-				if _, duplicate := rows[id]; duplicate {
-					return nil, true, fmt.Errorf("%w: duplicate attributed session index row", vendors.ErrInvalidData)
+				if attributedRows >= maxSessionIndexAttributedRows || int64(len(line)) > maxSessionIndexAttributedSize-attributedSize {
+					return nil, true, fmt.Errorf("%w: matching session index rows exceed backup bounds", vendors.ErrInvalidData)
 				}
-				rows[id] = append([]byte(nil), line...)
+				attributedRows++
+				attributedSize += int64(len(line))
+				rows[id] = append(rows[id], append([]byte(nil), line...))
 			}
 		}
 		if errors.Is(readErr, io.EOF) {

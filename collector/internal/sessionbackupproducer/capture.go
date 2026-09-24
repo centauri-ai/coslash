@@ -236,14 +236,20 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		frozenFiles[file] = filepath.Join(staging, filepath.FromSlash(name))
 		rawEvidenceByMember[memberID] = append(rawEvidenceByMember[memberID], writes.evidence[name].SHA256)
 	}
-	for memberID, row := range indexRows {
+	for memberID, rows := range indexRows {
 		name := fmt.Sprintf("members/%s/raw/session-index-row.jsonl", memberID)
 		artifact := sessionbackupv1.Artifact{
 			LogicalName: name, MemberID: memberID, Source: sessionbackupv1.ArtifactSourceCodex,
 			Kind: sessionbackupv1.KindRawSidecar, SourceKey: "session_index", MediaType: "application/x-ndjson",
 			Encoding: sessionbackupv1.EncodingIdentity,
 		}
-		if err := writes.bytes(artifact, row); err != nil {
+		if err := writes.stream(ctx, artifact, func() (io.ReadCloser, error) {
+			readers := make([]io.Reader, 0, len(rows))
+			for _, row := range rows {
+				readers = append(readers, bytes.NewReader(row))
+			}
+			return io.NopCloser(io.MultiReader(readers...)), nil
+		}); err != nil {
 			return nil, err
 		}
 		rawEvidenceByMember[memberID] = append(rawEvidenceByMember[memberID], writes.evidence[name].SHA256)
@@ -387,17 +393,24 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	return &Prepared{BundleID: frozen.CompleteBackupSHA256, Selection: selection, Manifest: frozen, Coverage: coverage(frozen)}, nil
 }
 
-func metadataFromRows(ctx context.Context, rows map[string][]byte) (*vendors.SessionMetadata, error) {
+func metadataFromRows(ctx context.Context, rows map[string][][]byte) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	for id, row := range rows {
+	for id, memberRows := range rows {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		var entry struct {
-			ThreadName string `json:"thread_name"`
-		}
-		if json.Unmarshal(row, &entry) == nil && entry.ThreadName != "" {
-			metadata.Session(id).Name = entry.ThreadName
+		for _, row := range memberRows {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			var entry struct {
+				ThreadName *string `json:"thread_name"`
+			}
+			if json.Unmarshal(row, &entry) == nil && entry.ThreadName != nil {
+				// Match the local index reader's last-name behavior while retaining
+				// every duplicate row in the raw sidecar artifact.
+				metadata.Session(id).Name = *entry.ThreadName
+			}
 		}
 	}
 	return metadata, nil

@@ -22,7 +22,7 @@ success.
 | Kind | Source bytes | Local Codex | SSH Codex | Completeness rule |
 | --- | --- | --- | --- | --- |
 | `raw-transcript` | Exact rollout JSONL for each family member under `.codex/sessions` or `.codex/archived_sessions` | Read every discovered family rollout from both trees | Read every discovered family rollout from both trees during freeze | Exactly one per discovered rollout; an absent, unreadable, malformed, or changing discovered file blocks completion |
-| `raw-sidecar` | Exactly attributed `session_index.jsonl` row whose `id` is a family member | Project matching rows when the file exists | Project matching rows when the file exists | A missing index file may be omitted; a malformed or unreadable matching row blocks completion |
+| `raw-sidecar` | Every exactly attributed `session_index.jsonl` row whose `id` is a family member | Project matching rows when the file exists | Project matching rows when the file exists | Preserve repeated matching rows verbatim in one member sidecar; malformed, unidentifiable, unreadable, or over-bound row data blocks completion because it might belong to a member |
 | `raw-metadata-rows` | Not a Codex v1 input | Prohibited | Prohibited | Codex v1 has no shared SQLite artifact; `session_index.jsonl` is its only shared metadata source |
 | `parsed-session-record` | Canonical `full-session-record/v1` | Required for every represented member | Same | Exactly one per declared member; it must match source, agent, member identity, lineage, and revision |
 | `exact-change-body` | Exact UTF-8 body keyed by the parsed record's change ID | Present for every parsed change | Same | Bytes must equal the body in the referenced parsed record |

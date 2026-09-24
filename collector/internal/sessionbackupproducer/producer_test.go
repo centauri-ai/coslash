@@ -113,6 +113,71 @@ func TestPrepareProducesVerifiedBoundedLocalAndSSHBundle(t *testing.T) {
 	}
 }
 
+func TestPreparePreservesRepeatedRootIndexRowsInSSHFamilyBundle(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	rootRow := []byte(fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Fixture root\"}\r\n", testRootID))
+	childRow := []byte(fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Fixture child\"}\n", testChildID))
+	indexContent := append(append(append([]byte(nil), rootRow...), rootRow...), childRow...)
+	if err := os.WriteFile(codex.SessionIndexPath(home), indexContent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	spool := t.TempDir()
+	manager := New(Options{
+		Root: spool,
+		OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+			return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+		},
+	})
+	prepared, err := manager.Prepare(t.Context(), Selection{
+		SourceKind: sessionbackupv1.SourceSSH, SourceID: "remote-fixture",
+		Agent: vendors.AgentCodex, SessionID: testRootID,
+	})
+	if err != nil {
+		t.Fatalf("prepare repeated attributed rows: %v", err)
+	}
+	if len(prepared.Manifest.Members) != 2 {
+		t.Fatalf("family members = %d, want root and child", len(prepared.Manifest.Members))
+	}
+
+	var rootSidecar string
+	var sidecarCount int
+	for _, artifact := range prepared.Manifest.Artifacts {
+		if artifact.Kind != sessionbackupv1.KindRawSidecar {
+			continue
+		}
+		sidecarCount++
+		if artifact.MemberID == testRootID {
+			rootSidecar = artifact.LogicalName
+		}
+	}
+	if sidecarCount != 2 || rootSidecar == "" {
+		t.Fatalf("raw sidecars = %d, root sidecar = %q", sidecarCount, rootSidecar)
+	}
+	wantRootSidecar := append(append([]byte(nil), rootRow...), rootRow...)
+	gotRootSidecar := make([]byte, len(wantRootSidecar)+1)
+	n, err := manager.Read(prepared.BundleID, rootSidecar, 0, gotRootSidecar)
+	if err != nil || !bytes.Equal(gotRootSidecar[:n], wantRootSidecar) {
+		t.Fatalf("root sidecar bytes = %q, %v; want both original rows", gotRootSidecar[:n], err)
+	}
+	if _, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, prepared.BundleID)); err != nil {
+		t.Fatalf("repeated-row family bundle failed verification: %v", err)
+	}
+}
+
+func TestMetadataFromRepeatedIndexRowsUsesLastThreadName(t *testing.T) {
+	rows := map[string][][]byte{
+		"member": {
+			[]byte(`{"id":"member","thread_name":"Earlier name"}`),
+			[]byte(`{"id":"member","thread_name":"Current name"}`),
+		},
+	}
+	metadata, err := metadataFromRows(t.Context(), rows)
+	if err != nil || metadata.Session("member").Name != "Current name" {
+		t.Fatalf("metadata = %#v, error = %v", metadata, err)
+	}
+}
+
 func TestStartOutlivesRequestAndExplicitCancelStopsPreparation(t *testing.T) {
 	home, _ := writeFamilyFixture(t, 0)
 	reached := make(chan struct{})

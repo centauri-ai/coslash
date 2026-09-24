@@ -13,7 +13,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
-func TestReadSessionIndexRowsPreservesExactMatchAndRejectsDuplicate(t *testing.T) {
+func TestReadSessionIndexRowsPreservesAllExactMatchesAndRejectsMalformedRows(t *testing.T) {
 	home := t.TempDir()
 	path := SessionIndexPath(home)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -25,15 +25,17 @@ func TestReadSessionIndexRowsPreservesExactMatchAndRejectsDuplicate(t *testing.T
 		t.Fatal(err)
 	}
 	rows, present, err := ReadSessionIndexRows(vendors.LocalReadSource, home, map[string]bool{"wanted": true})
-	if err != nil || !present || len(rows) != 1 || !bytes.Equal(rows["wanted"], want) {
+	if err != nil || !present || len(rows) != 1 || len(rows["wanted"]) != 1 || !bytes.Equal(rows["wanted"][0], want) {
 		t.Fatalf("rows = %#v, present = %t, error = %v", rows, present, err)
 	}
 
-	if err := os.WriteFile(path, append(want, want...), 0o600); err != nil {
+	second := []byte("{\"id\":\"wanted\",\"thread_name\":\"Updated fixture\"}\n")
+	if err := os.WriteFile(path, append(append([]byte(nil), want...), second...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := ReadSessionIndexRows(vendors.LocalReadSource, home, map[string]bool{"wanted": true}); !errors.Is(err, vendors.ErrInvalidData) {
-		t.Fatalf("duplicate error = %v; want invalid data", err)
+	rows, present, err = ReadSessionIndexRows(vendors.LocalReadSource, home, map[string]bool{"wanted": true})
+	if err != nil || !present || len(rows["wanted"]) != 2 || !bytes.Equal(rows["wanted"][0], want) || !bytes.Equal(rows["wanted"][1], second) {
+		t.Fatalf("duplicate attributed rows = %#v, present = %t, error = %v", rows, present, err)
 	}
 
 	for _, test := range []struct {
