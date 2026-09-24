@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -263,17 +264,27 @@ func runSessions(stdout io.Writer, args []string) error {
 		return err
 	}
 	client.client.Timeout = sessionListTimeout
-	data, err := client.request(http.MethodGet, "/api/sessions", nil)
-	if err != nil {
-		return err
-	}
 	var sessions []session.Session
-	if err := json.Unmarshal(data, &sessions); err != nil {
-		return fmt.Errorf("decode sessions: %w", err)
+	exact := false
+	if query != "" && !strings.ContainsFunc(query, unicode.IsSpace) {
+		agent, id, ok := parseLocalSessionSelector(query)
+		if !ok {
+			agent, id = "", query
+		}
+		sessions, err = requestSessions(client, "/api/sessions?agent="+url.QueryEscape(agent)+"&id="+url.QueryEscape(id))
+		if err != nil {
+			return err
+		}
+		exact = len(sessions) > 0
+	}
+	if !exact {
+		if sessions, err = requestSessions(client, "/api/sessions"); err != nil {
+			return err
+		}
 	}
 	filtered := make([]cliSession, 0, len(sessions))
 	for _, value := range sessions {
-		if sessionMatches(value, query) {
+		if exact || sessionMatches(value, query) {
 			filtered = append(filtered, cliSession{
 				Selector: value.Agent + ":" + value.ID,
 				ID:       value.ID, Name: value.Name, Agent: value.Agent, Status: value.Status,
@@ -282,6 +293,18 @@ func runSessions(stdout io.Writer, args []string) error {
 		}
 	}
 	return json.NewEncoder(stdout).Encode(filtered)
+}
+
+func requestSessions(client *localAPIClient, path string) ([]session.Session, error) {
+	data, err := client.request(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var sessions []session.Session
+	if err := json.Unmarshal(data, &sessions); err != nil {
+		return nil, fmt.Errorf("decode sessions: %w", err)
+	}
+	return sessions, nil
 }
 
 type cliSession struct {
