@@ -277,7 +277,11 @@ func TestRunSessionsLooksUpExactIDWithoutListing(t *testing.T) {
 			io.WriteString(w, `[{"agent":"codex","id":"listed","name":"Remote collection duplication"}]`)
 			return
 		}
-		io.WriteString(w, `[{"agent":"claude","id":"abc-123","name":"Exact"}]`)
+		agent := r.URL.Query().Get("agent")
+		if agent == "" {
+			agent = "claude"
+		}
+		io.WriteString(w, `[{"agent":"`+agent+`","id":"abc-123","name":"Exact"}]`)
 	}))
 	defer server.Close()
 	writeTestRuntime(t, server.URL, "secret")
@@ -289,6 +293,7 @@ func TestRunSessionsLooksUpExactIDWithoutListing(t *testing.T) {
 	}{
 		{query: "claude:abc-123", requests: []string{"agent=claude&id=abc-123"}, selector: "claude:abc-123"},
 		{query: "abc-123", requests: []string{"agent=&id=abc-123"}, selector: "claude:abc-123"},
+		{query: "cursor:abc-123", requests: []string{"agent=cursor&id=abc-123"}, selector: "cursor:abc-123"},
 		{query: "Remote collection", requests: []string{""}, selector: "codex:listed"},
 	} {
 		requests = nil
