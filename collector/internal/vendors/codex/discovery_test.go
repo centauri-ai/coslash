@@ -109,6 +109,9 @@ func TestHealthIncludesArchivedRolloutsWhenActiveTreeIsAbsent(t *testing.T) {
 	if health.Missing {
 		t.Fatal("health marked the source missing when archived rollouts exist")
 	}
+	if health.Root != filepath.Join(home, ".codex") {
+		t.Fatalf("health root = %q, want combined Codex root %q", health.Root, filepath.Join(home, ".codex"))
+	}
 	if health.Entries != 1 || health.Sessions != 1 {
 		t.Fatalf("health entries/sessions = %d/%d, want 1/1", health.Entries, health.Sessions)
 	}
