@@ -570,7 +570,7 @@ func Health() vendors.SourceHealth {
 		ids = append(ids, IDFromPath(path))
 	}
 	metadata := vendors.BestEffortMetadata(vendors.AgentCursor, func() (*vendors.SessionMetadata, error) {
-		return LoadMetadataForSessions(canonicalCursorIDs(ids))
+		return LoadRelationshipMetadataForSessions(ids)
 	})
 	return cursorSourceHealth(root, scan, metadata)
 }
