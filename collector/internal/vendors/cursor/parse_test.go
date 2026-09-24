@@ -2,9 +2,12 @@ package cursor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -177,6 +180,42 @@ func TestParseTranscriptAddsCompletedAssistantRepliesToDigest(t *testing.T) {
 	}
 	if parsed.Result != "second reply, part one\n\npart two" {
 		t.Fatalf("result = %q, want complete second reply", parsed.Result)
+	}
+}
+
+func TestParseTranscriptRecordsCreatePlanAsTimelinePlan(t *testing.T) {
+	const id = "01234567-89ab-4def-8123-456789abcdef"
+	dir := filepath.Join(t.TempDir(), "agent-transcripts", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, id+".jsonl")
+	plan := "# Plan\n\n" + strings.Repeat("Keep the full plan text. ", 40) + "Done."
+	planJSON, _ := json.Marshal(plan)
+	transcript := "" +
+		`{"role":"user","message":{"content":[{"type":"text","text":"<user_query>plan it</user_query>"}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"text","text":"Here is the plan."},{"type":"tool_use","name":"CreatePlan","input":{"name":"Sample","overview":"Short","plan":` + string(planJSON) + `,"todos":[]}}]}}` + "\n" +
+		`{"type":"turn_ended","status":"success"}` + "\n" +
+		`{"role":"user","message":{"content":[{"type":"text","text":"<user_query>empty plan</user_query>"}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"tool_use","name":"CreatePlan","input":{"name":"Empty","plan":"  "}}]}}` + "\n" +
+		`{"role":"assistant","message":{"content":[{"type":"text","text":"done"}]}}` + "\n" +
+		`{"type":"turn_ended","status":"success"}` + "\n"
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := parseTranscript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []session.DigestEntry{
+		{Turn: 1, Category: session.DigestFirstPrompt, Description: "plan it"},
+		{Turn: 1, Category: session.DigestPlan, Description: plan},
+		{Turn: 2, Category: session.DigestUser, Description: "empty plan"},
+		{Turn: 2, Category: session.DigestRecap, Description: "done"},
+	}
+	if got := parsed.Session.Digest; !reflect.DeepEqual(got, want) {
+		t.Fatalf("digest = %#v, want %#v", got, want)
 	}
 }
 

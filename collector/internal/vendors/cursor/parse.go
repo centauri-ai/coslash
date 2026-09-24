@@ -174,6 +174,10 @@ func parseTranscriptFragmentsSourceContext(ctx context.Context, source vendors.R
 						todoStatus[text] = item.Status
 					}
 					todos = todosFromTool(input.Todos)
+				case "CreatePlan":
+					if plan := strings.TrimSpace(input.Plan); plan != "" {
+						digest.Push(max(turns, 1), session.DigestPlan, plan, 0)
+					}
 				case "Task":
 					taskCount++
 					spawnKey := block.ID
