@@ -30,6 +30,7 @@ func (log *DigestLog) Push(turn int, category, description string, time int64) {
 			for !utf8.ValidString(text) {
 				text = text[:len(text)-1]
 			}
+			text = strings.Clone(text)
 		}
 	}
 	log.entries = append(log.entries, DigestEntry{

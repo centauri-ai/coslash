@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+	"unsafe"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 )
@@ -14,13 +15,17 @@ func TestLongFormDigestRespectsFullSessionStringLimit(t *testing.T) {
 		t.Run(category, func(t *testing.T) {
 			var log DigestLog
 			log.Push(1, category, prefix+"x", 0)
-			log.Push(2, category, prefix+"é and more", 0)
+			oversized := prefix + "é and more"
+			log.Push(2, category, oversized, 0)
 			entries := log.Entries()
 			if entries[0].Description != prefix+"x" {
 				t.Fatal("digest at the byte limit was changed")
 			}
 			if entries[1].Description != prefix || !utf8.ValidString(entries[1].Description) {
 				t.Fatalf("oversized digest was not bounded at a UTF-8 boundary: %d bytes", len(entries[1].Description))
+			}
+			if unsafe.StringData(entries[1].Description) == unsafe.StringData(oversized) {
+				t.Fatal("bounded digest retains the oversized source buffer")
 			}
 		})
 	}
