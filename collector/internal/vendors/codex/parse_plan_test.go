@@ -5,7 +5,37 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 )
+
+func TestOversizedPlanFitsFullSessionRecord(t *testing.T) {
+	plan := strings.Repeat("x", fullsessionv1.MaxStringBytes-1) + "é and more"
+	parsed := parseLifecycleRows(t, []string{
+		lifecycleRow("2026-09-21T17:55:15Z", "task_started"),
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Plan the work"}}`,
+		fmt.Sprintf(`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"Plan","text":%q}}}`, plan),
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"Short final answer"}}`,
+		lifecycleRow("2026-09-21T17:55:16Z", "task_complete"),
+	})
+	if len(parsed.Session.Digest) < 2 {
+		t.Fatalf("digest = %#v", parsed.Session.Digest)
+	}
+	got := parsed.Session.Digest[len(parsed.Session.Digest)-1].Description
+	if len(got) > fullsessionv1.MaxStringBytes || !utf8.ValidString(got) {
+		t.Fatalf("plan is %d bytes, valid UTF-8 = %t", len(got), utf8.ValidString(got))
+	}
+	if _, err := fullsessionv1.Freeze(fullsessionv1.Record{
+		SourceID: "local", Agent: "codex", SessionID: parsed.Session.ID,
+		Session: fullsessionv1.Session{
+			StartedAtMs: parsed.Session.StartedAt, LastActivityAtMs: parsed.Session.LastActivityTime,
+			Digest: []fullsessionv1.DigestEntry{{Turn: 1, Category: "plan", Description: got}},
+		},
+	}); err != nil {
+		t.Fatalf("full-session record: %v", err)
+	}
+}
 
 func TestCompletedPlanItemsBecomeTimelinePlans(t *testing.T) {
 	plan := "# Plan\n" + strings.Repeat("Keep the full plan text. ", 20) + "Done."
