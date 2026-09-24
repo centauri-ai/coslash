@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	_ "modernc.org/sqlite"
 )
@@ -309,6 +312,44 @@ func TestParseMarksCurrentRunningTaskBusy(t *testing.T) {
 	}
 }
 
+func TestParsePlanAgentResponsesBecomeTimelinePlans(t *testing.T) {
+	db := testDB(t)
+	plan := "# Plan\n" + strings.Repeat("Keep the full plan text. ", 20) + "Done."
+	for index, item := range []struct {
+		message string
+		part    string
+	}{
+		{`{"role":"user","agent":"build","time":{"created":100}}`, `{"type":"text","text":"Plan the work"}`},
+		{`{"role":"assistant","agent":"plan","finish":"tool-calls","time":{"created":200,"completed":250}}`, `{"type":"text","text":"Draft plan"}`},
+		{`{"role":"assistant","agent":"plan","finish":"stop","time":{"created":300,"completed":350}}`, fmt.Sprintf(`{"type":"text","text":%q}`, plan)},
+		{`{"role":"user","agent":"plan","time":{"created":400}}`, `{"type":"text","text":"Revise the plan"}`},
+		{`{"role":"assistant","agent":"plan","finish":"stop","time":{"created":500,"completed":550}}`, `{"type":"text","text":"Revised plan"}`},
+		{`{"role":"user","agent":"build","time":{"created":600}}`, `{"type":"text","text":"Implement it"}`},
+		{`{"role":"assistant","agent":"build","finish":"stop","time":{"created":700,"completed":750}}`, `{"type":"text","text":"Implemented"}`},
+		{`{"role":"user","agent":"plan","time":{"created":800}}`, `{"type":"text","text":"Plan again"}`},
+		{`{"role":"assistant","agent":"plan","time":{"created":900}}`, `{"type":"text","text":"Unfinished plan"}`},
+	} {
+		insertMessage(t, db, index, item.message)
+		insertPart(t, db, fmt.Sprintf("message-%d", index), item.part)
+	}
+
+	parsed := parseDB(t, db)
+	var got []session.DigestEntry
+	for _, entry := range parsed.Session.Digest {
+		if entry.Category == session.DigestPlan || entry.Category == session.DigestRecap {
+			got = append(got, entry)
+		}
+	}
+	want := []session.DigestEntry{
+		{Turn: 1, Category: session.DigestPlan, Description: plan, Time: 300},
+		{Turn: 2, Category: session.DigestPlan, Description: "Revised plan", Time: 500},
+		{Turn: 3, Category: session.DigestRecap, Description: "Implemented", Time: 700},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("plan and recap entries = %#v, want %#v", got, want)
+	}
+}
+
 func parseMessages(t *testing.T, messages ...string) *vendors.ParsedSession {
 	t.Helper()
 	db := testDB(t)
@@ -365,7 +406,10 @@ func parseDB(t *testing.T, db *sql.DB) *vendors.ParsedSession {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	parsed, err := parse(tx, storedSession{id: "session", directory: "/tmp", title: "test"})
+	parsed, err := parse(tx, storedSession{
+		id: "session", directory: "/tmp", title: "test",
+		agent: sql.NullString{String: "build", Valid: true},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

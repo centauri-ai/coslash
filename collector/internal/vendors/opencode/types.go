@@ -21,6 +21,7 @@ type storedSession struct {
 
 type storedMessage struct {
 	Role       string          `json:"role"`
+	Agent      string          `json:"agent"`
 	ProviderID string          `json:"providerID"`
 	ModelID    string          `json:"modelID"`
 	Finish     string          `json:"finish"`

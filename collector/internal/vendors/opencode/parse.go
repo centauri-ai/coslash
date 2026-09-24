@@ -286,7 +286,11 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 		if text := strings.Join(texts, "\n"); message.Finish == "stop" && !internalSummary &&
 			text != "" {
 			summary = text
-			digest.Push(turns, session.DigestRecap, text, message.Time.Created)
+			category := session.DigestRecap
+			if message.Agent == "plan" {
+				category = session.DigestPlan
+			}
+			digest.Push(turns, category, text, message.Time.Created)
 		}
 	}
 	for childID := range tasks {
