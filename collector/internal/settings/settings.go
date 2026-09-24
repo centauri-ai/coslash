@@ -25,8 +25,7 @@ const (
 	BackendOpenCode = "opencode"
 	BackendCursor   = "cursor-cli"
 
-	// Passes no model, leaving OpenCode to resolve one: its configured model
-	// key, else the model last selected in the CLI, which varies between runs.
+	// Passes no model, leaving each isolated OpenCode run to resolve its default.
 	OpenCodeDefaultModel = "default"
 
 	// Each backend's own default model, which the runner turns up to high

@@ -711,7 +711,7 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 func openCodeModels() []settings.ModelOption {
 	models := []settings.ModelOption{{
 		ID:    settings.OpenCodeDefaultModel,
-		Label: "Whichever model OpenCode is set to use",
+		Label: "OpenCode default for a new run",
 	}}
 	preferred := false
 	for _, id := range opencode.SynthesisModels() {
