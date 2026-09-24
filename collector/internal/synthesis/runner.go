@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"unicode"
@@ -159,6 +160,10 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	case settings.BackendCursor:
 		label = "Cursor"
 		parse = parseResultEnvelope
+		sandboxMode := "enabled"
+		if runtime.GOOS == "windows" {
+			sandboxMode = "disabled"
+		}
 		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
 			return session.SessionSynthesis{}, fmt.Errorf("create synthesis directory: %w", err)
 		}
@@ -177,7 +182,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		args = []string{
 			"-p",
 			"--mode", "ask",
-			"--sandbox", "enabled",
+			"--sandbox", sandboxMode,
 			"--trust",
 			"--model", r.Model,
 			"--output-format", "json",
