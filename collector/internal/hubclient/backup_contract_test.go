@@ -11,6 +11,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 )
 
 func TestBackupDestinationTransportMatchesSharedContract(t *testing.T) {
@@ -31,21 +33,40 @@ func TestBackupDestinationTransportMatchesSharedContract(t *testing.T) {
 	if contract.DestinationAssertionHeader != backupWorkspaceHeader ||
 		contract.DestinationAudienceVersionHeader != backupAudienceHeader ||
 		contract.DestinationAudienceVersionField != "audienceVersion" ||
-		contract.AudienceVersionFormat != "audience-v1:<lowercase sha256 hex>" ||
+		contract.AudienceVersionFormat != "opaque header-safe token (max 200 bytes)" ||
 		!reflect.DeepEqual(contract.MutationMethods, []string{"create", "chunk", "finalize", "abort"}) {
 		t.Fatalf("backup destination transport contract drifted: %#v", contract)
 	}
 }
 
-func TestBackupAudienceVersionRequiresCanonicalSHA256(t *testing.T) {
-	valid := "audience-v1:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	if !validBackupAudienceVersion(valid) {
-		t.Fatal("canonical audience version was rejected")
-	}
-	for _, value := range []string{"audience-v1", "audience-v1:ABCDEF", "audience-v1:" + "g" + valid[len("audience-v1:")+1:]} {
-		if validBackupAudienceVersion(value) {
-			t.Fatalf("invalid audience version was accepted: %q", value)
+func TestBackupAudienceVersionUsesSharedOpaqueTokenContract(t *testing.T) {
+	for _, value := range []string{"audience-v1", "workspace-audience-2026-09", "audience-v1:" + strings.Repeat("a", 64)} {
+		if !validAudienceVersion(value) {
+			t.Errorf("valid audience version was rejected: %q", value)
 		}
+	}
+	for _, value := range []string{"", " audience-v1", "audience-v1 ", "audience\x00v1", strings.Repeat("a", 201)} {
+		if validAudienceVersion(value) {
+			t.Errorf("invalid audience version was accepted: %q", value)
+		}
+	}
+	item := BackupShareItemRequest{
+		LocalSessionID: "local:codex:session",
+		Selection:      sessionbackupproducer.Selection{SourceKind: "local", SourceID: "local", Agent: "codex", SessionID: "session"},
+		IdempotencyKey: "backup-idempotency-key-0001",
+		Consent: BackupConsent{
+			PreviewContractVersion: BackupPreviewVersion, BundleID: strings.Repeat("a", 64),
+			SourceRevision: "revision", SelectedRevision: 1, CompleteBackupSHA256: strings.Repeat("a", 64), TotalBytes: 1,
+			DestinationWorkspaceID: "workspace", DestinationName: "Team", AudienceVersion: "audience-v1",
+			ServerID: "hub", MaxBackupBytes: 1, MaxBackupChunkBytes: 1, BackupWorkspaceBytes: 1,
+		},
+	}
+	if !validBackupShareItem(item) {
+		t.Fatal("cached consent with an opaque audience version was rejected")
+	}
+	item.Consent.AudienceVersion = " audience-v1"
+	if validBackupShareItem(item) {
+		t.Fatal("cached consent with an unsafe audience version was accepted")
 	}
 }
 

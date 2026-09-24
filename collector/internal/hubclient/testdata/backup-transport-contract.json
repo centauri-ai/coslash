@@ -2,6 +2,6 @@
   "destinationAssertionHeader": "Coslash-Destination-Workspace-Id",
   "destinationAudienceVersionHeader": "Coslash-Destination-Audience-Version",
   "destinationAudienceVersionField": "audienceVersion",
-  "audienceVersionFormat": "audience-v1:<lowercase sha256 hex>",
+  "audienceVersionFormat": "opaque header-safe token (max 200 bytes)",
   "mutationMethods": ["create", "chunk", "finalize", "abort"]
 }

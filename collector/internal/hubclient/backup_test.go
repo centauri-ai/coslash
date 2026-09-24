@@ -24,7 +24,7 @@ import (
 const (
 	backupWorkspace       = "10000000-0000-4000-8000-000000000001"
 	backupRevision        = "30000000-0000-4000-8000-000000000001"
-	backupAudienceVersion = "audience-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	backupAudienceVersion = "audience-v1"
 )
 
 func TestBackupChunkPlanPreservesReviewedExactBytes(t *testing.T) {
@@ -191,6 +191,35 @@ func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T
 	}
 	if !createSeen || !finalizeSeen || chunkRequests != len(plan)-1 {
 		t.Fatalf("create=%v chunks=%d/%d finalize=%v", createSeen, chunkRequests, len(plan)-1, finalizeSeen)
+	}
+}
+
+func TestPrepareBackupAcceptsOpaqueAudienceVersion(t *testing.T) {
+	capabilityRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/share-destination":
+			_, _ = io.WriteString(w, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"`+backupWorkspace+`","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`)
+		case "/.well-known/coslash-server":
+			capabilityRequests++
+			_, _ = io.WriteString(w, `{"product":"coslash-server","serverId":"server-v3","displayName":"Hub","protocolVersions":["v3"],"snapshotVersions":[],"maxSnapshotBytes":0,"fullSessionVersions":[],"maxFullSessionBytes":0,"maxRequestBytes":1048576,"backupVersions":["session-backup/v1"],"backupUploadVersions":["backup-upload/v1"],"maxBackupBytes":1073741824,"maxBackupChunkBytes":128,"backupWorkspaceBytes":53687091200,"backupUploadExpiresSeconds":86400,"pairingUrl":"","teamUrl":""}`)
+		default:
+			t.Fatalf("unexpected request %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+	base, _ := url.Parse(server.URL)
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{
+		Root: t.TempDir(), OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+			return sessionbackupproducer.SourceHandle{}, errors.New("source unavailable")
+		},
+	})
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, Backup: manager}
+	preview, err := client.PrepareBackup(context.Background(), sessionbackupproducer.Selection{
+		SourceKind: "local", SourceID: "local", Agent: "codex", SessionID: "session",
+	})
+	if err == nil || preview.State != "blocked" || preview.Problem == nil || preview.Problem.Code != "artifact_unavailable" || capabilityRequests != 1 {
+		t.Fatalf("preview=%#v capabilityRequests=%d err=%v", preview, capabilityRequests, err)
 	}
 }
 
