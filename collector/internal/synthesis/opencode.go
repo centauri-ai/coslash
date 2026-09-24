@@ -21,7 +21,7 @@ import (
 )
 
 const openCodeConfigContent = `{"permission":"deny","autoupdate":false}`
-const openCodeV2ConfigContent = `{"permission":"deny","update":"disable","plugins":["-*"]}`
+const openCodeV2ConfigContent = `{"permission":"deny","update":"disable"}`
 
 var cachedOpenCodeV2 = newOpenCodeV2Detector(detectOpenCodeV2)
 
@@ -108,17 +108,25 @@ func openCodeEnv(scratchDir string, v2 bool) []string {
 	if v2 {
 		config = openCodeV2ConfigContent
 	}
-	return []string{
+	env := []string{
 		"OPENCODE_CONFIG_CONTENT=" + config,
 		"OPENCODE_DB=" + filepath.Join(scratchDir, "opencode.db"),
 		"OPENCODE_DISABLE_PROJECT_CONFIG=1",
 		"OPENCODE_DISABLE_AUTOUPDATE=1",
 		"OPENCODE_DISABLE_SHARE=1",
-		"OPENCODE_DISABLE_MODELS_FETCH=1",
 		// OpenCode reads PWD before cwd, which exec.Cmd does not update.
 		"PWD=" + SynthesisCwd(),
 		"NO_COLOR=1",
 	}
+	if v2 {
+		// V2's plugin deny-all also removes its built-in build agent.
+		// A private config home excludes global plugins and MCP servers instead.
+		env = append(env, "XDG_CONFIG_HOME="+filepath.Join(scratchDir, "config"))
+	} else {
+		// V2 needs the current catalog to resolve its default and free models.
+		env = append(env, "OPENCODE_DISABLE_MODELS_FETCH=1")
+	}
+	return env
 }
 
 func detectOpenCodeV2(bin string) bool {

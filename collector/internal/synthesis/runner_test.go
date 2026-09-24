@@ -171,6 +171,24 @@ func TestOpenCodeRunnerUsesVersionedRunFlags(t *testing.T) {
 			if !slices.Contains(captured.env, "OPENCODE_CONFIG_CONTENT="+test.wantConfig) {
 				t.Fatalf("config override missing from env: %#v", captured.env)
 			}
+			configHome := ""
+			for _, entry := range captured.env {
+				if strings.HasPrefix(entry, "XDG_CONFIG_HOME=") {
+					configHome = strings.TrimPrefix(entry, "XDG_CONFIG_HOME=")
+				}
+			}
+			if test.v2 && (configHome == "" || filepath.Base(configHome) != "config" || filepath.Dir(filepath.Dir(configHome)) != SynthesisCwd()) {
+				t.Fatalf("v2 config home = %q, want private scratch config", configHome)
+			}
+			if !test.v2 && configHome != "" {
+				t.Fatalf("v1 config home = %q, want inherited config", configHome)
+			}
+			if disabled := slices.Contains(captured.env, "OPENCODE_DISABLE_MODELS_FETCH=1"); disabled == test.v2 {
+				t.Fatalf("v2 = %v, disabled model fetch = %v", test.v2, disabled)
+			}
+			if test.v2 && strings.Contains(test.wantConfig, `"plugins"`) {
+				t.Fatal("v2 config disables the built-in agent")
+			}
 			if captured.stdin != "facts" {
 				t.Fatalf("stdin = %q, want facts", captured.stdin)
 			}
