@@ -5,7 +5,7 @@ description: Use when a user wants to start a new Claude Code or Codex session f
 
 # coSlash send
 
-If a selector is not already available, run `coslash sessions [query] --json`, omitting the query to list every local session. Proceed only when exactly one session matches; report no matches or ask the user to choose a returned `selector` when multiple sessions match. Then run `coslash send <agent>:<session> --to claude|codex [message]` with the selected `selector`, the user's target, and optional message. Pass the message as one quoted argument.
+If the user means the current session, build the selector from the environment and do not list sessions: `claude:$CLAUDE_CODE_SESSION_ID` in Claude Code, `codex:$CODEX_SESSION_ID` in Codex. If that variable is empty, or if the user names another session, and a selector is not already available, run `coslash sessions [query] --json`, omitting the query to list every local session. Proceed only when exactly one session matches; report no matches or ask the user to choose a returned `selector` when multiple sessions match. Then run `coslash send <agent>:<session> --to claude|codex [message]` with the selected `selector`, the user's target, and optional message. The message is the task that the user gives to the target agent, for example "do an analysis". Pass the message as one quoted argument.
 
 Use the `coslash` executable found on `PATH` and preserve the inherited `COSLASH_HOME`. Do not substitute a repository-relative binary or `go run` unless the user explicitly asks to test a source build.
 
