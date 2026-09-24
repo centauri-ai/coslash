@@ -97,6 +97,61 @@ func TestLocalDiscoveryIncludesArchivedFamiliesAndDeduplicatesActiveCopies(t *te
 	}
 }
 
+func TestHealthIncludesArchivedRolloutsWhenActiveTreeIsAbsent(t *testing.T) {
+	home := t.TempDir()
+	const archivedID = "11111111-2222-3333-4444-555555555555"
+	writeDiscoveryRollout(t, ArchivedDir(home), archivedID, archivedID, "")
+
+	health := healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	if health.Err != nil {
+		t.Fatalf("health error = %v", health.Err)
+	}
+	if health.Missing {
+		t.Fatal("health marked the source missing when archived rollouts exist")
+	}
+	if health.Entries != 1 || health.Sessions != 1 {
+		t.Fatalf("health entries/sessions = %d/%d, want 1/1", health.Entries, health.Sessions)
+	}
+}
+
+func TestHealthDeduplicatesActiveCopies(t *testing.T) {
+	home := t.TempDir()
+	const duplicateID = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	archived := ArchivedDir(home)
+	active := filepath.Join(SessionsRoot(home), "2026", "09", "21")
+	archivedCopy := writeDiscoveryRollout(t, archived, duplicateID, duplicateID, "")
+	activeCopy := writeDiscoveryRollout(t, active, duplicateID, duplicateID, "")
+
+	health := healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	if health.Err != nil {
+		t.Fatalf("health error = %v", health.Err)
+	}
+	if health.Missing {
+		t.Fatal("health marked the source missing when active rollouts exist")
+	}
+	if health.Entries != 1 || health.Sessions != 1 {
+		t.Fatalf("health entries/sessions = %d/%d, want 1/1", health.Entries, health.Sessions)
+	}
+
+	scan, err := scanForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsPath(scan.Files, activeCopy) || containsPath(scan.Files, archivedCopy) {
+		t.Fatalf("health scan did not prefer the active duplicate: %#v", scan.Files)
+	}
+}
+
+func TestHealthIsMissingWhenBothCodexTreesAreAbsent(t *testing.T) {
+	health := healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, t.TempDir())
+	if health.Err != nil {
+		t.Fatalf("health error = %v", health.Err)
+	}
+	if !health.Missing {
+		t.Fatal("health did not mark Codex missing when both session trees are absent")
+	}
+}
+
 func writeDiscoveryRollout(t *testing.T, directory, filenameIDs, sessionID, parentID string) string {
 	t.Helper()
 	if err := os.MkdirAll(directory, 0o700); err != nil {

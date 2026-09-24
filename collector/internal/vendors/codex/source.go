@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"log"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -403,11 +404,16 @@ func NewSessionFactsLoader() (func(string) (*vendors.ParsedSession, error), erro
 }
 
 func Health() vendors.SourceHealth {
-	root, err := Root()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Err: err}
 	}
-	scan, err := Scan()
+	return healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+}
+
+func healthForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) vendors.SourceHealth {
+	root := SessionsRoot(home)
+	scan, err := scanForHomeSourceContext(ctx, source, home)
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Root: root, Err: err}
 	}
