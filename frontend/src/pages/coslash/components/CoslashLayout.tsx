@@ -618,13 +618,15 @@ function SessionRow({
   const reviewActive = session.reviewPending || review.index.activeOrigins.has(key);
   const reviewDisabled =
     reviewActive || availableReviewers(review.reviewerOptions, session.agent).length === 0;
-  const cell = cn(styles.cell, { 'py-[5px]': compact });
+  const cell = cn(styles.cell, {
+    'py-[5px]': compact,
+    'border-coslash-line-soft border-b': !compact,
+  });
   const hideWhenCompact = { hidden: compact };
   return (
     <tr
       className={cn(
         'group hover:[&>td]:bg-coslash-soft cursor-pointer [&>td]:transition-colors',
-        { 'border-coslash-line-soft border-b': !compact },
         selected &&
           '[&>td]:bg-coslash-tint hover:[&>td]:bg-coslash-tint [&>td:first-child]:shadow-[inset_3px_0_0_var(--coslash-accent)]',
       )}

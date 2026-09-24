@@ -88,6 +88,27 @@ function orderOf(markup: string, ...titles: string[]): number[] {
 }
 
 describe('CoslashLayout', () => {
+  it('keeps row dividers in comfortable density and omits them in compact density', () => {
+    const rowCells = (markup: string) => {
+      const titleAt = markup.indexOf('Divider row');
+      const row = markup.slice(markup.lastIndexOf('<tr', titleAt), markup.indexOf('</tr>', titleAt));
+      return [...row.matchAll(/<td class="([^"]*)"/g)].map((match) => match[1]);
+    };
+    const sessions = [session({ id: 'divider', name: 'Divider row' })];
+
+    const comfortable = rowCells(renderLayout({ sessions }));
+    expect(comfortable).toHaveLength(6);
+    expect(comfortable.every((cell) => cell.includes('border-b'))).toBe(true);
+
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ density: 'compact' }),
+      setItem: () => {},
+    });
+    const compact = rowCells(renderLayout({ sessions }));
+    expect(compact).toHaveLength(6);
+    expect(compact.every((cell) => !cell.includes('border-b'))).toBe(true);
+  });
+
   it('offers agent facets for the vendors present, not the reviewer CLIs installed', () => {
     const markup = renderLayout({
       sessions: [
