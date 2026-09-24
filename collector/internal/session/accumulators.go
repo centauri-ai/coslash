@@ -4,6 +4,9 @@ import (
 	"cmp"
 	"slices"
 	"strings"
+	"unicode/utf8"
+
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 )
 
 // DigestLog and CommandLog are the accumulators vendor parsers keep, so they
@@ -16,12 +19,18 @@ type DigestLog struct {
 }
 
 // Push appends an entry attributed to turn (at least 1). Recaps and plans keep
-// their full text; everything else is truncated for display. time is the epoch
-// milliseconds when the event occurred (0 if unknown).
+// their text up to the portable record limit; everything else is truncated for
+// display. time is the epoch milliseconds when the event occurred (0 if unknown).
 func (log *DigestLog) Push(turn int, category, description string, time int64) {
 	text := Truncate(description, TruncateTextLimit)
 	if category == DigestRecap || category == DigestPlan {
 		text = strings.TrimSpace(description)
+		if len(text) > fullsessionv1.MaxStringBytes {
+			text = text[:fullsessionv1.MaxStringBytes]
+			for !utf8.ValidString(text) {
+				text = text[:len(text)-1]
+			}
+		}
 	}
 	log.entries = append(log.entries, DigestEntry{
 		Turn:        max(turn, 1),
