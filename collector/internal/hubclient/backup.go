@@ -21,10 +21,12 @@ import (
 )
 
 const (
-	BackupPreviewVersion = "backup-preview/v1"
-	BackupShareVersion   = "hub-share/v1"
-	backupUploadVersion  = "backup-upload/v1"
-	backupTimeout        = 30 * time.Minute
+	BackupPreviewVersion  = "backup-preview/v1"
+	BackupShareVersion    = "hub-share/v1"
+	backupUploadVersion   = "backup-upload/v1"
+	backupTimeout         = 30 * time.Minute
+	backupWorkspaceHeader = "Coslash-Destination-Workspace-Id"
+	backupAudienceHeader  = "Coslash-Destination-Audience-Version"
 )
 
 type BackupCapability struct {
@@ -188,7 +190,7 @@ func (c *Client) PrepareBackup(ctx context.Context, selection sessionbackupprodu
 	if err != nil {
 		return backupPreviewFailure(selection, "unavailable", "temporary_unavailable", "The paired destination could not be verified.", "Retry the preparation.", true), err
 	}
-	if destination.State != "ready" || destination.Destination == nil || !validAudienceVersion(destination.Destination.AudienceVersion) {
+	if destination.State != "ready" || destination.Destination == nil || !validBackupAudienceVersion(destination.Destination.AudienceVersion) {
 		return backupPreviewFailure(selection, "unavailable", "unauthorized", "A paired Hub destination is required.", "Pair this device and select a workspace.", true), nil
 	}
 	capability, err := c.loadBackupCapabilities(ctx)
@@ -300,7 +302,7 @@ func validBackupShareItem(item BackupShareItemRequest) bool {
 		consent.PreviewContractVersion == BackupPreviewVersion && consent.BundleID == consent.CompleteBackupSHA256 &&
 		len(consent.BundleID) == 64 && consent.SourceRevision != "" && consent.SelectedRevision > 0 && consent.TotalBytes >= 0 &&
 		consent.DestinationWorkspaceID != "" && consent.DestinationName != "" && consent.AudienceMemberCount >= 0 &&
-		validAudienceVersion(consent.AudienceVersion) && consent.ServerID != "" && consent.MaxBackupBytes > 0 &&
+		validBackupAudienceVersion(consent.AudienceVersion) && consent.ServerID != "" && consent.MaxBackupBytes > 0 &&
 		consent.MaxBackupChunkBytes > 0 && consent.BackupWorkspaceBytes > 0
 }
 
@@ -444,7 +446,8 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 		if readErr != nil {
 			return failedBackup(item, "temporary_unavailable", true, nil), errors.New("read frozen backup chunk")
 		}
-		status, problem, err = c.sendBackupChunk(ctx, credential, consent.DestinationWorkspaceID, status.UploadID, chunk, body)
+		status, problem, err = c.sendBackupChunk(ctx, credential, consent.DestinationWorkspaceID,
+			consent.AudienceVersion, status.UploadID, chunk, body)
 		if err != nil {
 			return failedBackup(item, problem.Code, backupRetryable(problem.Code), problem.RetryAfterSeconds), err
 		}
@@ -452,7 +455,8 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 			return failedBackup(item, "temporary_unavailable", true, nil), errors.New("backup chunk status mismatch")
 		}
 	}
-	status, problem, err = c.finalizeBackup(ctx, credential, consent.DestinationWorkspaceID, status.UploadID)
+	status, problem, err = c.finalizeBackup(ctx, credential, consent.DestinationWorkspaceID,
+		consent.AudienceVersion, status.UploadID)
 	if err != nil {
 		return failedBackup(item, problem.Code, backupRetryable(problem.Code), problem.RetryAfterSeconds), err
 	}
@@ -537,7 +541,8 @@ func (c *Client) createOrResumeBackup(ctx context.Context, credential string, it
 	request.Header.Set("Authorization", "Device "+credential)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", item.IdempotencyKey)
-	request.Header.Set("X-Coslash-Destination-Workspace", item.Consent.DestinationWorkspaceID)
+	request.Header.Set(backupWorkspaceHeader, item.Consent.DestinationWorkspaceID)
+	request.Header.Set(backupAudienceHeader, item.Consent.AudienceVersion)
 	status, problem, err := c.doBackupStatus(request, http.StatusCreated, http.StatusOK)
 	if err == nil {
 		return status, problem, nil
@@ -583,7 +588,7 @@ func (c *Client) lookupBackupStatus(ctx context.Context, credential, key string)
 	return c.doBackupStatus(request, http.StatusOK)
 }
 
-func (c *Client) sendBackupChunk(ctx context.Context, credential, destination, uploadID string, chunk backupChunkSpec, body []byte) (backupUploadStatus, Problem, error) {
+func (c *Client) sendBackupChunk(ctx context.Context, credential, destination, audienceVersion, uploadID string, chunk backupChunkSpec, body []byte) (backupUploadStatus, Problem, error) {
 	path := fmt.Sprintf("/v3/backup-uploads/%s/artifacts/%d/chunks/%d", uploadID, chunk.ArtifactOrdinal, chunk.ChunkOrdinal)
 	request, err := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint(path), bytes.NewReader(body))
 	if err != nil {
@@ -591,18 +596,29 @@ func (c *Client) sendBackupChunk(ctx context.Context, credential, destination, u
 	}
 	request.Header.Set("Authorization", "Device "+credential)
 	request.Header.Set("Content-Type", "application/octet-stream")
-	request.Header.Set("X-Coslash-Destination-Workspace", destination)
+	request.Header.Set(backupWorkspaceHeader, destination)
+	request.Header.Set(backupAudienceHeader, audienceVersion)
 	return c.doBackupStatus(request, http.StatusOK)
 }
 
-func (c *Client) finalizeBackup(ctx context.Context, credential, destination, uploadID string) (backupUploadStatus, Problem, error) {
+func (c *Client) finalizeBackup(ctx context.Context, credential, destination, audienceVersion, uploadID string) (backupUploadStatus, Problem, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint("/v3/backup-uploads/"+uploadID+"/finalize"), nil)
 	if err != nil {
 		return backupUploadStatus{}, Problem{Code: "temporary_unavailable"}, err
 	}
 	request.Header.Set("Authorization", "Device "+credential)
-	request.Header.Set("X-Coslash-Destination-Workspace", destination)
+	request.Header.Set(backupWorkspaceHeader, destination)
+	request.Header.Set(backupAudienceHeader, audienceVersion)
 	return c.doBackupStatus(request, http.StatusOK)
+}
+
+func validBackupAudienceVersion(value string) bool {
+	const prefix = "audience-v1:"
+	if len(value) != len(prefix)+64 || !strings.HasPrefix(value, prefix) || strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimPrefix(value, prefix))
+	return err == nil
 }
 
 func (c *Client) doBackupStatus(request *http.Request, accepted ...int) (backupUploadStatus, Problem, error) {

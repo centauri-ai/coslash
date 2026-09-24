@@ -1,0 +1,7 @@
+{
+  "destinationAssertionHeader": "Coslash-Destination-Workspace-Id",
+  "destinationAudienceVersionHeader": "Coslash-Destination-Audience-Version",
+  "destinationAudienceVersionField": "audienceVersion",
+  "audienceVersionFormat": "audience-v1:<lowercase sha256 hex>",
+  "mutationMethods": ["create", "chunk", "finalize", "abort"]
+}

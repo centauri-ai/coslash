@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	backupWorkspace = "10000000-0000-4000-8000-000000000001"
-	backupRevision  = "30000000-0000-4000-8000-000000000001"
+	backupWorkspace       = "10000000-0000-4000-8000-000000000001"
+	backupRevision        = "30000000-0000-4000-8000-000000000001"
+	backupAudienceVersion = "audience-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 )
 
 func TestBackupChunkPlanPreservesReviewedExactBytes(t *testing.T) {
@@ -67,7 +68,7 @@ func TestCompletedBackupRetryDoesNotRequireDiscardedSpool(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/v1/share-destination":
-			_, _ = io.WriteString(w, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"`+backupWorkspace+`","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`)
+			_, _ = io.WriteString(w, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"`+backupWorkspace+`","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"`+backupAudienceVersion+`"},"configured":true}`)
 		case r.URL.Path == "/.well-known/coslash-server":
 			_, _ = io.WriteString(w, `{"product":"coslash-server","serverId":"server-v3","displayName":"Hub","protocolVersions":["v3"],"snapshotVersions":[],"maxSnapshotBytes":0,"fullSessionVersions":[],"maxFullSessionBytes":0,"maxRequestBytes":1048576,"backupVersions":["session-backup/v1"],"backupUploadVersions":["backup-upload/v1"],"maxBackupBytes":1073741824,"maxBackupChunkBytes":128,"backupWorkspaceBytes":53687091200,"backupUploadExpiresSeconds":86400,"pairingUrl":"","teamUrl":""}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/v3/backup-uploads/status":
@@ -104,7 +105,7 @@ func TestCompletedBackupRetryDoesNotRequireDiscardedSpool(t *testing.T) {
 				SourceRevision: sourceRevision, SelectedRevision: 123,
 				CompleteBackupSHA256: prepared.BundleID, TotalBytes: totalBytes,
 				DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2,
-				AudienceVersion: "audience-v1", ServerID: "server-v3", MaxBackupBytes: 1 << 30,
+				AudienceVersion: backupAudienceVersion, ServerID: "server-v3", MaxBackupBytes: 1 << 30,
 				MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 50 << 30,
 			},
 		}},
@@ -130,7 +131,7 @@ func TestBackupShareRejectsUnsupportedCachedSelectionBeforeLookup(t *testing.T) 
 			SourceRevision: "source-revision", SelectedRevision: 123,
 			CompleteBackupSHA256: strings.Repeat("a", 64), TotalBytes: 1,
 			DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2,
-			AudienceVersion: "audience-v1", ServerID: "server-v3", MaxBackupBytes: 1 << 30,
+			AudienceVersion: backupAudienceVersion, ServerID: "server-v3", MaxBackupBytes: 1 << 30,
 			MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 50 << 30,
 		},
 	}
@@ -152,7 +153,7 @@ func TestRetainedBackupUsesIdempotentCreateWithoutStatusProbe(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/v1/share-destination":
-			_, _ = io.WriteString(w, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"`+backupWorkspace+`","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`)
+			_, _ = io.WriteString(w, `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"`+backupWorkspace+`","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"`+backupAudienceVersion+`"},"configured":true}`)
 		case r.URL.Path == "/.well-known/coslash-server":
 			_, _ = io.WriteString(w, `{"product":"coslash-server","serverId":"server-v3","displayName":"Hub","protocolVersions":["v3"],"snapshotVersions":[],"maxSnapshotBytes":0,"fullSessionVersions":[],"maxFullSessionBytes":0,"maxRequestBytes":1048576,"backupVersions":["session-backup/v1"],"backupUploadVersions":["backup-upload/v1"],"maxBackupBytes":1073741824,"maxBackupChunkBytes":128,"backupWorkspaceBytes":53687091200,"backupUploadExpiresSeconds":86400,"pairingUrl":"","teamUrl":""}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/v3/backup-uploads/status":
@@ -191,7 +192,7 @@ func TestRetainedBackupUsesIdempotentCreateWithoutStatusProbe(t *testing.T) {
 				SourceRevision: prepared.Manifest.Source.SourceRevision, SelectedRevision: 123,
 				CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
 				DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2,
-				AudienceVersion: "audience-v1", ServerID: "server-v3", MaxBackupBytes: 1 << 30,
+				AudienceVersion: backupAudienceVersion, ServerID: "server-v3", MaxBackupBytes: 1 << 30,
 				MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 50 << 30,
 			},
 		}},
