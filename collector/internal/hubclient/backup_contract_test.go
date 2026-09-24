@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 )
@@ -98,6 +99,12 @@ func TestBackupMutationsCarryDestinationContractHeaders(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(statusCode)
+		if r.Method == http.MethodPut {
+			_ = json.NewEncoder(w).Encode(backupChunkReceipt{ArtifactOrdinal: plan[0].ArtifactOrdinal,
+				ChunkOrdinal: plan[0].ChunkOrdinal, ByteCount: plan[0].ByteCount, SHA256: plan[0].SHA256,
+				ReceivedAt: time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(backupUploadStatus{
 			UploadID: "20000000-0000-4000-8000-000000000001", CompleteBackupSHA256: prepared.BundleID,
 		})

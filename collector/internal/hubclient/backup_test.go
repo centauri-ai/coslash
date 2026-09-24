@@ -58,13 +58,25 @@ func TestBackupChunkPlanPreservesReviewedExactBytes(t *testing.T) {
 	}
 }
 
+func TestBackupChunkReceiptMustMatchReviewedChunk(t *testing.T) {
+	chunk := backupChunkSpec{ArtifactOrdinal: 2, ChunkOrdinal: 3, ByteCount: 4, SHA256: strings.Repeat("a", 64)}
+	receipt := backupChunkReceipt{ArtifactOrdinal: 2, ChunkOrdinal: 3, ByteCount: 4, SHA256: chunk.SHA256}
+	if !validBackupChunkReceipt(receipt, chunk) {
+		t.Fatal("matching chunk receipt was rejected")
+	}
+	receipt.SHA256 = strings.Repeat("b", 64)
+	if validBackupChunkReceipt(receipt, chunk) {
+		t.Fatal("mismatched chunk receipt was accepted")
+	}
+}
+
 func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T) {
 	manager, prepared := openBackupFixture(t)
 	plan := []backupChunkSpec(nil)
 	received := []backupChunkReceipt(nil)
 	var receivedBytes int64
 	chunkRequests := 0
-	createSeen, finalizeSeen := false, false
+	createSeen, finalizeSeen, rateLimited := false, false, false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -93,7 +105,7 @@ func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T
 			createSeen = true
 			first := plan[0]
 			received = []backupChunkReceipt{{ArtifactOrdinal: first.ArtifactOrdinal, ChunkOrdinal: first.ChunkOrdinal,
-				ByteCount: first.ByteCount, SHA256: first.SHA256}}
+				ByteCount: first.ByteCount, SHA256: first.SHA256, ReceivedAt: time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)}}
 			receivedBytes = first.ByteCount
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(backupUploadStatus{UploadID: "20000000-0000-4000-8000-000000000001",
@@ -102,6 +114,13 @@ func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T
 		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/v3/backup-uploads/20000000-0000-4000-8000-000000000001/artifacts/"):
 			if r.Header.Get(backupWorkspaceHeader) != backupWorkspace || r.Header.Get(backupAudienceHeader) != backupAudienceVersion {
 				t.Errorf("chunk headers = %#v", r.Header)
+			}
+			if !rateLimited {
+				rateLimited = true
+				w.Header().Set("Retry-After", "0")
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = io.WriteString(w, `{"code":"rate_limited"}`)
+				return
 			}
 			parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 			if len(parts) != 7 || parts[3] != "artifacts" || parts[5] != "chunks" {
@@ -134,11 +153,10 @@ func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T
 			}
 			chunkRequests++
 			received = append(received, backupChunkReceipt{ArtifactOrdinal: artifact, ChunkOrdinal: chunk,
-				ByteCount: expected.ByteCount, SHA256: expected.SHA256})
+				ByteCount: expected.ByteCount, SHA256: expected.SHA256,
+				ReceivedAt: time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)})
 			receivedBytes += expected.ByteCount
-			_ = json.NewEncoder(w).Encode(backupUploadStatus{UploadID: "20000000-0000-4000-8000-000000000001",
-				State: "active", CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
-				ExpectedChunks: len(plan), ReceivedBytes: receivedBytes, ReceivedChunks: received})
+			_ = json.NewEncoder(w).Encode(received[len(received)-1])
 		case r.Method == http.MethodPost && r.URL.Path == "/v3/backup-uploads/20000000-0000-4000-8000-000000000001/finalize":
 			if r.Header.Get(backupWorkspaceHeader) != backupWorkspace || r.Header.Get(backupAudienceHeader) != backupAudienceVersion {
 				t.Errorf("finalize headers = %#v", r.Header)
@@ -189,8 +207,26 @@ func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T
 		result.Results[0].Route == nil || result.Results[0].Route.Path != "/v3/session-backups/"+backupRevision {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
-	if !createSeen || !finalizeSeen || chunkRequests != len(plan)-1 {
-		t.Fatalf("create=%v chunks=%d/%d finalize=%v", createSeen, chunkRequests, len(plan)-1, finalizeSeen)
+	if !createSeen || !finalizeSeen || !rateLimited || chunkRequests != len(plan)-1 {
+		t.Fatalf("create=%v rateLimited=%v chunks=%d/%d finalize=%v", createSeen, rateLimited, chunkRequests, len(plan)-1, finalizeSeen)
+	}
+}
+
+func TestBackupChunkRateLimitRetryIsBounded(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"code":"rate_limited"}`)
+	}))
+	t.Cleanup(server.Close)
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base}
+	_, problem, err := client.sendBackupChunk(context.Background(), "credential", backupWorkspace,
+		backupAudienceVersion, "20000000-0000-4000-8000-000000000001", backupChunkSpec{}, nil)
+	if err == nil || problem.Code != "rate_limited" || requests != 5 {
+		t.Fatalf("requests=%d problem=%#v err=%v", requests, problem, err)
 	}
 }
 
