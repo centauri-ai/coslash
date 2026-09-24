@@ -82,7 +82,62 @@ func TestCanceledAgentProcessTerminatesDescendant(t *testing.T) {
 	}
 }
 
+func TestCancelBeforeJobAssignmentKillsSuspendedAgent(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "started")
+	cmd := CommandContext(context.Background(), os.Args[0], "-test.run=^TestAgentExecProcessHelper$")
+	cmd.Env = append(os.Environ(), "COSLASH_AGENTEXEC_MARKER="+marker)
+	originalAssign := assignAgentProcess
+	t.Cleanup(func() { assignAgentProcess = originalAssign })
+	called := false
+	assignAgentProcess = func(job, process windows.Handle) error {
+		called = true
+		if err := cmd.Cancel(); err != nil {
+			t.Errorf("cancel suspended agent: %v", err)
+		}
+		return windows.AssignProcessToJobObject(job, process)
+	}
+	if err := Run(cmd); err == nil {
+		t.Fatal("canceled agent process succeeded")
+	}
+	if !called {
+		t.Fatal("job assignment was not reached")
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canceled agent reached executable; marker error = %v", err)
+	}
+}
+
+func TestOutputBoundsStderrAndPreservesBothEnds(t *testing.T) {
+	cmd := CommandContext(context.Background(), os.Args[0], "-test.run=^TestAgentExecProcessHelper$")
+	cmd.Env = append(os.Environ(), "COSLASH_AGENTEXEC_STDERR=1")
+	_, err := Output(cmd)
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 7 {
+		t.Fatalf("agent exit = %v, want status 7", err)
+	}
+	if len(exit.Stderr) > 2*stderrPartLimit+64 || !strings.HasPrefix(string(exit.Stderr), "prefix") ||
+		!strings.HasSuffix(string(exit.Stderr), "suffix") || !strings.Contains(string(exit.Stderr), "omitting") {
+		t.Fatalf("stderr length = %d, first and last diagnostics were not retained", len(exit.Stderr))
+	}
+	var small boundedStderr
+	_, _ = small.Write([]byte("short "))
+	_, _ = small.Write([]byte("diagnostic"))
+	if got := string(small.Bytes()); got != "short diagnostic" {
+		t.Fatalf("short stderr = %q", got)
+	}
+}
+
 func TestAgentExecProcessHelper(t *testing.T) {
+	if marker := os.Getenv("COSLASH_AGENTEXEC_MARKER"); marker != "" {
+		if err := os.WriteFile(marker, []byte("started"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if os.Getenv("COSLASH_AGENTEXEC_STDERR") == "1" {
+		_, _ = fmt.Fprint(os.Stderr, "prefix", strings.Repeat("x", 100<<10), "suffix")
+		os.Exit(7)
+	}
 	if os.Getenv("COSLASH_AGENTEXEC_CHILD") == "1" {
 		for {
 			time.Sleep(time.Hour)

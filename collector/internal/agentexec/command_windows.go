@@ -54,13 +54,19 @@ func Run(cmd *exec.Cmd) error {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
-	cmd.Cancel = func() error { return windows.TerminateJobObject(job, 1) }
+	cmd.Cancel = func() error {
+		err := windows.TerminateJobObject(job, 1)
+		if cmd.Process != nil && cmd.Process.Kill() == nil {
+			return nil
+		}
+		return err
+	}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
 	if err == nil {
-		err = windows.AssignProcessToJobObject(job, process)
+		err = assignAgentProcess(job, process)
 		windows.CloseHandle(process)
 	}
 	if err != nil {
@@ -77,6 +83,7 @@ func Run(cmd *exec.Cmd) error {
 }
 
 var ntResumeProcess = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtResumeProcess")
+var assignAgentProcess = windows.AssignProcessToJobObject
 
 func resumeProcess(pid int) error {
 	process, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME, false, uint32(pid))
@@ -92,7 +99,8 @@ func resumeProcess(pid int) error {
 }
 
 func Output(cmd *exec.Cmd) ([]byte, error) {
-	var stdout, stderr bytes.Buffer
+	var stdout bytes.Buffer
+	var stderr boundedStderr
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := Run(cmd)
@@ -100,4 +108,36 @@ func Output(cmd *exec.Cmd) ([]byte, error) {
 		exit.Stderr = stderr.Bytes()
 	}
 	return stdout.Bytes(), err
+}
+
+const stderrPartLimit = 32 << 10
+
+type boundedStderr struct {
+	prefix []byte
+	suffix []byte
+	total  int64
+}
+
+func (buffer *boundedStderr) Write(data []byte) (int, error) {
+	written := len(data)
+	buffer.total += int64(written)
+	if remaining := stderrPartLimit - len(buffer.prefix); remaining > 0 {
+		count := min(remaining, len(data))
+		buffer.prefix = append(buffer.prefix, data[:count]...)
+		data = data[count:]
+	}
+	if len(data) >= stderrPartLimit {
+		buffer.suffix = append(buffer.suffix[:0], data[len(data)-stderrPartLimit:]...)
+	} else if len(data) > 0 {
+		drop := max(0, len(buffer.suffix)+len(data)-stderrPartLimit)
+		buffer.suffix = append(buffer.suffix[drop:], data...)
+	}
+	return written, nil
+}
+
+func (buffer *boundedStderr) Bytes() []byte {
+	if omitted := buffer.total - int64(len(buffer.prefix)+len(buffer.suffix)); omitted > 0 {
+		return append(append(buffer.prefix, []byte(fmt.Sprintf("\n... omitting %d bytes ...\n", omitted))...), buffer.suffix...)
+	}
+	return append(buffer.prefix, buffer.suffix...)
 }
