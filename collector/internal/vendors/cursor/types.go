@@ -33,6 +33,7 @@ type toolInput struct {
 	OldString        string         `json:"old_string"`
 	NewString        string         `json:"new_string"`
 	Patch            string         `json:"patch"`
+	Plan             string         `json:"plan"`
 	Todos            []todoToolItem `json:"todos"`
 }
 
