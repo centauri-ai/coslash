@@ -121,7 +121,10 @@ func openCodeEnv(scratchDir string, v2 bool) []string {
 	if v2 {
 		// V2's plugin deny-all also removes its built-in build agent.
 		// A private config home excludes global plugins and MCP servers instead.
-		env = append(env, "XDG_CONFIG_HOME="+filepath.Join(scratchDir, "config"))
+		configHome := filepath.Join(scratchDir, "config")
+		env = append(env, "XDG_CONFIG_HOME="+configHome,
+			"OPENCODE_CONFIG_DIR="+filepath.Join(configHome, "opencode"),
+			"OPENCODE_CONFIG=")
 	} else {
 		// V2 needs the current catalog to resolve its default and free models.
 		env = append(env, "OPENCODE_DISABLE_MODELS_FETCH=1")
