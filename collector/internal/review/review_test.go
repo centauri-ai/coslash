@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +55,41 @@ func TestManagerShutdownCancelsRunningReview(t *testing.T) {
 
 	if state := manager.Status("origin"); state.Pending {
 		t.Fatalf("state after shutdown = %#v", state)
+	}
+}
+
+func TestManagerBoundsRetainedResultsWithoutEvictingPendingReview(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	manager := NewManager(func(context.Context, Launch) (string, error) {
+		close(started)
+		<-release
+		return "retry result", nil
+	})
+	for i := range 101 {
+		manager.finish(fmt.Sprintf("session-%d", i), "result", nil)
+	}
+	if state := manager.Status("session-0"); state.Completed {
+		t.Fatalf("oldest review still retained: %#v", state)
+	}
+	if state := manager.Status("session-100"); !state.Completed || state.Result != "result" {
+		t.Fatalf("newest review missing: %#v", state)
+	}
+	if len(manager.states) != 100 {
+		t.Fatalf("retained states = %d, want 100", len(manager.states))
+	}
+	if !manager.Start("session-1", Launch{}) {
+		t.Fatal("retry did not start")
+	}
+	<-started
+	manager.finish("session-101", "result", nil)
+	if state := manager.Status("session-1"); !state.Pending {
+		t.Fatalf("pending retry was evicted: %#v", state)
+	}
+	close(release)
+	manager.Shutdown()
+	if state := manager.Status("session-1"); !state.Completed || state.Result != "retry result" {
+		t.Fatalf("retry result = %#v", state)
 	}
 }
 
