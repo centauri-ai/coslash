@@ -9,7 +9,7 @@ If the user means the current session, build the selector from the environment a
 
 Use the `coslash` executable found on `PATH` and preserve the inherited `COSLASH_HOME`. Do not substitute a repository-relative binary or `go run` unless the user explicitly asks to test a source build.
 
-If a command in the form that this skill gives reports `Error: usage:`, the installed coSlash is older than this skill. Run `coslash --version`, tell the user to update coSlash the same way they installed it, for example `brew upgrade coslash`, and stop. Do not retry with other flags.
+If a command reports `Error: usage:`, compare the usage it prints with the command you ran. If that usage does not list a subcommand or flag that you used, the installed coSlash is older than this skill. Run `coslash --version`, tell the user to update coSlash the same way they installed it, for example `brew upgrade coslash`, and stop. Otherwise, the arguments are not valid: return stderr and the exit status. Do not retry with other flags.
 
 In Codex, if the command reports `coSlash app is not running`, `coSlash app is not reachable`, or `operation not permitted` for coSlash storage, request escalated execution and retry the exact command outside the sandbox. Use the same elevated execution for any startup and retries below. If permission is denied, stop and report that coSlash needs access to its local files and loopback address.
 
