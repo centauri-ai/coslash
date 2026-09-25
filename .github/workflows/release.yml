@@ -533,6 +533,25 @@ jobs:
             echo "error: release $TAG did not publish with the expected settings" >&2
             exit 1
           fi
+      # Both plugin marketplaces install from this branch, so skills reach
+      # users together with the CLI that Homebrew and the install script ship.
+      - name: Move plugin marketplace to the stable release
+        if: needs.plan.outputs.update_homebrew == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$REPOSITORY/git/ref/heads/stable" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$REPOSITORY/git/refs/heads/stable" \
+              --field sha="$SOURCE_SHA" \
+              --field force=false >/dev/null
+          else
+            gh api --method POST "repos/$REPOSITORY/git/refs" \
+              --field ref=refs/heads/stable \
+              --field sha="$SOURCE_SHA" >/dev/null
+          fi
 
   bump-homebrew:
     needs: [plan, publish]
