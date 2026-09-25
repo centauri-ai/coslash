@@ -70,6 +70,28 @@ func TestBackupChunkReceiptMustMatchReviewedChunk(t *testing.T) {
 	}
 }
 
+func TestBackupRetryDelayFitsOperationBudgetWithoutOverflow(t *testing.T) {
+	tests := []struct {
+		name        string
+		seconds     int
+		wantDelay   time.Duration
+		wantAllowed bool
+	}{
+		{name: "within budget", seconds: int(backupTimeout/time.Second) - 1, wantDelay: backupTimeout - time.Second, wantAllowed: true},
+		{name: "at budget", seconds: int(backupTimeout / time.Second)},
+		{name: "over budget", seconds: int(backupTimeout/time.Second) + 1},
+		{name: "duration overflow", seconds: int(^uint(0) >> 1)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			delay, allowed := backupRetryDelay(context.Background(), test.seconds)
+			if delay != test.wantDelay || allowed != test.wantAllowed {
+				t.Fatalf("backupRetryDelay(%d) = (%s, %t), want (%s, %t)", test.seconds, delay, allowed, test.wantDelay, test.wantAllowed)
+			}
+		})
+	}
+}
+
 func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T) {
 	manager, prepared := openBackupFixture(t)
 	plan := []backupChunkSpec(nil)
