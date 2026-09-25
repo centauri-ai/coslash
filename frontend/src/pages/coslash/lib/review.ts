@@ -1,4 +1,9 @@
-import { sessionKey, type SessionIdentity, type VendorKey } from '@/pages/coslash/lib/session';
+import {
+  isLocalSession,
+  sessionKey,
+  type SessionIdentity,
+  type VendorKey,
+} from '@/pages/coslash/lib/session';
 
 export type ReviewerOption = {
   id: VendorKey;
@@ -34,6 +39,23 @@ export function availableReviewers(
     .toSorted((left, right) => reviewerRank(left.id, originAgent) - reviewerRank(right.id, originAgent));
 }
 
+export function reviewerOptionsForOrigin(
+  origin: SessionIdentity,
+  local: readonly ReviewerOption[],
+  remote: readonly ReviewerOption[],
+): readonly ReviewerOption[] {
+  return isLocalSession(origin) ? local : remote;
+}
+
+export function reviewActionVisible(
+  session: { sourceId: string; cwd: string; launchable?: boolean },
+  reviewSession: boolean,
+): boolean {
+  return (
+    !reviewSession && (isLocalSession(session) ? session.cwd.trim() !== '' : session.launchable === true)
+  );
+}
+
 function reviewerRank(reviewer: string, originAgent: string): number {
   if (reviewer === originAgent) return 2;
   return reviewer === 'codex' ? 0 : 1;
@@ -51,6 +73,10 @@ export function reviewRequestPath(origin: SessionIdentity, reviewer: VendorKey):
 function originShortID(name: string | null): string | null {
   if (name == null) return null;
   return REVIEW_NAME.exec(name)?.[1] ?? null;
+}
+
+export function isReviewSessionName(name: string | null): boolean {
+  return originShortID(name) != null;
 }
 
 export function buildReviewIndex<T extends ReviewableSession>(sessions: readonly T[]): ReviewIndex<T> {

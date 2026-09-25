@@ -121,7 +121,7 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 		}
 		manager.Shutdown()
 	}()
-	if !manager.Start("codex:origin", reviewpkg.Launch{}) {
+	if !manager.Start("local:codex:origin", reviewpkg.Launch{}) {
 		t.Fatal("review did not start")
 	}
 	<-started
@@ -139,17 +139,17 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 	}
 	close(release)
 	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && !manager.Status("codex:origin").Completed {
+	for time.Now().Before(deadline) && !manager.Status("local:codex:origin").Completed {
 		time.Sleep(time.Millisecond)
 	}
 	if got := get("codex", "origin"); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"result":"Found a race"`) {
 		t.Fatalf("completed response = %d %s", got.Code, got.Body.String())
 	}
-	if !manager.Start("claude:failed", reviewpkg.Launch{Reviewer: "bad"}) {
+	if !manager.Start("local:claude:failed", reviewpkg.Launch{Reviewer: "bad"}) {
 		t.Fatal("failed review did not start")
 	}
 	deadline = time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && manager.Status("claude:failed").Error == "" {
+	for time.Now().Before(deadline) && manager.Status("local:claude:failed").Error == "" {
 		time.Sleep(time.Millisecond)
 	}
 	if got := get("claude", "failed"); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"status":"failed"`) || strings.Contains(got.Body.String(), "private failure") {
@@ -357,7 +357,7 @@ func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 		},
 		func(reviewer string) bool { return reviewer == "codex" },
 		func(id string, launch reviewpkg.Launch) bool {
-			if id != "codex:origin-id" {
+			if id != "local:codex:origin-id" {
 				t.Fatalf("origin id = %q", id)
 			}
 			gotReviewer, gotCWD, gotName, gotPrompt = launch.Reviewer, launch.WorkingDirectory, launch.Name, launch.Prompt
@@ -372,6 +372,66 @@ func TestHandleReviewLaunchesSelectedInstalledReviewer(t *testing.T) {
 	}
 	if !strings.HasPrefix(gotPrompt, gotName+"\n") {
 		t.Fatalf("prompt = %q", gotPrompt)
+	}
+}
+
+func TestHandleRemoteReviewUsesOriginHostAndSourceIdentity(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	request := httptest.NewRequest(http.MethodPost, "/api/reviews?source=r_0123456789abcdef&agent=codex&id=origin&reviewer=claude", nil)
+	response := httptest.NewRecorder()
+	var key string
+	var launched reviewpkg.Launch
+	handleRemoteReview(response, request, settings.Open(),
+		func(source, agent, id string) (*session.Session, string, error) {
+			if source != "r_0123456789abcdef" || agent != "codex" || id != "origin" {
+				t.Fatalf("identity = %q %q %q", source, agent, id)
+			}
+			return &session.Session{Agent: agent, ID: id, WorkingDirectory: "/remote/repo"}, "agent-box", nil
+		},
+		func(context.Context, string) ([]launch.ReviewerOption, error) {
+			return []launch.ReviewerOption{{ID: "claude"}}, nil
+		},
+		func(originKey string, request reviewpkg.Launch) bool {
+			key, launched = originKey, request
+			return true
+		},
+	)
+	if response.Code != http.StatusAccepted || key != "r_0123456789abcdef:codex:origin" ||
+		launched.SSHAlias != "agent-box" || launched.WorkingDirectory != "/remote/repo" || launched.Reviewer != "claude" {
+		t.Fatalf("response=%d key=%q launch=%#v", response.Code, key, launched)
+	}
+}
+
+func TestRemoteReviewOptionsReportInstalledCLIsAndOfflineHost(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		online bool
+		want   string
+	}{
+		{name: "installed", online: true, want: `"id":"claude"`},
+		{name: "offline", online: false, want: `"state":"offline"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/api/reviews/options?source=r_0123456789abcdef", nil)
+			handleRemoteReviewOptions(response, request,
+				func(source string) (string, bool) {
+					if source != "r_0123456789abcdef" {
+						t.Fatalf("source = %q", source)
+					}
+					return "agent-box", test.online
+				},
+				func(context.Context, string) ([]launch.ReviewerOption, error) {
+					if !test.online {
+						t.Fatal("probed offline host")
+					}
+					return []launch.ReviewerOption{{ID: "claude", Label: "Claude Code CLI"}}, nil
+				},
+			)
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), test.want) {
+				t.Fatalf("response = %d %s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 
