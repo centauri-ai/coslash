@@ -308,18 +308,20 @@ Successful data commands write their result to standard output. Failures write `
 Install the five coSlash skills for Claude Code:
 
 ```sh
-claude plugin marketplace add centauri-ai/coslash
+claude plugin marketplace add centauri-ai/coslash#stable
 claude plugin install coslash@centauri-ai
 ```
 
 Or install them for Codex:
 
 ```sh
-codex plugin marketplace add centauri-ai/coslash
+codex plugin marketplace add centauri-ai/coslash --ref stable
 codex plugin add coslash@centauri-ai
 ```
 
 The `sessions`, `handoff`, `send`, and `review` skills require the coSlash app to be running. `doctor` works while the app is stopped.
+
+The `stable` branch moves with each stable release, so the skills match the coSlash version that Homebrew and the install script ship. Update coSlash and the skills together. For Claude Code, run `claude plugin marketplace update centauri-ai`, then `claude plugin update coslash@centauri-ai`. For Codex, run `codex plugin marketplace upgrade`. If you added the marketplace without `stable`, remove it and add it again with the commands above.
 
 ## Develop
 
