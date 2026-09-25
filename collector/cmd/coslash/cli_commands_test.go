@@ -380,16 +380,31 @@ func TestSessionMatchesOnlyUISearchFields(t *testing.T) {
 }
 
 func TestParseLocalSessionSelector(t *testing.T) {
-	for _, want := range []string{"codex", "cursor"} {
-		agent, id, ok := parseLocalSessionSelector(want + ":session-1")
-		if !ok || agent != want || id != "session-1" {
+	for _, wantAgent := range []string{"claude", "codex", "cursor", "opencode"} {
+		agent, id, ok := parseLocalSessionSelector(wantAgent + ":session-1")
+		if !ok || agent != wantAgent || id != "session-1" {
 			t.Fatalf("selector = %q/%q/%v", agent, id, ok)
 		}
 	}
-	for _, value := range []string{"session-1", "gemini:session-1", "codex:"} {
+	for _, value := range []string{"session-1", "other:session-1", "codex:"} {
 		if _, _, ok := parseLocalSessionSelector(value); ok {
 			t.Fatalf("accepted selector %q", value)
 		}
+	}
+}
+
+func TestRunHandoffAcceptsCursorSelector(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/handoff" || r.URL.Query().Get("agent") != "cursor" || r.URL.Query().Get("id") != "session-1" {
+			t.Fatalf("handoff request = %s", r.URL.String())
+		}
+		io.WriteString(w, "# Handoff - Cursor\n")
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"handoff", "cursor:session-1"}); code != 0 || stdout.String() != "# Handoff - Cursor\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
 

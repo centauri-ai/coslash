@@ -5,7 +5,7 @@ description: Use when a user wants to list, find, search, or select local coSlas
 
 # coSlash sessions
 
-Run `coslash sessions [query] --json`, omitting the query to list every local session.
+For a broad list request, run `coslash sessions [query] --recent 20 --json`, omitting the query to list local sessions. Present this as a preview limited to 20 most recently active sessions. Use `coslash sessions [query] --json` for a specific search or when the user explicitly requests the full machine-readable list. Do not fetch the unrestricted list for a broad chat request.
 
 For an exact agent filter, use `--agent claude|codex|cursor|opencode`. To get the most recently active matches, add `--recent N`; it sorts by activity time before limiting. For example, `coslash sessions --agent codex --recent 1 --json` finds the latest Codex session. A text query still searches session names, repositories, branches, and agents.
 
@@ -19,4 +19,4 @@ When the command reports anything else, stop retrying and use that result. Keep 
 
 Use the returned `selector` field for handoff, send, and review commands. It preserves both the agent and session ID.
 
-Return stdout unchanged when it fits in chat. If it is too large, show up to 20 complete sessions in CLI order with their `selector` and `name`, clearly say the list is truncated, and suggest `--agent`, `--recent`, or a narrower query. If the command fails, return stderr and the exit status, then suggest `coslash doctor --json`. Do not invent flags or reimplement filtering.
+For specific searches or full machine-readable requests, return stdout unchanged when it fits in chat. For a broad list preview, show each complete session's `selector` and `name` in CLI order, then suggest `--agent`, `--recent`, or a narrower query. Do not sort the preview or save output to a file. If the command fails, return stderr and the exit status, then suggest `coslash doctor --json`. Do not invent flags or reimplement filtering.
