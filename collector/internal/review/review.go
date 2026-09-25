@@ -39,14 +39,16 @@ type Launch struct {
 }
 
 type State struct {
-	Pending bool
-	Error   string
+	Pending   bool
+	Completed bool
+	Error     string
+	Result    string
 }
 
 type Manager struct {
 	mu      sync.Mutex
 	states  map[string]State
-	run     func(context.Context, Launch) error
+	run     func(context.Context, Launch) (string, error)
 	timeout time.Duration
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -55,7 +57,7 @@ type Manager struct {
 	stopped bool
 }
 
-func NewManager(run func(context.Context, Launch) error) *Manager {
+func NewManager(run func(context.Context, Launch) (string, error)) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{states: make(map[string]State), run: run, timeout: 30 * time.Minute, ctx: ctx, cancel: cancel, slots: make(chan struct{}, defaultConcurrency)}
 }
@@ -80,18 +82,18 @@ func (m *Manager) Start(originID string, launch Launch) bool {
 		case m.slots <- struct{}{}:
 			defer func() { <-m.slots }()
 		case <-m.ctx.Done():
-			m.finish(originID, m.ctx.Err())
+			m.finish(originID, "", m.ctx.Err())
 			return
 		}
 		ctx, cancel := context.WithTimeout(m.ctx, m.timeout)
 		defer cancel()
-		err := m.run(ctx, launch)
-		m.finish(originID, err)
+		result, err := m.run(ctx, launch)
+		m.finish(originID, result, err)
 	}()
 	return true
 }
 
-func (m *Manager) finish(originID string, err error) {
+func (m *Manager) finish(originID, result string, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err != nil {
@@ -99,7 +101,7 @@ func (m *Manager) finish(originID string, err error) {
 		m.states[originID] = State{Error: failureMessage}
 		return
 	}
-	delete(m.states, originID)
+	m.states[originID] = State{Completed: true, Result: result}
 }
 
 func (m *Manager) Shutdown() {

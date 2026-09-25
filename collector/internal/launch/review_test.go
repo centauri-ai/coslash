@@ -13,7 +13,7 @@ import (
 )
 
 func TestReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
-	err := Review(context.Background(), review.Launch{
+	_, err := Review(context.Background(), review.Launch{
 		Reviewer:         "invalid",
 		WorkingDirectory: filepath.Join(t.TempDir(), "missing"),
 	})
@@ -62,6 +62,34 @@ func TestBoundedBufferCapsDiagnostics(t *testing.T) {
 	if got := buffer.String(); got != "secr" {
 		t.Fatalf("String() = %q", got)
 	}
+	if !buffer.truncated {
+		t.Fatal("buffer did not mark truncated output")
+	}
+	exact := boundedBuffer{limit: 4}
+	_, _ = exact.Write([]byte("four"))
+	if exact.truncated {
+		t.Fatal("buffer marked exact-size output as truncated")
+	}
+}
+
+func TestReviewCapturesResult(t *testing.T) {
+	t.Setenv("REVIEW_RESULT_OUTPUT", "Found a race")
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	reviewCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewResultHelper")
+	}
+	result, err := Review(context.Background(), review.Launch{Reviewer: "codex", WorkingDirectory: t.TempDir()})
+	if err != nil || result != "Found a race" {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+}
+
+func TestReviewResultHelper(t *testing.T) {
+	if output := os.Getenv("REVIEW_RESULT_OUTPUT"); output != "" {
+		_, _ = os.Stdout.WriteString(output)
+		os.Exit(0)
+	}
 }
 
 func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
@@ -92,7 +120,7 @@ func TestReviewSetsPWDToWorkingDirectory(t *testing.T) {
 		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewWorkingDirectoryHelper")
 	}
 
-	if err := Review(context.Background(), review.Launch{Reviewer: "opencode", WorkingDirectory: workingDirectory}); err != nil {
+	if _, err := Review(context.Background(), review.Launch{Reviewer: "opencode", WorkingDirectory: workingDirectory}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(output)

@@ -598,6 +598,33 @@ func validateCursorLaunch(found *session.Session, mode string) error {
 
 type reviewStarter func(string, reviewpkg.Launch) bool
 
+func handleReviewStatus(w http.ResponseWriter, r *http.Request, manager *reviewpkg.Manager) {
+	query := r.URL.Query()
+	agent, id := query.Get("agent"), query.Get("id")
+	if agent == "" || id == "" {
+		http.Error(w, "agent and id are required", http.StatusBadRequest)
+		return
+	}
+	state := manager.Status(reviewpkg.Key(agent, id))
+	response := struct {
+		Status string `json:"status"`
+		Result string `json:"result,omitempty"`
+		Error  string `json:"error,omitempty"`
+	}{}
+	switch {
+	case state.Pending:
+		response.Status = "pending"
+	case state.Completed:
+		response.Status, response.Result = "completed", state.Result
+	case state.Error != "":
+		response.Status, response.Error = "failed", state.Error
+	default:
+		http.Error(w, "review not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, response)
+}
+
 func handleReview(
 	w http.ResponseWriter,
 	r *http.Request,

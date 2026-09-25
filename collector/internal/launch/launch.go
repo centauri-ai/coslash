@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -97,31 +96,36 @@ type reviewCommandSpec struct {
 	stdin string
 }
 
-func Review(ctx context.Context, request review.Launch) error {
+func Review(ctx context.Context, request review.Launch) (string, error) {
 	workingDirectory := request.WorkingDirectory
 	if err := ValidateWorkingDirectory(workingDirectory); err != nil {
-		return err
+		return "", err
 	}
 	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, request.Prompt)
 	if err != nil {
-		return err
+		return "", err
 	}
 	command := reviewCommandContext(ctx, spec.bin, spec.args...)
 	command.Dir = workingDirectory
 	configureReviewProcess(command)
 	command.Stdin = strings.NewReader(spec.stdin)
-	command.Stdout = io.Discard
+	stdout := boundedBuffer{limit: 32 << 10}
+	command.Stdout = &stdout
 	stderr := boundedBuffer{limit: 8 << 10}
 	command.Stderr = &stderr
 	command.Env = append(command.Environ(), spec.env...)
 	command.WaitDelay = 5 * time.Second
 	if err := agentexec.Run(command); err != nil {
 		if message := strings.TrimSpace(stderr.String()); message != "" {
-			return fmt.Errorf("%s: %w", message, err)
+			return "", fmt.Errorf("%s: %w", message, err)
 		}
-		return err
+		return "", err
 	}
-	return nil
+	result := strings.TrimSpace(strings.ToValidUTF8(stdout.String(), "�"))
+	if stdout.truncated {
+		result += "\n[review output truncated]"
+	}
+	return result, nil
 }
 
 func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
@@ -144,14 +148,17 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 
 type boundedBuffer struct {
 	bytes.Buffer
-	limit int
+	limit     int
+	truncated bool
 }
 
 func (buffer *boundedBuffer) Write(data []byte) (int, error) {
 	written := len(data)
-	if remaining := buffer.limit - buffer.Len(); remaining > 0 {
-		_, _ = buffer.Buffer.Write(data[:min(len(data), remaining)])
+	remaining := max(0, buffer.limit-buffer.Len())
+	if written > remaining {
+		buffer.truncated = true
 	}
+	_, _ = buffer.Buffer.Write(data[:min(written, remaining)])
 	return written, nil
 }
 
