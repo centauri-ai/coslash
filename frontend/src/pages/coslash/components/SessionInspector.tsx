@@ -33,6 +33,7 @@ import { DiffList } from '@/pages/coslash/components/DiffList';
 import { DirectedHandoffDialog } from '@/pages/coslash/components/DirectedHandoffDialog';
 import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandoffStatus';
 import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
+import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import {
   SessionId,
   SessionName,
@@ -73,6 +74,7 @@ import {
 import { copyHandoffText, cursorHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
+import { isReviewSessionName, reviewActionVisible, type ReviewerOption } from '@/pages/coslash/lib/review';
 import {
   boardStatusKey,
   canResumeSession,
@@ -1611,16 +1613,23 @@ function InspectorFooter({
   detail,
   remoteLaunchable,
   remoteResumeHint,
+  reviewerOptions,
+  remoteReviewUnavailableReason,
+  onReviewStarted,
 }: {
   detail: SessionDetail;
   remoteLaunchable: boolean;
   remoteResumeHint?: string;
+  reviewerOptions: readonly ReviewerOption[];
+  remoteReviewUnavailableReason?: string;
+  onReviewStarted: () => void;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const showTeamPreview =
     isLocalSession(detail) && teamPreviewEnabled(window.location.search) && !detail.repoLocalOnly;
   const opensCursor =
     isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
+  const showReview = reviewActionVisible(detail, isReviewSessionName(detail.name));
 
   return (
     <SheetFooter className="bg-coslash-soft flex-row items-center justify-between gap-4 border-t">
@@ -1637,8 +1646,21 @@ function InspectorFooter({
               ? `Opens this session in ${getVendor(detail.agent).label} through SSH.`
               : 'Available when the remote SSH host is connected.'}
         </span>
+        {showReview && remoteReviewUnavailableReason && (
+          <span className="text-warning-fg text-xs">{remoteReviewUnavailableReason}</span>
+        )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {showReview && (
+          <ReviewDialog
+            origin={detail}
+            reviewerOptions={reviewerOptions}
+            unavailableReason={isLocalSession(detail) ? undefined : remoteReviewUnavailableReason}
+            active={detail.reviewPending}
+            reviewError={detail.reviewError}
+            onStarted={onReviewStarted}
+          />
+        )}
         {showTeamPreview && (
           <>
             <Button variant="outline" onClick={() => setPreviewOpen(true)}>
@@ -1669,6 +1691,10 @@ export function SessionInspector({
   handoff,
   onHandoffStarted,
   onOpenTarget,
+  reviewerOptions,
+  remoteReviewerOptions,
+  remoteReviewUnavailableReason,
+  onReviewStarted,
 }: {
   session: Session | null;
   sessionsVersion: number;
@@ -1680,6 +1706,10 @@ export function SessionInspector({
   handoff?: DirectedHandoff;
   onHandoffStarted: () => void;
   onOpenTarget: (handoff: DirectedHandoff) => void;
+  reviewerOptions: readonly ReviewerOption[];
+  remoteReviewerOptions: readonly ReviewerOption[];
+  remoteReviewUnavailableReason?: string;
+  onReviewStarted: () => void;
 }) {
   const [detailRetryToken, setDetailRetryToken] = useState(0);
   const detailAttemptIdentity = session == null ? null : `${sessionKey(session)}@${detailRetryToken}`;
@@ -1932,6 +1962,9 @@ export function SessionInspector({
               detail={detail}
               remoteLaunchable={remoteLaunchable}
               remoteResumeHint={remoteResumeHint}
+              reviewerOptions={isLocalSession(detail) ? reviewerOptions : remoteReviewerOptions}
+              remoteReviewUnavailableReason={remoteReviewUnavailableReason}
+              onReviewStarted={onReviewStarted}
             />
           </>
         )}

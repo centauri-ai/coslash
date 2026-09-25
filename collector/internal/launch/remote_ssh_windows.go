@@ -7,3 +7,9 @@ func remoteSSHArgs(destination settings.SSHDestination, command string) []string
 	args = append(args, destination.Args()...)
 	return append(args, command)
 }
+
+func remoteReviewSSHArgs(destination settings.SSHDestination, command string) []string {
+	args := []string{"-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ControlMaster=no"}
+	args = append(args, destination.Args()...)
+	return append(args, command)
+}

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   availableReviewers,
   buildReviewIndex,
+  reviewActionVisible,
+  reviewerOptionsForOrigin,
   reviewRequestPath,
   type ReviewableSession,
   type ReviewerOption,
@@ -42,6 +44,16 @@ describe('availableReviewers', () => {
       ).map(({ id }) => id),
     ).toEqual(['opencode', 'claude']);
   });
+});
+
+it('offers reviewers on the origin host and uses remote launchability instead of the hidden cwd', () => {
+  const local = [{ id: 'opencode' as const, label: 'OpenCode CLI', available: true }];
+  const remote = [{ id: 'codex' as const, label: 'Codex CLI', available: true }];
+  expect(reviewerOptionsForOrigin(reviewable(), local, remote)).toEqual(local);
+  const remoteOrigin = reviewable({ sourceId: 'remote', agent: 'claude' });
+  expect(reviewerOptionsForOrigin(remoteOrigin, local, remote)).toEqual(remote);
+  expect(reviewActionVisible({ sourceId: 'remote', cwd: '', launchable: true }, false)).toBe(true);
+  expect(reviewActionVisible({ sourceId: 'remote', cwd: '', launchable: false }, false)).toBe(false);
 });
 
 it('builds a source-aware review request', () => {
