@@ -617,7 +617,11 @@ func (c *Client) sendBackupChunk(ctx context.Context, credential, destination, a
 				if problem.RetryAfterSeconds != nil {
 					seconds = *problem.RetryAfterSeconds
 				}
-				if err := waitForBackupRetry(ctx, time.Duration(seconds)*time.Second); err != nil {
+				delay, ok := backupRetryDelay(ctx, seconds)
+				if !ok {
+					return backupChunkReceipt{}, problem, errors.New("retry-after exceeds backup upload budget")
+				}
+				if err := waitForBackupRetry(ctx, delay); err != nil {
 					return backupChunkReceipt{}, Problem{Code: "timeout"}, err
 				}
 				continue
@@ -632,6 +636,27 @@ func (c *Client) sendBackupChunk(ctx context.Context, credential, destination, a
 		}
 		return receipt, Problem{}, nil
 	}
+}
+
+func backupRetryDelay(ctx context.Context, seconds int) (time.Duration, bool) {
+	if seconds < 0 {
+		return 0, false
+	}
+	remaining := backupTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining = time.Until(deadline)
+		if remaining > backupTimeout {
+			remaining = backupTimeout
+		}
+	}
+	if remaining <= 0 || int64(seconds) > int64(remaining/time.Second) {
+		return 0, false
+	}
+	delay := time.Duration(seconds) * time.Second
+	if delay >= remaining {
+		return 0, false
+	}
+	return delay, true
 }
 
 func waitForBackupRetry(ctx context.Context, duration time.Duration) error {
