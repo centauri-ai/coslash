@@ -311,6 +311,39 @@ func TestRunSessionsLooksUpExactIDWithoutListing(t *testing.T) {
 	}
 }
 
+func TestRunSessionsFiltersAgentBeforeSelectingRecent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `[{"agent":"claude","id":"other","branch":"feature/codex","mtime":400},{"agent":"codex","id":"older","mtime":100},{"agent":"codex","id":"newest","mtime":300},{"agent":"cursor","id":"cursor","mtime":500},{"agent":"opencode","id":"open","mtime":200}]`)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+
+	for _, agent := range []string{"claude", "codex", "cursor", "opencode"} {
+		var stdout, stderr bytes.Buffer
+		if code := runCLI(&stdout, &stderr, []string{"sessions", "--agent", agent, "--recent", "1", "--json"}); code != 0 {
+			t.Fatalf("agent %s: code=%d stderr=%s", agent, code, stderr.String())
+		}
+		var got []cliSession
+		if err := json.Unmarshal(stdout.Bytes(), &got); err != nil || len(got) != 1 || got[0].Agent != agent || (agent == "codex" && got[0].ID != "newest") {
+			t.Fatalf("agent %s: sessions=%#v err=%v", agent, got, err)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"sessions", "codex", "--agent", "claude", "--recent", "1", "--json"}); code != 0 {
+		t.Fatalf("combined query: code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"selector":"claude:other"`) {
+		t.Fatalf("combined query: %s", stdout.String())
+	}
+	for _, args := range [][]string{{"--agent", "other"}, {"--agent"}, {"--recent", "0"}, {"--recent", "abc"}, {"--recent"}} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := runCLI(&stdout, &stderr, append([]string{"sessions", "--json"}, args...)); code != 1 || stdout.Len() != 0 {
+			t.Fatalf("invalid args %q: code=%d stdout=%s stderr=%s", args, code, stdout.String(), stderr.String())
+		}
+	}
+}
+
 func TestHandleExactSessionReturnsOneOrNone(t *testing.T) {
 	load := func(agent, id string, _ int64) (*session.Session, error) {
 		if agent == "" && id == "abc-123" {
@@ -400,7 +433,7 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 		command string
 		usage   string
 	}{
-		{"sessions", "usage: coslash sessions [query] --json\n"},
+		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json\n"},
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
 		{"send", "usage: coslash send <agent>:<session> --to claude|codex [message]\n"},
 		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode\n"},

@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -222,7 +224,7 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 		switch args[0] {
 		case "sessions":
-			fmt.Fprintln(stdout, "usage: coslash sessions [query] --json")
+			fmt.Fprintln(stdout, "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json")
 		case "handoff":
 			fmt.Fprintln(stdout, "usage: coslash handoff <agent>:<session>")
 		case "send":
@@ -261,20 +263,39 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 func runSessions(stdout io.Writer, args []string) error {
 	jsonOutput := false
 	query := ""
-	for _, argument := range args {
+	agentFilter := ""
+	recent := 0
+	usage := errors.New("usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json")
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
 		switch {
 		case argument == "--json":
 			jsonOutput = true
+		case argument == "--agent" && index+1 < len(args):
+			index++
+			agentFilter = args[index]
+			switch agentFilter {
+			case vendors.AgentClaude, vendors.AgentCodex, vendors.AgentCursor, vendors.AgentOpenCode:
+			default:
+				return usage
+			}
+		case argument == "--recent" && index+1 < len(args):
+			index++
+			var err error
+			recent, err = strconv.Atoi(args[index])
+			if err != nil || recent < 1 {
+				return usage
+			}
 		case strings.HasPrefix(argument, "-"):
-			return fmt.Errorf("usage: coslash sessions [query] --json")
+			return usage
 		case query == "":
 			query = argument
 		default:
-			return fmt.Errorf("usage: coslash sessions [query] --json")
+			return usage
 		}
 	}
 	if !jsonOutput {
-		return fmt.Errorf("usage: coslash sessions [query] --json")
+		return usage
 	}
 	client, err := newLocalAPIClient()
 	if err != nil {
@@ -304,13 +325,25 @@ func runSessions(stdout io.Writer, args []string) error {
 	}
 	filtered := make([]cliSession, 0, len(sessions))
 	for _, value := range sessions {
-		if exact || sessionMatches(value, query) {
+		if (exact || sessionMatches(value, query)) && (agentFilter == "" || value.Agent == agentFilter) {
 			filtered = append(filtered, cliSession{
 				Selector: value.Agent + ":" + value.ID,
 				ID:       value.ID, Name: value.Name, Agent: value.Agent, Status: value.Status,
 				Repository: value.Repository, Branch: value.Branch, LastActivityTime: value.LastActivityTime,
 			})
 		}
+	}
+	if recent > 0 {
+		slices.SortFunc(filtered, func(left, right cliSession) int {
+			if left.LastActivityTime > right.LastActivityTime {
+				return -1
+			}
+			if left.LastActivityTime < right.LastActivityTime {
+				return 1
+			}
+			return strings.Compare(left.Selector, right.Selector)
+		})
+		filtered = filtered[:min(recent, len(filtered))]
 	}
 	return json.NewEncoder(stdout).Encode(filtered)
 }
