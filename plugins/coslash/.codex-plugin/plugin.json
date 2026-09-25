@@ -1,6 +1,5 @@
 {
   "name": "coslash",
-  "version": "0.1.0",
   "description": "Use local coSlash sessions, handoffs, agent launches, and diagnostics.",
   "author": {
     "name": "Centauri AI",
