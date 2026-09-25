@@ -279,6 +279,9 @@ func TestCursorKeyQueryMatchesWholeIDSegmentIgnoringCase(t *testing.T) {
 func TestHealthCountsCLIChildAsSubagent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", filepath.Join(home, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
 	parentID := "00000000-0000-4000-8000-000000000001"
 	childID := "00000000-0000-4000-8000-000000000002"
 	for _, id := range []string{parentID, childID} {
