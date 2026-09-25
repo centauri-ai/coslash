@@ -221,6 +221,10 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 0 {
 		return 2
 	}
+	if len(args) == 3 && args[0] == "review" && args[1] == "status" && (args[2] == "--help" || args[2] == "-h") {
+		fmt.Fprintln(stdout, "usage: coslash review status <agent>:<session> --json")
+		return 0
+	}
 	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 		switch args[0] {
 		case "sessions":
@@ -230,7 +234,7 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		case "send":
 			fmt.Fprintln(stdout, "usage: coslash send <agent>:<session> --to claude|codex [message]")
 		case "review":
-			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode")
+			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode | coslash review status <agent>:<session> --json")
 		case "doctor":
 			fmt.Fprintln(stdout, "usage: coslash doctor [--json]")
 		default:
@@ -450,6 +454,9 @@ func runSend(stdout io.Writer, args []string) error {
 }
 
 func runReview(stdout io.Writer, args []string) error {
+	if len(args) > 0 && args[0] == "status" {
+		return runReviewStatus(stdout, args[1:])
+	}
 	if len(args) != 3 || args[1] != "--with" {
 		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode")
 	}
@@ -471,4 +478,34 @@ func runReview(stdout io.Writer, args []string) error {
 	}
 	fmt.Fprintf(stdout, "Success: started %s review for session %s\n", reviewer, args[0])
 	return nil
+}
+
+func runReviewStatus(stdout io.Writer, args []string) error {
+	if len(args) != 2 || args[1] != "--json" {
+		return fmt.Errorf("usage: coslash review status <agent>:<session> --json")
+	}
+	agent, id, ok := parseLocalSessionSelector(args[0])
+	if !ok {
+		if cursorID, found := strings.CutPrefix(args[0], vendors.AgentCursor+":"); found && cursorID != "" {
+			agent, id, ok = vendors.AgentCursor, cursorID, true
+		}
+	}
+	if !ok {
+		return fmt.Errorf("usage: coslash review status <agent>:<session> --json")
+	}
+	client, err := newLocalAPIClient()
+	if err != nil {
+		return err
+	}
+	data, err := client.request(http.MethodGet, "/api/reviews?agent="+url.QueryEscape(agent)+"&id="+url.QueryEscape(id), nil)
+	if err != nil {
+		return err
+	}
+	if _, err := stdout.Write(data); err != nil {
+		return err
+	}
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		_, err = fmt.Fprintln(stdout)
+	}
+	return err
 }

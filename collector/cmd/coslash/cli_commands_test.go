@@ -436,7 +436,7 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json\n"},
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
 		{"send", "usage: coslash send <agent>:<session> --to claude|codex [message]\n"},
-		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode\n"},
+		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode | coslash review status <agent>:<session> --json\n"},
 		{"doctor", "usage: coslash doctor [--json]\n"},
 	} {
 		for _, flag := range []string{"--help", "-h"} {
@@ -474,6 +474,27 @@ func TestRunReviewPreservesServerOutcomes(t *testing.T) {
 		if got := stdout.String(); got != "Success: started "+selected+" review for session codex:session-1\n" {
 			t.Fatalf("reviewer = %q, stdout = %q", selected, got)
 		}
+	}
+}
+
+func TestRunReviewStatusReturnsResultWithoutStartingReview(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/reviews" || r.URL.Query().Get("agent") != "codex" || r.URL.Query().Get("id") != "session-1" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.String())
+		}
+		io.WriteString(w, `{"status":"completed","result":"Found a race"}`)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"review", "status", "codex:session-1", "--json"}); code != 0 || stdout.String() != "{\"status\":\"completed\",\"result\":\"Found a race\"}\n" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := runCLI(&stdout, &stderr, []string{"review", "status", "--help"}); code != 0 || stdout.String() != "usage: coslash review status <agent>:<session> --json\n" {
+		t.Fatalf("help code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 }
 

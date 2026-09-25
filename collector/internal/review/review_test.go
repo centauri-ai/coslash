@@ -13,9 +13,9 @@ import (
 func TestManagerTracksBackgroundReviewFailureAndRetry(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan error, 2)
-	manager := NewManager(func(context.Context, Launch) error {
+	manager := NewManager(func(context.Context, Launch) (string, error) {
 		started <- struct{}{}
-		return <-release
+		return "findings", <-release
 	})
 	request := Launch{Reviewer: "codex", WorkingDirectory: "/repo", Name: "review", Prompt: "prompt"}
 
@@ -37,15 +37,15 @@ func TestManagerTracksBackgroundReviewFailureAndRetry(t *testing.T) {
 	}
 	<-started
 	release <- nil
-	waitForReviewState(t, manager, "origin", func(state State) bool { return !state.Pending && state.Error == "" })
+	waitForReviewState(t, manager, "origin", func(state State) bool { return state.Completed && state.Result == "findings" })
 }
 
 func TestManagerShutdownCancelsRunningReview(t *testing.T) {
 	started := make(chan struct{})
-	manager := NewManager(func(ctx context.Context, _ Launch) error {
+	manager := NewManager(func(ctx context.Context, _ Launch) (string, error) {
 		close(started)
 		<-ctx.Done()
-		return ctx.Err()
+		return "", ctx.Err()
 	})
 	manager.Start("origin", Launch{})
 	<-started

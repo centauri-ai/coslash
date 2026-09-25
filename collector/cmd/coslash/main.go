@@ -285,6 +285,9 @@ func routes(
 		}
 		handleReview(w, r, settingsStore, getSession, launch.ReviewerAvailable, reviewManager.Start)
 	})
+	api.HandleFunc("GET /api/reviews", func(w http.ResponseWriter, r *http.Request) {
+		handleReviewStatus(w, r, reviewManager)
+	})
 	api.HandleFunc("GET /api/handoff", func(w http.ResponseWriter, r *http.Request) {
 		handleHandoff(w, r, getCanonicalSession)
 	})

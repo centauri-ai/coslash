@@ -85,7 +85,7 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 		{method: http.MethodPost, path: "/api/synthesis"},
 		{method: http.MethodPost, path: "/api/diff"},
 		{method: http.MethodGet, path: "/api/launch"},
-		{method: http.MethodGet, path: "/api/reviews"},
+		{method: http.MethodPut, path: "/api/reviews"},
 		{method: http.MethodPost, path: "/api/handoff"},
 		{method: http.MethodGet, path: "/api/send"},
 		{method: http.MethodPost, path: "/api/diagnostics"},
@@ -98,6 +98,62 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 				t.Fatalf("status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 			}
 		})
+	}
+}
+
+func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	started := make(chan struct{})
+	release := make(chan struct{})
+	manager := reviewpkg.NewManager(func(_ context.Context, launch reviewpkg.Launch) (string, error) {
+		if launch.Reviewer == "bad" {
+			return "", errors.New("private failure")
+		}
+		close(started)
+		<-release
+		return "Found a race", nil
+	})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		manager.Shutdown()
+	}()
+	if !manager.Start("codex:origin", reviewpkg.Launch{}) {
+		t.Fatal("review did not start")
+	}
+	<-started
+	handler := routes(synthesis.NewManager(nil), manager, settings.Open(), remote.NewManager(remote.Options{}), nil)
+	get := func(agent, id string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/reviews?agent="+agent+"&id="+id, nil))
+		return response
+	}
+	if got := get("codex", "origin"); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"status":"pending"`) {
+		t.Fatalf("pending response = %d %s", got.Code, got.Body.String())
+	}
+	if got := get("claude", "origin"); got.Code != http.StatusNotFound {
+		t.Fatalf("unknown response = %d %s", got.Code, got.Body.String())
+	}
+	close(release)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !manager.Status("codex:origin").Completed {
+		time.Sleep(time.Millisecond)
+	}
+	if got := get("codex", "origin"); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"result":"Found a race"`) {
+		t.Fatalf("completed response = %d %s", got.Code, got.Body.String())
+	}
+	if !manager.Start("claude:failed", reviewpkg.Launch{Reviewer: "bad"}) {
+		t.Fatal("failed review did not start")
+	}
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && manager.Status("claude:failed").Error == "" {
+		time.Sleep(time.Millisecond)
+	}
+	if got := get("claude", "failed"); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"status":"failed"`) || strings.Contains(got.Body.String(), "private failure") {
+		t.Fatalf("failed response = %d %s", got.Code, got.Body.String())
 	}
 }
 
