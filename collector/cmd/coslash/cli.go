@@ -310,9 +310,6 @@ func runSessions(stdout io.Writer, args []string) error {
 	exact := false
 	if query != "" && !strings.ContainsFunc(query, unicode.IsSpace) {
 		agent, id, ok := parseLocalSessionSelector(query)
-		if cursorID, found := strings.CutPrefix(query, vendors.AgentCursor+":"); found && cursorID != "" {
-			agent, id, ok = vendors.AgentCursor, cursorID, true
-		}
 		if !ok {
 			agent, id = "", query
 		}
@@ -485,11 +482,6 @@ func runReviewStatus(stdout io.Writer, args []string) error {
 		return fmt.Errorf("usage: coslash review status <agent>:<session> --json")
 	}
 	agent, id, ok := parseLocalSessionSelector(args[0])
-	if !ok {
-		if cursorID, found := strings.CutPrefix(args[0], vendors.AgentCursor+":"); found && cursorID != "" {
-			agent, id, ok = vendors.AgentCursor, cursorID, true
-		}
-	}
 	if !ok {
 		return fmt.Errorf("usage: coslash review status <agent>:<session> --json")
 	}
