@@ -48,6 +48,7 @@ function renderBoard(
       review={{
         index: reviewIndex,
         reviewerOptions: [{ id: 'claude', label: 'Claude Code', available: true }],
+        remoteReviewerOptions: [],
         onStarted: () => {},
         onSelectRelated: () => {},
       }}
@@ -66,6 +67,12 @@ describe('SessionBoard', () => {
     const markup = renderBoard([session('local', { sourceId: 'local', cwd: '' })]);
 
     expect(markup).not.toContain('Send for review');
+  });
+
+  it('shows review for a launchable remote session without exposing its working directory', () => {
+    const markup = renderBoard([session('remote-review', { cwd: '', launchable: true })]);
+
+    expect(markup).toContain('Send for review');
   });
 
   it('shows the full repository identity on same-named columns', () => {

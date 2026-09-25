@@ -35,6 +35,7 @@ var namePattern = regexp.MustCompile(`^Review — .+ \([^()]{8}\)$`)
 
 type Launch struct {
 	Reviewer         string
+	SSHAlias         string
 	WorkingDirectory string
 	Name             string
 	Prompt           string
@@ -65,8 +66,8 @@ func NewManager(run func(context.Context, Launch) (string, error)) *Manager {
 	return &Manager{states: make(map[string]State), run: run, timeout: 30 * time.Minute, ctx: ctx, cancel: cancel, slots: make(chan struct{}, defaultConcurrency)}
 }
 
-func Key(agent, id string) string {
-	return agent + ":" + id
+func Key(source, agent, id string) string {
+	return source + ":" + agent + ":" + id
 }
 
 func (m *Manager) Start(originID string, launch Launch) bool {

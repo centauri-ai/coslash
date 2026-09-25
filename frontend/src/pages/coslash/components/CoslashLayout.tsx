@@ -59,6 +59,8 @@ import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   availableReviewers,
   buildReviewIndex,
+  reviewActionVisible,
+  reviewerOptionsForOrigin,
   type ReviewerOption,
   type ReviewIndex,
 } from '@/pages/coslash/lib/review';
@@ -122,6 +124,8 @@ type FacetSection = { id: FacetKey; label: string; options: FacetOption[] };
 type SessionReviewProps = {
   index: ReviewIndex<Session>;
   reviewerOptions: readonly ReviewerOption[];
+  remoteReviewerOptions: readonly ReviewerOption[];
+  remoteUnavailableReason?: string;
   onStarted: () => void;
   onSelectRelated: (session: Session) => void;
 };
@@ -613,11 +617,18 @@ function SessionRow({
   const vendor = getVendor(session.agent);
   const key = sessionKey(session);
   const reviewLink = review.index.links.get(key);
-  const showReviewAction =
-    isLocalSession(session) && session.cwd.trim() !== '' && !review.index.reviewSessions.has(key);
+  const showReviewAction = reviewActionVisible(session, review.index.reviewSessions.has(key));
   const reviewActive = session.reviewPending || review.index.activeOrigins.has(key);
+  const reviewerOptions = reviewerOptionsForOrigin(
+    session,
+    review.reviewerOptions,
+    review.remoteReviewerOptions,
+  );
+  const unavailableReason = isLocalSession(session) ? undefined : review.remoteUnavailableReason;
   const reviewDisabled =
-    reviewActive || availableReviewers(review.reviewerOptions, session.agent).length === 0;
+    reviewActive ||
+    unavailableReason != null ||
+    availableReviewers(reviewerOptions, session.agent).length === 0;
   const cell = cn(styles.cell, {
     'py-[5px]': compact,
     'border-coslash-line-soft border-b': !compact,
@@ -759,13 +770,27 @@ function SessionRow({
               <DropdownMenuItem
                 className="text-meta cursor-pointer"
                 disabled={reviewDisabled}
+                title={unavailableReason}
                 onSelect={() => {
                   openingReviewRef.current = true;
                   setReviewOpen(true);
                 }}
               >
                 {reviewActive ? <LoaderCircle className="animate-spin" /> : <ScanSearch />}
-                {reviewActive ? 'Review running' : session.reviewError ? 'Retry review' : 'Send for review'}
+                <span className="flex flex-col items-start">
+                  <span>
+                    {reviewActive
+                      ? 'Review running'
+                      : session.reviewError
+                        ? 'Retry review'
+                        : 'Send for review'}
+                  </span>
+                  {unavailableReason && (
+                    <span className="max-w-64 text-left text-xs whitespace-normal opacity-75">
+                      {unavailableReason}
+                    </span>
+                  )}
+                </span>
               </DropdownMenuItem>
             )}
             <DropdownMenuItem className="text-meta cursor-pointer" onSelect={onSelect}>
@@ -777,7 +802,8 @@ function SessionRow({
         {showReviewAction && (
           <ReviewDialog
             origin={session}
-            reviewerOptions={review.reviewerOptions}
+            reviewerOptions={reviewerOptions}
+            unavailableReason={unavailableReason}
             active={reviewActive}
             reviewError={session.reviewError}
             open={reviewOpen}
@@ -994,6 +1020,8 @@ export function CoslashLayout({
   headerActions,
   inspectorOpen = false,
   reviewerOptions,
+  remoteReviewerOptions,
+  remoteReviewUnavailableReason,
   onReviewStarted,
 }: {
   sessions: Session[];
@@ -1017,6 +1045,8 @@ export function CoslashLayout({
   headerActions?: ReactNode;
   inspectorOpen?: boolean;
   reviewerOptions: readonly ReviewerOption[];
+  remoteReviewerOptions: readonly ReviewerOption[];
+  remoteReviewUnavailableReason?: string;
   onReviewStarted: () => void;
 }) {
   const [preferences, setPreferences] = useState(loadSessionViewPreferences);
@@ -1479,6 +1509,8 @@ export function CoslashLayout({
                       review={{
                         index: reviewIndex,
                         reviewerOptions,
+                        remoteReviewerOptions,
+                        remoteUnavailableReason: remoteReviewUnavailableReason,
                         onStarted: onReviewStarted,
                         onSelectRelated: onSelectSession,
                       }}
@@ -1505,6 +1537,8 @@ export function CoslashLayout({
                     review={{
                       index: reviewIndex,
                       reviewerOptions,
+                      remoteReviewerOptions,
+                      remoteUnavailableReason: remoteReviewUnavailableReason,
                       onStarted: onReviewStarted,
                       onSelectRelated: onSelectSession,
                     }}

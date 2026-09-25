@@ -6,10 +6,12 @@ package launch
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,10 +75,38 @@ type ReviewerOption struct {
 
 func ReviewerOptions() []ReviewerOption {
 	return []ReviewerOption{
-		{ID: vendors.AgentClaude, Label: "Claude Code", Executable: "claude"},
-		{ID: vendors.AgentCodex, Label: "Codex", Executable: "codex"},
-		{ID: vendors.AgentOpenCode, Label: "OpenCode", Executable: "opencode"},
+		{ID: vendors.AgentClaude, Label: "Claude Code CLI", Executable: "claude"},
+		{ID: vendors.AgentCodex, Label: "Codex CLI", Executable: "codex"},
+		{ID: vendors.AgentOpenCode, Label: "OpenCode CLI", Executable: "opencode"},
 	}
+}
+
+func RemoteReviewerOptions(ctx context.Context, alias string) ([]ReviewerOption, error) {
+	destination, err := settings.ParseSSHDestination(alias)
+	if err != nil {
+		return nil, err
+	}
+	probe := `PATH="$HOME/.local/bin:$PATH"; export PATH; if command -v claude >/dev/null 2>&1; then printf 'claude\n'; fi; if command -v codex >/dev/null 2>&1; then printf 'codex\n'; fi`
+	command := reviewCommandContext(ctx, "ssh", remoteReviewSSHArgs(destination, probe)...)
+	configureReviewProcess(command)
+	output := boundedBuffer{limit: 128}
+	command.Stdout = &output
+	command.Stderr = &boundedBuffer{limit: 1024}
+	command.WaitDelay = 5 * time.Second
+	if err := agentexec.Run(command); err != nil {
+		return nil, err
+	}
+	installed := make(map[string]bool)
+	for _, id := range strings.Fields(output.String()) {
+		installed[id] = true
+	}
+	options := []ReviewerOption{}
+	for _, option := range ReviewerOptions()[:2] {
+		if installed[option.ID] {
+			options = append(options, option)
+		}
+	}
+	return options, nil
 }
 
 func ReviewerAvailable(reviewer string) bool {
@@ -98,15 +128,42 @@ type reviewCommandSpec struct {
 
 func Review(ctx context.Context, request review.Launch) (string, error) {
 	workingDirectory := request.WorkingDirectory
-	if err := ValidateWorkingDirectory(workingDirectory); err != nil {
-		return "", err
+	if request.SSHAlias == "" {
+		if err := ValidateWorkingDirectory(workingDirectory); err != nil {
+			return "", err
+		}
+	} else if workingDirectory == "" {
+		return "", ErrWorkingDirectoryUnavailable
 	}
 	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, request.Prompt)
 	if err != nil {
 		return "", err
 	}
-	command := reviewCommandContext(ctx, spec.bin, spec.args...)
-	command.Dir = workingDirectory
+	bin, args := spec.bin, spec.args
+	var remoteDestination settings.SSHDestination
+	var remoteMarker string
+	if request.SSHAlias != "" {
+		destination, err := settings.ParseSSHDestination(request.SSHAlias)
+		if err != nil {
+			return "", err
+		}
+		remoteDestination = destination
+		remoteMarker = "/tmp/coslash-review-" + rand.Text()
+		remoteCommand := `PATH="$HOME/.local/bin:$PATH"; export PATH; `
+		if request.Reviewer == vendors.AgentClaude {
+			remoteCommand += `if [ -f "$HOME/.agent-keys.sh" ]; then . "$HOME/.agent-keys.sh" || exit 1; fi; `
+		}
+		remoteCommand += "cd " + shellQuote(workingDirectory) + " || exit 1; "
+		remoteCommand += "marker=" + shellQuote(remoteMarker) + `; umask 077; printf '%s\n' "$$" > "$marker" || exit 1; `
+		remoteCommand += `child=; trap 'if [ -n "$child" ]; then kill "$child" 2>/dev/null || true; fi; exit 143' HUP TERM; `
+		remoteCommand += `trap 'rm -f "$marker"' EXIT; `
+		remoteCommand += shellJoin(append([]string{bin}, args...)...) + ` <&0 & child=$!; wait "$child"`
+		bin, args = "ssh", remoteReviewSSHArgs(destination, remoteCommand)
+	}
+	command := reviewCommandContext(ctx, bin, args...)
+	if request.SSHAlias == "" {
+		command.Dir = workingDirectory
+	}
 	configureReviewProcess(command)
 	command.Stdin = strings.NewReader(spec.stdin)
 	stdout := boundedBuffer{limit: 32 << 10}
@@ -116,6 +173,9 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 	command.Env = append(command.Environ(), spec.env...)
 	command.WaitDelay = 5 * time.Second
 	if err := agentexec.Run(command); err != nil {
+		if remoteMarker != "" {
+			cleanupRemoteReview(remoteDestination, remoteMarker)
+		}
 		if message := strings.TrimSpace(stderr.String()); message != "" {
 			return "", fmt.Errorf("%s: %w", message, err)
 		}
@@ -126,6 +186,19 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 		result += "\n[review output truncated]"
 	}
 	return result, nil
+}
+
+func cleanupRemoteReview(destination settings.SSHDestination, marker string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	remoteCommand := `marker=` + shellQuote(marker) + `; pid=$(cat "$marker" 2>/dev/null) || exit 0; kill -TERM "$pid" 2>/dev/null || true`
+	command := reviewCommandContext(ctx, "ssh", remoteReviewSSHArgs(destination, remoteCommand)...)
+	command.Stdout = &boundedBuffer{limit: 128}
+	command.Stderr = &boundedBuffer{limit: 1024}
+	command.WaitDelay = 5 * time.Second
+	if err := agentexec.Run(command); err != nil {
+		log.Printf("remote review cleanup failed: %v", err)
+	}
 }
 
 func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
