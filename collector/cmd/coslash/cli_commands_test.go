@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -465,6 +466,63 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	if code := runCLI(&stdout, &stderr, []string{"sessions", "--bad"}); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage:") {
 		t.Fatalf("invalid flag: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+}
+
+// A command that parses reaches app discovery, which fails first without a running app.
+func TestPluginSkillCommandsParse(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	paths, err := filepath.Glob("../../../plugins/coslash/skills/*/SKILL.md")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("skills = %v, %v", paths, err)
+	}
+	command := regexp.MustCompile("`coslash ([^`]+)`")
+	checked := 0
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range command.FindAllStringSubmatch(string(data), -1) {
+			args := strings.Fields(match[1])
+			// Leading flags start the app, and doctor runs real diagnostics.
+			if strings.HasPrefix(args[0], "-") || args[0] == "doctor" {
+				continue
+			}
+			for _, variant := range skillCommandVariants(args) {
+				var stdout, stderr bytes.Buffer
+				code := runCLI(&stdout, &stderr, variant)
+				if code != 1 || !strings.Contains(stderr.String(), "coSlash app is not running") {
+					t.Errorf("%s: coslash %s: code=%d stderr=%q", path, strings.Join(variant, " "), code, stderr.String())
+				}
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no skill commands found")
+	}
+}
+
+func skillCommandVariants(args []string) [][]string {
+	variants := [][]string{nil}
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "["):
+			continue
+		case arg == "<agent>:<session>":
+			arg = "claude:session-1"
+		case arg == "N":
+			arg = "1"
+		}
+		var next [][]string
+		for _, alternative := range strings.Split(arg, "|") {
+			for _, variant := range variants {
+				next = append(next, append(slices.Clone(variant), alternative))
+			}
+		}
+		variants = next
+	}
+	return variants
 }
 
 func TestRunReviewPreservesServerOutcomes(t *testing.T) {
