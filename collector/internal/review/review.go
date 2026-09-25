@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 const (
 	defaultConcurrency  = 2
+	maxRetainedReviews  = 100
 	prefix              = "Review — "
 	failureMessage      = "Review failed. Check the reviewer CLI and try again."
 	maxOriginNameRunes  = 120
@@ -46,15 +48,16 @@ type State struct {
 }
 
 type Manager struct {
-	mu      sync.Mutex
-	states  map[string]State
-	run     func(context.Context, Launch) (string, error)
-	timeout time.Duration
-	ctx     context.Context
-	cancel  context.CancelFunc
-	slots   chan struct{}
-	wg      sync.WaitGroup
-	stopped bool
+	mu       sync.Mutex
+	states   map[string]State
+	finished []string
+	run      func(context.Context, Launch) (string, error)
+	timeout  time.Duration
+	ctx      context.Context
+	cancel   context.CancelFunc
+	slots    chan struct{}
+	wg       sync.WaitGroup
+	stopped  bool
 }
 
 func NewManager(run func(context.Context, Launch) (string, error)) *Manager {
@@ -68,9 +71,13 @@ func Key(agent, id string) string {
 
 func (m *Manager) Start(originID string, launch Launch) bool {
 	m.mu.Lock()
-	if m.stopped || m.states[originID].Pending {
+	previous := m.states[originID]
+	if m.stopped || previous.Pending {
 		m.mu.Unlock()
 		return false
+	}
+	if previous.Completed || previous.Error != "" {
+		m.finished = slices.DeleteFunc(m.finished, func(id string) bool { return id == originID })
 	}
 	m.states[originID] = State{Pending: true}
 	m.wg.Add(1)
@@ -99,9 +106,14 @@ func (m *Manager) finish(originID, result string, err error) {
 	if err != nil {
 		log.Printf("review failed for session %s: %v", originID, err)
 		m.states[originID] = State{Error: failureMessage}
-		return
+	} else {
+		m.states[originID] = State{Completed: true, Result: result}
 	}
-	m.states[originID] = State{Completed: true, Result: result}
+	m.finished = append(m.finished, originID)
+	if len(m.finished) > maxRetainedReviews {
+		delete(m.states, m.finished[0])
+		m.finished = slices.Delete(m.finished, 0, 1)
+	}
 }
 
 func (m *Manager) Shutdown() {
