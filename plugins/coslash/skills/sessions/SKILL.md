@@ -7,6 +7,8 @@ description: Use when a user wants to list, find, search, or select local coSlas
 
 Run `coslash sessions [query] --json`, omitting the query to list every local session.
 
+For an exact agent filter, use `--agent claude|codex|cursor|opencode`. To get the most recently active matches, add `--recent N`; it sorts by activity time before limiting. For example, `coslash sessions --agent codex --recent 1 --json` finds the latest Codex session. A text query still searches session names, repositories, branches, and agents.
+
 Use the `coslash` executable found on `PATH` and preserve the inherited `COSLASH_HOME`. Do not substitute a repository-relative binary or `go run` unless the user explicitly asks to test a source build.
 
 In Codex, if the command reports `coSlash app is not running`, `coSlash app is not reachable`, or `operation not permitted` for coSlash storage, request escalated execution and retry the exact command outside the sandbox. Use the same elevated execution for any startup and retries below. If permission is denied, stop and report that coSlash needs access to its local files and loopback address.
@@ -17,4 +19,4 @@ When the command reports anything else, stop retrying and use that result. Keep 
 
 Use the returned `selector` field for handoff, send, and review commands. It preserves both the agent and session ID.
 
-Return stdout unchanged when it fits in chat. If it is too large, show up to 20 complete sessions in CLI order with their `selector` and `name`, clearly say the list is truncated, and suggest a narrower query. If the command fails, return stderr and the exit status, then suggest `coslash doctor --json`. Do not invent flags or reimplement filtering.
+Return stdout unchanged when it fits in chat. If it is too large, show up to 20 complete sessions in CLI order with their `selector` and `name`, clearly say the list is truncated, and suggest `--agent`, `--recent`, or a narrower query. If the command fails, return stderr and the exit status, then suggest `coslash doctor --json`. Do not invent flags or reimplement filtering.
