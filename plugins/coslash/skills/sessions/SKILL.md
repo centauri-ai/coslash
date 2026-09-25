@@ -11,6 +11,8 @@ For an exact agent filter, use `--agent claude|codex|cursor|opencode`. To get th
 
 Use the `coslash` executable found on `PATH` and preserve the inherited `COSLASH_HOME`. Do not substitute a repository-relative binary or `go run` unless the user explicitly asks to test a source build.
 
+If a command in the form that this skill gives reports `Error: usage:`, the installed coSlash is older than this skill. Run `coslash --version`, tell the user to update coSlash the same way they installed it, for example `brew upgrade coslash`, and stop. Do not retry with other flags.
+
 In Codex, if the command reports `coSlash app is not running`, `coSlash app is not reachable`, or `operation not permitted` for coSlash storage, request escalated execution and retry the exact command outside the sandbox. Use the same elevated execution for any startup and retries below. If permission is denied, stop and report that coSlash needs access to its local files and loopback address.
 
 If the command reports `coSlash app is not running` after the Codex retry, when applicable, resolve the `coslash` executable from `PATH`, launch that executable directly as `coslash --no-open --port 0` in the background with output redirected to a temporary log created with `mktemp -t coslash.XXXXXX`, and retain its PID. Do not launch for other errors. Every two seconds, retry the exact original command while it reports `coSlash app is not running`, until three minutes pass. The command reports that error before it contacts the app, so a retry has no side effect. If the retained process exits because another coSlash app is already running, keep retrying for that app; for any other early exit, return the startup log.
