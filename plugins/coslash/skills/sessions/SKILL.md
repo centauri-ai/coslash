@@ -17,4 +17,4 @@ When the command reports anything else, stop retrying and use that result. Keep 
 
 Use the returned `selector` field for handoff, send, and review commands. It preserves both the agent and session ID.
 
-Return stdout unchanged. If the command fails, return stderr and the exit status, then suggest `coslash doctor --json`. Do not invent flags, reshape the JSON, or reimplement filtering.
+Return stdout unchanged when it fits in chat. If it is too large, show up to 20 complete sessions in CLI order with their `selector` and `name`, clearly say the list is truncated, and suggest a narrower query. If the command fails, return stderr and the exit status, then suggest `coslash doctor --json`. Do not invent flags or reimplement filtering.
