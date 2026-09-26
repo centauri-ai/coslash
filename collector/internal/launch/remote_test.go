@@ -80,7 +80,7 @@ func TestRemoteTerminalWithPromptStagesInputOutsideSSHArguments(t *testing.T) {
 		t.Fatalf("staged files = %v, err = %v", entries, err)
 	}
 	contents, err := os.ReadFile(filepath.Join(handoffDir(), entries[0].Name()))
-	if err != nil || string(contents) != prompt+"\r" {
+	if err != nil || string(contents) != "\x1b[200~"+prompt+"\x1b[201~\r" {
 		t.Fatalf("staged prompt = %q, err = %v", contents, err)
 	}
 	runOSAScript = func(_ context.Context, args ...string) error {
