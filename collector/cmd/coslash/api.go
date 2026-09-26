@@ -696,11 +696,7 @@ func handleReview(
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	originName := ""
-	if found.Name != nil {
-		originName = *found.Name
-	}
-	name := reviewpkg.Name(originName, found.ID)
+	name := reviewpkg.Name("Session", found.ID)
 	prompt := reviewpkg.Prompt(found)
 	if r.Context().Err() != nil {
 		return
@@ -742,6 +738,17 @@ func handleRemoteReview(
 		return
 	}
 	found, alias, err := resolve(source, agent, id)
+	if err != nil {
+		log.Printf("remote review: %.512q", err.Error())
+		if errors.Is(err, remote.ErrRemoteSessionOversized) {
+			http.Error(w, "remote session details exceed the collection size limit", http.StatusConflict)
+			return
+		}
+		if errors.Is(err, remote.ErrRemoteSessionUnavailable) {
+			http.Error(w, "remote session is missing its working directory", http.StatusConflict)
+			return
+		}
+	}
 	if err != nil || found == nil || found.Agent != agent || alias == "" {
 		http.Error(w, "remote host or session is unavailable", http.StatusConflict)
 		return
@@ -758,13 +765,9 @@ func handleRemoteReview(
 	if r.Context().Err() != nil {
 		return
 	}
-	name := ""
-	if found.Name != nil {
-		name = *found.Name
-	}
 	if !startReview(reviewpkg.Key(source, found.Agent, found.ID), reviewpkg.Launch{
 		Reviewer: reviewer, SSHAlias: alias, WorkingDirectory: found.WorkingDirectory,
-		Name: reviewpkg.Name(name, found.ID), Prompt: reviewpkg.Prompt(found),
+		Name: reviewpkg.Name("Session", found.ID), Prompt: reviewpkg.Prompt(found),
 	}) {
 		http.Error(w, "review already running", http.StatusConflict)
 		return
