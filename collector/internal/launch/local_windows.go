@@ -240,6 +240,24 @@ func localCLIExecutable(agent, fallback string) string {
 	return fallback
 }
 
+func cursorReviewCommand(prompt string) reviewCommandSpec {
+	path := localCLIExecutable(vendors.AgentCursor, settings.CursorExecutable())
+	if strings.HasSuffix(strings.ToLower(path), ".ps1") {
+		return reviewCommandSpec{bin: "powershell.exe", args: append(powerShellCommandArguments(path, false), "--print", "--mode", "ask"), stdin: prompt}
+	}
+	return reviewCommandSpec{bin: path, args: []string{"--print", "--mode", "ask"}, stdin: prompt}
+}
+
+func interactivePromptCommand(_, _, _, _ string) (string, string, error) {
+	return "", "", fmt.Errorf("launch: secure interactive prompt delivery is unsupported on Windows")
+}
+
+func secureTerminalInputCommand(_, _ string) (string, string, error) {
+	return "", "", fmt.Errorf("launch: secure interactive prompt delivery is unsupported on Windows")
+}
+
+func securePromptAvailable() bool { return false }
+
 func powerShellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

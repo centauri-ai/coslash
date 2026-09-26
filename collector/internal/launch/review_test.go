@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/review"
@@ -28,20 +29,25 @@ func TestReviewCLICommands(t *testing.T) {
 	tests := map[string]reviewCommandSpec{
 		"claude": {
 			bin:   "claude",
-			args:  []string{"-p", "--name", name, "--permission-mode", "plan"},
+			args:  []string{"-p", "--name", name, "--permission-mode", "plan", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands", "--tools", "Read,Glob,Grep"},
 			stdin: prompt,
 		},
 		"codex": {
 			bin:   "codex",
-			args:  []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"},
+			args:  []string{"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--skip-git-repo-check", "-"},
 			stdin: prompt,
 		},
 		"opencode": {
 			bin:   "opencode",
-			args:  []string{"run", "--title", name},
+			args:  []string{"run", "--pure", "--title", name},
 			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
 			stdin: prompt,
 		},
+		"cursor": func() reviewCommandSpec {
+			spec := cursorReviewCommand(prompt)
+			spec.args = append(spec.args, "--sandbox", "enabled", "--trust")
+			return spec
+		}(),
 	}
 	for reviewer, want := range tests {
 		got, err := reviewCLICommand(reviewer, "/repo", name, prompt)
@@ -92,12 +98,39 @@ func TestReviewResultHelper(t *testing.T) {
 	}
 }
 
+func TestCursorReviewUsesPrivateReadOnlyConfig(t *testing.T) {
+	t.Setenv("REVIEW_CURSOR_HELPER", "1")
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	reviewCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestCursorReviewHelper")
+	}
+	result, err := Review(context.Background(), review.Launch{Reviewer: "cursor", WorkingDirectory: t.TempDir(), Prompt: "review"})
+	if err != nil || result != "secure" {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+}
+
+func TestCursorReviewHelper(t *testing.T) {
+	if os.Getenv("REVIEW_CURSOR_HELPER") != "1" {
+		return
+	}
+	path := filepath.Join(os.Getenv("CURSOR_DATA_DIR"), ".cursor", "cli.json")
+	contents, err := os.ReadFile(path)
+	if err == nil && strings.Contains(string(contents), "Mcp(*)") && strings.Contains(string(contents), "Write(*)") {
+		_, _ = os.Stdout.WriteString("secure")
+		os.Exit(0)
+	}
+	os.Exit(1)
+}
+
 func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 	got := ReviewerOptions()
 	want := []ReviewerOption{
 		{ID: "claude", Label: "Claude Code", Executable: "claude"},
 		{ID: "codex", Label: "Codex", Executable: "codex"},
 		{ID: "opencode", Label: "OpenCode", Executable: "opencode"},
+		{ID: "cursor", Label: "Cursor CLI", Executable: "agent"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReviewerOptions() = %#v, want %#v", got, want)
@@ -105,7 +138,7 @@ func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 }
 
 func TestReviewCLICommandRejectsUnknownReviewer(t *testing.T) {
-	if _, err := reviewCLICommand("cursor", "/repo", "name", "prompt"); err == nil {
+	if _, err := reviewCLICommand("invalid", "/repo", "name", "prompt"); err == nil {
 		t.Fatal("reviewCLICommand() accepted an unsupported reviewer")
 	}
 }
