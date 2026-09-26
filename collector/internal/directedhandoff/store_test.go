@@ -1,12 +1,35 @@
 package directedhandoff
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
+
+func TestShutdownCancelsReviewsAndRefusesNewWork(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "handoffs.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	finished := make(chan struct{})
+	if !store.RunReview(func(ctx context.Context) {
+		close(started)
+		<-ctx.Done()
+		close(finished)
+	}) {
+		t.Fatal("review did not start")
+	}
+	<-started
+	store.Shutdown()
+	<-finished
+	if store.RunReview(func(context.Context) { t.Error("started after shutdown") }) {
+		t.Fatal("review accepted after shutdown")
+	}
+}
 
 func TestStorePersistsAndCorrelatesExactMarker(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "handoffs.json")
@@ -133,6 +156,14 @@ func TestNewerHandoffDoesNotReplaceOlderTracking(t *testing.T) {
 	}
 	if got := store.List(); got[0].Status != "running" || got[0].Activity != "needs_input" || got[1].TargetSessionID != "" {
 		t.Fatalf("question/concurrent = %#v", got)
+	}
+	waiting := "waiting"
+	target.Status = &waiting
+	if err := store.Observe("local", []*session.Session{target}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.List()[0]; got.Activity != "needs_input" {
+		t.Fatalf("waiting target = %#v", got)
 	}
 }
 
