@@ -9,6 +9,8 @@ import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
 
 const props: ComponentProps<typeof CoslashLayout> = {
   sessions: [],
+  latestHandoffs: new Map(),
+  onOpenHandoffTarget: () => {},
   machines: [
     { sourceId: 'local', label: 'Local Mac', state: 'ok', complete: true },
     { sourceId: 'remote', label: 'agent-box', state: 'ok', complete: true },
