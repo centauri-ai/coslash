@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   availableReviewers,
   buildReviewIndex,
+  remoteReviewAvailability,
   reviewActionVisible,
   reviewerOptionsForOrigin,
   reviewRequestPath,
@@ -54,6 +56,26 @@ it('offers reviewers on the origin host and uses remote launchability instead of
   expect(reviewerOptionsForOrigin(remoteOrigin, local, remote)).toEqual(remote);
   expect(reviewActionVisible({ sourceId: 'remote', cwd: '', launchable: true }, false)).toBe(true);
   expect(reviewActionVisible({ sourceId: 'remote', cwd: '', launchable: false }, false)).toBe(false);
+});
+
+it('distinguishes stale host guidance from retryable reviewer checks', () => {
+  const machine = { sourceId: 'remote', label: 'SSH workspace', state: 'ok', complete: true } as MachineFact;
+  expect(remoteReviewAvailability(machine, { state: 'ready', reviewers: options })).toEqual({
+    retryable: false,
+  });
+  expect(remoteReviewAvailability(machine, { state: 'error', reviewers: [] })).toEqual({
+    reason: 'Could not check reviewer CLIs on the SSH host. Retry the check.',
+    retryable: true,
+  });
+  expect(remoteReviewAvailability(machine, { state: 'ready', reviewers: [] })).toEqual({
+    reason: 'Install Claude Code CLI or Codex CLI on the SSH host, then retry the check.',
+    retryable: true,
+  });
+  const stale = { ...machine, state: 'stale', reason: 'broader_history' } as MachineFact;
+  const guidance = remoteReviewAvailability(stale, { state: 'error', reviewers: [] });
+  expect(guidance.reason).toMatch(/^Connected\. Synced/);
+  expect(guidance.reason).toContain('Retry remote refresh to start a review.');
+  expect(guidance.retryable).toBe(false);
 });
 
 it('builds a source-aware review request', () => {

@@ -129,6 +129,8 @@ type SessionReviewProps = {
   reviewerOptions: readonly ReviewerOption[];
   remoteReviewerOptions: readonly ReviewerOption[];
   remoteUnavailableReason?: string;
+  canRetryRemoteReviewers: boolean;
+  onRetryRemoteReviewers: () => void;
   onStarted: () => void;
   onSelectRelated: (session: Session) => void;
 };
@@ -651,6 +653,7 @@ function SessionRow({
     review.remoteReviewerOptions,
   );
   const unavailableReason = isLocalSession(session) ? undefined : review.remoteUnavailableReason;
+  const retryReviewers = !isLocalSession(session) && review.canRetryRemoteReviewers;
   const reviewDisabled =
     reviewActive ||
     unavailableReason != null ||
@@ -798,9 +801,13 @@ function SessionRow({
             {showReviewAction && (
               <DropdownMenuItem
                 className="text-meta cursor-pointer"
-                disabled={reviewDisabled}
+                disabled={reviewActive || (reviewDisabled && !retryReviewers)}
                 title={unavailableReason}
                 onSelect={() => {
+                  if (retryReviewers) {
+                    review.onRetryRemoteReviewers();
+                    return;
+                  }
                   openingReviewRef.current = true;
                   setReviewOpen(true);
                 }}
@@ -810,9 +817,11 @@ function SessionRow({
                   <span>
                     {reviewActive
                       ? 'Review running'
-                      : session.reviewError
-                        ? 'Retry review'
-                        : 'Send for review'}
+                      : retryReviewers
+                        ? 'Retry reviewer check'
+                        : session.reviewError
+                          ? 'Retry review'
+                          : 'Send for review'}
                   </span>
                   {unavailableReason && (
                     <span className="max-w-64 text-left text-xs whitespace-normal opacity-75">
@@ -1057,6 +1066,8 @@ export function CoslashLayout({
   reviewerOptions,
   remoteReviewerOptions,
   remoteReviewUnavailableReason,
+  canRetryRemoteReviewers,
+  onRetryRemoteReviewers,
   onReviewStarted,
 }: {
   sessions: Session[];
@@ -1085,6 +1096,8 @@ export function CoslashLayout({
   reviewerOptions: readonly ReviewerOption[];
   remoteReviewerOptions: readonly ReviewerOption[];
   remoteReviewUnavailableReason?: string;
+  canRetryRemoteReviewers: boolean;
+  onRetryRemoteReviewers: () => void;
   onReviewStarted: () => void;
 }) {
   const [preferences, setPreferences] = useState(loadSessionViewPreferences);
@@ -1580,6 +1593,8 @@ export function CoslashLayout({
                         reviewerOptions,
                         remoteReviewerOptions,
                         remoteUnavailableReason: remoteReviewUnavailableReason,
+                        canRetryRemoteReviewers,
+                        onRetryRemoteReviewers,
                         onStarted: onReviewStarted,
                         onSelectRelated: onSelectSession,
                       }}
@@ -1609,6 +1624,8 @@ export function CoslashLayout({
                       reviewerOptions,
                       remoteReviewerOptions,
                       remoteUnavailableReason: remoteReviewUnavailableReason,
+                      canRetryRemoteReviewers,
+                      onRetryRemoteReviewers,
                       onStarted: onReviewStarted,
                       onSelectRelated: onSelectSession,
                     }}

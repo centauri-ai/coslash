@@ -23,7 +23,7 @@ import { handoffSelection, newestHandoffs, type DirectedHandoff } from '@/pages/
 import { apiFetch } from '@/pages/coslash/lib/api';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
-import type { ReviewerOption } from '@/pages/coslash/lib/review';
+import { remoteReviewAvailability, type ReviewerOption } from '@/pages/coslash/lib/review';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
 import {
@@ -165,7 +165,8 @@ export function CoslashPage() {
   const remoteMachine = machines.find((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
   const remoteSourceId = remoteMachine?.sourceId;
   const remoteState = remoteMachine?.state;
-  const remoteReviewKey = remoteSourceId ? `${remoteSourceId}:${remoteState}` : '';
+  const [remoteReviewRetry, setRemoteReviewRetry] = useState(0);
+  const remoteReviewKey = remoteSourceId ? `${remoteSourceId}:${remoteState}:${remoteReviewRetry}` : '';
   const [remoteReviewCheck, setRemoteReviewCheck] = useState<{
     key: string;
     state: 'ready' | 'offline' | 'error';
@@ -192,18 +193,8 @@ export function CoslashPage() {
   }, [remoteSourceId, remoteReviewKey]);
   const currentRemoteReview = remoteReviewCheck?.key === remoteReviewKey ? remoteReviewCheck : null;
   const remoteReviewerOptions = currentRemoteReview?.reviewers ?? [];
-  const remoteReviewUnavailableReason =
-    remoteMachine && remoteMachine.state !== 'ok' && remoteMachine.state !== 'limited'
-      ? 'SSH host is offline. Reconnect it to start a review.'
-      : currentRemoteReview == null
-        ? 'Checking reviewer CLIs on the SSH host.'
-        : currentRemoteReview.state === 'offline'
-          ? 'SSH host is offline. Reconnect it to start a review.'
-          : currentRemoteReview.state === 'error'
-            ? 'Could not check reviewer CLIs on the SSH host. Refresh to retry.'
-            : remoteReviewerOptions.length === 0
-              ? 'Install Claude Code CLI or Codex CLI on the SSH host, then refresh.'
-              : undefined;
+  const { reason: remoteReviewUnavailableReason, retryable: canRetryRemoteReviewers } =
+    remoteReviewAvailability(remoteMachine, currentRemoteReview);
   const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
   const shareCandidates = useMemo(() => {
     const eligible = eligibleSessionCandidates(
@@ -267,6 +258,7 @@ export function CoslashPage() {
       .finally(() => {
         remoteRetryPromise.current = null;
         setRemoteRetryInFlight(false);
+        setRemoteReviewRetry((retry) => retry + 1);
         retrySessions();
         if (diagnosticsOpen) refreshDiagnostics();
       });
@@ -274,8 +266,13 @@ export function CoslashPage() {
     return retry;
   };
 
-  const handleRemoteConnectionVerified = () => {
+  const retrySessionsAndReviewers = () => {
+    setRemoteReviewRetry((retry) => retry + 1);
     retrySessions();
+  };
+
+  const handleRemoteConnectionVerified = () => {
+    retrySessionsAndReviewers();
     if (diagnosticsOpen) refreshDiagnostics();
   };
 
@@ -320,7 +317,7 @@ export function CoslashPage() {
         isLoading={diagnosticsLoading}
         loadFailed={diagnosticsLoadFailed}
         onRefresh={() => {
-          retrySessions();
+          retrySessionsAndReviewers();
           refreshDiagnostics();
         }}
       />
@@ -359,7 +356,7 @@ export function CoslashPage() {
           requiresFirstRunConsent(settingsState.response)
         }
         onRetry={handleRemoteRetry}
-        onRetrySessions={retrySessions}
+        onRetrySessions={retrySessionsAndReviewers}
         retrying={remoteRetryInFlight}
         isLoading={isLoading}
         loadError={loadError}
@@ -398,6 +395,8 @@ export function CoslashPage() {
         reviewerOptions={settingsState.response?.options.reviewers ?? []}
         remoteReviewerOptions={remoteReviewerOptions}
         remoteReviewUnavailableReason={remoteReviewUnavailableReason}
+        canRetryRemoteReviewers={canRetryRemoteReviewers}
+        onRetryRemoteReviewers={() => setRemoteReviewRetry((retry) => retry + 1)}
         onReviewStarted={refreshSessions}
       />
       <SessionInspector

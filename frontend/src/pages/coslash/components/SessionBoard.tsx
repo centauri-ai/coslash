@@ -37,6 +37,8 @@ type SessionReviewProps = {
   reviewerOptions: readonly ReviewerOption[];
   remoteReviewerOptions: readonly ReviewerOption[];
   remoteUnavailableReason?: string;
+  canRetryRemoteReviewers: boolean;
+  onRetryRemoteReviewers: () => void;
   onStarted: () => void;
   onSelectRelated: (session: Session) => void;
 };
@@ -157,6 +159,14 @@ function CardActions({ session, review }: { session: Session; review: SessionRev
           origin={session}
           reviewerOptions={reviewerOptions}
           unavailableReason={isLocalSession(session) ? undefined : review.remoteUnavailableReason}
+          onRetryReviewers={
+            !isLocalSession(session) &&
+            !session.reviewPending &&
+            !review.index.activeOrigins.has(key) &&
+            review.canRetryRemoteReviewers
+              ? review.onRetryRemoteReviewers
+              : undefined
+          }
           active={session.reviewPending || review.index.activeOrigins.has(key)}
           reviewError={session.reviewError}
           onStarted={review.onStarted}
