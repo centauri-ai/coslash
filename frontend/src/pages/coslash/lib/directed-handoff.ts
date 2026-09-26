@@ -17,6 +17,27 @@ export type DirectedHandoff = {
 
 export type HandoffTarget = { id: VendorKey; label: string };
 
+export type HandoffSelection = {
+  selectedSessionKey: string | null;
+  pendingTargetKey: string | null;
+};
+
+type SelectionAction =
+  | { type: 'select'; key: string | null }
+  | { type: 'pending'; key: string }
+  | { type: 'found'; key: string }
+  | { type: 'clear-missing'; key: string };
+
+export function handoffSelection(state: HandoffSelection, action: SelectionAction): HandoffSelection {
+  if (action.type === 'select') return { selectedSessionKey: action.key, pendingTargetKey: null };
+  if (action.type === 'pending') return { ...state, pendingTargetKey: action.key };
+  if (action.type === 'found')
+    return state.pendingTargetKey === action.key
+      ? { selectedSessionKey: action.key, pendingTargetKey: null }
+      : state;
+  return state.selectedSessionKey === action.key ? { ...state, selectedSessionKey: null } : state;
+}
+
 export function handoffSourceKey(handoff: DirectedHandoff): string {
   return sessionKey({ sourceId: handoff.sourceId, agent: handoff.sourceAgent, id: handoff.sourceSessionId });
 }
