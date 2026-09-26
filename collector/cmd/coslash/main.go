@@ -206,6 +206,7 @@ func main() {
 	}
 	defer runtimeReady.Close()
 	serveErr := server.Serve(listener)
+	stopDiscovery()
 	directedStore.Shutdown()
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", serveErr)
