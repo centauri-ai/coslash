@@ -42,6 +42,8 @@ function renderBoard(
   return renderToStaticMarkup(
     <SessionBoard
       sessions={sessions}
+      handoffs={new Map()}
+      onOpenHandoffTarget={() => {}}
       columnGroupBy={columnGroupBy}
       rowGroupBy={rowGroupBy}
       onSelectSession={() => {}}

@@ -16,8 +16,10 @@ import {
 } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
+import { useDirectedHandoffs } from '@/pages/coslash/hooks/use-directed-handoffs';
 import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
+import { newestHandoffs, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
@@ -99,7 +101,10 @@ export function CoslashPage() {
       localWindow: shareFixtureEnabled ? 'all' : apiWindow,
       remoteWindow: apiWindow,
     });
+  const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
+  const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
+  const [pendingTargetKey, setPendingTargetKey] = useState<string | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -123,6 +128,29 @@ export function CoslashPage() {
   const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
   const selectedSession =
     librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
+  /* oxlint-disable react/set-state-in-effect -- select a target after a session refresh finds it */
+  useEffect(() => {
+    if (pendingTargetKey && librarySessions.some((session) => sessionKey(session) === pendingTargetKey)) {
+      setSelectedSessionKey(pendingTargetKey);
+      setPendingTargetKey(null);
+    }
+  }, [librarySessions, pendingTargetKey]);
+  /* oxlint-enable react/set-state-in-effect */
+
+  const openHandoffTarget = (handoff: DirectedHandoff) => {
+    if (!handoff.targetSessionId) return;
+    const targetKey = sessionKey({
+      sourceId: handoff.sourceId,
+      agent: handoff.targetAgent,
+      id: handoff.targetSessionId,
+    });
+    if (librarySessions.some((session) => sessionKey(session) === targetKey))
+      setSelectedSessionKey(targetKey);
+    else {
+      setPendingTargetKey(targetKey);
+      retrySessions();
+    }
+  };
   const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
   const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
   const shareCandidates = useMemo(() => {
@@ -249,6 +277,8 @@ export function CoslashPage() {
     <>
       <CoslashLayout
         sessions={librarySessions}
+        latestHandoffs={latestHandoffs}
+        onOpenHandoffTarget={openHandoffTarget}
         machines={machines}
         range={range}
         onRangeChange={setRange}
@@ -280,7 +310,18 @@ export function CoslashPage() {
         isLoading={isLoading}
         loadError={loadError}
         emptyContent={emptyContent}
-        banner={settingsBanner}
+        banner={
+          <>
+            {settingsBanner}
+            {handoffsError && (
+              <SettingsErrorBanner
+                message={handoffsError}
+                actionLabel="Retry"
+                onOpen={() => void refreshHandoffs()}
+              />
+            )}
+          </>
+        }
         headerActions={
           shareEnabled ? (
             <>
@@ -305,6 +346,9 @@ export function CoslashPage() {
       />
       <SessionInspector
         session={selectedSession}
+        handoff={selectedSession ? latestHandoffs.get(sessionKey(selectedSession)) : undefined}
+        onHandoffStarted={() => void refreshHandoffs()}
+        onOpenTarget={openHandoffTarget}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}
