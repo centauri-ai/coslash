@@ -18,6 +18,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
+	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
@@ -120,6 +121,13 @@ func main() {
 	}
 	mgr := synthesis.NewManager(runner)
 	reviewManager := review.NewManager(launch.Review)
+	directedStore, err := newDirectedHandoffStore()
+	if err != nil {
+		log.Fatalf("directed handoff store: %v", err)
+	}
+	if err := directedStore.RecoverReviews(); err != nil {
+		log.Fatalf("recover directed reviews: %v", err)
+	}
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr.SetRunner(nil)
@@ -144,6 +152,9 @@ func main() {
 			log.Printf("remote settings: %v", err)
 		}
 	}
+	discoveryContext, stopDiscovery := context.WithCancel(context.Background())
+	defer stopDiscovery()
+	go runDirectedHandoffDiscovery(discoveryContext, directedStore, remoteManager)
 
 	// Bind before opening the browser, so a port conflict is an error the user
 	// reads rather than a browser tab pointed at nothing.
@@ -180,7 +191,7 @@ func main() {
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
 	}
-	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub)
+	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, directedStore)
 	go func() {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
@@ -210,9 +221,10 @@ func newServer(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
+	directedStores ...*directedhandoff.Store,
 ) *http.Server {
 	server := &http.Server{
-		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub)),
+		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub, directedStores...)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -230,6 +242,7 @@ func routes(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
+	directedStores ...*directedhandoff.Store,
 ) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
@@ -290,6 +303,27 @@ func routes(
 	})
 	api.HandleFunc("GET /api/handoff", func(w http.ResponseWriter, r *http.Request) {
 		handleHandoff(w, r, getCanonicalSession)
+	})
+	var directedStore *directedhandoff.Store
+	if len(directedStores) > 0 {
+		directedStore = directedStores[0]
+	}
+	api.HandleFunc("GET /api/directed-handoffs/targets", func(w http.ResponseWriter, r *http.Request) {
+		handleDirectedHandoffTargets(w, r, settingsStore)
+	})
+	api.HandleFunc("GET /api/directed-handoffs", func(w http.ResponseWriter, _ *http.Request) {
+		if directedStore == nil {
+			writeJSON(w, struct {
+				Handoffs []directedhandoff.Record `json:"handoffs"`
+			}{[]directedhandoff.Record{}})
+			return
+		}
+		writeJSON(w, struct {
+			Handoffs []directedhandoff.Record `json:"handoffs"`
+		}{directedStore.List()})
+	})
+	api.HandleFunc("POST /api/directed-handoffs", func(w http.ResponseWriter, r *http.Request) {
+		handleDirectedHandoffStart(w, r, directedStore, settingsStore, remoteManager, mgr)
 	})
 	api.HandleFunc("POST /api/send", func(w http.ResponseWriter, r *http.Request) {
 		handleSend(w, r, settingsStore, getCanonicalSession, launch.ReviewerAvailable, launch.TerminalWithPrompt)

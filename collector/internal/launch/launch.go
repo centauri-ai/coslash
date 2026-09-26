@@ -71,17 +71,55 @@ type ReviewerOption struct {
 	Executable string
 }
 
+type HandoffTargetOption struct {
+	Agent      string `json:"agent"`
+	Label      string `json:"label"`
+	Entrypoint string `json:"entrypoint"`
+	Available  bool   `json:"available"`
+	Automatic  bool   `json:"automatic"`
+}
+
+func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
+	home, _ := os.UserHomeDir()
+	options := []HandoffTargetOption{
+		{Agent: vendors.AgentClaude, Label: "Claude Code", Entrypoint: "cli", Automatic: true},
+		{Agent: vendors.AgentCodex, Label: "Codex", Entrypoint: "codex-tui", Automatic: true},
+		{Agent: vendors.AgentOpenCode, Label: "OpenCode", Entrypoint: "opencode-cli", Automatic: true},
+		{Agent: vendors.AgentCursor, Label: "Cursor CLI", Entrypoint: "cursor-cli", Automatic: true},
+		{Agent: vendors.AgentCursor, Label: "Cursor IDE", Entrypoint: "cursor-ide"},
+	}
+	for i := range options {
+		if !securePromptAvailable() {
+			continue
+		}
+		switch options[i].Entrypoint {
+		case "cursor-cli":
+			options[i].Available = CursorCLIExecutable(home) != ""
+		case "cursor-ide":
+			options[i].Available = CursorExecutable(home) != ""
+		default:
+			options[i].Available = ReviewerAvailable(options[i].Agent)
+		}
+	}
+	return options
+}
+
 func ReviewerOptions() []ReviewerOption {
 	return []ReviewerOption{
 		{ID: vendors.AgentClaude, Label: "Claude Code", Executable: "claude"},
 		{ID: vendors.AgentCodex, Label: "Codex", Executable: "codex"},
 		{ID: vendors.AgentOpenCode, Label: "OpenCode", Executable: "opencode"},
+		{ID: vendors.AgentCursor, Label: "Cursor CLI", Executable: "agent"},
 	}
 }
 
 func ReviewerAvailable(reviewer string) bool {
 	for _, option := range ReviewerOptions() {
 		if option.ID == reviewer {
+			if reviewer == vendors.AgentCursor {
+				home, _ := os.UserHomeDir()
+				return CursorCLIExecutable(home) != ""
+			}
 			_, err := exec.LookPath(option.Executable)
 			return err == nil
 		}
@@ -104,6 +142,21 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, request.Prompt)
 	if err != nil {
 		return "", err
+	}
+	if request.Reviewer == vendors.AgentCursor {
+		scratch, err := os.MkdirTemp("", "coslash-review-*")
+		if err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(scratch)
+		configDir := filepath.Join(scratch, ".cursor")
+		if err := os.Mkdir(configDir, 0o700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(filepath.Join(configDir, "cli.json"), []byte(`{"permissions":{"allow":[],"deny":["Shell(*)","Write(*)","Mcp(*)"]}}`), 0o600); err != nil {
+			return "", err
+		}
+		spec.env = append(spec.env, "CURSOR_DATA_DIR="+scratch)
 	}
 	command := reviewCommandContext(ctx, spec.bin, spec.args...)
 	command.Dir = workingDirectory
@@ -131,16 +184,20 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
 	switch reviewer {
 	case vendors.AgentClaude:
-		return reviewCommandSpec{bin: "claude", args: []string{"-p", "--name", name, "--permission-mode", "plan"}, stdin: prompt}, nil
+		return reviewCommandSpec{bin: "claude", args: []string{"-p", "--name", name, "--permission-mode", "plan", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands", "--tools", "Read,Glob,Grep"}, stdin: prompt}, nil
 	case vendors.AgentCodex:
-		return reviewCommandSpec{bin: "codex", args: []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"}, stdin: prompt}, nil
+		return reviewCommandSpec{bin: "codex", args: []string{"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--skip-git-repo-check", "-"}, stdin: prompt}, nil
 	case vendors.AgentOpenCode:
 		return reviewCommandSpec{
 			bin:   "opencode",
-			args:  []string{"run", "--title", name},
+			args:  []string{"run", "--pure", "--title", name},
 			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
 			stdin: prompt,
 		}, nil
+	case vendors.AgentCursor:
+		spec := cursorReviewCommand(prompt)
+		spec.args = append(spec.args, "--sandbox", "enabled", "--trust")
+		return spec, nil
 	default:
 		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
 	}
@@ -208,6 +265,13 @@ func CursorWorkspace(workingDirectory string) error {
 // RemoteTerminal opens the selected local terminal and runs an agent CLI on a
 // configured SSH host.
 func RemoteTerminal(ctx context.Context, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName string) error {
+	return RemoteTerminalWithPrompt(ctx, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName, "")
+}
+
+func RemoteTerminalWithPrompt(ctx context.Context, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName, prompt string) error {
+	if prompt != "" && mode != NewSession {
+		return errors.New("launch: first prompt requires a new session")
+	}
 	destination, err := settings.ParseSSHDestination(alias)
 	if err != nil {
 		return errors.New("launch: SSH alias is required")
@@ -219,7 +283,18 @@ func RemoteTerminal(ctx context.Context, terminal, alias, agent, workingDirector
 	if err != nil {
 		return err
 	}
-	return openTerminal(ctx, terminal, ".", remoteSSHCommand(destination, remoteCommand))
+	command := remoteSSHCommand(destination, remoteCommand)
+	if prompt == "" {
+		return openTerminal(ctx, terminal, ".", command)
+	}
+	command, path, err := secureTerminalInputCommand(command, prompt)
+	if err != nil {
+		return err
+	}
+	if err := openTerminal(ctx, terminal, ".", command); err != nil {
+		return errors.Join(err, removeHandoffFile(path))
+	}
+	return nil
 }
 
 // SSHAuthentication opens the selected terminal with a fixed coSlash command.
@@ -266,14 +341,17 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 	cli = localCLIExecutable(agent, cli)
 	switch mode {
 	case NewSession:
+		if prompt != "" {
+			return interactivePromptCommand(agent, cli, handoff, prompt)
+		}
 		if handoff == "" {
-			if prompt == "" {
-				return localCommandJoin(cli), "", nil
-			}
-			return localCommandJoin(cli, "--", prompt), "", nil
+			return localCommandJoin(cli), "", nil
 		}
 		return handoffCommand(agent, cli, handoff, prompt)
 	case ResumeSession:
+		if prompt != "" {
+			return "", "", errors.New("launch: first prompt requires a new session")
+		}
 		arguments, err := resumeArguments(agent, cli, sessionID)
 		if err != nil {
 			return "", "", err
