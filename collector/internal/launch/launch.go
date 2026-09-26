@@ -346,9 +346,16 @@ func cleanupRemoteReview(destination settings.SSHDestination, marker string) {
 func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
 	switch reviewer {
 	case vendors.AgentClaude:
-		return reviewCommandSpec{bin: "claude", args: []string{"-p", "--name", name, "--permission-mode", "plan", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands", "--tools", "Read,Glob,Grep"}, stdin: prompt}, nil
+		return reviewCommandSpec{bin: "claude", args: []string{
+			"-p", "--name", name, "--permission-mode", "plan",
+			"--safe-mode", "--restricted", "--strict-mcp-config", "--tools", "Read,Glob,Grep",
+		}, stdin: prompt}, nil
 	case vendors.AgentCodex:
-		return reviewCommandSpec{bin: "codex", args: []string{"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--skip-git-repo-check", "-"}, stdin: prompt}, nil
+		return reviewCommandSpec{bin: "codex", args: []string{
+			"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+			"--disable", "hooks", "--disable", "plugins", "--disable", "apps",
+			"--sandbox", "read-only", "--skip-git-repo-check", "-",
+		}, stdin: prompt}, nil
 	case vendors.AgentOpenCode:
 		return reviewCommandSpec{
 			bin:   "opencode",

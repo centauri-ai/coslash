@@ -69,12 +69,16 @@ func TestReviewCLICommands(t *testing.T) {
 	tests := map[string]reviewCommandSpec{
 		"claude": {
 			bin:   "claude",
-			args:  []string{"-p", "--name", name, "--permission-mode", "plan", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands", "--tools", "Read,Glob,Grep"},
+			args:  []string{"-p", "--name", name, "--permission-mode", "plan", "--safe-mode", "--restricted", "--strict-mcp-config", "--tools", "Read,Glob,Grep"},
 			stdin: prompt,
 		},
 		"codex": {
-			bin:   "codex",
-			args:  []string{"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--skip-git-repo-check", "-"},
+			bin: "codex",
+			args: []string{
+				"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+				"--disable", "hooks", "--disable", "plugins", "--disable", "apps",
+				"--sandbox", "read-only", "--skip-git-repo-check", "-",
+			},
 			stdin: prompt,
 		},
 		"opencode": {
@@ -171,7 +175,7 @@ func TestReviewRunsRemoteCLIWithoutLocalWorkingDirectory(t *testing.T) {
 	}
 	if binary != "ssh" || !slices.Contains(arguments, "-T") || slices.Contains(arguments, "-tt") ||
 		!strings.Contains(arguments[len(arguments)-1], "cd '/remote/only/worktree' || exit 1;") ||
-		!strings.Contains(arguments[len(arguments)-1], "'codex' 'exec' '--sandbox' 'read-only'") ||
+		!strings.Contains(arguments[len(arguments)-1], "'codex' 'exec' '--ephemeral' '--ignore-user-config' '--ignore-rules' '--disable' 'hooks' '--disable' 'plugins' '--disable' 'apps' '--sandbox' 'read-only'") ||
 		!strings.Contains(arguments[len(arguments)-1], `trap 'rm -f "$marker"' EXIT`) {
 		t.Fatalf("remote command = %q %q", binary, arguments)
 	}
