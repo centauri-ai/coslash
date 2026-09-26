@@ -1,3 +1,5 @@
+import { machineRetryable, machineStatusText } from '@/pages/coslash/lib/machine-status';
+import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   isLocalSession,
   sessionKey,
@@ -10,6 +12,30 @@ export type ReviewerOption = {
   label: string;
   available: boolean;
 };
+
+export function remoteReviewAvailability(
+  machine: MachineFact | undefined,
+  check: { state: 'ready' | 'offline' | 'error'; reviewers: readonly ReviewerOption[] } | null,
+): { reason?: string; retryable: boolean } {
+  if (machine && machine.state !== 'ok' && machine.state !== 'limited') {
+    const guidance = machineRetryable(machine) ? ' Retry remote refresh to start a review.' : '';
+    return { reason: machineStatusText(machine) + guidance, retryable: false };
+  }
+  if (check == null) return { reason: 'Checking reviewer CLIs on the SSH host.', retryable: false };
+  if (check.state === 'offline') {
+    return { reason: 'SSH host is offline. Reconnect it to start a review.', retryable: false };
+  }
+  if (check.state === 'error') {
+    return { reason: 'Could not check reviewer CLIs on the SSH host. Retry the check.', retryable: true };
+  }
+  if (check.reviewers.length === 0) {
+    return {
+      reason: 'Install Claude Code CLI or Codex CLI on the SSH host, then retry the check.',
+      retryable: true,
+    };
+  }
+  return { retryable: false };
+}
 
 export type ReviewableSession = SessionIdentity & {
   name: string | null;

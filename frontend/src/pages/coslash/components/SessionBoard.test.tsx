@@ -51,6 +51,8 @@ function renderBoard(
         index: reviewIndex,
         reviewerOptions: [{ id: 'claude', label: 'Claude Code', available: true }],
         remoteReviewerOptions: [],
+        canRetryRemoteReviewers: false,
+        onRetryRemoteReviewers: () => {},
         onStarted: () => {},
         onSelectRelated: () => {},
       }}

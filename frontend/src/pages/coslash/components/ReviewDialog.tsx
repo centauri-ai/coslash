@@ -85,6 +85,7 @@ export function ReviewDialog({
   active = false,
   reviewError,
   unavailableReason,
+  onRetryReviewers,
   open: controlledOpen,
   onOpenChange,
   showTrigger = true,
@@ -97,6 +98,7 @@ export function ReviewDialog({
   active?: boolean;
   reviewError?: string;
   unavailableReason?: string;
+  onRetryReviewers?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   showTrigger?: boolean;
@@ -145,7 +147,20 @@ export function ReviewDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-        {showTrigger && (
+        {showTrigger && onRetryReviewers && (
+          <Button
+            size="xs"
+            variant="outline"
+            title={unavailableReason}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRetryReviewers();
+            }}
+          >
+            <ScanSearchIcon /> Retry reviewer check
+          </Button>
+        )}
+        {showTrigger && !onRetryReviewers && (
           <DialogTrigger asChild>
             <Button
               size="xs"

@@ -36,6 +36,8 @@ const props: ComponentProps<typeof CoslashLayout> = {
     { id: 'opencode', label: 'OpenCode', available: false },
   ],
   remoteReviewerOptions: [],
+  canRetryRemoteReviewers: false,
+  onRetryRemoteReviewers: () => {},
   onReviewStarted: () => {},
 };
 

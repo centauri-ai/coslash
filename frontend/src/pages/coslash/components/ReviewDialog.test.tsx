@@ -79,4 +79,18 @@ describe('ReviewDialogContent', () => {
     expect(markup).not.toContain('review process exited');
     expect(markup).not.toContain('role="alert"');
   });
+
+  it('offers an explicit reviewer check retry without opening a review', () => {
+    const markup = renderToStaticMarkup(
+      <ReviewDialog
+        origin={{ sourceId: 'remote', agent: 'codex', id: 'session' }}
+        reviewerOptions={[]}
+        unavailableReason="Could not check reviewer CLIs on the SSH host."
+        onRetryReviewers={() => undefined}
+        onStarted={() => undefined}
+      />,
+    );
+    expect(markup).toContain('Retry reviewer check');
+    expect(markup).not.toContain('>Send for review<');
+  });
 });
