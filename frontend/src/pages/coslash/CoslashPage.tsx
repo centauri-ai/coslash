@@ -18,8 +18,10 @@ import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDia
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
+import { apiFetch } from '@/pages/coslash/lib/api';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
+import type { ReviewerOption } from '@/pages/coslash/lib/review';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
 import { loadSessionViewPreferences, type SessionRange } from '@/pages/coslash/lib/session-view-preferences';
@@ -124,6 +126,48 @@ export function CoslashPage() {
   const selectedSession =
     librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
   const configuredRemote = machines.some((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
+  const remoteMachine = machines.find((machine) => machine.sourceId !== LOCAL_SOURCE_ID);
+  const remoteSourceId = remoteMachine?.sourceId;
+  const remoteState = remoteMachine?.state;
+  const remoteReviewKey = remoteSourceId ? `${remoteSourceId}:${remoteState}` : '';
+  const [remoteReviewCheck, setRemoteReviewCheck] = useState<{
+    key: string;
+    state: 'ready' | 'offline' | 'error';
+    reviewers: ReviewerOption[];
+  } | null>(null);
+  useEffect(() => {
+    if (!remoteSourceId) return;
+    const controller = new AbortController();
+    void apiFetch(`/api/reviews/options?${new URLSearchParams({ source: remoteSourceId })}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Could not check remote reviewers');
+        return response.json() as Promise<{ state: 'ready' | 'offline'; reviewers: ReviewerOption[] }>;
+      })
+      .then((result) => {
+        if (!controller.signal.aborted) setRemoteReviewCheck({ key: remoteReviewKey, ...result });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setRemoteReviewCheck({ key: remoteReviewKey, state: 'error', reviewers: [] });
+      });
+    return () => controller.abort();
+  }, [remoteSourceId, remoteReviewKey]);
+  const currentRemoteReview = remoteReviewCheck?.key === remoteReviewKey ? remoteReviewCheck : null;
+  const remoteReviewerOptions = currentRemoteReview?.reviewers ?? [];
+  const remoteReviewUnavailableReason =
+    remoteMachine && remoteMachine.state !== 'ok' && remoteMachine.state !== 'limited'
+      ? 'SSH host is offline. Reconnect it to start a review.'
+      : currentRemoteReview == null
+        ? 'Checking reviewer CLIs on the SSH host.'
+        : currentRemoteReview.state === 'offline'
+          ? 'SSH host is offline. Reconnect it to start a review.'
+          : currentRemoteReview.state === 'error'
+            ? 'Could not check reviewer CLIs on the SSH host. Refresh to retry.'
+            : remoteReviewerOptions.length === 0
+              ? 'Install Claude Code CLI or Codex CLI on the SSH host, then refresh.'
+              : undefined;
   const remoteSessionCount = librarySessions.filter((session) => session.sourceId !== LOCAL_SOURCE_ID).length;
   const shareCandidates = useMemo(() => {
     const eligible = eligibleSessionCandidates(
@@ -301,6 +345,8 @@ export function CoslashPage() {
         }
         inspectorOpen={selectedSession != null}
         reviewerOptions={settingsState.response?.options.reviewers ?? []}
+        remoteReviewerOptions={remoteReviewerOptions}
+        remoteReviewUnavailableReason={remoteReviewUnavailableReason}
         onReviewStarted={refreshSessions}
       />
       <SessionInspector

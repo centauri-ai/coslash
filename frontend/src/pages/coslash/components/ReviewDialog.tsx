@@ -38,7 +38,9 @@ export function ReviewDialogContent({
     <>
       <DialogHeader>
         <DialogTitle>Send for review</DialogTitle>
-        <DialogDescription>Choose a reviewer. The review opens as a new session.</DialogDescription>
+        <DialogDescription>
+          Choose a CLI reviewer. The review opens as a new session on the same host as this session.
+        </DialogDescription>
       </DialogHeader>
       <div className="flex flex-col gap-2">
         {reviewers.map((reviewer) => (
@@ -82,6 +84,7 @@ export function ReviewDialog({
   disabled = false,
   active = false,
   reviewError,
+  unavailableReason,
   open: controlledOpen,
   onOpenChange,
   showTrigger = true,
@@ -93,6 +96,7 @@ export function ReviewDialog({
   disabled?: boolean;
   active?: boolean;
   reviewError?: string;
+  unavailableReason?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   showTrigger?: boolean;
@@ -146,8 +150,11 @@ export function ReviewDialog({
             <Button
               size="xs"
               variant="outline"
-              disabled={disabled || active || reviewers.length === 0}
-              title={reviewers.length === 0 ? 'Install a supported agent to start a review.' : undefined}
+              disabled={disabled || active || unavailableReason != null || reviewers.length === 0}
+              title={
+                unavailableReason ??
+                (reviewers.length === 0 ? 'Install a supported agent to start a review.' : undefined)
+              }
               onClick={(event) => event.stopPropagation()}
             >
               {active ? <LoaderCircleIcon className="animate-spin" /> : <ScanSearchIcon />}

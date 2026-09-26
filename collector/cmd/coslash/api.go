@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"slices"
 	"strconv"
 	"time"
 	"unicode/utf8"
@@ -108,7 +109,7 @@ func handleList(
 			return
 		}
 		session.Synthesis = mgr.Lookup(session.Agent, session.ID, session.LastActivityTime)
-		state := reviewManager.Status(reviewpkg.Key(session.Agent, session.ID))
+		state := reviewManager.Status(reviewpkg.Key(localSourceID, session.Agent, session.ID))
 		session.ReviewPending = state.Pending
 		session.ReviewError = state.Error
 	}
@@ -140,7 +141,10 @@ func handleList(
 			if r.Context().Err() != nil {
 				return
 			}
-			response.Sessions = append(response.Sessions, boardRemoteSession(value))
+			board := boardRemoteSession(value)
+			state := reviewManager.Status(reviewpkg.Key(board.SourceID, board.Agent, board.ID))
+			board.ReviewPending, board.ReviewError = state.Pending, state.Error
+			response.Sessions = append(response.Sessions, board)
 		}
 	}
 	if r.Context().Err() != nil {
@@ -605,7 +609,11 @@ func handleReviewStatus(w http.ResponseWriter, r *http.Request, manager *reviewp
 		http.Error(w, "agent and id are required", http.StatusBadRequest)
 		return
 	}
-	state := manager.Status(reviewpkg.Key(agent, id))
+	source := query.Get("source")
+	if source == "" {
+		source = localSourceID
+	}
+	state := manager.Status(reviewpkg.Key(source, agent, id))
 	response := struct {
 		Status string `json:"status"`
 		Result string `json:"result,omitempty"`
@@ -680,7 +688,7 @@ func handleReview(
 	if r.Context().Err() != nil {
 		return
 	}
-	if !startReview(reviewpkg.Key(found.Agent, found.ID), reviewpkg.Launch{
+	if !startReview(reviewpkg.Key(localSourceID, found.Agent, found.ID), reviewpkg.Launch{
 		Reviewer: reviewer, WorkingDirectory: found.WorkingDirectory, Name: name, Prompt: prompt,
 	}) {
 		http.Error(w, "review already running", http.StatusConflict)
@@ -688,6 +696,85 @@ func handleReview(
 	}
 	log.Printf("review: %s with %s", found.ID, reviewer)
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func handleRemoteReview(
+	w http.ResponseWriter,
+	r *http.Request,
+	settingsStore *settings.Store,
+	resolve func(string, string, string) (*session.Session, string, error),
+	reviewers func(context.Context, string) ([]launch.ReviewerOption, error),
+	startReview reviewStarter,
+) {
+	if !settingsStore.State().Valid {
+		http.Error(w, "settings are invalid; open Settings to repair them", http.StatusConflict)
+		return
+	}
+	query := r.URL.Query()
+	source, agent, id, reviewer := query.Get("source"), query.Get("agent"), query.Get("id"), query.Get("reviewer")
+	if source == "" || source == localSourceID || agent == "" || id == "" ||
+		(reviewer != vendors.AgentClaude && reviewer != vendors.AgentCodex) {
+		http.Error(w, "invalid remote review request", http.StatusBadRequest)
+		return
+	}
+	found, alias, err := resolve(source, agent, id)
+	if err != nil || found == nil || found.Agent != agent || alias == "" {
+		http.Error(w, "remote host or session is unavailable", http.StatusConflict)
+		return
+	}
+	available, err := reviewers(r.Context(), alias)
+	if err != nil {
+		http.Error(w, "remote host is offline; wait for it to reconnect", http.StatusConflict)
+		return
+	}
+	if !slices.ContainsFunc(available, func(option launch.ReviewerOption) bool { return option.ID == reviewer }) {
+		http.Error(w, "reviewer CLI is not installed on the SSH host", http.StatusConflict)
+		return
+	}
+	if r.Context().Err() != nil {
+		return
+	}
+	name := ""
+	if found.Name != nil {
+		name = *found.Name
+	}
+	if !startReview(reviewpkg.Key(source, found.Agent, found.ID), reviewpkg.Launch{
+		Reviewer: reviewer, SSHAlias: alias, WorkingDirectory: found.WorkingDirectory,
+		Name: reviewpkg.Name(name, found.ID), Prompt: reviewpkg.Prompt(found),
+	}) {
+		http.Error(w, "review already running", http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func handleRemoteReviewOptions(
+	w http.ResponseWriter,
+	r *http.Request,
+	resolve func(string) (string, bool),
+	reviewers func(context.Context, string) ([]launch.ReviewerOption, error),
+) {
+	alias, online := resolve(r.URL.Query().Get("source"))
+	if alias == "" {
+		http.Error(w, "remote source is unavailable", http.StatusNotFound)
+		return
+	}
+	response := struct {
+		State     string              `json:"state"`
+		Reviewers []availableReviewer `json:"reviewers"`
+	}{State: "offline", Reviewers: []availableReviewer{}}
+	if online {
+		options, err := reviewers(r.Context(), alias)
+		if err == nil {
+			response.State = "ready"
+			for _, option := range options {
+				response.Reviewers = append(response.Reviewers, availableReviewer{
+					ID: option.ID, Label: option.Label, Available: true,
+				})
+			}
+		}
+	}
+	writeJSON(w, response)
 }
 
 const maxSettingsBytes = 64 * 1024

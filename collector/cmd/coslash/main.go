@@ -276,6 +276,14 @@ func routes(
 		handleLaunch(w, r, settingsStore, remoteManager)
 	})
 	api.HandleFunc("POST /api/reviews", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("source") != localSourceID {
+			handleRemoteReview(w, r, settingsStore,
+				func(source, agent, id string) (*session.Session, string, error) {
+					return remoteManager.LaunchSession(source, agent, id, launch.NewSession)
+				},
+				launch.RemoteReviewerOptions, reviewManager.Start)
+			return
+		}
 		getSession := func(agent, id string) (*session.Session, error) {
 			found, err := collector.GetSessionForPreviewByAgent(agent, id, 0)
 			if found != nil {
@@ -287,6 +295,17 @@ func routes(
 	})
 	api.HandleFunc("GET /api/reviews", func(w http.ResponseWriter, r *http.Request) {
 		handleReviewStatus(w, r, reviewManager)
+	})
+	api.HandleFunc("GET /api/reviews/options", func(w http.ResponseWriter, r *http.Request) {
+		handleRemoteReviewOptions(w, r, func(source string) (string, bool) {
+			state := settingsStore.State()
+			if !state.Valid || state.Config.Remote == nil || !state.Config.Remote.Enabled || state.Config.Remote.ID != source {
+				return "", false
+			}
+			health := remoteManager.ListView(0).Health
+			return state.Config.Remote.SSHAlias, health.SourceID == source &&
+				(health.State == remote.StateOK || health.State == remote.StateLimited)
+		}, launch.RemoteReviewerOptions)
 	})
 	api.HandleFunc("GET /api/handoff", func(w http.ResponseWriter, r *http.Request) {
 		handleHandoff(w, r, getCanonicalSession)

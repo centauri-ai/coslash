@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/review"
@@ -85,6 +87,77 @@ func TestReviewCapturesResult(t *testing.T) {
 	}
 }
 
+func TestReviewRunsRemoteCLIWithoutLocalWorkingDirectory(t *testing.T) {
+	t.Setenv("REVIEW_RESULT_OUTPUT", "remote review")
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	var binary string
+	var arguments []string
+	reviewCommandContext = func(ctx context.Context, bin string, args ...string) *exec.Cmd {
+		binary, arguments = bin, args
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewResultHelper")
+	}
+	result, err := Review(context.Background(), review.Launch{
+		Reviewer: "codex", SSHAlias: "agent-box", WorkingDirectory: "/remote/only/worktree",
+		Name: "Review — Change (12345678)", Prompt: "review this",
+	})
+	if err != nil || result != "remote review" {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+	if binary != "ssh" || !slices.Contains(arguments, "-T") || slices.Contains(arguments, "-tt") ||
+		!strings.Contains(arguments[len(arguments)-1], "cd '/remote/only/worktree' || exit 1;") ||
+		!strings.Contains(arguments[len(arguments)-1], "'codex' 'exec' '--sandbox' 'read-only'") ||
+		!strings.Contains(arguments[len(arguments)-1], `trap 'rm -f "$marker"' EXIT`) {
+		t.Fatalf("remote command = %q %q", binary, arguments)
+	}
+}
+
+func TestRemoteReviewFailureAttemptsRemoteCleanup(t *testing.T) {
+	t.Setenv("REVIEW_FAILURE_HELPER", "1")
+	t.Setenv("REVIEW_RESULT_OUTPUT", "cleanup")
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	var commands []string
+	reviewCommandContext = func(ctx context.Context, bin string, args ...string) *exec.Cmd {
+		if bin != "ssh" {
+			t.Fatalf("binary = %q", bin)
+		}
+		commands = append(commands, args[len(args)-1])
+		if len(commands) == 1 {
+			return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewFailureHelper")
+		}
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewResultHelper")
+	}
+	_, err := Review(context.Background(), review.Launch{
+		Reviewer: "codex", SSHAlias: "agent-box", WorkingDirectory: "/remote/repo",
+	})
+	if err == nil || len(commands) != 2 || !strings.Contains(commands[1], `kill -TERM "$pid"`) {
+		t.Fatalf("review error = %v, commands = %q", err, commands)
+	}
+}
+
+func TestReviewFailureHelper(t *testing.T) {
+	if os.Getenv("REVIEW_FAILURE_HELPER") == "1" {
+		os.Exit(1)
+	}
+}
+
+func TestRemoteReviewerOptionsExcludeOpenCode(t *testing.T) {
+	t.Setenv("REVIEW_RESULT_OUTPUT", "claude\ncodex\nopencode\n")
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	reviewCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewResultHelper")
+	}
+	options, err := RemoteReviewerOptions(context.Background(), "agent-box")
+	if err != nil || !reflect.DeepEqual(options, []ReviewerOption{
+		{ID: "claude", Label: "Claude Code CLI", Executable: "claude"},
+		{ID: "codex", Label: "Codex CLI", Executable: "codex"},
+	}) {
+		t.Fatalf("options = %#v, %v", options, err)
+	}
+}
+
 func TestReviewResultHelper(t *testing.T) {
 	if output := os.Getenv("REVIEW_RESULT_OUTPUT"); output != "" {
 		_, _ = os.Stdout.WriteString(output)
@@ -95,9 +168,9 @@ func TestReviewResultHelper(t *testing.T) {
 func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 	got := ReviewerOptions()
 	want := []ReviewerOption{
-		{ID: "claude", Label: "Claude Code", Executable: "claude"},
-		{ID: "codex", Label: "Codex", Executable: "codex"},
-		{ID: "opencode", Label: "OpenCode", Executable: "opencode"},
+		{ID: "claude", Label: "Claude Code CLI", Executable: "claude"},
+		{ID: "codex", Label: "Codex CLI", Executable: "codex"},
+		{ID: "opencode", Label: "OpenCode CLI", Executable: "opencode"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReviewerOptions() = %#v, want %#v", got, want)

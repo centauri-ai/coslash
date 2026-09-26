@@ -5,7 +5,12 @@ import { cn } from '@/lib/utils';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
-import { type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
+import {
+  reviewActionVisible,
+  reviewerOptionsForOrigin,
+  type ReviewerOption,
+  type ReviewIndex,
+} from '@/pages/coslash/lib/review';
 import {
   getSessionCardSummary,
   getTotalTokens,
@@ -28,6 +33,8 @@ import {
 type SessionReviewProps = {
   index: ReviewIndex<Session>;
   reviewerOptions: readonly ReviewerOption[];
+  remoteReviewerOptions: readonly ReviewerOption[];
+  remoteUnavailableReason?: string;
   onStarted: () => void;
   onSelectRelated: (session: Session) => void;
 };
@@ -121,8 +128,12 @@ function RowGroupHeader({
 function CardActions({ session, review }: { session: Session; review: SessionReviewProps }) {
   const key = sessionKey(session);
   const reviewLink = review.index.links.get(key);
-  const showReviewAction =
-    isLocalSession(session) && session.cwd.trim() !== '' && !review.index.reviewSessions.has(key);
+  const showReviewAction = reviewActionVisible(session, review.index.reviewSessions.has(key));
+  const reviewerOptions = reviewerOptionsForOrigin(
+    session,
+    review.reviewerOptions,
+    review.remoteReviewerOptions,
+  );
   if (reviewLink == null && !showReviewAction) return null;
   return (
     <div className="flex flex-wrap items-center gap-1 pt-2" onClick={(event) => event.stopPropagation()}>
@@ -142,7 +153,8 @@ function CardActions({ session, review }: { session: Session; review: SessionRev
       {showReviewAction && (
         <ReviewDialog
           origin={session}
-          reviewerOptions={review.reviewerOptions}
+          reviewerOptions={reviewerOptions}
+          unavailableReason={isLocalSession(session) ? undefined : review.remoteUnavailableReason}
           active={session.reviewPending || review.index.activeOrigins.has(key)}
           reviewError={session.reviewError}
           onStarted={review.onStarted}
