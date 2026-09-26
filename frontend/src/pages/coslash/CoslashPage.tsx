@@ -355,10 +355,6 @@ export function CoslashPage() {
         synthesisSettingsKey={synthesisSettingsKey}
         showMachineBadge={configuredRemote}
         machines={machines}
-        reviewerOptions={settingsState.response?.options.reviewers ?? []}
-        remoteReviewerOptions={remoteReviewerOptions}
-        remoteReviewUnavailableReason={remoteReviewUnavailableReason}
-        onReviewStarted={refreshSessions}
         onRefresh={async () => {
           if (selectedSession != null && !isLocalSession(selectedSession)) await handleRemoteRetry();
           else retrySessions();
