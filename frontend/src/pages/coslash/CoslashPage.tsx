@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useDirectedHandoffs } from '@/pages/coslash/hooks/use-directed-handoffs';
 import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
-import { newestHandoffs, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
+import { handoffSelection, newestHandoffs, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
@@ -103,8 +103,10 @@ export function CoslashPage() {
     });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
   const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
-  const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
-  const [pendingTargetKey, setPendingTargetKey] = useState<string | null>(null);
+  const [{ selectedSessionKey, pendingTargetKey }, select] = useReducer(handoffSelection, {
+    selectedSessionKey: null,
+    pendingTargetKey: null,
+  });
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -130,12 +132,14 @@ export function CoslashPage() {
     librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
   /* oxlint-disable react/set-state-in-effect -- select a target after a session refresh finds it */
   useEffect(() => {
-    if (pendingTargetKey && librarySessions.some((session) => sessionKey(session) === pendingTargetKey)) {
-      setSelectedSessionKey(pendingTargetKey);
-      setPendingTargetKey(null);
-    }
+    if (pendingTargetKey && librarySessions.some((session) => sessionKey(session) === pendingTargetKey))
+      select({ type: 'found', key: pendingTargetKey });
   }, [librarySessions, pendingTargetKey]);
   /* oxlint-enable react/set-state-in-effect */
+
+  const selectSession = (key: string | null) => {
+    select({ type: 'select', key });
+  };
 
   const openHandoffTarget = (handoff: DirectedHandoff) => {
     if (!handoff.targetSessionId) return;
@@ -144,10 +148,9 @@ export function CoslashPage() {
       agent: handoff.targetAgent,
       id: handoff.targetSessionId,
     });
-    if (librarySessions.some((session) => sessionKey(session) === targetKey))
-      setSelectedSessionKey(targetKey);
+    if (librarySessions.some((session) => sessionKey(session) === targetKey)) selectSession(targetKey);
     else {
-      setPendingTargetKey(targetKey);
+      select({ type: 'pending', key: targetKey });
       retrySessions();
     }
   };
@@ -202,7 +205,8 @@ export function CoslashPage() {
 
   /* oxlint-disable react/set-state-in-effect -- clear a selection removed by a session refresh */
   useEffect(() => {
-    if (selectedSessionKey != null && selectedSession == null) setSelectedSessionKey(null);
+    if (selectedSessionKey != null && selectedSession == null)
+      select({ type: 'clear-missing', key: selectedSessionKey });
   }, [selectedSession, selectedSessionKey]);
   /* oxlint-enable react/set-state-in-effect */
 
@@ -283,7 +287,7 @@ export function CoslashPage() {
         range={range}
         onRangeChange={setRange}
         selectedSessionKey={selectedSessionKey}
-        onSelectSession={(session) => setSelectedSessionKey(sessionKey(session))}
+        onSelectSession={(session) => selectSession(sessionKey(session))}
         diagnostics={
           <DiagnosticsDialog
             open={diagnosticsOpen}
@@ -357,7 +361,7 @@ export function CoslashPage() {
           if (selectedSession != null && !isLocalSession(selectedSession)) await handleRemoteRetry();
           else retrySessions();
         }}
-        onClose={() => setSelectedSessionKey(null)}
+        onClose={() => selectSession(null)}
       />
       {shareEnabled && shareDestination && (
         <ShareToHubDialog
