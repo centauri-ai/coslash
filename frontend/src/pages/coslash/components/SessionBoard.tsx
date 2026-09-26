@@ -2,8 +2,10 @@ import { Fragment, useState } from 'react';
 import { ChevronRight, GitCompareArrows } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandoffStatus';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
+import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import { type ReviewerOption, type ReviewIndex } from '@/pages/coslash/lib/review';
 import {
@@ -157,11 +159,15 @@ function BoardCard({
   selected,
   onSelect,
   review,
+  handoff,
+  onOpenHandoffTarget,
 }: {
   session: Session;
   selected: boolean;
   onSelect: () => void;
   review: SessionReviewProps;
+  handoff?: DirectedHandoff;
+  onOpenHandoffTarget: (handoff: DirectedHandoff) => void;
 }) {
   const readiness = sessionReadiness(session);
   const tone = READINESS_TONE[readiness.key];
@@ -202,6 +208,11 @@ function BoardCard({
       <p className="text-coslash-muted line-clamp-2 pt-1 text-[11.5px] leading-[1.45]">
         {getSessionCardSummary(session)}
       </p>
+      {handoff && (
+        <div className="pt-2" onClick={(event) => event.stopPropagation()}>
+          <DirectedHandoffStatus handoff={handoff} onOpenTarget={onOpenHandoffTarget} compact />
+        </div>
+      )}
       <div className="text-meta text-coslash-muted flex items-center justify-between gap-2 pt-2">
         <span className="min-w-0 truncate font-mono">
           {session.branch ?? 'No branch'}
@@ -233,12 +244,16 @@ function BoardCell({
   selectedSessionKey,
   onSelectSession,
   review,
+  handoffs,
+  onOpenHandoffTarget,
 }: {
   sessions: Session[];
   column: number;
   selectedSessionKey: string | null;
   onSelectSession: (session: Session) => void;
   review: SessionReviewProps;
+  handoffs: ReadonlyMap<string, DirectedHandoff>;
+  onOpenHandoffTarget: (handoff: DirectedHandoff) => void;
 }) {
   return (
     <div
@@ -254,6 +269,8 @@ function BoardCell({
           selected={selectedSessionKey === sessionKey(session)}
           onSelect={() => onSelectSession(session)}
           review={review}
+          handoff={handoffs.get(sessionKey(session))}
+          onOpenHandoffTarget={onOpenHandoffTarget}
         />
       ))}
     </div>
@@ -267,6 +284,8 @@ export function SessionBoard({
   selectedSessionKey = null,
   onSelectSession,
   review,
+  handoffs,
+  onOpenHandoffTarget,
 }: {
   sessions: Session[];
   columnGroupBy: BoardGroupBy;
@@ -274,6 +293,8 @@ export function SessionBoard({
   selectedSessionKey?: string | null;
   onSelectSession: (session: Session) => void;
   review: SessionReviewProps;
+  handoffs: ReadonlyMap<string, DirectedHandoff>;
+  onOpenHandoffTarget: (handoff: DirectedHandoff) => void;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const columns = groupSessions(sessions, columnGroupBy);
@@ -316,6 +337,8 @@ export function SessionBoard({
                     selectedSessionKey={selectedSessionKey}
                     onSelectSession={onSelectSession}
                     review={review}
+                    handoffs={handoffs}
+                    onOpenHandoffTarget={onOpenHandoffTarget}
                   />
                 ))}
               </div>

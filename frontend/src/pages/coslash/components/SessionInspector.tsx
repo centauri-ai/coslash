@@ -30,6 +30,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { DiffList } from '@/pages/coslash/components/DiffList';
+import { DirectedHandoffDialog } from '@/pages/coslash/components/DirectedHandoffDialog';
+import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandoffStatus';
 import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
 import {
   SessionId,
@@ -57,6 +59,7 @@ import {
   parseDebriefText,
   type DebriefBlock,
 } from '@/pages/coslash/lib/debrief-text';
+import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import {
   digestDateKey,
   formatDigestDateDivider,
@@ -880,7 +883,7 @@ function StartNewSessionButton({
           disabled={disabled}
         >
           {opensCursor ? <ExternalLinkIcon /> : <TerminalIcon />}
-          <span>{opensCursor ? 'Open Cursor with handoff' : 'Start fresh with handoff'}</span>
+          <span>{opensCursor ? 'Open Cursor' : 'Start fresh'}</span>
         </Button>
       </DisabledLaunchTooltip>
       <LaunchError message={launchError} />
@@ -893,11 +896,17 @@ function HandoffSection({
   exactDetailsAvailable,
   remoteLaunchable,
   remoteLaunchHint,
+  handoff,
+  onHandoffStarted,
+  onOpenTarget,
 }: {
   detail: SessionDetail;
   exactDetailsAvailable: boolean;
   remoteLaunchable: boolean;
   remoteLaunchHint?: string;
+  handoff?: DirectedHandoff;
+  onHandoffStarted: () => void;
+  onOpenTarget: (handoff: DirectedHandoff) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
@@ -933,6 +942,11 @@ function HandoffSection({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        <DirectedHandoffDialog
+          source={detail}
+          disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
+          onStarted={onHandoffStarted}
+        />
         <StartNewSessionButton
           detail={detail}
           brief={brief}
@@ -949,6 +963,11 @@ function HandoffSection({
           </span>
         )}
       </div>
+      {handoff && (
+        <div className="rounded-lg border p-3">
+          <DirectedHandoffStatus handoff={handoff} onOpenTarget={onOpenTarget} />
+        </div>
+      )}
       {!isLocalSession(detail) && (
         <div className="text-coslash-muted text-xs">
           {!exactDetailsAvailable
@@ -1549,12 +1568,18 @@ function InspectorBody({
   onSelectFile,
   remoteLaunchable,
   remoteLaunchHint,
+  handoff,
+  onHandoffStarted,
+  onOpenTarget,
 }: {
   detail: SessionDetail;
   exactDetailsAvailable: boolean;
   onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number]) => void) | null;
   remoteLaunchable: boolean;
   remoteLaunchHint?: string;
+  handoff?: DirectedHandoff;
+  onHandoffStarted: () => void;
+  onOpenTarget: (handoff: DirectedHandoff) => void;
 }) {
   // scroll on the outer div, layout on the inner one — flex children of a
   // scroll container shrink to fit instead of overflowing, which collapses
@@ -1567,6 +1592,9 @@ function InspectorBody({
           exactDetailsAvailable={exactDetailsAvailable}
           remoteLaunchable={remoteLaunchable}
           remoteLaunchHint={remoteLaunchHint}
+          handoff={handoff}
+          onHandoffStarted={onHandoffStarted}
+          onOpenTarget={onOpenTarget}
         />
         <RecapSection detail={detail} />
         <DigestSection detail={detail} />
@@ -1638,6 +1666,9 @@ export function SessionInspector({
   machines,
   onRefresh,
   onClose,
+  handoff,
+  onHandoffStarted,
+  onOpenTarget,
 }: {
   session: Session | null;
   sessionsVersion: number;
@@ -1646,6 +1677,9 @@ export function SessionInspector({
   machines: MachineFact[];
   onRefresh: () => void | Promise<void>;
   onClose: () => void;
+  handoff?: DirectedHandoff;
+  onHandoffStarted: () => void;
+  onOpenTarget: (handoff: DirectedHandoff) => void;
 }) {
   const [detailRetryToken, setDetailRetryToken] = useState(0);
   const detailAttemptIdentity = session == null ? null : `${sessionKey(session)}@${detailRetryToken}`;
@@ -1877,6 +1911,9 @@ export function SessionInspector({
               exactDetailsAvailable={!summaryOnly}
               remoteLaunchable={remoteLaunchable}
               remoteLaunchHint={remoteLaunchHint}
+              handoff={handoff}
+              onHandoffStarted={onHandoffStarted}
+              onOpenTarget={onOpenTarget}
               onSelectFile={
                 summaryOnly
                   ? null
