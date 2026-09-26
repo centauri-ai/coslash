@@ -205,8 +205,10 @@ func main() {
 		log.Fatalf("coslash: acquire runtime readiness: %v", err)
 	}
 	defer runtimeReady.Close()
-	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("coslash: %v", err)
+	serveErr := server.Serve(listener)
+	directedStore.Shutdown()
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		log.Fatalf("coslash: %v", serveErr)
 	}
 }
 
@@ -233,6 +235,9 @@ func newServer(
 	}
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
+	if len(directedStores) > 0 && directedStores[0] != nil {
+		server.RegisterOnShutdown(directedStores[0].Shutdown)
+	}
 	return server
 }
 

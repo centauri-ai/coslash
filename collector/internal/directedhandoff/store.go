@@ -1,6 +1,7 @@
 package directedhandoff
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -36,10 +37,15 @@ type Store struct {
 	path    string
 	records []Record
 	now     func() time.Time
+	ctx     context.Context
+	cancel  context.CancelFunc
+	workers sync.WaitGroup
+	stopped bool
 }
 
 func Open(path string) (*Store, error) {
-	s := &Store{path: path, now: time.Now, records: []Record{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Store{path: path, now: time.Now, records: []Record{}, ctx: ctx, cancel: cancel}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -77,6 +83,28 @@ func (s *Store) List() []Record {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]Record{}, s.records...)
+}
+
+func (s *Store) RunReview(run func(context.Context)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.workers.Add(1)
+	go func() {
+		defer s.workers.Done()
+		run(s.ctx)
+	}()
+	return true
+}
+
+func (s *Store) Shutdown() {
+	s.mu.Lock()
+	s.stopped = true
+	s.cancel()
+	s.mu.Unlock()
+	s.workers.Wait()
 }
 
 func (s *Store) RecoverReviews() error {
@@ -168,7 +196,7 @@ func (s *Store) Observe(sourceID string, sessions []*session.Session) error {
 			changed = true
 		}
 		activity := "working"
-		if target.Status != nil && *target.Status == "idle" {
+		if target.Status != nil && (*target.Status == "idle" || *target.Status == "waiting") {
 			activity = "needs_input"
 		}
 		if r.Activity != activity {
