@@ -22,6 +22,7 @@ describe('ReviewDialogContent', () => {
       </Dialog>,
     );
     expect(markup).toContain('Choose a CLI reviewer');
+    expect(markup).toContain('same host as this session');
     expect(markup).toContain('Codex');
     expect(markup).toContain('Claude Code');
     expect(markup).toContain('Start review');

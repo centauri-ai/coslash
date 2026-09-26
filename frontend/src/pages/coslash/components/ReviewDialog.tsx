@@ -38,7 +38,9 @@ export function ReviewDialogContent({
     <>
       <DialogHeader>
         <DialogTitle>Send for review</DialogTitle>
-        <DialogDescription>Choose a CLI reviewer. The review opens as a new session.</DialogDescription>
+        <DialogDescription>
+          Choose a CLI reviewer. The review opens as a new session on the same host as this session.
+        </DialogDescription>
       </DialogHeader>
       <div className="flex flex-col gap-2">
         {reviewers.map((reviewer) => (
