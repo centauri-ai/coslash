@@ -2,6 +2,8 @@ package launch
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,6 +49,54 @@ func TestRemoteCLICommandUsesStagedHandoffName(t *testing.T) {
 	}
 	if strings.Contains(command, "base64") || len(command) > 1024 {
 		t.Fatalf("command carries handoff data: %d bytes: %q", len(command), command)
+	}
+}
+
+func TestRemoteTerminalWithPromptStagesInputOutsideSSHArguments(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("uses the macOS terminal opener")
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	original := runOSAScript
+	t.Cleanup(func() { runOSAScript = original })
+	var script string
+	runOSAScript = func(_ context.Context, args ...string) error {
+		for _, arg := range args {
+			if strings.Contains(arg, "ssh") {
+				script = arg
+			}
+		}
+		return nil
+	}
+	const prompt = "private marker and request"
+	if err := RemoteTerminalWithPrompt(context.Background(), "terminal", "agent-box", vendors.AgentClaude, "/work", "", NewSession, "", prompt); err != nil {
+		t.Fatal(err)
+	}
+	if script == "" || strings.Contains(script, prompt) {
+		t.Fatalf("prompt leaked into terminal command: %q", script)
+	}
+	entries, err := os.ReadDir(handoffDir())
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("staged files = %v, err = %v", entries, err)
+	}
+	contents, err := os.ReadFile(filepath.Join(handoffDir(), entries[0].Name()))
+	if err != nil || string(contents) != "\x1b[200~"+prompt+"\x1b[201~\r" {
+		t.Fatalf("staged prompt = %q, err = %v", contents, err)
+	}
+	runOSAScript = func(_ context.Context, args ...string) error {
+		for _, arg := range args {
+			if strings.Contains(arg, "ssh") {
+				return errors.New("terminal failed")
+			}
+		}
+		return nil
+	}
+	if err := RemoteTerminalWithPrompt(context.Background(), "terminal", "agent-box", vendors.AgentClaude, "/work", "", NewSession, "", prompt); err == nil {
+		t.Fatal("failed opener accepted")
+	}
+	entries, err = os.ReadDir(handoffDir())
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("failed opener left staged prompt: %v, %v", entries, err)
 	}
 }
 
