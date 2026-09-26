@@ -76,6 +76,7 @@ func availableReviewers(ctx context.Context, alias string, options OpenOptions) 
 		commandContext = exec.CommandContext
 	}
 	cmd := commandContext(runCtx, bin, args...)
+	cmd.WaitDelay = 5 * time.Second
 	output := &reviewOutput{}
 	cmd.Stdout = output
 	stderr := &cappedStderr{limit: limits.MaxStderrBytes, cancel: cancel}

@@ -179,7 +179,13 @@ func handleDirectedHandoffStart(w http.ResponseWriter, r *http.Request, store *d
 		return
 	}
 	if input.Kind == "review" {
-		go runDirectedReview(store, record, alias, origin, brief, input.Request)
+		if !store.RunReview(func(ctx context.Context) {
+			runDirectedReview(ctx, store, record, alias, origin, brief, input.Request)
+		}) {
+			_ = store.Fail(record.ID, "Review could not start because coSlash is stopping.")
+			http.Error(w, "coSlash is stopping", http.StatusServiceUnavailable)
+			return
+		}
 	} else {
 		prompt := directedPrompt(record.ID, input.Request)
 		if sourceID == localSourceID {
@@ -203,8 +209,8 @@ func directedPrompt(id, request string) string {
 	return directedhandoff.Marker(id) + "\n\n" + request
 }
 
-func runDirectedReview(store *directedhandoff.Store, record directedhandoff.Record, alias string, origin *session.Session, brief, request string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+func runDirectedReview(parent context.Context, store *directedhandoff.Store, record directedhandoff.Record, alias string, origin *session.Session, brief, request string) {
+	ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
 	defer cancel()
 	prompt := review.Prompt(origin) + "\n\n" + directedhandoff.Marker(record.ID) + "\n"
 	if strings.TrimSpace(request) != "" {
@@ -261,7 +267,7 @@ func runDirectedHandoffDiscovery(ctx context.Context, store *directedhandoff.Sto
 		localRunning, remoteRunning := false, false
 		oldest := time.Now().UnixMilli()
 		for _, item := range all {
-			if item.Status == "running" {
+			if item.Status == "running" && item.Kind == "custom" {
 				if item.CreatedAt < oldest {
 					oldest = item.CreatedAt
 				}
@@ -289,7 +295,7 @@ func runDirectedHandoffDiscovery(ctx context.Context, store *directedhandoff.Sto
 			}
 			seen := map[string]bool{}
 			for _, item := range all {
-				if item.Status != "running" || item.SourceID == localSourceID || seen[item.SourceID] {
+				if item.Status != "running" || item.Kind != "custom" || item.SourceID == localSourceID || seen[item.SourceID] {
 					continue
 				}
 				seen[item.SourceID] = true

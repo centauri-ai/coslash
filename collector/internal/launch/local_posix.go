@@ -46,7 +46,7 @@ func secureTerminalInputCommand(base, prompt string) (string, string, error) {
 	if !securePromptAvailable() {
 		return "", "", fmt.Errorf("launch: secure interactive prompt delivery is unavailable on %s", runtime.GOOS)
 	}
-	path, err := writeHandoffFile(prompt + "\r")
+	path, err := writeHandoffFile("\x1b[200~" + prompt + "\x1b[201~\r")
 	if err != nil {
 		return "", "", err
 	}

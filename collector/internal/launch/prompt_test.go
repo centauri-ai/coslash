@@ -56,7 +56,8 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 				t.Fatalf("prompt exposed in command = %q", command)
 			}
 			contents, err := os.ReadFile(handoffPath)
-			if err != nil || !strings.Contains(string(contents), "fix it") {
+			if err != nil || !strings.HasPrefix(string(contents), "\x1b[200~") ||
+				!strings.HasSuffix(string(contents), "\x1b[201~\r") || !strings.Contains(string(contents), "fix it") {
 				t.Fatalf("staged prompt = %q, err = %v", contents, err)
 			}
 			if agent == vendors.AgentCursor {
