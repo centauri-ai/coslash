@@ -46,6 +46,47 @@ func TestMCPConfigPreservesOtherServersAndHasNoCredential(t *testing.T) {
 	}
 }
 
+func TestOpenCodeJSONCSetupPreservesCommentsAndExistingSettings(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root)
+	path := filepath.Join(root, "opencode", "opencode.jsonc")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("{\n  // Keep this setting\n  \"model\": \"example/model\",\n  \"mcp\": {\n    \"other\": {\"type\": \"remote\", \"url\": \"https://other.example/mcp\"},\n  },\n}\n")
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := opencodeMCPConfigPath()
+	if err != nil || selected != path {
+		t.Fatalf("selected config: %q %v", selected, err)
+	}
+	if err := writeMCPJSONCConfig(selected, mcpDefaultURL); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"// Keep this setting", "example/model", "other.example/mcp", mcpDefaultURL, `"scope": "mcp:read mcp:ask"`} {
+		if !strings.Contains(string(data), expected) {
+			t.Fatalf("missing %q in config: %s", expected, data)
+		}
+	}
+	if err := writeMCPJSONCConfig(selected, mcpDefaultURL); err != nil {
+		t.Fatalf("idempotent setup: %v", err)
+	}
+	if err := writeMCPJSONCConfig(selected, "https://other.example/mcp"); err == nil {
+		t.Fatal("setup replaced an existing coSlash endpoint")
+	}
+	if err := os.WriteFile(strings.TrimSuffix(path, "c"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := opencodeMCPConfigPath(); err == nil {
+		t.Fatal("setup accepted two competing OpenCode config files")
+	}
+}
+
 func TestMCPSetupRejectsUnsafeURLsAndSymlinkConfig(t *testing.T) {
 	for _, endpoint := range []string{
 		"http://example.com/mcp", "https://user:pass@example.com/mcp", "https://example.com/mcp?token=x", "https://example.com/other",

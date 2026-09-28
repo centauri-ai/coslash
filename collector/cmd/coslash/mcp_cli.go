@@ -14,6 +14,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/tailscale/hujson"
 )
 
 const (
@@ -101,6 +103,9 @@ func setupMCP(ctx context.Context, output io.Writer, agent, endpoint string) err
 		if err != nil {
 			return err
 		}
+		if strings.HasSuffix(path, ".jsonc") {
+			return writeMCPJSONCConfig(path, endpoint)
+		}
 		return writeMCPConfig(path, "mcp", endpoint, true)
 	}
 	return errors.New(mcpUsage)
@@ -158,7 +163,12 @@ func opencodeMCPConfigPath() (string, error) {
 	}
 	path := filepath.Join(root, "opencode", "opencode.json")
 	if _, err := os.Lstat(path + "c"); err == nil {
-		return "", errors.New("OpenCode uses opencode.jsonc; add coSlash MCP to that file or migrate it to opencode.json")
+		if _, jsonErr := os.Lstat(path); jsonErr == nil {
+			return "", errors.New("both opencode.json and opencode.jsonc exist; choose one active OpenCode config before setup")
+		} else if !errors.Is(jsonErr, os.ErrNotExist) {
+			return "", jsonErr
+		}
+		return path + "c", nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
@@ -209,6 +219,64 @@ func writeMCPConfig(path, key, endpoint string, opencode bool) error {
 	if err != nil {
 		return err
 	}
+	return replaceMCPConfig(path, append(data, '\n'))
+}
+
+func writeMCPJSONCConfig(path, endpoint string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+		return errors.New("MCP config must be a regular file under 1 MiB")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	root, err := hujson.Parse(data)
+	if err != nil {
+		return fmt.Errorf("OpenCode config is not valid JSONC: %w", err)
+	}
+	object, ok := root.Value.(*hujson.Object)
+	if !ok {
+		return errors.New("OpenCode config is not a JSONC object")
+	}
+	server := map[string]any{"type": "remote", "url": endpoint, "enabled": true, "oauth": map[string]string{"scope": "mcp:read mcp:ask"}}
+	encodedServer, _ := json.Marshal(server)
+	member, err := hujson.Parse([]byte(`{"coslash":` + string(encodedServer) + `}`))
+	if err != nil {
+		return err
+	}
+	serverMember := member.Value.(*hujson.Object).Members[0]
+	settings := root.Find("/mcp")
+	if settings == nil {
+		member, err = hujson.Parse([]byte(`{"mcp":{"coslash":` + string(encodedServer) + `}}`))
+		if err != nil {
+			return err
+		}
+		object.Members = append(object.Members, member.Value.(*hujson.Object).Members[0])
+	} else {
+		servers, ok := settings.Value.(*hujson.Object)
+		if !ok {
+			return errors.New("MCP server settings are not a JSON object")
+		}
+		if existing := root.Find("/mcp/coslash"); existing != nil {
+			previous := existing.Clone()
+			previous.Standardize()
+			var previousValue, desiredValue any
+			if json.Unmarshal(previous.Pack(), &previousValue) != nil || json.Unmarshal(encodedServer, &desiredValue) != nil || !reflect.DeepEqual(previousValue, desiredValue) {
+				return errors.New("coSlash MCP already has different settings; review that entry before setup")
+			}
+			return nil
+		}
+		servers.Members = append(servers.Members, serverMember)
+	}
+	root.Format()
+	return replaceMCPConfig(path, root.Pack())
+}
+
+func replaceMCPConfig(path string, data []byte) error {
 	file, err := os.CreateTemp(filepath.Dir(path), ".mcp-*")
 	if err != nil {
 		return err
@@ -218,7 +286,7 @@ func writeMCPConfig(path, key, endpoint string, opencode bool) error {
 		file.Close()
 		return err
 	}
-	if _, err := file.Write(append(data, '\n')); err != nil {
+	if _, err := file.Write(data); err != nil {
 		file.Close()
 		return err
 	}
