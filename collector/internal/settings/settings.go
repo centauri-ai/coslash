@@ -40,6 +40,7 @@ const (
 type Config struct {
 	Schema     string             `json:"$schema"`
 	Version    int                `json:"version"`
+	SyncPaused bool               `json:"syncPaused,omitempty"`
 	Synthesis  SynthesisSettings  `json:"synthesis"`
 	Appearance AppearanceSettings `json:"appearance"`
 	Launch     LaunchSettings     `json:"launch"`
@@ -338,6 +339,7 @@ func Decode(data []byte) (Config, error) {
 	type configDocument struct {
 		Schema     *string             `json:"$schema"`
 		Version    *int                `json:"version"`
+		SyncPaused *bool               `json:"syncPaused"`
 		Synthesis  *synthesisDocument  `json:"synthesis"`
 		Appearance *appearanceDocument `json:"appearance"`
 		Launch     *launchDocument     `json:"launch"`
@@ -368,6 +370,9 @@ func Decode(data []byte) (Config, error) {
 		},
 		Appearance: AppearanceSettings{Theme: "light"},
 		Launch:     LaunchSettings{Terminal: migrateTerminal(*document.Launch.Terminal)},
+	}
+	if document.SyncPaused != nil {
+		config.SyncPaused = *document.SyncPaused
 	}
 	if document.Appearance != nil {
 		if document.Appearance.Theme == nil {

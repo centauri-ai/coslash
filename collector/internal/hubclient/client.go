@@ -70,9 +70,10 @@ func (c *Client) httpClient() *http.Client {
 
 func (c *Client) endpoint(path string) string {
 	endpoint := *c.BaseURL
+	path, query, _ := strings.Cut(path, "?")
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	endpoint.RawPath = ""
-	endpoint.RawQuery = ""
+	endpoint.RawQuery = query
 	endpoint.Fragment = ""
 	return endpoint.String()
 }

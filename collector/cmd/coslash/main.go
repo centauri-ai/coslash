@@ -181,25 +181,44 @@ func main() {
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
 	}
-	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub)
+	var queue *syncv4.Queue
 	if hub != nil && os.Getenv("COSLASH_V4_SYNC_ENABLED") == "1" {
-		queue, err := syncv4.Open("")
+		queue, err = syncv4.Open("")
 		if err != nil {
 			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
 		}
+	}
+	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, queue)
+	if queue != nil {
 		syncContext, stopSync := context.WithCancel(context.Background())
 		server.RegisterOnShutdown(stopSync)
 		runner := &syncv4.Runner{
 			Queue: queue, Backup: hub.Backup, Hub: hub,
 			Discover:   func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
 			Conditions: syncv4.LocalConditions,
+			LocalPause: func() bool { return settingsStore.State().Config.SyncPaused },
+			Command:    v4CommandRunner(queue, settingsStore, remoteManager),
 		}
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
 			for {
-				if err := runner.SyncOnce(syncContext); err != nil && syncContext.Err() == nil {
+				err := runner.SyncOnce(syncContext)
+				if err != nil && syncContext.Err() == nil {
 					log.Printf("v4 sync deferred")
+				}
+				if len(queue.Results()) > 0 && (err == nil || errors.Is(err, syncv4.ErrPaused)) {
+					continue
+				}
+				if err == nil || errors.Is(err, syncv4.ErrPaused) {
+					metered, battery, conditionErr := syncv4.LocalConditions(syncContext)
+					if conditionErr == nil && !metered && battery < 0 {
+						version, _, _ := queue.Policy()
+						wait, waitErr := hub.V4Wait(syncContext, version)
+						if waitErr == nil && wait.Changed {
+							continue
+						}
+					}
 				}
 				select {
 				case <-syncContext.Done():
@@ -238,9 +257,10 @@ func newServer(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
+	queues ...*syncv4.Queue,
 ) *http.Server {
 	server := &http.Server{
-		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub)),
+		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub, queues...)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -258,9 +278,17 @@ func routes(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
+	queues ...*syncv4.Queue,
 ) *http.ServeMux {
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
+	api.HandleFunc("GET /api/hub/v4-update", func(w http.ResponseWriter, _ *http.Request) {
+		if len(queues) == 0 || queues[0] == nil {
+			writeJSON(w, syncv4.UpdatePrompt{})
+			return
+		}
+		writeJSON(w, queues[0].UpdatePrompt())
+	})
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}

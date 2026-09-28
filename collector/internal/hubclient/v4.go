@@ -89,15 +89,64 @@ type V4Queue struct {
 }
 
 type V4Config struct {
-	Paused    bool     `json:"paused"`
-	DeviceOff bool     `json:"deviceOff"`
-	LeaveOut  []string `json:"leaveOut"`
+	Paused         bool     `json:"paused"`
+	DeviceOff      bool     `json:"deviceOff"`
+	LeaveOut       []string `json:"leaveOut"`
+	AgentKnowledge bool     `json:"agentKnowledge"`
+}
+
+type V4Command struct {
+	ID      string          `json:"id"`
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type V4CommandResult struct {
+	CommandID string `json:"commandId"`
+	Result    string `json:"result"`
+	Error     string `json:"error,omitempty"`
 }
 
 type V4CheckIn struct {
-	ConfigVersion int64    `json:"configVersion"`
-	Config        V4Config `json:"config"`
-	MinVersion    string   `json:"minVersion"`
+	ConfigVersion          int64       `json:"configVersion"`
+	Config                 V4Config    `json:"config"`
+	Commands               []V4Command `json:"commands"`
+	MinVersion             string      `json:"minVersion"`
+	RecommendedVersion     string      `json:"recommendedVersion"`
+	RecommendedDownloadURL string      `json:"recommendedDownloadUrl"`
+	NextCheckInSeconds     int         `json:"nextCheckInSeconds"`
+	UpdateRequired         bool        `json:"-"`
+	RecommendedUpdate      bool        `json:"-"`
+}
+
+func (result *V4CheckIn) UnmarshalJSON(data []byte) error {
+	type alias V4CheckIn
+	var decoded alias
+	var required struct {
+		Config *struct {
+			Paused         *bool     `json:"paused"`
+			DeviceOff      *bool     `json:"deviceOff"`
+			LeaveOut       *[]string `json:"leaveOut"`
+			AgentKnowledge *bool     `json:"agentKnowledge"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &required); err != nil {
+		return err
+	}
+	if required.Config == nil || required.Config.Paused == nil || required.Config.DeviceOff == nil || required.Config.LeaveOut == nil || required.Config.AgentKnowledge == nil {
+		return errors.New("v4 check-in omitted current policy fields")
+	}
+	*result = V4CheckIn(decoded)
+	return nil
+}
+
+type V4Wait struct {
+	ConfigVersion     int64 `json:"configVersion"`
+	Changed           bool  `json:"changed"`
+	CommandsAvailable bool  `json:"commandsAvailable"`
 }
 
 type V4Problem struct {
@@ -142,7 +191,11 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	response, err := c.httpClient().Do(req)
+	client := c.httpClient()
+	if method == http.MethodGet && path == "/v4/devices/me/wait" || strings.HasPrefix(path, "/v4/devices/me/wait?") {
+		client.Timeout = 60 * time.Second
+	}
+	response, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -164,27 +217,35 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 	return nil
 }
 
-func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVersion int64) (V4CheckIn, error) {
+func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVersion int64, results []V4CommandResult) (V4CheckIn, error) {
 	var result V4CheckIn
 	version := strings.SplitN(strings.TrimPrefix(c.CollectorVersion, "v"), "-", 2)[0]
 	if !validClientVersion(version) {
 		return result, errors.New("v4 sync requires a semantic Local version")
 	}
 	input := struct {
-		ClientVersion        string   `json:"clientVersion"`
-		Capabilities         []string `json:"capabilities"`
-		OS                   string   `json:"os"`
-		AppliedConfigVersion int64    `json:"appliedConfigVersion"`
-		AgentsFound          []string `json:"agentsFound"`
-		Queue                V4Queue  `json:"queue"`
-	}{version, []string{"sync-v4", "session-backup/v1"}, runtime.GOOS, appliedConfigVersion, []string{"codex"}, queue}
+		ClientVersion        string            `json:"clientVersion"`
+		Capabilities         []string          `json:"capabilities"`
+		OS                   string            `json:"os"`
+		AppliedConfigVersion int64             `json:"appliedConfigVersion"`
+		AgentsFound          []string          `json:"agentsFound"`
+		Queue                V4Queue           `json:"queue"`
+		Results              []V4CommandResult `json:"results,omitempty"`
+	}{version, []string{"sync-v4", "session-backup/v1", "launch", "ssh-relay"}, runtime.GOOS, appliedConfigVersion, []string{"codex"}, queue, results}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
 	if err == nil && (result.ConfigVersion < 1 || !validClientVersion(result.MinVersion)) {
 		return V4CheckIn{}, errors.New("v4 check-in omitted current policy")
 	}
-	if err == nil && clientVersionLess(version, result.MinVersion) {
-		return V4CheckIn{}, V4Problem{Code: "client_update_required"}
+	if err == nil {
+		result.UpdateRequired = clientVersionLess(version, result.MinVersion)
+		result.RecommendedUpdate = validClientVersion(result.RecommendedVersion) && clientVersionLess(version, result.RecommendedVersion)
 	}
+	return result, err
+}
+
+func (c *Client) V4Wait(ctx context.Context, since int64) (V4Wait, error) {
+	var result V4Wait
+	err := c.v4Request(ctx, http.MethodGet, "/v4/devices/me/wait?since="+fmt.Sprint(since), nil, &result)
 	return result, err
 }
 
