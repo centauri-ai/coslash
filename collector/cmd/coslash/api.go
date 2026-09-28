@@ -294,6 +294,9 @@ func cleanupHandoffs(settingsStore *settings.Store) {
 		if err := launch.CleanupHandoffs(); err != nil {
 			log.Printf("sweep handoffs: %v", err)
 		}
+		if err := launch.CleanupReviewScratch(); err != nil {
+			log.Printf("sweep review scratch: %v", err)
+		}
 		state := settingsStore.State()
 		if state.Valid && state.Config.Remote != nil && state.Config.Remote.Enabled {
 			ctx, cancel := context.WithTimeout(context.Background(), remote.DefaultCapabilityTimeout)
@@ -515,9 +518,15 @@ func handleSend(
 			writeTerminalLaunchError(w, err)
 			return
 		}
-		if err := writeCursorClipboard(cursorClipboardText(handoff, message)); err != nil {
+		if err := writeCursorClipboard(r.Context(), cursorClipboardText(handoff, message)); err != nil {
+			if r.Context().Err() != nil {
+				return
+			}
 			log.Printf("send: copy Cursor handoff: %v", err)
 			http.Error(w, "could not copy Cursor handoff", http.StatusInternalServerError)
+			return
+		}
+		if r.Context().Err() != nil {
 			return
 		}
 	}

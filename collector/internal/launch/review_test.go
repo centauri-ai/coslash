@@ -10,9 +10,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/review"
-	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
 func TestReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
@@ -25,12 +25,45 @@ func TestReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestCleanupReviewScratchRemovesOnlyStaleCursorData(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	cutoff := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	for name, modified := range map[string]time.Time{
+		"cursor-stale": cutoff.Add(-time.Hour),
+		"cursor-fresh": cutoff.Add(time.Hour),
+		"unrelated":    cutoff.Add(-time.Hour),
+	} {
+		path := filepath.Join(reviewScratchDir(), name)
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := cleanupReviewScratch(cutoff); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{"cursor-stale": false, "cursor-fresh": true, "unrelated": true} {
+		_, err := os.Stat(filepath.Join(reviewScratchDir(), name))
+		if (err == nil) != want {
+			t.Fatalf("review scratch %q: exists=%t, want %t (err=%v)", name, err == nil, want, err)
+		}
+	}
+}
+
 func TestReviewCLICommands(t *testing.T) {
 	name := "Review — Bob's change (12345678)"
 	prompt := "Review Bob's change\nDo not edit."
 	sandbox := "enabled"
 	if runtime.GOOS == "windows" {
 		sandbox = "disabled"
+	}
+	cursorBin := cursorReviewerExecutable()
+	cursorArgs := []string{"--print", "--mode=ask", "--sandbox", sandbox, "--trust", "--add-dir", "/repo", "--output-format", "text"}
+	if strings.EqualFold(filepath.Ext(cursorBin), ".ps1") {
+		cursorArgs = append([]string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", cursorBin}, cursorArgs...)
+		cursorBin = "powershell.exe"
 	}
 	tests := map[string]reviewCommandSpec{
 		"claude": {
@@ -50,8 +83,8 @@ func TestReviewCLICommands(t *testing.T) {
 			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		},
 		"cursor": {
-			bin:   settings.CursorExecutable(),
-			args:  []string{"--print", "--mode=ask", "--sandbox", sandbox, "--trust", "--add-dir", "/repo", "--output-format", "text"},
+			bin:   cursorBin,
+			args:  cursorArgs,
 			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		},
 	}
@@ -157,7 +190,7 @@ func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 		{ID: "claude", Label: "Claude Code", Executable: "claude"},
 		{ID: "codex", Label: "Codex", Executable: "codex"},
 		{ID: "opencode", Label: "OpenCode", Executable: "opencode"},
-		{ID: "cursor", Label: "Cursor", Executable: settings.CursorExecutable()},
+		{ID: "cursor", Label: "Cursor CLI", Executable: cursorReviewerExecutable()},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReviewerOptions() = %#v, want %#v", got, want)

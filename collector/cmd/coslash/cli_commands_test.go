@@ -718,7 +718,7 @@ func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
 	previous := writeCursorClipboard
 	defer func() { writeCursorClipboard = previous }()
 	copied := ""
-	writeCursorClipboard = func(value string) error { copied = value; return nil }
+	writeCursorClipboard = func(_ context.Context, value string) error { copied = value; return nil }
 	launched := false
 	getSession := func(string, string) (*session.Session, error) {
 		return &session.Session{Agent: "opencode", ID: "session-1", WorkingDirectory: workingDirectory}, nil
@@ -753,14 +753,14 @@ func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
 		t.Fatalf("missing directory response=%d copied=%q launched=%t", response.Code, copied, launched)
 	}
 	workingDirectory = t.TempDir()
-	writeCursorClipboard = func(string) error { return errors.New("clipboard unavailable") }
+	writeCursorClipboard = func(context.Context, string) error { return errors.New("clipboard unavailable") }
 	launched = false
 	response = httptest.NewRecorder()
 	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true }, open)
 	if response.Code != http.StatusInternalServerError || launched {
 		t.Fatalf("clipboard failure response=%d launched=%t", response.Code, launched)
 	}
-	writeCursorClipboard = func(value string) error { copied = value; return nil }
+	writeCursorClipboard = func(_ context.Context, value string) error { copied = value; return nil }
 	copied = ""
 	response = httptest.NewRecorder()
 	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true },
@@ -769,6 +769,47 @@ func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
 		})
 	if response.Code != http.StatusInternalServerError || copied == "" || !strings.Contains(response.Body.String(), "handoff remains on the clipboard") {
 		t.Fatalf("launch failure response=%d copied=%q body=%q", response.Code, copied, response.Body.String())
+	}
+}
+
+func TestHandleSendCursorCancelsClipboardBeforeLaunch(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	previous := writeCursorClipboard
+	t.Cleanup(func() { writeCursorClipboard = previous })
+	entered := make(chan struct{})
+	writeCursorClipboard = func(ctx context.Context, _ string) error {
+		close(entered)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request := httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil).WithContext(ctx)
+	response := httptest.NewRecorder()
+	workingDirectory := t.TempDir()
+	launched := false
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handleSend(response, request, settings.Open(),
+			func(string, string) (*session.Session, error) {
+				return &session.Session{Agent: "opencode", ID: "session-1", WorkingDirectory: workingDirectory}, nil
+			},
+			func(string) bool { return true },
+			func(context.Context, string, string, string, string, string, string, string) error {
+				launched = true
+				return nil
+			})
+	}()
+	select {
+	case <-entered:
+	case <-done:
+		t.Fatal("send returned before starting clipboard copy")
+	}
+	cancel()
+	<-done
+	if launched || response.Code == http.StatusNoContent {
+		t.Fatalf("canceled send launched=%t response=%d", launched, response.Code)
 	}
 }
 
