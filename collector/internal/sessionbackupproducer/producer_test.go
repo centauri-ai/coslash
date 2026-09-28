@@ -113,6 +113,32 @@ func TestPrepareProducesVerifiedBoundedLocalAndSSHBundle(t *testing.T) {
 	}
 }
 
+func TestUnsupportedAgentsNeverOpenSourceOrPublishBundle(t *testing.T) {
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentOpenCode, vendors.AgentCursor} {
+		for _, sourceKind := range []string{sessionbackupv1.SourceLocal, sessionbackupv1.SourceSSH} {
+			t.Run(agent+"/"+sourceKind, func(t *testing.T) {
+				root := filepath.Join(t.TempDir(), "spool")
+				opened := false
+				manager := New(Options{Root: root, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+					opened = true
+					return SourceHandle{}, nil
+				}})
+				prepared, err := manager.Prepare(t.Context(), Selection{
+					SourceKind: sourceKind, SourceID: "fixture-source", Agent: agent, SessionID: "fixture-session",
+				})
+				var failure *PreparationError
+				if prepared != nil || !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 ||
+					failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnsupported || opened {
+					t.Fatalf("prepared=%#v failure=%#v opened=%t", prepared, failure, opened)
+				}
+				if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("unsupported source created a spool: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestPreparePreservesRepeatedRootIndexRowsInSSHFamilyBundle(t *testing.T) {
 	home, _ := writeFamilyFixture(t, 0)
 	rootRow := []byte(fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Fixture root\"}\r\n", testRootID))
@@ -364,6 +390,46 @@ func TestPrepareRejectsMutatedSourceWithoutPublishing(t *testing.T) {
 		if !strings.HasPrefix(entry.Name(), ".preparing-") {
 			t.Fatalf("unexpected completed bundle %q", entry.Name())
 		}
+	}
+}
+
+func TestInterruptedRefreshRetainsVerifiedLastGoodBundle(t *testing.T) {
+	for _, sourceKind := range []string{sessionbackupv1.SourceLocal, sessionbackupv1.SourceSSH} {
+		t.Run(sourceKind, func(t *testing.T) {
+			home, _ := writeFamilyFixture(t, 0)
+			rootFile := familyFile(home, false, testRootID)
+			spool := t.TempDir()
+			selection := localSelection()
+			selection.SourceKind = sourceKind
+			if sourceKind == sessionbackupv1.SourceSSH {
+				selection.SourceID = "remote-fixture"
+			}
+			options := Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+			}}
+			good, err := New(options).Prepare(t.Context(), selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			options.AfterRawCopy = func() {
+				file, err := os.OpenFile(rootFile, os.O_APPEND|os.O_WRONLY, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _ = file.WriteString(" \n")
+				_ = file.Close()
+			}
+			if _, err := New(options).Prepare(t.Context(), selection); !errors.Is(err, ErrIncomplete) {
+				t.Fatalf("interrupted refresh error = %v", err)
+			}
+			reopened, err := New(Options{Root: spool}).Open(good.BundleID)
+			if err != nil || reopened.BundleID != good.BundleID {
+				t.Fatalf("last good bundle = %#v, %v", reopened, err)
+			}
+			if _, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, good.BundleID)); err != nil {
+				t.Fatalf("last good verification: %v", err)
+			}
+		})
 	}
 }
 
