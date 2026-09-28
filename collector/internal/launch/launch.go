@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -109,7 +110,7 @@ func ReviewerOptions() []ReviewerOption {
 		{ID: vendors.AgentClaude, Label: "Claude Code", Executable: "claude"},
 		{ID: vendors.AgentCodex, Label: "Codex", Executable: "codex"},
 		{ID: vendors.AgentOpenCode, Label: "OpenCode", Executable: "opencode"},
-		{ID: vendors.AgentCursor, Label: "Cursor CLI", Executable: "agent"},
+		{ID: vendors.AgentCursor, Label: "Cursor", Executable: settings.CursorExecutable()},
 	}
 }
 
@@ -140,7 +141,7 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 		return "", err
 	}
 	prompt := request.Prompt
-	if request.Reviewer == vendors.AgentOpenCode {
+	if request.Reviewer == vendors.AgentOpenCode || request.Reviewer == vendors.AgentCursor {
 		snapshot, err := reviewGitSnapshot(ctx, workingDirectory)
 		if err != nil {
 			return "", err
@@ -152,18 +153,19 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 		return "", err
 	}
 	if request.Reviewer == vendors.AgentCursor {
-		scratch, err := os.MkdirTemp("", "coslash-review-*")
+		scratch, err := os.MkdirTemp("", "coslash-cursor-review-*")
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("create Cursor review directory: %w", err)
 		}
 		defer os.RemoveAll(scratch)
-		configDir := filepath.Join(scratch, ".cursor")
-		if err := os.Mkdir(configDir, 0o700); err != nil {
-			return "", err
+		if err := os.Mkdir(filepath.Join(scratch, ".cursor"), 0o700); err != nil {
+			return "", fmt.Errorf("create Cursor review config: %w", err)
 		}
-		if err := os.WriteFile(filepath.Join(configDir, "cli.json"), []byte(`{"permissions":{"allow":[],"deny":["Shell(*)","Write(*)","Mcp(*)"]}}`), 0o600); err != nil {
-			return "", err
+		permissions := `{"permissions":{"allow":[],"deny":["Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
+		if err := os.WriteFile(filepath.Join(scratch, ".cursor", "cli.json"), []byte(permissions), 0o600); err != nil {
+			return "", fmt.Errorf("write Cursor review permissions: %w", err)
 		}
+		workingDirectory = scratch
 		spec.env = append(spec.env, "CURSOR_DATA_DIR="+scratch)
 	}
 	command := reviewCommandContext(ctx, spec.bin, spec.args...)
@@ -228,9 +230,15 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		}, nil
 	case vendors.AgentCursor:
-		spec := cursorReviewCommand(prompt)
-		spec.args = append(spec.args, "--sandbox", "enabled", "--trust")
-		return spec, nil
+		sandbox := "enabled"
+		if runtime.GOOS == "windows" {
+			sandbox = "disabled"
+		}
+		return reviewCommandSpec{
+			bin:   settings.CursorExecutable(),
+			args:  []string{"--print", "--mode=ask", "--sandbox", sandbox, "--trust", "--add-dir", workingDirectory, "--output-format", "text"},
+			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
+		}, nil
 	default:
 		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
 	}

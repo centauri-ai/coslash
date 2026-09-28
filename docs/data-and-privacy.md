@@ -105,6 +105,8 @@ Cursor synthesis uses read-only ask mode. coSlash also disables file, shell, wri
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 
+Sending a session to Cursor CLI copies its handoff and optional task to the system clipboard before opening Cursor. Clipboard history tools and cross-device clipboard sync may retain that content. Paste it into the new Cursor session, then clear the clipboard if needed.
+
 ## Share preview and approval
 
 During an active Share to Hub flow, **See what gets shared** builds a local
