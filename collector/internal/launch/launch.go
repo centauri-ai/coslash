@@ -192,7 +192,7 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 func reviewGitSnapshot(ctx context.Context, workingDirectory string) (string, error) {
 	var snapshot strings.Builder
 	snapshot.WriteString("\nBEGIN UNTRUSTED WORKTREE DATA\n")
-	for _, args := range [][]string{{"status", "--short"}, {"diff", "--no-ext-diff", "--no-textconv"}, {"diff", "--cached", "--no-ext-diff", "--no-textconv"}} {
+	for _, args := range [][]string{{"status", "--short", "--untracked-files=all"}, {"diff", "--no-ext-diff", "--no-textconv"}, {"diff", "--cached", "--no-ext-diff", "--no-textconv"}} {
 		command := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false"}, args...)...)
 		command.Dir = workingDirectory
 		command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
