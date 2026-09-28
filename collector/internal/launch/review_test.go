@@ -60,6 +60,27 @@ func TestReviewCLICommands(t *testing.T) {
 	}
 }
 
+func TestReviewGitSnapshotListsFilesInUntrackedDirectories(t *testing.T) {
+	repo := t.TempDir()
+	if output, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	path := filepath.Join(repo, "new-package", "main.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package newpackage\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := reviewGitSnapshot(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(snapshot, "?? new-package/main.go") || strings.Contains(snapshot, "?? new-package/\n") {
+		t.Fatalf("untracked file is not named in snapshot: %s", snapshot)
+	}
+}
+
 func TestBoundedBufferCapsDiagnostics(t *testing.T) {
 	buffer := boundedBuffer{limit: 4}
 	if written, err := buffer.Write([]byte("secret diagnostic")); err != nil || written != 17 {
