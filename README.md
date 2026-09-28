@@ -27,8 +27,9 @@ Three agents are running. One finished twenty minutes ago, one is waiting on a q
 
 Then it gets you back in — resume a session in its own terminal with full context, or copy a handoff brief and pick it up cold somewhere else.
 
-Everything runs locally. Nothing leaves your machine unless you turn on synthesis
-or explicitly approve a Hub share.
+Everything runs locally. Session data leaves your machine only when you
+explicitly approve a Hub share or enable the experimental v4 Codex sync;
+synthesis uses the selected agent CLI. See [data and privacy](docs/data-and-privacy.md).
 
 **Early preview · macOS and Windows 11 amd64**
 
