@@ -834,7 +834,7 @@ type settingsResponse struct {
 	} `json:"options"`
 }
 
-func writeSettings(w http.ResponseWriter, state settings.State) {
+func writeSettings(ctx context.Context, w http.ResponseWriter, state settings.State) {
 	response := settingsResponse{
 		Settings:  state.Config,
 		Persisted: state.Persisted,
@@ -863,7 +863,7 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 	}
 	for _, option := range launch.ReviewerOptions() {
 		response.Options.Reviewers = append(response.Options.Reviewers, availableReviewer{
-			ID: option.ID, Label: option.Label, Available: launch.ReviewCLIAvailable(option.ID),
+			ID: option.ID, Label: option.Label, Available: launch.ReviewCLIAvailable(ctx, option.ID),
 		})
 	}
 	writeJSON(w, response)
@@ -977,7 +977,7 @@ func handleSaveSettings(
 		http.Error(w, "could not apply remote settings", http.StatusInternalServerError)
 		return
 	}
-	writeSettings(w, store.State())
+	writeSettings(r.Context(), w, store.State())
 }
 
 func readHandoff(w http.ResponseWriter, r *http.Request) (string, error) {

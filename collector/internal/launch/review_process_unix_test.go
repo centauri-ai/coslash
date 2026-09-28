@@ -4,6 +4,7 @@ package launch
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -42,5 +43,20 @@ func TestConfigureReviewProcessCreatesProcessGroup(t *testing.T) {
 	configureReviewProcess(command)
 	if command.SysProcAttr == nil || !command.SysProcAttr.Setpgid {
 		t.Fatal("reviewer was not placed in its own process group")
+	}
+}
+
+func TestReviewCLIAvailabilityProbeUsesProcessGroup(t *testing.T) {
+	t.Setenv("REVIEW_RESULT_OUTPUT", "--safe-mode --restricted --strict-mcp-config --tools")
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	var command *exec.Cmd
+	reviewCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		command = exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewResultHelper")
+		return command
+	}
+	if !ReviewCLIAvailable(context.Background(), "claude") || command == nil || command.Cancel == nil ||
+		command.SysProcAttr == nil || !command.SysProcAttr.Setpgid {
+		t.Fatal("CLI availability probe lacks process group cleanup")
 	}
 }

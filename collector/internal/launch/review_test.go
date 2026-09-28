@@ -247,12 +247,26 @@ func TestReviewCLIAvailableRequiresReviewFlags(t *testing.T) {
 		{"codex", "--ephemeral --ignore-user-config --ignore-rules --sandbox", false},
 	} {
 		t.Setenv("REVIEW_RESULT_OUTPUT", test.help)
-		if got := ReviewCLIAvailable(test.reviewer); got != test.want {
+		if got := ReviewCLIAvailable(context.Background(), test.reviewer); got != test.want {
 			t.Errorf("ReviewCLIAvailable(%q) = %v, want %v for %q", test.reviewer, got, test.want, test.help)
 		}
 		if binary != test.reviewer || len(arguments) == 0 || arguments[len(arguments)-1] != "--help" {
 			t.Errorf("help command = %q %q", binary, arguments)
 		}
+	}
+}
+
+func TestReviewCLIAvailableHonorsRequestCancellation(t *testing.T) {
+	t.Setenv("REVIEW_RESULT_OUTPUT", "--safe-mode --restricted --strict-mcp-config --tools")
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	reviewCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewResultHelper")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if ReviewCLIAvailable(ctx, "claude") {
+		t.Fatal("canceled probe reported Claude available")
 	}
 }
 
