@@ -3,6 +3,8 @@
 **Identity:** `local-sync-v4/v1`. The wire producer is the verified
 `session-backup/v1` spool. The Hub consumer is `sync-v4/v2` at server
 integration SHA `b39c4e942c9f1c8ed9bc78cc835c773c630f7685`.
+The additive Local check-in and command consumer is `local-device-v4/1`, pinned
+to server `device-v4/2` at `e52bf98faa2b584a4ff0947358d1d7a84f2206cc`.
 
 The scheduler currently discovers local Codex families. A source exporter may
 join this queue only after it produces a complete, verified family through
@@ -33,6 +35,14 @@ transcript text never enter sync logs.
 `COSLASH_V4_SYNC_ENABLED=1` is a development activation flag and defaults off.
 The server's separate v4 upload flag must also be enabled. Disable the Local
 flag and restart to stop this scheduler; v1–v3 sharing remains available.
+The Local settings `syncPaused` switch wins over Hub pause/off and stops new
+uploads and retry commands on this computer. The current Hub policy version,
+manual update guidance and command-ID journal share the private queue file.
+Commands are marked before execution; an interrupted command reports failure
+after restart and is never launched twice. Check-in acknowledges bounded result
+codes, then removes the result while retaining the ID for durable deduplication.
+The update prompt offers an HTTPS download for manual replacement. The OS
+keychain credential and private install ID are not removed by replacing Local.
 Owner-readable detail and artifact proof after server completion belongs to
 IC-1; the current device credential has no v4 owner-read route. Live SSH,
 metered-platform coverage and 500-session completion belong to
