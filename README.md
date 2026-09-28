@@ -324,6 +324,8 @@ The `sessions`, `handoff`, `send`, and `review` skills require the coSlash app t
 
 The `stable` branch moves with each stable release, so the skills match the coSlash version that Homebrew and the install script ship. Update coSlash and the skills together. For Claude Code, run `claude plugin marketplace update centauri-ai`, then `claude plugin update coslash@centauri-ai`. For Codex, run `codex plugin marketplace upgrade`. If you added the marketplace without `stable`, remove it and add it again with the commands above.
 
+Codex runs skill commands with its own environment. A `shell_environment_policy` in `~/.codex/config.toml`, for example `inherit = "core"`, can drop a custom `COSLASH_HOME`, and the skills then use `~/.coslash` without an error. To keep a custom home, set it under `[shell_environment_policy.set]` as `COSLASH_HOME = "<path>"`. `coslash doctor --json` reports the `version` and `storage.home` that the skills use.
+
 ## Develop
 
 Building from source requires **Go 1.26+** and **Node 24+** (see `collector/go.mod` and `frontend/.nvmrc`). End users do not need these tools — use [Install](#install) above for a prebuilt binary.
