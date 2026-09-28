@@ -35,7 +35,8 @@ type artifactWriter struct {
 
 func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prepared, error) {
 	if selection.Agent != vendors.AgentCodex &&
-		!((selection.Agent == vendors.AgentClaude || selection.Agent == vendors.AgentOpenCode) && selection.SourceKind == sessionbackupv1.SourceLocal) {
+		!((selection.Agent == vendors.AgentClaude || selection.Agent == vendors.AgentOpenCode || selection.Agent == vendors.AgentCursor) &&
+			selection.SourceKind == sessionbackupv1.SourceLocal) {
 		return problem(selection, sessionbackupv1.ProblemUnsupported, "", false)
 	}
 	if selection.SourceKind != sessionbackupv1.SourceLocal && selection.SourceKind != sessionbackupv1.SourceSSH {
@@ -83,7 +84,12 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 	if handle.Close != nil {
 		defer handle.Close()
 	}
-	prepared, err := manager.capture(ctx, staging, selection, handle)
+	var prepared *Prepared
+	if selection.Agent == vendors.AgentCursor {
+		prepared, err = manager.captureCursor(ctx, staging, selection, handle)
+	} else {
+		prepared, err = manager.capture(ctx, staging, selection, handle)
+	}
 	if err != nil {
 		var captureErr *captureError
 		if errors.As(err, &captureErr) {

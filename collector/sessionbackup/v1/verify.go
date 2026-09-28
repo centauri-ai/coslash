@@ -86,6 +86,7 @@ func validateManifestCollectionSizes(data []byte) error {
 type parsedVerification struct {
 	hasSynthesis bool
 	synthesis    [sha256.Size]byte
+	entrypoint   string
 }
 
 // Verify checks the canonical manifest, every exact artifact byte, parsed
@@ -100,8 +101,15 @@ func Verify(manifestBytes []byte, open OpenArtifact) (Manifest, error) {
 		members[member.MemberID] = member
 	}
 	exactChanges := make(map[string]map[string]*Artifact, len(manifest.Members))
+	rawKeys := make(map[string]map[string]bool, len(manifest.Members))
 	for index := range manifest.Artifacts {
 		artifact := &manifest.Artifacts[index]
+		if strings.HasPrefix(artifact.Kind, "raw-") {
+			if rawKeys[artifact.MemberID] == nil {
+				rawKeys[artifact.MemberID] = map[string]bool{}
+			}
+			rawKeys[artifact.MemberID][artifact.Kind+":"+artifact.SourceKey] = true
+		}
 		if artifact.Kind != KindExactChangeBody {
 			continue
 		}
@@ -130,6 +138,12 @@ func Verify(manifestBytes []byte, open OpenArtifact) (Manifest, error) {
 			return Manifest{}, fmt.Errorf("%w: parsed record identity mismatch", ErrInvalid)
 		}
 		verification := parsedVerification{}
+		if manifest.Source.Agent == "cursor" {
+			if record.Session.Entrypoint == nil || (*record.Session.Entrypoint != "cursor-ide" && *record.Session.Entrypoint != "cursor-cli") {
+				return Manifest{}, fmt.Errorf("%w: Cursor continuation provenance missing", ErrInvalid)
+			}
+			verification.entrypoint = *record.Session.Entrypoint
+		}
 		if record.Session.Synthesis != nil {
 			canonical, err := json.Marshal(record.Session.Synthesis)
 			if err != nil {
@@ -164,8 +178,12 @@ func Verify(manifestBytes []byte, open OpenArtifact) (Manifest, error) {
 		}
 		switch artifact.Kind {
 		case KindRawMetadataRows:
-			if _, err := DecodeDatabaseRows(blob, artifact.MemberID); err != nil {
+			rows, err := DecodeDatabaseRows(blob, artifact.MemberID)
+			if err != nil {
 				return Manifest{}, err
+			}
+			if manifest.Source.Agent == "cursor" && rows.Database != "cursor-"+artifact.SourceKey {
+				return Manifest{}, fmt.Errorf("%w: Cursor metadata provenance mismatch", ErrInvalid)
 			}
 		case KindSessionEnrichment:
 			if _, err := DecodeEnrichment(blob); err != nil {
@@ -195,6 +213,14 @@ func Verify(manifestBytes []byte, open OpenArtifact) (Manifest, error) {
 		}
 	}
 	for _, member := range manifest.Members {
+		if manifest.Source.Agent == "cursor" {
+			keys := rawKeys[member.MemberID]
+			lane := parsed[member.MemberID].entrypoint
+			if (lane == "cursor-ide" && (!keys[KindRawMetadataRows+":ide-state"] || keys[KindRawMetadataRows+":cli-store"] || keys[KindRawSidecar+":cli-meta"])) ||
+				(lane == "cursor-cli" && (!keys[KindRawMetadataRows+":cli-store"] || !keys[KindRawSidecar+":cli-meta"] || keys[KindRawMetadataRows+":ide-state"])) {
+				return Manifest{}, fmt.Errorf("%w: Cursor continuation evidence mismatch", ErrInvalid)
+			}
+		}
 		hasSynthesis := foundSyntheses[member.MemberID]
 		if (member.SynthesisRevisionMs > 0) != hasSynthesis {
 			return Manifest{}, fmt.Errorf("%w: synthesis revision binding mismatch", ErrIncomplete)
