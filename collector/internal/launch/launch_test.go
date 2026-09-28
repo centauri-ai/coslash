@@ -40,7 +40,7 @@ func TestTerminalWithPromptRemovesClaudeFilesWhenTerminalOpenFails(t *testing.T)
 	localTerminalOpener = func(context.Context, string, string, string, string) error {
 		return errors.New("terminal open failed")
 	}
-	if err := TerminalWithPrompt(context.Background(), settings.TerminalApple, vendors.AgentClaude, t.TempDir(), "", NewSession, "private handoff", "request"); err == nil {
+	if err := TerminalWithPrompt(context.Background(), settings.Defaults().Launch.Terminal, vendors.AgentClaude, t.TempDir(), "", NewSession, "private handoff", "request"); err == nil {
 		t.Fatal("terminal opener failure was ignored")
 	}
 	entries, err := os.ReadDir(handoffDir())
