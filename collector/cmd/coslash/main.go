@@ -27,6 +27,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
@@ -201,6 +202,33 @@ func main() {
 		log.Printf("Hub integration disabled: %v", err)
 	}
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, directedStore)
+	if hub != nil && os.Getenv("COSLASH_V4_SYNC_ENABLED") == "1" {
+		queue, err := syncv4.Open("")
+		if err != nil {
+			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
+		}
+		syncContext, stopSync := context.WithCancel(context.Background())
+		server.RegisterOnShutdown(stopSync)
+		runner := &syncv4.Runner{
+			Queue: queue, Backup: hub.Backup, Hub: hub,
+			Discover:   func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+			Conditions: syncv4.LocalConditions,
+		}
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				if err := runner.SyncOnce(syncContext); err != nil && syncContext.Err() == nil {
+					log.Printf("v4 sync deferred")
+				}
+				select {
+				case <-syncContext.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+	}
 	go func() {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
