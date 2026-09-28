@@ -180,6 +180,8 @@ claude|codex|cursor|opencode`. Choose one agent name per command. Then run
 the coSlash browser. The endpoint is `https://mcp.hub.coslash.io/mcp`; use
 `--url <https://host/mcp>` on `setup` only for another deployment. Pairing a
 Local device does not authorize MCP.
+OpenCode setup preserves an existing `opencode.jsonc`, including comments and
+other servers.
 
 The agent stores its own OAuth credential. To switch Hub accounts for Claude
 Code, Codex, or OpenCode, run `coslash mcp switch <agent>`, change the account
