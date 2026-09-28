@@ -1,9 +1,9 @@
 # Complete-backup producer
 
 `sessionbackupproducer` is the local owner of complete `session-backup/v1`
-capture. It supports local and SSH Codex and local Claude sources. Claude SSH,
-Cursor, and OpenCode return the product-visible `complete_backup_unsupported`
-blocker and never produce a metadata-only bundle.
+capture. It supports local and SSH Codex plus local Claude and local OpenCode.
+Claude SSH, OpenCode SSH, and Cursor return the product-visible
+`complete_backup_unsupported` blocker and never produce a metadata-only bundle.
 
 `Manager.Start` exposes an asynchronous `preparing` state with `Status`,
 `Wait`, and `Cancel`. `Prepare` is the synchronous, context-cancellable core
@@ -22,7 +22,9 @@ survives collector restarts and remains available through `Open` and bounded
 `Read` calls until `Discard` is explicit. Cancellation observed through the
 publishing handoff removes its new bundle but never discards a reused bundle.
 The spool root and bundle directories are mode `0700`; artifact files and
-manifests are mode `0600`.
+manifests are mode `0600`. Local OpenCode projects family-attributed SQLite rows
+and parses them in one read transaction. A source write observed during
+preparation blocks completion.
 
 The Codex producer scans both `.codex/sessions` and `.codex/archived_sessions`, and
 reads only the attributable rows of `.codex/session_index.jsonl`. It does not
