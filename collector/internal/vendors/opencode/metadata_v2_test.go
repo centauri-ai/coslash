@@ -10,9 +10,9 @@ func TestLiveCandidatesIncludeV2AndKeepLegacyWithoutDuplicateMessages(t *testing
 	db := testDB(t)
 	for _, statement := range []string{
 		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
-		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
 		`INSERT INTO session_v2 VALUES ('shared', NULL, '/work', 'current', NULL, NULL, NULL, NULL, 0, 100, 200, NULL)`,
-		`INSERT INTO session_message VALUES ('v2-user', 'shared', 'user', 1, 150, '{"text":"new prompt"}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('v2-user', 'shared', 'user', 1, 150, '{"text":"new prompt"}')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)

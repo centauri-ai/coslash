@@ -27,6 +27,19 @@ func RootContext(ctx context.Context) (string, error) {
 		return "", err
 	}
 	dataHome := os.Getenv("XDG_DATA_HOME")
+	if override := os.Getenv("OPENCODE_DB"); override != "" {
+		if filepath.IsAbs(override) {
+			return filepath.Clean(override), nil
+		}
+		if dataHome == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			dataHome = filepath.Join(home, ".local", "share")
+		}
+		return filepath.Join(dataHome, "opencode", override), nil
+	}
 	if dataHome != "" {
 		return filepath.Join(dataHome, "opencode", "opencode.db"), nil
 	}
@@ -115,7 +128,7 @@ func validateSchemaContext(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if count != 0 {
-		checks = append(checks, `SELECT id, session_id, type, seq, time_created, data FROM session_message WHERE 0`)
+		checks = append(checks, `SELECT id, session_id, type, seq, time_created, time_updated, data FROM session_message WHERE 0`)
 	}
 	for _, query := range checks {
 		statement, err := db.PrepareContext(ctx, query)
@@ -145,13 +158,17 @@ func sessionSourceContext(ctx context.Context, db *sql.DB) (string, error) {
 		return "", fmt.Errorf("unsupported OpenCode database schema: no session table")
 	}
 	projection := `id, parent_id, directory, COALESCE(title, '') AS title, summary_files,
-		summary_diffs, agent, model, cost, time_created, time_updated, time_archived`
+		summary_diffs, agent, model, cost, time_created, %s AS time_updated, time_archived`
 	parts := []string{}
 	if v2 {
-		parts = append(parts, `SELECT `+projection+`, 1 AS v2 FROM session_v2`)
+		activity := `MAX(session_v2.time_updated, COALESCE((
+			SELECT time_updated FROM session_message
+			WHERE session_id = session_v2.id ORDER BY seq DESC LIMIT 1
+		), session_v2.time_updated))`
+		parts = append(parts, `SELECT `+fmt.Sprintf(projection, activity)+`, 1 AS v2 FROM session_v2`)
 	}
 	if v1 {
-		query := `SELECT ` + projection + `, 0 AS v2 FROM session`
+		query := `SELECT ` + fmt.Sprintf(projection, "time_updated") + `, 0 AS v2 FROM session`
 		if v2 {
 			query += ` WHERE NOT EXISTS (SELECT 1 FROM session_v2 WHERE session_v2.id = session.id)`
 		}

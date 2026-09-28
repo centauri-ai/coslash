@@ -20,16 +20,21 @@ type storedSession struct {
 }
 
 type storedMessage struct {
-	Role       string          `json:"role"`
-	Agent      string          `json:"agent"`
-	ProviderID string          `json:"providerID"`
-	ModelID    string          `json:"modelID"`
-	Finish     string          `json:"finish"`
-	Summary    json.RawMessage `json:"summary"`
-	Error      json.RawMessage `json:"error"`
-	Cost       float64         `json:"cost"`
-	Tokens     storedTokens    `json:"tokens"`
-	Time       struct {
+	Role              string          `json:"role"`
+	Command           string          `json:"-"`
+	Output            string          `json:"-"`
+	Exit              *int            `json:"-"`
+	CompactionStatus  string          `json:"-"`
+	CompactionSummary string          `json:"-"`
+	Agent             string          `json:"agent"`
+	ProviderID        string          `json:"providerID"`
+	ModelID           string          `json:"modelID"`
+	Finish            string          `json:"finish"`
+	Summary           json.RawMessage `json:"summary"`
+	Error             json.RawMessage `json:"error"`
+	Cost              float64         `json:"cost"`
+	Tokens            storedTokens    `json:"tokens"`
+	Time              struct {
 		Created   int64  `json:"created"`
 		Completed *int64 `json:"completed"`
 	} `json:"time"`

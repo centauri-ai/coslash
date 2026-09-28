@@ -16,6 +16,9 @@ func TestOpenCodeMajor(t *testing.T) {
 		{version: "opencode v2.0.6", want: 2},
 		{version: "1.18.28", want: 1},
 		{version: "OpenCode 3.1.0-beta.1", want: 3},
+		{version: "0.0.0-beta-202608110357", want: 2},
+		{version: "0.0.0-next-202606270058", want: 2},
+		{version: "0.0.0-dev-202609282011", want: 0},
 		{version: "not a version", want: 0},
 	}
 	for _, test := range tests {
@@ -40,6 +43,9 @@ func TestPluginSourceForVersion(t *testing.T) {
 	}
 	if !bytes.Contains(v2, []byte(`export default { id: "coslash", setup: setupV2 }`)) {
 		t.Fatal("OpenCode v2 plugin is missing its default definition")
+	}
+	if !bytes.Equal(v2, pluginSourceForVersion("0.0.0-beta-202608110357")) {
+		t.Fatal("OpenCode v2 beta did not select the v2 plugin")
 	}
 }
 
