@@ -156,12 +156,12 @@ func New(options Options) *Manager {
 					return SourceHandle{}, remote.ErrRemoteSessionUnavailable
 				}
 				enrichment := options.Remote.BackupEnrichment(selection.SourceID, selection.Agent, selection.SessionID)
-				remoteSession, err := options.Remote.OpenBackupSession(ctx, selection.SourceID)
+				remoteSession, err := options.Remote.OpenBackupSession(ctx, selection.SourceID, selection.Agent)
 				if err != nil {
 					return SourceHandle{}, err
 				}
 				return SourceHandle{
-					Source: remoteSession.Source().ForVendor(1 << 30), Home: remoteSession.Source().Home(),
+					Source: remoteSession.Source().ForAgent(selection.Agent, 1<<30), Home: remoteSession.Source().Home(),
 					Enrichment: enrichment,
 					Close:      remoteSession.Close,
 				}, nil

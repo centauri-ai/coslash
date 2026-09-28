@@ -112,6 +112,7 @@ type OpenOptions struct {
 	Limits        Limits
 	command       func(context.Context, string, ...string) *exec.Cmd
 	lifecycleOnly bool
+	agent         string
 }
 
 type sshProcessError struct {
@@ -230,7 +231,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 			source = &Source{home: path.Clean(home), limits: limits}
 		}
 	} else {
-		source, err = newSource(operations, limits)
+		source, err = newSourceForAgent(operations, limits, options.agent)
 	}
 	if err != nil {
 		_ = client.Close()

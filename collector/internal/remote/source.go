@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"unicode/utf8"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 type sftpOperations struct {
@@ -68,6 +70,10 @@ var homeAllowlist = []struct {
 }
 
 func newSource(ops sftpOperations, limits Limits) (*Source, error) {
+	return newSourceForAgent(ops, limits, "")
+}
+
+func newSourceForAgent(ops sftpOperations, limits Limits, agent string) (*Source, error) {
 	home, err := ops.realPath(".")
 	if err != nil {
 		return nil, fmt.Errorf("resolve SFTP home: %w", err)
@@ -75,6 +81,9 @@ func newSource(ops sftpOperations, limits Limits) (*Source, error) {
 	home = path.Clean(home)
 	source := &Source{ops: ops, home: home, limits: limits.withDefaults()}
 	for _, item := range homeAllowlist {
+		if agent != "" && !agentPathAllowed(agent, item.relative) {
+			continue
+		}
 		lexical := path.Join(home, item.relative)
 		canonical := ""
 		if info, err := ops.lstat(lexical); err == nil {
@@ -137,6 +146,18 @@ func (source *Source) ForVendor(maxBytes int64) *VendorSource {
 type VendorSource struct {
 	source *Source
 	budget *vendorBudget
+	agent  string
+	scoped bool
+}
+
+// ForAgent confines a complete backup capture to the selected agent's files.
+// Unknown agents receive a view that denies every read until their source
+// contract and allowlist are added explicitly.
+func (source *Source) ForAgent(agent string, maxBytes int64) *VendorSource {
+	view := source.ForVendor(maxBytes)
+	view.agent = agent
+	view.scoped = true
+	return view
 }
 
 func (v *VendorSource) JoinPath(elements ...string) string {
@@ -163,10 +184,57 @@ func remoteRelativePath(root, name string) (string, error) {
 	return strings.TrimPrefix(name, prefix), nil
 }
 
-func (v *VendorSource) Open(name string) (io.ReadCloser, error)    { return v.source.open(name, v.budget) }
-func (v *VendorSource) ReadDir(name string) ([]fs.DirEntry, error) { return v.source.ReadDir(name) }
-func (v *VendorSource) Stat(name string) (fs.FileInfo, error)      { return v.source.Stat(name) }
-func (v *VendorSource) FreshStat(name string) (fs.FileInfo, error) { return v.source.freshStat(name) }
+func (v *VendorSource) authorize(name string) error {
+	if !v.scoped {
+		return nil
+	}
+	clean := path.Clean(name)
+	for _, allowed := range homeAllowlist {
+		if !agentPathAllowed(v.agent, allowed.relative) {
+			continue
+		}
+		if within(path.Join(v.source.home, allowed.relative), clean, allowed.tree) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s", ErrPathDenied, name)
+}
+
+func agentPathAllowed(agent, relative string) bool {
+	switch agent {
+	case vendors.AgentClaude:
+		return strings.HasPrefix(relative, ".claude/")
+	case vendors.AgentCodex:
+		return strings.HasPrefix(relative, ".codex/")
+	default:
+		return false
+	}
+}
+
+func (v *VendorSource) Open(name string) (io.ReadCloser, error) {
+	if err := v.authorize(name); err != nil {
+		return nil, err
+	}
+	return v.source.open(name, v.budget)
+}
+func (v *VendorSource) ReadDir(name string) ([]fs.DirEntry, error) {
+	if err := v.authorize(name); err != nil {
+		return nil, err
+	}
+	return v.source.ReadDir(name)
+}
+func (v *VendorSource) Stat(name string) (fs.FileInfo, error) {
+	if err := v.authorize(name); err != nil {
+		return nil, err
+	}
+	return v.source.Stat(name)
+}
+func (v *VendorSource) FreshStat(name string) (fs.FileInfo, error) {
+	if err := v.authorize(name); err != nil {
+		return nil, err
+	}
+	return v.source.freshStat(name)
+}
 
 func (source *Source) Open(name string) (io.ReadCloser, error) {
 	return source.open(name, &vendorBudget{used: &source.bytes, limit: source.limits.MaxTotalBytes})

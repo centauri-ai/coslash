@@ -98,6 +98,7 @@ func Collect(
 		if ctx.Err() != nil {
 			break
 		}
+		source.vendor = vendor
 		result, err := collectVendor(
 			ctx, emitter, request, vendor, request.Vendors[index+1:], source, home, now(), alive, codexLiveSessions,
 		)

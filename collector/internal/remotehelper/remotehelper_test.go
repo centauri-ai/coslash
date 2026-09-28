@@ -39,6 +39,41 @@ func TestSourceEntryLimitIsEnforcedWhileReadingDirectory(t *testing.T) {
 	}
 }
 
+func TestHelperSourceOnlyReadsRequestedVendor(t *testing.T) {
+	home := t.TempDir()
+	for _, relative := range []string{".claude/projects/session.jsonl", ".codex/sessions/session.jsonl"} {
+		file := filepath.Join(home, relative)
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source, err := OpenSource(home, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	for _, test := range []struct{ vendor, allowed, denied string }{
+		{vendors.AgentClaude, ".claude/projects/session.jsonl", ".codex/sessions/session.jsonl"},
+		{vendors.AgentCodex, ".codex/sessions/session.jsonl", ".claude/projects/session.jsonl"},
+	} {
+		source.vendor = test.vendor
+		reader, err := source.Open(filepath.Join(home, test.allowed))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader.Close()
+		if _, err := source.Open(filepath.Join(home, test.denied)); !errors.Is(err, ErrPathDenied) {
+			t.Fatalf("%s cross-vendor Open: %v", test.vendor, err)
+		}
+		if _, err := source.ReadDir(filepath.Join(home, filepath.Dir(test.denied))); !errors.Is(err, ErrPathDenied) {
+			t.Fatalf("%s cross-vendor ReadDir: %v", test.vendor, err)
+		}
+	}
+}
+
 func TestSourceReadsFileAtExactByteLimit(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".codex", "session_index.jsonl")

@@ -223,7 +223,10 @@ func NewManager(options Options) *Manager {
 // OpenBackupSession opens a fresh allowlisted SFTP view for one configured
 // source. Complete backup capture intentionally does not reuse the narrow
 // display cache because that cache does not retain raw vendor artifacts.
-func (manager *Manager) OpenBackupSession(ctx context.Context, sourceID string) (*Session, error) {
+func (manager *Manager) OpenBackupSession(ctx context.Context, sourceID, agent string) (*Session, error) {
+	if agent != vendors.AgentCodex && agent != vendors.AgentClaude {
+		return nil, ErrRemoteSessionUnavailable
+	}
 	manager.mu.Lock()
 	if manager.cfg == nil || !manager.cfg.Enabled || manager.cfg.ID != sourceID {
 		manager.mu.Unlock()
@@ -235,7 +238,7 @@ func (manager *Manager) OpenBackupSession(ctx context.Context, sourceID string) 
 	return open(ctx, alias, OpenOptions{Limits: Limits{
 		Deadline: 10 * time.Minute, MaxFileBytes: 1 << 30, MaxTotalBytes: 1 << 30,
 		MaxEntries: 100_000, MaxDepth: DefaultMaxDepth, MaxStderrBytes: DefaultMaxStderrBytes,
-	}})
+	}, agent: agent})
 }
 
 // BackupEnrichment snapshots the bounded cached overlay for one family before

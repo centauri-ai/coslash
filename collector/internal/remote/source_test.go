@@ -1,6 +1,8 @@
 package remote
 
 import (
+	"context"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -8,9 +10,92 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 )
+
+func TestOpenBackupSessionAuthorizesAgentBeforeSSH(t *testing.T) {
+	const sourceID = "r_0123456789abcdef"
+	var opened int
+	manager := NewManager(Options{Open: func(_ context.Context, alias string, options OpenOptions) (*Session, error) {
+		opened++
+		if alias != "agent-box" || options.agent != vendors.AgentCodex {
+			t.Fatalf("opened alias=%q agent=%q", alias, options.agent)
+		}
+		return nil, nil
+	}})
+	manager.cfg = &settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}
+	for _, agent := range []string{"", vendors.AgentCursor, vendors.AgentOpenCode} {
+		if _, err := manager.OpenBackupSession(t.Context(), sourceID, agent); !errors.Is(err, ErrRemoteSessionUnavailable) {
+			t.Fatalf("%q backup session: %v", agent, err)
+		}
+	}
+	if opened != 0 {
+		t.Fatalf("unsupported source opened SSH %d times", opened)
+	}
+	if _, err := manager.OpenBackupSession(t.Context(), sourceID, vendors.AgentCodex); err != nil || opened != 1 {
+		t.Fatalf("Codex backup session: opens=%d err=%v", opened, err)
+	}
+}
+
+func TestBackupSourceOnlyReadsSelectedAgent(t *testing.T) {
+	fs := newFakeFS()
+	claudeFile := path.Join(fakeHome, ".claude/projects/project/session.jsonl")
+	codexFile := path.Join(fakeHome, ".codex/sessions/session.jsonl")
+	fs.writeFile(claudeFile, "claude", time.Unix(1, 0))
+	fs.writeFile(codexFile, "codex", time.Unix(1, 0))
+	source := newFakeSource(fs, Limits{})
+	for _, test := range []struct{ agent, allowed, denied string }{
+		{vendors.AgentClaude, claudeFile, codexFile},
+		{vendors.AgentCodex, codexFile, claudeFile},
+		{vendors.AgentOpenCode, "", codexFile},
+		{vendors.AgentCursor, "", claudeFile},
+		{"", "", codexFile},
+	} {
+		t.Run(test.agent, func(t *testing.T) {
+			view := source.ForAgent(test.agent, 1024)
+			if test.allowed != "" {
+				reader, err := view.Open(test.allowed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				reader.Close()
+			}
+			if _, err := view.Open(test.denied); !errors.Is(err, ErrPathDenied) {
+				t.Fatalf("cross-agent Open: %v", err)
+			}
+			if _, err := view.Stat(test.denied); !errors.Is(err, ErrPathDenied) {
+				t.Fatalf("cross-agent Stat: %v", err)
+			}
+			if _, err := view.ReadDir(path.Dir(test.denied)); !errors.Is(err, ErrPathDenied) {
+				t.Fatalf("cross-agent ReadDir: %v", err)
+			}
+		})
+	}
+}
+
+func TestBackupSourceDoesNotInspectOtherAgentRoot(t *testing.T) {
+	fs := newFakeFS()
+	fs.symlinkFile(path.Join(fakeHome, ".claude/projects"))
+	file := path.Join(fakeHome, ".codex/sessions/session.jsonl")
+	fs.writeFile(file, "codex", time.Unix(1, 0))
+	if _, err := newSource(fs.ops(), Limits{}); !errors.Is(err, ErrSymlink) {
+		t.Fatalf("unscoped source error = %v", err)
+	}
+	source, err := newSourceForAgent(fs.ops(), Limits{}, vendors.AgentCodex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := source.ForAgent(vendors.AgentCodex, 1024).Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.Close()
+	if _, err := source.Stat(path.Join(fakeHome, ".claude/projects")); !errors.Is(err, ErrPathDenied) {
+		t.Fatalf("scoped source could inspect Claude root: %v", err)
+	}
+}
 
 func TestRemoteSourcePathOperationsUsePOSIXSemantics(t *testing.T) {
 	source := newFakeSource(newFakeFS(), Limits{}).ForVendor(1024)

@@ -4,6 +4,9 @@
 capture. It supports local and SSH Codex sources. Other agents return the
 product-visible `complete_backup_unsupported` blocker and never produce a
 metadata-only bundle.
+SSH capture opens a fresh SFTP session scoped to the selected agent and passes
+the producer an agent-scoped, byte-bounded read view. An unrelated vendor root
+cannot be read or block that capture during source setup.
 
 `Manager.Start` exposes an asynchronous `preparing` state with `Status`,
 `Wait`, and `Cancel`. `Prepare` is the synchronous, context-cancellable core

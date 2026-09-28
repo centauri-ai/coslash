@@ -23,6 +23,8 @@ Reads resolve beneath one open handle on the SSH user's home directory
 redirect a read outside that tree. Directory entries that are symlinks are
 dropped rather than followed, and files open with `O_NOFOLLOW` after an `lstat`
 that already rejected links.
+During collection, the source permits only the current requested vendor's
+allowlisted paths. The request cannot add a path or authorize another vendor.
 
 The allowlist matches the SFTP transport, so both transports read the same files:
 

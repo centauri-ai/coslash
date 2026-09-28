@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"sync/atomic"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 // homeAllowlist is the helper's fixed read allowlist, relative to the SSH user's
@@ -36,6 +38,7 @@ type Source struct {
 	root   *os.Root
 	home   string
 	limits Limits
+	vendor string
 
 	entries atomic.Int64
 }
@@ -171,6 +174,9 @@ func (source *Source) resolve(name string, requireTree bool) (string, error) {
 	}
 	relative = filepath.ToSlash(relative)
 	for _, allowed := range homeAllowlist {
+		if source.vendor != "" && !vendorPathAllowed(source.vendor, allowed.relative) {
+			continue
+		}
 		if requireTree && !allowed.tree {
 			continue
 		}
@@ -186,6 +192,17 @@ func (source *Source) resolve(name string, requireTree bool) (string, error) {
 		return relative, nil
 	}
 	return "", fmt.Errorf("%w: %s", ErrPathDenied, name)
+}
+
+func vendorPathAllowed(vendor, relative string) bool {
+	switch vendor {
+	case vendors.AgentClaude:
+		return strings.HasPrefix(relative, ".claude/")
+	case vendors.AgentCodex:
+		return strings.HasPrefix(relative, ".codex/")
+	default:
+		return false
+	}
 }
 
 func depth(relative, root string) int {
