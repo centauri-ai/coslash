@@ -88,3 +88,19 @@ func TestPiSynthesisSettings(t *testing.T) {
 		t.Fatal("settings schema rejects Grok")
 	}
 }
+
+func TestLocalSyncPauseRoundTripsWithoutChangingLegacyDefaults(t *testing.T) {
+	config := Defaults()
+	if config.SyncPaused {
+		t.Fatal("legacy default unexpectedly pauses sync")
+	}
+	config.SyncPaused = true
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(data)
+	if err != nil || !decoded.SyncPaused {
+		t.Fatalf("decoded pause=%v err=%v", decoded.SyncPaused, err)
+	}
+}

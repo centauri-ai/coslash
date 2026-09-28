@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,10 +40,23 @@ type Entry struct {
 }
 
 type state struct {
-	Version   int     `json:"version"`
-	InstallID string  `json:"installId"`
-	Binding   string  `json:"binding,omitempty"`
-	Entries   []Entry `json:"entries"`
+	Version                int                `json:"version"`
+	InstallID              string             `json:"installId"`
+	Binding                string             `json:"binding,omitempty"`
+	Entries                []Entry            `json:"entries"`
+	ConfigVersion          int64              `json:"configVersion,omitempty"`
+	Config                 hubclient.V4Config `json:"config"`
+	MinVersion             string             `json:"minVersion,omitempty"`
+	RecommendedVersion     string             `json:"recommendedVersion,omitempty"`
+	RecommendedDownloadURL string             `json:"recommendedDownloadUrl,omitempty"`
+	UpdateRequired         bool               `json:"updateRequired,omitempty"`
+	RecommendedUpdate      bool               `json:"recommendedUpdate,omitempty"`
+	Commands               []commandRecord    `json:"commands,omitempty"`
+}
+
+type commandRecord struct {
+	ID     string                    `json:"id"`
+	Result hubclient.V4CommandResult `json:"result"`
 }
 
 type Queue struct {
@@ -99,6 +113,8 @@ func (q *Queue) Rebind(binding string) error {
 	if q.state.Binding == binding {
 		return nil
 	}
+	prior := q.state
+	prior.Entries = append([]Entry(nil), q.state.Entries...)
 	if q.state.Binding != "" {
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]
@@ -106,9 +122,163 @@ func (q *Queue) Rebind(binding string) error {
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
 			entry.Manifest, entry.Attempt = nil, 0
 		}
+		q.state.ConfigVersion = 0
+		q.state.Config = hubclient.V4Config{}
+		q.state.Commands = nil
+		q.state.MinVersion, q.state.RecommendedVersion, q.state.RecommendedDownloadURL = "", "", ""
+		q.state.UpdateRequired, q.state.RecommendedUpdate = false, false
 	}
 	q.state.Binding = binding
-	return q.save()
+	if err := q.save(); err != nil {
+		q.state = prior
+		return err
+	}
+	return nil
+}
+
+func (q *Queue) Policy() (int64, hubclient.V4Config, string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.state.ConfigVersion, q.state.Config, q.state.MinVersion
+}
+
+func (q *Queue) ApplyPolicy(result hubclient.V4CheckIn) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	prior := q.state
+	if result.ConfigVersion > q.state.ConfigVersion {
+		q.state.ConfigVersion = result.ConfigVersion
+		q.state.Config = result.Config
+	}
+	q.state.MinVersion = result.MinVersion
+	q.state.RecommendedVersion = result.RecommendedVersion
+	q.state.RecommendedDownloadURL = result.RecommendedDownloadURL
+	q.state.UpdateRequired = result.UpdateRequired
+	q.state.RecommendedUpdate = result.RecommendedUpdate
+	if err := q.save(); err != nil {
+		q.state = prior
+		return err
+	}
+	return nil
+}
+
+type UpdatePrompt struct {
+	Available   bool   `json:"available"`
+	Required    bool   `json:"required"`
+	Version     string `json:"version,omitempty"`
+	DownloadURL string `json:"downloadUrl,omitempty"`
+}
+
+func (q *Queue) UpdatePrompt() UpdatePrompt {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	prompt := UpdatePrompt{Available: q.state.UpdateRequired || q.state.RecommendedUpdate,
+		Required: q.state.UpdateRequired, Version: q.state.RecommendedVersion}
+	if prompt.Required && prompt.Version == "" {
+		prompt.Version = q.state.MinVersion
+	}
+	if parsed, err := url.Parse(q.state.RecommendedDownloadURL); err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil {
+		prompt.DownloadURL = parsed.String()
+	}
+	return prompt
+}
+
+func (q *Queue) Results() []hubclient.V4CommandResult {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	results := make([]hubclient.V4CommandResult, 0, len(q.state.Commands))
+	for _, item := range q.state.Commands {
+		if item.Result.Result != "" {
+			results = append(results, item.Result)
+		}
+	}
+	if len(results) > 100 {
+		results = results[:100]
+	}
+	return results
+}
+
+func (q *Queue) AcknowledgeResults(results []hubclient.V4CommandResult) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	prior := append([]commandRecord(nil), q.state.Commands...)
+	acked := make(map[string]bool, len(results))
+	for _, result := range results {
+		acked[result.CommandID] = true
+	}
+	for i := range q.state.Commands {
+		if acked[q.state.Commands[i].ID] {
+			q.state.Commands[i].Result = hubclient.V4CommandResult{}
+		}
+	}
+	if err := q.save(); err != nil {
+		q.state.Commands = prior
+		return err
+	}
+	return nil
+}
+
+func (q *Queue) StartCommand(id string) (bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	prior := append([]commandRecord(nil), q.state.Commands...)
+	for _, item := range q.state.Commands {
+		if item.ID == id {
+			return false, nil
+		}
+	}
+	if len(q.state.Commands) >= 10000 {
+		return false, errors.New("v4 command journal full")
+	}
+	q.state.Commands = append(q.state.Commands, commandRecord{ID: id,
+		Result: hubclient.V4CommandResult{CommandID: id, Result: "failed", Error: "execution_interrupted"}})
+	if err := q.save(); err != nil {
+		q.state.Commands = prior
+		return false, err
+	}
+	return true, nil
+}
+
+func (q *Queue) FinishCommand(result hubclient.V4CommandResult) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for i := range q.state.Commands {
+		if q.state.Commands[i].ID == result.CommandID {
+			prior := q.state.Commands[i].Result
+			q.state.Commands[i].Result = result
+			if err := q.save(); err != nil {
+				q.state.Commands[i].Result = prior
+				return err
+			}
+			return nil
+		}
+	}
+	return errors.New("v4 command was not started")
+}
+
+func (q *Queue) RetrySession(serverID string) (bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for i := range q.state.Entries {
+		entry := &q.state.Entries[i]
+		if entry.SessionID != serverID || entry.Excluded {
+			continue
+		}
+		prior := *entry
+		entry.SyncedActivity = 0
+		entry.SyncedSourceRevision = ""
+		entry.RevisionID = ""
+		entry.FailureCode = ""
+		entry.BundleID, entry.ContentSHA256, entry.UploadID = "", "", ""
+		entry.Manifest = nil
+		entry.Attempt++
+		if err := q.save(); err != nil {
+			*entry = prior
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func (q *Queue) Entries() []Entry {
