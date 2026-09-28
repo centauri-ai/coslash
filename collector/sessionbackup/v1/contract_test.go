@@ -555,7 +555,7 @@ func TestInventoryAndProducerCoverageAreExplicit(t *testing.T) {
 		"codex/local": true, "codex/ssh": true,
 		"claude/local": true, "claude/ssh": false,
 		"cursor/local": false, "cursor/ssh": false,
-		"opencode/local": false, "opencode/ssh": false,
+		"opencode/local": true, "opencode/ssh": false,
 	}
 	for _, status := range CoverageMatrix {
 		key := status.Agent + "/" + status.SourceKind

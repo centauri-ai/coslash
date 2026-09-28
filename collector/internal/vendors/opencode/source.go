@@ -251,6 +251,17 @@ func loadContext(
 		return nil, nil, err
 	}
 	defer tx.Rollback()
+	parsed, skipped, err := loadTxContext(ctx, tx, source, query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, err
+	}
+	return parsed, skipped, nil
+}
+
+func loadTxContext(ctx context.Context, tx *sql.Tx, source, query string, args ...any) ([]*vendors.ParsedSession, []skippedFamily, error) {
 	query = strings.TrimSpace(query)
 	if strings.HasPrefix(query, "WITH ") {
 		query = source + ", " + strings.TrimPrefix(query, "WITH ")
@@ -344,9 +355,6 @@ func loadContext(
 				child.Name = task.name
 			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, nil, err
 	}
 	transcripts := make([]*vendors.ParsedSession, 0, len(parsed))
 	for _, item := range parsed {
