@@ -287,7 +287,7 @@ func RemoteTerminalWithPrompt(ctx context.Context, terminal, alias, agent, worki
 	if prompt == "" {
 		return openTerminal(ctx, terminal, ".", command)
 	}
-	command, path, err := secureTerminalInputCommand(command, prompt)
+	command, path, err := secureTerminalInputCommand(command, prompt, agent, "")
 	if err != nil {
 		return err
 	}
@@ -461,8 +461,10 @@ func removeHandoffFile(path string) error {
 	if path == "" {
 		return nil
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("launch: removing handoff file: %w", err)
+	for _, candidate := range []string{path, path + ".context"} {
+		if err := os.Remove(candidate); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("launch: removing handoff file: %w", err)
+		}
 	}
 	return nil
 }

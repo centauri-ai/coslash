@@ -252,7 +252,7 @@ func interactivePromptCommand(_, _, _, _ string) (string, string, error) {
 	return "", "", fmt.Errorf("launch: secure interactive prompt delivery is unsupported on Windows")
 }
 
-func secureTerminalInputCommand(_, _ string) (string, string, error) {
+func secureTerminalInputCommand(_, _, _, _ string) (string, string, error) {
 	return "", "", fmt.Errorf("launch: secure interactive prompt delivery is unsupported on Windows")
 }
 

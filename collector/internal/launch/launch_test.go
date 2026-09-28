@@ -30,6 +30,25 @@ func TestTerminalRemovesHandoffWhenTerminalOpenFails(t *testing.T) {
 	}
 }
 
+func TestTerminalWithPromptRemovesClaudeFilesWhenTerminalOpenFails(t *testing.T) {
+	if !securePromptAvailable() {
+		t.Skip("secure terminal relay unavailable")
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalOpener := localTerminalOpener
+	t.Cleanup(func() { localTerminalOpener = originalOpener })
+	localTerminalOpener = func(context.Context, string, string, string, string) error {
+		return errors.New("terminal open failed")
+	}
+	if err := TerminalWithPrompt(context.Background(), settings.TerminalApple, vendors.AgentClaude, t.TempDir(), "", NewSession, "private handoff", "request"); err == nil {
+		t.Fatal("terminal opener failure was ignored")
+	}
+	entries, err := os.ReadDir(handoffDir())
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("failed launch left handoff files: %v, %v", entries, err)
+	}
+}
+
 func TestRemoveHandoffFileIgnoresMissingFile(t *testing.T) {
 	if err := removeHandoffFile(t.TempDir() + "/missing"); err != nil {
 		t.Fatal(err)
