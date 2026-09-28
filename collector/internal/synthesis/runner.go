@@ -49,7 +49,7 @@ func executeCommand(ctx context.Context, spec commandSpec) ([]byte, error) {
 	cmd.Stdin = strings.NewReader(spec.stdin)
 	cmd.WaitDelay = 5 * time.Second
 	if len(spec.env) > 0 {
-		cmd.Env = append(os.Environ(), spec.env...)
+		cmd.Env = append(cmd.Environ(), spec.env...)
 	}
 	return agentexec.Output(cmd)
 }
