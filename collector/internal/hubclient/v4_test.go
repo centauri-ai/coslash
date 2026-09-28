@@ -56,11 +56,11 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			t.Fatal(err)
 		}
-		if input.OS != runtime.GOOS || input.AppliedConfigVersion != 7 || len(input.Capabilities) != 2 ||
+		if input.OS != runtime.GOOS || input.AppliedConfigVersion != 7 || len(input.Capabilities) != 4 ||
 			input.Queue.FirstSync.RecentDone != 2 || input.Queue.FirstSync.RecentTotal != 3 || input.Queue.FirstSync.HistoryState != "syncing" {
 			t.Fatalf("check-in input = %+v", input)
 		}
-		io.WriteString(w, `{"configVersion":8,"config":{"paused":false,"deviceOff":false,"leaveOut":[]},"commands":[],"minVersion":"0.0.5","recommendedVersion":"0.0.5","nextCheckInSeconds":300}`)
+		io.WriteString(w, `{"configVersion":8,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.5","recommendedVersion":"0.0.5","nextCheckInSeconds":300}`)
 	}))
 	defer server.Close()
 	base, _ := url.Parse(server.URL)
@@ -68,9 +68,39 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	var queue V4Queue
 	queue.Pending = 1
 	queue.FirstSync.RecentDone, queue.FirstSync.RecentTotal, queue.FirstSync.HistoryState = 2, 3, "syncing"
-	result, err := client.V4CheckIn(context.Background(), queue, 7)
+	result, err := client.V4CheckIn(context.Background(), queue, 7, nil)
 	if err != nil || result.ConfigVersion != 8 {
 		t.Fatalf("check-in result=%+v err=%v", result, err)
+	}
+}
+
+func TestV4WaitCarriesSinceAndDeviceCredential(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v4/devices/me/wait" || r.URL.Query().Get("since") != "8" || r.Header.Get("Authorization") != "Device credential" {
+			t.Errorf("wait request=%s %s auth=%q", r.Method, r.URL.String(), r.Header.Get("Authorization"))
+		}
+		io.WriteString(w, `{"configVersion":9,"changed":true,"commandsAvailable":false}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}}
+	result, err := client.V4Wait(context.Background(), 8)
+	if err != nil || !result.Changed || result.ConfigVersion != 9 {
+		t.Fatalf("wait=%+v err=%v", result, err)
+	}
+}
+
+func TestV4CheckInRejectsIncompletePolicy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"configVersion":8,"config":{"paused":false,"deviceOff":false,"agentKnowledge":true},"commands":[],"minVersion":"0.0.3"}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
+	var queue V4Queue
+	queue.FirstSync.HistoryState = "complete"
+	if _, err := client.V4CheckIn(context.Background(), queue, 7, nil); err == nil {
+		t.Fatal("missing leave-out policy was accepted")
 	}
 }
 

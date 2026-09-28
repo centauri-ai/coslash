@@ -201,25 +201,44 @@ func main() {
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
 	}
-	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, directedStore)
+	var queue *syncv4.Queue
 	if hub != nil && os.Getenv("COSLASH_V4_SYNC_ENABLED") == "1" {
-		queue, err := syncv4.Open("")
+		queue, err = syncv4.Open("")
 		if err != nil {
 			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
 		}
+	}
+	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, serverServices{queue: queue, directedStore: directedStore})
+	if queue != nil {
 		syncContext, stopSync := context.WithCancel(context.Background())
 		server.RegisterOnShutdown(stopSync)
 		runner := &syncv4.Runner{
 			Queue: queue, Backup: hub.Backup, Hub: hub,
 			Discover:   func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
 			Conditions: syncv4.LocalConditions,
+			LocalPause: func() bool { return settingsStore.State().Config.SyncPaused },
+			Command:    v4CommandRunner(queue, settingsStore, remoteManager),
 		}
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
 			for {
-				if err := runner.SyncOnce(syncContext); err != nil && syncContext.Err() == nil {
+				err := runner.SyncOnce(syncContext)
+				if err != nil && syncContext.Err() == nil {
 					log.Printf("v4 sync deferred")
+				}
+				if len(queue.Results()) > 0 && (err == nil || errors.Is(err, syncv4.ErrPaused)) {
+					continue
+				}
+				if err == nil || errors.Is(err, syncv4.ErrPaused) {
+					metered, battery, conditionErr := syncv4.LocalConditions(syncContext)
+					if conditionErr == nil && !metered && battery < 0 {
+						version, _, _ := queue.Policy()
+						wait, waitErr := hub.V4Wait(syncContext, version)
+						if waitErr == nil && wait.Changed {
+							continue
+						}
+					}
 				}
 				select {
 				case <-syncContext.Done():
@@ -262,6 +281,11 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 	return remote.NewProductionManager()
 }
 
+type serverServices struct {
+	queue         *syncv4.Queue
+	directedStore *directedhandoff.Store
+}
+
 func newServer(
 	guard httpsec.Guard,
 	mgr *synthesis.Manager,
@@ -269,10 +293,14 @@ func newServer(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
-	directedStores ...*directedhandoff.Store,
+	services ...serverServices,
 ) *http.Server {
+	var service serverServices
+	if len(services) > 0 {
+		service = services[0]
+	}
 	server := &http.Server{
-		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub, directedStores...)),
+		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub, service)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -281,8 +309,8 @@ func newServer(
 	}
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
-	if len(directedStores) > 0 && directedStores[0] != nil {
-		server.RegisterOnShutdown(directedStores[0].Shutdown)
+	if service.directedStore != nil {
+		server.RegisterOnShutdown(service.directedStore.Shutdown)
 	}
 	return server
 }
@@ -293,10 +321,21 @@ func routes(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
-	directedStores ...*directedhandoff.Store,
+	services ...serverServices,
 ) *http.ServeMux {
+	var service serverServices
+	if len(services) > 0 {
+		service = services[0]
+	}
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
+	api.HandleFunc("GET /api/hub/v4-update", func(w http.ResponseWriter, _ *http.Request) {
+		if service.queue == nil {
+			writeJSON(w, syncv4.UpdatePrompt{})
+			return
+		}
+		writeJSON(w, service.queue.UpdatePrompt())
+	})
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}
@@ -380,10 +419,7 @@ func routes(
 	api.HandleFunc("GET /api/handoff", func(w http.ResponseWriter, r *http.Request) {
 		handleHandoff(w, r, getCanonicalSession)
 	})
-	var directedStore *directedhandoff.Store
-	if len(directedStores) > 0 {
-		directedStore = directedStores[0]
-	}
+	directedStore := service.directedStore
 	api.HandleFunc("GET /api/directed-handoffs/targets", func(w http.ResponseWriter, r *http.Request) {
 		handleDirectedHandoffTargets(w, r, settingsStore)
 	})

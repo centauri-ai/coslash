@@ -458,6 +458,27 @@ export function SettingsDialog({
 
               {mode === 'full-settings' && (
                 <div className="flex flex-col gap-2">
+                  <SectionLabel>Hub sync on this device</SectionLabel>
+                  <div className="border-coslash-line bg-coslash-surface flex items-center justify-between gap-4 rounded-xl border p-4">
+                    <div className="flex flex-col gap-1">
+                      <div className="text-sm font-semibold">Pause local sync</div>
+                      <div className="text-coslash-muted text-xs">
+                        Stops uploads and retries from this computer until you resume.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      aria-label="Pause local Hub sync"
+                      checked={draft.syncPaused === true}
+                      onChange={(event) => saveChange({ ...draft, syncPaused: event.target.checked })}
+                      className="size-5 shrink-0"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {mode === 'full-settings' && (
+                <div className="flex flex-col gap-2">
                   <SectionLabel>Launch</SectionLabel>
                   <div className="border-coslash-line bg-coslash-surface overflow-hidden rounded-xl border">
                     <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">

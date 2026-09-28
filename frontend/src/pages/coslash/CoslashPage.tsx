@@ -6,6 +6,7 @@ import { setTheme, type Theme } from '@/lib/theme';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
+import { LocalUpdateBanner } from '@/pages/coslash/components/LocalUpdateBanner';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
 import { SettingsDialog, type SettingsDialogMode } from '@/pages/coslash/components/SettingsDialog';
 import { loadHubDestination } from '@/pages/coslash/features/sharing/api';
@@ -21,6 +22,7 @@ import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessi
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import { apiFetch } from '@/pages/coslash/lib/api';
 import { handoffSelection, newestHandoffs, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
+import { isLocalUpdate, type LocalUpdate } from '@/pages/coslash/lib/local-update';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { buildReviewIndex, remoteReviewAvailability, type ReviewerOption } from '@/pages/coslash/lib/review';
@@ -101,6 +103,7 @@ export function CoslashPage() {
   const shareParams = new URLSearchParams(window.location.search);
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
+  const [localUpdate, setLocalUpdate] = useState<LocalUpdate | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
   const apiWindow = view === 'insights' ? 'all' : apiWindowForRange(range);
   const {
@@ -234,6 +237,25 @@ export function CoslashPage() {
     if (shareFixtureEnabled) return;
     void refreshHubDestination().catch(() => undefined);
   }, [refreshHubDestination, shareFixtureEnabled]);
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await apiFetch('/api/hub/v4-update');
+        if (!response.ok) return;
+        const next: unknown = await response.json();
+        if (active && isLocalUpdate(next)) setLocalUpdate(next);
+      } catch {
+        // Keep the last acknowledged update guidance during a transient local read failure.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
   /* oxlint-enable react/set-state-in-effect */
 
   /* oxlint-disable react/set-state-in-effect -- open required synthesis consent when selection changes */
@@ -335,6 +357,7 @@ export function CoslashPage() {
 
   return (
     <>
+      <LocalUpdateBanner update={localUpdate} />
       <CoslashLayout
         sessions={librarySessions}
         reviewIndex={reviewIndex}
