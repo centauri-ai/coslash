@@ -31,6 +31,8 @@ coSlash reads, but does not modify:
 | `pi-runtime/` and `pi-history/` | Private process identity, session IDs, exact transcript paths, runtime state, and retained discovery evidence. |
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
+| `session-backups/prepared/` | Verified, private complete Codex bundles retained while an approved share or enabled v4 sync can resume. |
+| `sync-v4/queue.json` | Private v4 installation ID, session metadata, content hashes, pending upload IDs and progress. This ID survives device re-pairing. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
 macOS and a protected current-user ACL on Windows). Programs running as that
@@ -99,8 +101,9 @@ revision; display paths and change IDs are never treated as files to open.
 
 ## Outbound data
 
-Outside an explicitly approved Hub share, the collector does not upload
-session data itself. If you enable synthesis, it passes a bounded set of facts
+Outside an explicitly approved Hub share or explicitly enabled experimental
+v4 Codex sync, the collector does not upload session data itself. If you enable
+synthesis, it passes a bounded set of facts
 to your selected local CLI. These facts can include prompts, recaps, todos,
 filenames, commands, and commit text. Supported CLIs are Claude Code, Codex,
 OpenCode, and Cursor. The CLI uses its existing authentication. The selected
@@ -113,6 +116,18 @@ Cursor synthesis uses read-only ask mode. coSlash also disables file, shell, wri
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 
 Sending a session to Cursor CLI copies its handoff and optional task to the system clipboard before opening Cursor. Clipboard history tools and cross-device clipboard sync may retain that content. Paste it into the new Cursor session, then clear the clipboard if needed.
+
+Experimental personal Codex sync is disabled by default. A development build
+with a paired Hub, a supported semantic Local version, and
+`COSLASH_V4_SYNC_ENABLED=1` starts it. It sends recent session metadata before
+content, then imports older history. The Hub check-in supplies the current
+pause, device-off and leave-out policy; if check-in fails or the policy becomes
+stale, upload stops. `COSLASH_SYNC_METERED=1` and
+`COSLASH_SYNC_OFFLINE=1` stop uploads locally. On macOS, low battery uses
+`pmset`; on Linux, metered NetworkManager connections and discharging battery
+levels are checked when available. `COSLASH_SYNC_BATTERY_PERCENT` is a local
+override for testing. Disable the v4 flag and restart to stop automatic
+sync; the existing explicit Share to Hub flow remains available.
 
 ## Share preview and approval
 
