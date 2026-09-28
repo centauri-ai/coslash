@@ -14,9 +14,11 @@ Three agents are running. One finished twenty minutes ago, one is waiting on a q
 
 Then it gets you back in — resume a session in its own terminal with full context, or copy a handoff brief and pick it up cold somewhere else.
 
-Everything runs locally. Session data leaves your machine only when you
-explicitly approve a Hub share or enable the experimental v4 Codex sync;
-synthesis uses the selected agent CLI. See [data and privacy](docs/data-and-privacy.md).
+Local collection runs on your machine. Session data leaves it when you
+explicitly approve a Hub share or enable experimental v4 Codex sync. A
+separately authorized remote Hub MCP connection lets your agent query Hub
+sessions; synthesis uses the selected agent CLI. See [data and
+privacy](docs/data-and-privacy.md).
 
 **Early preview · macOS and Windows 11 amd64**
 
@@ -149,6 +151,25 @@ remain outside that legacy sharing path; other remote sessions retain their
 bounded summary view. Synthesis and Commands remain local-only.
 A remote session can show recent transcript activity while process liveness is
 unknown; coSlash labels those facts separately.
+
+### Remote Hub MCP for local agents
+
+When your Hub has enabled its remote MCP service and your account has **Agent
+knowledge** enabled, configure an installed agent with `coslash mcp setup
+claude|codex|cursor|opencode`. Choose one agent name per command. Then run
+`coslash mcp login <agent>` and approve its `mcp:read` and `mcp:ask` access in
+the coSlash browser. The endpoint is `https://mcp.hub.coslash.io/mcp`; use
+`--url <https://host/mcp>` on `setup` only for another deployment. Pairing a
+Local device does not authorize MCP.
+
+The agent stores its own OAuth credential. To switch Hub accounts for Claude
+Code, Codex, or OpenCode, run `coslash mcp switch <agent>`, change the account
+in the coSlash browser, then run `coslash mcp login <agent>`. For Cursor,
+disconnect coSlash in Cursor's MCP settings first, change the browser account,
+and run `coslash mcp login cursor`; Cursor's CLI does not expose MCP credential
+logout. Existing tokens also stop working when the Hub revokes access or turns
+off Agent knowledge. Ask the agent to use a `coslash.*` tool to confirm that
+the intended account can read the expected sessions.
 
 ## What you get
 

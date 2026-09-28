@@ -239,6 +239,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor | coslash review status <agent>:<session> --json")
 		case "doctor":
 			fmt.Fprintln(stdout, "usage: coslash doctor [--json]")
+		case "mcp":
+			fmt.Fprintln(stdout, mcpUsage)
 		default:
 			return 2
 		}
@@ -256,6 +258,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		err = runReview(stdout, args[1:])
 	case "doctor":
 		return runDoctor(stdout, stderr, args[1:])
+	case "mcp":
+		err = runMCP(stdout, args[1:])
 	default:
 		return 2
 	}
