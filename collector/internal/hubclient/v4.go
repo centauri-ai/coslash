@@ -223,6 +223,14 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 	if !validClientVersion(version) {
 		return result, errors.New("v4 sync requires a semantic Local version")
 	}
+	capabilities := []string{"sync-v4", "session-backup/v1", "launch", "ssh-relay"}
+	if c.V4Capabilities != nil {
+		capabilities = append([]string(nil), c.V4Capabilities...)
+	}
+	agentsFound := []string{"codex"}
+	if c.V4AgentsFound != nil {
+		agentsFound = append([]string{}, c.V4AgentsFound()...)
+	}
 	input := struct {
 		ClientVersion        string            `json:"clientVersion"`
 		Capabilities         []string          `json:"capabilities"`
@@ -231,7 +239,7 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 		AgentsFound          []string          `json:"agentsFound"`
 		Queue                V4Queue           `json:"queue"`
 		Results              []V4CommandResult `json:"results,omitempty"`
-	}{version, []string{"sync-v4", "session-backup/v1", "launch", "ssh-relay"}, runtime.GOOS, appliedConfigVersion, []string{"codex"}, queue, results}
+	}{version, capabilities, runtime.GOOS, appliedConfigVersion, agentsFound, queue, results}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
 	if err == nil && (result.ConfigVersion < 1 || !validClientVersion(result.MinVersion)) {
 		return V4CheckIn{}, errors.New("v4 check-in omitted current policy")

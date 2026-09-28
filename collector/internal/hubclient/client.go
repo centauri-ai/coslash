@@ -38,6 +38,8 @@ type Client struct {
 	Credentials       CredentialStore
 	DeviceName        string
 	CollectorVersion  string
+	V4Capabilities    []string
+	V4AgentsFound     func() []string
 	LoadSession       SessionLoader
 	LoadSourceSession SourceSessionLoader
 	LoadFullSession   FullSessionLoader

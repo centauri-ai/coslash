@@ -13,6 +13,12 @@ and the other vendor exporters have separate owners. The install ID belongs to
 the private v4 queue, independently of the paired credential. A credential or
 Hub change clears upload and completion state while retaining the install ID.
 
+`coslash host pair` and `coslash host run` reuse this local queue on a paired
+Linux host and upload directly to Hub over HTTPS. The host has its own device
+credential and installation ID; no Mac relay participates. See
+[`docs/host-agent.md`](../../docs/host-agent.md). New direct-host sync does not
+change the old relay cache or synthesize its session identity.
+
 For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed
 content revision schedules a fresh capture even when activity time is equal.

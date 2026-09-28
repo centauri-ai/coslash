@@ -74,6 +74,31 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	}
 }
 
+func TestV4HostCheckInDoesNotAdvertiseRelayOrLaunch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Capabilities []string `json:"capabilities"`
+			AgentsFound  []string `json:"agentsFound"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Fatal(err)
+		}
+		if len(input.Capabilities) != 2 || input.Capabilities[0] != "sync-v4" || input.Capabilities[1] != "session-backup/v1" ||
+			len(input.AgentsFound) != 1 || input.AgentsFound[0] != "codex" {
+			t.Fatalf("host check-in capabilities = %+v", input)
+		}
+		io.WriteString(w, `{"configVersion":1,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"minVersion":"0.0.5"}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "0.0.5",
+		V4Capabilities: []string{"sync-v4", "session-backup/v1"},
+		V4AgentsFound:  func() []string { return []string{"codex"} }}
+	if _, err := client.V4CheckIn(t.Context(), V4Queue{}, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestV4WaitCarriesSinceAndDeviceCredential(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v4/devices/me/wait" || r.URL.Query().Get("since") != "8" || r.Header.Get("Authorization") != "Device credential" {

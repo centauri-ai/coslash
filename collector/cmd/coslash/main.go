@@ -70,6 +70,14 @@ func parseOptions(arguments []string) (options, error) {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "host":
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			if err := runHostCommand(ctx, os.Args[2:], os.Stdout); err != nil && ctx.Err() == nil {
+				fmt.Fprintln(os.Stderr, "host operation did not complete; check the host configuration and retry")
+				os.Exit(1)
+			}
+			return
 		case "ssh-auth":
 			if len(os.Args) != 3 {
 				log.Fatal("coslash ssh-auth requires one attempt ID")
