@@ -34,7 +34,7 @@ type artifactWriter struct {
 }
 
 func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prepared, error) {
-	if selection.Agent != vendors.AgentCodex {
+	if selection.Agent != vendors.AgentCodex && !(selection.Agent == vendors.AgentClaude && selection.SourceKind == sessionbackupv1.SourceLocal) {
 		return problem(selection, sessionbackupv1.ProblemUnsupported, "", false)
 	}
 	if selection.SourceKind != sessionbackupv1.SourceLocal && selection.SourceKind != sessionbackupv1.SourceSSH {
@@ -125,6 +125,9 @@ func sourceReadFailure(err error, kind string) error {
 }
 
 func (manager *Manager) capture(ctx context.Context, staging string, selection Selection, handle SourceHandle) (*Prepared, error) {
+	if selection.Agent == vendors.AgentClaude {
+		return manager.captureClaude(ctx, staging, selection, handle)
+	}
 	activeScan, err := codex.ScanSourceContext(ctx, handle.Source, codex.SessionsRoot(handle.Home))
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
@@ -584,10 +587,15 @@ type contextReader struct {
 
 type snapshotSource struct {
 	vendors.ReadSource
-	files map[string]string
+	files   map[string]string
+	infos   map[string]fs.FileInfo
+	missing map[string]bool
 }
 
 func (source snapshotSource) Open(name string) (io.ReadCloser, error) {
+	if source.missing[name] {
+		return nil, fs.ErrNotExist
+	}
 	if frozen := source.files[name]; frozen != "" {
 		return os.Open(frozen)
 	}
@@ -595,6 +603,12 @@ func (source snapshotSource) Open(name string) (io.ReadCloser, error) {
 }
 
 func (source snapshotSource) Stat(name string) (fs.FileInfo, error) {
+	if source.missing[name] {
+		return nil, fs.ErrNotExist
+	}
+	if info := source.infos[name]; info != nil {
+		return info, nil
+	}
 	if frozen := source.files[name]; frozen != "" {
 		return os.Stat(frozen)
 	}

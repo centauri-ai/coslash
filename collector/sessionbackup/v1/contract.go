@@ -35,6 +35,7 @@ const (
 	SourceSSH   = "ssh"
 
 	ArtifactSourceCodex   = "codex"
+	ArtifactSourceClaude  = "claude"
 	ArtifactSourceCoSlash = "coslash"
 
 	KindRawTranscript       = "raw-transcript"
@@ -164,7 +165,7 @@ type SupportStatus struct {
 var CoverageMatrix = []SupportStatus{
 	{Agent: "codex", SourceKind: SourceLocal, Supported: true},
 	{Agent: "codex", SourceKind: SourceSSH, Supported: true},
-	{Agent: "claude", SourceKind: SourceLocal, BlockingCode: ProblemUnsupported},
+	{Agent: "claude", SourceKind: SourceLocal, Supported: true},
 	{Agent: "claude", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 	{Agent: "cursor", SourceKind: SourceLocal, BlockingCode: ProblemUnsupported},
 	{Agent: "cursor", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
@@ -328,7 +329,9 @@ func validate(manifest Manifest, requireHash bool) error {
 	if !contains(manifest.RequiredVersions, SchemaVersion) || !contains(manifest.RequiredVersions, ParsedRecordVersion) {
 		return fmt.Errorf("%w: required version missing", ErrInvalid)
 	}
-	if manifest.Source.Agent != "codex" || (manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
+	if (manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude) ||
+		(manifest.Source.Agent == ArtifactSourceClaude && manifest.Source.Kind != SourceLocal) ||
+		(manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
 		!identifier(manifest.Source.SourceID) || !identifier(manifest.Source.SourceRevision) {
 		return fmt.Errorf("%w: invalid source identity", ErrInvalid)
 	}
@@ -382,12 +385,12 @@ func validate(manifest Manifest, requireHash bool) error {
 			return fmt.Errorf("%w: unsafe artifact name", ErrInvalid)
 		}
 		if artifact.Ordinal != index || !ok ||
-			(artifact.Source != ArtifactSourceCodex && artifact.Source != ArtifactSourceCoSlash) || !contains(ArtifactKinds, artifact.Kind) ||
+			(artifact.Source != manifest.Source.Agent && artifact.Source != ArtifactSourceCoSlash) || !contains(ArtifactKinds, artifact.Kind) ||
 			artifact.SourceKey == "" || !plainText(artifact.SourceKey) || artifact.MediaType == "" || !plainText(artifact.MediaType) || artifact.Encoding != EncodingIdentity ||
 			artifact.ByteLength < 0 || artifact.ByteLength > MaxArtifactBytes || !digest(artifact.SHA256) {
 			return fmt.Errorf("%w: invalid artifact", ErrInvalid)
 		}
-		if (strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != ArtifactSourceCodex) ||
+		if (strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != manifest.Source.Agent) ||
 			(!strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != ArtifactSourceCoSlash) {
 			return fmt.Errorf("%w: artifact source does not match kind", ErrInvalid)
 		}

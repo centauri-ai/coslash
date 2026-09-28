@@ -14,10 +14,10 @@ backup.
 
 ## Producer and artifact inventory
 
-Complete backup v1 supports local Codex and SSH Codex only. Claude, Cursor,
-and OpenCode, whether local or SSH, must surface the blocking code
-`complete_backup_unsupported`; they must not fall back to a metadata-only
-success.
+Complete backup v1 supports local Codex, SSH Codex, and local Claude. Claude
+SSH, Cursor, and OpenCode must surface `complete_backup_unsupported`; they
+must not fall back to a metadata-only success. The table below specifies the
+Codex inputs.
 
 The [local source and transport proof matrix](local-source-transport-proof-v1.md)
 records per-source evidence, build gaps, and the v4 compatibility boundary.
@@ -36,6 +36,16 @@ The fixture includes every Codex v1 input kind, root and child parsed records,
 two exact change bodies, both enrichment branches, and a persisted synthesis
 record. It deliberately contains no invented Codex database. No credentials,
 absolute user paths, private transcripts, or customer identities are present.
+
+Local Claude uses the same parsed-record, exact-change, enrichment, and
+revision-matched synthesis artifacts. Its `raw-transcript` artifacts retain
+every selected root, subagent, and workflow-agent JSONL byte. Its
+`raw-sidecar` artifacts retain present subagent `.meta.json`, workflow state
+JSON, and workflow journal JSONL inputs consumed by the parser. It has no
+`raw-metadata-rows` database input. A skipped discovery path, malformed or
+changing selected transcript or sidecar, or changing sidecar presence blocks
+completion; an absent optional sidecar remains absent. Claude SSH remains
+unsupported until its remote input allowlist and complete capture are proven.
 
 For SSH, these inputs are reachable only through the existing allowlist:
 `.codex/sessions`, `.codex/archived_sessions`, and

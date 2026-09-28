@@ -1,9 +1,9 @@
 # Complete-backup producer
 
 `sessionbackupproducer` is the local owner of complete `session-backup/v1`
-capture. It supports local and SSH Codex sources. Other agents return the
-product-visible `complete_backup_unsupported` blocker and never produce a
-metadata-only bundle.
+capture. It supports local and SSH Codex and local Claude sources. Claude SSH,
+Cursor, and OpenCode return the product-visible `complete_backup_unsupported`
+blocker and never produce a metadata-only bundle.
 
 `Manager.Start` exposes an asynchronous `preparing` state with `Status`,
 `Wait`, and `Cancel`. `Prepare` is the synchronous, context-cancellable core
@@ -24,13 +24,20 @@ publishing handoff removes its new bundle but never discards a reused bundle.
 The spool root and bundle directories are mode `0700`; artifact files and
 manifests are mode `0600`.
 
-The producer scans both `.codex/sessions` and `.codex/archived_sessions`, and
+The Codex producer scans both `.codex/sessions` and `.codex/archived_sessions`, and
 reads only the attributable rows of `.codex/session_index.jsonl`. It does not
 open a Codex database, helper/cache implementation files, credentials, or
 machine-wide configuration. Any skipped discovery path or unreadable rollout
 header fails the complete capture rather than being omitted. Capture errors
 use stable blocker codes and must not include source content, paths, or
 identities in logs or diagnostics.
+
+The Claude producer scans `.claude/projects` without a recent-file cap and
+freezes every selected family transcript plus present subagent metadata,
+workflow state, and workflow journal inputs. Present malformed or unstable
+inputs block completion. Parsed records and optional revision-matched persisted
+synthesis are built from the frozen files. A failed refresh keeps earlier
+verified spool revisions available.
 
 Focused verification is:
 
