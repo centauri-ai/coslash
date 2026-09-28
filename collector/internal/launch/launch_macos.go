@@ -3,11 +3,24 @@ package launch
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 )
 
 var runOSAScript = func(ctx context.Context, arguments ...string) error {
-	return exec.CommandContext(ctx, "osascript", arguments...).Run()
+	return osascriptCommand(ctx, arguments...).Run()
+}
+
+// A terminal application that osascript starts inherits this environment.
+func osascriptCommand(ctx context.Context, arguments ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, "osascript", arguments...)
+	command.Env = agentexec.WithoutSessionMarkers(os.Environ())
+	return command
 }
 
 func macApplicationAvailable(ctx context.Context, name string) error {
@@ -18,18 +31,16 @@ func macApplicationAvailable(ctx context.Context, name string) error {
 }
 
 func openMacTerminal(ctx context.Context, workingDirectory, command string) error {
-	script := "cd " + shellQuote(workingDirectory) + " && " + command
 	return runOSAScript(ctx,
 		"-e", "on run argv",
 		"-e", `tell application "Terminal" to do script (item 1 of argv)`,
 		"-e", `tell application "Terminal" to activate`,
 		"-e", "end run",
-		"--", script,
+		"--", terminalScript(os.Getenv("SHELL"), workingDirectory, command),
 	)
 }
 
 func openMacITerm(ctx context.Context, workingDirectory, command string) error {
-	script := "cd " + shellQuote(workingDirectory) + " && " + command
 	return runOSAScript(ctx,
 		"-e", "on run argv",
 		"-e", `tell application "iTerm2"`,
@@ -38,6 +49,17 @@ func openMacITerm(ctx context.Context, workingDirectory, command string) error {
 		"-e", `activate`,
 		"-e", `end tell`,
 		"-e", "end run",
-		"--", script,
+		"--", terminalScript(os.Getenv("SHELL"), workingDirectory, command),
 	)
+}
+
+// terminalScript also clears the session markers in the terminal shell, which
+// keeps its own environment when the terminal was already running. Other
+// shells, such as fish, have no unset builtin, so their script is unchanged.
+func terminalScript(shell, workingDirectory, command string) string {
+	script := "cd " + shellQuote(workingDirectory) + " && " + command
+	if !slices.Contains([]string{"sh", "bash", "zsh", "ksh", "dash"}, filepath.Base(shell)) {
+		return script
+	}
+	return "unset " + strings.Join(agentexec.SessionMarkers(), " ") + "; " + script
 }
