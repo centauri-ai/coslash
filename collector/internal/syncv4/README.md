@@ -6,16 +6,19 @@ integration SHA `b39c4e942c9f1c8ed9bc78cc835c773c630f7685`.
 The additive Local check-in and command consumer is `local-device-v4/1`, pinned
 to server `device-v4/2` at `e52bf98faa2b584a4ff0947358d1d7a84f2206cc`.
 
-The scheduler currently discovers local Codex families. A source exporter may
+The scheduler discovers local Codex and Claude families. A source exporter may
 join this queue only after it produces a complete, verified family through
-`sessionbackupproducer`; parsed cards alone are ineligible. SSH relay discovery
-and the other vendor exporters have separate owners. The install ID belongs to
+`sessionbackupproducer`; parsed cards alone are ineligible. Claude SSH relay
+discovery and the other vendor exporters have separate owners. The install ID belongs to
 the private v4 queue, independently of the paired credential. A credential or
 Hub change clears upload and completion state while retaining the install ID.
 
 For each family, the queue records the content revision, frozen bundle identity,
 server upload ID, wire manifest and accepted revision. A change to the parsed
 content revision schedules a fresh capture even when activity time is equal.
+For Claude, one source-tree metadata scan also notices raw transcript and parser
+sidecar changes that leave the parsed card unchanged; the producer verifies
+the exact bytes before upload.
 Recent families (activity in the newest 72 hours) are ordered first. Their
 metadata creates run before their bytes. Older families drain newest first
 after recent work has been attempted; a failed recent item does not indefinitely
