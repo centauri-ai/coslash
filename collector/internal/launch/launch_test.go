@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -31,9 +32,10 @@ func TestTerminalRemovesHandoffWhenTerminalOpenFails(t *testing.T) {
 }
 
 func TestTerminalWithPromptRemovesClaudeFilesWhenTerminalOpenFails(t *testing.T) {
-	if !securePromptAvailable() {
-		t.Skip("secure terminal relay unavailable")
+	if runtime.GOOS == "windows" {
+		t.Skip("secure interactive prompts require a POSIX terminal")
 	}
+	provideFakeExpect(t)
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	originalOpener := localTerminalOpener
 	t.Cleanup(func() { localTerminalOpener = originalOpener })
