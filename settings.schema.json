@@ -10,6 +10,7 @@
       "const": "https://raw.githubusercontent.com/centauri-ai/coslash/main/settings.schema.json"
     },
     "version": { "const": 1 },
+    "syncPaused": { "type": "boolean", "description": "Pause this Local device's automatic Hub sync." },
     "synthesis": {
       "type": "object",
       "additionalProperties": false,

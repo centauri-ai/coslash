@@ -272,7 +272,7 @@ func TestPausedOrOfflineCheckInSendsNoUpload(t *testing.T) {
 						w.WriteHeader(http.StatusServiceUnavailable)
 						return
 					}
-					io.WriteString(w, `{"configVersion":1,"config":{"paused":true,"deviceOff":false,"leaveOut":[]},"minVersion":"0.0.3"}`)
+					io.WriteString(w, `{"configVersion":1,"config":{"paused":true,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"minVersion":"0.0.3"}`)
 					return
 				}
 				uploads.Add(1)

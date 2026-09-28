@@ -20,6 +20,7 @@ export type RemoteOwnershipAction = 'release' | 'uninstall';
 export type CoslashSettings = {
   $schema: string;
   version: number;
+  syncPaused?: boolean;
   synthesis: SynthesisSettings;
   appearance: { theme: 'light' | 'dark' };
   launch: { terminal: string };

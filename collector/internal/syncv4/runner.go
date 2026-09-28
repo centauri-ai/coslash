@@ -31,7 +31,7 @@ var ErrStaleConsent = errors.New("v4 sync consent unavailable or stale")
 
 type Transport interface {
 	V4Binding(context.Context) (string, error)
-	V4CheckIn(context.Context, hubclient.V4Queue, int64) (hubclient.V4CheckIn, error)
+	V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult) (hubclient.V4CheckIn, error)
 	V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error)
 	V4Status(context.Context, string) (hubclient.V4Status, error)
 	V4PutChunk(context.Context, string, hubclient.V4Missing, io.Reader) error
@@ -45,10 +45,13 @@ type Runner struct {
 	Hub           Transport
 	Discover      func(context.Context) ([]*session.Session, error)
 	Conditions    func(context.Context) (metered bool, batteryPercent int, err error)
+	LocalPause    func() bool
+	Command       func(context.Context, hubclient.V4Command) error
 	Now           func() time.Time
 	config        hubclient.V4Config
 	checkedAt     time.Time
 	configVersion int64
+	retryCommands map[string]string
 }
 
 func (r *Runner) now() time.Time {
@@ -58,10 +61,12 @@ func (r *Runner) now() time.Time {
 	return time.Now()
 }
 
-func (r *Runner) SyncOnce(ctx context.Context) error {
+func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.Queue == nil || r.Backup == nil || r.Hub == nil || r.Discover == nil {
 		return errors.New("v4 sync is not configured")
 	}
+	r.retryCommands = nil
+	defer func() { syncErr = errors.Join(syncErr, r.finishRetryCommands(syncErr)) }()
 	binding, err := r.Hub.V4Binding(ctx)
 	if err != nil {
 		return err
@@ -261,13 +266,129 @@ func truncate(value string, max int) string {
 }
 
 func (r *Runner) refreshConsent(ctx context.Context) error {
-	result, err := r.Hub.V4CheckIn(ctx, r.Queue.Progress(), r.configVersion)
+	version, config, _ := r.Queue.Policy()
+	r.configVersion, r.config = version, config
+	results := r.Queue.Results()
+	result, err := r.Hub.V4CheckIn(ctx, r.Queue.Progress(), version, results)
 	if err != nil {
 		r.checkedAt = time.Time{}
 		return fmt.Errorf("%w: %v", ErrStaleConsent, err)
 	}
-	r.config, r.checkedAt, r.configVersion = result.Config, r.now(), result.ConfigVersion
+	if err := r.Queue.ApplyPolicy(result); err != nil {
+		return err
+	}
+	if err := r.Queue.AcknowledgeResults(results); err != nil {
+		return err
+	}
+	r.configVersion, r.config, _ = r.Queue.Policy()
+	r.checkedAt = r.now()
+	if result.UpdateRequired {
+		return hubclient.V4Problem{Code: "client_update_required"}
+	}
+	for _, command := range result.Commands {
+		if command.ID == "" || len(command.ID) > 64 {
+			continue
+		}
+		started, err := r.Queue.StartCommand(command.ID)
+		if err != nil {
+			return err
+		}
+		if !started {
+			continue
+		}
+		outcome := hubclient.V4CommandResult{CommandID: command.ID, Result: "done"}
+		if command.Type == "retry" && r.pausedLocallyOrByHub() {
+			outcome.Result, outcome.Error = "failed", "sync_paused"
+		} else if command.Type == "retry" {
+			var payload struct {
+				SessionID string `json:"sessionId"`
+			}
+			if json.Unmarshal(command.Payload, &payload) != nil || !r.commandSessionAllowed(payload.SessionID) {
+				outcome.Result, outcome.Error = "failed", "session_unavailable_or_left_out"
+			} else if ok, err := r.Queue.RetrySession(payload.SessionID); err != nil {
+				return err
+			} else if !ok {
+				outcome.Result, outcome.Error = "failed", "session_unavailable_or_left_out"
+			} else {
+				if r.retryCommands == nil {
+					r.retryCommands = make(map[string]string)
+				}
+				r.retryCommands[command.ID] = payload.SessionID
+				continue
+			}
+		} else if command.Type == "launch" {
+			var payload struct {
+				SessionID string `json:"sessionId"`
+				Mode      string `json:"mode"`
+			}
+			if json.Unmarshal(command.Payload, &payload) != nil || payload.Mode != "resume" || !r.commandSessionAllowed(payload.SessionID) {
+				outcome.Result, outcome.Error = "failed", "session_unavailable_or_left_out"
+			} else if r.Command == nil {
+				outcome.Result, outcome.Error = "failed", "command_unavailable"
+			} else if err := r.runCommand(ctx, command); err != nil {
+				outcome.Result, outcome.Error = "failed", commandError(err)
+			}
+		} else if r.Command == nil {
+			outcome.Result, outcome.Error = "failed", "command_unavailable"
+		} else if err := r.runCommand(ctx, command); err != nil {
+			outcome.Result, outcome.Error = "failed", commandError(err)
+		}
+		if err := r.Queue.FinishCommand(outcome); err != nil {
+			return err
+		}
+	}
 	return r.allowed(ctx, hubclient.V4Session{})
+}
+
+func (r *Runner) runCommand(ctx context.Context, command hubclient.V4Command) error {
+	timeout := 20 * time.Second
+	if command.Type == "ssh.install" {
+		timeout = 2 * time.Minute
+	}
+	commandContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return r.Command(commandContext, command)
+}
+
+func (r *Runner) finishRetryCommands(syncErr error) error {
+	var resultErr error
+	for commandID, sessionID := range r.retryCommands {
+		result := hubclient.V4CommandResult{CommandID: commandID, Result: "failed", Error: "retry_failed"}
+		if syncErr == nil {
+			for _, entry := range r.Queue.Entries() {
+				if entry.SessionID == sessionID && entry.RevisionID != "" && !pending(entry) {
+					result.Result, result.Error = "done", ""
+					break
+				}
+			}
+		}
+		resultErr = errors.Join(resultErr, r.Queue.FinishCommand(result))
+	}
+	r.retryCommands = nil
+	return resultErr
+}
+
+func (r *Runner) commandSessionAllowed(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, entry := range r.Queue.Entries() {
+		if entry.SessionID == id && !entry.Excluded && !leftOut(entry.Session, r.config.LeaveOut) {
+			return true
+		}
+	}
+	return false
+}
+
+func commandError(err error) string {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return "command_cancelled"
+	}
+	return "command_failed"
+}
+
+func (r *Runner) pausedLocallyOrByHub() bool {
+	return r.config.Paused || r.config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || r.LocalPause != nil && r.LocalPause()
 }
 
 func (r *Runner) allowed(ctx context.Context, meta hubclient.V4Session) error {
@@ -277,7 +398,7 @@ func (r *Runner) allowed(ctx context.Context, meta hubclient.V4Session) error {
 	if r.checkedAt.IsZero() || r.now().Sub(r.checkedAt) >= consentAge {
 		return ErrStaleConsent
 	}
-	if r.config.Paused || r.config.DeviceOff {
+	if r.pausedLocallyOrByHub() {
 		return ErrPaused
 	}
 	if r.Conditions != nil {
