@@ -126,8 +126,8 @@ func ValidateDatabaseRows(rows DatabaseRows, memberID string) error {
 				}
 			}
 			canonical, _ := json.Marshal(row)
-			if previous != nil && bytes.Compare(previous, canonical) >= 0 {
-				return fmt.Errorf("%w: database rows are not strictly ordered", ErrInvalid)
+			if previous != nil && bytes.Compare(previous, canonical) > 0 {
+				return fmt.Errorf("%w: database rows are not ordered", ErrInvalid)
 			}
 			previous = canonical
 		}

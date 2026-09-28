@@ -664,7 +664,7 @@ func listRemote(
 func remoteInputs(collections map[string]vendors.RemoteCollection) ([]*vendors.ParsedSession, map[string]*vendors.SessionMetadata) {
 	parsed := []*vendors.ParsedSession{}
 	metadata := map[string]*vendors.SessionMetadata{}
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode} {
 		collection, ok := collections[agent]
 		if !ok {
 			continue

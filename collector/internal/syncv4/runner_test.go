@@ -58,6 +58,19 @@ func fixtureBundle(t *testing.T) (*sessionbackupproducer.Manager, *sessionbackup
 	return manager, prepared, root
 }
 
+func TestOpenCodeDiscoveryRetainsSourceIdentity(t *testing.T) {
+	items := discoveredEntries([]*session.Session{
+		{Agent: "opencode", ID: "shared", StartedAt: 1, LastActivityTime: 2, DetailRevision: "source-revision"},
+		{Agent: "codex", ID: "shared", StartedAt: 1, LastActivityTime: 2},
+		{Agent: "cursor", ID: "ignored"},
+		{Agent: "opencode", ID: "child", ParentSessionID: "shared"},
+	}, "install", nil)
+	if len(items) != 2 || items[0].Key == items[1].Key || items[0].Selection.Agent != "opencode" ||
+		items[0].Selection.SessionID != "shared" || items[0].SourceRevision != "source-revision" {
+		t.Fatalf("discovered entries = %#v", items)
+	}
+}
+
 func TestCodexV4HTTPResumeAndNoUnchangedBytes(t *testing.T) {
 	manager, prepared, spool := fixtureBundle(t)
 	runV4HTTPResume(t, manager, prepared, spool, "Fixture Codex", true)

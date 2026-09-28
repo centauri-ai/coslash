@@ -114,28 +114,32 @@ func TestPrepareProducesVerifiedBoundedLocalAndSSHBundle(t *testing.T) {
 }
 
 func TestUnsupportedAgentsNeverOpenSourceOrPublishBundle(t *testing.T) {
-	for _, agent := range []string{vendors.AgentOpenCode, vendors.AgentCursor} {
-		for _, sourceKind := range []string{sessionbackupv1.SourceLocal, sessionbackupv1.SourceSSH} {
-			t.Run(agent+"/"+sourceKind, func(t *testing.T) {
-				root := filepath.Join(t.TempDir(), "spool")
-				opened := false
-				manager := New(Options{Root: root, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
-					opened = true
-					return SourceHandle{}, nil
-				}})
-				prepared, err := manager.Prepare(t.Context(), Selection{
-					SourceKind: sourceKind, SourceID: "fixture-source", Agent: agent, SessionID: "fixture-session",
-				})
-				var failure *PreparationError
-				if prepared != nil || !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 ||
-					failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnsupported || opened {
-					t.Fatalf("prepared=%#v failure=%#v opened=%t", prepared, failure, opened)
-				}
-				if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("unsupported source created a spool: %v", err)
-				}
+	for _, unsupported := range []struct{ agent, sourceKind string }{
+		{vendors.AgentClaude, sessionbackupv1.SourceSSH},
+		{vendors.AgentOpenCode, sessionbackupv1.SourceSSH},
+		{vendors.AgentCursor, sessionbackupv1.SourceLocal},
+		{vendors.AgentCursor, sessionbackupv1.SourceSSH},
+	} {
+		agent, sourceKind := unsupported.agent, unsupported.sourceKind
+		t.Run(agent+"/"+sourceKind, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "spool")
+			opened := false
+			manager := New(Options{Root: root, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+				opened = true
+				return SourceHandle{}, nil
+			}})
+			prepared, err := manager.Prepare(t.Context(), Selection{
+				SourceKind: sourceKind, SourceID: "fixture-source", Agent: agent, SessionID: "fixture-session",
 			})
-		}
+			var failure *PreparationError
+			if prepared != nil || !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 ||
+				failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnsupported || opened {
+				t.Fatalf("prepared=%#v failure=%#v opened=%t", prepared, failure, opened)
+			}
+			if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unsupported source created a spool: %v", err)
+			}
+		})
 	}
 }
 
