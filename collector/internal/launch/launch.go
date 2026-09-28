@@ -110,16 +110,36 @@ func ReviewerOptions() []ReviewerOption {
 		{ID: vendors.AgentClaude, Label: "Claude Code", Executable: "claude"},
 		{ID: vendors.AgentCodex, Label: "Codex", Executable: "codex"},
 		{ID: vendors.AgentOpenCode, Label: "OpenCode", Executable: "opencode"},
-		{ID: vendors.AgentCursor, Label: "Cursor", Executable: settings.CursorExecutable()},
+		{ID: vendors.AgentCursor, Label: "Cursor CLI", Executable: cursorReviewerExecutable()},
 	}
+}
+
+func cursorReviewerExecutable() string {
+	cli := settings.CursorExecutable()
+	if runtime.GOOS != "windows" {
+		return cli
+	}
+	if _, err := exec.LookPath(cli); err == nil {
+		return cli
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if path := CursorCLIExecutable(home); strings.EqualFold(filepath.Ext(path), ".ps1") {
+			return path
+		}
+	}
+	return cli
 }
 
 func ReviewerAvailable(reviewer string) bool {
 	for _, option := range ReviewerOptions() {
 		if option.ID == reviewer {
-			if reviewer == vendors.AgentCursor {
-				home, _ := os.UserHomeDir()
-				return CursorCLIExecutable(home) != ""
+			if strings.EqualFold(filepath.Ext(option.Executable), ".ps1") {
+				if _, err := exec.LookPath("powershell.exe"); err != nil {
+					return false
+				}
+				info, err := os.Stat(option.Executable)
+				return err == nil && info.Mode().IsRegular()
 			}
 			_, err := exec.LookPath(option.Executable)
 			return err == nil
@@ -153,7 +173,10 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 		return "", err
 	}
 	if request.Reviewer == vendors.AgentCursor {
-		scratch, err := os.MkdirTemp("", "coslash-cursor-review-*")
+		if err := os.MkdirAll(reviewScratchDir(), 0o700); err != nil {
+			return "", fmt.Errorf("create Cursor review directory: %w", err)
+		}
+		scratch, err := os.MkdirTemp(reviewScratchDir(), "cursor-*")
 		if err != nil {
 			return "", fmt.Errorf("create Cursor review directory: %w", err)
 		}
@@ -189,6 +212,37 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 		result += "\n[review output truncated]"
 	}
 	return result, nil
+}
+
+func reviewScratchDir() string {
+	return filepath.Join(settings.Home(), "reviews")
+}
+
+func CleanupReviewScratch() error {
+	return cleanupReviewScratch(time.Now().Add(-time.Hour))
+}
+
+func cleanupReviewScratch(cutoff time.Time) error {
+	entries, err := os.ReadDir(reviewScratchDir())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cursor-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(reviewScratchDir(), entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func reviewGitSnapshot(ctx context.Context, workingDirectory string) (string, error) {
@@ -234,9 +288,15 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 		if runtime.GOOS == "windows" {
 			sandbox = "disabled"
 		}
+		bin := cursorReviewerExecutable()
+		args := []string{"--print", "--mode=ask", "--sandbox", sandbox, "--trust", "--add-dir", workingDirectory, "--output-format", "text"}
+		if strings.EqualFold(filepath.Ext(bin), ".ps1") {
+			args = append([]string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bin}, args...)
+			bin = "powershell.exe"
+		}
 		return reviewCommandSpec{
-			bin:   settings.CursorExecutable(),
-			args:  []string{"--print", "--mode=ask", "--sandbox", sandbox, "--trust", "--add-dir", workingDirectory, "--output-format", "text"},
+			bin:   bin,
+			args:  args,
 			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		}, nil
 	default:
