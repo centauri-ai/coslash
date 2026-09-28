@@ -19,6 +19,9 @@ and OpenCode, whether local or SSH, must surface the blocking code
 `complete_backup_unsupported`; they must not fall back to a metadata-only
 success.
 
+The [local source and transport proof matrix](local-source-transport-proof-v1.md)
+records per-source evidence, build gaps, and the v4 compatibility boundary.
+
 | Kind | Source bytes | Local Codex | SSH Codex | Completeness rule |
 | --- | --- | --- | --- | --- |
 | `raw-transcript` | Exact rollout JSONL for each family member under `.codex/sessions` or `.codex/archived_sessions` | Read every discovered family rollout from both trees | Read every discovered family rollout from both trees during freeze | Exactly one per discovered rollout; an absent, unreadable, malformed, or changing discovered file blocks completion |
