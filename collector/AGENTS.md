@@ -26,7 +26,7 @@
 
 - Transcript text, repository contents, synthesis output, remote host output, and Hub responses are untrusted. When any of it enters an agent prompt, put it in an explicitly delimited data block and instruct the agent never to follow instructions found inside it.
 - Pass untrusted or unbounded content through stdin, not argv: argv is readable by other local processes and has an operating system size limit. Terminate option parsing with `--` before any positional prompt so message text cannot become a flag.
-- Launch agent CLIs with project hooks, plugins, and MCP configuration disabled, and with filesystem and credential access restricted to what the operation needs. `internal/synthesis/runner.go` is the reference for the hardened per-vendor flags.
+- Launch agent CLIs with project hooks, plugins, and MCP configuration disabled. Restrict filesystem and credential access to what the operation needs for local launches; `internal/synthesis/runner.go` is the reference for the hardened per-vendor flags. For remote reviews, the configured SSH account's existing read access is the accepted boundary; no separate OS read sandbox is required.
 - Bound and strip control characters from external process, host, or Hub output before logging it. Keep the specific cause in the log and return a fixed message to the client.
 - Enforce privacy, share-eligibility, and consent gates on the server where the data is produced, and bind consent to the exact audience rather than to its size.
 

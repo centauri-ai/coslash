@@ -285,8 +285,8 @@ func routes(
 	api.HandleFunc("GET /api/share-preview", func(w http.ResponseWriter, r *http.Request) {
 		handleSharePreview(w, r, collector.GetSessionForPreview, remoteManager, version)
 	})
-	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
-		writeSettings(w, settingsStore.State())
+	api.HandleFunc("GET /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		writeSettings(r.Context(), w, settingsStore.State())
 	})
 	api.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
 		handleSaveSettings(w, r, settingsStore, mgr, remoteManager)
@@ -310,7 +310,9 @@ func routes(
 			}
 			return found, err
 		}
-		handleReview(w, r, settingsStore, getSession, launch.ReviewCLIAvailable, reviewManager.Start)
+		handleReview(w, r, settingsStore, getSession, func(reviewer string) bool {
+			return launch.ReviewCLIAvailable(r.Context(), reviewer)
+		}, reviewManager.Start)
 	})
 	api.HandleFunc("GET /api/reviews", func(w http.ResponseWriter, r *http.Request) {
 		handleReviewStatus(w, r, reviewManager)
