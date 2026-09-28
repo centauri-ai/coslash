@@ -1,5 +1,10 @@
 # Local source and transport proof matrix
 
+> This is the t4-15 baseline at its pinned commit. Local Cursor IDE and CLI
+> support was added later by t4-19; see [the current backup contract](README.md)
+> and [producer](../../internal/sessionbackupproducer/README.md) for current
+> capability. Cursor SSH remains a separate relay task.
+
 - **Identity:** `local-source-transport-proof/v1` at Local base
   `c102350809cea644e6bfd2bb1f8899df84d0d73e`.
 - **Scope:** synthetic fixtures and source inspection for t4-15. No live SSH

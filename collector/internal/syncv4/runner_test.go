@@ -3,6 +3,7 @@ package syncv4
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -24,9 +25,11 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
+	_ "modernc.org/sqlite"
 )
 
 const fixtureRootID = "11111111-2222-3333-4444-555555555555"
+const cursorFixtureID = "11111111-2222-4333-8444-555555555555"
 
 type fixedCredential struct{}
 
@@ -104,14 +107,92 @@ func TestClaudeV4HTTPRoundTrip(t *testing.T) {
 func runV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prepared *sessionbackupproducer.Prepared, spool, name string, discover bool) {
 	t.Helper()
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	source := &session.Session{Agent: prepared.Selection.Agent, ID: fixtureRootID, Name: &name, StartedAt: now.Add(-time.Hour).UnixMilli(), LastActivityTime: now.UnixMilli()}
+	testV4HTTPResume(t, manager, prepared, spool, source, discover)
+}
+
+func TestCursorIDEAndCLIV4HTTPRoundTrip(t *testing.T) {
+	for _, lane := range []string{"cursor-ide", "cursor-cli"} {
+		t.Run(lane, func(t *testing.T) {
+			manager, prepared, spool := fixtureCursorBundle(t, lane)
+			name := "Fixture Cursor"
+			now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+			source := &session.Session{Agent: "cursor", ID: cursorFixtureID, Name: &name, Entrypoint: &lane,
+				StartedAt: now.Add(-time.Hour).UnixMilli(), LastActivityTime: now.UnixMilli()}
+			testV4HTTPResume(t, manager, prepared, spool, source, true)
+		})
+	}
+}
+
+func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Manager, *sessionbackupproducer.Prepared, string) {
+	t.Helper()
+	home, workspace, spool := t.TempDir(), t.TempDir(), t.TempDir()
+	transcript := filepath.Join(home, ".cursor", "projects", "repo", "agent-transcripts", cursorFixtureID, cursorFixtureID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcript, []byte(`{"role":"user","message":{"content":[{"type":"text","text":"Build this"}]}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if lane == "cursor-ide" {
+		path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, value TEXT, createdAt INTEGER, lastUpdatedAt INTEGER);
+			CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+			t.Fatal(err)
+		}
+		value := `{"name":"Fixture Cursor","workspaceIdentifier":{"uri":{"fsPath":"` + workspace + `"}}}`
+		if _, err := db.Exec(`INSERT INTO composerHeaders VALUES (?, ?, 1700000000000, 1700000001000)`, cursorFixtureID, value); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		path := filepath.Join(home, ".cursor", "chats", "workspace", cursorFixtureID, "store.db")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(filepath.Dir(path), "meta.json"), []byte(`{"cwd":"`+workspace+`"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.Exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+			t.Fatal(err)
+		}
+		value := hex.EncodeToString([]byte(`{"agentId":"` + cursorFixtureID + `","name":"Fixture Cursor","createdAt":1700000000000}`))
+		if _, err := db.Exec(`INSERT INTO meta VALUES ('0', ?)`, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: spool, OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+		return sessionbackupproducer.SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorFixtureID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manager, prepared, spool
+}
+
+func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prepared *sessionbackupproducer.Prepared, spool string, source *session.Session, discover bool) {
+	t.Helper()
+	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	queueRoot := t.TempDir()
 	queue, err := Open(queueRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	installID := queue.InstallID()
-	source := &session.Session{Agent: prepared.Selection.Agent, ID: fixtureRootID, Name: &name, StartedAt: now.Add(-time.Hour).UnixMilli(), LastActivityTime: now.UnixMilli()}
-	entry := Entry{Key: localKey("local", source.Agent, fixtureRootID), Selection: prepared.Selection,
+	entry := Entry{Key: localKey("local", source.Agent, source.ID), Selection: prepared.Selection,
 		Session: sessionMetadata(source, installID), Activity: source.LastActivityTime, BundleID: prepared.BundleID}
 	if err := queue.Merge([]Entry{entry}, now); err != nil {
 		t.Fatal(err)
@@ -138,7 +219,7 @@ func runV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prepa
 			if err := json.NewDecoder(r.Body).Decode(&created); err != nil {
 				t.Error(err)
 			}
-			if created.Session.InstallID != installID || created.Session.LocalKeyHash != entry.Key || created.Session.Title != name {
+			if created.Session.InstallID != installID || created.Session.LocalKeyHash != entry.Key || created.Session.Title != *source.Name || created.Session.Agent != source.Agent {
 				t.Errorf("metadata = %+v", created.Session)
 			}
 			w.WriteHeader(http.StatusCreated)

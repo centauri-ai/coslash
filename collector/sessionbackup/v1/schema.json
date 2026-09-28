@@ -4,6 +4,11 @@
   "title": "coSlash complete session backup manifest v1",
   "type": "object",
   "additionalProperties": false,
+  "allOf": [{
+    "if": { "properties": { "source": { "properties": { "agent": { "const": "cursor" } } } } },
+    "then": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup-db-rows/v1", "session-backup/v1"] } } },
+    "else": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup/v1"] } } }
+  }],
   "required": [
     "schemaVersion",
     "canonicalVersion",
@@ -80,7 +85,7 @@
       "properties": {
         "kind": { "enum": ["local", "ssh"] },
         "sourceId": { "$ref": "#/$defs/identifier" },
-        "agent": { "enum": ["codex", "opencode"] },
+        "agent": { "enum": ["codex", "claude", "cursor", "opencode"] },
         "sourceRevision": { "$ref": "#/$defs/identifier" }
       }
     },
@@ -137,7 +142,7 @@
           "pattern": "^(?![A-Za-z]:/)(?!/)(?!.*//)(?!.*(?:^|/)\\.(?:/|$))(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f])[^/]+(?:/[^/]+)*$"
         },
         "memberId": { "$ref": "#/$defs/identifier" },
-        "source": { "enum": ["codex", "opencode", "coslash"] },
+        "source": { "enum": ["codex", "claude", "cursor", "opencode", "coslash"] },
         "kind": {
           "enum": ["exact-change-body", "parsed-session-record", "raw-metadata-rows", "raw-sidecar", "raw-transcript", "session-enrichment", "synthesis"]
         },
