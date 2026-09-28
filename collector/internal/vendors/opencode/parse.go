@@ -100,6 +100,26 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 		if err := ctx.Err(); err != nil {
 			return parsedSession{}, err
 		}
+		if row.v2 && message.Role == "shell" {
+			if message.Command != "" {
+				commands.Note(message.Command, "")
+				commitLog = append(commitLog, session.ParseCommitObservations(
+					message.Command, message.Output, message.Exit == nil || *message.Exit == 0,
+				)...)
+			}
+			if message.Exit != nil && *message.Exit != 0 {
+				errorsCount++
+			}
+			continue
+		}
+		if row.v2 && message.Role == "compaction" {
+			if message.CompactionStatus == "completed" {
+				compactions++
+				compactionSeed = message.CompactionSummary
+				digest.Push(turns, session.DigestCompaction, "Context compacted", message.Time.Created)
+			}
+			continue
+		}
 		if message.Role == "user" {
 			for _, part := range message.parts {
 				if part.Type == "compaction" {
@@ -197,7 +217,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 					errorsCount++
 				}
 				if part.Tool != "task" &&
-					(part.State.Status == "pending" || part.State.Status == "running") {
+					(part.State.Status == "pending" || part.State.Status == "running" || part.State.Status == "streaming") {
 					if part.Tool == "question" && part.State.Status == "running" &&
 						len(part.State.Input.Questions) > 0 {
 						waiting = true
@@ -404,7 +424,14 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 		var value struct {
 			Text    string            `json:"text"`
 			Content []json.RawMessage `json:"content"`
-			Model   struct {
+			Agent   string            `json:"agent"`
+			Command string            `json:"command"`
+			Output  struct {
+				Output string `json:"output"`
+			} `json:"output"`
+			Exit   *int   `json:"exit"`
+			Status string `json:"status"`
+			Model  struct {
 				ProviderID string `json:"providerID"`
 				ID         string `json:"id"`
 			} `json:"model"`
@@ -421,8 +448,10 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 		if err := json.Unmarshal([]byte(raw), &value); err != nil {
 			return nil, fmt.Errorf("%w: decode v2 message: %w", errMalformedSession, err)
 		}
-		message := storedMessage{Role: kind, ProviderID: value.Model.ProviderID, ModelID: value.Model.ID,
-			Cost: value.Cost, Tokens: value.Tokens, Finish: value.Finish, Summary: value.Summary, Error: value.Error}
+		message := storedMessage{Role: kind, Agent: value.Agent, ProviderID: value.Model.ProviderID, ModelID: value.Model.ID,
+			Cost: value.Cost, Tokens: value.Tokens, Finish: value.Finish, Summary: value.Summary, Error: value.Error,
+			Command: value.Command, Output: value.Output.Output, Exit: value.Exit,
+			CompactionStatus: value.Status}
 		message.Time.Created = value.Time.Created
 		if message.Time.Created == 0 {
 			message.Time.Created = created
@@ -434,11 +463,16 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 		case "assistant":
 			for _, content := range value.Content {
 				var part storedPart
-				if err := json.Unmarshal(content, &part); err != nil {
-					return nil, fmt.Errorf("%w: decode v2 content: %w", errMalformedSession, err)
-				}
 				var extra struct {
-					Name string `json:"name"`
+					Type  string `json:"type"`
+					Name  string `json:"name"`
+					State struct {
+						Status  string `json:"status"`
+						Content []struct {
+							Type string `json:"type"`
+							Text string `json:"text"`
+						} `json:"content"`
+					} `json:"state"`
 					Time struct {
 						Completed *int64 `json:"completed"`
 					} `json:"time"`
@@ -446,16 +480,38 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 				if err := json.Unmarshal(content, &extra); err != nil {
 					return nil, fmt.Errorf("%w: decode v2 content: %w", errMalformedSession, err)
 				}
+				if extra.Type == "tool" && extra.State.Status == "streaming" {
+					part.Type, part.Tool, part.State.Status = extra.Type, extra.Name, extra.State.Status
+					message.parts = append(message.parts, part)
+					continue
+				}
+				if err := json.Unmarshal(content, &part); err != nil {
+					return nil, fmt.Errorf("%w: decode v2 content: %w", errMalformedSession, err)
+				}
 				part.Tool = extra.Name
 				part.State.Time.End = extra.Time.Completed
+				if part.Type == "tool" && len(extra.State.Content) > 0 {
+					texts := make([]string, 0, len(extra.State.Content))
+					for _, item := range extra.State.Content {
+						if item.Type == "text" {
+							texts = append(texts, item.Text)
+						}
+					}
+					part.State.Output = strings.Join(texts, "\n")
+				}
 				message.parts = append(message.parts, part)
 			}
 		case "idle":
 			message.Role = "assistant"
 			message.Time.Completed = &message.Time.Created
 		case "compaction":
-			message.Role = "user"
-			message.parts = append(message.parts, storedPart{Type: "compaction"})
+			var summary struct {
+				Summary string `json:"summary"`
+			}
+			if err := json.Unmarshal([]byte(raw), &summary); err != nil {
+				return nil, fmt.Errorf("%w: decode v2 compaction: %w", errMalformedSession, err)
+			}
+			message.CompactionSummary = summary.Summary
 		}
 		messages = append(messages, message)
 	}

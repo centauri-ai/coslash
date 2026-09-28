@@ -70,14 +70,14 @@ func TestMixedOpenCodeSchemasPreferV2AndKeepV1(t *testing.T) {
 	for _, statement := range []string{
 		`CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
 		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
-		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
 		`INSERT INTO session VALUES ('legacy', NULL, '/v1', 'old', NULL, NULL, NULL, NULL, 0, 50, 100, NULL)`,
 		`INSERT INTO session VALUES ('shared', NULL, '/stale', 'stale', NULL, NULL, NULL, NULL, 0, 50, 100, NULL)`,
 		`INSERT INTO session_v2 VALUES ('shared', NULL, '/current', 'current', NULL, NULL, NULL, NULL, 2, 150, 300, NULL)`,
 		`INSERT INTO message VALUES ('m1', 'legacy', 100, '{"role":"user","time":{"created":100}}')`,
 		`INSERT INTO part VALUES ('p1', 'm1', 100, '{"type":"text","text":"old prompt"}')`,
-		`INSERT INTO session_message VALUES ('m2', 'shared', 'user', 1, 200, '{"text":"new prompt","time":{"created":200}}')`,
-		`INSERT INTO session_message VALUES ('m3', 'shared', 'assistant', 2, 250, '{"model":{"providerID":"openai","id":"gpt"},"content":[{"type":"text","text":"new answer"}],"finish":"stop","time":{"created":250,"completed":300}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('m2', 'shared', 'user', 1, 200, '{"text":"new prompt","time":{"created":200}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('m3', 'shared', 'assistant', 2, 250, '{"model":{"providerID":"openai","id":"gpt"},"content":[{"type":"text","text":"new answer"}],"finish":"stop","time":{"created":250,"completed":300}}')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -110,10 +110,10 @@ func TestV2OnlyOpenCodeDatabase(t *testing.T) {
 	db := testDB(t)
 	for _, statement := range []string{
 		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
-		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
 		`INSERT INTO session_v2 VALUES ('v2', NULL, '/work', 'current', NULL, NULL, NULL, NULL, 0, 50, 300, NULL)`,
-		`INSERT INTO session_message VALUES ('m1', 'v2', 'user', 1, 100, '{"text":"hello","time":{"created":100}}')`,
-		`INSERT INTO session_message VALUES ('m2', 'v2', 'assistant', 2, 200, '{"content":[{"type":"text","text":"hi"}],"finish":"stop","time":{"created":200,"completed":300}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('m1', 'v2', 'user', 1, 100, '{"text":"hello","time":{"created":100}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('m2', 'v2', 'assistant', 2, 200, '{"content":[{"type":"text","text":"hi"}],"finish":"stop","time":{"created":200,"completed":300}}')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -131,10 +131,10 @@ func TestV2OnlyOpenCodeDatabase(t *testing.T) {
 func TestV2MessageFlagsAndTodos(t *testing.T) {
 	db := testDB(t)
 	for _, statement := range []string{
-		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
-		`INSERT INTO session_message VALUES ('u', 'session', 'user', 1, 100, '{"text":"hello"}')`,
-		`INSERT INTO session_message VALUES ('a1', 'session', 'assistant', 2, 200, '{"summary":true,"error":{"name":"APIError"},"content":[{"type":"text","text":"internal summary"},{"type":"tool","name":"todowrite","state":{"status":"completed","input":{"todos":[{"content":"first","status":"completed"},{"content":"removed","status":"pending"}]}}}],"finish":"stop"}')`,
-		`INSERT INTO session_message VALUES ('a2', 'session', 'assistant', 3, 300, '{"content":[{"type":"tool","name":"todowrite","state":{"status":"completed","input":{"todos":[{"content":"first","status":"completed"},{"content":"second","status":"pending"}]}}},{"type":"text","text":"public answer"}],"finish":"stop"}')`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('u', 'session', 'user', 1, 100, '{"text":"hello"}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('a1', 'session', 'assistant', 2, 200, '{"summary":true,"error":{"name":"APIError"},"content":[{"type":"text","text":"internal summary"},{"type":"tool","name":"todowrite","state":{"status":"completed","input":{"todos":[{"content":"first","status":"completed"},{"content":"removed","status":"pending"}]}}}],"finish":"stop"}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('a2', 'session', 'assistant', 3, 300, '{"content":[{"type":"tool","name":"todowrite","state":{"status":"completed","input":{"todos":[{"content":"first","status":"completed"},{"content":"second","status":"pending"}]}}},{"type":"text","text":"public answer"}],"finish":"stop"}')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -160,22 +160,86 @@ func TestV2MessageFlagsAndTodos(t *testing.T) {
 	}
 }
 
+func TestV2SessionDetailFromCurrentMessageShapes(t *testing.T) {
+	db := testDB(t)
+	for _, statement := range []string{
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
+		`INSERT INTO session_v2 VALUES ('ses_current', NULL, '/work', 'v2', NULL, NULL, NULL, NULL, 0.5, 100, 700, NULL)`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('u', 'ses_current', 'user', 1, 100, '{"text":"Fix the bug","time":{"created":100}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('a', 'ses_current', 'assistant', 2, 200, '{"agent":"plan","model":{"providerID":"anthropic","id":"claude"},"tokens":{"input":10,"output":5,"reasoning":1,"cache":{"read":2,"write":3}},"content":[{"type":"tool","name":"bash","state":{"status":"completed","input":{"command":"git commit -m fix"},"content":[{"type":"text","text":"[main abc1234] fix"}],"metadata":{"exit":0}},"time":{"completed":250}},{"type":"text","text":"Plan ready"}],"finish":"stop","time":{"created":200,"completed":300}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('s', 'ses_current', 'shell', 3, 400, '{"command":"git log -1","status":"exited","exit":0,"output":{"output":"abc123"},"time":{"created":400,"completed":450}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('c', 'ses_current', 'compaction', 4, 500, '{"status":"completed","summary":"Earlier work","time":{"created":500}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('i', 'ses_current', 'idle', 5, 700, '{"outcome":"succeeded","time":{"created":700}}')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parsed, skipped, err := load(db, activeFamiliesQuery)
+	if err != nil || len(skipped) != 0 || len(parsed) != 1 {
+		t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
+	}
+	got := parsed[0]
+	if got.InTurn || got.Session.SessionDetails.Turns != 1 || got.Session.SessionDetails.Compactions != 1 ||
+		got.Session.SessionDetails.ToolUses != 1 || got.Session.SessionDetails.Model == nil ||
+		*got.Session.SessionDetails.Model != "anthropic/claude" || got.Session.Summary == nil ||
+		*got.Session.Summary != "Plan ready" || got.Session.SessionDetails.CompactionSeed != "Earlier work" {
+		t.Fatalf("v2 session detail = %#v", got.Session)
+	}
+	if !reflect.DeepEqual(got.Session.SessionDetails.Commands, []string{"git commit -m fix", "git log -1"}) {
+		t.Fatalf("v2 commands = %q", got.Session.SessionDetails.Commands)
+	}
+	if len(got.Session.CommitLog) != 1 || got.Session.CommitLog[0].Hash != "abc1234" {
+		t.Fatalf("v2 commit observations = %#v", got.Session.CommitLog)
+	}
+	if len(got.Session.Digest) < 2 || got.Session.Digest[1].Category != session.DigestPlan {
+		t.Fatalf("v2 plan digest = %#v", got.Session.Digest)
+	}
+}
+
+func TestV2IncompleteCompactionAndStreamingTool(t *testing.T) {
+	db := testDB(t)
+	for _, statement := range []string{
+		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
+		`INSERT INTO session_v2 VALUES ('ses_running', NULL, '/work', 'v2', NULL, NULL, NULL, NULL, 0, 100, 500, NULL)`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('u', 'ses_running', 'user', 1, 100, '{"text":"Continue","time":{"created":100}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('a', 'ses_running', 'assistant', 2, 200, '{"content":[{"type":"tool","name":"read","state":{"status":"streaming","input":"file"}}],"time":{"created":200,"completed":300}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('c', 'ses_running', 'compaction', 3, 400, '{"status":"running","summary":"Not yet saved","time":{"created":400}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('s', 'ses_running', 'shell', 4, 500, '{"command":"git status","status":"exited","exit":1,"time":{"created":500,"completed":510}}')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parsed, skipped, err := load(db, activeFamiliesQuery)
+	if err != nil || len(skipped) != 0 || len(parsed) != 1 {
+		t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
+	}
+	if !parsed[0].InTurn || parsed[0].Session.SessionDetails.Compactions != 0 ||
+		parsed[0].Session.SessionDetails.Errors != 1 ||
+		parsed[0].Session.SessionDetails.CompactionSeed != "" {
+		t.Fatalf("incomplete v2 session = %#v", parsed[0].Session)
+	}
+}
+
 func TestMalformedV2ContentSkipsOnlyItsFamily(t *testing.T) {
 	for _, content := range []string{`{"type":"tool","name":3}`, `{"type":"tool","time":{"completed":"bad"}}`} {
 		t.Run(content, func(t *testing.T) {
 			db := testDB(t)
 			for _, statement := range []string{
 				`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
-				`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, data TEXT)`,
+				`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
 				`INSERT INTO session_v2 VALUES ('bad', NULL, '/work', 'bad', NULL, NULL, NULL, NULL, 0, 100, 200, NULL)`,
 				`INSERT INTO session_v2 VALUES ('good', NULL, '/work', 'good', NULL, NULL, NULL, NULL, 0, 100, 200, NULL)`,
-				`INSERT INTO session_message VALUES ('good-message', 'good', 'user', 1, 100, '{"text":"hello"}')`,
+				`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('good-message', 'good', 'user', 1, 100, '{"text":"hello"}')`,
 			} {
 				if _, err := db.Exec(statement); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if _, err := db.Exec(`INSERT INTO session_message VALUES ('bad-message', 'bad', 'assistant', 1, 100, ?)`, `{"content":[`+content+`]}`); err != nil {
+			if _, err := db.Exec(`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('bad-message', 'bad', 'assistant', 1, 100, ?)`, `{"content":[`+content+`]}`); err != nil {
 				t.Fatal(err)
 			}
 			parsed, skipped, err := load(db, activeFamiliesQuery)

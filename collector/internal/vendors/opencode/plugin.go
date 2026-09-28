@@ -173,6 +173,9 @@ func pluginSourceForVersion(version string) []byte {
 func openCodeMajor(version string) int {
 	for _, field := range strings.Fields(version) {
 		field = strings.TrimPrefix(field, "v")
+		if strings.HasPrefix(field, "0.0.0-beta-") || strings.HasPrefix(field, "0.0.0-next-") {
+			return 2
+		}
 		major, _, found := strings.Cut(field, ".")
 		if !found {
 			continue
