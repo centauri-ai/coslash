@@ -138,7 +138,17 @@ func RemoteReviewerOptions(ctx context.Context, alias string) ([]ReviewerOption,
 	if err != nil {
 		return nil, err
 	}
-	probe := `PATH="$HOME/.local/bin:$PATH"; export PATH; if command -v claude >/dev/null 2>&1; then printf 'claude\n'; fi; if command -v codex >/dev/null 2>&1; then printf 'codex\n'; fi`
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	probe := `PATH="$HOME/.local/bin:$PATH"; export PATH; `
+	for _, option := range ReviewerOptions()[:2] {
+		args, flags := reviewHelpRequirements(option.ID)
+		probe += `if command -v ` + option.Executable + ` >/dev/null 2>&1; then help=$(` + shellJoin(append([]string{option.Executable}, args...)...) + ` 2>/dev/null | head -c 65536); supported=1; `
+		for _, flag := range flags {
+			probe += `case "$help" in *` + shellQuote(flag) + `*) ;; *) supported=0;; esac; `
+		}
+		probe += `if [ "$supported" -eq 1 ]; then printf '` + option.ID + `\n'; fi; fi; `
+	}
 	command := reviewCommandContext(ctx, "ssh", remoteReviewSSHArgs(destination, probe)...)
 	configureReviewProcess(command)
 	output := boundedBuffer{limit: 128}
@@ -176,6 +186,40 @@ func ReviewerAvailable(reviewer string) bool {
 		}
 	}
 	return false
+}
+
+func reviewHelpRequirements(reviewer string) ([]string, []string) {
+	switch reviewer {
+	case vendors.AgentClaude:
+		return []string{"--help"}, []string{"--safe-mode", "--restricted", "--strict-mcp-config", "--tools"}
+	case vendors.AgentCodex:
+		return []string{"exec", "--help"}, []string{"--ephemeral", "--ignore-user-config", "--ignore-rules", "--disable", "--sandbox"}
+	default:
+		return nil, nil
+	}
+}
+
+func ReviewCLIAvailable(reviewer string) bool {
+	args, flags := reviewHelpRequirements(reviewer)
+	if len(flags) == 0 {
+		return ReviewerAvailable(reviewer)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := reviewCommandContext(ctx, reviewer, args...)
+	output := boundedBuffer{limit: 64 << 10}
+	command.Stdout = &output
+	command.Stderr = &boundedBuffer{limit: 1024}
+	command.WaitDelay = time.Second
+	if agentexec.Run(command) != nil || output.truncated {
+		return false
+	}
+	for _, flag := range flags {
+		if !strings.Contains(output.String(), flag) {
+			return false
+		}
+	}
+	return true
 }
 
 type reviewCommandSpec struct {

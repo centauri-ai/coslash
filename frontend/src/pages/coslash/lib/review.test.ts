@@ -68,7 +68,7 @@ it('distinguishes stale host guidance from retryable reviewer checks', () => {
     retryable: true,
   });
   expect(remoteReviewAvailability(machine, { state: 'ready', reviewers: [] })).toEqual({
-    reason: 'Install Claude Code CLI or Codex CLI on the SSH host, then retry the check.',
+    reason: 'Install or update Claude Code CLI or Codex CLI on the SSH host, then retry the check.',
     retryable: true,
   });
   const stale = { ...machine, state: 'stale', reason: 'broader_history' } as MachineFact;

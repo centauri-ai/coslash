@@ -759,7 +759,7 @@ func handleRemoteReview(
 		return
 	}
 	if !slices.ContainsFunc(available, func(option launch.ReviewerOption) bool { return option.ID == reviewer }) {
-		http.Error(w, "reviewer CLI is not installed on the SSH host", http.StatusConflict)
+		http.Error(w, "reviewer CLI is not installed or supported on the SSH host", http.StatusConflict)
 		return
 	}
 	if r.Context().Err() != nil {
@@ -863,7 +863,7 @@ func writeSettings(w http.ResponseWriter, state settings.State) {
 	}
 	for _, option := range launch.ReviewerOptions() {
 		response.Options.Reviewers = append(response.Options.Reviewers, availableReviewer{
-			ID: option.ID, Label: option.Label, Available: launch.ReviewerAvailable(option.ID),
+			ID: option.ID, Label: option.Label, Available: launch.ReviewCLIAvailable(option.ID),
 		})
 	}
 	writeJSON(w, response)

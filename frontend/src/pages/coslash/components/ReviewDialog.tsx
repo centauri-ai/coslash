@@ -168,7 +168,7 @@ export function ReviewDialog({
               disabled={disabled || active || unavailableReason != null || reviewers.length === 0}
               title={
                 unavailableReason ??
-                (reviewers.length === 0 ? 'Install a supported agent to start a review.' : undefined)
+                (reviewers.length === 0 ? 'Install or update a supported reviewer CLI.' : undefined)
               }
               onClick={(event) => event.stopPropagation()}
             >

@@ -227,6 +227,35 @@ func TestRemoteReviewerOptionsExcludeOpenCode(t *testing.T) {
 	}
 }
 
+func TestReviewCLIAvailableRequiresReviewFlags(t *testing.T) {
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	var binary string
+	var arguments []string
+	reviewCommandContext = func(ctx context.Context, bin string, args ...string) *exec.Cmd {
+		binary, arguments = bin, args
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestReviewResultHelper")
+	}
+	for _, test := range []struct {
+		reviewer string
+		help     string
+		want     bool
+	}{
+		{"claude", "--safe-mode --restricted --strict-mcp-config --tools", true},
+		{"claude", "--safe-mode --strict-mcp-config --tools", false},
+		{"codex", "--ephemeral --ignore-user-config --ignore-rules --disable --sandbox", true},
+		{"codex", "--ephemeral --ignore-user-config --ignore-rules --sandbox", false},
+	} {
+		t.Setenv("REVIEW_RESULT_OUTPUT", test.help)
+		if got := ReviewCLIAvailable(test.reviewer); got != test.want {
+			t.Errorf("ReviewCLIAvailable(%q) = %v, want %v for %q", test.reviewer, got, test.want, test.help)
+		}
+		if binary != test.reviewer || len(arguments) == 0 || arguments[len(arguments)-1] != "--help" {
+			t.Errorf("help command = %q %q", binary, arguments)
+		}
+	}
+}
+
 func TestReviewResultHelper(t *testing.T) {
 	if output := os.Getenv("REVIEW_RESULT_OUTPUT"); output != "" {
 		_, _ = os.Stdout.WriteString(output)

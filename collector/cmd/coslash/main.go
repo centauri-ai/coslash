@@ -310,7 +310,7 @@ func routes(
 			}
 			return found, err
 		}
-		handleReview(w, r, settingsStore, getSession, launch.ReviewerAvailable, reviewManager.Start)
+		handleReview(w, r, settingsStore, getSession, launch.ReviewCLIAvailable, reviewManager.Start)
 	})
 	api.HandleFunc("GET /api/reviews", func(w http.ResponseWriter, r *http.Request) {
 		handleReviewStatus(w, r, reviewManager)
