@@ -193,7 +193,12 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 func discoveredEntries(sessions []*session.Session, installID string, claudeRevisions map[string]string) []Entry {
 	found := make([]Entry, 0, len(sessions))
 	for _, item := range sessions {
-		if item == nil || (item.Agent != "codex" && item.Agent != "claude" && item.Agent != "opencode") || item.ID == "" || item.ParentSessionID != "" {
+		if item == nil || (item.Agent != "codex" && item.Agent != "claude" && item.Agent != "opencode" && item.Agent != "cursor") ||
+			item.ID == "" || item.ParentSessionID != "" {
+			continue
+		}
+		// A Cursor card is eligible only with an unambiguous IDE or CLI lane.
+		if item.Agent == "cursor" && (item.Entrypoint == nil || (*item.Entrypoint != "cursor-ide" && *item.Entrypoint != "cursor-cli")) {
 			continue
 		}
 		revision := item.DetailRevision
@@ -207,6 +212,20 @@ func discoveredEntries(sessions []*session.Session, installID string, claudeRevi
 		})
 	}
 	return found
+}
+
+// agentLabel names a synced agent for fallback session titles.
+func agentLabel(agent string) string {
+	switch agent {
+	case "claude":
+		return "Claude"
+	case "cursor":
+		return "Cursor"
+	case "opencode":
+		return "OpenCode"
+	default:
+		return "Codex"
+	}
 }
 
 func stopSync(err error) bool {
@@ -251,7 +270,7 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 		Title: stringValue(item.Name), Summary: stringValue(item.Summary), Repo: stringValue(item.Repository),
 		Branch: stringValue(item.Branch), CWDLabel: cwdLabel(item.WorkingDirectory)}
 	if meta.Title == "" {
-		meta.Title = item.Agent + " session"
+		meta.Title = agentLabel(item.Agent) + " session"
 	}
 	if item.StartedAt > 0 {
 		t := time.UnixMilli(item.StartedAt).UTC()

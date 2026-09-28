@@ -6,10 +6,12 @@ integration SHA `b39c4e942c9f1c8ed9bc78cc835c773c630f7685`.
 The additive Local check-in and command consumer is `local-device-v4/1`, pinned
 to server `device-v4/2` at `e52bf98faa2b584a4ff0947358d1d7a84f2206cc`.
 
-The scheduler discovers local Codex, Claude, and OpenCode families. A source exporter may
-join this queue only after it produces a complete, verified family through
-`sessionbackupproducer`; parsed cards alone are ineligible. Claude SSH relay
-discovery and the other vendor exporters have separate owners. The install ID belongs to
+The scheduler discovers local Codex, Claude, OpenCode, and Cursor IDE/CLI
+families. A source exporter may join this queue only after it produces a
+complete, verified family through `sessionbackupproducer`; parsed cards alone
+are ineligible. SSH relay discovery and the remaining vendor exporters have
+separate owners. A Cursor card without an unambiguous IDE or CLI entrypoint is
+ineligible. The install ID belongs to
 the private v4 queue, independently of the paired credential. A credential or
 Hub change clears upload and completion state while retaining the install ID.
 

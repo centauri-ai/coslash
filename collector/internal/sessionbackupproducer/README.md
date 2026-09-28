@@ -1,8 +1,9 @@
 # Complete-backup producer
 
 `sessionbackupproducer` is the local owner of complete `session-backup/v1`
-capture. It supports local and SSH Codex plus local Claude and local OpenCode.
-Claude SSH, OpenCode SSH, and Cursor return the product-visible
+capture. It supports local and SSH Codex plus local Claude, local OpenCode,
+and local Cursor IDE/CLI sources. Claude SSH, OpenCode SSH, and Cursor SSH
+return the product-visible
 `complete_backup_unsupported` blocker and never produce a metadata-only bundle.
 
 `Manager.Start` exposes an asynchronous `preparing` state with `Status`,
@@ -40,6 +41,15 @@ workflow state, and workflow journal inputs. Present malformed or unstable
 inputs block completion. Parsed records and optional revision-matched persisted
 synthesis are built from the frozen files. A failed refresh keeps earlier
 verified spool revisions available.
+
+The Cursor producer binds each local transcript fragment to one session ID and
+projects only attributed rows from IDE `state.vscdb`, conversation search and
+tracking databases, or the CLI's per-session chat store. CLI `meta.json` is
+retained exactly because it supplies the working directory. The verified parsed
+record carries `cursor-ide` or `cursor-cli`: IDE continuation opens the
+workspace and never claims exact chat resume; CLI continuation may resume the
+specific chat. Missing, ambiguous, changing, or cross-session inputs block
+publication. Cursor SSH remains owned by the later relay task.
 
 Focused verification is:
 
