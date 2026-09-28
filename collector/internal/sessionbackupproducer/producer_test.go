@@ -114,7 +114,7 @@ func TestPrepareProducesVerifiedBoundedLocalAndSSHBundle(t *testing.T) {
 }
 
 func TestUnsupportedAgentsNeverOpenSourceOrPublishBundle(t *testing.T) {
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentOpenCode, vendors.AgentCursor} {
+	for _, agent := range []string{vendors.AgentOpenCode, vendors.AgentCursor} {
 		for _, sourceKind := range []string{sessionbackupv1.SourceLocal, sessionbackupv1.SourceSSH} {
 			t.Run(agent+"/"+sourceKind, func(t *testing.T) {
 				root := filepath.Join(t.TempDir(), "spool")
