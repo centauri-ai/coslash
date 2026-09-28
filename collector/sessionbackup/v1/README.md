@@ -14,8 +14,9 @@ backup.
 
 ## Producer and artifact inventory
 
-Complete backup v1 supports local Codex, SSH Codex, local Claude, and local
-OpenCode. Claude SSH, OpenCode SSH, and Cursor must surface the blocking code
+Complete backup v1 supports local Codex, SSH Codex, local Claude, local
+OpenCode, and local Cursor IDE/CLI. Claude SSH, OpenCode SSH, and Cursor SSH
+must surface the blocking code
 `complete_backup_unsupported`; they must not fall back to a metadata-only
 success. The table below specifies the Codex inputs.
 
@@ -52,11 +53,27 @@ For SSH, these inputs are reachable only through the existing allowlist:
 `.codex/session_index.jsonl`. A producer must not infer or open another remote
 Codex path.
 
+**Cursor producer handoff:** `cursor-complete-local/v1`. Local Cursor uses
+`agent=cursor` and requires `raw-transcript` plus
+`raw-metadata-rows` for every member. IDE rows come from the attributed
+`composerHeaders` and `cursorDiskKV` entries in `state.vscdb`, with matching
+conversation search and tracking rows when present. CLI rows come from the
+single per-session chat store whose `meta` agent ID matches the transcript;
+its exact `meta.json` is a `raw-sidecar`. Whole database files and unrelated
+rows are excluded. The parsed record's `entrypoint` is `cursor-ide` or
+`cursor-cli`. The former supports opening a workspace, never exact chat
+resume; the latter supports exact CLI chat resume. An ambiguous entrypoint or
+an absent, changing, or unattributable required source blocks completion.
+Cursor SSH collection remains unsupported until the relay path proves its
+allowlist and frozen source.
+Cursor manifests require `session-backup-db-rows/v1` in `requiredVersions`;
+Codex manifests continue to require only the original two versions.
+
 ## Canonical manifest and identity
 
 [`schema.json`](schema.json) is the language-neutral manifest shape and
 [`database-rows.schema.json`](database-rows.schema.json) defines the generic
-attributed shared-database projection reserved for a future named producer.
+attributed shared-database projection used by Cursor IDE and CLI.
 [`enrichment.schema.json`](enrichment.schema.json) and
 [`synthesis.schema.json`](synthesis.schema.json) pin the two processed
 documents. Canonical bytes are
@@ -128,8 +145,9 @@ must not assign a complete hash or present it as a verified manifest.
 
 Required semantic versions are closed for v1. Consumers reject a version they
 do not understand rather than guessing. `requiredVersions` is sorted and must
-contain both `full-session-record/v1` and `session-backup/v1`. OpenCode also
-requires `session-backup-db-rows/v1`; Codex prohibits it. This
+contain both `full-session-record/v1` and `session-backup/v1`. OpenCode and
+Cursor also require `session-backup-db-rows/v1`; Codex and Claude prohibit it.
+This
 is exercised by the published unknown-version fixture.
 
 The canonical manifest is limited to 64 MiB and 100,000 members and artifacts.

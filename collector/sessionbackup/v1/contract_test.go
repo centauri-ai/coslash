@@ -280,6 +280,36 @@ func TestValidateRejectsNilProblems(t *testing.T) {
 	}
 }
 
+// Each agent's source kind and database rows version are bound together:
+// only OpenCode and Cursor carry rows, and only Codex may come over SSH.
+func TestValidateBindsAgentSourceKindAndRowsVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent, kind, want string
+		rows                    bool
+	}{
+		{"claude with rows", "claude", SourceLocal, "database projection version mismatch", true},
+		{"codex with rows", "codex", SourceLocal, "database projection version mismatch", true},
+		{"opencode without rows", "opencode", SourceLocal, "database projection version mismatch", false},
+		{"cursor without rows", "cursor", SourceLocal, "database projection version mismatch", false},
+		{"claude over ssh", "claude", SourceSSH, "invalid source identity", false},
+		{"opencode over ssh", "opencode", SourceSSH, "invalid source identity", true},
+		{"cursor over ssh", "cursor", SourceSSH, "invalid source identity", true},
+		{"unknown agent", "gemini", SourceLocal, "invalid source identity", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest, _, _ := loadValidFixture(t)
+			manifest.Source.Agent, manifest.Source.Kind = tc.agent, tc.kind
+			manifest.RequiredVersions = []string{ParsedRecordVersion, SchemaVersion}
+			if tc.rows {
+				manifest.RequiredVersions = []string{ParsedRecordVersion, DatabaseRowsVersion, SchemaVersion}
+			}
+			if err := Validate(manifest); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Validate() error = %v; want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsNonCanonicalSiblingOrder(t *testing.T) {
 	manifest, _, _ := loadValidFixture(t)
 	childID := manifest.Members[1].MemberID
@@ -554,7 +584,7 @@ func TestInventoryAndProducerCoverageAreExplicit(t *testing.T) {
 	wantCoverage := map[string]bool{
 		"codex/local": true, "codex/ssh": true,
 		"claude/local": true, "claude/ssh": false,
-		"cursor/local": false, "cursor/ssh": false,
+		"cursor/local": true, "cursor/ssh": false,
 		"opencode/local": true, "opencode/ssh": false,
 	}
 	for _, status := range CoverageMatrix {
