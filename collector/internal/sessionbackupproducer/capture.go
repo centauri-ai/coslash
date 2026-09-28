@@ -34,7 +34,8 @@ type artifactWriter struct {
 }
 
 func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prepared, error) {
-	if selection.Agent != vendors.AgentCodex && !(selection.Agent == vendors.AgentClaude && selection.SourceKind == sessionbackupv1.SourceLocal) {
+	if selection.Agent != vendors.AgentCodex &&
+		!((selection.Agent == vendors.AgentClaude || selection.Agent == vendors.AgentOpenCode) && selection.SourceKind == sessionbackupv1.SourceLocal) {
 		return problem(selection, sessionbackupv1.ProblemUnsupported, "", false)
 	}
 	if selection.SourceKind != sessionbackupv1.SourceLocal && selection.SourceKind != sessionbackupv1.SourceSSH {
@@ -64,6 +65,17 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 		}
 	}()
 
+	if selection.Agent == vendors.AgentOpenCode {
+		prepared, err := manager.captureOpenCode(ctx, staging, selection)
+		if err != nil {
+			var captureErr *captureError
+			if errors.As(err, &captureErr) {
+				return problem(selection, captureErr.code, captureErr.kind, captureErr.retryable)
+			}
+			return problem(selection, sessionbackupv1.ProblemInvalid, "", false)
+		}
+		return manager.publish(ctx, staging, selection, prepared, &keep)
+	}
 	handle, err := manager.openSource(ctx, selection)
 	if err != nil || handle.Source == nil || handle.Home == "" {
 		return problem(selection, sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
@@ -80,6 +92,10 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 		return problem(selection, sessionbackupv1.ProblemInvalid, "", false)
 	}
 
+	return manager.publish(ctx, staging, selection, prepared, &keep)
+}
+
+func (manager *Manager) publish(ctx context.Context, staging string, selection Selection, prepared *Prepared, keep *bool) (*Prepared, error) {
 	destination := filepath.Join(manager.root, prepared.BundleID)
 	if _, err := os.Stat(destination); err == nil {
 		existing, openErr := manager.Open(prepared.BundleID)
@@ -100,7 +116,7 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 		_ = os.RemoveAll(destination)
 		return problem(selection, sessionbackupv1.ProblemUnavailable, "", true)
 	}
-	keep = true
+	*keep = true
 	prepared.ownsBundle = true
 	return prepared, nil
 }

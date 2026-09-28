@@ -97,22 +97,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			break
 		}
 	}
-	found := make([]Entry, 0, len(sessions))
-	for _, item := range sessions {
-		if item == nil || (item.Agent != "codex" && item.Agent != "claude") || item.ID == "" || item.ParentSessionID != "" {
-			continue
-		}
-		revision := item.DetailRevision
-		if item.Agent == "claude" {
-			revision += ":" + claudeRevisions[item.ID]
-		}
-		found = append(found, Entry{
-			Key:       localKey("local", item.Agent, item.ID),
-			Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: item.Agent, SessionID: item.ID},
-			Session:   sessionMetadata(item, r.Queue.InstallID()), Activity: item.LastActivityTime, SourceRevision: revision,
-		})
-	}
-	if err := r.Queue.Merge(found, r.now()); err != nil {
+	if err := r.Queue.Merge(discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions), r.now()); err != nil {
 		return err
 	}
 	for _, entry := range r.Queue.Entries() {
@@ -200,6 +185,28 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 	}
 	return firstErr
+}
+
+// discoveredEntries selects root sessions of the synced local agents. Child
+// sessions travel inside their root's family bundle. A Claude revision also
+// covers its sidecar files, whose changes the detail revision does not see.
+func discoveredEntries(sessions []*session.Session, installID string, claudeRevisions map[string]string) []Entry {
+	found := make([]Entry, 0, len(sessions))
+	for _, item := range sessions {
+		if item == nil || (item.Agent != "codex" && item.Agent != "claude" && item.Agent != "opencode") || item.ID == "" || item.ParentSessionID != "" {
+			continue
+		}
+		revision := item.DetailRevision
+		if item.Agent == "claude" {
+			revision += ":" + claudeRevisions[item.ID]
+		}
+		found = append(found, Entry{
+			Key:       localKey("local", item.Agent, item.ID),
+			Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: item.Agent, SessionID: item.ID},
+			Session:   sessionMetadata(item, installID), Activity: item.LastActivityTime, SourceRevision: revision,
+		})
+	}
+	return found
 }
 
 func stopSync(err error) bool {

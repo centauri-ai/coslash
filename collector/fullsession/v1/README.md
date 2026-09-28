@@ -68,7 +68,7 @@ A consumer must reject a record unless all of these rules hold:
   or a different identifier from `sessionId`. An identifier is 1 through 512
   UTF-8 bytes, has no leading or trailing whitespace, contains no slash or
   reverse solidus, and contains no Unicode code point U+0000 through U+0020 or
-  U+007F. `agent` is exactly `codex` or `claude`.
+  U+007F. `agent` is exactly `codex`, `claude`, or `opencode`.
 - `revisionId` is the lowercase hexadecimal SHA-256 described above. Every
   file-change `sha256` is likewise the lowercase SHA-256 of `text`, and every
   change ID is an identifier unique across the record.
