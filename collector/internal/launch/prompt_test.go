@@ -107,7 +107,7 @@ func TestCLICommandWithPromptStopsOptionParsing(t *testing.T) {
 	}
 	provideFakeExpect(t)
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode} {
 		for _, handoff := range []string{"", "context"} {
 			t.Run(agent+handoff, func(t *testing.T) {
 				command, handoffPath, err := cliCommandWithPrompt(

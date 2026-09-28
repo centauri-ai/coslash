@@ -1,27 +1,14 @@
-<p align="center">
-  <a href="https://coslash.io">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="frontend/public/brand/coslash-logo-reverse.svg">
-      <img src="frontend/public/brand/coslash-logo.svg" alt="coSlash" height="72">
-    </picture>
-  </a>
-</p>
+[![coSlash](frontend/public/brand/coslash-logo.svg)](https://coslash.io)
 
-<p align="center">
-  <b>The attention layer for coding agents. Run more agents, lose less context.</b>
-</p>
+**The attention layer for coding agents. Run more agents, lose less context.**
 
-<p align="center">
-  <a href="https://coslash.io"><b>coslash.io</b></a>
-</p>
+[coslash.io](https://coslash.io)
 
-<p align="center">
-  <a href="https://github.com/centauri-ai/coslash/actions/workflows/ci.yml"><img src="https://github.com/centauri-ai/coslash/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="collector/go.mod"><img src="https://img.shields.io/badge/Go-1.26.5-00ADD8?logo=go" alt="Go 1.26.5"></a>
-  <a href="frontend/.nvmrc"><img src="https://img.shields.io/badge/Node-24.4.1-339933?logo=node.js&amp;logoColor=white" alt="Node 24.4.1"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/centauri-ai/coslash" alt="License"></a>
-  <a href="https://github.com/centauri-ai/coslash/releases"><img src="https://img.shields.io/github/v/release/centauri-ai/coslash" alt="Latest release"></a>
-</p>
+[![CI](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml/badge.svg)](https://github.com/centauri-ai/coslash/actions/workflows/ci.yml)
+[![Go 1.26.5](https://img.shields.io/badge/Go-1.26.5-00ADD8?logo=go)](collector/go.mod)
+[![Node 24.4.1](https://img.shields.io/badge/Node-24.4.1-339933?logo=node.js&logoColor=white)](frontend/.nvmrc)
+[![License](https://img.shields.io/github/license/centauri-ai/coslash)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/centauri-ai/coslash)](https://github.com/centauri-ai/coslash/releases)
 
 Three agents are running. One finished twenty minutes ago, one is waiting on a question you never saw, and one has been quietly compacting its context on a branch whose name you've forgotten. coSlash reads their transcripts straight off your disk and turns them into a single board: what each session set out to do, what it decided, what it changed, and which ones need you next.
 
@@ -32,20 +19,11 @@ or explicitly approve a Hub share.
 
 **Early preview · macOS and Windows 11 amd64**
 
-<table>
-<tr>
-<td><b>Supported agents</b></td>
-<td>Claude Code · Codex / ChatGPT · Cursor · OpenCode · more to come</td>
-</tr>
-<tr>
-<td><b>Works with</b></td>
-<td>The desktop apps and the CLIs of each agent</td>
-</tr>
-<tr>
-<td><b>Reads</b></td>
-<td>Local transcripts and, optionally, one Linux host over read-only SFTP. No account, no daemon, no telemetry.</td>
-</tr>
-</table>
+| | |
+| --- | --- |
+| **Supported agents** | Claude Code · Codex / ChatGPT · Cursor · OpenCode · more to come |
+| **Works with** | The desktop apps and the CLIs of each agent |
+| **Reads** | Local transcripts and, optionally, one Linux host over read-only SFTP. No account, no daemon, no telemetry. |
 
 ## Install
 
@@ -73,8 +51,7 @@ coSlash serves <http://127.0.0.1:8787> and opens your browser with a fresh acces
 
 `brew upgrade coslash` updates it and `brew uninstall coslash` removes the binary. Uninstalling leaves your data in `~/.coslash`; delete that directory separately if you no longer want it.
 
-<details>
-<summary>Install a release archive manually</summary>
+#### Install a release archive manually
 
 ```sh
 VERSION="v0.0.1" # or the desired version tag
@@ -90,8 +67,6 @@ tar -xzf "${ASSET}"
 
 Release binaries are unsigned. macOS may warn about archives downloaded through a browser; the supported Homebrew install is unaffected.
 
-</details>
-
 ### Windows
 
 Open the [coSlash releases](https://github.com/centauri-ai/coslash/releases)
@@ -105,8 +80,7 @@ Move the executable to a permanent folder if desired. To upgrade, download the
 new release and replace the previous executable. Removing the executable
 uninstalls coSlash but leaves its data in `~\.coslash`.
 
-<details>
-<summary>Verify the Windows download checksum</summary>
+#### Verify the Windows download checksum
 
 Download `checksums-windows.txt` from the same release as the executable. Open
 Windows PowerShell in the directory containing both files, then run:
@@ -117,8 +91,6 @@ $Expected = (Select-String -Path checksums-windows.txt -Pattern "  $([regex]::Es
 $Actual = (Get-FileHash $Asset -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($Actual -ne $Expected) { throw "$Asset checksum does not match" }
 ```
-
-</details>
 
 Windows release binaries are not currently code-signed. Windows may display a
 SmartScreen warning; do not bypass an
@@ -132,10 +104,6 @@ contract and remaining manual checks.
 ### First run
 
 coSlash needs at least one local agent session to read. If it finds none, it says so and runs a checklist of every source it looked at — run Claude Code, Codex, Cursor (IDE or `agent` CLI), or OpenCode in a repo, take one turn, and re-run the checks. `coslash doctor` prints the same diagnostics from the terminal.
-
-<!-- MEDIA: the first-run screen with the diagnostics checklist. Small, but it's the
-     first thing a new user sees and it proves nothing is misconfigured.
-     Suggested: docs/media/first-run.png -->
 
 ### Optional Linux session monitoring
 
@@ -182,9 +150,7 @@ coSlash reads local Cursor IDE and Cursor CLI (`agent`) sessions. Cursor SDK ses
 
 **Resume** restores a Cursor CLI session exactly. For a Cursor IDE session, **Open Cursor** reopens its working directory but cannot restore a specific chat. **Start fresh with handoff** can launch Cursor CLI and send the brief with a Review or custom request. Cursor IDE exposes current context occupancy, not cumulative token usage; Cursor CLI does not persist reliable token or compaction data.
 
-<p align="center">
-  <img src="docs/media/list-and-board.gif" alt="Switching from list view to board view, then searching to filter sessions to one repository" width="900">
-</p>
+![Switching from list view to board view, then searching to filter sessions to one repository](docs/media/list-and-board.gif)
 
 ### States that tell you where to look
 
@@ -195,9 +161,7 @@ Every session sits in one of four states, and the header keeps a running count o
 - **Idle** — the session is live but nothing is happening.
 - **Inactive** — no live process; this is history you can still mine.
 
-<p align="center">
-  <img src="docs/media/attention-header.png" alt="Header strip showing session counts by vendor, estimated cost at list API prices, and Active / Waiting badges" width="900">
-</p>
+![Header strip showing session counts by vendor, estimated cost at list API prices, and Active / Waiting badges](docs/media/attention-header.png)
 
 ### An inspector that saves you from reading the transcript
 
@@ -208,9 +172,7 @@ Open any session and you get a reconstruction instead of a log:
 - **Artifacts** — files changed with per-file `+/−` and edit counts, commits, PRs, open and completed todos, and every shell command the session ran.
 - **Header facts** — model (and any model it switched from), turns, tool uses, errors, runtime, token breakdown, and whether the run was interactive or an autonomous SDK/exec run.
 
-<p align="center">
-  <img src="docs/media/inspector.gif" alt="Toggling timeline category chips to show or hide questions, todos, and other event types" width="560">
-</p>
+![Toggling timeline category chips to show or hide questions, todos, and other event types](docs/media/inspector.gif)
 
 ### Resume readiness, before you commit to resuming
 
@@ -224,9 +186,7 @@ Picking a session back up is not always the cheap option. Before you decide, coS
 
 A session that's 90% full, compacted twice, and 40 commits behind `main` is telling you to start fresh. One that's warm and 30% full is telling you to just resume.
 
-<p align="center">
-  <img src="docs/media/readiness.png" alt="Five-cell resume readiness strip: context used 85% in red, zero compactions, branch 7 ahead of main, working tree, and a cold prompt cache" width="900">
-</p>
+![Five-cell resume readiness strip: context used 85% in red, zero compactions, branch 7 ahead of main, working tree, and a cold prompt cache](docs/media/readiness.png)
 
 ### Three ways back in
 
@@ -239,25 +199,19 @@ Terminal is available, otherwise standalone Windows PowerShell. On macOS they
 use Apple Terminal or iTerm2, as configured in Settings.
 Interactive handoffs on macOS and Linux require the system `expect` command.
 
-<p align="center">
-  <img src="docs/media/handoff.gif" alt="Clicking Start fresh with handoff opens a new Claude Code terminal with the session brief loaded" width="900">
-</p>
+![Clicking Start fresh with handoff opens a new Claude Code terminal with the session brief loaded](docs/media/handoff.gif)
 
 ### Subagents, not just sessions
 
 Subagents appear on a rail under the parent that spawned them, with their model, status, tokens, and cost. Open one to see the task it was handed, the commands it ran, and the result it returned to its parent — the part that usually disappears into a single collapsed line in the transcript.
 
-<p align="center">
-  <img src="docs/media/subagents.png" alt="Subagent dialog showing the task, steps, and result returned to the parent session" width="640">
-</p>
+![Subagent dialog showing the task, steps, and result returned to the parent session](docs/media/subagents.png)
 
 ### Tokens and cost you can actually audit
 
 Per-model token breakdowns including cache reads and writes, estimated cost at list API prices, and totals rolled up per branch, per repo, and across the whole window. Models with no verified price are excluded from the total and flagged rather than guessed at, so the number is never quietly wrong. OpenCode sessions report their recorded cost instead of an estimate.
 
-<p align="center">
-  <img src="docs/media/cost.png" alt="Board rollup of token and cost totals per repository and branch" width="900">
-</p>
+![Board rollup of token and cost totals per repository and branch](docs/media/cost.png)
 
 ### Optional AI synthesis
 
@@ -268,9 +222,8 @@ When enabled, coSlash passes no more than 12 KB of derived facts to a local agen
 For OpenCode, the model list includes *OpenCode default for a new run* and, when the installed CLI supports listing them, free OpenCode Zen models. The default option passes no model. OpenCode v2 selects its current catalog default in a fresh, isolated process; v1 may instead use a model from the user's configuration. Either may differ from the model shown in an existing OpenCode session. If the resolved model is paid, it will bill your account per debrief.
 
 It is **off until you explicitly enable and save it**.
-<p align="center">
-  <img src="docs/media/settings-synthesis.png" alt="Settings dialog with AI synthesis enabled, OpenCode selected, and What synthesis sends expanded" width="520">
-</p>
+
+![Settings dialog with AI synthesis enabled, OpenCode selected, and What synthesis sends expanded](docs/media/settings-synthesis.png)
 
 ## Settings and data
 
@@ -297,7 +250,7 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 | `coslash --version` | Print the version. |
 | `coslash sessions [query] --json` | List local sessions as JSON, optionally filtering by title, repository, branch, or agent. A query that is an exact session ID or `<agent>:<session>` selector returns only that session without a full list. Requires the app to be running. |
 | `coslash handoff <agent>:<session>` | Print canonical handoff Markdown for the selector returned by `coslash sessions`. Requires the app to be running. |
-| `coslash send <agent>:<session> --to claude\|codex [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Requires the app to be running. |
+| `coslash send <agent>:<session> --to claude\|codex\|opencode [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Requires the app to be running. |
 | `coslash review <agent>:<session> --with claude\|codex\|opencode` | Start a review of the selected local session with the selected installed agent. Requires the app to be running. |
 | `coslash doctor` | Check session sources, agent CLIs, and local storage. |
 | `coslash doctor --json` | Print the same diagnostics as JSON — a shareable report. |
@@ -320,13 +273,21 @@ codex plugin marketplace add centauri-ai/coslash --ref stable
 codex plugin add coslash@centauri-ai
 ```
 
+For OpenCode, install the same skills from this repository:
+
+```sh
+npx skills@latest add centauri-ai/coslash -g -a opencode --skill '*' -y
+```
+
+Use `npx skills@latest ls -g -a opencode` to list them, `npx skills@latest update -g` to update them, or `npx skills@latest remove -g` to remove selected skills. The `coslash` executable must also be installed on `PATH`.
+
 The `sessions`, `handoff`, `send`, and `review` skills require the coSlash app to be running. `doctor` works while the app is stopped.
 
 The `stable` branch moves with each stable release, so the skills match the coSlash version that Homebrew and the install script ship. Update coSlash and the skills together. For Claude Code, run `claude plugin marketplace update centauri-ai`, then `claude plugin update coslash@centauri-ai`. For Codex, run `codex plugin marketplace upgrade`. If you added the marketplace without `stable`, remove it and add it again with the commands above.
 
 Codex runs skill commands with its own environment. A `shell_environment_policy` in `~/.codex/config.toml`, for example `inherit = "core"`, can drop a custom `COSLASH_HOME`. The skills then use `~/.coslash`: `doctor` reports that home without an error, and the other skills do not find an app that runs with the custom home, so they report `coSlash app is not running` or start a second app for `~/.coslash`. To keep a custom home, set it under `[shell_environment_policy.set]` as `COSLASH_HOME = "<path>"`. `coslash doctor --json` reports the `version` and `storage.home` that the skills use.
 
-## Develop
+## Development
 
 Building from source requires **Go 1.26+** and **Node 24+** (see `collector/go.mod` and `frontend/.nvmrc`). End users do not need these tools — use [Install](#install) above for a prebuilt binary.
 

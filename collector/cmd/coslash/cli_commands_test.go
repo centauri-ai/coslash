@@ -444,6 +444,21 @@ func TestRunHandoffAndSendPreserveServerOutcomes(t *testing.T) {
 	}
 }
 
+func TestRunSendOpenCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/send" || r.URL.Query().Get("to") != "opencode" {
+			t.Fatalf("request = %s", r.URL.String())
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"send", "codex:session-1", "--to", "opencode"}); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	for _, test := range []struct {
 		command string
@@ -451,7 +466,7 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	}{
 		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json\n"},
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
-		{"send", "usage: coslash send <agent>:<session> --to claude|codex [message]\n"},
+		{"send", "usage: coslash send <agent>:<session> --to claude|codex|opencode [message]\n"},
 		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode | coslash review status <agent>:<session> --json\n"},
 		{"doctor", "usage: coslash doctor [--json]\n"},
 	} {

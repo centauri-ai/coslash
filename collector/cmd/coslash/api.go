@@ -468,8 +468,8 @@ func handleSend(
 	open promptLauncher,
 ) {
 	target := r.URL.Query().Get("to")
-	if target != vendors.AgentClaude && target != vendors.AgentCodex {
-		http.Error(w, "target must be claude or codex", http.StatusBadRequest)
+	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode {
+		http.Error(w, "target must be claude, codex, or opencode", http.StatusBadRequest)
 		return
 	}
 	if !targetAvailable(target) {
