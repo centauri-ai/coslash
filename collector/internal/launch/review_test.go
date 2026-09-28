@@ -40,8 +40,8 @@ func TestReviewCLICommands(t *testing.T) {
 		"opencode": {
 			bin:   "opencode",
 			args:  []string{"run", "--pure", "--title", name},
-			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
-			stdin: prompt,
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		},
 		"cursor": func() reviewCommandSpec {
 			spec := cursorReviewCommand(prompt)

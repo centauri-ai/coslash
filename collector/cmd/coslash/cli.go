@@ -232,7 +232,7 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		case "handoff":
 			fmt.Fprintln(stdout, "usage: coslash handoff <agent>:<session>")
 		case "send":
-			fmt.Fprintln(stdout, "usage: coslash send <agent>:<session> --to claude|codex [message]")
+			fmt.Fprintln(stdout, "usage: coslash send <agent>:<session> --to claude|codex|opencode [message]")
 		case "review":
 			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode | coslash review status <agent>:<session> --json")
 		case "doctor":
@@ -427,15 +427,15 @@ func runHandoff(stdout io.Writer, args []string) error {
 
 func runSend(stdout io.Writer, args []string) error {
 	if len(args) < 3 || args[1] != "--to" {
-		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex [message]")
+		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex|opencode [message]")
 	}
 	agent, id, ok := parseLocalSessionSelector(args[0])
 	if !ok {
-		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex [message]")
+		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex|opencode [message]")
 	}
 	target := args[2]
-	if target != "claude" && target != "codex" {
-		return fmt.Errorf("--to must be claude or codex")
+	if target != "claude" && target != "codex" && target != "opencode" {
+		return fmt.Errorf("--to must be claude, codex, or opencode")
 	}
 	message := strings.Join(args[3:], " ")
 	client, err := newLocalAPIClient()

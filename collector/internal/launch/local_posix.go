@@ -130,7 +130,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		guard := "cat " + shellQuote(path) + " > /dev/null && "
 		command := guard + "OPENCODE_CONFIG_CONTENT=" + shellQuote(string(config)) + " " + shellJoin(cli)
 		if prompt != "" {
-			command += " " + shellQuote(prompt)
+			command += " " + shellQuote("--prompt="+prompt)
 		}
 		return withCleanup(command, path), path, nil
 	case vendors.AgentCursor:

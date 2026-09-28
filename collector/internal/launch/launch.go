@@ -139,7 +139,15 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 	if err := ValidateWorkingDirectory(workingDirectory); err != nil {
 		return "", err
 	}
-	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, request.Prompt)
+	prompt := request.Prompt
+	if request.Reviewer == vendors.AgentOpenCode {
+		snapshot, err := reviewGitSnapshot(ctx, workingDirectory)
+		if err != nil {
+			return "", err
+		}
+		prompt += snapshot
+	}
+	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -181,6 +189,31 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 	return result, nil
 }
 
+func reviewGitSnapshot(ctx context.Context, workingDirectory string) (string, error) {
+	var snapshot strings.Builder
+	snapshot.WriteString("\nBEGIN UNTRUSTED WORKTREE DATA\n")
+	for _, args := range [][]string{{"status", "--short"}, {"diff", "--no-ext-diff", "--no-textconv"}, {"diff", "--cached", "--no-ext-diff", "--no-textconv"}} {
+		command := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false"}, args...)...)
+		command.Dir = workingDirectory
+		command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+		output := boundedBuffer{limit: 64 << 10}
+		command.Stdout = &output
+		command.Stderr = &output
+		snapshot.WriteString("git " + strings.Join(args, " ") + ":\n")
+		if err := command.Run(); err != nil {
+			snapshot.WriteString("unavailable\n")
+			continue
+		}
+		snapshot.WriteString(output.String())
+		if output.truncated {
+			return "", errors.New("review: working tree snapshot exceeds 64 KiB per Git command")
+		}
+		snapshot.WriteByte('\n')
+	}
+	snapshot.WriteString("END UNTRUSTED WORKTREE DATA\n")
+	return snapshot.String(), nil
+}
+
 func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
 	switch reviewer {
 	case vendors.AgentClaude:
@@ -191,8 +224,8 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 		return reviewCommandSpec{
 			bin:   "opencode",
 			args:  []string{"run", "--pure", "--title", name},
-			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
-			stdin: prompt,
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		}, nil
 	case vendors.AgentCursor:
 		spec := cursorReviewCommand(prompt)

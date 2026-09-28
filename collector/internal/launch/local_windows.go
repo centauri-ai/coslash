@@ -305,7 +305,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 			"$previousOpenCodeConfigContent = $env:OPENCODE_CONFIG_CONTENT; "
 		command := "$env:OPENCODE_CONFIG_CONTENT = " + powerShellQuote(string(config)) + "; " + localCommandJoin(cli)
 		if prompt != "" {
-			command += " " + powerShellQuote(prompt)
+			command += " " + powerShellQuote("--prompt="+prompt)
 		}
 		restore := "if ($hadOpenCodeConfigContent) { $env:OPENCODE_CONFIG_CONTENT = $previousOpenCodeConfigContent } else { " +
 			"Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue }; " + powerShellRemove(path)
