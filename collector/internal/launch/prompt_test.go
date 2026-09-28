@@ -44,6 +44,7 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("secure interactive prompts require a POSIX terminal")
 	}
+	provideFakeExpect(t)
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode, vendors.AgentCursor} {
 		t.Run(agent, func(t *testing.T) {
@@ -104,6 +105,7 @@ func TestCLICommandWithPromptStopsOptionParsing(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("secure interactive prompts require a POSIX terminal")
 	}
+	provideFakeExpect(t)
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
 		for _, handoff := range []string{"", "context"} {
@@ -127,9 +129,10 @@ func TestCLICommandWithPromptStopsOptionParsing(t *testing.T) {
 }
 
 func TestClaudeMultilineRequestWaitsBeforeSubmitting(t *testing.T) {
-	if !securePromptAvailable() {
-		t.Skip("secure terminal relay unavailable")
+	if runtime.GOOS == "windows" {
+		t.Skip("secure interactive prompts require a POSIX terminal")
 	}
+	provideFakeExpect(t)
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	command, path, err := cliCommandWithPrompt(vendors.AgentClaude, "", NewSession, "prior notes", "coSlash handoff ID: test\n\nrequest")
 	if err != nil {
@@ -139,6 +142,15 @@ func TestClaudeMultilineRequestWaitsBeforeSubmitting(t *testing.T) {
 	if !strings.Contains(command, `after 2000; send -- "\r"`) {
 		t.Fatalf("multiline Claude request submits before the paste settles: %q", command)
 	}
+}
+
+func provideFakeExpect(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "expect"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func TestSecurePromptRequiresExpect(t *testing.T) {
