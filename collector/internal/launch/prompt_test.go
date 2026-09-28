@@ -74,6 +74,9 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 				t.Fatalf("staged prompt = %q, err = %v", contents, err)
 			}
 			if agent == vendors.AgentClaude {
+				if !strings.Contains(command, "unset CLAUDE_CODE_CHILD_SESSION") {
+					t.Fatalf("Claude handoff can inherit a child-session marker: %q", command)
+				}
 				if strings.Contains(string(contents), "private prior notes") {
 					t.Fatalf("Claude user prompt contains prior context: %q", contents)
 				}
