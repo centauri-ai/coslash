@@ -553,7 +553,7 @@ func TestInventoryAndProducerCoverageAreExplicit(t *testing.T) {
 	}
 	wantCoverage := map[string]bool{
 		"codex/local": true, "codex/ssh": true,
-		"claude/local": false, "claude/ssh": false,
+		"claude/local": true, "claude/ssh": false,
 		"cursor/local": false, "cursor/ssh": false,
 		"opencode/local": false, "opencode/ssh": false,
 	}

@@ -20,6 +20,8 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
@@ -81,15 +83,33 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err != nil {
 		return err
 	}
+	var claudeRevisions map[string]string
+	for _, item := range sessions {
+		if item != nil && item.Agent == "claude" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			claudeRevisions, err = claude.LocalSourceRevisions(ctx, vendors.LocalReadSource, home)
+			if err != nil {
+				return err
+			}
+			break
+		}
+	}
 	found := make([]Entry, 0, len(sessions))
 	for _, item := range sessions {
-		if item == nil || item.Agent != "codex" || item.ID == "" {
+		if item == nil || (item.Agent != "codex" && item.Agent != "claude") || item.ID == "" || item.ParentSessionID != "" {
 			continue
 		}
+		revision := item.DetailRevision
+		if item.Agent == "claude" {
+			revision += ":" + claudeRevisions[item.ID]
+		}
 		found = append(found, Entry{
-			Key:       localKey("local", "codex", item.ID),
-			Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: "codex", SessionID: item.ID},
-			Session:   sessionMetadata(item, r.Queue.InstallID()), Activity: item.LastActivityTime, SourceRevision: item.DetailRevision,
+			Key:       localKey("local", item.Agent, item.ID),
+			Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: item.Agent, SessionID: item.ID},
+			Session:   sessionMetadata(item, r.Queue.InstallID()), Activity: item.LastActivityTime, SourceRevision: revision,
 		})
 	}
 	if err := r.Queue.Merge(found, r.now()); err != nil {
@@ -224,7 +244,7 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 		Title: stringValue(item.Name), Summary: stringValue(item.Summary), Repo: stringValue(item.Repository),
 		Branch: stringValue(item.Branch), CWDLabel: cwdLabel(item.WorkingDirectory)}
 	if meta.Title == "" {
-		meta.Title = "Codex session"
+		meta.Title = item.Agent + " session"
 	}
 	if item.StartedAt > 0 {
 		t := time.UnixMilli(item.StartedAt).UTC()

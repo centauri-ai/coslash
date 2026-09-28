@@ -15,8 +15,8 @@ Three agents are running. One finished twenty minutes ago, one is waiting on a q
 Then it gets you back in — resume a session in its own terminal with full context, or copy a handoff brief and pick it up cold somewhere else.
 
 Local collection runs on your machine. Session data leaves it when you
-explicitly approve a Hub share or enable experimental v4 Codex sync. A
-separately authorized remote Hub MCP connection lets your agent query Hub
+explicitly approve a Hub share or enable experimental v4 Codex or Claude sync.
+A separately authorized remote Hub MCP connection lets your agent query Hub
 sessions; synthesis uses the selected agent CLI. See [data and
 privacy](docs/data-and-privacy.md).
 

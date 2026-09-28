@@ -21,6 +21,9 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
+	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
 const fixtureRootID = "11111111-2222-3333-4444-555555555555"
@@ -57,6 +60,36 @@ func fixtureBundle(t *testing.T) (*sessionbackupproducer.Manager, *sessionbackup
 
 func TestCodexV4HTTPResumeAndNoUnchangedBytes(t *testing.T) {
 	manager, prepared, spool := fixtureBundle(t)
+	runV4HTTPResume(t, manager, prepared, spool, "Fixture Codex", true)
+}
+
+func TestClaudeV4HTTPRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	workspace := filepath.Join(home, "project")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(claude.ProjectsRoot(home), "project")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	row := fmt.Sprintf(`{"sessionId":%q,"type":"user","timestamp":"2026-09-28T11:00:00Z","cwd":%q,"message":{"content":"hello"}}`, fixtureRootID, workspace) + "\n"
+	if err := os.WriteFile(filepath.Join(root, fixtureRootID+".jsonl"), []byte(row), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spool := t.TempDir()
+	manager := sessionbackupproducer.New(sessionbackupproducer.Options{Root: spool, OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+		return sessionbackupproducer.SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentClaude, SessionID: fixtureRootID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runV4HTTPResume(t, manager, prepared, spool, "Fixture Claude", false)
+}
+
+func runV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prepared *sessionbackupproducer.Prepared, spool, name string, discover bool) {
+	t.Helper()
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	queueRoot := t.TempDir()
 	queue, err := Open(queueRoot)
@@ -64,9 +97,8 @@ func TestCodexV4HTTPResumeAndNoUnchangedBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	installID := queue.InstallID()
-	name := "Fixture Codex"
-	source := &session.Session{Agent: "codex", ID: fixtureRootID, Name: &name, StartedAt: now.Add(-time.Hour).UnixMilli(), LastActivityTime: now.UnixMilli()}
-	entry := Entry{Key: localKey("local", "codex", fixtureRootID), Selection: prepared.Selection,
+	source := &session.Session{Agent: prepared.Selection.Agent, ID: fixtureRootID, Name: &name, StartedAt: now.Add(-time.Hour).UnixMilli(), LastActivityTime: now.UnixMilli()}
+	entry := Entry{Key: localKey("local", source.Agent, fixtureRootID), Selection: prepared.Selection,
 		Session: sessionMetadata(source, installID), Activity: source.LastActivityTime, BundleID: prepared.BundleID}
 	if err := queue.Merge([]Entry{entry}, now); err != nil {
 		t.Fatal(err)
@@ -176,7 +208,12 @@ func TestCodexV4HTTPResumeAndNoUnchangedBytes(t *testing.T) {
 	defer server.Close()
 	base, _ := url.Parse(server.URL)
 	client := &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}, CollectorVersion: "0.0.3"}
-	runner := &Runner{Queue: queue, Backup: manager, Hub: client, Discover: func(context.Context) ([]*session.Session, error) { return []*session.Session{source}, nil },
+	runner := &Runner{Queue: queue, Backup: manager, Hub: client, Discover: func(context.Context) ([]*session.Session, error) {
+		if discover {
+			return []*session.Session{source}, nil
+		}
+		return nil, nil
+	},
 		Conditions: func(context.Context) (bool, int, error) { return false, -1, nil }, Now: func() time.Time { return now }}
 	if err := runner.SyncOnce(t.Context()); err == nil {
 		t.Fatal("interrupted upload unexpectedly completed")
