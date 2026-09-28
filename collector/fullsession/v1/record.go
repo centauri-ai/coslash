@@ -375,7 +375,7 @@ func Validate(record Record) error {
 
 func validate(record Record, requireRevision bool) error {
 	if record.SchemaVersion != SchemaVersion || !identifier(record.SourceID) ||
-		(record.Agent != "codex" && record.Agent != "claude" && record.Agent != "opencode") || !identifier(record.SessionID) ||
+		(record.Agent != "codex" && record.Agent != "claude" && record.Agent != "cursor" && record.Agent != "opencode") || !identifier(record.SessionID) ||
 		(record.ParentSessionID != "" && (!identifier(record.ParentSessionID) || record.ParentSessionID == record.SessionID)) {
 		return fmt.Errorf("%w: invalid envelope", ErrInvalid)
 	}

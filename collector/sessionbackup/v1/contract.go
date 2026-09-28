@@ -36,6 +36,7 @@ const (
 
 	ArtifactSourceCodex    = "codex"
 	ArtifactSourceClaude   = "claude"
+	ArtifactSourceCursor   = "cursor"
 	ArtifactSourceOpenCode = "opencode"
 	ArtifactSourceCoSlash  = "coslash"
 
@@ -170,7 +171,7 @@ var CoverageMatrix = []SupportStatus{
 	{Agent: "claude", SourceKind: SourceLocal, Supported: true},
 	{Agent: "opencode", SourceKind: SourceLocal, Supported: true},
 	{Agent: "claude", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
-	{Agent: "cursor", SourceKind: SourceLocal, BlockingCode: ProblemUnsupported},
+	{Agent: "cursor", SourceKind: SourceLocal, Supported: true},
 	{Agent: "cursor", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 	{Agent: "opencode", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 }
@@ -331,8 +332,15 @@ func validate(manifest Manifest, requireHash bool) error {
 	if !contains(manifest.RequiredVersions, SchemaVersion) || !contains(manifest.RequiredVersions, ParsedRecordVersion) {
 		return fmt.Errorf("%w: required version missing", ErrInvalid)
 	}
-	if (manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude && manifest.Source.Agent != ArtifactSourceOpenCode) ||
-		(manifest.Source.Agent == ArtifactSourceClaude && manifest.Source.Kind != SourceLocal) ||
+	// Exporters that capture database projections (OpenCode, Cursor) must carry
+	// the rows version; Codex and Claude never produce rows and must not.
+	usesRows := manifest.Source.Agent == ArtifactSourceOpenCode || manifest.Source.Agent == ArtifactSourceCursor
+	if contains(manifest.RequiredVersions, DatabaseRowsVersion) != usesRows {
+		return fmt.Errorf("%w: database projection version mismatch", ErrInvalid)
+	}
+	if (manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude &&
+		manifest.Source.Agent != ArtifactSourceOpenCode && manifest.Source.Agent != ArtifactSourceCursor) ||
+		(manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Kind != SourceLocal) ||
 		(manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
 		!identifier(manifest.Source.SourceID) || !identifier(manifest.Source.SourceRevision) {
 		return fmt.Errorf("%w: invalid source identity", ErrInvalid)
@@ -436,6 +444,10 @@ func validate(manifest Manifest, requireHash bool) error {
 		if kinds[KindParsedSessionRecord] != 1 || kinds[KindSessionEnrichment] != 1 {
 			return fmt.Errorf("%w: member %q has duplicate singleton artifacts", ErrInvalid, member.MemberID)
 		}
+		if (manifest.Source.Agent == "cursor" && kinds[KindRawMetadataRows] == 0) ||
+			(manifest.Source.Agent == "codex" && kinds[KindRawMetadataRows] != 0) {
+			return fmt.Errorf("%w: source metadata rows mismatch", ErrIncomplete)
+		}
 		if member.SynthesisRevisionMs > 0 && kinds[KindSynthesis] == 0 {
 			return fmt.Errorf("%w: member %q lacks required synthesis", ErrIncomplete, member.MemberID)
 		}
@@ -478,6 +490,10 @@ func validateArtifactContents(manifest Manifest, blobs map[string][]byte) error 
 		case KindSessionEnrichment:
 			if _, err := DecodeEnrichment(blob); err != nil {
 				return fmt.Errorf("%w: enrichment %q: %v", ErrInvalid, artifact.LogicalName, err)
+			}
+		case KindRawMetadataRows:
+			if _, err := DecodeDatabaseRows(blob, member.MemberID); err != nil {
+				return err
 			}
 		case KindSynthesis:
 			record, err := DecodeSynthesisRecord(blob)
