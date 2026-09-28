@@ -96,9 +96,11 @@ func TestRootV2RelativeDatabaseOverride(t *testing.T) {
 		t.Fatalf("relative v2 database = %q, error = %v", got, err)
 	}
 	t.Setenv("XDG_DATA_HOME", "")
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	got, err = RootContext(context.Background())
-	want := filepath.Join(os.Getenv("HOME"), ".local", "share", "opencode", "custom.db")
+	want := filepath.Join(home, ".local", "share", "opencode", "custom.db")
 	if err != nil || got != want {
 		t.Fatalf("relative v2 database without XDG = %q, want %q, error = %v", got, want, err)
 	}
