@@ -7,10 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/review"
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
 func TestReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
@@ -26,6 +28,10 @@ func TestReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
 func TestReviewCLICommands(t *testing.T) {
 	name := "Review — Bob's change (12345678)"
 	prompt := "Review Bob's change\nDo not edit."
+	sandbox := "enabled"
+	if runtime.GOOS == "windows" {
+		sandbox = "disabled"
+	}
 	tests := map[string]reviewCommandSpec{
 		"claude": {
 			bin:   "claude",
@@ -43,11 +49,11 @@ func TestReviewCLICommands(t *testing.T) {
 			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
 			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		},
-		"cursor": func() reviewCommandSpec {
-			spec := cursorReviewCommand(prompt)
-			spec.args = append(spec.args, "--sandbox", "enabled", "--trust")
-			return spec
-		}(),
+		"cursor": {
+			bin:   settings.CursorExecutable(),
+			args:  []string{"--print", "--mode=ask", "--sandbox", sandbox, "--trust", "--add-dir", "/repo", "--output-format", "text"},
+			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
+		},
 	}
 	for reviewer, want := range tests {
 		got, err := reviewCLICommand(reviewer, "/repo", name, prompt)
@@ -151,7 +157,7 @@ func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 		{ID: "claude", Label: "Claude Code", Executable: "claude"},
 		{ID: "codex", Label: "Codex", Executable: "codex"},
 		{ID: "opencode", Label: "OpenCode", Executable: "opencode"},
-		{ID: "cursor", Label: "Cursor CLI", Executable: "agent"},
+		{ID: "cursor", Label: "Cursor", Executable: settings.CursorExecutable()},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReviewerOptions() = %#v, want %#v", got, want)

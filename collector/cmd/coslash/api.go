@@ -468,8 +468,8 @@ func handleSend(
 	open promptLauncher,
 ) {
 	target := r.URL.Query().Get("to")
-	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode {
-		http.Error(w, "target must be claude, codex, or opencode", http.StatusBadRequest)
+	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode && target != vendors.AgentCursor {
+		http.Error(w, "target must be claude, codex, opencode, or cursor", http.StatusBadRequest)
 		return
 	}
 	if !targetAvailable(target) {
@@ -510,6 +510,17 @@ func handleSend(
 	if r.Context().Err() != nil {
 		return
 	}
+	if target == vendors.AgentCursor {
+		if err := launch.ValidateWorkingDirectory(found.WorkingDirectory); err != nil {
+			writeTerminalLaunchError(w, err)
+			return
+		}
+		if err := writeCursorClipboard(cursorClipboardText(handoff, message)); err != nil {
+			log.Printf("send: copy Cursor handoff: %v", err)
+			http.Error(w, "could not copy Cursor handoff", http.StatusInternalServerError)
+			return
+		}
+	}
 	if err := open(
 		r.Context(),
 		state.Config.Launch.Terminal,
@@ -521,6 +532,10 @@ func handleSend(
 		message,
 	); err != nil {
 		log.Printf("send: %v", err)
+		if target == vendors.AgentCursor {
+			http.Error(w, "could not launch Cursor; handoff remains on the clipboard", http.StatusInternalServerError)
+			return
+		}
 		writeTerminalLaunchError(w, err)
 		return
 	}

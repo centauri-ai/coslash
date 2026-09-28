@@ -250,8 +250,8 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 | `coslash --version` | Print the version. |
 | `coslash sessions [query] --json` | List local sessions as JSON, optionally filtering by title, repository, branch, or agent. A query that is an exact session ID or `<agent>:<session>` selector returns only that session without a full list. Requires the app to be running. |
 | `coslash handoff <agent>:<session>` | Print canonical handoff Markdown for the selector returned by `coslash sessions`. Requires the app to be running. |
-| `coslash send <agent>:<session> --to claude\|codex\|opencode [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Requires the app to be running. |
-| `coslash review <agent>:<session> --with claude\|codex\|opencode` | Start a review of the selected local session with the selected installed agent. Requires the app to be running. |
+| `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Cursor copies the handoff and task to the clipboard; paste them into the new Cursor CLI session. Requires the app to be running. |
+| `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor` | Start a review of the selected local session with the selected installed agent. Requires the app to be running. |
 | `coslash doctor` | Check session sources, agent CLIs, and local storage. |
 | `coslash doctor --json` | Print the same diagnostics as JSON — a shareable report. |
 
@@ -273,13 +273,13 @@ codex plugin marketplace add centauri-ai/coslash --ref stable
 codex plugin add coslash@centauri-ai
 ```
 
-For OpenCode, install the same skills from this repository:
+For Cursor CLI and OpenCode, install the same skills from this repository:
 
 ```sh
-npx skills@latest add centauri-ai/coslash -g -a opencode --skill '*' -y
+npx skills@latest add centauri-ai/coslash -g -a cursor -a opencode --skill '*' -y
 ```
 
-Use `npx skills@latest ls -g -a opencode` to list them, `npx skills@latest update -g` to update them, or `npx skills@latest remove -g` to remove selected skills. The `coslash` executable must also be installed on `PATH`.
+Use `npx skills@latest ls -g -a cursor -a opencode` to list them, `npx skills@latest update -g` to update them, or `npx skills@latest remove -g` to remove selected skills. The `coslash` executable must also be installed on `PATH`.
 
 The `sessions`, `handoff`, `send`, and `review` skills require the coSlash app to be running. `doctor` works while the app is stopped.
 

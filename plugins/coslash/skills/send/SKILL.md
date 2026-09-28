@@ -1,11 +1,11 @@
 ---
 name: send
-description: Use when a user wants to start a new Claude Code, Codex, or OpenCode session from a coSlash session.
+description: Use when a user wants to start a new Claude Code, Codex, OpenCode, or Cursor CLI session from a coSlash session.
 ---
 
 # coSlash send
 
-If the user means the current session, use `claude:$CLAUDE_CODE_SESSION_ID` in Claude Code or `codex:$CODEX_SESSION_ID` in Codex when that variable is set. If that variable is unset, list sessions for that agent. In OpenCode, run `coslash sessions --agent opencode --recent 20 --json`. Use a returned `selector` only when it uniquely identifies the intended session; if multiple sessions could match, ask the user to choose. Do not assume the newest session is current. For a named session, use the `selector` returned by `coslash sessions [query] --json`. Then run `coslash send <agent>:<session> --to claude|codex|opencode [message]` with the selected `selector`, the user's target, and optional message. The message is the task that the user gives to the target agent, for example "do an analysis". Pass the message as one quoted argument.
+If the user means the current session, use `claude:$CLAUDE_CODE_SESSION_ID` in Claude Code or `codex:$CODEX_SESSION_ID` in Codex when that variable is set. If that variable is unset, list sessions for that agent. In OpenCode, run `coslash sessions --agent opencode --recent 20 --json`; in Cursor CLI, run `coslash sessions --agent cursor --recent 20 --json`. Use a returned `selector` only when it uniquely identifies the intended session; if multiple sessions could match, ask the user to choose. Do not assume the newest session is current. For a named session, use the `selector` returned by `coslash sessions [query] --json`. Then run `coslash send <agent>:<session> --to claude|codex|opencode|cursor [message]` with the selected `selector`, the user's target, and optional message. The message is the task that the user gives to the target agent, for example "do an analysis". Pass the message as one quoted argument. For Cursor, the CLI copies the handoff and task to the clipboard and opens Cursor CLI; tell the user to paste them there.
 
 Use the `coslash` executable found on `PATH` and preserve the inherited `COSLASH_HOME`. Do not substitute a repository-relative binary or `go run` unless the user explicitly asks to test a source build.
 
