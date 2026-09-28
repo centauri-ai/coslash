@@ -14,10 +14,10 @@ backup.
 
 ## Producer and artifact inventory
 
-Complete backup v1 supports local Codex, SSH Codex, and local Claude. Claude
-SSH, Cursor, and OpenCode must surface `complete_backup_unsupported`; they
-must not fall back to a metadata-only success. The table below specifies the
-Codex inputs.
+Complete backup v1 supports local Codex, SSH Codex, local Claude, and local
+OpenCode. Claude SSH, OpenCode SSH, and Cursor must surface the blocking code
+`complete_backup_unsupported`; they must not fall back to a metadata-only
+success. The table below specifies the Codex inputs.
 
 The [local source and transport proof matrix](local-source-transport-proof-v1.md)
 records per-source evidence, build gaps, and the v4 compatibility boundary.
@@ -128,8 +128,8 @@ must not assign a complete hash or present it as a verified manifest.
 
 Required semantic versions are closed for v1. Consumers reject a version they
 do not understand rather than guessing. `requiredVersions` is sorted and must
-contain both `full-session-record/v1` and `session-backup/v1`; the optional
-database projection version does not make that projection a Codex input. This
+contain both `full-session-record/v1` and `session-backup/v1`. OpenCode also
+requires `session-backup-db-rows/v1`; Codex prohibits it. This
 is exercised by the published unknown-version fixture.
 
 The canonical manifest is limited to 64 MiB and 100,000 members and artifacts.
@@ -145,6 +145,14 @@ attribution column. Its only shared metadata source is
 below remains defined and separately tested so a future producer can name an
 allowed database and attribution rule without copying whole database files;
 it is not permission for HS-02 to open a Codex database locally or over SSH.
+
+Local OpenCode uses the `opencode` database label. For each family member the
+producer projects its selected `session` or `session_v2` row, rows with the
+member's `session_id`, and rows whose `message_id` joins an attributed message.
+It retains all source columns and SQLite storage classes, including fields the
+parser does not yet interpret. The projection and parsed record come from one
+read transaction; a database write during preparation blocks completion. SSH
+OpenCode remains unsupported until the SSH source relay is connected.
 
 Shared databases are projected, not copied. `session-backup-db-rows/v1` has a
 stable database label and tables sorted by name. Columns retain source schema

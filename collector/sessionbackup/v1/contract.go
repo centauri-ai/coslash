@@ -34,9 +34,10 @@ const (
 	SourceLocal = "local"
 	SourceSSH   = "ssh"
 
-	ArtifactSourceCodex   = "codex"
-	ArtifactSourceClaude  = "claude"
-	ArtifactSourceCoSlash = "coslash"
+	ArtifactSourceCodex    = "codex"
+	ArtifactSourceClaude   = "claude"
+	ArtifactSourceOpenCode = "opencode"
+	ArtifactSourceCoSlash  = "coslash"
 
 	KindRawTranscript       = "raw-transcript"
 	KindRawSidecar          = "raw-sidecar"
@@ -63,6 +64,7 @@ var (
 	ArtifactKinds = []string{
 		KindRawTranscript,
 		KindRawSidecar,
+		KindRawMetadataRows,
 		KindParsedSessionRecord,
 		KindExactChangeBody,
 		KindSessionEnrichment,
@@ -166,10 +168,10 @@ var CoverageMatrix = []SupportStatus{
 	{Agent: "codex", SourceKind: SourceLocal, Supported: true},
 	{Agent: "codex", SourceKind: SourceSSH, Supported: true},
 	{Agent: "claude", SourceKind: SourceLocal, Supported: true},
+	{Agent: "opencode", SourceKind: SourceLocal, Supported: true},
 	{Agent: "claude", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 	{Agent: "cursor", SourceKind: SourceLocal, BlockingCode: ProblemUnsupported},
 	{Agent: "cursor", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
-	{Agent: "opencode", SourceKind: SourceLocal, BlockingCode: ProblemUnsupported},
 	{Agent: "opencode", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 }
 
@@ -318,7 +320,7 @@ func validate(manifest Manifest, requireHash bool) error {
 	if manifest.SchemaVersion != SchemaVersion || manifest.CanonicalVersion != CanonicalVersion {
 		return fmt.Errorf("%w: unsupported manifest semantics", ErrInvalid)
 	}
-	knownVersions := map[string]bool{SchemaVersion: true, ParsedRecordVersion: true}
+	knownVersions := map[string]bool{SchemaVersion: true, ParsedRecordVersion: true, DatabaseRowsVersion: true}
 	previous := ""
 	for _, version := range manifest.RequiredVersions {
 		if !knownVersions[version] || version <= previous {
@@ -329,11 +331,15 @@ func validate(manifest Manifest, requireHash bool) error {
 	if !contains(manifest.RequiredVersions, SchemaVersion) || !contains(manifest.RequiredVersions, ParsedRecordVersion) {
 		return fmt.Errorf("%w: required version missing", ErrInvalid)
 	}
-	if (manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude) ||
+	if (manifest.Source.Agent != ArtifactSourceCodex && manifest.Source.Agent != ArtifactSourceClaude && manifest.Source.Agent != ArtifactSourceOpenCode) ||
 		(manifest.Source.Agent == ArtifactSourceClaude && manifest.Source.Kind != SourceLocal) ||
 		(manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
 		!identifier(manifest.Source.SourceID) || !identifier(manifest.Source.SourceRevision) {
 		return fmt.Errorf("%w: invalid source identity", ErrInvalid)
+	}
+	if (manifest.Source.Agent == "opencode" && (manifest.Source.Kind != SourceLocal || !contains(manifest.RequiredVersions, DatabaseRowsVersion))) ||
+		(manifest.Source.Agent == "codex" && contains(manifest.RequiredVersions, DatabaseRowsVersion)) {
+		return fmt.Errorf("%w: source contract version mismatch", ErrInvalid)
 	}
 	if !plainText(manifest.Repository.Canonical) || manifest.Repository.Canonical == "" || manifest.Repository.VCS != "git" ||
 		!identifier(manifest.Producer.Name) || !identifier(manifest.Producer.Version) || !identifier(manifest.Producer.ParserVersion) ||
@@ -394,6 +400,10 @@ func validate(manifest Manifest, requireHash bool) error {
 			(!strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != ArtifactSourceCoSlash) {
 			return fmt.Errorf("%w: artifact source does not match kind", ErrInvalid)
 		}
+		if (manifest.Source.Agent == "codex" && artifact.Kind == KindRawMetadataRows) ||
+			(manifest.Source.Agent == "opencode" && (artifact.Kind == KindRawTranscript || artifact.Kind == KindRawSidecar)) {
+			return fmt.Errorf("%w: artifact kind does not match agent", ErrInvalid)
+		}
 		sourceKey := artifact.MemberID + "\x00" + artifact.Kind + "\x00" + artifact.SourceKey
 		if seenSourceKeys[sourceKey] {
 			return fmt.Errorf("%w: duplicate artifact source key", ErrInvalid)
@@ -416,7 +426,11 @@ func validate(manifest Manifest, requireHash bool) error {
 	}
 	for _, member := range manifest.Members {
 		kinds := memberKinds[member.MemberID]
-		if kinds[KindParsedSessionRecord] == 0 || kinds[KindRawTranscript] == 0 || kinds[KindSessionEnrichment] == 0 {
+		rawKind := KindRawTranscript
+		if manifest.Source.Agent == "opencode" {
+			rawKind = KindRawMetadataRows
+		}
+		if kinds[KindParsedSessionRecord] == 0 || kinds[rawKind] == 0 || kinds[KindSessionEnrichment] == 0 {
 			return fmt.Errorf("%w: member %q lacks required artifacts", ErrIncomplete, member.MemberID)
 		}
 		if kinds[KindParsedSessionRecord] != 1 || kinds[KindSessionEnrichment] != 1 {
