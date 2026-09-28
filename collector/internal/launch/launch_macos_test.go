@@ -7,21 +7,24 @@ import (
 	"testing"
 )
 
-func TestTerminalScriptClearsSessionMarkersInPOSIXShells(t *testing.T) {
+func TestTerminalScriptClearsSessionMarkersInKnownShells(t *testing.T) {
 	command := "'claude' '--resume' 'id'"
 	original := "cd '/repo' && " + command
-	for _, shell := range []string{"/bin/zsh", "/bin/bash", "/bin/sh", "/opt/homebrew/bin/bash"} {
+	for shell, clear := range map[string]string{
+		"/bin/zsh": "unset ", "/bin/bash": "unset ", "/bin/sh": "unset ", "/opt/homebrew/bin/bash": "unset ",
+		"/opt/homebrew/bin/fish": "set --erase ",
+	} {
 		script := terminalScript(shell, "/repo", command)
 		prefix, rest, found := strings.Cut(script, "; ")
-		if !found || rest != original {
-			t.Fatalf("%s script = %q, want unset prefix then %q", shell, script, original)
+		if !found || rest != original || !strings.HasPrefix(prefix, clear) {
+			t.Fatalf("%s script = %q, want %q prefix then %q", shell, script, clear, original)
 		}
-		names := strings.Fields(strings.TrimPrefix(prefix, "unset "))
+		names := strings.Fields(strings.TrimPrefix(prefix, clear))
 		if !slices.Contains(names, "CLAUDE_CODE_CHILD_SESSION") || !slices.Contains(names, "CODEX_SESSION_ID") || slices.Contains(names, "CODEX_HOME") {
-			t.Fatalf("%s unset names = %q", shell, names)
+			t.Fatalf("%s cleared names = %q", shell, names)
 		}
 	}
-	for _, shell := range []string{"/opt/homebrew/bin/fish", ""} {
+	for _, shell := range []string{"/usr/local/bin/nu", ""} {
 		if script := terminalScript(shell, "/repo", command); script != original {
 			t.Fatalf("%q script = %q, want %q", shell, script, original)
 		}
