@@ -29,6 +29,7 @@ func cursorReviewCommand(prompt string) reviewCommandSpec {
 func interactivePromptCommand(agent, cli, handoff, prompt string) (string, string, error) {
 	base := shellJoin(cli)
 	if agent == vendors.AgentClaude {
+		base = "unset CLAUDE_CODE_CHILD_SESSION; " + base
 		context := ""
 		if handoff != "" {
 			context = handoffPreamble + handoff
