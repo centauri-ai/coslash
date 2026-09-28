@@ -180,7 +180,7 @@ Search local sessions by title, repo, branch, agent, prompt, recap, summary, goa
 
 coSlash reads local Cursor IDE and Cursor CLI (`agent`) sessions. Cursor SDK sessions and remote Cursor collection are not supported.
 
-**Resume** restores a Cursor CLI session exactly. For a Cursor IDE session, **Open Cursor** reopens its working directory but cannot restore a specific chat. **Start fresh with handoff** copies the brief to the clipboard. For Cursor IDE, it opens the workspace; create a fresh chat and paste the brief there. For Cursor CLI, it launches a new `agent` session; paste the brief into that session. Cursor cannot load the brief automatically. Cursor IDE exposes current context occupancy, not cumulative token usage; Cursor CLI does not persist reliable token or compaction data.
+**Resume** restores a Cursor CLI session exactly. For a Cursor IDE session, **Open Cursor** reopens its working directory but cannot restore a specific chat. **Start fresh with handoff** can launch Cursor CLI and send the brief with a Review or custom request. Cursor IDE exposes current context occupancy, not cumulative token usage; Cursor CLI does not persist reliable token or compaction data.
 
 <p align="center">
   <img src="docs/media/list-and-board.gif" alt="Switching from list view to board view, then searching to filter sessions to one repository" width="900">
@@ -231,12 +231,13 @@ A session that's 90% full, compacted twice, and 40 commits behind `main` is tell
 ### Three ways back in
 
 - **Resume** reopens the exact session in its own CLI, in its working directory, in your terminal of choice, with its full context intact.
-- **Start fresh with handoff** writes a Markdown brief with the objective, current state, key decisions, timeline, files, commits, next steps, and environment. Claude Code, Codex, and OpenCode open with it loaded as background context. Cursor copies it to the clipboard. The IDE path opens the workspace, where you must create a fresh chat before pasting the brief; the CLI path launches a new `agent` session, where you paste the brief manually.
+- **Start fresh with handoff** lets you choose an installed agent on the source host, then choose Review or enter a request. It launches a fresh terminal session, sends the brief and request, and tracks the new session and result.
 - **Copy handoff** puts the same brief on your clipboard for a PR description, a standup, a ticket, or another machine entirely.
 
 Terminal launches use Windows Terminal with Windows PowerShell when Windows
 Terminal is available, otherwise standalone Windows PowerShell. On macOS they
 use Apple Terminal or iTerm2, as configured in Settings.
+Interactive handoffs on macOS and Linux require the system `expect` command.
 
 <p align="center">
   <img src="docs/media/handoff.gif" alt="Clicking Start fresh with handoff opens a new Claude Code terminal with the session brief loaded" width="900">

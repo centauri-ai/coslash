@@ -47,21 +47,45 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode, vendors.AgentCursor} {
 		t.Run(agent, func(t *testing.T) {
-			command, handoffPath, err := cliCommandWithPrompt(agent, "", NewSession, "context", "fix it")
+			command, handoffPath, err := cliCommandWithPrompt(agent, "", NewSession, "private prior notes", "fix it")
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { _ = os.Remove(handoffPath) })
-			if strings.Contains(command, "fix it") || strings.Contains(command, "context") || !strings.Contains(command, "script") {
+			t.Cleanup(func() { _ = removeHandoffFile(handoffPath) })
+			if strings.Contains(command, "fix it") || strings.Contains(command, "private prior notes") || !strings.Contains(command, "expect") {
 				t.Fatalf("prompt exposed in command = %q", command)
+			}
+			ready := `{\x1b\[\?2004h}`
+			if agent == vendors.AgentOpenCode {
+				ready = `{Ask anything}`
+			} else if agent == vendors.AgentCursor {
+				ready = `{0 in}`
+			}
+			submit := `after 300; send -- "\r"`
+			if agent == vendors.AgentCursor {
+				submit = `after 2000; send -- "\r"`
+			}
+			if !strings.Contains(command, ready) || !strings.Contains(command, submit) || strings.Contains(command, "/dev/tty") {
+				t.Fatalf("interactive relay is not ready-gated for %s: %q", agent, command)
 			}
 			contents, err := os.ReadFile(handoffPath)
 			if err != nil || !strings.HasPrefix(string(contents), "\x1b[200~") ||
-				!strings.HasSuffix(string(contents), "\x1b[201~\r") || !strings.Contains(string(contents), "fix it") {
+				!strings.HasSuffix(string(contents), "\x1b[201~") || !strings.Contains(string(contents), "fix it") {
 				t.Fatalf("staged prompt = %q, err = %v", contents, err)
 			}
+			if agent == vendors.AgentClaude {
+				if strings.Contains(string(contents), "private prior notes") {
+					t.Fatalf("Claude user prompt contains prior context: %q", contents)
+				}
+				context, err := os.ReadFile(handoffPath + ".context")
+				if err != nil || !strings.Contains(string(context), "private prior notes") || !strings.Contains(command, "--append-system-prompt-file") {
+					t.Fatalf("Claude system context = %q, command = %q, err = %v", context, command, err)
+				}
+			} else if !strings.Contains(string(contents), "private prior notes") {
+				t.Fatalf("missing prior context in %s prompt", agent)
+			}
 			if agent == vendors.AgentCursor {
-				if handoffPath == "" || !strings.Contains(string(contents), "context") || strings.Contains(command, "--print") {
+				if handoffPath == "" || !strings.Contains(string(contents), "private prior notes") || strings.Contains(command, "--print") {
 					t.Fatalf("Cursor first prompt = %q, handoff = %q", command, handoffPath)
 				}
 				return
@@ -99,22 +123,35 @@ func TestCLICommandWithPromptStopsOptionParsing(t *testing.T) {
 	}
 }
 
-func TestSecurePromptRequiresTerminalFeederTools(t *testing.T) {
+func TestClaudeMultilineRequestWaitsBeforeSubmitting(t *testing.T) {
+	if !securePromptAvailable() {
+		t.Skip("secure terminal relay unavailable")
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	command, path, err := cliCommandWithPrompt(vendors.AgentClaude, "", NewSession, "prior notes", "coSlash handoff ID: test\n\nrequest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = removeHandoffFile(path) })
+	if !strings.Contains(command, `after 2000; send -- "\r"`) {
+		t.Fatalf("multiline Claude request submits before the paste settles: %q", command)
+	}
+}
+
+func TestSecurePromptRequiresExpect(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("POSIX terminal feeder")
+		t.Skip("POSIX terminal relay")
 	}
 	dir := t.TempDir()
 	t.Setenv("PATH", dir)
 	if securePromptAvailable() {
-		t.Fatal("feeder available without script and mkfifo")
+		t.Fatal("relay available without expect")
 	}
-	for _, name := range []string{"script", "mkfifo"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o700); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(filepath.Join(dir, "expect"), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
 	}
 	if !securePromptAvailable() {
-		t.Fatal("feeder unavailable with script and mkfifo")
+		t.Fatal("relay unavailable with expect")
 	}
 }
 
