@@ -95,7 +95,8 @@ revision; display paths and change IDs are never treated as files to open.
 ## Outbound data
 
 Outside an explicitly approved Hub share or explicitly enabled experimental
-v4 Codex sync, the collector does not upload session data itself. If you enable
+v4 Codex sync, the collector does not upload session data itself. A separately
+authorized remote MCP agent may read Hub sessions. If you enable
 synthesis, it passes a bounded set of facts
 to your selected local CLI. These facts can include prompts, recaps, todos,
 filenames, commands, and commit text. Supported CLIs are Claude Code, Codex,
@@ -107,6 +108,13 @@ OpenCode has no ephemeral mode, so coSlash points each run at its own scratch da
 Cursor synthesis uses read-only ask mode. coSlash also disables file, shell, write, web, and MCP tools for the run. Each run uses a temporary data directory under `~/.coslash/synthesis`. coSlash removes the directory after the run. At startup, coSlash removes abandoned synthesis directories that are more than one hour old. Synthesis chats do not enter your Cursor history.
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
+
+Remote Hub MCP is an optional agent connection. The agent sends tool questions
+and arguments directly to the Hub MCP endpoint after browser OAuth approval;
+coSlash Local does not copy the bearer token into its settings or process
+arguments. Each agent manages its own credential storage. Disconnect or switch
+the connection in that agent to clear its local OAuth credential; the Hub
+checks access on each tool request and denies revoked access.
 
 Experimental personal Codex sync is disabled by default. A development build
 with a paired Hub, a supported semantic Local version, and
