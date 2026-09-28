@@ -6,6 +6,7 @@ require (
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/pkg/sftp v1.13.11
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
+	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	modernc.org/sqlite v1.59.0
 )
 
