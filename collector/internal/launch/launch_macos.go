@@ -54,12 +54,17 @@ func openMacITerm(ctx context.Context, workingDirectory, command string) error {
 }
 
 // terminalScript also clears the session markers in the terminal shell, which
-// keeps its own environment when the terminal was already running. Other
-// shells, such as fish, have no unset builtin, so their script is unchanged.
+// keeps its own environment when the terminal was already running. The script
+// of any other shell is unchanged.
 func terminalScript(shell, workingDirectory, command string) string {
 	script := "cd " + shellQuote(workingDirectory) + " && " + command
-	if !slices.Contains([]string{"sh", "bash", "zsh", "ksh", "dash"}, filepath.Base(shell)) {
+	markers := strings.Join(agentexec.SessionMarkers(), " ")
+	switch name := filepath.Base(shell); {
+	case slices.Contains([]string{"sh", "bash", "zsh", "ksh", "dash"}, name):
+		return "unset " + markers + "; " + script
+	case name == "fish":
+		return "set --erase " + markers + "; " + script
+	default:
 		return script
 	}
-	return "unset " + strings.Join(agentexec.SessionMarkers(), " ") + "; " + script
 }
