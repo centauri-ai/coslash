@@ -31,6 +31,43 @@ const consentAge = 5 * time.Minute
 var ErrPaused = errors.New("v4 sync paused")
 var ErrStaleConsent = errors.New("v4 sync consent unavailable or stale")
 
+// busyRetry is how soon a pass that stopped at the Hub's active-upload limit
+// runs again. The Hub admits a new upload once an open one finalizes, which
+// takes seconds, so waiting a full sync interval would stretch a large first
+// sync into hours.
+const busyRetry = 20 * time.Second
+
+// Busy reports the Hub's active-upload limit (rate_limited): more uploads
+// open once in-flight ones finalize.
+func Busy(err error) bool {
+	var problem hubclient.V4Problem
+	return errors.As(err, &problem) && problem.Code == "rate_limited"
+}
+
+// DeferReason names why a pass stopped, without session content: a Hub
+// problem code, a local pause or consent state, or local_error.
+func DeferReason(err error) string {
+	var problem hubclient.V4Problem
+	switch {
+	case errors.As(err, &problem):
+		return "hub:" + problem.Code
+	case errors.Is(err, ErrPaused):
+		return "paused"
+	case errors.Is(err, ErrStaleConsent):
+		return "consent_unavailable"
+	}
+	return "local_error"
+}
+
+// NextSyncDelay is the wait before the next pass: busyRetry after the Hub's
+// active-upload limit stopped a pass, otherwise the regular interval.
+func NextSyncDelay(err error, interval time.Duration) time.Duration {
+	if Busy(err) {
+		return busyRetry
+	}
+	return interval
+}
+
 type Transport interface {
 	V4Binding(context.Context) (string, error)
 	V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult, []string) (hubclient.V4CheckIn, error)
@@ -150,6 +187,10 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			return firstErr
 		}
 	}
+	// At the Hub's active-upload limit, stop opening history uploads for this
+	// pass, but keep sending the chunks of uploads that are already open so
+	// the limit can clear.
+	var busyErr error
 	for _, entry := range r.Queue.Entries() {
 		if entry.Excluded || entry.Recent {
 			continue
@@ -157,11 +198,16 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		if !pending(entry) {
 			continue
 		}
+		if busyErr != nil && entry.UploadID == "" {
+			continue
+		}
 		if err := r.ensureCreated(ctx, &entry); err != nil {
 			if stopSync(err) {
 				return err
 			}
-			if firstErr == nil {
+			if Busy(err) {
+				busyErr = err
+			} else if firstErr == nil {
 				firstErr = err
 			}
 			if err := r.recordFailure(&entry, err); err != nil {
@@ -183,6 +229,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 				return err
 			}
 		}
+	}
+	if busyErr != nil {
+		return errors.Join(busyErr, firstErr)
 	}
 	return firstErr
 }
