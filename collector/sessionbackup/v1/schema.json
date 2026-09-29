@@ -4,11 +4,17 @@
   "title": "coSlash complete session backup manifest v1",
   "type": "object",
   "additionalProperties": false,
-  "allOf": [{
-    "if": { "properties": { "source": { "properties": { "agent": { "const": "cursor" } } } } },
-    "then": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup-db-rows/v1", "session-backup/v1"] } } },
-    "else": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup/v1"] } } }
-  }],
+  "allOf": [
+    {
+      "if": { "properties": { "source": { "properties": { "agent": { "enum": ["cursor", "opencode"] } } } } },
+      "then": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup-db-rows/v1", "session-backup/v1"] } } },
+      "else": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup/v1"] } } }
+    },
+    {
+      "if": { "properties": { "source": { "properties": { "agent": { "enum": ["claude", "cursor", "opencode"] } } } } },
+      "then": { "properties": { "source": { "properties": { "kind": { "const": "local" } } } } }
+    }
+  ],
   "required": [
     "schemaVersion",
     "canonicalVersion",
@@ -57,19 +63,6 @@
     },
     "completeBackupSha256": { "$ref": "#/$defs/sha256" }
   },
-  "allOf": [
-    {
-      "if": { "properties": { "source": { "properties": { "agent": { "const": "codex" } } } } },
-      "then": { "properties": { "requiredVersions": { "const": ["full-session-record/v1", "session-backup/v1"] } } }
-    },
-    {
-      "if": { "properties": { "source": { "properties": { "agent": { "const": "opencode" } } } } },
-      "then": { "properties": {
-        "requiredVersions": { "const": ["full-session-record/v1", "session-backup-db-rows/v1", "session-backup/v1"] },
-        "source": { "properties": { "kind": { "const": "local" } } }
-      } }
-    }
-  ],
   "$defs": {
     "identifier": {
       "type": "string",
