@@ -42,6 +42,12 @@ type BackupRows struct {
 
 var ErrBackupUnstable = errors.New("Cursor backup source changed during capture")
 
+// ErrBackupRowsUnrepresentable reports attributed rows that
+// session-backup-db-rows/v1 cannot carry, such as a value over its per-value
+// size limit. The rows do belong to the session, so this is not an
+// attribution failure, and retrying the same rows cannot succeed.
+var ErrBackupRowsUnrepresentable = errors.New("Cursor backup rows cannot be carried by the database rows contract")
+
 type fileState struct {
 	size     int64
 	modified int64
@@ -170,6 +176,9 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 				return nil, err
 			}
 			rows, _, err := projectDatabase(ctx, stores[0], "cli-store", id, nil)
+			if errors.Is(err, ErrBackupRowsUnrepresentable) {
+				return nil, err
+			}
 			if err != nil || len(rows) == 0 {
 				return nil, vendors.ErrInvalidData
 			}
@@ -306,6 +315,11 @@ func projectDatabase(ctx context.Context, path, label, id string, filters []tabl
 		return nil, true, nil
 	}
 	data, err := sessionbackupv1.FreezeDatabaseRows(result)
+	if errors.Is(err, sessionbackupv1.ErrInvalid) {
+		// Every row here was selected for this member alone, so a rejected
+		// projection cannot be carried by the contract; it is not unattributed.
+		return nil, true, fmt.Errorf("%w: %w", ErrBackupRowsUnrepresentable, err)
+	}
 	return data, true, err
 }
 
@@ -341,7 +355,7 @@ func projectTable(ctx context.Context, tx *sql.Tx, id string, filter tableFilter
 			return sessionbackupv1.DatabaseTable{}, err
 		}
 		if len(table.Rows) >= sessionbackupv1.MaxArtifacts {
-			return sessionbackupv1.DatabaseTable{}, vendors.ErrInvalidData
+			return sessionbackupv1.DatabaseTable{}, ErrBackupRowsUnrepresentable
 		}
 		values := make([]any, len(columns))
 		pointers := make([]any, len(columns))
