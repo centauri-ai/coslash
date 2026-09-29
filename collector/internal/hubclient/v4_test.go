@@ -117,6 +117,37 @@ func TestV4ImportWritesRequiredNulls(t *testing.T) {
 	}
 }
 
+func TestV4ImportEveryPhaseMatchesGoldenPayloadShape(t *testing.T) {
+	var fixture struct {
+		Queue struct {
+			Import map[string]json.RawMessage `json:"import"`
+		} `json:"queue"`
+	}
+	if err := json.Unmarshal(readScaleFixture(t, "check-in-import-progress.json"), &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"inventory", "awaiting_plan", "warm_start", "listing", "recent", "history", "complete", "paused"} {
+		t.Run(phase, func(t *testing.T) {
+			encoded, err := json.Marshal(V4Import{Phase: phase})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if len(fields) != len(fixture.Queue.Import) {
+				t.Fatalf("import fields = %s, fixture has %d fields", encoded, len(fixture.Queue.Import))
+			}
+			for key := range fixture.Queue.Import {
+				if _, ok := fields[key]; !ok {
+					t.Fatalf("%s missing from %s", key, encoded)
+				}
+			}
+		})
+	}
+}
+
 func TestV4CheckInRetainsRetryAfter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "60")
