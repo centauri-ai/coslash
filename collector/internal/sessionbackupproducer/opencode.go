@@ -24,6 +24,10 @@ func (manager *Manager) captureOpenCode(ctx context.Context, staging string, sel
 			return nil, captureFailure(backup.ProblemUnattributable, backup.KindRawMetadataRows, false)
 		case errors.Is(err, opencode.ErrUnstable):
 			return nil, captureFailure(backup.ProblemUnstable, backup.KindRawMetadataRows, true)
+		case errors.Is(err, backup.ErrInvalid):
+			// The family's rows break the rows contract (for example a value
+			// over its size limit); reading again yields the same rows.
+			return nil, captureFailure(backup.ProblemInvalid, backup.KindRawMetadataRows, false)
 		case errors.Is(err, os.ErrNotExist), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 			return nil, captureFailure(backup.ProblemUnavailable, backup.KindRawMetadataRows, true)
 		default:
