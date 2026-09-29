@@ -204,6 +204,7 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	received := map[string]bool{}
 	createCount, putCount, confirmCount, checkInCount := 0, 0, 0, 0
 	var checkInLogs [][]hubclient.V4LogEntry
+	confirmRequests := 0
 	finalizing, interruptAfterFirst := false, true
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Device fixture-device-key" && !strings.HasPrefix(r.URL.Path, "/blob/") {
@@ -240,7 +241,7 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 			}
 			json.NewEncoder(w).Encode(status)
 		case r.Method == http.MethodPost && r.URL.Path == "/v4/uploads/upload-1/chunks:sign":
-			if interruptAfterFirst && confirmCount == 1 {
+			if interruptAfterFirst && putCount == 1 {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				io.WriteString(w, `{"code":"temporary_unavailable"}`)
 				return
@@ -288,6 +289,10 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				t.Error(err)
 			}
+			if len(input.Coords) < 1 || len(input.Coords) > 50 {
+				t.Errorf("confirm coords=%d", len(input.Coords))
+			}
+			confirmRequests++
 			for _, coord := range input.Coords {
 				received[strconv.Itoa(coord.ArtifactOrdinal)+"/"+strconv.Itoa(coord.ChunkOrdinal)] = true
 				confirmCount++
@@ -339,6 +344,11 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	}
 	if createCount != 1 || putCount != len(missing(created.Manifest, nil)) || confirmCount != putCount {
 		t.Fatalf("resume resent accepted bytes: create=%d put=%d confirm=%d", createCount, putCount, confirmCount)
+	}
+	// The interrupted pass confirmed the chunk it sent; the resumed pass
+	// confirmed the rest of these small chunks in one batch.
+	if confirmRequests != 2 {
+		t.Fatalf("confirm requests=%d for %d chunks", confirmRequests, confirmCount)
 	}
 	if err := runner.SyncOnce(t.Context()); err != nil {
 		t.Fatal(err)
