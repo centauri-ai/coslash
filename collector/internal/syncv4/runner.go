@@ -60,9 +60,11 @@ func DeferReason(err error) string {
 }
 
 // NextSyncDelay is the wait before the next pass: busyRetry after the Hub's
-// active-upload limit stopped a pass, otherwise the regular interval.
-func NextSyncDelay(err error, interval time.Duration) time.Duration {
-	if Busy(err) {
+// active-upload limit stopped a pass or while uploads are still in flight
+// (finalize runs asynchronously on the Hub, and history waits for recent
+// sessions to be recorded), otherwise the regular interval.
+func NextSyncDelay(err error, inFlight int, interval time.Duration) time.Duration {
+	if Busy(err) || inFlight > 0 {
 		return busyRetry
 	}
 	return interval
