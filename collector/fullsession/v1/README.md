@@ -97,19 +97,20 @@ A consumer must reject a record unless all of these rules hold:
   turn, nonnegative tool uses and valid commands/usage. Todo, digest, subagent,
   and synthesis strings obey the shared string limit.
 
-The first C01 producer is Codex. Adding another parser requires an explicit
-field-parity decision; schema support alone does not claim producer coverage.
+The first C01 producers are Codex and Claude. Adding another parser requires an
+explicit field-parity decision; schema support alone does not claim producer
+coverage.
 
 ## Included-field inventory
 
 | Surface | Producer | Transport/cache representation | Observable assertion |
 | --- | --- | --- | --- |
 | Source/session identity and revision | Remote manager + canonical record freezer | Changed-family full record; cached full-record row | Exact source, agent, session, and revision are required for reads |
-| Session envelope, timing, transcript-supplied working directory/branch, usage, and cost | Codex parser plus allowlisted vendor metadata | Typed `session` fields | Canonical local/helper/SFTP byte equality |
-| Prompts, summary, goals, commands, commits, todos, digest, synthesis | Codex parser/composer | Typed `session` detail fields | Restart and unchanged-refresh equality |
-| Subagent identity, task/result, commands, usage, and cost | Codex family composition | Typed `subagents` list | Ordered value equality |
-| File-edit summaries | Codex file-edit accumulator | Typed `fileEdits` rows | Ordered value equality |
-| File-change kind, operation, counts, and exact text | Codex file-edit accumulator | Change metadata in the record row; text in cache `changeBodies` | Per-body byte count/hash and exact read assertion |
+| Session envelope, timing, transcript-supplied working directory/branch, usage, and cost | Claude and Codex parsers plus allowlisted vendor metadata | Typed `session` fields | Canonical local/helper/SFTP byte equality |
+| Prompts, summary, goals, commands, commits, todos, digest | Claude and Codex parsers/composers | Typed `session` detail fields | Restart and unchanged-refresh equality |
+| Subagent identity, task/result, commands, usage, and cost | Claude and Codex family composition | Typed `subagents` list | Ordered value equality |
+| File-edit summaries | Claude and Codex file-edit accumulators | Typed `fileEdits` rows | Ordered value equality |
+| File-change kind, operation, counts, and exact text | Claude and Codex file-edit accumulators | Change metadata in the record row; text in cache `changeBodies` | Per-body byte count/hash and exact read assertion |
 | Repository identity/local-only flag, filesystem fallback branch, Git drift, last-edit time, and transient local review state | Excluded local/runtime enrichment | No v1 field | Schema inventory and three-path equality test |
 | Raw transcript rows and SSH/coSlash configuration | Excluded | No representation | Reflection/fixture review and transport allow-list |
 
@@ -117,6 +118,7 @@ Local UI composition may add repository identity, a fallback branch, Git
 ahead/behind state, or last-edit time after parsing. Those machine-dependent
 values are deliberately outside this storage-neutral revision; a branch is
 included only when the transcript or portable vendor metadata supplied it.
+Remote collection does not run AI synthesis, so its v1 field remains null.
 
 Published valid and invalid consumer fixtures, including identifier, cost,
 timestamp, aggregate-item, and negative-count boundaries, live under

@@ -157,21 +157,22 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 			continue
 		}
 		var complete []fullsessionv1.Record
-		if in.Vendor == vendors.AgentCodex {
-			var fullErr error
+		var fullErr error
+		if in.Vendor == vendors.AgentCodex || (in.Vendor == vendors.AgentClaude && in.SourceID != "") {
 			complete, fullErr = fullsessionrecord.FromParsedFamily(in.SourceID, in.Vendor, in.Source, sessions, in.Metadata)
-			if fullErr != nil {
+			if fullErr != nil && in.Vendor == vendors.AgentCodex {
 				records = append(records, remoteprotocol.Record{
 					Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonInvalidData,
 				})
 				familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_full_record", in.Vendor))
 				continue
 			}
-			if !containsFullRecord(complete, id) {
+			if fullErr == nil && !containsFullRecord(complete, id) {
 				intentionallyAbsent[id] = true
 				continue
 			}
-		} else if !fullsessionrecord.IsServableFamily(id, in.Vendor, in.Source, sessions, in.Metadata) {
+		}
+		if (fullErr != nil || in.SourceID == "") && !fullsessionrecord.IsServableFamily(id, in.Vendor, in.Source, sessions, in.Metadata) {
 			intentionallyAbsent[id] = true
 			continue
 		}
@@ -186,8 +187,18 @@ func collectVendorFamilies(in vendorFamilyInput) vendorOutcome {
 			familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_family_facts", in.Vendor))
 			continue
 		}
+		if in.Vendor == vendors.AgentCodex && !remoteprotocol.FullRecordIdentitiesMatchFamily(complete, family) {
+			records = append(records, remoteprotocol.Record{
+				Type: remoteprotocol.RecordSkipped, Vendor: in.Vendor, FamilyID: id, Reason: remotefacts.StaleReasonInvalidData,
+			})
+			familyFailures = append(familyFailures, fmt.Errorf("%s family skipped: invalid_full_record", in.Vendor))
+			continue
+		}
+		if in.Vendor == vendors.AgentClaude && (fullErr != nil || !remoteprotocol.FullRecordIdentitiesMatchFamily(complete, family)) {
+			complete = nil
+		}
 		var fullRecords []remoteprotocol.FullRecord
-		if in.Vendor == vendors.AgentCodex {
+		if in.Vendor == vendors.AgentCodex || in.Vendor == vendors.AgentClaude {
 			for _, completeRecord := range complete {
 				fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: id, Record: completeRecord})
 			}
@@ -393,6 +404,12 @@ func boundChangedRecord(record remoteprotocol.Record, requestID string, sequence
 	size, fits, err := changedRecordFits(record, requestID, sequence, maxBytes)
 	if err != nil || fits {
 		return record, false, size, err
+	}
+	if record.Vendor == vendors.AgentClaude && len(record.FullRecords) > 0 {
+		record.FullRecords = nil
+		if boundedSize, fits, err := changedRecordFits(record, requestID, sequence, maxBytes); err != nil || fits {
+			return record, false, boundedSize, err
+		}
 	}
 	return remoteprotocol.Record{
 		Type: remoteprotocol.RecordSkipped, Vendor: record.Vendor,

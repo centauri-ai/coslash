@@ -559,3 +559,88 @@ func TestRemoteDetailAndDiffRemainReadableFromRestartedOfflineCache(t *testing.T
 		t.Fatalf("stale status = %d: %s", staleResponse.Code, staleResponse.Body.String())
 	}
 }
+
+func TestRemoteClaudeDetailAndDiffRemainBoundToCachedRevision(t *testing.T) {
+	remoteSession := exactDetailSession("@@\n-remote old\n+remote new\n")
+	remoteSession.Agent = vendors.AgentClaude
+	firstPrompt := "first Claude prompt"
+	remoteSession.FirstPrompt = &firstPrompt
+	record, err := fullsessionrecord.FromSession(testRemoteSourceID, remoteSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	family := remotefacts.Family{
+		SchemaVersion: remotefacts.SchemaVersion, ParserVersion: "test/1", Vendor: vendors.AgentClaude,
+		FamilyID: remoteSession.ID, State: remotefacts.StateComplete,
+		Sessions: []remotefacts.Session{{
+			ID: remoteSession.ID, StartedAtMs: remoteSession.StartedAt, LastActivityAtMs: remoteSession.LastActivityTime,
+			Counts: remotefacts.Counts{}, Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{},
+		}},
+		Fingerprints: []remotefacts.Fingerprint{{Key: "file-1", Size: 10, ModifiedAtMs: 1000}},
+	}
+	if err := remotefacts.Validate(family); err != nil {
+		t.Fatal(err)
+	}
+	cache := remote.NewCache(t.TempDir())
+	if err := cache.StoreV2(testRemoteSourceID, remote.CachedSnapshotV2{
+		BaselineID: "generation-1",
+		Families: []remote.CachedFamilyV2{{
+			Vendor: vendors.AgentClaude, FamilyID: remoteSession.ID, Facts: family,
+			Fingerprint: "fingerprint-1", LastSuccessAtMs: 1000,
+		}},
+		FullRecords: []remoteprotocol.FullRecord{{FamilyID: remoteSession.ID, Record: record}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager := remote.NewManager(remote.Options{Cache: cache})
+	if err := manager.ApplySettings(&settings.RemoteSettings{
+		ID: testRemoteSourceID, SSHAlias: "offline-host", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager.Shutdown()
+	restarted := remote.NewManager(remote.Options{Cache: cache})
+	t.Cleanup(restarted.Shutdown)
+	if err := restarted.ApplySettings(&settings.RemoteSettings{
+		ID: testRemoteSourceID, SSHAlias: "offline-host", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	localReader := func(string, string) (*session.Session, error) {
+		return nil, errors.New("remote request reached local parser")
+	}
+	detailTarget := "/api/session-detail?source=" + testRemoteSourceID + "&agent=claude&session=" + remoteSession.ID + "&revision=" + record.RevisionID
+	detailResponse := httptest.NewRecorder()
+	handleSessionDetail(detailResponse, httptest.NewRequest(http.MethodGet, detailTarget, nil), localReader, restarted)
+	if detailResponse.Code != http.StatusOK {
+		t.Fatalf("Claude detail status = %d: %s", detailResponse.Code, detailResponse.Body.String())
+	}
+	var detail sessionDetailResponse
+	if err := json.Unmarshal(detailResponse.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Agent != vendors.AgentClaude || detail.Revision != record.RevisionID || detail.Session.FirstPrompt == nil ||
+		*detail.Session.FirstPrompt != "first Claude prompt" || len(detail.Session.FileEdits) != 1 {
+		t.Fatalf("Claude cached detail = %#v", detail)
+	}
+	changeID := detail.Session.FileEdits[0].ChangeIDs[0]
+	diffTarget := "/api/diff?source=" + testRemoteSourceID + "&agent=claude&session=" + remoteSession.ID + "&revision=" + record.RevisionID + "&change=" + changeID
+	diffResponse := httptest.NewRecorder()
+	handleExactDiff(diffResponse, httptest.NewRequest(http.MethodGet, diffTarget, nil), localReader, restarted)
+	if diffResponse.Code != http.StatusOK || !strings.Contains(diffResponse.Body.String(), "remote new") {
+		t.Fatalf("Claude diff status = %d: %s", diffResponse.Code, diffResponse.Body.String())
+	}
+	staleResponse := httptest.NewRecorder()
+	handleSessionDetail(staleResponse, httptest.NewRequest(http.MethodGet,
+		strings.Replace(detailTarget, "revision="+record.RevisionID, "revision="+strings.Repeat("a", 64), 1), nil), localReader, restarted)
+	if staleResponse.Code != http.StatusConflict {
+		t.Fatalf("Claude stale revision status = %d: %s", staleResponse.Code, staleResponse.Body.String())
+	}
+	foreignResponse := httptest.NewRecorder()
+	handleExactDiff(foreignResponse, httptest.NewRequest(http.MethodGet,
+		strings.Replace(diffTarget, "change="+changeID, "change=change-999999-999999", 1), nil), localReader, restarted)
+	if foreignResponse.Code != http.StatusNotFound {
+		t.Fatalf("Claude foreign change status = %d: %s", foreignResponse.Code, foreignResponse.Body.String())
+	}
+}

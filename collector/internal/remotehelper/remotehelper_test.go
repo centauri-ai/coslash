@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/remotefacts"
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
@@ -275,6 +276,53 @@ func TestPublishCodexFamilyOverRecordLimitEmitsStructuredSkip(t *testing.T) {
 	}
 	if record.Type != remoteprotocol.RecordSkipped || record.Reason != remotefacts.StaleReasonVendorBudgetExceeded || counts.SkippedFamilies != 1 {
 		t.Fatalf("oversized family result = %#v counts=%#v", record, counts)
+	}
+}
+
+func TestKnownClaudeFamilyWithOversizedExactDetailRemainsBounded(t *testing.T) {
+	home := t.TempDir()
+	id := "11111111-2222-3333-4444-555555555555"
+	file := filepath.Join(home, ".claude", "projects", "project", id+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, requestID                          string
+		promptBytes, changeBytes, maxRecordBytes int
+	}{
+		{"record string limit", "too-large-record", fullsessionv1.MaxStringBytes + 1, 0, remoteprotocol.MaxRecordBytes},
+		{"wire family limit", "too-large-wire", 10, 8 << 10, 4 << 10},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			content := `{"type":"user","sessionId":"` + id + `","timestamp":"2026-08-18T10:00:00Z","message":{"content":"` + strings.Repeat("x", test.promptBytes) + `"}}` + "\n"
+			if test.changeBytes > 0 {
+				content += `{"type":"user","sessionId":"` + id + `","timestamp":"2026-08-18T10:00:01Z","toolUseResult":{"filePath":"main.go","type":"update","structuredPatch":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["@@","-old","+` + strings.Repeat("x", test.changeBytes) + `"]}]}}` + "\n"
+			}
+			if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			request := validRequest()
+			request.RequestID = test.requestID
+			request.Vendors = []string{vendors.AgentClaude}
+			request.SourceID = "r_0123456789abcdef"
+			request.Limits.MaxRecordBytes = test.maxRecordBytes
+			request.Known = []remoteprotocol.KnownFamily{{Vendor: vendors.AgentClaude, FamilyID: id, Fingerprint: "old"}}
+			var output bytes.Buffer
+			outcome, err := Collect(t.Context(), request, testOptions(home), &output)
+			if err != nil || !outcome.RequestComplete {
+				t.Fatalf("Claude helper outcome = %#v, err=%v", outcome, err)
+			}
+			records, err := remoteprotocol.Decode(&output, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range records {
+				if record.Type == remoteprotocol.RecordChanged && record.FamilyID == id && len(record.FullRecords) == 0 {
+					return
+				}
+			}
+			t.Fatal("known oversized Claude family did not refresh as bounded facts")
+		})
 	}
 }
 

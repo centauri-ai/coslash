@@ -28,7 +28,7 @@ coSlash reads, but does not modify:
 | `synthesis/` | Temporary synthesis files and isolated CLI data. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
-| `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
+| `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
 macOS and a protected current-user ACL on Windows). Programs running as that
@@ -76,8 +76,11 @@ entries, depth 16, and three minutes per refresh. Raw transcript bytes stay in
 bounded local memory only while parsing. For the supported Codex path, complete
 parsed product data—including prompts, commands, edited-file paths, working
 directories, subagent detail, and file-change bodies—is transferred and cached
-locally so exact detail remains available after restart or an SSH outage. The
-cache excludes raw transcript rows, SSH configuration, coSlash credentials,
+locally so exact detail remains available after restart or an SSH outage. Claude
+parsed exact details now cross SSH into the private local cache just like Codex;
+raw transcript rows do not. Exact-detail caching, synthesis, and complete backup
+sharing are separate capabilities, and complete backup v1 remains Codex-only.
+The cache excludes raw transcript rows, SSH configuration, coSlash credentials,
 sockets, and environment values.
 
 The local web app requests inspector data by opaque source, agent, session, and
