@@ -310,6 +310,33 @@ func TestValidateBindsAgentSourceKindAndRowsVersion(t *testing.T) {
 	}
 }
 
+// Only agents whose exporters capture database projections may carry row
+// artifacts; a Claude family with one is rejected like a Codex family.
+func TestValidateRejectsRowArtifactsForAgentsWithoutRows(t *testing.T) {
+	for _, agent := range []string{"codex", "claude"} {
+		t.Run(agent, func(t *testing.T) {
+			manifest, _, _ := loadValidFixture(t)
+			manifest.Source.Agent = agent
+			changed := false
+			for index := range manifest.Artifacts {
+				artifact := &manifest.Artifacts[index]
+				if strings.HasPrefix(artifact.Kind, "raw-") {
+					artifact.Source = agent
+					if !changed && artifact.Kind == KindRawSidecar {
+						artifact.Kind, changed = KindRawMetadataRows, true
+					}
+				}
+			}
+			if !changed {
+				t.Fatal("fixture has no sidecar artifact to turn into rows")
+			}
+			if err := Validate(manifest); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "artifact kind does not match agent") {
+				t.Fatalf("Validate() error = %v; want row artifact rejection", err)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsNonCanonicalSiblingOrder(t *testing.T) {
 	manifest, _, _ := loadValidFixture(t)
 	childID := manifest.Members[1].MemberID

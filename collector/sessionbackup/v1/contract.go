@@ -176,6 +176,14 @@ var CoverageMatrix = []SupportStatus{
 	{Agent: "opencode", SourceKind: SourceSSH, BlockingCode: ProblemUnsupported},
 }
 
+// usesDatabaseRows reports whether an agent's exporter captures database
+// projections (OpenCode, Cursor). Only those agents carry
+// session-backup-db-rows/v1 and raw-metadata-rows artifacts; Codex and Claude
+// never produce rows and must not declare them.
+func usesDatabaseRows(agent string) bool {
+	return agent == ArtifactSourceOpenCode || agent == ArtifactSourceCursor
+}
+
 // Freeze orders a complete family deterministically, fills byte evidence, and
 // computes the family revision over the canonical manifest with an empty hash.
 func Freeze(manifest Manifest, blobs map[string][]byte) (Manifest, error) {
@@ -332,9 +340,7 @@ func validate(manifest Manifest, requireHash bool) error {
 	if !contains(manifest.RequiredVersions, SchemaVersion) || !contains(manifest.RequiredVersions, ParsedRecordVersion) {
 		return fmt.Errorf("%w: required version missing", ErrInvalid)
 	}
-	// Exporters that capture database projections (OpenCode, Cursor) must carry
-	// the rows version; Codex and Claude never produce rows and must not.
-	usesRows := manifest.Source.Agent == ArtifactSourceOpenCode || manifest.Source.Agent == ArtifactSourceCursor
+	usesRows := usesDatabaseRows(manifest.Source.Agent)
 	if contains(manifest.RequiredVersions, DatabaseRowsVersion) != usesRows {
 		return fmt.Errorf("%w: database projection version mismatch", ErrInvalid)
 	}
@@ -344,10 +350,6 @@ func validate(manifest Manifest, requireHash bool) error {
 		(manifest.Source.Kind != SourceLocal && manifest.Source.Kind != SourceSSH) ||
 		!identifier(manifest.Source.SourceID) || !identifier(manifest.Source.SourceRevision) {
 		return fmt.Errorf("%w: invalid source identity", ErrInvalid)
-	}
-	if (manifest.Source.Agent == "opencode" && (manifest.Source.Kind != SourceLocal || !contains(manifest.RequiredVersions, DatabaseRowsVersion))) ||
-		(manifest.Source.Agent == "codex" && contains(manifest.RequiredVersions, DatabaseRowsVersion)) {
-		return fmt.Errorf("%w: source contract version mismatch", ErrInvalid)
 	}
 	if !plainText(manifest.Repository.Canonical) || manifest.Repository.Canonical == "" || manifest.Repository.VCS != "git" ||
 		!identifier(manifest.Producer.Name) || !identifier(manifest.Producer.Version) || !identifier(manifest.Producer.ParserVersion) ||
@@ -408,7 +410,7 @@ func validate(manifest Manifest, requireHash bool) error {
 			(!strings.HasPrefix(artifact.Kind, "raw-") && artifact.Source != ArtifactSourceCoSlash) {
 			return fmt.Errorf("%w: artifact source does not match kind", ErrInvalid)
 		}
-		if (manifest.Source.Agent == "codex" && artifact.Kind == KindRawMetadataRows) ||
+		if (!usesRows && artifact.Kind == KindRawMetadataRows) ||
 			(manifest.Source.Agent == "opencode" && (artifact.Kind == KindRawTranscript || artifact.Kind == KindRawSidecar)) {
 			return fmt.Errorf("%w: artifact kind does not match agent", ErrInvalid)
 		}
@@ -445,7 +447,7 @@ func validate(manifest Manifest, requireHash bool) error {
 			return fmt.Errorf("%w: member %q has duplicate singleton artifacts", ErrInvalid, member.MemberID)
 		}
 		if (manifest.Source.Agent == "cursor" && kinds[KindRawMetadataRows] == 0) ||
-			(manifest.Source.Agent == "codex" && kinds[KindRawMetadataRows] != 0) {
+			(!usesRows && kinds[KindRawMetadataRows] != 0) {
 			return fmt.Errorf("%w: source metadata rows mismatch", ErrIncomplete)
 		}
 		if member.SynthesisRevisionMs > 0 && kinds[KindSynthesis] == 0 {
