@@ -72,7 +72,7 @@ func NextSyncDelay(err error, inFlight int, interval time.Duration) time.Duratio
 
 type Transport interface {
 	V4Binding(context.Context) (string, error)
-	V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult, []string) (hubclient.V4CheckIn, error)
+	V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult, []string, []hubclient.V4LogEntry) (hubclient.V4CheckIn, error)
 	V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error)
 	V4Status(context.Context, string) (hubclient.V4Status, error)
 	V4PutChunk(context.Context, string, hubclient.V4Missing, io.Reader) error
@@ -320,6 +320,27 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 	if repeats(failure, entry.FailureCode) {
 		r.park(entry)
 	}
+	return r.failed(entry, failure)
+}
+
+// failed stores an entry whose failure code was just set and, when the owner
+// should see the failure, a sync log line for the next check-in. A line names
+// the Hub session once one exists. The same code for the same Hub session is
+// logged once until the entry syncs or the Hub asks for a retry, so a failure
+// that repeats on every pass or every source change does not flood the log.
+func (r *Runner) failed(entry *Entry, failure error) error {
+	code := hubLogCode(entry.FailureCode, failure)
+	if code == "" || !pending(*entry) {
+		return r.Queue.Update(*entry)
+	}
+	line := LogLine{At: r.now().UTC().Truncate(time.Microsecond), Level: "error", Code: code}
+	if strings.HasPrefix(entry.SessionID, "ses_") {
+		line.SessionID = entry.SessionID
+	}
+	if logged := line.Code + " " + line.SessionID; logged != entry.LoggedFailure {
+		entry.LoggedFailure = logged
+		return r.Queue.UpdateWithLog(*entry, line)
+	}
 	return r.Queue.Update(*entry)
 }
 
@@ -436,10 +457,20 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	version, config, _ := r.Queue.Policy()
 	r.configVersion, r.config = version, config
 	results := r.Queue.Results()
-	result, err := r.Hub.V4CheckIn(ctx, r.Queue.Progress(), version, results, r.Queue.Agents())
+	lines, through := r.Queue.PendingLog(r.now())
+	result, err := r.Hub.V4CheckIn(ctx, r.Queue.Progress(), version, results, r.Queue.Agents(), lines)
+	if err != nil && len(lines) > 0 && logRejected(err) {
+		// A line the Hub refuses, such as one dated by a clock far ahead of
+		// the Hub's, must not stop sync. Check in without the batch, which is
+		// dropped once that succeeds.
+		result, err = r.Hub.V4CheckIn(ctx, r.Queue.Progress(), version, results, r.Queue.Agents(), nil)
+	}
 	if err != nil {
 		r.checkedAt = time.Time{}
 		return fmt.Errorf("%w: %v", ErrStaleConsent, err)
+	}
+	if err := r.Queue.AcknowledgeLog(through); err != nil {
+		return err
 	}
 	if err := r.Queue.ApplyPolicy(result); err != nil {
 		return err
@@ -505,6 +536,12 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		}
 	}
 	return r.allowed(ctx, hubclient.V4Session{})
+}
+
+// logRejected reports the Hub refusing a check-in as invalid.
+func logRejected(err error) bool {
+	var problem hubclient.V4Problem
+	return errors.As(err, &problem) && (problem.Code == "invalid_query" || problem.Code == "http_400")
 }
 
 func (r *Runner) runCommand(ctx context.Context, command hubclient.V4Command) error {
@@ -767,7 +804,7 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 		if parkedCodes[entry.FailureCode] {
 			r.park(entry)
 		}
-		return r.Queue.Update(*entry)
+		return r.failed(entry, nil)
 	}
 	if status.State == "finalizing" {
 		return nil
@@ -830,7 +867,7 @@ func (r *Runner) complete(entry *Entry, status hubclient.V4Status) error {
 		return errors.New("v4 completion lacks accepted revision")
 	}
 	entry.SyncedActivity, entry.SyncedSourceRevision, entry.RevisionID = entry.Activity, entry.SourceRevision, status.RevisionID
-	entry.UploadID, entry.FailureCode = "", ""
+	entry.UploadID, entry.FailureCode, entry.LoggedFailure = "", "", ""
 	if err := r.Queue.Update(*entry); err != nil {
 		return err
 	}
