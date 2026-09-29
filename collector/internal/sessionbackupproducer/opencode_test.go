@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
@@ -129,6 +130,25 @@ func TestOpenCodeUnattributableRowsCannotComplete(t *testing.T) {
 	var failure *PreparationError
 	if prepared != nil || !errors.As(err, &failure) || failure.Coverage.Problems[0].Code != backup.ProblemUnattributable {
 		t.Fatalf("prepared=%#v error=%v", prepared, err)
+	}
+}
+
+// Rows over the rows contract's value limit fail the same way every time, so
+// they must not be reported as a retryable read problem.
+func TestOpenCodeOversizedRowIsInvalidNotRetryable(t *testing.T) {
+	db := openCodeBackupDB(t)
+	big := `{"type":"text","text":"` + strings.Repeat("x", 3<<20) + `"}`
+	if _, err := db.Exec(`UPDATE part SET data = ? WHERE id = 'p-root'`, big); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(Options{Root: t.TempDir()})
+	prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: backup.SourceLocal, SourceID: "local", Agent: vendors.AgentOpenCode, SessionID: "root"})
+	var failure *PreparationError
+	if prepared != nil || !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 {
+		t.Fatalf("prepared=%#v error=%v", prepared, err)
+	}
+	if problem := failure.Coverage.Problems[0]; problem.Code != backup.ProblemInvalid || problem.Kind != backup.KindRawMetadataRows || problem.Retryable {
+		t.Fatalf("problem=%+v", problem)
 	}
 }
 
