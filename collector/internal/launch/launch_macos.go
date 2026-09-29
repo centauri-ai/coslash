@@ -38,6 +38,9 @@ func macApplicationAvailable(ctx context.Context, name string) error {
 }
 
 func openMacTerminal(ctx context.Context, workingDirectory, command string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
@@ -46,13 +49,21 @@ func openMacTerminal(ctx context.Context, workingDirectory, command string) erro
 	if err != nil {
 		return err
 	}
+	source := "."
+	if filepath.Base(shell) == "fish" {
+		source = "source"
+	}
 	if err := runOSAScript(ctx,
 		"-e", "on run argv",
 		"-e", `tell application "Terminal" to do script (item 1 of argv)`,
 		"-e", `tell application "Terminal" to activate`,
 		"-e", "end run",
-		"--", localCommandJoin("/bin/sh", "-c", `trap 'rm -f "$2"' EXIT; "$1" "$2"`, "sh", shell, path),
+		"--", source+" "+shellQuote(path)+"; rm -f "+shellQuote(path),
 	); err != nil {
+		if ctx.Err() != nil {
+			// Terminal may still run a command accepted before cancellation.
+			return nil
+		}
 		return errors.Join(err, removeHandoffFile(path))
 	}
 	return nil
