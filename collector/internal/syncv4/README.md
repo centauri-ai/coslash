@@ -122,9 +122,9 @@ in the Hub, superseded or aborted uploads and a spool Local rebuilds add no
 line. The same code for the same Hub session is logged once until the session
 syncs or the Hub asks for a retry, and unsent lines without a session collapse
 to one per code. Unsent lines leave the queue only after a check-in succeeds;
-lines older than 29 days are dropped. If the Hub refuses a check-in
-as invalid, Local checks in without the log and drops that batch, so the log
-never stops sync. A binding change drops unsent lines.
+lines older than 29 days are dropped. If the Hub refuses a log batch as invalid,
+Local checks in without it so sync can continue, keeps the refused lines, and
+retries them after one minute. A binding change drops unsent lines.
 
 `COSLASH_V4_SYNC_ENABLED=1` is a development activation flag and defaults off.
 The server's separate v4 upload flag must also be enabled. Disable the Local
