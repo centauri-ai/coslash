@@ -213,7 +213,8 @@ func main() {
 		syncContext, stopSync := context.WithCancel(context.Background())
 		server.RegisterOnShutdown(stopSync)
 		runner := &syncv4.Runner{
-			Queue: queue, Backup: hub.Backup, Hub: hub,
+			Version: version,
+			Queue:   queue, Backup: hub.Backup, Hub: hub,
 			Discover:   func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
 			Conditions: syncv4.LocalConditions,
 			LocalPause: func() bool { return settingsStore.State().Config.SyncPaused },

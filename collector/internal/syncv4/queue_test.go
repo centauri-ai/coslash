@@ -263,3 +263,72 @@ func TestProgressDoesNotCountBackPressureAsFailing(t *testing.T) {
 		t.Fatalf("progress=%+v", progress)
 	}
 }
+
+// A prepared bundle that no entry refers to any more is scheduled for
+// deletion whichever path dropped it: a new bundle, changed source activity,
+// or a new Hub binding.
+func TestQueueSchedulesAbandonedBundlesForDeletion(t *testing.T) {
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []Entry{
+		{Key: "a", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}},
+		{Key: "b", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}},
+	}
+	if err := queue.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	byKey := func(key string) Entry {
+		for _, entry := range queue.Entries() {
+			if entry.Key == key {
+				return entry
+			}
+		}
+		t.Fatalf("entry %s missing", key)
+		return Entry{}
+	}
+	a := byKey("a")
+	a.BundleID = strings.Repeat("1", 64)
+	if err := queue.Update(a); err != nil {
+		t.Fatal(err)
+	}
+	a.BundleID = strings.Repeat("2", 64)
+	if err := queue.Update(a); err != nil {
+		t.Fatal(err)
+	}
+	b := byKey("b")
+	b.BundleID, b.ParkedVersion, b.FailureCode = strings.Repeat("3", 64), "0.0.5", "unreadable_source"
+	if err := queue.Update(b); err != nil {
+		t.Fatal(err)
+	}
+	changed := entries[1]
+	changed.Activity = now.Add(time.Minute).UnixMilli()
+	if err := queue.Merge([]Entry{changed}, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := byKey("b"); got.ParkedVersion != "" || got.FailureCode != "" || got.BundleID != "" {
+		t.Fatalf("changed source stayed parked: %+v", got)
+	}
+	if err := queue.Rebind(strings.Repeat("c", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Rebind(strings.Repeat("d", 64)); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{strings.Repeat("1", 64), strings.Repeat("3", 64), strings.Repeat("2", 64)}
+	if got := queue.Discards(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("discards=%v", got)
+	}
+	if err := queue.ForgetDiscards(want[:2]); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(filepath.Dir(queue.path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reopened.Discards(); len(got) != 1 || got[0] != want[2] {
+		t.Fatalf("persisted discards=%v", got)
+	}
+}
