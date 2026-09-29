@@ -532,6 +532,21 @@ func TestDeferReasonIsClosedAndContentFree(t *testing.T) {
 	}
 }
 
+// A failed check-in keeps the Hub's code, so a removed device is reported as
+// such and not as a consent problem.
+func TestFailedCheckInKeepsTheHubCode(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, _ := checkInServer(t, func(int, []byte) int { return http.StatusForbidden })
+	runner := Runner{Queue: queue, Hub: client, Now: time.Now}
+	err = runner.refreshConsent(t.Context())
+	if !errors.Is(err, ErrStaleConsent) || DeferReason(err) != "hub:device_revoked" {
+		t.Fatalf("revoked check-in err=%v reason=%q", err, DeferReason(err))
+	}
+}
+
 func TestInFlightCountsUploadsWithoutARecordedRevision(t *testing.T) {
 	now := time.Now().UTC()
 	queue, err := Open(t.TempDir())
