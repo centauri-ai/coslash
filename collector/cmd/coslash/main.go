@@ -242,7 +242,7 @@ func main() {
 				select {
 				case <-syncContext.Done():
 					return
-				case <-time.After(syncv4.NextSyncDelay(err, interval)):
+				case <-time.After(syncv4.NextSyncDelay(err, queue.InFlight(), interval)):
 				}
 			}
 		}()
