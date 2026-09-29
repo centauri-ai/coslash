@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -38,6 +39,9 @@ func TestITermUsesBundleIDForDiscoveryAndLaunch(t *testing.T) {
 }
 
 func TestOpenMacTerminalStagesLongCommand(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("uses the macOS Terminal opener")
+	}
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("SHELL", "/bin/bash")
@@ -73,6 +77,9 @@ func TestOpenMacTerminalStagesLongCommand(t *testing.T) {
 }
 
 func TestOpenMacTerminalRemovesStagedCommandOnLaunchFailure(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("uses the macOS Terminal opener")
+	}
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	original := runOSAScript
