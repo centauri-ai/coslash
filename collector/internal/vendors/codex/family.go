@@ -21,9 +21,12 @@ func (reader contextReader) Read(destination []byte) (int, error) {
 
 // FileHeader is the session identity a rollout's first row carries. Err marks a
 // file whose header could not be read; its family cannot be resolved from it.
+// Hidden marks a rollout whose own header declares the guardian (auto-review)
+// subagent, which the parser deliberately yields no session for.
 type FileHeader struct {
 	SessionID string
 	ParentID  string
+	Hidden    bool
 	Err       error
 }
 
@@ -41,11 +44,12 @@ func HeadersSourceContext(ctx context.Context, source vendors.ReadSource, files 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		id, parentID, err := readHeaderSourceContext(ctx, source, file)
+		header, err := readFileHeaderSourceContext(ctx, source, file)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		headers[file] = FileHeader{SessionID: id, ParentID: parentID, Err: err}
+		header.Err = err
+		headers[file] = header
 	}
 	return headers, nil
 }

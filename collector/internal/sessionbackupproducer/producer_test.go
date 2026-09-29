@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	testRootID  = "11111111-2222-3333-4444-555555555555"
-	testChildID = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	testRootID     = "11111111-2222-3333-4444-555555555555"
+	testChildID    = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	testGuardianID = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
 )
 
 func TestPrepareProducesVerifiedBoundedLocalAndSSHBundle(t *testing.T) {
@@ -289,6 +290,114 @@ func TestPrepareRejectsSkippedInventory(t *testing.T) {
 	var preparation *PreparationError
 	if !errors.As(err, &preparation) || preparation.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnattributable {
 		t.Fatalf("skipped inventory error = %#v", err)
+	}
+}
+
+// Codex's guardian auto-review runs as a parented subagent rollout that the
+// product hides, so it has no parsed record. The complete backup still keeps
+// its exact bytes, with the member it reviewed, without changing that
+// member's portable record.
+func TestPrepareRetainsHiddenGuardianRolloutWithReviewedMember(t *testing.T) {
+	home, workspace := writeFamilyFixture(t, 0)
+	prepare := func() (*Prepared, string) {
+		spool := t.TempDir()
+		manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+			return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+		}})
+		prepared, err := manager.Prepare(t.Context(), localSelection())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, prepared.BundleID)); err != nil {
+			t.Fatalf("independent verification: %v", err)
+		}
+		return prepared, spool
+	}
+	rootRecordRevision := func(manifest sessionbackupv1.Manifest) string {
+		for _, artifact := range manifest.Artifacts {
+			if artifact.MemberID == testRootID && artifact.Kind == sessionbackupv1.KindParsedSessionRecord {
+				return artifact.SourceKey
+			}
+		}
+		return ""
+	}
+	withoutGuardian, _ := prepare()
+
+	guardianFile := familyFile(home, false, testGuardianID)
+	guardianBytes := guardianRollout(testGuardianID, testRootID, workspace)
+	writeRollout(t, guardianFile, guardianBytes)
+	withGuardian, spool := prepare()
+
+	if len(withGuardian.Manifest.Members) != 2 {
+		t.Fatalf("members = %#v, want only the represented root and child", withGuardian.Manifest.Members)
+	}
+	var rootRollouts []string
+	for _, artifact := range withGuardian.Manifest.Artifacts {
+		if artifact.MemberID == testGuardianID {
+			t.Fatalf("hidden guardian became artifact member: %#v", artifact)
+		}
+		if artifact.MemberID == testRootID && artifact.Kind == sessionbackupv1.KindRawTranscript {
+			rootRollouts = append(rootRollouts, artifact.LogicalName)
+		}
+	}
+	retained := false
+	for _, name := range rootRollouts {
+		data, err := os.ReadFile(filepath.Join(spool, withGuardian.BundleID, filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		retained = retained || string(data) == guardianBytes
+	}
+	if len(rootRollouts) != 2 || !retained {
+		t.Fatalf("root raw transcripts = %q, want its own rollout plus the exact guardian rollout", rootRollouts)
+	}
+	if got, want := rootRecordRevision(withGuardian.Manifest), rootRecordRevision(withoutGuardian.Manifest); got == "" || got != want {
+		t.Fatalf("root record revision = %q, want unchanged %q", got, want)
+	}
+	if withGuardian.Manifest.Members[0].SourceRevision == withoutGuardian.Manifest.Members[0].SourceRevision {
+		t.Fatal("root source revision ignores the retained guardian bytes")
+	}
+}
+
+func TestPrepareBlocksHiddenGuardianInputsItCannotAttribute(t *testing.T) {
+	for name, test := range map[string]struct {
+		rollout, indexRow, code, kind string
+	}{
+		"session index row for the hidden rollout": {
+			rollout:  guardianRollout(testGuardianID, testRootID, "/fixture/workspace"),
+			indexRow: fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Fixture review\"}\n", testGuardianID),
+			code:     sessionbackupv1.ProblemUnattributable, kind: sessionbackupv1.KindRawSidecar,
+		},
+		"parser keeps a rollout the header hid": {
+			rollout: guardianRollout(testGuardianID, testRootID, "/fixture/workspace") + fmt.Sprintf(
+				"{\"timestamp\":\"2026-08-18T10:00:10.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":%q,\"session_id\":%q,\"parent_thread_id\":%q}}\n",
+				testGuardianID, testGuardianID, testRootID),
+			code: sessionbackupv1.ProblemInvalid, kind: sessionbackupv1.KindParsedSessionRecord,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home, _ := writeFamilyFixture(t, 0)
+			writeRollout(t, familyFile(home, false, testGuardianID), test.rollout)
+			if test.indexRow != "" {
+				index, err := os.OpenFile(codex.SessionIndexPath(home), os.O_APPEND|os.O_WRONLY, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = index.WriteString(test.indexRow)
+				if closeErr := index.Close(); err != nil || closeErr != nil {
+					t.Fatal(err, closeErr)
+				}
+			}
+			manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+			}})
+			prepared, err := manager.Prepare(t.Context(), localSelection())
+			var preparation *PreparationError
+			if prepared != nil || !errors.As(err, &preparation) || len(preparation.Coverage.Problems) != 1 ||
+				preparation.Coverage.Problems[0].Code != test.code || preparation.Coverage.Problems[0].Kind != test.kind {
+				t.Fatalf("prepared=%#v error=%#v, want %s %s", prepared, err, test.code, test.kind)
+			}
+		})
 	}
 }
 
@@ -648,6 +757,13 @@ func completeRollout(id, parentID, workspace string, padding int) string {
 {"timestamp":"2026-08-18T10:00:05.000Z","type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"done"}}
 {"timestamp":"2026-08-18T10:00:06.000Z","type":"event_msg","payload":{"type":"task_complete"}}
 %s`, id, id, workspace, parent, strings.Repeat("{}\n", padding/3))
+}
+
+func guardianRollout(id, parentID, workspace string) string {
+	return fmt.Sprintf(`{"timestamp":"2026-08-18T10:00:07.000Z","type":"session_meta","payload":{"id":%q,"session_id":%q,"cwd":%q,"parent_thread_id":%q,"source":{"subagent":{"other":"guardian"}}}}
+{"timestamp":"2026-08-18T10:00:08.000Z","type":"event_msg","payload":{"type":"user_message","message":"synthetic review request"}}
+{"timestamp":"2026-08-18T10:00:09.000Z","type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"synthetic verdict"}}
+`, id, id, workspace, parentID)
 }
 
 func localSelection() Selection {
