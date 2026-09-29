@@ -40,18 +40,21 @@ type Entry struct {
 }
 
 type state struct {
-	Version                int                `json:"version"`
-	InstallID              string             `json:"installId"`
-	Binding                string             `json:"binding,omitempty"`
-	Entries                []Entry            `json:"entries"`
-	ConfigVersion          int64              `json:"configVersion,omitempty"`
-	Config                 hubclient.V4Config `json:"config"`
-	MinVersion             string             `json:"minVersion,omitempty"`
-	RecommendedVersion     string             `json:"recommendedVersion,omitempty"`
-	RecommendedDownloadURL string             `json:"recommendedDownloadUrl,omitempty"`
-	UpdateRequired         bool               `json:"updateRequired,omitempty"`
-	RecommendedUpdate      bool               `json:"recommendedUpdate,omitempty"`
-	Commands               []commandRecord    `json:"commands,omitempty"`
+	Version       int                `json:"version"`
+	InstallID     string             `json:"installId"`
+	Binding       string             `json:"binding,omitempty"`
+	Entries       []Entry            `json:"entries"`
+	ConfigVersion int64              `json:"configVersion,omitempty"`
+	Config        hubclient.V4Config `json:"config"`
+	// PolicyKnown records that Config came from a Hub check-in, including
+	// the owner's version-0 default policy.
+	PolicyKnown            bool            `json:"policyKnown,omitempty"`
+	MinVersion             string          `json:"minVersion,omitempty"`
+	RecommendedVersion     string          `json:"recommendedVersion,omitempty"`
+	RecommendedDownloadURL string          `json:"recommendedDownloadUrl,omitempty"`
+	UpdateRequired         bool            `json:"updateRequired,omitempty"`
+	RecommendedUpdate      bool            `json:"recommendedUpdate,omitempty"`
+	Commands               []commandRecord `json:"commands,omitempty"`
 }
 
 type commandRecord struct {
@@ -122,7 +125,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
 			entry.Manifest, entry.Attempt = nil, 0
 		}
-		q.state.ConfigVersion = 0
+		q.state.ConfigVersion, q.state.PolicyKnown = 0, false
 		q.state.Config = hubclient.V4Config{}
 		q.state.Commands = nil
 		q.state.MinVersion, q.state.RecommendedVersion, q.state.RecommendedDownloadURL = "", "", ""
@@ -146,9 +149,10 @@ func (q *Queue) ApplyPolicy(result hubclient.V4CheckIn) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	prior := q.state
-	if result.ConfigVersion > q.state.ConfigVersion {
+	if result.ConfigVersion > q.state.ConfigVersion || !q.state.PolicyKnown {
 		q.state.ConfigVersion = result.ConfigVersion
 		q.state.Config = result.Config
+		q.state.PolicyKnown = true
 	}
 	q.state.MinVersion = result.MinVersion
 	q.state.RecommendedVersion = result.RecommendedVersion
@@ -341,6 +345,22 @@ func (q *Queue) Update(entry Entry) error {
 		}
 	}
 	return errors.New("v4 queue entry missing")
+}
+
+// Agents lists, sorted, the agents of the sessions this install has queued.
+func (q *Queue) Agents() []string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	seen := map[string]bool{}
+	agents := []string{}
+	for _, entry := range q.state.Entries {
+		if agent := entry.Session.Agent; agent != "" && !seen[agent] {
+			seen[agent] = true
+			agents = append(agents, agent)
+		}
+	}
+	sort.Strings(agents)
+	return agents
 }
 
 func (q *Queue) Progress() hubclient.V4Queue {

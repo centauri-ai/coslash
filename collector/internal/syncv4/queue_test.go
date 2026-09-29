@@ -1,6 +1,7 @@
 package syncv4
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,5 +169,70 @@ func TestQueuePromotesRecentlyChangedHistoryIntoRecentBatch(t *testing.T) {
 	got := queue.Entries()[0]
 	if !got.Recent || got.Activity != entry.Activity {
 		t.Fatalf("updated history entry was not promoted: %+v", got)
+	}
+}
+
+// The owner's version-0 default policy is the Hub's policy too: Local applies
+// it on first check-in, keeps it until a newer version, and forgets it when
+// the Hub binding changes.
+func TestQueueAppliesTheHubsFirstPolicyEvenAtVersionZero(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := func(version int64, paused bool) hubclient.V4CheckIn {
+		return hubclient.V4CheckIn{ConfigVersion: version, MinVersion: "0.0.3",
+			Config: hubclient.V4Config{Paused: paused, LeaveOut: []string{}}}
+	}
+	if err := queue.ApplyPolicy(policy(0, true)); err != nil {
+		t.Fatal(err)
+	}
+	if version, config, _ := queue.Policy(); version != 0 || !config.Paused {
+		t.Fatalf("first policy not applied: version=%d config=%+v", version, config)
+	}
+	if err := queue.ApplyPolicy(policy(0, false)); err != nil {
+		t.Fatal(err)
+	}
+	if _, config, _ := queue.Policy(); !config.Paused {
+		t.Fatal("a repeated version replaced the known policy")
+	}
+	if err := queue.ApplyPolicy(policy(1, false)); err != nil {
+		t.Fatal(err)
+	}
+	if version, config, _ := queue.Policy(); version != 1 || config.Paused {
+		t.Fatalf("newer policy not applied: version=%d config=%+v", version, config)
+	}
+	if err := queue.Rebind(strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Rebind(strings.Repeat("b", 64)); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.ApplyPolicy(policy(0, true)); err != nil {
+		t.Fatal(err)
+	}
+	if version, config, _ := queue.Policy(); version != 0 || !config.Paused {
+		t.Fatalf("a new binding kept the old policy: version=%d config=%+v", version, config)
+	}
+}
+
+func TestQueueAgentsAreTheQueuedSessionsAgents(t *testing.T) {
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.Agents(); len(got) != 0 {
+		t.Fatalf("empty queue agents=%v", got)
+	}
+	var entries []Entry
+	for i, agent := range []string{"cursor", "codex", "claude", "codex"} {
+		entries = append(entries, Entry{Key: fmt.Sprintf("%s-%d", agent, i), Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: agent}})
+	}
+	if err := queue.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(queue.Agents(), ","); got != "claude,codex,cursor" {
+		t.Fatalf("agents=%s", got)
 	}
 }

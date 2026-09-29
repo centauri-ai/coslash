@@ -217,7 +217,9 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 	return nil
 }
 
-func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVersion int64, results []V4CommandResult) (V4CheckIn, error) {
+// V4CheckIn reports the device state and returns the Hub's current policy.
+// agentsFound lists the agents with sessions this install has discovered.
+func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVersion int64, results []V4CommandResult, agentsFound []string) (V4CheckIn, error) {
 	var result V4CheckIn
 	version := strings.SplitN(strings.TrimPrefix(c.CollectorVersion, "v"), "-", 2)[0]
 	if !validClientVersion(version) {
@@ -231,9 +233,11 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 		AgentsFound          []string          `json:"agentsFound"`
 		Queue                V4Queue           `json:"queue"`
 		Results              []V4CommandResult `json:"results,omitempty"`
-	}{version, []string{"sync-v4", "session-backup/v1", "launch", "ssh-relay"}, runtime.GOOS, appliedConfigVersion, []string{"codex"}, queue, results}
+	}{version, []string{"sync-v4", "session-backup/v1", "launch", "ssh-relay"}, runtime.GOOS, appliedConfigVersion, agentsFound, queue, results}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
-	if err == nil && (result.ConfigVersion < 1 || !validClientVersion(result.MinVersion)) {
+	// Version 0 is the owner's default policy before any settings save, and
+	// UnmarshalJSON already requires every policy field.
+	if err == nil && (result.ConfigVersion < 0 || !validClientVersion(result.MinVersion)) {
 		return V4CheckIn{}, errors.New("v4 check-in omitted current policy")
 	}
 	if err == nil {
