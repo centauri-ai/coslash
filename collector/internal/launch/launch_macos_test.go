@@ -5,8 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
 func TestITermUsesBundleIDForDiscoveryAndLaunch(t *testing.T) {
@@ -18,22 +16,20 @@ func TestITermUsesBundleIDForDiscoveryAndLaunch(t *testing.T) {
 		return nil
 	}
 
-	if !Available(settings.TerminalITerm) {
-		t.Fatal("iTerm2 unavailable")
-	}
-	if err := openTerminal(context.Background(), settings.TerminalITerm, "/tmp", "true"); err != nil {
+	if err := macApplicationAvailable(context.Background(), macITermBundleID); err != nil {
 		t.Fatal(err)
 	}
-	if len(calls) != 3 {
-		t.Fatalf("osascript calls = %d, want 3", len(calls))
+	if err := openMacITerm(context.Background(), "/tmp", "true"); err != nil {
+		t.Fatal(err)
 	}
-	for _, call := range calls[:2] {
-		if !slices.Equal(call, []string{"-e", `id of application id "com.googlecode.iterm2"`}) {
-			t.Fatalf("availability lookup = %q", call)
-		}
+	if len(calls) != 2 {
+		t.Fatalf("osascript calls = %d, want 2", len(calls))
 	}
-	if !slices.Contains(calls[2], `tell application id "com.googlecode.iterm2"`) {
-		t.Fatalf("launch script = %q", calls[2])
+	if !slices.Equal(calls[0], []string{"-e", `id of application id "com.googlecode.iterm2"`}) {
+		t.Fatalf("availability lookup = %q", calls[0])
+	}
+	if !slices.Contains(calls[1], `tell application id "com.googlecode.iterm2"`) {
+		t.Fatalf("launch script = %q", calls[1])
 	}
 }
 
