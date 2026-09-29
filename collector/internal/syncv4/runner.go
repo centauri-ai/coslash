@@ -608,7 +608,7 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 	if status.State != "open" || status.UploadID == "" {
 		return errors.New("v4 create did not open upload")
 	}
-	entry.UploadID = status.UploadID
+	entry.UploadID, entry.FailureCode = status.UploadID, ""
 	return r.Queue.Update(*entry)
 }
 
