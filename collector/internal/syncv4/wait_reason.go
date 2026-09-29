@@ -55,12 +55,20 @@ func (r *Runner) currentWait(ctx context.Context) *hubclient.V4ImportWait {
 		metered, battery, err := r.Conditions(ctx)
 		conditions.metered, conditions.battery, conditions.conditionErr = metered, battery, err != nil
 	}
+	ready := false
 	for _, entry := range r.Queue.Entries() {
 		if entry.Excluded || entry.ParkedVersion != "" || !pending(entry) {
 			continue
 		}
-		conditions.spaceFull = conditions.spaceFull || entry.FailureCode == "space_full"
-		conditions.backoff = conditions.backoff || !entry.RetryAt.IsZero() && r.now().Before(entry.RetryAt)
+		if !entry.RetryAt.IsZero() && r.now().Before(entry.RetryAt) {
+			conditions.backoff = true
+			conditions.spaceFull = conditions.spaceFull || entry.FailureCode == "space_full"
+		} else {
+			ready = true
+		}
+	}
+	if ready {
+		conditions.spaceFull, conditions.backoff = false, false
 	}
 	reason := waitReason(conditions)
 	if reason == "" {
