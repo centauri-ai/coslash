@@ -41,9 +41,11 @@ listed session to the front, including a history session while history is
 paused. Live sources wait for two minutes without a change or for the session
 to end before a changed revision is sent. The chunk path sends at most four
 PUTs per upload concurrently and confirms only chunks the Hub marked missing;
-old Hubs retain serial transfer. Check-in refreshes on phase changes and at
-most ten seconds apart at active import batch boundaries; otherwise consent
-refreshes before a batch once it is four minutes old.
+old Hubs retain serial transfer. Check-in refreshes on phase changes and a
+coalesced progress heartbeat runs about every eight seconds during active
+import, including slow transfers. A heartbeat carries in-progress command
+stages; the normal pass handles policy and queued commands. Outside active
+import, consent refreshes before a batch once it is four minutes old.
 `COSLASH_SCALE_IMPORT=0` disables the new path.
 
 The queue's outer `version` remains 1 so the previous Local can still read
