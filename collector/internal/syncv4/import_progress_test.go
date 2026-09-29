@@ -3,6 +3,7 @@ package syncv4
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -49,5 +50,79 @@ func TestImportProgressReportsFilesDuringInventoryScan(t *testing.T) {
 	progress := runner.importProgress(t.Context(), now)
 	if progress.Phase != "inventory" || progress.Listed != 37 || progress.PlanVersion != 0 || !runner.ImportActive() {
 		t.Fatalf("inventory progress = %+v", progress)
+	}
+}
+
+func TestProgressCheckInCoalescesDuringActiveImport(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "all"}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1,
+		Config: hubclient.V4Config{ImportPlan: plan}, Capabilities: []string{hubclient.CapabilityScaleImport}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := queue.StartCommand("cmd_progress"); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetCommandProgress("cmd_progress", hubclient.V4CommandProgress{Stage: "uploading", BytesDone: 4, BytesTotal: 8}); err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{plan: plan}
+	runner := &Runner{Queue: queue, Hub: hub, Now: func() time.Time { return now }}
+	for _, test := range []struct {
+		advance time.Duration
+		want    int
+	}{{0, 1}, {5 * time.Second, 1}, {3 * time.Second, 2}} {
+		now = now.Add(test.advance)
+		changed, retry, err := runner.ProgressCheckIn(t.Context())
+		if err != nil || changed || retry != 0 || hub.checks != test.want {
+			t.Fatalf("after %s: changed=%v retry=%s err=%v checks=%d", test.advance, changed, retry, err, hub.checks)
+		}
+		if hub.checks > 0 && (len(hub.results) != 1 || hub.results[0].Progress == nil || hub.results[0].Progress.Stage != "uploading") {
+			t.Fatalf("heartbeat command results = %+v", hub.results)
+		}
+	}
+}
+
+func TestProgressCheckInSharesHubRateLimitWithConsent(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "all"}
+	if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1,
+		Config: hubclient.V4Config{ImportPlan: plan}, Capabilities: []string{hubclient.CapabilityScaleImport}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.SetPhase("recent"); err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{plan: plan, checkInErr: hubclient.V4Problem{Code: "rate_limited", RetryAfter: time.Minute}}
+	runner := &Runner{Queue: queue, Hub: hub, Now: func() time.Time { return now }}
+	_, retry, err := runner.ProgressCheckIn(t.Context())
+	if err == nil || retry != time.Minute || hub.checks != 1 {
+		t.Fatalf("first rate limit: retry=%s err=%v checks=%d", retry, err, hub.checks)
+	}
+	hub.checkInErr = nil
+	now = now.Add(10 * time.Second)
+	_, retry, err = runner.ProgressCheckIn(t.Context())
+	if err == nil || retry != 50*time.Second || hub.checks != 1 {
+		t.Fatalf("early heartbeat: retry=%s err=%v checks=%d", retry, err, hub.checks)
+	}
+	if err := runner.refreshConsent(t.Context()); !errors.Is(err, ErrStaleConsent) || hub.checks != 1 {
+		t.Fatalf("early consent: err=%v checks=%d", err, hub.checks)
+	}
+	now = now.Add(50 * time.Second)
+	if _, _, err := runner.ProgressCheckIn(t.Context()); err != nil || hub.checks != 2 {
+		t.Fatalf("after rate limit: err=%v checks=%d", err, hub.checks)
 	}
 }

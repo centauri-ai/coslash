@@ -23,13 +23,19 @@ type planHub struct {
 	creates    int
 	lists      [][]hubclient.V4ListItem
 	checks     int
+	checkInErr error
+	results    []hubclient.V4CommandResult
 	retryLists int
 	leaveOut   []string
 }
 
 func (*planHub) V4Binding(context.Context) (string, error) { return strings.Repeat("a", 64), nil }
-func (h *planHub) V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult, []string, []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
+func (h *planHub) V4CheckIn(_ context.Context, _ hubclient.V4Queue, _ int64, results []hubclient.V4CommandResult, _ []string, _ []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
 	h.checks++
+	h.results = append([]hubclient.V4CommandResult(nil), results...)
+	if h.checkInErr != nil {
+		return hubclient.V4CheckIn{}, h.checkInErr
+	}
 	rules := h.leaveOut
 	if rules == nil {
 		rules = []string{}

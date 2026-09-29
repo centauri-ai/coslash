@@ -52,6 +52,37 @@ func runV4SyncLoop(ctx context.Context, runner v4SyncWorker, queue v4SyncState, 
 			}
 		}
 	}()
+	if reporter, ok := runner.(interface {
+		ImportActive() bool
+		ProgressCheckIn(context.Context) (bool, time.Duration, error)
+	}); ok {
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			var retryAt time.Time
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+				}
+				if !reporter.ImportActive() || time.Now().Before(retryAt) {
+					continue
+				}
+				changed, retryAfter, err := reporter.ProgressCheckIn(ctx)
+				if err != nil {
+					retryAt = time.Now().Add(max(10*time.Second, retryAfter))
+					continue
+				}
+				if changed {
+					select {
+					case wake <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}()
+	}
 
 	const interval = 5 * time.Minute
 	for ctx.Err() == nil {
