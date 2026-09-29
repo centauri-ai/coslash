@@ -43,6 +43,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { InsightsView } from '@/pages/coslash/components/InsightsView';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
@@ -93,6 +94,7 @@ import {
   saveSessionViewPreferences,
   type SessionRange,
   type SessionSort,
+  type SessionView,
   type SessionViewPreferences,
 } from '@/pages/coslash/lib/session-view-preferences';
 import { DAY } from '@/pages/coslash/lib/time';
@@ -172,6 +174,27 @@ const styles = {
   cell: 'overflow-hidden px-2.5 py-2 align-middle text-cell',
   empty: 'flex min-h-60 flex-col items-center justify-center gap-2 px-6 py-11 text-center',
 };
+
+function ViewSwitch({ view, onChange }: { view: SessionView; onChange: (view: SessionView) => void }) {
+  return (
+    <div className={styles.segmented} aria-label="View">
+      {(['list', 'board', 'insights'] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          className={cn(
+            'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
+            { 'bg-coslash-surface text-coslash-ink font-semibold shadow-sm': view === value },
+          )}
+          aria-pressed={view === value}
+          onClick={() => onChange(value)}
+        >
+          {value === 'list' ? 'Table' : value === 'board' ? 'Board' : 'Insights'}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function statusDot(status: StatusKey): string {
   return status === 'inactive' ? 'bg-coslash-neutral-dot' : STATUSES[status].dot;
@@ -988,6 +1011,7 @@ export function CoslashLayout({
   machines,
   range,
   onRangeChange,
+  onViewChange,
   selectedSessionKey,
   onSelectSession,
   diagnostics,
@@ -1013,6 +1037,7 @@ export function CoslashLayout({
   machines: MachineFact[];
   range: SessionRange;
   onRangeChange: (range: SessionRange) => void;
+  onViewChange: (view: SessionView) => void;
   selectedSessionKey: string | null;
   onSelectSession: (session: Session) => void;
   diagnostics: ReactNode;
@@ -1049,6 +1074,10 @@ export function CoslashLayout({
   });
   const patchPreferences = (patch: Partial<SessionViewPreferences>) =>
     setPreferences((current) => ({ ...current, ...patch }));
+  const changeView = (view: SessionView) => {
+    patchPreferences({ view });
+    onViewChange(view);
+  };
 
   useEffect(() => saveSessionViewPreferences({ ...preferences, range }), [preferences, range]);
 
@@ -1130,6 +1159,40 @@ export function CoslashLayout({
           ? { key, dir: preferences.sort.dir === 'asc' ? 'desc' : 'asc' }
           : { key, dir: key === 'title' ? 'asc' : 'desc' },
     });
+
+  const reviewIndex = useMemo(() => buildReviewIndex(sessions), [sessions]);
+
+  if (preferences.view === 'insights') {
+    return (
+      <TooltipProvider>
+        <div className={cn(styles.shell, { 'inspector-open': inspectorOpen })}>
+          <CoslashHeader
+            machines={machines}
+            diagnostics={diagnostics}
+            onSettings={onSettings}
+            theme={theme}
+            onThemeChange={onThemeChange}
+            themeDisabled={themeDisabled}
+            onRetry={onRetry}
+            retrying={retrying}
+            actions={headerActions}
+          />
+          {banner}
+          <div className={styles.main}>
+            <div className="flex justify-end pb-4">
+              <ViewSwitch view={preferences.view} onChange={changeView} />
+            </div>
+            <InsightsView
+              sessions={sessions}
+              isLoading={isLoading}
+              loadError={loadError}
+              onRetry={onRetrySessions}
+            />
+          </div>
+        </div>
+      </TooltipProvider>
+    );
+  }
 
   const facetSections: FacetSection[] = [
     {
@@ -1227,8 +1290,6 @@ export function CoslashLayout({
     status,
     rows: visibleSessions.filter((session) => boardStatusKey(session) === status),
   })).filter(({ rows }) => rows.length > 0);
-  const reviewIndex = useMemo(() => buildReviewIndex(sessions), [sessions]);
-
   return (
     <TooltipProvider>
       <div className={cn(styles.shell, { 'inspector-open': inspectorOpen })}>
@@ -1320,6 +1381,9 @@ export function CoslashLayout({
           </div>
 
           <div className={styles.main}>
+            <div className="flex justify-end pb-4">
+              <ViewSwitch view={preferences.view} onChange={changeView} />
+            </div>
             <div className="flex shrink-0 flex-col gap-3">
               <div className={styles.search}>
                 {activeChips.length > 0 && (
@@ -1372,40 +1436,7 @@ export function CoslashLayout({
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <Rollup sessions={visibleSessions} isLoading={isLoading} />
-                <div className="flex max-w-full shrink-0 [scrollbar-width:none] items-center gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden">
-                  <div className={styles.segmented} aria-label="Time range">
-                    {RANGE_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        className={cn(
-                          'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
-                          range === option.value &&
-                            'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
-                        )}
-                        onClick={() => onRangeChange(option.value)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="bg-coslash-line h-7 w-px" aria-hidden="true" />
-                  <div className={styles.segmented} aria-label="View">
-                    {(['board', 'list'] as const).map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={cn(
-                          'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
-                          preferences.view === value &&
-                            'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
-                        )}
-                        onClick={() => patchPreferences({ view: value })}
-                      >
-                        {value === 'list' ? 'Table' : 'Board'}
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
                   {preferences.view === 'board' && (
                     <>
                       <BoardGroupByMenu<BoardGroupBy>
@@ -1422,28 +1453,47 @@ export function CoslashLayout({
                       />
                     </>
                   )}
+                  <div className={styles.segmented} aria-label="Time range">
+                    {RANGE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={cn(
+                          'text-meta text-coslash-muted hover:text-coslash-ink min-h-7 cursor-pointer rounded-[7px] px-2.5 py-1 transition-colors',
+                          range === option.value &&
+                            'bg-coslash-surface text-coslash-ink font-semibold shadow-sm',
+                        )}
+                        onClick={() => onRangeChange(option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                   {preferences.view === 'list' && (
-                    <button
-                      type="button"
-                      className="border-coslash-line bg-coslash-surface text-coslash-muted hover:bg-coslash-soft grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-[9px] border [&>svg]:size-3.5"
-                      aria-label={
-                        preferences.density === 'comfortable' ? 'Use compact rows' : 'Use comfortable rows'
-                      }
-                      title={
-                        preferences.density === 'comfortable' ? 'Use compact rows' : 'Use comfortable rows'
-                      }
-                      onClick={() =>
-                        patchPreferences({
-                          density: preferences.density === 'comfortable' ? 'compact' : 'comfortable',
-                        })
-                      }
-                    >
-                      {preferences.density === 'comfortable' ? (
-                        <Rows3 aria-hidden="true" />
-                      ) : (
-                        <Rows4 aria-hidden="true" />
-                      )}
-                    </button>
+                    <>
+                      <span className="bg-coslash-line h-7 w-px" aria-hidden="true" />
+                      <button
+                        type="button"
+                        className="border-coslash-line bg-coslash-surface text-coslash-muted hover:bg-coslash-soft grid min-h-8 min-w-8 cursor-pointer place-items-center rounded-[9px] border [&>svg]:size-3.5"
+                        aria-label={
+                          preferences.density === 'comfortable' ? 'Use compact rows' : 'Use comfortable rows'
+                        }
+                        title={
+                          preferences.density === 'comfortable' ? 'Use compact rows' : 'Use comfortable rows'
+                        }
+                        onClick={() =>
+                          patchPreferences({
+                            density: preferences.density === 'comfortable' ? 'compact' : 'comfortable',
+                          })
+                        }
+                      >
+                        {preferences.density === 'comfortable' ? (
+                          <Rows3 aria-hidden="true" />
+                        ) : (
+                          <Rows4 aria-hidden="true" />
+                        )}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

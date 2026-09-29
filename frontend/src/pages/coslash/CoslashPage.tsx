@@ -24,7 +24,11 @@ import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
-import { loadSessionViewPreferences, type SessionRange } from '@/pages/coslash/lib/session-view-preferences';
+import {
+  loadSessionViewPreferences,
+  type SessionRange,
+  type SessionView,
+} from '@/pages/coslash/lib/session-view-preferences';
 import {
   initialSettingsDraft,
   requiresFirstRunConsent,
@@ -91,11 +95,12 @@ function SettingsErrorBanner({
 
 export function CoslashPage() {
   const [range, setRange] = useState<SessionRange>(() => loadSessionViewPreferences().range);
+  const [view, setView] = useState<SessionView>(() => loadSessionViewPreferences().view);
   const shareParams = new URLSearchParams(window.location.search);
   const shareFixtureEnabled = shareParams.get('team-share') === '1';
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
-  const apiWindow = apiWindowForRange(range);
+  const apiWindow = view === 'insights' ? 'all' : apiWindowForRange(range);
   const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
     useSessions({
       localWindow: shareFixtureEnabled ? 'all' : apiWindow,
@@ -286,6 +291,7 @@ export function CoslashPage() {
         machines={machines}
         range={range}
         onRangeChange={setRange}
+        onViewChange={setView}
         selectedSessionKey={selectedSessionKey}
         onSelectSession={(session) => selectSession(sessionKey(session))}
         diagnostics={

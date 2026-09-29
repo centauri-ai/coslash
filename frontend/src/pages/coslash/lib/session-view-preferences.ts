@@ -8,7 +8,7 @@ import {
 
 export type SessionRange = 'today' | 'this-week' | 'week' | 'month' | 'all';
 export type SessionListDensity = 'comfortable' | 'compact';
-export type SessionView = 'list' | 'board';
+export type SessionView = 'list' | 'board' | 'insights';
 export type SessionSort = {
   key: 'title' | 'recent' | 'cost';
   dir: 'asc' | 'desc';
@@ -31,7 +31,7 @@ export type SessionViewPreferences = {
 const STORAGE_KEY = 'coslash.session-view-preferences.v1';
 const RANGES = new Set<SessionRange>(['today', 'this-week', 'week', 'month', 'all']);
 const STATUSES = new Set<StatusKey>(STATUS_ORDER);
-const VIEWS = new Set<SessionView>(['list', 'board']);
+const VIEWS = new Set<SessionView>(['list', 'board', 'insights']);
 const DENSITIES = new Set<SessionListDensity>(['comfortable', 'compact']);
 const SORT_KEYS = new Set<SessionSort['key']>(['title', 'recent', 'cost']);
 const SORT_DIRECTIONS = new Set<SessionSort['dir']>(['asc', 'desc']);
