@@ -80,11 +80,12 @@ export function handoffBrief(detail: SessionDetail): string {
   ];
   const brief = lines.join('\n');
   if (new TextEncoder().encode(brief).length <= MAX_HANDOFF_BYTES) return brief;
-  // ponytail: other oversized sections still fail at launch; compact them if observed.
+  // ponytail: other oversized sections still fail at launch; preserve the full brief for copying.
   lines.splice(
     lines.indexOf('## Timeline') + 1,
     digest.length,
     '- Timeline omitted because the handoff exceeded 64 KiB.',
   );
-  return lines.join('\n');
+  const compact = lines.join('\n');
+  return new TextEncoder().encode(compact).length <= MAX_HANDOFF_BYTES ? compact : brief;
 }

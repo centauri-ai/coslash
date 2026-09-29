@@ -84,10 +84,14 @@ func Build(value *session.Session) string {
 	if len(brief) <= launch.MaxHandoffBytes {
 		return brief
 	}
-	// ponytail: other oversized sections still fail at launch; compact them if observed.
+	// ponytail: other oversized sections still fail at launch; preserve the full brief for copying.
 	compact := append([]string{}, lines[:timelineStart]...)
 	compact = append(compact, "", "## Timeline", "- Timeline omitted because the handoff exceeded 64 KiB.")
-	return strings.Join(append(compact, lines[timelineEnd:]...), "\n")
+	compactBrief := strings.Join(append(compact, lines[timelineEnd:]...), "\n")
+	if len(compactBrief) <= launch.MaxHandoffBytes {
+		return compactBrief
+	}
+	return brief
 }
 
 func sessionGoals(value *session.Session) ([]string, string) {
