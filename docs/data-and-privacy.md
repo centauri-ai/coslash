@@ -156,6 +156,7 @@ session as Inactive. The portable record itself still omits the origin. If no
 bounded repository identity is available, the upload uses the disclosed
 working-directory basename and marks the repository local-only; the review
 shows that exact fallback before approval.
+The source-aware session response may carry a recorded remote working-directory path when no repository identity is available; the library displays it relative to a recognizable home directory when possible, and it remains display metadata rather than raw transcript content.
 
 ## Local server
 

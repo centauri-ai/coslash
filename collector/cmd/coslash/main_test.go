@@ -669,6 +669,19 @@ func TestBoardRemoteSessionDoesNotSerializeRemoteOperationalOrContentFields(t *t
 	}
 }
 
+func TestBoardRemoteSessionSerializesWorkingDirectoryWithoutRepository(t *testing.T) {
+	encoded, err := json.Marshal(boardRemoteSession(remote.IndexedSession{
+		Key:     remote.SessionKey{SourceID: "r_0123456789abcdef"},
+		Session: &session.Session{Agent: "codex", ID: "session-1", WorkingDirectory: "/private/workspace"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"cwd":"/private/workspace"`) {
+		t.Fatalf("remote board response omitted working directory without a repository: %s", encoded)
+	}
+}
+
 func TestHelperSetupFailureIsNotReportedAsGreenMachineSuccess(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	manager := remote.NewManager(remote.Options{})

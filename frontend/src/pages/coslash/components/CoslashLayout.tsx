@@ -198,6 +198,13 @@ function localRepositoryRoot(cwd: string, repo: string): string {
   return depth === -1 ? cwd.trim() || repo : parts.slice(0, depth + 1).join('/');
 }
 
+function remoteWorkingDirectoryLabel(cwd: string): string {
+  const parts = cwd.trim().split('/').filter(Boolean);
+  if (parts[0] === 'home' || parts[0] === 'Users') return parts.slice(2).join('/') || '~';
+  if (parts[0] === 'root') return parts.slice(1).join('/') || '~';
+  return cwd.trim();
+}
+
 function detectedGroup(session: Session): Group {
   if (session.repo?.trim() && !session.repoLocalOnly) {
     const label = session.repo.split('/').filter(Boolean).at(-1) ?? session.repo;
@@ -219,6 +226,15 @@ function detectedGroup(session: Session): Group {
   }
   const cwd = session.cwd.trim();
   if (cwd) {
+    if (!isLocalSession(session)) {
+      const label = remoteWorkingDirectoryLabel(cwd);
+      return {
+        id: `folder:${session.sourceId}:${cwd}`,
+        label,
+        kind: 'Folder',
+        basis: label,
+      };
+    }
     const parts = cwd.split('/').filter(Boolean);
     const parent = parts.slice(0, -1).join('/') || parts.join('/');
     return {

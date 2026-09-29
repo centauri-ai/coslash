@@ -325,6 +325,60 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('>server/app<');
   });
 
+  it('uses a remote working directory for folder groups without hiding repository labels', () => {
+    const remote = session({
+      id: 'remote-folder',
+      name: 'Remote folder session',
+      sourceId: 'remote',
+      sourceLabel: 'SSH workspace',
+      cwd: '/home/milan/codex_work/finance_benchmark',
+      repo: null,
+    });
+    const repository = session({
+      id: 'repository',
+      name: 'Repository session',
+      sourceId: 'remote',
+      repo: 'github.com/centauri-ai/coslash',
+      repoLocalOnly: false,
+    });
+    const markup = renderLayout({ sessions: [remote, repository], range: 'all' });
+
+    expect(markup).toContain('>codex_work/finance_benchmark<');
+    expect(markup).not.toContain('/home/milan/codex_work/finance_benchmark');
+    expect(markup).toContain('>coslash<');
+    expect(markup).toContain('>Folders<');
+
+    vi.stubGlobal('sessionStorage', {
+      getItem: () =>
+        JSON.stringify({
+          query: 'group:finance_benchmark',
+          range: 'all',
+        }),
+      setItem: () => {},
+    });
+    const searched = renderLayout({ sessions: [remote, repository], range: 'all' });
+    expect(searched).toContain('>Remote folder session<');
+    expect(searched).not.toContain('>Repository session<');
+  });
+
+  it('keeps case-sensitive remote folder groups distinct', () => {
+    const folder = (id: string, cwd: string) =>
+      session({
+        id,
+        sourceId: 'remote',
+        sourceLabel: 'SSH workspace',
+        cwd,
+        repo: null,
+      });
+    const markup = renderLayout({
+      sessions: [folder('upper', '/home/milan/Foo'), folder('lower', '/home/milan/foo')],
+      range: 'all',
+    });
+
+    expect(markup.match(/>Foo</g)).toHaveLength(2);
+    expect(markup.match(/>foo</g)).toHaveLength(2);
+  });
+
   it('collapses row actions into one menu trigger', () => {
     const reviewable = renderLayout({
       sessions: [
