@@ -625,6 +625,12 @@ func (q *Queue) Progress() hubclient.V4Queue {
 	if q.state.Inventory != nil && hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport) {
 		inventory := *q.state.Inventory
 		inventory.Agents = append([]hubclient.InventoryAgent{}, inventory.Agents...)
+		if q.state.PolicyKnown && len(q.state.Config.LeaveOut) > 0 {
+			// A stat-only walk cannot associate every source with its repo or
+			// working directory. Suppress window counts under leave-out rules
+			// until parsed, policy-filtered counts are available.
+			inventory.Windows = hubclient.InventoryWindows{}
+		}
 		progress.Inventory = &inventory
 	}
 	return progress
