@@ -3,6 +3,7 @@ package cursor
 import (
 	"cmp"
 	"context"
+	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -254,7 +255,7 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 	if err != nil {
 		return nil, err
 	}
-	for _, path := range chatStores {
+	for _, path := range withoutResumeStubs(ctx, chatStores) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -318,8 +319,28 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 	return metadata, nil
 }
 
+// cursorCLIWorkingDirectory returns a CLI chat's working directory from the
+// meta.json beside its store. Older CLI versions omit it. A chat's parent
+// folder is named by the MD5 of its working directory, so another chat in the
+// same folder that records one supplies it, accepted only when its MD5 is the
+// folder's name.
 func cursorCLIWorkingDirectory(storePath string) string {
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(storePath), "meta.json"))
+	if cwd := chatMetaWorkingDirectory(filepath.Dir(storePath)); cwd != "" {
+		return cwd
+	}
+	workspace := filepath.Dir(filepath.Dir(storePath))
+	siblings, _ := filepath.Glob(filepath.Join(workspace, "*", "meta.json"))
+	for _, sibling := range siblings {
+		cwd := chatMetaWorkingDirectory(filepath.Dir(sibling))
+		if sum := md5.Sum([]byte(cwd)); cwd != "" && hex.EncodeToString(sum[:]) == strings.ToLower(filepath.Base(workspace)) {
+			return cwd
+		}
+	}
+	return ""
+}
+
+func chatMetaWorkingDirectory(chat string) string {
+	data, err := os.ReadFile(filepath.Join(chat, "meta.json"))
 	if err != nil {
 		return ""
 	}
@@ -330,6 +351,59 @@ func cursorCLIWorkingDirectory(storePath string) string {
 		return ""
 	}
 	return strings.TrimSpace(item.CWD)
+}
+
+// withoutResumeStubs drops empty stub stores. Resuming a CLI chat from another
+// folder can leave a second store for the same chat whose every table but
+// meta is empty. When a chat has more than one store, the stubs hold nothing
+// and are dropped; a lone store, or two that both hold rows, stay for the
+// caller to judge.
+func withoutResumeStubs(ctx context.Context, stores []string) []string {
+	byChat := map[string]int{}
+	for _, store := range stores {
+		byChat[canonicalCursorID(filepath.Base(filepath.Dir(store)))]++
+	}
+	kept := make([]string, 0, len(stores))
+	for _, store := range stores {
+		if byChat[canonicalCursorID(filepath.Base(filepath.Dir(store)))] > 1 && emptyChatStore(ctx, store) {
+			continue
+		}
+		kept = append(kept, store)
+	}
+	return kept
+}
+
+// emptyChatStore reports whether every table in a chat store other than meta
+// is empty. A store that cannot be read is not empty.
+func emptyChatStore(ctx context.Context, path string) bool {
+	db, err := openCursorDBContext(ctx, path)
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'meta'`)
+	if err != nil {
+		return false
+	}
+	var tables []string
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) != nil || !safeSQLName(name) {
+			rows.Close()
+			return false
+		}
+		tables = append(tables, name)
+	}
+	if rows.Close() != nil || rows.Err() != nil {
+		return false
+	}
+	for _, table := range tables {
+		var present int
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM "`+table+`")`).Scan(&present); err != nil || present != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func applyCursorLiveness(metadata *vendors.SessionMetadata, live map[string]string, includeUnknown bool) {
