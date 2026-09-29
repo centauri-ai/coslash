@@ -51,12 +51,13 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 			OS                   string   `json:"os"`
 			AppliedConfigVersion int64    `json:"appliedConfigVersion"`
 			Capabilities         []string `json:"capabilities"`
+			AgentsFound          []string `json:"agentsFound"`
 			Queue                V4Queue  `json:"queue"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			t.Fatal(err)
 		}
-		if input.OS != runtime.GOOS || input.AppliedConfigVersion != 7 || len(input.Capabilities) != 4 ||
+		if input.OS != runtime.GOOS || input.AppliedConfigVersion != 7 || len(input.Capabilities) != 4 || strings.Join(input.AgentsFound, ",") != "claude,codex,cursor" ||
 			input.Queue.FirstSync.RecentDone != 2 || input.Queue.FirstSync.RecentTotal != 3 || input.Queue.FirstSync.HistoryState != "syncing" {
 			t.Fatalf("check-in input = %+v", input)
 		}
@@ -68,9 +69,25 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	var queue V4Queue
 	queue.Pending = 1
 	queue.FirstSync.RecentDone, queue.FirstSync.RecentTotal, queue.FirstSync.HistoryState = 2, 3, "syncing"
-	result, err := client.V4CheckIn(context.Background(), queue, 7, nil)
+	result, err := client.V4CheckIn(context.Background(), queue, 7, nil, []string{"claude", "codex", "cursor"})
 	if err != nil || result.ConfigVersion != 8 {
 		t.Fatalf("check-in result=%+v err=%v", result, err)
+	}
+}
+
+// A new owner's policy is version 0 until they first save settings; pairing
+// alone must be enough for the first sync to start.
+func TestV4CheckInAcceptsTheDefaultPolicyVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"configVersion":0,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.3","recommendedVersion":"0.0.5","nextCheckInSeconds":60}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
+	var queue V4Queue
+	queue.FirstSync.HistoryState = "complete"
+	if result, err := client.V4CheckIn(context.Background(), queue, 0, nil, nil); err != nil || result.ConfigVersion != 0 || result.Config.LeaveOut == nil {
+		t.Fatalf("default policy check-in=%+v err=%v", result, err)
 	}
 }
 
@@ -99,7 +116,7 @@ func TestV4CheckInRejectsIncompletePolicy(t *testing.T) {
 	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
 	var queue V4Queue
 	queue.FirstSync.HistoryState = "complete"
-	if _, err := client.V4CheckIn(context.Background(), queue, 7, nil); err == nil {
+	if _, err := client.V4CheckIn(context.Background(), queue, 7, nil, nil); err == nil {
 		t.Fatal("missing leave-out policy was accepted")
 	}
 }
