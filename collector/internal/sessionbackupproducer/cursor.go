@@ -124,9 +124,11 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 	if !ok || root.ParentSessionID != "" {
 		return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindParsedSessionRecord, false)
 	}
+	// A chat with no working folder, such as one in an empty IDE window, backs
+	// up with no repository.
 	repository, localOnly := repositoryIdentity(ctx, selection.SourceKind, root.Session.WorkingDirectory, handle.Enrichment[selection.SessionID])
 	if repository == "" {
-		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindSessionEnrichment, false)
+		localOnly = true
 	}
 	members := make([]sessionbackupv1.Member, 0, len(records))
 	sourceRevisions := make([]string, 0, len(records))
@@ -141,7 +143,7 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 	manifest := sessionbackupv1.Manifest{
 		RequiredVersions: []string{sessionbackupv1.ParsedRecordVersion, sessionbackupv1.DatabaseRowsVersion, sessionbackupv1.SchemaVersion},
 		Source:           sessionbackupv1.SourceIdentity{Kind: selection.SourceKind, SourceID: selection.SourceID, Agent: vendors.AgentCursor, SourceRevision: hashStrings(sourceRevisions)},
-		Repository:       sessionbackupv1.RepositoryIdentity{Canonical: repository, VCS: "git"},
+		Repository:       manifestRepository(repository),
 		Producer:         sessionbackupv1.ProducerIdentity{Name: "coslash", Version: manager.collectorVersion, ParserVersion: manager.parserVersion},
 		Family:           sessionbackupv1.FamilyIdentity{FamilyID: selection.SessionID, RootMemberID: selection.SessionID},
 		Members:          members, Artifacts: writes.artifacts,

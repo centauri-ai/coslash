@@ -2,6 +2,7 @@ package cursor
 
 import (
 	"context"
+	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -813,5 +814,96 @@ func TestMalformedComposerDataStillRegistersIDELane(t *testing.T) {
 	}
 	if got := metadata.Lookup(id); got == nil || got.Entrypoint != "" {
 		t.Fatalf("ambiguous malformed composer metadata = %#v", got)
+	}
+}
+
+// writeCLIChatStore creates the chat store for id under a workspace folder,
+// with the meta row naming the chat, a meta.json that records cwd when it is
+// not empty, and blobs content rows.
+func writeCLIChatStore(t *testing.T, home, workspace, id, cwd string, blobs int) string {
+	t.Helper()
+	path := filepath.Join(home, ".cursor", "chats", workspace, id, "store.db")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	statements := []string{`CREATE TABLE meta (key TEXT, value TEXT)`, `CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)`}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO meta VALUES ('0', ?)`, hex.EncodeToString([]byte(`{"agentId":"`+id+`","name":"CLI session"}`))); err != nil {
+		t.Fatal(err)
+	}
+	for i := range blobs {
+		if _, err := db.Exec(`INSERT INTO blobs VALUES (?, ?)`, fmt.Sprintf("blob-%d", i), []byte("content")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	meta := `{"schemaVersion":1}`
+	if cwd != "" {
+		meta = `{"schemaVersion":1,"cwd":` + fmt.Sprintf("%q", cwd) + `}`
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// Older Cursor CLI versions leave cwd out of meta.json. The chat's parent
+// folder is the MD5 of its working directory, so a sibling chat that records
+// a cwd with that MD5 supplies it; a sibling in a folder with another name
+// does not.
+func TestLoadMetadataRecoversCLIWorkingDirectoryFromItsWorkspaceFolder(t *testing.T) {
+	home := t.TempDir()
+	want := filepath.Join(home, "project")
+	sum := md5.Sum([]byte(want))
+	const older, newer = "01234567-89ab-4def-8123-456789abcde1", "01234567-89ab-4def-8123-456789abcde2"
+	const unverified, other = "01234567-89ab-4def-8123-456789abcde3", "01234567-89ab-4def-8123-456789abcde4"
+	writeCLIChatStore(t, home, hex.EncodeToString(sum[:]), older, "", 1)
+	writeCLIChatStore(t, home, hex.EncodeToString(sum[:]), newer, want, 1)
+	writeCLIChatStore(t, home, "workspace", unverified, "", 1)
+	writeCLIChatStore(t, home, "workspace", other, want, 1)
+
+	metadata, err := loadMetadata(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Session(older).WorkingDirectory; got != want {
+		t.Fatalf("recovered working directory = %q, want %q", got, want)
+	}
+	if got := metadata.Session(unverified).WorkingDirectory; got != "" {
+		t.Fatalf("unverified sibling supplied %q", got)
+	}
+}
+
+// Resuming a CLI chat from another folder can leave an empty stub store for
+// the same chat. The stub is dropped only beside another store; two stores
+// that both hold rows stay ambiguous.
+func TestResumeStubStoresAreDropped(t *testing.T) {
+	home := t.TempDir()
+	const resumed, lone, twice = "01234567-89ab-4def-8123-456789abcde5", "01234567-89ab-4def-8123-456789abcde6", "01234567-89ab-4def-8123-456789abcde7"
+	realFolder, stubFolder := filepath.Join(home, "real"), filepath.Join(home, "elsewhere")
+	real := writeCLIChatStore(t, home, "folder-a", resumed, realFolder, 2)
+	stub := writeCLIChatStore(t, home, "folder-b", resumed, stubFolder, 0)
+	loneStub := writeCLIChatStore(t, home, "folder-c", lone, "", 0)
+	first := writeCLIChatStore(t, home, "folder-d", twice, "", 1)
+	second := writeCLIChatStore(t, home, "folder-e", twice, "", 1)
+
+	got := withoutResumeStubs(t.Context(), []string{real, stub, loneStub, first, second})
+	if want := []string{real, loneStub, first, second}; !slices.Equal(got, want) {
+		t.Fatalf("stores = %q, want %q", got, want)
+	}
+	metadata, err := loadMetadata(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := metadata.Session(resumed).WorkingDirectory; got != realFolder {
+		t.Fatalf("working directory = %q, want the real store's %q", got, realFolder)
 	}
 }

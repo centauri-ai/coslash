@@ -45,14 +45,22 @@ verified spool revisions available.
 The Cursor producer binds each local transcript fragment to one session ID and
 projects only attributed rows from IDE `state.vscdb`, conversation search and
 tracking databases, or the CLI's per-session chat store. CLI `meta.json` is
-retained exactly because it supplies the working directory. The verified parsed
+retained exactly because it supplies the working directory. Older CLI versions
+leave `cwd` out of it; the chat's parent folder is named by the MD5 of its
+working directory, so another chat in that folder whose recorded `cwd` has that
+MD5 supplies it. Resuming a CLI chat from another folder can leave an empty
+stub store for the same chat; beside the real store, the stub holds nothing and
+is left out, while two stores that both hold rows stay ambiguous. A chat with
+no working folder, such as an IDE chat in an empty window, backs up with the
+explicit empty repository (`"vcs": "none"`). The verified parsed
 record carries `cursor-ide` or `cursor-cli`: IDE continuation opens the
 workspace and never claims exact chat resume; CLI continuation may resume the
 specific chat. Missing, ambiguous, changing, or cross-session inputs block
 publication. Attributed rows that `session-backup-db-rows/v1` cannot carry,
-such as a value over its per-value limit, also block publication; they are
-reported as non-retryable `artifact_invalid` metadata rows, not as
-unattributable. Cursor SSH remains owned by the later relay task.
+such as text that is not UTF-8 or a value over the 64 MiB document bound, also
+block publication; they are reported as non-retryable `artifact_invalid`
+metadata rows, not as unattributable. Cursor SSH remains owned by the later
+relay task.
 
 Focused verification is:
 

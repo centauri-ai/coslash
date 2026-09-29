@@ -158,6 +158,12 @@ func databaseRowsWithinItemLimit(rows DatabaseRows) bool {
 	return true
 }
 
+// MaxDatabaseValueBytes bounds one TEXT value or one BLOB's base64 text. It is
+// the projection document's own bound, so a large attributed value, such as a
+// Cursor CLI blob over 1 MiB, is carried exactly instead of blocking the
+// backup.
+const MaxDatabaseValueBytes = fullsessionv1.MaxRecordBytes
+
 func validDatabaseValue(value DatabaseValue) bool {
 	switch value.Type {
 	case "null":
@@ -169,10 +175,10 @@ func validDatabaseValue(value DatabaseValue) bool {
 		decoded, err := hex.DecodeString(value.Value)
 		return err == nil && len(decoded) == 8 && strings.ToLower(value.Value) == value.Value
 	case "text":
-		return valueText(value.Value)
+		return utf8.ValidString(value.Value) && len(value.Value) <= MaxDatabaseValueBytes
 	case "blob":
 		decoded, err := base64.StdEncoding.DecodeString(value.Value)
-		return err == nil && len(value.Value) <= 1<<20 && base64.StdEncoding.EncodeToString(decoded) == value.Value
+		return err == nil && len(value.Value) <= MaxDatabaseValueBytes && base64.StdEncoding.EncodeToString(decoded) == value.Value
 	default:
 		return false
 	}
