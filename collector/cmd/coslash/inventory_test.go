@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/inventory"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
@@ -25,10 +26,11 @@ func TestRunInventoryRecordsForCheckInAndWakesTheSyncLoopOnce(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	wake := make(chan struct{}, 1)
+	tracker := &inventory.Tracker{}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runInventory(ctx, fingerprints, queue, wake, func(context.Context) bool { return true })
+		runInventory(ctx, fingerprints, queue, wake, tracker, func(context.Context) bool { return true })
 	}()
 	select {
 	case <-wake:
@@ -37,6 +39,9 @@ func TestRunInventoryRecordsForCheckInAndWakesTheSyncLoopOnce(t *testing.T) {
 	}
 	if inventory := queue.Inventory(); inventory == nil || inventory.Files != 0 || inventory.ScannedAt == "" {
 		t.Fatalf("queue inventory = %+v", inventory)
+	}
+	if tracker.Running() || tracker.FilesSoFar() != 0 {
+		t.Fatalf("tracker = running %v, files %d", tracker.Running(), tracker.FilesSoFar())
 	}
 	cancel()
 	select {
@@ -62,10 +67,11 @@ func TestRunInventoryWaitsForPairing(t *testing.T) {
 	defer cancel()
 	var paired atomic.Bool
 	wake := make(chan struct{}, 1)
+	tracker := &inventory.Tracker{}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		runInventory(ctx, fingerprints, queue, wake, func(context.Context) bool { return paired.Load() })
+		runInventory(ctx, fingerprints, queue, wake, tracker, func(context.Context) bool { return paired.Load() })
 	}()
 	select {
 	case <-wake:
@@ -74,6 +80,9 @@ func TestRunInventoryWaitsForPairing(t *testing.T) {
 	}
 	if queue.Inventory() != nil {
 		t.Fatal("inventory scanned before pairing")
+	}
+	if tracker.Running() {
+		t.Fatal("inventory tracker ran before pairing")
 	}
 	paired.Store(true)
 	select {
