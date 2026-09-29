@@ -37,6 +37,25 @@ Hub pause, device-off, local metered hint, or low battery stops new writes.
 Leave-outs are checked locally and at Hub create/finalize. Raw paths and
 transcript text never enter sync logs.
 
+Check-in also carries the sync log (`log`, at most 200 lines, oldest first)
+that the Hub shows on the device page and on a failed session's card. Each
+failure the queue records adds one `error` line with a code from the Hub's
+closed set, the Hub session ID once the session has one, and fixed text keyed
+by the code, which the Hub replaces with its own. Preparation problems map by
+their first capture problem: unstable to `transcript_changed_during_read`;
+invalid, unattributable or unsupported to `malformed_artifact`; otherwise
+`unreadable_source`. Hub `not_found` maps to `upload_expired`,
+`request_too_large` to `too_large`, and other unknown errors to
+`server_error`. Back-pressure (`rate_limited`), leave-outs, sessions deleted
+in the Hub, superseded or aborted uploads and a spool Local rebuilds add no
+line. The same code for the same Hub session is logged once until the session
+syncs or the Hub asks for a retry, and unsent lines without a session collapse
+to one per code. Unsent lines stay in the queue file, at most 1,000 with the
+oldest dropped first, and leave it only after a check-in succeeds; lines older
+than 29 days are dropped. If the Hub refuses a check-in
+as invalid, Local checks in without the log and drops that batch, so the log
+never stops sync. A binding change drops unsent lines.
+
 `COSLASH_V4_SYNC_ENABLED=1` is a development activation flag and defaults off.
 The server's separate v4 upload flag must also be enabled. Disable the Local
 flag and restart to stop this scheduler; v1–v3 sharing remains available.

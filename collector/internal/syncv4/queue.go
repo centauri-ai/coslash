@@ -42,6 +42,10 @@ type Entry struct {
 	// repeat for the same source. The entry is not retried until its source
 	// changes, the Hub asks for a retry, or Local runs a different version.
 	ParkedVersion string `json:"parkedVersion,omitempty"`
+	// LoggedFailure is the Hub log code and Hub session ID last logged for
+	// this entry, so a failure that repeats on every pass or every source
+	// change is logged once. A completed sync or a Hub retry clears it.
+	LoggedFailure string `json:"loggedFailure,omitempty"`
 }
 
 type state struct {
@@ -63,6 +67,9 @@ type state struct {
 	// DiscardBundles are prepared bundles no entry refers to any more. The
 	// runner deletes them at the start of its next pass.
 	DiscardBundles []string `json:"discardBundles,omitempty"`
+	// Log holds sync log lines the Hub has not acknowledged, oldest first.
+	Log    []LogLine `json:"log,omitempty"`
+	LogSeq int64     `json:"logSeq,omitempty"`
 }
 
 type commandRecord struct {
@@ -130,7 +137,7 @@ func (q *Queue) Rebind(binding string) error {
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]
 			q.abandon(entry.BundleID)
-			entry.ParkedVersion = ""
+			entry.ParkedVersion, entry.LoggedFailure = "", ""
 			entry.SyncedActivity, entry.SyncedSourceRevision = 0, ""
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
 			entry.Manifest, entry.Attempt = nil, 0
@@ -138,6 +145,8 @@ func (q *Queue) Rebind(binding string) error {
 		q.state.ConfigVersion, q.state.PolicyKnown = 0, false
 		q.state.Config = hubclient.V4Config{}
 		q.state.Commands = nil
+		// Unsent lines name the previous binding's sessions.
+		q.state.Log = nil
 		q.state.MinVersion, q.state.RecommendedVersion, q.state.RecommendedDownloadURL = "", "", ""
 		q.state.UpdateRequired, q.state.RecommendedUpdate = false, false
 	}
@@ -280,7 +289,7 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 		}
 		prior := *entry
 		q.abandon(entry.BundleID)
-		entry.ParkedVersion = ""
+		entry.ParkedVersion, entry.LoggedFailure = "", ""
 		entry.SyncedActivity = 0
 		entry.SyncedSourceRevision = ""
 		entry.RevisionID = ""
@@ -347,6 +356,10 @@ func (q *Queue) Merge(found []Entry, now time.Time) error {
 }
 
 func (q *Queue) Update(entry Entry) error {
+	return q.update(entry, nil)
+}
+
+func (q *Queue) update(entry Entry, line *LogLine) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for i := range q.state.Entries {
@@ -358,6 +371,9 @@ func (q *Queue) Update(entry Entry) error {
 				q.abandon(stored)
 			}
 			q.state.Entries[i] = entry
+			if line != nil && !q.pendingDeviceLine(*line) {
+				q.appendLog(*line)
+			}
 			return q.save()
 		}
 	}
