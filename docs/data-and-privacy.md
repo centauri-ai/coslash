@@ -31,7 +31,7 @@ coSlash reads, but does not modify:
 | `pi-runtime/` and `pi-history/` | Private process identity, session IDs, exact transcript paths, runtime state, and retained discovery evidence. |
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
-| `session-backups/prepared/` | Verified, private complete Codex and local Claude bundles retained while an approved share or enabled v4 sync can resume. |
+| `session-backups/prepared/` | Verified, private complete Codex, local Claude, OpenCode and Cursor bundles retained while an approved share or enabled v4 sync can resume. |
 | `sync-v4/queue.json` | Private v4 installation ID, session metadata, content hashes, pending upload IDs and progress. This ID survives device re-pairing. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
@@ -102,7 +102,7 @@ revision; display paths and change IDs are never treated as files to open.
 ## Outbound data
 
 Outside an explicitly approved Hub share or explicitly enabled experimental
-v4 Codex or Claude sync, the collector does not upload session data itself. A
+v4 sync, the collector does not upload session data itself. A
 separately authorized remote MCP agent may read Hub sessions. If you enable
 synthesis, it passes a bounded set of facts
 to your selected local CLI. These facts can include prompts, recaps, todos,
@@ -125,9 +125,11 @@ arguments. Each agent manages its own credential storage. Disconnect or switch
 the connection in that agent to clear its local OAuth credential; the Hub
 checks access on each tool request and denies revoked access.
 
-Experimental personal Codex and Claude sync is disabled by default. A development build
-with a paired Hub, a supported semantic Local version, and
-`COSLASH_V4_SYNC_ENABLED=1` starts it. It sends recent session metadata before
+Experimental personal v4 sync of Codex, local Claude, OpenCode and Cursor
+sessions is disabled by default. A development build with a paired Hub, a
+supported semantic Local version, and `COSLASH_V4_SYNC_ENABLED=1` starts it,
+right after pairing: a new owner's default Hub policy (version 0) is enough.
+Each check-in reports which agents this install has sessions for. It sends recent session metadata before
 content, then imports older history. The Hub check-in supplies the current
 pause, device-off and leave-out policy; if check-in fails or the policy becomes
 stale, upload stops. `COSLASH_SYNC_METERED=1` and
@@ -145,8 +147,8 @@ The frozen bundle contains the raw attributable Codex rollouts and sidecar
 bytes, canonical parsed records, exact file-change bodies, session enrichment,
 and revision-matched persisted synthesis. Previewing does not upload or approve
 anything. The v3 Share flow continues to block Claude, Cursor, and OpenCode.
-The separate v4 local sync can prepare complete Claude families when enabled;
-Claude SSH, Cursor, and OpenCode remain unsupported there. Neither flow falls
+The separate v4 local sync can prepare complete local Claude, OpenCode and
+Cursor families when enabled; Claude SSH remains unsupported there. Neither flow falls
 back to a metadata-only upload.
 
 For opt-in user testing before the Team flow ships, append

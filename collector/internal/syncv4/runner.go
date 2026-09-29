@@ -33,7 +33,7 @@ var ErrStaleConsent = errors.New("v4 sync consent unavailable or stale")
 
 type Transport interface {
 	V4Binding(context.Context) (string, error)
-	V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult) (hubclient.V4CheckIn, error)
+	V4CheckIn(context.Context, hubclient.V4Queue, int64, []hubclient.V4CommandResult, []string) (hubclient.V4CheckIn, error)
 	V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error)
 	V4Status(context.Context, string) (hubclient.V4Status, error)
 	V4PutChunk(context.Context, string, hubclient.V4Missing, io.Reader) error
@@ -315,7 +315,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	version, config, _ := r.Queue.Policy()
 	r.configVersion, r.config = version, config
 	results := r.Queue.Results()
-	result, err := r.Hub.V4CheckIn(ctx, r.Queue.Progress(), version, results)
+	result, err := r.Hub.V4CheckIn(ctx, r.Queue.Progress(), version, results, r.Queue.Agents())
 	if err != nil {
 		r.checkedAt = time.Time{}
 		return fmt.Errorf("%w: %v", ErrStaleConsent, err)
