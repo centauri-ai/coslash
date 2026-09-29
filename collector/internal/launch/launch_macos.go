@@ -16,6 +16,8 @@ var runOSAScript = func(ctx context.Context, arguments ...string) error {
 	return osascriptCommand(ctx, arguments...).Run()
 }
 
+const macITermBundleID = "com.googlecode.iterm2"
+
 // A terminal application that osascript starts inherits this environment.
 func osascriptCommand(ctx context.Context, arguments ...string) *exec.Cmd {
 	command := exec.CommandContext(ctx, "osascript", arguments...)
@@ -24,10 +26,14 @@ func osascriptCommand(ctx context.Context, arguments ...string) *exec.Cmd {
 }
 
 func macApplicationAvailable(ctx context.Context, name string) error {
-	if name != "Terminal" && name != "iTerm2" {
+	switch name {
+	case "Terminal":
+		return runOSAScript(ctx, "-e", `id of application "Terminal"`)
+	case macITermBundleID:
+		return runOSAScript(ctx, "-e", `id of application id "`+macITermBundleID+`"`)
+	default:
 		return fmt.Errorf("unknown application %q", name)
 	}
-	return runOSAScript(ctx, "-e", `id of application "`+name+`"`)
 }
 
 func openMacTerminal(ctx context.Context, workingDirectory, command string) error {
@@ -43,7 +49,7 @@ func openMacTerminal(ctx context.Context, workingDirectory, command string) erro
 func openMacITerm(ctx context.Context, workingDirectory, command string) error {
 	return runOSAScript(ctx,
 		"-e", "on run argv",
-		"-e", `tell application "iTerm2"`,
+		"-e", `tell application id "`+macITermBundleID+`"`,
 		"-e", `set newWindow to (create window with default profile)`,
 		"-e", `tell current session of newWindow to write text (item 1 of argv)`,
 		"-e", `activate`,
