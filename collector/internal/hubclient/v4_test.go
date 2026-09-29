@@ -3,11 +3,13 @@ package hubclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +46,7 @@ func TestV4PutChunkUsesSignedURLWithoutDeviceCredential(t *testing.T) {
 }
 
 func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v4/devices/me/check-in" || r.Header.Get("Authorization") != "Device credential" {
 			t.Fatalf("check-in request = %s %s auth=%q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
@@ -73,6 +76,91 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	result, err := client.V4CheckIn(context.Background(), queue, 7, nil, []string{"claude", "codex", "cursor"}, nil)
 	if err != nil || result.ConfigVersion != 8 {
 		t.Fatalf("check-in result=%+v err=%v", result, err)
+	}
+}
+
+func TestV4CheckInScaleSwitchOmitsCapability(t *testing.T) {
+	t.Setenv("COSLASH_SCALE_IMPORT", "0")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Capabilities []string `json:"capabilities"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(input.Capabilities, "scale-import/v1") {
+			t.Fatal("scale capability advertised while disabled")
+		}
+		io.WriteString(w, `{"configVersion":0,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.5"}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
+	if _, err := client.V4CheckIn(context.Background(), V4Queue{}, 0, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestV4ImportWritesRequiredNulls(t *testing.T) {
+	encoded, err := json.Marshal(V4Import{Phase: "awaiting_plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"current", "lastProgressAt", "rate", "historyCursorAt", "wait"} {
+		if string(fields[name]) != "null" {
+			t.Fatalf("%s = %s, want explicit null", name, fields[name])
+		}
+	}
+}
+
+func TestV4ImportEveryPhaseMatchesGoldenPayloadShape(t *testing.T) {
+	var fixture struct {
+		Queue struct {
+			Import map[string]json.RawMessage `json:"import"`
+		} `json:"queue"`
+	}
+	if err := json.Unmarshal(readScaleFixture(t, "check-in-import-progress.json"), &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"inventory", "awaiting_plan", "warm_start", "listing", "recent", "history", "complete", "paused"} {
+		t.Run(phase, func(t *testing.T) {
+			encoded, err := json.Marshal(V4Import{Phase: phase})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if len(fields) != len(fixture.Queue.Import) {
+				t.Fatalf("import fields = %s, fixture has %d fields", encoded, len(fixture.Queue.Import))
+			}
+			for key := range fixture.Queue.Import {
+				if _, ok := fields[key]; !ok {
+					t.Fatalf("%s missing from %s", key, encoded)
+				}
+			}
+		})
+	}
+}
+
+func TestV4CheckInRetainsRetryAfter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"code":"rate_limited"}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
+	_, err := client.V4CheckIn(context.Background(), V4Queue{}, 0, nil, nil, nil)
+	var problem V4Problem
+	if !errors.As(err, &problem) || problem.Code != "rate_limited" || problem.RetryAfter != time.Minute {
+		t.Fatalf("rate limit = %v", err)
 	}
 }
 

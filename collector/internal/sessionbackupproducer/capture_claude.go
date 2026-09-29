@@ -58,7 +58,10 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 		if !claudeInputWithinProjects(file, claude.ProjectsRoot(handle.Home)) {
 			return captureFailure(sessionbackupv1.ProblemUnattributable, kind, false)
 		}
-		if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > sessionbackupv1.MaxArtifactBytes {
+		if info.Size() > sessionbackupv1.MaxArtifactBytes {
+			return captureTooLarge(kind)
+		}
+		if !info.Mode().IsRegular() || info.Size() < 0 {
 			return captureFailure(sessionbackupv1.ProblemInvalid, kind, false)
 		}
 		inputs = append(inputs, claudeInput{file, memberID, kind, key, mediaType, info})
@@ -105,8 +108,14 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 		paths = append(paths, input.path)
 	}
 	before, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, paths)
-	if err != nil || !withinKnownBounds(before) {
+	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
+	}
+	if !withinKnownBounds(before) {
+		if exceedsKnownBounds(before) {
+			return nil, captureTooLarge(sessionbackupv1.KindRawTranscript)
+		}
+		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 	}
 	writes := &artifactWriter{root: staging, ctx: ctx, evidence: map[string]sessionbackupv1.ArtifactEvidence{}}
 	frozenFiles := map[string]string{}
@@ -250,7 +259,7 @@ func (manager *Manager) captureClaude(ctx context.Context, staging string, selec
 		members = append(members, member)
 		revisionInput = append(revisionInput, id+":"+revision)
 		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, repositoryLocalOnly, handle.Enrichment[id], synthesisRecords[id]); err != nil {
-			return nil, captureFailure(sessionbackupv1.ProblemInvalid, "", false)
+			return nil, processedCaptureFailure(err, "")
 		}
 	}
 	manifest := sessionbackupv1.Manifest{

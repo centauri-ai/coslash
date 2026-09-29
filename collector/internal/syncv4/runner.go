@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -41,6 +43,7 @@ const consentAge = 5 * time.Minute
 
 var ErrPaused = errors.New("v4 sync paused")
 var ErrStaleConsent = errors.New("v4 sync consent unavailable or stale")
+var ErrCommandPickedUp = errors.New("v4 command picked up")
 
 // busyRetry is how soon a pass that stopped at the Hub's active-upload limit
 // runs again. The Hub admits a new upload once an open one finalizes, which
@@ -94,22 +97,32 @@ type Transport interface {
 type Runner struct {
 	// Version is this Local's version. A failure it parks is retried by any
 	// other version, which may read the source differently.
-	Version         string
-	Queue           *Queue
-	Backup          *sessionbackupproducer.Manager
-	Hub             Transport
-	Discover        func(context.Context) ([]*session.Session, error)
-	DiscoverBatches func(context.Context, func(DiscoveryBatch) error) error
-	Conditions      func(context.Context) (metered bool, batteryPercent int, err error)
-	LocalPause      func() bool
-	Command         func(context.Context, hubclient.V4Command) error
-	Now             func() time.Time
-	config          hubclient.V4Config
-	checkedAt       time.Time
-	configVersion   int64
-	retryCommands   map[string]string
-	scaleEnabled    bool
-	chunkWorkers    int
+	Version             string
+	Queue               *Queue
+	Backup              *sessionbackupproducer.Manager
+	Hub                 Transport
+	Discover            func(context.Context) ([]*session.Session, error)
+	DiscoverBatches     func(context.Context, func(DiscoveryBatch) error) error
+	InventoryProgress   func() (files int64, running bool)
+	Conditions          func(context.Context) (metered bool, batteryPercent int, err error)
+	LocalPause          func() bool
+	Command             func(context.Context, hubclient.V4Command) error
+	Now                 func() time.Time
+	config              hubclient.V4Config
+	checkedAt           time.Time
+	configVersion       int64
+	retryCommands       map[string]string
+	scaleEnabled        bool
+	chunkWorkers        int
+	newRetryCommand     bool
+	scaleSupported      bool
+	waitReason          string
+	waitSince           time.Time
+	waitMu              sync.Mutex
+	lastProgressCheckIn atomic.Int64
+	checkInRetryUntil   atomic.Int64
+	lastReportedPhase   string
+	logRejectedUntil    time.Time
 }
 
 type DiscoveryBatch struct {
@@ -139,6 +152,10 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	}
 	if err := r.refreshConsent(ctx); err != nil {
 		return err
+	}
+	if r.newRetryCommand {
+		r.newRetryCommand = false
+		return ErrCommandPickedUp
 	}
 	if err := r.discardAbandoned(); err != nil {
 		return err
@@ -177,7 +194,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}); err != nil {
 			return err
 		}
-		return r.runPlanned(ctx)
+		return r.runPlannedAndReport(ctx)
 	}
 	sessions, err := r.Discover(ctx)
 	if err != nil {
@@ -207,13 +224,13 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		return err
 	}
 	if r.scaleEnabled {
-		return r.runPlanned(ctx)
+		return r.runPlannedAndReport(ctx)
 	}
 	entries := r.Queue.Entries()
 	var firstErr error
 	// Publish every recent metadata row before sending its first content chunk.
 	for _, entry := range entries {
-		if entry.Excluded || entry.ParkedVersion != "" || !entry.Recent || !pending(entry) {
+		if entry.Excluded || entry.ParkedVersion != "" || !retryDue(entry, r.now()) || !entry.Recent || !pending(entry) {
 			continue
 		}
 		if err := r.ensureCreated(ctx, &entry); err != nil {
@@ -229,7 +246,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 	}
 	for _, entry := range r.Queue.Entries() {
-		if entry.Excluded || entry.ParkedVersion != "" || !entry.Recent || !pending(entry) || entry.UploadID == "" {
+		if entry.Excluded || entry.ParkedVersion != "" || !retryDue(entry, r.now()) || !entry.Recent || !pending(entry) || entry.UploadID == "" {
 			continue
 		}
 		if err := r.transfer(ctx, &entry); err != nil {
@@ -254,7 +271,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	// the limit can clear.
 	var busyErr error
 	for _, entry := range r.Queue.Entries() {
-		if entry.Excluded || entry.ParkedVersion != "" || entry.Recent {
+		if entry.Excluded || entry.ParkedVersion != "" || !retryDue(entry, r.now()) || entry.Recent {
 			continue
 		}
 		if !pending(entry) {
@@ -388,13 +405,20 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 	} else {
 		var preparation *sessionbackupproducer.PreparationError
 		if errors.As(failure, &preparation) {
-			entry.FailureCode = "unreadable_source"
+			if preparation.TooLarge {
+				entry.FailureCode = "too_large"
+			} else {
+				entry.FailureCode = "unreadable_source"
+			}
 		} else {
 			entry.FailureCode = "server_error"
 		}
 	}
 	if repeats(failure, entry.FailureCode) {
 		r.park(entry)
+	} else if !Busy(failure) {
+		entry.BackoffAttempt++
+		entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
 	}
 	return r.failed(entry, failure)
 }
@@ -409,7 +433,8 @@ func (r *Runner) failed(entry *Entry, failure error) error {
 	if code == "" || !pending(*entry) {
 		return r.Queue.Update(*entry)
 	}
-	line := LogLine{At: r.now().UTC().Truncate(time.Microsecond), Level: "error", Code: code}
+	line := LogLine{At: r.now().UTC().Truncate(time.Microsecond), Level: "error", Code: code,
+		Attempts: max(1, entry.Attempt+1, entry.BackoffAttempt), Parked: entry.ParkedVersion != ""}
 	if strings.HasPrefix(entry.SessionID, "ses_") {
 		line.SessionID = entry.SessionID
 	}
@@ -456,6 +481,7 @@ func (r *Runner) releaseParked() error {
 			continue
 		}
 		entry.ParkedVersion, entry.FailureCode = "", ""
+		entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		if err := r.Queue.Update(entry); err != nil {
 			return err
 		}
@@ -530,30 +556,80 @@ func truncate(value string, max int) string {
 }
 
 func (r *Runner) refreshConsent(ctx context.Context) error {
+	if until := r.checkInRetryUntil.Load(); until > r.now().UnixNano() {
+		return fmt.Errorf("%w: %w", ErrStaleConsent, hubclient.V4Problem{
+			Code: "rate_limited", RetryAfter: time.Duration(until - r.now().UnixNano()),
+		})
+	}
+	wasScaleSupported := r.scaleSupported
 	version, config, _ := r.Queue.Policy()
 	r.configVersion, r.config = version, config
 	results := r.Queue.Results()
-	lines, through := r.Queue.PendingLog(r.now())
-	result, err := r.Hub.V4CheckIn(ctx, r.Queue.Progress(), version, results, r.Queue.Agents(), lines)
+	logLimit := maxLogBatch
+	if r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
+		logLimit = maxScaleLogBatch
+	}
+	lines, through := r.Queue.PendingLogLimit(r.now(), logLimit)
+	if r.now().Before(r.logRejectedUntil) {
+		lines, through = nil, 0
+	}
+	progress := r.Queue.Progress()
+	if r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
+		progress.Import = r.importProgress(ctx, r.now())
+	}
+	if !r.scaleSupported || os.Getenv("COSLASH_SCALE_IMPORT") == "0" {
+		progress.Inventory, progress.Import = nil, nil
+		results = slices.DeleteFunc(results, func(result hubclient.V4CommandResult) bool { return result.Result == "in_progress" })
+		for i := range results {
+			results[i].Progress = nil
+		}
+		for i := range lines {
+			lines[i].Attempts, lines[i].Parked = 0, false
+		}
+	}
+	result, err := r.Hub.V4CheckIn(ctx, progress, version, results, r.Queue.Agents(), lines)
+	logAccepted := err == nil
 	if err != nil && len(lines) > 0 && logRejected(err) {
-		// A line the Hub refuses, such as one dated by a clock far ahead of
-		// the Hub's, must not stop sync. Check in without the batch, which is
-		// dropped once that succeeds.
-		result, err = r.Hub.V4CheckIn(ctx, r.Queue.Progress(), version, results, r.Queue.Agents(), nil)
+		// Keep refused lines for a later attempt but let the rest of sync
+		// proceed. Avoid resending the same bad batch at heartbeat cadence.
+		result, err = r.Hub.V4CheckIn(ctx, progress, version, results, r.Queue.Agents(), nil)
+		if err == nil {
+			r.logRejectedUntil = r.now().Add(time.Minute)
+		}
 	}
 	if err != nil {
+		var problem hubclient.V4Problem
+		if errors.As(err, &problem) && problem.RetryAfter > 0 {
+			r.checkInRetryUntil.Store(r.now().Add(problem.RetryAfter).UnixNano())
+		}
 		r.checkedAt = time.Time{}
 		return fmt.Errorf("%w: %w", ErrStaleConsent, err)
 	}
-	if err := r.Queue.AcknowledgeLog(through); err != nil {
-		return err
+	r.checkInRetryUntil.Store(0)
+	r.lastProgressCheckIn.Store(r.now().UnixNano())
+	if logAccepted && through > 0 {
+		if err := r.Queue.AcknowledgeLog(through); err != nil {
+			return err
+		}
+		r.logRejectedUntil = time.Time{}
 	}
 	if err := r.Queue.ApplyPolicyAt(result, r.now()); err != nil {
 		return err
 	}
+	if progress.Import != nil {
+		r.lastReportedPhase = progress.Import.Phase
+	}
 	r.scaleEnabled = os.Getenv("COSLASH_SCALE_IMPORT") != "0" && slices.Contains(result.Capabilities, "scale-import/v1")
+	r.scaleSupported = slices.Contains(result.Capabilities, "scale-import/v1")
 	if err := r.Queue.AcknowledgeResults(results); err != nil {
 		return err
+	}
+	for _, sent := range results {
+		if sent.Result == "in_progress" && sent.Progress != nil && sent.Progress.Stage == "picked_up" {
+			if err := r.Queue.SetCommandProgress(sent.CommandID, hubclient.V4CommandProgress{Stage: "preparing"}); err != nil {
+				return err
+			}
+		}
 	}
 	r.configVersion, r.config, _ = r.Queue.Policy()
 	r.checkedAt = r.now()
@@ -570,6 +646,9 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		}
 		if !started {
 			continue
+		}
+		if err := r.Queue.SetCommandProgress(command.ID, hubclient.V4CommandProgress{Stage: "picked_up"}); err != nil {
+			return err
 		}
 		outcome := hubclient.V4CommandResult{CommandID: command.ID, Result: "done"}
 		if command.Type == "retry" && r.pausedLocallyOrByHub() {
@@ -590,6 +669,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 				}
 				r.retryCommands[command.ID] = payload.SessionID
 				r.Queue.HoldCommand(command.ID)
+				r.newRetryCommand = true
 				continue
 			}
 		} else if command.Type == "prioritize" && r.scaleEnabled {
@@ -623,6 +703,9 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		if err := r.Queue.FinishCommand(outcome); err != nil {
 			return err
 		}
+	}
+	if !wasScaleSupported && r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
+		return r.refreshConsent(ctx)
 	}
 	return r.allowed(ctx, hubclient.V4Session{})
 }
@@ -672,7 +755,9 @@ func (r *Runner) retryOutcome(commandID, sessionID string) (hubclient.V4CommandR
 		}
 		switch {
 		case entry.RevisionID != "" && !pending(entry):
-			return hubclient.V4CommandResult{CommandID: commandID, Result: "done"}, true
+			total := manifestBytes(entry.Manifest)
+			return hubclient.V4CommandResult{CommandID: commandID, Result: "done",
+				Progress: &hubclient.V4CommandProgress{Stage: "landed", BytesDone: total, BytesTotal: total}}, true
 		case entry.Excluded:
 			return failed, true
 		case entry.FailureCode != "" && entry.FailureCode != "rate_limited":
@@ -729,7 +814,21 @@ func (r *Runner) allowed(ctx context.Context, meta hubclient.V4Session) error {
 }
 
 func (r *Runner) ensureConsent(ctx context.Context) error {
-	if r.checkedAt.IsZero() || r.now().Sub(r.checkedAt) >= 4*time.Minute {
+	phase := ""
+	if r.scaleEnabled && r.Queue != nil {
+		phase = r.Queue.ImportSnapshot(r.now()).Phase
+	}
+	if r.InventoryProgress != nil && r.scaleEnabled {
+		if _, running := r.InventoryProgress(); running && phase == "awaiting_plan" {
+			phase = "inventory"
+		}
+	}
+	lastProgress := r.lastProgressCheckIn.Load()
+	if lastProgress == 0 {
+		lastProgress = r.checkedAt.UnixNano()
+	}
+	progressDue := r.scaleEnabled && (activeImportPhase(phase) && r.now().Sub(time.Unix(0, lastProgress)) >= 10*time.Second || phase != r.lastReportedPhase)
+	if r.checkedAt.IsZero() || r.now().Sub(r.checkedAt) >= 4*time.Minute || progressDue {
 		if err := r.refreshConsent(ctx); err != nil {
 			return err
 		}
@@ -954,10 +1053,16 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 		}
 		if parkedCodes[entry.FailureCode] {
 			r.park(entry)
+		} else if entry.FailureCode != "rate_limited" {
+			entry.BackoffAttempt++
+			entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
 		}
 		return r.failed(entry, nil)
 	}
 	if status.State == "finalizing" {
+		if err := r.setRetryProgress(entry.SessionID, "finalizing", manifestBytes(entry.Manifest), manifestBytes(entry.Manifest)); err != nil {
+			return err
+		}
 		return nil
 	}
 	if status.State != "open" {
@@ -982,6 +1087,9 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	if r.Queue != nil {
 		r.Queue.SetCurrent(entry.Key, currentDone, totalBytes)
 		defer r.Queue.SetCurrent("", 0, 0)
+	}
+	if err := r.setRetryProgress(entry.SessionID, "uploading", currentDone, totalBytes); err != nil {
+		return err
 	}
 	reader, err := r.Backup.Reader(entry.BundleID)
 	if err != nil {
@@ -1062,6 +1170,9 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	if status.State != "finalizing" {
 		return errors.New("v4 finalize was not queued")
 	}
+	if err := r.setRetryProgress(entry.SessionID, "finalizing", totalBytes, totalBytes); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1074,6 +1185,7 @@ func (r *Runner) complete(entry *Entry, status hubclient.V4Status) error {
 	}
 	entry.SyncedActivity, entry.SyncedSourceRevision, entry.RevisionID = entry.Activity, entry.SourceRevision, status.RevisionID
 	entry.UploadID, entry.FailureCode, entry.LoggedFailure = "", "", ""
+	entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 	if err := r.Queue.Update(*entry); err != nil {
 		return err
 	}

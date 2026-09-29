@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -80,8 +81,9 @@ type V4Status struct {
 }
 
 type V4Queue struct {
-	Pending   int `json:"pending"`
-	Failing   int `json:"failing"`
+	Pending   int       `json:"pending"`
+	Failing   int       `json:"failing"`
+	Import    *V4Import `json:"import,omitempty"`
 	FirstSync struct {
 		RecentDone   int    `json:"recentDone"`
 		RecentTotal  int    `json:"recentTotal"`
@@ -89,6 +91,45 @@ type V4Queue struct {
 	} `json:"firstSync"`
 	// Inventory is sent only after the Hub advertised CapabilityScaleImport.
 	Inventory *DeviceInventory `json:"inventory,omitempty"`
+}
+
+type V4ImportCurrent struct {
+	BytesDone  int64 `json:"bytesDone"`
+	BytesTotal int64 `json:"bytesTotal"`
+}
+
+type V4ImportRate struct {
+	P25       float64 `json:"p25"`
+	P75       float64 `json:"p75"`
+	WindowSec int64   `json:"windowSec"`
+}
+
+type V4ImportWait struct {
+	Reason string    `json:"reason"`
+	Since  time.Time `json:"since"`
+}
+
+type V4Import struct {
+	PlanVersion     int64            `json:"planVersion"`
+	Phase           string           `json:"phase"`
+	Listed          int64            `json:"listed"`
+	ContentSessions int64            `json:"contentSessions"`
+	ContentBytes    int64            `json:"contentBytes"`
+	TotalSessions   int64            `json:"totalSessions"`
+	TotalBytes      int64            `json:"totalBytes"`
+	Current         *V4ImportCurrent `json:"current"`
+	LastProgressAt  *time.Time       `json:"lastProgressAt"`
+	Rate            *V4ImportRate    `json:"rate"`
+	HistoryCursorAt *time.Time       `json:"historyCursorAt"`
+	Wait            *V4ImportWait    `json:"wait"`
+}
+
+type V4ImportPlan struct {
+	Version          int64  `json:"version"`
+	Window           string `json:"window"`
+	History          bool   `json:"history"`
+	HistoryPaused    bool   `json:"historyPaused"`
+	WarmStartSeconds int64  `json:"warmStartSeconds"`
 }
 
 type V4Config struct {
@@ -106,9 +147,16 @@ type V4Command struct {
 }
 
 type V4CommandResult struct {
-	CommandID string `json:"commandId"`
-	Result    string `json:"result"`
-	Error     string `json:"error,omitempty"`
+	CommandID string             `json:"commandId"`
+	Result    string             `json:"result"`
+	Error     string             `json:"error,omitempty"`
+	Progress  *V4CommandProgress `json:"progress,omitempty"`
+}
+
+type V4CommandProgress struct {
+	Stage      string `json:"stage"`
+	BytesDone  int64  `json:"bytesDone"`
+	BytesTotal int64  `json:"bytesTotal"`
 }
 
 // V4LogEntry is one content-free sync log line sent with a check-in. The Hub
@@ -119,6 +167,8 @@ type V4LogEntry struct {
 	Level     string    `json:"level"`
 	Message   string    `json:"message"`
 	Code      string    `json:"code,omitempty"`
+	Attempts  int       `json:"attempts,omitempty"`
+	Parked    bool      `json:"parked,omitempty"`
 }
 
 type V4CheckIn struct {
@@ -141,10 +191,11 @@ func (result *V4CheckIn) UnmarshalJSON(data []byte) error {
 	var decoded alias
 	var required struct {
 		Config *struct {
-			Paused         *bool     `json:"paused"`
-			DeviceOff      *bool     `json:"deviceOff"`
-			LeaveOut       *[]string `json:"leaveOut"`
-			AgentKnowledge *bool     `json:"agentKnowledge"`
+			Paused         *bool         `json:"paused"`
+			DeviceOff      *bool         `json:"deviceOff"`
+			LeaveOut       *[]string     `json:"leaveOut"`
+			AgentKnowledge *bool         `json:"agentKnowledge"`
+			ImportPlan     *V4ImportPlan `json:"importPlan,omitempty"`
 		} `json:"config"`
 	}
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -167,8 +218,9 @@ type V4Wait struct {
 }
 
 type V4Problem struct {
-	Code       string `json:"code"`
-	HTTPStatus int    `json:"-"`
+	Code       string        `json:"code"`
+	HTTPStatus int           `json:"-"`
+	RetryAfter time.Duration `json:"-"`
 }
 
 func (c *Client) V4Binding(ctx context.Context) (string, error) {
@@ -225,6 +277,9 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 		var problem V4Problem
 		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&problem)
 		problem.HTTPStatus = response.StatusCode
+		if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil && seconds > 0 {
+			problem.RetryAfter = time.Duration(seconds) * time.Second
+		}
 		if problem.Code == "" {
 			problem.Code = fmt.Sprintf("http_%d", response.StatusCode)
 		}

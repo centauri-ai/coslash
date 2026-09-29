@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -225,38 +226,38 @@ func main() {
 		runner := &syncv4.Runner{
 			Version: version,
 			Queue:   queue, Backup: hub.Backup, Hub: hub,
-			Discover:   func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
-			Conditions: syncv4.LocalConditions,
-			LocalPause: func() bool { return settingsStore.State().Config.SyncPaused },
-			Command:    v4CommandRunner(queue, settingsStore, remoteManager),
+			Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
+			InventoryProgress: func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
+			Conditions:        syncv4.LocalConditions,
+			LocalPause:        func() bool { return settingsStore.State().Config.SyncPaused },
+			Command:           v4CommandRunner(queue, settingsStore, remoteManager),
 		}
-		go func() {
-			const interval = 5 * time.Minute
-			for {
-				err := runner.SyncOnce(syncContext)
-				if err != nil && syncContext.Err() == nil {
-					log.Printf("v4 sync deferred: %s", syncv4.DeferReason(err))
+		if fingerprints != nil {
+			runner.DiscoverBatches = func(ctx context.Context, visit func(syncv4.DiscoveryBatch) error) error {
+				var resume *inventory.Cursor
+				if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
+					resume = inventory.DecodeCursor(saved)
 				}
-				if len(queue.Results()) > 0 && (err == nil || errors.Is(err, syncv4.ErrPaused)) {
-					continue
-				}
-				if err == nil || errors.Is(err, syncv4.ErrPaused) {
-					metered, battery, conditionErr := syncv4.LocalConditions(syncContext)
-					if conditionErr == nil && !metered && battery < 0 {
-						version, _, _ := queue.Policy()
-						wait, waitErr := hub.V4Wait(syncContext, version)
-						if waitErr == nil && wait.Changed {
-							continue
-						}
+				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume}) {
+					if err != nil {
+						return err
+					}
+					if err := visit(syncv4.DiscoveryBatch{Sessions: batch.Sessions, ContentBytes: batch.ContentBytes}); err != nil {
+						return err
+					}
+					encoded, err := json.Marshal(batch.Cursor)
+					if err != nil {
+						return err
+					}
+					if err := fingerprints.SaveDiscoveryCursor(encoded); err != nil {
+						return err
 					}
 				}
-				select {
-				case <-syncContext.Done():
-					return
-				case <-wake:
-				case <-time.After(syncv4.NextSyncDelay(err, queue.InFlight(), interval)):
-				}
+				return nil
 			}
+		}
+		go func() {
+			runV4SyncLoop(syncContext, runner, queue, hub.V4Wait, wake)
 		}()
 	}
 	go func() {
