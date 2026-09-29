@@ -476,9 +476,13 @@ func TestNextSyncDelayRetriesSoonAtTheActiveUploadLimit(t *testing.T) {
 		{hubclient.V4Problem{Code: "hash_mismatch"}, 5 * time.Minute},
 		{errors.New("server error"), 5 * time.Minute},
 	} {
-		if got := NextSyncDelay(tc.err, 5*time.Minute); got != tc.want {
+		if got := NextSyncDelay(tc.err, 0, 5*time.Minute); got != tc.want {
 			t.Errorf("NextSyncDelay(%v) = %s, want %s", tc.err, got, tc.want)
 		}
+	}
+	// A finalizing upload is recorded on the next pass; history waits for it.
+	if got := NextSyncDelay(errors.New("other entry failed"), 3, 5*time.Minute); got != busyRetry {
+		t.Fatalf("in-flight uploads waited %s", got)
 	}
 	if busyRetry >= time.Minute {
 		t.Fatalf("busy retry %s is not short", busyRetry)
@@ -498,5 +502,30 @@ func TestDeferReasonIsClosedAndContentFree(t *testing.T) {
 		if got := DeferReason(tc.err); got != tc.want {
 			t.Errorf("DeferReason(%v) = %q, want %q", tc.err, got, tc.want)
 		}
+	}
+}
+
+func TestInFlightCountsUploadsWithoutARecordedRevision(t *testing.T) {
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []Entry
+	for i := range 3 {
+		entries = append(entries, Entry{Key: fmt.Sprintf("codex-%d", i), Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}})
+	}
+	if err := queue.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	for i, state := range []struct{ upload, revision string }{{"u1", ""}, {"", "r2"}, {"u3", "r3"}} {
+		entry := queue.Entries()[i]
+		entry.UploadID, entry.RevisionID = state.upload, state.revision
+		if err := queue.Update(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := queue.InFlight(); got != 1 {
+		t.Fatalf("in flight=%d", got)
 	}
 }
