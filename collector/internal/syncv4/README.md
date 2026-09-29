@@ -21,7 +21,7 @@ content revision schedules a fresh capture even when activity time is equal.
 For Claude, one source-tree metadata scan also notices raw transcript and parser
 sidecar changes that leave the parsed card unchanged; the producer verifies
 the exact bytes before upload.
-Recent families (activity in the newest 72 hours) are ordered first. Their
+Without the Hub's `scale-import/v1` capability, recent families (activity in the newest 72 hours) are ordered first. Their
 metadata creates run before their bytes. Older families drain newest first
 after recent work has been attempted; a failed recent item does not indefinitely
 block history. A restart reopens the verified spool and reconciles the Hub's
@@ -30,6 +30,23 @@ the authenticated proxy is the fallback when direct storage responds with a
 failure. The client confirms sent chunks in batches of up to 50 chunks and
 8 MiB, and treats only a completed status with an accepted revision ID as
 locally done.
+
+With `scale-import/v1`, a device waits for `config.importPlan` before creating
+uploads or listing sessions. The plan's window and history choice set the scope.
+Warm start selects in-window sessions within its time budget, one completed
+session at a time. The first selection is at most 25 MiB. Local then lists
+remaining metadata in batches of at most 50 before transferring window content
+newest first and history content newest first. A `prioritize` command moves a
+listed session to the front, including a history session while history is
+paused. Live sources wait for two minutes without a change or for the session
+to end before a changed revision is sent. The chunk path sends at most four
+PUTs per upload concurrently and confirms only chunks the Hub marked missing;
+old Hubs retain serial transfer. Consent is refreshed before a batch once it
+is four minutes old. `COSLASH_SCALE_IMPORT=0` disables the new path.
+
+The queue's outer `version` remains 1 so the previous Local can still read
+its old fields and ignore new fields. `scaleVersion: 1` identifies the additive
+plan and listing state.
 
 One upload carries a whole family: 1–4,096 artifacts, each with at most 256
 chunks of 8 MiB, and at most 8,192 chunks in total. Every artifact stays
