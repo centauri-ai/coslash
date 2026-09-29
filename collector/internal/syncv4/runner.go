@@ -120,8 +120,8 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.Queue == nil || r.Backup == nil || r.Hub == nil || r.Discover == nil {
 		return errors.New("v4 sync is not configured")
 	}
-	r.retryCommands = nil
-	defer func() { syncErr = errors.Join(syncErr, r.finishRetryCommands(syncErr)) }()
+	// Retry commands stay open across passes until their session settles.
+	defer func() { syncErr = errors.Join(syncErr, r.finishRetryCommands()) }()
 	binding, err := r.Hub.V4Binding(ctx)
 	if err != nil {
 		return err
@@ -523,6 +523,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 					r.retryCommands = make(map[string]string)
 				}
 				r.retryCommands[command.ID] = payload.SessionID
+				r.Queue.HoldCommand(command.ID)
 				continue
 			}
 		} else if command.Type == "launch" {
@@ -565,22 +566,44 @@ func (r *Runner) runCommand(ctx context.Context, command hubclient.V4Command) er
 	return r.Command(commandContext, command)
 }
 
-func (r *Runner) finishRetryCommands(syncErr error) error {
+// finishRetryCommands reports each Hub retry by its own session's outcome:
+// done once the session has an accepted revision, failed once it records a
+// real failure. A session still waiting (for example behind the Hub's
+// active-upload limit) keeps its command open for a later pass, so a retry
+// that is about to succeed is never reported as failed.
+func (r *Runner) finishRetryCommands() error {
 	var resultErr error
 	for commandID, sessionID := range r.retryCommands {
-		result := hubclient.V4CommandResult{CommandID: commandID, Result: "failed", Error: "retry_failed"}
-		if syncErr == nil {
-			for _, entry := range r.Queue.Entries() {
-				if entry.SessionID == sessionID && entry.RevisionID != "" && !pending(entry) {
-					result.Result, result.Error = "done", ""
-					break
-				}
-			}
+		result, settled := r.retryOutcome(commandID, sessionID)
+		if !settled {
+			continue
 		}
-		resultErr = errors.Join(resultErr, r.Queue.FinishCommand(result))
+		if err := r.Queue.FinishCommand(result); err != nil {
+			resultErr = errors.Join(resultErr, err)
+			continue
+		}
+		delete(r.retryCommands, commandID)
 	}
-	r.retryCommands = nil
 	return resultErr
+}
+
+func (r *Runner) retryOutcome(commandID, sessionID string) (hubclient.V4CommandResult, bool) {
+	failed := hubclient.V4CommandResult{CommandID: commandID, Result: "failed", Error: "retry_failed"}
+	for _, entry := range r.Queue.Entries() {
+		if entry.SessionID != sessionID {
+			continue
+		}
+		switch {
+		case entry.RevisionID != "" && !pending(entry):
+			return hubclient.V4CommandResult{CommandID: commandID, Result: "done"}, true
+		case entry.Excluded:
+			return failed, true
+		case entry.FailureCode != "" && entry.FailureCode != "rate_limited":
+			return failed, true
+		}
+		return hubclient.V4CommandResult{}, false
+	}
+	return failed, true
 }
 
 func (r *Runner) commandSessionAllowed(id string) bool {

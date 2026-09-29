@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -156,35 +157,82 @@ func TestLocalPauseWinsOverFreshServerPolicy(t *testing.T) {
 	}
 }
 
-func TestRetryResultRequiresCompletedUpload(t *testing.T) {
+// A Hub retry is reported by its own session's outcome, not by whether the
+// whole pass ended cleanly: IC-1 found retries reported as failed during a
+// large sync (every pass ends at the Hub's active-upload limit) although the
+// session synced a pass later.
+func TestRetryResultFollowsTheSessionOutcome(t *testing.T) {
 	queue, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Key: "one", SessionID: "ses_one", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, SyncedActivity: 1, RevisionID: "rev_one"}
-	if err := queue.Merge([]Entry{entry}, time.UnixMilli(1)); err != nil {
+	entries := []Entry{
+		{Key: "done", SessionID: "ses_done", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, SyncedActivity: 1, RevisionID: "rev_done"},
+		{Key: "waiting", SessionID: "ses_waiting", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, FailureCode: "rate_limited"},
+		{Key: "broken", SessionID: "ses_broken", Session: hubclient.V4Session{Agent: "codex"}, Activity: 1, FailureCode: "unreadable_source"},
+	}
+	if err := queue.Merge(entries, time.UnixMilli(1)); err != nil {
 		t.Fatal(err)
 	}
-	const first = "11111111-2222-3333-4444-555555555555"
-	if _, err := queue.StartCommand(first); err != nil {
+	commands := map[string]string{
+		"11111111-2222-3333-4444-555555555555": "ses_done",
+		"22222222-2222-3333-4444-555555555555": "ses_waiting",
+		"33333333-2222-3333-4444-555555555555": "ses_broken",
+		"44444444-2222-3333-4444-555555555555": "ses_unknown",
+	}
+	for id := range commands {
+		if _, err := queue.StartCommand(id); err != nil {
+			t.Fatal(err)
+		}
+		queue.HoldCommand(id)
+	}
+	root := queue.path
+	runner := &Runner{Queue: queue, retryCommands: commands}
+	if err := runner.finishRetryCommands(); err != nil {
 		t.Fatal(err)
 	}
-	runner := &Runner{Queue: queue, retryCommands: map[string]string{first: "ses_one"}}
-	if err := runner.finishRetryCommands(nil); err != nil {
+	results := map[string]string{}
+	for _, result := range queue.Results() {
+		results[result.CommandID] = result.Result
+	}
+	if results["11111111-2222-3333-4444-555555555555"] != "done" || results["33333333-2222-3333-4444-555555555555"] != "failed" ||
+		results["44444444-2222-3333-4444-555555555555"] != "failed" || len(results) != 3 {
+		t.Fatalf("first pass results=%v", results)
+	}
+	if _, open := runner.retryCommands["22222222-2222-3333-4444-555555555555"]; !open || len(runner.retryCommands) != 1 {
+		t.Fatalf("waiting retry not kept open: %v", runner.retryCommands)
+	}
+	// A restart forgets the hold, so the open retry reports as interrupted.
+	if reopened, err := Open(filepath.Dir(root)); err != nil {
+		t.Fatal(err)
+	} else {
+		interrupted := false
+		for _, result := range reopened.Results() {
+			interrupted = interrupted || (result.CommandID == "22222222-2222-3333-4444-555555555555" && result.Error == "execution_interrupted")
+		}
+		if !interrupted {
+			t.Fatal("held retry was not reported as interrupted after a restart")
+		}
+	}
+	var waiting Entry
+	for _, entry := range queue.Entries() {
+		if entry.Key == "waiting" {
+			waiting = entry
+		}
+	}
+	waiting.FailureCode, waiting.RevisionID, waiting.SyncedActivity = "", "rev_waiting", 1
+	if err := queue.Update(waiting); err != nil {
 		t.Fatal(err)
 	}
-	if got := queue.Results(); len(got) != 1 || got[0].Result != "done" {
-		t.Fatalf("completed retry=%+v", got)
-	}
-	const second = "22222222-2222-3333-4444-555555555555"
-	if _, err := queue.StartCommand(second); err != nil {
+	if err := runner.finishRetryCommands(); err != nil {
 		t.Fatal(err)
 	}
-	runner.retryCommands = map[string]string{second: "ses_one"}
-	if err := runner.finishRetryCommands(context.Canceled); err != nil {
-		t.Fatal(err)
+	for _, result := range queue.Results() {
+		if result.CommandID == "22222222-2222-3333-4444-555555555555" && result.Result != "done" {
+			t.Fatalf("waiting retry finished as %+v", result)
+		}
 	}
-	if got := queue.Results(); len(got) != 2 || got[1].Result != "failed" {
-		t.Fatalf("cancelled retry=%+v", got)
+	if len(runner.retryCommands) != 0 {
+		t.Fatalf("settled retries still open: %v", runner.retryCommands)
 	}
 }
