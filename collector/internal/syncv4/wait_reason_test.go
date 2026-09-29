@@ -1,6 +1,9 @@
 package syncv4
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestWaitReasonClosedSet(t *testing.T) {
 	for _, test := range []struct {
@@ -25,5 +28,19 @@ func TestWaitReasonClosedSet(t *testing.T) {
 				t.Fatalf("wait reason = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestWaitReasonDoesNotCallActiveWorkBackoff(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue := &Queue{}
+	queue.state.Entries = []Entry{{Key: "backing-off", RetryAt: now.Add(time.Minute)}}
+	runner := &Runner{Queue: queue, Now: func() time.Time { return now }}
+	if got := runner.currentWait(t.Context()); got == nil || got.Reason != "backoff" {
+		t.Fatalf("only deferred entry: %+v", got)
+	}
+	queue.state.Entries = append(queue.state.Entries, Entry{Key: "ready"})
+	if got := runner.currentWait(t.Context()); got != nil {
+		t.Fatalf("ready entry was called a wait: %+v", got)
 	}
 }
