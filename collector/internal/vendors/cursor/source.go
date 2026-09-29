@@ -385,7 +385,7 @@ func parseTranscriptFilesSourceContext(ctx context.Context, source vendors.ReadS
 		groups[id] = append(groups[id], path)
 	}
 	return vendors.ParseFilesContext(ctx, ids, func(ctx context.Context, id string) (*vendors.ParsedSession, error) {
-		return parseTranscriptFragmentsSourceContext(ctx, source, groups[id])
+		return parseTranscriptFragmentsCachedContext(ctx, source, groups[id])
 	})
 }
 

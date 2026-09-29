@@ -1,0 +1,33 @@
+{
+  "configVersion": 9,
+  "capabilities": [
+    "scale-import/v1"
+  ],
+  "config": {
+    "paused": false,
+    "deviceOff": false,
+    "leaveOut": [
+      "~/private"
+    ],
+    "agentKnowledge": true,
+    "importPlan": {
+      "version": 3,
+      "window": "3d",
+      "history": true,
+      "historyPaused": false,
+      "warmStartSeconds": 30
+    }
+  },
+  "commands": [
+    {
+      "id": "cmd_0123456789af",
+      "type": "prioritize",
+      "payload": {
+        "sessionId": "ses_0123456789ad"
+      }
+    }
+  ],
+  "minVersion": "0.9.0",
+  "recommendedVersion": "0.10.0",
+  "nextCheckInSeconds": 10
+}

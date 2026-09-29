@@ -61,6 +61,31 @@ Hub pause, device-off, local metered hint, or low battery stops new writes.
 Leave-outs are checked locally and at Hub create/finalize. Raw paths and
 transcript text never enter sync logs.
 
+Local discovery reads every local source through the parse cache
+(`fingerprints/v1`, `internal/syncv4/fingerprints.go`): one private file per
+transcript, Cursor session or OpenCode family under
+`$COSLASH_HOME/fingerprints/v1/<agent>/`, keyed by the source identity, its
+size and modification time, and the owning exporter's parser version
+(`claude.ParserVersion`, `codex.ParserVersion`, `cursor.ParserVersion`,
+`opencode.ParserVersion`). Bumping one exporter's version invalidates only its
+entries. Entries are written by temporary file and rename, a file that fails
+to decode is a miss that the next parse overwrites, and the inventory loop
+prunes entries whose source is gone. Before each pass Local takes a stat-only
+inventory of the vendor roots (`internal/inventory`, rules in its package
+documentation) and records it in the queue file. The check-in reports it as
+`queue.inventory` (`scale-contracts/v1`) only after the Hub has listed
+`scale-import/v1` in its response `capabilities`; Local advertises the same
+capability in its request. `COSLASH_SCALE_IMPORT=0` turns the cache, the
+inventory and the capability off and restores full-parse discovery. Streamed
+discovery (`inventory.Discover`) yields whole families newest first in
+batches and persists a cursor (`discovery-cursor.json`) after each batch so a
+restart resumes below it and revisits only families that changed since the
+pass began.
+OpenCode inventory counts the standard XDG database by stat; a database at a
+CLI-configured custom path is omitted from the inventory because resolving it
+would invoke OpenCode and violate the stat-only rule. Discovery still reads
+that database through the normal exporter.
+
 Check-in also carries the sync log (`log`, at most 200 lines, oldest first)
 that the Hub shows on the device page and on a failed session's card. Each
 failure the queue records adds one `error` line with a code from the Hub's

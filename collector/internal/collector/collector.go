@@ -123,6 +123,35 @@ func List(ctx context.Context, since int64) ([]*session.Session, error) {
 	return sessions, nil
 }
 
+// FinalizeBatchContext composes already-parsed whole families into servable
+// root sessions with the same enrichment and environment probes as List.
+// Streamed discovery calls it once per batch.
+func FinalizeBatchContext(
+	ctx context.Context,
+	parsed []*vendors.ParsedSession,
+	metadata map[string]*vendors.SessionMetadata,
+) ([]*session.Session, error) {
+	roots, err := finalizeSessionsContext(ctx, parsed, metadata)
+	if err != nil {
+		return nil, err
+	}
+	roots, err = servableRootsContext(ctx, roots)
+	if err != nil {
+		return nil, err
+	}
+	if err := probeLastEditsContext(ctx, roots); err != nil {
+		return nil, err
+	}
+	if err := probeGitEnvironmentContext(ctx, roots); err != nil {
+		return nil, err
+	}
+	sessions := make([]*session.Session, 0, len(roots))
+	for _, root := range roots {
+		sessions = append(sessions, root.Session)
+	}
+	return sessions, nil
+}
+
 // GetSessionForPreview returns the selected fully composed session family.
 func GetSessionForPreview(id string, _ int64) (*session.Session, error) {
 	return getSessionForPreview("", id)
