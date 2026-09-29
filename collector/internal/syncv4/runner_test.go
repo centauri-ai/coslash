@@ -203,6 +203,7 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	var created hubclient.V4Create
 	received := map[string]bool{}
 	createCount, putCount, confirmCount, checkInCount := 0, 0, 0, 0
+	var checkInLogs [][]hubclient.V4LogEntry
 	finalizing, interruptAfterFirst := false, true
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Device fixture-device-key" && !strings.HasPrefix(r.URL.Path, "/blob/") {
@@ -214,6 +215,13 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v4/devices/me/check-in":
 			checkInCount++
+			var input struct {
+				Log []hubclient.V4LogEntry `json:"log"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			checkInLogs = append(checkInLogs, input.Log)
 			io.WriteString(w, `{"configVersion":1,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"minVersion":"0.0.3"}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/v4/uploads":
 			createCount++
@@ -343,6 +351,15 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	}
 	if createCount != 1 || putCount != confirmCount || checkInCount != 4 {
 		t.Fatalf("unchanged upload retried: create=%d put=%d confirm=%d checkins=%d", createCount, putCount, confirmCount, checkInCount)
+	}
+	// The interrupted transfer is reported once, for its Hub session, on the
+	// check-in after it, and never again.
+	if len(checkInLogs[0]) != 0 || len(checkInLogs[1]) != 1 || len(checkInLogs[2]) != 0 || len(checkInLogs[3]) != 0 {
+		t.Fatalf("check-in logs=%+v", checkInLogs)
+	}
+	if line := checkInLogs[1][0]; line.SessionID != "ses_fixture" || line.Level != "error" || line.Code != "server_error" ||
+		line.Message != "coSlash Hub could not store this sync." || !line.At.Equal(now) {
+		t.Fatalf("interrupted transfer line=%+v", line)
 	}
 }
 
