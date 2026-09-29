@@ -86,6 +86,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 	hasContext := false
 	activeDuration := int64(0)
 	busy := false
+	shellRunning := false
 	waiting := false
 	promptOnly := false
 	promptAt := int64(0)
@@ -101,19 +102,31 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 			return parsedSession{}, err
 		}
 		if row.v2 && message.Role == "shell" {
+			switch message.Status {
+			case "running":
+				shellRunning = true
+				continue
+			case "exited", "timeout", "killed":
+			default:
+				continue
+			}
+			succeeded := message.Status == "exited" && message.Exit != nil && *message.Exit == 0
 			if message.Command != "" {
 				commands.Note(message.Command, "")
 				commitLog = append(commitLog, session.ParseCommitObservations(
-					message.Command, message.Output, message.Exit == nil || *message.Exit == 0,
+					message.Command, message.Output, succeeded,
 				)...)
+				if succeeded && session.IsPullRequestCreate(message.Command) {
+					pullRequests++
+				}
 			}
-			if message.Exit != nil && *message.Exit != 0 {
+			if message.Status != "exited" || (message.Exit != nil && *message.Exit != 0) {
 				errorsCount++
 			}
 			continue
 		}
 		if row.v2 && message.Role == "compaction" {
-			if message.CompactionStatus == "completed" {
+			if message.Status == "completed" {
 				compactions++
 				compactionSeed = message.CompactionSummary
 				digest.Push(turns, session.DigestCompaction, "Context compacted", message.Time.Created)
@@ -330,6 +343,7 @@ func parseContext(ctx context.Context, tx *sql.Tx, row storedSession) (parsedSes
 	if promptOnly && (promptAt <= 0 || time.Now().UnixMilli()-promptAt > promptOnlyBusyWindow.Milliseconds()) {
 		busy = false
 	}
+	busy = busy || shellRunning
 	mergeFileEditSources(row.directory, fileEdits, summaryEdits, patchEdits)
 
 	details := session.SessionDetails{
@@ -451,7 +465,7 @@ func loadV2MessagesContext(ctx context.Context, tx *sql.Tx, sessionID string) ([
 		message := storedMessage{Role: kind, Agent: value.Agent, ProviderID: value.Model.ProviderID, ModelID: value.Model.ID,
 			Cost: value.Cost, Tokens: value.Tokens, Finish: value.Finish, Summary: value.Summary, Error: value.Error,
 			Command: value.Command, Output: value.Output.Output, Exit: value.Exit,
-			CompactionStatus: value.Status}
+			Status: value.Status}
 		message.Time.Created = value.Time.Created
 		if message.Time.Created == 0 {
 			message.Time.Created = created
