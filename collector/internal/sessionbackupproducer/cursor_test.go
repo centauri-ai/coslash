@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -273,65 +272,156 @@ func TestCursorStrayJSONLThatMayBelongBlocksFamily(t *testing.T) {
 	}
 }
 
-// Real Cursor CLI chat stores hold content blobs of more than 768 KiB, and IDE
-// bubbles can be as large. Their base64 or text form is over the 1 MiB
-// per-value limit of session-backup-db-rows/v1. Those rows belong to the
-// session, so the blocker must say the rows are out of bounds for the
-// contract, not that they could not be attributed.
-func TestCursorOversizedRowValueIsInvalidNotUnattributable(t *testing.T) {
-	const valueLimit = 1 << 20
+// Real Cursor CLI chat stores hold content blobs of several MiB, and IDE
+// bubbles can be as large. Those rows belong to the session, and the rows
+// contract carries a value up to its document bound, so they back up exactly.
+func TestCursorLargeRowValuesPrepare(t *testing.T) {
 	for name, tc := range map[string]struct {
 		lane   string
-		insert func(t *testing.T, home string, size int)
-		sizes  map[int]bool // value size -> whether it fits the contract
+		insert func(t *testing.T, home string)
 	}{
 		"cli blob": {
 			lane: "cursor-cli",
-			insert: func(t *testing.T, home string, size int) {
+			insert: func(t *testing.T, home string) {
 				execCursorFixtureDB(t, filepath.Join(home, ".cursor", "chats", "workspace", cursorTestID, "store.db"),
 					`CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)`,
-					`INSERT INTO blobs VALUES ('large', ?)`, make([]byte, size))
+					`INSERT INTO blobs VALUES ('large', ?)`, make([]byte, 3<<20))
 			},
-			// Base64 of 786432 bytes is exactly 1 MiB; one more byte is over.
-			sizes: map[int]bool{valueLimit / 4 * 3: true, valueLimit/4*3 + 1: false},
 		},
 		"ide bubble text": {
 			lane: "cursor-ide",
-			insert: func(t *testing.T, home string, size int) {
+			insert: func(t *testing.T, home string) {
 				execCursorFixtureDB(t, filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
-					"", `INSERT INTO cursorDiskKV VALUES (?, ?)`, "bubbleId:"+cursorTestID+":large", strings.Repeat("x", size))
+					"", `INSERT INTO cursorDiskKV VALUES (?, ?)`, "bubbleId:"+cursorTestID+":large", strings.Repeat("x", 3<<20))
 			},
-			sizes: map[int]bool{valueLimit: true, valueLimit + 1: false},
 		},
 	} {
-		for size, fits := range tc.sizes {
-			t.Run(fmt.Sprintf("%s %d bytes", name, size), func(t *testing.T) {
-				home, _, _ := writeCursorBackupFixture(t, tc.lane)
-				tc.insert(t, home, size)
-				spool := t.TempDir()
-				manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
-					return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
-				}})
-				prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID})
-				if fits {
-					if err != nil {
-						t.Fatalf("value at the limit must still prepare: %v", err)
-					}
-					return
+		t.Run(name, func(t *testing.T) {
+			home, _, _ := writeCursorBackupFixture(t, tc.lane)
+			tc.insert(t, home)
+			spool := t.TempDir()
+			manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+			}})
+			prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID})
+			if err != nil {
+				t.Fatalf("large value must prepare: %v", err)
+			}
+			if _, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, prepared.BundleID)); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// Attributed rows the contract still cannot carry, such as text that is not
+// UTF-8, fail the same way every time. The blocker says the rows are out of
+// bounds for the contract, not that they could not be attributed.
+func TestCursorUnrepresentableRowIsInvalidNotUnattributable(t *testing.T) {
+	home, _, _ := writeCursorBackupFixture(t, "cursor-ide")
+	execCursorFixtureDB(t, filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
+		"", `INSERT INTO cursorDiskKV VALUES (?, CAST(X'FF' AS TEXT))`, "bubbleId:"+cursorTestID+":binary")
+	spool := t.TempDir()
+	manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID})
+	var failure *PreparationError
+	if prepared != nil || !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 {
+		t.Fatalf("prepared=%#v error=%v", prepared, err)
+	}
+	want := sessionbackupv1.CaptureProblem{Code: sessionbackupv1.ProblemInvalid, MemberID: cursorTestID, Kind: sessionbackupv1.KindRawMetadataRows}
+	if got := failure.Coverage.Problems[0]; got != want {
+		t.Fatalf("problem = %#v, want %#v", got, want)
+	}
+	if entries, err := os.ReadDir(spool); err != nil || len(entries) != 0 {
+		t.Fatalf("failed capture published files: %v, %v", entries, err)
+	}
+}
+
+// A chat with no working folder, such as an IDE chat in an empty window or a
+// CLI chat whose folder cannot be recovered, backs up with no repository.
+func TestCursorChatWithoutFolderBacksUpWithoutRepository(t *testing.T) {
+	for _, lane := range []string{"cursor-ide", "cursor-cli"} {
+		t.Run(lane, func(t *testing.T) {
+			home, _, _ := writeCursorBackupFixture(t, lane)
+			if lane == "cursor-ide" {
+				execCursorFixtureDB(t, filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
+					"", `UPDATE composerHeaders SET value = '{"name":"IDE session"}'`)
+			} else if err := os.WriteFile(filepath.Join(home, ".cursor", "chats", "workspace", cursorTestID, "meta.json"), []byte(`{"schemaVersion":1}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			spool := t.TempDir()
+			manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+			}})
+			prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID})
+			if err != nil {
+				t.Fatalf("chat without a folder must prepare: %v", err)
+			}
+			verified, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, prepared.BundleID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if verified.Repository != (sessionbackupv1.RepositoryIdentity{VCS: sessionbackupv1.RepositoryVCSNone}) {
+				t.Fatalf("repository = %#v", verified.Repository)
+			}
+			for _, artifact := range verified.Artifacts {
+				if artifact.Kind != sessionbackupv1.KindSessionEnrichment {
+					continue
 				}
-				var failure *PreparationError
-				if prepared != nil || !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 {
-					t.Fatalf("prepared=%#v error=%v", prepared, err)
+				data, err := os.ReadFile(filepath.Join(spool, prepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
+				if err != nil {
+					t.Fatal(err)
 				}
-				want := sessionbackupv1.CaptureProblem{Code: sessionbackupv1.ProblemInvalid, MemberID: cursorTestID, Kind: sessionbackupv1.KindRawMetadataRows}
-				if got := failure.Coverage.Problems[0]; got != want {
-					t.Fatalf("problem = %#v, want %#v", got, want)
+				enrichment, err := sessionbackupv1.DecodeEnrichment(data)
+				if err != nil || enrichment.Repository != nil || !enrichment.RepositoryLocalOnly || enrichment.FilesystemFallbackBranch != nil {
+					t.Fatalf("enrichment = %#v, %v", enrichment, err)
 				}
-				if entries, err := os.ReadDir(spool); err != nil || len(entries) != 0 {
-					t.Fatalf("failed capture published files: %v, %v", entries, err)
-				}
-			})
+			}
+		})
+	}
+}
+
+// Resuming a CLI chat from another folder can leave an empty stub store for
+// the same chat. The stub holds nothing, so the backup uses the real store.
+func TestCursorCLIResumeStubIsLeftOut(t *testing.T) {
+	home, workspace, _ := writeCursorBackupFixture(t, "cursor-cli")
+	stub := filepath.Join(home, ".cursor", "chats", "resumed-elsewhere", cursorTestID, "store.db")
+	if err := os.MkdirAll(filepath.Dir(stub), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(stub), "meta.json"), []byte(`{"schemaVersion":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	execCursorFixtureDB(t, stub, `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); CREATE TABLE messages (ordinal INTEGER, text TEXT)`,
+		`INSERT INTO meta VALUES ('0', ?)`, hex.EncodeToString([]byte(`{"agentId":"`+cursorTestID+`","name":"CLI session"}`)))
+	spool := t.TempDir()
+	manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID})
+	if err != nil {
+		t.Fatalf("resumed chat must prepare: %v", err)
+	}
+	verified, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, prepared.BundleID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range verified.Artifacts {
+		if artifact.Kind != sessionbackupv1.KindRawSidecar {
+			continue
 		}
+		data, err := os.ReadFile(filepath.Join(spool, prepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
+		if err != nil || !strings.Contains(string(data), workspace) {
+			t.Fatalf("sidecar is not the real store's: %v", err)
+		}
+	}
+
+	// A second store that also holds rows is ambiguous and still blocks.
+	execCursorFixtureDB(t, stub, "", `INSERT INTO messages VALUES (1, 'other')`)
+	if _, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID}); err == nil {
+		t.Fatal("two stores with rows prepared")
 	}
 }
 

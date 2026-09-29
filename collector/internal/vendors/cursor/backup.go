@@ -169,7 +169,10 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 			}
 		} else {
 			stores, err := cursorChatStoresContext(ctx, home, []string{id})
-			if err != nil || len(stores) != 1 {
+			if err != nil {
+				return nil, vendors.ErrInvalidData
+			}
+			if stores = withoutResumeStubs(ctx, stores); len(stores) != 1 {
 				return nil, vendors.ErrInvalidData
 			}
 			if err := validateChatStore(ctx, stores[0], id); err != nil {

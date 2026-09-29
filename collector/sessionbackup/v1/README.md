@@ -106,7 +106,9 @@ revisions, and every artifact length/hash, any membership or artifact change
 invalidates approval. `source.sourceRevision` identifies the producer's frozen
 source snapshot; `producer` records collector and parser provenance;
 `repository` records stable repository identity without requiring an absolute
-filesystem path.
+filesystem path. A session with no working folder, such as a Cursor chat in an
+empty window, records `{"canonical": "", "vcs": "none"}`; every other session
+names a Git repository with `"vcs": "git"`.
 
 Canonical object member order is normative:
 
@@ -194,6 +196,9 @@ SQLite values serialize as follows:
 | REAL | `real` | 16 lowercase hexadecimal digits containing the big-endian IEEE-754 binary64 bits |
 | TEXT | `text` | exact UTF-8 text |
 | BLOB | `blob` | canonical padded RFC 4648 base64 |
+
+A TEXT value or a BLOB's base64 text may use up to 64 MiB, the bound of the
+whole projection document, so a large attributed value is carried exactly.
 
 The producer selects rows with the source's authoritative session key inside a
 read transaction, assigns each row to exactly one family member, and freezes
