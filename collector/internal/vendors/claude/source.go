@@ -176,7 +176,7 @@ func familyFilesContext(ctx context.Context, source vendors.ReadSource, files []
 	if target == "" || len(owners) == 0 {
 		return selected, nil
 	}
-	parsed, err := parseSourceContext(ctx, source, target)
+	parsed, err := parseSourceCachedContext(ctx, source, target)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
@@ -253,7 +253,7 @@ func parseFiles(files []string) []*vendors.ParsedSession {
 }
 
 func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
-	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files, parseSourceContext)
+	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files, parseSourceCachedContext)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +261,9 @@ func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSe
 }
 
 func parseFilesSource(source vendors.ReadSource, files []string) []*vendors.ParsedSession {
-	parsed := vendors.ParseSourceFiles(source, files, parseSource)
+	parsed := vendors.ParseSourceFiles(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
+		return parseSourceCachedContext(context.Background(), source, path)
+	})
 	return finalizeParsedFiles(source, parsed)
 }
 

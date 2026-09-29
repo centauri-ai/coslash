@@ -32,6 +32,7 @@ coSlash reads, but does not modify:
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
 | `session-backups/prepared/` | Verified, private complete Codex, local Claude, OpenCode and Cursor bundles retained while an approved share or enabled v4 sync can resume. |
+| `fingerprints/v1/<agent>/` | The local parse cache: one private file per local transcript, Cursor session or OpenCode family holding the parsed summary already produced for the board (prompts, commands, working directories, edited-file paths and file-change bodies), keyed by file size and modification time so an unchanged source is never parsed twice. It holds no raw transcript rows. Deleting the directory is always safe; `discovery-cursor.json` beside it records where a streamed discovery pass stopped. `COSLASH_SCALE_IMPORT=0` disables the cache. |
 | `sync-v4/queue.json` | Private v4 installation ID, session metadata, content hashes, pending upload IDs and progress. This ID survives device re-pairing. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
