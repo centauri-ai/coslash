@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -37,6 +38,10 @@ type Entry struct {
 	FailureCode          string                          `json:"failureCode,omitempty"`
 	Attempt              int                             `json:"attempt,omitempty"`
 	Excluded             bool                            `json:"excluded,omitempty"`
+	// ParkedVersion is the Local version that recorded a failure that would
+	// repeat for the same source. The entry is not retried until its source
+	// changes, the Hub asks for a retry, or Local runs a different version.
+	ParkedVersion string `json:"parkedVersion,omitempty"`
 }
 
 type state struct {
@@ -55,6 +60,9 @@ type state struct {
 	UpdateRequired         bool            `json:"updateRequired,omitempty"`
 	RecommendedUpdate      bool            `json:"recommendedUpdate,omitempty"`
 	Commands               []commandRecord `json:"commands,omitempty"`
+	// DiscardBundles are prepared bundles no entry refers to any more. The
+	// runner deletes them at the start of its next pass.
+	DiscardBundles []string `json:"discardBundles,omitempty"`
 }
 
 type commandRecord struct {
@@ -121,6 +129,8 @@ func (q *Queue) Rebind(binding string) error {
 	if q.state.Binding != "" {
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]
+			q.abandon(entry.BundleID)
+			entry.ParkedVersion = ""
 			entry.SyncedActivity, entry.SyncedSourceRevision = 0, ""
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
 			entry.Manifest, entry.Attempt = nil, 0
@@ -269,6 +279,8 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 			continue
 		}
 		prior := *entry
+		q.abandon(entry.BundleID)
+		entry.ParkedVersion = ""
 		entry.SyncedActivity = 0
 		entry.SyncedSourceRevision = ""
 		entry.RevisionID = ""
@@ -319,6 +331,8 @@ func (q *Queue) Merge(found []Entry, now time.Time) error {
 				entry.Activity = max(entry.Activity, item.Activity)
 				entry.SourceRevision = item.SourceRevision
 				entry.Session = item.Session
+				q.abandon(entry.BundleID)
+				entry.ParkedVersion = ""
 				entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.FailureCode = "", "", "", ""
 				entry.Manifest, entry.RevisionID = nil, ""
 				entry.Attempt = 0
@@ -340,11 +354,42 @@ func (q *Queue) Update(entry Entry) error {
 			if entry.Activity < q.state.Entries[i].Activity || entry.SourceRevision != q.state.Entries[i].SourceRevision {
 				return errors.New("stale v4 queue entry")
 			}
+			if stored := q.state.Entries[i].BundleID; stored != entry.BundleID {
+				q.abandon(stored)
+			}
 			q.state.Entries[i] = entry
 			return q.save()
 		}
 	}
 	return errors.New("v4 queue entry missing")
+}
+
+// abandon schedules a prepared bundle that no entry uses for deletion. The
+// caller holds q.mu.
+func (q *Queue) abandon(bundleID string) {
+	if bundleID != "" && !slices.Contains(q.state.DiscardBundles, bundleID) {
+		q.state.DiscardBundles = append(q.state.DiscardBundles, bundleID)
+	}
+}
+
+// Discards lists the abandoned bundles still to delete.
+func (q *Queue) Discards() []string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return slices.Clone(q.state.DiscardBundles)
+}
+
+// ForgetDiscards drops deleted bundles from the discard list.
+func (q *Queue) ForgetDiscards(deleted []string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	prior := slices.Clone(q.state.DiscardBundles)
+	q.state.DiscardBundles = slices.DeleteFunc(q.state.DiscardBundles, func(id string) bool { return slices.Contains(deleted, id) })
+	if err := q.save(); err != nil {
+		q.state.DiscardBundles = prior
+		return err
+	}
+	return nil
 }
 
 // Agents lists, sorted, the agents of the sessions this install has queued.
