@@ -26,6 +26,9 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 		if errors.Is(err, cursor.ErrBackupUnstable) {
 			return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawMetadataRows, true)
 		}
+		if errors.Is(err, cursor.ErrBackupRowsUnrepresentable) {
+			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawMetadataRows, false)
+		}
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
 		}
