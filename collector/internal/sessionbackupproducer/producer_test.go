@@ -449,6 +449,9 @@ func TestKnownRawSizesAreBoundedBeforeCopy(t *testing.T) {
 	if withinKnownBounds([]vendors.FileFingerprint{{Size: sessionbackupv1.MaxArtifactBytes + 1}}) {
 		t.Fatal("oversized artifact accepted")
 	}
+	if !exceedsKnownBounds([]vendors.FileFingerprint{{Size: sessionbackupv1.MaxArtifactBytes + 1}}) {
+		t.Fatal("oversized artifact lost its size cause")
+	}
 	aggregate := make([]vendors.FileFingerprint, sessionbackupv1.MaxTotalBytes/sessionbackupv1.MaxArtifactBytes+1)
 	for index := range aggregate {
 		aggregate[index].Size = sessionbackupv1.MaxArtifactBytes
@@ -456,8 +459,29 @@ func TestKnownRawSizesAreBoundedBeforeCopy(t *testing.T) {
 	if withinKnownBounds(aggregate) {
 		t.Fatal("oversized aggregate accepted")
 	}
+	if !exceedsKnownBounds(aggregate) {
+		t.Fatal("oversized aggregate lost its size cause")
+	}
 	if !withinKnownBounds([]vendors.FileFingerprint{{Size: sessionbackupv1.MaxArtifactBytes}}) {
 		t.Fatal("artifact boundary rejected")
+	}
+	if exceedsKnownBounds([]vendors.FileFingerprint{{Size: sessionbackupv1.MaxArtifactBytes}}) {
+		t.Fatal("artifact at the boundary marked too large")
+	}
+}
+
+func TestOversizedRawArtifactPreservesTooLargeCause(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	if err := os.Truncate(familyFile(home, false, testRootID), sessionbackupv1.MaxArtifactBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	_, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCodex, SessionID: testRootID})
+	var failure *PreparationError
+	if !errors.As(err, &failure) || !failure.TooLarge || len(failure.Coverage.Problems) != 1 || failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemInvalid {
+		t.Fatalf("oversized artifact failure = %v, want invalid coverage and too-large cause", err)
 	}
 }
 

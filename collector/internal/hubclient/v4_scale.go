@@ -7,14 +7,6 @@ import (
 	"time"
 )
 
-type V4ImportPlan struct {
-	Version          int64  `json:"version"`
-	Window           string `json:"window"`
-	History          bool   `json:"history"`
-	HistoryPaused    bool   `json:"historyPaused"`
-	WarmStartSeconds int64  `json:"warmStartSeconds"`
-}
-
 type V4ListItem struct {
 	V4Session
 	ActivityAt   time.Time `json:"activityAt"`

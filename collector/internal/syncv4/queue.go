@@ -43,6 +43,8 @@ type Entry struct {
 	RevisionID           string                          `json:"revisionId,omitempty"`
 	FailureCode          string                          `json:"failureCode,omitempty"`
 	Attempt              int                             `json:"attempt,omitempty"`
+	BackoffAttempt       int                             `json:"backoffAttempt,omitempty"`
+	RetryAt              time.Time                       `json:"retryAt,omitempty"`
 	Excluded             bool                            `json:"excluded,omitempty"`
 	ServerLeftOut        bool                            `json:"serverLeftOut,omitempty"`
 	// ParkedVersion is the Local version that recorded a failure that would
@@ -94,6 +96,7 @@ type state struct {
 type commandRecord struct {
 	ID     string                    `json:"id"`
 	Result hubclient.V4CommandResult `json:"result"`
+	At     time.Time                 `json:"at,omitempty"`
 }
 
 type Queue struct {
@@ -131,6 +134,16 @@ func Open(root string) (*Queue, error) {
 		if err := json.Unmarshal(data, &q.state); err != nil || q.state.Version != 1 || q.state.InstallID == "" {
 			return nil, errors.New("invalid v4 queue")
 		}
+		for i := range q.state.Commands {
+			command := &q.state.Commands[i]
+			if command.Result.Result == "in_progress" {
+				command.Result = hubclient.V4CommandResult{CommandID: command.ID, Result: "failed", Error: "execution_interrupted"}
+			}
+		}
+		q.pruneCommands(time.Now())
+		if err := q.save(); err != nil {
+			return nil, err
+		}
 		return q, nil
 	}
 	var id [16]byte
@@ -167,6 +180,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.SyncedActivity, entry.SyncedSourceRevision = 0, ""
 			entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.SessionID, entry.RevisionID, entry.FailureCode = "", "", "", "", "", ""
 			entry.Manifest, entry.Attempt = nil, 0
+			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		}
 		q.state.ConfigVersion, q.state.PolicyKnown = 0, false
 		q.state.Config = hubclient.V4Config{}
@@ -298,8 +312,18 @@ func (q *Queue) Results() []hubclient.V4CommandResult {
 	defer q.mu.Unlock()
 	results := make([]hubclient.V4CommandResult, 0, len(q.state.Commands))
 	for _, item := range q.state.Commands {
-		if item.Result.Result != "" && !q.held[item.ID] {
+		if item.Result.Result != "" && item.Result.Result != "in_progress" && !q.held[item.ID] {
 			results = append(results, item.Result)
+		}
+	}
+	if len(results) < 100 {
+		for _, item := range q.state.Commands {
+			if item.Result.Result == "in_progress" {
+				results = append(results, item.Result)
+				if len(results) == 100 {
+					break
+				}
+			}
 		}
 	}
 	if len(results) > 100 {
@@ -317,7 +341,7 @@ func (q *Queue) AcknowledgeResults(results []hubclient.V4CommandResult) error {
 		acked[result.CommandID] = true
 	}
 	for i := range q.state.Commands {
-		if acked[q.state.Commands[i].ID] {
+		if acked[q.state.Commands[i].ID] && q.state.Commands[i].Result.Result != "in_progress" {
 			q.state.Commands[i].Result = hubclient.V4CommandResult{}
 		}
 	}
@@ -332,16 +356,15 @@ func (q *Queue) StartCommand(id string) (bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	prior := append([]commandRecord(nil), q.state.Commands...)
+	q.pruneCommands(time.Now())
 	for _, item := range q.state.Commands {
 		if item.ID == id {
 			return false, nil
 		}
 	}
-	if len(q.state.Commands) >= 10000 {
-		return false, errors.New("v4 command journal full")
-	}
 	q.state.Commands = append(q.state.Commands, commandRecord{ID: id,
-		Result: hubclient.V4CommandResult{CommandID: id, Result: "failed", Error: "execution_interrupted"}})
+		Result: hubclient.V4CommandResult{CommandID: id, Result: "failed", Error: "execution_interrupted"}, At: time.Now()})
+	q.pruneCommands(time.Now())
 	if err := q.save(); err != nil {
 		q.state.Commands = prior
 		return false, err
@@ -396,6 +419,7 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 		entry.BundleID, entry.ContentSHA256, entry.UploadID = "", "", ""
 		entry.Manifest = nil
 		entry.Attempt++
+		entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		if err := q.save(); err != nil {
 			*entry = prior
 			return false, err
@@ -477,6 +501,7 @@ func (q *Queue) Merge(found []Entry, now time.Time) error {
 				entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.FailureCode = "", "", "", ""
 				entry.Manifest, entry.RevisionID = nil, ""
 				entry.Attempt = 0
+				entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 			}
 		} else {
 			item.Recent = item.Activity >= now.Add(-recentWindow).UnixMilli()
