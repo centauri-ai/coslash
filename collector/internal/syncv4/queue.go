@@ -81,6 +81,10 @@ type Queue struct {
 	mu    sync.Mutex
 	path  string
 	state state
+	// held names started commands that are still waiting on work, such as a
+	// retry waiting on its session's upload. It lives in memory only, so a
+	// restart reports them as execution_interrupted.
+	held map[string]bool
 }
 
 func Open(root string) (*Queue, error) {
@@ -211,7 +215,7 @@ func (q *Queue) Results() []hubclient.V4CommandResult {
 	defer q.mu.Unlock()
 	results := make([]hubclient.V4CommandResult, 0, len(q.state.Commands))
 	for _, item := range q.state.Commands {
-		if item.Result.Result != "" {
+		if item.Result.Result != "" && !q.held[item.ID] {
 			results = append(results, item.Result)
 		}
 	}
@@ -262,6 +266,17 @@ func (q *Queue) StartCommand(id string) (bool, error) {
 	return true, nil
 }
 
+// HoldCommand keeps a started command out of Results until FinishCommand
+// records its outcome.
+func (q *Queue) HoldCommand(id string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.held == nil {
+		q.held = make(map[string]bool)
+	}
+	q.held[id] = true
+}
+
 func (q *Queue) FinishCommand(result hubclient.V4CommandResult) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -273,6 +288,7 @@ func (q *Queue) FinishCommand(result hubclient.V4CommandResult) error {
 				q.state.Commands[i].Result = prior
 				return err
 			}
+			delete(q.held, result.CommandID)
 			return nil
 		}
 	}
