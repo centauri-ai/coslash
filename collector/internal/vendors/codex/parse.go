@@ -176,7 +176,7 @@ func parseSourceContext(
 	if err != nil {
 		return nil, err
 	}
-	if analysis.subagentRole == "guardian" {
+	if analysis.subagentRole == guardianRole {
 		return nil, nil
 	}
 	if err := ctx.Err(); err != nil {

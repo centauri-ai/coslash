@@ -33,6 +33,14 @@ records per-source evidence, build gaps, and the v4 compatibility boundary.
 | `session-enrichment` | Canonical [`enrichment.schema.json`](enrichment.schema.json) document containing only repository identity, repository-local-only state, filesystem fallback branch, Git drift, and last-edit time | Required per represented member | Required from the remote cached/frozen overlay | Capture all five fields, using JSON `null` for absent nullable values |
 | `synthesis` | Canonical [`synthesis.schema.json`](synthesis.schema.json) persisted cache record: `agent`, `sessionId`, `mtime`, `model`, `generatedAt`, and `synthesis` | Present when persisted for the frozen revision | Present when persisted for the frozen revision | `mtime` must equal the member's `synthesisRevisionMs`; parsed synthesis, when present, must equal the cache record's synthesis object |
 
+Codex's guardian (auto-review) subagent rollouts are hidden from the product,
+so they have no card, member, or parsed record. Each is still a discovered
+family rollout: its exact bytes are a `raw-transcript` artifact of the nearest
+represented ancestor it reviewed and count toward that member's source
+revision. The rollout's own header and the parser must agree that it is
+hidden, and it must have no `session_index.jsonl` row; otherwise completion
+is blocked.
+
 The fixture includes every Codex v1 input kind, root and child parsed records,
 two exact change bodies, both enrichment branches, and a persisted synthesis
 record. It deliberately contains no invented Codex database. No credentials,
