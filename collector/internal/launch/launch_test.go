@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -27,6 +28,26 @@ func TestTerminalRemovesHandoffWhenTerminalOpenFails(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("failed launch left handoff files: %v", entries)
+	}
+}
+
+func TestTerminalWithPromptRemovesClaudeFilesWhenTerminalOpenFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("secure interactive prompts require a POSIX terminal")
+	}
+	provideFakeExpect(t)
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	originalOpener := localTerminalOpener
+	t.Cleanup(func() { localTerminalOpener = originalOpener })
+	localTerminalOpener = func(context.Context, string, string, string, string) error {
+		return errors.New("terminal open failed")
+	}
+	if err := TerminalWithPrompt(context.Background(), settings.Defaults().Launch.Terminal, vendors.AgentClaude, t.TempDir(), "", NewSession, "private handoff", "request"); err == nil {
+		t.Fatal("terminal opener failure was ignored")
+	}
+	entries, err := os.ReadDir(handoffDir())
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("failed launch left handoff files: %v, %v", entries, err)
 	}
 }
 

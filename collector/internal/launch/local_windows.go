@@ -240,6 +240,24 @@ func localCLIExecutable(agent, fallback string) string {
 	return fallback
 }
 
+func cursorReviewCommand(prompt string) reviewCommandSpec {
+	path := localCLIExecutable(vendors.AgentCursor, settings.CursorExecutable())
+	if strings.HasSuffix(strings.ToLower(path), ".ps1") {
+		return reviewCommandSpec{bin: "powershell.exe", args: append(powerShellCommandArguments(path, false), "--print", "--mode", "ask"), stdin: prompt}
+	}
+	return reviewCommandSpec{bin: path, args: []string{"--print", "--mode", "ask"}, stdin: prompt}
+}
+
+func interactivePromptCommand(_, _, _, _ string) (string, string, error) {
+	return "", "", fmt.Errorf("launch: secure interactive prompt delivery is unsupported on Windows")
+}
+
+func secureTerminalInputCommand(_, _, _, _ string) (string, string, error) {
+	return "", "", fmt.Errorf("launch: secure interactive prompt delivery is unsupported on Windows")
+}
+
+func securePromptAvailable() bool { return false }
+
 func powerShellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
@@ -287,7 +305,7 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 			"$previousOpenCodeConfigContent = $env:OPENCODE_CONFIG_CONTENT; "
 		command := "$env:OPENCODE_CONFIG_CONTENT = " + powerShellQuote(string(config)) + "; " + localCommandJoin(cli)
 		if prompt != "" {
-			command += " " + powerShellQuote(prompt)
+			command += " " + powerShellQuote("--prompt="+prompt)
 		}
 		restore := "if ($hadOpenCodeConfigContent) { $env:OPENCODE_CONFIG_CONTENT = $previousOpenCodeConfigContent } else { " +
 			"Remove-Item Env:OPENCODE_CONFIG_CONTENT -ErrorAction SilentlyContinue }; " + powerShellRemove(path)

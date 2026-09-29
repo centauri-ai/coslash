@@ -616,3 +616,28 @@ jobs:
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: git push "https://x-access-token:${TAP_TOKEN}@github.com/centauri-ai/homebrew-tap.git" HEAD:main
+
+  # Both plugin marketplaces install from this branch. Moving it after the tap
+  # update keeps skills from reaching users before the CLI they call.
+  promote-plugins:
+    needs: [plan, bump-homebrew]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Move plugin marketplace to the stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$REPOSITORY/git/ref/heads/stable" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$REPOSITORY/git/refs/heads/stable" \
+              --field sha="$SOURCE_SHA" \
+              --field force=false >/dev/null
+          else
+            gh api --method POST "repos/$REPOSITORY/git/refs" \
+              --field ref=refs/heads/stable \
+              --field sha="$SOURCE_SHA" >/dev/null
+          fi

@@ -57,11 +57,11 @@ Confirm that synthesis is enabled in Settings and that the selected CLI is insta
 
 ## Resume or Start fresh fails
 
-Launching requires a recorded working directory, the agent CLI, and the terminal selected in Settings. On macOS, confirm Apple Terminal or iTerm2 is installed and allow automation under **System Settings → Privacy & Security → Automation**. On Windows, confirm Windows PowerShell 5.1 is available; coSlash uses Windows Terminal when it is installed and otherwise opens Windows PowerShell directly.
+Launching requires a recorded working directory, the agent CLI, and the terminal selected in Settings. Interactive handoffs on macOS and Linux also require `expect` on `PATH`. On macOS, confirm Apple Terminal or iTerm2 is installed and allow automation under **System Settings → Privacy & Security → Automation**. On Windows, confirm Windows PowerShell 5.1 is available; coSlash uses Windows Terminal when it is installed and otherwise opens Windows PowerShell directly.
 
 Cursor CLI **Resume** requires the `agent` command and restores the recorded session. **Open Cursor** for a Cursor IDE session requires the `cursor` command and only opens the recorded workspace; Cursor does not provide a way to restore that specific IDE chat.
 
-For Cursor, **Start fresh with handoff** copies the brief to the clipboard. The IDE path opens the workspace; create a fresh chat before pasting the brief. The CLI path launches a new `agent` session; paste the brief there. Cursor does not provide a way for coSlash to inject it. Other supported agents receive the brief as background context and wait for your next message.
+**Start fresh with handoff** offers installed agents on the source host, then sends a Review or custom request to the selected CLI. If Cursor asks you to trust the workspace, answer that prompt first; coSlash sends the handoff when the agent is ready.
 
 Remote Resume and Start fresh require a live SSH connection and a recorded
 working directory. They are disabled while the host is offline; wait for it to

@@ -4,11 +4,14 @@ package agentexec
 
 import (
 	"context"
+	"os"
 	"os/exec"
 )
 
 func CommandContext(ctx context.Context, bin string, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, bin, args...)
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = WithoutSessionMarkers(os.Environ())
+	return cmd
 }
 
 func Run(cmd *exec.Cmd) error { return cmd.Run() }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/diagnostics"
+	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
@@ -121,6 +122,13 @@ func main() {
 	}
 	mgr := synthesis.NewManager(runner)
 	reviewManager := review.NewManager(launch.Review)
+	directedStore, err := newDirectedHandoffStore()
+	if err != nil {
+		log.Fatalf("directed handoff store: %v", err)
+	}
+	if err := directedStore.RecoverReviews(); err != nil {
+		log.Fatalf("recover directed reviews: %v", err)
+	}
 	if err := synthesis.EnsureDirs(); err != nil {
 		log.Printf("initialize synthesis cache: %v", err)
 		mgr.SetRunner(nil)
@@ -145,6 +153,9 @@ func main() {
 			log.Printf("remote settings: %v", err)
 		}
 	}
+	discoveryContext, stopDiscovery := context.WithCancel(context.Background())
+	defer stopDiscovery()
+	go runDirectedHandoffDiscovery(discoveryContext, directedStore, remoteManager)
 
 	// Bind before opening the browser, so a port conflict is an error the user
 	// reads rather than a browser tab pointed at nothing.
@@ -188,7 +199,8 @@ func main() {
 			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
 		}
 	}
-	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, queue)
+	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
+		serverStores{queue: queue, directed: directedStore})
 	if queue != nil {
 		syncContext, stopSync := context.WithCancel(context.Background())
 		server.RegisterOnShutdown(stopSync)
@@ -241,8 +253,11 @@ func main() {
 		log.Fatalf("coslash: acquire runtime readiness: %v", err)
 	}
 	defer runtimeReady.Close()
-	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("coslash: %v", err)
+	serveErr := server.Serve(listener)
+	stopDiscovery()
+	directedStore.Shutdown()
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		log.Fatalf("coslash: %v", serveErr)
 	}
 }
 
@@ -257,10 +272,10 @@ func newServer(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
-	queues ...*syncv4.Queue,
+	stores ...serverStores,
 ) *http.Server {
 	server := &http.Server{
-		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub, queues...)),
+		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub, stores...)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -269,7 +284,17 @@ func newServer(
 	}
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
+	if len(stores) > 0 && stores[0].directed != nil {
+		server.RegisterOnShutdown(stores[0].directed.Shutdown)
+	}
 	return server
+}
+
+// serverStores holds the optional stores behind their routes. A missing
+// store leaves its routes answering as unavailable or empty.
+type serverStores struct {
+	queue    *syncv4.Queue
+	directed *directedhandoff.Store
 }
 
 func routes(
@@ -278,16 +303,21 @@ func routes(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
-	queues ...*syncv4.Queue,
+	stores ...serverStores,
 ) *http.ServeMux {
+	var queue *syncv4.Queue
+	var directedStore *directedhandoff.Store
+	if len(stores) > 0 {
+		queue, directedStore = stores[0].queue, stores[0].directed
+	}
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/hub/v4-update", func(w http.ResponseWriter, _ *http.Request) {
-		if len(queues) == 0 || queues[0] == nil {
+		if queue == nil {
 			writeJSON(w, syncv4.UpdatePrompt{})
 			return
 		}
-		writeJSON(w, queues[0].UpdatePrompt())
+		writeJSON(w, queue.UpdatePrompt())
 	})
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
@@ -346,6 +376,23 @@ func routes(
 	})
 	api.HandleFunc("GET /api/handoff", func(w http.ResponseWriter, r *http.Request) {
 		handleHandoff(w, r, getCanonicalSession)
+	})
+	api.HandleFunc("GET /api/directed-handoffs/targets", func(w http.ResponseWriter, r *http.Request) {
+		handleDirectedHandoffTargets(w, r, settingsStore)
+	})
+	api.HandleFunc("GET /api/directed-handoffs", func(w http.ResponseWriter, _ *http.Request) {
+		if directedStore == nil {
+			writeJSON(w, struct {
+				Handoffs []directedhandoff.Record `json:"handoffs"`
+			}{[]directedhandoff.Record{}})
+			return
+		}
+		writeJSON(w, struct {
+			Handoffs []directedhandoff.Record `json:"handoffs"`
+		}{directedStore.List()})
+	})
+	api.HandleFunc("POST /api/directed-handoffs", func(w http.ResponseWriter, r *http.Request) {
+		handleDirectedHandoffStart(w, r, directedStore, settingsStore, remoteManager, mgr)
 	})
 	api.HandleFunc("POST /api/send", func(w http.ResponseWriter, r *http.Request) {
 		handleSend(w, r, settingsStore, getCanonicalSession, launch.ReviewerAvailable, launch.TerminalWithPrompt)

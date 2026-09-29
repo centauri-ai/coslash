@@ -109,6 +109,8 @@ Cursor synthesis uses read-only ask mode. coSlash also disables file, shell, wri
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 
+Sending a session to Cursor CLI copies its handoff and optional task to the system clipboard before opening Cursor. Clipboard history tools and cross-device clipboard sync may retain that content. Paste it into the new Cursor session, then clear the clipboard if needed.
+
 Remote Hub MCP is an optional agent connection. The agent sends tool questions
 and arguments directly to the Hub MCP endpoint after browser OAuth approval;
 coSlash Local does not copy the bearer token into its settings or process

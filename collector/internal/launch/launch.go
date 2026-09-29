@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -71,17 +72,75 @@ type ReviewerOption struct {
 	Executable string
 }
 
+type HandoffTargetOption struct {
+	Agent      string `json:"agent"`
+	Label      string `json:"label"`
+	Entrypoint string `json:"entrypoint"`
+	Available  bool   `json:"available"`
+	Automatic  bool   `json:"automatic"`
+}
+
+func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
+	home, _ := os.UserHomeDir()
+	options := []HandoffTargetOption{
+		{Agent: vendors.AgentClaude, Label: "Claude Code", Entrypoint: "cli", Automatic: true},
+		{Agent: vendors.AgentCodex, Label: "Codex", Entrypoint: "codex-tui", Automatic: true},
+		{Agent: vendors.AgentOpenCode, Label: "OpenCode", Entrypoint: "opencode-cli", Automatic: true},
+		{Agent: vendors.AgentCursor, Label: "Cursor CLI", Entrypoint: "cursor-cli", Automatic: true},
+		{Agent: vendors.AgentCursor, Label: "Cursor IDE", Entrypoint: "cursor-ide"},
+	}
+	for i := range options {
+		if !securePromptAvailable() {
+			continue
+		}
+		switch options[i].Entrypoint {
+		case "cursor-cli":
+			options[i].Available = CursorCLIExecutable(home) != ""
+		case "cursor-ide":
+			options[i].Available = CursorExecutable(home) != ""
+		default:
+			options[i].Available = ReviewerAvailable(options[i].Agent)
+		}
+	}
+	return options
+}
+
 func ReviewerOptions() []ReviewerOption {
 	return []ReviewerOption{
 		{ID: vendors.AgentClaude, Label: "Claude Code", Executable: "claude"},
 		{ID: vendors.AgentCodex, Label: "Codex", Executable: "codex"},
 		{ID: vendors.AgentOpenCode, Label: "OpenCode", Executable: "opencode"},
+		{ID: vendors.AgentCursor, Label: "Cursor CLI", Executable: cursorReviewerExecutable()},
 	}
+}
+
+func cursorReviewerExecutable() string {
+	cli := settings.CursorExecutable()
+	if runtime.GOOS != "windows" {
+		return cli
+	}
+	if _, err := exec.LookPath(cli); err == nil {
+		return cli
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if path := CursorCLIExecutable(home); strings.EqualFold(filepath.Ext(path), ".ps1") {
+			return path
+		}
+	}
+	return cli
 }
 
 func ReviewerAvailable(reviewer string) bool {
 	for _, option := range ReviewerOptions() {
 		if option.ID == reviewer {
+			if strings.EqualFold(filepath.Ext(option.Executable), ".ps1") {
+				if _, err := exec.LookPath("powershell.exe"); err != nil {
+					return false
+				}
+				info, err := os.Stat(option.Executable)
+				return err == nil && info.Mode().IsRegular()
+			}
 			_, err := exec.LookPath(option.Executable)
 			return err == nil
 		}
@@ -101,9 +160,36 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 	if err := ValidateWorkingDirectory(workingDirectory); err != nil {
 		return "", err
 	}
-	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, request.Prompt)
+	prompt := request.Prompt
+	if request.Reviewer == vendors.AgentOpenCode || request.Reviewer == vendors.AgentCursor {
+		snapshot, err := reviewGitSnapshot(ctx, workingDirectory)
+		if err != nil {
+			return "", err
+		}
+		prompt += snapshot
+	}
+	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, prompt)
 	if err != nil {
 		return "", err
+	}
+	if request.Reviewer == vendors.AgentCursor {
+		if err := os.MkdirAll(reviewScratchDir(), 0o700); err != nil {
+			return "", fmt.Errorf("create Cursor review directory: %w", err)
+		}
+		scratch, err := os.MkdirTemp(reviewScratchDir(), "cursor-*")
+		if err != nil {
+			return "", fmt.Errorf("create Cursor review directory: %w", err)
+		}
+		defer os.RemoveAll(scratch)
+		if err := os.Mkdir(filepath.Join(scratch, ".cursor"), 0o700); err != nil {
+			return "", fmt.Errorf("create Cursor review config: %w", err)
+		}
+		permissions := `{"permissions":{"allow":[],"deny":["Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
+		if err := os.WriteFile(filepath.Join(scratch, ".cursor", "cli.json"), []byte(permissions), 0o600); err != nil {
+			return "", fmt.Errorf("write Cursor review permissions: %w", err)
+		}
+		workingDirectory = scratch
+		spec.env = append(spec.env, "CURSOR_DATA_DIR="+scratch)
 	}
 	command := reviewCommandContext(ctx, spec.bin, spec.args...)
 	command.Dir = workingDirectory
@@ -128,18 +214,90 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 	return result, nil
 }
 
+func reviewScratchDir() string {
+	return filepath.Join(settings.Home(), "reviews")
+}
+
+func CleanupReviewScratch() error {
+	return cleanupReviewScratch(time.Now().Add(-time.Hour))
+}
+
+func cleanupReviewScratch(cutoff time.Time) error {
+	entries, err := os.ReadDir(reviewScratchDir())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cursor-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(reviewScratchDir(), entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reviewGitSnapshot(ctx context.Context, workingDirectory string) (string, error) {
+	var snapshot strings.Builder
+	snapshot.WriteString("\nBEGIN UNTRUSTED WORKTREE DATA\n")
+	for _, args := range [][]string{{"status", "--short", "--untracked-files=all"}, {"diff", "--no-ext-diff", "--no-textconv"}, {"diff", "--cached", "--no-ext-diff", "--no-textconv"}} {
+		command := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false"}, args...)...)
+		command.Dir = workingDirectory
+		command.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+		output := boundedBuffer{limit: 64 << 10}
+		command.Stdout = &output
+		command.Stderr = &output
+		snapshot.WriteString("git " + strings.Join(args, " ") + ":\n")
+		if err := command.Run(); err != nil {
+			snapshot.WriteString("unavailable\n")
+			continue
+		}
+		snapshot.WriteString(output.String())
+		if output.truncated {
+			return "", errors.New("review: working tree snapshot exceeds 64 KiB per Git command")
+		}
+		snapshot.WriteByte('\n')
+	}
+	snapshot.WriteString("END UNTRUSTED WORKTREE DATA\n")
+	return snapshot.String(), nil
+}
+
 func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCommandSpec, error) {
 	switch reviewer {
 	case vendors.AgentClaude:
-		return reviewCommandSpec{bin: "claude", args: []string{"-p", "--name", name, "--permission-mode", "plan"}, stdin: prompt}, nil
+		return reviewCommandSpec{bin: "claude", args: []string{"-p", "--name", name, "--permission-mode", "plan", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands", "--tools", "Read,Glob,Grep"}, stdin: prompt}, nil
 	case vendors.AgentCodex:
-		return reviewCommandSpec{bin: "codex", args: []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"}, stdin: prompt}, nil
+		return reviewCommandSpec{bin: "codex", args: []string{"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--skip-git-repo-check", "-"}, stdin: prompt}, nil
 	case vendors.AgentOpenCode:
 		return reviewCommandSpec{
 			bin:   "opencode",
-			args:  []string{"run", "--title", name},
-			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
-			stdin: prompt,
+			args:  []string{"run", "--pure", "--title", name},
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
+		}, nil
+	case vendors.AgentCursor:
+		sandbox := "enabled"
+		if runtime.GOOS == "windows" {
+			sandbox = "disabled"
+		}
+		bin := cursorReviewerExecutable()
+		args := []string{"--print", "--mode=ask", "--sandbox", sandbox, "--trust", "--add-dir", workingDirectory, "--output-format", "text"}
+		if strings.EqualFold(filepath.Ext(bin), ".ps1") {
+			args = append([]string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", bin}, args...)
+			bin = "powershell.exe"
+		}
+		return reviewCommandSpec{
+			bin:   bin,
+			args:  args,
+			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		}, nil
 	default:
 		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
@@ -208,6 +366,13 @@ func CursorWorkspace(workingDirectory string) error {
 // RemoteTerminal opens the selected local terminal and runs an agent CLI on a
 // configured SSH host.
 func RemoteTerminal(ctx context.Context, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName string) error {
+	return RemoteTerminalWithPrompt(ctx, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName, "")
+}
+
+func RemoteTerminalWithPrompt(ctx context.Context, terminal, alias, agent, workingDirectory, sessionID, mode, handoffName, prompt string) error {
+	if prompt != "" && mode != NewSession {
+		return errors.New("launch: first prompt requires a new session")
+	}
 	destination, err := settings.ParseSSHDestination(alias)
 	if err != nil {
 		return errors.New("launch: SSH alias is required")
@@ -219,7 +384,18 @@ func RemoteTerminal(ctx context.Context, terminal, alias, agent, workingDirector
 	if err != nil {
 		return err
 	}
-	return openTerminal(ctx, terminal, ".", remoteSSHCommand(destination, remoteCommand))
+	command := remoteSSHCommand(destination, remoteCommand)
+	if prompt == "" {
+		return openTerminal(ctx, terminal, ".", command)
+	}
+	command, path, err := secureTerminalInputCommand(command, prompt, agent, "")
+	if err != nil {
+		return err
+	}
+	if err := openTerminal(ctx, terminal, ".", command); err != nil {
+		return errors.Join(err, removeHandoffFile(path))
+	}
+	return nil
 }
 
 // SSHAuthentication opens the selected terminal with a fixed coSlash command.
@@ -266,14 +442,17 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 	cli = localCLIExecutable(agent, cli)
 	switch mode {
 	case NewSession:
+		if prompt != "" {
+			return interactivePromptCommand(agent, cli, handoff, prompt)
+		}
 		if handoff == "" {
-			if prompt == "" {
-				return localCommandJoin(cli), "", nil
-			}
-			return localCommandJoin(cli, "--", prompt), "", nil
+			return localCommandJoin(cli), "", nil
 		}
 		return handoffCommand(agent, cli, handoff, prompt)
 	case ResumeSession:
+		if prompt != "" {
+			return "", "", errors.New("launch: first prompt requires a new session")
+		}
 		arguments, err := resumeArguments(agent, cli, sessionID)
 		if err != nil {
 			return "", "", err
@@ -383,8 +562,10 @@ func removeHandoffFile(path string) error {
 	if path == "" {
 		return nil
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("launch: removing handoff file: %w", err)
+	for _, candidate := range []string{path, path + ".context"} {
+		if err := os.Remove(candidate); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("launch: removing handoff file: %w", err)
+		}
 	}
 	return nil
 }

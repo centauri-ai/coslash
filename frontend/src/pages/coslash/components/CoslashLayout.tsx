@@ -46,6 +46,7 @@ import { cn } from '@/lib/utils';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
+import { handoffLabel, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo } from '@/pages/coslash/lib/format';
 import {
   MACHINE_TONE_DOT,
@@ -596,6 +597,7 @@ function SessionRow({
   onSelect,
   onToggleGroup,
   review,
+  handoff,
 }: {
   session: Session;
   group: Group;
@@ -605,6 +607,7 @@ function SessionRow({
   onSelect: () => void;
   onToggleGroup: () => void;
   review: SessionReviewProps;
+  handoff?: DirectedHandoff;
 }) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const actionButtonRef = useRef<HTMLButtonElement>(null);
@@ -648,6 +651,9 @@ function SessionRow({
         >
           {getSessionCardSummary(session)}
         </span>
+        {handoff && (
+          <span className="text-meta text-info-fg block truncate px-1.5">{handoffLabel(handoff)}</span>
+        )}
       </td>
       <td className={cn(cell, 'max-compact:hidden w-[204px]')}>
         <div className="text-coslash-muted flex min-w-0 items-baseline gap-1.5">
@@ -843,6 +849,7 @@ function SessionListView({
   onSelectSession,
   onToggleGroup,
   review,
+  handoffs,
 }: {
   sections: { status: StatusKey; rows: Session[] }[];
   groups: Map<string, Group>;
@@ -857,6 +864,7 @@ function SessionListView({
   onSelectSession: (session: Session) => void;
   onToggleGroup: (id: string) => void;
   review: SessionReviewProps;
+  handoffs: ReadonlyMap<string, DirectedHandoff>;
 }) {
   const headRef = useRef<HTMLTableSectionElement>(null);
   // Section bands pin directly under the header row, whose height changes when its labels wrap.
@@ -948,6 +956,7 @@ function SessionListView({
                   onSelect={() => onSelectSession(session)}
                   onToggleGroup={() => onToggleGroup(group.id)}
                   review={review}
+                  handoff={handoffs.get(key)}
                 />
               );
             })}
@@ -974,6 +983,8 @@ function SessionListView({
 
 export function CoslashLayout({
   sessions,
+  latestHandoffs,
+  onOpenHandoffTarget,
   machines,
   range,
   onRangeChange,
@@ -997,6 +1008,8 @@ export function CoslashLayout({
   onReviewStarted,
 }: {
   sessions: Session[];
+  latestHandoffs: ReadonlyMap<string, DirectedHandoff>;
+  onOpenHandoffTarget: (handoff: DirectedHandoff) => void;
   machines: MachineFact[];
   range: SessionRange;
   onRangeChange: (range: SessionRange) => void;
@@ -1472,6 +1485,8 @@ export function CoslashLayout({
                   <Suspense fallback={<div className={styles.empty}>Loading board…</div>}>
                     <SessionBoard
                       sessions={visibleSessions}
+                      handoffs={latestHandoffs}
+                      onOpenHandoffTarget={onOpenHandoffTarget}
                       columnGroupBy={preferences.boardColumns}
                       rowGroupBy={preferences.boardRows}
                       selectedSessionKey={selectedSessionKey}
@@ -1487,6 +1502,7 @@ export function CoslashLayout({
                 ) : (
                   <SessionListView
                     sections={sections}
+                    handoffs={latestHandoffs}
                     groups={sessionGroups}
                     selectedSessionKey={selectedSessionKey}
                     compact={preferences.density === 'compact'}

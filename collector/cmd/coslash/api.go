@@ -294,6 +294,9 @@ func cleanupHandoffs(settingsStore *settings.Store) {
 		if err := launch.CleanupHandoffs(); err != nil {
 			log.Printf("sweep handoffs: %v", err)
 		}
+		if err := launch.CleanupReviewScratch(); err != nil {
+			log.Printf("sweep review scratch: %v", err)
+		}
 		state := settingsStore.State()
 		if state.Valid && state.Config.Remote != nil && state.Config.Remote.Enabled {
 			ctx, cancel := context.WithTimeout(context.Background(), remote.DefaultCapabilityTimeout)
@@ -468,8 +471,8 @@ func handleSend(
 	open promptLauncher,
 ) {
 	target := r.URL.Query().Get("to")
-	if target != vendors.AgentClaude && target != vendors.AgentCodex {
-		http.Error(w, "target must be claude or codex", http.StatusBadRequest)
+	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode && target != vendors.AgentCursor {
+		http.Error(w, "target must be claude, codex, opencode, or cursor", http.StatusBadRequest)
 		return
 	}
 	if !targetAvailable(target) {
@@ -510,6 +513,23 @@ func handleSend(
 	if r.Context().Err() != nil {
 		return
 	}
+	if target == vendors.AgentCursor {
+		if err := launch.ValidateWorkingDirectory(found.WorkingDirectory); err != nil {
+			writeTerminalLaunchError(w, err)
+			return
+		}
+		if err := writeCursorClipboard(r.Context(), cursorClipboardText(handoff, message)); err != nil {
+			if r.Context().Err() != nil {
+				return
+			}
+			log.Printf("send: copy Cursor handoff: %v", err)
+			http.Error(w, "could not copy Cursor handoff", http.StatusInternalServerError)
+			return
+		}
+		if r.Context().Err() != nil {
+			return
+		}
+	}
 	if err := open(
 		r.Context(),
 		state.Config.Launch.Terminal,
@@ -521,6 +541,10 @@ func handleSend(
 		message,
 	); err != nil {
 		log.Printf("send: %v", err)
+		if target == vendors.AgentCursor {
+			http.Error(w, "could not launch Cursor; handoff remains on the clipboard", http.StatusInternalServerError)
+			return
+		}
 		writeTerminalLaunchError(w, err)
 		return
 	}

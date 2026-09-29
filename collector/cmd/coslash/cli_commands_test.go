@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -443,6 +444,55 @@ func TestRunHandoffAndSendPreserveServerOutcomes(t *testing.T) {
 	}
 }
 
+func TestRunSendOpenCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/send" || r.URL.Query().Get("to") != "opencode" {
+			t.Fatalf("request = %s", r.URL.String())
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"send", "codex:session-1", "--to", "opencode"}); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRunSendCursorRequestsServerAndExplainsPaste(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/send" || r.URL.Query().Get("to") != "cursor" {
+			t.Fatalf("request = %s", r.URL.String())
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != "fix it" {
+			t.Fatalf("task = %q", body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"send", "opencode:session-1", "--to", "cursor", "fix it"}); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "paste") {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+}
+
+func TestRunSendCursorReportsServerFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "could not copy Cursor handoff", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	writeTestRuntime(t, server.URL, "secret")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"send", "opencode:session-1", "--to", "cursor"}); code == 0 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "could not copy Cursor handoff") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	for _, test := range []struct {
 		command string
@@ -450,8 +500,8 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	}{
 		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json\n"},
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
-		{"send", "usage: coslash send <agent>:<session> --to claude|codex [message]\n"},
-		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode | coslash review status <agent>:<session> --json\n"},
+		{"send", "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor [message]\n"},
+		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor | coslash review status <agent>:<session> --json\n"},
 		{"doctor", "usage: coslash doctor [--json]\n"},
 	} {
 		for _, flag := range []string{"--help", "-h"} {
@@ -467,6 +517,63 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	}
 }
 
+// A command that parses reaches app discovery, which fails first without a running app.
+func TestPluginSkillCommandsParse(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	paths, err := filepath.Glob("../../../plugins/coslash/skills/*/SKILL.md")
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("skills = %v, %v", paths, err)
+	}
+	command := regexp.MustCompile("`coslash ([^`]+)`")
+	checked := 0
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range command.FindAllStringSubmatch(string(data), -1) {
+			args := strings.Fields(match[1])
+			// Leading flags start the app, and doctor runs real diagnostics.
+			if strings.HasPrefix(args[0], "-") || args[0] == "doctor" {
+				continue
+			}
+			for _, variant := range skillCommandVariants(args) {
+				var stdout, stderr bytes.Buffer
+				code := runCLI(&stdout, &stderr, variant)
+				if code != 1 || !strings.Contains(stderr.String(), "coSlash app is not running") {
+					t.Errorf("%s: coslash %s: code=%d stderr=%q", path, strings.Join(variant, " "), code, stderr.String())
+				}
+				checked++
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no skill commands found")
+	}
+}
+
+func skillCommandVariants(args []string) [][]string {
+	variants := [][]string{nil}
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "["):
+			continue
+		case arg == "<agent>:<session>":
+			arg = "claude:session-1"
+		case arg == "N":
+			arg = "1"
+		}
+		var next [][]string
+		for _, alternative := range strings.Split(arg, "|") {
+			for _, variant := range variants {
+				next = append(next, append(slices.Clone(variant), alternative))
+			}
+		}
+		variants = next
+	}
+	return variants
+}
+
 func TestRunReviewPreservesServerOutcomes(t *testing.T) {
 	reviewer := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -480,7 +587,7 @@ func TestRunReviewPreservesServerOutcomes(t *testing.T) {
 	defer server.Close()
 	writeTestRuntime(t, server.URL, "secret")
 
-	for _, selected := range []string{"claude", "codex", "opencode"} {
+	for _, selected := range []string{"claude", "codex", "opencode", "cursor"} {
 		reviewer = selected
 		var stdout, stderr bytes.Buffer
 		if code := runCLI(&stdout, &stderr, []string{"review", "codex:session-1", "--with", selected}); code != 0 {
@@ -519,7 +626,7 @@ func TestRunReviewRejectsInvalidArguments(t *testing.T) {
 		{"review", "session-1"},
 		{"review", "session-1", "--with", "codex"},
 		{"review", "codex:session-1", "--with"},
-		{"review", "codex:session-1", "--with", "cursor"},
+		{"review", "codex:session-1", "--with", "invalid"},
 		{"review", "codex:session-1", "--with", "codex", "extra"},
 	} {
 		var stdout, stderr bytes.Buffer
@@ -602,6 +709,107 @@ func TestHandleHandoffAndSendUseCanonicalSession(t *testing.T) {
 	if len(launched) != 7 || launched[1] != "claude" || launched[2] != "/workspace" ||
 		launched[4] != launch.NewSession || !strings.Contains(launched[5], "# Handoff — Test") || launched[6] != "fix it" {
 		t.Fatalf("launch = %#v", launched)
+	}
+}
+
+func TestHandleSendCursorCopiesValidatedHandoffBeforeLaunch(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	workingDirectory := t.TempDir()
+	previous := writeCursorClipboard
+	defer func() { writeCursorClipboard = previous }()
+	copied := ""
+	writeCursorClipboard = func(_ context.Context, value string) error { copied = value; return nil }
+	launched := false
+	getSession := func(string, string) (*session.Session, error) {
+		return &session.Session{Agent: "opencode", ID: "session-1", WorkingDirectory: workingDirectory}, nil
+	}
+	open := func(context.Context, string, string, string, string, string, string, string) error {
+		if copied == "" {
+			t.Fatal("Cursor launched before handoff was copied")
+		}
+		launched = true
+		return nil
+	}
+	for _, available := range []bool{false, true} {
+		copied, launched = "", false
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", strings.NewReader("fix it"))
+		handleSend(response, request, settings.Open(), getSession, func(string) bool { return available }, open)
+		if !available {
+			if response.Code != http.StatusBadRequest || copied != "" || launched {
+				t.Fatalf("unavailable response=%d copied=%q launched=%t", response.Code, copied, launched)
+			}
+			continue
+		}
+		if response.Code != http.StatusNoContent || !launched || !strings.Contains(copied, "User task:\nfix it") {
+			t.Fatalf("response=%d copied=%q launched=%t", response.Code, copied, launched)
+		}
+	}
+	workingDirectory = "/missing"
+	copied, launched = "", false
+	response := httptest.NewRecorder()
+	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true }, open)
+	if response.Code != http.StatusConflict || copied != "" || launched {
+		t.Fatalf("missing directory response=%d copied=%q launched=%t", response.Code, copied, launched)
+	}
+	workingDirectory = t.TempDir()
+	writeCursorClipboard = func(context.Context, string) error { return errors.New("clipboard unavailable") }
+	launched = false
+	response = httptest.NewRecorder()
+	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true }, open)
+	if response.Code != http.StatusInternalServerError || launched {
+		t.Fatalf("clipboard failure response=%d launched=%t", response.Code, launched)
+	}
+	writeCursorClipboard = func(_ context.Context, value string) error { copied = value; return nil }
+	copied = ""
+	response = httptest.NewRecorder()
+	handleSend(response, httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil), settings.Open(), getSession, func(string) bool { return true },
+		func(context.Context, string, string, string, string, string, string, string) error {
+			return errors.New("terminal unavailable")
+		})
+	if response.Code != http.StatusInternalServerError || copied == "" || !strings.Contains(response.Body.String(), "handoff remains on the clipboard") {
+		t.Fatalf("launch failure response=%d copied=%q body=%q", response.Code, copied, response.Body.String())
+	}
+}
+
+func TestHandleSendCursorCancelsClipboardBeforeLaunch(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	previous := writeCursorClipboard
+	t.Cleanup(func() { writeCursorClipboard = previous })
+	entered := make(chan struct{})
+	writeCursorClipboard = func(ctx context.Context, _ string) error {
+		close(entered)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request := httptest.NewRequest(http.MethodPost, "/api/send?agent=opencode&id=session-1&to=cursor", nil).WithContext(ctx)
+	response := httptest.NewRecorder()
+	workingDirectory := t.TempDir()
+	launched := false
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handleSend(response, request, settings.Open(),
+			func(string, string) (*session.Session, error) {
+				return &session.Session{Agent: "opencode", ID: "session-1", WorkingDirectory: workingDirectory}, nil
+			},
+			func(string) bool { return true },
+			func(context.Context, string, string, string, string, string, string, string) error {
+				launched = true
+				return nil
+			})
+	}()
+	select {
+	case <-entered:
+	case <-done:
+		t.Fatal("send returned before starting clipboard copy")
+	}
+	cancel()
+	<-done
+	if launched || response.Code == http.StatusNoContent {
+		t.Fatalf("canceled send launched=%t response=%d", launched, response.Code)
 	}
 }
 

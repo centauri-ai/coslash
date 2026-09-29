@@ -1,15 +1,17 @@
 ---
 name: review
-description: Use when a user wants Claude Code, Codex, or OpenCode to review a local coSlash session.
+description: Use when a user wants Claude Code, Codex, OpenCode, or Cursor CLI to review a local coSlash session.
 ---
 
 # coSlash review
 
-If the user means the current session, build the selector from the environment and do not list sessions: `claude:$CLAUDE_CODE_SESSION_ID` in Claude Code, `codex:$CODEX_SESSION_ID` in Codex. If that variable is empty, or if the user names another session, use the `selector` returned by `coslash sessions [query] --json`. Then run `coslash review <agent>:<session> --with claude|codex|opencode` with that selector and the user's reviewer. If the user did not specify a reviewer, ask which one to use; do not choose or fall back automatically.
+If the user means the current session, use `claude:$CLAUDE_CODE_SESSION_ID` in Claude Code or `codex:$CODEX_SESSION_ID` in Codex when that variable is set. If that variable is unset, list sessions for that agent. In OpenCode, run `coslash sessions --agent opencode --recent 20 --json`; in Cursor CLI, run `coslash sessions --agent cursor --recent 20 --json`. Use a returned `selector` only when it uniquely identifies the intended session; if multiple sessions could match, ask the user to choose. Do not assume the newest session is current. For a named session, use the `selector` returned by `coslash sessions [query] --json`. Then run `coslash review <agent>:<session> --with claude|codex|opencode|cursor` with that selector and the user's reviewer. If the user did not specify a reviewer, ask which one to use; do not choose or fall back automatically.
 
 After starting a review, run `coslash review status <agent>:<session> --json` with the same selector to check its progress. While the status is `pending`, retry at reasonable intervals if the user wants the outcome. Report the `result` when it is `completed` or the `error` when it is `failed`. If the app restarts or its 100-result history evicts an old review, status is lost; a `review not found` response does not prove that the review failed.
 
 Use the `coslash` executable found on `PATH` and preserve the inherited `COSLASH_HOME`. Do not substitute a repository-relative binary or `go run` unless the user explicitly asks to test a source build.
+
+If a command reports `Error: usage:`, compare the usage it prints with the command you ran. If that usage does not list a subcommand or flag that you used, the installed coSlash is older than this skill. Run `coslash --version`, tell the user to update coSlash the same way they installed it, for example `brew upgrade coslash`, and stop. Otherwise, the arguments are not valid: return stderr and the exit status. Do not retry with other flags.
 
 In Codex, if the command reports `coSlash app is not running`, `coSlash app is not reachable`, or `operation not permitted` for coSlash storage, request escalated execution and retry the exact command outside the sandbox. Use the same elevated execution for any startup and retries below. If permission is denied, stop and report that coSlash needs access to its local files and loopback address.
 

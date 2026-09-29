@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
 
 func CursorExecutable(home string) string {
@@ -22,6 +24,6 @@ func CursorExecutable(home string) string {
 }
 
 func CursorCLIExecutable(string) string {
-	path, _ := exec.LookPath("agent")
+	path, _ := exec.LookPath(settings.CursorExecutable())
 	return path
 }

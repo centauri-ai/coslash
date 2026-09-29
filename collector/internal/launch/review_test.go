@@ -7,7 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/review"
 )
@@ -22,25 +25,67 @@ func TestReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestCleanupReviewScratchRemovesOnlyStaleCursorData(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	cutoff := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+	for name, modified := range map[string]time.Time{
+		"cursor-stale": cutoff.Add(-time.Hour),
+		"cursor-fresh": cutoff.Add(time.Hour),
+		"unrelated":    cutoff.Add(-time.Hour),
+	} {
+		path := filepath.Join(reviewScratchDir(), name)
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, modified, modified); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := cleanupReviewScratch(cutoff); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]bool{"cursor-stale": false, "cursor-fresh": true, "unrelated": true} {
+		_, err := os.Stat(filepath.Join(reviewScratchDir(), name))
+		if (err == nil) != want {
+			t.Fatalf("review scratch %q: exists=%t, want %t (err=%v)", name, err == nil, want, err)
+		}
+	}
+}
+
 func TestReviewCLICommands(t *testing.T) {
 	name := "Review — Bob's change (12345678)"
 	prompt := "Review Bob's change\nDo not edit."
+	sandbox := "enabled"
+	if runtime.GOOS == "windows" {
+		sandbox = "disabled"
+	}
+	cursorBin := cursorReviewerExecutable()
+	cursorArgs := []string{"--print", "--mode=ask", "--sandbox", sandbox, "--trust", "--add-dir", "/repo", "--output-format", "text"}
+	if strings.EqualFold(filepath.Ext(cursorBin), ".ps1") {
+		cursorArgs = append([]string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", cursorBin}, cursorArgs...)
+		cursorBin = "powershell.exe"
+	}
 	tests := map[string]reviewCommandSpec{
 		"claude": {
 			bin:   "claude",
-			args:  []string{"-p", "--name", name, "--permission-mode", "plan"},
+			args:  []string{"-p", "--name", name, "--permission-mode", "plan", "--safe-mode", "--strict-mcp-config", "--disable-slash-commands", "--tools", "Read,Glob,Grep"},
 			stdin: prompt,
 		},
 		"codex": {
 			bin:   "codex",
-			args:  []string{"exec", "--sandbox", "read-only", "--skip-git-repo-check", "-"},
+			args:  []string{"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", "--skip-git-repo-check", "-"},
 			stdin: prompt,
 		},
 		"opencode": {
 			bin:   "opencode",
-			args:  []string{"run", "--title", name},
-			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":{"*":"deny","git diff --no-ext-diff --no-textconv*":"allow","git status*":"allow"}}`},
-			stdin: prompt,
+			args:  []string{"run", "--pure", "--title", name},
+			env:   []string{`OPENCODE_PERMISSION={"edit":"deny","bash":"deny"}`},
+			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
+		},
+		"cursor": {
+			bin:   cursorBin,
+			args:  cursorArgs,
+			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		},
 	}
 	for reviewer, want := range tests {
@@ -51,6 +96,27 @@ func TestReviewCLICommands(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("reviewCLICommand(%q) = %#v, want %#v", reviewer, got, want)
 		}
+	}
+}
+
+func TestReviewGitSnapshotListsFilesInUntrackedDirectories(t *testing.T) {
+	repo := t.TempDir()
+	if output, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	path := filepath.Join(repo, "new-package", "main.go")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package newpackage\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := reviewGitSnapshot(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(snapshot, "?? new-package/main.go") || strings.Contains(snapshot, "?? new-package/\n") {
+		t.Fatalf("untracked file is not named in snapshot: %s", snapshot)
 	}
 }
 
@@ -92,12 +158,39 @@ func TestReviewResultHelper(t *testing.T) {
 	}
 }
 
+func TestCursorReviewUsesPrivateReadOnlyConfig(t *testing.T) {
+	t.Setenv("REVIEW_CURSOR_HELPER", "1")
+	original := reviewCommandContext
+	t.Cleanup(func() { reviewCommandContext = original })
+	reviewCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestCursorReviewHelper")
+	}
+	result, err := Review(context.Background(), review.Launch{Reviewer: "cursor", WorkingDirectory: t.TempDir(), Prompt: "review"})
+	if err != nil || result != "secure" {
+		t.Fatalf("result=%q err=%v", result, err)
+	}
+}
+
+func TestCursorReviewHelper(t *testing.T) {
+	if os.Getenv("REVIEW_CURSOR_HELPER") != "1" {
+		return
+	}
+	path := filepath.Join(os.Getenv("CURSOR_DATA_DIR"), ".cursor", "cli.json")
+	contents, err := os.ReadFile(path)
+	if err == nil && strings.Contains(string(contents), "Mcp(*)") && strings.Contains(string(contents), "Write(*)") {
+		_, _ = os.Stdout.WriteString("secure")
+		os.Exit(0)
+	}
+	os.Exit(1)
+}
+
 func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 	got := ReviewerOptions()
 	want := []ReviewerOption{
 		{ID: "claude", Label: "Claude Code", Executable: "claude"},
 		{ID: "codex", Label: "Codex", Executable: "codex"},
 		{ID: "opencode", Label: "OpenCode", Executable: "opencode"},
+		{ID: "cursor", Label: "Cursor CLI", Executable: cursorReviewerExecutable()},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReviewerOptions() = %#v, want %#v", got, want)
@@ -105,7 +198,7 @@ func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 }
 
 func TestReviewCLICommandRejectsUnknownReviewer(t *testing.T) {
-	if _, err := reviewCLICommand("cursor", "/repo", "name", "prompt"); err == nil {
+	if _, err := reviewCLICommand("invalid", "/repo", "name", "prompt"); err == nil {
 		t.Fatal("reviewCLICommand() accepted an unsupported reviewer")
 	}
 }
