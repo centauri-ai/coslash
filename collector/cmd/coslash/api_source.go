@@ -152,13 +152,17 @@ func boardRemoteSession(value remote.IndexedSession) boardSession {
 // remoteLibrarySession is the explicit browser boundary for SSH collection.
 // Remote facts can contain enough local-only material to resume collection or
 // launch an agent, but none of that makes a safe library card. Keep only the
-// bounded display and numeric fields needed for discovery; details continue to
-// belong to the remote helper/launch paths rather than the web list model.
+// display, location, and numeric fields needed for discovery; details continue
+// to belong to the remote helper/launch paths rather than the web list model.
 func remoteLibrarySession(value session.Session) session.Session {
 	repository := safeRepository(value.Repository)
+	if repository != nil {
+		value.WorkingDirectory = ""
+	}
 	return session.Session{
 		Agent: value.Agent, ID: value.ID, Name: value.Name, Status: value.Status,
-		Branch: value.Branch, Repository: repository, RepositoryLocalOnly: value.RepositoryLocalOnly,
+		WorkingDirectory: value.WorkingDirectory,
+		Branch:           value.Branch, Repository: repository, RepositoryLocalOnly: value.RepositoryLocalOnly,
 		EditedFileCount: value.EditedFileCount, DurationMs: value.DurationMs,
 		Tokens: value.Tokens, Cost: value.Cost, UnpricedModels: value.UnpricedModels,
 		StartedAt: value.StartedAt, LastActivityTime: value.LastActivityTime, Entrypoint: value.Entrypoint,
