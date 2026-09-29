@@ -13,9 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
@@ -70,10 +72,9 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 	if err != nil || scan.SkippedTotal != 0 {
 		return nil, fmt.Errorf("%w: Cursor transcript discovery incomplete", vendors.ErrInvalidData)
 	}
+	// An unrecognized .jsonl blocks only the family it could belong to; see
+	// strayMayBelongToFamily once the family is known.
 	files := filterTranscripts(scan.Files)
-	if len(files) != len(scan.Files) {
-		return nil, vendors.ErrInvalidData
-	}
 	ids := make([]string, 0, len(files))
 	for _, path := range files {
 		ids = append(ids, IDFromPath(path))
@@ -100,6 +101,12 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 	for _, path := range family {
 		id := IDFromPath(path)
 		groups[id] = append(groups[id], path)
+	}
+	projects := ProjectsRoot(home)
+	for _, path := range scan.Files {
+		if !IsTranscript(path) && strayMayBelongToFamily(projects, path, rootID, groups) {
+			return nil, vendors.ErrInvalidData
+		}
 	}
 	if len(groups[rootID]) == 0 {
 		return nil, fs.ErrNotExist
@@ -223,6 +230,31 @@ func ParseBackupFilesContext(ctx context.Context, source vendors.ReadSource, fil
 		return nil, err
 	}
 	return parsed, nil
+}
+
+// uuidShapedPattern finds UUID-shaped text of any version or variant,
+// including ones transcriptIDPattern does not accept.
+var uuidShapedPattern = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
+
+// strayMayBelongToFamily reports whether a .jsonl file under the projects
+// root that is not a recognized transcript could still hold part of the
+// selected family. It could if its relative path names the root or a member,
+// which covers anything under a member's transcript directory. It also could
+// if the path names an ID this exporter does not accept, because metadata
+// relationships for such IDs are dropped. Only a file that names neither
+// cannot belong to the family and is left out.
+func strayMayBelongToFamily(projects, path, rootID string, members map[string][]string) bool {
+	relative, err := filepath.Rel(projects, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return true
+	}
+	for _, id := range uuidShapedPattern.FindAllString(relative, -1) {
+		id = canonicalCursorID(id)
+		if _, member := members[id]; member || id == rootID || !transcriptIDPattern.MatchString(id) {
+			return true
+		}
+	}
+	return false
 }
 
 type tableFilter struct{ table, where, id string }
