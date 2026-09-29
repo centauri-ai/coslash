@@ -196,3 +196,47 @@ func TestV4PutChunkFallsBackToAuthenticatedProxy(t *testing.T) {
 		t.Fatalf("proxy calls = %d; want 1", proxyCalls)
 	}
 }
+
+func TestV4ConfirmSendsOneBatchOfUpToFiftyChunks(t *testing.T) {
+	var requests, coords int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v4/uploads/upload/chunks:confirm" || r.Header.Get("Authorization") != "Device credential" {
+			t.Fatalf("confirm request = %s %s auth=%q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
+		}
+		var input struct {
+			Coords []struct {
+				ArtifactOrdinal int `json:"artifactOrdinal"`
+				ChunkOrdinal    int `json:"chunkOrdinal"`
+			} `json:"coords"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Fatal(err)
+		}
+		for index, coord := range input.Coords {
+			if coord.ArtifactOrdinal != index || coord.ChunkOrdinal != index%2 {
+				t.Fatalf("coord %d = %+v", index, coord)
+			}
+		}
+		requests, coords = requests+1, coords+len(input.Coords)
+		io.WriteString(w, `{"uploadId":"upload","sessionId":"ses_1","state":"open","missing":[]}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}}
+	batch := make([]V4Missing, V4MaxConfirm+1)
+	for index := range batch {
+		batch[index] = V4Missing{ArtifactOrdinal: index, ChunkOrdinal: index % 2, Bytes: 1}
+	}
+	status, err := client.V4Confirm(context.Background(), "upload", batch[:V4MaxConfirm]...)
+	if err != nil || status.State != "open" || requests != 1 || coords != V4MaxConfirm {
+		t.Fatalf("confirm status=%+v err=%v requests=%d coords=%d", status, err, requests, coords)
+	}
+	for _, invalid := range [][]V4Missing{nil, batch} {
+		if _, err := client.V4Confirm(context.Background(), "upload", invalid...); err == nil {
+			t.Fatalf("confirm of %d chunks was sent", len(invalid))
+		}
+	}
+	if requests != 1 {
+		t.Fatalf("invalid batches reached the Hub: %d requests", requests)
+	}
+}

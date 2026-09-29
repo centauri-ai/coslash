@@ -374,28 +374,46 @@ func (manager *Manager) Open(bundleID string) (*Prepared, error) {
 // Read reads a bounded caller-owned slice from one declared artifact. It never
 // materializes the complete artifact in memory.
 func (manager *Manager) Read(bundleID, logicalName string, offset int64, destination []byte) (int, error) {
+	reader, err := manager.Reader(bundleID)
+	if err != nil {
+		return 0, err
+	}
+	return reader.Read(logicalName, offset, destination)
+}
+
+// BundleReader reads the declared artifacts of one bundle. Reader decodes the
+// bundle manifest once, so reading every chunk of a family with thousands of
+// artifacts does not decode the whole manifest again for each chunk.
+type BundleReader struct {
+	root, bundleID string
+	declared       map[string]bool
+}
+
+func (manager *Manager) Reader(bundleID string) (*BundleReader, error) {
 	if !digest(bundleID) {
-		return 0, ErrNotPrepared
+		return nil, ErrNotPrepared
 	}
 	manifestBytes, err := os.ReadFile(filepath.Join(manager.root, bundleID, sessionbackupv1.ManifestFileName))
 	if err != nil {
-		return 0, ErrNotPrepared
+		return nil, ErrNotPrepared
 	}
 	manifest, err := sessionbackupv1.Decode(manifestBytes)
 	if err != nil || manifest.CompleteBackupSHA256 != bundleID {
-		return 0, ErrNotPrepared
+		return nil, ErrNotPrepared
 	}
-	declared := false
+	declared := make(map[string]bool, len(manifest.Artifacts))
 	for _, artifact := range manifest.Artifacts {
-		if artifact.LogicalName == logicalName {
-			declared = true
-			break
-		}
+		declared[artifact.LogicalName] = true
 	}
-	if !declared || offset < 0 {
+	return &BundleReader{root: manager.root, bundleID: bundleID, declared: declared}, nil
+}
+
+// Read reads a bounded caller-owned slice from one declared artifact.
+func (reader *BundleReader) Read(logicalName string, offset int64, destination []byte) (int, error) {
+	if !reader.declared[logicalName] || offset < 0 {
 		return 0, ErrNotPrepared
 	}
-	file, err := openRegular(manager.root, bundleID, logicalName)
+	file, err := openRegular(reader.root, reader.bundleID, logicalName)
 	if err != nil {
 		return 0, ErrNotPrepared
 	}
