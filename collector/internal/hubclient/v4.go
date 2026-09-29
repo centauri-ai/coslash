@@ -181,7 +181,7 @@ type V4CheckIn struct {
 	NextCheckInSeconds     int         `json:"nextCheckInSeconds"`
 	// Capabilities lists what the Hub accepts beyond the Tier4 check-in;
 	// an older Hub omits it.
-	Capabilities      []string `json:"capabilities"`
+	Capabilities      []string `json:"capabilities,omitempty"`
 	UpdateRequired    bool     `json:"-"`
 	RecommendedUpdate bool     `json:"-"`
 }
