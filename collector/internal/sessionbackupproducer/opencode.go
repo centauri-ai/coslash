@@ -76,13 +76,16 @@ func (manager *Manager) captureOpenCode(ctx context.Context, staging string, sel
 			LogicalName: name, MemberID: record.SessionID, Source: backup.ArtifactSourceOpenCode,
 			Kind: backup.KindRawMetadataRows, SourceKey: "opencode", MediaType: "application/json", Encoding: backup.EncodingIdentity,
 		}, rows); err != nil {
+			if errors.Is(err, errArtifactTooLarge) {
+				return nil, captureTooLarge(backup.KindRawMetadataRows)
+			}
 			return nil, captureFailure(backup.ProblemInvalid, backup.KindRawMetadataRows, false)
 		}
 		revision := writes.evidence[name].SHA256
 		members = append(members, backup.Member{MemberID: record.SessionID, ParentMemberID: record.ParentSessionID, SourceRevision: revision})
 		sourceRevisions = append(sourceRevisions, record.SessionID+":"+revision)
 		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, repositoryLocalOnly, remote.BackupSessionEnrichment{}, backup.SynthesisRecord{}); err != nil {
-			return nil, captureFailure(backup.ProblemInvalid, "", false)
+			return nil, processedCaptureFailure(err, "")
 		}
 	}
 	if !captured.Stable(ctx) {

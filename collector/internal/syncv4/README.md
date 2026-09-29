@@ -41,8 +41,10 @@ listed session to the front, including a history session while history is
 paused. Live sources wait for two minutes without a change or for the session
 to end before a changed revision is sent. The chunk path sends at most four
 PUTs per upload concurrently and confirms only chunks the Hub marked missing;
-old Hubs retain serial transfer. Consent is refreshed before a batch once it
-is four minutes old. `COSLASH_SCALE_IMPORT=0` disables the new path.
+old Hubs retain serial transfer. Check-in refreshes on phase changes and at
+most ten seconds apart at active import batch boundaries; otherwise consent
+refreshes before a batch once it is four minutes old.
+`COSLASH_SCALE_IMPORT=0` disables the new path.
 
 The queue's outer `version` remains 1 so the previous Local can still read
 its old fields and ignore new fields. `scaleVersion: 1` identifies the additive
@@ -58,6 +60,17 @@ The queue is private (`0700` directory and `0600` file, or current-user ACL on
 Windows) and updated by sync plus atomic rename. Check-in reports
 `queue.firstSync` as fallback for server events. A failed check-in, stale policy,
 Hub pause, device-off, local metered hint, or low battery stops new writes.
+After the Hub advertises `scale-import/v1`, check-in also reports
+`queue.import` with the scheduler's phase, counts, bytes, current transfer,
+progress timestamps, measured rate quantiles and wait reason. During the
+inventory phase, `listed` counts files seen so far. Current queue keys and
+source paths never enter that payload. Fewer than six valid rate samples, or
+measurements older than two minutes, leave `rate` null. The Hub computes ETA
+from a stable rate after its own minimum transfer window.
+The command wait request continues while Local runs, including during an
+upload, a pause, and a failed pass. A changed policy or queued command wakes
+check-in promptly. Retryable session failures wait 1, 5, 15, then 60 minutes
+between attempts; failures parked for the same source stay parked.
 Leave-outs are checked locally and at Hub create/finalize. Raw paths and
 transcript text never enter sync logs.
 
@@ -90,9 +103,12 @@ source files belong to an excluded repository or working directory. Local
 therefore reports zero window buckets while those rules are set; aggregate
 file and byte counts remain device totals.
 
-Check-in also carries the sync log (`log`, at most 200 lines, oldest first)
+Check-in also carries the sync log (`log`, at most 200 lines for the Tier4 Hub,
+or 500 after the Hub advertises `scale-import/v1`, oldest first)
 that the Hub shows on the device page and on a failed session's card. Each
-failure the queue records adds one `error` line with a code from the Hub's
+unsent line stays in the queue across restarts until the Hub accepts it or its
+29-day Hub retention window expires, even when more than one batch accumulates.
+Each failure the queue records adds one `error` line with a code from the Hub's
 closed set, the Hub session ID once the session has one, and fixed text keyed
 by the code, which the Hub replaces with its own. Preparation problems map by
 their first capture problem: unstable to `transcript_changed_during_read`;
@@ -103,21 +119,26 @@ invalid, unattributable or unsupported to `malformed_artifact`; otherwise
 in the Hub, superseded or aborted uploads and a spool Local rebuilds add no
 line. The same code for the same Hub session is logged once until the session
 syncs or the Hub asks for a retry, and unsent lines without a session collapse
-to one per code. Unsent lines stay in the queue file, at most 1,000 with the
-oldest dropped first, and leave it only after a check-in succeeds; lines older
-than 29 days are dropped. If the Hub refuses a check-in
+to one per code. Unsent lines leave the queue only after a check-in succeeds;
+lines older than 29 days are dropped. If the Hub refuses a check-in
 as invalid, Local checks in without the log and drops that batch, so the log
 never stops sync. A binding change drops unsent lines.
 
 `COSLASH_V4_SYNC_ENABLED=1` is a development activation flag and defaults off.
 The server's separate v4 upload flag must also be enabled. Disable the Local
 flag and restart to stop this scheduler; v1–v3 sharing remains available.
+`COSLASH_SCALE_IMPORT=0` disables the additive import and command progress
+payloads while retaining the command wait fix.
 The Local settings `syncPaused` switch wins over Hub pause/off and stops new
 uploads and retry commands on this computer. The current Hub policy version,
 manual update guidance and command-ID journal share the private queue file.
 Commands are marked before execution; an interrupted command reports failure
-after restart and is never launched twice. Check-in acknowledges bounded result
-codes, then removes the result while retaining the ID for durable deduplication.
+after restart and is not launched again while its journal ID is retained.
+Check-in acknowledges bounded result codes, then removes the result while
+retaining the ID for deduplication. The journal retains at most 1,000
+acknowledged IDs for up to seven days and keeps unacknowledged results until
+the Hub accepts them. A retry command reports `landed` only after its revision is
+accepted by the Hub.
 The update prompt offers an HTTPS download for manual replacement. The OS
 keychain credential and private install ID are not removed by replacing Local.
 Owner-readable detail and artifact proof after server completion belongs to

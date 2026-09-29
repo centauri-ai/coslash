@@ -72,7 +72,7 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 		if err != nil {
 			var captureErr *captureError
 			if errors.As(err, &captureErr) {
-				return problem(selection, captureErr.code, captureErr.kind, captureErr.retryable)
+				return captureProblem(selection, captureErr)
 			}
 			return problem(selection, sessionbackupv1.ProblemInvalid, "", false)
 		}
@@ -94,7 +94,7 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 	if err != nil {
 		var captureErr *captureError
 		if errors.As(err, &captureErr) {
-			return problem(selection, captureErr.code, captureErr.kind, captureErr.retryable)
+			return captureProblem(selection, captureErr)
 		}
 		return problem(selection, sessionbackupv1.ProblemInvalid, "", false)
 	}
@@ -132,7 +132,10 @@ type captureError struct {
 	code      string
 	kind      string
 	retryable bool
+	tooLarge  bool
 }
+
+var errArtifactTooLarge = fmt.Errorf("%w: size limit exceeded", sessionbackupv1.ErrInvalid)
 
 func (err *captureError) Error() string { return err.code }
 
@@ -140,11 +143,25 @@ func captureFailure(code, kind string, retryable bool) error {
 	return &captureError{code: code, kind: kind, retryable: retryable}
 }
 
+func captureTooLarge(kind string) error {
+	return &captureError{code: sessionbackupv1.ProblemInvalid, kind: kind, tooLarge: true}
+}
+
 func sourceReadFailure(err error, kind string) error {
+	if errors.Is(err, errArtifactTooLarge) {
+		return captureTooLarge(kind)
+	}
 	if errors.Is(err, vendors.ErrInvalidData) {
 		return captureFailure(sessionbackupv1.ProblemUnattributable, kind, false)
 	}
 	return captureFailure(sessionbackupv1.ProblemUnreadable, kind, true)
+}
+
+func processedCaptureFailure(err error, kind string) error {
+	if errors.Is(err, errArtifactTooLarge) {
+		return captureTooLarge(kind)
+	}
+	return captureFailure(sessionbackupv1.ProblemInvalid, kind, false)
 }
 
 func (manager *Manager) capture(ctx context.Context, staging string, selection Selection, handle SourceHandle) (*Prepared, error) {
@@ -171,7 +188,10 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		if statErr != nil {
 			return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 		}
-		if info.Size() < 0 || info.Size() > sessionbackupv1.MaxArtifactBytes {
+		if info.Size() > sessionbackupv1.MaxArtifactBytes {
+			return nil, captureTooLarge(sessionbackupv1.KindRawTranscript)
+		}
+		if info.Size() < 0 {
 			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 		}
 	}
@@ -201,6 +221,9 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
 	if !withinKnownBounds(before) {
+		if exceedsKnownBounds(before) {
+			return nil, captureTooLarge(sessionbackupv1.KindRawTranscript)
+		}
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 	}
 
@@ -285,6 +308,9 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			MediaType: "application/x-ndjson", Encoding: sessionbackupv1.EncodingIdentity,
 		}
 		if err := writes.stream(ctx, artifact, func() (io.ReadCloser, error) { return handle.Source.Open(file) }); err != nil {
+			if errors.Is(err, errArtifactTooLarge) {
+				return nil, captureTooLarge(sessionbackupv1.KindRawTranscript)
+			}
 			if errors.Is(err, sessionbackupv1.ErrInvalid) {
 				return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 			}
@@ -429,7 +455,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			SourceRevision: memberRevision, SynthesisRevisionMs: synthesisRevision,
 		})
 		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, repositoryLocalOnly, handle.Enrichment[memberID], synthesisRecords[memberID]); err != nil {
-			return nil, captureFailure(sessionbackupv1.ProblemInvalid, "", false)
+			return nil, processedCaptureFailure(err, "")
 		}
 	}
 	sourceRevisionInput := make([]string, 0, len(memberRevisions))
@@ -584,7 +610,10 @@ func (writes *artifactWriter) addProcessed(ctx context.Context, record fullsessi
 }
 
 func (writes *artifactWriter) stream(ctx context.Context, artifact sessionbackupv1.Artifact, open func() (io.ReadCloser, error)) error {
-	if len(writes.artifacts) >= sessionbackupv1.MaxArtifacts || writes.totalBytes >= sessionbackupv1.MaxTotalBytes {
+	if writes.totalBytes >= sessionbackupv1.MaxTotalBytes {
+		return errArtifactTooLarge
+	}
+	if len(writes.artifacts) >= sessionbackupv1.MaxArtifacts {
 		return sessionbackupv1.ErrInvalid
 	}
 	destination := filepath.Join(writes.root, filepath.FromSlash(artifact.LogicalName))
@@ -610,7 +639,7 @@ func (writes *artifactWriter) stream(ctx context.Context, artifact sessionbackup
 		return errors.Join(copyErr, outputErr, sourceErr)
 	}
 	if count > maximum {
-		return sessionbackupv1.ErrInvalid
+		return errArtifactTooLarge
 	}
 	writes.evidence[artifact.LogicalName] = sessionbackupv1.ArtifactEvidence{ByteLength: count, SHA256: hex.EncodeToString(hash.Sum(nil))}
 	writes.artifacts = append(writes.artifacts, artifact)
@@ -630,14 +659,14 @@ func (writer *boundedWriter) Write(data []byte) (int, error) {
 		return written, err
 	}
 	if writer.remaining == 0 {
-		return 0, sessionbackupv1.ErrInvalid
+		return 0, errArtifactTooLarge
 	}
 	written, err := writer.writer.Write(data[:writer.remaining])
 	writer.remaining -= int64(written)
 	if err != nil {
 		return written, err
 	}
-	return written, sessionbackupv1.ErrInvalid
+	return written, errArtifactTooLarge
 }
 
 func (writes *artifactWriter) bytes(artifact sessionbackupv1.Artifact, data []byte) error {
@@ -707,4 +736,17 @@ func withinKnownBounds(fingerprints []vendors.FileFingerprint) bool {
 		total += fingerprint.Size
 	}
 	return true
+}
+
+func exceedsKnownBounds(fingerprints []vendors.FileFingerprint) bool {
+	var total int64
+	for _, fingerprint := range fingerprints {
+		if fingerprint.Size > sessionbackupv1.MaxArtifactBytes || fingerprint.Size >= 0 && total > sessionbackupv1.MaxTotalBytes-fingerprint.Size {
+			return true
+		}
+		if fingerprint.Size >= 0 {
+			total += fingerprint.Size
+		}
+	}
+	return false
 }

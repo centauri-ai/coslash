@@ -385,16 +385,48 @@ func TestConsentRefreshesBeforeLaterBatch(t *testing.T) {
 	}
 	hub := &planHub{}
 	runner := &Runner{Queue: q, Hub: hub, Now: func() time.Time { return now }, checkedAt: now.Add(-4 * time.Minute)}
-	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 1 {
-		t.Fatalf("refresh after four minutes: %v, checks=%d", err, hub.checks)
+	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 2 {
+		t.Fatalf("refresh and capability handshake: %v, checks=%d", err, hub.checks)
 	}
 	now = now.Add(3 * time.Minute)
-	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 1 {
+	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 2 {
 		t.Fatalf("early refresh: %v, checks=%d", err, hub.checks)
 	}
 	now = now.Add(time.Minute)
-	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 2 {
+	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 3 {
 		t.Fatalf("second refresh: %v, checks=%d", err, hub.checks)
+	}
+}
+
+func TestActiveImportRefreshesAtTenSecondsAndOnPhaseChange(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "all", WarmStartSeconds: 30}
+	hub := &planHub{plan: plan}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.SetPhase("warm_start"); err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{Queue: q, Hub: hub, Now: func() time.Time { return now },
+		checkedAt: now, scaleEnabled: true, scaleSupported: true, lastReportedPhase: "warm_start"}
+	now = now.Add(9 * time.Second)
+	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 0 {
+		t.Fatalf("before cadence: %v, checks=%d", err, hub.checks)
+	}
+	now = now.Add(time.Second)
+	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 1 {
+		t.Fatalf("ten-second refresh: %v, checks=%d", err, hub.checks)
+	}
+	if err := q.SetPhase("listing"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.ensureConsent(t.Context()); err != nil || hub.checks != 2 {
+		t.Fatalf("phase refresh: %v, checks=%d", err, hub.checks)
 	}
 }
 
@@ -581,7 +613,7 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 	hub := &resumeScaleHub{planHub: &planHub{}, confirmed: map[[2]int]bool{}, attempts: map[[2]int]int{}, failOnce: [2]int{1, 0}}
-	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true,
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true, lastReportedPhase: "awaiting_plan",
 		config: hubclient.V4Config{ImportPlan: &hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}}}
 	manifest, err := runner.manifest(prepared)
 	if err != nil {

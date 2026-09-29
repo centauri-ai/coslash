@@ -57,6 +57,7 @@ func TestFailuresMapToTheHubsClosedLogCodes(t *testing.T) {
 		{"unavailable", preparationProblem(sessionbackupv1.ProblemUnavailable, true), "unreadable_source"},
 		{"unstable", preparationProblem(sessionbackupv1.ProblemUnstable, true), "transcript_changed_during_read"},
 		{"invalid", preparationProblem(sessionbackupv1.ProblemInvalid, false), "malformed_artifact"},
+		{"oversized artifact", &sessionbackupproducer.PreparationError{TooLarge: true}, "too_large"},
 		{"unattributable", preparationProblem(sessionbackupv1.ProblemUnattributable, false), "malformed_artifact"},
 		{"unsupported", preparationProblem(sessionbackupv1.ProblemUnsupported, false), "malformed_artifact"},
 		{"empty preparation", &sessionbackupproducer.PreparationError{}, "unreadable_source"},
@@ -108,6 +109,28 @@ func TestFailuresMapToTheHubsClosedLogCodes(t *testing.T) {
 		if message == "" || len(message) > 240 || strings.ContainsAny(message, "/\\~") {
 			t.Errorf("message for %q is not fixed content-free text: %q", code, message)
 		}
+	}
+}
+
+func TestScaleFailureLogUsesCursorAcrossFiveHundredLineBatches(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	for i := range 600 {
+		queue.appendLog(LogLine{At: now, SessionID: fmt.Sprintf("ses_%d", i), Level: "error", Code: "too_large", Attempts: 1, Parked: true})
+	}
+	first, cursor := queue.PendingLogLimit(now, 500)
+	if len(first) != 500 || first[0].SessionID != "ses_0" || first[499].SessionID != "ses_499" || !first[0].Parked {
+		t.Fatalf("first failure batch = %d entries, cursor %d", len(first), cursor)
+	}
+	if err := queue.AcknowledgeLog(cursor); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := queue.PendingLogLimit(now, 500)
+	if len(second) != 100 || second[0].SessionID != "ses_500" || second[99].SessionID != "ses_599" {
+		t.Fatalf("second failure batch = %d entries", len(second))
 	}
 }
 
@@ -380,14 +403,15 @@ func mustJSON(t *testing.T, value any) string {
 	return string(body)
 }
 
-// The queue keeps at most maxLog unsent lines, dropping the oldest, and each
-// check-in carries at most the Hub's 200, oldest first, without repeats.
-func TestSyncLogIsBoundedAndDrainsInHubSizedBatches(t *testing.T) {
+// The queue keeps every unsent line across restarts, and each check-in carries
+// at most the Hub's 200, oldest first, without repeats.
+func TestSyncLogDrainsInHubSizedBatchesWithoutLoss(t *testing.T) {
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	const failureCount = 1005
 	root := t.TempDir()
 	queue, _ := logQueue(t, root, "ses_bulk", now)
 	queue.mu.Lock()
-	for i := range maxLog + 5 {
+	for i := range failureCount {
 		queue.appendLog(LogLine{At: now.Add(time.Duration(i) * time.Millisecond), Level: "error", Code: "server_error"})
 	}
 	if err := queue.save(); err != nil {
@@ -398,14 +422,14 @@ func TestSyncLogIsBoundedAndDrainsInHubSizedBatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(queue.state.Log); got != maxLog || queue.state.Log[0].Seq != 6 {
+	if got := len(queue.state.Log); got != failureCount || queue.state.Log[0].Seq != 1 {
 		t.Fatalf("kept %d lines from seq %d", got, queue.state.Log[0].Seq)
 	}
 	client, calls := checkInServer(t, func(int, []byte) int { return 0 })
 	runner := Runner{Queue: queue, Hub: client, Now: func() time.Time { return now.Add(time.Hour) }}
 	seen := map[time.Time]bool{}
 	var last time.Time
-	for range maxLog/maxLogBatch + 1 {
+	for range (failureCount+maxLogBatch-1)/maxLogBatch + 1 {
 		if err := runner.refreshConsent(t.Context()); err != nil {
 			t.Fatal(err)
 		}
@@ -423,7 +447,7 @@ func TestSyncLogIsBoundedAndDrainsInHubSizedBatches(t *testing.T) {
 		}
 	}
 	first, _ := time.Parse(time.RFC3339Nano, (*calls)[0].log[0]["at"].(string))
-	if len(seen) != maxLog || !first.Equal(now.Add(5*time.Millisecond)) {
+	if len(seen) != failureCount || !first.Equal(now) {
 		t.Fatalf("sent %d lines starting %v", len(seen), first)
 	}
 	if _, ok := (*calls)[len(*calls)-1].raw["log"]; ok {
