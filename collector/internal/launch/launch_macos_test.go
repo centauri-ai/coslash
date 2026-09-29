@@ -45,7 +45,10 @@ func TestOpenMacTerminalStagesLongCommand(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	t.Setenv("SHELL", "/bin/bash")
+	t.Setenv("CLAUDE_CODE_CHILD_SESSION", "inherited")
 	workingDirectory := t.TempDir()
+	cwdPath := filepath.Join(home, "after-cwd")
+	markerPath := filepath.Join(home, "after-marker")
 	command := "printf '%s' '" + strings.Repeat("x", 1200) + "' > result"
 	original := runOSAScript
 	t.Cleanup(func() { runOSAScript = original })
@@ -54,10 +57,8 @@ func TestOpenMacTerminalStagesLongCommand(t *testing.T) {
 		if len(line) >= 1024 || strings.Contains(line, strings.Repeat("x", 100)) {
 			t.Fatalf("Terminal input is too long: %d bytes", len(line))
 		}
-		if !strings.Contains(line, "'/bin/bash'") {
-			t.Fatalf("Terminal command did not preserve the selected shell: %q", line)
-		}
-		output, err := exec.Command("/bin/sh", "-c", line).CombinedOutput()
+		checkState := "; pwd > " + shellQuote(cwdPath) + "; printf '%s' \"${CLAUDE_CODE_CHILD_SESSION-unset}\" > " + shellQuote(markerPath)
+		output, err := exec.Command("/bin/bash", "-c", line+checkState).CombinedOutput()
 		if err != nil {
 			t.Fatalf("staged command failed: %v: %s", err, output)
 		}
@@ -70,9 +71,65 @@ func TestOpenMacTerminalStagesLongCommand(t *testing.T) {
 	if err != nil || string(contents) != strings.Repeat("x", 1200) {
 		t.Fatalf("terminal command result = %q, error = %v", contents, err)
 	}
+	cwd, err := os.ReadFile(cwdPath)
+	if err != nil || strings.TrimSpace(string(cwd)) != workingDirectory {
+		t.Fatalf("Terminal shell cwd = %q, error = %v", cwd, err)
+	}
+	marker, err := os.ReadFile(markerPath)
+	if err != nil || string(marker) != "unset" {
+		t.Fatalf("Terminal shell marker = %q, error = %v", marker, err)
+	}
 	files, err := os.ReadDir(filepath.Join(home, "sys-prompts"))
 	if err != nil || len(files) != 0 {
 		t.Fatalf("staged commands after exit = %v, error = %v", files, err)
+	}
+}
+
+func TestOpenMacTerminalRetainsDispatchedCommandAfterCancellation(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("uses the macOS Terminal opener")
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("SHELL", "/bin/bash")
+	workingDirectory := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	original := runOSAScript
+	t.Cleanup(func() { runOSAScript = original })
+	var line string
+	runOSAScript = func(_ context.Context, args ...string) error {
+		line = args[len(args)-1]
+		cancel()
+		return ctx.Err()
+	}
+	if err := openMacTerminal(ctx, workingDirectory, "printf done > result"); err != nil {
+		t.Fatalf("ambiguous dispatch error = %v", err)
+	}
+	if output, err := exec.Command("/bin/bash", "-c", line).CombinedOutput(); err != nil {
+		t.Fatalf("queued Terminal command failed: %v: %s", err, output)
+	}
+	contents, err := os.ReadFile(filepath.Join(workingDirectory, "result"))
+	if err != nil || string(contents) != "done" {
+		t.Fatalf("queued Terminal result = %q, error = %v", contents, err)
+	}
+}
+
+func TestOpenMacTerminalUsesFishSource(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("uses the macOS Terminal opener")
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("SHELL", "/opt/homebrew/bin/fish")
+	original := runOSAScript
+	t.Cleanup(func() { runOSAScript = original })
+	runOSAScript = func(_ context.Context, args ...string) error {
+		if line := args[len(args)-1]; !strings.HasPrefix(line, "source ") {
+			t.Fatalf("fish Terminal command = %q", line)
+		}
+		return nil
+	}
+	if err := openMacTerminal(context.Background(), "/repo", "codex"); err != nil {
+		t.Fatal(err)
 	}
 }
 

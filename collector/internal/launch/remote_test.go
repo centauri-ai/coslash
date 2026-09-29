@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -94,6 +95,32 @@ func TestRemoteTerminalWithPromptStagesInputOutsideSSHArguments(t *testing.T) {
 	entries, err = os.ReadDir(handoffDir())
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("failed opener left staged prompt: %v, %v", entries, err)
+	}
+}
+
+func TestRemoteTerminalWithPromptRetainsInputAfterAmbiguousCancellation(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("uses the macOS Terminal opener")
+	}
+	provideFakeExpect(t)
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	original := runOSAScript
+	t.Cleanup(func() { runOSAScript = original })
+	runOSAScript = func(_ context.Context, args ...string) error {
+		if slices.Contains(args, `id of application "Terminal"`) {
+			return nil
+		}
+		cancel()
+		return ctx.Err()
+	}
+	if err := RemoteTerminalWithPrompt(ctx, "terminal", "agent-box", vendors.AgentClaude, "/work", "", NewSession, "", "marker and request"); err != nil {
+		t.Fatalf("ambiguous dispatch error = %v", err)
+	}
+	entries, err := os.ReadDir(handoffDir())
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("staged command and prompt = %v, error = %v", entries, err)
 	}
 }
 
