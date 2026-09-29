@@ -206,7 +206,7 @@ func TestPublishCodexFamilyWithoutSourceIDOmitsFullRecord(t *testing.T) {
 		Agent: vendors.AgentCodex, ID: "root", StartedAt: 1, LastActivityTime: 2,
 		Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1},
 	}}}
-	if _, err := publishFamily(emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
+	if _, err := publishFamily(context.Background(), emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
 		t.Fatal(err)
 	}
 	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
@@ -220,7 +220,7 @@ func TestPublishCodexFamilyWithoutSourceIDOmitsFullRecord(t *testing.T) {
 
 	before := output.Len()
 	emitter.reservedBytes = request.Limits.MaxResponseBytes - emitter.bytes
-	if _, err := publishFamily(emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
+	if _, err := publishFamily(context.Background(), emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
 		t.Fatal(err)
 	}
 	if output.Len() != before || emitter.budgetSkipped != 1 || counts.SkippedFamilies != 1 {
@@ -266,7 +266,7 @@ func TestPublishCodexFamilyOverRecordLimitEmitsStructuredSkip(t *testing.T) {
 		t.Fatal(err)
 	}
 	counts := remoteprotocol.Counts{}
-	if _, err := publishFamily(emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
+	if _, err := publishFamily(context.Background(), emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
 		t.Fatal(err)
 	}
 	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
@@ -276,6 +276,90 @@ func TestPublishCodexFamilyOverRecordLimitEmitsStructuredSkip(t *testing.T) {
 	}
 	if record.Type != remoteprotocol.RecordSkipped || record.Reason != remotefacts.StaleReasonVendorBudgetExceeded || counts.SkippedFamilies != 1 {
 		t.Fatalf("oversized family result = %#v counts=%#v", record, counts)
+	}
+}
+
+func claudePublishFixture(
+	t *testing.T,
+	maxResponseBytes int,
+) (remoteprotocol.Request, *bytes.Buffer, *emitter, *vendorScan, *family) {
+	t.Helper()
+	home := t.TempDir()
+	path := filepath.Join(home, ".claude", "projects", "project", "root.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("row\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := OpenSource(home, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = source.Close() })
+	info, err := source.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := sftpCompatibleFingerprint(vendors.FileFingerprint{Key: "opaque", Size: info.Size(), ModifiedAtMs: info.ModTime().UnixMilli()})
+	item := &family{id: "root", files: []string{path}, sessionIDs: []string{"root"}, fingerprints: []vendors.FileFingerprint{fingerprint}, fingerprint: "new"}
+	scanned := &vendorScan{
+		vendor: vendors.AgentClaude, source: source, scan: newScan(), metadata: vendors.EmptySessionMetadata(),
+		fileFacts: map[string]vendors.FileFingerprint{path: fingerprint},
+	}
+	scanned.scan.families[item.id] = item
+	request := validRequest()
+	request.SourceID = "r_0123456789abcdef"
+	if maxResponseBytes > 0 {
+		request.Limits.MaxResponseBytes = maxResponseBytes
+	}
+	output := &bytes.Buffer{}
+	emitter := newEmitter(output, request)
+	if err := emitter.handshake(); err != nil {
+		t.Fatal(err)
+	}
+	return request, output, emitter, scanned, item
+}
+
+func TestPublishClaudeFamilyFallsBackWhenAggregateBudgetIsTight(t *testing.T) {
+	request, output, emitter, scanned, item := claudePublishFixture(t, 16<<10)
+	edits := session.NewFileEditSet()
+	edits.Add("main.go", 1, 0, false)
+	edits.Write("main.go", strings.Repeat("x", 8<<10))
+	parsed := []*vendors.ParsedSession{{Session: &session.Session{
+		Agent: vendors.AgentClaude, ID: "root", StartedAt: 1, LastActivityTime: 2,
+		Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{Turns: 1, FileEdits: edits.Edits},
+	}}}
+	emitter.reservedBytes = request.Limits.MaxResponseBytes - emitter.bytes - (2 << 10)
+	counts := remoteprotocol.Counts{}
+	if _, err := publishFamily(context.Background(), emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))
+	var record remoteprotocol.Record
+	if err := json.Unmarshal(lines[len(lines)-1], &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Type != remoteprotocol.RecordChanged || len(record.FullRecords) != 0 || counts.SelectedFamilies != 1 || counts.SkippedFamilies != 0 {
+		t.Fatalf("aggregate-bounded Claude family = %#v counts=%#v", record, counts)
+	}
+}
+
+func TestPublishClaudeFallbackStopsWhenContextIsCancelled(t *testing.T) {
+	request, _, emitter, scanned, item := claudePublishFixture(t, 0)
+	oversizedPrompt := strings.Repeat("x", fullsessionv1.MaxStringBytes+1)
+	parsed := []*vendors.ParsedSession{{Session: &session.Session{
+		Agent: vendors.AgentClaude, ID: "root", StartedAt: 1, LastActivityTime: 2,
+		Tokens: map[string]session.ModelTokens{}, SessionDetails: session.SessionDetails{FirstPrompt: &oversizedPrompt},
+	}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	counts := remoteprotocol.Counts{}
+	if _, err := publishFamily(ctx, emitter, request, scanned, item, parsed, map[string]string{"root": "old"}, &counts); err != nil {
+		t.Fatal(err)
+	}
+	if emitter.records != 1 || counts.SelectedFamilies != 0 {
+		t.Fatalf("cancelled Claude family was published: records=%d counts=%#v", emitter.records, counts)
 	}
 }
 

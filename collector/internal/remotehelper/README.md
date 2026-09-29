@@ -108,10 +108,15 @@ the UI can offer the right repair.
 
 ## Privacy
 
-stdout carries bounded `internal/remotefacts` rows plus, for changed Claude and
-Codex families, a validated `full-session-record/v1`. The complete record can contain
+stdout carries bounded `internal/remotefacts` rows. When source details are
+requested, changed Claude families also carry a complete
+`full-session-record/v1` when every record validates and fits the negotiated
+transport bounds; otherwise they send bounded facts without full records when
+those facts fit, or skip the family if they do not.
+Changed Codex families carry complete validated records when source details are
+requested, and invalid exact records are skipped. Complete records can contain
 parsed prompts, summaries, commands, working directories, subagent detail, and
-file-change bodies. It contains no raw transcript rows, SSH configuration,
+file-change bodies. They contain no raw transcript rows, SSH configuration,
 coSlash credentials, sockets, or environment values. stderr remains bounded
 diagnostics that the Mac redacts before showing. Exact-detail caching and
 synthesis are separate capabilities; complete backup sharing remains Codex-only.

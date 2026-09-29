@@ -58,6 +58,39 @@ func TestBoundChangedRecordKeepsClaudeFactsWhenExactFamilyIsTooLarge(t *testing.
 	}
 }
 
+func TestFitAggregateRecordFallsBackToClaudeFacts(t *testing.T) {
+	record := remoteprotocol.Record{
+		Type: remoteprotocol.RecordChanged, ProtocolVersion: remoteprotocol.ProtocolVersion,
+		RequestID: "request-1", Sequence: 2, Vendor: vendors.AgentClaude, FamilyID: "root",
+		Family: &remotefacts.Family{Sessions: []remotefacts.Session{{ID: "root"}}},
+		FullRecords: []remoteprotocol.FullRecord{{FamilyID: "root", Record: fullsessionv1.Record{
+			Agent: vendors.AgentClaude, SessionID: "root",
+			Session: fullsessionv1.Session{FileEdits: []fullsessionv1.FileEdit{{
+				Changes: []fullsessionv1.FileChange{{Text: strings.Repeat("x", 4<<10)}},
+			}}},
+		}}},
+	}
+	factsOnly := record
+	factsOnly.FullRecords = nil
+	factsOnlySize := remoteprotocol.EncodedRecordSize(factsOnly)
+	usedRecords, reservedRecords, usedBytes, reservedBytes := 1, 1, 100, 200
+	limits := remoteprotocol.Limits{
+		MaxRecords: 3, MaxResponseBytes: usedBytes + reservedBytes + factsOnlySize + 1,
+	}
+	bounded, preparedSize, fits := fitAggregateRecord(
+		record, remoteprotocol.EncodedRecordSize(record), usedRecords, reservedRecords, usedBytes, reservedBytes, limits,
+	)
+	if !fits || len(bounded.FullRecords) != 0 || preparedSize != factsOnlySize {
+		t.Fatalf("aggregate Claude record = %#v size=%d fits=%v", bounded, preparedSize, fits)
+	}
+	limits.MaxResponseBytes--
+	if _, _, fits := fitAggregateRecord(
+		record, remoteprotocol.EncodedRecordSize(record), usedRecords, reservedRecords, usedBytes, reservedBytes, limits,
+	); fits {
+		t.Fatal("facts-only Claude record fit beyond the aggregate budget")
+	}
+}
+
 func TestSortVendorRecordsWrapsAfterCursor(t *testing.T) {
 	records := []remoteprotocol.Record{{FamilyID: "b"}, {FamilyID: "d"}, {FamilyID: "a"}, {FamilyID: "c"}}
 	sortVendorRecords(records, "b")

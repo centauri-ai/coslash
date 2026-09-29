@@ -20,25 +20,48 @@ func FromParsedFamily(sourceID, vendor string, source vendors.ReadSource, parsed
 }
 
 func FromParsedFamilyContext(ctx context.Context, sourceID, vendor string, source vendors.ReadSource, parsed []*vendors.ParsedSession, metadata *vendors.SessionMetadata) ([]fullsessionv1.Record, error) {
+	records, _, err := FromParsedFamilyWithServabilityContext(ctx, "", sourceID, vendor, source, parsed, metadata)
+	return records, err
+}
+
+// FromParsedFamilyWithServabilityContext composes once and reports whether the
+// family root survives composition even when freezing a complete record fails.
+func FromParsedFamilyWithServabilityContext(
+	ctx context.Context,
+	familyID, sourceID, vendor string,
+	source vendors.ReadSource,
+	parsed []*vendors.ParsedSession,
+	metadata *vendors.SessionMetadata,
+) ([]fullsessionv1.Record, bool, error) {
 	composed, err := composePortableFamilyContext(ctx, vendor, source, parsed, metadata)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	servable := false
+	for _, item := range composed {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		if item.Session.ID == familyID {
+			servable = true
+			break
+		}
 	}
 	records := make([]fullsessionv1.Record, 0, len(composed))
 	for _, item := range composed {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, servable, err
 		}
 		record, err := fromSession(sourceID, item.ParentSessionID, *item.Session)
 		if err != nil {
-			return nil, err
+			return nil, servable, err
 		}
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, servable, err
 		}
 		records = append(records, record)
 	}
-	return records, nil
+	return records, servable, nil
 }
 
 // IsServableFamily reports whether portable composition retains the family's

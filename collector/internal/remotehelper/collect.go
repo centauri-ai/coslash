@@ -334,7 +334,7 @@ func publishChanged(
 			}
 			sessions = groupByFamily(single, []*family{item})[item.id]
 		}
-		spent, err := publishFamily(emitter, request, scanned, item, sessions, known, counts)
+		spent, err := publishFamily(ctx, emitter, request, scanned, item, sessions, known, counts)
 		parser += spent
 		if err != nil {
 			return parser, err
@@ -344,6 +344,7 @@ func publishChanged(
 }
 
 func publishFamily(
+	ctx context.Context,
 	emitter *emitter,
 	request remoteprotocol.Request,
 	scanned *vendorScan,
@@ -377,8 +378,14 @@ func publishFamily(
 		}
 		var complete []fullsessionv1.Record
 		var fullErr error
+		servable := false
 		if request.SourceID != "" {
-			complete, fullErr = fullsessionrecord.FromParsedFamily(request.SourceID, scanned.vendor, scanned.source, sessions, scanned.metadata)
+			complete, servable, fullErr = fullsessionrecord.FromParsedFamilyWithServabilityContext(
+				ctx, item.id, request.SourceID, scanned.vendor, scanned.source, sessions, scanned.metadata,
+			)
+			if ctx.Err() != nil {
+				return parser, nil
+			}
 			if fullErr != nil && scanned.vendor == vendors.AgentCodex {
 				return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)
 			}
@@ -387,7 +394,10 @@ func publishFamily(
 				return parser, nil
 			}
 		}
-		if (request.SourceID == "" || fullErr != nil) && !fullsessionrecord.IsServableFamily(item.id, scanned.vendor, scanned.source, sessions, scanned.metadata) {
+		if request.SourceID == "" {
+			servable = fullsessionrecord.IsServableFamily(item.id, scanned.vendor, scanned.source, sessions, scanned.metadata)
+		}
+		if (request.SourceID == "" || fullErr != nil) && !servable {
 			delete(scanned.scan.families, item.id)
 			return parser, nil
 		}
@@ -421,7 +431,8 @@ func publishFamily(
 			PriorFingerprint: prior, Fingerprint: item.fingerprint, Family: &facts, FullRecords: fullRecords,
 		}
 		line, fits, fitErr := emitter.prepareBounded(changedRecord)
-		if fitErr == nil && !fits && scanned.vendor == vendors.AgentClaude && len(changedRecord.FullRecords) > 0 {
+		needsFactsFallback := fitErr == nil && (!fits || !emitter.fitsPrepared(line, emitter.reservedBytes))
+		if needsFactsFallback && scanned.vendor == vendors.AgentClaude && len(changedRecord.FullRecords) > 0 {
 			changedRecord.FullRecords = nil
 			line, fits, fitErr = emitter.prepareBounded(changedRecord)
 		}
