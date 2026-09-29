@@ -383,7 +383,8 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		if pending(entry) {
 			progress.Pending++
 		}
-		if entry.FailureCode != "" {
+		// rate_limited is the Hub's active-upload back-pressure, not a failure.
+		if entry.FailureCode != "" && entry.FailureCode != "rate_limited" {
 			progress.Failing++
 		}
 	}

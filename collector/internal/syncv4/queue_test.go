@@ -236,3 +236,30 @@ func TestQueueAgentsAreTheQueuedSessionsAgents(t *testing.T) {
 		t.Fatalf("agents=%s", got)
 	}
 }
+
+// Sessions waiting for the Hub's active-upload limit are pending, not
+// failing; the device page would otherwise show a first sync as failures.
+func TestProgressDoesNotCountBackPressureAsFailing(t *testing.T) {
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []Entry
+	for i := range 3 {
+		entries = append(entries, Entry{Key: fmt.Sprintf("codex-%d", i), Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}})
+	}
+	if err := queue.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	for i, code := range []string{"rate_limited", "unreadable_source", ""} {
+		entry := queue.Entries()[i]
+		entry.FailureCode = code
+		if err := queue.Update(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if progress := queue.Progress(); progress.Pending != 3 || progress.Failing != 1 {
+		t.Fatalf("progress=%+v", progress)
+	}
+}
