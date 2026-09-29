@@ -14,11 +14,9 @@ import (
 // session's card. Lines carry only a closed code, the Hub session ID and a
 // fixed message; the Hub replaces the message with its own text anyway.
 const (
-	// maxLog bounds the unsent lines, so a first sync of thousands of failing
-	// sessions cannot grow the queue file without limit. The oldest go first.
-	maxLog = 1000
 	// maxLogBatch is the Hub's per-check-in limit.
-	maxLogBatch = 200
+	maxLogBatch      = 200
+	maxScaleLogBatch = 500
 	// logRetention stays inside the Hub's 30-day window, which rejects older
 	// lines.
 	logRetention = 29 * 24 * time.Hour
@@ -31,6 +29,8 @@ type LogLine struct {
 	SessionID string    `json:"sessionId,omitempty"`
 	Level     string    `json:"level"`
 	Code      string    `json:"code"`
+	Attempts  int       `json:"attempts,omitempty"`
+	Parked    bool      `json:"parked,omitempty"`
 }
 
 // logMessages is the fixed, content-free text for each code Local sends. It
@@ -59,6 +59,9 @@ func hubLogCode(code string, failure error) string {
 	}
 	var preparation *sessionbackupproducer.PreparationError
 	if errors.As(failure, &preparation) {
+		if preparation.TooLarge {
+			return "too_large"
+		}
 		if len(preparation.Coverage.Problems) == 0 {
 			return "unreadable_source"
 		}
@@ -99,12 +102,17 @@ func (q *Queue) UpdateWithLog(entry Entry, line LogLine) error {
 // check-in acknowledges them. Lines past the Hub's retention are skipped and
 // dropped by that acknowledgement.
 func (q *Queue) PendingLog(now time.Time) ([]hubclient.V4LogEntry, int64) {
+	return q.PendingLogLimit(now, maxLogBatch)
+}
+
+func (q *Queue) PendingLogLimit(now time.Time, limit int) ([]hubclient.V4LogEntry, int64) {
+	limit = min(max(1, limit), maxScaleLogBatch)
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	var lines []hubclient.V4LogEntry
 	var through int64
 	for _, line := range q.state.Log {
-		if len(lines) == maxLogBatch {
+		if len(lines) == limit {
 			break
 		}
 		through = line.Seq
@@ -117,7 +125,7 @@ func (q *Queue) PendingLog(now time.Time) ([]hubclient.V4LogEntry, int64) {
 			at = now
 		}
 		lines = append(lines, hubclient.V4LogEntry{At: at.UTC(), SessionID: line.SessionID, Level: line.Level,
-			Message: logMessages[line.Code], Code: line.Code})
+			Message: logMessages[line.Code], Code: line.Code, Attempts: line.Attempts, Parked: line.Parked})
 	}
 	return lines, through
 }
@@ -149,13 +157,11 @@ func (q *Queue) pendingDeviceLine(line LogLine) bool {
 	})
 }
 
-// appendLog adds a line, dropping the oldest beyond maxLog. The caller holds
-// q.mu.
+// appendLog keeps every unsent line until the Hub acknowledges it. A first
+// sync can have more failures than fit in one check-in, so dropping the oldest
+// here would silently hide some sessions. The caller holds q.mu.
 func (q *Queue) appendLog(line LogLine) {
 	q.state.LogSeq++
 	line.Seq = q.state.LogSeq
 	q.state.Log = append(q.state.Log, line)
-	if extra := len(q.state.Log) - maxLog; extra > 0 {
-		q.state.Log = slices.Delete(q.state.Log, 0, extra)
-	}
 }

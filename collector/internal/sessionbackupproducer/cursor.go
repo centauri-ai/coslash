@@ -47,6 +47,9 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
 	if !withinKnownBounds(before) {
+		if exceedsKnownBounds(before) {
+			return nil, captureTooLarge(sessionbackupv1.KindRawTranscript)
+		}
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 	}
 	writes := &artifactWriter{root: staging, ctx: ctx, evidence: map[string]sessionbackupv1.ArtifactEvidence{}}
@@ -64,7 +67,7 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 			MediaType: "application/x-ndjson", Encoding: sessionbackupv1.EncodingIdentity,
 		}
 		if err := writes.stream(ctx, artifact, func() (io.ReadCloser, error) { return handle.Source.Open(sourcePath) }); err != nil {
-			return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
+			return nil, sourceReadFailure(err, sessionbackupv1.KindRawTranscript)
 		}
 		frozenFiles[sourcePath] = filepath.Join(staging, filepath.FromSlash(name))
 		rawEvidence[id] = append(rawEvidence[id], writes.evidence[name].SHA256)
@@ -78,6 +81,9 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 				MediaType: "application/json", Encoding: sessionbackupv1.EncodingIdentity,
 			}
 			if err := writes.bytes(artifact, projection.Bytes); err != nil {
+				if errors.Is(err, errArtifactTooLarge) {
+					return nil, captureTooLarge(sessionbackupv1.KindRawMetadataRows)
+				}
 				return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawMetadataRows, false)
 			}
 			rawEvidence[id] = append(rawEvidence[id], writes.evidence[name].SHA256)
@@ -89,6 +95,9 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 			LogicalName: name, MemberID: id, Source: sessionbackupv1.ArtifactSourceCursor,
 			Kind: sessionbackupv1.KindRawSidecar, SourceKey: "cli-meta", MediaType: "application/json", Encoding: sessionbackupv1.EncodingIdentity,
 		}, data); err != nil {
+			if errors.Is(err, errArtifactTooLarge) {
+				return nil, captureTooLarge(sessionbackupv1.KindRawSidecar)
+			}
 			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawSidecar, false)
 		}
 		rawEvidence[id] = append(rawEvidence[id], writes.evidence[name].SHA256)
@@ -137,7 +146,7 @@ func (manager *Manager) captureCursor(ctx context.Context, staging string, selec
 		sourceRevisions = append(sourceRevisions, id+":"+revision)
 		members = append(members, sessionbackupv1.Member{MemberID: id, ParentMemberID: record.ParentSessionID, SourceRevision: revision})
 		if err := writes.addProcessed(ctx, record, selection.SourceKind, repository, localOnly, handle.Enrichment[id], sessionbackupv1.SynthesisRecord{}); err != nil {
-			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+			return nil, processedCaptureFailure(err, sessionbackupv1.KindParsedSessionRecord)
 		}
 	}
 	manifest := sessionbackupv1.Manifest{
