@@ -280,8 +280,11 @@ func checkInServer(t *testing.T, status func(n int, body []byte) int) (*hubclien
 		w.Header().Set("Content-Type", "application/json")
 		if code := status(len(calls), body); code != 0 {
 			w.WriteHeader(code)
-			if code == http.StatusBadRequest {
+			switch code {
+			case http.StatusBadRequest:
 				io.WriteString(w, `{"code":"invalid_query"}`)
+			case http.StatusForbidden:
+				io.WriteString(w, `{"code":"device_revoked"}`)
 			}
 			return
 		}
