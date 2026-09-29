@@ -51,6 +51,23 @@ func TestProgressReportsInventoryOnlyAfterHubAdvertisesScaleImport(t *testing.T)
 	if err := reopened.ApplyPolicy(policy); err != nil {
 		t.Fatal(err)
 	}
+	policy.ConfigVersion = 3
+	policy.Config.LeaveOut = []string{"private/repo"}
+	if err := reopened.ApplyPolicy(policy); err != nil {
+		t.Fatal(err)
+	}
+	filtered := reopened.Progress().Inventory
+	if filtered == nil || filtered.Windows != (hubclient.InventoryWindows{}) || filtered.Files != 4 {
+		t.Fatalf("leave-out inventory = %+v", filtered)
+	}
+	policy.ConfigVersion = 4
+	policy.Config.LeaveOut = nil
+	if err := reopened.ApplyPolicy(policy); err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Progress().Inventory.Windows.All.Sessions != 4 {
+		t.Fatal("window buckets did not return after leave-out was removed")
+	}
 	t.Setenv("COSLASH_SCALE_IMPORT", "0")
 	if reopened.Progress().Inventory != nil {
 		t.Fatal("inventory reported with the kill switch off")
