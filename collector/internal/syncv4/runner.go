@@ -1,7 +1,6 @@
 package syncv4
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -94,19 +94,27 @@ type Transport interface {
 type Runner struct {
 	// Version is this Local's version. A failure it parks is retried by any
 	// other version, which may read the source differently.
-	Version       string
-	Queue         *Queue
-	Backup        *sessionbackupproducer.Manager
-	Hub           Transport
-	Discover      func(context.Context) ([]*session.Session, error)
-	Conditions    func(context.Context) (metered bool, batteryPercent int, err error)
-	LocalPause    func() bool
-	Command       func(context.Context, hubclient.V4Command) error
-	Now           func() time.Time
-	config        hubclient.V4Config
-	checkedAt     time.Time
-	configVersion int64
-	retryCommands map[string]string
+	Version         string
+	Queue           *Queue
+	Backup          *sessionbackupproducer.Manager
+	Hub             Transport
+	Discover        func(context.Context) ([]*session.Session, error)
+	DiscoverBatches func(context.Context, func(DiscoveryBatch) error) error
+	Conditions      func(context.Context) (metered bool, batteryPercent int, err error)
+	LocalPause      func() bool
+	Command         func(context.Context, hubclient.V4Command) error
+	Now             func() time.Time
+	config          hubclient.V4Config
+	checkedAt       time.Time
+	configVersion   int64
+	retryCommands   map[string]string
+	scaleEnabled    bool
+	chunkWorkers    int
+}
+
+type DiscoveryBatch struct {
+	Sessions     []*session.Session
+	ContentBytes map[string]int64 // keyed by agent + "\x00" + session ID
 }
 
 func (r *Runner) now() time.Time {
@@ -135,6 +143,42 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.discardAbandoned(); err != nil {
 		return err
 	}
+	if r.scaleEnabled && r.DiscoverBatches != nil {
+		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
+			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil)
+			for i := range entries {
+				entries[i].ContentBytes = batch.ContentBytes[entries[i].Selection.Agent+"\x00"+entries[i].Selection.SessionID]
+			}
+			if err := r.Queue.Merge(entries, r.now()); err != nil {
+				return err
+			}
+			if err := r.releaseParked(); err != nil {
+				return err
+			}
+			if err := r.applyExclusions(); err != nil {
+				return err
+			}
+			plan := r.config.ImportPlan
+			if plan == nil {
+				return r.Queue.SetPhase("awaiting_plan")
+			}
+			phase, started, rate := r.Queue.Phase()
+			budget := time.Duration(plan.WarmStartSeconds) * time.Second
+			if phase == "warm_start" && r.now().Sub(started) < budget {
+				return r.warmStart(ctx, *plan, started, budget, rate)
+			}
+			if phase == "warm_start" {
+				if err := r.Queue.SetPhase("listing"); err != nil {
+					return err
+				}
+				phase = "listing"
+			}
+			return r.listAll(ctx, *plan)
+		}); err != nil {
+			return err
+		}
+		return r.runPlanned(ctx)
+	}
 	sessions, err := r.Discover(ctx)
 	if err != nil {
 		return err
@@ -159,15 +203,11 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.releaseParked(); err != nil {
 		return err
 	}
-	for _, entry := range r.Queue.Entries() {
-		excluded := leftOut(entry.Session, r.config.LeaveOut)
-		if entry.Excluded != excluded {
-			entry.Excluded = excluded
-			entry.FailureCode = ""
-			if err := r.Queue.Update(entry); err != nil {
-				return err
-			}
-		}
+	if err := r.applyExclusions(); err != nil {
+		return err
+	}
+	if r.scaleEnabled {
+		return r.runPlanned(ctx)
 	}
 	entries := r.Queue.Entries()
 	var firstErr error
@@ -258,6 +298,20 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	return firstErr
 }
 
+func (r *Runner) applyExclusions() error {
+	for _, entry := range r.Queue.Entries() {
+		excluded := entry.ServerLeftOut || leftOut(entry.Session, r.config.LeaveOut)
+		if entry.Excluded == excluded {
+			continue
+		}
+		entry.Excluded, entry.FailureCode = excluded, ""
+		if err := r.Queue.Update(entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // discoveredEntries selects root sessions of the synced local agents. Child
 // sessions travel inside their root's family bundle. A Claude revision also
 // covers its sidecar files, whose changes the detail revision does not see.
@@ -276,10 +330,21 @@ func discoveredEntries(sessions []*session.Session, installID string, claudeRevi
 		if item.Agent == "claude" {
 			revision += ":" + claudeRevisions[item.ID]
 		}
+		live := false
+		if item.Status != nil {
+			switch *item.Status {
+			case "busy", "interactive", "waiting", "idle":
+				live = true
+			}
+		}
+		meta := sessionMetadata(item, installID)
+		if live {
+			meta.EndedAt = nil
+		}
 		found = append(found, Entry{
 			Key:       localKey("local", item.Agent, item.ID),
 			Selection: sessionbackupproducer.Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: item.Agent, SessionID: item.ID},
-			Session:   sessionMetadata(item, installID), Activity: item.LastActivityTime, SourceRevision: revision,
+			Session:   meta, Activity: item.LastActivityTime, SourceRevision: revision, Live: live,
 		})
 	}
 	return found
@@ -312,7 +377,7 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 	var problem hubclient.V4Problem
 	if errors.As(failure, &problem) {
 		if problem.Code == "left_out" {
-			entry.Excluded, entry.FailureCode = true, ""
+			entry.Excluded, entry.ServerLeftOut, entry.FailureCode = true, true, ""
 			return r.Queue.Update(*entry)
 		}
 		entry.FailureCode = problem.Code
@@ -483,9 +548,10 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	if err := r.Queue.AcknowledgeLog(through); err != nil {
 		return err
 	}
-	if err := r.Queue.ApplyPolicy(result); err != nil {
+	if err := r.Queue.ApplyPolicyAt(result, r.now()); err != nil {
 		return err
 	}
+	r.scaleEnabled = os.Getenv("COSLASH_SCALE_IMPORT") != "0" && slices.Contains(result.Capabilities, "scale-import/v1")
 	if err := r.Queue.AcknowledgeResults(results); err != nil {
 		return err
 	}
@@ -525,6 +591,17 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 				r.retryCommands[command.ID] = payload.SessionID
 				r.Queue.HoldCommand(command.ID)
 				continue
+			}
+		} else if command.Type == "prioritize" && r.scaleEnabled {
+			var payload struct {
+				SessionID string `json:"sessionId"`
+			}
+			if json.Unmarshal(command.Payload, &payload) != nil || !r.commandSessionAllowed(payload.SessionID) {
+				outcome.Result, outcome.Error = "failed", "session_unavailable_or_left_out"
+			} else if ok, err := r.Queue.Prioritize(payload.SessionID); err != nil {
+				return err
+			} else if !ok {
+				outcome.Result, outcome.Error = "failed", "session_unavailable_or_left_out"
 			}
 		} else if command.Type == "launch" {
 			var payload struct {
@@ -651,6 +728,30 @@ func (r *Runner) allowed(ctx context.Context, meta hubclient.V4Session) error {
 	return nil
 }
 
+func (r *Runner) ensureConsent(ctx context.Context) error {
+	if r.checkedAt.IsZero() || r.now().Sub(r.checkedAt) >= 4*time.Minute {
+		if err := r.refreshConsent(ctx); err != nil {
+			return err
+		}
+	}
+	return r.allowed(ctx, hubclient.V4Session{})
+}
+
+func (r *Runner) entryAllowed(entry Entry) error {
+	if r.Queue != nil && !r.Queue.Matches(entry) {
+		return ErrPaused
+	}
+	if entry.Excluded || leftOut(entry.Session, r.config.LeaveOut) {
+		return hubclient.V4Problem{Code: "left_out"}
+	}
+	if r.scaleEnabled {
+		if r.config.ImportPlan == nil || !inScope(entry, *r.config.ImportPlan, r.now()) {
+			return ErrPaused
+		}
+	}
+	return nil
+}
+
 func leftOut(meta hubclient.V4Session, rules []string) bool {
 	for _, rule := range rules {
 		if strings.HasSuffix(rule, "/*") {
@@ -702,7 +803,10 @@ func cwdLabel(workingDirectory string) string {
 }
 
 func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
-	if err := r.allowed(ctx, entry.Session); err != nil {
+	if err := r.ensureConsent(ctx); err != nil {
+		return err
+	}
+	if err := r.entryAllowed(*entry); err != nil {
 		return err
 	}
 	if entry.UploadID != "" || entry.RevisionID != "" {
@@ -731,6 +835,10 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 		manifest = &built
 		entry.Manifest = manifest
 		entry.ContentSHA256 = manifest.ContentSHA256
+		entry.ContentBytes = 0
+		for _, artifact := range manifest.Artifacts {
+			entry.ContentBytes += artifact.Bytes
+		}
 		if err := r.Queue.Update(*entry); err != nil {
 			return err
 		}
@@ -820,7 +928,10 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	if !pending(*entry) {
 		return nil
 	}
-	if err := r.allowed(ctx, entry.Session); err != nil {
+	if err := r.ensureConsent(ctx); err != nil {
+		return err
+	}
+	if err := r.entryAllowed(*entry); err != nil {
 		return err
 	}
 	if entry.RevisionID != "" {
@@ -860,65 +971,85 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	if manifest == nil || manifest.ContentSHA256 != entry.ContentSHA256 {
 		return errors.New("v4 spool changed during upload")
 	}
+	var totalBytes, missingBytes int64
+	for _, artifact := range manifest.Artifacts {
+		totalBytes += artifact.Bytes
+	}
+	for _, missing := range status.Missing {
+		missingBytes += missing.Bytes
+	}
+	currentDone := max(0, totalBytes-missingBytes)
+	if r.Queue != nil {
+		r.Queue.SetCurrent(entry.Key, currentDone, totalBytes)
+		defer r.Queue.SetCurrent("", 0, 0)
+	}
 	reader, err := r.Backup.Reader(entry.BundleID)
 	if err != nil {
 		return err
 	}
-	// Chunks are confirmed in batches of up to 50 chunks and 8 MiB: every
-	// confirm response lists all chunks still missing, so confirming one
-	// chunk at a time would cost quadratic time in a 4,096-artifact upload.
-	var batch []hubclient.V4Missing
-	var batchBytes int64
-	confirm := func() error {
-		if len(batch) == 0 {
-			return nil
+	var sent []hubclient.V4Missing
+	var sentBytes int64
+	flush := func() error {
+		if err := r.confirmChunks(ctx, entry.UploadID, sent); err != nil {
+			return err
 		}
-		_, err := r.Hub.V4Confirm(ctx, entry.UploadID, batch...)
-		batch, batchBytes = batch[:0], 0
+		currentDone += sentBytes
+		if r.Queue != nil {
+			r.Queue.SetCurrent(entry.Key, currentDone, totalBytes)
+		}
+		sent, sentBytes = sent[:0], 0
+		return nil
+	}
+	for offset := 0; offset < len(status.Missing); offset += 4 {
+		if err := r.ensureConsent(ctx); err != nil {
+			return err
+		}
+		if err := r.entryAllowed(*entry); err != nil {
+			return err
+		}
+		end := min(offset+4, len(status.Missing))
+		jobs := make([]chunkJob, 0, end-offset)
+		for _, missing := range status.Missing[offset:end] {
+			if missing.ArtifactOrdinal < 0 || missing.ArtifactOrdinal >= len(manifest.Artifacts) {
+				return errors.New("v4 missing artifact out of range")
+			}
+			artifact := manifest.Artifacts[missing.ArtifactOrdinal]
+			if missing.ChunkOrdinal < 0 || missing.ChunkOrdinal >= len(artifact.Chunks) {
+				return errors.New("v4 missing chunk out of range")
+			}
+			chunk := artifact.Chunks[missing.ChunkOrdinal]
+			if missing.Offset != chunk.Offset || missing.Bytes != chunk.Bytes || missing.SHA256 != chunk.SHA256 {
+				return errors.New("v4 missing chunk does not match spool")
+			}
+			jobs = append(jobs, chunkJob{missing: missing, name: prepared.Manifest.Artifacts[missing.ArtifactOrdinal].LogicalName})
+		}
+		groupSent, putErr := r.putChunkGroup(ctx, reader, entry.UploadID, jobs)
+		maxCount, maxBytes := hubclient.V4MaxConfirm, int64(chunkBytes)
+		if r.scaleEnabled {
+			maxCount *= 4
+			maxBytes *= 4
+		}
+		for _, item := range groupSent {
+			if len(sent) == maxCount || len(sent) > 0 && sentBytes+item.Bytes > maxBytes {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+			sent = append(sent, item)
+			sentBytes += item.Bytes
+		}
+		if putErr != nil {
+			_ = flush()
+			return putErr
+		}
+	}
+	if err := flush(); err != nil {
 		return err
 	}
-	for _, missing := range status.Missing {
-		// Chunks sent since the last confirm stay staged; the next status
-		// read reconciles them or they are sent again.
-		if err := r.allowed(ctx, entry.Session); err != nil {
-			return err
-		}
-		if missing.ArtifactOrdinal < 0 || missing.ArtifactOrdinal >= len(manifest.Artifacts) {
-			return errors.New("v4 missing artifact out of range")
-		}
-		artifact := manifest.Artifacts[missing.ArtifactOrdinal]
-		if missing.ChunkOrdinal < 0 || missing.ChunkOrdinal >= len(artifact.Chunks) {
-			return errors.New("v4 missing chunk out of range")
-		}
-		chunk := artifact.Chunks[missing.ChunkOrdinal]
-		if missing.Offset != chunk.Offset || missing.Bytes != chunk.Bytes || missing.SHA256 != chunk.SHA256 {
-			return errors.New("v4 missing chunk does not match spool")
-		}
-		body, err := readChunk(reader, prepared.Manifest.Artifacts[missing.ArtifactOrdinal].LogicalName, chunk.Offset, chunk.Bytes)
-		if err != nil {
-			return err
-		}
-		if len(batch) > 0 && batchBytes+chunk.Bytes > chunkBytes {
-			if err := confirm(); err != nil {
-				return err
-			}
-		}
-		if err := r.Hub.V4PutChunk(ctx, entry.UploadID, missing, bytes.NewReader(body)); err != nil {
-			// Keep the chunks this pass already sent.
-			_ = confirm()
-			return err
-		}
-		batch, batchBytes = append(batch, missing), batchBytes+chunk.Bytes
-		if len(batch) == hubclient.V4MaxConfirm {
-			if err := confirm(); err != nil {
-				return err
-			}
-		}
-	}
-	if err := confirm(); err != nil {
+	if err := r.ensureConsent(ctx); err != nil {
 		return err
 	}
-	if err := r.allowed(ctx, entry.Session); err != nil {
+	if err := r.entryAllowed(*entry); err != nil {
 		return err
 	}
 	status, err = r.Hub.V4Finalize(ctx, entry.UploadID)
@@ -937,6 +1068,9 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 func (r *Runner) complete(entry *Entry, status hubclient.V4Status) error {
 	if status.State != "completed" || status.RevisionID == "" || status.SessionID != entry.SessionID {
 		return errors.New("v4 completion lacks accepted revision")
+	}
+	if r.Queue != nil && !r.Queue.Matches(*entry) {
+		return ErrPaused
 	}
 	entry.SyncedActivity, entry.SyncedSourceRevision, entry.RevisionID = entry.Activity, entry.SourceRevision, status.RevisionID
 	entry.UploadID, entry.FailureCode, entry.LoggedFailure = "", "", ""

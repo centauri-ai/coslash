@@ -29,6 +29,12 @@ type Entry struct {
 	SourceRevision       string                          `json:"sourceRevision,omitempty"`
 	SyncedSourceRevision string                          `json:"syncedSourceRevision,omitempty"`
 	Recent               bool                            `json:"recent"`
+	ContentBytes         int64                           `json:"contentBytes,omitempty"`
+	Live                 bool                            `json:"live,omitempty"`
+	ChangedAt            int64                           `json:"changedAt,omitempty"`
+	Listed               bool                            `json:"listed,omitempty"`
+	ListRejected         bool                            `json:"listRejected,omitempty"`
+	Priority             bool                            `json:"priority,omitempty"`
 	BundleID             string                          `json:"bundleId,omitempty"`
 	ContentSHA256        string                          `json:"contentSha256,omitempty"`
 	Manifest             *hubclient.V4Manifest           `json:"manifest,omitempty"`
@@ -38,6 +44,7 @@ type Entry struct {
 	FailureCode          string                          `json:"failureCode,omitempty"`
 	Attempt              int                             `json:"attempt,omitempty"`
 	Excluded             bool                            `json:"excluded,omitempty"`
+	ServerLeftOut        bool                            `json:"serverLeftOut,omitempty"`
 	// ParkedVersion is the Local version that recorded a failure that would
 	// repeat for the same source. The entry is not retried until its source
 	// changes, the Hub asks for a retry, or Local runs a different version.
@@ -49,12 +56,20 @@ type Entry struct {
 }
 
 type state struct {
-	Version       int                `json:"version"`
-	InstallID     string             `json:"installId"`
-	Binding       string             `json:"binding,omitempty"`
-	Entries       []Entry            `json:"entries"`
-	ConfigVersion int64              `json:"configVersion,omitempty"`
-	Config        hubclient.V4Config `json:"config"`
+	Version         int                `json:"version"`
+	ScaleVersion    int                `json:"scaleVersion,omitempty"`
+	InstallID       string             `json:"installId"`
+	Binding         string             `json:"binding,omitempty"`
+	Entries         []Entry            `json:"entries"`
+	ConfigVersion   int64              `json:"configVersion,omitempty"`
+	Config          hubclient.V4Config `json:"config"`
+	PlanStartedAt   int64              `json:"planStartedAt,omitempty"`
+	Phase           string             `json:"phase,omitempty"`
+	RateBytesSec    float64            `json:"rateBytesSec,omitempty"`
+	RateSamples     int                `json:"rateSamples,omitempty"`
+	Rates           []RateSample       `json:"rates,omitempty"`
+	LastProgressAt  int64              `json:"lastProgressAt,omitempty"`
+	HistoryCursorAt int64              `json:"historyCursorAt,omitempty"`
 	// PolicyKnown records that Config came from a Hub check-in, including
 	// the owner's version-0 default policy.
 	PolicyKnown            bool            `json:"policyKnown,omitempty"`
@@ -78,9 +93,12 @@ type commandRecord struct {
 }
 
 type Queue struct {
-	mu    sync.Mutex
-	path  string
-	state state
+	mu                sync.Mutex
+	path              string
+	state             state
+	currentKey        string
+	currentBytesDone  int64
+	currentBytesTotal int64
 	// held names started commands that are still waiting on work, such as a
 	// retry waiting on its session's upload. It lives in memory only, so a
 	// restart reports them as execution_interrupted.
@@ -148,6 +166,7 @@ func (q *Queue) Rebind(binding string) error {
 		}
 		q.state.ConfigVersion, q.state.PolicyKnown = 0, false
 		q.state.Config = hubclient.V4Config{}
+		q.state.PlanStartedAt, q.state.Phase = 0, ""
 		q.state.Commands = nil
 		// Unsent lines name the previous binding's sessions.
 		q.state.Log = nil
@@ -169,13 +188,39 @@ func (q *Queue) Policy() (int64, hubclient.V4Config, string) {
 }
 
 func (q *Queue) ApplyPolicy(result hubclient.V4CheckIn) error {
+	return q.ApplyPolicyAt(result, time.Now())
+}
+
+func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	prior := q.state
+	prior.Entries = append([]Entry(nil), q.state.Entries...)
+	prior.DiscardBundles = append([]string(nil), q.state.DiscardBundles...)
 	if result.ConfigVersion > q.state.ConfigVersion || !q.state.PolicyKnown {
+		oldPlan := q.state.Config.ImportPlan
 		q.state.ConfigVersion = result.ConfigVersion
 		q.state.Config = result.Config
 		q.state.PolicyKnown = true
+		if result.Config.ImportPlan != nil {
+			q.state.ScaleVersion = 1
+			if oldPlan == nil || oldPlan.Window != result.Config.ImportPlan.Window || oldPlan.History != result.Config.ImportPlan.History {
+				q.state.PlanStartedAt = now.UnixMilli()
+				q.state.Phase = "warm_start"
+			}
+		}
+		if result.Config.ImportPlan == nil {
+			q.state.PlanStartedAt, q.state.Phase = 0, "awaiting_plan"
+		}
+		for i := range q.state.Entries {
+			entry := &q.state.Entries[i]
+			entry.ServerLeftOut = false
+			entry.ListRejected = false
+			entry.Excluded = leftOut(entry.Session, result.Config.LeaveOut)
+			if entry.Excluded {
+				q.exclude(entry)
+			}
+		}
 	}
 	q.state.MinVersion = result.MinVersion
 	q.state.RecommendedVersion = result.RecommendedVersion
@@ -327,6 +372,9 @@ func (q *Queue) Entries() []Entry {
 	defer q.mu.Unlock()
 	entries := append([]Entry(nil), q.state.Entries...)
 	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Priority != entries[j].Priority {
+			return entries[i].Priority
+		}
 		if entries[i].Recent != entries[j].Recent {
 			return entries[i].Recent
 		}
@@ -336,6 +384,18 @@ func (q *Queue) Entries() []Entry {
 		return entries[i].Key < entries[j].Key
 	})
 	return entries
+}
+
+func (q *Queue) Matches(entry Entry) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, stored := range q.state.Entries {
+		if stored.Key == entry.Key {
+			return !stored.Excluded && stored.Activity == entry.Activity && stored.SourceRevision == entry.SourceRevision &&
+				stored.Attempt == entry.Attempt && stored.BundleID == entry.BundleID && stored.UploadID == entry.UploadID
+		}
+	}
+	return false
 }
 
 func (q *Queue) Merge(found []Entry, now time.Time) error {
@@ -352,7 +412,25 @@ func (q *Queue) Merge(found []Entry, now time.Time) error {
 		if i, ok := index[item.Key]; ok {
 			entry := &q.state.Entries[i]
 			entry.Recent = entry.Recent || item.Activity >= now.Add(-recentWindow).UnixMilli()
+			wasLive := entry.Live
+			if item.ContentBytes > 0 || entry.ContentBytes == 0 {
+				entry.ContentBytes = item.ContentBytes
+			}
+			entry.Live = item.Live
+			if item.Live && !wasLive && entry.ChangedAt == 0 && item.Activity >= now.Add(-2*time.Minute).UnixMilli() {
+				entry.ChangedAt = now.UnixMilli()
+			}
+			if wasLive && !item.Live {
+				entry.Session = item.Session
+				entry.Listed = false
+			}
 			if item.Activity > entry.Activity || item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision {
+				if item.ContentBytes <= 0 {
+					entry.ContentBytes = 0
+				}
+				entry.ChangedAt = now.UnixMilli()
+				entry.Listed = false
+				entry.ListRejected = false
 				entry.Activity = max(entry.Activity, item.Activity)
 				entry.SourceRevision = item.SourceRevision
 				entry.Session = item.Session
@@ -364,6 +442,7 @@ func (q *Queue) Merge(found []Entry, now time.Time) error {
 			}
 		} else {
 			item.Recent = item.Activity >= now.Add(-recentWindow).UnixMilli()
+			item.ChangedAt = now.UnixMilli()
 			index[item.Key] = len(q.state.Entries)
 			q.state.Entries = append(q.state.Entries, item)
 		}
@@ -383,14 +462,34 @@ func (q *Queue) update(entry Entry, line *LogLine) error {
 			if entry.Activity < q.state.Entries[i].Activity || entry.SourceRevision != q.state.Entries[i].SourceRevision {
 				return errors.New("stale v4 queue entry")
 			}
+			priorEntry := q.state.Entries[i]
+			priorDiscards := slices.Clone(q.state.DiscardBundles)
+			priorLog, priorLogSeq := slices.Clone(q.state.Log), q.state.LogSeq
+			priorProgress, priorCursor := q.state.LastProgressAt, q.state.HistoryCursorAt
+			if entry.Excluded && !q.state.Entries[i].Excluded {
+				q.exclude(&entry)
+			}
 			if stored := q.state.Entries[i].BundleID; stored != entry.BundleID {
 				q.abandon(stored)
 			}
 			q.state.Entries[i] = entry
+			if entry.RevisionID != "" && !pending(entry) && (priorEntry.RevisionID != entry.RevisionID || pending(priorEntry)) {
+				q.state.LastProgressAt = time.Now().UnixMilli()
+				if plan := q.state.Config.ImportPlan; plan != nil && !inWindow(entry, *plan, time.Now()) {
+					q.state.HistoryCursorAt = entry.Activity
+				}
+			}
 			if line != nil && !q.pendingDeviceLine(*line) {
 				q.appendLog(*line)
 			}
-			return q.save()
+			if err := q.save(); err != nil {
+				q.state.Entries[i] = priorEntry
+				q.state.DiscardBundles = priorDiscards
+				q.state.Log, q.state.LogSeq = priorLog, priorLogSeq
+				q.state.LastProgressAt, q.state.HistoryCursorAt = priorProgress, priorCursor
+				return err
+			}
+			return nil
 		}
 	}
 	return errors.New("v4 queue entry missing")
@@ -402,6 +501,12 @@ func (q *Queue) abandon(bundleID string) {
 	if bundleID != "" && !slices.Contains(q.state.DiscardBundles, bundleID) {
 		q.state.DiscardBundles = append(q.state.DiscardBundles, bundleID)
 	}
+}
+
+func (q *Queue) exclude(entry *Entry) {
+	q.abandon(entry.BundleID)
+	entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.Manifest = "", "", "", nil
+	entry.Priority = false
 }
 
 // Discards lists the abandoned bundles still to delete.

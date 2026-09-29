@@ -89,10 +89,11 @@ type V4Queue struct {
 }
 
 type V4Config struct {
-	Paused         bool     `json:"paused"`
-	DeviceOff      bool     `json:"deviceOff"`
-	LeaveOut       []string `json:"leaveOut"`
-	AgentKnowledge bool     `json:"agentKnowledge"`
+	Paused         bool          `json:"paused"`
+	DeviceOff      bool          `json:"deviceOff"`
+	LeaveOut       []string      `json:"leaveOut"`
+	AgentKnowledge bool          `json:"agentKnowledge"`
+	ImportPlan     *V4ImportPlan `json:"importPlan,omitempty"`
 }
 
 type V4Command struct {
@@ -125,6 +126,7 @@ type V4CheckIn struct {
 	RecommendedVersion     string      `json:"recommendedVersion"`
 	RecommendedDownloadURL string      `json:"recommendedDownloadUrl"`
 	NextCheckInSeconds     int         `json:"nextCheckInSeconds"`
+	Capabilities           []string    `json:"capabilities,omitempty"`
 	UpdateRequired         bool        `json:"-"`
 	RecommendedUpdate      bool        `json:"-"`
 }
@@ -160,7 +162,8 @@ type V4Wait struct {
 }
 
 type V4Problem struct {
-	Code string `json:"code"`
+	Code       string `json:"code"`
+	HTTPStatus int    `json:"-"`
 }
 
 func (c *Client) V4Binding(ctx context.Context) (string, error) {
@@ -216,6 +219,7 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		var problem V4Problem
 		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&problem)
+		problem.HTTPStatus = response.StatusCode
 		if problem.Code == "" {
 			problem.Code = fmt.Sprintf("http_%d", response.StatusCode)
 		}
