@@ -30,7 +30,7 @@ describe('session view preferences', () => {
       groupFilters: ['repo:coslash'],
       machineFilters: ['local', 'remote'],
       agentFilters: ['codex', 'claude'],
-      view: 'board',
+      view: 'insights',
       density: 'compact',
       boardColumns: 'readiness',
       boardRows: 'branch',

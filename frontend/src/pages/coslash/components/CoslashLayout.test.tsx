@@ -17,6 +17,7 @@ const props: ComponentProps<typeof CoslashLayout> = {
   ],
   range: 'all',
   onRangeChange: () => {},
+  onViewChange: () => {},
   selectedSessionKey: null,
   onSelectSession: () => {},
   diagnostics: null,
@@ -90,6 +91,27 @@ function orderOf(markup: string, ...titles: string[]): number[] {
 }
 
 describe('CoslashLayout', () => {
+  it('shows the monthly insights view with existing session data', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 15));
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ view: 'insights' }),
+      setItem: () => {},
+    });
+
+    const markup = renderLayout({
+      sessions: [session({ id: 'one', mtime: new Date(2026, 7, 5).getTime() })],
+    });
+
+    expect(markup).toContain('August 2026');
+    expect(markup).toContain('Agents used');
+    expect(markup).toContain('Models used');
+    expect(markup).toContain('Top repositories');
+    expect(markup).toContain('Lifetime estimated cost');
+    expect(markup).toContain('Sessions last active per day');
+    expect(markup).toContain('aria-label="View"');
+  });
+
   it('keeps row dividers in comfortable density and omits them in compact density', () => {
     const rowCells = (markup: string) => {
       const titleAt = markup.indexOf('Divider row');
@@ -150,9 +172,27 @@ describe('CoslashLayout', () => {
     const markup = renderLayout();
 
     expect(markup).toContain('flex flex-wrap items-center justify-between');
-    expect(markup).toContain('max-w-full shrink-0');
-    expect(markup).toContain('items-center gap-2 overflow-x-auto');
+    expect(markup).toContain('max-w-full shrink-0 flex-wrap items-center gap-2');
     expect(markup).toContain('min-h-0 flex-1 overflow-auto');
+  });
+
+  it('places board grouping between search and the time filters', () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ view: 'board' }),
+      setItem: () => {},
+    });
+    const markup = renderLayout();
+
+    const positions = orderOf(
+      markup,
+      'aria-label="View"',
+      'placeholder="Search sessions',
+      '>Columns<',
+      '>Rows<',
+      'aria-label="Time range"',
+    );
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
   it('does not match an unnamed remote session by its first prompt', () => {
