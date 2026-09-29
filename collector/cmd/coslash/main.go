@@ -215,12 +215,11 @@ func main() {
 			Command:    v4CommandRunner(queue, settingsStore, remoteManager),
 		}
 		go func() {
-			ticker := time.NewTicker(5 * time.Minute)
-			defer ticker.Stop()
+			const interval = 5 * time.Minute
 			for {
 				err := runner.SyncOnce(syncContext)
 				if err != nil && syncContext.Err() == nil {
-					log.Printf("v4 sync deferred")
+					log.Printf("v4 sync deferred: %s", syncv4.DeferReason(err))
 				}
 				if len(queue.Results()) > 0 && (err == nil || errors.Is(err, syncv4.ErrPaused)) {
 					continue
@@ -238,7 +237,7 @@ func main() {
 				select {
 				case <-syncContext.Done():
 					return
-				case <-ticker.C:
+				case <-time.After(syncv4.NextSyncDelay(err, interval)):
 				}
 			}
 		}()
