@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -86,6 +87,8 @@ type V4Queue struct {
 		RecentTotal  int    `json:"recentTotal"`
 		HistoryState string `json:"historyState"`
 	} `json:"firstSync"`
+	// Inventory is sent only after the Hub advertised CapabilityScaleImport.
+	Inventory *DeviceInventory `json:"inventory,omitempty"`
 }
 
 type V4Config struct {
@@ -126,9 +129,11 @@ type V4CheckIn struct {
 	RecommendedVersion     string      `json:"recommendedVersion"`
 	RecommendedDownloadURL string      `json:"recommendedDownloadUrl"`
 	NextCheckInSeconds     int         `json:"nextCheckInSeconds"`
-	Capabilities           []string    `json:"capabilities,omitempty"`
-	UpdateRequired         bool        `json:"-"`
-	RecommendedUpdate      bool        `json:"-"`
+	// Capabilities lists what the Hub accepts beyond the Tier4 check-in;
+	// an older Hub omits it.
+	Capabilities      []string `json:"capabilities,omitempty"`
+	UpdateRequired    bool     `json:"-"`
+	RecommendedUpdate bool     `json:"-"`
 }
 
 func (result *V4CheckIn) UnmarshalJSON(data []byte) error {
@@ -249,7 +254,7 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 		Queue                V4Queue           `json:"queue"`
 		Results              []V4CommandResult `json:"results,omitempty"`
 		Log                  []V4LogEntry      `json:"log,omitempty"`
-	}{version, []string{"sync-v4", "session-backup/v1", "launch", "ssh-relay"}, runtime.GOOS, appliedConfigVersion, agentsFound, queue, results, log}
+	}{version, localCapabilities(), runtime.GOOS, appliedConfigVersion, agentsFound, queue, results, log}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
 	// Version 0 is the owner's default policy before any settings save, and
 	// UnmarshalJSON already requires every policy field.
@@ -261,6 +266,21 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 		result.RecommendedUpdate = validClientVersion(result.RecommendedVersion) && clientVersionLess(version, result.RecommendedVersion)
 	}
 	return result, err
+}
+
+// ScaleImportEnabled reports the Local kill switch for scale import:
+// COSLASH_SCALE_IMPORT=0 restores full-parse discovery and stops advertising
+// the capability.
+func ScaleImportEnabled() bool {
+	return os.Getenv("COSLASH_SCALE_IMPORT") != "0"
+}
+
+func localCapabilities() []string {
+	capabilities := []string{"sync-v4", "session-backup/v1", "launch", "ssh-relay"}
+	if ScaleImportEnabled() {
+		capabilities = append(capabilities, CapabilityScaleImport)
+	}
+	return capabilities
 }
 
 func (c *Client) V4Wait(ctx context.Context, since int64) (V4Wait, error) {

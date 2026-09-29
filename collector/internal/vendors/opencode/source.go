@@ -314,9 +314,20 @@ func loadTxContext(ctx context.Context, tx *sql.Tx, source, query string, args .
 	}
 	parsed := make([]parsedSession, 0, len(stored))
 	skipped := []skippedFamily{}
+	cache := vendors.ActiveParseCache()
 	for _, familyID := range familyIDs {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
+		}
+		var key vendors.CacheKey
+		if cache != nil {
+			key = familyKey(familyID, families[familyID])
+			if payload, ok := cache.Lookup(key); ok {
+				if family, err := decodeCachedFamily(payload); err == nil {
+					parsed = append(parsed, family...)
+					continue
+				}
+			}
 		}
 		family := make([]parsedSession, 0, len(families[familyID]))
 		for _, row := range families[familyID] {
@@ -330,6 +341,11 @@ func loadTxContext(ctx context.Context, tx *sql.Tx, source, query string, args .
 				break
 			}
 			family = append(family, item)
+		}
+		if cache != nil && family != nil {
+			if payload, err := encodeCachedFamily(family); err == nil {
+				_ = cache.Store(key, payload)
+			}
 		}
 		parsed = append(parsed, family...)
 	}
