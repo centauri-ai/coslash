@@ -122,6 +122,7 @@ type Runner struct {
 	lastProgressCheckIn atomic.Int64
 	checkInRetryUntil   atomic.Int64
 	lastReportedPhase   string
+	logRejectedUntil    time.Time
 }
 
 type DiscoveryBatch struct {
@@ -569,6 +570,9 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		logLimit = maxScaleLogBatch
 	}
 	lines, through := r.Queue.PendingLogLimit(r.now(), logLimit)
+	if r.now().Before(r.logRejectedUntil) {
+		lines, through = nil, 0
+	}
 	progress := r.Queue.Progress()
 	if r.scaleSupported && os.Getenv("COSLASH_SCALE_IMPORT") != "0" {
 		progress.Import = r.importProgress(ctx, r.now())
@@ -584,11 +588,14 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		}
 	}
 	result, err := r.Hub.V4CheckIn(ctx, progress, version, results, r.Queue.Agents(), lines)
+	logAccepted := err == nil
 	if err != nil && len(lines) > 0 && logRejected(err) {
-		// A line the Hub refuses, such as one dated by a clock far ahead of
-		// the Hub's, must not stop sync. Check in without the batch, which is
-		// dropped once that succeeds.
+		// Keep refused lines for a later attempt but let the rest of sync
+		// proceed. Avoid resending the same bad batch at heartbeat cadence.
 		result, err = r.Hub.V4CheckIn(ctx, progress, version, results, r.Queue.Agents(), nil)
+		if err == nil {
+			r.logRejectedUntil = r.now().Add(time.Minute)
+		}
 	}
 	if err != nil {
 		var problem hubclient.V4Problem
@@ -600,8 +607,11 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	}
 	r.checkInRetryUntil.Store(0)
 	r.lastProgressCheckIn.Store(r.now().UnixNano())
-	if err := r.Queue.AcknowledgeLog(through); err != nil {
-		return err
+	if logAccepted && through > 0 {
+		if err := r.Queue.AcknowledgeLog(through); err != nil {
+			return err
+		}
+		r.logRejectedUntil = time.Time{}
 	}
 	if err := r.Queue.ApplyPolicyAt(result, r.now()); err != nil {
 		return err
