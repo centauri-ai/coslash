@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -456,5 +457,46 @@ func TestRecentBeforeDurableHistoryNewestFirst(t *testing.T) {
 	}
 	if progress := queue.Progress(); progress.FirstSync.RecentTotal != 1 || progress.FirstSync.RecentDone != 0 || progress.FirstSync.HistoryState != "syncing" {
 		t.Fatalf("progress=%+v", progress)
+	}
+}
+
+// A first sync of hundreds of sessions meets the Hub's active-upload limit
+// (rate_limited) on every pass. The next pass must follow in seconds, not a
+// full interval, and other errors keep the regular interval.
+func TestNextSyncDelayRetriesSoonAtTheActiveUploadLimit(t *testing.T) {
+	busy := hubclient.V4Problem{Code: "rate_limited"}
+	for _, tc := range []struct {
+		err  error
+		want time.Duration
+	}{
+		{nil, 5 * time.Minute},
+		{busy, busyRetry},
+		{errors.Join(busy, errors.New("other entry failed")), busyRetry},
+		{fmt.Errorf("create: %w", busy), busyRetry},
+		{hubclient.V4Problem{Code: "hash_mismatch"}, 5 * time.Minute},
+		{errors.New("server error"), 5 * time.Minute},
+	} {
+		if got := NextSyncDelay(tc.err, 5*time.Minute); got != tc.want {
+			t.Errorf("NextSyncDelay(%v) = %s, want %s", tc.err, got, tc.want)
+		}
+	}
+	if busyRetry >= time.Minute {
+		t.Fatalf("busy retry %s is not short", busyRetry)
+	}
+}
+
+func TestDeferReasonIsClosedAndContentFree(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{hubclient.V4Problem{Code: "rate_limited"}, "hub:rate_limited"},
+		{fmt.Errorf("%w: v4 check-in omitted current policy", ErrStaleConsent), "consent_unavailable"},
+		{ErrPaused, "paused"},
+		{errors.New("open /Users/someone/private/session.jsonl: no such file"), "local_error"},
+	} {
+		if got := DeferReason(tc.err); got != tc.want {
+			t.Errorf("DeferReason(%v) = %q, want %q", tc.err, got, tc.want)
+		}
 	}
 }
