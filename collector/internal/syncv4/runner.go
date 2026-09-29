@@ -478,7 +478,7 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 	}
 	if err != nil {
 		r.checkedAt = time.Time{}
-		return fmt.Errorf("%w: %v", ErrStaleConsent, err)
+		return fmt.Errorf("%w: %w", ErrStaleConsent, err)
 	}
 	if err := r.Queue.AcknowledgeLog(through); err != nil {
 		return err
