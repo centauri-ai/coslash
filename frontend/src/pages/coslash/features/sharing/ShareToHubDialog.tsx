@@ -36,6 +36,7 @@ import {
   MAX_SHARE_ITEMS,
   planShareRetry,
   primarySuccessRoute,
+  privateNotice,
   reconcileVisibleSelection,
   RETRY_RULES,
   toggleCandidate,
@@ -995,7 +996,8 @@ export function ShareToHubDialog({
                   <p className="pt-2 text-sm">
                     {result.state === 'failed'
                       ? 'No complete revision was accepted. Resolve the failures before trying again.'
-                      : 'Accepted complete backups are visible through their stable Hub revision routes.'}
+                      : (privateNotice(result.results) ??
+                        'Accepted complete backups are visible through their stable Hub revision routes.')}
                   </p>
                 </div>
                 <div className="mt-3 rounded-lg border">
