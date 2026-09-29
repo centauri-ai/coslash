@@ -81,6 +81,9 @@ type Transport interface {
 }
 
 type Runner struct {
+	// Version is this Local's version. A failure it parks is retried by any
+	// other version, which may read the source differently.
+	Version       string
 	Queue         *Queue
 	Backup        *sessionbackupproducer.Manager
 	Hub           Transport
@@ -118,6 +121,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.refreshConsent(ctx); err != nil {
 		return err
 	}
+	if err := r.discardAbandoned(); err != nil {
+		return err
+	}
 	sessions, err := r.Discover(ctx)
 	if err != nil {
 		return err
@@ -139,6 +145,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.Queue.Merge(discoveredEntries(sessions, r.Queue.InstallID(), claudeRevisions), r.now()); err != nil {
 		return err
 	}
+	if err := r.releaseParked(); err != nil {
+		return err
+	}
 	for _, entry := range r.Queue.Entries() {
 		excluded := leftOut(entry.Session, r.config.LeaveOut)
 		if entry.Excluded != excluded {
@@ -153,7 +162,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	var firstErr error
 	// Publish every recent metadata row before sending its first content chunk.
 	for _, entry := range entries {
-		if entry.Excluded || !entry.Recent || !pending(entry) {
+		if entry.Excluded || entry.ParkedVersion != "" || !entry.Recent || !pending(entry) {
 			continue
 		}
 		if err := r.ensureCreated(ctx, &entry); err != nil {
@@ -169,7 +178,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 	}
 	for _, entry := range r.Queue.Entries() {
-		if entry.Excluded || !entry.Recent || !pending(entry) || entry.UploadID == "" {
+		if entry.Excluded || entry.ParkedVersion != "" || !entry.Recent || !pending(entry) || entry.UploadID == "" {
 			continue
 		}
 		if err := r.transfer(ctx, &entry); err != nil {
@@ -194,7 +203,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	// the limit can clear.
 	var busyErr error
 	for _, entry := range r.Queue.Entries() {
-		if entry.Excluded || entry.Recent {
+		if entry.Excluded || entry.ParkedVersion != "" || entry.Recent {
 			continue
 		}
 		if !pending(entry) {
@@ -308,7 +317,68 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 			entry.FailureCode = "server_error"
 		}
 	}
+	if repeats(failure, entry.FailureCode) {
+		r.park(entry)
+	}
 	return r.Queue.Update(*entry)
+}
+
+// parkedCodes are Hub upload failures that repeat for the same bytes.
+var parkedCodes = map[string]bool{"malformed_artifact": true, "too_large": true}
+
+// repeats reports a failure that the same source would hit again: a
+// preparation problem none of which is retryable, or a Hub rejection of the
+// bytes themselves.
+func repeats(failure error, code string) bool {
+	var preparation *sessionbackupproducer.PreparationError
+	if errors.As(failure, &preparation) {
+		for _, problem := range preparation.Coverage.Problems {
+			if problem.Retryable {
+				return false
+			}
+		}
+		return len(preparation.Coverage.Problems) > 0
+	}
+	return parkedCodes[code]
+}
+
+// park stops retrying the entry until its source changes, the Hub asks for a
+// retry or Local changes version, and releases its prepared bundle.
+func (r *Runner) park(entry *Entry) {
+	entry.ParkedVersion = r.Version
+	if entry.ParkedVersion == "" {
+		entry.ParkedVersion = "unknown"
+	}
+	entry.BundleID, entry.ContentSHA256, entry.UploadID, entry.Manifest = "", "", "", nil
+}
+
+// releaseParked retries entries that a different Local version parked.
+func (r *Runner) releaseParked() error {
+	for _, entry := range r.Queue.Entries() {
+		if entry.ParkedVersion == "" || r.Version != "" && entry.ParkedVersion == r.Version {
+			continue
+		}
+		entry.ParkedVersion, entry.FailureCode = "", ""
+		if err := r.Queue.Update(entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// discardAbandoned deletes prepared bundles no entry refers to any more.
+func (r *Runner) discardAbandoned() error {
+	var deleted []string
+	for _, id := range r.Queue.Discards() {
+		if err := r.Backup.Discard(id); err != nil && !errors.Is(err, sessionbackupproducer.ErrNotPrepared) {
+			continue
+		}
+		deleted = append(deleted, id)
+	}
+	if len(deleted) == 0 {
+		return nil
+	}
+	return r.Queue.ForgetDiscards(deleted)
 }
 
 func localKey(sourceID, agent, sessionID string) string {
@@ -693,6 +763,9 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 		entry.FailureCode, entry.UploadID, entry.Attempt = status.FailureCode, "", entry.Attempt+1
 		if entry.FailureCode == "" {
 			entry.FailureCode = "server_error"
+		}
+		if parkedCodes[entry.FailureCode] {
+			r.park(entry)
 		}
 		return r.Queue.Update(*entry)
 	}
