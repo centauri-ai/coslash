@@ -363,6 +363,20 @@ func (q *Queue) Agents() []string {
 	return agents
 }
 
+// InFlight counts entries with an open or finalizing upload whose revision
+// Local has not recorded yet.
+func (q *Queue) InFlight() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	count := 0
+	for _, entry := range q.state.Entries {
+		if entry.UploadID != "" && entry.RevisionID == "" {
+			count++
+		}
+	}
+	return count
+}
+
 func (q *Queue) Progress() hubclient.V4Queue {
 	q.mu.Lock()
 	defer q.mu.Unlock()
