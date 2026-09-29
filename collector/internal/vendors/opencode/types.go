@@ -24,7 +24,7 @@ type storedMessage struct {
 	Command           string          `json:"-"`
 	Output            string          `json:"-"`
 	Exit              *int            `json:"-"`
-	CompactionStatus  string          `json:"-"`
+	Status            string          `json:"-"`
 	CompactionSummary string          `json:"-"`
 	Agent             string          `json:"agent"`
 	ProviderID        string          `json:"providerID"`

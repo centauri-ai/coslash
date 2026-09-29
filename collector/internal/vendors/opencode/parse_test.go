@@ -224,6 +224,63 @@ func TestV2IncompleteCompactionAndStreamingTool(t *testing.T) {
 	}
 }
 
+func TestV2StandaloneShellState(t *testing.T) {
+	for _, test := range []struct {
+		name, shell  string
+		busy         bool
+		idle         bool
+		commands     int
+		commits      int
+		pullRequests int
+		errors       int
+	}{
+		{name: "running commit", shell: `{"command":"git commit -m fix","status":"running"}`, busy: true},
+		{name: "running shell with later idle marker", shell: `{"command":"git status","status":"running"}`, busy: true, idle: true},
+		{name: "running PR", shell: `{"command":"gh pr create","status":"running"}`, busy: true},
+		{name: "completed commit", shell: `{"command":"git commit -m fix","status":"exited","exit":0,"output":{"output":"[main abc1234] fix"}}`, commands: 1, commits: 1},
+		{name: "completed PR", shell: `{"command":"gh pr create","status":"exited","exit":0}`, commands: 1, pullRequests: 1},
+		{name: "completed PR without exit", shell: `{"command":"gh pr create","status":"exited"}`, commands: 1},
+		{name: "failed PR", shell: `{"command":"gh pr create","status":"exited","exit":1}`, commands: 1, errors: 1},
+		{name: "timed out PR", shell: `{"command":"gh pr create","status":"timeout"}`, commands: 1, errors: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db := testDB(t)
+			for _, statement := range []string{
+				`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`,
+				`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
+				`INSERT INTO session_v2 VALUES ('ses_shell', NULL, '/work', 'shell', NULL, NULL, NULL, NULL, 0, 100, 400, NULL)`,
+				`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('u', 'ses_shell', 'user', 1, 100, '{"text":"Do work"}')`,
+				`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('a', 'ses_shell', 'assistant', 2, 200, '{"time":{"created":200,"completed":300},"finish":"stop"}')`,
+			} {
+				if _, err := db.Exec(statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.Exec(`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('s', 'ses_shell', 'shell', 3, 400, ?)`, test.shell); err != nil {
+				t.Fatal(err)
+			}
+			if test.idle {
+				if _, err := db.Exec(`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('i', 'ses_shell', 'idle', 4, 500, '{"time":{"created":500}}')`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			parsed, skipped, err := load(db, activeFamiliesQuery)
+			if err != nil || len(skipped) != 0 || len(parsed) != 1 {
+				t.Fatalf("parsed = %#v, skipped = %#v, error = %v", parsed, skipped, err)
+			}
+			got := parsed[0]
+			if got.InTurn != test.busy || len(got.Session.SessionDetails.Commands) != test.commands ||
+				len(got.Session.CommitLog) != test.commits || got.Session.SessionDetails.PullRequests != test.pullRequests ||
+				got.Session.SessionDetails.Errors != test.errors {
+				t.Fatalf("shell state = %#v, want busy=%t commands=%d commits=%d PRs=%d errors=%d", got, test.busy, test.commands, test.commits, test.pullRequests, test.errors)
+			}
+			if (got.StatusHint != nil) != test.busy || (got.StatusHint != nil && *got.StatusHint != "busy") {
+				t.Fatalf("shell status hint = %v, want busy=%t", got.StatusHint, test.busy)
+			}
+		})
+	}
+}
+
 func TestMalformedV2ContentSkipsOnlyItsFamily(t *testing.T) {
 	for _, content := range []string{`{"type":"tool","name":3}`, `{"type":"tool","time":{"completed":"bad"}}`} {
 		t.Run(content, func(t *testing.T) {
