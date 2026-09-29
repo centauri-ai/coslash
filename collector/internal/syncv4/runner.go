@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -95,28 +97,31 @@ type Transport interface {
 type Runner struct {
 	// Version is this Local's version. A failure it parks is retried by any
 	// other version, which may read the source differently.
-	Version           string
-	Queue             *Queue
-	Backup            *sessionbackupproducer.Manager
-	Hub               Transport
-	Discover          func(context.Context) ([]*session.Session, error)
-	DiscoverBatches   func(context.Context, func(DiscoveryBatch) error) error
-	InventoryProgress func() (files int64, running bool)
-	Conditions        func(context.Context) (metered bool, batteryPercent int, err error)
-	LocalPause        func() bool
-	Command           func(context.Context, hubclient.V4Command) error
-	Now               func() time.Time
-	config            hubclient.V4Config
-	checkedAt         time.Time
-	configVersion     int64
-	retryCommands     map[string]string
-	scaleEnabled      bool
-	chunkWorkers      int
-	newRetryCommand   bool
-	scaleSupported    bool
-	waitReason        string
-	waitSince         time.Time
-	lastReportedPhase string
+	Version             string
+	Queue               *Queue
+	Backup              *sessionbackupproducer.Manager
+	Hub                 Transport
+	Discover            func(context.Context) ([]*session.Session, error)
+	DiscoverBatches     func(context.Context, func(DiscoveryBatch) error) error
+	InventoryProgress   func() (files int64, running bool)
+	Conditions          func(context.Context) (metered bool, batteryPercent int, err error)
+	LocalPause          func() bool
+	Command             func(context.Context, hubclient.V4Command) error
+	Now                 func() time.Time
+	config              hubclient.V4Config
+	checkedAt           time.Time
+	configVersion       int64
+	retryCommands       map[string]string
+	scaleEnabled        bool
+	chunkWorkers        int
+	newRetryCommand     bool
+	scaleSupported      bool
+	waitReason          string
+	waitSince           time.Time
+	waitMu              sync.Mutex
+	lastProgressCheckIn atomic.Int64
+	checkInRetryUntil   atomic.Int64
+	lastReportedPhase   string
 }
 
 type DiscoveryBatch struct {
@@ -550,6 +555,11 @@ func truncate(value string, max int) string {
 }
 
 func (r *Runner) refreshConsent(ctx context.Context) error {
+	if until := r.checkInRetryUntil.Load(); until > r.now().UnixNano() {
+		return fmt.Errorf("%w: %w", ErrStaleConsent, hubclient.V4Problem{
+			Code: "rate_limited", RetryAfter: time.Duration(until - r.now().UnixNano()),
+		})
+	}
 	wasScaleSupported := r.scaleSupported
 	version, config, _ := r.Queue.Policy()
 	r.configVersion, r.config = version, config
@@ -581,9 +591,15 @@ func (r *Runner) refreshConsent(ctx context.Context) error {
 		result, err = r.Hub.V4CheckIn(ctx, progress, version, results, r.Queue.Agents(), nil)
 	}
 	if err != nil {
+		var problem hubclient.V4Problem
+		if errors.As(err, &problem) && problem.RetryAfter > 0 {
+			r.checkInRetryUntil.Store(r.now().Add(problem.RetryAfter).UnixNano())
+		}
 		r.checkedAt = time.Time{}
 		return fmt.Errorf("%w: %w", ErrStaleConsent, err)
 	}
+	r.checkInRetryUntil.Store(0)
+	r.lastProgressCheckIn.Store(r.now().UnixNano())
 	if err := r.Queue.AcknowledgeLog(through); err != nil {
 		return err
 	}
@@ -797,11 +813,12 @@ func (r *Runner) ensureConsent(ctx context.Context) error {
 			phase = "inventory"
 		}
 	}
-	refreshAfter := 4 * time.Minute
-	if r.scaleEnabled && activeImportPhase(phase) {
-		refreshAfter = 10 * time.Second
+	lastProgress := r.lastProgressCheckIn.Load()
+	if lastProgress == 0 {
+		lastProgress = r.checkedAt.UnixNano()
 	}
-	if r.checkedAt.IsZero() || r.now().Sub(r.checkedAt) >= refreshAfter || r.scaleEnabled && phase != r.lastReportedPhase {
+	progressDue := r.scaleEnabled && (activeImportPhase(phase) && r.now().Sub(time.Unix(0, lastProgress)) >= 10*time.Second || phase != r.lastReportedPhase)
+	if r.checkedAt.IsZero() || r.now().Sub(r.checkedAt) >= 4*time.Minute || progressDue {
 		if err := r.refreshConsent(ctx); err != nil {
 			return err
 		}
