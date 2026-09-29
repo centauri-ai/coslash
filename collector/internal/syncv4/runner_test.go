@@ -529,3 +529,95 @@ func TestInFlightCountsUploadsWithoutARecordedRevision(t *testing.T) {
 		t.Fatalf("in flight=%d", got)
 	}
 }
+
+// A failure the same source would hit again is parked, so Local stops
+// re-reading or re-uploading it every pass; transient failures keep retrying.
+// A different Local version retries parked entries.
+func TestDeterministicFailuresParkUntilLocalChanges(t *testing.T) {
+	notRetryable := &sessionbackupproducer.PreparationError{Coverage: sessionbackupproducer.Coverage{
+		Problems: []sessionbackupv1.CaptureProblem{{Code: sessionbackupv1.ProblemInvalid, Kind: sessionbackupv1.KindParsedSessionRecord}}}}
+	retryable := &sessionbackupproducer.PreparationError{Coverage: sessionbackupproducer.Coverage{
+		Problems: []sessionbackupv1.CaptureProblem{{Code: sessionbackupv1.ProblemUnstable, Kind: sessionbackupv1.KindRawMetadataRows, Retryable: true}}}}
+	for _, tc := range []struct {
+		err  error
+		code string
+		want bool
+	}{
+		{notRetryable, "unreadable_source", true},
+		{retryable, "unreadable_source", false},
+		{hubclient.V4Problem{Code: "malformed_artifact"}, "malformed_artifact", true},
+		{hubclient.V4Problem{Code: "rate_limited"}, "rate_limited", false},
+		{errors.New("network down"), "server_error", false},
+	} {
+		if got := repeats(tc.err, tc.code); got != tc.want {
+			t.Errorf("repeats(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{{Key: "a", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	entry := queue.Entries()[0]
+	entry.BundleID = strings.Repeat("a", 64)
+	if err := queue.Update(entry); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Version: "0.0.5", Queue: queue}
+	if err := runner.recordFailure(&entry, notRetryable); err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.Entries()[0]; got.ParkedVersion != "0.0.5" || got.FailureCode != "unreadable_source" || got.BundleID != "" {
+		t.Fatalf("not parked: %+v", got)
+	}
+	if got := queue.Discards(); len(got) != 1 || got[0] != strings.Repeat("a", 64) {
+		t.Fatalf("parked bundle not released: %v", got)
+	}
+	if err := runner.releaseParked(); err != nil || queue.Entries()[0].ParkedVersion != "0.0.5" {
+		t.Fatalf("same version released a parked entry: %+v, %v", queue.Entries()[0], err)
+	}
+	upgraded := Runner{Version: "0.0.6", Queue: queue}
+	if err := upgraded.releaseParked(); err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.Entries()[0]; got.ParkedVersion != "" || got.FailureCode != "" {
+		t.Fatalf("new version kept the entry parked: %+v", got)
+	}
+}
+
+func TestDiscardAbandonedDeletesPreparedBundles(t *testing.T) {
+	now := time.Now().UTC()
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Merge([]Entry{{Key: "a", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex"}}}, now); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	abandoned, gone := strings.Repeat("b", 64), strings.Repeat("e", 64)
+	if err := os.MkdirAll(filepath.Join(root, abandoned), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entry := queue.Entries()[0]
+	for _, id := range []string{abandoned, gone, ""} {
+		entry.BundleID = id
+		if err := queue.Update(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := Runner{Queue: queue, Backup: sessionbackupproducer.New(sessionbackupproducer.Options{Root: root})}
+	if err := runner.discardAbandoned(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, abandoned)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned bundle kept: %v", err)
+	}
+	if got := queue.Discards(); len(got) != 0 {
+		t.Fatalf("discards left: %v", got)
+	}
+}
