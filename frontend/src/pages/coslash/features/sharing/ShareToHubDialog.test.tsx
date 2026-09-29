@@ -387,7 +387,7 @@ describe('privateNotice', () => {
       deduplicated: false,
       sharedAt: '2026-09-22T20:00:00Z',
       route: {
-        hubContractVersion: 'session-backup-read/v1',
+        hubContractVersion: 'session-backup-read/v1' as const,
         repositoryId: 'repository-one',
         path: '/v3/session-backups/revision-one',
       },
