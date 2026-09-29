@@ -85,6 +85,10 @@ type state struct {
 	// Log holds sync log lines the Hub has not acknowledged, oldest first.
 	Log    []LogLine `json:"log,omitempty"`
 	LogSeq int64     `json:"logSeq,omitempty"`
+	// Inventory is the last stat-only inventory; it is reported once the
+	// Hub has advertised scale-import/v1 in HubCapabilities.
+	Inventory       *hubclient.DeviceInventory `json:"inventory,omitempty"`
+	HubCapabilities []string                   `json:"hubCapabilities,omitempty"`
 }
 
 type commandRecord struct {
@@ -227,11 +231,45 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 	q.state.RecommendedDownloadURL = result.RecommendedDownloadURL
 	q.state.UpdateRequired = result.UpdateRequired
 	q.state.RecommendedUpdate = result.RecommendedUpdate
+	q.state.HubCapabilities = append([]string(nil), result.Capabilities...)
 	if err := q.save(); err != nil {
 		q.state = prior
 		return err
 	}
 	return nil
+}
+
+// HubAdvertises reports whether the last check-in response listed the
+// capability.
+func (q *Queue) HubAdvertises(capability string) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return slices.Contains(q.state.HubCapabilities, capability)
+}
+
+// SetInventory records the latest stat-only inventory for check-in.
+func (q *Queue) SetInventory(inventory hubclient.DeviceInventory) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	prior := q.state.Inventory
+	q.state.Inventory = &inventory
+	if err := q.save(); err != nil {
+		q.state.Inventory = prior
+		return err
+	}
+	return nil
+}
+
+// Inventory returns the recorded inventory, or nil before the first scan.
+func (q *Queue) Inventory() *hubclient.DeviceInventory {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.Inventory == nil {
+		return nil
+	}
+	inventory := *q.state.Inventory
+	inventory.Agents = append([]hubclient.InventoryAgent(nil), inventory.Agents...)
+	return &inventory
 }
 
 type UpdatePrompt struct {
@@ -583,6 +621,11 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		if entry.FailureCode != "" && entry.FailureCode != "rate_limited" {
 			progress.Failing++
 		}
+	}
+	if q.state.Inventory != nil && hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport) {
+		inventory := *q.state.Inventory
+		inventory.Agents = append([]hubclient.InventoryAgent{}, inventory.Agents...)
+		progress.Inventory = &inventory
 	}
 	return progress
 }

@@ -88,15 +88,22 @@ func ScanSourceContext(ctx context.Context, source vendors.ReadSource, root stri
 
 func filterWorkflowTranscripts(all []string) []string {
 	files := make([]string, 0, len(all))
-	workflowSegment := "/subagents/workflows/"
 	for _, file := range all {
-		normalized := filepath.ToSlash(file)
-		if strings.Contains(normalized, workflowSegment) && !strings.HasPrefix(filepath.Base(normalized), "agent-") {
-			continue
+		if AcceptsTranscript(file) {
+			files = append(files, file)
 		}
-		files = append(files, file)
 	}
 	return files
+}
+
+// AcceptsTranscript reports whether discovery would parse the file: a .jsonl
+// under the projects root that is not a workflow journal or run record.
+func AcceptsTranscript(file string) bool {
+	normalized := filepath.ToSlash(file)
+	if !strings.HasSuffix(normalized, ".jsonl") {
+		return false
+	}
+	return !strings.Contains(normalized, "/subagents/workflows/") || strings.HasPrefix(filepath.Base(normalized), "agent-")
 }
 
 // FilesSince keeps recent/live roots, their subagents, and any older family
