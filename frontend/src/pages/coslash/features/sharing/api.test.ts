@@ -166,6 +166,40 @@ describe('Hub sharing local adapter', () => {
   });
 
   it.each([
+    [{ private: true, sharingNotice: 'This backup is private in My space.' }, true],
+    [{ private: 'yes' }, false],
+    [{ sharingNotice: 7 }, false],
+  ])('checks the Hub private-result fields %j', async (extra, ok) => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        contractVersion: 'hub-share/v1',
+        requestId: 'request-1',
+        state: 'succeeded',
+        results: [
+          {
+            localSessionId: 'local:codex:one',
+            idempotencyKey: 'key-000000000000',
+            state: 'accepted',
+            revisionId: 'revision-one',
+            deduplicated: false,
+            sharedAt: '2026-09-22T20:00:00Z',
+            route: {
+              hubContractVersion: 'session-backup-read/v1',
+              repositoryId: 'repository-one',
+              path: '/v3/session-backups/revision-one',
+            },
+            ...extra,
+          },
+        ],
+      }),
+    );
+    installBrowser(fetchMock);
+    const submitted = submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] });
+    if (ok) await expect(submitted).resolves.toEqual(expect.objectContaining({ state: 'succeeded' }));
+    else await expect(submitted).rejects.toThrow();
+  });
+
+  it.each([
     'https://evil.example/v3/session-backups/revision-one',
     '/v3/session-backups/revision-two',
     '/v2/session-revisions/revision-one',

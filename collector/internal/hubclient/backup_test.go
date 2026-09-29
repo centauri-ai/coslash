@@ -193,7 +193,9 @@ func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T
 				Result: &backupUploadResult{RevisionID: backupRevision, CompleteBackupSHA256: prepared.BundleID,
 					RepositoryID: "40000000-0000-4000-8000-000000000001",
 					SharedAt:     time.Date(2026, 9, 22, 20, 0, 0, 0, time.UTC),
-					RevisionURL:  "/v3/session-backups/" + backupRevision}})
+					RevisionURL:  "/v3/session-backups/" + backupRevision,
+					// A Tier4 Hub keeps new v3 uploads private and says so.
+					Private: true, SharingNotice: "This backup is private in My space. Share it from coSlash Hub when you are ready."}})
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)
@@ -228,6 +230,9 @@ func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T
 	if err != nil || result.State != "succeeded" || len(result.Results) != 1 || result.Results[0].State != "accepted" ||
 		result.Results[0].Route == nil || result.Results[0].Route.Path != "/v3/session-backups/"+backupRevision {
 		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if item := result.Results[0]; !item.Private || item.SharingNotice != "This backup is private in My space. Share it from coSlash Hub when you are ready." {
+		t.Fatalf("private result not carried: %#v", item)
 	}
 	if !createSeen || !finalizeSeen || !rateLimited || chunkRequests != len(plan)-1 {
 		t.Fatalf("create=%v rateLimited=%v chunks=%d/%d finalize=%v", createSeen, rateLimited, chunkRequests, len(plan)-1, finalizeSeen)
@@ -465,4 +470,22 @@ func openBackupFixture(t *testing.T) (*sessionbackupproducer.Manager, *sessionba
 		t.Fatal(err)
 	}
 	return manager, prepared
+}
+
+// A Tier4 Hub adds private and sharingNotice to a completed v3 upload's
+// result. The strict status decoder rejected them, so every share failed as
+// temporary_unavailable although the Hub had accepted the backup.
+func TestBackupStatusAcceptsTheHubsPrivateResult(t *testing.T) {
+	body := `{"uploadId":"20000000-0000-4000-8000-000000000001","state":"completed","completeBackupSha256":"` + strings.Repeat("a", 64) +
+		`","totalBytes":10,"expectedChunks":1,"receivedBytes":10,"receivedChunks":[],"expiresAt":"2026-09-30T00:00:00Z","result":{"revisionId":"30000000-0000-4000-8000-000000000001","completeBackupSha256":"` +
+		strings.Repeat("a", 64) + `","repositoryId":"40000000-0000-4000-8000-000000000001","sharedAt":"2026-09-29T00:00:00Z","revisionUrl":"/v3/session-backups/30000000-0000-4000-8000-000000000001","private":true,"sharingNotice":"This backup is private in My space. Share it from coSlash Hub when you are ready."}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, body) }))
+	t.Cleanup(server.Close)
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}}
+	request, _ := http.NewRequest(http.MethodGet, server.URL, nil)
+	status, _, err := client.doBackupStatus(request, http.StatusOK)
+	if err != nil || status.Result == nil || !status.Result.Private || status.Result.SharingNotice == "" {
+		t.Fatalf("status=%#v err=%v", status, err)
+	}
 }

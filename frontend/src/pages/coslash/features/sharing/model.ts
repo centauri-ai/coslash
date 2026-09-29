@@ -138,6 +138,9 @@ export type ShareItemResult =
       deduplicated: boolean;
       sharedAt: string;
       route: RouteHandoff;
+      // A Tier4 Hub keeps new uploads private to the owner and explains why.
+      private?: boolean;
+      sharingNotice?: string;
     }
   | {
       localSessionId: string;
@@ -469,4 +472,13 @@ export function hubRouteURL(hubURL: string, path: string): string {
     throw new Error('The Hub route is outside the expected contract.');
   }
   return route.toString();
+}
+
+// privateNotice is the Hub's own explanation when it kept an accepted backup
+// private to the owner instead of sharing it with the workspace.
+export function privateNotice(results: ShareItemResult[]): string | undefined {
+  for (const item of results) {
+    if (item.state !== 'failed' && item.private && item.sharingNotice) return item.sharingNotice;
+  }
+  return undefined;
 }

@@ -105,7 +105,9 @@ function isShareResult(value: unknown): value is ShareResult {
       typeof item.route.repositoryId === 'string' &&
       item.route.repositoryId.length > 0 &&
       typeof item.route.path === 'string' &&
-      isCanonicalBackupRoute(item.revisionId, item.route.path)
+      isCanonicalBackupRoute(item.revisionId, item.route.path) &&
+      (item.private === undefined || typeof item.private === 'boolean') &&
+      (item.sharingNotice === undefined || typeof item.sharingNotice === 'string')
     );
   });
 }
