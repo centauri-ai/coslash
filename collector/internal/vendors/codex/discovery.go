@@ -41,43 +41,51 @@ func readHeaderSource(source vendors.ReadSource, path string) (string, string, e
 }
 
 func readHeaderSourceContext(ctx context.Context, source vendors.ReadSource, path string) (string, string, error) {
+	header, err := readFileHeaderSourceContext(ctx, source, path)
+	return header.SessionID, header.ParentID, err
+}
+
+func readFileHeaderSourceContext(ctx context.Context, source vendors.ReadSource, path string) (FileHeader, error) {
 	if err := ctx.Err(); err != nil {
-		return "", "", err
+		return FileHeader{}, err
 	}
 	file, err := source.Open(path)
 	if err != nil {
-		return "", "", err
+		return FileHeader{}, err
 	}
 	defer file.Close()
 	var row codexRow
 	if err := json.NewDecoder(contextReader{ctx: ctx, reader: file}).Decode(&row); err != nil {
-		return "", "", fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
+		return FileHeader{}, fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
 	if err := ctx.Err(); err != nil {
-		return "", "", err
+		return FileHeader{}, err
 	}
 	ids := rolloutIDs(path)
 	if row.Type != "session_meta" {
-		return "", "", fmt.Errorf("%w: first row type %q is not session_meta", vendors.ErrInvalidData, row.Type)
+		return FileHeader{}, fmt.Errorf("%w: first row type %q is not session_meta", vendors.ErrInvalidData, row.Type)
 	}
 	if len(ids) == 0 {
-		return "", "", fmt.Errorf("%w: rollout filename has no session ID", vendors.ErrInvalidData)
+		return FileHeader{}, fmt.Errorf("%w: rollout filename has no session ID", vendors.ErrInvalidData)
 	}
 	threadID := ids[len(ids)-1]
 	// A fork inlines its ancestors' session_meta rows and may label every one
 	// of them with the root ID, so this first row only has to name a thread the
 	// filename names too.
 	if !slices.Contains(ids, row.Payload.ID) {
-		return "", "", fmt.Errorf(
+		return FileHeader{}, fmt.Errorf(
 			"%w: header session ID %q does not identify filename thread ID %q",
 			vendors.ErrInvalidData, row.Payload.ID, threadID,
 		)
 	}
 	if row.Payload.ID != threadID {
 		// An ancestor wrote this row, so its parentage is not the fork's.
-		return threadID, "", nil
+		return FileHeader{SessionID: threadID}, nil
 	}
-	return threadID, row.Payload.ParentThreadID, nil
+	return FileHeader{
+		SessionID: threadID, ParentID: row.Payload.ParentThreadID,
+		Hidden: subagentRole(row.Payload.Source) == guardianRole,
+	}, nil
 }
 
 func IsRootRollout(path string) (bool, error) {
