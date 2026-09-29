@@ -59,6 +59,22 @@ function remoteDetail(): SessionDetail {
 }
 
 describe('handoffBrief', () => {
+  it('omits an oversized timeline while keeping the debrief and next step', () => {
+    const detail = remoteDetail();
+    detail.declaredGoal = 'Finish the migration';
+    detail.summary = 'Ready for review';
+    detail.todos = [{ text: 'Run the checks', done: false }];
+    detail.digest = [{ turn: 1, category: 'question', description: 'Status?', answer: 'x'.repeat(65_536) }];
+
+    const brief = handoffBrief(detail);
+    expect(new TextEncoder().encode(brief).length).toBeLessThanOrEqual(65_536);
+    expect(brief).toContain('## Objective (declared)\nFinish the migration');
+    expect(brief).toContain('## Current state\nReady for review');
+    expect(brief).toContain('## Next steps\n- Run the checks');
+    expect(brief).toContain('Timeline omitted');
+    expect(brief).not.toContain('x'.repeat(100));
+  });
+
   it('omits unavailable Cursor sections and keeps populated ones', () => {
     const detail = remoteDetail();
     detail.agent = 'cursor';

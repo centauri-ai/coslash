@@ -77,6 +77,21 @@ func TestBuildRendersQuestionAnswers(t *testing.T) {
 	}
 }
 
+func TestBuildOmitsOversizedTimeline(t *testing.T) {
+	goal, summary := "Finish the migration", "Ready for review"
+	got := Build(&session.Session{ID: "session-1", Summary: &summary, SessionDetails: session.SessionDetails{
+		DeclaredGoal: &goal,
+		Digest:       []session.DigestEntry{{Turn: 1, Category: session.DigestQuestion, Answer: strings.Repeat("x", 65_536)}},
+		Todos:        []session.Todo{{Text: "Run the checks"}},
+	}})
+	if len(got) > 65_536 || !strings.Contains(got, "## Objective (declared)\nFinish the migration") ||
+		!strings.Contains(got, "## Current state\nReady for review") ||
+		!strings.Contains(got, "## Next steps\n- Run the checks") ||
+		!strings.Contains(got, "Timeline omitted") || strings.Contains(got, strings.Repeat("x", 100)) {
+		t.Fatalf("oversized timeline was not omitted: %d bytes", len(got))
+	}
+}
+
 func TestBuildKeepsSummaryWhenSynthesisOutcomeIsBlank(t *testing.T) {
 	summary := "Tests pass"
 	got := Build(&session.Session{
