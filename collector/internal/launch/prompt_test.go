@@ -27,6 +27,7 @@ func TestTerminalWithPromptRejectsUnavailableWorkingDirectory(t *testing.T) {
 }
 
 func TestOpenMacTerminalPropagatesCancellation(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	original := runOSAScript
 	t.Cleanup(func() { runOSAScript = original })
 	runOSAScript = func(ctx context.Context, _ ...string) error {
