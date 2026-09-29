@@ -342,6 +342,13 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	if err := runner.SyncOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	if putCount != 1 || confirmCount != 1 {
+		t.Fatalf("retry before backoff elapsed sent bytes: put=%d confirm=%d", putCount, confirmCount)
+	}
+	now = now.Add(time.Minute)
+	if err := runner.SyncOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	if createCount != 1 || putCount != len(missing(created.Manifest, nil)) || confirmCount != putCount {
 		t.Fatalf("resume resent accepted bytes: create=%d put=%d confirm=%d", createCount, putCount, confirmCount)
 	}
@@ -359,16 +366,16 @@ func testV4HTTPResume(t *testing.T, manager *sessionbackupproducer.Manager, prep
 	if err := runner.SyncOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if createCount != 1 || putCount != confirmCount || checkInCount != 4 {
+	if createCount != 1 || putCount != confirmCount || checkInCount != 5 {
 		t.Fatalf("unchanged upload retried: create=%d put=%d confirm=%d checkins=%d", createCount, putCount, confirmCount, checkInCount)
 	}
 	// The interrupted transfer is reported once, for its Hub session, on the
 	// check-in after it, and never again.
-	if len(checkInLogs[0]) != 0 || len(checkInLogs[1]) != 1 || len(checkInLogs[2]) != 0 || len(checkInLogs[3]) != 0 {
+	if len(checkInLogs[0]) != 0 || len(checkInLogs[1]) != 1 || len(checkInLogs[2]) != 0 || len(checkInLogs[3]) != 0 || len(checkInLogs[4]) != 0 {
 		t.Fatalf("check-in logs=%+v", checkInLogs)
 	}
 	if line := checkInLogs[1][0]; line.SessionID != "ses_fixture" || line.Level != "error" || line.Code != "server_error" ||
-		line.Message != "coSlash Hub could not store this sync." || !line.At.Equal(now) {
+		line.Message != "coSlash Hub could not store this sync." || !line.At.Equal(now.Add(-time.Minute)) {
 		t.Fatalf("interrupted transfer line=%+v", line)
 	}
 }
