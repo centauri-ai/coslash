@@ -417,6 +417,26 @@ func boundChangedRecord(record remoteprotocol.Record, requestID string, sequence
 	}, true, 0, nil
 }
 
+func fitAggregateRecord(
+	record remoteprotocol.Record,
+	preparedSize, usedRecords, reservedRecords, usedBytes, reservedBytes int,
+	limits remoteprotocol.Limits,
+) (remoteprotocol.Record, int, bool) {
+	fits := func(size int) bool {
+		return usedRecords+1+reservedRecords <= limits.MaxRecords &&
+			usedBytes+size+1+reservedBytes <= limits.MaxResponseBytes
+	}
+	if fits(preparedSize) {
+		return record, preparedSize, true
+	}
+	if record.Type != remoteprotocol.RecordChanged || record.Vendor != vendors.AgentClaude || len(record.FullRecords) == 0 {
+		return record, preparedSize, false
+	}
+	record.FullRecords = nil
+	preparedSize = remoteprotocol.EncodedRecordSize(record)
+	return record, preparedSize, fits(preparedSize)
+}
+
 func pageAfterFor(request remoteprotocol.Request, vendor string) string {
 	for _, cursor := range request.PageAfter {
 		if cursor.Vendor == vendor {
@@ -607,9 +627,10 @@ func collectIncremental(
 			if preparedSize == 0 {
 				preparedSize = remoteprotocol.EncodedRecordSize(record)
 			}
-			recordBytes := preparedSize + 1
-			if usedRecords+1+reservedRecords > request.Limits.MaxRecords ||
-				usedBytes+recordBytes+reservedBytes > request.Limits.MaxResponseBytes {
+			record, preparedSize, fits := fitAggregateRecord(
+				record, preparedSize, usedRecords, reservedRecords, usedBytes, reservedBytes, request.Limits,
+			)
+			if !fits {
 				aggregateLimited = true
 				aggregateSkipped++
 				continue
