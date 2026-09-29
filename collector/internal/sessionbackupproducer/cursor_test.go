@@ -204,3 +204,69 @@ func TestCursorMissingIDERowsCannotPublish(t *testing.T) {
 		t.Fatalf("prepared=%#v error=%v", prepared, err)
 	}
 }
+
+func writeCursorStray(t *testing.T, home string, relative ...string) {
+	t.Helper()
+	path := filepath.Join(append([]string{home, ".cursor", "projects"}, relative...)...)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"role":"user","message":{"content":[{"type":"text","text":"Draft"}]}}` + "\n" +
+		`{"type":"turn_ended","status":"success"}` + "\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func prepareCursorFixture(t *testing.T, home string) (*Prepared, error) {
+	t.Helper()
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	return manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID})
+}
+
+// A real Cursor home held one .jsonl under agent-transcripts whose directory
+// and file stem were not session IDs. It names no session, so it must not
+// block every Cursor family on the machine.
+func TestCursorUnrelatedStrayJSONLDoesNotBlockFamily(t *testing.T) {
+	for _, lane := range []string{"cursor-ide", "cursor-cli"} {
+		t.Run(lane, func(t *testing.T) {
+			home, _, _ := writeCursorBackupFixture(t, lane)
+			writeCursorStray(t, home, "repo", "agent-transcripts", "scratch-notes-draft", "scratch-notes-draft.jsonl")
+			writeCursorStray(t, home, "other", "agent-transcripts", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "notes.jsonl")
+			prepared, err := prepareCursorFixture(t, home)
+			if err != nil {
+				var failure *PreparationError
+				if errors.As(err, &failure) {
+					t.Fatalf("%v: %#v", err, failure.Coverage.Problems)
+				}
+				t.Fatal(err)
+			}
+			for _, artifact := range prepared.Manifest.Artifacts {
+				if artifact.MemberID != cursorTestID {
+					t.Fatalf("stray file entered the bundle: %#v", artifact)
+				}
+			}
+		})
+	}
+}
+
+func TestCursorStrayJSONLThatMayBelongBlocksFamily(t *testing.T) {
+	for name, relative := range map[string][]string{
+		"unrecognized file in root directory": {"repo", "agent-transcripts", cursorTestID, "subagents", "helper.jsonl"},
+		"root ID in flat layout":              {"repo", "agent-transcripts", cursorTestID + ".jsonl"},
+		"root ID in another project":          {"other", cursorTestID + ".jsonl"},
+		"unaccepted ID version":               {"repo", "agent-transcripts", "01890a5d-ac96-774b-bcce-b302099a8057", "01890a5d-ac96-774b-bcce-b302099a8057.jsonl"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home, _, _ := writeCursorBackupFixture(t, "cursor-ide")
+			writeCursorStray(t, home, relative...)
+			prepared, err := prepareCursorFixture(t, home)
+			var failure *PreparationError
+			if prepared != nil || !errors.As(err, &failure) || failure.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnattributable {
+				t.Fatalf("prepared=%#v error=%v", prepared, err)
+			}
+		})
+	}
+}
