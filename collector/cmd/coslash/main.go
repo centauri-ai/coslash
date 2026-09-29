@@ -220,8 +220,9 @@ func main() {
 	}
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, serverServices{queue: queue, directedStore: directedStore})
 	wake := make(chan struct{}, 1)
+	inventoryTracker := &inventory.Tracker{}
 	if fingerprints != nil && queue != nil {
-		go runInventory(discoveryContext, fingerprints, queue, wake, func(ctx context.Context) bool {
+		go runInventory(discoveryContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
 			credential, err := hub.Credentials.Load(ctx)
 			return err == nil && credential != ""
 		})
@@ -299,9 +300,8 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 // interval, records it for check-in, prunes cache entries whose source is
 // gone, and wakes the sync loop once so the first inventory checks in within
 // seconds of pairing.
-func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, paired func(context.Context) bool) {
+func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, tracker *inventory.Tracker, paired func(context.Context) bool) {
 	const interval = 5 * time.Minute
-	tracker := &inventory.Tracker{}
 	first := true
 	for {
 		if !paired(ctx) {
