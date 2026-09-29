@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
@@ -268,5 +270,84 @@ func TestCursorStrayJSONLThatMayBelongBlocksFamily(t *testing.T) {
 				t.Fatalf("prepared=%#v error=%v", prepared, err)
 			}
 		})
+	}
+}
+
+// Real Cursor CLI chat stores hold content blobs of more than 768 KiB, and IDE
+// bubbles can be as large. Their base64 or text form is over the 1 MiB
+// per-value limit of session-backup-db-rows/v1. Those rows belong to the
+// session, so the blocker must say the rows are out of bounds for the
+// contract, not that they could not be attributed.
+func TestCursorOversizedRowValueIsInvalidNotUnattributable(t *testing.T) {
+	const valueLimit = 1 << 20
+	for name, tc := range map[string]struct {
+		lane   string
+		insert func(t *testing.T, home string, size int)
+		sizes  map[int]bool // value size -> whether it fits the contract
+	}{
+		"cli blob": {
+			lane: "cursor-cli",
+			insert: func(t *testing.T, home string, size int) {
+				execCursorFixtureDB(t, filepath.Join(home, ".cursor", "chats", "workspace", cursorTestID, "store.db"),
+					`CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)`,
+					`INSERT INTO blobs VALUES ('large', ?)`, make([]byte, size))
+			},
+			// Base64 of 786432 bytes is exactly 1 MiB; one more byte is over.
+			sizes: map[int]bool{valueLimit / 4 * 3: true, valueLimit/4*3 + 1: false},
+		},
+		"ide bubble text": {
+			lane: "cursor-ide",
+			insert: func(t *testing.T, home string, size int) {
+				execCursorFixtureDB(t, filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
+					"", `INSERT INTO cursorDiskKV VALUES (?, ?)`, "bubbleId:"+cursorTestID+":large", strings.Repeat("x", size))
+			},
+			sizes: map[int]bool{valueLimit: true, valueLimit + 1: false},
+		},
+	} {
+		for size, fits := range tc.sizes {
+			t.Run(fmt.Sprintf("%s %d bytes", name, size), func(t *testing.T) {
+				home, _, _ := writeCursorBackupFixture(t, tc.lane)
+				tc.insert(t, home, size)
+				spool := t.TempDir()
+				manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+					return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+				}})
+				prepared, err := manager.Prepare(t.Context(), Selection{SourceKind: sessionbackupv1.SourceLocal, SourceID: "local", Agent: vendors.AgentCursor, SessionID: cursorTestID})
+				if fits {
+					if err != nil {
+						t.Fatalf("value at the limit must still prepare: %v", err)
+					}
+					return
+				}
+				var failure *PreparationError
+				if prepared != nil || !errors.As(err, &failure) || len(failure.Coverage.Problems) != 1 {
+					t.Fatalf("prepared=%#v error=%v", prepared, err)
+				}
+				want := sessionbackupv1.CaptureProblem{Code: sessionbackupv1.ProblemInvalid, MemberID: cursorTestID, Kind: sessionbackupv1.KindRawMetadataRows}
+				if got := failure.Coverage.Problems[0]; got != want {
+					t.Fatalf("problem = %#v, want %#v", got, want)
+				}
+				if entries, err := os.ReadDir(spool); err != nil || len(entries) != 0 {
+					t.Fatalf("failed capture published files: %v, %v", entries, err)
+				}
+			})
+		}
+	}
+}
+
+func execCursorFixtureDB(t *testing.T, path, schema, insert string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if schema != "" {
+		if _, err := db.Exec(schema); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(insert, args...); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -49,7 +49,10 @@ retained exactly because it supplies the working directory. The verified parsed
 record carries `cursor-ide` or `cursor-cli`: IDE continuation opens the
 workspace and never claims exact chat resume; CLI continuation may resume the
 specific chat. Missing, ambiguous, changing, or cross-session inputs block
-publication. Cursor SSH remains owned by the later relay task.
+publication. Attributed rows that `session-backup-db-rows/v1` cannot carry,
+such as a value over its per-value limit, also block publication; they are
+reported as non-retryable `artifact_invalid` metadata rows, not as
+unattributable. Cursor SSH remains owned by the later relay task.
 
 Focused verification is:
 
