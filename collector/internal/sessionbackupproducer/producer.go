@@ -82,6 +82,7 @@ type operation struct {
 
 type PreparationError struct {
 	Coverage Coverage
+	TooLarge bool
 }
 
 func (err *PreparationError) Error() string {
@@ -343,6 +344,14 @@ func problem(selection Selection, code, kind string, retryable bool) (*Prepared,
 		Code: code, MemberID: selection.SessionID, Kind: kind, Retryable: retryable,
 	}}}
 	return nil, &PreparationError{Coverage: report}
+}
+
+func captureProblem(selection Selection, failure *captureError) (*Prepared, error) {
+	_, err := problem(selection, failure.code, failure.kind, failure.retryable)
+	if prepared, ok := err.(*PreparationError); ok {
+		prepared.TooLarge = failure.tooLarge
+	}
+	return nil, err
 }
 
 func (manager *Manager) Open(bundleID string) (*Prepared, error) {
