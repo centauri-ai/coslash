@@ -164,6 +164,10 @@ func CurrentBranch(cwd string) *string {
 }
 
 func CurrentBranchContext(ctx context.Context, cwd string) *string {
+	// git -C "" stays in the process directory, which is not the session's.
+	if cwd == "" {
+		return nil
+	}
 	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
 	if err != nil {
 		return nil

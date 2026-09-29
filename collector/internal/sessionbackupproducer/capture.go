@@ -485,6 +485,15 @@ func metadataFromRows(ctx context.Context, rows map[string][][]byte) (*vendors.S
 	return metadata, nil
 }
 
+// manifestRepository names the family's Git repository, or records that the
+// session has no working folder.
+func manifestRepository(repository string) sessionbackupv1.RepositoryIdentity {
+	if repository == "" {
+		return sessionbackupv1.RepositoryIdentity{VCS: sessionbackupv1.RepositoryVCSNone}
+	}
+	return sessionbackupv1.RepositoryIdentity{Canonical: repository, VCS: sessionbackupv1.RepositoryVCSGit}
+}
+
 func repositoryIdentity(ctx context.Context, sourceKind, workingDirectory string, frozen remote.BackupSessionEnrichment) (string, bool) {
 	if sourceKind == sessionbackupv1.SourceLocal {
 		return session.CanonicalRepositoryNameContext(ctx, workingDirectory)
@@ -531,6 +540,9 @@ func (writes *artifactWriter) addProcessed(ctx context.Context, record fullsessi
 		}
 	}
 	enrichment := sessionbackupv1.Enrichment{Repository: &repository, RepositoryLocalOnly: repositoryLocalOnly}
+	if repository == "" {
+		enrichment.Repository = nil
+	}
 	if sourceKind == sessionbackupv1.SourceLocal {
 		branch := record.Session.Branch
 		if branch == nil {

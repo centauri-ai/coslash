@@ -133,12 +133,26 @@ func TestOpenCodeUnattributableRowsCannotComplete(t *testing.T) {
 	}
 }
 
-// Rows over the rows contract's value limit fail the same way every time, so
-// they must not be reported as a retryable read problem.
-func TestOpenCodeOversizedRowIsInvalidNotRetryable(t *testing.T) {
+// A row value of several MiB is carried exactly: the rows contract bounds a
+// value only by its document. (Message text still meets the parsed record's
+// own per-string bound.)
+func TestOpenCodeLargeRowPrepares(t *testing.T) {
 	db := openCodeBackupDB(t)
-	big := `{"type":"text","text":"` + strings.Repeat("x", 3<<20) + `"}`
-	if _, err := db.Exec(`UPDATE part SET data = ? WHERE id = 'p-root'`, big); err != nil {
+	if _, err := db.Exec(`UPDATE session SET future_field = ? WHERE id = 'root'`, strings.Repeat("x", 3<<20)); err != nil {
+		t.Fatal(err)
+	}
+	manager := New(Options{Root: t.TempDir()})
+	if _, err := manager.Prepare(t.Context(), Selection{SourceKind: backup.SourceLocal, SourceID: "local", Agent: vendors.AgentOpenCode, SessionID: "root"}); err != nil {
+		t.Fatalf("large row must prepare: %v", err)
+	}
+}
+
+// Rows the rows contract cannot carry, such as text that is not UTF-8, fail
+// the same way every time, so they must not be reported as a retryable read
+// problem.
+func TestOpenCodeUnrepresentableRowIsInvalidNotRetryable(t *testing.T) {
+	db := openCodeBackupDB(t)
+	if _, err := db.Exec(`UPDATE session SET title = CAST(X'FF' AS TEXT) WHERE id = 'root'`); err != nil {
 		t.Fatal(err)
 	}
 	manager := New(Options{Root: t.TempDir()})

@@ -3,6 +3,7 @@ package sessionbackupv1
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -523,6 +524,77 @@ func TestDatabaseValueSchemaMatchesDecoder(t *testing.T) {
 		if _, err := DecodeDatabaseRows(data, "member"); err != nil {
 			t.Fatalf("DecodeDatabaseRows(%s): %v", value, err)
 		}
+	}
+}
+
+// A value is bounded by its projection document, not by 1 MiB: real Cursor
+// CLI stores hold attributed blobs of several MiB.
+func TestDatabaseValuesUpToTheDocumentBound(t *testing.T) {
+	for name, value := range map[string]string{
+		"3 MiB text": `{"type":"text","value":"` + strings.Repeat("x", 3<<20) + `"}`,
+		"2 MiB blob": `{"type":"blob","value":"` + base64.StdEncoding.EncodeToString(make([]byte, 2<<20)) + `"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			data := databaseRowsWithValue(value)
+			validateAgainstSchema(t, "database-rows.schema.json", data)
+			if _, err := DecodeDatabaseRows(data, "member"); err != nil {
+				t.Fatalf("DecodeDatabaseRows: %v", err)
+			}
+		})
+	}
+	if validDatabaseValue(DatabaseValue{Type: "text", Value: strings.Repeat("x", MaxDatabaseValueBytes+1)}) {
+		t.Fatal("text over the document bound accepted")
+	}
+	if validDatabaseValue(DatabaseValue{Type: "text", Value: "\xff"}) {
+		t.Fatal("invalid UTF-8 text accepted")
+	}
+}
+
+// A session with no working folder records an explicit empty repository;
+// every other repository is a named Git repository.
+func TestRepositoryIsGitOrExplicitlyNone(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		repository RepositoryIdentity
+		valid      bool
+	}{
+		{"named git", RepositoryIdentity{Canonical: "github.com/example/other", VCS: RepositoryVCSGit}, true},
+		{"no folder", RepositoryIdentity{VCS: RepositoryVCSNone}, true},
+		{"empty git", RepositoryIdentity{VCS: RepositoryVCSGit}, false},
+		{"named none", RepositoryIdentity{Canonical: "github.com/example/other", VCS: RepositoryVCSNone}, false},
+		{"other vcs", RepositoryIdentity{Canonical: "github.com/example/other", VCS: "hg"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest, _, blobs := loadValidFixture(t)
+			manifest.Repository = tc.repository
+			frozen, err := Freeze(manifest, blobs)
+			if !tc.valid {
+				if !errors.Is(err, ErrInvalid) {
+					t.Fatalf("Freeze() error = %v; want invalid", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Validate(frozen); err != nil {
+				t.Fatal(err)
+			}
+			data, err := Marshal(frozen)
+			if err != nil {
+				t.Fatal(err)
+			}
+			validateAgainstSchema(t, "schema.json", data)
+		})
+	}
+	manifest, _, _ := loadValidFixture(t)
+	manifest.Repository = RepositoryIdentity{Canonical: "github.com/example/other", VCS: RepositoryVCSNone}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schemaValidationError(t, "schema.json", data); err == nil {
+		t.Fatal("schema accepted a named repository without Git")
 	}
 }
 
