@@ -21,6 +21,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
+	"github.com/centauri-ai/coslash/collector/internal/inventory"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/review"
@@ -29,6 +30,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 	"github.com/centauri-ai/coslash/collector/internal/web"
@@ -114,6 +116,14 @@ func main() {
 	accountingStore := startupAccountingStore(settings.Home(), time.Now().UnixMilli())
 	if accountingStore != nil {
 		defer accountingStore.Close()
+	}
+	var fingerprints *syncv4.Fingerprints
+	if hubclient.ScaleImportEnabled() {
+		if fingerprints, err = syncv4.OpenFingerprints(""); err != nil {
+			log.Printf("parse cache unavailable: %v; parsing every pass", err)
+		} else {
+			vendors.SetParseCache(fingerprints)
+		}
 	}
 	if err := pi.EnsureExtension(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
@@ -209,6 +219,13 @@ func main() {
 		}
 	}
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, serverServices{queue: queue, directedStore: directedStore})
+	wake := make(chan struct{}, 1)
+	if fingerprints != nil && queue != nil {
+		go runInventory(discoveryContext, fingerprints, queue, wake, func(ctx context.Context) bool {
+			credential, err := hub.Credentials.Load(ctx)
+			return err == nil && credential != ""
+		})
+	}
 	if queue != nil {
 		syncContext, stopSync := context.WithCancel(context.Background())
 		server.RegisterOnShutdown(stopSync)
@@ -243,6 +260,7 @@ func main() {
 				select {
 				case <-syncContext.Done():
 					return
+				case <-wake:
 				case <-time.After(syncv4.NextSyncDelay(err, queue.InFlight(), interval)):
 				}
 			}
@@ -275,6 +293,58 @@ func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore
 		log.Printf("synthesis accounting unavailable: %v", err)
 	}
 	return store
+}
+
+// runInventory takes the stat-only inventory at startup and every sync
+// interval, records it for check-in, prunes cache entries whose source is
+// gone, and wakes the sync loop once so the first inventory checks in within
+// seconds of pairing.
+func runInventory(ctx context.Context, fingerprints *syncv4.Fingerprints, queue *syncv4.Queue, wake chan<- struct{}, paired func(context.Context) bool) {
+	const interval = 5 * time.Minute
+	tracker := &inventory.Tracker{}
+	first := true
+	for {
+		if !paired(ctx) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(2 * time.Second):
+				continue
+			}
+		}
+		snapshot, err := inventory.Scan(ctx, inventory.Options{Tracker: tracker})
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("inventory: %v", err)
+		} else {
+			report := snapshot.Inventory()
+			log.Printf("inventory: %d files, %d bytes in %d ms", report.Files, report.Bytes, report.DurationMs)
+			if queue != nil {
+				if err := queue.SetInventory(report); err != nil {
+					log.Printf("inventory: record for check-in: %v", err)
+				}
+			}
+			if removed, err := fingerprints.Prune(inventory.KeepCached(ctx, snapshot)); err != nil {
+				log.Printf("parse cache prune: %v", err)
+			} else if removed > 0 {
+				log.Printf("parse cache: pruned %d entries", removed)
+			}
+			if first {
+				first = false
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+	}
 }
 
 func newProductionRemoteManager() (*remote.Manager, error) {

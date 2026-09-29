@@ -1,0 +1,137 @@
+{
+  "clientVersion": "0.10.0",
+  "capabilities": [
+    "launch",
+    "ssh-relay",
+    "scale-import/v1"
+  ],
+  "os": "darwin",
+  "appliedConfigVersion": 9,
+  "agentsFound": [
+    "codex",
+    "claude",
+    "cursor",
+    "opencode"
+  ],
+  "queue": {
+    "pending": 3655,
+    "failing": 3,
+    "firstSync": {
+      "recentDone": 57,
+      "recentTotal": 88,
+      "historyState": "pending"
+    },
+    "inventory": {
+      "scannedAt": "2026-09-29T19:29:52Z",
+      "durationMs": 8420,
+      "files": 41230,
+      "bytes": 4617089843,
+      "largestBytes": 163577856,
+      "filesOver10MiB": 37,
+      "agents": [
+        {
+          "agent": "my-agent",
+          "files": 20115,
+          "bytes": 2210000000
+        },
+        {
+          "agent": "claude",
+          "files": 15990,
+          "bytes": 1980000000
+        },
+        {
+          "agent": "cursor",
+          "files": 4100,
+          "bytes": 380000000
+        },
+        {
+          "agent": "opencode",
+          "files": 1025,
+          "bytes": 47089843
+        }
+      ],
+      "windows": {
+        "h24": {
+          "sessions": 6,
+          "bytes": 21000000
+        },
+        "d3": {
+          "sessions": 31,
+          "bytes": 190000000
+        },
+        "d7": {
+          "sessions": 88,
+          "bytes": 512000000
+        },
+        "d30": {
+          "sessions": 410,
+          "bytes": 1650000000
+        },
+        "all": {
+          "sessions": 3712,
+          "bytes": 4617089843
+        }
+      }
+    },
+    "import": {
+      "planVersion": 3,
+      "phase": "recent",
+      "listed": 3712,
+      "contentSessions": 57,
+      "contentBytes": 402653184,
+      "totalSessions": 3712,
+      "totalBytes": 4617089843,
+      "current": {
+        "bytesDone": 8388608,
+        "bytesTotal": 25165824
+      },
+      "lastProgressAt": "2026-09-29T19:30:00Z",
+      "rate": {
+        "p25": 2100000.5,
+        "p75": 2600000,
+        "windowSec": 120
+      },
+      "historyCursorAt": null,
+      "wait": null
+    }
+  },
+  "results": [
+    {
+      "commandId": "cmd_0123456789ad",
+      "result": "in_progress",
+      "progress": {
+        "stage": "uploading",
+        "bytesDone": 8388608,
+        "bytesTotal": 25165824
+      }
+    },
+    {
+      "commandId": "cmd_0123456789ae",
+      "result": "done",
+      "progress": {
+        "stage": "landed",
+        "bytesDone": 1048576,
+        "bytesTotal": 1048576
+      }
+    }
+  ],
+  "log": [
+    {
+      "at": "2026-09-29T19:30:00Z",
+      "sessionId": "ses_0123456789ac",
+      "level": "error",
+      "message": "upload failed",
+      "code": "hash_mismatch",
+      "attempts": 3,
+      "parked": true
+    },
+    {
+      "at": "2026-09-29T19:30:00Z",
+      "level": "error",
+      "message": "could not read the source",
+      "code": "unreadable_source",
+      "attempts": 1,
+      "parked": false
+    }
+  ]
+}

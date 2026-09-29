@@ -321,7 +321,7 @@ func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSe
 	}
 	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files,
 		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
-			return parseSourceContext(ctx, source, path, func(command, cwd string) bool {
+			return parseSourceCachedContext(ctx, source, path, func(command, cwd string) bool {
 				return commandNeedsApprovalContext(ctx, command, cwd)
 			})
 		})
@@ -339,7 +339,7 @@ func parseFilesSource(
 	needsApproval func(string, string) bool,
 ) []*vendors.ParsedSession {
 	parsed := vendors.ParseSourceFiles(source, files, func(source vendors.ReadSource, path string) (*parsedSession, error) {
-		return parseSource(source, path, needsApproval)
+		return parseSourceCachedContext(context.Background(), source, path, needsApproval)
 	})
 	return finalizeParsedFiles(source, archivedDir, knownActiveFiles, parsed)
 }
