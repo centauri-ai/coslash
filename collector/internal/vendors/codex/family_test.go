@@ -265,6 +265,55 @@ func TestForkedUsageFindsUnchangedActiveParentWithoutRescan(t *testing.T) {
 	}
 }
 
+// Complete backup must know which rollouts the parser hides before it reads
+// their bodies, so the header has to agree with the parser: only the guardian
+// auto-review subagent is hidden, never an ordinary subagent or its root.
+func TestHeadersMarkOnlyGuardianRolloutHidden(t *testing.T) {
+	home := t.TempDir()
+	rootID := "11111111-2222-3333-4444-555555555555"
+	guardianID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	workerID := "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+	write := func(id, extra string) string {
+		file := filepath.Join(home, ".codex", "sessions", "rollout-2026-07-10T14-11-18-"+id+".jsonl")
+		content := `{"timestamp":"2026-07-10T14:11:18Z","type":"session_meta","payload":{"id":"` + id + `","session_id":"` + id + `"` + extra + `}}` + "\n" +
+			`{"timestamp":"2026-07-10T14:11:19Z","type":"event_msg","payload":{"type":"user_message","message":"synthetic prompt"}}` + "\n"
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return file
+	}
+	root := write(rootID, "")
+	guardian := write(guardianID, `,"parent_thread_id":"`+rootID+`","source":{"subagent":{"other":"guardian"}}`)
+	worker := write(workerID, `,"parent_thread_id":"`+rootID+`","source":{"subagent":{"other":"worker"}}`)
+	files := []string{root, guardian, worker}
+
+	headers := HeadersSource(vendors.LocalReadSource, files)
+	for file, want := range map[string]FileHeader{
+		root:     {SessionID: rootID},
+		guardian: {SessionID: guardianID, ParentID: rootID, Hidden: true},
+		worker:   {SessionID: workerID, ParentID: rootID},
+	} {
+		if got := headers[file]; got != want {
+			t.Fatalf("header for %q = %#v, want %#v", filepath.Base(file), got, want)
+		}
+	}
+	parsed, err := ParseFamilyFilesSource(vendors.LocalReadSource, home, files, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range parsed {
+		if headers[item.LogPath].Hidden {
+			t.Fatalf("parser kept hidden rollout %q", filepath.Base(item.LogPath))
+		}
+	}
+	if len(parsed) != 2 {
+		t.Fatalf("parsed sessions = %d, want every rollout the header did not hide", len(parsed))
+	}
+}
+
 func TestForkedRolloutStillRejectsUnrelatedHeaderID(t *testing.T) {
 	home := t.TempDir()
 	rootID := "11111111-2222-3333-4444-555555555555"

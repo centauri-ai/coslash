@@ -57,6 +57,10 @@ type codexItem struct {
 	ExitCode         *int              `json:"exit_code"`
 }
 
+// guardianRole is the auto-review subagent Codex spawns to vet approvals; the
+// product hides its rollouts.
+const guardianRole = "guardian"
+
 func subagentRole(source json.RawMessage) string {
 	var parsed struct {
 		Subagent struct {

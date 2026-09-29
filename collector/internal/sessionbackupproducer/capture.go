@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -204,11 +205,37 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	}
 
 	memberIDs := map[string]bool{}
+	hiddenParents := map[string]string{}
 	for _, file := range familyFiles {
-		memberIDs[headers[file].SessionID] = true
+		if header := headers[file]; header.Hidden {
+			hiddenParents[header.SessionID] = header.ParentID
+		} else {
+			memberIDs[header.SessionID] = true
+		}
 	}
 	if len(memberIDs) > sessionbackupv1.MaxMembers {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
+	}
+	// A hidden guardian rollout has no parsed record of its own, so its exact
+	// bytes belong to the nearest represented ancestor whose work it reviewed.
+	owners := make(map[string]string, len(familyFiles))
+	for _, file := range familyFiles {
+		owner := headers[file].SessionID
+		for steps := 0; !memberIDs[owner]; steps++ {
+			parent, hidden := hiddenParents[owner]
+			if !hidden || parent == "" || steps > len(hiddenParents) {
+				return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
+			}
+			owner = parent
+		}
+		if headers[file].Hidden && owner == headers[file].SessionID {
+			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
+		}
+		owners[file] = owner
+	}
+	indexIDs := maps.Clone(memberIDs)
+	for id := range hiddenParents {
+		indexIDs[id] = true
 	}
 	indexPath := codex.SessionIndexPath(handle.Home)
 	var indexBefore []vendors.FileFingerprint
@@ -220,9 +247,14 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	} else if !errors.Is(statErr, fs.ErrNotExist) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
 	}
-	indexRows, indexPresent, err := codex.ReadSessionIndexRowsContext(ctx, handle.Source, handle.Home, memberIDs)
+	indexRows, indexPresent, err := codex.ReadSessionIndexRowsContext(ctx, handle.Source, handle.Home, indexIDs)
 	if err != nil {
 		return nil, sourceReadFailure(err, sessionbackupv1.KindRawSidecar)
+	}
+	for id := range hiddenParents {
+		if len(indexRows[id]) > 0 {
+			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawSidecar, false)
+		}
 	}
 	if indexPresent != (len(indexBefore) == 1) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
@@ -243,7 +275,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		if err := ctx.Err(); err != nil {
 			return nil, captureFailure(sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
 		}
-		memberID := headers[file].SessionID
+		memberID := owners[file]
 		index := rolloutIndex[memberID]
 		rolloutIndex[memberID]++
 		name := fmt.Sprintf("members/%s/raw/rollout-%06d.jsonl", memberID, index)
@@ -309,6 +341,18 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	parsed, err := codex.ParseFamilyFilesSourceContext(ctx, frozenSource, handle.Home, familyFiles, activeFamilyFiles)
 	if err != nil || len(parsed) != len(memberIDs) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+	}
+	parsedFiles := make(map[string]bool, len(parsed))
+	for _, item := range parsed {
+		if !memberIDs[item.Session.ID] {
+			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+		}
+		parsedFiles[item.LogPath] = true
+	}
+	for _, file := range familyFiles {
+		if parsedFiles[file] == headers[file].Hidden {
+			return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
+		}
 	}
 	records, err := fullsessionrecord.FromParsedFamilyContext(ctx, selection.SourceID, vendors.AgentCodex, frozenSource, parsed, metadata)
 	if err != nil {
