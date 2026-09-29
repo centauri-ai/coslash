@@ -75,6 +75,17 @@ describe('handoffBrief', () => {
     expect(brief).not.toContain('x'.repeat(100));
   });
 
+  it('keeps the timeline when other sections still exceed the limit', () => {
+    const detail = remoteDetail();
+    detail.todos = Array.from({ length: 33 }, () => ({ text: 'x'.repeat(2_048), done: false }));
+    detail.digest = [{ turn: 1, category: 'question', description: 'Timeline marker' }];
+
+    const brief = handoffBrief(detail);
+    expect(new TextEncoder().encode(brief).length).toBeGreaterThan(65_536);
+    expect(brief.includes('Timeline marker')).toBe(true);
+    expect(brief.includes('Timeline omitted')).toBe(false);
+  });
+
   it('omits unavailable Cursor sections and keeps populated ones', () => {
     const detail = remoteDetail();
     detail.agent = 'cursor';

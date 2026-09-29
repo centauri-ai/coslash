@@ -92,6 +92,20 @@ func TestBuildOmitsOversizedTimeline(t *testing.T) {
 	}
 }
 
+func TestBuildKeepsTimelineWhenOtherSectionsStillExceedLimit(t *testing.T) {
+	var todos []session.Todo
+	for range 33 {
+		todos = append(todos, session.Todo{Text: strings.Repeat("x", 2_048)})
+	}
+	got := Build(&session.Session{ID: "session-1", SessionDetails: session.SessionDetails{
+		Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestQuestion, Description: "Timeline marker"}},
+		Todos:  todos,
+	}})
+	if len(got) <= 65_536 || !strings.Contains(got, "Timeline marker") || strings.Contains(got, "Timeline omitted") {
+		t.Fatalf("oversized non-timeline content discarded the timeline: %d bytes", len(got))
+	}
+}
+
 func TestBuildKeepsSummaryWhenSynthesisOutcomeIsBlank(t *testing.T) {
 	summary := "Tests pass"
 	got := Build(&session.Session{
