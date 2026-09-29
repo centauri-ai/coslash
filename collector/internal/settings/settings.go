@@ -31,7 +31,7 @@ const (
 	// Each backend's own default model, which the runner turns up to high
 	// reasoning effort. Changing one of these ids moves that flag with it.
 	OpenCodeSynthesisModel = "opencode/deepseek-v4-flash-free"
-	CodexSynthesisModel    = "gpt-5.6-luna"
+	CodexSynthesisModel    = "gpt-6-luna"
 	ClaudeSynthesisModel   = "claude-haiku-4-5"
 
 	TerminalWindows = "windows-terminal"
@@ -146,9 +146,8 @@ func BackendOptions() []BackendOption {
 			ID:    BackendCodex,
 			Label: "Codex CLI",
 			Models: []ModelOption{
-				{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", Default: true},
-				{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra"},
-				{ID: "gpt-5.6-sol", Label: "GPT-5.6 Sol"},
+				{ID: "gpt-6-luna", Label: "GPT-6 Luna", Default: true},
+				{ID: "gpt-6-sol", Label: "GPT-6 Sol"},
 			},
 		},
 		{
