@@ -26,6 +26,17 @@ import (
 )
 
 const chunkBytes = 8 << 20
+
+// sync-v4/v2 manifest limits (decision P34-D8). Every artifact stays
+// separate, so a family with one exact change body per file change needs one
+// artifact per change. 8 MiB chunks reach at most v4MaxArtifacts+512 chunks
+// within the 4 GiB family limit.
+const (
+	v4MaxArtifacts      = 4096
+	v4MaxArtifactChunks = 256
+	v4MaxManifestChunks = 2 * v4MaxArtifacts
+)
+
 const consentAge = 5 * time.Minute
 
 var ErrPaused = errors.New("v4 sync paused")
@@ -76,7 +87,7 @@ type Transport interface {
 	V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error)
 	V4Status(context.Context, string) (hubclient.V4Status, error)
 	V4PutChunk(context.Context, string, hubclient.V4Missing, io.Reader) error
-	V4Confirm(context.Context, string, hubclient.V4Missing) (hubclient.V4Status, error)
+	V4Confirm(context.Context, string, ...hubclient.V4Missing) (hubclient.V4Status, error)
 	V4Finalize(context.Context, string) (hubclient.V4Status, error)
 }
 
@@ -722,21 +733,27 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 }
 
 func (r *Runner) manifest(prepared *sessionbackupproducer.Prepared) (hubclient.V4Manifest, error) {
-	if len(prepared.Manifest.Artifacts) == 0 || len(prepared.Manifest.Artifacts) > 64 {
+	if len(prepared.Manifest.Artifacts) == 0 || len(prepared.Manifest.Artifacts) > v4MaxArtifacts {
 		return hubclient.V4Manifest{}, errors.New("v4 artifact count unsupported")
 	}
+	reader, err := r.Backup.Reader(prepared.BundleID)
+	if err != nil {
+		return hubclient.V4Manifest{}, err
+	}
 	manifest := hubclient.V4Manifest{ProducerVersion: prepared.Manifest.Producer.Version}
+	chunks := 0
 	for ordinal, artifact := range prepared.Manifest.Artifacts {
 		if artifact.ByteLength < 1 {
 			return hubclient.V4Manifest{}, errors.New("v4 empty artifact unsupported")
 		}
 		wire := hubclient.V4Artifact{Ordinal: ordinal, Kind: artifact.Kind, Bytes: artifact.ByteLength, SHA256: artifact.SHA256}
 		for offset, chunkOrdinal := int64(0), 0; offset < artifact.ByteLength; chunkOrdinal++ {
-			if chunkOrdinal >= 256 {
+			if chunkOrdinal >= v4MaxArtifactChunks || chunks >= v4MaxManifestChunks {
 				return hubclient.V4Manifest{}, errors.New("v4 chunk count unsupported")
 			}
+			chunks++
 			size := min(int64(chunkBytes), artifact.ByteLength-offset)
-			body, err := r.readChunk(prepared.BundleID, artifact.LogicalName, offset, size)
+			body, err := readChunk(reader, artifact.LogicalName, offset, size)
 			if err != nil {
 				return hubclient.V4Manifest{}, err
 			}
@@ -758,13 +775,13 @@ func (r *Runner) manifest(prepared *sessionbackupproducer.Prepared) (hubclient.V
 	return manifest, nil
 }
 
-func (r *Runner) readChunk(bundleID, name string, offset, size int64) ([]byte, error) {
+func readChunk(reader *sessionbackupproducer.BundleReader, name string, offset, size int64) ([]byte, error) {
 	if size < 1 || size > chunkBytes {
 		return nil, errors.New("invalid v4 chunk size")
 	}
 	body := make([]byte, size)
 	for read := 0; read < len(body); {
-		n, err := r.Backup.Read(bundleID, name, offset+int64(read), body[read:])
+		n, err := reader.Read(name, offset+int64(read), body[read:])
 		read += n
 		if err != nil {
 			return nil, err
@@ -820,7 +837,26 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 	if manifest == nil || manifest.ContentSHA256 != entry.ContentSHA256 {
 		return errors.New("v4 spool changed during upload")
 	}
+	reader, err := r.Backup.Reader(entry.BundleID)
+	if err != nil {
+		return err
+	}
+	// Chunks are confirmed in batches of up to 50 chunks and 8 MiB: every
+	// confirm response lists all chunks still missing, so confirming one
+	// chunk at a time would cost quadratic time in a 4,096-artifact upload.
+	var batch []hubclient.V4Missing
+	var batchBytes int64
+	confirm := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		_, err := r.Hub.V4Confirm(ctx, entry.UploadID, batch...)
+		batch, batchBytes = batch[:0], 0
+		return err
+	}
 	for _, missing := range status.Missing {
+		// Chunks sent since the last confirm stay staged; the next status
+		// read reconciles them or they are sent again.
 		if err := r.allowed(ctx, entry.Session); err != nil {
 			return err
 		}
@@ -835,16 +871,29 @@ func (r *Runner) transfer(ctx context.Context, entry *Entry) error {
 		if missing.Offset != chunk.Offset || missing.Bytes != chunk.Bytes || missing.SHA256 != chunk.SHA256 {
 			return errors.New("v4 missing chunk does not match spool")
 		}
-		body, err := r.readChunk(entry.BundleID, prepared.Manifest.Artifacts[missing.ArtifactOrdinal].LogicalName, chunk.Offset, chunk.Bytes)
+		body, err := readChunk(reader, prepared.Manifest.Artifacts[missing.ArtifactOrdinal].LogicalName, chunk.Offset, chunk.Bytes)
 		if err != nil {
 			return err
 		}
+		if len(batch) > 0 && batchBytes+chunk.Bytes > chunkBytes {
+			if err := confirm(); err != nil {
+				return err
+			}
+		}
 		if err := r.Hub.V4PutChunk(ctx, entry.UploadID, missing, bytes.NewReader(body)); err != nil {
+			// Keep the chunks this pass already sent.
+			_ = confirm()
 			return err
 		}
-		if _, err := r.Hub.V4Confirm(ctx, entry.UploadID, missing); err != nil {
-			return err
+		batch, batchBytes = append(batch, missing), batchBytes+chunk.Bytes
+		if len(batch) == hubclient.V4MaxConfirm {
+			if err := confirm(); err != nil {
+				return err
+			}
 		}
+	}
+	if err := confirm(); err != nil {
+		return err
 	}
 	if err := r.allowed(ctx, entry.Session); err != nil {
 		return err
