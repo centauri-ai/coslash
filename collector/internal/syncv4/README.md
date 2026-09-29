@@ -27,8 +27,15 @@ after recent work has been attempted; a failed recent item does not indefinitely
 block history. A restart reopens the verified spool and reconciles the Hub's
 missing-chunk list before sending bytes. A signed direct PUT is preferred;
 the authenticated proxy is the fallback when direct storage responds with a
-failure. The client confirms each chunk and treats only a completed status
-with an accepted revision ID as locally done.
+failure. The client confirms sent chunks in batches of up to 50 chunks and
+8 MiB, and treats only a completed status with an accepted revision ID as
+locally done.
+
+One upload carries a whole family: 1–4,096 artifacts, each with at most 256
+chunks of 8 MiB, and at most 8,192 chunks in total. Every artifact stays
+separate, so a family with one exact change body per file change syncs
+whole; a larger family is not sent. The spool manifest is decoded once per
+pass, not once per chunk.
 
 The queue is private (`0700` directory and `0600` file, or current-user ACL on
 Windows) and updated by sync plus atomic rename. Check-in reports

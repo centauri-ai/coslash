@@ -429,18 +429,27 @@ func (c *Client) v4ProxyChunk(ctx context.Context, uploadID string, missing V4Mi
 	return nil
 }
 
-func (c *Client) V4Confirm(ctx context.Context, uploadID string, missing V4Missing) (V4Status, error) {
+// V4MaxConfirm is the most chunks one chunks:confirm request names.
+const V4MaxConfirm = 50
+
+// V4Confirm asks the Hub to verify up to V4MaxConfirm staged chunks. Each
+// response lists every chunk still missing, so a large upload confirms its
+// chunks in batches rather than one request per chunk.
+func (c *Client) V4Confirm(ctx context.Context, uploadID string, missing ...V4Missing) (V4Status, error) {
 	var result V4Status
-	coords := struct {
-		Coords []struct {
-			ArtifactOrdinal int `json:"artifactOrdinal"`
-			ChunkOrdinal    int `json:"chunkOrdinal"`
-		} `json:"coords"`
-	}{}
-	coords.Coords = append(coords.Coords, struct {
+	if len(missing) == 0 || len(missing) > V4MaxConfirm {
+		return result, errors.New("invalid v4 confirm batch")
+	}
+	type coordinate struct {
 		ArtifactOrdinal int `json:"artifactOrdinal"`
 		ChunkOrdinal    int `json:"chunkOrdinal"`
-	}{missing.ArtifactOrdinal, missing.ChunkOrdinal})
+	}
+	coords := struct {
+		Coords []coordinate `json:"coords"`
+	}{Coords: make([]coordinate, 0, len(missing))}
+	for _, chunk := range missing {
+		coords.Coords = append(coords.Coords, coordinate{chunk.ArtifactOrdinal, chunk.ChunkOrdinal})
+	}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/uploads/"+url.PathEscape(uploadID)+"/chunks:confirm", coords, &result)
 	return result, err
 }
