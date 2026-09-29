@@ -85,6 +85,10 @@ OpenCode inventory counts the standard XDG database by stat; a database at a
 CLI-configured custom path is omitted from the inventory because resolving it
 would invoke OpenCode and violate the stat-only rule. Discovery still reads
 that database through the normal exporter.
+When Hub leave-out rules are set, the stat-only walker cannot prove which
+source files belong to an excluded repository or working directory. Local
+therefore reports zero window buckets while those rules are set; aggregate
+file and byte counts remain device totals.
 
 Check-in also carries the sync log (`log`, at most 200 lines, oldest first)
 that the Hub shows on the device page and on a failed session's card. Each
