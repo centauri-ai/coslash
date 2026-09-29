@@ -102,6 +102,11 @@ type BackupShareItemResult struct {
 	SharedAt       *time.Time   `json:"sharedAt,omitempty"`
 	Route          *BackupRoute `json:"route,omitempty"`
 	Error          *ItemError   `json:"error,omitempty"`
+	// Private reports that the Hub kept the backup in the owner's own space
+	// (Tier4 Hubs no longer share v3 uploads with a workspace), and
+	// SharingNotice is the Hub's explanation to show the owner.
+	Private       bool   `json:"private,omitempty"`
+	SharingNotice string `json:"sharingNotice,omitempty"`
 }
 
 type BackupShareResult struct {
@@ -252,6 +257,8 @@ type backupUploadResult struct {
 	RepositoryID         string    `json:"repositoryId"`
 	SharedAt             time.Time `json:"sharedAt"`
 	RevisionURL          string    `json:"revisionUrl"`
+	Private              bool      `json:"private,omitempty"`
+	SharingNotice        string    `json:"sharingNotice,omitempty"`
 }
 
 type backupUploadStatus struct {
@@ -285,7 +292,17 @@ func acceptedBackup(item BackupShareItemRequest, status backupUploadStatus, alre
 		RevisionID: result.RevisionID, SharedAt: &result.SharedAt,
 		Deduplicated: alreadyAccepted,
 		Route:        &BackupRoute{HubContractVersion: "session-backup-read/v1", RepositoryID: result.RepositoryID, Path: result.RevisionURL},
+		Private:      result.Private, SharingNotice: boundedNotice(result.SharingNotice),
 	}
+}
+
+// boundedNotice keeps a Hub's sharing notice to one short line of text.
+func boundedNotice(notice string) string {
+	notice = strings.TrimSpace(strings.ReplaceAll(notice, "\n", " "))
+	if len(notice) > 300 {
+		return ""
+	}
+	return notice
 }
 
 func validCompletedBackupResult(result *backupUploadResult, consent BackupConsent) bool {

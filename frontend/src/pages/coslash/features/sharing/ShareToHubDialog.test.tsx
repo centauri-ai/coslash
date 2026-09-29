@@ -14,6 +14,7 @@ import {
   bindBackupConsent,
   filterShareCandidates,
   localSessionId,
+  privateNotice,
   toggleCandidateGroup,
   type BackupPreview,
   type ShareCandidate,
@@ -373,5 +374,28 @@ describe('complete backup sharing presentation', () => {
     expect([...values.values()][0]).toBe(reopenedDraft);
     expect(textContent(rendered)).toContain('Review binds each complete-backup hash');
     expect(textContent(rendered)).not.toContain('Complete backups accepted');
+  });
+});
+
+describe('privateNotice', () => {
+  it('shows the Hub notice only for an accepted private backup', () => {
+    const accepted = {
+      localSessionId: 'local:codex:one',
+      idempotencyKey: 'key-000000000000',
+      state: 'accepted' as const,
+      revisionId: 'revision-one',
+      deduplicated: false,
+      sharedAt: '2026-09-22T20:00:00Z',
+      route: {
+        hubContractVersion: 'session-backup-read/v1',
+        repositoryId: 'repository-one',
+        path: '/v3/session-backups/revision-one',
+      },
+    };
+    expect(privateNotice([accepted])).toBeUndefined();
+    expect(
+      privateNotice([{ ...accepted, private: true, sharingNotice: 'This backup is private in My space.' }]),
+    ).toBe('This backup is private in My space.');
+    expect(privateNotice([{ ...accepted, private: false, sharingNotice: 'ignored' }])).toBeUndefined();
   });
 });
