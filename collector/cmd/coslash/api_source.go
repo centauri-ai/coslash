@@ -11,6 +11,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 const (
@@ -128,12 +129,16 @@ func boardLocalSession(value *session.Session) boardSession {
 
 func boardRemoteSession(value remote.IndexedSession) boardSession {
 	safeSession := sessionWithJSONCollections(remoteLibrarySession(*value.Session))
+	fullRevision := ""
+	if value.Session.Agent == vendors.AgentCodex {
+		fullRevision = value.RevisionID
+	}
 	return boardSession{
 		SourceID: value.Key.SourceID, SourceLabel: sshSourceLabel,
 		SourceClass: "ssh_workspace", LogicalSessionID: logicalSessionID(value.Key.SourceID, value.Session),
 		Revision:              value.Session.LastActivityTime,
 		DetailRevision:        value.RevisionID,
-		FullRevision:          value.RevisionID,
+		FullRevision:          fullRevision,
 		Completion:            completionFor(value.Session, value.EligibleForAggregates && !value.DisplayStale),
 		Privacy:               privacyFor(value.Session),
 		ShareEligibility:      eligibilityFor(value.Session, value.EligibleForAggregates, value.DisplayStale),

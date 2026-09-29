@@ -430,7 +430,7 @@ function useSessionDetail(
           logicalSessionId: current.logicalSessionId,
           revision: current.revision,
           detailRevision: body.revision,
-          fullRevision: isLocalSession(current) ? current.fullRevision : body.revision,
+          fullRevision: current.fullRevision,
           eligibleForAggregates: current.eligibleForAggregates,
           displayStale: current.displayStale,
           launchable: current.launchable,

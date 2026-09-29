@@ -4,7 +4,8 @@
 bounded protocol v1 records to stdout. The Mac keeps settings, cache,
 composition, health, and UI. The helper keeps nothing: no daemon, no listener,
 and no state between runs. Raw transcript rows never leave the Linux host;
-complete supported parsed Codex records do cross the trusted SSH boundary.
+complete supported parsed Claude and Codex records cross the trusted SSH
+boundary into the Mac's private local cache.
 
 ## Commands
 
@@ -107,9 +108,10 @@ the UI can offer the right repair.
 
 ## Privacy
 
-stdout carries bounded `internal/remotefacts` rows plus, for changed Codex
-families, a validated `full-session-record/v1`. The complete record can contain
+stdout carries bounded `internal/remotefacts` rows plus, for changed Claude and
+Codex families, a validated `full-session-record/v1`. The complete record can contain
 parsed prompts, summaries, commands, working directories, subagent detail, and
 file-change bodies. It contains no raw transcript rows, SSH configuration,
 coSlash credentials, sockets, or environment values. stderr remains bounded
-diagnostics that the Mac redacts before showing.
+diagnostics that the Mac redacts before showing. Exact-detail caching and
+synthesis are separate capabilities; complete backup sharing remains Codex-only.

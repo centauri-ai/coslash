@@ -476,6 +476,26 @@ func TestRetainFullRecordFamiliesKeepsNewestWholeFamilies(t *testing.T) {
 	}
 }
 
+func TestPrunedClaudeExactRecordKeepsLibraryFamily(t *testing.T) {
+	snapshot := completeCodexSnapshot(t, "generation", "body\n")
+	snapshot.Families[0].Vendor = vendors.AgentClaude
+	snapshot.Families[0].Facts.Vendor = vendors.AgentClaude
+	record := snapshot.FullRecords[0].Record
+	record.Agent = vendors.AgentClaude
+	var err error
+	snapshot.FullRecords[0].Record, err = fullsessionv1.Freeze(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, pruned, err := retainFullRecordFamilies(snapshot, 0)
+	if err != nil || !pruned || len(retained.Families) != 1 || len(retained.FullRecords) != 0 {
+		t.Fatalf("pruned Claude family: families=%d full=%d pruned=%v err=%v", len(retained.Families), len(retained.FullRecords), pruned, err)
+	}
+	if rows := sessionsRetainedBySnapshot([]*session.Session{{Agent: vendors.AgentClaude, ID: "root-1"}}, retained); len(rows) != 1 {
+		t.Fatalf("pruned Claude library rows = %d, want 1", len(rows))
+	}
+}
+
 func TestRetainFullRecordFamiliesChargesPersistedSidecars(t *testing.T) {
 	snapshot := completeCodexSnapshot(t, "generation", "body\n")
 	canonical, err := fullsessionv1.Marshal(snapshot.FullRecords[0].Record)

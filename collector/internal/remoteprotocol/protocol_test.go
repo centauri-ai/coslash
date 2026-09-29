@@ -140,6 +140,39 @@ func TestChangedCodexFamilyAcceptsDescendantFullRecords(t *testing.T) {
 	}
 }
 
+func TestChangedClaudeFamilyAllowsLegacyBoundedRecordsButRejectsPartialExactFamily(t *testing.T) {
+	r := request()
+	r.Vendors = []string{"claude"}
+	r.SourceID = "r_0123456789abcdef"
+	facts := family()
+	facts.Vendor = "claude"
+	bounded := Record{
+		Type: RecordChanged, ProtocolVersion: ProtocolVersion, RequestID: r.RequestID, Sequence: 2,
+		Vendor: "claude", FamilyID: "root", Fingerprint: "new", Family: &facts,
+	}
+	if err := validateRecord(bounded, r, 2); err != nil {
+		t.Fatalf("legacy bounded Claude family rejected: %v", err)
+	}
+	full, err := fullsessionv1.Freeze(fullsessionv1.Record{
+		SourceID: r.SourceID, Agent: "claude", SessionID: "root",
+		Session: fullsessionv1.Session{StartedAtMs: 1, LastActivityAtMs: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bounded.FullRecords = []FullRecord{{FamilyID: "root", Record: full}}
+	if err := validateRecord(bounded, r, 2); err != nil {
+		t.Fatalf("complete exact Claude family rejected: %v", err)
+	}
+	facts.Sessions = append(facts.Sessions, remotefacts.Session{
+		ID: "child", ParentID: "root", StartedAtMs: 1, LastActivityAtMs: 2,
+		Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{},
+	})
+	if err := validateRecord(bounded, r, 2); err == nil {
+		t.Fatal("partial exact Claude family was accepted")
+	}
+}
+
 func family() remotefacts.Family {
 	return remotefacts.Family{SchemaVersion: remotefacts.SchemaVersion, ParserVersion: "parser-v1", Vendor: "codex", FamilyID: "root", State: "complete", Sessions: []remotefacts.Session{{ID: "root", StartedAtMs: 1, LastActivityAtMs: 2, Usage: []remotefacts.ModelUsage{}, Spawns: []remotefacts.Spawn{}, CommandLabels: []string{}}}, Metadata: remotefacts.Metadata{Names: []remotefacts.MetadataName{}, Live: []remotefacts.MetadataLive{}}, Fingerprints: []remotefacts.Fingerprint{{Key: "opaque", Size: 1, ModifiedAtMs: 2}}}
 }

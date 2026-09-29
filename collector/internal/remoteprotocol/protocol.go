@@ -258,6 +258,25 @@ type FullRecord struct {
 	Record   fullsessionv1.Record `json:"record"`
 }
 
+func FullRecordIdentitiesMatchFamily(records []fullsessionv1.Record, family remotefacts.Family) bool {
+	if len(records) != len(family.Sessions) {
+		return false
+	}
+	expected := make(map[string]string, len(family.Sessions))
+	for _, item := range family.Sessions {
+		expected[item.ID] = item.ParentID
+	}
+	seen := make(map[string]bool, len(records))
+	for _, record := range records {
+		parentID, ok := expected[record.SessionID]
+		if !ok || record.Agent != family.Vendor || record.ParentSessionID != parentID || seen[record.SessionID] {
+			return false
+		}
+		seen[record.SessionID] = true
+	}
+	return len(seen) == len(expected)
+}
+
 func Decode(reader io.Reader, request Request) ([]Record, error) {
 	if err := ValidateRequest(request); err != nil {
 		return nil, err
@@ -525,15 +544,8 @@ func validateRecord(r Record, request Request, sequence int) error {
 			}
 			seenRecords[full.Record.SessionID] = true
 		}
-		if request.SourceID != "" && r.Vendor == "codex" {
-			if len(seenRecords) != len(seenSessions) {
-				return errors.New("complete Codex family requires one full record per session")
-			}
-			for sessionID := range seenSessions {
-				if !seenRecords[sessionID] {
-					return errors.New("complete Codex family requires one full record per session")
-				}
-			}
+		if request.SourceID != "" && (r.Vendor == "codex" || len(seenRecords) > 0) && len(seenRecords) != len(seenSessions) {
+			return errors.New("complete family requires one full record per session")
 		}
 	case RecordUnchanged:
 		if !requestedVendor(request, r.Vendor) || !validID(r.FamilyID) || !validID(r.Fingerprint) {

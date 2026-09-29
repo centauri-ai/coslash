@@ -21,6 +21,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
@@ -37,6 +38,23 @@ func TestBoundChangedRecordConvertsOversizedFamilyToStructuredSkip(t *testing.T)
 	}
 	if !limited || bounded.Type != remoteprotocol.RecordSkipped || bounded.FamilyID != "root" || bounded.Reason != remotefacts.StaleReasonVendorBudgetExceeded {
 		t.Fatalf("bounded record = %#v limited=%v", bounded, limited)
+	}
+}
+
+func TestBoundChangedRecordKeepsClaudeFactsWhenExactFamilyIsTooLarge(t *testing.T) {
+	large := strings.Repeat("x", 4<<10)
+	record := remoteprotocol.Record{
+		Type: remoteprotocol.RecordChanged, Vendor: vendors.AgentClaude, FamilyID: "root", Fingerprint: "new",
+		Family: &remotefacts.Family{Sessions: []remotefacts.Session{{ID: "root"}}},
+		FullRecords: []remoteprotocol.FullRecord{{FamilyID: "root", Record: fullsessionv1.Record{
+			Agent: vendors.AgentClaude, SessionID: "root", Session: fullsessionv1.Session{FileEdits: []fullsessionv1.FileEdit{{
+				Changes: []fullsessionv1.FileChange{{Text: large}},
+			}}},
+		}}},
+	}
+	bounded, limited, _, err := boundChangedRecord(record, "request-1", 2, 3<<10)
+	if err != nil || limited || bounded.Type != remoteprotocol.RecordChanged || bounded.Family == nil || len(bounded.FullRecords) != 0 {
+		t.Fatalf("bounded Claude record = %#v, limited=%v, err=%v", bounded, limited, err)
 	}
 }
 
@@ -75,6 +93,33 @@ func writeClaudeFixture(fs *fakeFS, projectDir, id string, inTokens, outTokens i
 `, id, id, testModel, inTokens, outTokens)
 	fs.writeFile(filePath, content, modTime)
 	return filePath
+}
+
+func completeClaudeFixture(rootID, childID string) (string, string, string) {
+	root := strings.ReplaceAll(strings.ReplaceAll(`
+{"type":"user","uuid":"root-prompt","sessionId":"ROOT_ID","timestamp":"2026-08-18T10:00:00.000Z","cwd":"/test/project","message":{"content":"first prompt"}}
+{"type":"assistant","uuid":"root-task","sessionId":"ROOT_ID","timestamp":"2026-08-18T10:00:01.000Z","message":{"id":"root-task","model":"MODEL","stop_reason":"tool_use","content":[{"type":"tool_use","id":"task-1","name":"Task","input":{"description":"delegate child"}}],"usage":{"input_tokens":10,"output_tokens":2}}}
+{"type":"user","uuid":"root-task-result","sessionId":"ROOT_ID","timestamp":"2026-08-18T10:00:02.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"task-1","content":"started"}]}}
+{"type":"assistant","uuid":"root-edit","sessionId":"ROOT_ID","timestamp":"2026-08-18T10:00:03.000Z","message":{"id":"root-edit","model":"MODEL","stop_reason":"tool_use","content":[{"type":"tool_use","id":"edit-1","name":"Edit","input":{"file_path":"main.go"}}],"usage":{"input_tokens":12,"output_tokens":3}}}
+{"type":"user","uuid":"root-edit-result","sessionId":"ROOT_ID","timestamp":"2026-08-18T10:00:04.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"edit-1","content":"edited"}]},"toolUseResult":{"filePath":"main.go","type":"update","structuredPatch":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["@@","-old","+new"]}]}}
+{"type":"assistant","uuid":"root-final","sessionId":"ROOT_ID","timestamp":"2026-08-18T10:00:05.000Z","durationMs":500,"message":{"id":"root-final","model":"MODEL","stop_reason":"end_turn","content":[{"type":"text","text":"root recap"}],"usage":{"input_tokens":14,"output_tokens":4}}}
+`, "ROOT_ID", rootID), "MODEL", testModel)
+	childSessionID := "agent-" + childID
+	child := strings.ReplaceAll(strings.ReplaceAll(`
+{"type":"user","uuid":"child-prompt","sessionId":"CHILD_ID","timestamp":"2026-08-18T10:00:02.500Z","cwd":"/test/project","message":{"content":"child prompt"}}
+{"type":"assistant","uuid":"child-final","sessionId":"CHILD_ID","timestamp":"2026-08-18T10:00:03.500Z","durationMs":250,"message":{"id":"child-final","model":"MODEL","stop_reason":"end_turn","content":[{"type":"text","text":"child recap"}],"usage":{"input_tokens":8,"output_tokens":2}}}
+`, "CHILD_ID", childSessionID), "MODEL", testModel)
+	return root, child, `{"description":"child task","toolUseId":"task-1"}`
+}
+
+func writeCompleteClaudeFixture(fs *fakeFS, rootID, childID string, modTime time.Time) (string, string) {
+	rootContent, childContent, metaContent := completeClaudeFixture(rootID, childID)
+	rootPath := path.Join(fakeHome, ".claude/projects/project", rootID+".jsonl")
+	childPath := path.Join(fakeHome, ".claude/projects/project", rootID, "subagents", "agent-"+childID+".jsonl")
+	fs.writeFile(rootPath, rootContent, modTime)
+	fs.writeFile(childPath, childContent, modTime)
+	fs.writeFile(strings.TrimSuffix(childPath, ".jsonl")+".meta.json", metaContent, modTime)
+	return rootPath, childPath
 }
 
 func writeCodexFixture(fs *fakeFS, id, parentID string, modTime time.Time) string {
@@ -304,6 +349,222 @@ func TestCodexFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testi
 	sftpBytes, _ := fullsessionv1.Marshal(sftp.FullRecords[0].Record)
 	if !bytes.Equal(localBytes, helperBytes) || !bytes.Equal(localBytes, sftpBytes) {
 		t.Fatal("canonical local/helper/SFTP record bytes differ")
+	}
+}
+
+func TestClaudeFullRecordMatchesLocalHelperAndSFTPAndSurvivesWarmRefresh(t *testing.T) {
+	rootID := "aaaaaaaa-1111-2222-3333-444444444444"
+	childID := "child-1"
+	modTime := time.Unix(2_000, 0)
+	fake := newFakeFS()
+	rootPath, childPath := writeCompleteClaudeFixture(fake, rootID, childID, modTime)
+	baseline := CachedSnapshotV2{SourceID: "r_0123456789abcdef"}
+	sftp, _, failures, err := collectIncremental(
+		context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), baseline,
+	)
+	if err != nil || len(failures) != 0 || len(sftp.FullRecords) != 2 {
+		t.Fatalf("SFTP Claude collect: records=%d failures=%v err=%v", len(sftp.FullRecords), failures, err)
+	}
+	byID := func(records []remoteprotocol.FullRecord) map[string]fullsessionv1.Record {
+		result := make(map[string]fullsessionv1.Record, len(records))
+		for _, item := range records {
+			result[item.Record.SessionID] = item.Record
+		}
+		return result
+	}
+	sftpRecords := byID(sftp.FullRecords)
+	rootRecord, ok := sftpRecords[rootID]
+	if !ok || rootRecord.Agent != vendors.AgentClaude || rootRecord.Session.FirstPrompt == nil || *rootRecord.Session.FirstPrompt != "first prompt" ||
+		rootRecord.Session.Summary == nil || *rootRecord.Session.Summary != "root recap" || len(rootRecord.Session.Digest) < 3 ||
+		len(rootRecord.Session.Subagents) != 1 || rootRecord.Session.Subagents[0].ID != "agent-"+childID ||
+		len(rootRecord.Session.FileEdits) != 1 || len(rootRecord.Session.FileEdits[0].Changes) != 1 ||
+		rootRecord.Session.FileEdits[0].Changes[0].Text == "" {
+		t.Fatalf("SFTP Claude detail = %#v", rootRecord.Session)
+	}
+	if childRecord := sftpRecords["agent-"+childID]; childRecord.Session.FirstPrompt == nil || *childRecord.Session.FirstPrompt != "child prompt" {
+		t.Fatalf("SFTP Claude child detail = %#v", childRecord.Session)
+	}
+
+	before := fake.openCounts()
+	warm, _, failures, err := collectIncremental(
+		context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(4_000, 0), sftp,
+	)
+	if err != nil || len(failures) != 0 || len(warm.FullRecords) != 2 {
+		t.Fatalf("warm Claude collect: records=%d failures=%v err=%v", len(warm.FullRecords), failures, err)
+	}
+	warmRecords := byID(warm.FullRecords)
+	for id, record := range sftpRecords {
+		if warmRecords[id].RevisionID != record.RevisionID {
+			t.Fatalf("warm Claude revision for %q changed: got %q want %q", id, warmRecords[id].RevisionID, record.RevisionID)
+		}
+	}
+	if after := fake.openCounts(); after[rootPath] != before[rootPath] || after[childPath] != before[childPath] {
+		t.Fatalf("warm Claude refresh reopened transcripts: root %d->%d child %d->%d", before[rootPath], after[rootPath], before[childPath], after[childPath])
+	}
+
+	legacy := sftp
+	legacy.FullRecords = nil
+	for index := range legacy.Families {
+		if legacy.Families[index].Vendor == vendors.AgentClaude {
+			legacy.Families[index].Facts.ParserVersion = "parsers-2"
+		}
+	}
+	beforeBackfill := fake.openCounts()
+	backfilled, _, failures, err := collectIncremental(
+		context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(4_500, 0), legacy,
+	)
+	if err != nil || len(failures) != 0 || len(backfilled.FullRecords) != 2 {
+		t.Fatalf("Claude parser-version backfill: records=%d failures=%v err=%v", len(backfilled.FullRecords), failures, err)
+	}
+	if after := fake.openCounts(); after[rootPath] <= beforeBackfill[rootPath] || after[childPath] <= beforeBackfill[childPath] {
+		t.Fatalf("Claude parser-version backfill did not reopen transcripts: root %d->%d child %d->%d", beforeBackfill[rootPath], after[rootPath], beforeBackfill[childPath], after[childPath])
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	rootContent, childContent, metaContent := completeClaudeFixture(rootID, childID)
+	realRoot := filepath.Join(home, ".claude/projects/project", rootID+".jsonl")
+	realChild := filepath.Join(home, ".claude/projects/project", rootID, "subagents", "agent-"+childID+".jsonl")
+	for file, content := range map[string]string{
+		realRoot:  rootContent,
+		realChild: childContent,
+		strings.TrimSuffix(realChild, ".jsonl") + ".meta.json": metaContent,
+	} {
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(file, modTime, modTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	localParsed, localMetadata, err := claude.CollectContext(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localRecords, err := fullsessionrecord.FromParsedFamily(
+		baseline.SourceID, vendors.AgentClaude, vendors.LocalReadSource, localParsed, localMetadata,
+	)
+	if err != nil || len(localRecords) != 2 {
+		t.Fatalf("local Claude records=%d err=%v", len(localRecords), err)
+	}
+
+	request := remoteprotocol.Request{
+		RequestID: "helper-claude-full-1", Protocol: remoteprotocol.VersionRange{Min: 1, Max: 1},
+		Schema: remoteprotocol.VersionRange{Min: 2, Max: 2}, ParserVersion: vendors.ParserVersion,
+		SourceID: baseline.SourceID, BaselineMode: remoteprotocol.BaselineNone,
+		CollectedAtMs: time.Unix(3_000, 0).UnixMilli(), Vendors: []string{vendors.AgentClaude},
+		Limits: remoteprotocol.Limits{MaxRecordBytes: remoteprotocol.MaxRecordBytes, MaxResponseBytes: remoteprotocol.MaxResponseBytes, MaxRecords: remoteprotocol.MaxRecords, MaxInventoryFamilies: remoteprotocol.MaxInventoryFamilies},
+	}
+	var output bytes.Buffer
+	if _, err := remotehelper.Collect(t.Context(), request, remoteHelperOptions(home), &output); err != nil {
+		t.Fatal(err)
+	}
+	records, err := remoteprotocol.Decode(&output, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var helperRecords []remoteprotocol.FullRecord
+	for _, record := range records {
+		if record.Type == remoteprotocol.RecordChanged {
+			helperRecords = append(helperRecords, record.FullRecords...)
+		}
+	}
+	if len(helperRecords) != 2 {
+		t.Fatalf("helper Claude records=%d", len(helperRecords))
+	}
+	localByID := make(map[string]fullsessionv1.Record, len(localRecords))
+	for _, record := range localRecords {
+		localByID[record.SessionID] = record
+	}
+	helperByID := byID(helperRecords)
+	for id, localRecord := range localByID {
+		helperRecord, helperOK := helperByID[id]
+		sftpRecord, sftpOK := sftpRecords[id]
+		if !helperOK || !sftpOK {
+			t.Fatalf("Claude record %q missing from local/helper/SFTP parity", id)
+		}
+		localBytes, err := fullsessionv1.Marshal(localRecord)
+		if err != nil {
+			t.Fatal(err)
+		}
+		helperBytes, err := fullsessionv1.Marshal(helperRecord)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sftpBytes, err := fullsessionv1.Marshal(sftpRecord)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(localBytes, helperBytes) || !bytes.Equal(localBytes, sftpBytes) {
+			t.Fatalf("canonical Claude record bytes differ for %q", id)
+		}
+	}
+}
+
+func TestClaudeOversizedExactRecordRetainsBoundedFamily(t *testing.T) {
+	id := "bbbbbbbb-1111-2222-3333-444444444444"
+	content := fmt.Sprintf(`{"type":"user","uuid":"prompt","sessionId":%q,"timestamp":"2026-08-18T10:00:00.000Z","cwd":"/test/project","message":{"content":%q}}\n`, id, strings.Repeat("x", fullsessionv1.MaxStringBytes+1))
+	content = strings.ReplaceAll(content, "\\n", "\n")
+	fake := newFakeFS()
+	fake.writeFile(path.Join(fakeHome, ".claude/projects/project", id+".jsonl"), content, time.Unix(2_000, 0))
+	snapshot, sessions, failures, err := collectIncremental(
+		context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), CachedSnapshotV2{SourceID: "r_0123456789abcdef"},
+	)
+	if err != nil || len(failures) != 0 || !snapshot.RequestComplete || len(snapshot.Families) != 1 || len(snapshot.FullRecords) != 0 || len(sessions) != 1 {
+		t.Fatalf("oversized Claude exact record was not bounded fallback: families=%d full=%d sessions=%d failures=%v err=%v", len(snapshot.Families), len(snapshot.FullRecords), len(sessions), failures, err)
+	}
+}
+
+func TestClaudeOversizedRefreshKeepsSourceCurrent(t *testing.T) {
+	id := "cccccccc-1111-2222-3333-444444444444"
+	codexID := "dddddddd-1111-2222-3333-444444444444"
+	fake := newFakeFS()
+	file := writeClaudeFixture(fake, "project", id, 1, 1, time.Unix(2_000, 0))
+	codexFile := writeCompleteCodexFixture(fake, codexID, time.Unix(2_000, 0))
+	baseline, _, failures, err := collectIncremental(
+		context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(3_000, 0), CachedSnapshotV2{SourceID: "r_0123456789abcdef"},
+	)
+	if err != nil || len(failures) != 0 || len(baseline.FullRecords) != 2 {
+		t.Fatalf("seed families: full=%d failures=%v err=%v", len(baseline.FullRecords), failures, err)
+	}
+	content := fmt.Sprintf(`{"type":"user","uuid":"prompt","sessionId":%q,"timestamp":"2026-08-18T10:00:00.000Z","cwd":"/test/project","message":{"content":%q}}\n`, id, strings.Repeat("x", fullsessionv1.MaxStringBytes+1))
+	fake.writeFile(file, strings.ReplaceAll(content, "\\n", "\n"), time.Unix(4_000, 0))
+	fake.writeFile(codexFile, strings.Replace(completeCodexFixture(codexID), "do complete work", "do updated work", 1), time.Unix(4_000, 0))
+	updated, sessions, failures, err := collectIncremental(
+		context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(5_000, 0), baseline,
+	)
+	if err != nil || len(failures) != 0 || !updated.RequestComplete || len(updated.Families) != 2 || len(updated.FullRecords) != 1 ||
+		updated.FullRecords[0].Record.Agent != vendors.AgentCodex || len(sessions) != 2 {
+		t.Fatalf("oversized Claude stalled source: families=%d full=%d sessions=%d complete=%v failures=%v err=%v", len(updated.Families), len(updated.FullRecords), len(sessions), updated.RequestComplete, failures, err)
+	}
+	for _, record := range baseline.FullRecords {
+		if record.Record.Agent == vendors.AgentCodex && record.Record.RevisionID == updated.FullRecords[0].Record.RevisionID {
+			t.Fatal("Codex refresh did not advance while Claude detail was oversized")
+		}
+	}
+	claudeFingerprint := ""
+	for _, family := range updated.Families {
+		if family.Vendor == vendors.AgentClaude {
+			claudeFingerprint = family.Fingerprint
+		}
+	}
+	if claudeFingerprint == "" {
+		t.Fatal("bounded Claude family disappeared")
+	}
+	fake.writeFile(file, strings.ReplaceAll(strings.ReplaceAll(content, "x", "y"), "\\n", "\n"), time.Unix(6_000, 0))
+	next, _, failures, err := collectIncremental(context.Background(), newFakeSource(fake, Limits{}), 0, time.Unix(7_000, 0), updated)
+	if err != nil || len(failures) != 0 || !next.RequestComplete || len(next.FullRecords) != 1 {
+		t.Fatalf("bounded Claude refresh stalled source: full=%d complete=%v failures=%v err=%v", len(next.FullRecords), next.RequestComplete, failures, err)
+	}
+	for _, family := range next.Families {
+		if family.Vendor == vendors.AgentClaude && family.Fingerprint == claudeFingerprint {
+			t.Fatal("bounded Claude facts stopped updating")
+		}
 	}
 }
 

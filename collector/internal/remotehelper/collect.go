@@ -376,17 +376,18 @@ func publishFamily(
 			continue
 		}
 		var complete []fullsessionv1.Record
-		if scanned.vendor == vendors.AgentCodex && request.SourceID != "" {
-			var fullErr error
+		var fullErr error
+		if request.SourceID != "" {
 			complete, fullErr = fullsessionrecord.FromParsedFamily(request.SourceID, scanned.vendor, scanned.source, sessions, scanned.metadata)
-			if fullErr != nil {
+			if fullErr != nil && scanned.vendor == vendors.AgentCodex {
 				return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)
 			}
-			if !containsFullRecord(complete, item.id) {
+			if fullErr == nil && !containsFullRecord(complete, item.id) {
 				delete(scanned.scan.families, item.id)
 				return parser, nil
 			}
-		} else if !fullsessionrecord.IsServableFamily(item.id, scanned.vendor, scanned.source, sessions, scanned.metadata) {
+		}
+		if (request.SourceID == "" || fullErr != nil) && !fullsessionrecord.IsServableFamily(item.id, scanned.vendor, scanned.source, sessions, scanned.metadata) {
 			delete(scanned.scan.families, item.id)
 			return parser, nil
 		}
@@ -397,8 +398,14 @@ func publishFamily(
 				boundedReason(err),
 			)
 		}
+		if request.SourceID != "" && scanned.vendor == vendors.AgentCodex && !remoteprotocol.FullRecordIdentitiesMatchFamily(complete, facts) {
+			return parser, skipFamily(emitter, scanned, item, counts, remotefacts.StaleReasonInvalidData)
+		}
+		if request.SourceID != "" && scanned.vendor == vendors.AgentClaude && (fullErr != nil || !remoteprotocol.FullRecordIdentitiesMatchFamily(complete, facts)) {
+			complete = nil
+		}
 		var fullRecords []remoteprotocol.FullRecord
-		if scanned.vendor == vendors.AgentCodex && request.SourceID != "" {
+		if request.SourceID != "" && (scanned.vendor == vendors.AgentCodex || scanned.vendor == vendors.AgentClaude) {
 			for _, completeRecord := range complete {
 				fullRecords = append(fullRecords, remoteprotocol.FullRecord{FamilyID: item.id, Record: completeRecord})
 			}
@@ -414,6 +421,10 @@ func publishFamily(
 			PriorFingerprint: prior, Fingerprint: item.fingerprint, Family: &facts, FullRecords: fullRecords,
 		}
 		line, fits, fitErr := emitter.prepareBounded(changedRecord)
+		if fitErr == nil && !fits && scanned.vendor == vendors.AgentClaude && len(changedRecord.FullRecords) > 0 {
+			changedRecord.FullRecords = nil
+			line, fits, fitErr = emitter.prepareBounded(changedRecord)
+		}
 		if fitErr != nil {
 			return parser, fitErr
 		}

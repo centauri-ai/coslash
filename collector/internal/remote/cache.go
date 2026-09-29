@@ -1034,9 +1034,7 @@ func writeAtomicCacheFile(dir, target string, data []byte) error {
 	return os.Rename(tempPath, target)
 }
 
-// retainFullRecordFamilies applies the durable full-record retention policy.
-// Families are atomic because retaining only some of a family's records would
-// make its fingerprint unusable as a complete-record baseline.
+// Claude cards remain visible when their exact records are pruned; Codex families stay atomic.
 func retainFullRecordFamilies(cached CachedSnapshotV2, budget int) (CachedSnapshotV2, bool, error) {
 	type familyRecords struct {
 		key           remoteprotocol.FamilyKey
@@ -1107,7 +1105,7 @@ func retainFullRecordFamilies(cached CachedSnapshotV2, budget int) (CachedSnapsh
 	result.Families = make([]CachedFamilyV2, 0, len(cached.Families))
 	for _, family := range cached.Families {
 		key := remoteprotocol.FamilyKey{Vendor: family.Vendor, FamilyID: family.FamilyID}
-		if _, hasRecords := groupsByKey[key]; !hasRecords || retained[key] {
+		if _, hasRecords := groupsByKey[key]; family.Vendor == vendors.AgentClaude || !hasRecords || retained[key] {
 			result.Families = append(result.Families, family)
 		}
 	}

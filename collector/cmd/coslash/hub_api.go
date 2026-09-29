@@ -18,6 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
@@ -71,6 +72,9 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		}
 		client.LoadFullSession = func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error) {
 			if sourceID == localSourceID {
+				return nil, fullsessionexport.Repository{}, nil
+			}
+			if agent != vendors.AgentCodex {
 				return nil, fullsessionexport.Repository{}, nil
 			}
 			record, canonical, localOnly, err := remoteManager.ReadFullSessionForShare(sourceID, agent, sessionID, revisionID)

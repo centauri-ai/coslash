@@ -604,6 +604,7 @@ func TestBoardSessionLibraryNormalizesIdentityEligibilityAndSSHLabel(t *testing.
 		Key:                   remote.SessionKey{SourceID: "r_0123456789abcdef"},
 		SourceLabel:           "person@private-host",
 		EligibleForAggregates: true,
+		RevisionID:            "codex-full-revision",
 		Session: &session.Session{
 			Agent: "codex", ID: "session-1", LastActivityTime: 42,
 			RepositoryLocalOnly: private,
@@ -612,7 +613,7 @@ func TestBoardSessionLibraryNormalizesIdentityEligibilityAndSSHLabel(t *testing.
 	if remoteSession.SourceClass != "ssh_workspace" || remoteSession.SourceLabel != sshSourceLabel {
 		t.Fatalf("source presentation = %q/%q, want ssh_workspace/%q", remoteSession.SourceClass, remoteSession.SourceLabel, sshSourceLabel)
 	}
-	if remoteSession.LogicalSessionID != "r_0123456789abcdef:codex:session-1" || remoteSession.Revision != 42 {
+	if remoteSession.LogicalSessionID != "r_0123456789abcdef:codex:session-1" || remoteSession.Revision != 42 || remoteSession.FullRevision != "codex-full-revision" {
 		t.Fatalf("logical identity = %q@%d", remoteSession.LogicalSessionID, remoteSession.Revision)
 	}
 	if remoteSession.Privacy != "private" || remoteSession.ShareEligibility != "private" {
@@ -629,6 +630,17 @@ func TestBoardSessionLibraryNormalizesIdentityEligibilityAndSSHLabel(t *testing.
 	}
 	if localSession.DetailRevision != "retained-revision" {
 		t.Fatalf("local detail revision = %q, want retained revision", localSession.DetailRevision)
+	}
+}
+
+func TestBoardRemoteClaudePublishesDetailRevisionWithoutLegacyFullRevision(t *testing.T) {
+	value := boardRemoteSession(remote.IndexedSession{
+		Key:        remote.SessionKey{SourceID: "r_0123456789abcdef"},
+		RevisionID: "claude-detail-revision",
+		Session:    &session.Session{Agent: "claude", ID: "session-1"},
+	})
+	if value.DetailRevision != "claude-detail-revision" || value.FullRevision != "" {
+		t.Fatalf("Claude revisions = detail %q/full %q", value.DetailRevision, value.FullRevision)
 	}
 }
 
