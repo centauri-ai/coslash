@@ -14,7 +14,7 @@ func openTerminal(ctx context.Context, terminal, workingDirectory, command strin
 	case settings.TerminalApple:
 		label, application, open = "Apple Terminal", "Terminal", openMacTerminal
 	case settings.TerminalITerm:
-		label, application, open = "iTerm2", "iTerm2", openMacITerm
+		label, application, open = "iTerm2", macITermBundleID, openMacITerm
 	default:
 		return fmt.Errorf("launch: unsupported terminal %q", terminal)
 	}
@@ -36,7 +36,7 @@ func Available(terminal string) bool {
 	case settings.TerminalApple:
 		return macApplicationAvailable(context.Background(), "Terminal") == nil
 	case settings.TerminalITerm:
-		return macApplicationAvailable(context.Background(), "iTerm2") == nil
+		return macApplicationAvailable(context.Background(), macITermBundleID) == nil
 	default:
 		return false
 	}

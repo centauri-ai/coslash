@@ -5,7 +5,37 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
+
+func TestITermUsesBundleIDForDiscoveryAndLaunch(t *testing.T) {
+	original := runOSAScript
+	t.Cleanup(func() { runOSAScript = original })
+	var calls [][]string
+	runOSAScript = func(_ context.Context, arguments ...string) error {
+		calls = append(calls, arguments)
+		return nil
+	}
+
+	if !Available(settings.TerminalITerm) {
+		t.Fatal("iTerm2 unavailable")
+	}
+	if err := openTerminal(context.Background(), settings.TerminalITerm, "/tmp", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("osascript calls = %d, want 3", len(calls))
+	}
+	for _, call := range calls[:2] {
+		if !slices.Equal(call, []string{"-e", `id of application id "com.googlecode.iterm2"`}) {
+			t.Fatalf("availability lookup = %q", call)
+		}
+	}
+	if !slices.Contains(calls[2], `tell application id "com.googlecode.iterm2"`) {
+		t.Fatalf("launch script = %q", calls[2])
+	}
+}
 
 func TestTerminalScriptClearsSessionMarkersInKnownShells(t *testing.T) {
 	command := "'claude' '--resume' 'id'"
