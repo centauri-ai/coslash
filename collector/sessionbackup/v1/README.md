@@ -73,7 +73,7 @@ Codex manifests continue to require only the original two versions.
 
 [`schema.json`](schema.json) is the language-neutral manifest shape and
 [`database-rows.schema.json`](database-rows.schema.json) defines the generic
-attributed shared-database projection used by Cursor IDE and CLI.
+attributed shared-database projection used by OpenCode and by Cursor IDE and CLI.
 [`enrichment.schema.json`](enrichment.schema.json) and
 [`synthesis.schema.json`](synthesis.schema.json) pin the two processed
 documents. Canonical bytes are
