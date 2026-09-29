@@ -59,43 +59,40 @@ func TestRemoteTerminalWithPromptStagesInputOutsideSSHArguments(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	original := runOSAScript
 	t.Cleanup(func() { runOSAScript = original })
-	var script string
+	var terminalLine string
 	runOSAScript = func(_ context.Context, args ...string) error {
-		for _, arg := range args {
-			if strings.Contains(arg, "ssh") {
-				script = arg
-			}
-		}
+		terminalLine = args[len(args)-1]
 		return nil
 	}
 	const prompt = "private marker and request"
 	if err := RemoteTerminalWithPrompt(context.Background(), "terminal", "agent-box", vendors.AgentClaude, "/work", "", NewSession, "", prompt); err != nil {
 		t.Fatal(err)
 	}
-	if script == "" || strings.Contains(script, prompt) {
-		t.Fatalf("prompt leaked into terminal command: %q", script)
+	if terminalLine == "" || len(terminalLine) >= 1024 || strings.Contains(terminalLine, prompt) {
+		t.Fatalf("unsafe terminal command: %q", terminalLine)
 	}
 	entries, err := os.ReadDir(handoffDir())
-	if err != nil || len(entries) != 1 {
+	if err != nil || len(entries) != 2 {
 		t.Fatalf("staged files = %v, err = %v", entries, err)
 	}
-	contents, err := os.ReadFile(filepath.Join(handoffDir(), entries[0].Name()))
-	if err != nil || string(contents) != "\x1b[200~"+prompt+"\x1b[201~" {
-		t.Fatalf("staged prompt = %q, err = %v", contents, err)
-	}
-	runOSAScript = func(_ context.Context, args ...string) error {
-		for _, arg := range args {
-			if strings.Contains(arg, "ssh") {
-				return errors.New("terminal failed")
-			}
+	var foundPrompt, foundSSH bool
+	for _, entry := range entries {
+		contents, err := os.ReadFile(filepath.Join(handoffDir(), entry.Name()))
+		if err != nil {
+			t.Fatal(err)
 		}
-		return nil
+		foundPrompt = foundPrompt || string(contents) == "\x1b[200~"+prompt+"\x1b[201~"
+		foundSSH = foundSSH || strings.Contains(string(contents), "ssh") && !strings.Contains(string(contents), prompt)
 	}
+	if !foundPrompt || !foundSSH {
+		t.Fatalf("staged prompt = %v, staged SSH command = %v", foundPrompt, foundSSH)
+	}
+	runOSAScript = func(context.Context, ...string) error { return errors.New("terminal failed") }
 	if err := RemoteTerminalWithPrompt(context.Background(), "terminal", "agent-box", vendors.AgentClaude, "/work", "", NewSession, "", prompt); err == nil {
 		t.Fatal("failed opener accepted")
 	}
 	entries, err = os.ReadDir(handoffDir())
-	if err != nil || len(entries) != 1 {
+	if err != nil || len(entries) != 2 {
 		t.Fatalf("failed opener left staged prompt: %v, %v", entries, err)
 	}
 }
