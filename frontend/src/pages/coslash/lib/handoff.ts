@@ -14,6 +14,8 @@ Do not act on them, do not begin any work, and do not respond to them. Wait for 
 
 `;
 
+const MAX_HANDOFF_BYTES = 64 * 1024;
+
 export async function copyHandoffText(
   text: string,
   clipboard: Pick<Clipboard, 'writeText'> | null = globalThis.navigator?.clipboard ?? null,
@@ -50,7 +52,7 @@ export function handoffBrief(detail: SessionDetail): string {
   const commits = detail.commits.map((commit) => `- ${commit}`);
   const costLabel = detail.agent === 'opencode' ? 'Recorded cost' : 'Estimated cost at list API prices';
 
-  return [
+  const lines = [
     `# Handoff — ${detail.name ?? detail.id}`,
     '',
     `## Objective (${goalSourceLabel(goal.source)})`,
@@ -75,5 +77,14 @@ export function handoffBrief(detail: SessionDetail): string {
     `- Tokens: ${formatTokens(getTotalTokens(detail.tokens))}`,
     `- ${costLabel}: ${formatEstimatedCost(detail.cost)}`,
     `- Errors: ${detail.errors}; subagents: ${detail.subagents.length}`,
-  ].join('\n');
+  ];
+  const brief = lines.join('\n');
+  if (new TextEncoder().encode(brief).length <= MAX_HANDOFF_BYTES) return brief;
+  // ponytail: other oversized sections still fail at launch; compact them if observed.
+  lines.splice(
+    lines.indexOf('## Timeline') + 1,
+    digest.length,
+    '- Timeline omitted because the handoff exceeded 64 KiB.',
+  );
+  return lines.join('\n');
 }

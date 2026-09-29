@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
@@ -30,6 +31,7 @@ func Build(value *session.Session) string {
 	if value.Synthesis != nil && len(value.Synthesis.KeyDecisions) > 0 {
 		lines = appendBullets(append(lines, "", "## Key decisions"), value.Synthesis.KeyDecisions)
 	}
+	timelineStart := len(lines)
 	lines = append(lines, "", "## Timeline")
 	if len(value.Digest) == 0 {
 		lines = append(lines, "- —")
@@ -41,6 +43,7 @@ func Build(value *session.Session) string {
 			}
 		}
 	}
+	timelineEnd := len(lines)
 	if len(value.FileEdits) > 0 {
 		lines = append(lines, "", "## Files")
 		for _, edit := range value.FileEdits {
@@ -77,7 +80,14 @@ func Build(value *session.Session) string {
 		"- "+costLabel+": "+formatCost(value.Cost),
 		fmt.Sprintf("- Errors: %d; subagents: %d", value.Errors, len(value.Subagents)),
 	)
-	return strings.Join(lines, "\n")
+	brief := strings.Join(lines, "\n")
+	if len(brief) <= launch.MaxHandoffBytes {
+		return brief
+	}
+	// ponytail: other oversized sections still fail at launch; compact them if observed.
+	compact := append([]string{}, lines[:timelineStart]...)
+	compact = append(compact, "", "## Timeline", "- Timeline omitted because the handoff exceeded 64 KiB.")
+	return strings.Join(append(compact, lines[timelineEnd:]...), "\n")
 }
 
 func sessionGoals(value *session.Session) ([]string, string) {
