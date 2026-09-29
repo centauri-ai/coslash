@@ -496,11 +496,21 @@ func TestLogTheHubWouldRefuseDoesNotStopCheckIn(t *testing.T) {
 	if len(*calls) != 2 {
 		t.Fatalf("check-ins=%d", len(*calls))
 	}
-	if lines, _ := queue.PendingLog(now); len(lines) != 0 {
-		t.Fatalf("refused batch kept: %+v", lines)
+	if lines, _ := queue.PendingLog(now); len(lines) != 1 {
+		t.Fatalf("refused batch lost: %+v", lines)
 	}
 	if err := runner.refreshConsent(t.Context()); err != nil || len(*calls) != 3 {
-		t.Fatalf("next check-in err=%v calls=%d", err, len(*calls))
+		t.Fatalf("backed-off check-in err=%v calls=%d", err, len(*calls))
+	}
+	if (*calls)[2].log != nil {
+		t.Fatal("rejected batch retried before its backoff")
+	}
+	now = now.Add(time.Minute)
+	if err := runner.refreshConsent(t.Context()); err != nil || len(*calls) != 5 {
+		t.Fatalf("retry after backoff err=%v calls=%d", err, len(*calls))
+	}
+	if (*calls)[3].log == nil || (*calls)[4].log != nil {
+		t.Fatal("rejected batch was not retried with safe fallback")
 	}
 }
 
