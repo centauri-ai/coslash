@@ -34,6 +34,11 @@ const (
 	SourceLocal = "local"
 	SourceSSH   = "ssh"
 
+	// RepositoryVCSNone marks a session with no working folder, such as a
+	// Cursor chat in an empty window. Its canonical repository is empty.
+	RepositoryVCSGit  = "git"
+	RepositoryVCSNone = "none"
+
 	ArtifactSourceCodex    = "codex"
 	ArtifactSourceClaude   = "claude"
 	ArtifactSourceCursor   = "cursor"
@@ -98,6 +103,18 @@ type SourceIdentity struct {
 type RepositoryIdentity struct {
 	Canonical string `json:"canonical"`
 	VCS       string `json:"vcs"`
+}
+
+// validRepository accepts a named Git repository, or no repository for a
+// session that has no working folder.
+func validRepository(repository RepositoryIdentity) bool {
+	switch repository.VCS {
+	case RepositoryVCSGit:
+		return repository.Canonical != "" && plainText(repository.Canonical)
+	case RepositoryVCSNone:
+		return repository.Canonical == ""
+	}
+	return false
 }
 
 type ProducerIdentity struct {
@@ -351,7 +368,7 @@ func validate(manifest Manifest, requireHash bool) error {
 		!identifier(manifest.Source.SourceID) || !identifier(manifest.Source.SourceRevision) {
 		return fmt.Errorf("%w: invalid source identity", ErrInvalid)
 	}
-	if !plainText(manifest.Repository.Canonical) || manifest.Repository.Canonical == "" || manifest.Repository.VCS != "git" ||
+	if !validRepository(manifest.Repository) ||
 		!identifier(manifest.Producer.Name) || !identifier(manifest.Producer.Version) || !identifier(manifest.Producer.ParserVersion) ||
 		!identifier(manifest.Family.FamilyID) || !identifier(manifest.Family.RootMemberID) {
 		return fmt.Errorf("%w: invalid repository, producer, or family identity", ErrInvalid)
