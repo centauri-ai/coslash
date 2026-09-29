@@ -44,11 +44,12 @@ func waitReason(conditions waitConditions) string {
 }
 
 func (r *Runner) currentWait(ctx context.Context) *hubclient.V4ImportWait {
+	_, config, _ := r.Queue.Policy()
 	conditions := waitConditions{
 		updateRequired: r.Queue.UpdatePrompt().Required,
 		pausedLocal:    os.Getenv("COSLASH_SYNC_PAUSED") == "1" || r.LocalPause != nil && r.LocalPause(),
-		pausedHub:      r.config.Paused,
-		deviceOff:      r.config.DeviceOff,
+		pausedHub:      config.Paused,
+		deviceOff:      config.DeviceOff,
 		battery:        -1,
 	}
 	if r.Conditions != nil {
@@ -71,6 +72,8 @@ func (r *Runner) currentWait(ctx context.Context) *hubclient.V4ImportWait {
 		conditions.spaceFull, conditions.backoff = false, false
 	}
 	reason := waitReason(conditions)
+	r.waitMu.Lock()
+	defer r.waitMu.Unlock()
 	if reason == "" {
 		r.waitReason, r.waitSince = "", time.Time{}
 		return nil
