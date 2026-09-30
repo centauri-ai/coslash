@@ -271,3 +271,55 @@ func TestWriteSchemaFileIsPrivate(t *testing.T) {
 	assertPrivateSynthesisPath(t, SynthesisCwd(), true)
 	assertPrivateSynthesisPath(t, path, false)
 }
+
+func TestPiOpaqueCacheIdentity(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	cache := NewCache()
+	id := "../../opaque/custom id"
+	if err := cache.Store("pi", id, Record{Revision: 5}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := NewCache().Load("pi", id)
+	if err != nil || loaded.SessionID != id {
+		t.Fatalf("opaque Pi identity lost: %v", err)
+	}
+	path, err := cache.recordPath("pi", id)
+	if err != nil || filepath.Dir(path) != filepath.Join(SummariesDir(), "pi") {
+		t.Fatalf("cache path escaped namespace: %s", path)
+	}
+	aliasID := strings.TrimSuffix(filepath.Base(path), ".json")
+	aliasPath, err := cache.recordPath("pi", aliasID)
+	if err != nil || aliasPath == path {
+		t.Fatal("native identity aliases encoded opaque identity")
+	}
+	data, _ := json.Marshal(Record{Agent: "pi", SessionID: "other"})
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewCache().Load("pi", id); err == nil {
+		t.Fatal("mismatched cache accepted")
+	}
+}
+
+func TestPiManagerUsesCanonicalRevisionForBackgroundRuns(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	value := &session.Session{Agent: "pi", ID: "SDK/manager identity", LastActivityTime: 42, SessionDetails: session.SessionDetails{Turns: 6, Digest: []session.DigestEntry{{Description: "selected context"}}}}
+	manager := NewManager(runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
+		return session.SessionSynthesis{Outcome: "selected"}, nil
+	}))
+	expected := Revision(value)
+	if !manager.Ensure(value, value.LastActivityTime) {
+		t.Fatal("Pi background run not scheduled")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if record, err := manager.LoadRecord("pi", value.ID); err == nil {
+			if record.Revision != expected || record.Revision > (1<<53)-1 {
+				t.Fatalf("background revision = %d, want %d", record.Revision, expected)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("Pi background synthesis did not persist")
+}

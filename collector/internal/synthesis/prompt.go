@@ -35,14 +35,14 @@ func BuildInput(s *session.Session) string {
 	if s == nil {
 		return "Session facts unavailable."
 	}
-	return limitBytes(buildPrompt(s, s.Digest, true, "DIGEST (chronological)"), maxPromptBytes)
+	return limitBytes(buildPrompt(s, session.SelectedDigest(s.Digest), true, "DIGEST (chronological)"), maxPromptBytes)
 }
 
 func BuildInputs(s *session.Session) []string {
 	if s == nil {
 		return []string{"Session facts unavailable."}
 	}
-	complete := buildPrompt(s, s.Digest, true, "DIGEST (chronological)")
+	complete := buildPrompt(s, session.SelectedDigest(s.Digest), true, "DIGEST (chronological)")
 	if len(complete) <= maxPromptBytes {
 		return []string{complete}
 	}
@@ -50,7 +50,7 @@ func BuildInputs(s *session.Session) []string {
 	prefix := untrustedSessionInstruction + untrustedSessionBegin +
 		renderChunkContext(s) +
 		"\nDIGEST CHUNK (chronological)\n"
-	groups := digestGroups(s.Digest)
+	groups := digestGroups(session.SelectedDigest(s.Digest))
 	if len(groups) == 0 {
 		return []string{limitBytes(complete, maxPromptBytes)}
 	}
@@ -109,6 +109,9 @@ func renderSessionHeader(s *session.Session) string {
 	}
 	if s.FirstPrompt != nil && strings.TrimSpace(*s.FirstPrompt) != "" {
 		fmt.Fprintf(&out, "First prompt: %s\n", limited(*s.FirstPrompt, 1_000))
+	}
+	if s.Summary != nil {
+		fmt.Fprintf(&out, "Current summary: %s\n", limited(*s.Summary, 1000))
 	}
 	fmt.Fprintf(&out, "\nSESSION\nID: %s\nAgent: %s\nRepository: %s\nBranch: %s\nWorking directory: %s\n",
 		limited(s.ID, 200), limited(s.Agent, 100), optional(s.Repository), optional(s.Branch),

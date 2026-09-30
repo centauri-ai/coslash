@@ -86,6 +86,9 @@ func (m *Manager) LoadRecord(agent, id string) (Record, error) {
 }
 
 func (m *Manager) Ensure(s *session.Session, revision int64) bool {
+	if s != nil && s.Agent == "pi" {
+		revision = Revision(s)
+	}
 	if m == nil || revision <= 0 || !Eligible(s) {
 		return false
 	}
@@ -250,7 +253,7 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 		if candidate.Status == nil && candidate.LastActivityTime < startOfToday {
 			continue
 		}
-		if m.Ensure(candidate, candidate.LastActivityTime) {
+		if m.Ensure(candidate, Revision(candidate)) {
 			initiated++
 			if initiated == m.sweepLimit {
 				return

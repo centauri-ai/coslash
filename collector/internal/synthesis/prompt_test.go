@@ -308,3 +308,22 @@ func TestBuildInputPreservesDigestAfterMultibyteCompactionSeed(t *testing.T) {
 		t.Fatalf("recent digest was truncated after multibyte compaction seed: %s", input)
 	}
 }
+
+func TestPiSelectedContextFilteredBeforeChunking(t *testing.T) {
+	selected := false
+	replacement := "context replacement"
+	value := &session.Session{Agent: "pi", ID: "opaque", SessionDetails: session.SessionDetails{Digest: []session.DigestEntry{{Description: "excluded branch", ContextSelected: &selected}, {Description: "original body", ContextDescription: &replacement}}}}
+	for i := 0; i < 60; i++ {
+		value.Digest = append(value.Digest, session.DigestEntry{Category: session.DigestRecap, Description: strings.Repeat("f", 500)})
+	}
+	for _, input := range BuildInputs(value) {
+		if strings.Contains(input, "excluded branch") || strings.Contains(input, "original body") {
+			t.Fatal("discarded context reached chunk")
+		}
+	}
+	revision := Revision(value)
+	value.Digest[0].ContextSelected = nil
+	if Revision(value) == revision {
+		t.Fatal("branch selection did not invalidate synthesis")
+	}
+}

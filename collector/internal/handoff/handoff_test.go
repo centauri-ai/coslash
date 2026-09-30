@@ -134,3 +134,14 @@ func TestBuildOmitsUnavailableCursorSections(t *testing.T) {
 		}
 	}
 }
+
+func TestPiHandoffUsesSelectedContextAndIndependentAccounting(t *testing.T) {
+	selected := false
+	replacement := "replacement context"
+	cost := 3.0
+	value := &session.Session{Agent: "pi", Cost: &cost, TokensUnavailable: true, SessionDetails: session.SessionDetails{Digest: []session.DigestEntry{{Description: "abandoned branch", ContextSelected: &selected}, {Description: "historical body", ContextDescription: &replacement}}}}
+	brief := Build(value)
+	if strings.Contains(brief, "abandoned branch") || strings.Contains(brief, "historical body") || !strings.Contains(brief, replacement) || !strings.Contains(brief, "Tokens: Unavailable") || !strings.Contains(brief, "Recorded cost") {
+		t.Fatalf("invalid Pi handoff: %s", brief)
+	}
+}
