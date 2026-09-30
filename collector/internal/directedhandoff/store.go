@@ -207,7 +207,10 @@ func (s *Store) Observe(sourceID string, sessions []*session.Session) error {
 		}
 		if r.Kind == "custom" {
 			for _, entry := range target.Digest {
-				result, completed := strings.CutSuffix(strings.TrimSpace(entry.Description), "\n"+CompletionMarker(r.ID))
+				result, completed := strings.CutPrefix(strings.TrimSpace(entry.Description), CompletionMarker(r.ID)+"\n")
+				if !completed {
+					result, completed = strings.CutSuffix(strings.TrimSpace(entry.Description), "\n"+CompletionMarker(r.ID))
+				}
 				if entry.Category == session.DigestRecap && completed && strings.TrimSpace(result) != "" {
 					r.Status, r.Result, r.Activity = "completed", strings.TrimSpace(result), ""
 					changed = true

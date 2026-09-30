@@ -2,12 +2,17 @@ package directedhandoff
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 )
 
 func TestShutdownCancelsReviewsAndRefusesNewWork(t *testing.T) {
@@ -259,7 +264,11 @@ func TestCustomHandoffRequiresItsOwnAssistantCompletionMarker(t *testing.T) {
 		{"user marker", session.DigestUser, "Done.\ncoSlash handoff completed: HANDOFF_ID", "running", ""},
 		{"quoted marker", session.DigestRecap, "Example:\n> coSlash handoff completed: HANDOFF_ID", "running", ""},
 		{"marker without result", session.DigestRecap, "coSlash handoff completed: HANDOFF_ID", "running", ""},
-		{"marker before question", session.DigestRecap, "coSlash handoff completed: HANDOFF_ID\nWhich color?", "running", ""},
+		{"marker in middle", session.DigestRecap, "Example:\ncoSlash handoff completed: HANDOFF_ID\nWhich color?", "running", ""},
+		{"leading completion", session.DigestRecap, "coSlash handoff completed: HANDOFF_ID\nDone.", "completed", "Done."},
+		{"leading wrong marker", session.DigestRecap, "coSlash handoff completed: wrong\nDone.", "running", ""},
+		{"leading user marker", session.DigestUser, "coSlash handoff completed: HANDOFF_ID\nDone.", "running", ""},
+		{"leading quoted marker", session.DigestRecap, "> coSlash handoff completed: HANDOFF_ID\nDone.", "running", ""},
 		{"direct completion", session.DigestRecap, "Done.\ncoSlash handoff completed: HANDOFF_ID", "completed", "Done."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -283,5 +292,43 @@ func TestCustomHandoffRequiresItsOwnAssistantCompletionMarker(t *testing.T) {
 				t.Fatalf("observed = %#v", got)
 			}
 		})
+	}
+}
+
+func TestCustomHandoffCompletesAfterTranscriptRecapTruncation(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "handoffs.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.Start("local", "codex", "origin", "claude", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := CompletionMarker(record.ID) + "\n" + strings.Repeat("x", fullsessionv1.MaxStringBytes+1)
+	path := filepath.Join(t.TempDir(), "target.jsonl")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = file.Close() })
+	encoder := json.NewEncoder(file)
+	for _, row := range []any{
+		map[string]any{"type": "user", "message": map[string]any{"content": Marker(record.ID)}},
+		map[string]any{"type": "assistant", "message": map[string]any{"stop_reason": "end_turn", "content": []any{map[string]any{"type": "text", "text": reply}}}},
+	} {
+		if err := encoder.Encode(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	parsed, failures, err := claude.ParseRemoteFiles(vendors.LocalReadSource, []string{path})
+	if err != nil || len(failures) != 0 || len(parsed) != 1 {
+		t.Fatalf("parse transcript: err=%v, failures=%v, sessions=%d", err, failures, len(parsed))
+	}
+	if err := store.Observe("local", []*session.Session{parsed[0].Session}); err != nil {
+		t.Fatal(err)
+	}
+	got := store.List()[0]
+	if got.Status != "completed" || got.TargetSessionID != "target" || got.Result == "" || len(got.Result) > fullsessionv1.MaxStringBytes || strings.Contains(got.Result, CompletionMarker(record.ID)) {
+		t.Fatalf("truncated recap: status=%s target=%s resultBytes=%d", got.Status, got.TargetSessionID, len(got.Result))
 	}
 }
