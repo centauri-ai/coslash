@@ -40,6 +40,69 @@ type rateLimitedCreateHub struct {
 	finalized int
 }
 
+type freshDuringPassHub struct {
+	*planHub
+	onCreate func() error
+}
+
+func (h *freshDuringPassHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
+	h.creates++
+	if h.onCreate != nil {
+		if err := h.onCreate(); err != nil {
+			return hubclient.V4Status{}, err
+		}
+	}
+	return hubclient.V4Status{}, hubclient.V4Problem{Code: "temporary_unavailable", HTTPStatus: 503}
+}
+
+func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
+	started := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	now := started
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, prepared := artifactLimitBundle(t, 1)
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &freshDuringPassHub{planHub: &planHub{plan: &plan}}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now,
+		scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}, lastReportedPhase: "recent"}
+	manifest, err := runner.manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"old-1", "old-2"} {
+		if err := q.Merge([]Entry{{Key: key, Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: key},
+			Activity: now.UnixMilli(), Listed: true, BundleID: prepared.BundleID, Manifest: &manifest,
+			ContentSHA256: manifest.ContentSHA256}}, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hub.onCreate = func() error {
+		now = now.Add(plannedContentBudget + time.Second)
+		return q.Merge([]Entry{{Key: "fresh", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "fresh"},
+			Activity: now.UnixMilli()}}, now)
+	}
+	if err := runner.syncPlannedContent(t.Context(), plan); err == nil {
+		t.Fatal("expected first upload error")
+	}
+	if hub.creates != 1 {
+		t.Fatalf("content pass did not yield after budget: %d creates", hub.creates)
+	}
+	if err := runner.listAll(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range q.Entries() {
+		if entry.Key == "fresh" && entry.Listed && now.Sub(started) < time.Minute {
+			return
+		}
+	}
+	t.Fatal("fresh session was not listed on the next boundary within the budget")
+}
+
 func (h *rateLimitedCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
 	h.creates++
 	return hubclient.V4Status{}, hubclient.V4Problem{Code: "rate_limited", HTTPStatus: 429}
