@@ -10,6 +10,7 @@ import (
 
 const initialBytesPerSecond = 20_000_000 / 8
 const firstWarmMaxBytes = 25 << 20
+const plannedContentBudget = 35 * time.Second
 
 type listingTransport interface {
 	V4ListBatch(context.Context, []hubclient.V4ListItem) ([]hubclient.V4ListResult, error)
@@ -281,15 +282,24 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 }
 
 func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4ImportPlan) error {
+	started := r.now()
+	workCtx, cancel := context.WithTimeout(ctx, plannedContentBudget)
+	defer cancel()
 	entries := r.Queue.PlannedEntries(plan, r.now())
 	var firstErr error
 	// Reconcile uploads already accepted by the Hub before opening more. A
 	// finalize can complete between passes even when new creates are refused.
 	for _, entry := range entries {
+		if r.now().Sub(started) >= plannedContentBudget || workCtx.Err() != nil {
+			return firstErr
+		}
 		if entry.UploadID == "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
 			continue
 		}
-		if err := r.transfer(ctx, &entry); err != nil {
+		if err := r.transfer(workCtx, &entry); err != nil {
+			if workCtx.Err() != nil && ctx.Err() == nil {
+				return firstErr
+			}
 			if stopSync(err) {
 				return err
 			}
@@ -303,6 +313,9 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 	}
 	entries = r.Queue.PlannedEntries(plan, r.now())
 	for _, entry := range entries {
+		if r.now().Sub(started) >= plannedContentBudget || workCtx.Err() != nil {
+			return firstErr
+		}
 		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) || !entry.Priority && !inWindow(entry, plan, r.now()) && plan.HistoryPaused {
 			continue
 		}
@@ -313,9 +326,9 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if err := r.Queue.SetPhase(phase); err != nil {
 			return err
 		}
-		err := r.ensureCreated(ctx, &entry)
+		err := r.ensureCreated(workCtx, &entry)
 		if err == nil && entry.UploadID != "" {
-			err = r.transfer(ctx, &entry)
+			err = r.transfer(workCtx, &entry)
 			if err == nil && entry.RevisionID != "" {
 				entry.Priority = false
 				if err = r.Queue.Update(entry); err != nil {
@@ -326,6 +339,9 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 			continue
 		}
 		if err != nil {
+			if workCtx.Err() != nil && ctx.Err() == nil {
+				return firstErr
+			}
 			if stopSync(err) || Busy(err) {
 				return err
 			}
