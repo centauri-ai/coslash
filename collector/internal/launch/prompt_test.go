@@ -64,7 +64,7 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 				ready = `{0 in}`
 			}
 			submit := `after 300; send -- "\r"`
-			if agent == vendors.AgentCursor {
+			if agent == vendors.AgentCursor || agent == vendors.AgentCodex {
 				submit = `after 2000; send -- "\r"`
 			}
 			if !strings.Contains(command, ready) || !strings.Contains(command, submit) || strings.Contains(command, "/dev/tty") {

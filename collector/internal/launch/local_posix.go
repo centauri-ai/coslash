@@ -72,7 +72,7 @@ func secureTerminalInputCommand(base, prompt, agent, context string) (string, st
 		ready = `{0 in}`
 	}
 	submit := `after 300; send -- "\r"`
-	if (agent == vendors.AgentClaude || agent == vendors.AgentCursor) && strings.Contains(prompt, "\n") {
+	if (agent == vendors.AgentClaude || agent == vendors.AgentCursor || agent == vendors.AgentCodex) && strings.Contains(prompt, "\n") {
 		submit = `after 2000; send -- "\r"`
 	}
 	relay := `set file [open $env(COSLASH_PROMPT_PATH) r]
