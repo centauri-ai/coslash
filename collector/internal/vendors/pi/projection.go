@@ -13,11 +13,12 @@ import (
 )
 
 type projectedPayload struct {
-	ModelID          string `json:"modelId"`
-	Name             string `json:"name"`
-	Summary          string `json:"summary"`
-	TargetID         string `json:"targetId"`
-	FirstKeptEntryID string `json:"firstKeptEntryId"`
+	Content          json.RawMessage `json:"content"`
+	ModelID          string          `json:"modelId"`
+	Name             string          `json:"name"`
+	Summary          string          `json:"summary"`
+	TargetID         string          `json:"targetId"`
+	FirstKeptEntryID string          `json:"firstKeptEntryId"`
 	Replacement      *struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"replacement"`
@@ -147,8 +148,12 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			return nil, err
 		}
 		switch e.Type {
-		case "message", "model_change", "session_info", "compaction", "branch_summary", "context_edit":
+		case "message", "custom_message", "model_change", "session_info", "compaction", "branch_summary", "context_edit":
 			_ = json.Unmarshal(e.Raw, &payloads[i])
+			if e.Type == "custom_message" {
+				payloads[i].Message.Role = "custom"
+				payloads[i].Message.Content = payloads[i].Content
+			}
 			if e.Type == "session_info" {
 				result.Name = payloads[i].Name
 			}
@@ -336,7 +341,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 	// Current state follows ancestry, not the chronology used by the inspector.
 	for _, i := range path {
 		e, p := t.Entries[i], payloads[i]
-		if e.Type == "compaction" {
+		if e.Type == "compaction" || e.Type == "context_edit" || e.Type == "branch_summary" || (p.Message.Role != "" && p.Message.Role != "assistant") {
 			s.ContextTokens = nil
 		}
 		if p.ModelID != "" && e.Type == "model_change" {
@@ -459,13 +464,17 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 			}
 		case p.Message.Role == "assistant":
 			category, text = session.DigestRecap, contentText(p.Message.Content)
+		case e.Type == "custom_message":
+			category, text = session.DigestUser, contentText(p.Message.Content)
 		case e.Type == "compaction":
 			category, text = session.DigestCompaction, p.Summary
 		case e.Type == "branch_summary":
 			category, text = session.DigestRecap, p.Summary
 		}
 		log := session.DigestLog{}
-		if category != "" && strings.TrimSpace(text) != "" {
+		replacement, edited := contextEdits[e.ID]
+		contextText := contextIDs[e.ID] && edited && replacement != nil && strings.TrimSpace(contentText(replacement.Content)) != "" && (e.Type == "message" || e.Type == "custom_message")
+		if category != "" && (strings.TrimSpace(text) != "" || contextText) {
 			log.Push(turns[e.ID], category, text, entryTime(e))
 		}
 		var blocks []contentBlock
@@ -482,7 +491,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 
 		for _, row := range log.Entries() {
 			selectedContext := contextIDs[e.ID]
-			if replacement, superseded := contextEdits[e.ID]; selectedContext && superseded && e.Type == "message" {
+			if replacement, superseded := contextEdits[e.ID]; selectedContext && superseded && (e.Type == "message" || e.Type == "custom_message") {
 				if replacement == nil {
 					selectedContext = false
 				} else {
