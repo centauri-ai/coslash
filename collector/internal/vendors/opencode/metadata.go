@@ -21,6 +21,8 @@ const (
 
 var sessionIDPattern = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 
+var loadProcessesContext = listTUIProcessesContext
+
 var nonTUICommands = map[string]struct{}{
 	"acp": {}, "agent": {}, "attach": {}, "auth": {}, "completion": {}, "db": {},
 	"debug": {}, "export": {}, "github": {}, "import": {}, "mcp": {}, "models": {},
@@ -56,7 +58,7 @@ func loadMetadata(db *sql.DB) (*vendors.SessionMetadata, error) {
 
 func loadMetadataContext(ctx context.Context, db *sql.DB) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	processes, err := listTUIProcessesContext(ctx)
+	processes, err := loadProcessesContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list processes: %w", err)
 	}
@@ -87,6 +89,7 @@ func loadMetadataContext(ctx context.Context, db *sql.DB) (*vendors.SessionMetad
 	if err := markPendingPermissionsContext(ctx, db, metadata, permissionStateDir()); err != nil {
 		return nil, err
 	}
+	metadata.LivenessChecked = true
 	return metadata, nil
 }
 

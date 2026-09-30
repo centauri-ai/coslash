@@ -41,6 +41,8 @@ type SessionEnrichment struct {
 
 type SessionMetadata struct {
 	Sessions map[string]*SessionEnrichment
+	// LivenessChecked distinguishes a successful empty probe from unavailable liveness.
+	LivenessChecked bool
 }
 
 func EmptySessionMetadata() *SessionMetadata {
