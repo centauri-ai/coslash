@@ -44,9 +44,13 @@ type contentBlock struct {
 		Command string         `json:"command"`
 		Path    string         `json:"path"`
 		Content string         `json:"content"`
-		OldText string         `json:"oldText"`
-		NewText string         `json:"newText"`
+		OldText *string        `json:"oldText"`
+		NewText *string        `json:"newText"`
 		Todos   []session.Todo `json:"todos"`
+		Edits   []struct {
+			OldText *string `json:"oldText"`
+			NewText *string `json:"newText"`
+		} `json:"edits"`
 	} `json:"arguments"`
 }
 
@@ -310,8 +314,16 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 					edits.Add(a.Path, session.CountLines(a.Content), 0, false)
 					edits.Write(a.Path, a.Content)
 				} else {
-					edits.Add(a.Path, session.CountLines(a.NewText), session.CountLines(a.OldText), false)
-					edits.Change(a.Path, a.OldText, a.NewText)
+					for _, replacement := range a.Edits {
+						if replacement.OldText != nil && replacement.NewText != nil {
+							edits.Add(a.Path, session.CountLines(*replacement.NewText), session.CountLines(*replacement.OldText), false)
+							edits.Change(a.Path, *replacement.OldText, *replacement.NewText)
+						}
+					}
+					if a.OldText != nil && a.NewText != nil {
+						edits.Add(a.Path, session.CountLines(*a.NewText), session.CountLines(*a.OldText), false)
+						edits.Change(a.Path, *a.OldText, *a.NewText)
+					}
 				}
 				if stamp != 0 {
 					last := stamp
