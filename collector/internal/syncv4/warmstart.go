@@ -164,6 +164,53 @@ func readyLive(entry Entry, now time.Time) bool {
 	return !entry.Live || now.Sub(time.UnixMilli(entry.ChangedAt)) >= 2*time.Minute
 }
 
+// listBatchIsolating sends one listing batch with the retry policy for
+// transient Hub problems. When the Hub rejects the whole batch as invalid
+// (400 invalid_query), it bisects so one bad item cannot block the other
+// items or make the next pass resend the same rejected batch; a single item
+// the Hub still refuses is reported back as rejected with code invalid_item.
+func listBatchIsolating(ctx context.Context, lister listingTransport, batch []hubclient.V4ListItem) ([]hubclient.V4ListResult, error) {
+	var results []hubclient.V4ListResult
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		results, err = lister.V4ListBatch(ctx, batch)
+		if err == nil || !retryableChunk(err) {
+			break
+		}
+		timer := time.NewTimer(time.Duration(1<<attempt) * 200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	if err == nil {
+		return results, nil
+	}
+	if !invalidListBatch(err) {
+		return nil, err
+	}
+	if len(batch) == 1 {
+		return []hubclient.V4ListResult{{LocalKeyHash: batch[0].LocalKeyHash, State: "rejected", Code: "invalid_item"}}, nil
+	}
+	half := len(batch) / 2
+	left, err := listBatchIsolating(ctx, lister, batch[:half])
+	if err != nil {
+		return nil, err
+	}
+	right, err := listBatchIsolating(ctx, lister, batch[half:])
+	if err != nil {
+		return nil, err
+	}
+	return append(left, right...), nil
+}
+
+func invalidListBatch(err error) bool {
+	var problem hubclient.V4Problem
+	return errors.As(err, &problem) && (problem.Code == "invalid_query" || problem.HTTPStatus == 400)
+}
+
 func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error {
 	lister, ok := r.Hub.(listingTransport)
 	if !ok {
@@ -195,21 +242,7 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 		if len(batch) == 0 {
 			return nil
 		}
-		var results []hubclient.V4ListResult
-		var err error
-		for attempt := 0; attempt < 3; attempt++ {
-			results, err = lister.V4ListBatch(ctx, batch)
-			if err == nil || !retryableChunk(err) {
-				break
-			}
-			timer := time.NewTimer(time.Duration(1<<attempt) * 200 * time.Millisecond)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return ctx.Err()
-			case <-timer.C:
-			}
-		}
+		results, err := listBatchIsolating(ctx, lister, batch)
 		if err != nil {
 			return err
 		}

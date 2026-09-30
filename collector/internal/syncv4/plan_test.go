@@ -278,6 +278,88 @@ func TestPlanWindowListingBatchesAndPrioritize(t *testing.T) {
 	}
 }
 
+// rejectingHub answers 400 invalid_query for any batch that contains the
+// poisoned key, the way the Hub rejects a batch whose item fails the schema.
+type rejectingHub struct {
+	planHub
+	poison string
+}
+
+func (h *rejectingHub) V4ListBatch(ctx context.Context, items []hubclient.V4ListItem) ([]hubclient.V4ListResult, error) {
+	for _, item := range items {
+		if item.LocalKeyHash == h.poison {
+			h.lists = append(h.lists, append([]hubclient.V4ListItem(nil), items...))
+			return nil, hubclient.V4Problem{Code: "invalid_query", HTTPStatus: 400}
+		}
+	}
+	return h.planHub.V4ListBatch(ctx, items)
+}
+
+// One item the Hub refuses must not block the other 119 or make the next
+// pass resend the same rejected batch: the runner isolates it and records it
+// as rejected with a closed code.
+func TestListingIsolatesAnItemTheHubRejects(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	plan := hubclient.V4ImportPlan{Version: 3, Window: "24h", History: true, WarmStartSeconds: 30}
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := make([]Entry, 120)
+	for i := range entries {
+		key := fmt.Sprintf("%03d", i)
+		entries[i] = Entry{Key: key, Activity: now.Add(-time.Duration(i) * time.Hour).UnixMilli(), ContentBytes: int64(i + 1),
+			Session: hubclient.V4Session{InstallID: q.InstallID(), LocalKeyHash: key, Agent: "codex", Title: key}}
+	}
+	if err := q.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &rejectingHub{planHub: planHub{plan: &plan}, poison: "007"}
+	runner := &Runner{Queue: q, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, config: hubclient.V4Config{ImportPlan: &plan}}
+	if err := runner.listAll(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	listed, rejected := 0, 0
+	for _, entry := range q.PlannedEntries(plan, now) {
+		switch {
+		case entry.Key == "007":
+			if !entry.ListRejected || entry.FailureCode != "invalid_item" || entry.Listed {
+				t.Fatalf("poisoned entry = %+v", entry)
+			}
+			rejected++
+		case entry.Listed:
+			listed++
+		}
+	}
+	if listed != 119 || rejected != 1 {
+		t.Fatalf("listed=%d rejected=%d", listed, rejected)
+	}
+	if err := runner.listAll(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	// The second pass must not resend the rejected item.
+	for _, batch := range hub.lists[len(hub.lists)-1:] {
+		for _, item := range batch {
+			if item.LocalKeyHash == "007" {
+				t.Fatal("rejected item was sent again")
+			}
+		}
+	}
+	if len(q.PlannedEntries(plan, now)) != 120 {
+		t.Fatalf("entries = %d", len(q.PlannedEntries(plan, now)))
+	}
+}
+
+func TestSessionMetadataClampsNegativeTokens(t *testing.T) {
+	item := &session.Session{ID: "s1", Agent: "opencode", Tokens: map[string]session.ModelTokens{"claude-sonnet-4-5": {InputTokens: -4096, OutputTokens: 180}}}
+	if meta := sessionMetadata(item, "30000000-0000-4000-8000-000000000305"); meta.Tokens != 0 {
+		t.Fatalf("tokens = %d, want 0", meta.Tokens)
+	}
+}
+
 func TestListingLeftOutPersistsUntilPolicyChanges(t *testing.T) {
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	q, err := Open(t.TempDir())
