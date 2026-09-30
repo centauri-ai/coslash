@@ -36,7 +36,7 @@ func Build(value *session.Session) string {
 	if len(value.Digest) == 0 {
 		lines = append(lines, "- —")
 	} else {
-		for _, entry := range value.Digest {
+		for _, entry := range session.SelectedDigest(value.Digest) {
 			lines = append(lines, fmt.Sprintf("- [%s · turn %d] %s", entry.Category, entry.Turn, entry.Description))
 			if answer := strings.TrimSpace(entry.Answer); answer != "" {
 				lines = append(lines, "  - Answer: "+answer)
@@ -67,7 +67,7 @@ func Build(value *session.Session) string {
 	}
 
 	costLabel := "Estimated cost at list API prices"
-	if value.Agent == "opencode" {
+	if value.Agent == "opencode" || value.Agent == "pi" {
 		costLabel = "Recorded cost"
 	}
 	lines = append(lines, "", "## Environment",
@@ -76,7 +76,7 @@ func Build(value *session.Session) string {
 		"- Branch: "+environment(value.Branch),
 		"- Working directory: "+environmentString(value.WorkingDirectory),
 		"- Runtime: "+formatDuration(value.DurationMs),
-		"- Tokens: "+formatTokens(value.Tokens),
+		"- Tokens: "+sessionTokenLabel(value),
 		"- "+costLabel+": "+formatCost(value.Cost),
 		fmt.Sprintf("- Errors: %d; subagents: %d", value.Errors, len(value.Subagents)),
 	)
@@ -194,4 +194,24 @@ func formatCost(value *float64) string {
 		return "<$0.01"
 	}
 	return fmt.Sprintf("≈$%.2f", *value)
+}
+
+func sessionTokenLabel(value *session.Session) string {
+	if value.TokensUnavailable {
+		return "Unavailable"
+	}
+	if value.UnattributedTokens == nil && !value.TokensKnown {
+		return formatTokens(value.Tokens)
+	}
+	tokens := make(map[string]session.ModelTokens, len(value.Tokens)+1)
+	for model, used := range value.Tokens {
+		tokens[model] = used
+	}
+	if value.UnattributedTokens != nil {
+		tokens["unattributed"] = *value.UnattributedTokens
+	}
+	if len(tokens) == 0 {
+		return "0"
+	}
+	return formatTokens(tokens)
 }

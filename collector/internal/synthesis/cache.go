@@ -2,6 +2,7 @@ package synthesis
 
 import (
 	"container/list"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -205,6 +206,9 @@ func (c *Cache) Load(agent, id string) (Record, error) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		return Record{}, fmt.Errorf("decode synthesis cache %q: %w", id, err)
 	}
+	if (record.SessionID != "" && record.SessionID != id) || (record.Agent != "" && record.Agent != agent) || (agent == "pi" && (record.SessionID != id || record.Agent != agent)) {
+		return Record{}, fmt.Errorf("synthesis cache identity mismatch")
+	}
 	c.records.Store(key, record)
 	return record, nil
 }
@@ -299,7 +303,10 @@ func (c *Cache) recordPath(agent, id string) (string, error) {
 	if !validCachePathComponent(agent) {
 		return "", fmt.Errorf("invalid synthesis cache agent")
 	}
-	if !validCachePathComponent(id) {
+	if agent == "pi" && id != "" {
+		// All Pi identities share one encoding, so native IDs cannot alias hashed opaque IDs.
+		id = fmt.Sprintf("session-%x", sha256.Sum256([]byte(id)))
+	} else if !validCachePathComponent(id) {
 		return "", fmt.Errorf("invalid synthesis cache session id")
 	}
 	return filepath.Join(SummariesDir(), agent, id+".json"), nil
