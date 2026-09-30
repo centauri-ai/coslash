@@ -4,6 +4,7 @@ package fullsessionrecord
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 
@@ -96,6 +97,19 @@ func FromSession(sourceID string, value session.Session) (fullsessionv1.Record, 
 }
 
 func fromSession(sourceID, parentSessionID string, value session.Session) (fullsessionv1.Record, error) {
+	if value.Agent == "pi" || value.TokensUnavailable || value.CostUnavailable || value.UnattributedTokens != nil || value.DetailsIncomplete {
+		return fullsessionv1.Record{}, fmt.Errorf("local session facts cannot be represented by full-session/v1")
+	}
+	for _, child := range value.Subagents {
+		if child.TokensUnavailable || child.CostUnavailable || child.UnattributedTokens != nil {
+			return fullsessionv1.Record{}, fmt.Errorf("subagent accounting cannot be represented by full-session/v1")
+		}
+	}
+	for _, row := range value.Digest {
+		if row.SourceEntryID != "" || row.ParentEntryID != "" || row.BranchID != "" || row.Active != nil || row.Inherited != nil || row.ContextSelected != nil || row.ContextDescription != nil {
+			return fullsessionv1.Record{}, fmt.Errorf("branch context cannot be represented by full-session/v1")
+		}
+	}
 	record := fullsessionv1.Record{
 		SourceID: sourceID, Agent: value.Agent, SessionID: value.ID, ParentSessionID: parentSessionID,
 		Session: fullsessionv1.Session{

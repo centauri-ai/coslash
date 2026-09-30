@@ -27,18 +27,19 @@ func subagentFrom(
 		result = session.Truncate(result, session.TruncateTextLimit)
 	}
 	subagent := session.Subagent{
-		ID:         s.ID,
-		ParentID:   parent.Session.ID,
-		Name:       cmp.Or(deref(s.Name), child.Name, s.ID),
-		Model:      s.Model,
-		Status:     subagentStatus(child, parent, metadata, useLiveStatus),
-		Task:       task,
-		Result:     result,
-		DurationMs: s.DurationMs,
-		ToolUses:   s.ToolUses,
-		Commands:   child.Commands,
-		Tokens:     s.Tokens,
-		Cost:       s.Cost,
+		ID:          s.ID,
+		ParentID:    parent.Session.ID,
+		Name:        cmp.Or(deref(s.Name), child.Name, s.ID),
+		Model:       s.Model,
+		Status:      subagentStatus(child, parent, metadata, useLiveStatus),
+		Task:        task,
+		Result:      result,
+		DurationMs:  s.DurationMs,
+		ToolUses:    s.ToolUses,
+		Commands:    child.Commands,
+		Tokens:      s.Tokens,
+		TokensKnown: s.TokensKnown, TokensUnavailable: s.TokensUnavailable, CostUnavailable: s.CostUnavailable, UnattributedTokens: s.UnattributedTokens,
+		Cost: s.Cost,
 	}
 	if spawn, ok := parent.Spawns[child.SpawnKey]; ok {
 		subagent.SpawnedAtTurn = spawn.Turn

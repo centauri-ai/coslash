@@ -18,6 +18,12 @@ type decision struct {
 // session.SessionDetails fails TestLocalSessionFieldsHaveAnExportDecision
 // until it is recorded here, which keeps new local fields excluded by default.
 var census = map[string]decision{
+	"TokensKnown":        {false, "local accounting availability"},
+	"TokensUnavailable":  {false, "local accounting availability"},
+	"CostUnavailable":    {false, "local accounting availability"},
+	"UnattributedTokens": {false, "local accounting availability"},
+	"TranscriptPath":     {false, "private resume path"},
+	"DetailsIncomplete":  {false, "local detail completeness"},
 	// session.Session
 	"Agent":               {true, "envelope agent"},
 	"ID":                  {true, "envelope sourceSessionId"},
@@ -81,6 +87,11 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 		"Cost":                       {true, "model usage estimatedCostMicroUsd"},
 	},
 	reflect.TypeOf(session.Subagent{}): {
+		"TokensKnown":        {false, "local accounting availability"},
+		"TokensUnavailable":  {false, "local accounting availability"},
+		"CostUnavailable":    {false, "local accounting availability"},
+		"UnattributedTokens": {false, "local accounting availability"},
+
 		"ID":            {false, "subagents remain local"},
 		"ParentID":      {false, "local hierarchy context"},
 		"Name":          {false, "subagents remain local"},
@@ -100,6 +111,14 @@ var nestedCensus = map[reflect.Type]map[string]decision{
 		"Command": {false, "raw command never crosses"},
 	},
 	reflect.TypeOf(session.DigestEntry{}): {
+		"SourceEntryID":      {false, "local branch context"},
+		"ParentEntryID":      {false, "local branch context"},
+		"BranchID":           {false, "local branch context"},
+		"Inherited":          {false, "local branch context"},
+		"Active":             {false, "local branch context"},
+		"ContextSelected":    {false, "local branch context"},
+		"ContextDescription": {false, "local branch context"},
+
 		"Turn":        {false, "digest remains local"},
 		"Category":    {false, "digest remains local"},
 		"Description": {false, "digest remains local"},

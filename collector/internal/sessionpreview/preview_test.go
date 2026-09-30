@@ -17,3 +17,12 @@ func TestBuildRejectsUnknownCost(t *testing.T) {
 		t.Fatalf("preview = %#v, want non-approvable invalid state", preview)
 	}
 }
+
+func TestPiPreviewBlocksUnavailableAccountingAndLocalExport(t *testing.T) {
+	for _, value := range []session.Session{{Agent: "pi"}, {TokensUnavailable: true}, {CostUnavailable: true}, {UnattributedTokens: &session.ModelTokens{}}} {
+		response := Build(value, sessionexport.BuildOptions{}, 0)
+		if response.ApprovalAllowed || response.CanonicalPayloadBase64 != "" || response.Problem == nil {
+			t.Fatal("unrepresentable session share allowed")
+		}
+	}
+}

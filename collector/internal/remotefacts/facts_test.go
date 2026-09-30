@@ -161,7 +161,8 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"EditedFileCount": true, "DurationMs": true, "Tokens": true, "Cost": true,
 		"UnpricedModels": true, "Subagents": true, "StartedAt": true, "LastActivityTime": true,
 		"SynthesisRevision": false,
-		"ActivityFallback":  false, "DetailRevision": false, "Entrypoint": true,
+		"TokensKnown":       false, "TokensUnavailable": false, "CostUnavailable": false, "UnattributedTokens": false, "TranscriptPath": false,
+		"ActivityFallback": false, "DetailRevision": false, "Entrypoint": true,
 		"ReviewPending": false, "ReviewError": false,
 		"CommitLog": true, "SessionDetails": true,
 	})
@@ -172,7 +173,7 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"CommitSHAs": false, // recomputed only from local repository history
 		"Digest":     true, "FileEdits": true, "Git": true, "GitProbed": true,
 		"LastEditAt": true, "Synthesis": true, "SynthesisPending": true,
-		"DeclaredGoal": true, "CompactionSeed": true,
+		"DeclaredGoal": true, "CompactionSeed": true, "DetailsIncomplete": false,
 	})
 }
 

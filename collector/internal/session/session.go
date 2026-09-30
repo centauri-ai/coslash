@@ -23,22 +23,31 @@ type SubagentCommand struct {
 }
 
 type Subagent struct {
-	ID            string                 `json:"id"`
-	ParentID      string                 `json:"parentId,omitempty"`
-	Name          string                 `json:"name"`
-	Model         *string                `json:"model"`
-	Status        string                 `json:"status"`
-	Task          string                 `json:"task"`
-	Result        string                 `json:"result"`
-	DurationMs    *int                   `json:"durationMs"`
-	SpawnedAtTurn *int                   `json:"spawnedAtTurn"`
-	ToolUses      int                    `json:"toolUses"`
-	Commands      []SubagentCommand      `json:"commands"`
-	Tokens        map[string]ModelTokens `json:"tokens"`
-	Cost          *float64               `json:"cost"`
+	TokensKnown        bool                   `json:"tokensKnown,omitempty"`
+	TokensUnavailable  bool                   `json:"tokensUnavailable,omitempty"`
+	CostUnavailable    bool                   `json:"costUnavailable,omitempty"`
+	UnattributedTokens *ModelTokens           `json:"unattributedTokens,omitempty"`
+	ID                 string                 `json:"id"`
+	ParentID           string                 `json:"parentId,omitempty"`
+	Name               string                 `json:"name"`
+	Model              *string                `json:"model"`
+	Status             string                 `json:"status"`
+	Task               string                 `json:"task"`
+	Result             string                 `json:"result"`
+	DurationMs         *int                   `json:"durationMs"`
+	SpawnedAtTurn      *int                   `json:"spawnedAtTurn"`
+	ToolUses           int                    `json:"toolUses"`
+	Commands           []SubagentCommand      `json:"commands"`
+	Tokens             map[string]ModelTokens `json:"tokens"`
+	Cost               *float64               `json:"cost"`
 }
 
 type Session struct {
+	TokensKnown         bool                   `json:"tokensKnown,omitempty"`
+	TokensUnavailable   bool                   `json:"tokensUnavailable,omitempty"`
+	CostUnavailable     bool                   `json:"costUnavailable,omitempty"`
+	UnattributedTokens  *ModelTokens           `json:"unattributedTokens,omitempty"`
+	TranscriptPath      string                 `json:"-"`
 	Agent               string                 `json:"agent"`
 	ID                  string                 `json:"id"`
 	ParentSessionID     string                 `json:"-"`
@@ -80,13 +89,20 @@ const (
 
 // A DigestEntry's position in Session.Digest is its position in the transcript
 type DigestEntry struct {
-	Turn        int    `json:"turn"`
-	Category    string `json:"category"`
-	Description string `json:"description"`
-	Answer      string `json:"answer,omitempty"`
-	SubagentID  string `json:"subagentId,omitempty"`
-	Time        int64  `json:"time,omitempty"`
-	SpawnKey    string `json:"-"`
+	SourceEntryID      string  `json:"sourceEntryId,omitempty"`
+	ParentEntryID      string  `json:"parentEntryId,omitempty"`
+	BranchID           string  `json:"branchId,omitempty"`
+	Inherited          *bool   `json:"inherited,omitempty"`
+	Active             *bool   `json:"active,omitempty"`
+	ContextSelected    *bool   `json:"contextSelected,omitempty"`
+	ContextDescription *string `json:"contextDescription,omitempty"`
+	Turn               int     `json:"turn"`
+	Category           string  `json:"category"`
+	Description        string  `json:"description"`
+	Answer             string  `json:"answer,omitempty"`
+	SubagentID         string  `json:"subagentId,omitempty"`
+	Time               int64   `json:"time,omitempty"`
+	SpawnKey           string  `json:"-"`
 }
 
 type FileEdit struct {
@@ -118,27 +134,28 @@ type SessionSynthesis struct {
 }
 
 type SessionDetails struct {
-	Model            *string           `json:"model"`
-	ObservedModels   []string          `json:"observedModels,omitempty"`
-	ContextTokens    *int              `json:"contextTokens"`
-	ContextWindow    *int              `json:"contextWindow"`
-	Turns            int               `json:"turns"`
-	ToolUses         int               `json:"toolUses"`
-	Errors           int               `json:"errors"`
-	Compactions      int               `json:"compactions"`
-	FirstPrompt      *string           `json:"firstPrompt"`
-	Commands         []string          `json:"commands"`
-	Commits          []string          `json:"commits"`
-	CommitSHAs       []string          `json:"-"`
-	PullRequests     int               `json:"prs"`
-	Todos            []Todo            `json:"todos"`
-	Digest           []DigestEntry     `json:"digest"`
-	FileEdits        []FileEdit        `json:"fileEdits"`
-	Git              *GitDrift         `json:"git"`
-	GitProbed        bool              `json:"-"`
-	LastEditAt       *int64            `json:"lastEditAt"`
-	Synthesis        *SessionSynthesis `json:"synthesis"`
-	SynthesisPending bool              `json:"synthesisPending"`
-	DeclaredGoal     *string           `json:"declaredGoal"`
-	CompactionSeed   string            `json:"-"`
+	DetailsIncomplete bool              `json:"detailsIncomplete,omitempty"`
+	Model             *string           `json:"model"`
+	ObservedModels    []string          `json:"observedModels,omitempty"`
+	ContextTokens     *int              `json:"contextTokens"`
+	ContextWindow     *int              `json:"contextWindow"`
+	Turns             int               `json:"turns"`
+	ToolUses          int               `json:"toolUses"`
+	Errors            int               `json:"errors"`
+	Compactions       int               `json:"compactions"`
+	FirstPrompt       *string           `json:"firstPrompt"`
+	Commands          []string          `json:"commands"`
+	Commits           []string          `json:"commits"`
+	CommitSHAs        []string          `json:"-"`
+	PullRequests      int               `json:"prs"`
+	Todos             []Todo            `json:"todos"`
+	Digest            []DigestEntry     `json:"digest"`
+	FileEdits         []FileEdit        `json:"fileEdits"`
+	Git               *GitDrift         `json:"git"`
+	GitProbed         bool              `json:"-"`
+	LastEditAt        *int64            `json:"lastEditAt"`
+	Synthesis         *SessionSynthesis `json:"synthesis"`
+	SynthesisPending  bool              `json:"synthesisPending"`
+	DeclaredGoal      *string           `json:"declaredGoal"`
+	CompactionSeed    string            `json:"-"`
 }
