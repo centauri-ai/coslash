@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestParseFilesDeduplicatesRootsBySessionID(t *testing.T) {
@@ -118,6 +120,58 @@ func TestParseFilesDuplicateTieUsesLexicalPath(t *testing.T) {
 		got := parseFiles(files)
 		if len(got) != 1 || got[0].LogPath != first {
 			t.Fatalf("equal-mtime winner for %q = %#v, want %q", files, got, first)
+		}
+	}
+}
+
+func TestCollectMarksOnlyDesktopSSHMirrorRoots(t *testing.T) {
+	home := t.TempDir()
+	setClaudeTestHome(t, home)
+	root := ProjectsRoot(home)
+	validID := "66666666-6666-4666-8666-666666666666"
+	ordinaryID := "77777777-7777-4777-8777-777777777777"
+	looseID := "88888888-8888-4888-8888-888888888888"
+	mismatchID := "99999999-9999-4999-8999-999999999999"
+
+	valid := filepath.Join(root, "ssh-"+validID, validID+".jsonl")
+	ordinary := filepath.Join(root, "project", ordinaryID+".jsonl")
+	loose := filepath.Join(root, "ssh-not-a-uuid", looseID+".jsonl")
+	mismatch := filepath.Join(root, "ssh-"+validID, mismatchID+".jsonl")
+	child := filepath.Join(root, "ssh-"+validID, validID, "subagents", "agent-child.jsonl")
+	for _, test := range []struct {
+		path      string
+		sessionID string
+	}{
+		{path: valid, sessionID: validID},
+		{path: ordinary, sessionID: ordinaryID},
+		{path: loose, sessionID: looseID},
+		{path: mismatch, sessionID: mismatchID},
+		{path: child, sessionID: "agent-child"},
+	} {
+		writeTranscript(t, test.path, test.sessionID, "/workspace")
+	}
+
+	parsed, _, err := Collect(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := make(map[string]*vendors.ParsedSession, len(parsed))
+	for _, item := range parsed {
+		byPath[item.LogPath] = item
+	}
+	for _, test := range []struct {
+		path string
+		want bool
+	}{
+		{path: valid, want: true},
+		{path: ordinary},
+		{path: loose},
+		{path: mismatch},
+		{path: child},
+	} {
+		item := byPath[test.path]
+		if item == nil || item.Session.LocalSSHMirror != test.want {
+			t.Fatalf("%s mirror marker = %v, want %v; parsed=%#v", test.path, item != nil && item.Session.LocalSSHMirror, test.want, item)
 		}
 	}
 }

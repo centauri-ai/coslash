@@ -163,7 +163,8 @@ func TestFieldPrivacyAllowlistIsComplete(t *testing.T) {
 		"SynthesisRevision": false,
 		"TokensKnown":       false, "TokensUnavailable": false, "CostUnavailable": false, "UnattributedTokens": false, "TranscriptPath": false,
 		"ActivityFallback": false, "DetailRevision": false, "Entrypoint": true,
-		"ReviewPending": false, "ReviewError": false,
+		"LocalSSHMirror": false,
+		"ReviewPending":  false, "ReviewError": false,
 		"CommitLog": true, "SessionDetails": true,
 	})
 	assertCensus(t, reflect.TypeOf(session.SessionDetails{}), map[string]bool{
