@@ -1,6 +1,9 @@
 package diagnostics
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func derive(snapshot *Snapshot) []Check {
 	checks := make([]Check, 0, 8)
@@ -78,7 +81,7 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Detail = "Enabled with " + snapshot.Synthesis.Model + "."
 	}
 	checks = append(checks, synthesis)
-	checks = append(checks, openCodePluginCheck(snapshot))
+	checks = append(checks, openCodePluginCheck(snapshot), piExtensionCheck(snapshot))
 
 	if !snapshot.Platform.TerminalLaunchSupported {
 		checks = append(checks, Check{
@@ -190,6 +193,40 @@ func remoteCheck(remote *Remote) Check {
 	default:
 		check.Status = StatusWarn
 		check.Detail = remote.Label + " state is " + remote.State + "."
+	}
+	return check
+}
+
+func piExtensionCheck(snapshot *Snapshot) Check {
+	extension := snapshot.piExtension
+	check := Check{ID: "pi.extension", Title: "Pi coSlash extension", Status: StatusOK, Detail: "Installed at " + extension.Path + ". Runtime events are verified for Pi 0.99.1 and 0.99.2; restart Pi after extension updates."}
+	switch {
+	case extension.Err != nil:
+		check.Status = StatusWarn
+		check.Detail = "coSlash could not inspect the Pi extension: " + snapshot.piExtensionError
+		check.Fix = "Check extension ownership and permissions, then restart coSlash."
+	case !extension.Installed:
+		check.Status = StatusWarn
+		check.Detail = "The Pi coSlash extension is missing; runtime status remains unknown."
+		check.Fix = "Restart coSlash to install the extension, then restart Pi."
+	case extension.RestartRequired:
+		check.Status = StatusWarn
+		check.Detail = "The extension changed after a running Pi session started."
+		check.Fix = "Restart Pi to load the current extension."
+	}
+	for _, source := range snapshot.Sources {
+		if source.Agent != "pi" || !source.CLI.Found {
+			continue
+		}
+		version := strings.TrimSpace(source.CLI.Version)
+		if version != "0.99.1" && version != "0.99.2" {
+			check.Status = StatusWarn
+			check.Detail = "Pi runtime events are verified only for 0.99.1 and 0.99.2; the installed release is " + version + ". Runtime status remains unknown on unsupported releases."
+			if version == "" {
+				check.Detail = "Pi release could not be verified. Runtime events are verified only for 0.99.1 and 0.99.2."
+			}
+			check.Fix = "Use Pi 0.99.1 or 0.99.2 for verified runtime status. Transcripts must use the supported schema version 3."
+		}
 	}
 	return check
 }

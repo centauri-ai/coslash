@@ -108,7 +108,7 @@ func handleList(
 		if r.Context().Err() != nil {
 			return
 		}
-		session.Synthesis = mgr.Lookup(session.Agent, session.ID, session.LastActivityTime)
+		session.Synthesis = mgr.Lookup(session.Agent, session.ID, synthesis.Revision(session))
 		state := reviewManager.Status(reviewpkg.Key(localSourceID, session.Agent, session.ID))
 		session.ReviewPending = state.Pending
 		session.ReviewError = state.Error
@@ -276,7 +276,7 @@ func handleSynthesis(w http.ResponseWriter, agent, id string, mgr *synthesis.Man
 		SynthesisError   string                    `json:"synthesisError,omitempty"`
 		Revision         int64                     `json:"revision"`
 	}{}
-	revision := found.LastActivityTime
+	revision := synthesis.Revision(found)
 	response.Revision = revision
 	if revision > 0 {
 		response.Synthesis = mgr.Lookup(found.Agent, found.ID, revision)
@@ -327,10 +327,18 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if sourceID != localSourceID && query.Get("agent") == vendors.AgentPi {
+		http.Error(w, "Pi supports local sessions only", http.StatusBadRequest)
+		return
+	}
 	var found *session.Session
 	alias := ""
 	if sourceID == localSourceID {
-		found, err = collector.GetSessionFacts(query.Get("id"))
+		if query.Get("agent") == vendors.AgentPi {
+			found, err = collector.GetSessionFactsByAgent(vendors.AgentPi, query.Get("id"))
+		} else {
+			found, err = collector.GetSessionFacts(query.Get("id"))
+		}
 		if err != nil {
 			log.Printf("launch: %v", err)
 			http.Error(w, "could not load session", http.StatusInternalServerError)
@@ -385,7 +393,11 @@ func handleLaunch(w http.ResponseWriter, r *http.Request, settingsStore *setting
 		if found.Agent == vendors.AgentCursor && mode == launch.ResumeSession {
 			workingDirectory = cursor.ResumeDirectory(found)
 		}
-		err = launch.Terminal(r.Context(), state.Config.Launch.Terminal, found.Agent, workingDirectory, found.ID, mode, handoff)
+		if found.Agent == vendors.AgentPi {
+			err = launch.Terminal(r.Context(), state.Config.Launch.Terminal, found.Agent, workingDirectory, found.ID, mode, handoff, found.TranscriptPath)
+		} else {
+			err = launch.Terminal(r.Context(), state.Config.Launch.Terminal, found.Agent, workingDirectory, found.ID, mode, handoff)
+		}
 	}
 	if err != nil {
 		log.Printf("launch: %v", err)
@@ -437,7 +449,7 @@ func canonicalSession(
 		return nil, err
 	}
 	if found != nil {
-		found.Synthesis = mgr.Lookup(found.Agent, found.ID, found.LastActivityTime)
+		found.Synthesis = mgr.Lookup(found.Agent, found.ID, synthesis.Revision(found))
 	}
 	return found, nil
 }
@@ -475,11 +487,11 @@ func handleSend(
 	open promptLauncher,
 ) {
 	target := r.URL.Query().Get("to")
-	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode && target != vendors.AgentCursor {
-		http.Error(w, "target must be claude, codex, opencode, or cursor", http.StatusBadRequest)
+	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode && target != vendors.AgentCursor && target != vendors.AgentPi {
+		http.Error(w, "target must be claude, codex, opencode, cursor, or pi", http.StatusBadRequest)
 		return
 	}
-	if !targetAvailable(target) {
+	if (target == vendors.AgentPi && !launch.PiAvailable()) || (target != vendors.AgentPi && !targetAvailable(target)) {
 		http.Error(w, "target is not installed or supported", http.StatusBadRequest)
 		return
 	}
@@ -557,6 +569,14 @@ func handleSend(
 }
 
 func writeTerminalLaunchError(w http.ResponseWriter, err error) {
+	if errors.Is(err, launch.ErrPiUnsupportedVersion) {
+		http.Error(w, "Pi launch requires supported version 0.99.1 or 0.99.2", http.StatusConflict)
+		return
+	}
+	if errors.Is(err, launch.ErrPiExtension) {
+		http.Error(w, "required Pi extension is unavailable; check local setup", http.StatusConflict)
+		return
+	}
 	if errors.Is(err, launch.ErrWorkingDirectoryUnavailable) {
 		http.Error(w, "session working directory is unavailable", http.StatusConflict)
 		return

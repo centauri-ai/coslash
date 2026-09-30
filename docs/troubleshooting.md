@@ -35,6 +35,20 @@ cards visible; **Retry** starts an immediate bounded refresh.
 To remove a remote host, choose **Remove**. It stops local monitoring even if
 the host is offline and leaves its optional helper installed on the host.
 
+## Pi sessions and runtime status
+
+Run `coslash doctor` and inspect the Pi source, CLI release, and managed-extension checks. Transcript schema 3 is supported; older and future schemas are skipped with diagnostics. Runtime hooks and terminal launch are verified only for Pi 0.99.1 and 0.99.2. An unsupported runtime can have a readable schema-3 transcript while its status stays Unknown.
+
+Restart Pi after coSlash installs or updates `coslash-extension.ts`. An unmanaged file at that path is preserved and reported; review it before moving it aside. `/reload` is not a verified activation path. Missing extension or unverifiable process-start identity stays Unknown. Conflicting live leaves withhold active-branch evidence while status still follows verified owner activity. Waiting takes precedence over busy, then unknown evidence, then idle; verified terminated evidence permits Inactive. A hard exit is checked using process liveness, not just shutdown hooks. On macOS, process-start identity has second resolution, so same-PID reuse within the same second cannot be distinguished.
+
+Pass the same `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` overrides to coSlash that Pi uses. Global/project `sessionDir` and retained runtime paths are also discovered. For unobserved historical `--session-dir` locations, set `COSLASH_PI_SESSION_ROOTS` to colon-separated absolute roots on macOS before starting coSlash. Relative project settings are resolved from that project's working directory; coSlash does not scan every repository for settings. Retained paths under `COSLASH_HOME/pi-history` survive restart. Removing that history removes discovery of otherwise unconfigured custom paths.
+
+Pi costs are historical pricing estimates. Missing usage or ambiguous zero pricing is unavailable, not free. Verified forks exclude inherited spending while retaining inherited timeline rows. Missing, moved, conflicting, or unverifiable parents can make attributable accounting unavailable. Known tokens without model attribution remain visible separately. Pi snapshot and full-session exports are unavailable until those formats can represent branch context and accounting faithfully. Parent verification is bounded to 256 lineage links and does not guess relocated parent paths. Incomplete nested tool detail makes visible command/edit counts lower bounds; accounting availability is independent of that detail limit.
+
+Interactive CLI, print, JSON, and RPC entrypoints load extensions on Pi 0.99.1 and 0.99.2. SDK hosts require explicit extension loading and remain Unknown without it. Transcript data alone does not prove entrypoint modality or a live branch. Resume reopens the resolved file through the CLI; it cannot recreate an SDK host. Resume and handoff require an existing working directory and installed supported CLI. A deleted transcript, unknown identity, unsupported release, or missing working directory produces a local launch error.
+
+Pi terminal actions currently require macOS. Custom handoff supports Pi; background review and Pi as a synthesis provider remain unsupported. Private handoff notes are removed on launch exit, signals, and failed directory changes.
+
 ## coSlash will not start
 
 A port conflict is reported in the terminal. Stop the other process or run:
@@ -66,6 +80,17 @@ Cursor CLI **Resume** requires the `agent` command and restores the recorded ses
 Remote Resume and Start fresh require a live SSH connection and a recorded
 working directory. They are disabled while the host is offline; wait for it to
 reconnect, then try again.
+
+## Offline Pi integration check (source builds)
+
+A repeatable native lifecycle check lives in `collector/internal/vendors/pi/testdata/runtime-check.mjs`. It creates temporary agent/config/session/coSlash directories and uses a deterministic local provider. It does not read your Pi credentials or send model requests. With Node 24 and an installed verified Pi release:
+
+```sh
+PI_TEST_RELEASE_DIR=/absolute/path/to/pi/install/releases/0.99.2 \
+  node collector/internal/vendors/pi/testdata/runtime-check.mjs
+```
+
+The release directory must contain Pi's `node_modules`. Run separately against 0.99.1 and 0.99.2 to check both verified baselines. The script checks production extension events, settlement, dialogs, compaction, concurrent owners, crashes, replacement, and retained graceful-exit history. It does not replace dashboard or real-provider testing.
 
 ## Report a bug
 

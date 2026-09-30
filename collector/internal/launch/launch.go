@@ -90,12 +90,16 @@ func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 		{Agent: vendors.AgentOpenCode, Label: "OpenCode", Entrypoint: "opencode-cli", Automatic: true},
 		{Agent: vendors.AgentCursor, Label: "Cursor CLI", Entrypoint: "cursor-cli", Automatic: true},
 		{Agent: vendors.AgentCursor, Label: "Cursor IDE", Entrypoint: "cursor-ide"},
+		{Agent: vendors.AgentPi, Label: "Pi", Entrypoint: "pi-tui", Automatic: true},
 	}
 	for i := range options {
 		if !securePromptAvailable() {
 			continue
 		}
 		switch options[i].Entrypoint {
+		case "pi-tui":
+			_, err := exec.LookPath("pi")
+			options[i].Available = err == nil
 		case "cursor-cli":
 			options[i].Available = CursorCLIExecutable(home) != ""
 		case "cursor-ide":
@@ -445,7 +449,16 @@ func (buffer *boundedBuffer) Write(data []byte) (int, error) {
 	return written, nil
 }
 
-func Terminal(ctx context.Context, terminal, agent, workingDirectory, sessionID, mode, handoff string) error {
+func Terminal(ctx context.Context, terminal, agent, workingDirectory, sessionID, mode, handoff string, transcriptPath ...string) error {
+	if agent == vendors.AgentPi && mode == ResumeSession {
+		if len(transcriptPath) != 1 {
+			return errors.New("launch: Pi resume requires a collected transcript path")
+		}
+		if err := validatePiTranscript(transcriptPath[0], sessionID, workingDirectory); err != nil {
+			return err
+		}
+		sessionID = transcriptPath[0]
+	}
 	return TerminalWithPrompt(ctx, terminal, agent, workingDirectory, sessionID, mode, handoff, "")
 }
 
@@ -456,6 +469,10 @@ func TerminalWithPrompt(ctx context.Context, terminal, agent, workingDirectory, 
 	command, handoffPath, err := cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt)
 	if err != nil {
 		return err
+	}
+	if handoffPath != "" && runtime.GOOS != "windows" {
+		command = localHandoffScript(workingDirectory, command, handoffPath)
+		workingDirectory = "."
 	}
 	if err := localTerminalOpener(ctx, terminal, agent, workingDirectory, command); err != nil {
 		return errors.Join(err, removeHandoffFile(handoffPath))
@@ -565,8 +582,17 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 		return "", "", err
 	}
 	cli = localCLIExecutable(agent, cli)
+	if agent == vendors.AgentPi {
+		cli, err = piExecutable()
+		if err != nil {
+			return "", "", err
+		}
+	}
 	switch mode {
 	case NewSession:
+		if agent == vendors.AgentPi {
+			return piNewCommand(cli, handoff, prompt)
+		}
 		if prompt != "" {
 			return interactivePromptCommand(agent, cli, handoff, prompt)
 		}
@@ -581,6 +607,10 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 		arguments, err := resumeArguments(agent, cli, sessionID)
 		if err != nil {
 			return "", "", err
+		}
+		if agent == vendors.AgentPi {
+			command, err := piCommand(cli, arguments[1:]...)
+			return command, "", err
 		}
 		return localCommandJoin(arguments...), "", nil
 	}
@@ -603,6 +633,9 @@ func RemoteHandoffContents(agent, handoff string) ([]byte, error) {
 }
 
 func remoteCLICommand(agent, sessionID, mode, handoffName string) (string, error) {
+	if agent == vendors.AgentPi {
+		return "", errors.New("launch: remote Pi is unsupported")
+	}
 	cli, err := cliName(agent)
 	if err != nil {
 		return "", err
@@ -725,6 +758,8 @@ func cliName(agent string) (string, error) {
 		return "codex", nil
 	case vendors.AgentOpenCode:
 		return "opencode", nil
+	case vendors.AgentPi:
+		return "pi", nil
 	case vendors.AgentCursor:
 		return settings.CursorExecutable(), nil
 	}
@@ -732,6 +767,9 @@ func cliName(agent string) (string, error) {
 }
 
 func resumeFlag(agent string) (string, error) {
+	if agent == vendors.AgentPi {
+		return "--session", nil
+	}
 	if agent == vendors.AgentCodex {
 		return "resume", nil
 	}
@@ -749,6 +787,9 @@ func resumeFlag(agent string) (string, error) {
 
 func resumeArguments(agent, cli, sessionID string) ([]string, error) {
 	validSessionID := uuidSessionIDPattern.MatchString(sessionID)
+	if agent == vendors.AgentPi {
+		validSessionID = filepath.IsAbs(sessionID)
+	}
 	if agent == vendors.AgentOpenCode {
 		validSessionID = openCodeSessionIDPattern.MatchString(sessionID)
 	}
@@ -772,4 +813,9 @@ func shellJoin(arguments ...string) string {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+func withCleanup(command, path string) string {
+	cleanup := shellQuote("rm -f " + shellQuote(path) + " " + shellQuote(path+".context"))
+	return shellJoin("/bin/sh", "-c", "trap "+cleanup+" EXIT; trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM; "+command)
 }

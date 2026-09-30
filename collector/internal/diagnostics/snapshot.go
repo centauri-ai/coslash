@@ -14,6 +14,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
 
 type Status string
@@ -44,6 +45,8 @@ type Snapshot struct {
 	Checks              []Check   `json:"checks"`
 	openCodePlugin      opencode.PluginHealth
 	openCodePluginError string
+	piExtension         pi.ExtensionHealth
+	piExtensionError    string
 	homeError           string
 }
 
@@ -195,6 +198,11 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 		snapshot.openCodePluginError = displayError(userHome, snapshot.openCodePlugin.Err.Error())
 	}
 
+	snapshot.piExtension = pi.ExtensionDiagnostics()
+	snapshot.piExtension.Path = displayPath(userHome, snapshot.piExtension.Path)
+	if snapshot.piExtension.Err != nil {
+		snapshot.piExtensionError = displayError(userHome, snapshot.piExtension.Err.Error())
+	}
 	storageHome := settings.Home()
 	snapshot.Storage = probeStorage(storageHome)
 	snapshot.Storage.Home = displayPath(userHome, storageHome)
@@ -286,7 +294,7 @@ func collectSource(
 	} else if path, err := exec.LookPath(health.Agent); err == nil {
 		source.CLI.Found = true
 		source.CLI.Path = displayPath(userHome, path)
-		if includeVersion {
+		if includeVersion || health.Agent == "pi" {
 			source.CLI.Version = commandVersion(ctx, path)
 		}
 	}
@@ -307,6 +315,9 @@ func cursorIDEExecutable(home string) string {
 }
 
 func sourceLabel(agent string) string {
+	if agent == "pi" {
+		return "Pi"
+	}
 	if agent == "claude" {
 		return "Claude Code"
 	}

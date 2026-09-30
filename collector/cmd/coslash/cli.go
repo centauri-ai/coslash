@@ -230,11 +230,11 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 		switch args[0] {
 		case "sessions":
-			fmt.Fprintln(stdout, "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json")
+			fmt.Fprintln(stdout, "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi] [--recent N] --json")
 		case "handoff":
 			fmt.Fprintln(stdout, "usage: coslash handoff <agent>:<session>")
 		case "send":
-			fmt.Fprintln(stdout, "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor [message]")
+			fmt.Fprintln(stdout, "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi [message]")
 		case "review":
 			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor | coslash review status <agent>:<session> --json")
 		case "doctor":
@@ -271,7 +271,7 @@ func runSessions(stdout io.Writer, args []string) error {
 	query := ""
 	agentFilter := ""
 	recent := 0
-	usage := errors.New("usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json")
+	usage := errors.New("usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi] [--recent N] --json")
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		switch {
@@ -280,9 +280,7 @@ func runSessions(stdout io.Writer, args []string) error {
 		case argument == "--agent" && index+1 < len(args):
 			index++
 			agentFilter = args[index]
-			switch agentFilter {
-			case vendors.AgentClaude, vendors.AgentCodex, vendors.AgentCursor, vendors.AgentOpenCode:
-			default:
+			if !validAgent(agentFilter) {
 				return usage
 			}
 		case argument == "--recent" && index+1 < len(args):
@@ -310,9 +308,9 @@ func runSessions(stdout io.Writer, args []string) error {
 	client.client.Timeout = sessionListTimeout
 	var sessions []session.Session
 	exact := false
-	if query != "" && !strings.ContainsFunc(query, unicode.IsSpace) {
-		agent, id, ok := parseLocalSessionSelector(query)
-		if !ok {
+	agent, id, selector := parseLocalSessionSelector(query)
+	if query != "" && (selector || !strings.ContainsFunc(query, unicode.IsSpace)) {
+		if !selector {
 			agent, id = "", query
 		}
 		sessions, err = requestSessions(client, "/api/sessions?agent="+url.QueryEscape(agent)+"&id="+url.QueryEscape(id))
@@ -379,12 +377,10 @@ func parseLocalSessionSelector(value string) (string, string, bool) {
 	if !found || id == "" {
 		return "", "", false
 	}
-	switch agent {
-	case vendors.AgentClaude, vendors.AgentCodex, vendors.AgentCursor, vendors.AgentOpenCode:
-		return agent, id, true
-	default:
+	if !validAgent(agent) {
 		return "", "", false
 	}
+	return agent, id, true
 }
 
 func sessionMatches(value session.Session, query string) bool {
@@ -429,15 +425,15 @@ func runHandoff(stdout io.Writer, args []string) error {
 
 func runSend(stdout io.Writer, args []string) error {
 	if len(args) < 3 || args[1] != "--to" {
-		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor [message]")
+		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi [message]")
 	}
 	agent, id, ok := parseLocalSessionSelector(args[0])
 	if !ok {
-		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor [message]")
+		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi [message]")
 	}
 	target := args[2]
-	if target != "claude" && target != "codex" && target != "opencode" && target != "cursor" {
-		return fmt.Errorf("--to must be claude, codex, opencode, or cursor")
+	if !validAgent(target) {
+		return fmt.Errorf("--to must be claude, codex, opencode, cursor, or pi")
 	}
 	message := strings.Join(args[3:], " ")
 	client, err := newLocalAPIClient()
