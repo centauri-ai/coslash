@@ -34,6 +34,67 @@ type asyncCompletionHub struct {
 	statuses int
 }
 
+type rateLimitedCreateHub struct {
+	*planHub
+	statuses  int
+	finalized int
+}
+
+func (h *rateLimitedCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
+	h.creates++
+	return hubclient.V4Status{}, hubclient.V4Problem{Code: "rate_limited", HTTPStatus: 429}
+}
+
+func (h *rateLimitedCreateHub) V4Status(_ context.Context, uploadID string) (hubclient.V4Status, error) {
+	h.statuses++
+	return hubclient.V4Status{UploadID: uploadID, SessionID: "ses_open", State: "open"}, nil
+}
+
+func (h *rateLimitedCreateHub) V4Confirm(_ context.Context, uploadID string, _ ...hubclient.V4Missing) (hubclient.V4Status, error) {
+	return hubclient.V4Status{UploadID: uploadID, SessionID: "ses_open", State: "open"}, nil
+}
+
+func (h *rateLimitedCreateHub) V4Finalize(_ context.Context, uploadID string) (hubclient.V4Status, error) {
+	h.finalized++
+	return hubclient.V4Status{UploadID: uploadID, SessionID: "ses_open", State: "finalizing"}, nil
+}
+
+func TestPlannedPassAdvancesOpenUploadWhileCreatesRateLimited(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, prepared := artifactLimitBundle(t, 1)
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &rateLimitedCreateHub{planHub: &planHub{plan: &plan}}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now,
+		scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}, lastReportedPhase: "recent"}
+	manifest, err := runner.manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []Entry{
+		{Key: "new", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "new"}, Activity: now.UnixMilli(),
+			Listed: true, BundleID: prepared.BundleID, Manifest: &manifest, ContentSHA256: manifest.ContentSHA256},
+		{Key: "open", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "open"}, Activity: now.Add(-time.Hour).UnixMilli(),
+			Listed: true, BundleID: prepared.BundleID, Manifest: &manifest, ContentSHA256: manifest.ContentSHA256,
+			UploadID: "up_open", SessionID: "ses_open"},
+	}
+	if err := q.Merge(entries, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.syncPlannedContent(t.Context(), plan); !Busy(err) {
+		t.Fatalf("expected create rate limit, got %v", err)
+	}
+	if hub.statuses != 1 || hub.finalized != 1 || hub.creates != 1 {
+		t.Fatalf("statuses=%d finalized=%d creates=%d", hub.statuses, hub.finalized, hub.creates)
+	}
+}
+
 func (h *asyncCompletionHub) V4Status(_ context.Context, uploadID string) (hubclient.V4Status, error) {
 	h.statuses++
 	return hubclient.V4Status{UploadID: uploadID, SessionID: "ses_async", State: "completed", RevisionID: "rev_async"}, nil
@@ -459,6 +520,9 @@ func TestRetrySupersedesAnInFlightEntryCopy(t *testing.T) {
 	}
 	if q.Matches(copy) {
 		t.Fatal("stale in-flight copy still matched after retry")
+	}
+	if retried := q.Entries()[0]; !retried.Priority || retried.UploadID != "" || retried.BundleID != "" {
+		t.Fatalf("retry was not queued for a fresh priority upload: %+v", retried)
 	}
 }
 

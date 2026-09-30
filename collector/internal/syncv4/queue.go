@@ -412,6 +412,7 @@ func (q *Queue) RetrySession(serverID string) (bool, error) {
 		prior := *entry
 		q.abandon(entry.BundleID)
 		entry.ParkedVersion, entry.LoggedFailure = "", ""
+		entry.Priority = true
 		entry.SyncedActivity = 0
 		entry.SyncedSourceRevision = ""
 		entry.RevisionID = ""
