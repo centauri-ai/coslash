@@ -29,6 +29,49 @@ type planHub struct {
 	leaveOut   []string
 }
 
+type asyncCompletionHub struct {
+	*planHub
+	statuses int
+}
+
+func (h *asyncCompletionHub) V4Status(_ context.Context, uploadID string) (hubclient.V4Status, error) {
+	h.statuses++
+	return hubclient.V4Status{UploadID: uploadID, SessionID: "ses_async", State: "completed", RevisionID: "rev_async"}, nil
+}
+
+func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	manager, prepared := artifactLimitBundle(t, 1)
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "async", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "async"},
+		Activity: now.UnixMilli(), Listed: true, UploadID: "up_async", SessionID: "ses_async", BundleID: prepared.BundleID}
+	if err := q.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &asyncCompletionHub{planHub: &planHub{plan: &plan}}
+	runner := &Runner{Queue: q, Backup: manager,
+		Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true,
+		config: hubclient.V4Config{ImportPlan: &plan}, lastReportedPhase: "recent"}
+	if err := runner.syncPlannedContent(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if hub.statuses != 1 || hub.creates != 0 {
+		t.Fatalf("statuses=%d creates=%d", hub.statuses, hub.creates)
+	}
+	progress := q.Progress()
+	snapshot := q.ImportSnapshot(now)
+	if progress.Pending != 0 || progress.FirstSync.RecentDone != 1 || snapshot.ContentSessions != 1 {
+		t.Fatalf("queue=%+v import=%+v", progress, snapshot)
+	}
+}
+
 func (*planHub) V4Binding(context.Context) (string, error) { return strings.Repeat("a", 64), nil }
 func (h *planHub) V4CheckIn(_ context.Context, _ hubclient.V4Queue, _ int64, results []hubclient.V4CommandResult, _ []string, _ []hubclient.V4LogEntry) (hubclient.V4CheckIn, error) {
 	h.checks++

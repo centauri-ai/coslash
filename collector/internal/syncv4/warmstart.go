@@ -283,8 +283,27 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4ImportPlan) error {
 	entries := r.Queue.PlannedEntries(plan, r.now())
 	var firstErr error
+	// Reconcile uploads already accepted by the Hub before opening more. A
+	// finalize can complete between passes even when new creates are refused.
 	for _, entry := range entries {
-		if !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) || !entry.Priority && !inWindow(entry, plan, r.now()) && plan.HistoryPaused {
+		if entry.UploadID == "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
+			continue
+		}
+		if err := r.transfer(ctx, &entry); err != nil {
+			if stopSync(err) {
+				return err
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+			if updateErr := r.recordFailure(&entry, err); updateErr != nil {
+				return updateErr
+			}
+		}
+	}
+	entries = r.Queue.PlannedEntries(plan, r.now())
+	for _, entry := range entries {
+		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) || !entry.Priority && !inWindow(entry, plan, r.now()) && plan.HistoryPaused {
 			continue
 		}
 		phase := "recent"
