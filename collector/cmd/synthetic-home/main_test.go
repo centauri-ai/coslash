@@ -60,6 +60,9 @@ func TestSyntheticHomeIsDiscoveredAndBackedUp(t *testing.T) {
 			}
 			lanes[entry.Lane]++
 		}
+		if entry.WorkingDirectory != "" && item.WorkingDirectory != filepath.Join(home, filepath.FromSlash(entry.WorkingDirectory)) {
+			t.Errorf("%s %s %v working directory = %q, want %s", entry.Agent, entry.ID, entry.Labels, item.WorkingDirectory, entry.WorkingDirectory)
+		}
 		if len(item.Subagents) != len(entry.Members)-1 {
 			t.Errorf("%s %s subagents = %d, want %d", entry.Agent, entry.ID, len(item.Subagents), len(entry.Members)-1)
 		}
@@ -76,7 +79,8 @@ func TestSyntheticHomeIsDiscoveredAndBackedUp(t *testing.T) {
 			}
 		}
 	}
-	if labels["unreadable"] != 4 || labels["guardian-family"] != 1 || labels["file-changes-100"] != 1 || labels["stray-file"] != 1 {
+	if labels["unreadable"] != 4 || labels["guardian-family"] != 1 || labels["file-changes-100"] != 1 || labels["stray-file"] != 1 ||
+		labels["no-folder"] != 1 || labels["cwd-recovered"] != 1 || labels["resume-stub"] != 1 || labels["large-value"] != 1 {
 		t.Fatalf("edge cases = %v", labels)
 	}
 
@@ -126,6 +130,9 @@ func TestSyntheticHomeIsDiscoveredAndBackedUp(t *testing.T) {
 		}
 		if !sameSet(members, entry.Members) || changes != entry.FileChanges {
 			t.Errorf("%s %s members=%v changes=%d, manifest members=%v changes=%d", entry.Agent, entry.ID, members, changes, entry.Members, entry.FileChanges)
+		}
+		if noRepository := verified.Repository.VCS == sessionbackupv1.RepositoryVCSNone; noRepository != slices.Contains(entry.Labels, "no-folder") {
+			t.Errorf("%s %s %v backed up with repository %+v", entry.Agent, entry.ID, entry.Labels, verified.Repository)
 		}
 		if slices.Contains(entry.Labels, "file-changes-100") && len(verified.Artifacts) <= 64 {
 			t.Errorf("file-change session has %d artifacts, want more than 64", len(verified.Artifacts))
