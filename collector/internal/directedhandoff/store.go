@@ -61,6 +61,8 @@ func Open(path string) (*Store, error) {
 
 func Marker(id string) string { return markerPrefix + id }
 
+func CompletionMarker(id string) string { return "coSlash handoff completed: " + id }
+
 func (s *Store) Start(sourceID, sourceAgent, sourceSessionID, targetAgent, kind string) (Record, error) {
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -205,14 +207,15 @@ func (s *Store) Observe(sourceID string, sessions []*session.Session) error {
 		}
 		if r.Kind == "custom" {
 			for _, entry := range target.Digest {
-				if entry.Turn == 1 && entry.Category == session.DigestRecap && strings.TrimSpace(entry.Description) != "" {
-					r.Status, r.Result, r.Activity = "completed", entry.Description, ""
+				result, completed := strings.CutSuffix(strings.TrimSpace(entry.Description), "\n"+CompletionMarker(r.ID))
+				if entry.Category == session.DigestRecap && completed && strings.TrimSpace(result) != "" {
+					r.Status, r.Result, r.Activity = "completed", strings.TrimSpace(result), ""
 					changed = true
 					break
 				}
 			}
 			if r.Status == "running" && target.Status != nil && *target.Status == "inactive" {
-				r.Status, r.Error, r.Activity = "failed", "Target stopped before returning a recap.", ""
+				r.Status, r.Error, r.Activity = "failed", "Target stopped before completing the request.", ""
 				changed = true
 			}
 		}

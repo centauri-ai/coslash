@@ -35,8 +35,10 @@ func TestDirectedHandoffRejectsEmptyCustomRequestAndPersistsLaunchFailure(t *tes
 		return &session.Session{Agent: agent, ID: id, WorkingDirectory: t.TempDir()}, nil
 	}
 	launched := false
-	directedLocalTerminal = func(context.Context, string, string, string, string, string, string, string) error {
+	launchedPrompt := ""
+	directedLocalTerminal = func(_ context.Context, _, _, _, _, _, _, prompt string) error {
 		launched = true
+		launchedPrompt = prompt
 		return errors.New("test launch failure")
 	}
 	settingsStore := settings.Open()
@@ -63,6 +65,11 @@ func TestDirectedHandoffRejectsEmptyCustomRequestAndPersistsLaunchFailure(t *tes
 	}
 	if got := store.List()[0]; got.Status != "failed" {
 		t.Fatalf("launch failure = %#v", got)
+	}
+	if id := store.List()[0].ID; !strings.Contains(launchedPrompt, directedhandoff.Marker(id)) ||
+		!strings.Contains(launchedPrompt, "\ncoSlash handoff completed: "+id+"\n") ||
+		!strings.Contains(launchedPrompt, "Please continue") {
+		t.Fatalf("delivered prompt = %q", launchedPrompt)
 	}
 	restored, err := directedhandoff.Open(path)
 	if err != nil {
