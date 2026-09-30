@@ -68,7 +68,9 @@ func TestDirectedHandoffRejectsEmptyCustomRequestAndPersistsLaunchFailure(t *tes
 	}
 	if id := store.List()[0].ID; !strings.Contains(launchedPrompt, directedhandoff.Marker(id)) ||
 		!strings.Contains(launchedPrompt, "\ncoSlash handoff completed: "+id+"\n") ||
-		!strings.Contains(launchedPrompt, "Please continue") {
+		!strings.Contains(launchedPrompt, "Please continue") ||
+		!strings.Contains(launchedPrompt, "begin your final assistant response") ||
+		!strings.Contains(launchedPrompt, "result below that line") {
 		t.Fatalf("delivered prompt = %q", launchedPrompt)
 	}
 	restored, err := directedhandoff.Open(path)

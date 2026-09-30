@@ -207,9 +207,9 @@ func handleDirectedHandoffStart(w http.ResponseWriter, r *http.Request, store *d
 
 func directedPrompt(id, request string) string {
 	return directedhandoff.Marker(id) + "\n\n" + request +
-		"\n\nWhen this request is fulfilled, end your final recap with the following exact standalone line, without Markdown formatting:\n" +
+		"\n\nWhen this request is fulfilled, begin your final assistant response with the following exact standalone line, without Markdown formatting:\n" +
 		directedhandoff.CompletionMarker(id) +
-		"\nInclude a nonempty result above that line. Do not emit the line while asking a clarification question, waiting for input or approval, or reporting unfinished work. Keep this completion instruction for subsequent turns until the request is fulfilled."
+		"\nInclude a nonempty result below that line. Do not emit the line while asking a clarification question, waiting for input or approval, or reporting unfinished work. Keep this completion instruction for subsequent turns until the request is fulfilled."
 }
 
 func runDirectedReview(parent context.Context, store *directedhandoff.Store, record directedhandoff.Record, alias string, origin *session.Session, brief, request string) {
