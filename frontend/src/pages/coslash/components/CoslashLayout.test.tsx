@@ -4,11 +4,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { machineRetryable } from '@/pages/coslash/lib/machine-status';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
+import { buildReviewIndex } from '@/pages/coslash/lib/review';
 import { type Session } from '@/pages/coslash/lib/session';
 import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
 
 const props: ComponentProps<typeof CoslashLayout> = {
   sessions: [],
+  reviewIndex: buildReviewIndex([]),
   latestHandoffs: new Map(),
   onOpenHandoffTarget: () => {},
   machines: [
@@ -42,7 +44,10 @@ const props: ComponentProps<typeof CoslashLayout> = {
 };
 
 function renderLayout(overrides: Partial<ComponentProps<typeof CoslashLayout>> = {}) {
-  return renderToStaticMarkup(<CoslashLayout {...props} {...overrides} />);
+  const sessions = overrides.sessions ?? props.sessions;
+  return renderToStaticMarkup(
+    <CoslashLayout {...props} {...overrides} reviewIndex={buildReviewIndex(sessions)} />,
+  );
 }
 
 function session(overrides: Partial<Session>): Session {

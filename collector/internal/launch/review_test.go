@@ -75,7 +75,7 @@ func TestReviewCLICommands(t *testing.T) {
 		"codex": {
 			bin: "codex",
 			args: []string{
-				"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+				"exec", "--ignore-user-config", "--ignore-rules",
 				"--disable", "hooks", "--disable", "plugins", "--disable", "apps",
 				"--sandbox", "read-only", "--skip-git-repo-check", "-",
 			},
@@ -175,7 +175,7 @@ func TestReviewRunsRemoteCLIWithoutLocalWorkingDirectory(t *testing.T) {
 	}
 	if binary != "ssh" || !slices.Contains(arguments, "-T") || slices.Contains(arguments, "-tt") ||
 		!strings.Contains(arguments[len(arguments)-1], "cd '/remote/only/worktree' || exit 1;") ||
-		!strings.Contains(arguments[len(arguments)-1], "'codex' 'exec' '--ephemeral' '--ignore-user-config' '--ignore-rules' '--disable' 'hooks' '--disable' 'plugins' '--disable' 'apps' '--sandbox' 'read-only'") ||
+		!strings.Contains(arguments[len(arguments)-1], "'codex' 'exec' '--ignore-user-config' '--ignore-rules' '--disable' 'hooks' '--disable' 'plugins' '--disable' 'apps' '--sandbox' 'read-only'") ||
 		!strings.Contains(arguments[len(arguments)-1], `trap 'rm -f "$marker"' EXIT`) {
 		t.Fatalf("remote command = %q %q", binary, arguments)
 	}
@@ -243,8 +243,8 @@ func TestReviewCLIAvailableRequiresReviewFlags(t *testing.T) {
 	}{
 		{"claude", "--safe-mode --restricted --strict-mcp-config --tools", true},
 		{"claude", "--safe-mode --strict-mcp-config --tools", false},
-		{"codex", "--ephemeral --ignore-user-config --ignore-rules --disable --sandbox", true},
-		{"codex", "--ephemeral --ignore-user-config --ignore-rules --sandbox", false},
+		{"codex", "--ignore-user-config --ignore-rules --disable --sandbox", true},
+		{"codex", "--ignore-user-config --ignore-rules --sandbox", false},
 	} {
 		t.Setenv("REVIEW_RESULT_OUTPUT", test.help)
 		if got := ReviewCLIAvailable(context.Background(), test.reviewer); got != test.want {

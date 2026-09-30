@@ -71,6 +71,10 @@ it('distinguishes stale host guidance from retryable reviewer checks', () => {
     reason: 'Install or update Claude Code CLI or Codex CLI on the SSH host, then retry the check.',
     retryable: true,
   });
+  expect(remoteReviewAvailability(machine, { state: 'offline', reviewers: [] })).toEqual({
+    reason: 'SSH host is offline. Reconnect it to start a review.',
+    retryable: true,
+  });
   const stale = { ...machine, state: 'stale', reason: 'broader_history' } as MachineFact;
   const guidance = remoteReviewAvailability(stale, { state: 'error', reviewers: [] });
   expect(guidance.reason).toMatch(/^Connected\. Synced/);

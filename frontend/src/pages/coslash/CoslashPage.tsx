@@ -23,7 +23,7 @@ import { apiFetch } from '@/pages/coslash/lib/api';
 import { handoffSelection, newestHandoffs, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
-import { remoteReviewAvailability, type ReviewerOption } from '@/pages/coslash/lib/review';
+import { buildReviewIndex, remoteReviewAvailability, type ReviewerOption } from '@/pages/coslash/lib/review';
 import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
 import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
 import {
@@ -135,6 +135,7 @@ export function CoslashPage() {
     window: shareWindow,
   });
   const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
+  const reviewIndex = useMemo(() => buildReviewIndex(librarySessions), [librarySessions]);
   const selectedSession =
     librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
   /* oxlint-disable react/set-state-in-effect -- select a target after a session refresh finds it */
@@ -327,6 +328,7 @@ export function CoslashPage() {
     <>
       <CoslashLayout
         sessions={librarySessions}
+        reviewIndex={reviewIndex}
         latestHandoffs={latestHandoffs}
         onOpenHandoffTarget={openHandoffTarget}
         machines={machines}
@@ -401,6 +403,15 @@ export function CoslashPage() {
       />
       <SessionInspector
         session={selectedSession}
+        review={{
+          index: reviewIndex,
+          reviewerOptions: settingsState.response?.options.reviewers ?? [],
+          remoteReviewerOptions,
+          remoteUnavailableReason: remoteReviewUnavailableReason,
+          canRetryRemoteReviewers,
+          onRetryRemoteReviewers: () => setRemoteReviewRetry((retry) => retry + 1),
+          onStarted: refreshSessions,
+        }}
         handoff={selectedSession ? latestHandoffs.get(sessionKey(selectedSession)) : undefined}
         onHandoffStarted={() => void refreshHandoffs()}
         onOpenTarget={openHandoffTarget}

@@ -60,7 +60,6 @@ import {
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   availableReviewers,
-  buildReviewIndex,
   reviewActionVisible,
   reviewerOptionsForOrigin,
   type ReviewerOption,
@@ -1041,6 +1040,7 @@ function SessionListView({
 
 export function CoslashLayout({
   sessions,
+  reviewIndex,
   latestHandoffs,
   onOpenHandoffTarget,
   machines,
@@ -1071,6 +1071,7 @@ export function CoslashLayout({
   onReviewStarted,
 }: {
   sessions: Session[];
+  reviewIndex: ReviewIndex<Session>;
   latestHandoffs: ReadonlyMap<string, DirectedHandoff>;
   onOpenHandoffTarget: (handoff: DirectedHandoff) => void;
   machines: MachineFact[];
@@ -1202,8 +1203,6 @@ export function CoslashLayout({
           ? { key, dir: preferences.sort.dir === 'asc' ? 'desc' : 'asc' }
           : { key, dir: key === 'title' ? 'asc' : 'desc' },
     });
-
-  const reviewIndex = useMemo(() => buildReviewIndex(sessions), [sessions]);
 
   if (preferences.view === 'insights') {
     return (
