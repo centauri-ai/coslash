@@ -527,6 +527,11 @@ func sessionMetadata(item *session.Session, installID string) hubclient.V4Sessio
 	for _, tokens := range item.Tokens {
 		meta.Tokens += int64(tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationInputTokens + tokens.CacheCreation1hInputTokens + tokens.CacheReadInputTokens)
 	}
+	// A source may report negative counters (a parser edge case); the Hub's
+	// listing contract requires tokens >= 0, so the metadata reports none.
+	if meta.Tokens < 0 {
+		meta.Tokens = 0
+	}
 	if item.Cost != nil && *item.Cost > 0 {
 		meta.CostMicroUSD = int64(math.Round(*item.Cost * 1e6))
 	}
