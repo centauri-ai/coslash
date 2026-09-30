@@ -162,7 +162,7 @@ describe('sessionShareEligibility', () => {
 describe('boardStatusKey', () => {
   it('puts a session with no live status in Inactive, including an unprobed SSH host', () => {
     expect(boardStatusKey({ status: null, displayStale: false })).toBe('inactive');
-    expect(boardStatusKey({ status: 'unknown', displayStale: false })).toBe('inactive');
+    expect(boardStatusKey({ status: 'unknown', displayStale: false })).toBe('unknown');
   });
 
   it('puts a stale snapshot in Inactive even when it was last seen live', () => {

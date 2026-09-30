@@ -62,7 +62,7 @@ describe('buildInsights', () => {
       { name: 'gpt-5', count: 1 },
     ]);
     expect(result.days[5]).toEqual({ day: 6, count: 2 });
-    expect(result.knownCost).toBe(1);
+    expect(result.knownCost).toBeNull();
     expect(result.unknownCostCount).toBe(1);
   });
 

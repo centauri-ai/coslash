@@ -58,10 +58,13 @@ export function newestHandoffs(handoffs: readonly DirectedHandoff[]): Map<string
 export function handoffLabel(handoff: DirectedHandoff): string {
   const agent =
     (
-      { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor CLI' } as Record<
-        string,
-        string
-      >
+      {
+        claude: 'Claude Code',
+        codex: 'Codex',
+        opencode: 'OpenCode',
+        cursor: 'Cursor CLI',
+        pi: 'Pi',
+      } as Record<string, string>
     )[handoff.targetAgent] ?? handoff.targetAgent;
   if (handoff.status === 'failed') return `${agent} failed`;
   if (handoff.status === 'completed')
@@ -74,4 +77,8 @@ export function handoffLabel(handoff: DirectedHandoff): string {
 
 export function handoffTargetsPath(source: SessionIdentity): string {
   return `/api/directed-handoffs/targets?${new URLSearchParams({ source: source.sourceId })}`;
+}
+
+export function handoffKindAvailable(target: string, kind: 'review' | 'custom'): boolean {
+  return target !== 'pi' || kind === 'custom';
 }

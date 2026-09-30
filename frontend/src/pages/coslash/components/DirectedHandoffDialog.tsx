@@ -12,7 +12,11 @@ import {
 } from '@/components/ui/dialog';
 import { launchFreshSession } from '@/pages/coslash/hooks/use-launch-terminal';
 import { apiFetch } from '@/pages/coslash/lib/api';
-import { handoffTargetsPath, type HandoffTarget } from '@/pages/coslash/lib/directed-handoff';
+import {
+  handoffKindAvailable,
+  handoffTargetsPath,
+  type HandoffTarget,
+} from '@/pages/coslash/lib/directed-handoff';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import { freshLaunchDisabledHint, isLocalSession, type SessionDetail } from '@/pages/coslash/lib/session';
 
@@ -45,7 +49,7 @@ export function DirectedHandoffDialog({
 
   /* oxlint-disable react/set-state-in-effect -- synchronize target availability with the open dialog */
   useEffect(() => {
-    if (!open || step !== 2) return;
+    if (!open || step !== 2 || kind === 'fresh') return;
     let active = true;
     setLoading(true);
     setTargets([]);
@@ -58,8 +62,9 @@ export function DirectedHandoffDialog({
       })
       .then(({ targets: available }) => {
         if (!active) return;
-        setTargets(available);
-        setTarget(available[0]?.id ?? '');
+        const supported = available.filter((option) => handoffKindAvailable(option.id, kind));
+        setTargets(supported);
+        setTarget(supported[0]?.id ?? '');
       })
       .catch((failure: unknown) => {
         if (active) setError(failure instanceof Error ? failure.message : String(failure));
@@ -70,7 +75,7 @@ export function DirectedHandoffDialog({
     return () => {
       active = false;
     };
-  }, [open, step, targetsPath, retryKey]);
+  }, [open, step, kind, targetsPath, retryKey]);
   /* oxlint-enable react/set-state-in-effect */
 
   const changeOpen = (next: boolean) => {
@@ -87,7 +92,7 @@ export function DirectedHandoffDialog({
   const launch = async () => {
     if (
       submitting ||
-      (kind === 'fresh' ? freshHint != null : target === '') ||
+      (kind === 'fresh' ? freshHint != null : target === '' || !handoffKindAvailable(target, kind)) ||
       (kind === 'custom' && request.trim() === '')
     )
       return;
@@ -155,7 +160,7 @@ export function DirectedHandoffDialog({
               </Button>
             ) : targets.length === 0 ? (
               <span className="text-coslash-muted text-sm">
-                No supported agents are installed on this host.
+                No installed agents support this handoff type.
               </span>
             ) : (
               targets.map((option) => (
@@ -267,7 +272,17 @@ export function DirectedHandoffDialog({
               {submitting ? 'Starting' : kind === 'fresh' ? 'Start fresh' : 'Next'}
             </Button>
           ) : (
-            <Button onClick={() => void launch()} disabled={submitting || loading || target === ''}>
+            <Button
+              onClick={() => void launch()}
+              disabled={
+                submitting ||
+                loading ||
+                target === '' ||
+                kind === 'fresh' ||
+                !handoffKindAvailable(target, kind) ||
+                (kind === 'custom' && request.trim() === '')
+              }
+            >
               {submitting && <LoaderCircleIcon className="animate-spin" />}
               {submitting ? 'Starting' : 'Start handoff'}
             </Button>

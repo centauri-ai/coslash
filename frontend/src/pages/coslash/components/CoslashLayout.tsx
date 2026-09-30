@@ -69,13 +69,14 @@ import {
   boardStatusKey,
   getSessionCardSummary,
   getSessionVendors,
-  getTotalTokens,
   getVendor,
   isLocalSession,
   LOCAL_SOURCE_ID,
+  sessionCost,
   sessionKey,
   sessionReadiness,
   sessionsForAggregates,
+  sessionTotalTokens,
   STATUS_ORDER,
   STATUSES,
   sumKnown,
@@ -139,6 +140,7 @@ const STATUS_HINT: Record<StatusKey, string> = {
   waiting: 'Blocked on your input',
   idle: 'Open, but quiet',
   inactive: 'Not running',
+  unknown: 'Live status unavailable',
 };
 const RANGE_OPTIONS: { value: SessionRange; label: string }[] = [
   { value: 'today', label: 'Today' },
@@ -334,12 +336,8 @@ function matchesFacets(
   return true;
 }
 
-/** Unlike cost, a session with no recorded tokens contributes nothing rather than voiding the total. */
 function tokenTotal(sessions: Session[]): number | null {
-  const values = sessions.map((session) => getTotalTokens(session.tokens));
-  return values.every((value) => value == null)
-    ? null
-    : values.reduce<number>((total, value) => total + (value ?? 0), 0);
+  return sumKnown(sessions.map(sessionTotalTokens));
 }
 
 function sessionTitle(session: Session): string {
@@ -355,8 +353,10 @@ function sortSessions(sessions: Session[], sort: SessionSort): Session[] {
       return sort.dir === 'asc' ? difference : -difference;
     }
     if (sort.key === 'cost') {
-      if (a.cost == null || b.cost == null) return a.cost == null ? (b.cost == null ? 0 : 1) : -1;
-      return sort.dir === 'asc' ? a.cost - b.cost : b.cost - a.cost;
+      const left = sessionCost(a),
+        right = sessionCost(b);
+      if (left == null || right == null) return left == null ? (right == null ? 0 : 1) : -1;
+      return sort.dir === 'asc' ? left - right : right - left;
     }
     return sort.dir === 'asc' ? a.mtime - b.mtime : b.mtime - a.mtime;
   });
@@ -407,7 +407,9 @@ function InlineSpinner() {
 
 function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boolean }) {
   const aggregate = sessionsForAggregates(sessions);
-  const unpriced = aggregate.filter((session) => session.cost == null || session.unpricedModels.length > 0);
+  const unpriced = aggregate.filter(
+    (session) => sessionCost(session) == null || session.unpricedModels.length > 0,
+  );
   return (
     <div className="text-cell max-narrow:w-full flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap">
       {isLoading && <span className="sr-only">Refreshing sessions</span>}
@@ -424,7 +426,7 @@ function Rollup({ sessions, isLoading }: { sessions: Session[]; isLoading: boole
         <InlineSpinner />
       ) : (
         <UnpricedModelWarning unpriced={unpriced.flatMap((session) => session.unpricedModels)}>
-          {formatEstimatedCost(sumKnown(aggregate.map((session) => session.cost)))}
+          {formatEstimatedCost(sumKnown(aggregate.map(sessionCost)))}
         </UnpricedModelWarning>
       )}
       {!isLoading && unpriced.length > 0 && (
@@ -769,11 +771,11 @@ function SessionRow({
       <td className={cn(cell, 'max-cost:hidden w-[94px] whitespace-nowrap tabular-nums')}>
         <div>
           <UnpricedModelWarning unpriced={session.unpricedModels}>
-            {formatTableCost(session.cost)}
+            {formatTableCost(sessionCost(session))}
           </UnpricedModelWarning>
         </div>
         <span className={cn('text-meta text-coslash-muted mt-0.5 block', hideWhenCompact)}>
-          {formatTokens(getTotalTokens(session.tokens))} tokens
+          {formatTokens(sessionTotalTokens(session))} tokens
         </span>
       </td>
       <td
@@ -1010,7 +1012,7 @@ function SessionListView({
                   <span className="text-coslash-muted font-medium">{rows.length}</span>
                   <span className="text-coslash-muted ml-auto text-[11.5px] font-medium">
                     {formatTokens(tokenTotal(aggregate))} tokens ·{' '}
-                    {formatTableCost(sumKnown(aggregate.map((session) => session.cost)))}
+                    {formatTableCost(sumKnown(aggregate.map(sessionCost)))}
                   </span>
                 </button>
               </th>
@@ -1123,6 +1125,7 @@ export function CoslashLayout({
     waiting: true,
     idle: true,
     inactive: true,
+    unknown: true,
   });
   const [sectionLimits, setSectionLimits] = useState<Record<string, number>>({});
   const [groupQuery, setGroupQuery] = useState('');

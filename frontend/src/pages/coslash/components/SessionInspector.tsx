@@ -85,6 +85,7 @@ import {
   resolveGoal,
   resumeDisabled,
   resumeDisabledHint,
+  sessionCost,
   sessionKey,
   sessionLocationFact,
   sessionReadiness,
@@ -144,7 +145,8 @@ export function filePanelOpen(
 }
 
 export function detailRequestKey(session: Session): string {
-  return `${sessionKey(session)}@${session.detailRevision === '' ? 'summary' : 'full'}`;
+  const revision = isLocalSession(session) && session.agent === 'pi' ? session.detailRevision : 'full';
+  return `${sessionKey(session)}@${session.detailRevision === '' ? 'summary' : revision}`;
 }
 
 export function synthesisAttemptKey(session: Session): string {
@@ -332,9 +334,7 @@ export function DetailLoadError({
     </div>
   );
 }
-/* oxlint-enable react/only-export-components */
-
-function useSessionDetail(
+export function useSessionDetail(
   session: Session | null,
   detailRetryToken: number,
   sessionsVersion: number,
@@ -581,6 +581,8 @@ function useSessionDetail(
   };
 }
 
+/* oxlint-enable react/only-export-components */
+
 function contextFillReadiness(detail: SessionDetail): { value: string; tone: string } | null {
   if (detail.contextTokens == null) return null;
   if (detail.contextWindow == null) {
@@ -697,7 +699,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
           )}
         >
           {!detail.displayStale && <span className={cn('size-2 rounded-full', status.dot)} />}
-          {displayStatusLabel(detail)} · {getModality(detail.entrypoint)}
+          {displayStatusLabel(detail)} · {getModality(detail.entrypoint, detail.agent)}
         </span>
       </div>
       <div className="bg-coslash-soft rounded-lg border p-2 font-mono text-xs">
@@ -710,7 +712,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
           />
           <span className="font-bold">
             <UnpricedModelWarning unpriced={detail.unpricedModels}>
-              {formatEstimatedCost(detail.cost)}
+              {formatEstimatedCost(sessionCost(detail))}
             </UnpricedModelWarning>
           </span>
         </div>
@@ -718,7 +720,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
           {formatDuration(detail.durationMs)} · {detail.turns} turns · {detail.toolUses} tools ·{' '}
           {detail.errors} errors
         </div>
-        <TokenBreakdown tokens={detail.tokens} />
+        <TokenBreakdown {...detail} />
       </div>
     </div>
   );
@@ -896,7 +898,13 @@ function HandoffSection({
       <div className="flex flex-wrap items-center gap-2">
         <DirectedHandoffDialog
           source={detail}
-          disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
+          disabledHint={
+            !isLocalSession(detail) && detail.agent === 'pi'
+              ? 'Pi launch is available locally only'
+              : !isLocalSession(detail) && !remoteLaunchable
+                ? remoteLaunchHint
+                : undefined
+          }
           onStarted={onHandoffStarted}
         />
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={() => void copyBrief()}>
@@ -918,9 +926,11 @@ function HandoffSection({
         <div className="text-coslash-muted text-xs">
           {!exactDetailsAvailable
             ? 'This inspector uses the bounded session-library summary. Complete commands and exact file diffs are unavailable for this session.'
-            : remoteLaunchable
-              ? 'Remote terminal actions open through SSH. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'
-              : 'Remote terminal actions are available when SSH reconnects. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'}
+            : detail.agent === 'pi'
+              ? 'Pi terminal actions are available locally only. You can still copy this handoff.'
+              : remoteLaunchable
+                ? 'Remote terminal actions open through SSH. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'
+                : 'Remote terminal actions are available when SSH reconnects. Exact cached details, commands, and file diffs stay available locally; synthesis, preview, and Hub sharing remain local-only.'}
         </div>
       )}
     </div>
@@ -1195,8 +1205,7 @@ function CategoryChip({
 function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const meta = DIGEST_CATEGORIES[entry.category];
-  const collapsible =
-    (entry.category === 'recap' || entry.category === 'plan') && entry.description.length > 120;
+  const collapsible = entry.description.length > 120;
 
   return (
     <div className={cn('border-coslash-line flex items-baseline gap-2 py-1', { 'border-b': !endsDay })}>
@@ -1208,6 +1217,16 @@ function DigestRow({ entry, endsDay }: { entry: DigestEntry; endsDay?: boolean }
             'whitespace-pre-wrap': entry.category === 'plan',
           })}
         >
+          {entry.branchId && (
+            <span
+              className="text-coslash-muted inline-block max-w-40 truncate align-bottom"
+              title={entry.branchId}
+            >
+              [branch {entry.branchId}]{' '}
+            </span>
+          )}
+          {entry.inherited && <span className="text-coslash-muted">[inherited] </span>}
+          {entry.active === true && <span className="text-coslash-muted">[active] </span>}
           {entry.description}
         </div>
         {entry.answer != null && (
@@ -1283,8 +1302,12 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
   const [hiddenCategories, setHiddenCategories] = useState<Set<DigestCategory>>(
     () => new Set(DEFAULT_HIDDEN_CATEGORIES),
   );
-  const digest = detail.digest;
-  if (digest.length === 0) return null;
+  const digest =
+    detail.agent === 'pi' ? [...detail.digest].sort((a, b) => (a.time ?? 0) - (b.time ?? 0)) : detail.digest;
+  if (digest.length === 0)
+    return detail.detailsIncomplete ? (
+      <p className="text-warning-fg pb-2 text-xs">Some nested tool details are unavailable.</p>
+    ) : null;
 
   const counts = new Map<DigestCategory, number>();
   for (const entry of digest) counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1);
@@ -1320,7 +1343,7 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
 
   const rows = visible.map((entry, index) => {
     return (
-      <div key={index}>
+      <div key={entry.sourceEntryId ? `${entry.sourceEntryId}:${entry.category}` : index}>
         {startsDayIndices.has(index) && <DateDivider label={formatDigestDateDivider(entry.time!)} />}
         {entry.category === 'subagent' ? (
           <SubagentDigestRow subagentId={entry.subagentId!} detail={detail} />
@@ -1336,7 +1359,9 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
       <div className="flex items-baseline justify-between gap-2 pb-2">
         <div className="flex items-baseline gap-2">
           <span className="text-coslash-muted text-xs font-semibold tracking-wide">TIMELINE</span>
-          <span className="text-coslash-muted text-xs">key events from this session</span>
+          <span className="text-coslash-muted text-xs">
+            {detail.agent === 'pi' ? 'all branches in time order' : 'key events from this session'}
+          </span>
         </div>
         <span className="text-coslash-muted text-xs">{dateRange}</span>
       </div>
@@ -1353,6 +1378,9 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
             />
           ))}
       </div>
+      {detail.detailsIncomplete && (
+        <p className="text-warning-fg pb-2 text-xs">Some nested tool details are unavailable.</p>
+      )}
       <div className="flex flex-col gap-1">{rows}</div>
     </div>
   );
@@ -1579,9 +1607,11 @@ function InspectorFooter({
             ? opensCursor
               ? 'Cursor does not expose an IDE deep link, so this opens the workspace without restoring this chat.'
               : `Reopens this session in ${getVendor(detail.agent).label} with its full context.`
-            : remoteLaunchable
-              ? `Opens this session in ${getVendor(detail.agent).label} through SSH.`
-              : 'Available when the remote SSH host is connected.'}
+            : detail.agent === 'pi'
+              ? 'Pi CLI resume is available locally only.'
+              : remoteLaunchable
+                ? `Opens this session in ${getVendor(detail.agent).label} through SSH.`
+                : 'Available when the remote SSH host is connected.'}
         </span>
       </div>
       <div className="flex shrink-0 items-center gap-2">
