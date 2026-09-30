@@ -54,6 +54,12 @@ func Build(local session.Session, options sessionexport.BuildOptions, expectedRe
 			Action:  "Refresh the session list and review the current snapshot before sharing.",
 		})
 	}
+	if local.TokensUnavailable || local.CostUnavailable || local.UnattributedTokens != nil {
+		return fromError(sessionexport.ErrUnavailableAccounting, local.LastActivityTime)
+	}
+	if local.Agent == "pi" {
+		return fromError(sessionexport.ErrLocalOnlySession, local.LastActivityTime)
+	}
 	if local.Cost == nil {
 		return fromError(errors.New("cost is unavailable"), local.LastActivityTime)
 	}
@@ -124,6 +130,12 @@ func UploadBytes(response Response) ([]byte, error) {
 }
 
 func fromError(err error, sourceRevision int64) Response {
+	if errors.Is(err, sessionexport.ErrUnavailableAccounting) {
+		return blocked(StateInvalid, sourceRevision, Problem{Code: "unavailable_accounting", Message: "This session has unavailable or unattributed accounting.", Action: "Use local collection until the export format can represent this accounting."})
+	}
+	if errors.Is(err, sessionexport.ErrLocalOnlySession) {
+		return blocked(StateInvalid, sourceRevision, Problem{Code: "local_only_session", Message: "Pi sessions support local collection only.", Action: "Use the local inspector and handoff."})
+	}
 	if errors.Is(err, snapshotv1.ErrOversized) {
 		return blocked(StateOversized, sourceRevision, Problem{
 			Code:    "aggregate_size_exceeded",

@@ -66,3 +66,35 @@ func TestComposer25FastPricing(t *testing.T) {
 		t.Fatalf("cost = %v, want 18", got)
 	}
 }
+
+func TestPiAccountingAndContextClone(t *testing.T) {
+	cost := 2.0
+	source := &Session{TokensUnavailable: true, Cost: &cost, UnattributedTokens: &ModelTokens{InputTokens: 4}, TranscriptPath: "/private/transcript"}
+	AttachCost(source, &cost)
+	if source.Cost == nil || *source.Cost != 2 {
+		t.Fatal("known cost lost with unavailable tokens")
+	}
+	source.CostUnavailable = true
+	AttachCost(source, &cost)
+	if source.Cost != nil {
+		t.Fatal("unknown cost fabricated")
+	}
+	selected := true
+	description := "selected context"
+	source.Digest = []DigestEntry{{ContextSelected: &selected, ContextDescription: &description, Active: &selected, Inherited: &selected}}
+	cloned := Clone(source)
+	cloned.UnattributedTokens.InputTokens = 7
+	*cloned.Digest[0].ContextSelected = false
+	*cloned.Digest[0].ContextDescription = "changed"
+	if source.UnattributedTokens.InputTokens != 4 || !*source.Digest[0].ContextSelected || *source.Digest[0].ContextDescription != description {
+		t.Fatal("clone aliases private Pi details")
+	}
+	revision, err := LocalDetailRevision(*source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := LocalDetailRevision(*cloned)
+	if err != nil || revision == other {
+		t.Fatal("selected context did not change detail revision")
+	}
+}

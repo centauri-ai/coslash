@@ -402,7 +402,12 @@ func TestParsedFamilyDoesNotMutateMetadataTokenCosts(t *testing.T) {
 
 func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 	decisions := map[string]string{
-		"Agent": "record envelope", "ID": "record envelope", "ParentSessionID": "record envelope", "Name": "included", "Summary": "included",
+		"TokensKnown":        "local accounting unavailable formats refused",
+		"TokensUnavailable":  "local accounting unavailable formats refused",
+		"CostUnavailable":    "local accounting unavailable formats refused",
+		"UnattributedTokens": "local accounting unavailable formats refused",
+		"TranscriptPath":     "excluded private resume path",
+		"Agent":              "record envelope", "ID": "record envelope", "ParentSessionID": "record envelope", "Name": "included", "Summary": "included",
 		"Status": "included", "WorkingDirectory": "included", "Branch": "parser or portable metadata only",
 		"Repository": "excluded local filesystem enrichment", "RepositoryLocalOnly": "excluded local filesystem enrichment",
 		"EditedFileCount": "included", "DurationMs": "included", "Tokens": "included",
@@ -425,7 +430,8 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 	}
 
 	detailDecisions := map[string]string{
-		"Model": "included", "ObservedModels": "excluded local Cursor IDE enrichment", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
+		"DetailsIncomplete": "unrepresentable detail completeness refused",
+		"Model":             "included", "ObservedModels": "excluded local Cursor IDE enrichment", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
 		"ToolUses": "included", "Errors": "included", "Compactions": "included", "FirstPrompt": "included",
 		"Commands": "included", "Commits": "included", "CommitSHAs": "included", "PullRequests": "included",
 		"Todos": "included", "Digest": "included", "FileEdits": "included with bodies", "Git": "excluded local filesystem enrichment",
@@ -441,5 +447,13 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 	}
 	if len(detailDecisions) != detailsType.NumField() {
 		t.Fatalf("stale detail inventory: decisions=%d fields=%d", len(detailDecisions), detailsType.NumField())
+	}
+}
+
+func TestPiFullRecordRefusesUnrepresentableLocalFacts(t *testing.T) {
+	for _, value := range []session.Session{{Agent: "pi"}, {TokensUnavailable: true}, {UnattributedTokens: &session.ModelTokens{InputTokens: 2}}, {SessionDetails: session.SessionDetails{Digest: []session.DigestEntry{{BranchID: "branch"}}}}} {
+		if _, err := FromSession("source", value); err == nil {
+			t.Fatal("unrepresentable local facts silently lost")
+		}
 	}
 }

@@ -14,6 +14,7 @@ func Clone(source *Session) *Session {
 	cloned.Repository = clonePointer(source.Repository)
 	cloned.DurationMs = clonePointer(source.DurationMs)
 	cloned.Cost = clonePointer(source.Cost)
+	cloned.UnattributedTokens = clonePointer(source.UnattributedTokens)
 	cloned.Entrypoint = clonePointer(source.Entrypoint)
 	cloned.Model = clonePointer(source.Model)
 	cloned.ObservedModels = cloneSlice(source.ObservedModels)
@@ -29,6 +30,7 @@ func Clone(source *Session) *Session {
 		cloned.Subagents[i].Model = clonePointer(source.Subagents[i].Model)
 		cloned.Subagents[i].DurationMs = clonePointer(source.Subagents[i].DurationMs)
 		cloned.Subagents[i].SpawnedAtTurn = clonePointer(source.Subagents[i].SpawnedAtTurn)
+		cloned.Subagents[i].UnattributedTokens = clonePointer(source.Subagents[i].UnattributedTokens)
 		cloned.Subagents[i].Cost = clonePointer(source.Subagents[i].Cost)
 		cloned.Subagents[i].Commands = cloneSlice(source.Subagents[i].Commands)
 		cloned.Subagents[i].Tokens = cloneMap(source.Subagents[i].Tokens)
@@ -39,6 +41,13 @@ func Clone(source *Session) *Session {
 	cloned.CommitSHAs = cloneSlice(source.CommitSHAs)
 	cloned.Todos = cloneSlice(source.Todos)
 	cloned.Digest = cloneSlice(source.Digest)
+	for i := range cloned.Digest {
+		row := &cloned.Digest[i]
+		row.Inherited = clonePointer(row.Inherited)
+		row.Active = clonePointer(row.Active)
+		row.ContextSelected = clonePointer(row.ContextSelected)
+		row.ContextDescription = clonePointer(row.ContextDescription)
+	}
 	cloned.FileEdits = cloneSlice(source.FileEdits)
 	for i := range cloned.FileEdits {
 		cloned.FileEdits[i].ChangeIDs = cloneSlice(source.FileEdits[i].ChangeIDs)

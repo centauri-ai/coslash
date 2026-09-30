@@ -4,6 +4,7 @@
 package sessionexport
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -45,7 +46,21 @@ func Marshal(local session.Session, options BuildOptions) ([]byte, error) {
 	return snapshotv1.Marshal(snapshot)
 }
 
+var ErrUnavailableAccounting = errors.New("session accounting is unavailable or unattributed")
+var ErrLocalOnlySession = errors.New("Pi sessions support local collection only")
+
 func Build(local session.Session, options BuildOptions) (snapshotv1.Snapshot, error) {
+	if local.TokensUnavailable || local.CostUnavailable || local.UnattributedTokens != nil {
+		return snapshotv1.Snapshot{}, ErrUnavailableAccounting
+	}
+	for _, child := range local.Subagents {
+		if child.TokensUnavailable || child.CostUnavailable || child.UnattributedTokens != nil {
+			return snapshotv1.Snapshot{}, ErrUnavailableAccounting
+		}
+	}
+	if local.Agent == "pi" {
+		return snapshotv1.Snapshot{}, ErrLocalOnlySession
+	}
 	if local.Repository == nil || strings.TrimSpace(*local.Repository) == "" {
 		return snapshotv1.Snapshot{}, fmt.Errorf("canonical repository identity is required")
 	}
