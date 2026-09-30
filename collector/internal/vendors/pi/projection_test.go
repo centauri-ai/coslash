@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -444,6 +445,51 @@ func TestProjectionEmptyContentEditedIntoText(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestProjectionNativeEditArrays(t *testing.T) {
+	for _, tc := range []struct {
+		name, arguments     string
+		adds, dels, changes int
+	}{
+		{"native", `"edits":[{"oldText":"a - b","newText":"a + b"},{"oldText":"old\nline","newText":"new"}]`, 2, 3, 2},
+		{"legacy", `"oldText":"a - b","newText":"a + b"`, 1, 1, 1},
+		{"combined", `"edits":[{"oldText":"first","newText":"second"}],"oldText":"a - b","newText":"a + b"`, 2, 2, 2},
+		{"nullLegacy", `"oldText":null,"newText":null`, 0, 0, 0},
+		{"missingLegacy", `"oldText":"before"`, 0, 0, 0},
+		{"nullArrayMember", `"edits":[null]`, 0, 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := `{"type":"message","id":"a","message":{"role":"assistant","content":[{"type":"toolCall","id":"edit","name":"edit","arguments":{"path":"calculator.py",` + tc.arguments + `}}],"usage":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4,"cost":{"total":1}}}}`
+			for _, failed := range []bool{false, true} {
+				result := `{"type":"message","id":"r","parentId":"a","message":{"role":"toolResult","toolCallId":"edit","isError":` + strconv.FormatBool(failed) + `,"content":"result"}}`
+				tr := projectionFixture(t, tc.name, "", row, result)
+				p, _ := projectLeaf(tr, nil, "r", false)
+				if p.Session.ToolUses != 1 || p.Session.Cost == nil || *p.Session.Cost != 1 {
+					t.Fatalf("tool/accounting changed: %#v", p.Session)
+				}
+				if failed {
+					if len(p.Session.FileEdits) != 0 || p.Session.Errors != 1 {
+						t.Fatalf("failed edit recorded: %#v", p.Session)
+					}
+					continue
+				}
+				if tc.changes == 0 {
+					if len(p.Session.FileEdits) != 0 {
+						t.Fatalf("invalid replacement recorded: %#v", p.Session.FileEdits)
+					}
+					continue
+				}
+				if len(p.Session.FileEdits) != 1 {
+					t.Fatalf("missing file: %#v", p.Session.FileEdits)
+				}
+				e := p.Session.FileEdits[0]
+				if e.Additions != tc.adds || e.Deletions != tc.dels || len(e.Changes()) != tc.changes {
+					t.Fatalf("edit replacements lost: %#v changes=%#v", e, e.Changes())
+				}
+			}
+		})
 	}
 }
 
