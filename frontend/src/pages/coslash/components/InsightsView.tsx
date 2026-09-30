@@ -18,6 +18,7 @@ const AGENT_COLORS: Record<string, string> = {
   'Codex': 'var(--codex)',
   'OpenCode': 'var(--opencode)',
   'Cursor': 'var(--cursor)',
+  'Pi': 'var(--pi)',
 };
 
 function PieChart({
@@ -200,7 +201,7 @@ export function InsightsView({
               </p>
               {insights.unknownCostCount > 0 && (
                 <p className="text-warning-fg pt-2 text-xs">
-                  Excludes unpriced usage in {insights.unknownCostCount}{' '}
+                  Cost unavailable because accounting is missing for {insights.unknownCostCount}{' '}
                   {insights.unknownCostCount === 1 ? 'session' : 'sessions'}.
                 </p>
               )}

@@ -1,10 +1,11 @@
 import { formatDuration, formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import {
   environmentFact,
-  getTotalTokens,
   getVendor,
   goalSourceLabel,
   resolveGoal,
+  sessionCost,
+  sessionTotalTokens,
   type SessionDetail,
 } from '@/pages/coslash/lib/session';
 
@@ -41,16 +42,20 @@ export function handoffBrief(detail: SessionDetail): string {
     ? detail.synthesis.keyDecisions.map((decision) => `- ${decision}`)
     : [];
   const digest = detail.digest.length
-    ? detail.digest.flatMap((entry) => [
-        `- [${entry.category} · turn ${entry.turn}] ${entry.description}`,
-        ...(entry.answer?.trim() ? [`  - Answer: ${entry.answer.trim()}`] : []),
-      ])
+    ? detail.digest
+        .filter((entry) => entry.contextSelected !== false)
+        .flatMap((entry) => [
+          `- [${entry.category} · turn ${entry.turn}] ${entry.contextDescription ?? entry.description}`,
+          ...(entry.answer?.trim() ? [`  - Answer: ${entry.answer.trim()}`] : []),
+        ])
     : ['- —'];
   const files = detail.fileEdits.length
     ? detail.fileEdits.map((fileEdit) => `- ${fileEdit.path} (+${fileEdit.adds}/-${fileEdit.dels})`)
     : [];
   const commits = detail.commits.map((commit) => `- ${commit}`);
-  const costLabel = detail.agent === 'opencode' ? 'Recorded cost' : 'Estimated cost at list API prices';
+  const costLabel = ['opencode', 'pi'].includes(detail.agent)
+    ? 'Recorded cost'
+    : 'Estimated cost at list API prices';
 
   const lines = [
     `# Handoff — ${detail.name ?? detail.id}`,
@@ -74,8 +79,8 @@ export function handoffBrief(detail: SessionDetail): string {
     `- Branch: ${environmentFact(detail.branch)}`,
     `- Working directory: ${environmentFact(detail.cwd)}`,
     `- Runtime: ${formatDuration(detail.durationMs)}`,
-    `- Tokens: ${formatTokens(getTotalTokens(detail.tokens))}`,
-    `- ${costLabel}: ${formatEstimatedCost(detail.cost)}`,
+    `- Tokens: ${sessionTotalTokens(detail) == null ? 'Unavailable' : formatTokens(sessionTotalTokens(detail))}`,
+    `- ${costLabel}: ${sessionCost(detail) == null ? 'Unavailable' : formatEstimatedCost(sessionCost(detail))}`,
     `- Errors: ${detail.errors}; subagents: ${detail.subagents.length}`,
   ];
   const brief = lines.join('\n');

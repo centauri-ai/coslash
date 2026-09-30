@@ -4,10 +4,12 @@ import { cn } from '@/lib/utils';
 import { CopyableBadge } from '@/pages/coslash/components/CopyableBadge';
 import { formatDuration, formatEstimatedCost, formatTokens } from '@/pages/coslash/lib/format';
 import {
-  getTotalTokens,
+  accountingTokens,
+  environmentFact,
   getVendor,
+  sessionCost,
+  sessionTotalTokens,
   SUBAGENT_STATUSES,
-  sumTokens,
   type Session,
   type Subagent,
   type SubagentCommand,
@@ -66,20 +68,25 @@ function SubagentStatusBadge({ status }: { status: Subagent['status'] }) {
 }
 
 // Cache writes fold the 5-minute and 1-hour buckets into one figure.
-export function TokenBreakdown({ tokens }: { tokens: Session['tokens'] }) {
-  if (Object.keys(tokens).length === 0) {
-    return <div className="text-coslash-muted pt-1">—</div>;
+export function TokenBreakdown(
+  accounting: Pick<Session, 'tokens' | 'tokensUnavailable' | 'tokensKnown' | 'unattributedTokens'>,
+) {
+  if (sessionTotalTokens(accounting) == null) {
+    return (
+      <div className="text-coslash-muted pt-1">
+        {accounting.tokensUnavailable ? 'Unavailable' : environmentFact(null)}
+      </div>
+    );
   }
+  const values = accountingTokens(accounting);
+  const sum = (key: Exclude<keyof Session['tokens'][string], 'cost'>) =>
+    values.reduce((total, value) => total + value[key], 0);
   return (
     <div className="text-coslash-muted pt-1">
-      in {formatTokens(sumTokens(tokens, 'input_tokens'))} · out{' '}
-      {formatTokens(sumTokens(tokens, 'output_tokens'))} · cache{' '}
-      {formatTokens(sumTokens(tokens, 'cache_read_input_tokens'))}r /{' '}
-      {formatTokens(
-        sumTokens(tokens, 'cache_creation_input_tokens') +
-          sumTokens(tokens, 'cache_creation_1h_input_tokens'),
-      )}
-      w
+      in {formatTokens(sum('input_tokens'))} · out {formatTokens(sum('output_tokens'))} · cache{' '}
+      {formatTokens(sum('cache_read_input_tokens'))}r /{' '}
+      {formatTokens(sum('cache_creation_input_tokens') + sum('cache_creation_1h_input_tokens'))}w
+      {accounting.unattributedTokens && <span> · includes usage without model attribution</span>}
     </div>
   );
 }
@@ -90,11 +97,11 @@ function SubagentTokenSummary({ subagent }: { subagent: Subagent }) {
       <div className="flex flex-wrap items-baseline justify-between gap-1">
         <span className="text-coslash-muted">
           {formatDuration(subagent.durationMs)} · {subagent.toolUses} tools ·{' '}
-          {formatTokens(getTotalTokens(subagent.tokens))} tok
+          {formatTokens(sessionTotalTokens(subagent))} tok
         </span>
-        <span className="font-bold">{formatEstimatedCost(subagent.cost)}</span>
+        <span className="font-bold">{formatEstimatedCost(sessionCost(subagent))}</span>
       </div>
-      <TokenBreakdown tokens={subagent.tokens} />
+      <TokenBreakdown {...subagent} />
     </div>
   );
 }

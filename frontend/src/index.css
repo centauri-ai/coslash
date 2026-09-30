@@ -88,6 +88,8 @@
   --color-opencode-bg: var(--opencode-bg);
 
   /* vendor: Cursor */
+  --color-pi: var(--pi);
+  --color-pi-bg: var(--pi-bg);
   --color-cursor: var(--cursor);
   --color-cursor-bg: var(--cursor-bg);
 
@@ -155,6 +157,8 @@
   --codex-bg: #eceffc;
   --opencode: #20751c;
   --opencode-bg: #e3f3e2;
+  --pi: #7750aa;
+  --pi-bg: #f0e9f8;
   --cursor: #242424;
   --cursor-bg: #e8e8e8;
   --subagent: #0b7c91;
@@ -225,6 +229,8 @@
   --codex-bg: #252d47;
   --opencode: #7fc47a;
   --opencode-bg: #16301a;
+  --pi: #c1a2eb;
+  --pi-bg: #352842;
   --cursor: #ededed;
   --cursor-bg: #303030;
   --subagent: #38b6cd;

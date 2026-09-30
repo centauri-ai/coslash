@@ -15,12 +15,13 @@ import {
 } from '@/pages/coslash/lib/review';
 import {
   getSessionCardSummary,
-  getTotalTokens,
   getVendor,
   isLocalSession,
+  sessionCost,
   sessionKey,
   sessionReadiness,
   sessionsForAggregates,
+  sessionTotalTokens,
   sumKnown,
   type Session,
   type SessionReadiness,
@@ -56,6 +57,7 @@ const COLUMN_DOT: Record<string, string> = {
   waiting: 'bg-warning',
   idle: 'bg-info',
   inactive: 'bg-coslash-neutral-dot',
+  unknown: 'bg-coslash-neutral-dot',
   resume: 'bg-success',
   inspect: 'bg-warning',
   fresh: 'bg-danger',
@@ -67,8 +69,8 @@ const pillClass =
 
 function GroupTotals({ sessions }: { sessions: Session[] }) {
   const aggregate = sessionsForAggregates(sessions);
-  const tokens = sumKnown(aggregate.map((session) => getTotalTokens(session.tokens)));
-  const cost = sumKnown(aggregate.map((session) => session.cost));
+  const tokens = sumKnown(aggregate.map((session) => sessionTotalTokens(session)));
+  const cost = sumKnown(aggregate.map(sessionCost));
 
   return (
     <span className="text-meta text-coslash-muted tabular-nums">
@@ -216,7 +218,7 @@ function BoardCard({
         </div>
         <span className="text-meta shrink-0 font-[650] whitespace-nowrap tabular-nums">
           <UnpricedModelWarning unpriced={session.unpricedModels}>
-            {formatEstimatedCost(session.cost)}
+            {formatEstimatedCost(sessionCost(session))}
           </UnpricedModelWarning>
         </span>
       </div>

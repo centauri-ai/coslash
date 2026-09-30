@@ -32,6 +32,10 @@ export type Subagent = {
   commands: SubagentCommand[];
   tokens: Record<string, ModelTokens>;
   cost: number | null;
+  tokensUnavailable?: boolean;
+  costUnavailable?: boolean;
+  tokensKnown?: boolean;
+  unattributedTokens?: ModelTokens;
 };
 
 export function subagentParentName(
@@ -84,6 +88,10 @@ export type Session = {
   durationMs: number | null;
   tokens: Record<string, ModelTokens>;
   cost: number | null;
+  tokensUnavailable?: boolean;
+  costUnavailable?: boolean;
+  tokensKnown?: boolean;
+  unattributedTokens?: ModelTokens;
   unpricedModels: string[];
   subagents: Subagent[];
   mtime: number;
@@ -108,6 +116,7 @@ export type Session = {
   prs: number;
   todos: { text: string; done: boolean }[];
   digest: DigestEntry[];
+  detailsIncomplete?: boolean;
   fileEdits: FileEdit[];
   git: GitDrift | null;
   lastEditAt: number | null;
@@ -255,6 +264,13 @@ export type DigestEntry = {
   answer?: string;
   subagentId?: string;
   time?: number;
+  sourceEntryId?: string;
+  parentEntryId?: string;
+  branchId?: string;
+  inherited?: boolean;
+  active?: boolean;
+  contextSelected?: boolean;
+  contextDescription?: string;
 };
 
 export type SessionDetail = Session;
@@ -318,11 +334,12 @@ const VENDORS = {
   codex: { label: 'Codex', mono: 'CX', fg: 'text-codex', bg: 'bg-codex-bg' },
   opencode: { label: 'OpenCode', mono: 'OC', fg: 'text-opencode', bg: 'bg-opencode-bg' },
   cursor: { label: 'Cursor', mono: 'CU', fg: 'text-cursor', bg: 'bg-cursor-bg' },
+  pi: { label: 'Pi', mono: 'PI', fg: 'text-pi', bg: 'bg-pi-bg' },
 } satisfies Record<string, Vendor>;
 
 export type VendorKey = keyof typeof VENDORS;
 
-const VENDOR_KEYS = ['claude', 'codex', 'opencode', 'cursor'] as const satisfies readonly VendorKey[];
+const VENDOR_KEYS = ['claude', 'codex', 'opencode', 'cursor', 'pi'] as const satisfies readonly VendorKey[];
 
 export function getSessionVendors(sessions: readonly Pick<Session, 'agent'>[]): VendorKey[] {
   return VENDOR_KEYS.filter((vendor) => sessions.some((session) => session.agent === vendor));
@@ -347,6 +364,12 @@ export const STATUSES = {
     bg: 'bg-warning-bg',
     dot: 'bg-warning',
   },
+  unknown: {
+    label: 'Unknown',
+    fg: 'text-coslash-muted',
+    bg: 'bg-coslash-soft',
+    dot: 'bg-coslash-muted',
+  },
   inactive: {
     label: 'Inactive',
     fg: 'text-coslash-muted',
@@ -358,7 +381,7 @@ export const STATUSES = {
 export type StatusKey = keyof typeof STATUSES;
 
 // Board columns render left to right in this order; status sorting uses the same priority.
-export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'inactive'];
+export const STATUS_ORDER: readonly StatusKey[] = ['busy', 'waiting', 'idle', 'unknown', 'inactive'];
 
 type SubagentStatus = { label: string; fg: string; bg: string };
 
@@ -369,6 +392,11 @@ export const SUBAGENT_STATUSES = {
 } satisfies Record<Subagent['status'], SubagentStatus>;
 
 const MODALITIES: Record<string, string> = {
+  'pi-tui': 'Interactive',
+  'pi-print': 'Print',
+  'pi-json': 'JSON',
+  'pi-rpc': 'RPC',
+  'pi-sdk': 'SDK',
   'cli': 'Interactive',
   'codex-tui': 'Interactive',
   'opencode-cli': 'CLI',
@@ -381,7 +409,8 @@ const MODALITIES: Record<string, string> = {
   'codex_exec': 'Autonomous',
 };
 
-export function getModality(entrypoint: string | null): string {
+export function getModality(entrypoint: string | null, agent?: string): string {
+  if (entrypoint == null && agent === 'pi') return 'Unknown';
   if (entrypoint == null) return '—';
   const trimmed = entrypoint.trim();
   const mapped = MODALITIES[trimmed] ?? MODALITIES[trimmed.toLowerCase()];
@@ -419,6 +448,13 @@ export function resumeDisabledHint(
   remoteLaunchable = false,
   remoteLaunchHint?: string,
 ): string | undefined {
+  if (session.agent === 'pi') {
+    if (!isLocalSession(session)) return 'Pi launch is available locally only';
+    if (!session.cwd) return 'This session has no usable working directory';
+    if (['busy', 'idle', 'waiting'].includes(boardStatusKey(session)))
+      return 'This session is already active';
+    return undefined;
+  }
   if (isLocalSession(session) && session.agent === 'cursor') {
     if (!session.cwd) return 'This session has no usable working directory';
     if (session.entrypoint !== 'cursor-cli' && session.entrypoint !== 'cursor-ide') {
@@ -445,6 +481,7 @@ export function resumeDisabledHint(
 export function canResumeSession(
   session: Pick<Session, 'sourceId' | 'agent'> & Partial<Pick<Session, 'entrypoint'>>,
 ): boolean {
+  if (session.agent === 'pi') return isLocalSession(session);
   if (!isLocalSession(session) || session.agent !== 'cursor') return true;
   return session.entrypoint === 'cursor-cli';
 }
@@ -452,6 +489,10 @@ export function canResumeSession(
 export function freshLaunchDisabledHint(
   session: Pick<Session, 'sourceId' | 'agent'> & Partial<Pick<Session, 'entrypoint' | 'cwd'>>,
 ): string | undefined {
+  if (session.agent === 'pi') {
+    if (!isLocalSession(session)) return 'Pi launch is available locally only';
+    return session.cwd ? undefined : 'This session has no usable working directory';
+  }
   if (!isLocalSession(session) || session.agent !== 'cursor') return undefined;
   if (!session.cwd) return 'This session has no usable working directory';
   return session.entrypoint === 'cursor-cli' || session.entrypoint === 'cursor-ide'
@@ -460,9 +501,11 @@ export function freshLaunchDisabledHint(
 }
 
 export function resumeDisabled(
-  session: Pick<Session, 'sourceId' | 'displayStale' | 'launchable'> & Partial<Pick<Session, 'status'>>,
+  session: Pick<Session, 'sourceId' | 'displayStale' | 'launchable'> &
+    Partial<Pick<Session, 'status' | 'agent'>>,
   disabledHint?: string,
 ): boolean {
+  if (session.agent === 'pi' && !isLocalSession(session)) return true;
   return isLocalSession(session)
     ? disabledHint != null
     : session.status === 'busy' ||
@@ -510,6 +553,38 @@ export function getTotalTokens(tokens: Session['tokens']): number | null {
       modelTokens.cache_read_input_tokens,
     0,
   );
+}
+
+type Accounting = Pick<
+  Session,
+  'tokens' | 'cost' | 'tokensUnavailable' | 'costUnavailable' | 'tokensKnown' | 'unattributedTokens'
+>;
+
+export function accountingTokens(session: Pick<Accounting, 'tokens' | 'unattributedTokens'>): ModelTokens[] {
+  return [
+    ...Object.values(session.tokens),
+    ...(session.unattributedTokens ? [session.unattributedTokens] : []),
+  ];
+}
+
+export function sessionTotalTokens(session: Omit<Accounting, 'cost' | 'costUnavailable'>): number | null {
+  if (session.tokensUnavailable) return null;
+  const values = accountingTokens(session);
+  if (!values.length) return session.tokensKnown ? 0 : null;
+  return values.reduce(
+    (total, value) =>
+      total +
+      value.input_tokens +
+      value.output_tokens +
+      value.cache_creation_input_tokens +
+      value.cache_creation_1h_input_tokens +
+      value.cache_read_input_tokens,
+    0,
+  );
+}
+
+export function sessionCost(session: Pick<Accounting, 'cost' | 'costUnavailable'>): number | null {
+  return session.costUnavailable ? null : session.cost;
 }
 
 export type SessionReadiness = {

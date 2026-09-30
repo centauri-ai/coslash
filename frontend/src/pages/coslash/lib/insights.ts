@@ -1,4 +1,4 @@
-import { getVendor, sessionsForAggregates, type Session } from './session';
+import { getVendor, sessionCost, sessionsForAggregates, type Session } from './session';
 import { latestLogicalSessions } from './session-library';
 
 type Count = { name: string; count: number };
@@ -50,8 +50,9 @@ export function buildInsights(sessions: Session[], month: Date) {
       count(models, name);
     }
     if (session.repo?.trim()) count(repositories, session.repo.trim());
-    if (session.cost != null) knownCost += session.cost;
-    if (session.cost == null || session.unpricedModels.length > 0) unknownCostCount++;
+    const cost = sessionCost(session);
+    if (cost != null) knownCost += cost;
+    if (cost == null || session.unpricedModels.length > 0) unknownCostCount++;
   }
 
   return {
@@ -60,7 +61,7 @@ export function buildInsights(sessions: Session[], month: Date) {
     models: ranked(models),
     repositories: ranked(repositories).slice(0, 5),
     days,
-    knownCost,
+    knownCost: unknownCostCount ? null : knownCost,
     unknownCostCount,
   };
 }
