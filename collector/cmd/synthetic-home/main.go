@@ -61,18 +61,21 @@ type counts struct {
 // sessionEntry names one root family. ExpectedProblem is empty when the
 // family is expected to prepare, otherwise the non-retryable problem code.
 type sessionEntry struct {
-	Agent           string   `json:"agent"`
-	ID              string   `json:"id"`
-	Lane            string   `json:"lane,omitempty"`
-	Recent          bool     `json:"recent"`
-	StartedAt       string   `json:"startedAt"`
-	LastActivity    string   `json:"lastActivity"`
-	Members         []string `json:"members"`
-	Hidden          []string `json:"hidden,omitempty"`
-	FileChanges     int      `json:"fileChanges"`
-	ExpectedProblem string   `json:"expectedProblem,omitempty"`
-	Labels          []string `json:"labels,omitempty"`
-	Paths           []string `json:"paths"`
+	Agent        string   `json:"agent"`
+	ID           string   `json:"id"`
+	Lane         string   `json:"lane,omitempty"`
+	Recent       bool     `json:"recent"`
+	StartedAt    string   `json:"startedAt"`
+	LastActivity string   `json:"lastActivity"`
+	Members      []string `json:"members"`
+	Hidden       []string `json:"hidden,omitempty"`
+	FileChanges  int      `json:"fileChanges"`
+	// WorkingDirectory, relative to the home, is set where discovery must
+	// recover it from Cursor's own metadata.
+	WorkingDirectory string   `json:"workingDirectory,omitempty"`
+	ExpectedProblem  string   `json:"expectedProblem,omitempty"`
+	Labels           []string `json:"labels,omitempty"`
+	Paths            []string `json:"paths"`
 }
 
 type edgeCase struct {
