@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"crypto/md5"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -60,6 +62,13 @@ func cursorTool(r source, name string, input object) object {
 	return object{"type": "tool_use", "id": "toolu_" + r.token(24, alphabet), "name": name, "input": input}
 }
 
+// cursorChatFolder is the folder Cursor CLI keeps a working directory's chat
+// stores in: the MD5 of the directory's path.
+func cursorChatFolder(cwd string) string {
+	sum := md5.Sum([]byte(cwd))
+	return hex.EncodeToString(sum[:])
+}
+
 // cursorProject is the per-workspace folder Cursor keeps agent transcripts in.
 func cursorProject(cwd string) string {
 	return path.Join(".cursor/projects", strings.TrimLeft(slug(cwd), "-"))
@@ -74,7 +83,8 @@ func cursorHeader(id, name, cwd string, t timing, extra object) string {
 
 // writeCursor alternates IDE and CLI roots (the first IDE root has a subagent
 // with its own composer header), adds one CLI chat missing its meta.json
-// sidecar, and one stray .jsonl in a folder that names no session.
+// sidecar, the chats in writeCursorEdges, and one stray .jsonl in a folder
+// that names no session.
 func (g *generator) writeCursor(r source) (err error) {
 	global := cursorGlobalStorage()
 	state, err := g.openCursorDB(path.Join(global, "state.vscdb"), `
@@ -174,7 +184,7 @@ func (g *generator) writeCursor(r source) (err error) {
 						"params": compact(object{"description": "Synthetic survey"}), "result": compact(object{"agentId": childID})}}))
 			}
 		} else {
-			chat := path.Join(".cursor/chats", r.hex(32), id)
+			chat := path.Join(".cursor/chats", cursorChatFolder(cwd), id)
 			store, err := g.openCursorDB(path.Join(chat, "store.db"), `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)`)
 			if err != nil {
 				return err
@@ -202,6 +212,9 @@ func (g *generator) writeCursor(r source) (err error) {
 		}
 		g.add(entry)
 	}
+	if err := g.writeCursorEdges(r, state); err != nil {
+		return err
+	}
 	stray := path.Join(cursorProject(g.projects[0]), "agent-transcripts", "scratch-notes-draft", "scratch-notes-draft.jsonl")
 	var draft jsonl
 	draft.add(cursorUser(g.opts.now.Add(-time.Hour), "Synthetic scratch draft that names no session."))
@@ -209,4 +222,131 @@ func (g *generator) writeCursor(r source) (err error) {
 	draft.add(object{"type": "turn_ended", "status": "success"})
 	g.edge("stray-file", "cursor", "", "unrelated .jsonl in a non-UUID folder that must not block any family", stray)
 	return g.write(stray, draft.Bytes(), g.opts.now.Add(-time.Hour))
+}
+
+// writeCursorEdges adds the chats real Cursor data holds that once blocked
+// backup (IC1-F12). Each prepares:
+//   - no-folder: an IDE chat in an empty window, backed up with no repository;
+//   - cwd-recovered: a CLI chat whose older meta.json has no cwd, beside a chat
+//     in the same folder that records it;
+//   - resume-stub: a CLI chat with an empty stub store left in another folder;
+//   - large-value: a CLI chat whose store holds a 1.5 MiB blob.
+//
+// Their transcripts run no Shell command, so a working directory can only come
+// from Cursor's own metadata.
+func (g *generator) writeCursorEdges(r source, state *cursorDB) error {
+	transcript := func(project, id string, t timing, subject topic) (string, error) {
+		c := t.clock(r)
+		var lines jsonl
+		lines.add(cursorUser(c.next(), subject.prompt()))
+		lines.add(cursorAssistant(cursorText(subject.reply())))
+		lines.add(object{"type": "turn_ended", "status": "success"})
+		relative := path.Join(project, "agent-transcripts", id, id+".jsonl")
+		return relative, g.write(relative, lines.Bytes(), c.last())
+	}
+	chat := func(cwd, id string, t timing, subject topic, meta object, blobs ...[]byte) ([]string, error) {
+		folder := path.Join(".cursor/chats", cursorChatFolder(cwd), id)
+		store, err := g.openCursorDB(path.Join(folder, "store.db"), `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)`)
+		if err != nil {
+			return nil, err
+		}
+		store.exec(`INSERT INTO meta VALUES ('0', ?)`, hex.EncodeToString([]byte(compact(object{"agentId": id, "name": subject.title(),
+			"mode": "default", "createdAt": millis(t.start), "lastUsedModel": "gpt-5"}))))
+		for _, blob := range blobs {
+			store.exec(`INSERT INTO blobs VALUES (?, ?)`, r.hex(64), blob)
+		}
+		if err := store.close(); err != nil {
+			return nil, err
+		}
+		sidecar := path.Join(folder, "meta.json")
+		return []string{store.relative, sidecar}, g.write(sidecar, []byte(compact(meta)+"\n"), t.start)
+	}
+	conversation := func(subject topic) []byte {
+		return []byte(compact(object{"role": "user", "content": subject.prompt()}))
+	}
+	recordedCWD := func(cwd string) object { return object{"cwd": cwd} }
+	olderMeta := func(t timing) object {
+		return object{"schemaVersion": 1, "createdAtMs": millis(t.start), "updatedAtMs": millis(t.end), "hasConversation": true, "isSubagent": false}
+	}
+	relative := func(cwd string) string {
+		rel, _ := filepath.Rel(g.root, cwd)
+		return filepath.ToSlash(rel)
+	}
+
+	index := g.opts.sessionsPerAgent + 1
+	next := func(label, lane string) (sessionEntry, string, timing, topic) {
+		t, subject, id := g.timing(r, index), g.topic(r, index), r.uuid()
+		index++
+		entry := t.entry("cursor", id)
+		entry.Lane, entry.Labels = lane, []string{label}
+		return entry, id, t, subject
+	}
+
+	entry, id, t, subject := next("no-folder", laneIDE)
+	path0, err := transcript(".cursor/projects/empty-window", id, t, subject)
+	if err != nil {
+		return err
+	}
+	state.exec(`INSERT INTO composerHeaders VALUES (?, ?, ?, ?)`, id, compact(object{"type": "head", "composerId": id, "name": subject.title(),
+		"createdAt": millis(t.start), "lastUpdatedAt": millis(t.end), "unifiedMode": "agent"}), millis(t.start), millis(t.end))
+	state.exec(`INSERT INTO cursorDiskKV VALUES (?, ?)`, "composerData:"+id, compact(object{"_v": 10, "composerId": id, "name": subject.title(),
+		"createdAt": millis(t.start), "lastUpdatedAt": millis(t.end), "modelConfig": object{"modelName": cursorModel, "maxMode": false}}))
+	entry.Paths = []string{path0, state.relative}
+	g.add(entry)
+	g.edge("no-folder", "cursor", id, "IDE chat in an empty window; backs up with no repository", entry.Paths...)
+
+	cwd := g.projects[len(g.projects)-1]
+	entry, id, t, subject = next("cwd-sibling", laneCLI)
+	path0, err = transcript(cursorProject(cwd), id, t, subject)
+	if err != nil {
+		return err
+	}
+	paths, err := chat(cwd, id, t, subject, recordedCWD(cwd), conversation(subject))
+	if err != nil {
+		return err
+	}
+	entry.Paths, entry.WorkingDirectory = append([]string{path0}, paths...), relative(cwd)
+	g.add(entry)
+	entry, id, t, subject = next("cwd-recovered", laneCLI)
+	path0, err = transcript(cursorProject(cwd), id, t, subject)
+	if err != nil {
+		return err
+	}
+	if paths, err = chat(cwd, id, t, subject, olderMeta(t), conversation(subject)); err != nil {
+		return err
+	}
+	entry.Paths, entry.WorkingDirectory = append([]string{path0}, paths...), relative(cwd)
+	g.add(entry)
+	g.edge("cwd-recovered", "cursor", id, "CLI chat whose older meta.json has no cwd; its folder's MD5 names the working directory a sibling records", entry.Paths...)
+
+	cwd = g.projects[0]
+	entry, id, t, subject = next("resume-stub", laneCLI)
+	path0, err = transcript(cursorProject(cwd), id, t, subject)
+	if err != nil {
+		return err
+	}
+	if paths, err = chat(cwd, id, t, subject, recordedCWD(cwd), conversation(subject)); err != nil {
+		return err
+	}
+	elsewhere := g.projects[1%len(g.projects)]
+	stub, err := chat(elsewhere, id, t, subject, recordedCWD(elsewhere))
+	if err != nil {
+		return err
+	}
+	entry.Paths, entry.WorkingDirectory = append(append([]string{path0}, paths...), stub...), relative(cwd)
+	g.add(entry)
+	g.edge("resume-stub", "cursor", id, "CLI chat resumed from another folder, leaving an empty stub store there", entry.Paths...)
+
+	entry, id, t, subject = next("large-value", laneCLI)
+	path0, err = transcript(cursorProject(cwd), id, t, subject)
+	if err != nil {
+		return err
+	}
+	if paths, err = chat(cwd, id, t, subject, recordedCWD(cwd), conversation(subject), bytes.Repeat([]byte("synthetic-blob "), 1536<<10/15)); err != nil {
+		return err
+	}
+	entry.Paths, entry.WorkingDirectory = append([]string{path0}, paths...), relative(cwd)
+	g.add(entry)
+	g.edge("large-value", "cursor", id, "CLI chat whose store holds a 1.5 MiB blob", entry.Paths...)
+	return nil
 }
