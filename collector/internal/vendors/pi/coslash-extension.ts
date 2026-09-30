@@ -1,0 +1,97 @@
+// managed by coSlash; changes are overwritten
+import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { randomUUID, createHash } from "node:crypto"
+import { VERSION } from "@earendil-works/pi-coding-agent"
+import os from "node:os"
+import path from "node:path"
+
+const home = process.env.COSLASH_HOME || path.join(os.homedir(), ".coslash")
+const runtimeId = randomUUID()
+const startedAtMs = Date.now()
+function processIdentity() {
+  try {
+    if (process.platform === "linux") {
+      const stat = readFileSync(`/proc/${process.pid}/stat`, "utf8")
+      return `linux:${readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim()}:${stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`
+    }
+    return `ps:${execFileSync("ps", ["-p", String(process.pid), "-o", "lstart="], { encoding: "utf8", env: { ...process.env, LC_ALL: "C" } }).trim().replace(/\s+/g, " ")}`
+  } catch { return "" }
+}
+const processStartIdentity = processIdentity()
+let sequence = 0
+let context: any
+let dialogOpen = false
+let agentRunning = false
+let active = false
+let lastRecord: any
+let timer: ReturnType<typeof setInterval> | undefined
+function atomic(directory: string, name: string, value: any) {
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  chmodSync(directory, 0o700)
+  const target = path.join(directory, name + ".json")
+  const temporary = target + ".tmp"
+  writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 })
+  renameSync(temporary, target)
+}
+function history(record: any, exited: boolean) {
+  const key = createHash("sha256").update(runtimeId + "\0" + record.transcriptPath).digest("hex")
+  atomic(path.join(home, "pi-history"), key, { record, exited })
+}
+function publish() {
+  if (!active || !context) return
+  try {
+    const transcriptPath = context.sessionManager.getSessionFile()
+    const sessionId = context.sessionManager.getSessionId()
+    if (!transcriptPath || !path.isAbsolute(transcriptPath) || !sessionId) return
+    const leafId = context.sessionManager.getLeafId() ?? null
+    const workState = agentRunning || !context.isIdle() ? "busy" : "idle"
+    if (lastRecord && lastRecord.sessionId === sessionId && lastRecord.transcriptPath === transcriptPath && lastRecord.leafId === leafId && lastRecord.workState === workState && lastRecord.dialogOpen === dialogOpen) return
+    const record = { version: 1, runtimeId, pid: process.pid, processStartIdentity, startedAtMs,
+      sessionId, transcriptPath, leafId, workState, dialogOpen,
+      sequence: ++sequence, updatedAtMs: Date.now() }
+    atomic(path.join(home, "pi-runtime"), runtimeId, record)
+    history(record, false)
+    lastRecord = record
+  } catch { /* Reporting must never interrupt Pi. */ }
+}
+function clear() {
+  active = false
+  if (timer) clearInterval(timer)
+  timer = undefined
+  try {
+    if (lastRecord) history(lastRecord, true)
+    lastRecord = undefined
+    unlinkSync(path.join(home, "pi-runtime", runtimeId + ".json"))
+  } catch { /* Another owner's claim is never touched. */ }
+}
+export default function (pi: any) {
+  // Event semantics have been verified on this release only.
+  if (VERSION !== "0.99.1" && VERSION !== "0.99.2") return
+  const handoffPath = process.env.COSLASH_PI_HANDOFF_FILE
+  // Replacement runtimes must not consume the initial session's notes again.
+  const handoff = handoffPath ? readFileSync(handoffPath, "utf8") : ""
+  delete process.env.COSLASH_PI_HANDOFF_FILE
+  let handoffSession: string | undefined
+  if (handoff) pi.on("before_agent_start", (event: any, ctx: any) => {
+    if (ctx.sessionManager.getSessionId() === handoffSession) return { systemPrompt: event.systemPrompt + "\n\n" + handoff }
+  })
+  const update = (_event: any, ctx: any) => { context = ctx; publish() }
+  pi.on("session_start", (event: any, ctx: any) => {
+    handoffSession = event.reason === "startup" ? ctx.sessionManager.getSessionId() : undefined
+    context = ctx; active = true; dialogOpen = false; agentRunning = false
+    publish()
+    if (!timer) {
+      // Operation callbacks precede Pi's idle flags settling. Refresh afterward.
+      timer = setInterval(publish, 250)
+      timer.unref()
+    }
+  })
+  pi.on("agent_start", (_event: any, ctx: any) => { agentRunning = true; context = ctx; publish() })
+  pi.on("agent_end", update)
+  pi.on("agent_settled", (_event: any, ctx: any) => { agentRunning = false; context = ctx; publish() })
+  pi.on("ui_prompt_start", (_event: any, ctx: any) => { dialogOpen = true; context = ctx; publish() })
+  pi.on("ui_prompt_end", (_event: any, ctx: any) => { dialogOpen = false; context = ctx; publish() })
+  for (const event of ["session_before_compact", "session_compact", "session_compact_failed", "session_before_tree", "session_tree"]) pi.on(event, update)
+  pi.on("session_shutdown", clear)
+}
