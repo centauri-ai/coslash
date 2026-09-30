@@ -19,7 +19,7 @@ func TestImportProgressProjectsSchedulerSnapshotWithoutIdentity(t *testing.T) {
 	queue.state.Phase = "recent"
 	queue.state.LastProgressAt = now.Add(-time.Second).UnixMilli()
 	queue.state.HistoryCursorAt = now.Add(-time.Hour).UnixMilli()
-	queue.state.Entries = []Entry{{Key: "private-key", Activity: now.UnixMilli(), SyncedActivity: now.UnixMilli(),
+	queue.state.Entries = []Entry{{Key: "private-key", SessionID: "ses_hub_id", Activity: now.UnixMilli(), SyncedActivity: now.UnixMilli(),
 		ContentBytes: 100, Listed: true, RevisionID: "rev_accepted"}}
 	queue.currentKey, queue.currentBytesDone, queue.currentBytesTotal = "private-key", 40, 100
 	for i, value := range []float64{60, 10, 50, 20, 40, 30} {
@@ -29,7 +29,7 @@ func TestImportProgressProjectsSchedulerSnapshotWithoutIdentity(t *testing.T) {
 		Conditions: func(_ context.Context) (bool, int, error) { return true, -1, nil }}
 	progress := runner.importProgress(t.Context(), now)
 	if progress.Phase != "recent" || progress.PlanVersion != 7 || progress.Listed != 1 || progress.ContentSessions != 1 ||
-		progress.ContentBytes != 100 || progress.Current == nil || progress.Current.BytesDone != 40 ||
+		progress.ContentBytes != 100 || progress.Current == nil || progress.Current.BytesDone != 40 || progress.Current.SessionID != "ses_hub_id" ||
 		progress.Rate == nil || progress.Rate.P25 != 22.5 || progress.Rate.P75 != 47.5 || progress.Rate.WindowSec != 150 ||
 		progress.Wait == nil || progress.Wait.Reason != "metered_network" || progress.LastProgressAt == nil || progress.HistoryCursorAt == nil {
 		t.Fatalf("import progress = %+v", progress)
@@ -50,6 +50,29 @@ func TestImportProgressReportsFilesDuringInventoryScan(t *testing.T) {
 	progress := runner.importProgress(t.Context(), now)
 	if progress.Phase != "inventory" || progress.Listed != 37 || progress.PlanVersion != 0 || !runner.ImportActive() {
 		t.Fatalf("inventory progress = %+v", progress)
+	}
+}
+
+func TestImportProgressReportsSchedulerQueuePositions(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	queue := &Queue{}
+	queue.state.Config.ImportPlan = &hubclient.V4ImportPlan{Version: 7, Window: "all"}
+	queue.state.Entries = []Entry{
+		{Key: "older-private-key", SessionID: "ses_older", Activity: now.Add(-time.Hour).UnixMilli(), Listed: true, Priority: true},
+		{Key: "newer-private-key", SessionID: "ses_newer", Activity: now.UnixMilli(), Listed: true},
+		{Key: "parked-private-key", SessionID: "ses_parked", Activity: now.Add(time.Hour).UnixMilli(), Listed: true, ParkedVersion: "0.0.5"},
+	}
+	runner := &Runner{Queue: queue, config: queue.state.Config, Now: func() time.Time { return now }}
+	progress := runner.importProgress(t.Context(), now)
+	if len(progress.QueuePositions) != 2 || progress.QueuePositions["ses_older"] != 1 || progress.QueuePositions["ses_newer"] != 2 {
+		t.Fatalf("queue positions = %+v", progress.QueuePositions)
+	}
+	encoded, err := json.Marshal(progress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private-key") {
+		t.Fatalf("private queue key escaped: %s", encoded)
 	}
 }
 
