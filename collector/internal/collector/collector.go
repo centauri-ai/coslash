@@ -951,7 +951,8 @@ func resolveStatusContext(
 			}
 			continue
 		}
-		enrichment := sessionMetadata(metadata, s.Agent).Lookup(s.ID)
+		agentMetadata := sessionMetadata(metadata, s.Agent)
+		enrichment := agentMetadata.Lookup(s.ID)
 		raw := ""
 		if enrichment != nil {
 			raw = enrichment.Live
@@ -967,7 +968,7 @@ func resolveStatusContext(
 				status = session.LiveStatus(p.InTurn, s.LastActivityTime, now)
 			}
 			s.Status = &status
-		} else if p.StatusHint != nil && !livenessAuthoritative {
+		} else if p.StatusHint != nil && (!livenessAuthoritative || !agentMetadata.LivenessChecked) {
 			status := *p.StatusHint
 			s.Status = &status
 		}

@@ -149,11 +149,13 @@ func TestResolveStatusOpenCodeBusyHintRequiresLocalLiveness(t *testing.T) {
 	for _, test := range []struct {
 		name                  string
 		live                  string
+		livenessChecked       bool
 		useLiveStatus         bool
 		livenessAuthoritative bool
 		want                  string
 	}{
-		{name: "interrupted local turn", useLiveStatus: true, livenessAuthoritative: true},
+		{name: "interrupted local turn", livenessChecked: true, useLiveStatus: true, livenessAuthoritative: true},
+		{name: "local liveness unavailable", useLiveStatus: true, livenessAuthoritative: true, want: "busy"},
 		{name: "live local turn", live: "interactive", useLiveStatus: true, livenessAuthoritative: true, want: "busy"},
 		{name: "live permission request", live: "waiting", useLiveStatus: true, livenessAuthoritative: true, want: "waiting"},
 		{name: "remote transcript without liveness", useLiveStatus: true, want: "busy"},
@@ -166,6 +168,7 @@ func TestResolveStatusOpenCodeBusyHintRequiresLocalLiveness(t *testing.T) {
 				InTurn:  true, StatusHint: &busy,
 			}
 			metadata := vendors.EmptySessionMetadata()
+			metadata.LivenessChecked = test.livenessChecked
 			if test.live != "" {
 				metadata.Session(root.Session.ID).Live = test.live
 			}
