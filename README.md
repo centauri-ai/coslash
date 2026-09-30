@@ -21,7 +21,7 @@ or explicitly approve a Hub share.
 
 | | |
 | --- | --- |
-| **Supported agents** | Claude Code · Codex / ChatGPT · Cursor · OpenCode · more to come |
+| **Supported agents** | Claude Code · Codex / ChatGPT · Cursor · OpenCode · Pi (local) |
 | **Works with** | The desktop apps and the CLIs of each agent |
 | **Reads** | Local transcripts and, optionally, one Linux host over read-only SFTP. No account, no daemon, no telemetry. |
 
@@ -105,6 +105,16 @@ contract and remaining manual checks.
 
 coSlash needs at least one local agent session to read. If it finds none, it says so and runs a checklist of every source it looked at — run Claude Code, Codex, Cursor (IDE or `agent` CLI), or OpenCode in a repo, take one turn, and re-run the checks. `coslash doctor` prints the same diagnostics from the terminal.
 
+### Local Pi sessions
+
+The reader supports Pi transcript schema **3**. Schema 1, 2, and future schemas are reported as unsupported; synthetic migration research does not establish older-format support. Runtime integration and local launch are tested with **Pi 0.99.1 and 0.99.2**, independently of the transcript schema.
+
+On startup, coSlash installs its managed extension in `PI_CODING_AGENT_DIR/extensions/coslash-extension.ts` (default `~/.pi/agent/extensions/`). It preserves Pi settings and other extensions and refuses to overwrite an unmanaged file. Restart existing Pi processes after installation or update. Missing integration or an unverified Pi runtime release produces **Unknown**, not Inactive. Print, JSON, and RPC modes load the extension on the verified release; SDK hosts must load it explicitly.
+
+Default and configured Pi storage is read locally. `PI_CODING_AGENT_DIR` selects the agent directory; `PI_CODING_AGENT_SESSION_DIR` selects a session root. Pi also supports global/project `sessionDir` settings and CLI `--session-dir`. Start coSlash with the same overrides. For historical custom locations never observed by the integration, set `COSLASH_PI_SESSION_ROOTS` to an OS path-list (colon-separated on macOS). Integrated runtimes retain learned exact paths under `COSLASH_HOME`, so those sessions remain discoverable after Pi and coSlash restart. Project settings are discovered from coSlash's startup directory and already-discovered session working directories; arbitrary projects are not searched.
+
+Pi Resume opens the backend-resolved transcript path, including custom session IDs. Start fresh with handoff preserves Pi's normal appended instructions and adds the brief as background on the first user turn. These terminal actions are local only and require Pi 0.99.1 or 0.99.2; SDK sessions reopen through the CLI rather than reconstructing their host. See [Troubleshooting](docs/troubleshooting.md#pi-sessions-and-runtime-status) for setup and accounting limits.
+
 ### Optional Linux session monitoring
 
 In **Settings → Machines**, use **Add remote host** with an alias from your
@@ -155,7 +165,7 @@ coSlash reads local Cursor IDE and Cursor CLI (`agent`) sessions. Cursor SDK ses
 
 ### States that tell you where to look
 
-Every session sits in one of four states, and the header keeps a running count of the two that matter:
+Sessions use four evidenced states, plus Unknown when runtime evidence is missing or unverifiable. Pi without the managed integration stays Unknown.
 
 - **Active** — the agent is working right now.
 - **Waiting** — it stopped and needs an answer from you.
@@ -251,7 +261,7 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 | `coslash --version` | Print the version. |
 | `coslash sessions [query] --json` | List local sessions as JSON, optionally filtering by title, repository, branch, or agent. A query that is an exact session ID or `<agent>:<session>` selector returns only that session without a full list. Requires the app to be running. |
 | `coslash handoff <agent>:<session>` | Print canonical handoff Markdown for the selector returned by `coslash sessions`. Requires the app to be running. |
-| `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Cursor copies the handoff and task to the clipboard; paste them into the new Cursor CLI session. Requires the app to be running. |
+| `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Cursor copies the handoff and task to the clipboard; paste them into the new Cursor CLI session. Requires the app to be running. |
 | `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor` | Start a review of the selected local session with the selected installed agent. Requires the app to be running. |
 | `coslash doctor` | Check session sources, agent CLIs, and local storage. |
 | `coslash doctor --json` | Print the same diagnostics as JSON — a shareable report. |

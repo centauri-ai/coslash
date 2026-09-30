@@ -498,9 +498,9 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 		command string
 		usage   string
 	}{
-		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode] [--recent N] --json\n"},
+		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi] [--recent N] --json\n"},
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
-		{"send", "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor [message]\n"},
+		{"send", "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi [message]\n"},
 		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor | coslash review status <agent>:<session> --json\n"},
 		{"doctor", "usage: coslash doctor [--json]\n"},
 	} {

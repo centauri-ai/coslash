@@ -19,6 +19,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
 
 const (
@@ -36,6 +37,7 @@ type vendorSource struct {
 }
 
 var vendorSources = []vendorSource{
+	{name: vendors.AgentPi, collect: pi.CollectContext, loadFacts: pi.GetSessionFacts, loadFamily: pi.GetSessionFamily, health: pi.Health},
 	{
 		name: vendors.AgentClaude, collect: claude.CollectContext, loadFacts: claude.GetSessionFacts,
 		newFactsLoader: claude.NewSessionFactsLoader,
@@ -312,7 +314,7 @@ func finalizeSessionsSourceContext(
 		return nil, err
 	}
 	for _, root := range composition.roots {
-		root.Session.SynthesisRevision = root.Session.LastActivityTime
+		root.Session.SynthesisRevision = synthesis.Revision(root.Session)
 	}
 	if err := promoteFamilyActivityContext(ctx, composition); err != nil {
 		return nil, err
@@ -1009,7 +1011,7 @@ func servableRootsContext(ctx context.Context, roots []*vendors.ParsedSession) (
 		// Codex counts a turn on task_started, not on the prompt, so an
 		// interrupted rollout reaches here with real user work and zero counters.
 		if s.Status == nil && s.FirstPrompt == nil &&
-			s.Turns == 0 && s.ToolUses == 0 && len(s.Tokens) == 0 {
+			s.Turns == 0 && s.ToolUses == 0 && len(s.Tokens) == 0 && !s.TokensKnown && !s.TokensUnavailable && !s.CostUnavailable && s.UnattributedTokens == nil {
 			continue
 		}
 		kept = append(kept, p)

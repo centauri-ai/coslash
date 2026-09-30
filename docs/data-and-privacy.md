@@ -15,6 +15,7 @@ coSlash reads, but does not modify:
   `~/.cursor/projects`, `~/.cursor/chats`, `~/.cursor/ai-tracking`, and
   the platform's Cursor global-storage directory (`~/Library/Application Support/Cursor/User/globalStorage`
   on macOS or `%APPDATA%\Cursor\User\globalStorage` on Windows).
+- Local Pi schema-3 transcripts under `~/.pi/agent/sessions`, configured session roots, and exact paths retained by the managed runtime integration. Pi remote collection is unsupported.
 - Recorded working directories and Git metadata used for branch and change summaries.
 - Local process information used to identify live sessions.
 
@@ -27,12 +28,15 @@ coSlash reads, but does not modify:
 | `summaries/` | Cached synthesis results. |
 | `synthesis/` | Temporary synthesis files and isolated CLI data. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
+| `pi-runtime/` and `pi-history/` | Private process identity, session IDs, exact transcript paths, runtime state, and retained discovery evidence. |
 | `remotes/<source-id>/snapshot.json` | Legacy normalized remote session cards. |
 | `remotes/<source-id>/snapshot-v2.json` and `snapshot-v2.previous.json` | Current and previous atomic remote generations. They contain normalized facts and complete supported Claude and Codex parsed records, including prompts, commands, working directories, subagent detail, edited-file paths, and file-change bodies. They do not contain raw transcript rows. |
 
 coSlash restricts storage to the current account (`0700`/`0600` modes on
 macOS and a protected current-user ACL on Windows). Programs running as that
 same account can still read it.
+
+The managed Pi extension is installed under `PI_CODING_AGENT_DIR/extensions` (default `~/.pi/agent/extensions`). Installation preserves settings and other extensions and refuses unmanaged replacement. Restart Pi to activate updates. Removing its runtime/history directories removes retained evidence; removing the managed extension disables reliable Pi live status. Transcript paths remain backend-only and are excluded from public session JSON. Pi portable sharing is unavailable until the formats can represent its branch context and accounting.
 
 ## Optional SSH/SFTP access and helper installation
 

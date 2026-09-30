@@ -109,6 +109,10 @@ func handleDirectedHandoffStart(w http.ResponseWriter, r *http.Request, store *d
 		http.Error(w, "invalid handoff request", http.StatusBadRequest)
 		return
 	}
+	if input.TargetAgent == vendors.AgentPi && (sourceID != localSourceID || input.Kind == "review") {
+		http.Error(w, "Pi supports local custom handoffs only", http.StatusBadRequest)
+		return
+	}
 	if len(input.Request) > 16*1024 {
 		http.Error(w, "request is too large", http.StatusRequestEntityTooLarge)
 		return

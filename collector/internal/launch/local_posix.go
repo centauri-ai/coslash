@@ -63,7 +63,11 @@ func secureTerminalInputCommand(base, prompt, agent, context string) (string, st
 			_ = removeHandoffFile(path)
 			return "", "", fmt.Errorf("launch: staging interactive context: %w", err)
 		}
-		base = `context=` + shellQuote(contextPath) + `; trap 'rm -f "$context"' EXIT HUP INT TERM; ` + base + ` ` + shellJoin("--append-system-prompt-file", contextPath)
+		if agent == vendors.AgentPi {
+			base = "cat " + shellQuote(contextPath) + " > /dev/null && COSLASH_PI_HANDOFF_FILE=" + shellQuote(contextPath) + " " + base
+		} else {
+			base = `context=` + shellQuote(contextPath) + `; trap 'rm -f "$context"' EXIT HUP INT TERM; ` + base + ` ` + shellJoin("--append-system-prompt-file", contextPath)
+		}
 	}
 	ready := `{\x1b\[\?2004h}`
 	if agent == vendors.AgentOpenCode {
@@ -137,8 +141,4 @@ func handoffCommand(agent, cli, handoff, prompt string) (string, string, error) 
 		return shellJoin(cli), "", nil
 	}
 	return "", "", fmt.Errorf("launch: unknown agent %q", agent)
-}
-
-func withCleanup(command, path string) string {
-	return command + " ; rm -f " + shellQuote(path)
 }

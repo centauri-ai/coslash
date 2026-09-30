@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/fullsessionrecord"
@@ -240,7 +241,11 @@ func parseExactSessionIdentity(w http.ResponseWriter, r *http.Request) (exactSes
 	identity := exactSessionIdentity{
 		SourceID: sourceID, Agent: query.Get("agent"), SessionID: query.Get("session"), Revision: query.Get("revision"),
 	}
-	if !validAgent(identity.Agent) || !validOpaqueIdentifier(identity.SessionID) || !validOpaqueIdentifier(identity.Revision) {
+	validSessionID := validOpaqueIdentifier(identity.SessionID)
+	if identity.Agent == vendors.AgentPi && identity.SourceID == localSourceID {
+		validSessionID = validLocalPiIdentifier(identity.SessionID)
+	}
+	if !validAgent(identity.Agent) || (identity.Agent == vendors.AgentPi && identity.SourceID != localSourceID) || !validSessionID || !validOpaqueIdentifier(identity.Revision) {
 		http.Error(w, "invalid session identity", http.StatusBadRequest)
 		return exactSessionIdentity{}, false
 	}
@@ -248,7 +253,20 @@ func parseExactSessionIdentity(w http.ResponseWriter, r *http.Request) (exactSes
 }
 
 func validAgent(agent string) bool {
-	return agent == vendors.AgentClaude || agent == vendors.AgentCodex || agent == vendors.AgentCursor || agent == vendors.AgentOpenCode
+	return agent == vendors.AgentClaude || agent == vendors.AgentCodex || agent == vendors.AgentCursor || agent == vendors.AgentOpenCode || agent == vendors.AgentPi
+}
+
+// Pi identities are persisted data, never filesystem path components.
+func validLocalPiIdentifier(value string) bool {
+	if value == "" || len(value) > 512 || !utf8.ValidString(value) {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
 }
 
 func validOpaqueIdentifier(value string) bool {

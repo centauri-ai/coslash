@@ -29,6 +29,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 	"github.com/centauri-ai/coslash/collector/internal/web"
 )
 
@@ -109,6 +110,9 @@ func main() {
 	defer runtimeLock.Close()
 
 	settingsStore := settings.Open()
+	if err := pi.EnsureExtension(); err != nil {
+		log.Printf("install Pi coSlash extension: %v", err)
+	}
 	if err := opencode.EnsurePlugin(); err != nil {
 		log.Printf("install OpenCode coSlash plugin: %v", err)
 	}
