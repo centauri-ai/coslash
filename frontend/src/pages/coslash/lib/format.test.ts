@@ -10,3 +10,11 @@ describe('unknown usage formatting', () => {
     expect(formatEstimatedCost(null)).toBe('—');
   });
 });
+
+describe('small token counts', () => {
+  it('preserves positive counts below one thousand and genuine zero', () => {
+    for (const count of [0, 1, 45, 210, 499, 500, 999]) expect(formatTokens(count)).toBe(String(count));
+    expect(formatTokens(1000)).toBe('1k');
+    expect(formatTokens(1000000)).toBe('1M');
+  });
+});

@@ -16,6 +16,7 @@ export function formatDuration(ms: number | null): string {
 
 export function formatTokens(count: number | null): string {
   if (count == null) return '—';
+  if (count < 1000) return String(count);
   if (count >= 1e6) return `${(count / 1e6).toFixed(2).replace(/\.?0+$/, '')}M`;
   return `${Math.round(count / 1000)}k`;
 }

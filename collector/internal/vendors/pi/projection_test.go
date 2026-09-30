@@ -347,6 +347,106 @@ func TestVerifiedEmptyPiAccountingIsKnownZero(t *testing.T) {
 	}
 }
 
+func TestProjectionInvalidatesChangedContextUsage(t *testing.T) {
+	for _, row := range []string{
+		`{"type":"context_edit","id":"later","parentId":"a","targetId":"a","replacement":{"content":"changed"}}`,
+		`{"type":"message","id":"later","parentId":"a","message":{"role":"user","content":"follow up"}}`,
+		`{"type":"custom_message","id":"later","parentId":"a","customType":"extension","content":"extra context","display":false}`,
+	} {
+		tr := projectionFixture(t, "changedContext", "", userRow("u", "", "goal", "2026-01-01T00:00:01Z"), assistantRow("a", "u", "answer", 2), row)
+		p, _ := projectLeaf(tr, nil, "later", false)
+		if p.Session.ContextTokens != nil {
+			t.Fatal("stale usage retained after context changes")
+		}
+		if p.Session.TokensUnavailable || p.RecordedCost == nil || *p.RecordedCost != 2 {
+			t.Fatal("context change altered recorded accounting")
+		}
+		var fresh entry
+		fresh.Raw = []byte(assistantRow("fresh", "later", "fresh answer", 3))
+		if err := json.Unmarshal(fresh.Raw, &fresh); err != nil {
+			t.Fatal(err)
+		}
+		fresh.AppendIndex = len(tr.Entries)
+		if err := extractUsage(&fresh); err != nil {
+			t.Fatal(err)
+		}
+		tr.ByID[fresh.ID] = fresh.AppendIndex
+		tr.Entries = append(tr.Entries, fresh)
+		p, _ = projectLeaf(tr, nil, "fresh", false)
+		if p.Session.ContextTokens == nil || *p.Session.ContextTokens != 20 {
+			t.Fatal("new assistant evidence did not restore context usage")
+		}
+		tr.Entries = tr.Entries[:2]
+		p, _ = projectLeaf(tr, nil, "a", false)
+		if p.Session.ContextTokens == nil || *p.Session.ContextTokens != 20 {
+			t.Fatal("verified assistant usage lost")
+		}
+	}
+}
+
+func TestProjectionCustomMessageContext(t *testing.T) {
+	tr := projectionFixture(t, "customContext", "", userRow("u", "", "goal", "2026-01-01T00:00:01Z"), assistantRow("a", "u", "answer", 2),
+		`{"type":"custom_message","id":"old","parentId":"a","timestamp":"2026-01-01T00:00:03Z","customType":"extension","content":"old extension context","display":true}`,
+		`{"type":"compaction","id":"c","parentId":"old","timestamp":"2026-01-01T00:00:04Z","summary":"checkpoint","firstKeptEntryId":"c"}`,
+		`{"type":"custom_message","id":"custom","parentId":"c","timestamp":"2026-01-01T00:00:05Z","customType":"extension","content":[{"type":"text","text":"original extension context"}],"display":false}`,
+		`{"type":"context_edit","id":"edit","parentId":"custom","timestamp":"2026-01-01T00:00:06Z","targetId":"custom","replacement":{"content":"replacement extension context"}}`)
+	p, _ := projectLeaf(tr, nil, "edit", false)
+	input := synthesis.BuildInput(p.Session)
+	if !strings.Contains(input, "replacement extension context") || strings.Contains(input, "original extension context") || strings.Contains(input, "old extension context") {
+		t.Fatalf("custom selected context mismatch: %s", input)
+	}
+	if p.Session.Turns != 1 {
+		t.Fatal("extension context counted as user turn")
+	}
+	rows := map[string]string{}
+	for _, row := range p.Session.Digest {
+		rows[row.SourceEntryID] = row.Description
+	}
+	if !strings.Contains(rows["custom"], "original extension context") || !strings.Contains(rows["old"], "old extension context") {
+		t.Fatal("custom raw history missing")
+	}
+	tr.Entries[len(tr.Entries)-1].Raw = []byte(`{"type":"context_edit","id":"edit","parentId":"custom","targetId":"custom","replacement":null}`)
+	p, _ = projectLeaf(tr, nil, "edit", false)
+	if strings.Contains(synthesis.BuildInput(p.Session), "original extension context") {
+		t.Fatal("deleted custom context retained")
+	}
+}
+
+func TestProjectionEmptyContentEditedIntoText(t *testing.T) {
+	for _, entryFormat := range []string{
+		`{"type":"custom_message","id":"custom","parentId":"u","content":%s,"customType":"extension","display":true}`,
+		`{"type":"message","id":"custom","parentId":"u","message":{"role":"user","content":%s}}`,
+	} {
+		for _, content := range []string{`""`, `[{"type":"image","mimeType":"image/png","data":"AA=="}]`} {
+			tr := projectionFixture(t, "editedEmpty", "", userRow("u", "", "goal", "2026-01-01T00:00:01Z"),
+				fmt.Sprintf(entryFormat, content),
+				`{"type":"context_edit","id":"edit","parentId":"custom","targetId":"custom","replacement":{"content":"new extension context"}}`)
+			p, _ := projectLeaf(tr, nil, "edit", false)
+			if !strings.Contains(synthesis.BuildInput(p.Session), "new extension context") {
+				t.Fatal("replacement for textless native context dropped")
+			}
+			found := false
+			for _, row := range p.Session.Digest {
+				if row.SourceEntryID == "custom" {
+					found = true
+					if row.Description != "" || row.ContextDescription == nil || *row.ContextDescription != "new extension context" {
+						t.Fatal("invented historical text or lost replacement")
+					}
+				}
+			}
+			if !found {
+				t.Fatal("context-only digest row missing")
+			}
+			p, _ = projectLeaf(tr, nil, "custom", false)
+			for _, row := range p.Session.Digest {
+				if row.SourceEntryID == "custom" {
+					t.Fatal("unselected edit invented historical row")
+				}
+			}
+		}
+	}
+}
+
 func TestProjectionPreservesHandoffMarker(t *testing.T) {
 	store, err := directedhandoff.Open(filepath.Join(t.TempDir(), "handoffs.json"))
 	if err != nil {
