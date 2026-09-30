@@ -69,6 +69,11 @@ inventory phase, `listed` counts files seen so far. Current queue keys and
 source paths never enter that payload. Fewer than six valid rate samples, or
 measurements older than two minutes, leave `rate` null. The Hub computes ETA
 from a stable rate after its own minimum transfer window.
+The current transfer may include its server-issued session ID after listing.
+The actionable queue also reports a `queuePositions` map from server-issued
+session IDs to scheduler positions, including priority and pause decisions;
+parked and not-yet-ready work has no position. The map is omitted if more
+than 10,000 actionable entries exist. The private source key is never sent.
 The command wait request continues while Local runs, including during an
 upload, a pause, and a failed pass. A changed policy or queued command wakes
 check-in promptly. Retryable session failures wait 1, 5, 15, then 60 minutes

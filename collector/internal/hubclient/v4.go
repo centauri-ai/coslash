@@ -94,8 +94,9 @@ type V4Queue struct {
 }
 
 type V4ImportCurrent struct {
-	BytesDone  int64 `json:"bytesDone"`
-	BytesTotal int64 `json:"bytesTotal"`
+	BytesDone  int64  `json:"bytesDone"`
+	BytesTotal int64  `json:"bytesTotal"`
+	SessionID  string `json:"sessionId,omitempty"`
 }
 
 type V4ImportRate struct {
@@ -117,6 +118,7 @@ type V4Import struct {
 	ContentBytes    int64            `json:"contentBytes"`
 	TotalSessions   int64            `json:"totalSessions"`
 	TotalBytes      int64            `json:"totalBytes"`
+	QueuePositions  map[string]int64 `json:"queuePositions,omitempty"`
 	Current         *V4ImportCurrent `json:"current"`
 	LastProgressAt  *time.Time       `json:"lastProgressAt"`
 	Rate            *V4ImportRate    `json:"rate"`

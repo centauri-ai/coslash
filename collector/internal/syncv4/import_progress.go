@@ -34,7 +34,27 @@ func (r *Runner) importProgress(ctx context.Context, now time.Time) *hubclient.V
 		progress.Current = &hubclient.V4ImportCurrent{
 			BytesDone:  max(0, snapshot.CurrentBytesDone),
 			BytesTotal: max(0, snapshot.CurrentBytesTotal),
+			SessionID:  snapshot.CurrentSessionID,
 		}
+	}
+	if _, config, _ := r.Queue.Policy(); config.ImportPlan != nil && snapshot.PlanVersion == config.ImportPlan.Version {
+		positions := make(map[string]int64)
+		var position int64
+		for _, entry := range r.Queue.PlannedEntries(*config.ImportPlan, now) {
+			if !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, now) ||
+				!entry.Priority && !inWindow(entry, *config.ImportPlan, now) && config.ImportPlan.HistoryPaused {
+				continue
+			}
+			position++
+			if position > 10_000 {
+				positions = nil
+				break
+			}
+			if entry.SessionID != "" {
+				positions[entry.SessionID] = position
+			}
+		}
+		progress.QueuePositions = positions
 	}
 	if len(snapshot.Rates) >= 6 {
 		last := snapshot.Rates[len(snapshot.Rates)-1].At
