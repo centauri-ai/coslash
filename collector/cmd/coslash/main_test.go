@@ -301,6 +301,129 @@ func TestContextJSONWritersPreserveListShapes(t *testing.T) {
 	}
 }
 
+func TestHandleListSourceAwareReconcilesClaudeDesktopSSHMirrors(t *testing.T) {
+	const matchingID = "11111111-1111-4111-8111-111111111111"
+	const otherID = "22222222-2222-4222-8222-222222222222"
+	const sourceID = "r_0123456789abcdef"
+
+	response := sourceAwareListResponse(t, []*session.Session{
+		{Agent: vendors.AgentClaude, ID: matchingID, LocalSSHMirror: true},
+		{Agent: vendors.AgentClaude, ID: matchingID},
+		{Agent: vendors.AgentClaude, ID: otherID, LocalSSHMirror: true},
+		{Agent: vendors.AgentCodex, ID: matchingID, LocalSSHMirror: true},
+	}, &settings.RemoteSettings{ID: sourceID, SSHAlias: "agent-box", Enabled: true}, []remote.CachedSession{
+		{Agent: vendors.AgentClaude, ID: matchingID},
+	})
+
+	if len(response.Sessions) != 4 {
+		t.Fatalf("source-aware sessions = %d, want ordinary local duplicate, unmatched mirror, Codex row, and cached SSH row: %#v", len(response.Sessions), response.Sessions)
+	}
+	counts := map[string]int{}
+	for _, item := range response.Sessions {
+		counts[item.SourceID+":"+item.Agent+":"+item.ID]++
+	}
+	for _, key := range []string{
+		"local:claude:" + matchingID,
+		"local:claude:" + otherID,
+		"local:codex:" + matchingID,
+		sourceID + ":claude:" + matchingID,
+	} {
+		if counts[key] != 1 {
+			t.Fatalf("session %q count = %d, want 1; counts=%v", key, counts[key], counts)
+		}
+	}
+	if len(response.Machines) != 2 || response.Machines[1].SourceID != sourceID || response.Machines[1].SessionCount != 1 {
+		t.Fatalf("cached SSH machine = %#v, want one cached session for source %q", response.Machines, sourceID)
+	}
+	for _, item := range response.Sessions {
+		if item.SourceID == sourceID && (!item.DisplayStale || item.Agent != vendors.AgentClaude || item.ID != matchingID) {
+			t.Fatalf("cached SSH row = %#v, want stale Claude row %s", item, matchingID)
+		}
+	}
+}
+
+func TestHandleListSourceAwareKeepsLocalMirrorWithoutMatchingSSHRow(t *testing.T) {
+	const localID = "33333333-3333-4333-8333-333333333333"
+	local := []*session.Session{{Agent: vendors.AgentClaude, ID: localID, LocalSSHMirror: true}}
+	configs := []struct {
+		name   string
+		config *settings.RemoteSettings
+		cached []remote.CachedSession
+	}{
+		{name: "source missing"},
+		{name: "source disabled", config: &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box"}},
+		{
+			name:   "source has no matching card",
+			config: &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true},
+			cached: []remote.CachedSession{{Agent: vendors.AgentClaude, ID: "44444444-4444-4444-8444-444444444444"}},
+		},
+	}
+	for _, test := range configs {
+		t.Run(test.name, func(t *testing.T) {
+			response := sourceAwareListResponse(t, local, test.config, test.cached)
+			found := 0
+			for _, item := range response.Sessions {
+				if item.SourceID == localSourceID && item.Agent == vendors.AgentClaude && item.ID == localID {
+					found++
+				}
+			}
+			if found != 1 {
+				t.Fatalf("local mirror fallback count = %d; sessions=%#v", found, response.Sessions)
+			}
+		})
+	}
+}
+
+func sourceAwareListResponse(
+	t *testing.T,
+	locals []*session.Session,
+	config *settings.RemoteSettings,
+	cached []remote.CachedSession,
+) sessionsResponse {
+	t.Helper()
+	originalList := listSessions
+	listSessions = func(context.Context, int64) ([]*session.Session, error) {
+		return locals, nil
+	}
+	defer func() { listSessions = originalList }()
+
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	now := time.UnixMilli(1_700_000_000_000)
+	cache := remote.NewCache(t.TempDir())
+	if config != nil && len(cached) > 0 {
+		if err := cache.Store(config.ID, remote.CachedSnapshot{
+			Version: 1, Sessions: cached, FetchedAtMs: now.UnixMilli(), CoverageSinceMs: now.UnixMilli(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manager := remote.NewManager(remote.Options{
+		Cache: cache, Now: func() time.Time { return now },
+		Open: func(context.Context, string, remote.OpenOptions) (*remote.Session, error) {
+			return nil, errors.New("stub remote connection")
+		},
+	})
+	defer manager.Shutdown()
+	if config != nil {
+		if err := manager.ApplySettings(config); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reviewManager := reviewpkg.NewManager(nil)
+	defer reviewManager.Shutdown()
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/sessions?sourceAware=1", nil)
+	response := httptest.NewRecorder()
+	handleList(response, request, synthesis.NewManager(nil), reviewManager, manager)
+	if response.Code != http.StatusOK {
+		t.Fatalf("source-aware status = %d, body=%s", response.Code, response.Body.String())
+	}
+	var result sessionsResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("source-aware response = %s: %v", response.Body.String(), err)
+	}
+	return result
+}
+
 func TestRemoteHandoffTransferFailurePreventsTerminalLaunch(t *testing.T) {
 	originalStage := stageRemoteHandoff
 	originalLaunch := launchRemoteTerminal

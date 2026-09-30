@@ -1,6 +1,10 @@
 package session
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestAttachCostPreservesAuthoritativeZero(t *testing.T) {
 	s := &Session{}
@@ -55,6 +59,16 @@ func TestCloneDeepCopiesFileEditChangeIDs(t *testing.T) {
 
 	if got := source.FileEdits[0].ChangeIDs[0]; got != "change-1" {
 		t.Fatalf("source change ID = %q, want %q", got, "change-1")
+	}
+}
+
+func TestLocalSSHMirrorIsNotSerialized(t *testing.T) {
+	encoded, err := json.Marshal(Session{LocalSSHMirror: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "LocalSSHMirror") {
+		t.Fatalf("local SSH mirror marker serialized: %s", encoded)
 	}
 }
 

@@ -121,6 +121,19 @@ func handleList(
 		log.Printf("list sessions: %d", len(sessions))
 		return
 	}
+	if r.Context().Err() != nil {
+		return
+	}
+	remoteResult := remoteManager.ListView(remoteSince)
+	if r.Context().Err() != nil {
+		return
+	}
+	remoteClaudeIDs := make(map[string]struct{}, len(remoteResult.Sessions))
+	for _, value := range remoteResult.Sessions {
+		if value.Session != nil && value.Session.Agent == vendors.AgentClaude {
+			remoteClaudeIDs[value.Session.ID] = struct{}{}
+		}
+	}
 	response := sessionsResponse{
 		Sessions: []boardSession{},
 		Machines: []machineFact{localMachineFact()},
@@ -129,12 +142,17 @@ func handleList(
 		if r.Context().Err() != nil {
 			return
 		}
+		if value.LocalSSHMirror && value.Agent == vendors.AgentClaude {
+			if _, ok := remoteClaudeIDs[value.ID]; ok {
+				continue
+			}
+		}
 		response.Sessions = append(response.Sessions, boardLocalSession(value))
 	}
+	localCount := len(response.Sessions)
 	if r.Context().Err() != nil {
 		return
 	}
-	remoteResult := remoteManager.ListView(remoteSince)
 	if remoteResult.Health.SourceID != "" {
 		response.Machines = append(response.Machines, machineFromHealth(remoteResult.Health))
 		for _, value := range remoteResult.Sessions {
@@ -151,7 +169,7 @@ func handleList(
 		return
 	}
 	writeSessionsResponseJSON(r.Context(), w, response)
-	log.Printf("list sessions: %d local, %d remote", len(sessions), len(remoteResult.Sessions))
+	log.Printf("list sessions: %d local, %d remote", localCount, len(remoteResult.Sessions))
 }
 
 func parseSince(value string) (int64, error) {
