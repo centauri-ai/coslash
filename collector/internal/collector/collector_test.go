@@ -145,6 +145,45 @@ func TestResolveStatusClearsWaitingForClosedSession(t *testing.T) {
 	}
 }
 
+func TestResolveStatusOpenCodeBusyHintRequiresLocalLiveness(t *testing.T) {
+	for _, test := range []struct {
+		name                  string
+		live                  string
+		useLiveStatus         bool
+		livenessAuthoritative bool
+		want                  string
+	}{
+		{name: "interrupted local turn", useLiveStatus: true, livenessAuthoritative: true},
+		{name: "live local turn", live: "interactive", useLiveStatus: true, livenessAuthoritative: true, want: "busy"},
+		{name: "live permission request", live: "waiting", useLiveStatus: true, livenessAuthoritative: true, want: "waiting"},
+		{name: "remote transcript without liveness", useLiveStatus: true, want: "busy"},
+		{name: "portable transcript", livenessAuthoritative: true, want: "busy"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			busy := "busy"
+			root := &vendors.ParsedSession{
+				Session: &session.Session{Agent: vendors.AgentOpenCode, ID: "interrupted", LastActivityTime: 100},
+				InTurn:  true, StatusHint: &busy,
+			}
+			metadata := vendors.EmptySessionMetadata()
+			if test.live != "" {
+				metadata.Session(root.Session.ID).Live = test.live
+			}
+
+			resolveStatus([]*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{
+				vendors.AgentOpenCode: metadata,
+			}, test.useLiveStatus, test.livenessAuthoritative)
+
+			if got := deref(root.Session.Status); got != test.want {
+				t.Fatalf("status = %q; want %q", got, test.want)
+			}
+			if !root.InTurn || *root.StatusHint != busy {
+				t.Fatal("status resolution changed the parsed transcript facts")
+			}
+		})
+	}
+}
+
 func TestFinalizeSessionsDoesNotAllocateMissingMetadata(t *testing.T) {
 	metadata := vendors.EmptySessionMetadata()
 	parsed := []*vendors.ParsedSession{{

@@ -967,7 +967,7 @@ func resolveStatusContext(
 				status = session.LiveStatus(p.InTurn, s.LastActivityTime, now)
 			}
 			s.Status = &status
-		} else if p.StatusHint != nil {
+		} else if p.StatusHint != nil && !livenessAuthoritative {
 			status := *p.StatusHint
 			s.Status = &status
 		}
