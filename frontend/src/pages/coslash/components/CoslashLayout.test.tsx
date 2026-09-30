@@ -112,6 +112,19 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('aria-label="View"');
   });
 
+  it('keeps first-run recovery visible in Insights only after an empty load', () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ view: 'insights' }),
+      setItem: () => {},
+    });
+    const emptyContent = <button>Re-run checks</button>;
+
+    expect(renderLayout({ emptyContent })).toContain('Re-run checks');
+    expect(renderLayout({ emptyContent, isLoading: true })).not.toContain('Re-run checks');
+    expect(renderLayout({ emptyContent, loadError: 'Offline' })).not.toContain('Re-run checks');
+    expect(renderLayout({ emptyContent, sessions: [session({ id: 'one' })] })).not.toContain('Re-run checks');
+  });
+
   it('keeps row dividers in comfortable density and omits them in compact density', () => {
     const rowCells = (markup: string) => {
       const titleAt = markup.indexOf('Divider row');
