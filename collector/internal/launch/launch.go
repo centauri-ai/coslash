@@ -193,7 +193,7 @@ func reviewHelpRequirements(reviewer string) ([]string, []string) {
 	case vendors.AgentClaude:
 		return []string{"--help"}, []string{"--safe-mode", "--restricted", "--strict-mcp-config", "--tools"}
 	case vendors.AgentCodex:
-		return []string{"exec", "--help"}, []string{"--ephemeral", "--ignore-user-config", "--ignore-rules", "--disable", "--sandbox"}
+		return []string{"exec", "--help"}, []string{"--ignore-user-config", "--ignore-rules", "--disable", "--sandbox"}
 	default:
 		return nil, nil
 	}
@@ -397,7 +397,7 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 		}, stdin: prompt}, nil
 	case vendors.AgentCodex:
 		return reviewCommandSpec{bin: "codex", args: []string{
-			"exec", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+			"exec", "--ignore-user-config", "--ignore-rules",
 			"--disable", "hooks", "--disable", "plugins", "--disable", "apps",
 			"--sandbox", "read-only", "--skip-git-repo-check", "-",
 		}, stdin: prompt}, nil

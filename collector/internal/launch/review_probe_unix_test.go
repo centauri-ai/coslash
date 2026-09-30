@@ -26,7 +26,7 @@ func TestRemoteReviewerOptionsRejectUnsupportedClaude(t *testing.T) {
 		}
 	}
 	writeCLI("claude", "--safe-mode --strict-mcp-config --tools")
-	writeCLI("codex", "--ephemeral --ignore-user-config --ignore-rules --disable --sandbox")
+	writeCLI("codex", "--ignore-user-config --ignore-rules --disable --sandbox")
 	original := reviewCommandContext
 	t.Cleanup(func() { reviewCommandContext = original })
 	reviewCommandContext = func(ctx context.Context, bin string, args ...string) *exec.Cmd {

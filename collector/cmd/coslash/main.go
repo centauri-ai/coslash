@@ -323,7 +323,7 @@ func routes(
 			if !state.Valid || state.Config.Remote == nil || !state.Config.Remote.Enabled || state.Config.Remote.ID != source {
 				return "", false
 			}
-			health := remoteManager.ListView(0).Health
+			health := remoteManager.DiagnosticsHealth()
 			return state.Config.Remote.SSHAlias, health.SourceID == source &&
 				(health.State == remote.StateOK || health.State == remote.StateLimited)
 		}, launch.RemoteReviewerOptions)

@@ -23,7 +23,7 @@ export function remoteReviewAvailability(
   }
   if (check == null) return { reason: 'Checking reviewer CLIs on the SSH host.', retryable: false };
   if (check.state === 'offline') {
-    return { reason: 'SSH host is offline. Reconnect it to start a review.', retryable: false };
+    return { reason: 'SSH host is offline. Reconnect it to start a review.', retryable: true };
   }
   if (check.state === 'error') {
     return { reason: 'Could not check reviewer CLIs on the SSH host. Retry the check.', retryable: true };
