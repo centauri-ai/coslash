@@ -766,6 +766,9 @@ func TestAutomaticUpdateRetriesWhenTheRemoteReturns(t *testing.T) {
 		Refresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2) (refreshOutcome, error) {
 			return refreshOutcome{}, context.DeadlineExceeded
 		},
+		HelperRefresh: func(context.Context, string, int64, time.Time, CachedSnapshotV2, helperTarget) (refreshOutcome, error) {
+			return refreshOutcome{}, context.DeadlineExceeded
+		},
 	}
 	config := &settings.RemoteSettings{ID: "r_0123456789abcdef", SSHAlias: "agent-box", Enabled: true}
 	first := NewManager(options)
@@ -805,7 +808,7 @@ func TestAutomaticUpdateRetriesWhenTheRemoteReturns(t *testing.T) {
 	waitUntil(t, func() bool {
 		restarted.mu.Lock()
 		defer restarted.mu.Unlock()
-		return restarted.helperProbe == helperProbeReady && !restarted.helperSetup
+		return restarted.helperProbe == helperProbeReady && !restarted.helperSetup && !restarted.refreshing
 	})
 	if remote.installs != 2 {
 		t.Fatalf("returned remote installs = %d", remote.installs)
