@@ -20,6 +20,7 @@ type ImportSnapshot struct {
 	RateSamples       int
 	Rates             []RateSample
 	CurrentKey        string
+	CurrentSessionID  string
 	CurrentBytesDone  int64
 	CurrentBytesTotal int64
 	LastProgressAt    *time.Time
@@ -195,6 +196,9 @@ func (q *Queue) ImportSnapshot(now time.Time) ImportSnapshot {
 	}
 	snapshot.PlanVersion = plan.Version
 	for _, entry := range q.state.Entries {
+		if entry.Key == q.currentKey {
+			snapshot.CurrentSessionID = entry.SessionID
+		}
 		if !inScope(entry, *plan, now) {
 			continue
 		}
