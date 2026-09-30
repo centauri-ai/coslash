@@ -3,6 +3,7 @@ package directedhandoff
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,7 +59,7 @@ func TestStorePersistsAndCorrelatesExactMarker(t *testing.T) {
 		}
 	}
 	answer := "Done with the request"
-	target := &session.Session{Agent: "claude", ID: "target", SessionDetails: session.SessionDetails{FirstPrompt: &marker, Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestRecap, Description: answer}}}}
+	target := &session.Session{Agent: "claude", ID: "target", SessionDetails: session.SessionDetails{FirstPrompt: &marker, Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestRecap, Description: answer + "\ncoSlash handoff completed: " + record.ID}}}}
 	if err := store.Observe("local", []*session.Session{target}); err != nil {
 		t.Fatal(err)
 	}
@@ -203,11 +204,84 @@ func TestRecoverReviewsPreservesCustomDiscovery(t *testing.T) {
 		t.Fatalf("custom after restart = %#v", states[custom.ID])
 	}
 	marker := Marker(custom.ID)
-	target := &session.Session{Agent: "codex", ID: "resumed-target", SessionDetails: session.SessionDetails{FirstPrompt: &marker, Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestRecap, Description: "done"}}}}
+	target := &session.Session{Agent: "codex", ID: "resumed-target", SessionDetails: session.SessionDetails{FirstPrompt: &marker, Digest: []session.DigestEntry{{Turn: 1, Category: session.DigestRecap, Description: "done\ncoSlash handoff completed: " + custom.ID}}}}
 	if err := store.Observe("local", []*session.Session{target}); err != nil {
 		t.Fatal(err)
 	}
 	if got := store.List()[0]; got.Status != "completed" || got.TargetSessionID != "resumed-target" {
 		t.Fatalf("resumed custom = %#v", got)
+	}
+}
+
+func TestCustomHandoffWaitsForClarificationAcrossRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "handoffs.json")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.Start("local", "codex", "origin", "claude", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, idle := Marker(record.ID), "idle"
+	target := &session.Session{Agent: "claude", ID: "target", Status: &idle, SessionDetails: session.SessionDetails{
+		FirstPrompt: &marker,
+		Digest:      []session.DigestEntry{{Turn: 1, Category: session.DigestRecap, Description: "Which fixture color do you want me to use? I will wait for your answer before I do anything else."}},
+	}}
+	if err := store.Observe("local", []*session.Session{target}); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.List()[0]; got.Status != "running" || got.Activity != "needs_input" || got.Result != "" || got.TargetSessionID != "target" {
+		t.Fatalf("unanswered clarification after restart = %#v", got)
+	}
+	target.Digest = append(target.Digest,
+		session.DigestEntry{Turn: 2, Category: session.DigestUser, Description: "Blue"},
+		session.DigestEntry{Turn: 2, Category: session.DigestRecap, Description: "Used blue.\ncoSlash handoff completed: " + record.ID},
+	)
+	if err := store.Observe("local", []*session.Session{target}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.List()[0]; got.Status != "completed" || got.Result != "Used blue." || got.Activity != "" {
+		t.Fatalf("completed after clarification = %#v", got)
+	}
+}
+
+func TestCustomHandoffRequiresItsOwnAssistantCompletionMarker(t *testing.T) {
+	for _, test := range []struct {
+		name, category, reply, status, result string
+	}{
+		{"ordinary recap", session.DigestRecap, "Done.", "running", ""},
+		{"wrong marker", session.DigestRecap, "Done.\ncoSlash handoff completed: wrong", "running", ""},
+		{"user marker", session.DigestUser, "Done.\ncoSlash handoff completed: HANDOFF_ID", "running", ""},
+		{"quoted marker", session.DigestRecap, "Example:\n> coSlash handoff completed: HANDOFF_ID", "running", ""},
+		{"marker without result", session.DigestRecap, "coSlash handoff completed: HANDOFF_ID", "running", ""},
+		{"marker before question", session.DigestRecap, "coSlash handoff completed: HANDOFF_ID\nWhich color?", "running", ""},
+		{"direct completion", session.DigestRecap, "Done.\ncoSlash handoff completed: HANDOFF_ID", "completed", "Done."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, err := Open(filepath.Join(t.TempDir(), "handoffs.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			record, err := store.Start("ssh:host", "claude", "origin", "codex", "custom")
+			if err != nil {
+				t.Fatal(err)
+			}
+			marker := Marker(record.ID)
+			target := &session.Session{Agent: "codex", ID: "target", SessionDetails: session.SessionDetails{
+				FirstPrompt: &marker,
+				Digest:      []session.DigestEntry{{Turn: 1, Category: test.category, Description: strings.ReplaceAll(test.reply, "HANDOFF_ID", record.ID)}},
+			}}
+			if err := store.Observe("ssh:host", []*session.Session{target}); err != nil {
+				t.Fatal(err)
+			}
+			if got := store.List()[0]; got.Status != test.status || got.Result != test.result {
+				t.Fatalf("observed = %#v", got)
+			}
+		})
 	}
 }
