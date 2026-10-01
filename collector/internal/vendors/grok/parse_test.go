@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,23 @@ func TestParseCommandsCommitsAndPullRequestsSkipDryRunsAndFailures(t *testing.T)
 	}
 	if s.PullRequests != 1 {
 		t.Fatalf("pull requests = %d, want 1", s.PullRequests)
+	}
+}
+
+func TestParseCompactionSeedFromNewestCheckpoint(t *testing.T) {
+	parsed, err := parseSession(filepath.Join("testdata", "compacted"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parsed.Session
+	if s.Compactions != 1 || !strings.Contains(s.CompactionSeed, "Earlier work") || strings.Contains(s.CompactionSeed, "Oldest work") {
+		t.Fatalf("compactions = %d, seed = %q", s.Compactions, s.CompactionSeed)
+	}
+	if parsed, err = parseSession(filepath.Join("testdata", "finished")); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Session.CompactionSeed != "" {
+		t.Fatalf("seed without checkpoints = %q, want empty", parsed.Session.CompactionSeed)
 	}
 }
 
