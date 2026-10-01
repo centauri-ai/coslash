@@ -339,7 +339,7 @@ func TestDeleteSessionBoundsHeader(t *testing.T) {
 func TestDeleteSessionPreservesConcurrentMetadata(t *testing.T) {
 	root, _ := deleteFixture(t)
 	path := filepath.Join(root, "history.jsonl")
-	before, after, err := filterDeleteRows(context.Background(), path, "session_id", map[string]bool{deleteRootID: true})
+	before, after, err := filterDeleteRows(context.Background(), path, "session_id", map[string]bool{deleteRootID: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -803,7 +803,7 @@ func TestDeleteMetadataPreservesAppendBeforePublication(t *testing.T) {
 		t.Run(entry.name, func(t *testing.T) {
 			root, _ := deleteFixture(t)
 			path := filepath.Join(root, entry.name)
-			before, after, err := filterDeleteRows(context.Background(), path, entry.field, map[string]bool{deleteRootID: true})
+			before, after, err := filterDeleteRows(context.Background(), path, entry.field, map[string]bool{deleteRootID: true}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1013,6 +1013,81 @@ func TestDeleteSessionReceiptRefusesExpandedOwnershipBeforeWrite(t *testing.T) {
 			}
 			if err := deleteSession(t.Context(), root, root, deleteRootID, closedForDelete, nil); err != nil {
 				t.Fatalf("unchanged-family retry failed: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeleteRowsHeldHistoryHandle(t *testing.T) {
+	for _, scenario := range []string{"position and ownership", "closed handle", "inode replacement", "oversized row"} {
+		t.Run(scenario, func(t *testing.T) {
+			root, _ := deleteFixture(t)
+			path := filepath.Join(root, "history.jsonl")
+			if scenario == "oversized row" {
+				writeDeleteFile(t, path, strings.Repeat(" ", maxSessionIndexRowBytes+1)+"\n")
+			}
+			file, err := os.OpenFile(path, os.O_RDWR, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			if err := tryDeleteFileLock(file); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := file.Seek(17, 0); err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "closed handle" {
+				if err := file.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario == "inode replacement" {
+				if err := os.Rename(path, path+".previous"); err != nil {
+					t.Skip(err)
+				}
+				writeDeleteFile(t, path, `{"session_id":"`+deleteNeighborID+`","text":"replacement"}`+"\n")
+			}
+			before, after, err := filterDeleteRows(t.Context(), path, "session_id", map[string]bool{deleteRootID: true, deleteChildID: true}, file)
+			if scenario != "position and ownership" {
+				if err == nil {
+					t.Fatal("owned handle ignored")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			position, err := file.Seek(0, 1)
+			if err != nil || position != 17 {
+				t.Fatal("bounded read moved owned handle position")
+			}
+			if len(before) == 0 || len(before) != len(after) {
+				t.Fatal("fixed-length filter failed")
+			}
+			if err := replaceDeleteRows(t.Context(), path, before, after, file); err != nil {
+				t.Fatal(err)
+			}
+			verified, filtered, err := filterDeleteRows(t.Context(), path, "session_id", map[string]bool{deleteRootID: true, deleteChildID: true}, file)
+			if err != nil || !reflect.DeepEqual(verified, filtered) || strings.Contains(string(verified), deleteRootID) || !strings.Contains(string(verified), deleteNeighborID) {
+				t.Fatal("owned verification failed")
+			}
+			position, err = file.Seek(0, 1)
+			if err != nil || position != 17 {
+				t.Fatal("write/verification moved owned handle position")
+			}
+			other, err := os.OpenFile(path, os.O_RDWR, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer other.Close()
+			if err := tryDeleteFileLock(other); !errors.Is(err, ErrSessionActive) {
+				t.Fatalf("owned lock released during filtering: %v", err)
+			}
+			canceled, cancel := context.WithCancel(t.Context())
+			cancel()
+			if _, _, err := filterDeleteRows(canceled, path, "session_id", map[string]bool{deleteRootID: true}, file); !errors.Is(err, context.Canceled) {
+				t.Fatal("owned read ignored cancellation")
 			}
 		})
 	}

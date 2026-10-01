@@ -116,7 +116,7 @@ func deleteSession(ctx context.Context, root, sqliteRoot, id string,
 			return ErrSessionUnverified
 		}
 		for _, entry := range []struct{ name, field string }{{"session_index.jsonl", "id"}, {"history.jsonl", "session_id"}} {
-			before, after, err := filterDeleteRows(ctx, filepath.Join(root, entry.name), entry.field, ids)
+			before, after, err := filterDeleteRows(ctx, filepath.Join(root, entry.name), entry.field, ids, nil)
 			if err != nil || !bytes.Equal(before, after) {
 				return ErrSessionUnverified
 			}
@@ -131,7 +131,7 @@ func deleteSession(ctx context.Context, root, sqliteRoot, id string,
 		return fmt.Errorf("%w: snapshots: %w", ErrSessionUnverified, err)
 	}
 	for _, entry := range []struct{ name, field string }{{"session_index.jsonl", "id"}, {"history.jsonl", "session_id"}} {
-		_, _, err := filterDeleteRows(ctx, filepath.Join(root, entry.name), entry.field, ids)
+		_, _, err := filterDeleteRows(ctx, filepath.Join(root, entry.name), entry.field, ids, nil)
 		if err != nil {
 			return fmt.Errorf("%w: metadata inventory: %w", ErrSessionUnverified, err)
 		}
@@ -201,7 +201,7 @@ func deleteSession(ctx context.Context, root, sqliteRoot, id string,
 	}
 	for _, entry := range []struct{ name, field string }{{"session_index.jsonl", "id"}, {"history.jsonl", "session_id"}} {
 		path := filepath.Join(root, entry.name)
-		before, after, err := filterDeleteRows(ctx, path, entry.field, ids)
+		before, after, err := filterDeleteRows(ctx, path, entry.field, ids, history)
 		if err != nil {
 			return fmt.Errorf("%w: metadata: %w", ErrSessionDeleteFailed, err)
 		}
@@ -228,7 +228,7 @@ func deleteSession(ctx context.Context, root, sqliteRoot, id string,
 		return fmt.Errorf("%w: snapshot verification", ErrSessionDeleteFailed)
 	}
 	for _, entry := range []struct{ name, field string }{{"session_index.jsonl", "id"}, {"history.jsonl", "session_id"}} {
-		before, after, err := filterDeleteRows(ctx, filepath.Join(root, entry.name), entry.field, ids)
+		before, after, err := filterDeleteRows(ctx, filepath.Join(root, entry.name), entry.field, ids, history)
 		if err != nil || !bytes.Equal(before, after) {
 			return fmt.Errorf("%w: metadata remains", ErrSessionDeleteFailed)
 		}
@@ -386,19 +386,29 @@ func deleteSnapshots(ctx context.Context, root string, ids map[string]bool) ([]s
 	return paths, err
 }
 
-func filterDeleteRows(ctx context.Context, path, field string, ids map[string]bool) ([]byte, []byte, error) {
+func filterDeleteRows(ctx context.Context, path, field string, ids map[string]bool, held *os.File) ([]byte, []byte, error) {
 	if err := safeDeletePath(filepath.Dir(path), path); err != nil {
 		return nil, nil, err
 	}
-	file, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
+	file := held
+	if filepath.Base(path) == "session_index.jsonl" {
+		file = nil
 	}
-	if err != nil {
+	if file == nil {
+		var err error
+		file, err = os.Open(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, nil
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		defer file.Close()
+	}
+	if err := verifyDeleteRowsFile(path, file); err != nil {
 		return nil, nil, err
 	}
-	defer file.Close()
-	reader := bufio.NewReader(contextReader{ctx: ctx, reader: file})
+	reader := bufio.NewReader(contextReader{ctx: ctx, reader: io.NewSectionReader(file, 0, (64<<20)+1)})
 	var before, after bytes.Buffer
 	for {
 		line, err := readBoundedIndexLine(reader)
@@ -431,7 +441,22 @@ func filterDeleteRows(ctx context.Context, path, field string, ids map[string]bo
 			return nil, nil, err
 		}
 	}
+	if err := verifyDeleteRowsFile(path, file); err != nil {
+		return nil, nil, err
+	}
 	return before.Bytes(), after.Bytes(), nil
+}
+
+func verifyDeleteRowsFile(path string, file *os.File) error {
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	current, err := os.Stat(path)
+	if err != nil || !os.SameFile(info, current) {
+		return errors.New("shared metadata inode changed")
+	}
+	return nil
 }
 
 func replaceDeleteRows(ctx context.Context, path string, before, after []byte, history *os.File) error {
@@ -456,13 +481,8 @@ func replaceDeleteRows(ctx context.Context, path string, before, after []byte, h
 			}
 		}
 	}
-	info, err := file.Stat()
-	if err != nil {
+	if err := verifyDeleteRowsFile(path, file); err != nil {
 		return err
-	}
-	current, err := os.Stat(path)
-	if err != nil || !os.SameFile(info, current) {
-		return errors.New("shared metadata inode changed")
 	}
 	if len(before) != len(after) {
 		return errors.New("shared metadata size changed")
@@ -492,9 +512,8 @@ func replaceDeleteRows(ctx context.Context, path string, before, after []byte, h
 	if err := file.Sync(); err != nil {
 		return err
 	}
-	current, err = os.Stat(path)
-	if err != nil || !os.SameFile(info, current) {
-		return errors.New("shared metadata inode changed")
+	if err := verifyDeleteRowsFile(path, file); err != nil {
+		return err
 	}
 	return ctx.Err()
 }
