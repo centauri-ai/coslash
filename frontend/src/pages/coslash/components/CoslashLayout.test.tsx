@@ -115,7 +115,7 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('Agents used');
     expect(markup).toContain('Models used');
     expect(markup).toContain('Top repositories');
-    expect(markup).toContain('Lifetime estimated cost');
+    expect(markup).toContain('Estimated cost for selected month');
     expect(markup).toContain('Sessions last active per day');
     expect(markup).toContain('aria-label="View"');
   });

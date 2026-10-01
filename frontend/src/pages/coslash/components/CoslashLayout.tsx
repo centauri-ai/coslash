@@ -1243,16 +1243,15 @@ export function CoslashLayout({
             <div className="flex justify-end pb-4">
               <ViewSwitch view={preferences.view} onChange={changeView} />
             </div>
-            {!isLoading && loadError == null && sessions.length === 0 && emptyContent != null ? (
+            {!isLoading && loadError == null && sessions.length === 0 && emptyContent != null && (
               <div className="min-h-0 flex-1">{emptyContent}</div>
-            ) : (
-              <InsightsView
-                sessions={sessions}
-                isLoading={isLoading}
-                loadError={loadError}
-                onRetry={onRetrySessions}
-              />
             )}
+            <InsightsView
+              sessions={sessions}
+              isLoading={isLoading}
+              loadError={loadError}
+              onRetry={onRetrySessions}
+            />
           </div>
         </div>
       </TooltipProvider>
