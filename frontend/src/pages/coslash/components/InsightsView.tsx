@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useSynthesisCosts } from '@/pages/coslash/hooks/use-synthesis-costs';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { buildInsights } from '@/pages/coslash/lib/insights';
-import type { Session } from '@/pages/coslash/lib/session';
+import { sessionKey, type Session } from '@/pages/coslash/lib/session';
+import { combinedKnownCost, synthesisCoverage } from '@/pages/coslash/lib/synthesis-costs';
 
 const COLORS = [
   'var(--brand)',
@@ -101,6 +103,30 @@ export function InsightsView({
   const nextDisabled =
     month.getFullYear() === current.getFullYear() && month.getMonth() === current.getMonth();
   const insights = useMemo(() => buildInsights(sessions, month), [sessions, month]);
+  const query = useMemo(
+    () => ({
+      since: month.getTime(),
+      until: new Date(month.getFullYear(), month.getMonth() + 1, 1).getTime(),
+    }),
+    [month],
+  );
+  const costs = useSynthesisCosts(query);
+  const refreshCosts = costs.refresh;
+  const completedSynthesis = sessions
+    .filter((session) => !session.synthesisPending && session.synthesis)
+    .map((session) => `${sessionKey(session)}:${JSON.stringify(session.synthesis)}`)
+    .sort()
+    .join('|');
+  const previousCompleted = useRef(completedSynthesis);
+  useEffect(() => {
+    if (previousCompleted.current !== completedSynthesis) {
+      previousCompleted.current = completedSynthesis;
+      refreshCosts();
+    }
+  }, [completedSynthesis, refreshCosts]);
+  const synthesis = costs.data?.totals;
+  const combined = synthesis ? combinedKnownCost(insights.knownCost, synthesis) : null;
+  const synthesisStatus = synthesis ? synthesisCoverage(synthesis) : null;
   const maxDay = Math.max(1, ...insights.days.map(({ count }) => count));
   const maxRepo = insights.repositories[0]?.count ?? 1;
 
@@ -192,19 +218,94 @@ export function InsightsView({
               )}
             </div>
             <div className="border-coslash-line bg-coslash-surface rounded-xl border p-5">
-              <h2 className="text-ui font-semibold">Lifetime estimated cost</h2>
-              <p className="pt-5 text-3xl font-semibold tabular-nums">
-                {insights.sessionCount ? formatEstimatedCost(insights.knownCost) : 'No data'}
-              </p>
-              <p className="text-coslash-muted pt-2 text-xs">
-                For sessions last active this month, at list API prices.
+              <h2 className="text-ui font-semibold">Estimated cost for selected month</h2>
+              <dl className="space-y-3 pt-4 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <dt>Coding</dt>
+                  <dd className="tabular-nums">
+                    {insights.sessionCount ? formatEstimatedCost(insights.knownCost) : 'No sessions'}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <dt>Synthesis</dt>
+                  <dd className="tabular-nums">
+                    {costs.isLoading
+                      ? 'Loading'
+                      : synthesis?.knownCostMicroUsd == null
+                        ? 'Unknown'
+                        : formatEstimatedCost(synthesis.knownCostMicroUsd / 1_000_000)}
+                  </dd>
+                </div>
+                <div className="border-coslash-line flex items-center justify-between gap-3 border-t pt-3 font-semibold">
+                  <dt>Combined</dt>
+                  <dd className="tabular-nums">
+                    {combined ? formatEstimatedCost(combined.knownUsd) : 'Unavailable'}
+                  </dd>
+                </div>
+              </dl>
+              <p className="text-coslash-muted pt-3 text-xs">
+                Coding is lifetime cost of sessions last active this month. Synthesis is recorded cost of
+                calls started this month. Combined adds these two scopes; it is not billable coding activity
+                during this month.
               </p>
               {insights.unknownCostCount > 0 && (
                 <p className="text-warning-fg pt-2 text-xs">
-                  Cost unavailable because accounting is missing for {insights.unknownCostCount}{' '}
+                  Coding excludes unpriced usage in {insights.unknownCostCount}{' '}
                   {insights.unknownCostCount === 1 ? 'session' : 'sessions'}.
                 </p>
               )}
+              {costs.error && (
+                <div role="alert" className="text-warning-fg pt-3 text-xs">
+                  Synthesis and combined costs unavailable: {costs.error}{' '}
+                  <Button variant="outline" size="sm" onClick={costs.retry}>
+                    Retry synthesis costs
+                  </Button>
+                </div>
+              )}
+              {costs.data && (
+                <>
+                  <p className="text-coslash-muted pt-2 text-xs">
+                    Local synthesis tracking started{' '}
+                    {new Date(costs.data.trackingStartedAtMs).toLocaleString()}. SSH/Hub synthesis is not
+                    tracked here.
+                  </p>
+                  {(synthesisStatus !== 'complete' ||
+                    costs.data.historicalUnknown ||
+                    insights.unknownCostCount > 0) && (
+                    <p className="text-warning-fg pt-2 text-xs">
+                      {synthesisStatus === 'unknown' ? 'Unknown synthesis cost' : 'Partial coverage'}
+                      {synthesis && synthesis.unknownInvocationCount > 0
+                        ? `: ${synthesis.unknownInvocationCount} unknown or partially priced calls`
+                        : ''}
+                      {synthesis && synthesis.incompleteRoundCount > 0
+                        ? `; ${synthesis.incompleteRoundCount} incomplete rounds`
+                        : ''}
+                      {costs.data.historicalUnknown ? '; earlier history is unknown' : ''}.
+                    </p>
+                  )}
+                  {costs.data.byVendor.length > 0 && (
+                    <div className="pt-3 text-xs">
+                      <h3 className="font-semibold">Synthesis by vendor</h3>
+                      <ul className="space-y-1 pt-2">
+                        {costs.data.byVendor.map(({ vendor, totals }) => (
+                          <li key={vendor} className="flex justify-between gap-2">
+                            <span className="capitalize">{vendor}</span>
+                            <span>
+                              {totals.knownCostMicroUsd == null
+                                ? 'Unknown'
+                                : formatEstimatedCost(totals.knownCostMicroUsd / 1_000_000)}
+                              {synthesisCoverage(totals) !== 'complete' ? ' (partial)' : ''}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
+              <Button variant="outline" size="sm" className="mt-3" onClick={costs.refresh}>
+                Refresh synthesis costs
+              </Button>
             </div>
           </div>
           <div className="border-coslash-line bg-coslash-surface min-w-0 rounded-xl border p-5">
