@@ -30,7 +30,9 @@ const (
 const cursorPermissions = `{"permissions":{"allow":[],"deny":["Read(*)","Read(**)","Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
 
 type Runner interface {
-	Run(context.Context, string) (session.SessionSynthesis, error)
+	Run(context.Context, string) (RunResult, error)
+	VendorName() string
+	ModelName() string
 }
 
 type commandSpec struct {
@@ -88,7 +90,11 @@ func (r *CLIRunner) ModelName() string {
 	return r.Model
 }
 
-func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynthesis, error) {
+func (r *CLIRunner) VendorName() string {
+	return r.Backend
+}
+
+func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 	var label string
 	var args []string
 	var env []string
@@ -119,7 +125,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		var err error
 		schemaPath, err = writeSchemaFile()
 		if err != nil {
-			return session.SessionSynthesis{}, err
+			return RunResult{}, err
 		}
 		defer os.Remove(schemaPath)
 		args = []string{
@@ -148,7 +154,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		}
 		scratchDir, err := openCodeScratchDir()
 		if err != nil {
-			return session.SessionSynthesis{}, err
+			return RunResult{}, err
 		}
 		defer os.RemoveAll(scratchDir)
 		// OpenCode has no system-prompt or schema flag, so both ride along
@@ -210,19 +216,19 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			sandboxMode = "disabled"
 		}
 		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create synthesis directory: %w", err)
+			return RunResult{}, fmt.Errorf("create synthesis directory: %w", err)
 		}
 		scratchDir, err := os.MkdirTemp(SynthesisCwd(), cursorScratchPrefix+"*")
 		if err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create Cursor scratch directory: %w", err)
+			return RunResult{}, fmt.Errorf("create Cursor scratch directory: %w", err)
 		}
 		defer os.RemoveAll(scratchDir)
 		configDir := filepath.Join(scratchDir, ".cursor")
 		if err := os.Mkdir(configDir, 0o700); err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create Cursor config directory: %w", err)
+			return RunResult{}, fmt.Errorf("create Cursor config directory: %w", err)
 		}
 		if err := os.WriteFile(filepath.Join(configDir, "cli.json"), []byte(cursorPermissions), 0o600); err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("write Cursor permissions: %w", err)
+			return RunResult{}, fmt.Errorf("write Cursor permissions: %w", err)
 		}
 		args = []string{
 			"-p",
@@ -236,7 +242,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		env = []string{"CURSOR_DATA_DIR=" + scratchDir}
 		dir = scratchDir
 	default:
-		return session.SessionSynthesis{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
+		return RunResult{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
 	}
 	runCtx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
@@ -252,7 +258,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		env:   env,
 	})
 	if runCtx.Err() != nil {
-		return session.SessionSynthesis{}, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())
+		return RunResult{}, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())
 	}
 	if err != nil {
 		if r.Backend == settings.BackendOpenCode {
@@ -260,9 +266,10 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 				log.Printf("OpenCode synthesis CLI: %s", diagnostic)
 			}
 		}
-		return session.SessionSynthesis{}, safeCommandError(label, err)
+		return RunResult{}, safeCommandError(label, err)
 	}
-	return parse(output)
+	synthesis, err := parse(output)
+	return RunResult{Synthesis: synthesis}, err
 }
 
 func writeSchemaFile() (string, error) {

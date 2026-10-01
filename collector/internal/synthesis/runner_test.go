@@ -43,8 +43,8 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Outcome != "Backend added" {
-		t.Fatalf("outcome = %q, want Backend added", got.Outcome)
+	if got.Synthesis.Outcome != "Backend added" {
+		t.Fatalf("outcome = %q, want Backend added", got.Synthesis.Outcome)
 	}
 	if captured.bin != "cursor-agent" {
 		t.Fatalf("bin = %q, want cursor-agent", captured.bin)
@@ -95,6 +95,14 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	}
 	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
 		t.Fatalf("scratch dir was not removed: %v", err)
+	}
+}
+
+func TestRunnerIdentity(t *testing.T) {
+	runner := &CLIRunner{Backend: settings.BackendClaude, Model: "claude-test"}
+	var contract Runner = runner
+	if contract.VendorName() != settings.BackendClaude || contract.ModelName() != "claude-test" {
+		t.Fatalf("identity = %q/%q", contract.VendorName(), contract.ModelName())
 	}
 }
 

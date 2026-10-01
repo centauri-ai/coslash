@@ -37,9 +37,14 @@ func writeLegacyRecord(t *testing.T, id string) string {
 
 type runnerFunc func(context.Context, string) (session.SessionSynthesis, error)
 
-func (run runnerFunc) Run(ctx context.Context, input string) (session.SessionSynthesis, error) {
-	return run(ctx, input)
+func (run runnerFunc) Run(ctx context.Context, input string) (RunResult, error) {
+	synthesis, err := run(ctx, input)
+	return RunResult{Synthesis: synthesis}, err
 }
+
+func (runnerFunc) VendorName() string { return "" }
+
+func (runnerFunc) ModelName() string { return "" }
 
 func TestLookupLatestIgnoresPreviewRevisionDrift(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
