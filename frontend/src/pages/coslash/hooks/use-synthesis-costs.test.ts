@@ -30,3 +30,41 @@ it('passes abort signals to the request so a superseded month can be cancelled',
   first.abort();
   await expect(stale).rejects.toMatchObject({ name: 'AbortError' });
 });
+
+it('discards a late response even if transport ignores the abort', async () => {
+  const controller = new AbortController();
+  let finish!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const stale = loadSynthesisCosts({ since: 1, until: 2 }, controller.signal);
+  controller.abort();
+  finish(new Response(JSON.stringify({ sourceId: 'local' })));
+  await expect(stale).rejects.toMatchObject({ name: 'AbortError' });
+});
+
+it('reads a sanitized month response with an explicit zero amount', async () => {
+  const fixture = {
+    sourceId: 'local',
+    trackingStartedAtMs: 1,
+    historicalUnknown: false,
+    totals: {
+      knownCostMicroUsd: 0,
+      roundCount: 0,
+      invocationCount: 0,
+      unknownInvocationCount: 0,
+      incompleteRoundCount: 0,
+    },
+    byVendor: [],
+    rounds: [],
+    nextCursor: null,
+  };
+  vi.mocked(apiFetch).mockResolvedValueOnce(new Response(JSON.stringify(fixture)));
+  await expect(loadSynthesisCosts({ since: 10, until: 20 }, new AbortController().signal)).resolves.toEqual(
+    fixture,
+  );
+  expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toBe('/api/synthesis-costs?source=local&since=10&until=20');
+});
