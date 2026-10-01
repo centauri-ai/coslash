@@ -17,12 +17,12 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | Task | Status | Workspace | Branch | Terminal | Review | Notes |
 |---|---|---|---|---|---|---|
 | T1 | completed | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | `af16d41a` and fix `d3237332`. 13 files, 438 production lines, 2 commits. PR not opened. |
-| T2 | fix | `377101d2-599f-4f16-875f-a0ce27035511` | `cvu/grok-t2-enrich` | `7007053f-3806-4ea5-a772-c3b036475a09` | done | Head was `3b027801`. One bug: a time window can drop a subagent from the list. Fix sent once. No second review. |
+| T2 | completed | `377101d2-599f-4f16-875f-a0ce27035511` | `cvu/grok-t2-enrich` | `7007053f-3806-4ea5-a772-c3b036475a09` | done | Fix `e7460e1e` on top of `3b027801`. No second review. PR not opened. |
 | T3 | pending | | `cvu/grok-t3-synthesis` | | | after T2 commits |
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
 | T5 | pending | | `cvu/grok-t5-ui` | | | after T2 and T4 are merged |
 
-**Next action:** The T2 fix is already sent to implementer `7007053f-3806-4ea5-a772-c3b036475a09`. Do not send it again. When `cvu/grok-t2-enrich` moves past `3b027801`, mark T2 completed. Do not start a second review. Do not open PRs. T3 can start from the new T2 head after that commit. T5 still waits for a `cvu/grok-t2-t4` merge.
+**Next action:** T2 is complete at `e7460e1e`. Do not send another T2 fix. Do not open PRs. Create the T3 worktree from `cvu/grok-t2-enrich` at `e7460e1e`, branch `cvu/grok-t3-synthesis`, tag `new group-3`. T3 is a test only. Do not add a Grok synthesis runner. T5 still waits for a `cvu/grok-t2-t4` merge.
 
 **Watch rule:** Do not wait for the word `Churned`. Claude also finishes with `Sautéed`, `Baked`, or `Brewed`. A first completion shows `· done`. A later fix on the same terminal is done when the branch HEAD changes, because `· done` is already on screen.
 
