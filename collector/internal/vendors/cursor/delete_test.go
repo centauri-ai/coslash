@@ -3,6 +3,7 @@ package cursor
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -477,5 +478,449 @@ func TestDeleteCursorRetainedWAL(t *testing.T) {
 	entries, err := os.ReadDir(scratch)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("inspection snapshots remain: %v %v", entries, err)
+	}
+}
+
+func TestDeleteCursorReviewPartialRetryLosesChild(t *testing.T) {
+	home := deleteReviewHome(t)
+	deleteFixture(t, home, deleteID, "")
+	child := deleteFixture(t, home, deleteChild, deleteID)
+	residue := filepath.Join(filepath.Dir(child), "zz-output.txt")
+	deleteFile(t, residue)
+	err := deleteSession(context.Background(), home, deleteID, closedCursor, func(path string) error {
+		if path == residue {
+			return os.ErrPermission
+		}
+		return os.Remove(path)
+	})
+	if !errors.Is(err, ErrDeleteFailed) {
+		t.Fatalf("first deletion = %v", err)
+	}
+	if _, err := os.Stat(child); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected removed child lineage: %v", err)
+	}
+	err = deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove)
+	t.Logf("retry returned %v", err)
+	if _, err := os.Stat(residue); err == nil {
+		t.Fatalf("retry left child family residue while reporting success")
+	}
+}
+func TestDeleteCursorReviewReplacementBeforeMutation(t *testing.T) {
+	home := deleteReviewHome(t)
+	target := deleteFixture(t, home, deleteID, "")
+	neighbor := deleteFixture(t, home, deleteNeighbor, "")
+	saved := filepath.Join(home, "original-target.db")
+	calls := 0
+	err := deleteSession(context.Background(), home, deleteID, func(context.Context) error {
+		calls++
+		if calls == 2 {
+			if err := os.Rename(target, saved); err != nil {
+				return err
+			}
+			if err := os.Rename(neighbor, target); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, os.Remove)
+	t.Logf("replacement deletion returned %v", err)
+	if _, err := os.Stat(target); errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted replacement database owned by neighboring session")
+	}
+}
+func TestDeleteCursorReviewEmptyRetainedWAL(t *testing.T) {
+	home := deleteReviewHome(t)
+	target := deleteFixture(t, home, deleteID, "")
+	if err := os.WriteFile(target+"-wal", nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove); err != nil {
+		t.Fatalf("empty WAL refuses closed store: %v", err)
+	}
+}
+func TestDeleteCursorReviewInvalidWALVersion(t *testing.T) {
+	home := deleteReviewHome(t)
+	target := deleteFixture(t, home, deleteID, "")
+	header := make([]byte, 32)
+	binary.BigEndian.PutUint32(header, 0x377f0682)
+	binary.BigEndian.PutUint32(header[4:], 1)
+	if err := os.WriteFile(target+"-wal", header, 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove)
+	if !errors.Is(err, ErrDeleteUnverified) {
+		t.Fatalf("invalid WAL accepted: %v", err)
+	}
+}
+func TestDeleteCursorReviewAbsentRootsTranscriptOnly(t *testing.T) {
+	home := deleteReviewHome(t)
+	transcript := filepath.Join(ProjectsRoot(home), "workspace", "agent-transcripts", deleteID, deleteID+".jsonl")
+	deleteFile(t, transcript)
+	if err := deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestDeleteCursorReviewIntermediateSymlinkReplacement(t *testing.T) {
+	home := deleteReviewHome(t)
+	target := deleteFixture(t, home, deleteID, "")
+	outside := t.TempDir()
+	sentinel := filepath.Join(outside, "keep")
+	deleteFile(t, sentinel)
+	calls := 0
+	err := deleteSession(context.Background(), home, deleteID, func(context.Context) error {
+		calls++
+		if calls == 2 {
+			workspace := filepath.Dir(filepath.Dir(target))
+			if err := os.Rename(workspace, workspace+"-saved"); err != nil {
+				return err
+			}
+			return os.Symlink(outside, workspace)
+		}
+		return nil
+	}, os.Remove)
+	if !errors.Is(err, ErrDeleteFailed) {
+		t.Fatalf("replacement symlink not refused: %v", err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func deleteReviewHome(t *testing.T) string {
+	t.Helper()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+func TestDeleteCursorReviewPartialRetryLeavesFlatChildTranscript(t *testing.T) {
+	home := deleteReviewHome(t)
+	deleteFixture(t, home, deleteID, "")
+	deleteFixture(t, home, deleteChild, deleteID)
+	transcript := filepath.Join(ProjectsRoot(home), "workspace", "agent-transcripts", deleteChild+".txt")
+	deleteFile(t, transcript)
+	err := deleteSession(context.Background(), home, deleteID, closedCursor, func(path string) error {
+		if path == transcript {
+			return os.ErrPermission
+		}
+		return os.Remove(path)
+	})
+	if !errors.Is(err, ErrDeleteFailed) {
+		t.Fatalf("first deletion = %v", err)
+	}
+	err = deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove)
+	t.Logf("retry returned %v", err)
+	if data, e := os.ReadFile(transcript); e == nil {
+		t.Fatalf("child transcript still readable after successful retry: %s", data)
+	}
+}
+
+func TestDeleteCursorReviewClosedWALNeighborPreserved(t *testing.T) {
+	home := deleteReviewHome(t)
+	deleteFixture(t, home, deleteID, "")
+	neighbor := deleteFixture(t, home, deleteNeighbor, "")
+	db, err := sql.Open("sqlite", neighbor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL; CREATE TABLE extra(value TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(neighbor + suffix); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("precondition: sidecar %s: %v", suffix, err)
+		}
+	}
+	err = deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove)
+	t.Logf("delete returned %v", err)
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(neighbor + suffix); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("inspection created neighbor sidecar %s: %v", suffix, err)
+		}
+	}
+}
+
+func TestDeleteCursorReviewClosedWALTargetWithoutSidecars(t *testing.T) {
+	home := deleteReviewHome(t)
+	target := deleteFixture(t, home, deleteID, "")
+	db, err := sql.Open("sqlite", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL; CREATE TABLE extra(value TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(target + suffix); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("precondition sidecar %s: %v", suffix, err)
+		}
+	}
+	err = deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove)
+	t.Logf("delete returned %v", err)
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		info, e := os.Stat(target + suffix)
+		size := int64(-1)
+		if info != nil {
+			size = info.Size()
+		}
+		t.Logf("suffix %q: stat %v size %d", suffix, e, size)
+	}
+	if err != nil {
+		t.Fatalf("closed WAL store deletion failed: %v", err)
+	}
+}
+
+func TestDeleteCursorSharedWALInspectionDoesNotMutate(t *testing.T) {
+	for _, zero := range []bool{false, true} {
+		t.Run(map[bool]string{false: "absent", true: "empty"}[zero], func(t *testing.T) {
+			home := deleteReviewHome(t)
+			target := deleteFixture(t, home, deleteID, "")
+			path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`PRAGMA journal_mode=WAL; CREATE TABLE cursorDiskKV(key TEXT,value TEXT); INSERT INTO cursorDiskKV VALUES(?, '{}')`, "composerData:"+deleteNeighbor); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if zero {
+				if err := os.WriteFile(path+"-wal", nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(before) != string(after) {
+				t.Fatalf("shared database changed: %v", err)
+			}
+			for _, suffix := range []string{"-wal", "-shm"} {
+				info, err := os.Stat(path + suffix)
+				if zero && suffix == "-wal" {
+					if err != nil || info.Size() != 0 {
+						t.Fatalf("empty WAL changed: %v", err)
+					}
+				} else if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("created shared sidecar %s: %v", suffix, err)
+				}
+			}
+			if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("target remains: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeleteCursorAbsentRootRetryAndFinalVerification(t *testing.T) {
+	home := deleteReviewHome(t)
+	target := deleteFixture(t, home, deleteID, "")
+	child := deleteFixture(t, home, deleteChild, deleteID)
+	neighbor := deleteFixture(t, home, deleteNeighbor, "")
+	transcript := filepath.Join(ProjectsRoot(home), "one", "agent-transcripts", deleteChild+".txt")
+	deleteFile(t, transcript)
+	recordPath := filepath.Join(home, ".coslash", "deletions", "cursor", deleteID+".json")
+	err := deleteSession(context.Background(), home, deleteID, closedCursor, func(path string) error {
+		if path == transcript {
+			return nil
+		}
+		return os.Remove(path)
+	})
+	if !errors.Is(err, ErrDeleteFailed) {
+		t.Fatalf("false removal succeeded: %v", err)
+	}
+	for _, path := range []string{target, child} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("root/child store survived: %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(recordPath); err != nil {
+		t.Fatalf("durable evidence missing: %v", err)
+	}
+	if err := deleteSession(context.Background(), home, deleteID, closedCursor, nil); err != nil {
+		t.Fatalf("rootless retry failed: %v", err)
+	}
+	for _, path := range []string{transcript, recordPath} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("family/record remains: %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(neighbor); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteCursorIdentityRevalidation(t *testing.T) {
+	for _, scenario := range []string{"same-id-replacement", "in-place", "between-removals"} {
+		t.Run(scenario, func(t *testing.T) {
+			home := deleteReviewHome(t)
+			target := deleteFixture(t, home, deleteID, "")
+			first := filepath.Join(filepath.Dir(target), "aa-output.txt")
+			next := filepath.Join(filepath.Dir(target), "zz-output.txt")
+			deleteFile(t, first)
+			deleteFile(t, next)
+			replace := func(path string) error {
+				saved := filepath.Join(home, filepath.Base(path)+"-saved")
+				if err := os.Rename(path, saved); err != nil {
+					return err
+				}
+				data, err := os.ReadFile(saved)
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(path, data, 0600)
+			}
+			calls := 0
+			probe := func(context.Context) error {
+				calls++
+				if calls == 2 {
+					switch scenario {
+					case "same-id-replacement":
+						return replace(target)
+					case "in-place":
+						return os.WriteFile(next, []byte("neighbor replacement"), 0600)
+					}
+				}
+				return nil
+			}
+			remove := func(path string) error {
+				if err := os.Remove(path); err != nil {
+					return err
+				}
+				if scenario == "between-removals" && path == first {
+					return replace(next)
+				}
+				return nil
+			}
+			err := deleteSession(context.Background(), home, deleteID, probe, remove)
+			if !errors.Is(err, ErrDeleteFailed) {
+				t.Fatalf("replacement accepted: %v", err)
+			}
+			preserved := target
+			if scenario != "same-id-replacement" {
+				preserved = next
+			}
+			if _, err := os.Stat(preserved); err != nil {
+				t.Fatalf("replacement deleted: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeleteCursorRejectsInvalidPendingOwnership(t *testing.T) {
+	for _, scenario := range []string{"disconnected-family", "outside-path", "changed-residue", "changed-owner"} {
+		t.Run(scenario, func(t *testing.T) {
+			home := deleteReviewHome(t)
+			deleteFixture(t, home, deleteID, "")
+			child := deleteFixture(t, home, deleteChild, deleteID)
+			residue := filepath.Join(ProjectsRoot(home), "one", "agent-transcripts", deleteChild+".txt")
+			deleteFile(t, residue)
+			err := deleteSession(context.Background(), home, deleteID, closedCursor, func(path string) error {
+				if path == residue {
+					return os.ErrPermission
+				}
+				return os.Remove(path)
+			})
+			if !errors.Is(err, ErrDeleteFailed) {
+				t.Fatal(err)
+			}
+			recordPath := filepath.Join(home, ".coslash", "deletions", "cursor", deleteID+".json")
+			if scenario == "changed-residue" {
+				if err := os.WriteFile(residue, []byte("new unrelated content"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else if scenario == "changed-owner" {
+				deleteFixture(t, home, deleteChild, "")
+			} else {
+				data, err := os.ReadFile(recordPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var record cursorDeleteRecord
+				if err := json.Unmarshal(data, &record); err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "disconnected-family" {
+					record.Family[deleteChild] = ""
+				} else {
+					record.Files[0].Path = filepath.Join(home, "keep.json")
+					deleteFile(t, record.Files[0].Path)
+				}
+				data, err = json.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(recordPath, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove); !errors.Is(err, ErrDeleteUnverified) {
+				t.Fatalf("invalid retry accepted: %v", err)
+			}
+			if _, err := os.Stat(residue); err != nil {
+				t.Fatalf("residue removed before validation: %v", err)
+			}
+			if scenario == "changed-owner" {
+				if _, err := os.Stat(child); err != nil {
+					t.Fatalf("new owner deleted: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestDeleteCursorRetryRejectsIdenticalRegularReplacement(t *testing.T) {
+	home := deleteReviewHome(t)
+	deleteFixture(t, home, deleteID, "")
+	deleteFixture(t, home, deleteChild, deleteID)
+	residue := filepath.Join(ProjectsRoot(home), "one", "agent-transcripts", deleteChild+".txt")
+	deleteFile(t, residue)
+	err := deleteSession(context.Background(), home, deleteID, closedCursor, func(path string) error {
+		if path == residue {
+			return os.ErrPermission
+		}
+		return os.Remove(path)
+	})
+	if !errors.Is(err, ErrDeleteFailed) {
+		t.Fatal(err)
+	}
+	original, err := os.Stat(residue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(ProjectsRoot(home), "one", "agent-transcripts", deleteNeighbor+".txt")
+	deleteFile(t, replacement)
+	if err := os.Chtimes(replacement, original.ModTime(), original.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(residue, filepath.Join(home, "saved-child.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, residue); err != nil {
+		t.Fatal(err)
+	}
+	if err := deleteSession(context.Background(), home, deleteID, closedCursor, os.Remove); !errors.Is(err, ErrDeleteUnverified) {
+		t.Fatalf("identical replacement accepted on retry: %v", err)
+	}
+	if _, err := os.Stat(residue); err != nil {
+		t.Fatalf("replacement was deleted: %v", err)
 	}
 }
