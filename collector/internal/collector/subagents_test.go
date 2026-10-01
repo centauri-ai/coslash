@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -30,15 +31,7 @@ func TestGrokSubagentsNestOnceWithMetaStatus(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("GROK_HOME", home)
 	group := filepath.Join(home, "sessions", "%2Fwork%2Frepo")
-	write := func(path, body string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	write := func(path, body string) { writeGrokFile(t, path, body) }
 	write(filepath.Join(group, "parent", "summary.json"), `{"info":{"id":"parent","cwd":"/work/repo"},"chat_format_version":1}`)
 	for _, child := range []struct{ id, status string }{{"done-child", "completed"}, {"failed-child", "failed"}} {
 		write(filepath.Join(group, child.id, "summary.json"),
@@ -76,5 +69,55 @@ func TestGrokSubagentsNestOnceWithMetaStatus(t *testing.T) {
 	}
 	if roots := finalizeSessions(family, map[string]*vendors.SessionMetadata{vendors.AgentGrok: familyMetadata}); len(roots) != 1 || len(roots[0].Session.Subagents) != 2 {
 		t.Fatalf("family roots = %+v", roots)
+	}
+}
+
+func TestGrokSinceWindowKeepsSubagentFamiliesTogether(t *testing.T) {
+	now := time.Now()
+	for _, test := range []struct {
+		name                string
+		parentAge, childAge time.Duration
+	}{
+		{"old child of a recent parent", 0, 72 * time.Hour},
+		{"recent child of an old parent", 72 * time.Hour, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("GROK_HOME", home)
+			group := filepath.Join(home, "sessions", "%2Fwork%2Frepo")
+			parent := filepath.Join(group, "parent", "summary.json")
+			child := filepath.Join(group, "child", "summary.json")
+			writeGrokFile(t, parent, `{"info":{"id":"parent","cwd":"/work/repo"},"chat_format_version":1}`)
+			writeGrokFile(t, child, `{"info":{"id":"child","cwd":"/work/repo"},"chat_format_version":1,"session_kind":"subagent","parent_session_id":"parent"}`)
+			writeGrokFile(t, filepath.Join(group, "parent", "subagents", "sub", "meta.json"), `{"child_session_id":"child","status":"completed"}`)
+			for path, age := range map[string]time.Duration{parent: test.parentAge, child: test.childAge} {
+				if err := os.Chtimes(path, now.Add(-age), now.Add(-age)); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			parsed, metadata, err := grok.CollectContext(context.Background(), now.Add(-48*time.Hour).UnixMilli())
+			if err != nil {
+				t.Fatal(err)
+			}
+			roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+			if len(roots) != 1 || roots[0].Session.ID != "parent" || len(roots[0].Session.Subagents) != 1 {
+				t.Fatalf("listed roots = %+v", roots)
+			}
+			family, _, err := grok.GetSessionFamily("parent")
+			if err != nil || len(family) != len(parsed) {
+				t.Fatalf("family = %d sessions, listed = %d, err = %v", len(family), len(parsed), err)
+			}
+		})
+	}
+}
+
+func writeGrokFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
