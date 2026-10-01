@@ -16,13 +16,13 @@ A new orchestrator reads this section first and continues from **Next action**. 
 
 | Task | Status | Workspace | Branch | Terminal | Review | Notes |
 |---|---|---|---|---|---|---|
-| T1 | running | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | | Claude worker started 2026-10-01. Tag `new group-3`. |
+| T1 | review | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | pending | Commit `af16d41a`. `AgentGrok` is on the branch. |
 | T2 | pending | T1's workspace | T1's branch | | | same worktree as T1 |
 | T3 | pending | | `cvu/grok-t3-synthesis` | | | after T2 commits |
 | T4 | pending | | `cvu/grok-t4-launch` | | | after T1 commits `AgentGrok` |
 | T5 | pending | | `cvu/grok-t5-ui` | | | after T2 and T4 are merged |
 
-**Next action:** Watch T1. When `cvu/grok-t1-parse` moves past `78f0a6c0`, read terminal `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` for `SUPERSET_WORKER_DONE` or `SUPERSET_WORKER_BLOCKED`. On DONE, spawn the reviewer in workspace `a24560c4-6aa3-4480-94db-8f1fa4fec8d7`. Do not start T4 until that review round finishes and `AgentGrok` is on `cvu/grok-t1-parse`.
+**Next action:** T1 reported `SUPERSET_WORKER_DONE` on commit `af16d41a`. Spawn one read-only reviewer in workspace `a24560c4-6aa3-4480-94db-8f1fa4fec8d7`. If `NO_FINDINGS`, mark T1 completed and create the T4 worktree from `cvu/grok-t1-parse`. If the reviewer lists bugs, send that list once to terminal `4f36a026-65f2-4094-8f6b-d3fd3f623dfc`. Do not start a second review. Do not start T2 until the review round is finished.
 
 **Blockers:** none.
 
