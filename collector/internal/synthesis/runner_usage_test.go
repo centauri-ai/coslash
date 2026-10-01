@@ -217,7 +217,8 @@ func TestCursorAutoWithoutModelEvidenceRemainsUnknown(t *testing.T) {
 		return []byte(`{"type":"result","is_error":false,"result":"broken","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0}}` + "\n"), nil
 	}
 	got, err := runner.Run(context.Background(), "facts")
-	if err == nil || got.Usage.Coverage != "unknown" || got.Usage.Tokens != nil {
+	_, hasUnknownModel := got.Usage.Tokens["cursor/unknown-model"]
+	if err == nil || got.Usage.Coverage != "unknown" || !hasUnknownModel || len(got.Usage.Tokens) != 1 || got.Usage.EstimatedCostMicroUSD != nil || len(got.Usage.UnpricedModels) != 1 || got.Usage.UnpricedModels[0] != "cursor/unknown-model" {
 		t.Fatalf("Run = %#v, %v", got, err)
 	}
 }
