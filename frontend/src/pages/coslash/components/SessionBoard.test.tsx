@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionBoard } from '@/pages/coslash/components/SessionBoard';
@@ -38,6 +39,7 @@ function renderBoard(
   sessions: Session[],
   columnGroupBy: BoardGroupBy = 'branch',
   rowGroupBy: BoardRowGroupBy = 'branch',
+  review: Partial<ComponentProps<typeof SessionBoard>['review']> = {},
 ) {
   return renderToStaticMarkup(
     <SessionBoard
@@ -55,6 +57,7 @@ function renderBoard(
         onRetryRemoteReviewers: () => {},
         onStarted: () => {},
         onSelectRelated: () => {},
+        ...review,
       }}
     />,
   );
@@ -77,6 +80,21 @@ describe('SessionBoard', () => {
     const markup = renderBoard([session('remote-review', { cwd: '', launchable: true })]);
 
     expect(markup).toContain('Send for review');
+  });
+
+  it('offers remote reviewer retry and hides review actions on review sessions', () => {
+    const origin = session('remote-review', { cwd: '', launchable: true });
+    const markup = renderBoard([origin], 'branch', 'branch', {
+      remoteUnavailableReason: 'SSH host is offline.',
+      canRetryRemoteReviewers: true,
+    });
+    expect(markup).toContain('Retry reviewer check');
+    expect(markup).not.toContain('>Send for review<');
+
+    const hidden = renderBoard([origin], 'branch', 'branch', {
+      index: { ...reviewIndex, reviewSessions: new Set([`${origin.sourceId}:${origin.agent}:${origin.id}`]) },
+    });
+    expect(hidden).not.toContain('Send for review');
   });
 
   it('shows the full repository identity on same-named columns', () => {

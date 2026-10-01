@@ -403,15 +403,6 @@ export function CoslashPage() {
       />
       <SessionInspector
         session={selectedSession}
-        review={{
-          index: reviewIndex,
-          reviewerOptions: settingsState.response?.options.reviewers ?? [],
-          remoteReviewerOptions,
-          remoteUnavailableReason: remoteReviewUnavailableReason,
-          canRetryRemoteReviewers,
-          onRetryRemoteReviewers: () => setRemoteReviewRetry((retry) => retry + 1),
-          onStarted: refreshSessions,
-        }}
         handoff={selectedSession ? latestHandoffs.get(sessionKey(selectedSession)) : undefined}
         onHandoffStarted={() => void refreshHandoffs()}
         onOpenTarget={openHandoffTarget}

@@ -19,7 +19,6 @@ import {
   PlayIcon,
   SquareCheckIcon,
   SquareIcon,
-  TerminalIcon,
   XIcon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -33,7 +32,6 @@ import { DiffList } from '@/pages/coslash/components/DiffList';
 import { DirectedHandoffDialog } from '@/pages/coslash/components/DirectedHandoffDialog';
 import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandoffStatus';
 import { MachineBadge } from '@/pages/coslash/components/MachineBadge';
-import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
 import {
   SessionId,
   SessionName,
@@ -71,20 +69,13 @@ import {
   formatTimeAgo,
   formatTokens,
 } from '@/pages/coslash/lib/format';
-import { copyHandoffText, cursorHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
+import { copyHandoffText, handoffBrief } from '@/pages/coslash/lib/handoff';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { teamPreviewEnabled } from '@/pages/coslash/lib/preview';
-import {
-  reviewActionVisible,
-  reviewerOptionsForOrigin,
-  type ReviewerOption,
-  type ReviewIndex,
-} from '@/pages/coslash/lib/review';
 import {
   boardStatusKey,
   canResumeSession,
   displayStatusLabel,
-  freshLaunchDisabledHint,
   getModality,
   getSessionOutcome,
   getVendor,
@@ -852,95 +843,7 @@ function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; 
   );
 }
 
-function StartNewSessionButton({
-  detail,
-  brief,
-  onCopy,
-  disabledHint,
-}: {
-  detail: SessionDetail;
-  brief: string;
-  onCopy: (text?: string) => Promise<boolean>;
-  disabledHint?: string;
-}) {
-  const { launch, launchError } = useLaunchTerminal(detail);
-  const cursorHint = freshLaunchDisabledHint(detail);
-  const effectiveHint = cursorHint ?? disabledHint;
-  const disabled =
-    effectiveHint != null ||
-    (!isLocalSession(detail) && (detail.displayStale || detail.launchable === false));
-  const opensCursor =
-    isLocalSession(detail) && detail.agent === 'cursor' && detail.entrypoint === 'cursor-ide';
-  const requiresClipboard = isLocalSession(detail) && detail.agent === 'cursor';
-  const recommended = sessionReadiness(detail).key === 'fresh';
-
-  const startNewSession = async () => {
-    const copied = await onCopy(requiresClipboard ? cursorHandoffText(brief) : brief);
-    if (requiresClipboard && !copied) return;
-    launch(opensCursor ? 'open' : 'new', brief);
-  };
-
-  return (
-    <div className="flex flex-col gap-1">
-      <DisabledLaunchTooltip hint={effectiveHint}>
-        <Button
-          variant={recommended ? 'default' : 'outline'}
-          className={cn('w-fit p-2 text-xs', { [brandCta]: recommended })}
-          onClick={() => void startNewSession()}
-          disabled={disabled}
-        >
-          {opensCursor ? <ExternalLinkIcon /> : <TerminalIcon />}
-          <span>{opensCursor ? 'Open Cursor' : 'Start fresh'}</span>
-        </Button>
-      </DisabledLaunchTooltip>
-      <LaunchError message={launchError} />
-    </div>
-  );
-}
-
-type InspectorReviewProps = {
-  index: ReviewIndex<Session>;
-  reviewerOptions: readonly ReviewerOption[];
-  remoteReviewerOptions: readonly ReviewerOption[];
-  remoteUnavailableReason?: string;
-  canRetryRemoteReviewers: boolean;
-  onRetryRemoteReviewers: () => void;
-  onStarted: () => void;
-};
-
-export function InspectorReviewAction({
-  session,
-  review,
-}: {
-  session: Session;
-  review: InspectorReviewProps;
-}) {
-  const key = sessionKey(session);
-  if (!reviewActionVisible(session, review.index.reviewSessions.has(key))) return null;
-  const active = session.reviewPending || review.index.activeOrigins.has(key);
-  return (
-    <ReviewDialog
-      origin={session}
-      reviewerOptions={reviewerOptionsForOrigin(
-        session,
-        review.reviewerOptions,
-        review.remoteReviewerOptions,
-      )}
-      unavailableReason={isLocalSession(session) ? undefined : review.remoteUnavailableReason}
-      onRetryReviewers={
-        !isLocalSession(session) && !active && review.canRetryRemoteReviewers
-          ? review.onRetryRemoteReviewers
-          : undefined
-      }
-      active={active}
-      reviewError={session.reviewError}
-      onStarted={review.onStarted}
-    />
-  );
-}
-
 function HandoffSection({
-  session,
   detail,
   exactDetailsAvailable,
   remoteLaunchable,
@@ -948,9 +851,7 @@ function HandoffSection({
   handoff,
   onHandoffStarted,
   onOpenTarget,
-  review,
 }: {
-  session: Session;
   detail: SessionDetail;
   exactDetailsAvailable: boolean;
   remoteLaunchable: boolean;
@@ -958,7 +859,6 @@ function HandoffSection({
   handoff?: DirectedHandoff;
   onHandoffStarted: () => void;
   onOpenTarget: (handoff: DirectedHandoff) => void;
-  review: InspectorReviewProps;
 }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
@@ -999,13 +899,6 @@ function HandoffSection({
           disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
           onStarted={onHandoffStarted}
         />
-        <StartNewSessionButton
-          detail={detail}
-          brief={brief}
-          onCopy={copyBrief}
-          disabledHint={!isLocalSession(detail) && !remoteLaunchable ? remoteLaunchHint : undefined}
-        />
-        <InspectorReviewAction session={session} review={review} />
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={() => void copyBrief()}>
           <span>Copy handoff</span>
         </Button>
@@ -1616,7 +1509,6 @@ function CommandsSection({ detail }: { detail: SessionDetail }) {
 }
 
 function InspectorBody({
-  session,
   detail,
   exactDetailsAvailable,
   onSelectFile,
@@ -1625,9 +1517,7 @@ function InspectorBody({
   handoff,
   onHandoffStarted,
   onOpenTarget,
-  review,
 }: {
-  session: Session;
   detail: SessionDetail;
   exactDetailsAvailable: boolean;
   onSelectFile: ((fileEdit: SessionDetail['fileEdits'][number]) => void) | null;
@@ -1636,7 +1526,6 @@ function InspectorBody({
   handoff?: DirectedHandoff;
   onHandoffStarted: () => void;
   onOpenTarget: (handoff: DirectedHandoff) => void;
-  review: InspectorReviewProps;
 }) {
   // scroll on the outer div, layout on the inner one — flex children of a
   // scroll container shrink to fit instead of overflowing, which collapses
@@ -1645,7 +1534,6 @@ function InspectorBody({
     <div className="flex-1 overflow-x-hidden overflow-y-auto pb-2">
       <div className="flex flex-col gap-2 px-4">
         <HandoffSection
-          session={session}
           detail={detail}
           exactDetailsAvailable={exactDetailsAvailable}
           remoteLaunchable={remoteLaunchable}
@@ -1653,7 +1541,6 @@ function InspectorBody({
           handoff={handoff}
           onHandoffStarted={onHandoffStarted}
           onOpenTarget={onOpenTarget}
-          review={review}
         />
         <RecapSection detail={detail} />
         <DigestSection detail={detail} />
@@ -1719,7 +1606,6 @@ function InspectorFooter({
 
 export function SessionInspector({
   session,
-  review,
   sessionsVersion,
   synthesisSettingsKey,
   showMachineBadge = false,
@@ -1731,7 +1617,6 @@ export function SessionInspector({
   onOpenTarget,
 }: {
   session: Session | null;
-  review: InspectorReviewProps;
   sessionsVersion: number;
   synthesisSettingsKey: string;
   showMachineBadge?: boolean;
@@ -1968,7 +1853,6 @@ export function SessionInspector({
             )}
             {summaryOnly && <SummaryOnlyBanner />}
             <InspectorBody
-              session={session}
               detail={detail}
               exactDetailsAvailable={!summaryOnly}
               remoteLaunchable={remoteLaunchable}
@@ -1976,7 +1860,6 @@ export function SessionInspector({
               handoff={handoff}
               onHandoffStarted={onHandoffStarted}
               onOpenTarget={onOpenTarget}
-              review={review}
               onSelectFile={
                 summaryOnly
                   ? null
