@@ -132,7 +132,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		s.StartedAt = stamp.UnixMilli()
 	}
 	s.LastActivityTime = s.StartedAt
-	inherited, verified := inheritedEntries(t, parent)
+	inherited, verified := inheritedEntriesContext(ctx, t, parent)
 	path, pathOK := ancestry(t, leaf)
 	selected := map[string]bool{}
 	for _, i := range path {
@@ -172,6 +172,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		}
 	}
 
+	resolveParent := labelParents(ctx, t)
 	turns, segments := map[string]int{}, map[string]string{}
 	firstChild := map[string]string{}
 	for _, e := range t.Entries {
@@ -181,7 +182,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		if e.Type == "label" {
 			continue
 		}
-		parentID, ok := withoutLabels(t, e.ParentID)
+		parentID, ok := resolveParent(e.ParentID)
 		if ok && parentID != "" && firstChild[parentID] == "" {
 			firstChild[parentID] = e.ID
 		}
@@ -214,7 +215,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				turn = turns[*e.ParentID]
 				if e.Type == "label" {
 					segment = segments[*e.ParentID]
-				} else if parentID, parentOK := withoutLabels(t, e.ParentID); parentOK && firstChild[parentID] == e.ID {
+				} else if parentID, parentOK := resolveParent(e.ParentID); parentOK && firstChild[parentID] == e.ID {
 					segment = segments[parentID]
 				}
 			} else {
@@ -348,6 +349,7 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 				s.Model = &model
 			}
 			if !e.Usage.TokensMissing && !e.Usage.ZeroTokens {
+				// Pi reports post-response occupancy, including generated output.
 				n := 0
 				for _, count := range []*int{e.Usage.Input, e.Usage.Output, e.Usage.CacheRead, e.Usage.CacheWrite} {
 					if *count > int(^uint(0)>>1)-n {

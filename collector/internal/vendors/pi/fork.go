@@ -1,6 +1,7 @@
 package pi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -20,7 +21,7 @@ func canonicalPath(path string) string {
 }
 
 // Pi preserves non-label identities. A clone may bypass labels in parent links.
-func inheritedEntries(t, parent *transcript) (map[string]bool, bool) {
+func inheritedEntriesContext(ctx context.Context, t, parent *transcript) (map[string]bool, bool) {
 	inherited := map[string]bool{}
 	if t.Header.ParentSession == "" {
 		return inherited, true
@@ -28,8 +29,17 @@ func inheritedEntries(t, parent *transcript) (map[string]bool, bool) {
 	if parent == nil || canonicalPath(t.Header.ParentSession) != canonicalPath(parent.Path) || t.Header.ID == parent.Header.ID || parent.Incomplete {
 		return inherited, false
 	}
+	oldParents, newParents := labelParents(ctx, parent), labelParents(ctx, t)
+	decode := func(raw json.RawMessage, value *map[string]any) error {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		return decoder.Decode(value)
+	}
 	matched, novel := false, false
 	for _, e := range t.Entries {
+		if ctx.Err() != nil {
+			return inherited, false
+		}
 		if e.Type == "label" {
 			continue
 		}
@@ -43,7 +53,7 @@ func inheritedEntries(t, parent *transcript) (map[string]bool, bool) {
 		}
 		old := parent.Entries[index]
 		var a, b map[string]any
-		if json.Unmarshal(e.Raw, &a) != nil || json.Unmarshal(old.Raw, &b) != nil {
+		if decode(e.Raw, &a) != nil || decode(old.Raw, &b) != nil {
 			return inherited, false
 		}
 		delete(a, "timestamp")
@@ -67,8 +77,8 @@ func inheritedEntries(t, parent *transcript) (map[string]bool, bool) {
 			return inherited, false
 		}
 		// Parent rewrites must only bypass labels, never unrelated conversation entries.
-		oldParent, oldOK := withoutLabels(parent, old.ParentID)
-		newParent, newOK := withoutLabels(t, e.ParentID)
+		oldParent, oldOK := oldParents(old.ParentID)
+		newParent, newOK := newParents(e.ParentID)
 		if !oldOK || !newOK || oldParent != newParent {
 			return inherited, false
 		}
@@ -78,24 +88,61 @@ func inheritedEntries(t, parent *transcript) (map[string]bool, bool) {
 	return inherited, matched
 }
 
-func withoutLabels(t *transcript, id *string) (string, bool) {
-	seen := map[string]bool{}
-	for id != nil && *id != "" {
-		if seen[*id] {
-			return "", false
-		}
-		seen[*id] = true
-		i, ok := t.ByID[*id]
-		if !ok {
-			return "", false
-		}
-		e := t.Entries[i]
-		if e.Type != "label" {
-			return *id, true
-		}
-		id = e.ParentID
+// Memoize label-chain resolution so shared ancestors are traversed only once.
+func labelParents(ctx context.Context, t *transcript) func(*string) (string, bool) {
+	type resolved struct {
+		id string
+		ok bool
 	}
-	return "", true
+	cache := map[string]resolved{}
+	return func(parent *string) (string, bool) {
+		if ctx.Err() != nil {
+			return "", false
+		}
+		id := ""
+		if parent != nil {
+			id = *parent
+		}
+		path := []string{}
+		seen := map[string]bool{}
+		result := resolved{ok: true}
+		for id != "" {
+			if ctx.Err() != nil {
+				return "", false
+			}
+			if previous, found := cache[id]; found {
+				result = previous
+				break
+			}
+			if seen[id] {
+				result.ok = false
+				break
+			}
+			seen[id] = true
+			path = append(path, id)
+			i, found := t.ByID[id]
+			if !found {
+				result.ok = false
+				break
+			}
+			e := t.Entries[i]
+			if e.Type != "label" {
+				result.id = id
+				break
+			}
+			id = ""
+			if e.ParentID != nil {
+				id = *e.ParentID
+			}
+		}
+		for _, key := range path {
+			if ctx.Err() != nil {
+				return "", false
+			}
+			cache[key] = result
+		}
+		return result.id, result.ok
+	}
 }
 
 // Parent files are parsed once per collection, including parents outside discovered roots.
@@ -150,7 +197,7 @@ func parentCacheContext(ctx context.Context, items []*transcript, scans ...*vend
 			if parent == nil || parent.Header.ID == current.Header.ID {
 				return nil
 			}
-			if _, ok := inheritedEntries(current, parent); !ok {
+			if _, ok := inheritedEntriesContext(ctx, current, parent); !ok {
 				return nil
 			}
 			if immediate == nil {
