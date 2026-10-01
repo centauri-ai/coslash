@@ -1,3 +1,4 @@
+// Manual native release compatibility probe, excluded from make test and CI.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, copyFileSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,6 +33,13 @@ try{
  second=start(['--session',session]);await until(()=>claims().length===2);assert.notEqual(claims()[0].runtimeId,claims()[1].runtimeId);
  second.kill('SIGKILL');await new Promise(resolve=>second.once('exit',resolve));assert.equal(claims().length,2);
  p.send({type:'new_session'});await until(()=>claims().some(x=>x.pid===p.pid&&x.sessionId!==first.sessionId));
+ const switchedHistory=readdirSync(path.join(env.COSLASH_HOME,'pi-history')).map(x=>JSON.parse(readFileSync(path.join(env.COSLASH_HOME,'pi-history',x),'utf8')));
+ assert.ok(switchedHistory.some(x=>x.exited&&x.record.transcriptPath===session),'previous session must be retired before process exits');
+ p.send({type:'prompt',message:'replacement session'});await until(()=>claims().some(x=>x.pid===p.pid&&x.workState==='busy'));await until(()=>claims().some(x=>x.pid===p.pid&&x.workState==='idle'));
+ const replacement=claims().find(x=>x.pid===p.pid).transcriptPath;
+ p.send({type:'switch_session',sessionPath:session});await until(()=>claims().some(x=>x.pid===p.pid&&x.transcriptPath===session));
+ const switchedBackHistory=readdirSync(path.join(env.COSLASH_HOME,'pi-history')).map(x=>JSON.parse(readFileSync(path.join(env.COSLASH_HOME,'pi-history',x),'utf8')));
+ assert.ok(switchedBackHistory.some(x=>x.exited&&x.record.transcriptPath===replacement),'switch_session must retire previous history before process exits');
  p.stdin.end();await new Promise(resolve=>p.once('exit',resolve));assert.equal(claims().filter(x=>x.pid===p.pid).length,0);
  const histories=readdirSync(path.join(env.COSLASH_HOME,'pi-history')).map(x=>JSON.parse(readFileSync(path.join(env.COSLASH_HOME,'pi-history',x),'utf8')));
  assert.ok(histories.some(x=>x.exited&&x.record.transcriptPath===session));
