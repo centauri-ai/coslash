@@ -65,19 +65,31 @@ type usageFile struct {
 type updateLine struct {
 	Params struct {
 		Update struct {
-			Kind    string `json:"sessionUpdate"`
-			Content struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-				Meta struct {
-					BashCommand *string `json:"bash_command"`
-				} `json:"_meta"`
-			} `json:"content"`
-			Meta struct {
+			Kind    string          `json:"sessionUpdate"`
+			Status  string          `json:"status"`
+			Content json.RawMessage `json:"content"`
+			Meta    struct {
 				HideFromScrollback bool `json:"hideFromScrollback"`
 			} `json:"_meta"`
 		} `json:"update"`
 	} `json:"params"`
+}
+
+// chunkContent is a message chunk's content object.
+type chunkContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+	Meta struct {
+		BashCommand *string `json:"bash_command"`
+	} `json:"_meta"`
+}
+
+// toolContent is one item of a tool_call_update's content array.
+type toolContent struct {
+	Type    string `json:"type"`
+	Path    string `json:"path"`
+	OldText string `json:"oldText"`
+	NewText string `json:"newText"`
 }
 
 const ticksPerUSD = 1e10
@@ -128,6 +140,8 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 		return nil, err
 	}
 	s.FirstPrompt = nonEmpty(updates.firstPrompt)
+	s.FileEdits = updates.edits.Edits
+	s.EditedFileCount = len(s.FileEdits)
 
 	var signals signalsFile
 	readOptionalJSON(filepath.Join(dir, "signals.json"), &signals)
@@ -197,10 +211,11 @@ type updatesSummary struct {
 	finishedTurns int
 	openToolCalls int
 	inTurn        bool
+	edits         *session.FileEditSet
 }
 
 func readUpdates(path string) (updatesSummary, error) {
-	var result updatesSummary
+	result := updatesSummary{edits: session.NewFileEditSet()}
 	file, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return result, nil
@@ -218,7 +233,22 @@ func readUpdates(path string) (updatesSummary, error) {
 			continue
 		}
 		update := line.Params.Update
-		if update.Content.Meta.BashCommand != nil {
+		if update.Kind == "tool_call_update" {
+			// The diff repeats on the update that completes the call, so count only that one.
+			var items []toolContent
+			if update.Status == "completed" && json.Unmarshal(update.Content, &items) == nil {
+				for _, item := range items {
+					if item.Type == "diff" && item.Path != "" {
+						result.edits.Add(item.Path, session.CountLines(item.NewText), session.CountLines(item.OldText), item.OldText == "")
+						result.edits.Change(item.Path, item.OldText, item.NewText)
+					}
+				}
+			}
+			continue
+		}
+		var content chunkContent
+		_ = json.Unmarshal(update.Content, &content)
+		if content.Meta.BashCommand != nil {
 			// A "!cmd" shell row is not a prompt and starts no model turn.
 			continue
 		}
@@ -229,8 +259,8 @@ func readUpdates(path string) (updatesSummary, error) {
 		case "user_message_chunk":
 			result.inTurn = true
 			// A hidden chunk is an injected system reminder, not the user's prompt.
-			if !firstPromptDone && !update.Meta.HideFromScrollback && update.Content.Type == "text" {
-				result.firstPrompt += update.Content.Text
+			if !firstPromptDone && !update.Meta.HideFromScrollback && content.Type == "text" {
+				result.firstPrompt += content.Text
 			}
 		case "tool_call":
 			result.inTurn = true
