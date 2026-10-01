@@ -102,6 +102,58 @@ func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	}
 }
 
+func TestStartupAccountingFailureKeepsCachedSessionsAvailable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	cache := synthesis.NewCache()
+	if err := cache.Store("codex", "kept", synthesis.Record{Revision: 42, Synthesis: session.SessionSynthesis{Outcome: "valid"}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, "synthesis-accounting")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dir, "costs.sqlite")
+	if err := os.WriteFile(dbPath, []byte("damaged history"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if store := startupAccountingStore(home, 100); store != nil {
+		store.Close()
+		t.Fatal("corrupt store was replaced")
+	}
+	if data, err := os.ReadFile(dbPath); err != nil || string(data) != "damaged history" {
+		t.Fatalf("damaged DB changed: %q %v", data, err)
+	}
+	manager := synthesis.NewManager(nil, nil)
+	oldList := listSessions
+	t.Cleanup(func() { listSessions = oldList })
+	listSessions = func(context.Context, int64) ([]*session.Session, error) {
+		return []*session.Session{{Agent: "codex", ID: "kept", LastActivityTime: 42}}, nil
+	}
+	handler := routes(manager, reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"outcome":"valid"`) {
+		t.Fatalf("cached sessions = %d %s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/synthesis-costs?source=local&since=1&until=100", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("cost status = %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestStartupAccountingOpensHealthyStoreWithSynthesisDisabled(t *testing.T) {
+	store := startupAccountingStore(t.TempDir(), 100)
+	if store == nil {
+		t.Fatal("healthy accounting store unavailable")
+	}
+	defer store.Close()
+	if manager := synthesis.NewManager(nil, store); manager.AccountingUnavailable() {
+		t.Fatal("disabled synthesis hid healthy accounting")
+	}
+}
+
 func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	started := make(chan struct{})
