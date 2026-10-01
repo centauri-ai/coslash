@@ -9,7 +9,7 @@ import (
 
 func testRecord() RuntimeRecord {
 	leaf := "leaf"
-	return RuntimeRecord{Version: 1, RuntimeID: "owner", PID: os.Getpid(), ProcessStartIdentity: "start", StartedAtMs: 1, SessionID: "custom.id", TranscriptPath: "/tmp/custom.jsonl", LeafID: &leaf, WorkState: "idle", Sequence: 1, UpdatedAtMs: 1}
+	return RuntimeRecord{Version: 1, RuntimeID: "owner", PID: os.Getpid(), ProcessStartIdentity: "start", StartedAtMs: 1, SessionID: "custom.id", TranscriptPath: filepath.Join(os.TempDir(), "custom.jsonl"), LeafID: &leaf, WorkState: "idle", Sequence: 1, UpdatedAtMs: 1}
 }
 func TestOwnerPrecedence(t *testing.T) {
 	idle := runtimeEvidence{Record: testRecord()}
@@ -149,6 +149,7 @@ func TestRuntimeSequenceAndLeafAgreement(t *testing.T) {
 func TestQuotedTildeAgentDirectory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("PI_CODING_AGENT_DIR", "~/custom-agent")
 	t.Setenv("COSLASH_HOME", filepath.Join(home, "coslash"))
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", "")

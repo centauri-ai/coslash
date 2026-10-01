@@ -15,6 +15,10 @@ function processIdentity() {
       const stat = readFileSync(`/proc/${process.pid}/stat`, "utf8")
       return `linux:${readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim()}:${stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/)[19]}`
     }
+    if (process.platform === "win32") {
+      const ticks = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${process.pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToFileTimeUtc().ToString([System.Globalization.CultureInfo]::InvariantCulture)`], { encoding: "utf8", timeout: 5000 }).trim()
+      return /^\d+$/.test(ticks) ? `windows:${ticks}` : ""
+    }
     return `ps:${execFileSync("ps", ["-p", String(process.pid), "-o", "lstart="], { encoding: "utf8", env: { ...process.env, LC_ALL: "C" } }).trim().replace(/\s+/g, " ")}`
   } catch { return "" }
 }
