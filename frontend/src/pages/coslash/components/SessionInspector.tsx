@@ -162,8 +162,17 @@ export function synthesisMatchesSnapshot(
 }
 
 // oxlint-disable-next-line react/only-export-components -- pure transition used by focused tests
-export function synthesisSettlement(pendingKey: string | null, key: string, pending: boolean) {
-  return pending ? { pendingKey: key, settled: false } : { pendingKey: null, settled: pendingKey === key };
+export function synthesisSettlement(
+  pendingKey: string | null,
+  key: string,
+  result: Pick<SynthesisResponse, 'revision' | 'synthesisPending'>,
+  synthesisRevision: number,
+) {
+  return {
+    pendingKey: result.synthesisPending ? key : null,
+    settled: !result.synthesisPending && pendingKey === key,
+    matchesSnapshot: synthesisMatchesSnapshot(result, synthesisRevision),
+  };
 }
 
 export function refreshSourceAndRetry(
@@ -512,11 +521,11 @@ export function useSessionDetail(
         if (!res.ok) return;
         const result = (await res.json()) as SynthesisResponse;
         if (controller.signal.aborted) return;
-        if (!synthesisMatchesSnapshot(result, synthesisRevision)) return;
         const settlement = synthesisSettlement(
           pendingSynthesisKey.current,
-          synthesisKey,
-          result.synthesisPending,
+          sessionKey(current),
+          result,
+          synthesisRevision,
         );
         pendingSynthesisKey.current = settlement.pendingKey;
         if (settlement.settled) setSynthesisSettledCount((count) => count + 1);
@@ -524,13 +533,13 @@ export function useSessionDetail(
           pollDeadline.current ??= { key: synthesisKey, deadline: Date.now() + 2 * MINUTE };
           if (Date.now() < pollDeadline.current.deadline) {
             timer = setTimeout(load, 3_000);
-            setLoadedSynthesis({ key: synthesisKey, ...result });
-          } else {
+            if (settlement.matchesSnapshot) setLoadedSynthesis({ key: synthesisKey, ...result });
+          } else if (settlement.matchesSnapshot) {
             setLoadedSynthesis({ key: synthesisKey, ...result, synthesisPending: false });
           }
         } else {
           pollDeadline.current = null;
-          setLoadedSynthesis({ key: synthesisKey, ...result });
+          if (settlement.matchesSnapshot) setLoadedSynthesis({ key: synthesisKey, ...result });
         }
       } catch (error: unknown) {
         // Detail loading owns the visible request error. Synthesis failures
@@ -780,6 +789,7 @@ function HeaderMeta({
         key={sessionKey(detail)}
         session={detail}
         codingCost={detail.cost}
+        codingUnpricedModels={detail.unpricedModels}
         synthesisCostVersion={synthesisCostVersion}
         synthesisSettledCount={synthesisSettledCount}
       />

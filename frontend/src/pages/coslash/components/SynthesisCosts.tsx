@@ -25,12 +25,21 @@ export function mergeRounds(previous: SynthesisRound[], next: SynthesisRound[]):
   ];
 }
 
+// oxlint-disable-next-line react/only-export-components -- pure cursor boundary used by focused tests
+export function pageCursor(
+  page: Pick<SynthesisCostsResponse, 'nextCursor'> | null,
+  first: Pick<SynthesisCostsResponse, 'nextCursor'> | null,
+): string | null {
+  return page ? page.nextCursor : (first?.nextCursor ?? null);
+}
+
 function CostAmount({ microUsd }: { microUsd: number | null }) {
   return <>{microUsd == null ? 'Unknown cost' : formatEstimatedCost(microUsd / 1_000_000)}</>;
 }
 
 export function SynthesisCostsView({
   codingCost,
+  codingUnpricedModels = [],
   response,
   rounds = response?.rounds ?? [],
   nextCursor = response?.nextCursor ?? null,
@@ -44,6 +53,7 @@ export function SynthesisCostsView({
   onToggle,
 }: {
   codingCost: number | null;
+  codingUnpricedModels?: string[];
   response?: SynthesisCostsResponse | null;
   rounds?: SynthesisRound[];
   nextCursor?: string | null;
@@ -59,6 +69,7 @@ export function SynthesisCostsView({
   const totals = response?.totals;
   const combined = totals == null || codingCost == null ? null : combinedKnownCost(codingCost, totals);
   const coverage = totals == null ? null : synthesisCoverage(totals);
+  const codingPartial = codingUnpricedModels.length > 0;
   return (
     <div className="bg-coslash-soft min-w-0 rounded-lg border p-3 text-xs">
       <div className="flex flex-wrap gap-x-5 gap-y-2 font-mono">
@@ -72,6 +83,11 @@ export function SynthesisCostsView({
           Combined <strong>{combined ? formatEstimatedCost(combined.knownUsd) : 'Unknown'}</strong>
         </span>
       </div>
+      {codingPartial && (
+        <p className="text-coslash-muted pt-1">
+          Coding known subtotal excludes unpriced models: {codingUnpricedModels.join(', ')}.
+        </p>
+      )}
       {loading && (
         <p role="status" className="text-coslash-muted pt-2">
           Loading synthesis costs...
@@ -91,18 +107,16 @@ export function SynthesisCostsView({
             <p className="text-coslash-muted">
               {totals?.roundCount} rounds recorded
               {coverage !== 'complete' && ` · ${coverage === 'partial' ? 'Partial cost' : 'Unknown cost'}`}
-              {combined?.partial && ' · Combined known subtotal'}
+              {(combined?.partial || codingPartial) && ' · Combined known subtotal'}
             </p>
             <Button variant="outline" size="sm" onClick={onRetry}>
               Refresh synthesis costs
             </Button>
           </div>
-          {response.historicalUnknown && (
-            <p className="text-coslash-muted pt-1">
-              Historical usage before {new Date(response.trackingStartedAtMs).toLocaleDateString()} is
-              unavailable.
-            </p>
-          )}
+          <p className="text-coslash-muted pt-1">
+            Tracking started {new Date(response.trackingStartedAtMs).toLocaleDateString()}.
+            {response.historicalUnknown && ' Historical usage before tracking is unavailable.'}
+          </p>
           <details
             className="pt-2"
             open={expanded}
@@ -111,7 +125,12 @@ export function SynthesisCostsView({
             <summary className="text-brand cursor-pointer font-semibold">
               Synthesis rounds ({totals?.roundCount})
             </summary>
-            <div className="min-w-0 pt-2">
+            <div
+              role="region"
+              aria-label="Synthesis round history"
+              tabIndex={0}
+              className="max-h-48 min-w-0 overflow-y-auto overscroll-contain pt-2 sm:max-h-64"
+            >
               {totals?.roundCount === 0 ? (
                 <p className="text-coslash-muted">No recorded rounds</p>
               ) : (
@@ -171,11 +190,13 @@ export function SynthesisCostsView({
 export function SynthesisCosts({
   session,
   codingCost,
+  codingUnpricedModels,
   synthesisCostVersion,
   synthesisSettledCount,
 }: {
   session: SessionIdentity;
   codingCost: number | null;
+  codingUnpricedModels: string[];
   synthesisCostVersion: string | null;
   synthesisSettledCount: number;
 }) {
@@ -221,7 +242,7 @@ export function SynthesisCosts({
     costs.retry();
   };
   const loadMore = async () => {
-    const cursor = current?.nextCursor ?? costs.data?.nextCursor;
+    const cursor = pageCursor(current, costs.data);
     if (!cursor || !costs.data || (pageRequest.current && !pageRequest.current.signal.aborted)) return;
     const controller = new AbortController();
     pageRequest.current = controller;
@@ -265,9 +286,10 @@ export function SynthesisCosts({
   return (
     <SynthesisCostsView
       codingCost={codingCost}
+      codingUnpricedModels={codingUnpricedModels}
       response={costs.data}
       rounds={current?.rounds ?? costs.data?.rounds}
-      nextCursor={current?.nextCursor ?? costs.data?.nextCursor}
+      nextCursor={pageCursor(current, costs.data)}
       expanded={expanded}
       loading={costs.isLoading}
       loadingMore={current?.loading}
