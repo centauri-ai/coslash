@@ -217,9 +217,12 @@ func TestPiVerifiedReleaseAllowlist(t *testing.T) {
 }
 
 func TestPiHandoffCleanupOnProcessGroupSignal(t *testing.T) {
-	for _, shell := range []string{"/bin/sh", "/bin/zsh"} {
+	for _, shell := range []string{"/bin/sh", "/bin/bash", "/bin/zsh"} {
 		for _, signal := range []syscall.Signal{syscall.SIGHUP, syscall.SIGTERM} {
 			t.Run(shell+"/"+signal.String(), func(t *testing.T) {
+				if _, err := exec.LookPath(shell); err != nil {
+					t.Skipf("%s is unavailable: %v", shell, err)
+				}
 				capture := fakePi(t)
 				binary, _ := exec.LookPath("pi")
 				os.WriteFile(binary, []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 0.99.1; exit; fi\ntouch \"$CAPTURE\"\nsleep 30\n"), 0700)
@@ -261,8 +264,11 @@ func TestPiHandoffCleanupOnProcessGroupSignal(t *testing.T) {
 }
 
 func TestPiCleanupPreservesParentShellTrap(t *testing.T) {
-	for _, shell := range []string{"/bin/sh", "/bin/zsh"} {
+	for _, shell := range []string{"/bin/sh", "/bin/bash", "/bin/zsh"} {
 		t.Run(shell, func(t *testing.T) {
+			if _, err := exec.LookPath(shell); err != nil {
+				t.Skipf("%s is unavailable: %v", shell, err)
+			}
 			capture := fakePi(t)
 			command, path, err := cliCommand(vendors.AgentPi, "", NewSession, "scoped traps")
 			if err != nil {
@@ -283,8 +289,11 @@ func TestPiCleanupPreservesParentShellTrap(t *testing.T) {
 }
 
 func TestHandoffDirectoryChangeCleanupAndShellState(t *testing.T) {
-	for _, shell := range []string{"/bin/sh", "/bin/zsh"} {
+	for _, shell := range []string{"/bin/sh", "/bin/bash", "/bin/zsh"} {
 		t.Run(shell, func(t *testing.T) {
+			if _, err := exec.LookPath(shell); err != nil {
+				t.Skipf("%s is unavailable: %v", shell, err)
+			}
 			t.Setenv("SHELL", shell)
 			capture := fakePi(t)
 			original := localTerminalOpener
