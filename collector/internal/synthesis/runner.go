@@ -242,7 +242,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		}
 	case settings.BackendCursor:
 		label = "Cursor"
-		parse = parseResultEnvelope
+		parse = parseCursorSynthesis
 		sandboxMode := "enabled"
 		if runtime.GOOS == "windows" {
 			sandboxMode = "disabled"
@@ -268,7 +268,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 			"--sandbox", sandboxMode,
 			"--trust",
 			"--model", r.Model,
-			"--output-format", "json",
+			"--output-format", "stream-json",
 		}
 		stdin = systemPrompt + jsonInstruction + "\n\n" + input
 		env = []string{"CURSOR_DATA_DIR=" + scratchDir}
@@ -294,6 +294,8 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		result.Usage = parseClaudeUsage(output, r.Model)
 	} else if r.Backend == settings.BackendCodex {
 		result.Usage = parseCodexUsage(output, r.Model)
+	} else if r.Backend == settings.BackendCursor {
+		result.Usage = parseCursorUsage(output)
 	}
 	if errors.Is(err, errSynthesisOutputLimit) && result.Usage.Coverage == "complete" {
 		result.Usage.Coverage = "partial"

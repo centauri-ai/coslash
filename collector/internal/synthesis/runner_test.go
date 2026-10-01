@@ -55,7 +55,7 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	}
 	wantArgs := []string{
 		"-p", "--mode", "ask", "--sandbox", wantSandboxMode, "--trust",
-		"--model", "auto", "--output-format", "json",
+		"--model", "auto", "--output-format", "stream-json",
 	}
 	if !slices.Equal(captured.args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", captured.args, wantArgs)

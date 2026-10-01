@@ -179,3 +179,56 @@ func TestCodexOutputLimitKeepsCompletedUsagePartial(t *testing.T) {
 		t.Fatalf("Run = %#v, %v", got, err)
 	}
 }
+
+func TestCursorStreamUsesActualModelAndRunTotal(t *testing.T) {
+	runner := &CLIRunner{Backend: settings.BackendCursor, Model: "auto", Timeout: time.Second}
+	var args []string
+	runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+		args = spec.args
+		return []byte(`{"type":"system","subtype":"init","model":"gpt-5"}` + "\n" +
+			`{"type":"result","is_error":false,"result":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"keyDecisions\":[],\"nextStep\":\"review\"}","usage":{"inputTokens":7,"outputTokens":2,"cacheReadTokens":900,"cacheWriteTokens":100}}` + "\n"), nil
+	}
+	got, err := runner.Run(context.Background(), "facts")
+	if err != nil || got.Synthesis.Outcome != "done" || !slices.Contains(args, "stream-json") {
+		t.Fatalf("Run = %#v, %v, args %v", got, err, args)
+	}
+	used := got.Usage.Tokens["gpt-5"]
+	if used.InputTokens != 7 || used.OutputTokens != 2 || used.CacheReadInputTokens != 900 || used.CacheCreationInputTokens != 100 {
+		t.Fatalf("Cursor usage = %#v", used)
+	}
+}
+
+func TestCursorAutoWithoutModelEvidenceRemainsUnknown(t *testing.T) {
+	runner := &CLIRunner{Backend: settings.BackendCursor, Model: "auto", Timeout: time.Second}
+	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
+		return []byte(`{"type":"result","is_error":false,"result":"broken","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0}}` + "\n"), nil
+	}
+	got, err := runner.Run(context.Background(), "facts")
+	if err == nil || got.Usage.Coverage != "unknown" || got.Usage.Tokens != nil {
+		t.Fatalf("Run = %#v, %v", got, err)
+	}
+}
+
+func TestCursorUnknownModelRetainsUnpricedTokens(t *testing.T) {
+	runner := &CLIRunner{Backend: settings.BackendCursor, Model: "auto", Timeout: time.Second}
+	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
+		return []byte(`{"type":"system","subtype":"init","model":"future-model"}` + "\n" +
+			`{"type":"result","is_error":false,"result":"broken","usage":{"inputTokens":1,"outputTokens":1,"cacheReadTokens":0,"cacheWriteTokens":0}}` + "\n"), nil
+	}
+	got, _ := runner.Run(context.Background(), "facts")
+	if got.Usage.Tokens["future-model"].InputTokens != 1 || got.Usage.Coverage != "unknown" || len(got.Usage.UnpricedModels) != 1 {
+		t.Fatalf("Run usage = %#v", got.Usage)
+	}
+}
+
+func TestCursorMissingRequiredCounterIsUnknown(t *testing.T) {
+	runner := &CLIRunner{Backend: settings.BackendCursor, Model: "auto", Timeout: time.Second}
+	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
+		return []byte(`{"type":"system","subtype":"init","model":"gpt-5"}` + "\n" +
+			`{"type":"result","is_error":false,"result":"broken","usage":{"inputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0}}` + "\n"), nil
+	}
+	got, _ := runner.Run(context.Background(), "facts")
+	if got.Usage.Coverage != "unknown" || got.Usage.Tokens != nil {
+		t.Fatalf("Run usage = %#v", got.Usage)
+	}
+}
