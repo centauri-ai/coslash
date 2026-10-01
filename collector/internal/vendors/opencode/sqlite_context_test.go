@@ -13,6 +13,7 @@ import (
 )
 
 func TestOpenV2DatabaseFromDataHome(t *testing.T) {
+	t.Setenv("PATH", "")
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	path := filepath.Join(dataHome, "opencode", "opencode.db")
