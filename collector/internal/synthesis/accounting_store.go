@@ -19,6 +19,15 @@ import (
 
 type AccountingStore struct{ db *sql.DB }
 
+type roundCursor struct {
+	Time int64  `json:"t"`
+	ID   string `json:"i"`
+}
+
+const monthlyCostsSQL = `SELECT i.round_id,i.vendor,i.selected_cost_micro_usd,i.coverage,r.outcome
+ FROM invocations i INDEXED BY invocations_started JOIN rounds r ON r.round_id=i.round_id
+ WHERE i.started_at_ms>=? AND i.started_at_ms<? AND r.source_id='local'`
+
 const accountingSchema = `
 CREATE TABLE IF NOT EXISTS metadata (schema_version INTEGER NOT NULL, tracking_started_at_ms INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS rounds (
@@ -263,21 +272,40 @@ func (s *AccountingStore) ReadCosts(ctx context.Context, query CostQuery) (CostR
 	if !inspector && (!safeMs(*query.SinceMs) || !safeMs(*query.UntilMs) || *query.SinceMs >= *query.UntilMs) {
 		return CostResponse{}, fmt.Errorf("invalid time range")
 	}
+	var cursor roundCursor
+	if query.Cursor != "" {
+		if len(query.Cursor) > 1024 {
+			return CostResponse{}, fmt.Errorf("invalid cursor")
+		}
+		data, err := base64.RawURLEncoding.DecodeString(query.Cursor)
+		if err != nil || json.Unmarshal(data, &cursor) != nil || !safeMs(cursor.Time) || !validID(cursor.ID) {
+			return CostResponse{}, fmt.Errorf("invalid cursor")
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return CostResponse{}, err
+	}
+	defer tx.Rollback()
+	return s.readCosts(ctx, tx, query, cursor)
+}
+
+func (s *AccountingStore) readCosts(ctx context.Context, tx *sql.Tx, query CostQuery, cursor roundCursor) (CostResponse, error) {
+	inspector := query.Agent != "" || query.SessionID != ""
 	response := CostResponse{SourceID: "local", Rounds: []Round{}, ByVendor: []VendorCosts{}}
-	if err := s.db.QueryRowContext(ctx, "SELECT tracking_started_at_ms FROM metadata").Scan(&response.TrackingStartedAtMs); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT tracking_started_at_ms FROM metadata").Scan(&response.TrackingStartedAtMs); err != nil {
 		return CostResponse{}, err
 	}
 	response.HistoricalUnknown = query.HistoricalUnknown || (!inspector && *query.SinceMs < response.TrackingStartedAtMs)
-	where := "r.source_id='local'"
-	var args []any
+	statement := monthlyCostsSQL
+	args := []any{}
 	if inspector {
-		where += " AND r.agent=? AND r.session_id=?"
+		statement = `SELECT i.round_id,i.vendor,i.selected_cost_micro_usd,i.coverage,r.outcome FROM invocations i JOIN rounds r ON r.round_id=i.round_id WHERE r.source_id='local' AND r.agent=? AND r.session_id=?`
 		args = append(args, query.Agent, query.SessionID)
 	} else {
-		where += " AND i.started_at_ms>=? AND i.started_at_ms<?"
 		args = append(args, *query.SinceMs, *query.UntilMs)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT i.round_id,i.vendor,i.selected_cost_micro_usd,i.coverage FROM invocations i JOIN rounds r ON r.round_id=i.round_id WHERE `+where, args...)
+	rows, err := tx.QueryContext(ctx, statement, args...)
 	if err != nil {
 		return CostResponse{}, err
 	}
@@ -287,13 +315,13 @@ func (s *AccountingStore) ReadCosts(ctx context.Context, query CostQuery) (CostR
 	vendorRounds := map[string]map[string]bool{}
 	vendorIncomplete := map[string]map[string]bool{}
 	for rows.Next() {
-		var roundID, vendor, coverage string
+		var roundID, vendor, coverage, outcome string
 		var cost sql.NullInt64
-		if err = rows.Scan(&roundID, &vendor, &cost, &coverage); err != nil {
+		if err = rows.Scan(&roundID, &vendor, &cost, &coverage, &outcome); err != nil {
 			break
 		}
 		seen[roundID] = true
-		if coverage != "complete" {
+		if coverage != "complete" || outcome == "running" {
 			incomplete[roundID] = true
 		}
 		vendorTotals := byVendor[vendor]
@@ -304,7 +332,7 @@ func (s *AccountingStore) ReadCosts(ctx context.Context, query CostQuery) (CostR
 			vendorIncomplete[vendor] = map[string]bool{}
 		}
 		vendorRounds[vendor][roundID] = true
-		if coverage != "complete" {
+		if coverage != "complete" || outcome == "running" {
 			vendorIncomplete[vendor][roundID] = true
 		}
 		if err = addInvocation(&response.Totals, cost, coverage); err != nil {
@@ -330,11 +358,11 @@ func (s *AccountingStore) ReadCosts(ctx context.Context, query CostQuery) (CostR
 	}
 	if inspector {
 		var all int64
-		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM rounds WHERE source_id='local' AND agent=? AND session_id=?", query.Agent, query.SessionID).Scan(&all); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM rounds WHERE source_id='local' AND agent=? AND session_id=?", query.Agent, query.SessionID).Scan(&all); err != nil {
 			return CostResponse{}, err
 		}
 		response.Totals.RoundCount = all
-		runningRows, err := s.db.QueryContext(ctx, "SELECT round_id FROM rounds WHERE source_id='local' AND agent=? AND session_id=? AND outcome='running'", query.Agent, query.SessionID)
+		runningRows, err := tx.QueryContext(ctx, "SELECT round_id FROM rounds WHERE source_id='local' AND agent=? AND session_id=? AND outcome='running'", query.Agent, query.SessionID)
 		if err != nil {
 			return CostResponse{}, err
 		}
@@ -353,7 +381,7 @@ func (s *AccountingStore) ReadCosts(ctx context.Context, query CostQuery) (CostR
 			return CostResponse{}, err
 		}
 		response.Totals.IncompleteRoundCount = int64(len(incomplete))
-		if err := s.readRoundPage(ctx, query, &response); err != nil {
+		if err := s.readRoundPage(ctx, tx, query, cursor, &response); err != nil {
 			return CostResponse{}, err
 		}
 	}
@@ -369,7 +397,7 @@ func (s *AccountingStore) ReadCosts(ctx context.Context, query CostQuery) (CostR
 	return response, nil
 }
 
-func (s *AccountingStore) readRoundPage(ctx context.Context, query CostQuery, response *CostResponse) error {
+func (s *AccountingStore) readRoundPage(ctx context.Context, tx *sql.Tx, query CostQuery, cursor roundCursor, response *CostResponse) error {
 	limit := query.Limit
 	if limit == 0 {
 		limit = 20
@@ -377,19 +405,11 @@ func (s *AccountingStore) readRoundPage(ctx context.Context, query CostQuery, re
 	where := "source_id='local' AND agent=? AND session_id=?"
 	args := []any{query.Agent, query.SessionID}
 	if query.Cursor != "" {
-		var cursor struct {
-			Time int64  `json:"t"`
-			ID   string `json:"i"`
-		}
-		data, err := base64.RawURLEncoding.DecodeString(query.Cursor)
-		if err != nil || len(data) > 1024 || json.Unmarshal(data, &cursor) != nil || !safeMs(cursor.Time) || !validID(cursor.ID) {
-			return fmt.Errorf("invalid cursor")
-		}
 		where += " AND (started_at_ms<? OR (started_at_ms=? AND round_id<?))"
 		args = append(args, cursor.Time, cursor.Time, cursor.ID)
 	}
 	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, "SELECT round_id,source_revision,started_at_ms,finished_at_ms,outcome FROM rounds WHERE "+where+" ORDER BY started_at_ms DESC,round_id DESC LIMIT ?", args...)
+	rows, err := tx.QueryContext(ctx, "SELECT round_id,source_revision,started_at_ms,finished_at_ms,outcome FROM rounds WHERE "+where+" ORDER BY started_at_ms DESC,round_id DESC LIMIT ?", args...)
 	if err != nil {
 		return err
 	}
@@ -419,7 +439,7 @@ func (s *AccountingStore) readRoundPage(ctx context.Context, query CostQuery, re
 		response.Rounds = response.Rounds[:limit]
 	}
 	for i := range response.Rounds {
-		if err := s.fillRound(ctx, &response.Rounds[i]); err != nil {
+		if err := s.fillRound(ctx, tx, &response.Rounds[i]); err != nil {
 			return err
 		}
 	}
@@ -435,8 +455,8 @@ func (s *AccountingStore) readRoundPage(ctx context.Context, query CostQuery, re
 	return nil
 }
 
-func (s *AccountingStore) fillRound(ctx context.Context, round *Round) error {
-	rows, err := s.db.QueryContext(ctx, "SELECT vendor,configured_model,usage_json,selected_cost_micro_usd,coverage FROM invocations WHERE round_id=? ORDER BY ordinal", round.ID)
+func (s *AccountingStore) fillRound(ctx context.Context, tx *sql.Tx, round *Round) error {
+	rows, err := tx.QueryContext(ctx, "SELECT vendor,configured_model,substr(usage_json,1,?),selected_cost_micro_usd,coverage FROM invocations WHERE round_id=? ORDER BY ordinal", (256<<10)+1, round.ID)
 	if err != nil {
 		return err
 	}
@@ -469,6 +489,12 @@ func (s *AccountingStore) fillRound(ctx context.Context, round *Round) error {
 				return fmt.Errorf("stored usage has too many models")
 			}
 			for name, used := range tokens {
+				if name == "" || len(name) > 512 {
+					return fmt.Errorf("invalid stored model")
+				}
+				if _, ok := safeTokenSum(used); !ok || used.Cost < 0 {
+					return fmt.Errorf("invalid stored tokens")
+				}
 				prior := round.Tokens[name]
 				if !addTokens(&prior, used) {
 					return fmt.Errorf("unsafe token total")
