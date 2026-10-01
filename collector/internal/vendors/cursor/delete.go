@@ -2,10 +2,13 @@ package cursor
 
 import (
 	"context"
+	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -49,6 +52,18 @@ func deleteSession(ctx context.Context, home, id string, probe func(context.Cont
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%w: %w", ErrDeleteUnverified, err)
 	}
+	verifyClosed := func() error {
+		if err := probe(ctx); err != nil {
+			if errors.Is(err, ErrDeleteActive) {
+				return err
+			}
+			return fmt.Errorf("%w: %w", ErrDeleteUnverified, err)
+		}
+		return nil
+	}
+	if err := verifyClosed(); err != nil {
+		return err
+	}
 	paths, err := cursorDeleteInventory(ctx, home, canonicalCursorID(id))
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrDeleteUnverified, err)
@@ -57,11 +72,8 @@ func deleteSession(ctx context.Context, home, id string, probe func(context.Cont
 		return ErrDeleteMissing
 	}
 	// Probe after inventory, immediately before the first mutation.
-	if err := probe(ctx); err != nil {
-		if errors.Is(err, ErrDeleteActive) {
-			return fmt.Errorf("%w: %w", ErrDeleteActive, err)
-		}
-		return fmt.Errorf("%w: %w", ErrDeleteUnverified, err)
+	if err := verifyClosed(); err != nil {
+		return err
 	}
 	for _, path := range paths {
 		if err := ctx.Err(); err != nil {
@@ -85,16 +97,43 @@ func deleteSession(ctx context.Context, home, id string, probe func(context.Cont
 }
 
 func probeCursorDeletion(ctx context.Context) error {
-	if runtime.GOOS == "windows" {
-		return ErrDeleteUnverified
-	}
 	command := exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,command=")
+	if runtime.GOOS == "windows" {
+		command = exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `$ErrorActionPreference='Stop'; try { $processes=@(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -match '^(Cursor.*|cursor-agent|agent|node)\.exe$' } | Select-Object Name,ExecutablePath,CommandLine); ConvertTo-Json -InputObject $processes -Compress } catch { exit 1 }`)
+	}
 	command.WaitDelay = time.Second
 	output, err := command.Output()
 	if err != nil {
 		return err
 	}
+	if runtime.GOOS == "windows" {
+		return cursorDeletionWindowsProcesses(string(output))
+	}
 	return cursorDeletionProcesses(string(output))
+}
+
+func cursorDeletionWindowsProcesses(output string) error {
+	var processes []struct{ Name, ExecutablePath, CommandLine string }
+	if err := json.Unmarshal([]byte(output), &processes); err != nil {
+		return ErrDeleteUnverified
+	}
+	if processes == nil {
+		return ErrDeleteUnverified
+	}
+	for _, process := range processes {
+		name := strings.ToLower(process.Name)
+		if strings.HasPrefix(name, "cursor") || name == "agent.exe" {
+			return ErrDeleteActive
+		}
+		if name != "node.exe" || process.ExecutablePath == "" || process.CommandLine == "" {
+			return ErrDeleteUnverified
+		}
+		path := strings.ToLower(strings.ReplaceAll(process.ExecutablePath+" "+process.CommandLine, `\`, "/"))
+		if strings.Contains(path, "/cursor-agent/") || strings.Contains(path, "/cursor.app/") {
+			return ErrDeleteActive
+		}
+	}
+	return nil
 }
 
 func cursorDeletionProcesses(output string) error {
@@ -276,15 +315,88 @@ func cursorDeleteInventory(ctx context.Context, home, id string) ([]string, erro
 	return paths, nil
 }
 
-func cursorDeleteCLIParent(ctx context.Context, path string) (string, string, error) {
-	if _, err := os.Lstat(path + "-wal"); !errors.Is(err, os.ErrNotExist) {
-		return "", "", ErrDeleteUnverified
+// SQLite WAL readers may create or update SHM even in read-only mode.
+// Inspect retained WALs in private scratch storage, leaving vendor files intact.
+func cursorDeleteOpenCLI(ctx context.Context, path string) (*sql.DB, func() error, error) {
+	if _, err := os.Lstat(path + "-wal"); errors.Is(err, os.ErrNotExist) {
+		db, err := openCursorDBContext(ctx, path)
+		if err != nil {
+			return nil, nil, err
+		}
+		return db, db.Close, nil
+	} else if err != nil {
+		return nil, nil, err
 	}
-	db, err := openCursorDBContext(ctx, path)
+	wal, err := os.Open(path + "-wal")
+	if err != nil {
+		return nil, nil, err
+	}
+	var header [32]byte
+	_, readErr := io.ReadFull(wal, header[:])
+	closeErr := wal.Close()
+	magic := binary.BigEndian.Uint32(header[:4])
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return nil, nil, err
+	}
+	if magic != 0x377f0682 && magic != 0x377f0683 {
+		return nil, nil, ErrDeleteUnverified
+	}
+	scratch, err := os.MkdirTemp("", "coslash-cursor-delete-")
+	if err != nil {
+		return nil, nil, err
+	}
+	var db *sql.DB
+	cleanup := func() error {
+		var err error
+		if db != nil {
+			err = db.Close()
+		}
+		return errors.Join(err, os.RemoveAll(scratch))
+	}
+	snapshot := filepath.Join(scratch, "store.db")
+	for _, suffix := range []string{"", "-wal"} {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, errors.Join(err, cleanup())
+		}
+		input, err := os.Open(path + suffix)
+		if err != nil {
+			return nil, nil, errors.Join(err, cleanup())
+		}
+		info, err := input.Stat()
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 256<<20 {
+			input.Close()
+			return nil, nil, errors.Join(ErrDeleteUnverified, err, cleanup())
+		}
+		output, err := os.OpenFile(snapshot+suffix, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			input.Close()
+			return nil, nil, errors.Join(err, cleanup())
+		}
+		copied, copyErr := io.CopyN(output, input, info.Size()+1)
+		if errors.Is(copyErr, io.EOF) {
+			copyErr = nil
+		}
+		if copied != info.Size() {
+			copyErr = errors.Join(copyErr, ErrDeleteUnverified)
+		}
+		err = errors.Join(copyErr, input.Close(), output.Close(), ctx.Err())
+		if err != nil {
+			return nil, nil, errors.Join(err, cleanup())
+		}
+	}
+	db, err = openCursorDBContext(ctx, snapshot)
+	if err != nil {
+		return nil, nil, errors.Join(err, cleanup())
+	}
+	return db, cleanup, nil
+}
+
+func cursorDeleteCLIParent(ctx context.Context, path string) (childID, parentID string, resultErr error) {
+	db, cleanup, err := cursorDeleteOpenCLI(ctx, path)
 	if err != nil {
 		return "", "", err
 	}
-	defer db.Close()
+	defer func() { resultErr = errors.Join(resultErr, cleanup()) }()
 	var value string
 	if err := db.QueryRowContext(ctx, `SELECT substr(value,1,1048577) FROM meta WHERE key='0'`).Scan(&value); err != nil {
 		return "", "", err

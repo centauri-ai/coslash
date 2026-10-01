@@ -370,3 +370,112 @@ func TestDeleteCursorCancelledBeforeMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCursorDeletionWindowsProbe(t *testing.T) {
+	for _, test := range []struct {
+		output string
+		want   error
+	}{
+		{`[]`, nil},
+		{`[{"Name":"node.exe","ExecutablePath":"C:\\tools\\node.exe","CommandLine":"node.exe app.js"}]`, nil},
+		{`[{"Name":"Cursor.exe","ExecutablePath":null,"CommandLine":null}]`, ErrDeleteActive},
+		{`[{"Name":"node.exe","ExecutablePath":"C:\\Users\\test\\AppData\\Local\\cursor-agent\\versions\\one\\node.exe","CommandLine":"node.exe index.js"}]`, ErrDeleteActive},
+		{`[{"Name":"node.exe","ExecutablePath":null,"CommandLine":null}]`, ErrDeleteUnverified},
+		{``, ErrDeleteUnverified},
+		{`garbage`, ErrDeleteUnverified},
+	} {
+		if err := cursorDeletionWindowsProcesses(test.output); !errors.Is(err, test.want) {
+			t.Errorf("%s: got %v, want %v", test.output, err, test.want)
+		}
+	}
+}
+
+func retainedDeleteWAL(t *testing.T, path, statement string, args ...any) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(statement, args...); err != nil {
+		t.Fatal(err)
+	}
+	main, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wal, err := os.ReadFile(path + "-wal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, main, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+"-wal", wal, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteCursorRetainedWAL(t *testing.T) {
+	home := t.TempDir()
+	scratch := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, scratch)
+	}
+	target := deleteFixture(t, home, deleteID, "")
+	child := deleteFixture(t, home, deleteChild, "")
+	neighbor := deleteFixture(t, home, deleteNeighbor, "")
+	value, _ := json.Marshal(map[string]any{"agentId": deleteChild, "subagentInfo": map[string]string{"parentAgentId": deleteID}})
+	retainedDeleteWAL(t, child, `UPDATE meta SET value=?`, hex.EncodeToString(value))
+	retainedDeleteWAL(t, target, `CREATE TABLE disposable_data(value TEXT); INSERT INTO disposable_data VALUES('target transcript')`)
+	retainedDeleteWAL(t, neighbor, `CREATE TABLE disposable_data(value TEXT); INSERT INTO disposable_data VALUES('neighbor transcript')`)
+	originals := map[string][]byte{}
+	for _, path := range []string{neighbor, neighbor + "-wal"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		originals[path] = data
+	}
+	if err := deleteSession(context.Background(), home, deleteID, func(context.Context) error { return ErrDeleteActive }, os.Remove); !errors.Is(err, ErrDeleteActive) {
+		t.Fatalf("active WAL: %v", err)
+	}
+	if _, err := os.Stat(target + "-shm"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("active probe touched storage: %v", err)
+	}
+	entriesBefore, err := os.ReadDir(scratch)
+	if err != nil || len(entriesBefore) != 0 {
+		t.Fatalf("active probe inspected WAL: %v %v", entriesBefore, err)
+	}
+	probeCalls := 0
+	err = deleteSession(context.Background(), home, deleteID, func(context.Context) error { probeCalls++; return nil }, os.Remove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probeCalls != 2 {
+		t.Fatalf("need pre-read and pre-remove probes: %d", probeCalls)
+	}
+	for _, path := range []string{target, target + "-wal", child, child + "-wal"} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("WAL artifact remains: %s: %v", path, err)
+		}
+	}
+	for path, before := range originals {
+		after, err := os.ReadFile(path)
+		if err != nil || string(after) != string(before) {
+			t.Fatalf("neighbor changed: %s %v", path, err)
+		}
+	}
+	if _, err := os.Stat(neighbor + "-shm"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("neighbor shm was created: %v", err)
+	}
+	entries, err := os.ReadDir(scratch)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("inspection snapshots remain: %v %v", entries, err)
+	}
+}
