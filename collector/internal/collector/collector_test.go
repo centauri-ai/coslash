@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 )
 
 func TestListStopsWhenContextIsCanceled(t *testing.T) {
@@ -516,5 +518,55 @@ func TestPiRegistrationMatchesSupportedPlatform(t *testing.T) {
 	}
 	if found != vendors.PiSupported() {
 		t.Fatalf("Pi registration %t differs from platform support", found)
+	}
+}
+
+func TestGrokStatusIsBusyOnlyForLivePidInOpenTurn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	group := filepath.Join(home, "sessions", "%2Fwork%2Frepo")
+	fixtures := map[string]string{"open": "01a0f8ba-e252-7c93-bced-99c163326426", "finished": "01a0f48a-42bb-7802-b584-f5def46d1e75"}
+	for fixture, id := range fixtures {
+		from := filepath.Join("..", "vendors", "grok", "testdata", fixture)
+		entries, err := os.ReadDir(from)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(group, id), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			data, err := os.ReadFile(filepath.Join(from, entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(group, id, entry.Name()), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	statuses := func(pid int) map[string]string {
+		t.Helper()
+		active := `[{"session_id":"` + fixtures["open"] + `","pid":` + strconv.Itoa(pid) +
+			`},{"session_id":"` + fixtures["finished"] + `","pid":` + strconv.Itoa(pid) + `}]`
+		if err := os.WriteFile(filepath.Join(home, "active_sessions.json"), []byte(active), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		parsed, metadata, err := grok.CollectContext(context.Background(), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := map[string]string{}
+		for _, root := range finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}) {
+			result[root.Session.ID] = deref(root.Session.Status)
+		}
+		return result
+	}
+
+	if got := statuses(os.Getpid()); got[fixtures["open"]] != "busy" || got[fixtures["finished"]] != "idle" {
+		t.Fatalf("live pid statuses = %v", got)
+	}
+	if got := statuses(1 << 30); got[fixtures["open"]] != "" || got[fixtures["finished"]] != "" {
+		t.Fatalf("dead pid statuses = %v, want no live status", got)
 	}
 }
