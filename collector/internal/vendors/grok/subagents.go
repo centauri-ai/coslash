@@ -42,9 +42,11 @@ func attachSubagents(parsed []*vendors.ParsedSession) {
 		}
 		for _, meta := range readSubagentMetas(filepath.Dir(parent.LogPath)) {
 			child := byID[meta.ChildSessionID]
-			if child == nil || child.ParentID != parent.Session.ID {
+			if child == nil || (child.ParentID != "" && child.ParentID != parent.Session.ID) {
 				continue
 			}
+			// The child summary often omits parent_session_id. The parent's meta.json is the link.
+			child.ParentID = parent.Session.ID
 			if parent.Spawns == nil {
 				parent.Spawns = map[string]vendors.SpawnState{}
 			}
