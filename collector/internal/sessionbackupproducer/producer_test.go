@@ -759,3 +759,32 @@ func TestReviewBackupEffectiveCodexHome(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareLargeChildHeaderKeepsCompleteFamily(t *testing.T) {
+	for _, size := range []int{1024, 1 << 20} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			home, workspace := writeFamilyFixture(t, 0)
+			child := completeRollout(testChildID, testRootID, workspace, 0)
+			child = strings.Replace(child, `"git":`, `"base_instructions":{"text":"`+strings.Repeat("x", size)+`"},"git":`, 1)
+			writeRollout(t, familyFile(home, true, testChildID), child)
+			spool := t.TempDir()
+			manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+			}})
+			defer manager.Close()
+			selection := localSelection()
+			selection.SourceKind = sessionbackupv1.SourceSSH
+			prepared, err := manager.Prepare(t.Context(), selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			verified, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, prepared.BundleID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(verified.Members) != 2 {
+				t.Fatalf("published verified complete backup with %d members; expected root and discovered child", len(verified.Members))
+			}
+		})
+	}
+}
