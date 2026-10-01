@@ -253,7 +253,7 @@ func (m *Manager) sweep(list func() ([]*session.Session, error)) {
 		if candidate.Status == nil && candidate.LastActivityTime < startOfToday {
 			continue
 		}
-		if m.Ensure(candidate, Revision(candidate)) {
+		if m.Ensure(candidate, candidate.LastActivityTime) {
 			initiated++
 			if initiated == m.sweepLimit {
 				return

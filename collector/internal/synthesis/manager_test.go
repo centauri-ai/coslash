@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
@@ -255,5 +256,27 @@ func TestRunSynthesisCarriesEarlyAndLateDecisionsAcrossMergeRounds(t *testing.T)
 		!slices.Contains(got.KeyDecisions, "early-decision-marker") ||
 		!slices.Contains(got.KeyDecisions, "late-decision-marker") {
 		t.Fatalf("final key decisions = %#v, want 8 including early and late markers", got.KeyDecisions)
+	}
+}
+
+func TestSweepUsesListRevisionForComposedNonPiSession(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	value := &session.Session{Agent: "claude", ID: "composed", LastActivityTime: 200, SynthesisRevision: 100, SessionDetails: session.SessionDetails{Turns: 6}}
+	release := make(chan struct{})
+	defer close(release)
+	manager := NewManager(runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
+		<-release
+		return session.SessionSynthesis{}, errors.New("unexpected resynthesis")
+	}))
+	manager.now = func() time.Time { return time.UnixMilli(200) }
+	if err := manager.cache.Store(value.Agent, value.ID, Record{Revision: value.LastActivityTime, Synthesis: session.SessionSynthesis{Outcome: "ready"}}); err != nil {
+		t.Fatal(err)
+	}
+	manager.sweep(func() ([]*session.Session, error) { return []*session.Session{value}, nil })
+	if _, pending := manager.inFlight.Load(cacheKey{agent: value.Agent, id: value.ID}); pending {
+		t.Fatal("sweep missed the completed synthesis stored under the list revision")
+	}
+	if got := manager.Lookup(value.Agent, value.ID, value.LastActivityTime); got == nil || got.Outcome != "ready" {
+		t.Fatalf("list synthesis = %#v", got)
 	}
 }
