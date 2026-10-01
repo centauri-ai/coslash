@@ -264,7 +264,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	snapshot, _ := LoadRuntimeSnapshot()
+	snapshot, _ := LoadRuntimeSnapshotContext(ctx)
 	ctx = WithRuntimeSnapshot(ctx, snapshot)
 	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
 	items, scan, _, err := readSessionsSinceContext(ctx, since, metadata)
@@ -293,8 +293,9 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
-	snapshot, _ := LoadRuntimeSnapshot()
-	return getSessionFactsContext(WithRuntimeSnapshot(context.Background(), snapshot), id)
+	ctx := context.Background()
+	snapshot, _ := LoadRuntimeSnapshotContext(ctx)
+	return getSessionFactsContext(WithRuntimeSnapshot(ctx, snapshot), id)
 }
 func getSessionFactsContext(ctx context.Context, id string) (*vendors.ParsedSession, error) {
 	items, scan, _, err := readSessionsContext(ctx)
@@ -322,8 +323,9 @@ func getSessionFactsContext(ctx context.Context, id string) (*vendors.ParsedSess
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	snapshot, _ := LoadRuntimeSnapshot()
-	ctx := WithRuntimeSnapshot(context.Background(), snapshot)
+	ctx := context.Background()
+	snapshot, _ := LoadRuntimeSnapshotContext(ctx)
+	ctx = WithRuntimeSnapshot(ctx, snapshot)
 	facts, err := getSessionFactsContext(ctx, id)
 	if err != nil {
 		return nil, nil, err
