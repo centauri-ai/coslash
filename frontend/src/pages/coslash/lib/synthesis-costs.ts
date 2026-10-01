@@ -55,6 +55,10 @@ export function synthesisCostsKey(query: SynthesisCostsQuery): string {
     : `session:${sessionKey(query)}:${query.cursor ?? ''}`;
 }
 
+export function synthesisCostVersionChanged(previous: string | null, next: string | null): boolean {
+  return next !== null && previous !== next;
+}
+
 export function synthesisCoverage(
   totals: Pick<CostTotals, 'knownCostMicroUsd' | 'unknownInvocationCount'> &
     Partial<Pick<CostTotals, 'incompleteRoundCount'>>,

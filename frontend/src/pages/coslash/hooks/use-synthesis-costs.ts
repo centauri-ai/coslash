@@ -32,6 +32,14 @@ type RequestState = {
   error: string | null;
 };
 
+export function currentSynthesisCostsState<T extends Pick<RequestState, 'key' | 'attempt'>>(
+  state: T,
+  key: string | null,
+  attempt: number,
+): T | null {
+  return state.key === key && state.attempt === attempt ? state : null;
+}
+
 export function useSynthesisCosts(query: SynthesisCostsQuery | null) {
   const key = query && ('since' in query || isLocalSource(query.sourceId)) ? synthesisCostsKey(query) : null;
   const path = key && query ? synthesisCostsPath(query) : null;
@@ -63,7 +71,7 @@ export function useSynthesisCosts(query: SynthesisCostsQuery | null) {
     return () => controller.abort();
   }, [key, path, attempt]);
 
-  const current = state.key === key && state.attempt === attempt ? state : null;
+  const current = currentSynthesisCostsState(state, key, attempt);
   const refresh = useCallback(() => setAttempt((value) => value + 1), []);
   return {
     data: current?.data ?? null,
