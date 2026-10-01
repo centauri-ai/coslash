@@ -37,8 +37,19 @@ type claudeTokenUsage struct {
 	OutputTokens             *int                 `json:"outputTokens"`
 	CacheReadInputTokens     *int                 `json:"cacheReadInputTokens"`
 	CacheCreationInputTokens *int                 `json:"cacheCreationInputTokens"`
-	CostUSD                  *float64             `json:"costUSD"`
 	CacheCreation            *claudeCacheCreation `json:"cacheCreation"`
+}
+
+func componentMicros(raw json.RawMessage) (int64, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	var dollars float64
+	if json.Unmarshal(raw, &dollars) != nil {
+		return 0, false
+	}
+	micros, err := microUSD(dollars)
+	return micros, err == nil
 }
 
 type claudeCacheCreation struct {
@@ -75,17 +86,10 @@ func parseClaudeUsage(data []byte, configuredModel string) UsageReport {
 		return unknownUsage()
 	}
 	var reported *int64
-	if raw := envelope["total_cost_usd"]; len(raw) > 0 && string(raw) != "null" {
-		var dollars float64
-		if json.Unmarshal(raw, &dollars) != nil {
-			return unknownUsage()
-		}
-		value, err := microUSD(dollars)
-		if err != nil {
-			return unknownUsage()
-		}
+	if value, ok := componentMicros(envelope["total_cost_usd"]); ok {
 		reported = &value
 	}
+	componentPartial := false
 	tokens := map[string]session.ModelTokens(nil)
 	var modelUsage map[string]json.RawMessage
 	if raw := envelope["modelUsage"]; len(raw) > 0 && json.Unmarshal(raw, &modelUsage) != nil {
@@ -96,21 +100,28 @@ func parseClaudeUsage(data []byte, configuredModel string) UsageReport {
 			CacheCreation            *claudeCacheCreation `json:"cache_creation"`
 			CacheCreationInputTokens *int                 `json:"cache_creation_input_tokens"`
 		}
-		if len(envelope["usage"]) > 0 && json.Unmarshal(envelope["usage"], &topUsage) != nil {
-			return priceReportedOnly(reported)
-		}
+		_ = json.Unmarshal(envelope["usage"], &topUsage)
 		tokens = make(map[string]session.ModelTokens, len(modelUsage))
-		allCosts, validTokens := true, true
-		var modelDollars float64
+		allCosts, validTokens, hasCost := true, true, false
+		var knownCost int64
 		for model, raw := range modelUsage {
+			var costField struct {
+				CostUSD json.RawMessage `json:"costUSD"`
+			}
+			if json.Unmarshal(raw, &costField) != nil {
+				allCosts, validTokens = false, false
+				continue
+			}
+			if cost, ok := componentMicros(costField.CostUSD); ok && cost <= maxSafeInteger-knownCost {
+				knownCost += cost
+				hasCost = true
+			} else {
+				allCosts = false
+			}
 			var usage claudeTokenUsage
 			if json.Unmarshal(raw, &usage) != nil {
-				return priceReportedOnly(reported)
-			}
-			if usage.CostUSD == nil {
-				allCosts = false
-			} else {
-				modelDollars += *usage.CostUSD
+				validTokens = false
+				continue
 			}
 			var fallback *claudeCacheCreation
 			if len(modelUsage) == 1 && topUsage.CacheCreation != nil && topUsage.CacheCreationInputTokens != nil && usage.CacheCreationInputTokens != nil && *topUsage.CacheCreationInputTokens == *usage.CacheCreationInputTokens {
@@ -123,13 +134,13 @@ func parseClaudeUsage(data []byte, configuredModel string) UsageReport {
 			}
 			tokens[model] = used
 		}
-		if reported == nil && allCosts {
-			if value, err := microUSD(modelDollars); err == nil {
-				reported = &value
-			}
+		if reported == nil && hasCost {
+			reported = &knownCost
+			componentPartial = !allCosts
 		}
-		if !validTokens {
-			return priceReportedOnly(reported)
+		componentPartial = componentPartial || (!validTokens && len(tokens) > 0)
+		if len(tokens) == 0 {
+			tokens = nil
 		}
 	} else if len(envelope["usage"]) > 0 && configuredModel != "" && configuredModel != "auto" {
 		var usage struct {
@@ -162,6 +173,9 @@ func parseClaudeUsage(data []byte, configuredModel string) UsageReport {
 	report, err := PriceUsage(tokens, reported)
 	if err != nil {
 		return priceReportedOnly(reported)
+	}
+	if componentPartial {
+		report.Coverage = "partial"
 	}
 	return report
 }
@@ -206,7 +220,7 @@ func parseCodexUsage(data []byte, model string) UsageReport {
 	}
 	var total session.ModelTokens
 	completed, invalid := false, false
-	err := eachSynthesisEvent(data, func(line []byte) {
+	scanErr := eachSynthesisEvent(data, func(line []byte) {
 		var header struct {
 			Type string `json:"type"`
 		}
@@ -247,12 +261,15 @@ func parseCodexUsage(data []byte, model string) UsageReport {
 		}
 	})
 	// Codex emits zero-value usage when no token notification arrived.
-	if err != nil || !completed || invalid || total == (session.ModelTokens{}) {
+	if !completed || invalid || total == (session.ModelTokens{}) {
 		return unknownUsage()
 	}
 	report, err := PriceUsage(map[string]session.ModelTokens{model: total}, nil)
 	if err != nil {
 		return unknownUsage()
+	}
+	if scanErr != nil {
+		report.Coverage = "partial"
 	}
 	return report
 }
@@ -277,9 +294,10 @@ func parseCursorSynthesis(data []byte) (session.SessionSynthesis, error) {
 }
 
 func parseCursorUsage(data []byte) UsageReport {
+	const unknownModel = "cursor/unknown-model"
 	var model string
 	var tokens *session.ModelTokens
-	err := eachSynthesisEvent(data, func(line []byte) {
+	scanErr := eachSynthesisEvent(data, func(line []byte) {
 		var event struct {
 			Type    string `json:"type"`
 			Subtype string `json:"subtype"`
@@ -305,12 +323,18 @@ func parseCursorUsage(data []byte) UsageReport {
 			tokens = &session.ModelTokens{InputTokens: *u.Input, OutputTokens: *u.Output, CacheReadInputTokens: *u.CacheRead, CacheCreationInputTokens: *u.CacheWrite}
 		}
 	})
-	if err != nil || model == "" || model == "auto" || tokens == nil {
+	if tokens == nil {
 		return unknownUsage()
+	}
+	if model == "" || model == "auto" {
+		model = unknownModel
 	}
 	report, err := PriceUsage(map[string]session.ModelTokens{model: *tokens}, nil)
 	if err != nil {
 		return unknownUsage()
+	}
+	if scanErr != nil {
+		report.Coverage = "partial"
 	}
 	return report
 }
