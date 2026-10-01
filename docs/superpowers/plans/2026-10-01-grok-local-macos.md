@@ -18,11 +18,11 @@ A new orchestrator reads this section first and continues from **Next action**. 
 |---|---|---|---|---|---|---|
 | T1 | completed | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | `af16d41a` and fix `d3237332`. 13 files, 438 production lines, 2 commits. PR not opened. |
 | T2 | completed | `377101d2-599f-4f16-875f-a0ce27035511` | `cvu/grok-t2-enrich` | `7007053f-3806-4ea5-a772-c3b036475a09` | done | Fix `e7460e1e` on top of `3b027801`. No second review. PR not opened. |
-| T3 | running | `cd443442-32e2-42dc-af23-d2af34f8afe2` | `cvu/grok-t3-synthesis` | `2a4e1a86-97ab-4894-8310-e26d7c702f4c` | | Based on T2 `e7460e1e`. Tag `new group-3`. Test only. |
+| T3 | review | `cd443442-32e2-42dc-af23-d2af34f8afe2` | `cvu/grok-t3-synthesis` | `2a4e1a86-97ab-4894-8310-e26d7c702f4c` | `0ffbcfbe-4b97-485f-a4a2-6b264fa22c36` | Commit `d7961ec5`. Test only. Browser check not run. |
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
 | T5 | pending | | `cvu/grok-t5-ui` | | | after T2 and T4 are merged |
 
-**Next action:** T3 is running in workspace `cd443442-32e2-42dc-af23-d2af34f8afe2`, terminal `2a4e1a86-97ab-4894-8310-e26d7c702f4c`, branch `cvu/grok-t3-synthesis` from `e7460e1e`. When that branch moves past `e7460e1e` and the terminal shows `· done`, read it for `SUPERSET_WORKER_DONE`, then spawn one read-only reviewer in that workspace. Do not open PRs. Do not add a Grok synthesis runner.
+**Next action:** T3 reviewer `0ffbcfbe-4b97-485f-a4a2-6b264fa22c36` is running in workspace `cd443442-32e2-42dc-af23-d2af34f8afe2`. If `NO_FINDINGS`, mark T3 completed. If it lists bugs, send them once to implementer `2a4e1a86-97ab-4894-8310-e26d7c702f4c`. Do not start a second review. Do not open PRs. Do not start a synthesis model. The T3 browser check is still open because port 8787 is taken. Do not kill that process.
 
 **Watch rule:** Do not wait for the word `Churned`. Claude also finishes with `Sautéed`, `Baked`, or `Brewed`. A first completion shows `· done`. A later fix on the same terminal is done when the branch HEAD changes, because `· done` is already on screen.
 
