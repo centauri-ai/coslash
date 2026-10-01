@@ -255,3 +255,61 @@ func parseCodexUsage(data []byte, model string) UsageReport {
 	}
 	return report
 }
+
+func parseCursorSynthesis(data []byte) (session.SessionSynthesis, error) {
+	var result []byte
+	err := eachSynthesisEvent(data, func(line []byte) {
+		var event struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(line, &event) == nil && event.Type == "result" {
+			result = append(result[:0], line...)
+		}
+	})
+	if err != nil {
+		return session.SessionSynthesis{}, err
+	}
+	if len(result) == 0 {
+		return session.SessionSynthesis{}, errors.New("Cursor produced no final result")
+	}
+	return parseResultEnvelope(result)
+}
+
+func parseCursorUsage(data []byte) UsageReport {
+	var model string
+	var tokens *session.ModelTokens
+	err := eachSynthesisEvent(data, func(line []byte) {
+		var event struct {
+			Type    string `json:"type"`
+			Subtype string `json:"subtype"`
+			Model   string `json:"model"`
+			Usage   *struct {
+				Input      *int `json:"inputTokens"`
+				Output     *int `json:"outputTokens"`
+				CacheRead  *int `json:"cacheReadTokens"`
+				CacheWrite *int `json:"cacheWriteTokens"`
+			} `json:"usage"`
+		}
+		if json.Unmarshal(line, &event) != nil {
+			return
+		}
+		if event.Type == "system" && event.Subtype == "init" {
+			model = event.Model
+		}
+		if event.Type != "result" {
+			return
+		}
+		tokens = nil
+		if u := event.Usage; u != nil && u.Input != nil && u.Output != nil && u.CacheRead != nil && u.CacheWrite != nil {
+			tokens = &session.ModelTokens{InputTokens: *u.Input, OutputTokens: *u.Output, CacheReadInputTokens: *u.CacheRead, CacheCreationInputTokens: *u.CacheWrite}
+		}
+	})
+	if err != nil || model == "" || model == "auto" || tokens == nil {
+		return unknownUsage()
+	}
+	report, err := PriceUsage(map[string]session.ModelTokens{model: *tokens}, nil)
+	if err != nil {
+		return unknownUsage()
+	}
+	return report
+}
