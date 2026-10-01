@@ -166,7 +166,7 @@ func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (sessi
 		if err != nil {
 			return session.SessionSynthesis{}, err
 		}
-		partials = append(partials, partial)
+		partials = append(partials, partial.Synthesis)
 	}
 	for len(partials) > 1 {
 		inputs = BuildMergeInputs(s, partials)
@@ -183,7 +183,7 @@ func runSynthesis(ctx context.Context, runner Runner, s *session.Session) (sessi
 			if err != nil {
 				return session.SessionSynthesis{}, err
 			}
-			merged = append(merged, partial)
+			merged = append(merged, partial.Synthesis)
 		}
 		partials = merged
 	}
@@ -308,8 +308,5 @@ func (m *Manager) currentRunner() Runner {
 }
 
 func runnerModel(runner Runner) string {
-	if named, ok := runner.(interface{ ModelName() string }); ok {
-		return named.ModelName()
-	}
-	return ""
+	return runner.ModelName()
 }
