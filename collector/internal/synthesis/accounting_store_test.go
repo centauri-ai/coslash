@@ -2,6 +2,8 @@ package synthesis
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -43,11 +45,194 @@ func TestAccountingPricingCoverage(t *testing.T) {
 	if _, err := PriceUsage(known, micro(-1)); err == nil {
 		t.Fatal("negative cost accepted")
 	}
+	if _, err := PriceUsage(known, micro(maxSafeInteger+1)); err == nil {
+		t.Fatal("unsafe positive cost accepted")
+	}
+	if _, err := PriceUsage(map[string]session.ModelTokens{"gpt-4o": {Cost: math.NaN()}}, nil); err == nil {
+		t.Fatal("nonfinite token cost accepted")
+	}
+	many := map[string]session.ModelTokens{}
+	for i := 0; i < 65; i++ {
+		many[fmt.Sprint(i)] = session.ModelTokens{}
+	}
+	if _, err := PriceUsage(many, nil); err == nil {
+		t.Fatal("65 model buckets accepted")
+	}
 	if _, err := PriceUsage(map[string]session.ModelTokens{"gpt-4o": {InputTokens: math.MaxInt}}, nil); err == nil {
 		t.Fatal("unsafe estimate accepted")
 	}
 	if _, err := PriceUsage(map[string]session.ModelTokens{"gpt-4o": {InputTokens: -1}}, nil); err == nil {
 		t.Fatal("negative tokens accepted")
+	}
+}
+
+func TestAccountingSnapshotAcrossReadStages(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	reader, err := OpenAccountingStore(home, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	writer, err := OpenAccountingStore(home, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if _, err := reader.db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.BeginRound(ctx, Round{ID: "r", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 110}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.StartInvocation(ctx, "r", 0, "source", "codex", "gpt-4o", 111); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := reader.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var started int64
+	if err := tx.QueryRowContext(ctx, "SELECT tracking_started_at_ms FROM metadata").Scan(&started); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.FinishInvocation(ctx, "r", 0, 112, "success", UsageReport{ReportedCostMicroUSD: micro(17)}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := reader.readCosts(ctx, tx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"}, roundCursor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Totals.KnownCostMicroUSD != nil || before.Rounds[0].Totals.KnownCostMicroUSD != nil {
+		t.Fatalf("mixed snapshot: %+v", before)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := reader.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *after.Totals.KnownCostMicroUSD != 17 || *after.Rounds[0].Totals.KnownCostMicroUSD != 17 {
+		t.Fatalf("committed snapshot: %+v", after)
+	}
+}
+
+func TestAccountingMonthUsesInvocationRangeIndex(t *testing.T) {
+	store, err := OpenAccountingStore(t.TempDir(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	rows, err := store.db.QueryContext(context.Background(), "EXPLAIN QUERY PLAN "+monthlyCostsSQL, 100, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(detail, "invocations_started") && strings.Contains(detail, "started_at_ms>?") {
+			found = true
+			t.Log(detail)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("month query did not use invocation start range index")
+	}
+}
+
+func TestAccountingRunningCoverageUsesSelectedInvocations(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenAccountingStore(t.TempDir(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.BeginRound(ctx, Round{ID: "running", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 110}); err != nil {
+		t.Fatal(err)
+	}
+	for ordinal, at := range []int64{199, 201} {
+		if err := store.StartInvocation(ctx, "running", ordinal, "source", "codex", "gpt-4o", at); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.FinishInvocation(ctx, "running", ordinal, at+1, "success", UsageReport{ReportedCostMicroUSD: micro(17)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.StartInvocation(ctx, "running", 2, "source", "codex", "auto", 301); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BeginRound(ctx, Round{ID: "failed", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 200}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartInvocation(ctx, "failed", 0, "source", "cursor", "gpt-4o", 202); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishInvocation(ctx, "failed", 0, 203, "failed", UsageReport{ReportedCostMicroUSD: micro(5)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishRound(ctx, "failed", 204, "failed"); err != nil {
+		t.Fatal(err)
+	}
+	month, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", SinceMs: micro(200), UntilMs: micro(300)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if month.Totals.InvocationCount != 2 || *month.Totals.KnownCostMicroUSD != 22 || month.Totals.IncompleteRoundCount != 1 || month.ByVendor[0].Totals.IncompleteRoundCount != 1 || month.ByVendor[1].Totals.IncompleteRoundCount != 0 {
+		t.Fatalf("month: %+v", month)
+	}
+	inspector, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspector.Totals.IncompleteRoundCount != 1 || inspector.ByVendor[0].Totals.IncompleteRoundCount != 1 || inspector.Rounds[0].Totals.IncompleteRoundCount != 0 || inspector.Rounds[1].Totals.IncompleteRoundCount != 1 {
+		t.Fatalf("inspector: %+v", inspector)
+	}
+}
+
+func TestAccountingRejectsCursorAndCorruptUsageBeforeCostlyReads(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenAccountingStore(t.TempDir(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.db.ExecContext(ctx, "DELETE FROM metadata"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s", Cursor: strings.Repeat("a", 1<<20)}); err == nil || !strings.Contains(err.Error(), "cursor") {
+		t.Fatalf("cursor error: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, "INSERT INTO metadata VALUES(1,100)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BeginRound(ctx, Round{ID: "r", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 110}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartInvocation(ctx, "r", 0, "source", "codex", "gpt-4o", 111); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, "UPDATE invocations SET usage_json=zeroblob(?)", (256<<10)+1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"}); err == nil {
+		t.Fatal("oversized stored blob accepted")
+	}
+	data, _ := json.Marshal(map[string]session.ModelTokens{strings.Repeat("x", 513): {InputTokens: 1}})
+	if _, err := store.db.ExecContext(ctx, "UPDATE invocations SET usage_json=?", data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"}); err == nil {
+		t.Fatal("corrupt model name accepted")
 	}
 }
 
