@@ -24,7 +24,7 @@ func TestPiSynthesis(t *testing.T) {
 			}
 			runner := created.(*CLIRunner)
 			runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
-				want := []string{"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--system-prompt", systemPrompt + jsonInstruction}
+				want := []string{"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--system-prompt", systemPrompt + jsonInstruction, "--append-system-prompt", ""}
 				if model != "default" {
 					want = append(want, "--model", model)
 				}

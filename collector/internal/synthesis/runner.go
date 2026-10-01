@@ -192,6 +192,8 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills",
 			"--no-prompt-templates", "--no-themes", "--no-context-files",
 			"--system-prompt", systemPrompt + jsonInstruction,
+			// Explicit empty append suppresses automatic APPEND_SYSTEM.md loading.
+			"--append-system-prompt", "",
 		}
 		if r.Model != settings.PiDefaultModel {
 			args = append(args, "--model", r.Model)
