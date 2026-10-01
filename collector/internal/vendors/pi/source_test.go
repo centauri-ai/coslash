@@ -382,3 +382,45 @@ func TestProjectSettingsBoundsAndBareTilde(t *testing.T) {
 		t.Fatalf("header cancellation: %v", err)
 	}
 }
+
+func TestIncrementalCollectionKeepsExternalIntermediateAncestor(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	r := userRow("r", "", "shared", "2026-01-01T00:00:01Z")
+	g := projectionFixture(t, "grandparent", "", r, assistantRow("a", "r", "old", 6))
+	p := projectionFixture(t, "externalParent", g.Path, r, assistantRow("a", "r", "old", 6), assistantRow("b", "a", "parent", 2))
+	f := projectionFixture(t, "recentFork", p.Path, r, assistantRow("a", "r", "old", 6), assistantRow("b", "a", "parent", 2), assistantRow("c", "b", "own", 3))
+	for _, x := range []string{g.Path, p.Path} {
+		if err := os.Chtimes(x, time.Unix(1, 0), time.Unix(1, 0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(f.Path, time.Unix(10, 0), time.Unix(10, 0)); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSLASH_PI_SESSION_ROOTS", strings.Join([]string{filepath.Dir(g.Path), filepath.Dir(f.Path)}, string(os.PathListSeparator)))
+	items, _, err := Collect(5000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items=%d", len(items))
+	}
+	if items[0].RecordedCost == nil || *items[0].RecordedCost != 3 {
+		t.Fatalf("valid complete lineage lost: cost=%v unavailable=%v", items[0].RecordedCost, items[0].Session.CostUnavailable)
+	}
+
+	// A conflicting discovered ancestor must remain blocked even through an external parent.
+	data, err := os.ReadFile(g.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(g.Path), "duplicate.jsonl"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err = Collect(5000)
+	if err != nil || len(items) != 1 || !items[0].Session.CostUnavailable || items[0].RecordedCost != nil {
+		t.Fatalf("conflicting ancestor bypassed: %v %#v", err, items)
+	}
+}
