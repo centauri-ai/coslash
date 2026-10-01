@@ -20,13 +20,13 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T2 | completed | `377101d2-599f-4f16-875f-a0ce27035511` | `cvu/grok-t2-enrich` | `7007053f-3806-4ea5-a772-c3b036475a09` | done | Fix `e7460e1e` on top of `3b027801`. No second review. PR not opened. |
 | T3 | completed | `cd443442-32e2-42dc-af23-d2af34f8afe2` | `cvu/grok-t3-synthesis` | `2a4e1a86-97ab-4894-8310-e26d7c702f4c` | `NO_FINDINGS` | Commit `d7961ec5`. Test only. Browser check not run. PR not opened. |
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
-| T5 | review | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `a0b041c2-b3d5-4852-a0db-f33d13a0c847` | Commits `a83b077d` and `2b81b547`. Browser on port 8797 showed 4 Grok cards. Resume not clicked. |
+| T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | `a83b077d` and `2b81b547`. Browser on port 8797 showed 4 Grok cards. Resume not clicked. PR not opened. |
 
-**Next action:** T5 reviewer `a0b041c2-b3d5-4852-a0db-f33d13a0c847` is running in workspace `323119d3-178b-4024-b848-18ace9f81ecd`. If `NO_FINDINGS`, mark T5 completed. If it lists bugs, send them once to implementer `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f`. Do not start a second review. Do not open PRs until the user asks. A release binary is still running on port 8797 with a scratch COSLASH_HOME. Do not kill the process on 8787. Ignore a late T3 reviewer watch.
+**Next action:** All five tasks are complete. Do not send more fixes. Do not open pull requests until the user asks. The stack is ready: T1 `cvu/grok-t1-parse` at `d3237332`, T2 `cvu/grok-t2-enrich` at `e7460e1e`, T4 `cvu/grok-t4-launch` at `3e26eb8c`, T3 `cvu/grok-t3-synthesis` at `d7961ec5`, T5 `cvu/grok-t5-ui` at `2b81b547` on base `cvu/grok-t2-t4` at `1a9b09cf`. A release binary is still running on port 8797 with a scratch COSLASH_HOME. Do not kill the process on 8787.
+
+**Blockers:** none. Reviews: T1 one fix, T2 one fix, T3 `NO_FINDINGS`, T4 `NO_FINDINGS`, T5 `NO_FINDINGS`. T1 is 13 files and 438 production lines, inside the agent-tooling budget.
 
 **Watch rule:** Do not wait for the word `Churned`. Claude also finishes with `Sautéed`, `Baked`, or `Brewed`. A first completion shows `· done`. A later fix on the same terminal is done when the branch HEAD changes, because `· done` is already on screen.
-
-**Blockers:** none. T1 is inside the agent-tooling budget: 13 files (service limit 100, skill limit 25) and 438 production lines (skill limit 1,000).
 
 **Goal:** Show local macOS Grok Build sessions in coSlash, with status, nested subagents, launch, resume, and the existing synthesis pipeline.
 
