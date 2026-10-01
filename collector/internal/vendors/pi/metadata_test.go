@@ -59,6 +59,7 @@ func TestIdentityAndRetainedDiscovery(t *testing.T) {
 		t.Fatal(got)
 	}
 	r.ProcessStartIdentity = ""
+	r.Entrypoint = "pi-json"
 	if got := ownerState(runtimeEvidence{Record: r}); got != "unknown" {
 		t.Fatal(got)
 	}
@@ -74,7 +75,7 @@ func TestIdentityAndRetainedDiscovery(t *testing.T) {
 		t.Fatalf("%v %v", paths, err)
 	}
 	metadata, err := LoadMetadata()
-	if err != nil || metadata.Session(r.SessionID).Live != "inactive" {
+	if err != nil || metadata.Session(r.SessionID).Live != "inactive" || metadata.Session(r.SessionID).Entrypoint != "pi-json" {
 		t.Fatalf("%v %v", metadata, err)
 	}
 	data = []byte(`{"version":1,"runtimeId":"owner","pid":1}`)
@@ -248,6 +249,70 @@ func TestRuntimeLeafCanonicalPath(t *testing.T) {
 	}
 	if _, ok := RuntimeLeaf(r.SessionID, canonical); ok {
 		t.Fatal("path normalization accepted a dead owner")
+	}
+}
+
+func TestEntrypointEvidence(t *testing.T) {
+	owner := func(id, state, modality string, started, updated int64) runtimeEvidence {
+		r := testRecord()
+		r.RuntimeID, r.ProcessStartIdentity, r.Entrypoint = id, state, modality
+		r.StartedAtMs, r.UpdatedAtMs = started, updated
+		return runtimeEvidence{Record: r}
+	}
+	cli := owner("cli", "live", "pi-tui", 1, 1)
+	rpc := owner("rpc", "live", "pi-rpc", 2, 2)
+	legacy := owner("legacy", "live", "", 3, 3)
+	unknown := owner("unknown", "unknown", "pi-sdk", 4, 4)
+	dead := owner("dead", "dead", "pi-print", 1, 1)
+	resumed := owner("resumed", "dead", "pi-json", 2, 2)
+	old := owner("old", "dead", "", 3, 3)
+	continued := owner("continued", "dead", "pi-print", 1, 10)
+	tied := owner("tied", "dead", "pi-rpc", 2, 2)
+	for _, test := range []struct {
+		name   string
+		owners []runtimeEvidence
+		want   string
+	}{
+		{"live", []runtimeEvidence{cli}, "pi-tui"},
+		{"agreement", []runtimeEvidence{rpc, rpc, dead}, "pi-rpc"},
+		{"conflict", []runtimeEvidence{cli, rpc}, ""},
+		{"legacy live", []runtimeEvidence{cli, legacy}, ""},
+		{"unverified owner", []runtimeEvidence{cli, unknown}, ""},
+		{"older owner continued later", []runtimeEvidence{resumed, continued}, "pi-print"},
+		{"latest exited", []runtimeEvidence{dead, resumed}, "pi-json"},
+		{"latest legacy", []runtimeEvidence{dead, resumed, old}, ""},
+		{"tied conflict", []runtimeEvidence{resumed, tied}, ""},
+		{"live supersedes exited ties", []runtimeEvidence{resumed, tied, cli}, "pi-tui"},
+		{"later supersedes exited ties", []runtimeEvidence{resumed, tied, old}, ""},
+		{"missing", nil, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := entrypointFor(test.owners, func(e runtimeEvidence) string { return e.Record.ProcessStartIdentity })
+			if got != test.want {
+				t.Fatalf("got %s want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestOptionalEntrypointDecodePreservesStatus(t *testing.T) {
+	for _, value := range []any{"pi-rpc", "invalid", "", nil, 42, []string{"pi-sdk"}} {
+		data, _ := json.Marshal(testRecord())
+		var fields map[string]any
+		json.Unmarshal(data, &fields)
+		fields["entrypoint"] = value
+		data, _ = json.Marshal(fields)
+		var r RuntimeRecord
+		if err := json.Unmarshal(data, &r); err != nil || !validRecord(r) {
+			t.Fatalf("%v: %v", value, err)
+		}
+		want := ""
+		if value == "pi-rpc" {
+			want = "pi-rpc"
+		}
+		if r.Entrypoint != want {
+			t.Fatalf("%v: got %q", value, r.Entrypoint)
+		}
 	}
 }
 

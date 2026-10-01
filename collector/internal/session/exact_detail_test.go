@@ -34,3 +34,25 @@ func TestLocalDetailRevisionStopsDuringChangeHashing(t *testing.T) {
 		t.Fatalf("revision = %q, want empty", revision)
 	}
 }
+
+func TestPiRuntimeModalityDoesNotChangeExactRevision(t *testing.T) {
+	rpc, sdk := "pi-rpc", "pi-sdk"
+	for _, agent := range []string{"pi", "codex"} {
+		value := Session{Agent: agent, Entrypoint: &rpc}
+		original, err := LocalDetailRevision(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		value.Entrypoint = &sdk
+		changed, err := LocalDetailRevision(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (original == changed) != (agent == "pi") {
+			t.Fatalf("%s entrypoint revision invariant violated", agent)
+		}
+		if *value.Entrypoint != sdk {
+			t.Fatal("caller mutated")
+		}
+	}
+}
