@@ -2,7 +2,9 @@ package opencode
 
 import (
 	"context"
+	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +43,13 @@ func TestBoundedCommandOutputRejectsOverflow(t *testing.T) {
 	}
 	if output.Len() != 2 {
 		t.Fatal("buffer grew beyond the accepted prefix")
+	}
+}
+
+func TestBoundedOutputCopyCannotBypassLimit(t *testing.T) {
+	output := &boundedOutput{limit: 4}
+	reader := struct{ io.Reader }{strings.NewReader("too long")}
+	if _, err := io.Copy(output, reader); err == nil || output.Len() > 4 {
+		t.Fatal("io.Copy bypassed the subprocess output limit")
 	}
 }
