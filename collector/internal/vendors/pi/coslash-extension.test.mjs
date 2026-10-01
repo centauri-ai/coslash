@@ -10,7 +10,7 @@ delete process.env.COSLASH_PI_HANDOFF_FILE
 try {
   for (const version of ["0.99.1", "0.99.2", "unsupported"]) {
     const source = readFileSync(new URL("./coslash-extension.ts", import.meta.url), "utf8")
-      .replace('import { execFileSync } from "node:child_process"', 'let calls = 0; const execFileSync = () => { calls++; return "identity" }; export const identityCalls = () => calls')
+      .replace(/function processIdentity\(\)[\s\S]*?\n}/, 'let calls = 0; export const identityCalls = () => calls; function processIdentity() { calls++; return "identity" }')
       .replace('import { VERSION } from "@earendil-works/pi-coding-agent"', `const VERSION = ${JSON.stringify(version)}`)
     const extension = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`)
     const handlers = new Map()
@@ -22,9 +22,9 @@ try {
     }
     const ctx = { isIdle: () => true, sessionManager: { getSessionId: () => "test", getSessionFile: () => path.join(home, "session.jsonl"), getLeafId: () => null } }
     handlers.get("session_start")({ reason: "startup" }, ctx)
-    assert.equal(extension.identityCalls(), process.platform === "linux" ? 0 : 1)
+    assert.equal(extension.identityCalls(), 1)
     handlers.get("session_start")({ reason: "reload" }, ctx)
-    assert.equal(extension.identityCalls(), process.platform === "linux" ? 0 : 1, "reuse process identity")
+    assert.equal(extension.identityCalls(), 1, "reuse process identity")
     handlers.get("session_shutdown")()
   }
 } finally {
