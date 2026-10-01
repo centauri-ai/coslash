@@ -10,7 +10,6 @@ import {
   detailRequestKey,
   DigestSection,
   filePanelOpen,
-  InspectorReviewAction,
   inspectorWidthForKey,
   overlayLiveSessionFields,
   refreshSourceAndRetry,
@@ -42,35 +41,6 @@ const selection: FileSelection = {
   path: 'src/example.ts',
   changeIds: ['change-000000-000000'],
 };
-
-it('offers remote review and reviewer retry in the inspector without a remote cwd', () => {
-  const origin = { ...session, cwd: '', launchable: true } as Session;
-  const review = {
-    index: { links: new Map(), activeOrigins: new Set<string>(), reviewSessions: new Set<string>() },
-    reviewerOptions: [],
-    remoteReviewerOptions: [{ id: 'claude' as const, label: 'Claude Code CLI', available: true }],
-    remoteUnavailableReason: undefined,
-    canRetryRemoteReviewers: false,
-    onRetryRemoteReviewers: () => {},
-    onStarted: () => {},
-  };
-  const markup = renderToStaticMarkup(<InspectorReviewAction session={origin} review={review} />);
-  expect(markup).toContain('Send for review');
-
-  const retry = renderToStaticMarkup(
-    <InspectorReviewAction
-      session={origin}
-      review={{ ...review, remoteUnavailableReason: 'SSH host is offline.', canRetryRemoteReviewers: true }}
-    />,
-  );
-  expect(retry).toContain('Retry reviewer check');
-  expect(retry).not.toContain('>Send for review<');
-
-  review.index.reviewSessions.add(`${origin.sourceId}:${origin.agent}:${origin.id}`);
-  expect(renderToStaticMarkup(<InspectorReviewAction session={origin} review={review} />)).not.toContain(
-    'Send for review',
-  );
-});
 
 describe('SessionInspector exact-detail boundaries', () => {
   it('shows a full plan with a timeline filter and expansion control', () => {

@@ -110,8 +110,7 @@ export function DirectedHandoffDialog({
     <Dialog open={open} onOpenChange={changeOpen}>
       <DialogTrigger asChild>
         <Button
-          variant="outline"
-          className="w-fit p-2 text-xs"
+          className="bg-brand text-brand-foreground w-fit p-2 text-xs hover:bg-[color-mix(in_oklch,var(--brand),var(--foreground)_10%)]"
           disabled={disabledHint != null}
           title={disabledHint}
           onClick={(event) => event.currentTarget.blur()}
