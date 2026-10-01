@@ -86,12 +86,14 @@ func discoverHeadersContext(ctx context.Context) (*vendors.SourceScan, string, m
 			seenFiles[abs] = true
 			scan.Files = append(scan.Files, abs)
 			h, err := readTranscriptHeader(ctx, abs)
+			if h.Type == "session" && h.ID != "" {
+				addProject(h.CWD)
+			}
 			if err != nil {
 				scan.RecordSkipped(abs, err)
 				return
 			}
 			headers[abs] = h
-			addProject(h.CWD)
 		}
 	}
 	paths, err := RuntimeTranscriptPathsContext(ctx)
@@ -386,7 +388,7 @@ func readTranscriptHeader(ctx context.Context, path string) (header, error) {
 		return h, err
 	}
 	if err := json.Unmarshal(data, &h); err != nil {
-		return h, err
+		return header{}, err
 	}
 	if h.Type != "session" || h.ID == "" {
 		return h, fmt.Errorf("expected session header with identity")
