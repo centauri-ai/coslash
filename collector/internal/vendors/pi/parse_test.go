@@ -1,8 +1,12 @@
 package pi
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,5 +159,74 @@ func TestLargeLineAndMissingAccounting(t *testing.T) {
 	after, _ := os.ReadFile(path)
 	if !bytes.Equal(records, after) {
 		t.Fatal("large transcript changed")
+	}
+}
+
+func TestTranscriptResourceBudgets(t *testing.T) {
+	for _, kind := range []string{"record", "transcript", "entries"} {
+		t.Run(kind, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bounded.jsonl")
+			f, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if _, err = f.WriteString(`{"type":"session","version":3,"id":"bounded"}` + "\n"); err != nil {
+				t.Fatal(err)
+			}
+			switch kind {
+			case "record":
+				if _, err = f.WriteString(strings.Repeat(" ", maxTranscriptRecordBytes+1)); err != nil {
+					t.Fatal(err)
+				}
+			case "transcript":
+				if err = f.Truncate(maxTranscriptBytes + 1); err != nil {
+					t.Fatal(err)
+				}
+			case "entries":
+				for i := 0; i < maxTranscriptEntries; i++ {
+					if _, err = fmt.Fprintf(f, `{"type":"custom","id":"%d","timestamp":"2026-09-30T10:00:00Z"}`+"\n", i); err != nil {
+						t.Fatal(err)
+					}
+				}
+				// Even an incomplete record must not bypass the entry budget.
+				if _, err = f.WriteString(`{"type":"custom","id":"excess"`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err = f.Close(); err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := parseTranscript(path)
+			if parsed != nil || err == nil || !strings.Contains(err.Error(), kind+" limit") {
+				t.Fatalf("expected %s limit rejection without partial transcript, got parsed=%v error=%v", kind, parsed != nil, err)
+			}
+		})
+	}
+}
+
+func TestBoundedRecordFraming(t *testing.T) {
+	for _, test := range []struct {
+		name, input string
+		remaining   int
+		wantEOF     bool
+		wantError   string
+	}{
+		{"exact budget", "{}\n", 3, false, ""},
+		{"exact record limit", strings.Repeat("x", maxTranscriptRecordBytes), maxTranscriptBytes, true, ""},
+		{"unterminated", "{}", 2, true, ""},
+		{"growing transcript", "{}\n", 2, false, "transcript limit"},
+		{"exhausted EOF", "", 0, true, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data, err := readTranscriptRecord(context.Background(), bufio.NewReader(strings.NewReader(test.input)), test.remaining)
+			if test.wantError != "" {
+				if data != nil || err == nil || !strings.Contains(err.Error(), test.wantError) {
+					t.Fatalf("data=%q error=%v", data, err)
+				}
+			} else if string(data) != test.input || (err == io.EOF) != test.wantEOF || (err != nil && err != io.EOF) {
+				t.Fatalf("data=%q error=%v", data, err)
+			}
+		})
 	}
 }

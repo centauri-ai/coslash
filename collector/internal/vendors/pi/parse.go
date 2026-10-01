@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+const (
+	maxTranscriptRecordBytes = 16 << 20
+	maxTranscriptBytes       = 64 << 20
+	maxTranscriptEntries     = 100000
+)
+
 // Raw reading deliberately avoids Pi's persistent loader, which repairs/migrates files.
 func parseTranscript(path string) (*transcript, error) {
 	return parseTranscriptContext(context.Background(), path)
@@ -29,18 +35,30 @@ func parseTranscriptContext(ctx context.Context, path string) (*transcript, erro
 		return nil, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxTranscriptBytes {
+		return nil, fmt.Errorf("transcript limit exceeded: maximum %d bytes", maxTranscriptBytes)
+	}
 	t := &transcript{Path: abs, ByID: map[string]int{}}
 	r := bufio.NewReader(f)
+	totalBytes := 0
 	for line := 1; ; line++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		data, readErr := r.ReadBytes('\n') // No scanner token limit for image/message records.
+		data, readErr := readTranscriptRecord(ctx, r, maxTranscriptBytes-totalBytes)
+		totalBytes += len(data)
 		if readErr != nil && readErr != io.EOF {
-			return nil, readErr
+			return nil, fmt.Errorf("line %d: %w", line, readErr)
 		}
 		data = bytes.TrimSpace(data)
 		if len(data) > 0 {
+			if t.Header.ID != "" && len(t.Entries) >= maxTranscriptEntries {
+				return nil, fmt.Errorf("line %d: entries limit exceeded: maximum %d", line, maxTranscriptEntries)
+			}
 			if !json.Valid(data) {
 				var value any
 				decodeErr := json.Unmarshal(data, &value)
@@ -105,6 +123,26 @@ func parseTranscriptContext(ctx context.Context, path string) (*transcript, erro
 		}
 	}
 	return t, nil
+}
+
+func readTranscriptRecord(ctx context.Context, reader *bufio.Reader, remaining int) ([]byte, error) {
+	var data bytes.Buffer
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		fragment, err := reader.ReadSlice('\n')
+		if len(fragment) > remaining-data.Len() {
+			return nil, fmt.Errorf("transcript limit exceeded: maximum %d bytes", maxTranscriptBytes)
+		}
+		if len(fragment) > maxTranscriptRecordBytes-data.Len() {
+			return nil, fmt.Errorf("record limit exceeded: maximum %d bytes", maxTranscriptRecordBytes)
+		}
+		data.Write(fragment)
+		if err != bufio.ErrBufferFull {
+			return data.Bytes(), err
+		}
+	}
 }
 
 func extractUsage(e *entry) error {
