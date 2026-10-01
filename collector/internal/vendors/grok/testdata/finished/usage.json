@@ -1,0 +1,9 @@
+{
+  "sessionId": "01a0f48a-42bb-7802-b584-f5def46d1e75",
+  "session": {
+    "inputTokens": 100, "outputTokens": 10, "cachedReadTokens": 60, "cacheCreationTokens": 0, "costUsdTicks": 7541060000,
+    "modelUsage": {
+      "grok-4.7": {"inputTokens": 100, "outputTokens": 10, "cachedReadTokens": 60, "cacheCreationTokens": 0, "costUsdTicks": 7541060000}
+    }
+  }
+}

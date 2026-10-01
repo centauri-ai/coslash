@@ -18,6 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
@@ -60,6 +61,11 @@ var vendorSources = func() []vendorSource {
 			name: vendors.AgentCursor, collect: cursor.CollectContext, loadFacts: cursor.GetSessionFacts,
 			loadFamily: cursor.GetSessionFamily,
 			health:     cursor.Health,
+		},
+		{
+			name: vendors.AgentGrok, collect: grok.CollectContext, loadFacts: grok.GetSessionFacts,
+			loadFamily: grok.GetSessionFamily,
+			health:     grok.Health,
 		},
 	}
 	if vendors.PiSupported() {
