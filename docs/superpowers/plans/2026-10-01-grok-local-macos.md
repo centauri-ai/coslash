@@ -22,7 +22,7 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
 | T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | `a83b077d` and `2b81b547`. Browser on port 8797 showed 4 Grok cards. Resume not clicked. PR not opened. |
 
-**Next action:** Codex E2E terminal `586f8bcf-e9e9-46f5-aef2-43f36ba7d142` opened pane `pane-6615c297-a645-4149-a168-919ce56678a8` on http://127.0.0.1:8797. Checks 1-5 failed because the page had no API token (`ApiAuthenticationError`, "This link expired"). A retry was sent: navigate that pane to the `#t=` URL using the token file in the 8797 scratch `COSLASH_HOME`, and end with `E2E_RESULT`. Do not send that retry again. Do not print the token. Do not open pull requests until the user asks. Do not kill 8787 or 8797. Do not click Resume.
+**Next action:** Codex E2E terminal `586f8bcf-e9e9-46f5-aef2-43f36ba7d142` is still running the token-URL retry on pane `pane-6615c297-a645-4149-a168-919ce56678a8`. The first token navigation still showed "This link expired". Do not send another retry. Wait until the screen contains `E2E_RESULT` twice (the instruction is the first). Do not print the token. Do not open pull requests until the user asks. Do not kill 8787 or 8797. Do not click Resume.
 
 **Blockers:** none. Reviews: T1 one fix, T2 one fix, T3 `NO_FINDINGS`, T4 `NO_FINDINGS`, T5 `NO_FINDINGS`. T1 is 13 files and 438 production lines, inside the agent-tooling budget.
 
