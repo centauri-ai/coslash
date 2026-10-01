@@ -73,6 +73,9 @@ type updateLine struct {
 					BashCommand *string `json:"bash_command"`
 				} `json:"_meta"`
 			} `json:"content"`
+			Meta struct {
+				HideFromScrollback bool `json:"hideFromScrollback"`
+			} `json:"_meta"`
 		} `json:"update"`
 	} `json:"params"`
 }
@@ -225,7 +228,8 @@ func readUpdates(path string) (updatesSummary, error) {
 		switch update.Kind {
 		case "user_message_chunk":
 			result.inTurn = true
-			if !firstPromptDone && update.Content.Type == "text" {
+			// A hidden chunk is an injected system reminder, not the user's prompt.
+			if !firstPromptDone && !update.Meta.HideFromScrollback && update.Content.Type == "text" {
 				result.firstPrompt += update.Content.Text
 			}
 		case "tool_call":
