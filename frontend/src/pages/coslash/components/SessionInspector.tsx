@@ -274,6 +274,7 @@ export function overlayLiveSessionFields(detail: SessionDetail, current: Session
   return {
     ...detail,
     status: current.status,
+    ...(current.agent === 'pi' ? { entrypoint: current.entrypoint } : {}),
     branch: current.branch,
     repo: current.repo,
     repoLocalOnly: current.repoLocalOnly,

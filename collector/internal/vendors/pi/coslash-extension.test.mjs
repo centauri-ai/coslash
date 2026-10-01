@@ -11,7 +11,7 @@ try {
   for (const version of ["0.99.1", "0.99.2", "unsupported"]) {
     const source = readFileSync(new URL("./coslash-extension.ts", import.meta.url), "utf8")
       .replace(/function processIdentity\(\)[\s\S]*?\n}/, 'let calls = 0; export const identityCalls = () => calls; function processIdentity() { calls++; return "identity" }')
-      .replace('import { VERSION } from "@earendil-works/pi-coding-agent"', `const VERSION = ${JSON.stringify(version)}`)
+      .replace(/import \{[^}]+\} from "@earendil-works\/pi-coding-agent"/, `const VERSION = ${JSON.stringify(version)}; const getPackageDir = () => home`)
     const extension = await import(`data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source)).toString("base64")}`)
     const handlers = new Map()
     extension.default({ on: (name, handler) => handlers.set(name, handler) })
