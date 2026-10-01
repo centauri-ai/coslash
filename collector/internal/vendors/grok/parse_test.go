@@ -246,6 +246,9 @@ func TestSubagentLinksWhenChildSummaryOmitsParent(t *testing.T) {
 	if got.ID != "child" || got.Name != "Fake work demo" || got.Status != session.SubagentReturned || got.Task != "do the fake work" || got.Result != "done" {
 		t.Fatalf("subagent = %+v", got)
 	}
+	if len(facts.Session.Digest) != 1 || facts.Session.Digest[0].SubagentID != "child" || facts.Session.Digest[0].Category != session.DigestSubagent {
+		t.Fatalf("digest = %+v", facts.Session.Digest)
+	}
 }
 
 func writeSummary(t *testing.T, dir, body string) {
