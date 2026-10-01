@@ -4,10 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -104,46 +101,13 @@ func runtimeRecords() ([]runtimeEvidence, error) {
 	return result, nil
 }
 
-// ProcessStartIdentity matches the extension's OS-derived identity, not its clock.
-func ProcessStartIdentity(pid int) (string, error) {
-	if data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat")); err == nil {
-		end := strings.LastIndexByte(string(data), ')')
-		if end >= 0 {
-			fields := strings.Fields(string(data)[end+1:])
-			if len(fields) > 19 {
-				boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
-				if err != nil {
-					return "", err
-				}
-				return "linux:" + strings.TrimSpace(string(boot)) + ":" + fields[19], nil
-			}
-		}
-	}
-	command := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "lstart=")
-	command.Env = append(os.Environ(), "LC_ALL=C")
-	data, err := command.Output()
-	if err != nil {
-		return "", err
-	}
-	value := strings.Join(strings.Fields(string(data)), " ")
-	if value == "" {
-		return "", errors.New("missing process start identity")
-	}
-	return "ps:" + value, nil
-}
-
 // ownerState is live, dead, or unknown. A reused PID proves the recorded owner died.
 func ownerState(e runtimeEvidence) string {
 	if e.Exited {
 		return "dead"
 	}
 	if !session.IsProcessAlive(e.Record.PID) {
-		// Signal failure may be permission-related; ps distinguishes a visible owner.
-		if _, err := ProcessStartIdentity(e.Record.PID); err == nil {
-			return "unknown"
-		}
-		err := exec.Command("ps", "-p", strconv.Itoa(e.Record.PID), "-o", "pid=").Run()
-		if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
+		if processAbsent(e.Record.PID) {
 			return "dead"
 		}
 		return "unknown"
