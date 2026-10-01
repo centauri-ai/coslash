@@ -27,7 +27,7 @@ func listOpenCodeProcessesContext(ctx context.Context) ([]tuiProcess, error) {
 func scanOpenCodeProcesses(ctx context.Context, all bool) ([]tuiProcess, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	output, err := boundedCommandOutput(exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,lstart=,command="), 4<<20)
+	output, err := boundedCommandOutput(exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,lstart=,ucomm=,command="), 4<<20)
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +40,9 @@ func parseTUIProcesses(output string) []tuiProcess {
 
 func parseOpenCodeProcesses(output string, all bool) []tuiProcess {
 	if len(output) > 4<<20 {
+		if !all {
+			return nil
+		}
 		return []tuiProcess{{}}
 	}
 	var processes []tuiProcess
@@ -47,24 +50,47 @@ func parseOpenCodeProcesses(output string, all bool) []tuiProcess {
 	for line := range strings.SplitSeq(output, "\n") {
 		lines++
 		if lines > 65536 || len(line) > 64<<10 {
+			if !all {
+				return nil
+			}
 			return []tuiProcess{{}}
 		}
 		fields := strings.Fields(line)
+		if len(fields) < 7 {
+			for _, field := range fields {
+				if all && strings.EqualFold(filepath.Base(strings.Trim(field, "\"'")), "opencode") {
+					processes = append(processes, tuiProcess{})
+					break
+				}
+			}
+			continue
+		}
+		// ucomm identifies the executable independently of filenames in argv.
+		if fields[6] != "opencode" {
+			if all && strings.Contains(fields[6], "/") {
+				processes = append(processes, tuiProcess{})
+			}
+			continue
+		}
 		executable := -1
-		for i := 6; i < len(fields); i++ {
-			if strings.EqualFold(filepath.Base(strings.Trim(fields[i], "\"'")), "opencode") {
+		for i := 7; i < len(fields); i++ {
+			field := strings.Trim(fields[i], "\"'")
+			if i > 7 && (filepath.IsAbs(field) || strings.HasPrefix(field, "-")) {
+				break
+			}
+			if strings.EqualFold(filepath.Base(field), "opencode") && (i == 7 || strings.Contains(field, "/")) {
 				executable = i
 				break
 			}
 		}
 		if executable < 0 {
-			if all && (strings.HasSuffix(strings.TrimSpace(line), "/opencode") || strings.Contains(line, "/opencode ")) {
+			if all {
 				processes = append(processes, tuiProcess{})
 			}
 			continue
 		}
 		pid, err := strconv.Atoi(fields[0])
-		if err != nil {
+		if err != nil || pid <= 0 {
 			if all {
 				processes = append(processes, tuiProcess{})
 			}

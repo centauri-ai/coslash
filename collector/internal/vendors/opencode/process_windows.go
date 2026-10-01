@@ -4,7 +4,6 @@ package opencode
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -41,13 +40,6 @@ $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'opencode.exe'" | F
 })
 ConvertTo-Json -Compress -InputObject $processes`
 
-type windowsTUIProcess struct {
-	PID         int    `json:"PID"`
-	StartedAt   int64  `json:"StartedAt"`
-	Executable  string `json:"Executable"`
-	CommandLine string `json:"CommandLine"`
-}
-
 func listTUIProcesses() ([]tuiProcess, error) {
 	return listTUIProcessesContext(context.Background())
 }
@@ -75,15 +67,9 @@ func parseWindowsTUIProcesses(output []byte) ([]tuiProcess, error) {
 }
 
 func parseWindowsOpenCodeProcesses(output []byte, all bool) ([]tuiProcess, error) {
-	if len(output) > 4<<20 {
-		return nil, fmt.Errorf("OpenCode process output exceeds limit")
-	}
-	var records []windowsTUIProcess
-	if err := json.Unmarshal(output, &records); err != nil {
+	records, err := decodeWindowsProcessSnapshot(output, all)
+	if err != nil {
 		return nil, err
-	}
-	if len(records) > 65536 {
-		return nil, fmt.Errorf("OpenCode process count exceeds limit")
 	}
 	processes := make([]tuiProcess, 0, len(records))
 	for _, record := range records {
