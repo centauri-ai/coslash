@@ -93,3 +93,9 @@ func TestUnsupportedPiSynthesisOffersSupportedBackend(t *testing.T) {
 	}
 	t.Fatal("missing synthesis check")
 }
+
+func TestGrokSourceLabel(t *testing.T) {
+	if got := sourceLabel("grok"); got != "Grok" {
+		t.Fatalf("sourceLabel(grok) = %q, want Grok", got)
+	}
+}
