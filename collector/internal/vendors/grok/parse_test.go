@@ -84,6 +84,24 @@ func TestParseDeclaredGoalFromGoalState(t *testing.T) {
 	}
 }
 
+func TestParseCommandsCommitsAndPullRequestsSkipDryRunsAndFailures(t *testing.T) {
+	parsed, err := parseSession(filepath.Join("testdata", "commands"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parsed.Session
+	if len(s.Commands) != 5 || s.Commands[0] != `git commit -m "ship"` || len(parsed.Commands) != 5 {
+		t.Fatalf("commands = %q", s.Commands)
+	}
+	want := []session.CommitObservation{{Hash: "abc1234", Subject: "ship"}}
+	if !slices.Equal(s.CommitLog, want) {
+		t.Fatalf("commit log = %+v, want %+v", s.CommitLog, want)
+	}
+	if s.PullRequests != 1 {
+		t.Fatalf("pull requests = %d, want 1", s.PullRequests)
+	}
+}
+
 func TestParseOpenTurnCountsToolCallsAndLeavesTokensUnknown(t *testing.T) {
 	parsed, err := parseSession(filepath.Join("testdata", "open"))
 	if err != nil {
