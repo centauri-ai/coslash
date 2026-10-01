@@ -2,11 +2,13 @@ package grok
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -107,7 +109,35 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		return nil, nil, err
 	}
 	attachSubagents(parsed)
-	return parsed, vendors.EmptySessionMetadata(), nil
+	return parsed, loadMetadata(), nil
+}
+
+// loadMetadata marks sessions whose active_sessions.json pid is alive as live.
+func loadMetadata() *vendors.SessionMetadata {
+	metadata := vendors.EmptySessionMetadata()
+	root, err := Root()
+	if err != nil {
+		return metadata
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(root), "active_sessions.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		metadata.LivenessChecked = true
+		return metadata
+	}
+	var active []struct {
+		SessionID string `json:"session_id"`
+		PID       int    `json:"pid"`
+	}
+	if err != nil || json.Unmarshal(data, &active) != nil {
+		return metadata
+	}
+	metadata.LivenessChecked = true
+	for _, entry := range active {
+		if entry.SessionID != "" && session.IsProcessAlive(entry.PID) {
+			metadata.Session(entry.SessionID).Live = "interactive"
+		}
+	}
+	return metadata
 }
 
 func sessionDirsByID() (map[string]string, error) {
@@ -156,7 +186,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		}
 	}
 	attachSubagents(family)
-	return family, vendors.EmptySessionMetadata(), nil
+	return family, loadMetadata(), nil
 }
 
 func Health() vendors.SourceHealth {
