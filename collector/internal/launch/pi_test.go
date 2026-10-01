@@ -201,6 +201,10 @@ func TestPiVerifiedReleaseAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("PATH", filepath.Dir(binary))
+	if err := os.WriteFile(filepath.Join(filepath.Dir(binary), "expect"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	for _, version := range []string{"0.99.1", "0.99.2", "0.99.3", "1.0.0", "0.98.0"} {
 		if err := os.WriteFile(binary, []byte("#!/bin/sh\necho "+version+"\n"), 0700); err != nil {
 			t.Fatal(err)
