@@ -173,6 +173,7 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 	}
 	s.Errors = signals.ErrorCount
 	s.Compactions = signals.CompactionCount
+	s.CompactionSeed = readCompactionSeed(filepath.Join(dir, "compaction_checkpoints"))
 	if updates.finishedTurns > 0 && signals.ContextTokensUsed > 0 {
 		s.ContextTokens = &signals.ContextTokensUsed
 	}
@@ -346,6 +347,55 @@ func (result *updatesSummary) noteCommand(shell bashOutput) {
 	if succeeded && session.IsPullRequestCreate(shell.Command) && len(session.PullRequestURLs(shell.Output)) > 0 {
 		result.pullRequests++
 	}
+}
+
+// compactionSummaryPrefix opens the summary item that Grok puts in compacted_history.
+const compactionSummaryPrefix = "This session is being continued from a previous conversation"
+
+// readCompactionSeed returns the summary text of the newest compaction checkpoint.
+func readCompactionSeed(dir string) string {
+	entries, _ := os.ReadDir(dir)
+	seed, newest := "", int64(-1)
+	for _, entry := range entries {
+		var checkpoint struct {
+			CreatedAt        string `json:"created_at"`
+			CompactedHistory []struct {
+				Type    string          `json:"type"`
+				Content json.RawMessage `json:"content"`
+			} `json:"compacted_history"`
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" ||
+			readJSON(filepath.Join(dir, entry.Name()), &checkpoint) != nil {
+			continue
+		}
+		createdAt := parseTime(checkpoint.CreatedAt)
+		if createdAt < newest {
+			continue
+		}
+		for _, item := range checkpoint.CompactedHistory {
+			if text := itemText(item.Content); item.Type == "user" && strings.HasPrefix(text, compactionSummaryPrefix) {
+				seed, newest = text, createdAt
+			}
+		}
+	}
+	return seed
+}
+
+// itemText reads a chat item's content, which is a string or a list of text blocks.
+func itemText(content json.RawMessage) string {
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var blocks []chunkContent
+	_ = json.Unmarshal(content, &blocks)
+	parts := []string{}
+	for _, block := range blocks {
+		if block.Type == "text" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
 func readJSON(path string, target any) error {
