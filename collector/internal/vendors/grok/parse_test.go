@@ -41,6 +41,24 @@ func TestParseFinishedSessionUsesUsageTokensAndSignalsContextFill(t *testing.T) 
 	}
 }
 
+func TestParseFileEditCountsCompletedDiffOnce(t *testing.T) {
+	parsed, err := parseSession(filepath.Join("testdata", "finished"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parsed.Session
+	if len(s.FileEdits) != 1 || s.EditedFileCount != 1 {
+		t.Fatalf("file edits = %+v", s.FileEdits)
+	}
+	edit := s.FileEdits[0]
+	if edit.Path != "/work/repo/alias.sh" || edit.Additions != 2 || edit.Deletions != 1 || edit.Edits != 1 || edit.IsNew {
+		t.Fatalf("file edit = %+v", edit)
+	}
+	if changes := edit.Changes(); len(changes) != 1 || changes[0].Text != "@@\n-alias agent=grok\n+alias agent=cursor\n+alias g=grok\n" {
+		t.Fatalf("changes = %+v", changes)
+	}
+}
+
 func TestParseOpenTurnCountsToolCallsAndLeavesTokensUnknown(t *testing.T) {
 	parsed, err := parseSession(filepath.Join("testdata", "open"))
 	if err != nil {
