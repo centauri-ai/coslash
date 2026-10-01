@@ -309,3 +309,52 @@ func TestDeleteSessionVerifiesAbsence(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDeleteSessionRefusesSharedWriterWithoutTranscriptAssociation(t *testing.T) {
+	for _, shared := range []struct{ name, path, body string }{
+		{"history", ".claude/history.jsonl", `{"sessionId":"` + deleteID + `"}` + "\n"},
+		{"index", ".claude/projects/project/sessions-index.json", `{"entries":[{"sessionId":"` + deleteID + `"},{"sessionId":"` + neighborID + `"}]}`},
+	} {
+		t.Run(shared.name, func(t *testing.T) {
+			home := t.TempDir()
+			transcript := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+			path := deleteFixture(t, home, shared.path, shared.body)
+			writer, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer writer.Close()
+			before, err := writer.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The process has opened shared storage but has no session metadata or
+			// transcript association yet. A target-only open-file check misses it.
+			probe := func(context.Context) ([]deleteProcess, error) { return []deleteProcess{{pid: 42, claude: true}}, nil }
+			if err := deleteSession(context.Background(), home, deleteID, probe); !errors.Is(err, ErrSessionUnverified) {
+				t.Fatalf("writer not excluded: %v", err)
+			}
+			after, err := os.Stat(path)
+			if err != nil || !os.SameFile(before, after) {
+				t.Fatalf("shared inode replaced: %v", err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != shared.body {
+				t.Fatalf("shared data changed: %q %v", data, err)
+			}
+			if _, err := os.Stat(transcript); err != nil {
+				t.Fatal(err)
+			}
+			if shared.name == "history" {
+				neighbor := `{"sessionId":"` + neighborID + `"}` + "\n"
+				if _, err := writer.WriteString(neighbor); err != nil {
+					t.Fatal(err)
+				}
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != shared.body+neighbor {
+					t.Fatalf("old-inode neighbor append lost: %q %v", data, err)
+				}
+			}
+		})
+	}
+}
