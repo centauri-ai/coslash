@@ -46,6 +46,7 @@ func TestSynthesisCostsIntegratedManagerRoutesAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	runner := &integratedCostRunner{calls: make(chan int, 3)}
 	current := &session.Session{Agent: "codex", ID: "integrated", SessionDetails: session.SessionDetails{Turns: 6}}
 	revision, err := session.LocalDetailRevision(*current)
@@ -57,6 +58,7 @@ func TestSynthesisCostsIntegratedManagerRoutesAndRestart(t *testing.T) {
 	listSessions = func(context.Context, int64) ([]*session.Session, error) { return nil, nil }
 
 	manager := synthesis.NewManager(runner, store)
+	defer manager.Shutdown()
 	handler := newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
 		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
 	get := func(path string) (int, synthesis.CostResponse) {
@@ -87,16 +89,22 @@ func TestSynthesisCostsIntegratedManagerRoutesAndRestart(t *testing.T) {
 	if summary := manager.Lookup("codex", "integrated", 42); summary == nil || summary.Outcome != "summary" {
 		t.Fatalf("first summary = %+v", summary)
 	}
+	manager.Shutdown()
+	manager = synthesis.NewManager(runner, store)
+	defer manager.Shutdown()
+	handler = newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
+		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
 	if !manager.Ensure(current, 43) {
 		t.Fatal("paid failure round not started")
 	}
-	waitForVersion("2")
+	waitForVersion("1")
 	if manager.Lookup("codex", "integrated", 42) == nil || manager.Lookup("codex", "integrated", 43) != nil {
 		t.Fatal("paid failure replaced the last valid summary")
 	}
 	manager.Shutdown()
 
 	manager = synthesis.NewManager(runner, store)
+	defer manager.Shutdown()
 	handler = newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
 		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
 	if !manager.Ensure(current, 43) {
@@ -142,7 +150,9 @@ func TestSynthesisCostsIntegratedManagerRoutesAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer reopened.Close()
 	manager = synthesis.NewManager(nil, reopened)
+	defer manager.Shutdown()
 	handler = newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
 		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
 	if code, costs := get("/api/synthesis-costs?source=local&agent=codex&id=integrated"); code != 200 ||
@@ -171,6 +181,7 @@ func TestSynthesisCostsIntegratedManagerRoutesAndRestart(t *testing.T) {
 	}
 	defer reopened.Close()
 	manager = synthesis.NewManager(nil, reopened)
+	defer manager.Shutdown()
 	handler = newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
 		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
 	if code, _ := get("/api/synthesis-costs?source=local&since=1&until=9007199254740991"); code != http.StatusServiceUnavailable {
