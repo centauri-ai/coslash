@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -70,6 +71,9 @@ func secureTerminalInputCommand(base, prompt, agent, context string) (string, st
 		}
 	}
 	ready := `{\x1b\[\?2004h}`
+	if agent == vendors.AgentPi {
+		ready = `{\x1b\]777;coslash-ready=` + filepath.Base(path) + `\x07}`
+	}
 	if agent == vendors.AgentOpenCode {
 		ready = `{Ask anything}`
 	} else if agent == vendors.AgentCursor {
@@ -89,6 +93,9 @@ set send_slow {256 .01}
 interact -o -nobuffer -re ` + ready + ` {send -s -- $prompt; ` + submit + `; return}
 interact`
 	command := "COSLASH_PROMPT_PATH=" + shellQuote(path) + " COSLASH_BASE=" + shellQuote(base) + " " + shellJoin(expect, "-c", relay)
+	if agent == vendors.AgentPi {
+		command = "COSLASH_PI_READY=" + shellQuote(filepath.Base(path)) + " " + command
+	}
 	return command, path, nil
 }
 

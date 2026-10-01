@@ -72,6 +72,8 @@ function clear() {
 export default function (pi: any) {
   // Event semantics have been verified on this release only.
   if (VERSION !== "0.99.1" && VERSION !== "0.99.2") return
+  const ready = process.env.COSLASH_PI_READY
+  delete process.env.COSLASH_PI_READY
   const handoffPath = process.env.COSLASH_PI_HANDOFF_FILE
   // Replacement runtimes must not consume the initial session's notes again.
   const handoff = handoffPath ? readFileSync(handoffPath, "utf8") : ""
@@ -84,6 +86,8 @@ export default function (pi: any) {
   pi.on("session_start", (event: any, ctx: any) => {
     processStartIdentity ??= processIdentity()
     handoffSession = event.reason === "startup" ? ctx.sessionManager.getSessionId() : undefined
+    // Pi installs its editor submit handler before emitting startup session_start.
+    if (event.reason === "startup" && ctx.mode === "tui" && ready && /^[a-zA-Z0-9._-]+$/.test(ready)) process.stdout.write(`\x1b]777;coslash-ready=${ready}\x07`)
     context = ctx; active = true; dialogOpen = false; agentRunning = false
     publish()
     if (!timer) {
