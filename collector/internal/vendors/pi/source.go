@@ -180,6 +180,10 @@ func readSessionsSinceContext(ctx context.Context, since int64, metadata *vendor
 	for path, h := range headers {
 		identities[h.ID] = append(identities[h.ID], path)
 	}
+	discovered := map[string]bool{}
+	for _, file := range scan.Files {
+		discovered[file] = true
+	}
 	selected := map[string]bool{}
 	var eligible []string
 	for _, file := range scan.Files {
@@ -212,7 +216,15 @@ func readSessionsSinceContext(ctx context.Context, since int64, metadata *vendor
 			}
 			parent := canonicalPath(h.ParentSession)
 			h, ok := headers[parent]
-			if !ok || len(identities[h.ID]) != 1 || selected[parent] {
+			if !ok && !discovered[parent] {
+				var err error
+				h, err = readTranscriptHeader(ctx, parent)
+				if err != nil {
+					break
+				}
+				headers[parent], ok = h, true
+			}
+			if !ok || (discovered[parent] && len(identities[h.ID]) != 1) || selected[parent] {
 				break
 			}
 			selected[parent], file = true, parent
