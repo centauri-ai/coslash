@@ -181,3 +181,11 @@ func TestNewIndexedParserIndexesFilesOnce(t *testing.T) {
 		t.Fatalf("parsed files = %v, want %v", parsed, want)
 	}
 }
+
+func TestPiPlatformSupport(t *testing.T) {
+	for _, platform := range []string{"darwin", "windows", "linux", "freebsd", ""} {
+		if got := piSupportedOn(platform); got != (platform == "darwin") {
+			t.Fatalf("Pi support on %s = %t", platform, got)
+		}
+	}
+}

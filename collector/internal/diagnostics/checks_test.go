@@ -80,3 +80,16 @@ func TestCursorIDEExecutableSkipsNonExecutableBundleBinary(t *testing.T) {
 		t.Fatalf("Cursor executable = %q, want non-executable candidate skipped", got)
 	}
 }
+
+func TestUnsupportedPiSynthesisOffersSupportedBackend(t *testing.T) {
+	snapshot := &Snapshot{piSynthesisUnsupported: true, Synthesis: Synthesis{Enabled: true}}
+	for _, check := range derive(snapshot) {
+		if check.ID == "synthesis" {
+			if check.Status != StatusWarn || check.Detail != "Pi synthesis is supported only on macOS." || check.Fix != "Open Settings and choose another synthesis backend." {
+				t.Fatalf("wrong platform recovery: %#v", check)
+			}
+			return
+		}
+	}
+	t.Fatal("missing synthesis check")
+}

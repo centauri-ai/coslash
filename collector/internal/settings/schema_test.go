@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestSettingsSchemaAcceptsWindowsTerminal(t *testing.T) {
@@ -49,8 +51,12 @@ func TestPiSynthesisSettings(t *testing.T) {
 			t.Fatalf("got=%#v err=%v", got, err)
 		}
 	}
-	if BackendExecutable(BackendPi) != "pi" {
-		t.Fatal("Pi executable missing")
+	wantExecutable := ""
+	if vendors.PiSupported() {
+		wantExecutable = "pi"
+	}
+	if BackendExecutable(BackendPi) != wantExecutable {
+		t.Fatal("Pi backend availability does not match platform support")
 	}
 	data, err := os.ReadFile(filepath.Join("..", "..", "..", "settings.schema.json"))
 	if err != nil {

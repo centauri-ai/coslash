@@ -13,6 +13,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/collector"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/opencode"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
@@ -35,19 +36,20 @@ const (
 )
 
 type Snapshot struct {
-	Version             string    `json:"version"`
-	GeneratedAt         int64     `json:"generatedAt"`
-	Platform            Platform  `json:"platform"`
-	Storage             Storage   `json:"storage"`
-	Synthesis           Synthesis `json:"synthesis"`
-	Sources             []Source  `json:"sources"`
-	Remote              *Remote   `json:"remote,omitempty"`
-	Checks              []Check   `json:"checks"`
-	openCodePlugin      opencode.PluginHealth
-	openCodePluginError string
-	piExtension         pi.ExtensionHealth
-	piExtensionError    string
-	homeError           string
+	Version                string    `json:"version"`
+	GeneratedAt            int64     `json:"generatedAt"`
+	Platform               Platform  `json:"platform"`
+	Storage                Storage   `json:"storage"`
+	Synthesis              Synthesis `json:"synthesis"`
+	Sources                []Source  `json:"sources"`
+	Remote                 *Remote   `json:"remote,omitempty"`
+	Checks                 []Check   `json:"checks"`
+	openCodePlugin         opencode.PluginHealth
+	openCodePluginError    string
+	piExtension            pi.ExtensionHealth
+	piExtensionError       string
+	piSynthesisUnsupported bool
+	homeError              string
 }
 
 type Remote struct {
@@ -212,16 +214,23 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 		snapshot.Sources = append(snapshot.Sources, collectSource(ctx, userHome, health, includeVersions))
 	}
 
+	snapshot.piSynthesisUnsupported = config.Backend == settings.BackendPi && !vendors.PiSupported()
 	synthesisCLI := settings.BackendExecutable(config.Backend)
-	_, synthesisCLIErr := exec.LookPath(synthesisCLI)
+	synthesisCLIFound := false
+	if !snapshot.piSynthesisUnsupported {
+		_, err := exec.LookPath(synthesisCLI)
+		synthesisCLIFound = err == nil
+	}
 	snapshot.Synthesis = Synthesis{
 		Enabled:  state.Valid && state.Persisted && config.Enabled,
 		Model:    config.Model,
-		CLIFound: synthesisCLIErr == nil,
+		CLIFound: synthesisCLIFound,
 	}
 	if !state.Valid {
 		snapshot.Synthesis.Error = displayError(userHome, state.Error)
-	} else if snapshot.Synthesis.Enabled && synthesisCLIErr != nil {
+	} else if snapshot.Synthesis.Enabled && snapshot.piSynthesisUnsupported {
+		snapshot.Synthesis.Reason = "Pi synthesis is supported only on macOS."
+	} else if snapshot.Synthesis.Enabled && !synthesisCLIFound {
 		snapshot.Synthesis.Reason = fmt.Sprintf("%s CLI is not on PATH.", synthesisCLI)
 	}
 	snapshot.Checks = derive(snapshot)

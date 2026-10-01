@@ -3,6 +3,8 @@ package diagnostics
 import (
 	"fmt"
 	"strings"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func derive(snapshot *Snapshot) []Check {
@@ -69,6 +71,10 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Fix = "Open Settings and repair settings.json."
 	} else if !snapshot.Synthesis.Enabled {
 		synthesis.Detail = "Disabled; coSlash will show deterministic transcript details only."
+	} else if snapshot.piSynthesisUnsupported {
+		synthesis.Status = StatusWarn
+		synthesis.Detail = "Pi synthesis is supported only on macOS."
+		synthesis.Fix = "Open Settings and choose another synthesis backend."
 	} else if !snapshot.Storage.Writable {
 		synthesis.Status = StatusFail
 		synthesis.Detail = "Enabled, but coSlash storage is not writable."
@@ -81,7 +87,10 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Detail = "Enabled with " + snapshot.Synthesis.Model + "."
 	}
 	checks = append(checks, synthesis)
-	checks = append(checks, openCodePluginCheck(snapshot), piExtensionCheck(snapshot))
+	checks = append(checks, openCodePluginCheck(snapshot))
+	if vendors.PiSupported() {
+		checks = append(checks, piExtensionCheck(snapshot))
+	}
 
 	if !snapshot.Platform.TerminalLaunchSupported {
 		checks = append(checks, Check{

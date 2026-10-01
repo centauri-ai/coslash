@@ -20,9 +20,10 @@ const history = () => {
   try { return readdirSync(path.join(env.COSLASH_HOME, 'pi-history')).map(name => JSON.parse(readFileSync(path.join(env.COSLASH_HOME, 'pi-history', name), 'utf8'))); }
   catch { return []; }
 };
-async function run(file, args, input, declared, expected) {
+async function run(file, args, input, declared, expected, unsupported = false) {
   const childEnv = { ...env };
   if (declared) childEnv.COSLASH_PI_ENTRYPOINT = declared;
+  if (unsupported) childEnv.COSLASH_TEST_UNSUPPORTED_PLATFORM = "linux";
   const child = spawn(process.execPath, [file, ...args], { cwd: root, env: childEnv });
   let diagnostic = '';
   child.stdout.resume();
@@ -33,6 +34,7 @@ async function run(file, args, input, declared, expected) {
     const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('exit', resolve); });
     assert.equal(code, 0, diagnostic);
     const records = history().filter(item => item.record.pid === child.pid);
+    if (unsupported) { assert.equal(records.length, 0, 'unsupported platform published runtime evidence'); return; }
     assert.ok(records.length, `Missing runtime evidence: ${diagnostic}`);
     for (const item of records) assert.equal(item.record.entrypoint, expected);
   } finally { clearTimeout(timer); child.kill('SIGKILL'); }
@@ -49,6 +51,7 @@ if (existsSync(rpc)) await run(rpc, common, JSON.stringify({ type: 'prompt', mes
 const sdk = path.join(root, 'sdk.mjs');
 writeFileSync(sdk, `
 import {createAgentSession, ModelRuntime, DefaultResourceLoader, SessionManager} from ${JSON.stringify(path.join(pkg, 'dist/index.js'))};
+if (process.env.COSLASH_TEST_UNSUPPORTED_PLATFORM) Object.defineProperty(process, 'platform', { value: 'linux' });
 const runtime = await ModelRuntime.create();
 const loader = new DefaultResourceLoader({cwd:process.cwd(), agentDir:process.env.PI_CODING_AGENT_DIR, noExtensions:true, noSkills:true, noPromptTemplates:true, noContextFiles:true, additionalExtensionPaths:[${JSON.stringify(path.join(agent,'extensions/coslash-extension.ts'))},${JSON.stringify(provider)}]});
 await loader.reload();
@@ -61,5 +64,6 @@ try {
 `);
 await run(sdk, [], '', undefined, undefined);
 await run(sdk, [], '', 'pi-sdk', 'pi-sdk');
-console.log('PASS native RPC, print, JSON, piped print, RPC launcher, SDK unknown and declared SDK; no paid requests');
+await run(sdk, [], '', 'pi-sdk', undefined, true);
+console.log('PASS native RPC, print, JSON, piped print, RPC launcher, SDK unknown and declared SDK, unsupported-platform extension no-op; no paid requests');
 console.log('isolated root: ' + root);

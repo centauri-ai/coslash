@@ -12,17 +12,14 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestPiSynthesis(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	for _, model := range []string{"default", "amazon-bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0"} {
 		t.Run(model, func(t *testing.T) {
-			created, err := NewRunner(settings.SynthesisSettings{Enabled: true, Backend: "pi-cli", Model: model})
-			if err != nil {
-				t.Fatal(err)
-			}
-			runner := created.(*CLIRunner)
+			runner := &CLIRunner{Backend: settings.BackendPi, Bin: "pi", Model: model, Timeout: time.Second}
 			runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
 				want := []string{"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--system-prompt", systemPrompt + jsonInstruction, "--append-system-prompt", ""}
 				if model != "default" {
@@ -84,5 +81,16 @@ func TestPiSynthesisFailure(t *testing.T) {
 	r := &CLIRunner{Backend: "pi-cli", Bin: "pi", Model: "default", Timeout: time.Second, exec: func(ctx context.Context, _ commandSpec) ([]byte, error) { return nil, ctx.Err() }}
 	if _, err := r.Run(ctx, "facts"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel=%v", err)
+	}
+}
+
+func TestPiRunnerPlatformAvailability(t *testing.T) {
+	runner, err := NewRunner(settings.SynthesisSettings{Enabled: true, Backend: settings.BackendPi, Model: settings.PiDefaultModel})
+	if vendors.PiSupported() {
+		if err != nil || runner == nil {
+			t.Fatalf("supported Pi runner unavailable: %v", err)
+		}
+	} else if err == nil || runner != nil || !strings.Contains(err.Error(), "macOS") {
+		t.Fatalf("unsupported Pi runner = %v, %v", runner, err)
 	}
 }

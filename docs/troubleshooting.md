@@ -37,6 +37,8 @@ the host is offline and leaves its optional helper installed on the host.
 
 ## Pi sessions and runtime status
 
+Pi support is limited to local macOS sessions. On Windows and Linux, coSlash does not collect Pi sessions, install or inspect its runtime extension, or offer Pi synthesis and launch actions. Existing Pi synthesis settings remain readable but unavailable. Shared parsers remain build-compatible; runtime support on those platforms awaits device validation.
+
 Run `coslash doctor` and inspect the Pi source, CLI release, and managed-extension checks. Transcript schema 3 is supported; older and future schemas are skipped with diagnostics. Runtime hooks and terminal launch are verified only for Pi 0.99.1 and 0.99.2. An unsupported runtime can have a readable schema-3 transcript while its status stays Unknown.
 
 Restart Pi after coSlash installs or updates `coslash-extension.ts`. An unmanaged file at that path is preserved and reported; review it before moving it aside. `/reload` is not a verified activation path. Missing extension or unverifiable process-start identity stays Unknown. Conflicting live leaves withhold active-branch evidence while status still follows verified owner activity. Waiting takes precedence over busy, then unknown evidence, then idle; verified terminated evidence permits Inactive. A hard exit is checked using process liveness, not just shutdown hooks. On macOS, process-start identity has second resolution, so same-PID reuse within the same second cannot be distinguished.

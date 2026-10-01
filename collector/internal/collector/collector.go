@@ -36,32 +36,37 @@ type vendorSource struct {
 	health         func() vendors.SourceHealth
 }
 
-var vendorSources = []vendorSource{
-	{name: vendors.AgentPi, collect: pi.CollectContext, loadFacts: pi.GetSessionFacts, loadFamily: pi.GetSessionFamily, health: pi.Health},
-	{
-		name: vendors.AgentClaude, collect: claude.CollectContext, loadFacts: claude.GetSessionFacts,
-		newFactsLoader: claude.NewSessionFactsLoader,
-		loadFamily:     claude.GetSessionFamily,
-		health:         claude.Health,
-	},
-	{
-		name: vendors.AgentCodex, collect: codex.CollectContext, loadFacts: codex.GetSessionFacts,
-		newFactsLoader: codex.NewSessionFactsLoader,
-		loadFamily:     codex.GetSessionFamily,
-		health:         codex.Health,
-	},
-	{
-		name: vendors.AgentOpenCode, collect: opencode.CollectContext, loadFacts: opencode.GetSessionFacts,
-		newFactsLoader: opencode.NewSessionFactsLoader,
-		loadFamily:     opencode.GetSessionFamily,
-		health:         opencode.Health,
-	},
-	{
-		name: vendors.AgentCursor, collect: cursor.CollectContext, loadFacts: cursor.GetSessionFacts,
-		loadFamily: cursor.GetSessionFamily,
-		health:     cursor.Health,
-	},
-}
+var vendorSources = func() []vendorSource {
+	sources := []vendorSource{
+		{
+			name: vendors.AgentClaude, collect: claude.CollectContext, loadFacts: claude.GetSessionFacts,
+			newFactsLoader: claude.NewSessionFactsLoader,
+			loadFamily:     claude.GetSessionFamily,
+			health:         claude.Health,
+		},
+		{
+			name: vendors.AgentCodex, collect: codex.CollectContext, loadFacts: codex.GetSessionFacts,
+			newFactsLoader: codex.NewSessionFactsLoader,
+			loadFamily:     codex.GetSessionFamily,
+			health:         codex.Health,
+		},
+		{
+			name: vendors.AgentOpenCode, collect: opencode.CollectContext, loadFacts: opencode.GetSessionFacts,
+			newFactsLoader: opencode.NewSessionFactsLoader,
+			loadFamily:     opencode.GetSessionFamily,
+			health:         opencode.Health,
+		},
+		{
+			name: vendors.AgentCursor, collect: cursor.CollectContext, loadFacts: cursor.GetSessionFacts,
+			loadFamily: cursor.GetSessionFamily,
+			health:     cursor.Health,
+		},
+	}
+	if vendors.PiSupported() {
+		sources = append([]vendorSource{{name: vendors.AgentPi, collect: pi.CollectContext, loadFacts: pi.GetSessionFacts, loadFamily: pi.GetSessionFamily, health: pi.Health}}, sources...)
+	}
+	return sources
+}()
 
 type SourceHealth = vendors.SourceHealth
 

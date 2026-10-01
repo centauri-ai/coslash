@@ -508,3 +508,13 @@ func TestLegacySessionExistsResolverIndexesEachSourceOnce(t *testing.T) {
 		t.Fatalf("session loads = %#v", loads)
 	}
 }
+
+func TestPiRegistrationMatchesSupportedPlatform(t *testing.T) {
+	found := false
+	for _, source := range vendorSources {
+		found = found || source.name == vendors.AgentPi
+	}
+	if found != vendors.PiSupported() {
+		t.Fatalf("Pi registration %t differs from platform support", found)
+	}
+}

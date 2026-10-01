@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 //go:embed coslash-extension.ts
@@ -22,6 +24,12 @@ func ExtensionPath() (string, error) {
 
 // EnsureExtension installs through Pi's native extension discovery, preserving settings.
 func EnsureExtension() error {
+	if !vendors.PiSupported() {
+		return nil
+	}
+	return ensureExtension()
+}
+func ensureExtension() error {
 	target, err := ExtensionPath()
 	if err != nil {
 		return err
@@ -67,6 +75,12 @@ type ExtensionHealth struct {
 }
 
 func ExtensionDiagnostics() ExtensionHealth {
+	if !vendors.PiSupported() {
+		return ExtensionHealth{}
+	}
+	return extensionDiagnostics()
+}
+func extensionDiagnostics() ExtensionHealth {
 	target, err := ExtensionPath()
 	health := ExtensionHealth{Path: target, Err: err}
 	if err != nil {
