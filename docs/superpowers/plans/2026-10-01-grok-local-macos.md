@@ -22,7 +22,7 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
 | T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | UI commits `a83b077d` and `2b81b547`. Detail allow-list fix `ade6e0c8`. PR not opened. |
 
-**Next action:** E2E on pane `pane-6615c297-a645-4149-a168-919ce56678a8` is recorded. Codex terminal `586f8bcf-e9e9-46f5-aef2-43f36ba7d142` was sent to rerun `TestExactLocalDetailAcceptsGrokSessions` in `/Users/calvin/.superset/worktrees/coslash/cvu/grok-t5-ui/collector`. Do not send that again. Do not open pull requests until the user asks. Do not kill 8787 or 8797.
+**Next action:** Codex re-ran `TestExactLocalDetailAcceptsGrokSessions` and reported pass (`ok github.com/centauri-ai/coslash/collector/cmd/coslash 0.268s`). Do not send that test again. Do not open pull requests until the user asks. Do not kill 8787 or 8797. The process on 8797 is still the older binary.
 
 E2E checks: 1 PASS (four Grok cards, chip label Grok). 2 FAIL (session detail drawer returns HTTP 400; the board itself shows 413 tool uses for the live session). 3 PASS (no subagent cards as peers). 4 PASS (Resume visible, not clicked). 5 PASS (no new console errors after the token URL).
 
