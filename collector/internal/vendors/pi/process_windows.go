@@ -3,6 +3,7 @@
 package pi
 
 import (
+	"context"
 	"errors"
 	"strconv"
 
@@ -11,6 +12,12 @@ import (
 
 // ProcessStartIdentity matches PowerShell StartTime.ToFileTimeUtc without rounding.
 func ProcessStartIdentity(pid int) (string, error) {
+	return processStartIdentityContext(context.Background(), pid)
+}
+func processStartIdentityContext(ctx context.Context, pid int) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if pid <= 0 || uint64(pid) > uint64(^uint32(0)) {
 		return "", windows.ERROR_INVALID_PARAMETER
 	}
@@ -28,6 +35,12 @@ func ProcessStartIdentity(pid int) (string, error) {
 }
 
 func processAbsent(pid int) bool {
+	return processAbsentContext(context.Background(), pid)
+}
+func processAbsentContext(ctx context.Context, pid int) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	if pid <= 0 || uint64(pid) > uint64(^uint32(0)) {
 		return true
 	}
