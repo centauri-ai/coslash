@@ -207,6 +207,9 @@ func TestPiVerifiedReleaseAllowlist(t *testing.T) {
 		}
 		_, _, err := cliCommand(vendors.AgentPi, "", NewSession, "")
 		verified := version == "0.99.1" || version == "0.99.2"
+		if available := PiAvailable(); available != verified {
+			t.Fatalf("PiAvailable(%s) = %v, want %v", version, available, verified)
+		}
 		if verified && err != nil {
 			t.Fatalf("verified %s rejected: %v", version, err)
 		}
