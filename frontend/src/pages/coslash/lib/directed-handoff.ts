@@ -1,4 +1,5 @@
 import { sessionKey, type SessionIdentity, type VendorKey } from '@/pages/coslash/lib/session';
+import type { SessionView } from '@/pages/coslash/lib/session-view-preferences';
 
 export type DirectedHandoff = {
   id: string;
@@ -24,11 +25,14 @@ export type HandoffSelection = {
 
 type SelectionAction =
   | { type: 'select'; key: string | null }
+  | { type: 'view'; view: SessionView }
   | { type: 'pending'; key: string }
   | { type: 'found'; key: string }
   | { type: 'clear-missing'; key: string };
 
 export function handoffSelection(state: HandoffSelection, action: SelectionAction): HandoffSelection {
+  if (action.type === 'view')
+    return action.view === 'insights' ? { selectedSessionKey: null, pendingTargetKey: null } : state;
   if (action.type === 'select') return { selectedSessionKey: action.key, pendingTargetKey: null };
   if (action.type === 'pending') return { ...state, pendingTargetKey: action.key };
   if (action.type === 'found')

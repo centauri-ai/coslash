@@ -42,6 +42,15 @@ describe('pending target navigation', () => {
     expect(handoffSelection(closed, { type: 'found', key: 'target' })).toEqual(closed);
   });
 
+  it('closes the pinned session and cancels pending navigation when Insights opens', () => {
+    const waiting = { selectedSessionKey: 'source', pendingTargetKey: 'target' };
+    const closed = handoffSelection(waiting, { type: 'view', view: 'insights' });
+    expect(closed).toEqual({ selectedSessionKey: null, pendingTargetKey: null });
+    expect(handoffSelection(closed, { type: 'found', key: 'target' })).toEqual(closed);
+    expect(handoffSelection(waiting, { type: 'view', view: 'board' })).toBe(waiting);
+    expect(handoffSelection(waiting, { type: 'view', view: 'list' })).toBe(waiting);
+  });
+
   it('opens a target that appears while it is still pending', () => {
     const waiting = { selectedSessionKey: 'source', pendingTargetKey: 'target' };
     expect(handoffSelection(waiting, { type: 'found', key: 'target' })).toEqual({

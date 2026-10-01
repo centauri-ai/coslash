@@ -192,7 +192,7 @@ A session that's 90% full, compacted twice, and 40 commits behind `main` is tell
 ### Three ways back in
 
 - **Resume** reopens the exact session in its own CLI, in its working directory, in your terminal of choice, with its full context intact.
-- **Start fresh with handoff** lets you choose an installed agent on the source host, then choose Review or enter a request. It launches a fresh terminal session, sends the brief and request, and tracks the new session and result.
+- **Start fresh with handoff** offers Fresh handoff to open the original agent with the generated notes, ready for your next message. For Review or a custom request, choose an installed destination agent on the source host; coSlash sends the brief and task and tracks the new session and result.
 - **Copy handoff** puts the same brief on your clipboard for a PR description, a standup, a ticket, or another machine entirely.
 
 Terminal launches use Windows Terminal with Windows PowerShell when Windows
