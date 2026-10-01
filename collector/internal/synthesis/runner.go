@@ -152,7 +152,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		}
 	case settings.BackendCodex:
 		label = "Codex"
-		parse = parseSynthesis
+		parse = parseCodexSynthesis
 		var err error
 		schemaPath, err = writeSchemaFile()
 		if err != nil {
@@ -161,6 +161,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		defer os.Remove(schemaPath)
 		args = []string{
 			"exec",
+			"--json",
 			"--ephemeral",
 			"--ignore-user-config",
 			"--ignore-rules",
@@ -291,6 +292,8 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 	result := RunResult{Usage: unknownUsage()}
 	if r.Backend == settings.BackendClaude {
 		result.Usage = parseClaudeUsage(output, r.Model)
+	} else if r.Backend == settings.BackendCodex {
+		result.Usage = parseCodexUsage(output, r.Model)
 	}
 	if errors.Is(err, errSynthesisOutputLimit) && result.Usage.Coverage == "complete" {
 		result.Usage.Coverage = "partial"

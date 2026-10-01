@@ -173,3 +173,85 @@ func priceReportedOnly(reported *int64) UsageReport {
 	report, _ := PriceUsage(nil, reported)
 	return report
 }
+
+func parseCodexSynthesis(data []byte) (session.SessionSynthesis, error) {
+	var message string
+	err := eachSynthesisEvent(data, func(line []byte) {
+		var event struct {
+			Type string `json:"type"`
+			Item struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"item"`
+		}
+		if json.Unmarshal(line, &event) == nil && event.Type == "item.completed" && event.Item.Type == "agent_message" {
+			message = event.Item.Text
+		}
+	})
+	if err != nil {
+		return session.SessionSynthesis{}, err
+	}
+	if message == "" {
+		return session.SessionSynthesis{}, errors.New("Codex produced no completed agent message")
+	}
+	if err := requireSynthesisFields([]byte(stripJSONFence(message))); err != nil {
+		return session.SessionSynthesis{}, err
+	}
+	return parseSynthesis([]byte(message))
+}
+
+func parseCodexUsage(data []byte, model string) UsageReport {
+	if model == "" || model == "auto" {
+		return unknownUsage()
+	}
+	var total session.ModelTokens
+	completed, invalid := false, false
+	err := eachSynthesisEvent(data, func(line []byte) {
+		var header struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(line, &header) != nil || header.Type != "turn.completed" {
+			return
+		}
+		var event struct {
+			Usage struct {
+				Input      *int `json:"input_tokens"`
+				Cached     *int `json:"cached_input_tokens"`
+				CacheWrite *int `json:"cache_write_input_tokens"`
+				Output     *int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if json.Unmarshal(line, &event) != nil {
+			invalid = true
+			return
+		}
+		if event.Usage.Input == nil || event.Usage.Cached == nil || event.Usage.Output == nil {
+			invalid = true
+			return
+		}
+		u := event.Usage
+		write := 0
+		if u.CacheWrite != nil {
+			write = *u.CacheWrite
+		}
+		if *u.Input < 0 || *u.Cached < 0 || write < 0 || *u.Output < 0 || *u.Cached > *u.Input || write > *u.Input-*u.Cached {
+			invalid = true
+			return
+		}
+		completed = true
+		total = session.ModelTokens{
+			InputTokens:              *u.Input - *u.Cached - write,
+			CacheReadInputTokens:     *u.Cached,
+			CacheCreationInputTokens: write,
+			OutputTokens:             *u.Output,
+		}
+	})
+	if err != nil || !completed || invalid {
+		return unknownUsage()
+	}
+	report, err := PriceUsage(map[string]session.ModelTokens{model: total}, nil)
+	if err != nil {
+		return unknownUsage()
+	}
+	return report
+}
