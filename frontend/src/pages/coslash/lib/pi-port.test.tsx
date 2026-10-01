@@ -132,15 +132,6 @@ describe('Pi accounting and local affordances', () => {
         {
           turn: 1,
           category: 'user',
-          sourceEntryId: 'late',
-          branchId: 'b2',
-          time: 3000,
-          description: 'Late branch',
-          active: true,
-        },
-        {
-          turn: 1,
-          category: 'user',
           sourceEntryId: 'early',
           branchId: 'b1',
           time: 1000,
@@ -148,6 +139,15 @@ describe('Pi accounting and local affordances', () => {
           contextDescription: 'Edited request',
           contextSelected: false,
           inherited: true,
+        },
+        {
+          turn: 1,
+          category: 'user',
+          sourceEntryId: 'late',
+          branchId: 'b2',
+          time: 3000,
+          description: 'Late branch',
+          active: true,
         },
       ],
     });
@@ -162,6 +162,19 @@ describe('Pi accounting and local affordances', () => {
     expect(renderToStaticMarkup(<DigestSection detail={pi({ detailsIncomplete: true })} />)).toContain(
       'Some nested tool details are unavailable',
     );
+  });
+
+  it('preserves producer order for undated timeline entries', () => {
+    const detail = pi({
+      digest: [
+        { turn: 1, category: 'recap', description: 'DATED_A_REVIEW', time: 1000 },
+        { turn: 1, category: 'recap', description: 'UNDATED_B_REVIEW' },
+        { turn: 1, category: 'recap', description: 'DATED_C_REVIEW', time: 3000 },
+      ],
+    });
+    const markup = renderToStaticMarkup(<DigestSection detail={detail} />);
+    expect(markup.indexOf('DATED_A_REVIEW')).toBeLessThan(markup.indexOf('UNDATED_B_REVIEW'));
+    expect(markup.indexOf('UNDATED_B_REVIEW')).toBeLessThan(markup.indexOf('DATED_C_REVIEW'));
   });
 
   it('makes monthly cost unavailable while retaining the session count', () => {
