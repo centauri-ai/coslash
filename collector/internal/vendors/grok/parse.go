@@ -70,10 +70,11 @@ type usageFile struct {
 type updateLine struct {
 	Params struct {
 		Update struct {
-			Kind    string          `json:"sessionUpdate"`
-			Status  string          `json:"status"`
-			Content json.RawMessage `json:"content"`
-			Meta    struct {
+			Kind      string          `json:"sessionUpdate"`
+			Status    string          `json:"status"`
+			Content   json.RawMessage `json:"content"`
+			RawOutput json.RawMessage `json:"rawOutput"`
+			Meta      struct {
 				HideFromScrollback bool `json:"hideFromScrollback"`
 			} `json:"_meta"`
 		} `json:"update"`
@@ -87,6 +88,15 @@ type chunkContent struct {
 	Meta struct {
 		BashCommand *string `json:"bash_command"`
 	} `json:"_meta"`
+}
+
+// bashOutput is the rawOutput of a completed terminal command.
+type bashOutput struct {
+	Type     string `json:"type"`
+	Command  string `json:"command"`
+	Output   string `json:"output_for_prompt"`
+	ExitCode *int   `json:"exit_code"`
+	TimedOut bool   `json:"timed_out"`
 }
 
 // toolContent is one item of a tool_call_update's content array.
@@ -158,6 +168,9 @@ func parseSessionContext(ctx context.Context, dir string) (*vendors.ParsedSessio
 	s.FirstPrompt = nonEmpty(updates.firstPrompt)
 	s.FileEdits = updates.edits.Edits
 	s.EditedFileCount = len(s.FileEdits)
+	s.Commands = updates.commands.Raw()
+	s.CommitLog = updates.commitLog
+	s.PullRequests = updates.pullRequests
 	s.Todos = readTodos(filepath.Join(dir, "plan.json"))
 	var goal struct {
 		Objective string `json:"objective"`
@@ -187,7 +200,9 @@ func parseSessionContext(ctx context.Context, dir string) (*vendors.ParsedSessio
 		s.ContextWindow = session.ContextWindowFor(*s.Model)
 	}
 
-	parsed := &vendors.ParsedSession{Session: s, LogPath: filepath.Join(dir, "updates.jsonl"), InTurn: updates.inTurn}
+	parsed := &vendors.ParsedSession{
+		Session: s, LogPath: filepath.Join(dir, "updates.jsonl"), InTurn: updates.inTurn, Commands: updates.commands.Labelled(),
+	}
 	if isSubagentKind(summary.SessionKind) {
 		// A fork or worktree session keeps its parent link but stays a top-level row.
 		parsed.ParentID = summary.ParentSessionID
@@ -247,6 +262,9 @@ type updatesSummary struct {
 	openToolCalls int
 	inTurn        bool
 	edits         *session.FileEditSet
+	commands      session.CommandLog
+	commitLog     []session.CommitObservation
+	pullRequests  int
 }
 
 func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
@@ -277,6 +295,10 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 		if update.Kind == "tool_call_update" {
 			// The diff repeats on the update that completes the call, so count only that one.
 			var items []toolContent
+			var shell bashOutput
+			if update.Status == "completed" && json.Unmarshal(update.RawOutput, &shell) == nil && shell.Type == "Bash" {
+				result.noteCommand(shell)
+			}
 			if update.Status == "completed" && json.Unmarshal(update.Content, &items) == nil {
 				for _, item := range items {
 					if item.Type == "diff" && item.Path != "" {
@@ -368,6 +390,22 @@ func readTodos(path string) []session.Todo {
 		}
 	}
 	return todos
+}
+
+func (result *updatesSummary) noteCommand(shell bashOutput) {
+	if shell.Command == "" {
+		return
+	}
+	result.commands.Note(shell.Command, "")
+	// ponytail: substring match, so a quoted "--dry-run" in a commit message also skips that command.
+	if strings.Contains(shell.Command, "--dry-run") {
+		return
+	}
+	succeeded := shell.ExitCode != nil && *shell.ExitCode == 0 && !shell.TimedOut
+	result.commitLog = append(result.commitLog, session.ParseCommitObservations(shell.Command, shell.Output, succeeded)...)
+	if succeeded && session.IsPullRequestCreate(shell.Command) && len(session.PullRequestURLs(shell.Output)) > 0 {
+		result.pullRequests++
+	}
 }
 
 func readJSON(path string, target any) error {
