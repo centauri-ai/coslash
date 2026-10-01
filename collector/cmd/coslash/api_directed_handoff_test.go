@@ -43,7 +43,7 @@ func TestDirectedHandoffRejectsEmptyCustomRequestAndPersistsLaunchFailure(t *tes
 	}
 	settingsStore := settings.Open()
 	remoteManager := remote.NewManager(remote.Options{})
-	synthesisManager := synthesis.NewManager(nil)
+	synthesisManager := synthesis.NewManager(nil, nil)
 	for _, test := range []struct {
 		request string
 		status  int

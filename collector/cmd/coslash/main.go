@@ -110,6 +110,11 @@ func main() {
 	defer runtimeLock.Close()
 
 	settingsStore := settings.Open()
+	accountingStore, err := synthesis.OpenAccountingStore(settings.Home(), time.Now().UnixMilli())
+	if err != nil {
+		log.Fatalf("coslash: open synthesis accounting: %v", err)
+	}
+	defer accountingStore.Close()
 	if err := pi.EnsureExtension(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
 	}
@@ -123,7 +128,8 @@ func main() {
 	} else if settingsState.Persisted {
 		runner, _ = synthesis.NewRunner(settingsState.Config.Synthesis)
 	}
-	mgr := synthesis.NewManager(runner)
+	mgr := synthesis.NewManager(runner, accountingStore)
+	defer mgr.Shutdown()
 	reviewManager := review.NewManager(launch.Review)
 	directedStore, err := newDirectedHandoffStore()
 	if err != nil {
@@ -141,10 +147,10 @@ func main() {
 	if err := synthesis.CleanupScratch(); err != nil {
 		log.Printf("sweep synthesis scratch directories: %v", err)
 	}
-	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
+	go mgr.Run(context.Background(), func(ctx context.Context) ([]*session.Session, error) {
 		now := time.Now()
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		return collector.List(context.Background(), today.UnixMilli())
+		return collector.List(ctx, today.UnixMilli())
 	})
 	go cleanupHandoffs(settingsStore)
 	remoteManager, err := newProductionRemoteManager()
