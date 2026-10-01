@@ -1,6 +1,7 @@
 package pi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -381,5 +382,95 @@ func TestProjectionSessionTitleSurvivesBranchSelection(t *testing.T) {
 		if err != nil || p.Name != "New name" {
 			t.Fatalf("leaf %s lost latest title: %#v, %v", leaf, p, err)
 		}
+	}
+}
+
+func TestProjectionContextIncludesNativeOutput(t *testing.T) {
+	row := `{"type":"message","id":"a","message":{"role":"assistant","model":"m","usage":{"input":100,"output":40,"cacheRead":10,"cacheWrite":5,"cost":{"total":1}}}}`
+	parsed, err := projectLeaf(projectionFixture(t, "context-output", "", row), nil, "a", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Session.ContextTokens == nil || *parsed.Session.ContextTokens != 155 {
+		t.Fatalf("context must match Pi's post-response occupancy: %+v", parsed.Session.ContextTokens)
+	}
+}
+func TestProjectionForkLargeCounterMismatch(t *testing.T) {
+	row := `{"type":"message","id":"a","message":{"role":"assistant","model":"m","usage":{"input":9007199254740992,"output":1,"cacheRead":0,"cacheWrite":0,"cost":{"total":1}}}}`
+	parent := projectionFixture(t, "precision-parent", "", row)
+	matching := projectionFixture(t, "precision-matching", parent.Path, row)
+	assertCost(t, matching, parent, 0)
+	fork := projectionFixture(t, "precision-fork", parent.Path, strings.Replace(row, "9007199254740992", "9007199254740993", 1))
+	parsed, err := projectLeaf(fork, parent, "a", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parsed.Session.TokensUnavailable || !parsed.Session.CostUnavailable {
+		t.Fatal("changed inherited counter was verified")
+	}
+}
+
+func TestProjectionRepeatedLabelChains(t *testing.T) {
+	rows := []string{userRow("root", "", "shared", "2026-01-01T00:00:01Z")}
+	parent := "root"
+	for i := 0; i < 3000; i++ {
+		id := fmt.Sprintf("label-%d", i)
+		rows = append(rows, fmt.Sprintf(`{"type":"label","id":%q,"parentId":%q}`, id, parent))
+		parent = id
+	}
+	for i := 0; i < 3000; i++ {
+		rows = append(rows, assistantRow(fmt.Sprintf("message-%d", i), parent, "recap", 1))
+	}
+	parsed, err := projectLeaf(projectionFixture(t, "labels", "", rows...), nil, "message-2999", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Session.CostUnavailable || parsed.RecordedCost == nil || *parsed.RecordedCost != 3000 || len(parsed.Session.Digest) != 3001 {
+		t.Fatalf("label branches changed accounting/history: %+v", parsed.Session)
+	}
+	if parsed.Session.Digest[1].BranchID != "root" || parsed.Session.Digest[2].BranchID != "message-1" {
+		t.Fatal("label-transparent branch identities changed")
+	}
+}
+
+type cancelLabelContext struct {
+	context.Context
+	checks int
+}
+
+func (c *cancelLabelContext) Err() error {
+	c.checks++
+	if c.checks >= 10 {
+		return context.Canceled
+	}
+	return nil
+}
+func TestLabelParentsCancellationAndInvalidChains(t *testing.T) {
+	tr := &transcript{ByID: map[string]int{}}
+	for i := 0; i < 100; i++ {
+		id, parent := fmt.Sprint(i), fmt.Sprint(i+1)
+		tr.ByID[id] = i
+		tr.Entries = append(tr.Entries, entry{ID: id, Type: "label", ParentID: &parent})
+	}
+	ctx := &cancelLabelContext{Context: context.Background()}
+	id := "0"
+	if _, ok := labelParents(ctx, tr)(&id); ok || ctx.checks != 10 {
+		t.Fatalf("chain did not honor mid-walk cancellation: %d", ctx.checks)
+	}
+	resolver := labelParents(context.Background(), tr)
+	if _, ok := resolver(&id); ok {
+		t.Fatal("orphan label chain accepted")
+	}
+	tr.Entries[99].ParentID = &id
+	if _, ok := labelParents(context.Background(), tr)(&id); ok {
+		t.Fatal("cyclic label chain accepted")
+	}
+	tr.Entries[99].ParentID = nil
+	resolver = labelParents(context.Background(), tr)
+	if got, ok := resolver(&id); !ok || got != "" {
+		t.Fatal("null-root label chain rejected")
+	}
+	if got, ok := resolver(nil); !ok || got != "" {
+		t.Fatal("null parent rejected")
 	}
 }
