@@ -153,6 +153,7 @@ run: check-go unstage helper-assets
 
 test: check-go check-node
 	node internal/vendors/opencode/coslash-plugin.test.mjs
+	node internal/vendors/pi/coslash-extension.test.mjs
 	go test ./...
 	$(MAKE) test-embedded-helpers
 

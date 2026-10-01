@@ -22,7 +22,7 @@ function processIdentity() {
     return `ps:${execFileSync("ps", ["-p", String(process.pid), "-o", "lstart="], { encoding: "utf8", env: { ...process.env, LC_ALL: "C" } }).trim().replace(/\s+/g, " ")}`
   } catch { return "" }
 }
-const processStartIdentity = processIdentity()
+let processStartIdentity: string | undefined
 let sequence = 0
 let context: any
 let dialogOpen = false
@@ -82,6 +82,7 @@ export default function (pi: any) {
   })
   const update = (_event: any, ctx: any) => { context = ctx; publish() }
   pi.on("session_start", (event: any, ctx: any) => {
+    processStartIdentity ??= processIdentity()
     handoffSession = event.reason === "startup" ? ctx.sessionManager.getSessionId() : undefined
     context = ctx; active = true; dialogOpen = false; agentRunning = false
     publish()
