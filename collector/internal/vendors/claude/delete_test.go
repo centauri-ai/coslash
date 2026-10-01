@@ -1,9 +1,11 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -58,8 +60,9 @@ func TestDeleteSessionFamily(t *testing.T) {
 	neighbor := deleteFixture(t, home, project+neighborID+".jsonl", "neighbor")
 	unrelated := deleteFixture(t, home, "unrelated/"+deleteID+"/keep", "keep")
 	config := deleteFixture(t, home, ".claude/settings.json", "configuration")
-	history := deleteFixture(t, home, ".claude/history.jsonl", `{"sessionId":"`+deleteID+`","display":"remove"}`+"\n"+`{"sessionId":"`+neighborID+`","display":"keep"}`+"\n")
-	index := deleteFixture(t, home, project+"sessions-index.json", `{"version":1,"entries":[{"sessionId":"`+deleteID+`"},{"sessionId":"`+neighborID+`"}],"other":"keep"}`)
+	historyRow := `{"sessionId":"` + deleteID + `","display":"erase"}` + "\n"
+	history := deleteFixture(t, home, ".claude/history.jsonl", historyRow+`{"sessionId":"`+neighborID+`","display":"keep"}`+"\n")
+	index := deleteFixture(t, home, project+"sessions-index.json", `{"version":1,"entries":[{"sessionId":"`+neighborID+`"}],"other":"keep"}`)
 	if err := deleteSession(context.Background(), home, deleteID, closedDeleteProcesses); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +71,7 @@ func TestDeleteSessionFamily(t *testing.T) {
 			t.Fatalf("survived %s: %v", path, err)
 		}
 	}
-	for path, want := range map[string]string{neighbor: "neighbor", unrelated: "keep", config: "configuration", history: `{"sessionId":"` + neighborID + `","display":"keep"}` + "\n"} {
+	for path, want := range map[string]string{neighbor: "neighbor", unrelated: "keep", config: "configuration", history: strings.Repeat(" ", len(historyRow)-1) + "\n" + `{"sessionId":"` + neighborID + `","display":"keep"}` + "\n"} {
 		got, err := os.ReadFile(path)
 		if err != nil || string(got) != want {
 			t.Fatalf("neighbor changed %s: %q %v", path, got, err)
@@ -234,7 +237,7 @@ func TestDeleteSessionPartialFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := deleteSession(context.Background(), home, deleteID, closedDeleteProcesses)
-	if !errors.Is(err, ErrSessionFailed) {
+	if !errors.Is(err, ErrSessionUnverified) {
 		t.Fatalf("partial result: %v", err)
 	}
 	if _, err := os.Stat(transcript); err != nil {
@@ -245,7 +248,7 @@ func TestDeleteSessionPartialFailure(t *testing.T) {
 		t.Fatal("history truncated")
 	}
 	data, _ = os.ReadFile(index)
-	if strings.Contains(string(data), deleteID) || !strings.Contains(string(data), neighborID) {
+	if !strings.Contains(string(data), deleteID) || !strings.Contains(string(data), neighborID) {
 		t.Fatalf("unexpected index: %s", data)
 	}
 	data, _ = os.ReadFile(temporary)
@@ -265,7 +268,7 @@ func TestDeleteSessionSharedRecordsChanged(t *testing.T) {
 		}
 		return nil, nil
 	}
-	if err := deleteSession(context.Background(), home, deleteID, probe); !errors.Is(err, ErrSessionFailed) {
+	if err := deleteSession(context.Background(), home, deleteID, probe); !errors.Is(err, ErrSessionUnverified) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(history)
@@ -302,10 +305,10 @@ func TestDeleteSessionVerifiesAbsence(t *testing.T) {
 		deleteFixture(t, home, ".claude/projects/late/"+deleteID+".jsonl", "{}\n")
 		return nil, nil
 	}
-	if err := deleteSession(context.Background(), home, deleteID, probe); !errors.Is(err, ErrSessionFailed) {
+	if err := deleteSession(context.Background(), home, deleteID, probe); !errors.Is(err, ErrSessionUnverified) {
 		t.Fatalf("late artifact: %v", err)
 	}
-	if _, err := os.Stat(transcript); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(transcript); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -356,5 +359,306 @@ func TestDeleteSessionRefusesSharedWriterWithoutTranscriptAssociation(t *testing
 				}
 			}
 		})
+	}
+}
+
+func TestReviewMetadataRegularReplacement(t *testing.T) {
+	for _, kind := range []string{"live", "desktop"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			transcript := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+			relative := ".claude/sessions/old.json"
+			before := `{"sessionId":"` + deleteID + `","pid":42}`
+			after := `{"sessionId":"` + neighborID + `","pid":99}`
+			if kind == "desktop" {
+				relative = desktopDeleteRelative() + "/account/project/old.json"
+				before = `{"cliSessionId":"` + deleteID + `"}`
+				after = `{"cliSessionId":"` + neighborID + `"}`
+			}
+			metadata := deleteFixture(t, home, relative, before)
+			probe := func(context.Context) ([]deleteProcess, error) {
+				replacement := metadata + ".replacement"
+				if err := os.WriteFile(replacement, []byte(after), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(replacement, metadata); err != nil {
+					t.Fatal(err)
+				}
+				return []deleteProcess{{pid: 99}}, nil
+			}
+			err := deleteSession(context.Background(), home, deleteID, probe)
+			_, statErr := os.Stat(metadata)
+			t.Logf("result=%v neighborMetadataRemoved=%v", err, errors.Is(statErr, os.ErrNotExist))
+			if err == nil && errors.Is(statErr, os.ErrNotExist) {
+				t.Fatal("reported success after deleting replacement metadata owned by neighbor")
+			}
+			if _, err := os.Stat(transcript); err != nil {
+				t.Fatalf("wrote before refusing changed ownership: %v", err)
+			}
+		})
+	}
+}
+
+func TestReviewUnknownLayoutReadableAfterSuccess(t *testing.T) {
+	home := t.TempDir()
+	body := `{"sessionId":"` + deleteID + `","type":"user","uuid":"row","message":{"content":"hello"}}` + "\n"
+	deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", body)
+	hidden := deleteFixture(t, home, ".claude/projects/project/nested/"+deleteID+".jsonl", body)
+	err := deleteSession(context.Background(), home, deleteID, closedDeleteProcesses)
+	files, discoveryErr := FilesSource(vendors.LocalReadSource, ProjectsRoot(home))
+	parsed, readErr := parseTranscript(hidden)
+	found := false
+	for _, p := range files {
+		if FamilyIDFromPath(p) == deleteID {
+			found = true
+		}
+	}
+	t.Logf("result=%v discoveryErr=%v found=%v parsed=%v readErr=%v", err, discoveryErr, found, parsed != nil, readErr)
+	if err == nil && found && parsed != nil && readErr == nil {
+		t.Fatal("reported success with collector-readable target in unknown layout")
+	}
+}
+
+func TestReviewFreshPIDPublishedDuringProbe(t *testing.T) {
+	home := t.TempDir()
+	transcript := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+	metadata := deleteFixture(t, home, ".claude/sessions/old.json", `{"sessionId":"`+deleteID+`","pid":42}`)
+	probe := func(context.Context) ([]deleteProcess, error) {
+		if err := os.WriteFile(metadata, []byte(`{"sessionId":"`+deleteID+`","pid":99}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return []deleteProcess{{pid: 99}}, nil
+	}
+	err := deleteSession(context.Background(), home, deleteID, probe)
+	_, statErr := os.Stat(transcript)
+	t.Logf("result=%v activeTranscriptRemoved=%v", err, errors.Is(statErr, os.ErrNotExist))
+	if !errors.Is(err, ErrSessionActive) && !errors.Is(err, ErrSessionUnverified) {
+		t.Fatalf("failed to refuse fresh known-active session: %v", err)
+	}
+	if statErr != nil {
+		t.Fatal("removed active transcript")
+	}
+}
+
+func TestDeleteSharedReferencesNeedWriterProtocol(t *testing.T) {
+	for _, shared := range []struct{ name, path, body string }{
+		{"history", ".claude/history.jsonl", `{"sessionId":"` + deleteID + `"}` + "\n"},
+		{"index", ".claude/projects/project/sessions-index.json", `{"entries":[{"sessionId":"` + deleteID + `"},{"sessionId":"` + neighborID + `"}]}`},
+	} {
+		t.Run(shared.name, func(t *testing.T) {
+			home := t.TempDir()
+			target := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+			path := deleteFixture(t, home, shared.path, shared.body)
+			writer, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer writer.Close()
+			before, err := writer.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantBody := shared.body
+			if shared.name == "history" {
+				wantBody = strings.Repeat(" ", len(shared.body)-1) + "\n"
+			}
+			err = deleteSession(context.Background(), home, deleteID, closedDeleteProcesses)
+			if (shared.name == "history" && err != nil) || (shared.name == "index" && !errors.Is(err, ErrSessionUnverified)) {
+				t.Fatalf("unproven writer protocol: %v", err)
+			}
+			after, err := os.Stat(path)
+			if err != nil || !os.SameFile(before, after) {
+				t.Fatalf("shared inode replaced: %v", err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != wantBody {
+				t.Fatal("shared references mutated")
+			}
+			if _, err := os.Stat(target); (shared.name == "history" && !errors.Is(err, os.ErrNotExist)) || (shared.name == "index" && err != nil) {
+				t.Fatal("target mutated before refusal")
+			}
+			if shared.name == "history" {
+				neighbor := `{"sessionId":"` + neighborID + `"}` + "\n"
+				if _, err := writer.WriteString(neighbor); err != nil {
+					t.Fatal(err)
+				}
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != wantBody+neighbor {
+					t.Fatalf("lost append through existing descriptor: %q %v", data, err)
+				}
+			}
+		})
+	}
+}
+
+func TestDeleteSessionUnknownChildLayoutRefusesWithoutMutation(t *testing.T) {
+	home := t.TempDir()
+	main := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+	unknown := deleteFixture(t, home, ".claude/projects/project/nested/"+deleteID+"/subagents/agent-child.jsonl", "{}\n")
+	if err := deleteSession(context.Background(), home, deleteID, closedDeleteProcesses); !errors.Is(err, ErrSessionUnverified) {
+		t.Fatal(err)
+	}
+	for _, path := range []string{main, unknown} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+type deleteSkippedSource struct {
+	vendors.ReadSource
+	path string
+}
+
+func (source deleteSkippedSource) ReadDir(path string) ([]os.DirEntry, error) {
+	if path == source.path {
+		return nil, os.ErrPermission
+	}
+	return source.ReadSource.ReadDir(path)
+}
+
+func TestDeleteFamilyRefusesSkippedAuthoritativeScan(t *testing.T) {
+	home := t.TempDir()
+	path := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+	root := ProjectsRoot(home)
+	source := deleteSkippedSource{vendors.LocalReadSource, filepath.Dir(path)}
+	if err := validateDeleteFamily(context.Background(), source, root, deleteID, []string{path}); err == nil {
+		t.Fatal("accepted incomplete scan")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeleteOwnedParentRefusesAncestorReplacement(t *testing.T) {
+	for _, kind := range []string{"relative", "absolute"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			outside := t.TempDir()
+			path := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "target")
+			inside := deleteFixture(t, home, "unrelated/"+deleteID+".jsonl", "inside neighbor")
+			external := deleteFixture(t, outside, deleteID+".jsonl", "outside neighbor")
+			root, err := os.OpenRoot(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			relative, _ := filepath.Rel(home, path)
+			artifact, err := pinDeleteArtifact(root, relative)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer artifact.parent.Close()
+			defer artifact.file.Close()
+			project := filepath.Dir(path)
+			if err := os.Rename(project, project+"-original"); err != nil {
+				t.Fatal(err)
+			}
+			destination := filepath.Join("..", "..", "..", "unrelated")
+			if kind == "absolute" {
+				destination = outside
+			}
+			if err := os.Symlink(destination, project); err != nil {
+				t.Skip(err)
+			}
+			if err := artifact.remove(); err == nil {
+				t.Fatal("accepted changed expected parent")
+			}
+			for path, want := range map[string]string{inside: "inside neighbor", external: "outside neighbor"} {
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != want {
+					t.Fatalf("neighbor lost: %q %v", data, err)
+				}
+			}
+			data, err := artifact.parent.ReadFile(artifact.leaf)
+			if err != nil || string(data) != "target" {
+				t.Fatalf("expected parent handle redirected: %q %v", data, err)
+			}
+		})
+	}
+}
+
+func TestDeleteMetadataReplacementWithIdenticalBytesRefuses(t *testing.T) {
+	home := t.TempDir()
+	target := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+	body := `{"sessionId":"` + deleteID + `","pid":42}`
+	metadata := deleteFixture(t, home, ".claude/sessions/old.json", body)
+	probe := func(context.Context) ([]deleteProcess, error) {
+		replacement := deleteFixture(t, home, ".claude/sessions/replacement.json", body)
+		if err := os.Rename(replacement, metadata); err != nil {
+			t.Fatal(err)
+		}
+		return nil, nil
+	}
+	if err := deleteSession(context.Background(), home, deleteID, probe); !errors.Is(err, ErrSessionUnverified) {
+		t.Fatal(err)
+	}
+	for _, path := range []string{target, metadata} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestDeleteSessionRetainedCaptureRefusesRetry(t *testing.T) {
+	home := t.TempDir()
+	target := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+	retained := deleteFixture(t, home, ".claude/session-env/.coslash-delete-"+deleteID+"-interrupted/"+deleteID+"/environment", "retained target")
+	neighbor := deleteFixture(t, home, ".claude/session-env/"+neighborID+"/environment", "neighbor")
+	if err := deleteSession(context.Background(), home, deleteID, closedDeleteProcesses); !errors.Is(err, ErrSessionUnverified) {
+		t.Fatalf("retained capture accepted: %v", err)
+	}
+	for path, want := range map[string]string{target: "{}\n", retained: "retained target", neighbor: "neighbor"} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != want {
+			t.Fatalf("modified before refusal: %q %v", data, err)
+		}
+	}
+}
+
+func TestDeleteHistoryBlankingBoundaries(t *testing.T) {
+	for _, ending := range []string{"\n", "\r\n", ""} {
+		t.Run(fmt.Sprintf("ending-%q", ending), func(t *testing.T) {
+			home := t.TempDir()
+			neighbor := `{"sessionId":"` + neighborID + `","display":"keep 世界"}` + "\n"
+			target := `{"sessionId":"` + deleteID + `","display":"erase 世界"}` + ending
+			history := deleteFixture(t, home, ".claude/history.jsonl", neighbor+target)
+			if err := deleteSession(context.Background(), home, deleteID, closedDeleteProcesses); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(history)
+			if err != nil || len(data) != len(neighbor+target) || string(data[:len(neighbor)]) != neighbor || len(bytes.TrimSpace(data[len(neighbor):])) != 0 {
+				t.Fatalf("history neighbors/length: %q %v", data, err)
+			}
+			if _, err := os.Stat(history + ".lock"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("lock leaked: %v", err)
+			}
+			if err := deleteSession(context.Background(), home, deleteID, closedDeleteProcesses); !errors.Is(err, ErrSessionMissing) {
+				t.Fatalf("blank retry: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeleteHistoryNativeWriterLockRefusesBeforeMutation(t *testing.T) {
+	home := t.TempDir()
+	target := deleteFixture(t, home, ".claude/projects/project/"+deleteID+".jsonl", "{}\n")
+	body := `{"sessionId":"` + deleteID + `"}` + "\n"
+	history := deleteFixture(t, home, ".claude/history.jsonl", body)
+	if err := os.Mkdir(history+".lock", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := deleteSession(context.Background(), home, deleteID, closedDeleteProcesses); !errors.Is(err, ErrSessionUnverified) {
+		t.Fatalf("writer lock: %v", err)
+	}
+	data, _ := os.ReadFile(history)
+	if string(data) != body {
+		t.Fatal("locked history changed")
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatal("transcript changed before refusal")
+	}
+	if info, err := os.Stat(history + ".lock"); err != nil || !info.IsDir() {
+		t.Fatal("native writer lock removed")
 	}
 }
