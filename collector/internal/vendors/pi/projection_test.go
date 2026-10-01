@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 )
 
@@ -341,5 +343,43 @@ func TestVerifiedEmptyPiAccountingIsKnownZero(t *testing.T) {
 	facts, err := projectLeaf(value, nil, "", false)
 	if err != nil || facts.Session.TokensUnavailable || !facts.Session.TokensKnown || facts.RecordedCost == nil || *facts.RecordedCost != 0 {
 		t.Fatalf("verified empty accounting lost: %#v, %v", facts, err)
+	}
+}
+
+func TestProjectionPreservesHandoffMarker(t *testing.T) {
+	store, err := directedhandoff.Open(filepath.Join(t.TempDir(), "handoffs.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.Start("local", "codex", "origin", "pi", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := directedhandoff.Marker(record.ID) + "\nDo the requested work\n" + strings.Repeat("é", 300)
+	tr := projectionFixture(t, "handoff", "", userRow("u", "", prompt, "2026-01-01T00:00:01Z"))
+	projected, err := projectLeaf(tr, nil, "u", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Observe("local", []*session.Session{projected.Session}); err != nil {
+		t.Fatal(err)
+	}
+	if store.List()[0].TargetSessionID != "handoff" {
+		t.Fatal("Pi prompt lost standalone handoff marker")
+	}
+	if len([]rune(*projected.Session.FirstPrompt)) > session.TruncateTextLimit {
+		t.Fatal("unbounded prompt")
+	}
+}
+func TestProjectionSessionTitleSurvivesBranchSelection(t *testing.T) {
+	tr := projectionFixture(t, "named", "", userRow("u", "", "original", "2026-01-01T00:00:01Z"),
+		`{"type":"session_info","id":"name1","parentId":"u","name":"Old name"}`,
+		`{"type":"session_info","id":"name2","parentId":"name1","name":"New name"}`,
+		userRow("branch", "u", "alternate", "2026-01-01T00:00:02Z"))
+	for _, leaf := range []string{"u", "branch", "name1"} {
+		p, err := projectLeaf(tr, nil, leaf, true)
+		if err != nil || p.Name != "New name" {
+			t.Fatalf("leaf %s lost latest title: %#v, %v", leaf, p, err)
+		}
 	}
 }

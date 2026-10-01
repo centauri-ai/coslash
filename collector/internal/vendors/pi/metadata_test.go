@@ -1,6 +1,7 @@
 package pi
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -135,6 +136,11 @@ func TestRuntimeSequenceAndLeafAgreement(t *testing.T) {
 	if leaf, ok := RuntimeLeaf(r.SessionID, r.TranscriptPath); !ok || leaf != "leaf" {
 		t.Fatalf("%s %v", leaf, ok)
 	}
+	snapshot, err := LoadRuntimeSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithRuntimeSnapshot(context.Background(), snapshot)
 	other := r
 	other.RuntimeID = "other"
 	otherLeaf := "alternative"
@@ -143,6 +149,24 @@ func TestRuntimeSequenceAndLeafAgreement(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "pi-runtime", "other.json"), data, 0600)
 	if _, ok := RuntimeLeaf(r.SessionID, r.TranscriptPath); ok {
 		t.Fatal("ambiguous leaf accepted")
+	}
+	// This refresh retains one generation even if metadata changes during projection.
+	if leaf, ok := runtimeLeafContext(ctx, r.SessionID, r.TranscriptPath); !ok || leaf != "leaf" {
+		t.Fatal("snapshot reread runtime metadata")
+	}
+	if err := os.RemoveAll(filepath.Join(home, "pi-runtime")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "pi-history")); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := LoadMetadataContext(ctx)
+	if err != nil || metadata.Session(r.SessionID).Live != "idle" {
+		t.Fatalf("lost verified owner snapshot: %v, %v", metadata, err)
+	}
+	paths, err := RuntimeTranscriptPathsContext(ctx)
+	if err != nil || len(paths) != 1 || paths[0] != r.TranscriptPath {
+		t.Fatalf("lost snapshot discovery: %v, %v", paths, err)
 	}
 }
 

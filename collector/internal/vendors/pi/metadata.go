@@ -1,10 +1,12 @@
 package pi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -161,7 +163,14 @@ func statusFor(owners []runtimeEvidence, verify func(runtimeEvidence) string) st
 	return "unknown"
 }
 func LoadMetadata() (*vendors.SessionMetadata, error) {
-	records, err := runtimeRecords()
+	return LoadMetadataContext(context.Background())
+}
+func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) {
+	snapshot, err := snapshotContext(ctx)
+	var records []runtimeEvidence
+	if snapshot != nil {
+		records = snapshot.records
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -171,14 +180,21 @@ func LoadMetadata() (*vendors.SessionMetadata, error) {
 	}
 	metadata := vendors.EmptySessionMetadata()
 	for id, owners := range grouped {
-		metadata.Session(id).Live = statusFor(owners, ownerState)
+		metadata.Session(id).Live = statusFor(owners, func(e runtimeEvidence) string { return snapshot.states[runtimeOwnerKey(e)] })
 	}
 	return metadata, nil
 }
 
 // RuntimeTranscriptPaths includes retained exited owners; it is independent of liveness.
 func RuntimeTranscriptPaths() ([]string, error) {
-	records, err := runtimeRecords()
+	return RuntimeTranscriptPathsContext(context.Background())
+}
+func RuntimeTranscriptPathsContext(ctx context.Context) ([]string, error) {
+	snapshot, err := snapshotContext(ctx)
+	var records []runtimeEvidence
+	if snapshot != nil {
+		records = snapshot.records
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -204,15 +220,58 @@ func canonicalTranscriptPath(path string) string {
 	return absolute
 }
 
-// RuntimeLeaf returns evidence only when verified live owners agree on the leaf.
-func RuntimeLeaf(id, path string) (string, bool) {
+type runtimeSnapshotKey struct{}
+
+// RuntimeSnapshot is request-scoped: one disk read and owner verification per refresh.
+type RuntimeSnapshot struct {
+	records []runtimeEvidence
+	owners  map[string][]runtimeEvidence
+	states  map[string]string
+}
+
+func runtimeOwnerKey(e runtimeEvidence) string {
+	return e.Record.RuntimeID + "\x00" + e.Record.TranscriptPath
+}
+func LoadRuntimeSnapshot() (*RuntimeSnapshot, error) {
 	records, err := runtimeRecords()
 	if err != nil {
-		return "", false
+		return nil, err
 	}
-	leaf, found := "", false
+	snapshot := &RuntimeSnapshot{records: records, owners: map[string][]runtimeEvidence{}, states: map[string]string{}}
+	processStates := map[string]string{}
 	for _, record := range records {
-		if record.Record.SessionID != id || canonicalTranscriptPath(record.Record.TranscriptPath) != canonicalTranscriptPath(path) || ownerState(record) != "live" {
+		key := record.Record.SessionID + "\x00" + canonicalTranscriptPath(record.Record.TranscriptPath)
+		snapshot.owners[key] = append(snapshot.owners[key], record)
+		state := "dead"
+		if !record.Exited {
+			processKey := strconv.Itoa(record.Record.PID) + "\x00" + record.Record.ProcessStartIdentity
+			var found bool
+			state, found = processStates[processKey]
+			if !found {
+				state = ownerState(record)
+				processStates[processKey] = state
+			}
+		}
+		snapshot.states[runtimeOwnerKey(record)] = state
+	}
+	return snapshot, nil
+}
+func snapshotContext(ctx context.Context) (*RuntimeSnapshot, error) {
+	if snapshot, ok := ctx.Value(runtimeSnapshotKey{}).(*RuntimeSnapshot); ok {
+		if snapshot == nil {
+			return nil, errors.New("Pi runtime snapshot unavailable")
+		}
+		return snapshot, nil
+	}
+	return LoadRuntimeSnapshot()
+}
+func WithRuntimeSnapshot(ctx context.Context, snapshot *RuntimeSnapshot) context.Context {
+	return context.WithValue(ctx, runtimeSnapshotKey{}, snapshot)
+}
+func (s *RuntimeSnapshot) Leaf(id, path string) (string, bool) {
+	leaf, found := "", false
+	for _, record := range s.owners[id+"\x00"+canonicalTranscriptPath(path)] {
+		if s.states[runtimeOwnerKey(record)] != "live" {
 			continue
 		}
 		if record.Record.LeafID == nil {
@@ -224,6 +283,24 @@ func RuntimeLeaf(id, path string) (string, bool) {
 		leaf, found = *record.Record.LeafID, true
 	}
 	return leaf, found
+}
+func runtimeLeafContext(ctx context.Context, id, path string) (string, bool) {
+	if snapshot, ok := ctx.Value(runtimeSnapshotKey{}).(*RuntimeSnapshot); ok {
+		if snapshot == nil {
+			return "", false
+		}
+		return snapshot.Leaf(id, path)
+	}
+	return RuntimeLeaf(id, path)
+}
+
+// RuntimeLeaf returns evidence only when verified live owners agree on the leaf.
+func RuntimeLeaf(id, path string) (string, bool) {
+	snapshot, err := LoadRuntimeSnapshot()
+	if err != nil {
+		return "", false
+	}
+	return snapshot.Leaf(id, path)
 }
 
 // ConfiguredSessionRoots discovers configured roots, never arbitrary unobserved directories.

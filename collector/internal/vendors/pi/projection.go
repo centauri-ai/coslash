@@ -105,7 +105,7 @@ func projectContext(ctx context.Context, t *transcript, parent *transcript) (*ve
 	if len(t.Entries) > 0 {
 		leaf = t.Entries[len(t.Entries)-1].ID
 	}
-	liveLeaf, live := RuntimeLeaf(t.Header.ID, t.Path)
+	liveLeaf, live := runtimeLeafContext(ctx, t.Header.ID, t.Path)
 	if live {
 		if _, ok := t.ByID[liveLeaf]; ok {
 			leaf = liveLeaf
@@ -149,6 +149,9 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		switch e.Type {
 		case "message", "model_change", "session_info", "compaction", "branch_summary", "context_edit":
 			_ = json.Unmarshal(e.Raw, &payloads[i])
+			if e.Type == "session_info" {
+				result.Name = payloads[i].Name
+			}
 		}
 	}
 	completedTools := map[string]bool{}
@@ -335,9 +338,6 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		if e.Type == "compaction" {
 			s.ContextTokens = nil
 		}
-		if p.Name != "" && e.Type == "session_info" {
-			result.Name = p.Name
-		}
 		if p.ModelID != "" && e.Type == "model_change" {
 			model := p.ModelID
 			s.Model = &model
@@ -403,7 +403,10 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 		}
 		text := strings.TrimSpace(contentText(raw))
 		if p.Message.Role == "user" && text != "" && s.FirstPrompt == nil {
-			prompt := session.Truncate(text, session.TruncateTextLimit)
+			prompt := text
+			if runes := []rune(prompt); len(runes) > session.TruncateTextLimit {
+				prompt = string(runes[:session.TruncateTextLimit-1]) + "…"
+			}
 			s.FirstPrompt = &prompt
 		}
 		if p.Message.Role == "assistant" && text != "" {
