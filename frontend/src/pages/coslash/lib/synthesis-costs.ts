@@ -1,4 +1,4 @@
-import { isLocalSource, sessionKey, type SessionIdentity } from './session';
+import { isLocalSource, sessionKey, type Session, type SessionIdentity } from './session';
 
 export type SynthesisCostsQuery = { since: number; until: number } | (SessionIdentity & { cursor?: string });
 
@@ -22,17 +22,7 @@ export type SynthesisRound = {
   outcome: string;
   vendorModels: { vendor: string; model: string }[];
   totals: CostTotals;
-  tokens: Record<
-    string,
-    {
-      input_tokens: number;
-      output_tokens: number;
-      cache_creation_input_tokens: number;
-      cache_creation_1h_input_tokens: number;
-      cache_read_input_tokens: number;
-      cost?: number;
-    }
-  >;
+  tokens: Session['tokens'];
 };
 
 export type SynthesisCostsResponse = {
