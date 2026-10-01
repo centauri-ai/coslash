@@ -29,6 +29,8 @@ const (
 
 const cursorPermissions = `{"permissions":{"allow":[],"deny":["Read(*)","Read(**)","Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
 
+var errSynthesisOutputLimit = errors.New("synthesis output exceeds limit")
+
 type Runner interface {
 	Run(context.Context, string) (RunResult, error)
 	VendorName() string
@@ -54,7 +56,36 @@ func executeCommand(ctx context.Context, spec commandSpec) ([]byte, error) {
 	if len(spec.env) > 0 {
 		cmd.Env = append(cmd.Environ(), spec.env...)
 	}
-	return agentexec.Output(cmd)
+	stdout := boundedCapture{limit: maxSynthesisOutputBytes}
+	stderr := boundedCapture{limit: 2048}
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := agentexec.Run(cmd)
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		exitErr.Stderr = stderr.data
+	}
+	if stdout.truncated {
+		err = errors.Join(err, errSynthesisOutputLimit)
+	}
+	return stdout.data, err
+}
+
+type boundedCapture struct {
+	data      []byte
+	limit     int
+	truncated bool
+}
+
+func (c *boundedCapture) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := c.limit - len(c.data)
+	if n > remaining {
+		c.truncated = true
+		p = p[:remaining]
+	}
+	c.data = append(c.data, p...)
+	return n, nil
 }
 
 type CLIRunner struct {
@@ -257,8 +288,15 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		stdin: stdin,
 		env:   env,
 	})
+	result := RunResult{Usage: unknownUsage()}
+	if r.Backend == settings.BackendClaude {
+		result.Usage = parseClaudeUsage(output, r.Model)
+	}
+	if errors.Is(err, errSynthesisOutputLimit) && result.Usage.Coverage == "complete" {
+		result.Usage.Coverage = "partial"
+	}
 	if runCtx.Err() != nil {
-		return RunResult{}, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())
+		return result, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())
 	}
 	if err != nil {
 		if r.Backend == settings.BackendOpenCode {
@@ -266,10 +304,11 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 				log.Printf("OpenCode synthesis CLI: %s", diagnostic)
 			}
 		}
-		return RunResult{}, safeCommandError(label, err)
+		return result, safeCommandError(label, err)
 	}
 	synthesis, err := parse(output)
-	return RunResult{Synthesis: synthesis}, err
+	result.Synthesis = synthesis
+	return result, err
 }
 
 func writeSchemaFile() (string, error) {

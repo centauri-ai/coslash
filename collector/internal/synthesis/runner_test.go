@@ -106,6 +106,13 @@ func TestRunnerIdentity(t *testing.T) {
 	}
 }
 
+func TestBoundedCaptureDrainsBeyondLimit(t *testing.T) {
+	capture := boundedCapture{limit: 3}
+	if n, err := capture.Write([]byte("abcdef")); err != nil || n != 6 || string(capture.data) != "abc" || !capture.truncated {
+		t.Fatalf("capture = %#v, n=%d, err=%v", capture, n, err)
+	}
+}
+
 func TestOpenCodeRunnerRefreshesVersionWhenExecutableChanges(t *testing.T) {
 	original := cachedOpenCodeV2
 	t.Cleanup(func() { cachedOpenCodeV2 = original })
