@@ -16,15 +16,15 @@ A new orchestrator reads this section first and continues from **Next action**. 
 
 | Task | Status | Workspace | Branch | Terminal | Review | Notes |
 |---|---|---|---|---|---|---|
-| T1 | fix | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | `af16d41a` plus one fix commit. Reviewer found `hideFromScrollback` as `FirstPrompt`. One fix round, no second review. |
+| T1 | completed | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | `af16d41a` and fix `d3237332`. 13 files, 438 production lines, 2 commits. PR not opened. |
 | T2 | pending | | `cvu/grok-t2-enrich` | | | own PR, base is T1 |
 | T3 | pending | | `cvu/grok-t3-synthesis` | | | after T2 commits |
 | T4 | pending | | `cvu/grok-t4-launch` | | | after T1 commits `AgentGrok` |
 | T5 | pending | | `cvu/grok-t5-ui` | | | after T2 and T4 are merged |
 
-**Next action:** The one fix is already sent to implementer `4f36a026-65f2-4094-8f6b-d3fd3f623dfc`. Do not send it again. When `cvu/grok-t1-parse` moves past `af16d41a`, mark T1 completed and create the T4 worktree from that branch with tag `new group-3`. Do not open the T1 PR until that fix commit exists. Do not start a second review.
+**Next action:** T1 fix `d3237332` is on `cvu/grok-t1-parse`. Do not send the fix again. Do not open the T1 PR yet. Create the T4 worktree from `cvu/grok-t1-parse` at `d3237332`, tag `new group-3`, branch `cvu/grok-t4-launch`.
 
-**Blockers:** none. T1 production diff is about 434 lines and 13 files, inside the reviewer budget.
+**Blockers:** none. T1 is inside the agent-tooling budget: 13 files (service limit 100, skill limit 25) and 438 production lines (skill limit 1,000).
 
 **Goal:** Show local macOS Grok Build sessions in coSlash, with status, nested subagents, launch, resume, and the existing synthesis pipeline.
 
@@ -53,11 +53,17 @@ A new orchestrator reads this section first and continues from **Next action**. 
 
 ## Pull requests
 
-The reviewer budget is the Agent PR Reviewer guardrail. A PR is too big when any of these is true:
+The size budget is the one in [centauri-ai/agent-tooling](https://github.com/centauri-ai/agent-tooling). A PR must pass both gates or the reviewer will not finish it.
 
-- More than 25 changed files.
-- More than 1,000 added plus deleted lines of production source. Test files, `testdata/`, markdown, lockfiles, and generated files do not count toward the 1,000.
+The service skips the review when GitHub's `changed_files` is above `limits.max_changed_files`. That value is 100 in `agent-reviewer/config.example.yaml` and `agent-reviewer/PLAN.md`. GitHub counts every file, including tests.
+
+The reviewer skill (`.agents/skills/agent-pr-reviewer-service/SKILL.md`) then declines the review, with no findings, when any of these is true:
+
+- More than 25 reviewable files.
+- More than 1,000 added plus deleted lines of production source. Tests, generated files, lockfiles, docs, and schema files do not count toward the 1,000.
 - The diff spans three subsystems that could ship as separate pull requests.
+
+Stay under the skill gate. The 100-file service gate is looser. The auto-resolver is stricter still (`resolver.limits`: 20 files and 1,000 added plus deleted lines, no binaries) and is not the target for these PRs.
 
 Before opening a PR, measure production lines:
 
