@@ -26,6 +26,7 @@ coSlash reads, but does not modify:
 | `settings.json` | Synthesis, appearance, and terminal preferences. |
 | `token` | Access token for the current server process. |
 | `summaries/` | Cached synthesis results. |
+| `synthesis-accounting/costs.sqlite` | Local synthesis round and invocation history, including session identity, source revision, time, outcome, vendor, model, token totals, and reported or estimated cost. No prompts, transcripts, or raw CLI output. |
 | `synthesis/` | Temporary synthesis files and isolated CLI data. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
 | `pi-runtime/` and `pi-history/` | Private process identity, session IDs, exact transcript paths, runtime state, and retained discovery evidence. |
@@ -178,6 +179,23 @@ and access coSlash. Do not proxy or forward the port.
 ## Control and removal
 
 Synthesis is off until you enable and save it in Settings. Disable it there to stop new requests, then delete `~/.coslash/summaries` to remove cached results.
+
+Synthesis accounting starts when the local database is first created. Earlier
+summaries have unknown spend, and missing usage or pricing leaves cost coverage
+partial or unknown. coSlash prefers a CLI-reported cost when present, including
+zero, and otherwise estimates from reported model tokens and local prices.
+Neither amount is a vendor invoice. Accounting stays local; it is not added to
+portable session revisions, backups, Hub shares, or remote snapshots.
+
+Deleting `summaries/` removes cached results but retains accounting history.
+To remove that history, quit coSlash and separately delete
+`synthesis-accounting/`. This resets the tracking start on the next launch and
+cannot recover earlier spend. If an accounting write may have been lost, the
+database keeps a durable V2 `accounting_incomplete` marker and cost reads return
+an unavailable error (HTTP 503), including after restart, instead of showing
+an incomplete total as zero. If the optional accounting database cannot open
+at startup, coSlash still serves sessions and cached summaries, while cost
+reads are unavailable; it does not replace damaged history with an empty DB.
 
 Disabling a remote machine stops refreshes and hides its cards but retains its
 normalized last-good cache and any optional helper; it does not change Linux.
