@@ -186,7 +186,7 @@ func containsPath(paths []string, want string) bool {
 
 func TestLocalDiscoveryUsesEffectiveCodexHome(t *testing.T) {
 	home := t.TempDir()
-	data := t.TempDir()
+	data := mustCanonicalRoot(t, t.TempDir())
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("CODEX_HOME", data)
@@ -215,5 +215,97 @@ func TestLocalDiscoveryUsesEffectiveCodexHome(t *testing.T) {
 	explicit, err := filesForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
 	if err != nil || len(explicit) != 0 {
 		t.Fatal("explicit-home source inherited local environment")
+	}
+}
+
+func TestLocalRootMatchesFilesystemCanonicalization(t *testing.T) {
+	base := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	actual := filepath.Join(base, "target", "data")
+	decoy := filepath.Join(base, "data")
+	if err := os.MkdirAll(filepath.Join(base, "target", "subdir"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(filepath.Join(base, "target", "subdir"), link); err != nil {
+		t.Skip(err)
+	}
+	override := link + string(filepath.Separator) + ".." + string(filepath.Separator) + "data"
+	const id = "11111111-2222-4333-8444-555555555555"
+	writeDiscoveryRollout(t, filepath.Join(actual, "sessions"), id, id, "")
+	writeDiscoveryRollout(t, filepath.Join(decoy, "sessions"), "66666666-7777-4888-8999-aaaaaaaaaaaa", "66666666-7777-4888-8999-aaaaaaaaaaaa", "")
+	canonical, err := filepath.EvalSymlinks(override)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", override)
+	files, err := FilesContext(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || SessionIDFromRollout(files[0]) != id {
+		t.Fatalf("read decoy storage instead of canonical root %q: %v", canonical, files)
+	}
+}
+func TestLocalOverrideDoesNotRequireHome(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("CODEX_HOME", data)
+	root, err := Root()
+	if err != nil || root != filepath.Join(mustCanonicalRoot(t, data), "sessions") {
+		t.Fatalf("valid CODEX_HOME rejected without default home: root=%q err=%v", root, err)
+	}
+}
+
+func mustCanonicalRoot(t *testing.T, path string) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestLocalRootOverrideBoundaries(t *testing.T) {
+	base := t.TempDir()
+	t.Chdir(base)
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	if err := os.Mkdir("relative", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("file", []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, override := range []string{"relative", "missing", "file", ""} {
+		t.Run(override, func(t *testing.T) {
+			t.Setenv("CODEX_HOME", override)
+			root, err := Root()
+			if override == "relative" {
+				if err != nil || root != filepath.Join(mustCanonicalRoot(t, "relative"), "sessions") {
+					t.Fatalf("root=%q err=%v", root, err)
+				}
+			} else {
+				if err == nil {
+					t.Fatalf("accepted override %q with no default home: %q", override, root)
+				}
+				if _, err := Files(); err == nil {
+					t.Fatal("discovery ignored resolution error")
+				}
+				if _, err := loadThreadNames(); err == nil {
+					t.Fatal("names ignored resolution error")
+				}
+				if Health().Err == nil {
+					t.Fatal("health ignored resolution error")
+				}
+			}
+		})
 	}
 }

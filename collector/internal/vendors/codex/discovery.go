@@ -87,19 +87,38 @@ func IsRootRollout(path string) (bool, error) {
 
 // root/subagents: ~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<timestamp>-<session-uuid>.jsonl
 func Root() (string, error) {
-	home, err := os.UserHomeDir()
+	root, err := LocalDataRoot(os.UserHomeDir)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(LocalDataRoot(home), "sessions"), nil
+	return filepath.Join(root, "sessions"), nil
 }
 
 // LocalDataRoot resolves only this machine's configured Codex storage.
-func LocalDataRoot(home string) string {
+func LocalDataRoot(home func() (string, error)) (string, error) {
 	if root := os.Getenv("CODEX_HOME"); root != "" {
-		return root
+		info, err := os.Stat(root)
+		if err != nil {
+			return "", err
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("CODEX_HOME is not a directory")
+		}
+		// Resolve the original path before Abs can clean symlink/.. components.
+		root, err = filepath.EvalSymlinks(root)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Abs(root)
 	}
-	return filepath.Join(home, ".codex")
+	root, err := home()
+	if err != nil {
+		return "", err
+	}
+	if root == "" {
+		return "", fmt.Errorf("home directory is unavailable")
+	}
+	return filepath.Join(root, ".codex"), nil
 }
 
 func SessionsRoot(home string) string {
@@ -111,11 +130,11 @@ func Files() ([]string, error) {
 }
 
 func FilesContext(ctx context.Context) ([]string, error) {
-	home, err := os.UserHomeDir()
+	root, err := LocalDataRoot(os.UserHomeDir)
 	if err != nil {
 		return nil, err
 	}
-	return filesForDataRootSourceContext(ctx, vendors.LocalReadSource, LocalDataRoot(home))
+	return filesForDataRootSourceContext(ctx, vendors.LocalReadSource, root)
 }
 
 func FilesSource(source vendors.ReadSource, root string) ([]string, error) {

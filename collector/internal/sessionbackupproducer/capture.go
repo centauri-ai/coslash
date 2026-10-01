@@ -65,7 +65,7 @@ func (manager *Manager) Prepare(ctx context.Context, selection Selection) (*Prep
 	}()
 
 	handle, err := manager.openSource(ctx, selection)
-	if err != nil || handle.Source == nil || handle.Home == "" {
+	if err != nil || handle.Source == nil || (handle.Home == "" && handle.CodexRoot == "") {
 		return problem(selection, sessionbackupv1.ProblemUnavailable, sessionbackupv1.KindRawTranscript, true)
 	}
 	if handle.Close != nil {

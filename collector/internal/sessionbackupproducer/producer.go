@@ -151,8 +151,8 @@ func New(options Options) *Manager {
 		openSource = func(ctx context.Context, selection Selection) (SourceHandle, error) {
 			switch selection.SourceKind {
 			case sessionbackupv1.SourceLocal:
-				home, err := localHome()
-				return SourceHandle{Source: vendors.LocalReadSource, Home: home, CodexRoot: codex.LocalDataRoot(home)}, err
+				root, err := codex.LocalDataRoot(localHome)
+				return SourceHandle{Source: vendors.LocalReadSource, CodexRoot: root}, err
 			case sessionbackupv1.SourceSSH:
 				if options.Remote == nil {
 					return SourceHandle{}, remote.ErrRemoteSessionUnavailable

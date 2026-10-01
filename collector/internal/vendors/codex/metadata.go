@@ -197,11 +197,11 @@ func loadThreadNames() (map[string]string, error) {
 }
 
 func loadThreadNamesContext(ctx context.Context) (map[string]string, error) {
-	home, err := os.UserHomeDir()
+	root, err := LocalDataRoot(os.UserHomeDir)
 	if err != nil {
 		return nil, err
 	}
-	return loadThreadNamesSourceContext(ctx, vendors.LocalReadSource, filepath.Join(LocalDataRoot(home), "session_index.jsonl"))
+	return loadThreadNamesSourceContext(ctx, vendors.LocalReadSource, filepath.Join(root, "session_index.jsonl"))
 }
 
 func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.SessionMetadata, error) {

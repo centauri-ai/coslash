@@ -404,11 +404,11 @@ func NewSessionFactsLoader() (func(string) (*vendors.ParsedSession, error), erro
 }
 
 func Health() vendors.SourceHealth {
-	home, err := os.UserHomeDir()
+	root, err := LocalDataRoot(os.UserHomeDir)
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Err: err}
 	}
-	return healthForDataRootSourceContext(context.Background(), vendors.LocalReadSource, LocalDataRoot(home))
+	return healthForDataRootSourceContext(context.Background(), vendors.LocalReadSource, root)
 }
 
 func healthForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) vendors.SourceHealth {

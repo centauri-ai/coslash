@@ -788,3 +788,26 @@ func TestPrepareLargeChildHeaderKeepsCompleteFamily(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareOverrideWithoutDefaultHome(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	manager := New(Options{Root: t.TempDir(), LocalHome: func() (string, error) {
+		t.Fatal("default home queried with valid override")
+		return "", errors.New("unavailable home")
+	}})
+	defer manager.Close()
+	prepared, err := manager.Prepare(t.Context(), localSelection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.Manifest.Members) != 2 {
+		t.Fatalf("members=%d", len(prepared.Manifest.Members))
+	}
+	t.Setenv("CODEX_HOME", filepath.Join(home, "missing"))
+	if _, err := manager.Prepare(t.Context(), localSelection()); err == nil {
+		t.Fatal("backup accepted invalid override")
+	}
+}
