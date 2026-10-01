@@ -21,6 +21,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
 )
 
@@ -100,6 +101,7 @@ type SynthesisStore interface {
 type SourceHandle struct {
 	Source     vendors.ReadSource
 	Home       string
+	CodexRoot  string
 	Enrichment map[string]remote.BackupSessionEnrichment
 	Close      func() error
 }
@@ -150,7 +152,7 @@ func New(options Options) *Manager {
 			switch selection.SourceKind {
 			case sessionbackupv1.SourceLocal:
 				home, err := localHome()
-				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, err
+				return SourceHandle{Source: vendors.LocalReadSource, Home: home, CodexRoot: codex.LocalDataRoot(home)}, err
 			case sessionbackupv1.SourceSSH:
 				if options.Remote == nil {
 					return SourceHandle{}, remote.ErrRemoteSessionUnavailable

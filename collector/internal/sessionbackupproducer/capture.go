@@ -125,11 +125,19 @@ func sourceReadFailure(err error, kind string) error {
 }
 
 func (manager *Manager) capture(ctx context.Context, staging string, selection Selection, handle SourceHandle) (*Prepared, error) {
-	activeScan, err := codex.ScanSourceContext(ctx, handle.Source, codex.SessionsRoot(handle.Home))
+	dataRoot := handle.CodexRoot
+	fingerprintRoot := handle.Home
+	if dataRoot == "" {
+		dataRoot = vendors.SourcePathJoin(handle.Source, handle.Home, ".codex")
+	} else {
+		fingerprintRoot = dataRoot
+	}
+
+	activeScan, err := codex.ScanSourceContext(ctx, handle.Source, vendors.SourcePathJoin(handle.Source, dataRoot, "sessions"))
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
-	archivedScan, err := codex.ScanSourceContext(ctx, handle.Source, codex.ArchivedDir(handle.Home))
+	archivedScan, err := codex.ScanSourceContext(ctx, handle.Source, vendors.SourcePathJoin(handle.Source, dataRoot, "archived_sessions"))
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
@@ -170,7 +178,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		}
 		return left < right
 	})
-	before, err := vendors.FingerprintSourceFilesContext(ctx, handle.Source, handle.Home, familyFiles)
+	before, err := vendors.FingerprintSourceFilesContext(ctx, handle.Source, fingerprintRoot, familyFiles)
 	if err != nil {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawTranscript, true)
 	}
@@ -185,17 +193,17 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	if len(memberIDs) > sessionbackupv1.MaxMembers {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 	}
-	indexPath := codex.SessionIndexPath(handle.Home)
+	indexPath := vendors.SourcePathJoin(handle.Source, dataRoot, "session_index.jsonl")
 	var indexBefore []vendors.FileFingerprint
 	if _, statErr := handle.Source.Stat(indexPath); statErr == nil {
-		indexBefore, err = vendors.FingerprintSourceFilesContext(ctx, handle.Source, handle.Home, []string{indexPath})
+		indexBefore, err = vendors.FingerprintSourceFilesContext(ctx, handle.Source, fingerprintRoot, []string{indexPath})
 		if err != nil {
 			return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
 		}
 	} else if !errors.Is(statErr, fs.ErrNotExist) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnreadable, sessionbackupv1.KindRawSidecar, true)
 	}
-	indexRows, indexPresent, err := codex.ReadSessionIndexRowsContext(ctx, handle.Source, handle.Home, memberIDs)
+	indexRows, indexPresent, err := codex.ReadSessionIndexRowsAtPathContext(ctx, handle.Source, indexPath, memberIDs)
 	if err != nil {
 		return nil, sourceReadFailure(err, sessionbackupv1.KindRawSidecar)
 	}
@@ -257,12 +265,12 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	if manager.afterRawCopy != nil {
 		manager.afterRawCopy()
 	}
-	after, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, familyFiles)
+	after, err := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, fingerprintRoot, familyFiles)
 	if err != nil || !reflect.DeepEqual(before, after) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawTranscript, true)
 	}
 	if indexPresent {
-		indexAfter, statErr := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, handle.Home, []string{indexPath})
+		indexAfter, statErr := vendors.FingerprintSourceFilesFreshContext(ctx, handle.Source, fingerprintRoot, []string{indexPath})
 		if statErr != nil || !reflect.DeepEqual(indexBefore, indexAfter) {
 			return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
 		}
@@ -281,7 +289,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			activeFamilyFiles = append(activeFamilyFiles, file)
 		}
 	}
-	parsed, err := codex.ParseFamilyFilesSourceContext(ctx, frozenSource, handle.Home, familyFiles, activeFamilyFiles)
+	parsed, err := codex.ParseFamilyFilesAtRootContext(ctx, frozenSource, dataRoot, familyFiles, activeFamilyFiles)
 	if err != nil || len(parsed) != len(memberIDs) {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindParsedSessionRecord, false)
 	}

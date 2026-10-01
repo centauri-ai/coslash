@@ -698,3 +698,64 @@ func readRootRecord(t *testing.T, spool string, prepared *Prepared) fullsessionv
 	t.Fatal("root record missing")
 	return fullsessionv1.Record{}
 }
+
+func TestReviewBackupEffectiveCodexHome(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 1<<20)
+	effective := filepath.Join(t.TempDir(), "effective-codex")
+	if err := os.Rename(filepath.Join(home, ".codex"), effective); err != nil {
+		t.Fatal(err)
+	}
+	defaultHome, _ := writeFamilyFixture(t, 0)
+	if err := os.Rename(filepath.Join(defaultHome, ".codex"), filepath.Join(home, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CODEX_HOME", effective)
+	files, err := codex.FilesContext(context.Background())
+	if err != nil || len(files) == 0 {
+		t.Fatalf("discovery failed: %v %v", files, err)
+	}
+	for _, kind := range []string{"effective", "explicit", "ssh"} {
+		t.Run(kind, func(t *testing.T) {
+			spool := t.TempDir()
+			options := Options{Root: spool, LocalHome: func() (string, error) { return home, nil }}
+			selection := localSelection()
+			wantRoot := effective
+			if kind != "effective" {
+				options.OpenSource = func(context.Context, Selection) (SourceHandle, error) {
+					return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+				}
+				wantRoot = filepath.Join(home, ".codex")
+				if kind == "ssh" {
+					selection.SourceKind = sessionbackupv1.SourceSSH
+					selection.SourceID = "remote-fixture"
+				}
+			}
+			manager := New(options)
+			defer manager.Close()
+			prepared, err := manager.Prepare(context.Background(), selection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, artifact := range prepared.Manifest.Artifacts {
+				if artifact.Kind != sessionbackupv1.KindRawTranscript {
+					continue
+				}
+				originalPath := familyFile(home, artifact.MemberID == testChildID, artifact.MemberID)
+				rel, err := filepath.Rel(filepath.Join(home, ".codex"), originalPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want, err := os.ReadFile(filepath.Join(wantRoot, rel))
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, err := os.ReadFile(filepath.Join(spool, prepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
+				if err != nil || string(got) != string(want) {
+					t.Fatal("backup selected the wrong root for a duplicate session ID")
+				}
+			}
+		})
+	}
+}
