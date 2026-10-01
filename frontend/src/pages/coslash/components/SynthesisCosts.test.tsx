@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it, vi } from 'vitest';
 import { useSynthesisCosts } from '@/pages/coslash/hooks/use-synthesis-costs';
 import type { SynthesisCostsResponse, SynthesisRound } from '@/pages/coslash/lib/synthesis-costs';
-import { mergeRounds, SynthesisCosts, SynthesisCostsView } from './SynthesisCosts';
+import { mergeRounds, pageCursor, SynthesisCosts, SynthesisCostsView } from './SynthesisCosts';
 
 vi.mock('@/pages/coslash/hooks/use-synthesis-costs', () => ({ useSynthesisCosts: vi.fn() }));
 
@@ -76,12 +76,53 @@ it('renders empty history and a request failure with focusable recovery', () => 
     />,
   );
   expect(empty).toContain('No recorded rounds');
+  expect(empty).toContain('Tracking started');
+  expect(empty).not.toContain('Historical usage before');
   expect(empty).not.toContain('round-1');
   const failed = renderToStaticMarkup(<SynthesisCostsView codingCost={null} error="Storage unavailable" />);
   expect(failed).toContain('role="alert"');
   expect(failed).toContain('Storage unavailable');
   expect(failed).toContain('<button');
   expect(failed).toContain('Retry synthesis costs');
+});
+
+it('bounds expanded history in a keyboard-scrollable region', () => {
+  const markup = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={1}
+      response={response}
+      rounds={Array.from({ length: 20 }, (_, index) => ({ ...round, id: `round-${index}` }))}
+      expanded
+    />,
+  );
+  expect(markup).toContain('aria-label="Synthesis round history"');
+  expect(markup).toContain('tabindex="0"');
+  expect(markup).toContain('overflow-y-auto');
+  expect(markup).toContain('max-h-48');
+  expect(markup).toContain('Load more');
+});
+
+it('marks combined cost as a subtotal when coding has unpriced models', () => {
+  const complete = { ...response, totals: { ...response.totals, unknownInvocationCount: 0 } };
+  const partial = renderToStaticMarkup(
+    <SynthesisCostsView codingCost={1} codingUnpricedModels={['unknown-model']} response={complete} />,
+  );
+  expect(partial).toContain('unknown-model');
+  expect(partial).toContain('Combined known subtotal');
+  const known = renderToStaticMarkup(<SynthesisCostsView codingCost={1} response={complete} />);
+  expect(known).not.toContain('Combined known subtotal');
+  const unknown = renderToStaticMarkup(<SynthesisCostsView codingCost={null} response={complete} />);
+  expect(unknown).toContain('Combined <strong>Unknown</strong>');
+});
+
+it('preserves terminal null cursors after the final page', () => {
+  expect(pageCursor(null, response)).toBe('older');
+  expect(pageCursor({ nextCursor: 'last' }, response)).toBe('last');
+  expect(pageCursor({ nextCursor: null }, response)).toBeNull();
+  const markup = renderToStaticMarkup(
+    <SynthesisCostsView codingCost={1} response={response} rounds={[round]} nextCursor={null} expanded />,
+  );
+  expect(markup).not.toContain('Load more');
 });
 
 it('keeps lifetime totals separate from deduplicated page rows', () => {
@@ -124,6 +165,7 @@ it('queries composite identity and explains non-local accounting', () => {
     <SynthesisCosts
       session={{ sourceId: 'local', agent: 'codex', id: 'same' }}
       codingCost={0}
+      codingUnpricedModels={[]}
       synthesisCostVersion={null}
       synthesisSettledCount={0}
     />,
@@ -133,6 +175,7 @@ it('queries composite identity and explains non-local accounting', () => {
     <SynthesisCosts
       session={{ sourceId: 'remote', agent: 'codex', id: 'same' }}
       codingCost={0}
+      codingUnpricedModels={[]}
       synthesisCostVersion={null}
       synthesisSettledCount={0}
     />,
