@@ -2,8 +2,10 @@ package synthesis
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -210,7 +212,7 @@ func TestAccountingRejectsCursorAndCorruptUsageBeforeCostlyReads(t *testing.T) {
 	if _, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s", Cursor: strings.Repeat("a", 1<<20)}); err == nil || !strings.Contains(err.Error(), "cursor") {
 		t.Fatalf("cursor error: %v", err)
 	}
-	if _, err := store.db.ExecContext(ctx, "INSERT INTO metadata VALUES(1,100)"); err != nil {
+	if _, err := store.db.ExecContext(ctx, "INSERT INTO metadata(schema_version,tracking_started_at_ms) VALUES(2,100)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.BeginRound(ctx, Round{ID: "r", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 110}); err != nil {
@@ -671,6 +673,56 @@ func TestAccountingRecoveryAndValidation(t *testing.T) {
 	}
 	if err := store.FinishInvocation(ctx, "unfinished", 0, 210, "success", UsageReport{Tokens: map[string]session.ModelTokens{}, ReportedCostMicroUSD: micro(1)}); err == nil {
 		t.Fatal("interrupted invocation overwritten")
+	}
+}
+
+func TestAccountingV1MigrationPreservesHistoryAndDurableIncompleteMarker(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "synthesis-accounting")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	old, err := sql.Open("sqlite", filepath.Join(dir, "costs.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE metadata(schema_version INTEGER NOT NULL, tracking_started_at_ms INTEGER NOT NULL)`,
+		`INSERT INTO metadata VALUES(1,100)`,
+		`CREATE TABLE rounds(round_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, agent TEXT NOT NULL, session_id TEXT NOT NULL, source_revision INTEGER NOT NULL, started_at_ms INTEGER NOT NULL, finished_at_ms INTEGER, outcome TEXT NOT NULL)`,
+		`INSERT INTO rounds VALUES('prior','local','codex','kept',42,110,120,'success')`,
+	} {
+		if _, err := old.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenAccountingStore(home, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "kept"})
+	if err != nil || before.TrackingStartedAtMs != 100 || before.Totals.RoundCount != 1 || before.Rounds[0].ID != "prior" {
+		t.Fatalf("migrated history = %+v, %v", before, err)
+	}
+	if err := store.MarkIncomplete(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenAccountingStore(home, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if !reopened.Incomplete() {
+		t.Fatal("incomplete marker did not persist")
+	}
+	if _, err := reopened.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "kept"}); !errors.Is(err, ErrAccountingIncomplete) {
+		t.Fatalf("read error = %v", err)
 	}
 }
 
