@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -95,7 +96,7 @@ func deleteDatabaseFiles(ctx context.Context, root string, ids map[string]bool, 
 			return err
 		}
 		if remove {
-			err = cleanupDeleteDB(ctx, db, owners, ids, paths, name == "agent_message_board_1.sqlite")
+			err = cleanupDeleteDB(ctx, db, owners, ids, paths, name == "agent_message_board_1.sqlite", time.Now().Unix())
 		} else {
 			err = checkDeleteDB(ctx, db, owners, ids, paths, absent, false)
 		}
@@ -106,7 +107,7 @@ func deleteDatabaseFiles(ctx context.Context, root string, ids map[string]bool, 
 	return nil
 }
 
-func cleanupDeleteDB(ctx context.Context, db *sql.DB, owners map[string][]string, ids map[string]bool, paths []string, board bool) error {
+func cleanupDeleteDB(ctx context.Context, db *sql.DB, owners map[string][]string, ids map[string]bool, paths []string, board bool, now int64) error {
 	db.SetMaxOpenConns(1)
 	if _, err := db.ExecContext(ctx, `PRAGMA foreign_keys=ON`); err != nil {
 		return err
@@ -119,6 +120,26 @@ func cleanupDeleteDB(ctx context.Context, db *sql.DB, owners map[string][]string
 	if err := checkDeleteDB(ctx, tx, owners, ids, paths, false, false); err != nil {
 		return err
 	}
+	if _, memory := owners["stage1_outputs"]; memory {
+		tables, err := deleteDBTables(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if slices.Contains(tables, "stage1_outputs") {
+			for id := range ids {
+				var selected int64
+				err := tx.QueryRowContext(ctx, `SELECT selected_for_phase2 FROM stage1_outputs WHERE thread_id=?`, id).Scan(&selected)
+				if err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return err
+				}
+				if selected != 0 {
+					if err := enqueueDeleteMemory(ctx, tx, now); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
 	if err := checkDeleteDB(ctx, tx, owners, ids, paths, true, true); err != nil {
 		return err
 	}
@@ -130,6 +151,20 @@ func cleanupDeleteDB(ctx context.Context, db *sql.DB, owners map[string][]string
 		}
 	}
 	return tx.Commit()
+}
+
+// Matches Codex's enqueue_global_consolidation_with_executor in the owning transaction.
+func enqueueDeleteMemory(ctx context.Context, tx *sql.Tx, now int64) error {
+	_, err := tx.ExecContext(ctx, `
+INSERT INTO jobs(kind,job_key,status,worker_id,ownership_token,started_at,finished_at,lease_until,retry_at,retry_remaining,last_error,input_watermark,last_success_watermark)
+VALUES ('memory_consolidate_global','global','pending',NULL,NULL,NULL,NULL,NULL,NULL,3,NULL,?,0)
+ON CONFLICT(kind,job_key) DO UPDATE SET
+ status=CASE WHEN jobs.status='running' THEN 'running' ELSE 'pending' END,
+ retry_at=CASE WHEN jobs.status='running' THEN jobs.retry_at ELSE NULL END,
+ retry_remaining=max(jobs.retry_remaining,excluded.retry_remaining),
+ input_watermark=CASE WHEN excluded.input_watermark>COALESCE(jobs.input_watermark,0)
+  THEN excluded.input_watermark ELSE COALESCE(jobs.input_watermark,0)+1 END`, now)
+	return err
 }
 
 func deleteDatabaseURI(path string) (string, error) {
@@ -179,6 +214,9 @@ func checkDeleteDB(ctx context.Context, db deleteDBReader, owners map[string][]s
 	if err != nil {
 		return err
 	}
+	if slices.Contains(names, "stage1_outputs") && !slices.Contains(names, "jobs") {
+		return errors.New("incomplete memory database")
+	}
 	if remove {
 		slices.Sort(names)
 	}
@@ -189,6 +227,16 @@ func checkDeleteDB(ctx context.Context, db deleteDBReader, owners map[string][]s
 		}
 		if !ok {
 			return errors.New("unsupported Codex database table")
+		}
+		if table == "stage1_outputs" {
+			if _, err := db.ExecContext(ctx, `SELECT owned.selected_for_phase2 FROM stage1_outputs AS owned LIMIT 0`); err != nil {
+				return err
+			}
+		}
+		if table == "jobs" {
+			if _, err := db.ExecContext(ctx, `SELECT owned.status,owned.worker_id,owned.ownership_token,owned.started_at,owned.finished_at,owned.lease_until,owned.retry_at,owned.retry_remaining,owned.last_error,owned.input_watermark,owned.last_success_watermark FROM jobs AS owned LIMIT 0`); err != nil {
+				return err
+			}
 		}
 		for _, column := range columns {
 			query := `SELECT count(*) FROM "` + table + `" AS owned WHERE owned."` + column + `" = ?`

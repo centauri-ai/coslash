@@ -104,6 +104,13 @@ func TestDeleteDatabaseOwnershipMapPreservesNeighbors(t *testing.T) {
 				if err := db.QueryRow(`SELECT count(*) FROM `+table+` WHERE `+columns[0]+`=?`, sqlDeleteNeighborID).Scan(&count); err != nil || count != 1 {
 					t.Fatalf("neighbor changed in %s: %d %v", table, count, err)
 				}
+				query := `SELECT count(*) FROM ` + table + ` WHERE ` + columns[0] + ` IN (?,?)`
+				if table == "jobs" {
+					query += ` AND kind='memory_stage1'`
+				}
+				if err := db.QueryRow(query, sqlDeleteRootID, sqlDeleteChildID).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("owned rows remain in %s: %d %v", table, count, err)
+				}
 			}
 			if _, ok := owners["jobs"]; ok {
 				var count int
@@ -224,5 +231,154 @@ func TestDeleteSQLSidecarPathGuard(t *testing.T) {
 	data, err := os.ReadFile(outside)
 	if err != nil || string(data) != "synthetic neighbor" {
 		t.Fatal("outside file changed")
+	}
+}
+
+const deleteSQLMemorySchema = `
+CREATE TABLE stage1_outputs(thread_id TEXT PRIMARY KEY,source_updated_at INTEGER NOT NULL,raw_memory TEXT NOT NULL,rollout_summary TEXT NOT NULL,rollout_slug TEXT,generated_at INTEGER NOT NULL,usage_count INTEGER,last_usage INTEGER,selected_for_phase2 INTEGER NOT NULL DEFAULT 0,selected_for_phase2_source_updated_at INTEGER);
+CREATE TABLE jobs(kind TEXT NOT NULL,job_key TEXT NOT NULL,status TEXT NOT NULL,worker_id TEXT,ownership_token TEXT,started_at INTEGER,finished_at INTEGER,lease_until INTEGER,retry_at INTEGER,retry_remaining INTEGER NOT NULL,last_error TEXT,input_watermark INTEGER,last_success_watermark INTEGER,PRIMARY KEY(kind,job_key));`
+
+func TestDeleteSQLMemoryInvalidation(t *testing.T) {
+	for _, version := range []string{"memories_1.sqlite", "memories_v2_1.sqlite"} {
+		for _, status := range []string{"missing", "succeeded", "running"} {
+			for _, selected := range []int{0, 1} {
+				t.Run(version+"/"+status+"/"+string(rune('0'+selected)), func(t *testing.T) {
+					root := t.TempDir()
+					db := newDeleteSQLDB(t, root, version, deleteSQLMemorySchema)
+					for _, row := range []struct {
+						id       string
+						selected int
+					}{{sqlDeleteRootID, selected}, {sqlDeleteChildID, 0}, {sqlDeleteNeighborID, 1}} {
+						if _, err := db.Exec(`INSERT INTO stage1_outputs(thread_id,source_updated_at,raw_memory,rollout_summary,generated_at,selected_for_phase2) VALUES (?,1,'synthetic memory','synthetic summary',1,?)`, row.id, row.selected); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if _, err := db.Exec(`INSERT INTO jobs(kind,job_key,status,retry_remaining) VALUES ('memory_stage1',?,'succeeded',3),('unrelated',?,'succeeded',3),('memory_stage1',?,'succeeded',3)`, sqlDeleteRootID, sqlDeleteRootID, sqlDeleteNeighborID); err != nil {
+						t.Fatal(err)
+					}
+					if status != "missing" {
+						if _, err := db.Exec(`INSERT INTO jobs VALUES ('memory_consolidate_global','global',?,'worker','token',10,20,30,40,1,'synthetic',200,199)`, status); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := cleanupDeleteDB(t.Context(), db, deleteDBOwners[version], map[string]bool{sqlDeleteRootID: true, sqlDeleteChildID: true}, nil, false, 100); err != nil {
+						t.Fatal(err)
+					}
+					var count int
+					if err := db.QueryRow(`SELECT count(*) FROM stage1_outputs WHERE thread_id IN (?,?)`, sqlDeleteRootID, sqlDeleteChildID).Scan(&count); err != nil || count != 0 {
+						t.Fatal("owned outputs remain")
+					}
+					if err := db.QueryRow(`SELECT count(*) FROM stage1_outputs WHERE thread_id=? AND selected_for_phase2=1`, sqlDeleteNeighborID).Scan(&count); err != nil || count != 1 {
+						t.Fatal("selected neighbor changed")
+					}
+					if err := db.QueryRow(`SELECT count(*) FROM jobs WHERE (kind='unrelated' AND job_key=?) OR (kind='memory_stage1' AND job_key=?)`, sqlDeleteRootID, sqlDeleteNeighborID).Scan(&count); err != nil || count != 2 {
+						t.Fatal("unrelated jobs changed")
+					}
+					if err := db.QueryRow(`SELECT count(*) FROM jobs WHERE kind='memory_stage1' AND job_key=?`, sqlDeleteRootID).Scan(&count); err != nil || count != 0 {
+						t.Fatal("owned stage1 job remains")
+					}
+					var gotStatus string
+					var watermark, retries, lastSuccess int64
+					var retryAt sql.NullInt64
+					var worker, token sql.NullString
+					err := db.QueryRow(`SELECT status,input_watermark,retry_remaining,retry_at,worker_id,ownership_token,last_success_watermark FROM jobs WHERE kind='memory_consolidate_global' AND job_key='global'`).Scan(&gotStatus, &watermark, &retries, &retryAt, &worker, &token, &lastSuccess)
+					if selected == 0 && status == "missing" {
+						if !errors.Is(err, sql.ErrNoRows) {
+							t.Fatal("nonselected output enqueued job")
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					wantStatus := status
+					wantWatermark := int64(200)
+					wantRetry := int64(1)
+					if selected != 0 {
+						wantStatus = "pending"
+						wantWatermark = 201
+						wantRetry = 3
+						if status == "missing" {
+							wantWatermark = 100
+						}
+						if status == "running" {
+							wantStatus = "running"
+						}
+					}
+					if gotStatus != wantStatus || watermark != wantWatermark || retries != wantRetry {
+						t.Fatalf("global job: %s %d %d", gotStatus, watermark, retries)
+					}
+					if status != "missing" {
+						if !worker.Valid || worker.String != "worker" || !token.Valid || token.String != "token" || lastSuccess != 199 {
+							t.Fatal("existing job ownership/baseline changed")
+						}
+						if selected == 0 || status == "running" {
+							if !retryAt.Valid || retryAt.Int64 != 40 {
+								t.Fatal("retry timing changed")
+							}
+						} else if retryAt.Valid {
+							t.Fatal("pending retry timing not reset")
+						}
+					} else if worker.Valid || token.Valid || retryAt.Valid || lastSuccess != 0 {
+						t.Fatal("new job has stale ownership")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestDeleteSQLMemoryWatermarkAndRollbackBoundaries(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "monotonic union", true: "enqueue rollback"}[fail], func(t *testing.T) {
+			root := t.TempDir()
+			schema := deleteSQLMemorySchema
+			if fail {
+				schema = strings.Replace(schema, "status TEXT NOT NULL,", "status TEXT NOT NULL CHECK(status='succeeded'),", 1)
+			}
+			db := newDeleteSQLDB(t, root, "memories_1.sqlite", schema)
+			for _, id := range []string{sqlDeleteRootID, sqlDeleteChildID, sqlDeleteNeighborID} {
+				if _, err := db.Exec(`INSERT INTO stage1_outputs(thread_id,source_updated_at,raw_memory,rollout_summary,generated_at,selected_for_phase2) VALUES (?,1,'synthetic','synthetic',1,1)`, id); err != nil {
+					t.Fatal(err)
+				}
+			}
+			status := "pending"
+			if fail {
+				status = "succeeded"
+			}
+			if _, err := db.Exec(`INSERT INTO jobs(kind,job_key,status,retry_remaining,input_watermark,last_success_watermark) VALUES ('memory_consolidate_global','global',?,5,50,49)`, status); err != nil {
+				t.Fatal(err)
+			}
+			err := cleanupDeleteDB(t.Context(), db, deleteDBOwners["memories_1.sqlite"], map[string]bool{sqlDeleteRootID: true, sqlDeleteChildID: true}, nil, false, 100)
+			var outputs int
+			var watermark, retries int64
+			if queryErr := db.QueryRow(`SELECT count(*) FROM stage1_outputs`).Scan(&outputs); queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if queryErr := db.QueryRow(`SELECT input_watermark,retry_remaining FROM jobs WHERE kind='memory_consolidate_global' AND job_key='global'`).Scan(&watermark, &retries); queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if fail {
+				if err == nil || outputs != 3 || watermark != 50 || retries != 5 {
+					t.Fatalf("failed enqueue committed: %v %d %d %d", err, outputs, watermark, retries)
+				}
+			} else if err != nil || outputs != 1 || watermark != 101 || retries != 5 {
+				t.Fatalf("selection union: %v %d %d %d", err, outputs, watermark, retries)
+			}
+		})
+	}
+}
+
+func TestDeleteSQLMemoryRefusesIncompleteSchema(t *testing.T) {
+	for _, schema := range []string{
+		`CREATE TABLE stage1_outputs(thread_id TEXT,selected_for_phase2 INTEGER);`,
+		`CREATE TABLE stage1_outputs(thread_id TEXT,selected_for_phase2 INTEGER);CREATE TABLE jobs(kind TEXT,job_key TEXT);`,
+		`CREATE TABLE stage1_outputs(thread_id TEXT);CREATE TABLE jobs(kind TEXT,job_key TEXT);`,
+	} {
+		root := t.TempDir()
+		newDeleteSQLDB(t, root, "memories_1.sqlite", schema)
+		if err := deleteDatabaseFiles(t.Context(), root, map[string]bool{sqlDeleteRootID: true}, nil, false, false); err == nil {
+			t.Fatal("incomplete memory ownership schema admitted")
+		}
 	}
 }
