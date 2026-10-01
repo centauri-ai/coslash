@@ -98,8 +98,10 @@ func TestCleanupScratchRemovesOnlyAbandonedDirs(t *testing.T) {
 	live := filepath.Join(root, openCodeScratchPrefix+"live")
 	staleCursor := filepath.Join(root, cursorScratchPrefix+"stale")
 	liveCursor := filepath.Join(root, cursorScratchPrefix+"live")
+	stalePi := filepath.Join(root, ".pi-stale")
+	livePi := filepath.Join(root, ".pi-live")
 	unrelated := filepath.Join(root, "summaries-ish")
-	for _, directory := range []string{stale, live, staleCursor, liveCursor, unrelated} {
+	for _, directory := range []string{stale, live, staleCursor, liveCursor, stalePi, livePi, unrelated} {
 		if err := os.Mkdir(directory, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -109,6 +111,9 @@ func TestCleanupScratchRemovesOnlyAbandonedDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(staleCursor, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(stalePi, old, old); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(unrelated, old, old); err != nil {
@@ -123,6 +128,12 @@ func TestCleanupScratchRemovesOnlyAbandonedDirs(t *testing.T) {
 	}
 	if _, err := os.Stat(staleCursor); !os.IsNotExist(err) {
 		t.Error("abandoned Cursor scratch directory survived the sweep")
+	}
+	if _, err := os.Stat(stalePi); !os.IsNotExist(err) {
+		t.Error("abandoned Pi scratch directory survived sweep")
+	}
+	if _, err := os.Stat(livePi); err != nil {
+		t.Errorf("in-flight Pi scratch directory was swept: %v", err)
 	}
 	if _, err := os.Stat(live); err != nil {
 		t.Errorf("in-flight scratch directory was swept: %v", err)

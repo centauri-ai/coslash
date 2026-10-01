@@ -54,6 +54,7 @@ func newOpenCodeV2Detector(detect func(string) bool) func(string) bool {
 const (
 	openCodeScratchPrefix = ".opencode-"
 	cursorScratchPrefix   = ".cursor-"
+	piScratchPrefix       = ".pi-"
 	// Well past the 90s run timeout, so a sweep cannot take a live run's
 	// directory from a second collector started on another port.
 	scratchMaxAge = time.Hour
@@ -88,7 +89,7 @@ func CleanupScratch() error {
 	for _, entry := range entries {
 		name := entry.Name()
 		if !entry.IsDir() ||
-			(!strings.HasPrefix(name, openCodeScratchPrefix) && !strings.HasPrefix(name, cursorScratchPrefix)) {
+			(!strings.HasPrefix(name, openCodeScratchPrefix) && !strings.HasPrefix(name, cursorScratchPrefix) && !strings.HasPrefix(name, piScratchPrefix)) {
 			continue
 		}
 		info, err := entry.Info()
