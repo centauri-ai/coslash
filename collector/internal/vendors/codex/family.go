@@ -107,6 +107,11 @@ func ParseFamilyFilesSourceContext(
 	files []string,
 	knownActiveFiles []string,
 ) ([]*vendors.ParsedSession, error) {
+	return ParseFamilyFilesAtRootContext(ctx, source, vendors.SourcePathJoin(source, home, ".codex"), files, knownActiveFiles)
+}
+
+// ParseFamilyFilesAtRootContext normalizes forks against an explicit data root.
+func ParseFamilyFilesAtRootContext(ctx context.Context, source vendors.ReadSource, root string, files, knownActiveFiles []string) ([]*vendors.ParsedSession, error) {
 	parsed, _, err := vendors.ParseSourceFilesStrictContext(ctx, source, files,
 		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
 			return parseSourceContext(ctx, source, path, func(string, string) bool { return true })
@@ -117,7 +122,7 @@ func ParseFamilyFilesSourceContext(
 	finalized, err := finalizeParsedFilesContext(
 		ctx,
 		source,
-		vendors.SourcePathJoin(source, home, ".codex", "archived_sessions"),
+		vendors.SourcePathJoin(source, root, "archived_sessions"),
 		knownActiveFiles,
 		parsed,
 	)

@@ -301,13 +301,13 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 }
 
 func parseFiles(files []string) []*vendors.ParsedSession {
-	home := ""
+	archived := ""
 	if root, err := Root(); err == nil {
-		home = filepath.Dir(filepath.Dir(root))
+		archived = filepath.Join(filepath.Dir(root), "archived_sessions")
 	}
 	return parseFilesSource(
 		vendors.LocalReadSource,
-		filepath.Join(home, ".codex", "archived_sessions"),
+		archived,
 		nil,
 		files,
 		commandNeedsApproval,
@@ -315,9 +315,9 @@ func parseFiles(files []string) []*vendors.ParsedSession {
 }
 
 func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSession, error) {
-	home := ""
+	archived := ""
 	if root, err := Root(); err == nil {
-		home = filepath.Dir(filepath.Dir(root))
+		archived = filepath.Join(filepath.Dir(root), "archived_sessions")
 	}
 	parsed, err := vendors.ParseSourceFilesContext(ctx, vendors.LocalReadSource, files,
 		func(ctx context.Context, source vendors.ReadSource, path string) (*parsedSession, error) {
@@ -328,7 +328,7 @@ func parseFilesContext(ctx context.Context, files []string) ([]*vendors.ParsedSe
 	if err != nil {
 		return nil, err
 	}
-	return finalizeParsedFilesContext(ctx, vendors.LocalReadSource, filepath.Join(home, ".codex", "archived_sessions"), nil, parsed)
+	return finalizeParsedFilesContext(ctx, vendors.LocalReadSource, archived, nil, parsed)
 }
 
 func parseFilesSource(
@@ -408,12 +408,15 @@ func Health() vendors.SourceHealth {
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Err: err}
 	}
-	return healthForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	return healthForDataRootSourceContext(context.Background(), vendors.LocalReadSource, LocalDataRoot(home))
 }
 
 func healthForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) vendors.SourceHealth {
-	root := filepath.Dir(SessionsRoot(home))
-	scan, err := scanForHomeSourceContext(ctx, source, home)
+	return healthForDataRootSourceContext(ctx, source, filepath.Join(home, ".codex"))
+}
+
+func healthForDataRootSourceContext(ctx context.Context, source vendors.ReadSource, root string) vendors.SourceHealth {
+	scan, err := scanForDataRootSourceContext(ctx, source, root)
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentCodex, Root: root, Err: err}
 	}

@@ -110,13 +110,18 @@ func ReadSessionIndexRows(source vendors.ReadSource, home string, ids map[string
 }
 
 func ReadSessionIndexRowsContext(ctx context.Context, source vendors.ReadSource, home string, ids map[string]bool) (map[string][][]byte, bool, error) {
+	return ReadSessionIndexRowsAtPathContext(ctx, source, SessionIndexPath(home), ids)
+}
+
+// ReadSessionIndexRowsAtPathContext retains explicit local/remote storage ownership.
+func ReadSessionIndexRowsAtPathContext(ctx context.Context, source vendors.ReadSource, path string, ids map[string]bool) (map[string][][]byte, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
 	rows := map[string][][]byte{}
 	var attributedSize int64
 	attributedRows := 0
-	file, err := source.Open(SessionIndexPath(home))
+	file, err := source.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return rows, false, nil
 	}
@@ -196,7 +201,7 @@ func loadThreadNamesContext(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return loadThreadNamesSourceContext(ctx, vendors.LocalReadSource, SessionIndexPath(home))
+	return loadThreadNamesSourceContext(ctx, vendors.LocalReadSource, filepath.Join(LocalDataRoot(home), "session_index.jsonl"))
 }
 
 func LoadRemoteMetadata(source vendors.ReadSource, home string) (*vendors.SessionMetadata, error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -50,7 +51,7 @@ func readHeaderSourceContext(ctx context.Context, source vendors.ReadSource, pat
 	}
 	defer file.Close()
 	var row codexRow
-	if err := json.NewDecoder(contextReader{ctx: ctx, reader: file}).Decode(&row); err != nil {
+	if err := json.NewDecoder(contextReader{ctx: ctx, reader: io.LimitReader(file, maxSessionIndexRowBytes)}).Decode(&row); err != nil {
 		return "", "", fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
 	if err := ctx.Err(); err != nil {
@@ -91,7 +92,15 @@ func Root() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return SessionsRoot(home), nil
+	return filepath.Join(LocalDataRoot(home), "sessions"), nil
+}
+
+// LocalDataRoot resolves only this machine's configured Codex storage.
+func LocalDataRoot(home string) string {
+	if root := os.Getenv("CODEX_HOME"); root != "" {
+		return root
+	}
+	return filepath.Join(home, ".codex")
 }
 
 func SessionsRoot(home string) string {
@@ -107,7 +116,7 @@ func FilesContext(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return filesForHomeSourceContext(ctx, vendors.LocalReadSource, home)
+	return filesForDataRootSourceContext(ctx, vendors.LocalReadSource, LocalDataRoot(home))
 }
 
 func FilesSource(source vendors.ReadSource, root string) ([]string, error) {
@@ -122,11 +131,15 @@ func FilesSourceContext(ctx context.Context, source vendors.ReadSource, root str
 // Active copies win when a session is present in both locations, so a move to
 // archived storage cannot create duplicate cards or duplicate family members.
 func filesForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) ([]string, error) {
-	active, err := FilesSourceContext(ctx, source, SessionsRoot(home))
+	return filesForDataRootSourceContext(ctx, source, filepath.Join(home, ".codex"))
+}
+
+func filesForDataRootSourceContext(ctx context.Context, source vendors.ReadSource, root string) ([]string, error) {
+	active, err := FilesSourceContext(ctx, source, filepath.Join(root, "sessions"))
 	if err != nil {
 		return nil, err
 	}
-	archived, err := FilesSourceContext(ctx, source, ArchivedDir(home))
+	archived, err := FilesSourceContext(ctx, source, filepath.Join(root, "archived_sessions"))
 	if err != nil {
 		return nil, err
 	}
@@ -134,11 +147,15 @@ func filesForHomeSourceContext(ctx context.Context, source vendors.ReadSource, h
 }
 
 func scanForHomeSourceContext(ctx context.Context, source vendors.ReadSource, home string) (*vendors.SourceScan, error) {
-	active, err := ScanSourceContext(ctx, source, SessionsRoot(home))
+	return scanForDataRootSourceContext(ctx, source, filepath.Join(home, ".codex"))
+}
+
+func scanForDataRootSourceContext(ctx context.Context, source vendors.ReadSource, root string) (*vendors.SourceScan, error) {
+	active, err := ScanSourceContext(ctx, source, filepath.Join(root, "sessions"))
 	if err != nil {
 		return nil, err
 	}
-	archived, err := ScanSourceContext(ctx, source, ArchivedDir(home))
+	archived, err := ScanSourceContext(ctx, source, filepath.Join(root, "archived_sessions"))
 	if err != nil {
 		return nil, err
 	}

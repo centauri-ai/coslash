@@ -183,3 +183,37 @@ func containsPath(paths []string, want string) bool {
 	}
 	return false
 }
+
+func TestLocalDiscoveryUsesEffectiveCodexHome(t *testing.T) {
+	home := t.TempDir()
+	data := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("CODEX_HOME", data)
+	const id = "11111111-2222-4333-8444-555555555555"
+	active := writeDiscoveryRollout(t, filepath.Join(data, "sessions"), id, id, "")
+	archived := writeDiscoveryRollout(t, filepath.Join(data, "archived_sessions"), "66666666-7777-4888-8999-aaaaaaaaaaaa", "66666666-7777-4888-8999-aaaaaaaaaaaa", id)
+	if err := os.WriteFile(filepath.Join(data, "session_index.jsonl"), []byte(`{"id":"`+id+`","thread_name":"synthetic name"}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := Root()
+	if err != nil || root != filepath.Join(data, "sessions") {
+		t.Fatalf("effective root = %q, %v", root, err)
+	}
+	files, err := FilesContext(context.Background())
+	if err != nil || len(files) != 2 || !containsPath(files, active) || !containsPath(files, archived) {
+		t.Fatalf("effective files = %v, %v", files, err)
+	}
+	names, err := loadThreadNamesContext(context.Background())
+	if err != nil || names[id] != "synthetic name" {
+		t.Fatalf("effective names = %v, %v", names, err)
+	}
+	health := Health()
+	if health.Err != nil || health.Root != data || health.Sessions != 1 {
+		t.Fatalf("effective health = %+v", health)
+	}
+	explicit, err := filesForHomeSourceContext(context.Background(), vendors.LocalReadSource, home)
+	if err != nil || len(explicit) != 0 {
+		t.Fatal("explicit-home source inherited local environment")
+	}
+}
