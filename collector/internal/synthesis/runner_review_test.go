@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -99,6 +100,37 @@ func TestOpenCodeMatchingScratchAndStreamTotals(t *testing.T) {
 					t.Fatalf("dbSteps=%d v2=%v: usage=%#v err=%v", dbSteps, v2, got.Usage, err)
 				}
 			})
+		}
+	}
+}
+
+func TestOpenCodeScratchCostSurvivesMalformedTokens(t *testing.T) {
+	for _, v2 := range []bool{false, true} {
+		path := filepath.Join(t.TempDir(), "usage.db")
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		table := `CREATE TABLE message (session_id TEXT, data TEXT)`
+		insert := `INSERT INTO message VALUES (?,?)`
+		part := `{"role":"assistant","providerID":"openai","modelID":"gpt-5","cost":0.25,"tokens":{"input":"bad"},"time":{"completed":1}}`
+		if v2 {
+			table = `CREATE TABLE session_message (session_id TEXT, type TEXT, data TEXT)`
+			insert = `INSERT INTO session_message VALUES (?,"assistant",?)`
+			part = `{"model":{"providerID":"openai","id":"gpt-5"},"cost":0.25,"tokens":{"input":"bad"},"time":{"completed":1}}`
+		}
+		if _, err = db.Exec(table); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec(insert, "run", part); err != nil {
+			t.Fatal(err)
+		}
+		if err = db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got, count := readOpenCodeScratchUsage(path, "run", v2)
+		if count != 1 || got.ReportedCostMicroUSD == nil || *got.ReportedCostMicroUSD != 250000 || got.Tokens != nil {
+			t.Fatalf("v2=%v: count=%d usage=%#v", v2, count, got)
 		}
 	}
 }
