@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 const (
@@ -243,7 +245,10 @@ func BackendExecutable(backend string) string {
 	case BackendCursor:
 		return CursorExecutable()
 	case BackendPi:
-		return "pi"
+		if vendors.PiSupported() {
+			return "pi"
+		}
+		return ""
 	default:
 		return ""
 	}

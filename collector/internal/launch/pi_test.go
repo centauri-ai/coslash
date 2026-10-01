@@ -19,6 +19,13 @@ import (
 
 func fakePi(t *testing.T) string {
 	t.Helper()
+	if !vendors.PiSupported() {
+		t.Skip("Pi integration is supported only on macOS")
+	}
+	return setupFakePi(t)
+}
+func setupFakePi(t *testing.T) string {
+	t.Helper()
 	root := t.TempDir()
 	bin := filepath.Join(root, "bin")
 	if err := os.Mkdir(bin, 0700); err != nil {
@@ -436,9 +443,12 @@ func mustLookPathForPi(t *testing.T, name string) string {
 }
 
 func TestStagedLaunchFishUsesNativeParentAndPOSIXChild(t *testing.T) {
-	fakePi(t)
+	setupFakePi(t)
 	t.Setenv("SHELL", "/usr/local/bin/fish")
 	for _, agent := range []string{vendors.AgentPi, vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode} {
+		if agent == vendors.AgentPi && !vendors.PiSupported() {
+			continue
+		}
 		command, path, err := cliCommand(agent, "", NewSession, "private notes")
 		if err != nil {
 			t.Fatal(err)
@@ -451,6 +461,9 @@ func TestStagedLaunchFishUsesNativeParentAndPOSIXChild(t *testing.T) {
 			t.Fatal("cleanup/CLI not isolated in explicit POSIX child")
 		}
 		_ = removeHandoffFile(path)
+	}
+	if !vendors.PiSupported() {
+		return
 	}
 	fish, err := exec.LookPath("fish")
 	if err != nil {

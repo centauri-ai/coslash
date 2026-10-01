@@ -10,11 +10,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
 
@@ -22,8 +22,8 @@ var ErrPiUnsupportedVersion = errors.New("launch: Pi requires verified version 0
 var ErrPiExtension = errors.New("launch: managed Pi extension is unavailable")
 
 func piSupportedExecutable() (string, error) {
-	if runtime.GOOS == "windows" {
-		return "", errors.New("launch: Pi runtime integration requires macOS or Linux")
+	if !vendors.PiSupported() {
+		return "", errors.New("launch: Pi support requires macOS")
 	}
 	cli, err := exec.LookPath("pi")
 	if err != nil {

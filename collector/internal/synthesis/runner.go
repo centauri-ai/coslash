@@ -18,6 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 const (
@@ -66,6 +67,9 @@ type CLIRunner struct {
 func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 	if !config.Enabled {
 		return nil, nil
+	}
+	if config.Backend == settings.BackendPi && !vendors.PiSupported() {
+		return nil, errors.New("Pi synthesis is supported only on macOS")
 	}
 	bin := settings.BackendExecutable(config.Backend)
 	if bin == "" {

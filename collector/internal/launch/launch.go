@@ -90,7 +90,9 @@ func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 		{Agent: vendors.AgentOpenCode, Label: "OpenCode", Entrypoint: "opencode-cli", Automatic: true},
 		{Agent: vendors.AgentCursor, Label: "Cursor CLI", Entrypoint: "cursor-cli", Automatic: true},
 		{Agent: vendors.AgentCursor, Label: "Cursor IDE", Entrypoint: "cursor-ide"},
-		{Agent: vendors.AgentPi, Label: "Pi", Entrypoint: "pi-tui", Automatic: true},
+	}
+	if vendors.PiSupported() {
+		options = append(options, HandoffTargetOption{Agent: vendors.AgentPi, Label: "Pi", Entrypoint: "pi-tui", Automatic: true})
 	}
 	for i := range options {
 		if !securePromptAvailable() {

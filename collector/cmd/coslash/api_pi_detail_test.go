@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,8 +12,10 @@ import (
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
 
@@ -54,6 +57,9 @@ func TestLocalPiDetailAcceptsOpaqueIdentityButRemoteRefuses(t *testing.T) {
 }
 
 func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T) {
+	if !vendors.PiSupported() {
+		t.Skip("Pi collection is supported only on macOS")
+	}
 	agentDir, stateDir := t.TempDir(), t.TempDir()
 	t.Setenv("PI_CODING_AGENT_DIR", agentDir)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
@@ -175,6 +181,9 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 }
 
 func TestPiProviderErrorSurvivesExactLocalDetail(t *testing.T) {
+	if !vendors.PiSupported() {
+		t.Skip("Pi collection is supported only on macOS")
+	}
 	agentDir := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_DIR", agentDir)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
@@ -203,5 +212,18 @@ func TestPiProviderErrorSurvivesExactLocalDetail(t *testing.T) {
 		if decoded.Session.AgentError == nil || *decoded.Session.AgentError != "Refresh SSO credentials" {
 			t.Fatalf("local diagnostic lost: %#v", decoded.Session.AgentError)
 		}
+	}
+}
+
+func TestPiHandoffChoicesMatchSupportedPlatform(t *testing.T) {
+	found := false
+	for _, option := range launch.HandoffTargetOptions(context.Background()) {
+		found = found || option.Agent == vendors.AgentPi
+	}
+	if found != vendors.PiSupported() {
+		t.Fatalf("Pi handoff choice %t differs from platform support", found)
+	}
+	if !vendors.PiSupported() && launch.PiAvailable() {
+		t.Fatal("Pi launcher available on unsupported platform")
 	}
 }

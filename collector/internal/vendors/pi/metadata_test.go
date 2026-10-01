@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func testRecord() RuntimeRecord {
@@ -92,15 +94,15 @@ func TestEnsureExtensionPreservesUnmanagedFiles(t *testing.T) {
 	t.Setenv("PI_CODING_AGENT_DIR", root)
 	settings := filepath.Join(root, "settings.json")
 	os.WriteFile(settings, []byte(`{"extensions":["user.ts"]}`), 0600)
-	if err := EnsureExtension(); err != nil {
+	if err := ensureExtension(); err != nil {
 		t.Fatal(err)
 	}
-	if !ExtensionDiagnostics().Installed {
+	if !extensionDiagnostics().Installed {
 		t.Fatal("not installed")
 	}
 	target, _ := ExtensionPath()
 	os.WriteFile(target, []byte("// user-owned"), 0600)
-	if err := EnsureExtension(); err == nil {
+	if err := ensureExtension(); err == nil {
 		t.Fatal("overwrote unmanaged extension")
 	}
 	contents, _ := os.ReadFile(settings)
@@ -193,7 +195,7 @@ func TestQuotedTildeAgentDirectory(t *testing.T) {
 	if err != nil || target != filepath.Join(agent, "extensions", "coslash-extension.ts") {
 		t.Fatalf("quoted tilde extension path: %q %v", target, err)
 	}
-	if err := EnsureExtension(); err != nil {
+	if err := ensureExtension(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(target); err != nil {
@@ -313,6 +315,24 @@ func TestOptionalEntrypointDecodePreservesStatus(t *testing.T) {
 		if r.Entrypoint != want {
 			t.Fatalf("%v: got %q", value, r.Entrypoint)
 		}
+	}
+}
+
+func TestUnsupportedPlatformDoesNotInstallPiExtension(t *testing.T) {
+	if vendors.PiSupported() {
+		t.Skip("unsupported-platform check")
+	}
+	agent := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", agent)
+	if err := EnsureExtension(); err != nil {
+		t.Fatal(err)
+	}
+	health := ExtensionDiagnostics()
+	if health.Installed || health.Path != "" || health.Err != nil {
+		t.Fatalf("unsupported platform probed Pi: %#v", health)
+	}
+	if entries, err := os.ReadDir(agent); err != nil || len(entries) != 0 {
+		t.Fatalf("unsupported platform changed Pi agent directory: %v %v", entries, err)
 	}
 }
 

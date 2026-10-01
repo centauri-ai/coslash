@@ -1,5 +1,7 @@
 package vendors
 
+import "runtime"
+
 const (
 	AgentPi       = "pi"
 	AgentClaude   = "claude"
@@ -7,3 +9,6 @@ const (
 	AgentCursor   = "cursor"
 	AgentOpenCode = "opencode"
 )
+
+func PiSupported() bool                  { return piSupportedOn(runtime.GOOS) }
+func piSupportedOn(platform string) bool { return platform == "darwin" }

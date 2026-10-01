@@ -6,10 +6,12 @@ import { getPackageDir, VERSION } from "@earendil-works/pi-coding-agent"
 import os from "node:os"
 import path from "node:path"
 
+const supportedPlatform = process.platform === "darwin"
 const home = process.env.COSLASH_HOME || path.join(os.homedir(), ".coslash")
 const runtimeId = randomUUID()
 const startedAtMs = Date.now()
 const nativeHost = (() => {
+  if (!supportedPlatform) return false
   try {
     const directory = getPackageDir()
     const pkg = JSON.parse(readFileSync(path.join(directory, "package.json"), "utf8"))
@@ -90,6 +92,7 @@ function clear() {
   } catch { /* Another owner's claim is never touched. */ }
 }
 export default function (pi: any) {
+  if (!supportedPlatform) return
   // Event semantics have been verified on this release only.
   if (VERSION !== "0.99.1" && VERSION !== "0.99.2") return
   const ready = process.env.COSLASH_PI_READY
