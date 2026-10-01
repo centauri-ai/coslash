@@ -66,6 +66,10 @@ func LocalDetailRevisionContext(ctx context.Context, value Session) (string, err
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	// Pi modality comes from runtime ownership, not transcript content.
+	if stable.Agent == "pi" {
+		stable.Entrypoint = nil
+	}
 	stable.Status = nil
 	stable.Branch = nil
 	stable.Repository = nil

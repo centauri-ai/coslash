@@ -393,7 +393,7 @@ export const SUBAGENT_STATUSES = {
 } satisfies Record<Subagent['status'], SubagentStatus>;
 
 const MODALITIES: Record<string, string> = {
-  'pi-tui': 'Interactive',
+  'pi-tui': 'CLI',
   'pi-print': 'Print',
   'pi-json': 'JSON',
   'pi-rpc': 'RPC',

@@ -21,7 +21,7 @@ function start(args=[]){const child=spawn(process.execPath,[cli,'--mode','rpc','
 const p=start(['--session-dir',path.join(root,'override')]);
 let second;
 try{
- await until(()=>claims().length===1);const first=claims()[0];assert.equal(first.workState,'idle');assert.match(first.processStartIdentity,/^(ps|linux):/);
+ await until(()=>claims().length===1);const first=claims()[0];assert.equal(first.workState,'idle');assert.equal(first.entrypoint,'pi-rpc');assert.match(first.processStartIdentity,/^(ps|linux):/);
  p.send({type:'prompt',message:'hello'});await until(()=>claims()[0]?.workState==='busy');
  await until(()=>claims()[0]?.workState==='idle');assert.ok(claims()[0].sequence>first.sequence);
  p.send({type:'prompt',message:'abort'});await until(()=>claims()[0]?.workState==='busy');p.send({type:'abort'});await until(()=>claims()[0]?.workState==='idle');

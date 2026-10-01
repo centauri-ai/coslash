@@ -90,6 +90,17 @@ describe('Pi accounting and local affordances', () => {
     expect(getSessionVendors([{ agent: 'cursor' }, { agent: 'pi' }])).toEqual(['cursor', 'pi']);
   });
 
+  it('labels the verified Pi runtime modalities', () => {
+    for (const [entrypoint, label] of Object.entries({
+      'pi-tui': 'CLI',
+      'pi-rpc': 'RPC',
+      'pi-json': 'JSON',
+      'pi-print': 'Print',
+      'pi-sdk': 'SDK',
+    }))
+      expect(getModality(entrypoint, 'pi')).toBe(label);
+  });
+
   it('allows local unknown Pi resume but blocks live owners and all remote Pi launch', () => {
     const local = { sourceId: 'local', agent: 'pi', cwd: '/repo', status: 'unknown', displayStale: false };
     expect(resumeDisabledHint(local)).toBeUndefined();

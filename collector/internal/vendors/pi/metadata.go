@@ -21,11 +21,30 @@ type RuntimeRecord struct {
 	SessionID            string  `json:"sessionId"`
 	TranscriptPath       string  `json:"transcriptPath"`
 	LeafID               *string `json:"leafId"`
+	Entrypoint           string  `json:"entrypoint,omitempty"`
 	WorkState            string  `json:"workState"`
 	DialogOpen           bool    `json:"dialogOpen"`
 	Sequence             int64   `json:"sequence"`
 	UpdatedAtMs          int64   `json:"updatedAtMs"`
 }
+
+func (r *RuntimeRecord) UnmarshalJSON(data []byte) error {
+	type record RuntimeRecord
+	decoded := struct {
+		*record
+		Entrypoint json.RawMessage `json:"entrypoint"`
+	}{record: (*record)(r)}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	r.Entrypoint = ""
+	_ = json.Unmarshal(decoded.Entrypoint, &r.Entrypoint)
+	if !validEntrypoint(r.Entrypoint) {
+		r.Entrypoint = ""
+	}
+	return nil
+}
+
 type runtimeEvidence struct {
 	Record RuntimeRecord `json:"record"`
 	Exited bool          `json:"exited"`
@@ -174,6 +193,46 @@ func statusFor(owners []runtimeEvidence, verify func(runtimeEvidence) string) st
 	}
 	return "unknown"
 }
+func validEntrypoint(value string) bool {
+	switch value {
+	case "pi-tui", "pi-rpc", "pi-json", "pi-print", "pi-sdk":
+		return true
+	}
+	return false
+}
+
+func entrypointFor(owners []runtimeEvidence, verify func(runtimeEvidence) string) string {
+	live, modality := false, ""
+	var latest *RuntimeRecord
+	conflictingLatest := false
+	for _, owner := range owners {
+		switch verify(owner) {
+		case "live":
+			if !validEntrypoint(owner.Record.Entrypoint) || (live && modality != owner.Record.Entrypoint) {
+				return ""
+			}
+			live, modality = true, owner.Record.Entrypoint
+		case "dead":
+			r := owner.Record
+			if latest == nil || r.UpdatedAtMs > latest.UpdatedAtMs || (r.UpdatedAtMs == latest.UpdatedAtMs && r.StartedAtMs > latest.StartedAtMs) {
+				latest = &r
+				conflictingLatest = false
+			} else if r.StartedAtMs == latest.StartedAtMs && r.UpdatedAtMs == latest.UpdatedAtMs && r.Entrypoint != latest.Entrypoint {
+				conflictingLatest = true
+			}
+		default:
+			return ""
+		}
+	}
+	if live {
+		return modality
+	}
+	if !conflictingLatest && latest != nil && validEntrypoint(latest.Entrypoint) {
+		return latest.Entrypoint
+	}
+	return ""
+}
+
 func LoadMetadata() (*vendors.SessionMetadata, error) {
 	return LoadMetadataContext(context.Background())
 }
@@ -198,7 +257,10 @@ func LoadMetadataContext(ctx context.Context) (*vendors.SessionMetadata, error) 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		metadata.Session(id).Live = statusFor(owners, func(e runtimeEvidence) string { return snapshot.states[runtimeOwnerKey(e)] })
+		verify := func(owner runtimeEvidence) string { return snapshot.states[runtimeOwnerKey(owner)] }
+		enrichment := metadata.Session(id)
+		enrichment.Live = statusFor(owners, verify)
+		enrichment.Entrypoint = entrypointFor(owners, verify)
 	}
 	return metadata, nil
 }

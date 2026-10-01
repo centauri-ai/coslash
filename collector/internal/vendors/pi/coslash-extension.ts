@@ -1,14 +1,33 @@
 // managed by coSlash; changes are overwritten
-import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, readFileSync, renameSync, realpathSync, unlinkSync, writeFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { randomUUID, createHash } from "node:crypto"
-import { VERSION } from "@earendil-works/pi-coding-agent"
+import { getPackageDir, VERSION } from "@earendil-works/pi-coding-agent"
 import os from "node:os"
 import path from "node:path"
 
 const home = process.env.COSLASH_HOME || path.join(os.homedir(), ".coslash")
 const runtimeId = randomUUID()
 const startedAtMs = Date.now()
+const nativeHost = (() => {
+  try {
+    const directory = getPackageDir()
+    const pkg = JSON.parse(readFileSync(path.join(directory, "package.json"), "utf8"))
+    if (pkg.name !== "@earendil-works/pi-coding-agent") return false
+    const bins = typeof pkg.bin === "string" ? [pkg.bin] : Object.values(pkg.bin || {})
+    const candidates = [...bins, "dist/cli.js", "dist/bundle/rpc-entry.js", "dist/rpc-entry.js"]
+    const host = realpathSync(process.argv[1])
+    return candidates.some(candidate => {
+      try { return typeof candidate === "string" && realpathSync(path.join(directory, candidate)) === host }
+      catch { return false }
+    })
+  } catch { return false }
+})()
+const declaredSDK = process.env.COSLASH_PI_ENTRYPOINT === "pi-sdk"
+function entrypoint() {
+  if (!nativeHost) return declaredSDK ? "pi-sdk" : undefined
+  return ["tui", "rpc", "json", "print"].includes(context.mode) ? `pi-${context.mode}` : undefined
+}
 function processIdentity() {
   try {
     if (process.platform === "linux") {
@@ -49,10 +68,11 @@ function publish() {
     const sessionId = context.sessionManager.getSessionId()
     if (!transcriptPath || !path.isAbsolute(transcriptPath) || !sessionId) return
     const leafId = context.sessionManager.getLeafId() ?? null
+    const modality = entrypoint()
     const workState = agentRunning || !context.isIdle() ? "busy" : "idle"
-    if (lastRecord && lastRecord.sessionId === sessionId && lastRecord.transcriptPath === transcriptPath && lastRecord.leafId === leafId && lastRecord.workState === workState && lastRecord.dialogOpen === dialogOpen) return
+    if (lastRecord && lastRecord.sessionId === sessionId && lastRecord.transcriptPath === transcriptPath && lastRecord.leafId === leafId && lastRecord.workState === workState && lastRecord.dialogOpen === dialogOpen && lastRecord.entrypoint === modality) return
     const record = { version: 1, runtimeId, pid: process.pid, processStartIdentity, startedAtMs,
-      sessionId, transcriptPath, leafId, workState, dialogOpen,
+      sessionId, transcriptPath, leafId, workState, dialogOpen, entrypoint: modality,
       sequence: ++sequence, updatedAtMs: Date.now() }
     atomic(path.join(home, "pi-runtime"), runtimeId, record)
     history(record, false)

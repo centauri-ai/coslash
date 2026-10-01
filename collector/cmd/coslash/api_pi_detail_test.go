@@ -89,7 +89,7 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 	cache := synthesis.NewCache()
 	var previous int64
 	for sequence, leaf := range []string{"a", "b"} {
-		record := pi.RuntimeRecord{Version: 1, RuntimeID: "http-test-owner", PID: os.Getpid(), ProcessStartIdentity: identity, StartedAtMs: 1, SessionID: id, TranscriptPath: transcript, LeafID: &leaf, WorkState: "idle", Sequence: int64(sequence + 1), UpdatedAtMs: 2}
+		record := pi.RuntimeRecord{Version: 1, RuntimeID: "http-test-owner", PID: os.Getpid(), ProcessStartIdentity: identity, StartedAtMs: 1, SessionID: id, TranscriptPath: transcript, LeafID: &leaf, WorkState: "idle", Entrypoint: "pi-rpc", Sequence: int64(sequence + 1), UpdatedAtMs: 2}
 		payload, _ := json.Marshal(record)
 		if err := os.WriteFile(filepath.Join(runtimeDir, record.RuntimeID+".json"), payload, 0600); err != nil {
 			t.Fatal(err)
@@ -104,8 +104,25 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 		if err := json.Unmarshal(detail.Body.Bytes(), &decoded); err != nil {
 			t.Fatal(err)
 		}
+		if decoded.Session.Entrypoint == nil || *decoded.Session.Entrypoint != "pi-rpc" {
+			t.Fatalf("runtime modality lost: %#v", decoded.Session.Entrypoint)
+		}
 		if decoded.Session.Summary == nil || *decoded.Session.Summary != "branch "+leaf {
 			t.Fatalf("runtime leaf not reflected in detail: %#v", decoded.Session.Summary)
+		}
+		record.Entrypoint, record.Sequence = "pi-sdk", record.Sequence+10
+		payload, _ = json.Marshal(record)
+		if err := os.WriteFile(filepath.Join(runtimeDir, record.RuntimeID+".json"), payload, 0600); err != nil {
+			t.Fatal(err)
+		}
+		refreshed := httptest.NewRecorder()
+		handleSessionDetail(refreshed, httptest.NewRequest(http.MethodGet, "/api/session-detail?"+query.Encode(), nil), collector.GetSessionDetail, nil)
+		var changed sessionDetailResponse
+		if err := json.Unmarshal(refreshed.Body.Bytes(), &changed); err != nil {
+			t.Fatal(err)
+		}
+		if changed.Session.Entrypoint == nil || *changed.Session.Entrypoint != "pi-sdk" || changed.Revision != decoded.Revision || changed.SynthesisRevision != decoded.SynthesisRevision {
+			t.Fatalf("modality/revision changed: first=%#v/%s/%d next=%#v/%s/%d", decoded.Session.Entrypoint, decoded.Revision, decoded.SynthesisRevision, changed.Session.Entrypoint, changed.Revision, changed.SynthesisRevision)
 		}
 		revision := decoded.SynthesisRevision
 		if revision <= 0 || revision > (1<<53)-1 || revision == previous {
