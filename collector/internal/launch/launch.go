@@ -98,8 +98,7 @@ func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 		}
 		switch options[i].Entrypoint {
 		case "pi-tui":
-			_, err := exec.LookPath("pi")
-			options[i].Available = err == nil
+			options[i].Available = PiAvailable()
 		case "cursor-cli":
 			options[i].Available = CursorCLIExecutable(home) != ""
 		case "cursor-ide":
