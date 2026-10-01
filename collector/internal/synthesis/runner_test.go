@@ -101,7 +101,7 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 func TestRunnerIdentity(t *testing.T) {
 	runner := &CLIRunner{Backend: settings.BackendClaude, Model: "claude-test"}
 	var contract Runner = runner
-	if contract.VendorName() != settings.BackendClaude || contract.ModelName() != "claude-test" {
+	if contract.VendorName() != "claude" || contract.ModelName() != "claude-test" {
 		t.Fatalf("identity = %q/%q", contract.VendorName(), contract.ModelName())
 	}
 }

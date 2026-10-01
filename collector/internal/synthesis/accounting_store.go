@@ -215,7 +215,9 @@ func (s *AccountingStore) FinishInvocation(ctx context.Context, roundID string, 
 	if usage.EstimatedCostMicroUSD != nil && *usage.EstimatedCostMicroUSD != *orZero(canonical.EstimatedCostMicroUSD) {
 		return fmt.Errorf("inconsistent estimate")
 	}
-	if usage.Coverage != "" && usage.Coverage != canonical.Coverage {
+	if usage.Coverage == "partial" && (canonical.ReportedCostMicroUSD != nil || canonical.EstimatedCostMicroUSD != nil || len(canonical.Tokens) > 0) {
+		canonical.Coverage = "partial"
+	} else if usage.Coverage != "" && usage.Coverage != canonical.Coverage {
 		return fmt.Errorf("inconsistent coverage")
 	}
 	data, err := json.Marshal(canonical.Tokens)

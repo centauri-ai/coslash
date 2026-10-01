@@ -122,7 +122,18 @@ func (r *CLIRunner) ModelName() string {
 }
 
 func (r *CLIRunner) VendorName() string {
-	return r.Backend
+	switch r.Backend {
+	case settings.BackendClaude:
+		return "claude"
+	case settings.BackendCodex:
+		return "codex"
+	case settings.BackendOpenCode:
+		return "opencode"
+	case settings.BackendCursor:
+		return "cursor"
+	default:
+		return ""
+	}
 }
 
 func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
