@@ -4,7 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
 func TestParseFinishedSessionUsesUsageTokensAndSignalsContextFill(t *testing.T) {
@@ -51,6 +54,17 @@ func TestParseFileEditCountsCompletedDiffOnce(t *testing.T) {
 	}
 	if changes := edit.Changes(); len(changes) != 1 || changes[0].Text != "@@\n-alias agent=grok\n+alias agent=cursor\n+alias g=grok\n" {
 		t.Fatalf("changes = %+v", changes)
+	}
+}
+
+func TestReadTodosKeepsOrderDropsCancelledAndMarksOnlyCompletedDone(t *testing.T) {
+	got := readTodos(filepath.Join("testdata", "plan", "plan.json"))
+	want := []session.Todo{{Text: "Ship", Done: true}, {Text: "Review", Done: false}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("todos = %+v, want %+v", got, want)
+	}
+	if got := readTodos(filepath.Join("testdata", "absent", "plan.json")); got == nil || len(got) != 0 {
+		t.Fatalf("missing plan todos = %#v, want empty", got)
 	}
 }
 

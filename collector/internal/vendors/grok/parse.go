@@ -2,6 +2,7 @@ package grok
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -142,6 +143,7 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 	s.FirstPrompt = nonEmpty(updates.firstPrompt)
 	s.FileEdits = updates.edits.Edits
 	s.EditedFileCount = len(s.FileEdits)
+	s.Todos = readTodos(filepath.Join(dir, "plan.json"))
 
 	var signals signalsFile
 	readOptionalJSON(filepath.Join(dir, "signals.json"), &signals)
@@ -273,6 +275,34 @@ func readUpdates(path string) (updatesSummary, error) {
 	}
 	result.firstPrompt = strings.TrimSpace(result.firstPrompt)
 	return result, scanner.Err()
+}
+
+// readTodos keeps plan.json order. A cancelled todo is left out, and only completed is done.
+func readTodos(path string) []session.Todo {
+	todos := []session.Todo{}
+	var plan struct {
+		Todos json.RawMessage `json:"todos"`
+	}
+	if readJSON(path, &plan) != nil || len(plan.Todos) == 0 {
+		return todos
+	}
+	decoder := json.NewDecoder(bytes.NewReader(plan.Todos))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return todos
+	}
+	for decoder.More() {
+		var item struct {
+			Content string `json:"content"`
+			Status  string `json:"status"`
+		}
+		if _, err := decoder.Token(); err != nil || decoder.Decode(&item) != nil {
+			return []session.Todo{}
+		}
+		if text := strings.TrimSpace(item.Content); text != "" && item.Status != "cancelled" {
+			todos = append(todos, session.Todo{Text: text, Done: item.Status == "completed"})
+		}
+	}
+	return todos
 }
 
 func readJSON(path string, target any) error {
