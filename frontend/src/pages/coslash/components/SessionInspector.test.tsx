@@ -315,3 +315,22 @@ describe('SessionInspector exact-detail boundaries', () => {
     expect(authentication).not.toContain('Refresh sessions');
   });
 });
+
+it('refreshes Pi runtime modality without changing exact detail content', () => {
+  const loaded = {
+    ...session,
+    sourceId: 'local',
+    subagents: [],
+    agent: 'pi',
+    entrypoint: 'pi-tui',
+    detailRevision: 'stable-revision',
+    mtime: 100,
+  } as Session;
+  expect(overlayLiveSessionFields(loaded, { ...loaded, entrypoint: 'pi-rpc' })).toMatchObject({
+    entrypoint: 'pi-rpc',
+    detailRevision: 'stable-revision',
+  });
+  expect(overlayLiveSessionFields(loaded, { ...loaded, entrypoint: null }).entrypoint).toBeNull();
+  const nonPi = { ...loaded, agent: 'codex', entrypoint: 'codex-tui' };
+  expect(overlayLiveSessionFields(nonPi, { ...nonPi, entrypoint: null }).entrypoint).toBe('codex-tui');
+});
