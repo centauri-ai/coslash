@@ -210,6 +210,11 @@ func TestPiVerifiedReleaseAllowlist(t *testing.T) {
 		if available := PiAvailable(); available != verified {
 			t.Fatalf("PiAvailable(%s) = %v, want %v", version, available, verified)
 		}
+		for _, target := range HandoffTargetOptions(context.Background()) {
+			if target.Agent == vendors.AgentPi && target.Available != verified {
+				t.Fatalf("Pi target availability for %s = %v, want %v", version, target.Available, verified)
+			}
+		}
 		if verified && err != nil {
 			t.Fatalf("verified %s rejected: %v", version, err)
 		}
