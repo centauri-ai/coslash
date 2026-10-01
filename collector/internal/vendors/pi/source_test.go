@@ -424,3 +424,70 @@ func TestIncrementalCollectionKeepsExternalIntermediateAncestor(t *testing.T) {
 		t.Fatalf("conflicting ancestor bypassed: %v %#v", err, items)
 	}
 }
+
+func TestUnsupportedHeaderDiscoversProjectOverride(t *testing.T) {
+	supported := fixture(t)
+	for _, tc := range []struct {
+		name         string
+		modify       func(map[string]any)
+		malformed    bool
+		wantSessions int
+	}{
+		{name: "unsupported", wantSessions: 1},
+		{name: "malformed JSON", malformed: true},
+		{name: "invalid version field", modify: func(h map[string]any) { h["version"] = "invalid" }},
+		{name: "invalid type", modify: func(h map[string]any) { h["type"] = "message" }},
+		{name: "missing identity", modify: func(h map[string]any) { delete(h, "id") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
+			t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+			t.Setenv("COSLASH_PI_SESSION_ROOTS", "")
+			t.Setenv("COSLASH_HOME", t.TempDir())
+			project, custom := t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(filepath.Join(project, ".pi"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			settings, err := json.Marshal(map[string]string{"sessionDir": custom})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(project, ".pi", "settings.json"), settings, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(custom, "supported.jsonl"), supported, 0600); err != nil {
+				t.Fatal(err)
+			}
+			h := map[string]any{"type": "session", "id": "unsupported", "version": 2, "cwd": project}
+			if tc.modify != nil {
+				tc.modify(h)
+			}
+			data, err := json.Marshal(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.malformed {
+				data = data[:len(data)-1]
+			}
+			root, err := Root()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(root, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "seed.jsonl"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			items, _, err := Collect(0)
+			if err != nil || len(items) != tc.wantSessions {
+				t.Fatalf("project discovery: %v sessions=%d want=%d", err, len(items), tc.wantSessions)
+			}
+			health := Health()
+			if health.Sessions != tc.wantSessions || health.SkippedTotal != 1 {
+				t.Fatalf("source health: %+v", health)
+			}
+		})
+	}
+}
