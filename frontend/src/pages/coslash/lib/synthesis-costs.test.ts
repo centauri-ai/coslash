@@ -1,0 +1,35 @@
+import { describe, expect, it } from 'vitest';
+import { combinedKnownCost, synthesisCostsPath, synthesisCoverage } from './synthesis-costs';
+
+describe('synthesis costs', () => {
+  it('adds known micro-USD and keeps unknown calls partial', () => {
+    expect(combinedKnownCost(2, { knownCostMicroUsd: 500_000, unknownInvocationCount: 1 })).toEqual({
+      knownUsd: 2.5,
+      partial: true,
+    });
+    expect(combinedKnownCost(0, { knownCostMicroUsd: 0, unknownInvocationCount: 0 })).toEqual({
+      knownUsd: 0,
+      partial: false,
+    });
+    expect(combinedKnownCost(0, { knownCostMicroUsd: null, unknownInvocationCount: 1 })).toEqual({
+      knownUsd: 0,
+      partial: true,
+    });
+    expect(combinedKnownCost(0, { knownCostMicroUsd: 1, unknownInvocationCount: 0 }).knownUsd).toBe(0.000001);
+    expect(synthesisCoverage({ knownCostMicroUsd: null, unknownInvocationCount: 1 })).toBe('unknown');
+    expect(synthesisCoverage({ knownCostMicroUsd: 0, unknownInvocationCount: 0 })).toBe('complete');
+    expect(
+      synthesisCoverage({ knownCostMicroUsd: 0, unknownInvocationCount: 0, incompleteRoundCount: 1 }),
+    ).toBe('partial');
+  });
+
+  it('builds independent month and composite session queries', () => {
+    expect(synthesisCostsPath({ since: 10, until: 20 })).toBe(
+      '/api/synthesis-costs?source=local&since=10&until=20',
+    );
+    expect(synthesisCostsPath({ sourceId: 'local', agent: 'codex', id: 'a/b', cursor: 'x==' })).toBe(
+      '/api/synthesis-costs?source=local&agent=codex&id=a%2Fb&cursor=x%3D%3D',
+    );
+    expect(() => synthesisCostsPath({ sourceId: 'ssh', agent: 'codex', id: 'a' })).toThrow();
+  });
+});
