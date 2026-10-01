@@ -22,7 +22,7 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
 | T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | `a83b077d` and `2b81b547`. Browser on port 8797 showed 4 Grok cards. Resume not clicked. PR not opened. |
 
-**Next action:** All five tasks are complete. Do not send more fixes. Do not open pull requests until the user asks. The stack is ready: T1 `cvu/grok-t1-parse` at `d3237332`, T2 `cvu/grok-t2-enrich` at `e7460e1e`, T4 `cvu/grok-t4-launch` at `3e26eb8c`, T3 `cvu/grok-t3-synthesis` at `d7961ec5`, T5 `cvu/grok-t5-ui` at `2b81b547` on base `cvu/grok-t2-t4` at `1a9b09cf`. A release binary is still running on port 8797 with a scratch COSLASH_HOME. Do not kill the process on 8787.
+**Next action:** All five tasks are complete. Do not open pull requests until the user asks. Codex E2E is running in this workspace `4ceb2f68-8c6b-49de-8b68-2c3d5ba83908`, terminal `586f8bcf-e9e9-46f5-aef2-43f36ba7d142`. It drives the Superset browser against http://127.0.0.1:8797. Do not kill 8787 or 8797. When that terminal shows a second `SUPERSET_WORKER_DONE`, record the five checks. Do not click Resume.
 
 **Blockers:** none. Reviews: T1 one fix, T2 one fix, T3 `NO_FINDINGS`, T4 `NO_FINDINGS`, T5 `NO_FINDINGS`. T1 is 13 files and 438 production lines, inside the agent-tooling budget.
 
