@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -392,6 +393,129 @@ func TestManagerShutdownWaitsForSweep(t *testing.T) {
 	case <-exited:
 	default:
 		t.Fatal("shutdown returned before sweep exited")
+	}
+}
+
+func TestManagerStartWriteFailureStaysUnavailableAfterRestart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_start BEFORE INSERT ON invocations BEGIN SELECT RAISE(FAIL,'injected start failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) {
+		return RunResult{Synthesis: session.SessionSynthesis{Outcome: "valid"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(17), Coverage: "complete"}}, nil
+	}}
+	manager := NewManager(runner, store)
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "start-failed", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	manager.workers.Wait()
+	if got := manager.Lookup("codex", "start-failed", 42); got == nil || got.Outcome != "valid" {
+		t.Fatalf("summary = %+v", got)
+	}
+	if _, err := store.db.Exec(`DROP TRIGGER fail_start`); err != nil {
+		t.Fatal(err)
+	}
+	manager.Shutdown()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenAccountingStore(home, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	fresh := NewManager(nil, reopened)
+	if !fresh.AccountingUnavailable() {
+		t.Fatal("missing paid invocation was shown as complete after restart")
+	}
+	if _, err := reopened.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "start-failed"}); !errors.Is(err, ErrAccountingIncomplete) {
+		t.Fatalf("cost read error = %v, want durable incomplete marker", err)
+	}
+}
+
+func TestManagerRetriesStartAfterTransientFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_once BEFORE INSERT ON invocations BEGIN SELECT RAISE(FAIL,'injected start failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) {
+		if _, err := store.db.Exec(`DROP TRIGGER fail_once`); err != nil {
+			t.Fatal(err)
+		}
+		return RunResult{Synthesis: session.SessionSynthesis{Outcome: "valid"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(19), Coverage: "complete"}}, nil
+	}}
+	manager := NewManager(runner, store)
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "retry-start", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	manager.workers.Wait()
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "retry-start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Totals.InvocationCount != 1 || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 19 || manager.AccountingUnavailable() {
+		t.Fatalf("recovered start = %+v unavailable=%t", got, manager.AccountingUnavailable())
+	}
+}
+
+func TestManagerStoreWaitDoesNotHoldLifecycleLock(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manager := NewManager(&accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) { return RunResult{}, nil }}, store)
+	defer manager.Shutdown()
+	conn, err := store.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "blocked", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not queued")
+	}
+	for store.db.Stats().WaitCount == 0 {
+		runtime.Gosched()
+	}
+	if !manager.workMu.TryLock() {
+		t.Fatal("storage wait held lifecycle lock")
+	}
+	manager.workMu.Unlock()
+}
+
+func TestManagerCancelsDetailProbeBeforeRunner(t *testing.T) {
+	oldProbe := probeBranchDrift
+	defer func() { probeBranchDrift = oldProbe }()
+	entered := make(chan struct{})
+	probeBranchDrift = func(ctx context.Context, _ string, _ *string) *session.GitDrift {
+		close(entered)
+		<-ctx.Done()
+		return nil
+	}
+	called := false
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) { called = true; return RunResult{}, nil }}
+	manager := NewManager(runner, nil)
+	branch := "feature"
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "probe", Branch: &branch, WorkingDirectory: t.TempDir(), SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	<-entered
+	manager.Shutdown()
+	if called {
+		t.Fatal("runner called after detail probe cancellation")
 	}
 }
 

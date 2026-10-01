@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"unicode"
 	"unicode/utf8"
 
@@ -19,9 +20,12 @@ import (
 )
 
 type AccountingStore struct {
-	db   *sql.DB
-	lock *os.File
+	db         *sql.DB
+	lock       *os.File
+	incomplete atomic.Bool
 }
+
+var ErrAccountingIncomplete = errors.New("synthesis accounting incomplete")
 
 type roundCursor struct {
 	Time int64  `json:"t"`
@@ -33,7 +37,7 @@ const monthlyCostsSQL = `SELECT i.round_id,i.vendor,i.selected_cost_micro_usd,i.
  WHERE i.started_at_ms>=? AND i.started_at_ms<? AND r.source_id='local'`
 
 const accountingSchema = `
-CREATE TABLE IF NOT EXISTS metadata (schema_version INTEGER NOT NULL, tracking_started_at_ms INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS metadata (schema_version INTEGER NOT NULL, tracking_started_at_ms INTEGER NOT NULL, accounting_incomplete INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS rounds (
  round_id TEXT PRIMARY KEY, source_id TEXT NOT NULL, agent TEXT NOT NULL, session_id TEXT NOT NULL,
  source_revision INTEGER NOT NULL, started_at_ms INTEGER NOT NULL, finished_at_ms INTEGER,
@@ -156,15 +160,23 @@ func (s *AccountingStore) initialize(ctx context.Context, nowMs int64) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO metadata(schema_version,tracking_started_at_ms) SELECT 1,? WHERE NOT EXISTS(SELECT 1 FROM metadata)", nowMs); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO metadata(schema_version,tracking_started_at_ms) SELECT 2,? WHERE NOT EXISTS(SELECT 1 FROM metadata)", nowMs); err != nil {
 		return err
 	}
 	var version, count int64
 	if err := tx.QueryRowContext(ctx, "SELECT MIN(schema_version), COUNT(*) FROM metadata").Scan(&version, &count); err != nil {
 		return err
 	}
-	if version != 1 || count != 1 {
+	if count != 1 || (version != 1 && version != 2) {
 		return fmt.Errorf("unsupported accounting schema")
+	}
+	if version == 1 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE metadata ADD COLUMN accounting_incomplete INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE metadata SET schema_version=2"); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE invocations SET finished_at_ms=?,outcome='interrupted',coverage='unknown' WHERE finished_at_ms IS NULL", nowMs); err != nil {
 		return err
@@ -172,10 +184,35 @@ func (s *AccountingStore) initialize(ctx context.Context, nowMs int64) error {
 	if _, err := tx.ExecContext(ctx, "UPDATE rounds SET finished_at_ms=?,outcome='interrupted' WHERE finished_at_ms IS NULL", nowMs); err != nil {
 		return err
 	}
-	return tx.Commit()
+	var incomplete int64
+	if err := tx.QueryRowContext(ctx, "SELECT accounting_incomplete FROM metadata").Scan(&incomplete); err != nil {
+		return err
+	}
+	if incomplete != 0 && incomplete != 1 {
+		return fmt.Errorf("invalid accounting completeness marker")
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.incomplete.Store(incomplete == 1)
+	return nil
 }
 
 func (s *AccountingStore) Close() error { return errors.Join(s.db.Close(), s.lock.Close()) }
+
+func (s *AccountingStore) Incomplete() bool { return s.incomplete.Load() }
+
+func (s *AccountingStore) MarkIncomplete(ctx context.Context) error {
+	result, err := s.db.ExecContext(ctx, "UPDATE metadata SET accounting_incomplete=1")
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return fmt.Errorf("could not mark accounting incomplete: %v", err)
+	}
+	s.incomplete.Store(true)
+	return nil
+}
 
 func (s *AccountingStore) BeginRound(ctx context.Context, round Round) error {
 	if !validID(round.ID) || round.SourceID != "local" || !validAgentName(round.Agent) || !validAccountingSessionID(round.Agent, round.SessionID) || !safeMs(round.SourceRevision) || !safeMs(round.StartedAtMs) {
@@ -315,6 +352,9 @@ func (s *AccountingStore) ReadCosts(ctx context.Context, query CostQuery) (CostR
 		if err != nil || json.Unmarshal(data, &cursor) != nil || !safeMs(cursor.Time) || !validID(cursor.ID) {
 			return CostResponse{}, fmt.Errorf("invalid cursor")
 		}
+	}
+	if s.incomplete.Load() {
+		return CostResponse{}, ErrAccountingIncomplete
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {

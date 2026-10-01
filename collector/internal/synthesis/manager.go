@@ -79,7 +79,7 @@ func NewManager(runner Runner, accounting *AccountingStore) *Manager {
 
 func (m *Manager) AccountingStore() *AccountingStore { return m.accounting }
 func (m *Manager) AccountingUnavailable() bool {
-	return m.accounting == nil || m.accountingUnavailable.Load()
+	return m.accounting == nil || m.accountingUnavailable.Load() || m.accounting.Incomplete()
 }
 func (m *Manager) AccountingVersion() string {
 	return strconv.FormatUint(m.accountingVersion.Load(), 10)
@@ -165,12 +165,18 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 func (m *Manager) accountingError(err error) {
 	m.accountingUnavailable.Store(true)
 	log.Printf("synthesis accounting unavailable: %v", err)
+	if m.accounting != nil {
+		if markerErr := m.accounting.MarkIncomplete(context.WithoutCancel(m.workContext)); markerErr != nil {
+			log.Printf("mark synthesis accounting incomplete: %v", markerErr)
+		}
+	}
 }
 
 func (m *Manager) execute(input *session.Session, revision int64, runner Runner, vendor, model, agent, id string) {
 	m.workMu.Lock()
-	if m.stopped || m.workContext.Err() != nil {
-		m.workMu.Unlock()
+	stopped := m.stopped
+	m.workMu.Unlock()
+	if stopped || m.workContext.Err() != nil {
 		return
 	}
 	var roundID string
@@ -181,30 +187,44 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 		} else {
 			roundID = hex.EncodeToString(random[:])
 			if err := m.accounting.BeginRound(m.workContext, Round{ID: roundID, SourceID: "local", Agent: agent, SessionID: id, SourceRevision: revision, StartedAtMs: m.now().UnixMilli()}); err != nil {
+				if m.workContext.Err() != nil {
+					return
+				}
 				m.accountingError(err)
 				roundID = ""
 			}
 		}
 	}
-	m.workMu.Unlock()
+	accountingFailed := false
 	invoke := func(ctx context.Context, phase string, ordinal int, prompt string) (RunResult, error) {
 		if err := ctx.Err(); err != nil {
 			return RunResult{}, err
 		}
 		started := false
+		startedAt := m.now().UnixMilli()
 		if roundID != "" {
-			if err := m.accounting.StartInvocation(ctx, roundID, ordinal, phase, vendor, model, m.now().UnixMilli()); err != nil {
-				m.accountingError(err)
-			} else {
+			if err := m.accounting.StartInvocation(ctx, roundID, ordinal, phase, vendor, model, startedAt); err == nil {
 				started = true
+			} else if ctx.Err() == nil {
+				log.Printf("start synthesis accounting invocation: %v", err)
 			}
 		}
 		var result RunResult
 		var err error
+		ran := false
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		} else {
+			ran = true
 			result, err = runner.Run(ctx, prompt)
+		}
+		if roundID != "" && !started && ran {
+			if retryErr := m.accounting.StartInvocation(context.WithoutCancel(ctx), roundID, ordinal, phase, vendor, model, startedAt); retryErr == nil {
+				started = true
+			} else {
+				accountingFailed = true
+				m.accountingError(retryErr)
+			}
 		}
 		if started {
 			outcome := "success"
@@ -215,7 +235,9 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 				outcome = "interrupted"
 			}
 			if finishErr := m.accounting.FinishInvocation(context.WithoutCancel(ctx), roundID, ordinal, m.now().UnixMilli(), outcome, result.Usage); finishErr != nil {
-				m.accountingError(finishErr)
+				accountingFailed = true
+				m.accountingUnavailable.Store(true)
+				log.Printf("finish synthesis accounting invocation: %v", finishErr)
 			}
 		}
 		return result, err
@@ -225,10 +247,10 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 	if m.workContext.Err() != nil {
 		err = m.workContext.Err()
 	} else {
-		result, err = runSynthesisWithInvocation(m.workContext, sessionWithDetailProbes(input), invoke)
+		result, err = runSynthesisWithInvocation(m.workContext, sessionWithDetailProbes(m.workContext, input), invoke)
 	}
-	m.workMu.Lock()
-	if m.workContext.Err() != nil {
+	interrupted := m.workContext.Err() != nil
+	if interrupted {
 		err = m.workContext.Err()
 	}
 	if err == nil {
@@ -243,12 +265,12 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 		m.recordFailure(agent, id, revision, err)
 		log.Printf("synthesize session %s: %v", id, err)
 	}
-	if roundID != "" {
+	if roundID != "" && !accountingFailed {
 		outcome := "success"
 		if err != nil {
 			outcome = "failed"
 		}
-		if m.workContext.Err() != nil {
+		if interrupted {
 			outcome = "interrupted"
 		}
 		if finishErr := m.accounting.FinishRound(context.WithoutCancel(m.workContext), roundID, m.now().UnixMilli(), outcome); finishErr != nil {
@@ -256,13 +278,14 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 		}
 	}
 	m.accountingVersion.Add(1)
-	m.workMu.Unlock()
 }
 
-func sessionWithDetailProbes(s *session.Session) *session.Session {
+var probeBranchDrift = session.BranchDriftContext
+
+func sessionWithDetailProbes(ctx context.Context, s *session.Session) *session.Session {
 	inputSession := *s
 	if !inputSession.GitProbed {
-		inputSession.Git = session.BranchDrift(inputSession.WorkingDirectory, inputSession.Branch)
+		inputSession.Git = probeBranchDrift(ctx, inputSession.WorkingDirectory, inputSession.Branch)
 		inputSession.GitProbed = true
 	}
 	return &inputSession
