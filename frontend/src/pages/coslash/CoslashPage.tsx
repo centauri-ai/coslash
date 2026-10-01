@@ -421,6 +421,7 @@ export function CoslashPage() {
         onOpenTarget={openHandoffTarget}
         sessionsVersion={sessionsVersion}
         synthesisSettingsKey={synthesisSettingsKey}
+        synthesisCostVersion={synthesisCostVersion}
         showMachineBadge={configuredRemote}
         machines={machines}
         onRefresh={async () => {

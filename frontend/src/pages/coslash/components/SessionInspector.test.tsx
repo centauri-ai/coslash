@@ -21,6 +21,7 @@ import {
   SummaryOnlyBanner,
   synthesisAttemptKey,
   synthesisMatchesSnapshot,
+  synthesisSettlement,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { Session } from '@/pages/coslash/lib/session';
@@ -41,6 +42,22 @@ const selection: FileSelection = {
   path: 'src/example.ts',
   changeIds: ['change-000000-000000'],
 };
+
+it('refreshes cost accounting once when a pending synthesis settles, including failure', () => {
+  expect(synthesisSettlement(null, 'local:codex:same', true)).toEqual({
+    pendingKey: 'local:codex:same',
+    settled: false,
+  });
+  expect(synthesisSettlement('local:codex:same', 'local:codex:same', false)).toEqual({
+    pendingKey: null,
+    settled: true,
+  });
+  expect(synthesisSettlement(null, 'local:codex:same', false)).toEqual({ pendingKey: null, settled: false });
+  expect(synthesisSettlement('local:codex:other', 'local:codex:same', false)).toEqual({
+    pendingKey: null,
+    settled: false,
+  });
+});
 
 describe('SessionInspector exact-detail boundaries', () => {
   it('shows a full plan with a timeline filter and expansion control', () => {
