@@ -16,15 +16,15 @@ A new orchestrator reads this section first and continues from **Next action**. 
 
 | Task | Status | Workspace | Branch | Terminal | Review | Notes |
 |---|---|---|---|---|---|---|
-| T1 | review | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | `a5387e41-4274-40b0-bdb0-b44ecd577047` | Commit `af16d41a`. Reviewer is read-only in the same workspace. |
-| T2 | pending | T1's workspace | T1's branch | | | same worktree as T1 |
+| T1 | fix | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | `af16d41a` plus one fix commit. Reviewer found `hideFromScrollback` as `FirstPrompt`. One fix round, no second review. |
+| T2 | pending | | `cvu/grok-t2-enrich` | | | own PR, base is T1 |
 | T3 | pending | | `cvu/grok-t3-synthesis` | | | after T2 commits |
 | T4 | pending | | `cvu/grok-t4-launch` | | | after T1 commits `AgentGrok` |
 | T5 | pending | | `cvu/grok-t5-ui` | | | after T2 and T4 are merged |
 
-**Next action:** Reviewer terminal `a5387e41-4274-40b0-bdb0-b44ecd577047` is running in workspace `a24560c4-6aa3-4480-94db-8f1fa4fec8d7`. When it finishes, if the result is `NO_FINDINGS`, mark T1 completed and create the T4 worktree from `cvu/grok-t1-parse` with tag `new group-3`. If it lists bugs, `terminals send` that list once to implementer `4f36a026-65f2-4094-8f6b-d3fd3f623dfc`. Do not start a second review. Do not start T2 until this round finishes.
+**Next action:** T1 review found one bug. `readUpdates` treats a `user_message_chunk` with `_meta.hideFromScrollback: true` as `FirstPrompt` when that chunk is first. Send that bug once to implementer `4f36a026-65f2-4094-8f6b-d3fd3f623dfc`. The fix is a new commit on `cvu/grok-t1-parse`, not an amend of `af16d41a`. Do not open the T1 PR until that commit exists. Do not start a second review. Then create the T4 worktree from the updated T1 branch.
 
-**Blockers:** none.
+**Blockers:** none. T1 production diff is about 434 lines and 13 files, inside the reviewer budget.
 
 **Goal:** Show local macOS Grok Build sessions in coSlash, with status, nested subagents, launch, resume, and the existing synthesis pipeline.
 
@@ -46,8 +46,42 @@ A new orchestrator reads this section first and continues from **Next action**. 
 - `in_progress` and `cancelled` todos stay out of `Todo.Done`. `Done` is `status == completed` only.
 - Cache-creation 1-hour tokens stay 0. Git ahead/behind stays on `session.BranchDrift`.
 - No new dependencies.
-- A parallel task commits on its own branch when it finishes, and does not push. A task that continues in the same worktree (T2 after T1) commits there too, so the next worktree can fork from that branch. The orchestrator merges those branches. It does not push.
+- Each task is its own branch and its own pull request. Do not put two tasks on one branch.
+- Commits are focused. One behavior and the test that pins it per commit. Do not amend a commit that is already on the branch. A review fix is a new commit.
+- Do not push until the orchestrator opens the PR.
 - One review round per task. Then stop, even if the reviewer would still comment.
+
+## Pull requests
+
+The reviewer budget is the Agent PR Reviewer guardrail. A PR is too big when any of these is true:
+
+- More than 25 changed files.
+- More than 1,000 added plus deleted lines of production source. Test files, `testdata/`, markdown, lockfiles, and generated files do not count toward the 1,000.
+- The diff spans three subsystems that could ship as separate pull requests.
+
+Before opening a PR, measure production lines:
+
+```bash
+git diff --numstat <base>...<head> -- . ':(exclude)*_test.go' ':(exclude)*_test.tsx' ':(exclude)*_test.ts' ':(exclude)*/testdata/**' ':(exclude)*.md'
+```
+
+Add the first and second columns. If the sum is over 1,000, or `git diff --name-only <base>...<head>` lists more than 25 files, stop and split the branch. Do not open the PR.
+
+T1 at `af16d41a` is 13 files and about 434 production lines (`parse.go`, `source.go`, `collector.go`, `vendors.go`). It fits. Leave that commit whole. The `hideFromScrollback` fix is a second commit on the same branch.
+
+Stack, bottom first. The bottom PR targets `cvu/speckle-direction-4ceb2f68`. Each later PR targets the branch under it.
+
+| PR | Head | Base | Contains |
+|---|---|---|---|
+| T1 | `cvu/grok-t1-parse` | `cvu/speckle-direction-4ceb2f68` | parser only |
+| T2 | `cvu/grok-t2-enrich` | `cvu/grok-t1-parse` | enrichment only |
+| T4 | `cvu/grok-t4-launch` | `cvu/grok-t1-parse` | launch and resume only |
+| T3 | `cvu/grok-t3-synthesis` | `cvu/grok-t2-enrich` | synthesis proof only |
+| T5 | `cvu/grok-t5-ui` | a branch that already has T2 and T4 | UI only |
+
+T4 is a sibling of T2, not a child of T2. T5's base is a local integration branch, `cvu/grok-t2-t4`, made by merging T4 into T2. That integration branch does not get its own PR. T2 and T4 already have PRs. Rebase T1 onto the current source tip before opening its PR, so the PR diff is not a revert of later plan-doc commits. Do not rebase a branch after its PR is open unless the orchestrator says so.
+
+Do not open a PR until that task's review round is finished and `git diff --stat <base>...<head>` matches only that task's files. The orchestrator opens them with `gh pr create`. Workers do not.
 
 ## What runs in parallel
 
@@ -59,7 +93,7 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 Launch and resume | nothing | T1, T2, T3 | Files are `launch.go`, `launch_test.go`, `cli.go`. |
 | T5 UI | T2 and T4 | nothing | The screen needs real `grok` sessions and a working launch command. |
 
-T1 and T4 are the only pair that edit at the same time, and they edit in two worktrees. T2 stays in T1's worktree. T3 starts when T2 is done, in a new worktree, even if T4 is still running. T5 starts when T2 and T4 are merged, in a new worktree.
+T1 and T4 edit at the same time, in two worktrees and two branches. T2 is a new worktree and branch from T1, not more commits on T1. T3 is a new branch from T2. T5 starts only after T2 and T4 both exist, on `cvu/grok-t2-t4`.
 
 `vendors.go` is owned by T1. T4 must not edit it. Create T4's worktree from T1's branch only after T1 has committed `AgentGrok`. Do not add the constant in T4.
 
@@ -96,15 +130,15 @@ Require `terminals` to list `list`, `read`, `send`, and `close`. Pick a terminal
 
 ### New worktree for each parallel task
 
-Create a worktree when a task starts beside another task, or when it starts from a finished branch. T2 does not get one. It continues in T1's worktree.
+Create a worktree for every task. Each one is a separate branch and a separate PR. Do not add T2 commits to `cvu/grok-t1-parse`.
 
 | Task | Worktree | Branch base |
 |---|---|---|
 | T1 | New, in the group | This workspace's branch |
-| T2 | T1's worktree | none |
-| T4 | New, in the group | T1's branch, after `AgentGrok` is committed |
-| T3 | New, in the group | T2's branch, after T2 is committed |
-| T5 | New, in the group | The branch where T2 and T4 are merged |
+| T2 | New, in the group | `cvu/grok-t1-parse` after T1's review round |
+| T4 | New, in the group | `cvu/grok-t1-parse` after `AgentGrok` is committed and T1's review round is finished |
+| T3 | New, in the group | `cvu/grok-t2-enrich` after T2 is committed |
+| T5 | New, in the group | `cvu/grok-t2-t4` |
 
 ```bash
 superset workspaces create \
@@ -125,16 +159,6 @@ superset workspaces create \
 
 Read the new workspace id from the JSON. If the JSON does not include a terminal session id, run `superset terminals list --local --workspace <new-id> --json` and take the terminal created with the workspace.
 
-Continue T2 in T1's workspace:
-
-```bash
-superset agents create \
-  --workspace <T1-workspace-id> \
-  --agent <preset-from-agents-list> \
-  --prompt "<T2 prompt>" \
-  --json
-```
-
 The reviewer uses the implementer's workspace. Do not create a worktree for a review.
 
 Keep this table. Superset tasks are not the DAG. Do not create Linear issues or Superset organization tasks.
@@ -151,7 +175,7 @@ Pass `--workspace <that task's workspace id>` on every later `agents`, `terminal
 
 Store `sessionId` only when `kind` is `terminal`. Read it with `superset terminals read --workspace <task-workspace-id> --terminal <sessionId> --max-lines 240 --json`. Send follow-ups with `superset terminals send` to that same id. Do not open a second terminal for a fix round.
 
-When T2 and T4 are both done, merge T4's branch into T2's branch in one worktree, then create the T5 worktree from that merged branch. Do not push. Do not delete the worktrees.
+When T2 and T4 are both done, merge T4 into a branch named `cvu/grok-t2-t4` whose base is T2. Create the T5 worktree from that branch. Do not open a PR for `cvu/grok-t2-t4`. Do not push until `gh pr create`. Do not delete the worktrees.
 
 A worker is done only when its transcript ends with:
 
