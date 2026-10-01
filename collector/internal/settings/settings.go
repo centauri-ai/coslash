@@ -24,9 +24,11 @@ const (
 	BackendCodex    = "codex_exec"
 	BackendOpenCode = "opencode"
 	BackendCursor   = "cursor-cli"
+	BackendPi       = "pi-cli"
 
 	// Passes no model, leaving OpenCode to resolve its default for each run.
 	OpenCodeDefaultModel = "default"
+	PiDefaultModel       = "default"
 
 	// Each backend's own default model, which the runner turns up to high
 	// reasoning effort. Changing one of these ids moves that flag with it.
@@ -163,6 +165,11 @@ func BackendOptions() []BackendOption {
 				{ID: "auto", Label: "Auto", Default: true},
 			},
 		},
+		{
+			ID:     BackendPi,
+			Label:  "Pi CLI",
+			Models: []ModelOption{{ID: PiDefaultModel, Label: "Pi configured default", Default: true}},
+		},
 	}
 }
 
@@ -235,6 +242,8 @@ func BackendExecutable(backend string) string {
 		return "opencode"
 	case BackendCursor:
 		return CursorExecutable()
+	case BackendPi:
+		return "pi"
 	default:
 		return ""
 	}

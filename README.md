@@ -228,9 +228,11 @@ Per-model token breakdowns including cache reads and writes, estimated cost at l
 
 Debriefs work without any model: goals, outcomes, timelines, and artifacts are derived deterministically from the transcript. Turning on synthesis sharpens them.
 
-When enabled, coSlash passes no more than 12 KB of derived facts to a local agent CLI. Facts can include goals, digest entries, todos, filenames, commits, and statistics. Supported CLIs are Claude Code, Codex, OpenCode, and Cursor. Each CLI uses its existing account. Results are cached under `~/.coslash`. Only substantial sessions qualify, so short runs do not use a model.
+When enabled, coSlash passes no more than 12 KB of derived facts to a local agent CLI. Facts can include goals, digest entries, todos, filenames, commits, and statistics. Supported CLIs are Claude Code, Codex, OpenCode, Cursor, and Pi. Each CLI uses its existing account. Results are cached under `~/.coslash`. Only substantial sessions qualify, so short runs do not use a model.
 
 For OpenCode, the model list includes *OpenCode default for a new run* and, when the installed CLI supports listing them, free OpenCode Zen models. The default option passes no model. OpenCode v2 selects its current catalog default in a fresh, isolated process; v1 may instead use a model from the user's configuration. Either may differ from the model shown in an existing OpenCode session. If the resolved model is paid, it will bill your account per debrief.
+
+Pi synthesis is verified with Pi 0.99.2. The default option uses Pi's configured provider and model for a new run, with your existing authentication and provider environment. To pin a model, set `synthesis.backend` to `pi-cli` and `synthesis.model` to a provider-qualified ID such as `amazon-bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0` in `settings.json`. Pi runs without tools, extensions, skills, prompt templates, context files, or session persistence. Provider access errors and expired credentials appear as synthesis failures in the inspector; refresh credentials (for example, `aws sso login --profile <profile>`) and retry synthesis. The resolved model may consume paid account usage.
 
 It is **off until you explicitly enable and save it**.
 

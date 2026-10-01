@@ -106,13 +106,14 @@ function backendName(option: BackendOption): string {
   return option.label.replace(/ CLI$/, '');
 }
 
-const OPENCODE_DEFAULT_MODEL = 'default';
+const CLI_DEFAULT_MODEL = 'default';
 
 const BACKEND_BINARY: Record<string, string> = {
   'claude-cli': 'claude',
   'codex_exec': 'codex',
   'opencode': 'opencode',
   'cursor-cli': 'cursor-agent',
+  'pi-cli': 'pi',
 };
 
 function BackendChoice({
@@ -147,6 +148,7 @@ function BackendChoice({
             'bg-codex': option.id === 'codex_exec',
             'bg-opencode': option.id === 'opencode',
             'bg-cursor': option.id === 'cursor-cli',
+            'bg-pi': option.id === 'pi-cli',
           })}
         />
         <span className="text-[13px] font-semibold">{name}</span>
@@ -408,9 +410,12 @@ export function SettingsDialog({
                               saveChange({ ...draft, synthesis: { ...draft.synthesis, model } })
                             }
                           >
+                            {selectedBackend && !selectedModel && draft.synthesis.model && (
+                              <option value={draft.synthesis.model}>{draft.synthesis.model}</option>
+                            )}
                             {selectedBackend?.models.map((option) => (
                               <option key={option.id} value={option.id}>
-                                {option.id === OPENCODE_DEFAULT_MODEL ? option.label : option.id}
+                                {option.id === CLI_DEFAULT_MODEL ? option.label : option.id}
                               </option>
                             ))}
                           </SelectControl>

@@ -171,6 +171,31 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		}
 		args = append(args, "--", systemPrompt+jsonInstruction)
 		env = openCodeEnv(scratchDir, r.openCodeV2)
+	case settings.BackendPi:
+		label = "Pi"
+		parse = func(data []byte) (session.SessionSynthesis, error) {
+			if err := requireSynthesisFields([]byte(stripJSONFence(string(data)))); err != nil {
+				return session.SessionSynthesis{}, err
+			}
+			return parseSynthesis(data)
+		}
+		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
+			return session.SessionSynthesis{}, fmt.Errorf("create synthesis directory: %w", err)
+		}
+		scratchDir, err := os.MkdirTemp(SynthesisCwd(), ".pi-*")
+		if err != nil {
+			return session.SessionSynthesis{}, fmt.Errorf("create Pi scratch directory: %w", err)
+		}
+		defer os.RemoveAll(scratchDir)
+		dir = scratchDir
+		args = []string{
+			"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills",
+			"--no-prompt-templates", "--no-themes", "--no-context-files",
+			"--system-prompt", systemPrompt + jsonInstruction,
+		}
+		if r.Model != settings.PiDefaultModel {
+			args = append(args, "--model", r.Model)
+		}
 	case settings.BackendCursor:
 		label = "Cursor"
 		parse = parseResultEnvelope
