@@ -83,8 +83,22 @@ func TestCollectSkipsSubagentsAndOtherChatFormats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(parsed) != 1 || parsed[0].Session.ID != "01a0f48a-42bb-7802-b584-f5def46d1e75" || parsed[0].Session.Agent != "grok" {
+	if len(parsed) != 2 {
 		t.Fatalf("parsed = %+v", parsed)
+	}
+	roots := 0
+	for _, item := range parsed {
+		if item.ParentID == "" {
+			roots++
+			if item.Session.ID != "01a0f48a-42bb-7802-b584-f5def46d1e75" || item.Session.Agent != "grok" {
+				t.Fatalf("root = %+v", item.Session)
+			}
+		} else if item.Session.ID != "child" || item.ParentID != "01a0f48a-42bb-7802-b584-f5def46d1e75" {
+			t.Fatalf("child = %+v", item)
+		}
+	}
+	if roots != 1 {
+		t.Fatalf("roots = %d, want 1", roots)
 	}
 	if health := Health(); health.Missing || health.Err != nil || health.Sessions != 1 || health.Entries != 3 {
 		t.Fatalf("health = %+v", health)
