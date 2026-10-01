@@ -5,7 +5,9 @@ package codex
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"syscall"
 )
 
 func loadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
@@ -28,4 +30,16 @@ func loadLiveSessionsContext(ctx context.Context) (map[string]struct{}, error) {
 
 func loadLiveSessionsForFilesContext(ctx context.Context, _ []string) (map[string]struct{}, error) {
 	return loadLiveSessionsContext(ctx)
+}
+
+func deletePlatformLiveSessions(ctx context.Context, files []string) (map[string]struct{}, error) {
+	return deleteUnixLiveSessions(ctx, files)
+}
+
+func tryDeleteFileLock(file *os.File) error {
+	err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err == syscall.EWOULDBLOCK {
+		return ErrSessionActive
+	}
+	return err
 }

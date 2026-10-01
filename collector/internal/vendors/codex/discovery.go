@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,7 +41,7 @@ func readHeaderSource(source vendors.ReadSource, path string) (string, string, e
 	return readHeaderSourceContext(context.Background(), source, path)
 }
 
-func readHeaderSourceContext(ctx context.Context, source vendors.ReadSource, path string) (string, string, error) {
+func readHeaderSourceContext(ctx context.Context, source vendors.ReadSource, path string, maxBytes ...int64) (string, string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", "", err
 	}
@@ -49,8 +50,12 @@ func readHeaderSourceContext(ctx context.Context, source vendors.ReadSource, pat
 		return "", "", err
 	}
 	defer file.Close()
+	var reader io.Reader = file
+	if len(maxBytes) > 0 {
+		reader = io.LimitReader(reader, maxBytes[0])
+	}
 	var row codexRow
-	if err := json.NewDecoder(contextReader{ctx: ctx, reader: file}).Decode(&row); err != nil {
+	if err := json.NewDecoder(contextReader{ctx: ctx, reader: reader}).Decode(&row); err != nil {
 		return "", "", fmt.Errorf("%w: %w", vendors.ErrInvalidData, err)
 	}
 	if err := ctx.Err(); err != nil {

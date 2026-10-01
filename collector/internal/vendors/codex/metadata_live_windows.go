@@ -5,10 +5,12 @@ package codex
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/winprocess"
+	"golang.org/x/sys/windows"
 )
 
 const maxFilesPerRestartManagerQuery = 128
@@ -78,4 +80,16 @@ func findOpenRollouts(ctx context.Context, files []string, live map[string]struc
 func isCurrentUserCodexProcess(pid uint32) bool {
 	executable, err := winprocess.CurrentUserExecutable(pid)
 	return err == nil && strings.EqualFold(filepath.Base(executable), "codex.exe")
+}
+
+func deletePlatformLiveSessions(ctx context.Context, files []string) (map[string]struct{}, error) {
+	return deleteWindowsLiveSessions(ctx, files, processesUsingRollouts)
+}
+
+func tryDeleteFileLock(file *os.File) error {
+	err := windows.LockFileEx(windows.Handle(file.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &windows.Overlapped{})
+	if err == windows.ERROR_LOCK_VIOLATION {
+		return ErrSessionActive
+	}
+	return err
 }
