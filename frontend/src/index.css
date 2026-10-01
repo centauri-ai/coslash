@@ -93,6 +93,10 @@
   --color-cursor: var(--cursor);
   --color-cursor-bg: var(--cursor-bg);
 
+  /* vendor: Grok, reuses Cursor */
+  --color-grok: var(--cursor);
+  --color-grok-bg: var(--cursor-bg);
+
   /* coSlash session views: a cooler neutral ramp than the shared greys,
      defined on .coslash-shell so the page can theme itself */
   --color-coslash-bg: var(--coslash-bg);
