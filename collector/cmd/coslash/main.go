@@ -236,6 +236,7 @@ func routes(
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}
+	api.HandleFunc("DELETE /api/sessions", newDeleteSessionHandler(deleteLocalSession))
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("id") {
 			handleExactSession(w, r, collector.GetSessionForPreviewByAgent)
