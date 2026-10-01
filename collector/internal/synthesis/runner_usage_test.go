@@ -128,11 +128,22 @@ func TestCodexCompletedMessageParsesSynthesis(t *testing.T) {
 	runner := &CLIRunner{Backend: settings.BackendCodex, Model: "gpt-5", Timeout: time.Second}
 	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
 		return []byte("{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"goals\\\":[\\\"ship\\\"],\\\"outcome\\\":\\\"done\\\",\\\"keyDecisions\\\":[],\\\"nextStep\\\":\\\"review\\\"}\"}}\n" +
-			"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"output_tokens\":0}}\n"), nil
+			"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":2,\"output_tokens\":1}}\n"), nil
 	}
 	got, err := runner.Run(context.Background(), "facts")
 	if err != nil || got.Synthesis.Outcome != "done" || got.Usage.Coverage != "complete" {
 		t.Fatalf("Run = %#v, %v", got, err)
+	}
+}
+
+func TestCodexDefaultZeroUsageIsUnknown(t *testing.T) {
+	runner := &CLIRunner{Backend: settings.BackendCodex, Model: "gpt-5", Timeout: time.Second}
+	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
+		return []byte(`{"type":"turn.completed","usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0}}` + "\n"), &exec.ExitError{}
+	}
+	got, _ := runner.Run(context.Background(), "facts")
+	if got.Usage.Coverage != "unknown" || got.Usage.Tokens != nil {
+		t.Fatalf("default zero usage = %#v", got.Usage)
 	}
 }
 

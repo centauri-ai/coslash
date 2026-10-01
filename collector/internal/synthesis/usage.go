@@ -246,7 +246,8 @@ func parseCodexUsage(data []byte, model string) UsageReport {
 			OutputTokens:             *u.Output,
 		}
 	})
-	if err != nil || !completed || invalid {
+	// Codex emits zero-value usage when no token notification arrived.
+	if err != nil || !completed || invalid || total == (session.ModelTokens{}) {
 		return unknownUsage()
 	}
 	report, err := PriceUsage(map[string]session.ModelTokens{model: total}, nil)
