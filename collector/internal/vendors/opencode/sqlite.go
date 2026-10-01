@@ -80,16 +80,18 @@ func effectiveDatabaseRoot(ctx context.Context, home string) (string, error) {
 	cmd.Dir = isolated
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
-		if !strings.HasPrefix(key, "OPENCODE_") && !strings.HasPrefix(key, "XDG_") && key != "HOME" && key != "USERPROFILE" && key != "HOMEDRIVE" && key != "HOMEPATH" {
+		key = strings.ToUpper(key)
+		if !strings.HasPrefix(key, "OPENCODE_") && !strings.HasPrefix(key, "XDG_") && key != "HOME" && key != "PWD" && key != "USERPROFILE" && key != "HOMEDRIVE" && key != "HOMEPATH" {
 			cmd.Env = append(cmd.Env, entry)
 		}
 	}
 	for key, value := range map[string]string{
-		"HOME": isolated, "USERPROFILE": isolated, "OPENCODE_TEST_HOME": isolated,
+		"HOME": isolated, "PWD": isolated, "USERPROFILE": isolated, "OPENCODE_TEST_HOME": isolated,
 		"HOMEDRIVE": filepath.VolumeName(isolated), "HOMEPATH": strings.TrimPrefix(isolated, filepath.VolumeName(isolated)),
 		"XDG_DATA_HOME": filepath.Join(isolated, "data"), "XDG_CONFIG_HOME": filepath.Join(isolated, "config"), "XDG_CACHE_HOME": filepath.Join(isolated, "cache"), "XDG_STATE_HOME": filepath.Join(isolated, "state"),
 		"OPENCODE_CONFIG_DIR": filepath.Join(isolated, "config", "opencode"), "OPENCODE_CONFIG_CONTENT": `{"plugin":[],"mcp":{}}`,
-		"OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1", "OPENCODE_DISABLE_CHANNEL_DB": os.Getenv("OPENCODE_DISABLE_CHANNEL_DB"),
+		"OPENCODE_DISABLE_PROJECT_CONFIG": "1",
+		"OPENCODE_DISABLE_AUTOUPDATE":     "1", "OPENCODE_DISABLE_MODELS_FETCH": "1", "OPENCODE_DISABLE_CHANNEL_DB": os.Getenv("OPENCODE_DISABLE_CHANNEL_DB"),
 	} {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
