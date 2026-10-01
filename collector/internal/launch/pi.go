@@ -21,7 +21,7 @@ import (
 var ErrPiUnsupportedVersion = errors.New("launch: Pi requires verified version 0.99.1 or 0.99.2")
 var ErrPiExtension = errors.New("launch: managed Pi extension is unavailable")
 
-func piExecutable() (string, error) {
+func piSupportedExecutable() (string, error) {
 	if runtime.GOOS == "windows" {
 		return "", errors.New("launch: Pi runtime integration requires macOS or Linux")
 	}
@@ -34,6 +34,13 @@ func piExecutable() (string, error) {
 	version, err := exec.CommandContext(ctx, cli, "--version").Output()
 	if err != nil || (strings.TrimSpace(string(version)) != "0.99.1" && strings.TrimSpace(string(version)) != "0.99.2") {
 		return "", ErrPiUnsupportedVersion
+	}
+	return cli, nil
+}
+func piExecutable() (string, error) {
+	cli, err := piSupportedExecutable()
+	if err != nil {
+		return "", err
 	}
 	if err := pi.EnsureExtension(); err != nil {
 		return "", fmt.Errorf("%w: %v", ErrPiExtension, err)
@@ -130,4 +137,4 @@ func localHandoffScript(directory, command, path string, shells ...string) strin
 	return "if cd " + shellQuote(directory) + "; then " + withCleanup(command, path) + "; else ( coslash_cd_status=$?; rm -f " + shellQuote(path) + " " + shellQuote(path+".context") + "; exit \"$coslash_cd_status\" ); fi"
 }
 
-func PiAvailable() bool { _, err := exec.LookPath("pi"); return err == nil }
+func PiAvailable() bool { _, err := piSupportedExecutable(); return err == nil }
