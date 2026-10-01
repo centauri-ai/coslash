@@ -3,17 +3,183 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 )
+
+type integratedCostRunner struct {
+	calls chan int
+	next  int
+}
+
+func (*integratedCostRunner) VendorName() string { return "codex" }
+func (*integratedCostRunner) ModelName() string  { return "gpt-4o" }
+func (r *integratedCostRunner) Run(context.Context, string) (synthesis.RunResult, error) {
+	r.next++
+	cost := int64(r.next * 10)
+	r.calls <- r.next
+	result := synthesis.RunResult{
+		Synthesis: session.SessionSynthesis{Outcome: "summary"},
+		Usage:     synthesis.UsageReport{ReportedCostMicroUSD: &cost, Coverage: "complete"},
+	}
+	if r.next == 2 {
+		return result, errors.New("paid failure")
+	}
+	return result, nil
+}
+
+func TestSynthesisCostsIntegratedManagerRoutesAndRestart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := synthesis.OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &integratedCostRunner{calls: make(chan int, 3)}
+	current := &session.Session{Agent: "codex", ID: "integrated", SessionDetails: session.SessionDetails{Turns: 6}}
+	revision, err := session.LocalDetailRevision(*current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldList := listSessions
+	t.Cleanup(func() { listSessions = oldList })
+	listSessions = func(context.Context, int64) ([]*session.Session, error) { return nil, nil }
+
+	manager := synthesis.NewManager(runner, store)
+	handler := newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
+		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
+	get := func(path string) (int, synthesis.CostResponse) {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8787"+path, nil)
+		request.Header.Set("X-Coslash-Token", "secret")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		var costs synthesis.CostResponse
+		if response.Code == http.StatusOK {
+			if err := json.Unmarshal(response.Body.Bytes(), &costs); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return response.Code, costs
+	}
+	waitForVersion := func(want string) {
+		t.Helper()
+		<-runner.calls
+		for manager.AccountingVersion() != want {
+			runtime.Gosched()
+		}
+	}
+	if !manager.Ensure(current, 42) {
+		t.Fatal("first round not started")
+	}
+	waitForVersion("1")
+	if summary := manager.Lookup("codex", "integrated", 42); summary == nil || summary.Outcome != "summary" {
+		t.Fatalf("first summary = %+v", summary)
+	}
+	if !manager.Ensure(current, 43) {
+		t.Fatal("paid failure round not started")
+	}
+	waitForVersion("2")
+	if manager.Lookup("codex", "integrated", 42) == nil || manager.Lookup("codex", "integrated", 43) != nil {
+		t.Fatal("paid failure replaced the last valid summary")
+	}
+	manager.Shutdown()
+
+	manager = synthesis.NewManager(runner, store)
+	handler = newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
+		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
+	if !manager.Ensure(current, 43) {
+		t.Fatal("retry round not started")
+	}
+	waitForVersion("1")
+	manager.Shutdown()
+	if summary := manager.Lookup("codex", "integrated", 43); summary == nil || summary.Outcome != "summary" {
+		t.Fatalf("retry summary = %+v", summary)
+	}
+	if code, costs := get("/api/synthesis-costs?source=local&since=1&until=9007199254740991"); code != 200 ||
+		costs.Totals.RoundCount != 3 || costs.Totals.InvocationCount != 3 || costs.Totals.KnownCostMicroUSD == nil || *costs.Totals.KnownCostMicroUSD != 60 {
+		t.Fatalf("monthly costs = %d %+v", code, costs)
+	}
+	code, costs := get("/api/synthesis-costs?source=local&agent=codex&id=integrated")
+	if code != 200 ||
+		costs.Totals.RoundCount != 3 || len(costs.Rounds) != 3 || costs.Totals.KnownCostMicroUSD == nil || *costs.Totals.KnownCostMicroUSD != 60 {
+		t.Fatalf("session costs = %d %+v", code, costs)
+	}
+	outcomes := map[string]int{}
+	for _, round := range costs.Rounds {
+		outcomes[round.Outcome]++
+		if round.Agent != "codex" || round.SessionID != "integrated" || len(round.VendorModels) != 1 || round.VendorModels[0].Vendor != "codex" {
+			t.Fatalf("round attribution = %+v", round)
+		}
+	}
+	if outcomes["success"] != 2 || outcomes["failed"] != 1 {
+		t.Fatalf("round outcomes = %+v", outcomes)
+	}
+	unauthorized := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet,
+		"http://127.0.0.1:8787/api/synthesis-costs?source=local&agent=codex&id=integrated", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unguarded costs status = %d", unauthorized.Code)
+	}
+	if got, err := session.LocalDetailRevision(*current); err != nil || got != revision {
+		t.Fatalf("portable revision changed: %q to %q (%v)", revision, got, err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := synthesis.OpenAccountingStore(home, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager = synthesis.NewManager(nil, reopened)
+	handler = newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
+		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
+	if code, costs := get("/api/synthesis-costs?source=local&agent=codex&id=integrated"); code != 200 ||
+		costs.Totals.RoundCount != 3 || costs.Totals.KnownCostMicroUSD == nil || *costs.Totals.KnownCostMicroUSD != 60 {
+		t.Fatalf("reopened costs = %d %+v", code, costs)
+	}
+	if code, costs := get("/api/synthesis-costs?source=local&since=1&until=9007199254740991"); code != 200 ||
+		costs.Totals.InvocationCount != 3 || costs.Totals.KnownCostMicroUSD == nil || *costs.Totals.KnownCostMicroUSD != 60 {
+		t.Fatalf("reopened monthly costs = %d %+v", code, costs)
+	}
+	if summary := manager.Lookup("codex", "integrated", 43); summary == nil || summary.Outcome != "summary" {
+		t.Fatalf("reopened summary = %+v", summary)
+	}
+	if err := reopened.MarkIncomplete(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := get("/api/synthesis-costs?source=local&agent=codex&id=integrated"); code != http.StatusServiceUnavailable {
+		t.Fatalf("incomplete accounting status = %d", code)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err = synthesis.OpenAccountingStore(home, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	manager = synthesis.NewManager(nil, reopened)
+	handler = newServer(httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"}, manager,
+		reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil).Handler
+	if code, _ := get("/api/synthesis-costs?source=local&since=1&until=9007199254740991"); code != http.StatusServiceUnavailable {
+		t.Fatalf("restarted incomplete accounting status = %d", code)
+	}
+	if manager.Lookup("codex", "integrated", 43) == nil {
+		t.Fatal("accounting failure hid cached summary")
+	}
+}
 
 func TestSynthesisCostsAPIMonthAndIdentity(t *testing.T) {
 	home := t.TempDir()
