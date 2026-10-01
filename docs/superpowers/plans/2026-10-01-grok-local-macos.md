@@ -22,7 +22,7 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
 | T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | `a83b077d` and `2b81b547`. Browser on port 8797 showed 4 Grok cards. Resume not clicked. PR not opened. |
 
-**Next action:** All five tasks are complete. Do not open pull requests until the user asks. Codex E2E is running in this workspace `4ceb2f68-8c6b-49de-8b68-2c3d5ba83908`, terminal `586f8bcf-e9e9-46f5-aef2-43f36ba7d142`. It drives the Superset browser against http://127.0.0.1:8797. Do not kill 8787 or 8797. When that terminal shows a second `SUPERSET_WORKER_DONE`, record the five checks. Do not click Resume.
+**Next action:** Codex E2E terminal `586f8bcf-e9e9-46f5-aef2-43f36ba7d142` blocked because `superset browser` rejects `--local`. A retry was sent: same workspace, no `--local`, URL http://127.0.0.1:8797. Do not send that retry again. When the terminal reports `SUPERSET_WORKER_DONE` with checks 1-5, record them. Do not open pull requests until the user asks. Do not kill 8787 or 8797. Do not click Resume.
 
 **Blockers:** none. Reviews: T1 one fix, T2 one fix, T3 `NO_FINDINGS`, T4 `NO_FINDINGS`, T5 `NO_FINDINGS`. T1 is 13 files and 438 production lines, inside the agent-tooling budget.
 
