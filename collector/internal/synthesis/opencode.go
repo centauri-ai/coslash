@@ -199,6 +199,9 @@ func parseOpenCodeStream(data []byte) (string, error) {
 			texts[key] = event.Part.Text
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
 	if events == 0 {
 		return "", errors.New("OpenCode produced no synthesis output")
 	}

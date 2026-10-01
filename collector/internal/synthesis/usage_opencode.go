@@ -14,14 +14,26 @@ import (
 )
 
 type openCodeUsage struct {
-	ProviderID string `json:"providerID"`
-	ModelID    string `json:"modelID"`
-	Model      struct {
-		ProviderID string `json:"providerID"`
-		ID         string `json:"id"`
-	} `json:"model"`
-	Cost   *float64 `json:"cost"`
-	Tokens *struct {
+	ProviderID string          `json:"providerID"`
+	ModelID    string          `json:"modelID"`
+	Model      json.RawMessage `json:"model"`
+	Cost       json.RawMessage `json:"cost"`
+	Tokens     json.RawMessage `json:"tokens"`
+}
+
+func (u openCodeUsage) modelTokens() (string, session.ModelTokens, bool) {
+	modelID, providerID := u.ModelID, u.ProviderID
+	if modelID == "" {
+		var model struct {
+			ProviderID string `json:"providerID"`
+			ID         string `json:"id"`
+		}
+		if json.Unmarshal(u.Model, &model) != nil {
+			return "", session.ModelTokens{}, false
+		}
+		modelID, providerID = model.ID, model.ProviderID
+	}
+	var tokens struct {
 		Input     *int `json:"input"`
 		Output    *int `json:"output"`
 		Reasoning *int `json:"reasoning"`
@@ -29,29 +41,22 @@ type openCodeUsage struct {
 			Read  *int `json:"read"`
 			Write *int `json:"write"`
 		} `json:"cache"`
-	} `json:"tokens"`
-}
-
-func (u openCodeUsage) modelTokens() (string, session.ModelTokens, bool) {
-	modelID, providerID := u.ModelID, u.ProviderID
-	if modelID == "" {
-		modelID, providerID = u.Model.ID, u.Model.ProviderID
 	}
-	if modelID == "" || u.Tokens == nil || u.Tokens.Input == nil || u.Tokens.Output == nil || u.Tokens.Cache.Read == nil || u.Tokens.Cache.Write == nil {
+	if modelID == "" || json.Unmarshal(u.Tokens, &tokens) != nil || tokens.Input == nil || tokens.Output == nil || tokens.Cache.Read == nil || tokens.Cache.Write == nil {
 		return "", session.ModelTokens{}, false
 	}
 	reasoning := 0
-	if u.Tokens.Reasoning != nil {
-		reasoning = *u.Tokens.Reasoning
+	if tokens.Reasoning != nil {
+		reasoning = *tokens.Reasoning
 	}
-	if *u.Tokens.Input < 0 || *u.Tokens.Output < 0 || reasoning < 0 || *u.Tokens.Cache.Read < 0 || *u.Tokens.Cache.Write < 0 || int64(*u.Tokens.Output)+int64(reasoning) > maxSafeInteger {
+	if *tokens.Input < 0 || *tokens.Output < 0 || reasoning < 0 || *tokens.Cache.Read < 0 || *tokens.Cache.Write < 0 || int64(*tokens.Output)+int64(reasoning) > maxSafeInteger {
 		return "", session.ModelTokens{}, false
 	}
 	model := modelID
 	if providerID != "" {
 		model = providerID + "/" + model
 	}
-	return model, session.ModelTokens{InputTokens: *u.Tokens.Input, OutputTokens: *u.Tokens.Output + reasoning, CacheReadInputTokens: *u.Tokens.Cache.Read, CacheCreationInputTokens: *u.Tokens.Cache.Write}, true
+	return model, session.ModelTokens{InputTokens: *tokens.Input, OutputTokens: *tokens.Output + reasoning, CacheReadInputTokens: *tokens.Cache.Read, CacheCreationInputTokens: *tokens.Cache.Write}, true
 }
 
 func openCodePartsReport(parts map[string]openCodeUsage) UsageReport {
@@ -59,8 +64,8 @@ func openCodePartsReport(parts map[string]openCodeUsage) UsageReport {
 		return unknownUsage()
 	}
 	tokens := map[string]session.ModelTokens{}
-	completeTokens, completeCost := true, true
-	var dollars float64
+	completeTokens, completeCost, hasCost := true, true, false
+	var knownCost int64
 	for _, part := range parts {
 		model, used, ok := part.modelTokens()
 		if !ok {
@@ -73,24 +78,26 @@ func openCodePartsReport(parts map[string]openCodeUsage) UsageReport {
 				tokens[model] = current
 			}
 		}
-		if part.Cost == nil {
-			completeCost = false
+		if cost, ok := componentMicros(part.Cost); ok && cost <= maxSafeInteger-knownCost {
+			knownCost += cost
+			hasCost = true
 		} else {
-			dollars += *part.Cost
+			completeCost = false
 		}
-	}
-	if !completeTokens {
-		tokens = nil
 	}
 	var reported *int64
-	if completeCost {
-		if value, err := microUSD(dollars); err == nil {
-			reported = &value
-		}
+	if hasCost {
+		reported = &knownCost
+	}
+	if len(tokens) == 0 {
+		tokens = nil
 	}
 	report, err := PriceUsage(tokens, reported)
 	if err != nil {
-		return priceReportedOnly(reported)
+		report = priceReportedOnly(reported)
+	}
+	if (!completeTokens && len(tokens) > 0) || (hasCost && !completeCost) {
+		report.Coverage = "partial"
 	}
 	return report
 }
@@ -121,44 +128,35 @@ func parseOpenCodeUsage(data []byte, databasePath string, v2 bool) UsageReport {
 			parts[event.Part.ID] = event.Part.openCodeUsage
 		}
 	})
-	if err != nil || mixedSessions {
+	if mixedSessions {
 		return unknownUsage()
 	}
 	stream := openCodePartsReport(parts)
-	if stream.Tokens != nil && stream.ReportedCostMicroUSD != nil {
-		return stream
+	fromDB, dbCount := readOpenCodeScratchUsage(databasePath, sessionID, v2)
+	selected := stream
+	if dbCount > len(parts) || (dbCount == len(parts) && selected.Tokens == nil && fromDB.Tokens != nil) {
+		selected = fromDB
 	}
-	fromDB := readOpenCodeScratchUsage(databasePath, sessionID, v2)
-	if fromDB.Tokens == nil {
-		report, err := PriceUsage(stream.Tokens, preferCost(stream.ReportedCostMicroUSD, fromDB.ReportedCostMicroUSD))
-		if err != nil {
-			return priceReportedOnly(preferCost(stream.ReportedCostMicroUSD, fromDB.ReportedCostMicroUSD))
-		}
-		return report
+	cost := stream.ReportedCostMicroUSD
+	if other := fromDB.ReportedCostMicroUSD; other != nil && (cost == nil || *other > *cost) {
+		cost = other
 	}
-	if stream.ReportedCostMicroUSD != nil {
-		fromDB.ReportedCostMicroUSD = stream.ReportedCostMicroUSD
+	report, priceErr := PriceUsage(selected.Tokens, cost)
+	if priceErr != nil {
+		report = priceReportedOnly(cost)
 	}
-	report, err := PriceUsage(fromDB.Tokens, fromDB.ReportedCostMicroUSD)
-	if err != nil {
-		return priceReportedOnly(fromDB.ReportedCostMicroUSD)
+	if report.Coverage != "unknown" && (err != nil || selected.Coverage == "partial" || (dbCount > 0 && dbCount != len(parts)) || (stream.ReportedCostMicroUSD != nil && fromDB.ReportedCostMicroUSD != nil && *stream.ReportedCostMicroUSD != *fromDB.ReportedCostMicroUSD)) {
+		report.Coverage = "partial"
 	}
 	return report
 }
 
-func preferCost(first, second *int64) *int64 {
-	if first != nil {
-		return first
-	}
-	return second
-}
-
-func readOpenCodeScratchUsage(path, sessionID string, v2 bool) UsageReport {
+func readOpenCodeScratchUsage(path, sessionID string, v2 bool) (UsageReport, int) {
 	if sessionID == "" {
-		return unknownUsage()
+		return unknownUsage(), 0
 	}
 	if _, err := os.Stat(path); err != nil {
-		return unknownUsage()
+		return unknownUsage(), 0
 	}
 	urlPath := path
 	if runtime.GOOS == "windows" {
@@ -170,7 +168,7 @@ func readOpenCodeScratchUsage(path, sessionID string, v2 bool) UsageReport {
 	dsn := (&url.URL{Scheme: "file", Path: urlPath, RawQuery: "mode=ro&_query_only=1&_busy_timeout=1000"}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return unknownUsage()
+		return unknownUsage(), 0
 	}
 	defer db.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -181,22 +179,22 @@ func readOpenCodeScratchUsage(path, sessionID string, v2 bool) UsageReport {
 	}
 	rows, err := db.QueryContext(ctx, query, sessionID)
 	if err != nil {
-		return unknownUsage()
+		return unknownUsage(), 0
 	}
 	defer rows.Close()
 	parts := map[string]openCodeUsage{}
 	for index := 0; rows.Next(); index++ {
 		if index >= 64 {
-			return unknownUsage()
+			return unknownUsage(), 0
 		}
 		var raw string
 		var length int
 		if rows.Scan(&raw, &length) != nil || length > 262144 {
-			return unknownUsage()
+			return unknownUsage(), 0
 		}
 		var part openCodeUsage
 		if json.Unmarshal([]byte(raw), &part) != nil {
-			return unknownUsage()
+			return unknownUsage(), 0
 		}
 		var completion struct {
 			Time struct {
@@ -209,7 +207,7 @@ func readOpenCodeScratchUsage(path, sessionID string, v2 bool) UsageReport {
 		parts[string(rune(index+1))] = part
 	}
 	if rows.Err() != nil {
-		return unknownUsage()
+		return unknownUsage(), 0
 	}
-	return openCodePartsReport(parts)
+	return openCodePartsReport(parts), len(parts)
 }
