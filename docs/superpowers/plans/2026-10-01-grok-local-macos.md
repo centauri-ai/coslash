@@ -19,10 +19,10 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T1 | completed | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | `af16d41a` and fix `d3237332`. 13 files, 438 production lines, 2 commits. PR not opened. |
 | T2 | pending | | `cvu/grok-t2-enrich` | | | own PR, base is T1 |
 | T3 | pending | | `cvu/grok-t3-synthesis` | | | after T2 commits |
-| T4 | running | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | | Based on T1 `d3237332`. Tag `new group-3`. |
+| T4 | review | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `8682774b-3517-4fcd-86af-386058d6cff3` | Done envelope received. Commits `d8684606` and `3e26eb8c`. Browser check not run. |
 | T5 | pending | | `cvu/grok-t5-ui` | | | after T2 and T4 are merged |
 
-**Next action:** T4 is running. Watch `cvu/grok-t4-launch` for a commit past `d3237332`, then read terminal `5675a278-f698-4fa0-9e8c-1aa0e0735940`. On `SUPERSET_WORKER_DONE`, spawn one read-only reviewer in workspace `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b`. Do not open the T1 or T4 PR until that review round finishes. T2 is still not started.
+**Next action:** T4 reviewer `8682774b-3517-4fcd-86af-386058d6cff3` is running in workspace `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b`. If `NO_FINDINGS`, mark T4 completed. The T4 browser check is still open: do not click Resume. If the reviewer lists bugs, send them once to implementer `5675a278-f698-4fa0-9e8c-1aa0e0735940`. Do not start a second review. T2 is still not started. Do not open PRs yet.
 
 **Blockers:** none. T1 is inside the agent-tooling budget: 13 files (service limit 100, skill limit 25) and 438 production lines (skill limit 1,000).
 
