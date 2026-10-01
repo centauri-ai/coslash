@@ -1302,8 +1302,7 @@ export function DigestSection({ detail }: { detail: SessionDetail }) {
   const [hiddenCategories, setHiddenCategories] = useState<Set<DigestCategory>>(
     () => new Set(DEFAULT_HIDDEN_CATEGORIES),
   );
-  const digest =
-    detail.agent === 'pi' ? [...detail.digest].sort((a, b) => (a.time ?? 0) - (b.time ?? 0)) : detail.digest;
+  const digest = detail.digest;
   if (digest.length === 0)
     return detail.detailsIncomplete ? (
       <p className="text-warning-fg pb-2 text-xs">Some nested tool details are unavailable.</p>
