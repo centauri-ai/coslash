@@ -144,6 +144,11 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 	s.FileEdits = updates.edits.Edits
 	s.EditedFileCount = len(s.FileEdits)
 	s.Todos = readTodos(filepath.Join(dir, "plan.json"))
+	var goal struct {
+		Objective string `json:"objective"`
+	}
+	readOptionalJSON(filepath.Join(dir, "goal", "state.json"), &goal)
+	s.DeclaredGoal = nonEmpty(goal.Objective)
 
 	var signals signalsFile
 	readOptionalJSON(filepath.Join(dir, "signals.json"), &signals)
