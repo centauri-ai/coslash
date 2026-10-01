@@ -266,11 +266,15 @@ func routes(
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Coslash-Synthesis-Cost-Version", mgr.AccountingVersion())
 		if r.URL.Query().Has("id") {
 			handleExactSession(w, r, collector.GetSessionForPreviewByAgent)
 			return
 		}
 		handleList(w, r, mgr, reviewManager, remoteManager)
+	})
+	api.HandleFunc("GET /api/synthesis-costs", func(w http.ResponseWriter, r *http.Request) {
+		handleSynthesisCosts(w, r, mgr)
 	})
 	api.HandleFunc("GET /api/session-detail", func(w http.ResponseWriter, r *http.Request) {
 		handleSessionDetail(w, r, collector.GetSessionDetail, remoteManager)
