@@ -110,11 +110,10 @@ func main() {
 	defer runtimeLock.Close()
 
 	settingsStore := settings.Open()
-	accountingStore, err := synthesis.OpenAccountingStore(settings.Home(), time.Now().UnixMilli())
-	if err != nil {
-		log.Fatalf("coslash: open synthesis accounting: %v", err)
+	accountingStore := startupAccountingStore(settings.Home(), time.Now().UnixMilli())
+	if accountingStore != nil {
+		defer accountingStore.Close()
 	}
-	defer accountingStore.Close()
 	if err := pi.EnsureExtension(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
 	}
@@ -221,6 +220,14 @@ func main() {
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", serveErr)
 	}
+}
+
+func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore {
+	store, err := synthesis.OpenAccountingStore(home, nowMs)
+	if err != nil {
+		log.Printf("synthesis accounting unavailable: %v", err)
+	}
+	return store
 }
 
 func newProductionRemoteManager() (*remote.Manager, error) {
