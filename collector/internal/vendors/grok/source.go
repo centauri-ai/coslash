@@ -222,7 +222,7 @@ func subagentsFromFamily(root *vendors.ParsedSession, family []*vendors.ParsedSe
 		} else if root.Spawns[item.Session.ID].Completed {
 			status = session.SubagentReturned
 		}
-		subagents = append(subagents, session.Subagent{
+		subagent := session.Subagent{
 			ID:         item.Session.ID,
 			ParentID:   root.Session.ID,
 			Name:       cmp.Or(item.Name, stringPtr(item.Session.Name), item.Session.ID),
@@ -232,9 +232,25 @@ func subagentsFromFamily(root *vendors.ParsedSession, family []*vendors.ParsedSe
 			Result:     item.Result,
 			DurationMs: item.Session.DurationMs,
 			ToolUses:   item.Session.ToolUses,
-		})
+		}
+		linkSubagentDigest(root.Session, subagent)
+		subagents = append(subagents, subagent)
 	}
 	return subagents
+}
+
+func linkSubagentDigest(parent *session.Session, subagent session.Subagent) {
+	for index := range parent.Digest {
+		entry := &parent.Digest[index]
+		if entry.Category == session.DigestSubagent && entry.SpawnKey == subagent.ID && entry.SubagentID == "" {
+			entry.SubagentID = subagent.ID
+			entry.Description = subagent.Name
+			return
+		}
+	}
+	parent.Digest = append(parent.Digest, session.DigestEntry{
+		Category: session.DigestSubagent, Description: subagent.Name, SubagentID: subagent.ID, SpawnKey: subagent.ID,
+	})
 }
 
 func stringPtr(value *string) string {

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -66,6 +67,9 @@ func attachSubagents(parsed []*vendors.ParsedSession) {
 				child.Session.DurationMs = meta.DurationMs
 			}
 			child.Session.ToolUses = max(child.Session.ToolUses, meta.ToolCalls)
+			parent.Session.Digest = append(parent.Session.Digest, session.DigestEntry{
+				Category: session.DigestSubagent, Description: meta.Description, SpawnKey: child.Session.ID,
+			})
 		}
 	}
 }
