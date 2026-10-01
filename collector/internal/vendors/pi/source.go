@@ -85,7 +85,7 @@ func discoverContext(ctx context.Context) (*vendors.SourceScan, string, error) {
 			}
 		}
 	}
-	paths, err := RuntimeTranscriptPaths()
+	paths, err := RuntimeTranscriptPathsContext(ctx)
 	if err != nil {
 		scan.RecordSkipped("Pi runtime metadata", err)
 	}
@@ -191,11 +191,16 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 	return CollectContext(context.Background(), since)
 }
 func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	snapshot, _ := LoadRuntimeSnapshot()
+	ctx = WithRuntimeSnapshot(ctx, snapshot)
 	items, scan, _, err := readSessionsContext(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata := vendors.BestEffortMetadata(vendors.AgentPi, LoadMetadata)
+	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
 	result := make([]*vendors.ParsedSession, 0, len(items))
 	parents := parentCacheContext(ctx, items, scan)
 	for _, t := range items {
@@ -218,14 +223,18 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
-	items, scan, _, err := readSessions()
+	snapshot, _ := LoadRuntimeSnapshot()
+	return getSessionFactsContext(WithRuntimeSnapshot(context.Background(), snapshot), id)
+}
+func getSessionFactsContext(ctx context.Context, id string) (*vendors.ParsedSession, error) {
+	items, scan, _, err := readSessionsContext(ctx)
 	if err != nil {
 		return nil, err
 	}
-	parents := parentCache(items, scan)
+	parents := parentCacheContext(ctx, items, scan)
 	for _, t := range items {
 		if t.Header.ID == id {
-			return project(t, parents(t))
+			return projectContext(ctx, t, parents(t))
 		}
 	}
 	// A capped health diagnostic list must not hide a conflicting requested identity.
@@ -243,11 +252,13 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 }
 
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	facts, err := GetSessionFacts(id)
+	snapshot, _ := LoadRuntimeSnapshot()
+	ctx := WithRuntimeSnapshot(context.Background(), snapshot)
+	facts, err := getSessionFactsContext(ctx, id)
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata := vendors.BestEffortMetadata(vendors.AgentPi, LoadMetadata)
+	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
 	if facts == nil {
 		return nil, metadata, nil
 	}
