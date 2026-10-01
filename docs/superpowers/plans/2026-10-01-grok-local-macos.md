@@ -22,7 +22,7 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 | pending | | `cvu/grok-t4-launch` | | | after T1 commits `AgentGrok` |
 | T5 | pending | | `cvu/grok-t5-ui` | | | after T2 and T4 are merged |
 
-**Next action:** T1 review found one bug. `readUpdates` treats a `user_message_chunk` with `_meta.hideFromScrollback: true` as `FirstPrompt` when that chunk is first. Send that bug once to implementer `4f36a026-65f2-4094-8f6b-d3fd3f623dfc`. The fix is a new commit on `cvu/grok-t1-parse`, not an amend of `af16d41a`. Do not open the T1 PR until that commit exists. Do not start a second review. Then create the T4 worktree from the updated T1 branch.
+**Next action:** The one fix is already sent to implementer `4f36a026-65f2-4094-8f6b-d3fd3f623dfc`. Do not send it again. When `cvu/grok-t1-parse` moves past `af16d41a`, mark T1 completed and create the T4 worktree from that branch with tag `new group-3`. Do not open the T1 PR until that fix commit exists. Do not start a second review.
 
 **Blockers:** none. T1 production diff is about 434 lines and 13 files, inside the reviewer budget.
 
