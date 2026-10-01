@@ -156,3 +156,35 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 		t.Fatal("runtime branch test modified transcript")
 	}
 }
+
+func TestPiProviderErrorSurvivesExactLocalDetail(t *testing.T) {
+	agentDir := t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", agentDir)
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("COSLASH_PI_SESSION_ROOTS", "")
+	root := filepath.Join(agentDir, "sessions")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	records := `{"type":"session","version":3,"id":"provider-error","cwd":"/tmp","timestamp":"2026-01-01T00:00:00Z"}` + "\n" +
+		`{"type":"message","id":"failed","parentId":null,"message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"Refresh SSO credentials"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(root, "failure.jsonl"), []byte(records), 0600); err != nil {
+		t.Fatal(err)
+	}
+	query := url.Values{"source": {"local"}, "agent": {"pi"}, "session": {"provider-error"}, "revision": {"latest"}}
+	for attempt := 0; attempt < 2; attempt++ {
+		response := httptest.NewRecorder()
+		handleSessionDetail(response, httptest.NewRequest(http.MethodGet, "/api/session-detail?"+query.Encode(), nil), collector.GetSessionDetail, nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("Pi detail = %d: %s", response.Code, response.Body.String())
+		}
+		var decoded sessionDetailResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.Session.AgentError == nil || *decoded.Session.AgentError != "Refresh SSO credentials" {
+			t.Fatalf("local diagnostic lost: %#v", decoded.Session.AgentError)
+		}
+	}
+}

@@ -51,6 +51,8 @@ Pi terminal actions currently require macOS. Custom handoff and local synthesis 
 
 Pi synthesis uses your configured provider/model by default. Pin a provider-qualified model in `settings.json` if needed. If synthesis fails, verify access to that model and refresh provider credentials, including expired AWS SSO sessions, then retry synthesis from the inspector.
 
+Pi provider failures recorded in the selected session branch appear as an Error badge in the inspector. Hover or focus the badge to read the diagnostic, then refresh credentials or change the model in Pi and retry. A successful assistant response clears the badge. Failures before Pi creates a transcript remain visible in the Pi terminal.
+
 ## coSlash will not start
 
 A port conflict is reported in the terminal. Stop the other process or run:

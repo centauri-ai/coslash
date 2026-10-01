@@ -430,6 +430,7 @@ func TestFullRecordInventoryAccountsForEveryPrivateSessionField(t *testing.T) {
 	}
 
 	detailDecisions := map[string]string{
+		"AgentError":        "excluded local provider failure diagnostic",
 		"DetailsIncomplete": "unrepresentable detail completeness refused",
 		"Model":             "included", "ObservedModels": "excluded local Cursor IDE enrichment", "ContextTokens": "included", "ContextWindow": "included", "Turns": "included",
 		"ToolUses": "included", "Errors": "included", "Compactions": "included", "FirstPrompt": "included",

@@ -51,6 +51,7 @@ var census = map[string]decision{
 	"ReviewError":         {false, "local review failure"},
 
 	// session.SessionDetails
+	"AgentError":       {false, "local provider failure diagnostic"},
 	"Model":            {true, "session.model"},
 	"ObservedModels":   {false, "local Cursor IDE model observations"},
 	"ContextTokens":    {true, "session.contextTokens"},
