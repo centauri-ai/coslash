@@ -296,3 +296,12 @@ describe('settings and remote API decoders', () => {
     ).toThrow('Expected one of');
   });
 });
+
+it('keeps a placeholder when Pi selected context has no digest entries', () => {
+  const detail = remoteDetail();
+  detail.agent = 'pi';
+  detail.digest = [{ turn: 1, category: 'recap', description: 'Unselected history', contextSelected: false }];
+  const brief = handoffBrief(detail);
+  expect(brief).toContain('## Timeline\n- \u2014\n\n## Environment');
+  expect(brief).not.toContain('Unselected history');
+});

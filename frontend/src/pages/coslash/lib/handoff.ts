@@ -41,14 +41,13 @@ export function handoffBrief(detail: SessionDetail): string {
   const decisions = detail.synthesis?.keyDecisions.length
     ? detail.synthesis.keyDecisions.map((decision) => `- ${decision}`)
     : [];
-  const digest = detail.digest.length
-    ? detail.digest
-        .filter((entry) => entry.contextSelected !== false)
-        .flatMap((entry) => [
-          `- [${entry.category} · turn ${entry.turn}] ${entry.contextDescription ?? entry.description}`,
-          ...(entry.answer?.trim() ? [`  - Answer: ${entry.answer.trim()}`] : []),
-        ])
-    : ['- —'];
+  const digest = detail.digest
+    .filter((entry) => entry.contextSelected !== false)
+    .flatMap((entry) => [
+      `- [${entry.category} · turn ${entry.turn}] ${entry.contextDescription ?? entry.description}`,
+      ...(entry.answer?.trim() ? [`  - Answer: ${entry.answer.trim()}`] : []),
+    ]);
+  if (digest.length === 0) digest.push('- \u2014');
   const files = detail.fileEdits.length
     ? detail.fileEdits.map((fileEdit) => `- ${fileEdit.path} (+${fileEdit.adds}/-${fileEdit.dels})`)
     : [];
