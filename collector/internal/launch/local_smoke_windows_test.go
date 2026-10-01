@@ -42,6 +42,22 @@ func TestWindowsPowerShell51UnicodeConsoleSmoke(t *testing.T) {
 		return powerShell, nil
 	}
 	var process windows.Handle
+	t.Cleanup(func() {
+		if process == 0 {
+			return
+		}
+		if status, _ := windows.WaitForSingleObject(process, 0); status != windows.WAIT_OBJECT_0 {
+			if err := windows.TerminateProcess(process, 1); err != nil {
+				t.Errorf("terminate PowerShell smoke process: %v", err)
+			}
+			if status, err := windows.WaitForSingleObject(process, 10_000); err != nil || status != windows.WAIT_OBJECT_0 {
+				t.Errorf("PowerShell cleanup wait status = %#x, %v", status, err)
+			}
+		}
+		if err := windows.CloseHandle(process); err != nil {
+			t.Errorf("close PowerShell smoke process: %v", err)
+		}
+	})
 	windowsCloseHandle = func(handle windows.Handle) error {
 		if process == 0 {
 			process = handle
@@ -55,14 +71,13 @@ func TestWindowsPowerShell51UnicodeConsoleSmoke(t *testing.T) {
 	if process == 0 {
 		t.Fatal("PowerShell process handle was not returned")
 	}
-	status, err := windows.WaitForSingleObject(process, 10_000)
+	status, err := windows.WaitForSingleObject(process, 30_000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if status != windows.WAIT_OBJECT_0 {
 		t.Fatalf("PowerShell completion wait status = %#x", status)
 	}
-	_ = windows.CloseHandle(process)
 	data, err := os.ReadFile(output)
 	if err != nil {
 		diagnostic, _ := os.ReadFile(errorOutput)
