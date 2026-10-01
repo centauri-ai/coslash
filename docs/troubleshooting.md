@@ -47,7 +47,9 @@ Pi costs are historical pricing estimates. Missing usage or ambiguous zero prici
 
 Interactive CLI, print, JSON, and RPC entrypoints load extensions on Pi 0.99.1 and 0.99.2. SDK hosts require explicit extension loading and remain Unknown without it. Transcript data alone does not prove entrypoint modality or a live branch. Resume reopens the resolved file through the CLI; it cannot recreate an SDK host. Resume and handoff require an existing working directory and installed supported CLI. A deleted transcript, unknown identity, unsupported release, or missing working directory produces a local launch error.
 
-Pi terminal actions currently require macOS. Custom handoff supports Pi; background review and Pi as a synthesis provider remain unsupported. Private handoff notes are removed on launch exit, signals, and failed directory changes.
+Pi terminal actions currently require macOS. Custom handoff and local synthesis support Pi; background review remains unsupported. Private handoff notes are removed on launch exit, signals, and failed directory changes.
+
+Pi synthesis uses your configured provider/model by default. Pin a provider-qualified model in `settings.json` if needed. If synthesis fails, verify access to that model and refresh provider credentials, including expired AWS SSO sessions, then retry synthesis from the inspector.
 
 ## coSlash will not start
 
