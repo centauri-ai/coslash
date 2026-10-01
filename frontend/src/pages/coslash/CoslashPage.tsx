@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { setTheme, type Theme } from '@/lib/theme';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
+import { DeleteSessionDialog } from '@/pages/coslash/components/DeleteSessionDialog';
 import { DiagnosticsDialog } from '@/pages/coslash/components/DiagnosticsDialog';
 import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { SessionInspector } from '@/pages/coslash/components/SessionInspector';
@@ -20,7 +21,7 @@ import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessi
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import { retryRemoteRefreshAndWait } from '@/pages/coslash/lib/remote-api';
-import { isLocalSession, LOCAL_SOURCE_ID, sessionKey } from '@/pages/coslash/lib/session';
+import { isLocalSession, LOCAL_SOURCE_ID, sessionKey, type Session } from '@/pages/coslash/lib/session';
 import { eligibleSessionCandidates, latestLogicalSessions } from '@/pages/coslash/lib/session-library';
 import { loadSessionViewPreferences, type SessionRange } from '@/pages/coslash/lib/session-view-preferences';
 import {
@@ -100,6 +101,13 @@ export function CoslashPage() {
       remoteWindow: apiWindow,
     });
   const [selectedSessionKey, setSelectedSessionKey] = useState<string | null>(null);
+  const [deleteSession, setDeleteSession] = useState<Session | null>(null);
+  const deleteReturnFocus = useRef<HTMLElement | null>(null);
+  const handleDelete = (session: Session) => {
+    if (!isLocalSession(session)) return;
+    deleteReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setDeleteSession(session);
+  };
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [settingsDialogMode, setSettingsDialogMode] = useState<SettingsDialogMode | null>(null);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -302,6 +310,16 @@ export function CoslashPage() {
         inspectorOpen={selectedSession != null}
         reviewerOptions={settingsState.response?.options.reviewers ?? []}
         onReviewStarted={refreshSessions}
+        onDelete={handleDelete}
+      />
+      <DeleteSessionDialog
+        session={deleteSession}
+        onClose={() => setDeleteSession(null)}
+        onRefresh={refreshSessions}
+        onDeleted={(session) =>
+          setSelectedSessionKey((current) => (current === sessionKey(session) ? null : current))
+        }
+        returnFocusRef={deleteReturnFocus}
       />
       <SessionInspector
         session={selectedSession}

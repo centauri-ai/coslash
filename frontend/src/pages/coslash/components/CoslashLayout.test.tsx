@@ -1,4 +1,4 @@
-import { type ComponentProps } from 'react';
+import { type ComponentProps, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
@@ -6,6 +6,17 @@ import { machineRetryable } from '@/pages/coslash/lib/machine-status';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { type Session } from '@/pages/coslash/lib/session';
 import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
+
+const menus = vi.hoisted(() => ({
+  items: [] as ReactElement<{ children: unknown; onSelect?: () => void }>[],
+}));
+vi.mock('@/components/ui/dropdown-menu', async (original) => ({
+  ...(await original<typeof import('@/components/ui/dropdown-menu')>()),
+  DropdownMenuContent: ({ children }: { children: (typeof menus.items)[number][] }) => {
+    menus.items.push(...children.flat().filter(Boolean));
+    return null;
+  },
+}));
 
 const props: ComponentProps<typeof CoslashLayout> = {
   sessions: [],
@@ -88,6 +99,23 @@ function orderOf(markup: string, ...titles: string[]): number[] {
 }
 
 describe('CoslashLayout', () => {
+  it('offers Delete only for exact local rows and passes that session to the shared flow', () => {
+    menus.items = [];
+    const local = session({ id: 'duplicate', sourceId: 'local', agent: 'codex', cwd: '' });
+    const remote = session({ ...local, sourceId: 'remote' });
+    const onDelete = vi.fn();
+    const onSelectSession = vi.fn();
+    const markup = renderLayout({ sessions: [local, remote], onDelete, onSelectSession });
+    expect(markup).not.toContain('coslash-action-column max-compact:hidden');
+    const actions = menus.items.filter(
+      (item) => Array.isArray(item.props.children) && item.props.children.includes('Delete'),
+    );
+    expect(actions).toHaveLength(1);
+    actions[0].props.onSelect?.();
+    expect(onDelete).toHaveBeenCalledWith(local);
+    expect(onSelectSession).not.toHaveBeenCalled();
+  });
+
   it('keeps row dividers in comfortable density and omits them in compact density', () => {
     const rowCells = (markup: string) => {
       const titleAt = markup.indexOf('Divider row');

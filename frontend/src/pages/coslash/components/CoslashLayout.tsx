@@ -29,6 +29,7 @@ import {
   Server,
   Settings,
   Sun,
+  Trash2,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -595,6 +596,7 @@ function SessionRow({
   compact,
   onSelect,
   onToggleGroup,
+  onDelete,
   review,
 }: {
   session: Session;
@@ -604,6 +606,7 @@ function SessionRow({
   compact: boolean;
   onSelect: () => void;
   onToggleGroup: () => void;
+  onDelete?: (session: Session) => void;
   review: SessionReviewProps;
 }) {
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -719,10 +722,7 @@ function SessionRow({
         </span>
       </td>
       <td
-        className={cn(
-          cell,
-          'coslash-action-column max-compact:hidden w-12 px-2 text-right whitespace-nowrap',
-        )}
+        className={cn(cell, 'coslash-action-column w-12 px-2 text-right whitespace-nowrap')}
         onClick={(event) => event.stopPropagation()}
       >
         <DropdownMenu>
@@ -766,6 +766,19 @@ function SessionRow({
               >
                 {reviewActive ? <LoaderCircle className="animate-spin" /> : <ScanSearch />}
                 {reviewActive ? 'Review running' : session.reviewError ? 'Retry review' : 'Send for review'}
+              </DropdownMenuItem>
+            )}
+            {isLocalSession(session) && onDelete && (
+              <DropdownMenuItem
+                className="text-danger-fg text-meta cursor-pointer"
+                onSelect={() => {
+                  openingReviewRef.current = true;
+                  actionButtonRef.current?.focus();
+                  onDelete(session);
+                }}
+              >
+                <Trash2 />
+                Delete
               </DropdownMenuItem>
             )}
             <DropdownMenuItem className="text-meta cursor-pointer" onSelect={onSelect}>
@@ -842,6 +855,7 @@ function SessionListView({
   onShowMore,
   onSelectSession,
   onToggleGroup,
+  onDelete,
   review,
 }: {
   sections: { status: StatusKey; rows: Session[] }[];
@@ -856,6 +870,7 @@ function SessionListView({
   onShowMore: (status: StatusKey, limit: number) => void;
   onSelectSession: (session: Session) => void;
   onToggleGroup: (id: string) => void;
+  onDelete?: (session: Session) => void;
   review: SessionReviewProps;
 }) {
   const headRef = useRef<HTMLTableSectionElement>(null);
@@ -896,12 +911,7 @@ function SessionListView({
             onSort={onSort}
             className="max-cost:hidden w-[94px] [&_button]:justify-start"
           />
-          <th
-            className={cn(
-              styles.head,
-              'coslash-action-column max-compact:hidden w-12 px-2 py-[9px] text-right',
-            )}
-          >
+          <th className={cn(styles.head, 'coslash-action-column w-12 px-2 py-[9px] text-right')}>
             <span className="sr-only">Actions</span>
           </th>
         </tr>
@@ -947,6 +957,7 @@ function SessionListView({
                   compact={compact}
                   onSelect={() => onSelectSession(session)}
                   onToggleGroup={() => onToggleGroup(group.id)}
+                  onDelete={onDelete}
                   review={review}
                 />
               );
@@ -995,6 +1006,7 @@ export function CoslashLayout({
   inspectorOpen = false,
   reviewerOptions,
   onReviewStarted,
+  onDelete,
 }: {
   sessions: Session[];
   machines: MachineFact[];
@@ -1018,6 +1030,7 @@ export function CoslashLayout({
   inspectorOpen?: boolean;
   reviewerOptions: readonly ReviewerOption[];
   onReviewStarted: () => void;
+  onDelete?: (session: Session) => void;
 }) {
   const [preferences, setPreferences] = useState(loadSessionViewPreferences);
   const [openSections, setOpenSections] = useState<Record<StatusKey, boolean>>({
@@ -1502,6 +1515,7 @@ export function CoslashLayout({
                     }
                     onSelectSession={onSelectSession}
                     onToggleGroup={toggleGroup}
+                    onDelete={onDelete}
                     review={{
                       index: reviewIndex,
                       reviewerOptions,
