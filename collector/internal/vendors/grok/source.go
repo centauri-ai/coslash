@@ -1,6 +1,7 @@
 package grok
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -191,11 +192,56 @@ func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
 	if id == "" {
 		return nil, nil
 	}
-	dirs, err := sessionDirsByID()
-	if err != nil || dirs[id] == "" {
+	family, _, err := GetSessionFamily(id)
+	if err != nil || len(family) == 0 {
 		return nil, err
 	}
-	return parseSession(dirs[id])
+	var root *vendors.ParsedSession
+	for _, item := range family {
+		if item.Session.ID == id {
+			root = item
+			break
+		}
+	}
+	if root == nil || root.ParentID != "" {
+		return root, nil
+	}
+	root.Session.Subagents = subagentsFromFamily(root, family)
+	return root, nil
+}
+
+func subagentsFromFamily(root *vendors.ParsedSession, family []*vendors.ParsedSession) []session.Subagent {
+	subagents := make([]session.Subagent, 0)
+	for _, item := range family {
+		if item.ParentID != root.Session.ID {
+			continue
+		}
+		status := session.SubagentRunning
+		if item.Stopped {
+			status = session.SubagentAborted
+		} else if root.Spawns[item.Session.ID].Completed {
+			status = session.SubagentReturned
+		}
+		subagents = append(subagents, session.Subagent{
+			ID:         item.Session.ID,
+			ParentID:   root.Session.ID,
+			Name:       cmp.Or(item.Name, stringPtr(item.Session.Name), item.Session.ID),
+			Model:      item.Session.Model,
+			Status:     status,
+			Task:       root.Spawns[item.Session.ID].Task,
+			Result:     item.Result,
+			DurationMs: item.Session.DurationMs,
+			ToolUses:   item.Session.ToolUses,
+		})
+	}
+	return subagents
+}
+
+func stringPtr(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // GetSessionFamily returns the session and the children its subagents/ directory names.
