@@ -191,7 +191,7 @@ func readOnlyDatabaseDSN(path string) string {
 	}).String()
 }
 
-func validateSchemaContext(ctx context.Context, db *sql.DB) error {
+func validateSchemaContext(ctx context.Context, db deletionReader) error {
 	_, err := sessionSourceContext(ctx, db)
 	if err != nil {
 		return err
@@ -222,7 +222,7 @@ func validateSchemaContext(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func sessionSourceContext(ctx context.Context, db *sql.DB) (string, error) {
+func sessionSourceContext(ctx context.Context, db deletionReader) (string, error) {
 	var v1, v2 bool
 	for _, table := range []struct {
 		name  string
