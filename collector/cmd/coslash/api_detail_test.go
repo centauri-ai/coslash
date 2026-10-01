@@ -208,6 +208,27 @@ func TestExactLocalDetailAndDiffUseRevisionAndChangeMembership(t *testing.T) {
 	}
 }
 
+func TestExactLocalDetailAcceptsGrokSessions(t *testing.T) {
+	local := exactDetailSession("")
+	local.Agent = vendors.AgentGrok
+	revision := mustLocalDetailRevision(t, local)
+	reader := func(agent, sessionID string) (*session.Session, error) {
+		if agent != vendors.AgentGrok || sessionID != local.ID {
+			t.Fatalf("local identity = %q/%q", agent, sessionID)
+		}
+		copy := local
+		return &copy, nil
+	}
+
+	request := httptest.NewRequest(http.MethodGet,
+		"/api/session-detail?source=local&agent=grok&session=same-session&revision="+revision, nil)
+	response := httptest.NewRecorder()
+	handleSessionDetail(response, request, reader, remote.NewManager(remote.Options{}))
+	if response.Code != http.StatusOK {
+		t.Fatalf("detail status = %d: %s", response.Code, response.Body.String())
+	}
+}
+
 func TestExactLocalDetailAcceptsCursorSessions(t *testing.T) {
 	local := exactDetailSession("")
 	local.Agent = vendors.AgentCursor
