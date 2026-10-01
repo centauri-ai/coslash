@@ -98,10 +98,12 @@ func processWorkingDirectory(pid int) string {
 }
 
 func processWorkingDirectoryContext(ctx context.Context, pid int) string {
-	output, err := exec.CommandContext(
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := boundedCommandOutput(exec.CommandContext(
 		ctx,
 		"lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn",
-	).Output()
+	), 4<<20)
 	if err != nil {
 		return ""
 	}

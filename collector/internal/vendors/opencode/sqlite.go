@@ -15,11 +15,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/agentexec"
 	_ "modernc.org/sqlite"
 )
 
 var databasePathLookupTimeout = 2 * time.Second
-var commandContext = exec.CommandContext
+var commandContext = agentexec.CommandContext
 
 func Root() (string, error) {
 	return RootContext(context.Background())
@@ -114,22 +115,29 @@ func effectiveDatabaseRoot(ctx context.Context, home string) (string, error) {
 }
 
 type boundedOutput struct {
-	bytes.Buffer
-	limit int
+	buffer bytes.Buffer
+	limit  int
+	cancel func() error
 }
+
+func (b *boundedOutput) Len() int      { return b.buffer.Len() }
+func (b *boundedOutput) Bytes() []byte { return b.buffer.Bytes() }
 
 func (b *boundedOutput) Write(p []byte) (int, error) {
 	if len(p) > b.limit-b.Len() {
+		if b.cancel != nil {
+			_ = b.cancel()
+		}
 		return 0, errors.New("OpenCode process output exceeds limit")
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
 func boundedCommandOutput(cmd *exec.Cmd, limit int) ([]byte, error) {
-	output := &boundedOutput{limit: limit}
+	output := &boundedOutput{limit: limit, cancel: func() error { return cmd.Cancel() }}
 	cmd.Stdout = output
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = time.Second
-	if err := cmd.Run(); err != nil {
+	if err := runOwnedCommand(cmd); err != nil {
 		return nil, err
 	}
 	return output.Bytes(), nil
