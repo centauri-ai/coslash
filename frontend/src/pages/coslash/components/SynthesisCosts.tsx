@@ -63,13 +63,13 @@ export function SynthesisCostsView({
     <div className="bg-coslash-soft min-w-0 rounded-lg border p-3 text-xs">
       <div className="flex flex-wrap gap-x-5 gap-y-2 font-mono">
         <span>
-          Coding <strong>{formatEstimatedCost(codingCost)}</strong>
+          Coding <strong>{codingCost == null ? 'Unknown' : formatEstimatedCost(codingCost)}</strong>
         </span>
         <span>
-          Synthesis <strong>{totals ? <CostAmount microUsd={totals.knownCostMicroUsd} /> : '—'}</strong>
+          Synthesis <strong>{totals ? <CostAmount microUsd={totals.knownCostMicroUsd} /> : 'Unknown'}</strong>
         </span>
         <span>
-          Combined <strong>{combined ? formatEstimatedCost(combined.knownUsd) : '—'}</strong>
+          Combined <strong>{combined ? formatEstimatedCost(combined.knownUsd) : 'Unknown'}</strong>
         </span>
       </div>
       {loading && (
@@ -153,7 +153,7 @@ export function SynthesisCostsView({
                       size="sm"
                       className="mt-2"
                       onClick={onLoadMore}
-                      disabled={loadingMore}
+                      aria-disabled={loadingMore}
                     >
                       {loadingMore ? 'Loading more...' : pageError ? 'Retry load more' : 'Load more'}
                     </Button>
