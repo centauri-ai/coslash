@@ -12,16 +12,15 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/collector"
+	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
-	"testing"
-
-	"github.com/centauri-ai/coslash/collector/internal/httpsec"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 	"github.com/centauri-ai/coslash/collector/internal/vendors/cursor"

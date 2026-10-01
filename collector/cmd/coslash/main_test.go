@@ -125,7 +125,11 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 		t.Fatal("review did not start")
 	}
 	<-started
-	handler := routes(synthesis.NewManager(nil), manager, settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleReviewStatus(w, r, manager, func(agent, id string) (*session.Session, error) {
+			return &session.Session{Agent: agent, ID: id}, nil
+		})
+	})
 	get := func(agent, id string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/reviews?agent="+agent+"&id="+id, nil))
@@ -1002,5 +1006,48 @@ func TestHandleDiffRejectsFilesOutsideTheSession(t *testing.T) {
 
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusNotFound)
+	}
+}
+
+func TestReviewStatusDoesNotExposeDeletedOrigin(t *testing.T) {
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	manager := reviewpkg.NewManager(func(context.Context, reviewpkg.Launch) (string, error) {
+		close(entered)
+		<-release
+		close(done)
+		return "private cached result", nil
+	})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		manager.Shutdown()
+	}()
+	if !manager.Start(reviewpkg.Key("claude", apiDeleteID), reviewpkg.Launch{}) {
+		t.Fatal("review not started")
+	}
+	<-entered
+	for _, read := range []localDetailReader{
+		func(string, string) (*session.Session, error) { return nil, nil },
+		func(string, string) (*session.Session, error) { return nil, errors.New("private path") },
+	} {
+		w := httptest.NewRecorder()
+		handleReviewStatus(w, httptest.NewRequest("GET", "/api/reviews?agent=claude&id="+apiDeleteID, nil), manager, read)
+		if w.Code != 404 && w.Code != 500 {
+			t.Fatalf("exposed pending review: %d %s", w.Code, w.Body.String())
+		}
+	}
+	close(release)
+	<-done
+	manager.Shutdown()
+	if state := manager.Status(reviewpkg.Key("claude", apiDeleteID)); !state.Completed || state.Result != "private cached result" {
+		t.Fatalf("review did not finish: %#v", state)
+	}
+	w := httptest.NewRecorder()
+	handleReviewStatus(w, httptest.NewRequest("GET", "/api/reviews?agent=claude&id="+apiDeleteID, nil), manager, func(string, string) (*session.Session, error) { return nil, nil })
+	if w.Code != 404 || strings.Contains(w.Body.String(), "private") {
+		t.Fatalf("exposed completed review: %d %s", w.Code, w.Body.String())
 	}
 }
