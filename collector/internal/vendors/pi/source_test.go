@@ -65,7 +65,7 @@ func TestSourceCustomIdentityDedupAndConflict(t *testing.T) {
 }
 
 func TestProjectSettingsDiscovery(t *testing.T) {
-	agentDir, cwd, override := t.TempDir(), t.TempDir(), t.TempDir()
+	agentDir, cwd, override := t.TempDir(), filepath.Join(t.TempDir(), `project\with spaces`), t.TempDir()
 	t.Setenv("PI_CODING_AGENT_DIR", agentDir)
 	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", "")
@@ -81,7 +81,11 @@ func TestProjectSettingsDiscovery(t *testing.T) {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	data := bytes.Replace(fixture(t), []byte("/project with spaces"), []byte(cwd), 1)
+	cwdJSON, err := json.Marshal(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := bytes.Replace(fixture(t), []byte(`"/project with spaces"`), cwdJSON, 1)
 	if err := os.WriteFile(filepath.Join(root, "known.jsonl"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
