@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSourceCustomIdentityDedupAndConflict(t *testing.T) {
@@ -255,5 +256,129 @@ func TestRuntimeLeafChangesCollectedCurrentStateOnly(t *testing.T) {
 				t.Fatalf("active row %#v", row)
 			}
 		}
+	}
+}
+
+func TestDiscoveryBoundsAndUnreadableRoot(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+	t.Setenv("COSLASH_PI_SESSION_ROOTS", "")
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	root, _ := Root()
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "huge.jsonl")
+	data := []byte(`{"type":"session","version":3,"id":"huge","cwd":"` + strings.Repeat("x", maxTranscriptRecordBytes) + `"}`)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	scan, _, err := discoverContext(context.Background())
+	if err != nil || scan.SkippedTotal != 1 || !strings.Contains(scan.Skipped[0].Error, "record limit") {
+		t.Fatalf("bounded discovery: %v skipped=%d", err, scan.SkippedTotal)
+	}
+	if err := os.Chmod(root, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0700) })
+	if _, err := os.ReadDir(root); err == nil {
+		t.Skip("permissions not enforced")
+	}
+	health := Health()
+	if health.Missing || health.SkippedTotal == 0 {
+		t.Fatalf("unreadable source reported missing: %+v", health)
+	}
+}
+
+func TestIncrementalCollectionSkipsOldBodiesAndKeepsForkParents(t *testing.T) {
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	root := userRow("r", "", "shared", "2026-01-01T00:00:01Z")
+	parent := projectionFixture(t, "oldParent", "", root, assistantRow("a", "r", "old", 6))
+	fork := projectionFixture(t, "recentFork", parent.Path, root, assistantRow("a", "r", "old", 6), assistantRow("new", "a", "new", 2))
+	archive := filepath.Join(filepath.Dir(parent.Path), "unneeded.jsonl")
+	if err := os.WriteFile(archive, []byte(`{"type":"session","version":3,"id":"unneeded"}`+"\nmalformed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old, recent := time.Unix(1, 0), time.Unix(10, 0)
+	for _, path := range []string{parent.Path, archive} {
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chtimes(fork.Path, recent, recent); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSLASH_PI_SESSION_ROOTS", strings.Join([]string{filepath.Dir(parent.Path), filepath.Dir(fork.Path)}, string(os.PathListSeparator)))
+	items, _, err := Collect(5000)
+	if err != nil || len(items) != 1 || items[0].Session.ID != "recentFork" || items[0].RecordedCost == nil || *items[0].RecordedCost != 2 {
+		t.Fatalf("incremental fork: %v %#v", err, items)
+	}
+	_, scan, _, err := readSessionsSinceContext(context.Background(), 5000, nil)
+	if err != nil || scan.SkippedTotal != 0 {
+		t.Fatalf("old body parsed: %v %+v", err, scan)
+	}
+	duplicate := filepath.Join(filepath.Dir(parent.Path), "duplicate.jsonl")
+	data, err := os.ReadFile(fork.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(duplicate, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(duplicate, old, old); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err = Collect(5000)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("old duplicate identity accepted: %v %d", err, len(items))
+	}
+}
+
+func TestProjectSettingsBoundsAndBareTilde(t *testing.T) {
+	agent, project, home := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("PI_CODING_AGENT_DIR", agent)
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", "")
+	t.Setenv("COSLASH_PI_SESSION_ROOTS", "")
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(project, ".pi"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(project, ".pi", "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"sessionDir":"~"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := Root()
+	if err := os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := json.Marshal(project)
+	data := bytes.Replace(fixture(t), []byte(`"/project with spaces"`), cwd, 1)
+	if err := os.WriteFile(filepath.Join(root, "known.jsonl"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "home.jsonl"), bytes.Replace(data, []byte("custom.session_01"), []byte("homeSession"), 1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := Collect(0)
+	if err != nil || len(items) != 2 {
+		t.Fatalf("bare tilde collection: %v %d", err, len(items))
+	}
+	if err := os.WriteFile(settings, []byte(`{"sessionDir":"`+strings.Repeat("x", 1<<20)+`"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	health := Health()
+	if health.Sessions != 1 || health.SkippedTotal != 1 || !strings.Contains(health.Skipped[0].Error, "project settings read failed") {
+		t.Fatalf("settings bound: sessions=%d skipped=%d", health.Sessions, health.SkippedTotal)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := readProjectSettings(ctx, settings); !errors.Is(err, context.Canceled) {
+		t.Fatalf("settings cancellation: %v", err)
+	}
+	if _, err := readTranscriptHeader(ctx, filepath.Join(root, "known.jsonl")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("header cancellation: %v", err)
 	}
 }

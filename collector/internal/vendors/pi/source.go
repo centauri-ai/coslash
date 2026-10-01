@@ -1,10 +1,13 @@
 package pi
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,25 +18,30 @@ import (
 
 func discover() (*vendors.SourceScan, string, error) { return discoverContext(context.Background()) }
 func discoverContext(ctx context.Context) (*vendors.SourceScan, string, error) {
+	scan, root, _, err := discoverHeadersContext(ctx)
+	return scan, root, err
+}
+func discoverHeadersContext(ctx context.Context) (*vendors.SourceScan, string, map[string]header, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	root, err := Root()
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	roots := ConfiguredSessionRoots()
 	roots = append([]string{root}, roots...)
 	scan := &vendors.SourceScan{RootMissing: true}
 	seenRoots, seenFiles := map[string]bool{}, map[string]bool{}
 	seenProjects := map[string]bool{}
+	headers := map[string]header{}
 	addProject := func(cwd string) {
 		if cwd == "" || seenProjects[cwd] {
 			return
 		}
 		seenProjects[cwd] = true
 		path := filepath.Join(cwd, ".pi", "settings.json")
-		data, err := os.ReadFile(path)
+		data, err := readProjectSettings(ctx, path)
 		if errors.Is(err, os.ErrNotExist) {
 			return
 		}
@@ -50,11 +58,13 @@ func discoverContext(ctx context.Context) (*vendors.SourceScan, string, error) {
 		}
 		if settings.SessionDir != "" {
 			dir := settings.SessionDir
-			if strings.HasPrefix(dir, "~/") {
-				home, _ := os.UserHomeDir()
-				dir = filepath.Join(home, dir[2:])
-			}
-			if !filepath.IsAbs(dir) {
+			if dir == "~" || strings.HasPrefix(dir, "~/") {
+				dir, err = ResolveDirectory(dir)
+				if err != nil {
+					scan.RecordSkipped(path, err)
+					return
+				}
+			} else if !filepath.IsAbs(dir) {
 				dir = filepath.Join(cwd, dir)
 			}
 			roots = append(roots, dir)
@@ -75,14 +85,13 @@ func discoverContext(ctx context.Context) (*vendors.SourceScan, string, error) {
 		if !seenFiles[abs] {
 			seenFiles[abs] = true
 			scan.Files = append(scan.Files, abs)
-			// Stored cwd supplies ordinary project settings without scanning arbitrary projects.
-			if file, err := os.Open(abs); err == nil {
-				var h header
-				if json.NewDecoder(file).Decode(&h) == nil && h.Type == "session" {
-					addProject(h.CWD)
-				}
-				file.Close()
+			h, err := readTranscriptHeader(ctx, abs)
+			if err != nil {
+				scan.RecordSkipped(abs, err)
+				return
 			}
+			headers[abs] = h
+			addProject(h.CWD)
 		}
 	}
 	paths, err := RuntimeTranscriptPathsContext(ctx)
@@ -105,7 +114,7 @@ func discoverContext(ctx context.Context) (*vendors.SourceScan, string, error) {
 	}
 	for index := 0; index < len(roots); index++ {
 		if err := ctx.Err(); err != nil {
-			return nil, root, err
+			return nil, root, nil, err
 		}
 		dir := roots[index]
 		abs, err := filepath.Abs(dir)
@@ -123,7 +132,10 @@ func discoverContext(ctx context.Context) (*vendors.SourceScan, string, error) {
 		part, err := vendors.ScanSourceContext(ctx, vendors.LocalReadSource, abs)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, root, ctx.Err()
+				return nil, root, nil, ctx.Err()
+			}
+			if !errors.Is(err, os.ErrNotExist) {
+				scan.RootMissing = false
 			}
 			scan.RecordSkipped(abs, err)
 			continue
@@ -138,7 +150,10 @@ func discoverContext(ctx context.Context) (*vendors.SourceScan, string, error) {
 		scan.SkippedTotal += part.SkippedTotal
 	}
 	sort.Strings(scan.Files)
-	return scan, root, nil
+	if err := ctx.Err(); err != nil {
+		return nil, root, nil, err
+	}
+	return scan, root, headers, nil
 }
 
 func Files() ([]string, error) {
@@ -154,12 +169,60 @@ func readSessions() ([]*transcript, *vendors.SourceScan, string, error) {
 	return readSessionsContext(context.Background())
 }
 func readSessionsContext(ctx context.Context) ([]*transcript, *vendors.SourceScan, string, error) {
-	scan, root, err := discoverContext(ctx)
+	return readSessionsSinceContext(ctx, 0, nil)
+}
+func readSessionsSinceContext(ctx context.Context, since int64, metadata *vendors.SessionMetadata) ([]*transcript, *vendors.SourceScan, string, error) {
+	scan, root, headers, err := discoverHeadersContext(ctx)
 	if err != nil {
 		return nil, nil, root, err
 	}
-	byID := map[string][]*transcript{}
+	identities := map[string][]string{}
+	for path, h := range headers {
+		identities[h.ID] = append(identities[h.ID], path)
+	}
+	selected := map[string]bool{}
+	var eligible []string
 	for _, file := range scan.Files {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, root, err
+		}
+		h, ok := headers[file]
+		if !ok {
+			continue
+		}
+		if len(identities[h.ID]) != 1 {
+			scan.RecordSkipped(file, fmt.Errorf("conflicting Pi session identity %q in %d transcripts", h.ID, len(identities[h.ID])))
+			continue
+		}
+		if info, err := os.Stat(file); err == nil && since > 0 && info.ModTime().UnixMilli() < since && !runtimeLive(metadata, h.ID) {
+			continue
+		}
+		selected[file] = true
+		eligible = append(eligible, file)
+	}
+	// Older fork ancestors still supply inherited-usage evidence; unrelated archives stay unread.
+	for _, file := range eligible {
+		for depth := 0; depth < 256; depth++ {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, root, err
+			}
+			h := headers[file]
+			if h.ParentSession == "" {
+				break
+			}
+			parent := canonicalPath(h.ParentSession)
+			h, ok := headers[parent]
+			if !ok || len(identities[h.ID]) != 1 || selected[parent] {
+				break
+			}
+			selected[parent], file = true, parent
+		}
+	}
+	var sessions []*transcript
+	for _, file := range scan.Files {
+		if !selected[file] {
+			continue
+		}
 		t, err := parseTranscriptContext(ctx, file)
 		if ctx.Err() != nil {
 			return nil, nil, root, ctx.Err()
@@ -168,21 +231,16 @@ func readSessionsContext(ctx context.Context) ([]*transcript, *vendors.SourceSca
 			scan.RecordSkipped(file, err)
 			continue
 		}
-		byID[t.Header.ID] = append(byID[t.Header.ID], t)
+		if t.Header.ID != headers[file].ID || t.Header.ParentSession != headers[file].ParentSession {
+			scan.RecordSkipped(file, fmt.Errorf("session header changed during discovery"))
+			continue
+		}
+		sessions = append(sessions, t)
 		for _, diagnostic := range t.Diagnostics {
 			scan.RecordSkipped(file, errors.New(diagnostic))
 		}
 	}
-	var sessions []*transcript
-	for id, group := range byID {
-		if len(group) != 1 {
-			for _, t := range group {
-				scan.RecordSkipped(t.Path, fmt.Errorf("conflicting Pi session identity %q in %d transcripts", id, len(group)))
-			}
-		} else {
-			sessions = append(sessions, group[0])
-		}
-	}
+
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].Path < sessions[j].Path })
 	return sessions, scan, root, nil
 }
@@ -196,11 +254,11 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	}
 	snapshot, _ := LoadRuntimeSnapshot()
 	ctx = WithRuntimeSnapshot(ctx, snapshot)
-	items, scan, _, err := readSessionsContext(ctx)
+	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
+	items, scan, _, err := readSessionsSinceContext(ctx, since, metadata)
 	if err != nil {
 		return nil, nil, err
 	}
-	metadata := vendors.BestEffortMetadata(vendors.AgentPi, func() (*vendors.SessionMetadata, error) { return LoadMetadataContext(ctx) })
 	result := make([]*vendors.ParsedSession, 0, len(items))
 	parents := parentCacheContext(ctx, items, scan)
 	for _, t := range items {
@@ -279,4 +337,72 @@ func Health() vendors.SourceHealth {
 func runtimeLive(metadata *vendors.SessionMetadata, id string) bool {
 	item := metadata.Lookup(id)
 	return item != nil && (item.Live == "busy" || item.Live == "idle" || item.Live == "waiting")
+}
+
+func readTranscriptHeader(ctx context.Context, path string) (header, error) {
+	var h header
+	if err := ctx.Err(); err != nil {
+		return h, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return h, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return h, err
+	}
+	if info.Size() > maxTranscriptBytes {
+		return h, fmt.Errorf("transcript limit exceeded: maximum %d bytes", maxTranscriptBytes)
+	}
+	reader, total := bufio.NewReader(file), 0
+	var data []byte
+	for {
+		data, err = readTranscriptRecord(ctx, reader, maxTranscriptBytes-total)
+		total += len(data)
+		if err != nil && err != io.EOF {
+			return h, err
+		}
+		if len(bytes.TrimSpace(data)) > 0 || err == io.EOF {
+			break
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return h, err
+	}
+	if err := json.Unmarshal(data, &h); err != nil {
+		return h, err
+	}
+	if h.Type != "session" || h.ID == "" {
+		return h, fmt.Errorf("expected session header with identity")
+	}
+	if h.Version != 3 {
+		return h, fmt.Errorf("unsupported Pi transcript schema %d (verified schema: 3, Pi 0.99.1)", h.Version)
+	}
+	return h, nil
+}
+
+func readProjectSettings(ctx context.Context, path string) ([]byte, error) {
+	const limit = 1 << 20
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	reader := bufio.NewReader(file)
+	var data []byte
+	for {
+		record, err := readTranscriptRecord(ctx, reader, limit-len(data))
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("project settings read failed (maximum %d bytes): %w", limit, err)
+		}
+		data = append(data, record...)
+		if err == io.EOF {
+			return data, ctx.Err()
+		}
+	}
 }
