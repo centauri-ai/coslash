@@ -230,3 +230,26 @@ func TestBoundedRecordFraming(t *testing.T) {
 		})
 	}
 }
+
+func TestUsageAttributionCannotBeOverridden(t *testing.T) {
+	row := `{"type":"message","id":"usage-override","message":{"role":"assistant","provider":"native","model":"requested","responseModel":"resolved","usage":{"input":1,"output":2,"cacheRead":0,"cacheWrite":0,"cost":{"total":1},"source":"tool_result","provider":"override","model":"override","raw":null,"tokensMissing":true,"zeroTokens":true}}}`
+	parsed, err := parseTranscript(writeTranscript(t, append(fixture(t), []byte(row+"\n")...)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := parsed.Entries[len(parsed.Entries)-1].Usage
+	if u.Source != "assistant" || u.Provider != "native" || u.Model != "resolved" || len(u.Raw) == 0 || u.TokensMissing || u.ZeroTokens {
+		t.Fatalf("usage overwrote enclosing attribution: %+v", u)
+	}
+}
+func TestUsageOneHourCacheIsNotZero(t *testing.T) {
+	row := `{"type":"usage","id":"hour-cache","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"cacheWrite1h":7,"cost":{"total":1}}}`
+	parsed, err := parseTranscript(writeTranscript(t, append(fixture(t), []byte(row+"\n")...)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := parsed.Entries[len(parsed.Entries)-1].Usage
+	if u.ZeroTokens || u.CacheWrite1h == nil || *u.CacheWrite1h != 7 {
+		t.Fatalf("positive one-hour cache classified zero: %+v", u)
+	}
+}

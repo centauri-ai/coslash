@@ -34,21 +34,21 @@ type entry struct {
 }
 
 type usageFact struct {
-	Source       string
-	Provider     string
-	Model        string
-	Raw          json.RawMessage
-	Input        *int `json:"input"`
-	Output       *int `json:"output"`
-	CacheRead    *int `json:"cacheRead"`
-	CacheWrite   *int `json:"cacheWrite"`
-	CacheWrite1h *int `json:"cacheWrite1h"`
-	TotalTokens  *int `json:"totalTokens"`
+	Source       string          `json:"-"`
+	Provider     string          `json:"-"`
+	Model        string          `json:"-"`
+	Raw          json.RawMessage `json:"-"`
+	Input        *int            `json:"input"`
+	Output       *int            `json:"output"`
+	CacheRead    *int            `json:"cacheRead"`
+	CacheWrite   *int            `json:"cacheWrite"`
+	CacheWrite1h *int            `json:"cacheWrite1h"`
+	TotalTokens  *int            `json:"totalTokens"`
 	Cost         *struct {
 		Total *float64 `json:"total"`
 	} `json:"cost"`
-	TokensMissing bool
-	CostMissing   bool
-	ZeroTokens    bool
-	ZeroCost      bool
+	TokensMissing bool `json:"-"`
+	CostMissing   bool `json:"-"`
+	ZeroTokens    bool `json:"-"`
+	ZeroCost      bool `json:"-"`
 }

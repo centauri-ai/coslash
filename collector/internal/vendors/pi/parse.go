@@ -211,7 +211,7 @@ func extractUsage(e *entry) error {
 		return fmt.Errorf("invalid negative usage cost")
 	}
 	if !u.TokensMissing {
-		u.ZeroTokens = *u.Input == 0 && *u.Output == 0 && *u.CacheRead == 0 && *u.CacheWrite == 0
+		u.ZeroTokens = *u.Input == 0 && *u.Output == 0 && *u.CacheRead == 0 && *u.CacheWrite == 0 && (u.CacheWrite1h == nil || *u.CacheWrite1h == 0)
 	}
 	if !u.CostMissing {
 		u.ZeroCost = *u.Cost.Total == 0
