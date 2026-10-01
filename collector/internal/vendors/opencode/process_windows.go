@@ -5,6 +5,7 @@ package opencode
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,10 +22,10 @@ var listTUIProcessTimeout = 5 * time.Second
 var (
 	currentUserExecutable = winprocess.CurrentUserExecutable
 	runTUIProcessQuery    = func(ctx context.Context) ([]byte, error) {
-		return exec.CommandContext(
+		return boundedCommandOutput(exec.CommandContext(
 			ctx,
 			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command", listOpenCodeProcesses,
-		).Output()
+		), 4<<20)
 	}
 )
 
@@ -52,36 +53,66 @@ func listTUIProcesses() ([]tuiProcess, error) {
 }
 
 func listTUIProcessesContext(ctx context.Context) ([]tuiProcess, error) {
+	return scanOpenCodeProcesses(ctx, false)
+}
+
+func listOpenCodeProcessesContext(ctx context.Context) ([]tuiProcess, error) {
+	return scanOpenCodeProcesses(ctx, true)
+}
+
+func scanOpenCodeProcesses(ctx context.Context, all bool) ([]tuiProcess, error) {
 	ctx, cancel := context.WithTimeout(ctx, listTUIProcessTimeout)
 	defer cancel()
 	output, err := runTUIProcessQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return parseWindowsTUIProcesses(output)
+	return parseWindowsOpenCodeProcesses(output, all)
 }
 
 func parseWindowsTUIProcesses(output []byte) ([]tuiProcess, error) {
+	return parseWindowsOpenCodeProcesses(output, false)
+}
+
+func parseWindowsOpenCodeProcesses(output []byte, all bool) ([]tuiProcess, error) {
+	if len(output) > 4<<20 {
+		return nil, fmt.Errorf("OpenCode process output exceeds limit")
+	}
 	var records []windowsTUIProcess
 	if err := json.Unmarshal(output, &records); err != nil {
 		return nil, err
 	}
+	if len(records) > 65536 {
+		return nil, fmt.Errorf("OpenCode process count exceeds limit")
+	}
 	processes := make([]tuiProcess, 0, len(records))
 	for _, record := range records {
 		if record.PID <= 0 || record.StartedAt <= 0 {
+			if all {
+				return nil, fmt.Errorf("unverifiable OpenCode process")
+			}
 			continue
 		}
 		executable, err := currentUserExecutable(uint32(record.PID))
+		if all && err != nil {
+			return nil, err
+		}
+		if all && (!strings.EqualFold(filepath.Clean(executable), filepath.Clean(record.Executable)) || !strings.EqualFold(filepath.Base(executable), "opencode.exe")) {
+			return nil, fmt.Errorf("unverifiable OpenCode executable")
+		}
 		if err != nil || !strings.EqualFold(filepath.Clean(executable), filepath.Clean(record.Executable)) ||
 			!strings.EqualFold(filepath.Base(executable), "opencode.exe") {
 			continue
 		}
 		args, err := windows.DecomposeCommandLine(record.CommandLine)
+		if all && (err != nil || len(args) == 0) {
+			return nil, fmt.Errorf("unverifiable OpenCode command line")
+		}
 		if err != nil || len(args) == 0 {
 			continue
 		}
 		project, sessionID, fork, tui := parseTUIArgs(args[1:])
-		if !tui {
+		if !tui && !all {
 			continue
 		}
 		processes = append(processes, tuiProcess{

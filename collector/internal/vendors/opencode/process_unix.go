@@ -17,22 +17,57 @@ func listTUIProcesses() ([]tuiProcess, error) {
 }
 
 func listTUIProcessesContext(ctx context.Context) ([]tuiProcess, error) {
-	output, err := exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,lstart=,command=").Output()
+	return scanOpenCodeProcesses(ctx, false)
+}
+
+func listOpenCodeProcessesContext(ctx context.Context) ([]tuiProcess, error) {
+	return scanOpenCodeProcesses(ctx, true)
+}
+
+func scanOpenCodeProcesses(ctx context.Context, all bool) ([]tuiProcess, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := boundedCommandOutput(exec.CommandContext(ctx, "ps", "-ww", "-axo", "pid=,lstart=,command="), 4<<20)
 	if err != nil {
 		return nil, err
 	}
-	return parseTUIProcesses(string(output)), nil
+	return parseOpenCodeProcesses(string(output), all), nil
 }
 
 func parseTUIProcesses(output string) []tuiProcess {
+	return parseOpenCodeProcesses(output, false)
+}
+
+func parseOpenCodeProcesses(output string, all bool) []tuiProcess {
+	if len(output) > 4<<20 {
+		return []tuiProcess{{}}
+	}
 	var processes []tuiProcess
+	lines := 0
 	for line := range strings.SplitSeq(output, "\n") {
+		lines++
+		if lines > 65536 || len(line) > 64<<10 {
+			return []tuiProcess{{}}
+		}
 		fields := strings.Fields(line)
-		if len(fields) < 7 || filepath.Base(fields[6]) != "opencode" {
+		executable := -1
+		for i := 6; i < len(fields); i++ {
+			if strings.EqualFold(filepath.Base(strings.Trim(fields[i], "\"'")), "opencode") {
+				executable = i
+				break
+			}
+		}
+		if executable < 0 {
+			if all && (strings.HasSuffix(strings.TrimSpace(line), "/opencode") || strings.Contains(line, "/opencode ")) {
+				processes = append(processes, tuiProcess{})
+			}
 			continue
 		}
 		pid, err := strconv.Atoi(fields[0])
 		if err != nil {
+			if all {
+				processes = append(processes, tuiProcess{})
+			}
 			continue
 		}
 		started, err := time.ParseInLocation(
@@ -41,10 +76,13 @@ func parseTUIProcesses(output string) []tuiProcess {
 			time.Local,
 		)
 		if err != nil {
+			if all {
+				processes = append(processes, tuiProcess{})
+			}
 			continue
 		}
-		project, sessionID, fork, tui := parseTUIArgs(fields[7:])
-		if !tui {
+		project, sessionID, fork, tui := parseTUIArgs(fields[executable+1:])
+		if !tui && !all {
 			continue
 		}
 		processes = append(processes, tuiProcess{

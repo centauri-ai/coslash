@@ -1,9 +1,12 @@
 package opencode
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
@@ -23,31 +26,111 @@ func Root() (string, error) {
 }
 
 func RootContext(ctx context.Context) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome != "" {
-		return filepath.Join(dataHome, "opencode", "opencode.db"), nil
-	}
-	if executable, err := exec.LookPath("opencode"); err == nil {
-		lookupCtx, cancel := context.WithTimeout(ctx, databasePathLookupTimeout)
-		defer cancel()
-		if output, err := commandContext(lookupCtx, executable, "db", "path").Output(); err == nil {
-			path := strings.TrimSpace(string(output))
-			if filepath.IsAbs(path) {
-				return filepath.Clean(path), nil
-			}
-		}
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "share", "opencode", "opencode.db"), nil
+	path, err := effectiveDatabaseRoot(ctx, home)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	// Collection retains its fallback; destructive callers require a verified root.
+	if path != "" {
+		return path, nil
+	}
+	return "", err
+}
+
+func effectiveDatabaseRoot(ctx context.Context, home string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	dataRoot := filepath.Join(home, ".local", "share", "opencode")
+	if data := os.Getenv("XDG_DATA_HOME"); data != "" {
+		if !filepath.IsAbs(data) {
+			return "", errors.New("invalid OpenCode data root")
+		}
+		dataRoot = filepath.Join(data, "opencode")
+	}
+	fallback := filepath.Join(dataRoot, "opencode.db")
+	if override := os.Getenv("OPENCODE_DB"); override != "" {
+		if override == ":memory:" {
+			return "", errors.New("unverified OpenCode data root")
+		}
+		if filepath.IsAbs(override) {
+			return filepath.Clean(override), nil
+		}
+		if clean := filepath.Clean(override); clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return "", errors.New("invalid OpenCode data root")
+		}
+		return filepath.Join(dataRoot, override), nil
+	}
+	executable, err := exec.LookPath("opencode")
+	if err != nil {
+		return fallback, nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, databasePathLookupTimeout)
+	defer cancel()
+	isolated, err := os.MkdirTemp("", "coslash-opencode-root-")
+	if err != nil {
+		return fallback, err
+	}
+	defer os.RemoveAll(isolated)
+	cmd := commandContext(lookupCtx, executable, "db", "path")
+	cmd.Dir = isolated
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if !strings.HasPrefix(key, "OPENCODE_") && !strings.HasPrefix(key, "XDG_") && key != "HOME" && key != "USERPROFILE" && key != "HOMEDRIVE" && key != "HOMEPATH" {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	for key, value := range map[string]string{
+		"HOME": isolated, "USERPROFILE": isolated, "OPENCODE_TEST_HOME": isolated,
+		"HOMEDRIVE": filepath.VolumeName(isolated), "HOMEPATH": strings.TrimPrefix(isolated, filepath.VolumeName(isolated)),
+		"XDG_DATA_HOME": filepath.Join(isolated, "data"), "XDG_CONFIG_HOME": filepath.Join(isolated, "config"), "XDG_CACHE_HOME": filepath.Join(isolated, "cache"), "XDG_STATE_HOME": filepath.Join(isolated, "state"),
+		"OPENCODE_CONFIG_DIR": filepath.Join(isolated, "config", "opencode"), "OPENCODE_CONFIG_CONTENT": `{"plugin":[],"mcp":{}}`,
+		"OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1", "OPENCODE_DISABLE_CHANNEL_DB": os.Getenv("OPENCODE_DISABLE_CHANNEL_DB"),
+	} {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	output, err := boundedCommandOutput(cmd, 4096)
+	if err != nil {
+		return fallback, err
+	}
+	path := strings.TrimSpace(string(output))
+	if !filepath.IsAbs(path) {
+		return fallback, fmt.Errorf("unverified OpenCode database path")
+	}
+	path = filepath.Clean(path)
+	if sameDirectory(filepath.Dir(path), filepath.Join(isolated, "data", "opencode")) {
+		return filepath.Join(dataRoot, filepath.Base(path)), nil
+	}
+	if sameDirectory(filepath.Dir(path), dataRoot) {
+		return path, nil
+	}
+	return fallback, fmt.Errorf("unverified OpenCode data root")
+}
+
+type boundedOutput struct {
+	bytes.Buffer
+	limit int
+}
+
+func (b *boundedOutput) Write(p []byte) (int, error) {
+	if len(p) > b.limit-b.Len() {
+		return 0, errors.New("OpenCode process output exceeds limit")
+	}
+	return b.Buffer.Write(p)
+}
+func boundedCommandOutput(cmd *exec.Cmd, limit int) ([]byte, error) {
+	output := &boundedOutput{limit: limit}
+	cmd.Stdout = output
+	cmd.Stderr = io.Discard
+	cmd.WaitDelay = time.Second
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
 }
 
 func open() (*sql.DB, error) {
