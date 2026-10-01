@@ -3,6 +3,7 @@
 package pi
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -13,6 +14,12 @@ import (
 
 // ProcessStartIdentity matches the extension's OS-derived identity, not its clock.
 func ProcessStartIdentity(pid int) (string, error) {
+	return processStartIdentityContext(context.Background(), pid)
+}
+func processStartIdentityContext(ctx context.Context, pid int) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat")); err == nil {
 		end := strings.LastIndexByte(string(data), ')')
 		if end >= 0 {
@@ -26,7 +33,7 @@ func ProcessStartIdentity(pid int) (string, error) {
 			}
 		}
 	}
-	command := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "lstart=")
+	command := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "lstart=")
 	command.Env = append(os.Environ(), "LC_ALL=C")
 	data, err := command.Output()
 	if err != nil {
@@ -39,12 +46,12 @@ func ProcessStartIdentity(pid int) (string, error) {
 	return "ps:" + value, nil
 }
 
-func processAbsent(pid int) bool {
+func processAbsentContext(ctx context.Context, pid int) bool {
 	// A permission-related signal failure is not proof of exit.
-	if _, err := ProcessStartIdentity(pid); err == nil {
+	if _, err := processStartIdentityContext(ctx, pid); err == nil {
 		return false
 	}
-	err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "pid=").Run()
+	err := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "pid=").Run()
 	exit, ok := err.(*exec.ExitError)
 	return ok && exit.ExitCode() == 1
 }

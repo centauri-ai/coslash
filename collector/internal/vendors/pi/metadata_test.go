@@ -3,6 +3,7 @@ package pi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -247,5 +248,23 @@ func TestRuntimeLeafCanonicalPath(t *testing.T) {
 	}
 	if _, ok := RuntimeLeaf(r.SessionID, canonical); ok {
 		t.Fatal("path normalization accepted a dead owner")
+	}
+}
+
+func TestRuntimeMetadataCancellation(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, injected := range []bool{false, true} {
+		current := ctx
+		if injected {
+			current = WithRuntimeSnapshot(current, &RuntimeSnapshot{})
+		}
+		if _, err := LoadMetadataContext(current); !errors.Is(err, context.Canceled) {
+			t.Errorf("metadata injected=%v: %v", injected, err)
+		}
+		if _, err := RuntimeTranscriptPathsContext(current); !errors.Is(err, context.Canceled) {
+			t.Errorf("paths injected=%v: %v", injected, err)
+		}
 	}
 }
