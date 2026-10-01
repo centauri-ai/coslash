@@ -71,6 +71,22 @@ func TestReadTodosKeepsOrderDropsCancelledAndMarksOnlyCompletedDone(t *testing.T
 	}
 }
 
+func TestParseDeclaredGoalFromGoalState(t *testing.T) {
+	parsed, err := parseSession(filepath.Join("testdata", "plan"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Session.DeclaredGoal; got == nil || *got != "Ship Grok" {
+		t.Fatalf("declared goal = %q, want Ship Grok", stringValue(got))
+	}
+	if parsed, err = parseSession(filepath.Join("testdata", "finished")); err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Session.DeclaredGoal; got != nil {
+		t.Fatalf("declared goal without goal/state.json = %q, want nil", *got)
+	}
+}
+
 func TestParseOpenTurnCountsToolCallsAndLeavesTokensUnknown(t *testing.T) {
 	parsed, err := parseSession(filepath.Join("testdata", "open"))
 	if err != nil {
