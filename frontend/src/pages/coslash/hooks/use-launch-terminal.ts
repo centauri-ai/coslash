@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { apiFetch, readApiError } from '@/pages/coslash/lib/api';
-import { type SessionIdentity } from '@/pages/coslash/lib/session';
+import { copyHandoffText, cursorHandoffText } from '@/pages/coslash/lib/handoff';
+import { isLocalSession, type SessionDetail, type SessionIdentity } from '@/pages/coslash/lib/session';
 
 export type LaunchMode = 'resume' | 'new' | 'open';
 
@@ -26,6 +27,20 @@ async function launchTerminal(session: SessionIdentity, mode: LaunchMode, handof
     const apiError = await readApiError(response);
     throw new Error(apiError?.error || `Launch failed (${response.status})`);
   }
+}
+
+export async function launchFreshSession(
+  session: SessionIdentity & Pick<SessionDetail, 'entrypoint'>,
+  brief: string,
+): Promise<void> {
+  const needsClipboard = isLocalSession(session) && session.agent === 'cursor';
+  try {
+    await copyHandoffText(needsClipboard ? cursorHandoffText(brief) : brief);
+  } catch {
+    if (needsClipboard) throw new Error('Could not copy the handoff. Allow clipboard access and try again.');
+  }
+  const opensCursor = needsClipboard && session.entrypoint === 'cursor-ide';
+  await launchTerminal(session, opensCursor ? 'open' : 'new', brief);
 }
 
 export function useLaunchTerminal(session: SessionIdentity) {

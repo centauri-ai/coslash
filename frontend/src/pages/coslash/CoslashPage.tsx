@@ -334,7 +334,10 @@ export function CoslashPage() {
         machines={machines}
         range={range}
         onRangeChange={setRange}
-        onViewChange={setView}
+        onViewChange={(view) => {
+          select({ type: 'view', view });
+          setView(view);
+        }}
         selectedSessionKey={selectedSessionKey}
         onSelectSession={(session) => selectSession(sessionKey(session))}
         diagnostics={

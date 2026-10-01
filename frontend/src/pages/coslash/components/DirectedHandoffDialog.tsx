@@ -10,16 +10,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { launchFreshSession } from '@/pages/coslash/hooks/use-launch-terminal';
 import { apiFetch } from '@/pages/coslash/lib/api';
 import { handoffTargetsPath, type HandoffTarget } from '@/pages/coslash/lib/directed-handoff';
-import type { SessionIdentity } from '@/pages/coslash/lib/session';
+import { handoffBrief } from '@/pages/coslash/lib/handoff';
+import { freshLaunchDisabledHint, isLocalSession, type SessionDetail } from '@/pages/coslash/lib/session';
 
 export function DirectedHandoffDialog({
   source,
   disabledHint,
   onStarted,
 }: {
-  source: SessionIdentity;
+  source: SessionDetail;
   disabledHint?: string;
   onStarted: () => void;
 }) {
@@ -27,20 +29,27 @@ export function DirectedHandoffDialog({
   const [step, setStep] = useState<1 | 2>(1);
   const [targets, setTargets] = useState<HandoffTarget[]>([]);
   const [target, setTarget] = useState('');
-  const [kind, setKind] = useState<'review' | 'custom'>('review');
+  const [kind, setKind] = useState<'fresh' | 'review' | 'custom'>('fresh');
   const [request, setRequest] = useState('');
   const [loading, setLoading] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const targetsPath = handoffTargetsPath(source);
+  const freshHint =
+    disabledHint ??
+    freshLaunchDisabledHint(source) ??
+    (!isLocalSession(source) && (source.displayStale || source.launchable === false)
+      ? 'This remote session is unavailable for launch.'
+      : undefined);
 
   /* oxlint-disable react/set-state-in-effect -- synchronize target availability with the open dialog */
   useEffect(() => {
-    if (!open) return;
+    if (!open || step !== 2) return;
     let active = true;
     setLoading(true);
     setTargets([]);
+    setTarget('');
     setError(null);
     void apiFetch(targetsPath)
       .then(async (response) => {
@@ -61,7 +70,7 @@ export function DirectedHandoffDialog({
     return () => {
       active = false;
     };
-  }, [open, targetsPath, retryKey]);
+  }, [open, step, targetsPath, retryKey]);
   /* oxlint-enable react/set-state-in-effect */
 
   const changeOpen = (next: boolean) => {
@@ -69,33 +78,43 @@ export function DirectedHandoffDialog({
     setOpen(next);
     if (!next) {
       setStep(1);
-      setKind('review');
+      setKind('fresh');
       setRequest('');
       setError(null);
     }
   };
 
   const launch = async () => {
-    if (submitting || target === '' || (kind === 'custom' && request.trim() === '')) return;
+    if (
+      submitting ||
+      (kind === 'fresh' ? freshHint != null : target === '') ||
+      (kind === 'custom' && request.trim() === '')
+    )
+      return;
     setSubmitting(true);
     setError(null);
     try {
-      const response = await apiFetch('/api/directed-handoffs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceId: source.sourceId,
-          agent: source.agent,
-          id: source.id,
-          targetAgent: target,
-          kind,
-          request: kind === 'custom' ? request.trim() : undefined,
-        }),
-      });
-      if (!response.ok)
-        throw new Error((await response.text()).trim() || `Handoff failed (${response.status})`);
+      if (kind === 'fresh') {
+        await launchFreshSession(source, handoffBrief(source));
+      } else {
+        const response = await apiFetch('/api/directed-handoffs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceId: source.sourceId,
+            agent: source.agent,
+            id: source.id,
+            targetAgent: target,
+            kind,
+            request: kind === 'custom' ? request.trim() : undefined,
+          }),
+        });
+        if (!response.ok)
+          throw new Error((await response.text()).trim() || `Handoff failed (${response.status})`);
+      }
       setOpen(false);
       setStep(1);
+      setKind('fresh');
       setRequest('');
       onStarted();
     } catch (failure) {
@@ -121,18 +140,16 @@ export function DirectedHandoffDialog({
       </DialogTrigger>
       <DialogContent className="coslash-shell">
         <DialogHeader>
-          <DialogTitle>{step === 1 ? 'Choose destination agent' : 'Choose handoff type'}</DialogTitle>
+          <DialogTitle>{step === 1 ? 'Choose handoff type' : 'Choose destination agent'}</DialogTitle>
           <DialogDescription>
-            {step === 1
-              ? 'Start a fresh agent session on the same host and in the same working directory.'
-              : `Send a request to ${targets.find((option) => option.id === target)?.label ?? 'the agent'}.`}
+            Start a fresh agent session on the same host and in the same working directory.
           </DialogDescription>
         </DialogHeader>
-        {step === 1 ? (
+        {step === 2 ? (
           <div className="flex flex-col gap-2">
             {loading ? (
               <span className="text-coslash-muted text-sm">Finding installed agents...</span>
-            ) : error ? (
+            ) : error && targets.length === 0 ? (
               <Button variant="outline" className="w-fit" onClick={() => setRetryKey((key) => key + 1)}>
                 Retry finding agents
               </Button>
@@ -160,6 +177,20 @@ export function DirectedHandoffDialog({
           </div>
         ) : (
           <div className="flex flex-col gap-3">
+            <label className="hover:bg-coslash-soft flex cursor-pointer items-start gap-2 rounded-lg border p-3">
+              <input
+                type="radio"
+                name="handoff-kind"
+                checked={kind === 'fresh'}
+                onChange={() => setKind('fresh')}
+              />
+              <span>
+                <strong className="block text-sm">Fresh handoff</strong>
+                <span className="text-coslash-muted text-xs">
+                  Open the original agent with handoff notes, ready for your next message.
+                </span>
+              </span>
+            </label>
             <label className="hover:bg-coslash-soft flex cursor-pointer items-start gap-2 rounded-lg border p-3">
               <input
                 type="radio"
@@ -216,18 +247,27 @@ export function DirectedHandoffDialog({
           {step === 1 ? (
             <Button
               onClick={() => {
-                setError(null);
-                setStep(2);
+                if (kind === 'fresh') void launch();
+                else {
+                  setError(null);
+                  setTargets([]);
+                  setTarget('');
+                  setLoading(true);
+                  setStep(2);
+                }
               }}
-              disabled={loading || target === ''}
+              title={kind === 'fresh' ? freshHint : undefined}
+              disabled={
+                submitting ||
+                (kind === 'fresh' && freshHint != null) ||
+                (kind === 'custom' && request.trim() === '')
+              }
             >
-              Next
+              {submitting && <LoaderCircleIcon className="animate-spin" />}
+              {submitting ? 'Starting' : kind === 'fresh' ? 'Start fresh' : 'Next'}
             </Button>
           ) : (
-            <Button
-              onClick={() => void launch()}
-              disabled={submitting || (kind === 'custom' && request.trim() === '')}
-            >
+            <Button onClick={() => void launch()} disabled={submitting || loading || target === ''}>
               {submitting && <LoaderCircleIcon className="animate-spin" />}
               {submitting ? 'Starting' : 'Start handoff'}
             </Button>

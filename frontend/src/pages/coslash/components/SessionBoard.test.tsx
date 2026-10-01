@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SessionBoard } from '@/pages/coslash/components/SessionBoard';
 import type { ReviewIndex } from '@/pages/coslash/lib/review';
-import type { Session } from '@/pages/coslash/lib/session';
+import { sessionKey, type Session } from '@/pages/coslash/lib/session';
 import type { BoardGroupBy, BoardRowGroupBy } from '@/pages/coslash/lib/session-grouping';
 
 function session(id: string, overrides: Partial<Session> = {}): Session {
@@ -92,7 +92,7 @@ describe('SessionBoard', () => {
     expect(markup).not.toContain('>Send for review<');
 
     const hidden = renderBoard([origin], 'branch', 'branch', {
-      index: { ...reviewIndex, reviewSessions: new Set([`${origin.sourceId}:${origin.agent}:${origin.id}`]) },
+      index: { ...reviewIndex, reviewSessions: new Set([sessionKey(origin)]) },
     });
     expect(hidden).not.toContain('Send for review');
   });
