@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   decodeSessionsResponse,
+  decodeSessionsResponseWithCostVersion,
   diffRequestPath,
   exactDiffFailure,
   loadShareCandidatesUntilTerminal,
@@ -142,6 +143,45 @@ describe('decodeSessionsResponse', () => {
         machines: [{ sourceId: 'local', label: 'Local Mac', state: 'nope', complete: true }],
       }),
     ).toThrow(/Expected one of/);
+  });
+});
+
+describe('sessions cost version', () => {
+  it('accepts the header only after the current response decodes', async () => {
+    const response = new Response(JSON.stringify({ sessions: [sampleSession('one')], machines: [] }), {
+      headers: { 'X-Coslash-Synthesis-Cost-Version': 'version-2' },
+    });
+    await expect(
+      decodeSessionsResponseWithCostVersion(response, new AbortController().signal),
+    ).resolves.toMatchObject({
+      synthesisCostVersion: 'version-2',
+      sessions: [{ id: 'one' }],
+    });
+    await expect(
+      decodeSessionsResponseWithCostVersion(
+        new Response('invalid', { headers: { 'X-Coslash-Synthesis-Cost-Version': 'version-3' } }),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it('discards an aborted response and accepts a missing header', async () => {
+    const signal = new AbortController();
+    signal.abort();
+    await expect(
+      decodeSessionsResponseWithCostVersion(
+        new Response(JSON.stringify({ sessions: [], machines: [] }), {
+          headers: { 'X-Coslash-Synthesis-Cost-Version': 'stale' },
+        }),
+        signal.signal,
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(
+      decodeSessionsResponseWithCostVersion(
+        new Response(JSON.stringify({ sessions: [], machines: [] })),
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ synthesisCostVersion: null });
   });
 });
 

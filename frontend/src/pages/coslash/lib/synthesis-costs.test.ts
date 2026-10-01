@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { combinedKnownCost, synthesisCostsPath, synthesisCoverage } from './synthesis-costs';
+import {
+  combinedKnownCost,
+  synthesisCostsPath,
+  synthesisCostVersionChanged,
+  synthesisCoverage,
+} from './synthesis-costs';
 
 describe('synthesis costs', () => {
+  it('refreshes for failed or repeated paid attempts, but not an unrelated poll', () => {
+    let previous: string | null = 'v1';
+    const poll = (next: string | null) => {
+      const refresh = synthesisCostVersionChanged(previous, next);
+      previous = next;
+      return refresh;
+    };
+    expect(poll('v2')).toBe(true);
+    expect(poll('v2')).toBe(false);
+    expect(poll('v3')).toBe(true);
+    expect(poll('v3')).toBe(false);
+    expect(poll(null)).toBe(false);
+    expect(poll('v4')).toBe(true);
+  });
   it('adds known micro-USD and keeps unknown calls partial', () => {
     expect(combinedKnownCost(2, { knownCostMicroUsd: 500_000, unknownInvocationCount: 1 })).toEqual({
       knownUsd: 2.5,

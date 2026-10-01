@@ -4,8 +4,12 @@ import { Button } from '@/components/ui/button';
 import { useSynthesisCosts } from '@/pages/coslash/hooks/use-synthesis-costs';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { buildInsights } from '@/pages/coslash/lib/insights';
-import { sessionKey, type Session } from '@/pages/coslash/lib/session';
-import { combinedKnownCost, synthesisCoverage } from '@/pages/coslash/lib/synthesis-costs';
+import type { Session } from '@/pages/coslash/lib/session';
+import {
+  combinedKnownCost,
+  synthesisCostVersionChanged,
+  synthesisCoverage,
+} from '@/pages/coslash/lib/synthesis-costs';
 
 const COLORS = [
   'var(--brand)',
@@ -91,11 +95,13 @@ export function InsightsView({
   sessions,
   isLoading,
   loadError,
+  synthesisCostVersion,
   onRetry,
 }: {
   sessions: Session[];
   isLoading: boolean;
   loadError: string | null;
+  synthesisCostVersion: string | null;
   onRetry: () => void;
 }) {
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -112,18 +118,13 @@ export function InsightsView({
   );
   const costs = useSynthesisCosts(query);
   const refreshCosts = costs.refresh;
-  const completedSynthesis = sessions
-    .filter((session) => !session.synthesisPending && session.synthesis)
-    .map((session) => `${sessionKey(session)}:${JSON.stringify(session.synthesis)}`)
-    .sort()
-    .join('|');
-  const previousCompleted = useRef(completedSynthesis);
+  const previousCostVersion = useRef(synthesisCostVersion);
   useEffect(() => {
-    if (previousCompleted.current !== completedSynthesis) {
-      previousCompleted.current = completedSynthesis;
+    if (synthesisCostVersionChanged(previousCostVersion.current, synthesisCostVersion)) {
       refreshCosts();
     }
-  }, [completedSynthesis, refreshCosts]);
+    previousCostVersion.current = synthesisCostVersion;
+  }, [synthesisCostVersion, refreshCosts]);
   const synthesis = costs.data?.totals;
   const combined = synthesis ? combinedKnownCost(insights.knownCost, synthesis) : null;
   const synthesisStatus = synthesis ? synthesisCoverage(synthesis) : null;

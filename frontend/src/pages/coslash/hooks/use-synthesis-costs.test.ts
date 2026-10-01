@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { apiFetch } from '@/pages/coslash/lib/api';
-import { loadSynthesisCosts } from './use-synthesis-costs';
+import { currentSynthesisCostsState, loadSynthesisCosts } from './use-synthesis-costs';
 
 vi.mock('@/pages/coslash/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/pages/coslash/lib/api')>()),
@@ -67,4 +67,11 @@ it('reads a sanitized month response with an explicit zero amount', async () => 
     fixture,
   );
   expect(vi.mocked(apiFetch).mock.lastCall?.[0]).toBe('/api/synthesis-costs?source=local&since=10&until=20');
+});
+
+it('hides stale month and retry results until the current attempt completes', () => {
+  const loaded = { key: 'month:1:2', attempt: 0, data: { sourceId: 'local' }, error: null };
+  expect(currentSynthesisCostsState(loaded, 'month:1:2', 0)).toBe(loaded);
+  expect(currentSynthesisCostsState(loaded, 'month:2:3', 0)).toBeNull();
+  expect(currentSynthesisCostsState(loaded, 'month:1:2', 1)).toBeNull();
 });

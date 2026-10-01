@@ -164,6 +164,15 @@ export function decodeSessionsResponse(body: unknown): SessionsPayload {
   };
 }
 
+export async function decodeSessionsResponseWithCostVersion(response: Response, signal: AbortSignal) {
+  const body: unknown = await response.json();
+  signal.throwIfAborted();
+  return {
+    ...decodeSessionsResponse(body),
+    synthesisCostVersion: response.headers.get('X-Coslash-Synthesis-Cost-Version') || null,
+  };
+}
+
 function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [];
 }
@@ -340,6 +349,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [sessionsVersion, setSessionsVersion] = useState(0);
+  const [synthesisCostVersion, setSynthesisCostVersion] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -365,13 +375,13 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
           if (!response.ok) {
             throw new Error(`Sessions request failed (${response.status})`);
           }
-          return response.json() as Promise<unknown>;
+          return decodeSessionsResponseWithCostVersion(response, controller.signal);
         })
-        .then((body) => {
+        .then((payload) => {
           if (controller.signal.aborted) return;
-          const payload = decodeSessionsResponse(body);
           setSessions(payload.sessions);
           setMachines(payload.machines);
+          setSynthesisCostVersion(payload.synthesisCostVersion);
           setSessionsVersion((version) => version + 1);
           setIsLoading(false);
           setLoadError(null);
@@ -390,6 +400,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
           if (!background || requestAuthenticationFailed) {
             setSessions([]);
             setMachines([]);
+            setSynthesisCostVersion(null);
             setIsLoading(false);
             setLoadError(
               requestAuthenticationFailed ? error.message : 'CoSlash couldn’t load sessions from the API.',
@@ -442,6 +453,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     isLoading,
     loadError,
     sessionsVersion,
+    synthesisCostVersion,
     retrySessions,
     refreshSessions,
   };

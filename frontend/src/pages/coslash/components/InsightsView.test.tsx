@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { useSynthesisCosts } from '@/pages/coslash/hooks/use-synthesis-costs';
 import type { Session } from '@/pages/coslash/lib/session';
 import { InsightsView } from './InsightsView';
@@ -16,15 +16,25 @@ const totals = {
 
 function render(sessions: Session[] = []) {
   return renderToStaticMarkup(
-    <InsightsView sessions={sessions} isLoading={false} loadError={null} onRetry={() => {}} />,
+    <InsightsView
+      sessions={sessions}
+      isLoading={false}
+      loadError={null}
+      synthesisCostVersion={null}
+      onRetry={() => {}}
+    />,
   );
 }
 
+afterEach(() => vi.useRealTimers());
+
 it('shows synthesis in a month with no coding sessions and labels both scopes', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 11, 31, 23));
   vi.mocked(useSynthesisCosts).mockReturnValue({
     data: {
       sourceId: 'local',
-      trackingStartedAtMs: Date.now(),
+      trackingStartedAtMs: new Date(2026, 11, 1).getTime(),
       historicalUnknown: true,
       totals,
       byVendor: [{ vendor: 'claude', totals }],
@@ -37,10 +47,9 @@ it('shows synthesis in a month with no coding sessions and labels both scopes', 
     refresh: () => {},
   });
   const markup = render();
-  const current = new Date();
   expect(useSynthesisCosts).toHaveBeenCalledWith({
-    since: new Date(current.getFullYear(), current.getMonth(), 1).getTime(),
-    until: new Date(current.getFullYear(), current.getMonth() + 1, 1).getTime(),
+    since: new Date(2026, 11, 1).getTime(),
+    until: new Date(2027, 0, 1).getTime(),
   });
   expect(markup).toContain('Coding');
   expect(markup).toContain('Synthesis');

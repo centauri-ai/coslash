@@ -1077,6 +1077,7 @@ export function CoslashLayout({
   retrying,
   isLoading,
   loadError,
+  synthesisCostVersion,
   emptyContent,
   banner,
   headerActions,
@@ -1108,6 +1109,7 @@ export function CoslashLayout({
   retrying: boolean;
   isLoading: boolean;
   loadError: string | null;
+  synthesisCostVersion: string | null;
   emptyContent?: ReactNode;
   banner?: ReactNode;
   headerActions?: ReactNode;
@@ -1250,6 +1252,7 @@ export function CoslashLayout({
               sessions={sessions}
               isLoading={isLoading}
               loadError={loadError}
+              synthesisCostVersion={synthesisCostVersion}
               onRetry={onRetrySessions}
             />
           </div>

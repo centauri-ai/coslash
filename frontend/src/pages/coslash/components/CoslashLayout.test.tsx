@@ -32,6 +32,7 @@ const props: ComponentProps<typeof CoslashLayout> = {
   retrying: false,
   isLoading: false,
   loadError: null,
+  synthesisCostVersion: null,
   reviewerOptions: [
     { id: 'claude', label: 'Claude Code', available: true },
     { id: 'codex', label: 'Codex', available: false },
