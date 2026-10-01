@@ -99,14 +99,26 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		return nil, nil, err
 	}
 	if since > 0 {
+		// A family is in the window when any member is recent, so a parent and its subagents stay together.
+		families := make(map[string]string, len(dirs))
+		recentFamilies := map[string]bool{}
+		for _, dir := range dirs {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
+			}
+			families[dir] = familyID(dir)
+			if modifiedAt(dir) >= since {
+				recentFamilies[families[dir]] = true
+			}
+		}
 		recent := dirs[:0]
 		for _, dir := range dirs {
-			if modifiedAt(dir) >= since {
+			if recentFamilies[families[dir]] {
 				recent = append(recent, dir)
 			}
 		}
 		dirs, _, err = vendors.LimitNewestFileFamiliesContext(ctx, recent, vendors.MaxCandidateFilesPerAgent,
-			func(dir string) string { return dir }, modifiedAt)
+			func(dir string) string { return families[dir] }, modifiedAt)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -147,6 +159,20 @@ func loadMetadata() *vendors.SessionMetadata {
 		}
 	}
 	return metadata
+}
+
+// familyID is the root session id: parent_session_id for a subagent, else the session's own id.
+func familyID(dir string) string {
+	summary, err := readSummary(dir)
+	switch {
+	case err != nil:
+		return dir
+	case isSubagentKind(summary.SessionKind) && summary.ParentSessionID != "":
+		return summary.ParentSessionID
+	case summary.Info.ID != "":
+		return summary.Info.ID
+	}
+	return dir
 }
 
 func sessionDirsByID() (map[string]string, error) {
