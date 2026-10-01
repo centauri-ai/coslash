@@ -145,7 +145,7 @@ func parseOpenCodeUsage(data []byte, databasePath string, v2 bool) UsageReport {
 	if priceErr != nil {
 		report = priceReportedOnly(cost)
 	}
-	if report.Coverage != "unknown" && (err != nil || selected.Coverage == "partial" || (dbCount > 0 && dbCount != len(parts)) || (stream.ReportedCostMicroUSD != nil && fromDB.ReportedCostMicroUSD != nil && *stream.ReportedCostMicroUSD != *fromDB.ReportedCostMicroUSD)) {
+	if (len(report.Tokens) > 0 || report.ReportedCostMicroUSD != nil) && (err != nil || selected.Coverage == "partial" || (dbCount > 0 && dbCount != len(parts)) || (stream.ReportedCostMicroUSD != nil && fromDB.ReportedCostMicroUSD != nil && *stream.ReportedCostMicroUSD != *fromDB.ReportedCostMicroUSD)) {
 		report.Coverage = "partial"
 	}
 	return report

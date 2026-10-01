@@ -112,6 +112,7 @@ func TestOpenCodeScannerBoundsRetainsCompletedUsage(t *testing.T) {
 		input, cost                  int64
 	}{
 		{"opencode", settings.BackendOpenCode, opencode, "openai/gpt-5", 7, 10000},
+		{"unpriced", settings.BackendOpenCode, strings.Replace(strings.Replace(opencode, `"cost":0.01,`, "", 1), "gpt-5", "future-model", 1), "openai/future-model", 7, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runner := &CLIRunner{Backend: tc.backend, Model: "gpt-5", Timeout: time.Second}
@@ -124,6 +125,9 @@ func TestOpenCodeScannerBoundsRetainsCompletedUsage(t *testing.T) {
 			}
 			if tc.cost != 0 && (got.Usage.ReportedCostMicroUSD == nil || *got.Usage.ReportedCostMicroUSD != tc.cost) {
 				t.Fatalf("reported cost = %#v", got.Usage)
+			}
+			if tc.cost == 0 && (got.Usage.ReportedCostMicroUSD != nil || len(got.Usage.UnpricedModels) != 1) {
+				t.Fatalf("unpriced usage = %#v", got.Usage)
 			}
 		})
 	}
