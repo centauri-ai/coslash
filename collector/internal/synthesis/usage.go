@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"sort"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
@@ -104,7 +105,13 @@ func parseClaudeUsage(data []byte, configuredModel string) UsageReport {
 		tokens = make(map[string]session.ModelTokens, len(modelUsage))
 		allCosts, validTokens, hasCost := true, true, false
 		var knownCost int64
-		for model, raw := range modelUsage {
+		models := make([]string, 0, len(modelUsage))
+		for model := range modelUsage {
+			models = append(models, model)
+		}
+		sort.Strings(models)
+		for _, model := range models {
+			raw := modelUsage[model]
 			var costField struct {
 				CostUSD json.RawMessage `json:"costUSD"`
 			}
