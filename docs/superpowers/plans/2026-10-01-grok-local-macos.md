@@ -18,11 +18,11 @@ A new orchestrator reads this section first and continues from **Next action**. 
 |---|---|---|---|---|---|---|
 | T1 | completed | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | `af16d41a` and fix `d3237332`. 13 files, 438 production lines, 2 commits. PR not opened. |
 | T2 | completed | `377101d2-599f-4f16-875f-a0ce27035511` | `cvu/grok-t2-enrich` | `7007053f-3806-4ea5-a772-c3b036475a09` | done | Fix `e7460e1e` on top of `3b027801`. No second review. PR not opened. |
-| T3 | review | `cd443442-32e2-42dc-af23-d2af34f8afe2` | `cvu/grok-t3-synthesis` | `2a4e1a86-97ab-4894-8310-e26d7c702f4c` | `0ffbcfbe-4b97-485f-a4a2-6b264fa22c36` | Commit `d7961ec5`. Test only. Browser check not run. |
+| T3 | completed | `cd443442-32e2-42dc-af23-d2af34f8afe2` | `cvu/grok-t3-synthesis` | `2a4e1a86-97ab-4894-8310-e26d7c702f4c` | `NO_FINDINGS` | Commit `d7961ec5`. Test only. Browser check not run. PR not opened. |
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
-| T5 | pending | | `cvu/grok-t5-ui` | | | after T2 and T4 are merged |
+| T5 | running | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | | Base `cvu/grok-t2-t4` at `1a9b09cf`. Tag `new group-3`. |
 
-**Next action:** T3 reviewer `0ffbcfbe-4b97-485f-a4a2-6b264fa22c36` is running in workspace `cd443442-32e2-42dc-af23-d2af34f8afe2`. If `NO_FINDINGS`, mark T3 completed. If it lists bugs, send them once to implementer `2a4e1a86-97ab-4894-8310-e26d7c702f4c`. Do not start a second review. Do not open PRs. Do not start a synthesis model. The T3 browser check is still open because port 8787 is taken. Do not kill that process.
+**Next action:** T3 review is `NO_FINDINGS`. Do not send a fix. T5 is running in workspace `323119d3-178b-4024-b848-18ace9f81ecd`, terminal `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f`, branch `cvu/grok-t5-ui` from `cvu/grok-t2-t4` at `1a9b09cf`. When that branch moves past `1a9b09cf` and the terminal shows `· done`, spawn one read-only reviewer there. Do not open PRs. Do not kill the process on port 8787. A late T3 reviewer watch may still fire. Ignore it. T3 is already complete.
 
 **Watch rule:** Do not wait for the word `Churned`. Claude also finishes with `Sautéed`, `Baked`, or `Brewed`. A first completion shows `· done`. A later fix on the same terminal is done when the branch HEAD changes, because `· done` is already on screen.
 
