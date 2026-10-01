@@ -62,7 +62,7 @@ func TestParseFirstPromptSkipsSyntheticSystemReminder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := parsed.Session.FirstPrompt; got == nil || *got != "plan local grok support" {
-		t.Fatalf("first prompt = %v", got)
+		t.Fatalf("first prompt = %q, want the real prompt", stringValue(got))
 	}
 }
 
@@ -128,4 +128,11 @@ func writeSummary(t *testing.T, dir, body string) {
 	if err := os.WriteFile(filepath.Join(dir, "summary.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return "<nil>"
+	}
+	return *value
 }
