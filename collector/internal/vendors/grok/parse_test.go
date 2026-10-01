@@ -218,6 +218,36 @@ func copyFixture(t *testing.T, from, to string) {
 	}
 }
 
+func TestSubagentLinksWhenChildSummaryOmitsParent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	root := filepath.Join(home, "sessions", "%2Fwork%2Frepo")
+	writeSummary(t, filepath.Join(root, "parent"), `{"info":{"id":"parent","cwd":"/work/repo"},"chat_format_version":1,"generated_title":"Create subagent for fake work"}`)
+	writeSummary(t, filepath.Join(root, "child"), `{"info":{"id":"child","cwd":"/work/repo"},"chat_format_version":1,"session_kind":"subagent"}`)
+	meta := filepath.Join(root, "parent", "subagents", "child")
+	if err := os.MkdirAll(meta, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta, "meta.json"), []byte(`{"child_session_id":"child","parent_session_id":"parent","description":"Fake work demo","prompt":"do the fake work","status":"completed","duration_ms":4176}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta, "output.json"), []byte(`{"schema_version":1,"output":"done"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	facts, err := GetSessionFacts("parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts == nil || len(facts.Session.Subagents) != 1 {
+		t.Fatalf("subagents = %+v", facts)
+	}
+	got := facts.Session.Subagents[0]
+	if got.ID != "child" || got.Name != "Fake work demo" || got.Status != session.SubagentReturned || got.Task != "do the fake work" || got.Result != "done" {
+		t.Fatalf("subagent = %+v", got)
+	}
+}
+
 func writeSummary(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
