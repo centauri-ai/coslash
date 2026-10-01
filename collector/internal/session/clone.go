@@ -21,6 +21,7 @@ func Clone(source *Session) *Session {
 	cloned.ContextTokens = clonePointer(source.ContextTokens)
 	cloned.ContextWindow = clonePointer(source.ContextWindow)
 	cloned.FirstPrompt = clonePointer(source.FirstPrompt)
+	cloned.AgentError = clonePointer(source.AgentError)
 	cloned.LastEditAt = clonePointer(source.LastEditAt)
 	cloned.DeclaredGoal = clonePointer(source.DeclaredGoal)
 	cloned.Tokens = cloneMap(source.Tokens)

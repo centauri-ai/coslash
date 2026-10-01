@@ -142,6 +142,7 @@ type SessionDetails struct {
 	Turns             int               `json:"turns"`
 	ToolUses          int               `json:"toolUses"`
 	Errors            int               `json:"errors"`
+	AgentError        *string           `json:"agentError,omitempty"`
 	Compactions       int               `json:"compactions"`
 	FirstPrompt       *string           `json:"firstPrompt"`
 	Commands          []string          `json:"commands"`

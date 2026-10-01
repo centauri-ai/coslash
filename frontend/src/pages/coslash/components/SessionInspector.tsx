@@ -669,6 +669,26 @@ export function SessionModelUsage({
   );
 }
 
+export function PiErrorBadge({ diagnostic }: { diagnostic?: string | null }) {
+  if (!diagnostic) return null;
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge asChild variant="destructive">
+            <button type="button" aria-label={`Pi error: ${diagnostic}`}>
+              Error
+            </button>
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent className="coslash-shell max-h-48 max-w-[min(24rem,var(--radix-tooltip-content-available-width))] overflow-y-auto break-words whitespace-pre-wrap">
+          {diagnostic}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showMachineBadge: boolean }) {
   const status = STATUSES[boardStatusKey(detail)];
 
@@ -700,6 +720,7 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
         >
           {!detail.displayStale && <span className={cn('size-2 rounded-full', status.dot)} />}
           {displayStatusLabel(detail)} · {getModality(detail.entrypoint, detail.agent)}
+          <PiErrorBadge diagnostic={detail.agentError} />
         </span>
       </div>
       <div className="bg-coslash-soft rounded-lg border p-2 font-mono text-xs">

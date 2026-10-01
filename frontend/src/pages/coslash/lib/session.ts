@@ -109,6 +109,7 @@ export type Session = {
   turns: number;
   toolUses: number;
   errors: number;
+  agentError?: string | null;
   compactions: number;
   firstPrompt: string | null;
   commands: string[];

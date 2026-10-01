@@ -23,12 +23,13 @@ type projectedPayload struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"replacement"`
 	Message struct {
-		Role        string          `json:"role"`
-		Content     json.RawMessage `json:"content"`
-		IsError     bool            `json:"isError"`
-		StopReason  string          `json:"stopReason"`
-		ToolCallID  string          `json:"toolCallId"`
-		NestedCalls *struct {
+		Role         string          `json:"role"`
+		Content      json.RawMessage `json:"content"`
+		IsError      bool            `json:"isError"`
+		StopReason   string          `json:"stopReason"`
+		ErrorMessage string          `json:"errorMessage"`
+		ToolCallID   string          `json:"toolCallId"`
+		NestedCalls  *struct {
 			Calls []contentBlock `json:"calls"`
 		} `json:"nestedCalls"`
 	} `json:"message"`
@@ -353,6 +354,19 @@ func projectLeafContext(ctx context.Context, t *transcript, parent *transcript, 
 	// Current state follows ancestry, not the chronology used by the inspector.
 	for _, i := range path {
 		e, p := t.Entries[i], payloads[i]
+		if e.Type == "message" && p.Message.Role == "assistant" {
+			switch p.Message.StopReason {
+			case "error":
+				diagnostic := strings.TrimSpace(p.Message.ErrorMessage)
+				if diagnostic == "" {
+					diagnostic = "Pi could not complete the response. Check the Pi terminal for details."
+				}
+				diagnostic = session.Truncate(diagnostic, 4096)
+				s.AgentError = &diagnostic
+			case "stop", "length", "toolUse":
+				s.AgentError = nil
+			}
+		}
 		if e.Type == "compaction" || e.Type == "context_edit" || e.Type == "branch_summary" || (p.Message.Role != "" && p.Message.Role != "assistant") {
 			s.ContextTokens = nil
 		}
