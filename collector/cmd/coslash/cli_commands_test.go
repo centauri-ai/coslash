@@ -941,7 +941,7 @@ func TestHandleSendHidesInvalidSettingsDetails(t *testing.T) {
 func TestCanonicalSessionUsesListedNameAndSynthesis(t *testing.T) {
 	name := "Resolved name"
 	value := &session.Session{ID: "session-1", Name: &name, LastActivityTime: 42}
-	mgr := synthesis.NewManager(nil)
+	mgr := synthesis.NewManager(nil, nil)
 	found, err := canonicalSession("codex", "session-1", mgr, func(agent, id string, revision int64) (*session.Session, error) {
 		if agent != "codex" || id != "session-1" || revision != 0 {
 			t.Fatalf("load = %q/%q/%d", agent, id, revision)

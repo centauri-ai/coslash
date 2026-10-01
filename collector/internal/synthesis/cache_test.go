@@ -156,7 +156,7 @@ func TestManagerDoesNotReuseSynthesisAcrossAgents(t *testing.T) {
 			agent = "claude"
 		}
 		return session.SessionSynthesis{Outcome: agent}, nil
-	}))
+	}), nil)
 	claude := &session.Session{Agent: "claude", ID: "same", SessionDetails: session.SessionDetails{Turns: 6}}
 	if !manager.Ensure(claude, 42) {
 		t.Fatal("first synthesis was not started")

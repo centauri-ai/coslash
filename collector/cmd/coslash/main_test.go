@@ -75,7 +75,7 @@ func TestListenBindsIPv4Loopback(t *testing.T) {
 
 func TestAPIRoutesRejectUnsupportedMethods(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routes(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
 	for _, test := range []struct {
 		method string
 		path   string
@@ -125,7 +125,7 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 		t.Fatal("review did not start")
 	}
 	<-started
-	handler := routes(synthesis.NewManager(nil), manager, settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routes(synthesis.NewManager(nil, nil), manager, settings.Open(), remote.NewManager(remote.Options{}), nil)
 	get := func(agent, id string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/reviews?agent="+agent+"&id="+id, nil))
@@ -159,7 +159,7 @@ func TestReviewStatusRouteTracksPendingCompletionAndUnknown(t *testing.T) {
 
 func TestSynthesisRouteRequiresAgent(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	handler := routes(synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
+	handler := routes(synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil)
 	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/synthesis?id=same", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -866,7 +866,7 @@ func TestSettingsSaveCommitsOwnershipReleaseOnlyWithAliasReplacement(t *testing.
 	}
 	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handleSaveSettings(response, request, store, synthesis.NewManager(nil), manager)
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -902,7 +902,7 @@ func TestSettingsSaveRestoresOldSettingsWhenOwnershipActionFails(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handleSaveSettings(response, request, store, synthesis.NewManager(nil), manager)
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager)
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -934,7 +934,7 @@ func TestSettingsSaveRemovesHostWithoutHelperOwnership(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handleSaveSettings(response, request, store, synthesis.NewManager(nil), manager)
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -974,7 +974,7 @@ func TestSettingsSaveCanExplicitlyRecoverCorruptOwnershipByRemovingHost(t *testi
 	}
 	request := httptest.NewRequest(http.MethodPut, "http://127.0.0.1/api/settings", bytes.NewReader(body))
 	response := httptest.NewRecorder()
-	handleSaveSettings(response, request, store, synthesis.NewManager(nil), manager)
+	handleSaveSettings(response, request, store, synthesis.NewManager(nil, nil), manager)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}
@@ -1001,7 +1001,7 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	server := newServer(
 		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
-		synthesis.NewManager(nil),
+		synthesis.NewManager(nil, nil),
 		reviewpkg.NewManager(nil),
 		settings.Open(),
 		remote.NewManager(remote.Options{}),
