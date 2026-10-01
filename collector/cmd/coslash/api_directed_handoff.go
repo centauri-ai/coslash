@@ -150,7 +150,7 @@ func handleDirectedHandoffStart(w http.ResponseWriter, r *http.Request, store *d
 	if sourceID == localSourceID {
 		origin, err = directedLocalSession(input.Agent, input.ID, 0)
 		if origin != nil {
-			origin.Synthesis = synthesisManager.LookupLatest(origin.Agent, origin.ID)
+			origin.Synthesis = contextSynthesis(synthesisManager, origin)
 		}
 	} else {
 		origin, alias, err = remoteManager.LaunchSession(sourceID, input.Agent, input.ID, launch.NewSession)

@@ -110,3 +110,52 @@ func TestRemoteDirectedTerminalStagesOnlyBrief(t *testing.T) {
 		t.Fatalf("stages=%d removed=%q", stages, removed)
 	}
 }
+
+func TestPiDirectedHandoffUsesCurrentBranchSynthesis(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	store, err := directedhandoff.Open(filepath.Join(t.TempDir(), "handoffs.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousTargets, previousSession, previousTerminal := directedLocalTargets, directedLocalSession, directedLocalTerminal
+	t.Cleanup(func() {
+		directedLocalTargets, directedLocalSession, directedLocalTerminal = previousTargets, previousSession, previousTerminal
+	})
+	directedLocalTargets = func(context.Context) []launch.HandoffTargetOption {
+		return []launch.HandoffTargetOption{{Agent: "claude", Available: true, Automatic: true}}
+	}
+	cwd := t.TempDir()
+	currentSummary := "CURRENT_BRANCH_HISTORY"
+	directedLocalSession = func(agent, id string, _ int64) (*session.Session, error) {
+		return &session.Session{Agent: agent, ID: id, WorkingDirectory: cwd, Summary: &currentSummary, SynthesisRevision: 456}, nil
+	}
+	brief := ""
+	directedLocalTerminal = func(_ context.Context, _, _, _, _, _, context, _ string) error { brief = context; return nil }
+	cache := synthesis.NewCache()
+	for _, tc := range []struct {
+		agent    string
+		revision int64
+		outcome  string
+		include  bool
+	}{
+		{"pi", 123, "OLD_BRANCH_SYNTHESIS", false},
+		{"pi", 456, "MATCHING_BRANCH_SYNTHESIS", true},
+		{"codex", 123, "LEGACY_LATEST_SYNTHESIS", true},
+	} {
+		if err := cache.Store(tc.agent, "origin", synthesis.Record{Revision: tc.revision, Synthesis: session.SessionSynthesis{Outcome: tc.outcome}}); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"sourceId":"local","agent":"` + tc.agent + `","id":"origin","targetAgent":"claude","kind":"custom","request":"Continue"}`
+		response := httptest.NewRecorder()
+		handleDirectedHandoffStart(response, httptest.NewRequest(http.MethodPost, "/api/directed-handoffs", strings.NewReader(body)), store, settings.Open(), remote.NewManager(remote.Options{}), synthesis.NewManager(nil))
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("%s: status %d %s", tc.agent, response.Code, response.Body.String())
+		}
+		if strings.Contains(brief, tc.outcome) != tc.include {
+			t.Fatalf("%s revision %d mixed context: %s", tc.agent, tc.revision, brief)
+		}
+		if !tc.include && !strings.Contains(brief, currentSummary) {
+			t.Fatal("current branch fallback missing")
+		}
+	}
+}

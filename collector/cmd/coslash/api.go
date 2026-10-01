@@ -436,6 +436,13 @@ func handleHandoff(
 	_, _ = io.WriteString(w, handoffcontext.Build(found))
 }
 
+func contextSynthesis(mgr *synthesis.Manager, value *session.Session) *session.SessionSynthesis {
+	if value.Agent == vendors.AgentPi {
+		return mgr.Lookup(value.Agent, value.ID, synthesis.Revision(value))
+	}
+	return mgr.LookupLatest(value.Agent, value.ID)
+}
+
 func canonicalSession(
 	agent, id string,
 	mgr *synthesis.Manager,
