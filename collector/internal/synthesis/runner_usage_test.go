@@ -2,7 +2,9 @@ package synthesis
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"os"
 	"os/exec"
 	"slices"
 	"testing"
@@ -230,5 +232,83 @@ func TestCursorMissingRequiredCounterIsUnknown(t *testing.T) {
 	got, _ := runner.Run(context.Background(), "facts")
 	if got.Usage.Coverage != "unknown" || got.Usage.Tokens != nil {
 		t.Fatalf("Run usage = %#v", got.Usage)
+	}
+}
+
+func TestOpenCodeStepFinishDeduplicatesLatestPart(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: "openai/gpt-5", Timeout: time.Second}
+	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
+		return []byte(`{"type":"step_finish","sessionID":"run-1","part":{"id":"part-1","providerID":"openai","modelID":"gpt-5","cost":0.01,"tokens":{"input":2,"output":1,"cache":{"read":4,"write":1}}}}` + "\n" +
+			`{"type":"step_finish","sessionID":"run-1","part":{"id":"part-1","providerID":"openai","modelID":"gpt-5","cost":0.02,"tokens":{"input":3,"output":2,"cache":{"read":5,"write":1}}}}` + "\n" +
+			`{"type":"text","part":{"id":"answer","text":"{\"goals\":[\"ship\"],\"outcome\":\"done\",\"keyDecisions\":[],\"nextStep\":\"review\"}"}}` + "\n"), nil
+	}
+	got, err := runner.Run(context.Background(), "facts")
+	if err != nil || got.Synthesis.Outcome != "done" {
+		t.Fatalf("Run = %#v, %v", got, err)
+	}
+	used := got.Usage.Tokens["openai/gpt-5"]
+	if used.InputTokens != 3 || used.OutputTokens != 2 || used.CacheReadInputTokens != 5 || used.CacheCreationInputTokens != 1 || got.Usage.ReportedCostMicroUSD == nil || *got.Usage.ReportedCostMicroUSD != 20000 {
+		t.Fatalf("deduplicated usage = %#v", got.Usage)
+	}
+}
+
+func TestOpenCodeKeepsStreamTokensWithoutScratchCost(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: "openai/gpt-5", Timeout: time.Second}
+	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
+		return []byte(`{"type":"step_finish","sessionID":"run-1","part":{"id":"part-1","providerID":"openai","modelID":"gpt-5","tokens":{"input":2,"output":1,"cache":{"read":4,"write":1}}}}` + "\n"), &exec.ExitError{}
+	}
+	got, err := runner.Run(context.Background(), "facts")
+	if err == nil || got.Usage.Tokens["openai/gpt-5"].InputTokens != 2 {
+		t.Fatalf("Run = %#v, %v", got, err)
+	}
+}
+
+func TestOpenCodeKeepsReportedCostWithMissingCounters(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: settings.OpenCodeDefaultModel, Timeout: time.Second}
+	runner.exec = func(context.Context, commandSpec) ([]byte, error) {
+		return []byte(`{"type":"step_finish","sessionID":"run-1","part":{"id":"part-1","providerID":"openai","modelID":"gpt-5","cost":0.04,"tokens":{"input":2}}}` + "\n"), &exec.ExitError{}
+	}
+	got, err := runner.Run(context.Background(), "facts")
+	if err == nil || got.Usage.ReportedCostMicroUSD == nil || *got.Usage.ReportedCostMicroUSD != 40000 || got.Usage.Tokens != nil {
+		t.Fatalf("Run = %#v, %v", got, err)
+	}
+}
+
+func TestOpenCodeScratchUsageIsReadBeforeCleanup(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	for _, v2 := range []bool{false, true} {
+		runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: settings.OpenCodeDefaultModel, Timeout: time.Second, openCodeV2: v2}
+		var scratch string
+		runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+			for _, entry := range spec.env {
+				if len(entry) > 12 && entry[:12] == "OPENCODE_DB=" {
+					scratch = entry[12:]
+				}
+			}
+			db, err := sql.Open("sqlite", scratch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if v2 {
+				_, err = db.Exec(`CREATE TABLE session_message (session_id TEXT, type TEXT, data TEXT); INSERT INTO session_message VALUES ('run-1','assistant','{"model":{"providerID":"openai","id":"gpt-5"},"cost":0.03,"tokens":{"input":4,"output":2,"reasoning":1,"cache":{"read":8,"write":1}},"time":{"completed":123}}')`)
+			} else {
+				_, err = db.Exec(`CREATE TABLE message (session_id TEXT, data TEXT); INSERT INTO message VALUES ('run-1','{"role":"assistant","providerID":"openai","modelID":"gpt-5","cost":0.03,"tokens":{"input":4,"output":2,"reasoning":1,"cache":{"read":8,"write":1}},"time":{"completed":123}}')`)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			return []byte(`{"type":"text","sessionID":"run-1","part":{"id":"answer","text":"broken"}}` + "\n"), &exec.ExitError{}
+		}
+		got, err := runner.Run(context.Background(), "facts")
+		if err == nil || got.Usage.Tokens["openai/gpt-5"].InputTokens != 4 || got.Usage.ReportedCostMicroUSD == nil || *got.Usage.ReportedCostMicroUSD != 30000 {
+			t.Fatalf("v2=%v: Run = %#v, %v", v2, got, err)
+		}
+		if _, statErr := os.Stat(scratch); !os.IsNotExist(statErr) {
+			t.Fatalf("scratch survived: %v", statErr)
+		}
 	}
 }

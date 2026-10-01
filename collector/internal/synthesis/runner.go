@@ -133,6 +133,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 	stdin := input
 	var parse func([]byte) (session.SessionSynthesis, error)
 	var schemaPath string
+	var scratchDir string
 	switch r.Backend {
 	case settings.BackendClaude:
 		label = "Claude Code"
@@ -184,7 +185,8 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 			}
 			return parseOpenCodeSynthesis(text)
 		}
-		scratchDir, err := openCodeScratchDir()
+		var err error
+		scratchDir, err = openCodeScratchDir()
 		if err != nil {
 			return RunResult{}, err
 		}
@@ -296,6 +298,11 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		result.Usage = parseCodexUsage(output, r.Model)
 	} else if r.Backend == settings.BackendCursor {
 		result.Usage = parseCursorUsage(output)
+	} else if r.Backend == settings.BackendOpenCode {
+		result.Usage = parseOpenCodeUsage(output, filepath.Join(scratchDir, "opencode.db"), r.openCodeV2)
+		if err != nil && result.Usage.Coverage == "complete" {
+			result.Usage.Coverage = "partial"
+		}
 	}
 	if errors.Is(err, errSynthesisOutputLimit) && result.Usage.Coverage == "complete" {
 		result.Usage.Coverage = "partial"
