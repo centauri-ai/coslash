@@ -349,7 +349,7 @@ func TestHandoffDirectoryChangeCleanupAndShellState(t *testing.T) {
 func TestPiPromptUsesPrivateTransportAndCleansContext(t *testing.T) {
 	capture := fakePi(t)
 	fakeExpect := filepath.Join(filepath.Dir(mustLookPathForPi(t, "pi")), "expect")
-	script := "#!/bin/sh\ncp \"$COSLASH_PROMPT_PATH\" \"$CAPTURE.prompt\"\nrm -f \"$COSLASH_PROMPT_PATH\"\n/bin/sh -c \"$COSLASH_BASE\"\n"
+	script := "#!/bin/sh\ncp \"$COSLASH_PROMPT_PATH\" \"$CAPTURE.prompt\"\nprintf '%s\\n' \"$COSLASH_PI_READY\" > \"$CAPTURE.ready\"\nprintf '%s\\n' \"$@\" > \"$CAPTURE.relay\"\nrm -f \"$COSLASH_PROMPT_PATH\"\n/bin/sh -c \"$COSLASH_BASE\"\n"
 	if err := os.WriteFile(fakeExpect, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -365,6 +365,14 @@ func TestPiPromptUsesPrivateTransportAndCleansContext(t *testing.T) {
 	}
 	if out, err := exec.Command("/bin/sh", "-c", localHandoffScript(t.TempDir(), command, path)).CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
+	}
+	ready, _ := os.ReadFile(capture + ".ready")
+	if strings.TrimSpace(string(ready)) != filepath.Base(path) {
+		t.Fatal("readiness nonce not forwarded to Pi")
+	}
+	relay, _ := os.ReadFile(capture + ".relay")
+	if !strings.Contains(string(relay), `\x1b\]777;coslash-ready=`+filepath.Base(path)+`\x07`) || strings.Contains(string(relay), `\x1b\[\?2004h`) {
+		t.Fatal("Pi prompt delivery does not wait for managed startup readiness")
 	}
 	prompt, _ := os.ReadFile(capture + ".prompt")
 	if !strings.Contains(string(prompt), "private request") {
@@ -387,6 +395,22 @@ func TestPiPromptUsesPrivateTransportAndCleansContext(t *testing.T) {
 	for _, file := range []string{path, path + ".context"} {
 		if _, err := os.Stat(file); !os.IsNotExist(err) {
 			t.Fatalf("failed cd leaves file %s", file)
+		}
+	}
+	command, path, err = cliCommandWithPrompt(vendors.AgentPi, "", NewSession, "private background", "private request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fakeExpect, []byte("#!/bin/sh\nexit 7\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	err = exec.Command("/bin/sh", "-c", localHandoffScript(t.TempDir(), command, path)).Run()
+	if failure, ok := err.(*exec.ExitError); !ok || failure.ExitCode() != 7 {
+		t.Fatalf("startup failure status was lost: %v", err)
+	}
+	for _, file := range []string{path, path + ".context"} {
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Fatalf("startup failure leaves file %s", file)
 		}
 	}
 }
