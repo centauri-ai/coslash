@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, copyFileSync, readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 
 const release = process.env.PI_TEST_RELEASE_DIR;
@@ -13,7 +14,7 @@ mkdirSync(path.join(agent, 'extensions'), { recursive: true });
 copyFileSync(new URL('../coslash-extension.ts', import.meta.url), path.join(agent, 'extensions/coslash-extension.ts'));
 writeFileSync(path.join(agent, 'settings.json'), JSON.stringify({ compaction: { enabled: false } }));
 const provider = path.join(root, 'offline-provider.ts');
-writeFileSync(provider, readFileSync(new URL('./offline-provider.ts', import.meta.url), 'utf8').replace('__PI_AI_EVENT_STREAM__', path.join(release, 'node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js')));
+writeFileSync(provider, readFileSync(new URL('./offline-provider.ts', import.meta.url), 'utf8').replace('__PI_AI_EVENT_STREAM__', pathToFileURL(path.join(release, 'node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js')).href));
 const env = { ...process.env, PI_CODING_AGENT_DIR: agent, COSLASH_HOME: path.join(root, 'coslash'), XDG_CONFIG_HOME: path.join(root, 'xdg-config'), XDG_DATA_HOME: path.join(root, 'xdg-data') };
 delete env.COSLASH_PI_ENTRYPOINT;
 delete env.COSLASH_PI_HANDOFF_FILE;
@@ -75,7 +76,7 @@ if (existsSync(rpc)) await run(rpc, common, JSON.stringify({ type: 'prompt', mes
 
 const sdk = path.join(root, 'sdk.mjs');
 writeFileSync(sdk, `
-import {createAgentSession, ModelRuntime, DefaultResourceLoader, SessionManager} from ${JSON.stringify(path.join(pkg, 'dist/index.js'))};
+import {createAgentSession, ModelRuntime, DefaultResourceLoader, SessionManager} from ${JSON.stringify(pathToFileURL(path.join(pkg, 'dist/index.js')).href)};
 if (process.env.COSLASH_TEST_UNSUPPORTED_PLATFORM) Object.defineProperty(process, 'platform', { value: 'linux' });
 const runtime = await ModelRuntime.create();
 const loader = new DefaultResourceLoader({cwd:process.cwd(), agentDir:process.env.PI_CODING_AGENT_DIR, noExtensions:true, noSkills:true, noPromptTemplates:true, noContextFiles:true, additionalExtensionPaths:[${JSON.stringify(path.join(agent,'extensions/coslash-extension.ts'))},${JSON.stringify(provider)}]});
