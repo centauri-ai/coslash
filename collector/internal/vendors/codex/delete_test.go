@@ -625,14 +625,17 @@ func TestDeleteSessionWriterCoordinationRefusesBeforeWrite(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer file.Close()
+			before := deleteSnapshot(t, root)
 			if err := tryDeleteFileLock(file); err != nil {
 				t.Fatal(err)
 			}
-			before := deleteSnapshot(t, root)
 			err = deleteSession(context.Background(), root, root, deleteRootID, closedForDelete, func(context.Context, string, string, string) error {
 				t.Fatal("mutation ran while a writer owns storage")
 				return nil
 			})
+			if closeErr := file.Close(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
 			if !errors.Is(err, tc.want) || (tc.want == ErrSessionUnverified && errors.Is(err, ErrSessionActive)) || !reflect.DeepEqual(before, deleteSnapshot(t, root)) {
 				t.Fatalf("coordination refusal changed storage: %v", err)
 			}
