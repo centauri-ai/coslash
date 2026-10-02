@@ -130,10 +130,10 @@ func DeleteSession(ctx context.Context, home, id string) error {
 			return ErrSessionUnverified
 		}
 		journal.Family = family
-		journal.Keys, err = databaseDeletionKeys(ctx, conn, family)
-		if err != nil {
-			return fmt.Errorf("%w: %w", ErrSessionUnverified, err)
-		}
+	}
+	journal.Keys, err = databaseDeletionKeys(ctx, conn, journal.Family, journal.Keys)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrSessionUnverified, err)
 	}
 	if err := checkDeletionProcesses(ctx, journal.Family); err != nil {
 		return err
@@ -376,27 +376,9 @@ func deleteDatabaseSession(ctx context.Context, _ string, path, id string, expec
 	if !sameDeletionFamily(family, expected) {
 		return ErrSessionUnverified
 	}
-	keys, err := databaseDeletionKeys(ctx, tx, family)
+	keys, err := databaseDeletionKeys(ctx, tx, family, bound.journal.Keys)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrSessionUnverified, err)
-	}
-	for _, key := range keys {
-		if key.Column != "message_id" {
-			continue
-		}
-		for _, retained := range bound.journal.Keys {
-			if retained.Table == key.Table && retained.Column == key.Column {
-				for id := range retained.IDs {
-					key.IDs[id] = true
-				}
-			}
-		}
-		if len(key.IDs) > 100000 {
-			return ErrSessionUnverified
-		}
-	}
-	if err := validateRetainedMessageOwners(ctx, tx, keys, family); err != nil {
-		return err
 	}
 	if err := checkDeletionProcesses(ctx, family); err != nil {
 		return err
@@ -477,8 +459,19 @@ type deletionKey struct {
 
 func quoteDeletionName(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
 
-func databaseDeletionKeys(ctx context.Context, db deletionReader, family map[string]bool) ([]deletionKey, error) {
+func databaseDeletionKeys(ctx context.Context, db deletionReader, family map[string]bool, retained []deletionKey) ([]deletionKey, error) {
 	messages := map[string]bool{}
+	for _, key := range retained {
+		if key.Column != "message_id" {
+			continue
+		}
+		for id := range key.IDs {
+			messages[id] = true
+			if len(messages) > 100000 {
+				return nil, ErrSessionUnverified
+			}
+		}
+	}
 	// Message IDs must be retained before removing messages, including layouts
 	// where parts have a message_id but no independent session_id column.
 	for _, table := range []string{"message", "session_message"} {
@@ -578,6 +571,9 @@ func databaseDeletionKeys(ctx context.Context, db deletionReader, family map[str
 				ordered = append(ordered, key)
 			}
 		}
+	}
+	if err := validateRetainedMessageOwners(ctx, db, ordered, family); err != nil {
+		return nil, err
 	}
 	return ordered, nil
 }

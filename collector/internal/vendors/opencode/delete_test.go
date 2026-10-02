@@ -969,6 +969,18 @@ func TestDeleteRetryReceiptSQLResidue(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
+				var before os.FileInfo
+				if mode != "missing receipt" {
+					file, err := os.Open(receipt)
+					if err != nil {
+						t.Fatal(err)
+					}
+					before, err = file.Stat()
+					file.Close()
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
 				err := DeleteSession(ctx, home, "ses_target")
 				if (want == nil && err != nil) || (want != nil && !errors.Is(err, want)) {
 					t.Fatalf("retry: %v, want %v", err, want)
@@ -997,6 +1009,12 @@ func TestDeleteRetryReceiptSQLResidue(t *testing.T) {
 					}
 				} else if statErr != nil {
 					t.Fatal("failed retry lost receipt")
+				}
+				if (want == ErrSessionUnverified || want == ErrSessionActive || want == context.Canceled) && mode != "late active" {
+					after, err := os.Stat(receipt)
+					if err != nil || !os.SameFile(before, after) {
+						t.Fatal("known unsafe retry rewrote its receipt before refusing")
+					}
 				}
 			})
 		}
