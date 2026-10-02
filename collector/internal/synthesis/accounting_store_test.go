@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -74,11 +75,7 @@ func TestAccountingSnapshotAcrossReadStages(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	writer, err := OpenAccountingStore(home, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer writer.Close()
+	reader.db.SetMaxOpenConns(2)
 	if _, err := reader.db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +94,7 @@ func TestAccountingSnapshotAcrossReadStages(t *testing.T) {
 	if err := tx.QueryRowContext(ctx, "SELECT tracking_started_at_ms FROM metadata").Scan(&started); err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.FinishInvocation(ctx, "r", 0, 112, "success", UsageReport{ReportedCostMicroUSD: micro(17)}); err != nil {
+	if err := reader.FinishInvocation(ctx, "r", 0, 112, "success", UsageReport{ReportedCostMicroUSD: micro(17)}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := reader.readCosts(ctx, tx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"}, roundCursor{})
@@ -237,6 +234,175 @@ func TestAccountingRejectsCursorAndCorruptUsageBeforeCostlyReads(t *testing.T) {
 }
 
 func micro(n int64) *int64 { return &n }
+
+func TestAccountingLiveOwnerKeepsInvocation(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	owner, err := OpenAccountingStore(home, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.BeginRound(ctx, Round{ID: "live", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 110}); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.StartInvocation(ctx, "live", 0, "source", "codex", "gpt-4o", 111); err != nil {
+		t.Fatal(err)
+	}
+	other, err := OpenAccountingStore(home, 200)
+	if err == nil {
+		other.Close()
+		t.Fatal("second live store opened and recovered active work")
+	}
+	if err := owner.FinishInvocation(ctx, "live", 0, 120, "success", UsageReport{ReportedCostMicroUSD: micro(17)}); err != nil {
+		t.Fatalf("live usage lost: %v", err)
+	}
+	if err := owner.FinishRound(ctx, "live", 120, "success"); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenAccountingStore(home, 300)
+	if err != nil {
+		t.Fatalf("lock not released: %v", err)
+	}
+	defer reopened.Close()
+	got, err := reopened.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Rounds[0].Outcome != "success" || *got.Totals.KnownCostMicroUSD != 17 || got.Totals.UnknownInvocationCount != 0 {
+		t.Fatalf("live completion: %+v", got)
+	}
+}
+
+func TestAccountingCrashChild(t *testing.T) {
+	if os.Getenv("COSLASH_ACCOUNTING_CRASH_CHILD") != "1" {
+		return
+	}
+	ctx := context.Background()
+	store, err := OpenAccountingStore(os.Getenv("COSLASH_ACCOUNTING_TEST_HOME"), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BeginRound(ctx, Round{ID: "crash", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 110}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartInvocation(ctx, "crash", 0, "source", "codex", "gpt-4o", 111); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishInvocation(ctx, "crash", 0, 120, "success", UsageReport{ReportedCostMicroUSD: micro(17)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartInvocation(ctx, "crash", 1, "merge", "cursor", "auto", 121); err != nil {
+		t.Fatal(err)
+	}
+	os.Exit(0)
+}
+
+func TestAccountingCrashRecoveryAndInterruptedCoverage(t *testing.T) {
+	home := t.TempDir()
+	command := exec.Command(os.Args[0], "-test.run=^TestAccountingCrashChild$")
+	command.Env = append(os.Environ(), "COSLASH_ACCOUNTING_CRASH_CHILD=1", "COSLASH_ACCOUNTING_TEST_HOME="+home)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("child: %v: %s", err, output)
+	}
+	store, err := OpenAccountingStore(home, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	inspector, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspector.Rounds[0].Outcome != "interrupted" || inspector.Totals.InvocationCount != 2 || inspector.Totals.UnknownInvocationCount != 1 || inspector.Totals.IncompleteRoundCount != 1 || *inspector.Totals.KnownCostMicroUSD != 17 || inspector.Rounds[0].Totals.IncompleteRoundCount != 1 {
+		t.Fatalf("recovered: %+v", inspector)
+	}
+	if len(inspector.ByVendor) != 2 || inspector.ByVendor[0].Totals.IncompleteRoundCount != 1 || inspector.ByVendor[1].Totals.IncompleteRoundCount != 1 {
+		t.Fatalf("vendors: %+v", inspector.ByVendor)
+	}
+	month, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", SinceMs: micro(111), UntilMs: micro(122)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if month.Totals.IncompleteRoundCount != 1 || month.ByVendor[0].Totals.IncompleteRoundCount != 1 || month.ByVendor[1].Totals.IncompleteRoundCount != 1 {
+		t.Fatalf("month: %+v", month)
+	}
+}
+
+func TestAccountingInterruptedAfterPaidCompletionCountsIncomplete(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	store, err := OpenAccountingStore(home, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BeginRound(ctx, Round{ID: "paid", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 110}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StartInvocation(ctx, "paid", 0, "source", "codex", "gpt-4o", 111); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishInvocation(ctx, "paid", 0, 120, "success", UsageReport{ReportedCostMicroUSD: micro(17)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = OpenAccountingStore(home, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	inspector, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspector.Totals.IncompleteRoundCount != 1 || inspector.ByVendor[0].Totals.IncompleteRoundCount != 1 || inspector.Rounds[0].Totals.IncompleteRoundCount != 1 || inspector.Totals.UnknownInvocationCount != 0 {
+		t.Fatalf("inspector: %+v", inspector)
+	}
+	month, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", SinceMs: micro(111), UntilMs: micro(112)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if month.Totals.IncompleteRoundCount != 1 || month.ByVendor[0].Totals.IncompleteRoundCount != 1 {
+		t.Fatalf("month: %+v", month)
+	}
+}
+
+func TestAccountingFinishRoundRespectsInvocationTimes(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenAccountingStore(t.TempDir(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.BeginRound(ctx, Round{ID: "times", SourceID: "local", Agent: "claude", SessionID: "s", SourceRevision: 1, StartedAtMs: 110}); err != nil {
+		t.Fatal(err)
+	}
+	for ordinal, finished := range []int64{120, 125} {
+		if err := store.StartInvocation(ctx, "times", ordinal, "source", "codex", "gpt-4o", 111); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.FinishInvocation(ctx, "times", ordinal, finished, "success", UsageReport{ReportedCostMicroUSD: micro(1)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.FinishRound(ctx, "times", 124, "success"); err == nil {
+		t.Fatal("round finished before latest invocation")
+	}
+	if err := store.FinishRound(ctx, "times", 125, "success"); err != nil {
+		t.Fatalf("equal boundary: %v", err)
+	}
+	got, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "claude", SessionID: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *got.Rounds[0].FinishedAtMs != 125 || got.Rounds[0].Outcome != "success" {
+		t.Fatalf("round: %+v", got.Rounds[0])
+	}
+}
 
 func TestAccountingStoreLifecycleAndIdentity(t *testing.T) {
 	ctx := context.Background()
@@ -443,6 +609,16 @@ func TestAccountingRejectsUnsafeStorage(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
+	recovered, err := OpenAccountingStore(home, 2)
+	if err != nil {
+		t.Fatalf("failed open retained ownership lock: %v", err)
+	}
+	if err := recovered.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(filepath.Join(home, "target"), path); err != nil {
 		t.Fatal(err)
 	}
@@ -456,5 +632,30 @@ func TestAccountingRejectsUnsafeStorage(t *testing.T) {
 	}
 	if _, err := OpenAccountingStore(blocked, 1); err == nil {
 		t.Fatal("non-directory home accepted")
+	}
+}
+
+func TestAccountingRejectsLockSymlink(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "synthesis-accounting")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(home, "target")
+	if err := os.WriteFile(target, []byte("untouched"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "costs.lock")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenAccountingStore(home, 100); err == nil {
+		t.Fatal("lock symlink accepted")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "untouched" {
+		t.Fatalf("symlink target changed: %q", data)
 	}
 }

@@ -17,7 +17,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type AccountingStore struct{ db *sql.DB }
+type AccountingStore struct {
+	db   *sql.DB
+	lock *os.File
+}
 
 type roundCursor struct {
 	Time int64  `json:"t"`
@@ -64,6 +67,33 @@ func OpenAccountingStore(home string, nowMs int64) (*AccountingStore, error) {
 			return nil, err
 		}
 	}
+	lockPath := filepath.Join(dir, "costs.lock")
+	lockInfo, err := os.Lstat(lockPath)
+	var lock *os.File
+	if errors.Is(err, os.ErrNotExist) {
+		lock, err = os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	} else if err == nil && lockInfo.Mode().IsRegular() {
+		lock, err = os.OpenFile(lockPath, os.O_RDWR, 0)
+	} else if err == nil {
+		return nil, fmt.Errorf("accounting lock is not a regular file")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := protectSynthesisFile(lockPath, lock); err != nil {
+		lock.Close()
+		return nil, err
+	}
+	if err := lockAccountingFile(lock); err != nil {
+		lock.Close()
+		return nil, fmt.Errorf("accounting store already open: %w", err)
+	}
+	opened := false
+	defer func() {
+		if !opened {
+			lock.Close()
+		}
+	}()
 	path := filepath.Join(dir, "costs.sqlite")
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -101,11 +131,12 @@ func OpenAccountingStore(home string, nowMs int64) (*AccountingStore, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	s := &AccountingStore{db: db}
+	s := &AccountingStore{db: db, lock: lock}
 	if err := s.initialize(context.Background(), nowMs); err != nil {
 		db.Close()
 		return nil, err
 	}
+	opened = true
 	return s, nil
 }
 
@@ -143,7 +174,7 @@ func (s *AccountingStore) initialize(ctx context.Context, nowMs int64) error {
 	return tx.Commit()
 }
 
-func (s *AccountingStore) Close() error { return s.db.Close() }
+func (s *AccountingStore) Close() error { return errors.Join(s.db.Close(), s.lock.Close()) }
 
 func (s *AccountingStore) BeginRound(ctx context.Context, round Round) error {
 	if !validID(round.ID) || round.SourceID != "local" || !validAgentName(round.Agent) || !validID(round.SessionID) || !safeMs(round.SourceRevision) || !safeMs(round.StartedAtMs) {
@@ -236,12 +267,12 @@ func (s *AccountingStore) FinishRound(ctx context.Context, roundID string, finis
 		return err
 	}
 	defer tx.Rollback()
-	var unfinished int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM invocations WHERE round_id=? AND finished_at_ms IS NULL", roundID).Scan(&unfinished); err != nil {
+	var invalid int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM invocations WHERE round_id=? AND (finished_at_ms IS NULL OR finished_at_ms>?)", roundID, finishedAtMs).Scan(&invalid); err != nil {
 		return err
 	}
-	if unfinished != 0 {
-		return fmt.Errorf("unfinished invocations")
+	if invalid != 0 {
+		return fmt.Errorf("invocation unfinished or later than round completion")
 	}
 	result, err := tx.ExecContext(ctx, "UPDATE rounds SET finished_at_ms=?,outcome=? WHERE round_id=? AND finished_at_ms IS NULL AND started_at_ms<=?", finishedAtMs, outcome, roundID, finishedAtMs)
 	if err != nil {
@@ -321,7 +352,7 @@ func (s *AccountingStore) readCosts(ctx context.Context, tx *sql.Tx, query CostQ
 			break
 		}
 		seen[roundID] = true
-		if coverage != "complete" || outcome == "running" {
+		if coverage != "complete" || outcome == "running" || outcome == "interrupted" {
 			incomplete[roundID] = true
 		}
 		vendorTotals := byVendor[vendor]
@@ -332,7 +363,7 @@ func (s *AccountingStore) readCosts(ctx context.Context, tx *sql.Tx, query CostQ
 			vendorIncomplete[vendor] = map[string]bool{}
 		}
 		vendorRounds[vendor][roundID] = true
-		if coverage != "complete" || outcome == "running" {
+		if coverage != "complete" || outcome == "running" || outcome == "interrupted" {
 			vendorIncomplete[vendor][roundID] = true
 		}
 		if err = addInvocation(&response.Totals, cost, coverage); err != nil {
@@ -362,7 +393,7 @@ func (s *AccountingStore) readCosts(ctx context.Context, tx *sql.Tx, query CostQ
 			return CostResponse{}, err
 		}
 		response.Totals.RoundCount = all
-		runningRows, err := tx.QueryContext(ctx, "SELECT round_id FROM rounds WHERE source_id='local' AND agent=? AND session_id=? AND outcome='running'", query.Agent, query.SessionID)
+		runningRows, err := tx.QueryContext(ctx, "SELECT round_id FROM rounds WHERE source_id='local' AND agent=? AND session_id=? AND outcome IN ('running','interrupted')", query.Agent, query.SessionID)
 		if err != nil {
 			return CostResponse{}, err
 		}
@@ -507,7 +538,7 @@ func (s *AccountingStore) fillRound(ctx context.Context, tx *sql.Tx, round *Roun
 		return err
 	}
 	round.Totals.RoundCount = 1
-	if round.Outcome == "running" || round.Totals.UnknownInvocationCount > 0 {
+	if round.Outcome == "running" || round.Outcome == "interrupted" || round.Totals.UnknownInvocationCount > 0 {
 		round.Totals.IncompleteRoundCount = 1
 	}
 	if round.Totals.InvocationCount == 0 {
