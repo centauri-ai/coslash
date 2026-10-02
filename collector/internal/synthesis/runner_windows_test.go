@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 )
@@ -36,5 +37,26 @@ func TestCursorCmdShimRuns(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(output)); got != "--version" {
 		t.Fatalf("Cursor .cmd output = %q, want --version", got)
+	}
+}
+
+func TestPiSynthesisRunsThroughCmdShim(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	directory := t.TempDir()
+	response := filepath.Join(directory, "response.json")
+	if err := os.WriteFile(response, []byte(`{"goals":["Ship"],"outcome":"from cmd shim","keyDecisions":[],"nextStep":"done"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cli := filepath.Join(directory, "pi.cmd")
+	script := "@echo off\r\nset /p prompt=\r\n" +
+		"if not \"%prompt%\"==\"private facts\" exit /b 7\r\n" +
+		"type \"" + response + "\"\r\n"
+	if err := os.WriteFile(cli, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &CLIRunner{Backend: settings.BackendPi, Bin: cli, Model: settings.PiDefaultModel, Timeout: 10 * time.Second}
+	got, err := runner.Run(context.Background(), "private facts")
+	if err != nil || got.Synthesis.Outcome != "from cmd shim" {
+		t.Fatalf("Pi .cmd synthesis = %#v, %v", got, err)
 	}
 }
