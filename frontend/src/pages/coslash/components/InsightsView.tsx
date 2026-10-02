@@ -129,7 +129,7 @@ export function InsightsView({
     previousCostVersion.current = synthesisCostVersion;
   }, [synthesisCostVersion, refreshCosts]);
   const synthesis = costs.data?.totals;
-  const combined = synthesis ? combinedKnownCost(insights.knownCost, synthesis) : null;
+  const combined = synthesis ? combinedKnownCost(insights.knownCostSubtotal, synthesis) : null;
   const synthesisStatus = synthesis ? synthesisCoverage(synthesis) : null;
   const maxDay = Math.max(1, ...insights.days.map(({ count }) => count));
   const maxRepo = insights.repositories[0]?.count ?? 1;

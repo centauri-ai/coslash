@@ -62,6 +62,7 @@ export function buildInsights(sessions: Session[], month: Date) {
     repositories: ranked(repositories).slice(0, 5),
     days,
     knownCost: unknownCostCount ? null : knownCost,
+    knownCostSubtotal: knownCost,
     unknownCostCount,
   };
 }
