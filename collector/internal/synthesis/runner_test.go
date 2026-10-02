@@ -43,8 +43,8 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Outcome != "Backend added" {
-		t.Fatalf("outcome = %q, want Backend added", got.Outcome)
+	if got.Synthesis.Outcome != "Backend added" {
+		t.Fatalf("outcome = %q, want Backend added", got.Synthesis.Outcome)
 	}
 	if captured.bin != "cursor-agent" {
 		t.Fatalf("bin = %q, want cursor-agent", captured.bin)
@@ -55,7 +55,7 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	}
 	wantArgs := []string{
 		"-p", "--mode", "ask", "--sandbox", wantSandboxMode, "--trust",
-		"--model", "auto", "--output-format", "json",
+		"--model", "auto", "--output-format", "stream-json",
 	}
 	if !slices.Equal(captured.args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", captured.args, wantArgs)
@@ -95,6 +95,21 @@ func TestCLIRunnerRunsCursorReadOnlyWithIsolatedData(t *testing.T) {
 	}
 	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
 		t.Fatalf("scratch dir was not removed: %v", err)
+	}
+}
+
+func TestRunnerIdentity(t *testing.T) {
+	runner := &CLIRunner{Backend: settings.BackendClaude, Model: "claude-test"}
+	var contract Runner = runner
+	if contract.VendorName() != "claude" || contract.ModelName() != "claude-test" {
+		t.Fatalf("identity = %q/%q", contract.VendorName(), contract.ModelName())
+	}
+}
+
+func TestBoundedCaptureDrainsBeyondLimit(t *testing.T) {
+	capture := boundedCapture{limit: 3}
+	if n, err := capture.Write([]byte("abcdef")); err != nil || n != 6 || string(capture.data) != "abc" || !capture.truncated {
+		t.Fatalf("capture = %#v, n=%d, err=%v", capture, n, err)
 	}
 }
 

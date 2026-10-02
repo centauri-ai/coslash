@@ -20,6 +20,9 @@ func TestPiSynthesis(t *testing.T) {
 	for _, model := range []string{"default", "amazon-bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0"} {
 		t.Run(model, func(t *testing.T) {
 			runner := &CLIRunner{Backend: settings.BackendPi, Bin: "pi", Model: model, Timeout: time.Second}
+			if runner.VendorName() != "pi" {
+				t.Fatal("Pi vendor identity missing")
+			}
 			runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
 				want := []string{"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--system-prompt", systemPrompt + jsonInstruction, "--append-system-prompt", ""}
 				if model != "default" {
@@ -43,8 +46,11 @@ func TestPiSynthesis(t *testing.T) {
 				return []byte("```json\n{\"goals\":[\"Ship Pi synthesis\"],\"outcome\":\"Backend added\",\"keyDecisions\":[],\"nextStep\":\"Review\"}\n```"), nil
 			}
 			got, err := runner.Run(context.Background(), "private session facts")
-			if err != nil || got.Outcome != "Backend added" {
+			if err != nil || got.Synthesis.Outcome != "Backend added" {
 				t.Fatalf("got=%#v err=%v", got, err)
+			}
+			if got.Usage.Coverage != "unknown" || got.Usage.ReportedCostMicroUSD != nil || got.Usage.EstimatedCostMicroUSD != nil {
+				t.Fatalf("Pi usage must remain unknown: %#v", got.Usage)
 			}
 			entries, err := os.ReadDir(SynthesisCwd())
 			if err != nil {

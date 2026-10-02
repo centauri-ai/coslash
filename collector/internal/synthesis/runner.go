@@ -29,8 +29,12 @@ const (
 
 const cursorPermissions = `{"permissions":{"allow":[],"deny":["Read(*)","Read(**)","Shell(*)","Write(*)","WebFetch(*)","Mcp(*)"]}}`
 
+var errSynthesisOutputLimit = errors.New("synthesis output exceeds limit")
+
 type Runner interface {
-	Run(context.Context, string) (session.SessionSynthesis, error)
+	Run(context.Context, string) (RunResult, error)
+	VendorName() string
+	ModelName() string
 }
 
 type commandSpec struct {
@@ -52,7 +56,36 @@ func executeCommand(ctx context.Context, spec commandSpec) ([]byte, error) {
 	if len(spec.env) > 0 {
 		cmd.Env = append(cmd.Environ(), spec.env...)
 	}
-	return agentexec.Output(cmd)
+	stdout := boundedCapture{limit: maxSynthesisOutputBytes}
+	stderr := boundedCapture{limit: 2048}
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := agentexec.Run(cmd)
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		exitErr.Stderr = stderr.data
+	}
+	if stdout.truncated {
+		err = errors.Join(err, errSynthesisOutputLimit)
+	}
+	return stdout.data, err
+}
+
+type boundedCapture struct {
+	data      []byte
+	limit     int
+	truncated bool
+}
+
+func (c *boundedCapture) Write(p []byte) (int, error) {
+	n := len(p)
+	remaining := c.limit - len(c.data)
+	if n > remaining {
+		c.truncated = true
+		p = p[:remaining]
+	}
+	c.data = append(c.data, p...)
+	return n, nil
 }
 
 type CLIRunner struct {
@@ -88,7 +121,24 @@ func (r *CLIRunner) ModelName() string {
 	return r.Model
 }
 
-func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynthesis, error) {
+func (r *CLIRunner) VendorName() string {
+	switch r.Backend {
+	case settings.BackendClaude:
+		return "claude"
+	case settings.BackendCodex:
+		return "codex"
+	case settings.BackendOpenCode:
+		return "opencode"
+	case settings.BackendCursor:
+		return "cursor"
+	case settings.BackendPi:
+		return "pi"
+	default:
+		return ""
+	}
+}
+
+func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 	var label string
 	var args []string
 	var env []string
@@ -96,6 +146,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 	stdin := input
 	var parse func([]byte) (session.SessionSynthesis, error)
 	var schemaPath string
+	var scratchDir string
 	switch r.Backend {
 	case settings.BackendClaude:
 		label = "Claude Code"
@@ -115,15 +166,16 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		}
 	case settings.BackendCodex:
 		label = "Codex"
-		parse = parseSynthesis
+		parse = parseCodexSynthesis
 		var err error
 		schemaPath, err = writeSchemaFile()
 		if err != nil {
-			return session.SessionSynthesis{}, err
+			return RunResult{}, err
 		}
 		defer os.Remove(schemaPath)
 		args = []string{
 			"exec",
+			"--json",
 			"--ephemeral",
 			"--ignore-user-config",
 			"--ignore-rules",
@@ -146,9 +198,10 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			}
 			return parseOpenCodeSynthesis(text)
 		}
-		scratchDir, err := openCodeScratchDir()
+		var err error
+		scratchDir, err = openCodeScratchDir()
 		if err != nil {
-			return session.SessionSynthesis{}, err
+			return RunResult{}, err
 		}
 		defer os.RemoveAll(scratchDir)
 		// OpenCode has no system-prompt or schema flag, so both ride along
@@ -184,11 +237,11 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			return parseSynthesis(data)
 		}
 		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create synthesis directory: %w", err)
+			return RunResult{}, fmt.Errorf("create synthesis directory: %w", err)
 		}
 		scratchDir, err := os.MkdirTemp(SynthesisCwd(), piScratchPrefix+"*")
 		if err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create Pi scratch directory: %w", err)
+			return RunResult{}, fmt.Errorf("create Pi scratch directory: %w", err)
 		}
 		defer os.RemoveAll(scratchDir)
 		dir = scratchDir
@@ -204,25 +257,25 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		}
 	case settings.BackendCursor:
 		label = "Cursor"
-		parse = parseResultEnvelope
+		parse = parseCursorSynthesis
 		sandboxMode := "enabled"
 		if runtime.GOOS == "windows" {
 			sandboxMode = "disabled"
 		}
 		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create synthesis directory: %w", err)
+			return RunResult{}, fmt.Errorf("create synthesis directory: %w", err)
 		}
 		scratchDir, err := os.MkdirTemp(SynthesisCwd(), cursorScratchPrefix+"*")
 		if err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create Cursor scratch directory: %w", err)
+			return RunResult{}, fmt.Errorf("create Cursor scratch directory: %w", err)
 		}
 		defer os.RemoveAll(scratchDir)
 		configDir := filepath.Join(scratchDir, ".cursor")
 		if err := os.Mkdir(configDir, 0o700); err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create Cursor config directory: %w", err)
+			return RunResult{}, fmt.Errorf("create Cursor config directory: %w", err)
 		}
 		if err := os.WriteFile(filepath.Join(configDir, "cli.json"), []byte(cursorPermissions), 0o600); err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("write Cursor permissions: %w", err)
+			return RunResult{}, fmt.Errorf("write Cursor permissions: %w", err)
 		}
 		args = []string{
 			"-p",
@@ -230,13 +283,13 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 			"--sandbox", sandboxMode,
 			"--trust",
 			"--model", r.Model,
-			"--output-format", "json",
+			"--output-format", "stream-json",
 		}
 		stdin = systemPrompt + jsonInstruction + "\n\n" + input
 		env = []string{"CURSOR_DATA_DIR=" + scratchDir}
 		dir = scratchDir
 	default:
-		return session.SessionSynthesis{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
+		return RunResult{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
 	}
 	runCtx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
@@ -251,8 +304,24 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		stdin: stdin,
 		env:   env,
 	})
+	result := RunResult{Usage: unknownUsage()}
+	if r.Backend == settings.BackendClaude {
+		result.Usage = parseClaudeUsage(output, r.Model)
+	} else if r.Backend == settings.BackendCodex {
+		result.Usage = parseCodexUsage(output, r.Model)
+	} else if r.Backend == settings.BackendCursor {
+		result.Usage = parseCursorUsage(output)
+	} else if r.Backend == settings.BackendOpenCode {
+		result.Usage = parseOpenCodeUsage(output, filepath.Join(scratchDir, "opencode.db"), r.openCodeV2)
+		if err != nil && result.Usage.Coverage == "complete" {
+			result.Usage.Coverage = "partial"
+		}
+	}
+	if errors.Is(err, errSynthesisOutputLimit) && result.Usage.Coverage == "complete" {
+		result.Usage.Coverage = "partial"
+	}
 	if runCtx.Err() != nil {
-		return session.SessionSynthesis{}, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())
+		return result, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())
 	}
 	if err != nil {
 		if r.Backend == settings.BackendOpenCode {
@@ -260,9 +329,11 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 				log.Printf("OpenCode synthesis CLI: %s", diagnostic)
 			}
 		}
-		return session.SessionSynthesis{}, safeCommandError(label, err)
+		return result, safeCommandError(label, err)
 	}
-	return parse(output)
+	synthesis, err := parse(output)
+	result.Synthesis = synthesis
+	return result, err
 }
 
 func writeSchemaFile() (string, error) {
