@@ -96,7 +96,7 @@ PI_TEST_RELEASE_DIR=/absolute/path/to/pi/install/releases/0.99.2 \
   node collector/internal/vendors/pi/testdata/runtime-check.mjs
 ```
 
-The release directory must contain Pi's `node_modules`. Run separately against the minimum baseline 0.99.1 and the latest stable release before updating tested-release diagnostics. The script checks production extension events, settlement, dialogs, compaction, concurrent owners, crashes, replacement, and retained graceful-exit history. Run `node collector/internal/vendors/pi/testdata/entrypoint-check.mjs` with the same release variable to check native print, JSON, RPC, piped print, and SDK declaration behavior using the local provider. It does not replace dashboard or real-provider testing.
+The release directory must contain Pi's `node_modules`. Run separately against the minimum baseline 0.99.1 and the latest stable release before updating tested-release diagnostics. The script checks production extension events, settlement, dialogs, compaction, concurrent owners, crashes, replacement, and retained graceful-exit history. Run `node collector/internal/vendors/pi/testdata/entrypoint-check.mjs` with the same release variable to check native exact-file resume, fresh-session handoff context delivered to the provider, print, JSON, RPC, piped print, and SDK declaration behavior using the local provider. These probes do not verify coSlash HTTP launch, terminal readiness, or interactive prompt transport; also exercise dashboard Resume, fresh handoff, and Send in a real terminal before release. They do not replace real-provider testing.
 
 ## Report a bug
 
