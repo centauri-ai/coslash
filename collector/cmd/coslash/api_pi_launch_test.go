@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
@@ -50,6 +53,29 @@ func TestPiDirectedHandoffLocalCustomOnly(t *testing.T) {
 	}
 	if launched != 1 {
 		t.Fatalf("launch count %d", launched)
+	}
+}
+
+func TestTerminalLaunchErrorsUseStructuredContract(t *testing.T) {
+	for _, test := range []struct {
+		err           error
+		status        int
+		code, message string
+	}{
+		{fmt.Errorf("wrapped: %w", launch.ErrPiUnsupportedVersion), 409, "pi_runtime_unsupported", "Pi launch requires a stable release at least 0.99.1"},
+		{launch.ErrPiExtension, 409, "pi_extension_unavailable", "Required Pi extension is unavailable; check local setup."},
+		{launch.ErrWorkingDirectoryUnavailable, 409, "working_directory_unavailable", "Session working directory is unavailable."},
+		{errors.New("private process details"), 500, "terminal_launch_failed", "Could not launch terminal."},
+	} {
+		response := httptest.NewRecorder()
+		writeTerminalLaunchError(response, test.err)
+		var body struct{ Code, Error string }
+		if response.Code != test.status || json.Unmarshal(response.Body.Bytes(), &body) != nil || body.Code != test.code || body.Error != test.message {
+			t.Fatalf("%v: %d %s", test.err, response.Code, response.Body.String())
+		}
+		if !strings.HasPrefix(response.Header().Get("Content-Type"), "application/json") {
+			t.Fatal("launch error is not JSON")
+		}
 	}
 }
 func TestPiRemoteLaunchRejectedBeforeLookup(t *testing.T) {

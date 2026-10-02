@@ -62,3 +62,20 @@ it('keeps a remote fresh launch usable without clipboard access and allows retry
     { method: 'POST', body: 'notes' },
   );
 });
+
+it('preserves the actionable Pi launch explanation and allows retry', async () => {
+  const pi = { ...source, agent: 'pi', entrypoint: 'pi-tui' };
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        code: 'pi_runtime_unsupported',
+        error: 'Pi launch requires a stable release at least 0.99.1',
+      }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } },
+    ),
+  );
+  await expect(launchFreshSession(pi, 'notes')).rejects.toThrow(
+    'Pi launch requires a stable release at least 0.99.1',
+  );
+  await expect(launchFreshSession(pi, 'notes')).resolves.toBeUndefined();
+});
