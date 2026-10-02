@@ -61,7 +61,12 @@ func completedPlanReply(reply string) (string, bool) {
 		plan := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "<proposed_plan>"), "</proposed_plan>"))
 		return plan, plan != ""
 	}
-	return text, strings.HasPrefix(strings.ToLower(text), "# plan")
+	lower := strings.ToLower(text)
+	if !strings.HasPrefix(lower, "# plan") {
+		return text, false
+	}
+	rest := text[len("# plan"):]
+	return text, rest == "" || strings.ContainsAny(rest[:1], " \t\r\n:")
 }
 
 // Review mode's own generated instruction is not a user turn
@@ -376,7 +381,9 @@ func analyzeCodexSessionSource(
 				if !analysis.turnActive {
 					analysis.turnFinalReply = ""
 					analysis.turnPlanText = ""
-					analysis.turnPlanMode = row.Payload.ModeKind == "plan"
+					if row.Payload.ModeKind != "" {
+						analysis.turnPlanMode = row.Payload.ModeKind == "plan"
+					}
 					analysis.turnStartTime = timestamp
 					analysis.turns++
 				}
