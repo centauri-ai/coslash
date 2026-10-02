@@ -577,7 +577,7 @@ func handleSend(
 
 func writeTerminalLaunchError(w http.ResponseWriter, err error) {
 	if errors.Is(err, launch.ErrPiUnsupportedVersion) {
-		http.Error(w, "Pi launch requires supported version 0.99.1 or 0.99.2", http.StatusConflict)
+		http.Error(w, "Pi launch requires a stable release at least 0.99.1", http.StatusConflict)
 		return
 	}
 	if errors.Is(err, launch.ErrPiExtension) {

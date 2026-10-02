@@ -7,12 +7,26 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 //go:embed coslash-extension.ts
 var extensionSource []byte
+
+const MinimumRuntimeVersion = "0.99.1"
+
+var stableRelease = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
+
+// RuntimeSupported accepts stable releases from the tested 0.99.1 baseline onward.
+func RuntimeSupported(version string) bool {
+	parts := stableRelease.FindStringSubmatch(version)
+	if parts == nil {
+		return false
+	}
+	return parts[1] != "0" || len(parts[2]) > 2 || (parts[2] == "99" && parts[3] != "0")
+}
 
 func ExtensionPath() (string, error) {
 	root, err := Root()
