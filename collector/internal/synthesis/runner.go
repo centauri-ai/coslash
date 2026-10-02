@@ -131,6 +131,8 @@ func (r *CLIRunner) VendorName() string {
 		return "opencode"
 	case settings.BackendCursor:
 		return "cursor"
+	case settings.BackendPi:
+		return "pi"
 	default:
 		return ""
 	}
