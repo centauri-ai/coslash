@@ -30,11 +30,15 @@ func derive(snapshot *Snapshot) []Check {
 			scanFailed = true
 		}
 		if source.Entries > 0 && !source.CLI.Found && source.IDE == nil {
+			detail := source.CLI.Name + " is not on PATH; sessions remain browsable."
+			if source.Agent == vendors.AgentPi {
+				detail = "Pi CLI was not found on PATH or in its managed installation; sessions remain browsable."
+			}
 			checks = append(checks, Check{
 				ID:     "cli." + source.Agent,
 				Title:  source.Label + " CLI",
 				Status: StatusWarn,
-				Detail: source.CLI.Name + " is not on PATH; sessions remain browsable.",
+				Detail: detail,
 				Fix:    "Install the CLI or add it to PATH to resume sessions.",
 			})
 		}
@@ -74,7 +78,7 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Detail = "Disabled; coSlash will show deterministic transcript details only."
 	} else if snapshot.piSynthesisUnsupported {
 		synthesis.Status = StatusWarn
-		synthesis.Detail = "Pi synthesis is supported only on macOS."
+		synthesis.Detail = "Pi synthesis is unavailable on this platform."
 		synthesis.Fix = "Open Settings and choose another synthesis backend."
 	} else if !snapshot.Storage.Writable {
 		synthesis.Status = StatusFail

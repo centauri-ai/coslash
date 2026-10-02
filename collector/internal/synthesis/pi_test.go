@@ -90,7 +90,7 @@ func TestPiRunnerPlatformAvailability(t *testing.T) {
 		if err != nil || runner == nil {
 			t.Fatalf("supported Pi runner unavailable: %v", err)
 		}
-	} else if err == nil || runner != nil || !strings.Contains(err.Error(), "macOS") {
+	} else if err == nil || runner != nil || !strings.Contains(err.Error(), "unavailable on this platform") {
 		t.Fatalf("unsupported Pi runner = %v, %v", runner, err)
 	}
 }
