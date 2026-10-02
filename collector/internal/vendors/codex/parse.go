@@ -35,6 +35,7 @@ type codexSessionAnalysis struct {
 	prompts          int
 	turnFinalReply   string
 	turnPlanText     string
+	turnPlanMode     bool
 	turns            int
 	toolUseCount     int
 	compactions      int
@@ -52,6 +53,15 @@ type codexSessionAnalysis struct {
 	approvalPending  bool
 	lastTurnAborted  bool
 	inReview         bool
+}
+
+func completedPlanReply(reply string) (string, bool) {
+	text := strings.TrimSpace(reply)
+	if strings.HasPrefix(text, "<proposed_plan>") && strings.HasSuffix(text, "</proposed_plan>") {
+		plan := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "<proposed_plan>"), "</proposed_plan>"))
+		return plan, plan != ""
+	}
+	return text, strings.HasPrefix(strings.ToLower(text), "# plan")
 }
 
 // Review mode's own generated instruction is not a user turn
@@ -296,6 +306,9 @@ func analyzeCodexSessionSource(
 			if row.Payload.Model != "" {
 				analysis.model = row.Payload.Model
 			}
+			if row.Payload.Mode.Mode != "" {
+				analysis.turnPlanMode = row.Payload.Mode.Mode == "plan"
+			}
 		case "compacted":
 			analysis.noteCompaction(timestamp)
 		case "event_msg":
@@ -363,6 +376,7 @@ func analyzeCodexSessionSource(
 				if !analysis.turnActive {
 					analysis.turnFinalReply = ""
 					analysis.turnPlanText = ""
+					analysis.turnPlanMode = row.Payload.ModeKind == "plan"
 					analysis.turnStartTime = timestamp
 					analysis.turns++
 				}
@@ -377,6 +391,10 @@ func analyzeCodexSessionSource(
 					category, description := session.DigestRecap, analysis.turnFinalReply
 					if analysis.turnPlanText != "" {
 						category, description = session.DigestPlan, analysis.turnPlanText
+					} else if analysis.turnPlanMode {
+						if plan, ok := completedPlanReply(description); ok {
+							category, description = session.DigestPlan, plan
+						}
 					}
 					analysis.digest.Push(
 						analysis.prompts,
@@ -387,6 +405,7 @@ func analyzeCodexSessionSource(
 				}
 				analysis.turnFinalReply = ""
 				analysis.turnPlanText = ""
+				analysis.turnPlanMode = false
 				analysis.lastTurnAborted = row.Payload.Type == "turn_aborted"
 				analysis.turnActive = false
 				if analysis.turnStartTime != nil && timestamp != nil {
