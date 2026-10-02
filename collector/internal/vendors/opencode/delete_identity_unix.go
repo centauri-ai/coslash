@@ -24,3 +24,9 @@ func syncDeletionDirectory(path string) error {
 	defer dir.Close()
 	return dir.Sync()
 }
+
+func deletionJSONInfo(path string) (os.FileInfo, error) { return os.Lstat(path) }
+
+func openDeletionJSON(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
+}

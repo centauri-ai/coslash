@@ -600,10 +600,20 @@ func readDeletionJSON(ctx context.Context, path string, limit int64, value any) 
 	if err := checkDeletionPath("", path); err != nil {
 		return false, err
 	}
-	file, err := os.Open(path)
+	expected, err := deletionJSONInfo(path)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
+	if err != nil {
+		return false, err
+	}
+	if !expected.Mode().IsRegular() || expected.Size() > limit {
+		return false, ErrSessionUnverified
+	}
+	file, err := openDeletionJSON(path)
 	if err != nil {
 		return false, err
 	}
@@ -612,8 +622,11 @@ func readDeletionJSON(ctx context.Context, path string, limit int64, value any) 
 	if err != nil {
 		return false, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > limit {
+	if !info.Mode().IsRegular() || info.Size() > limit || !os.SameFile(expected, info) {
 		return false, ErrSessionUnverified
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
 	decoder := json.NewDecoder(io.LimitReader(file, limit+1))
 	if err := decoder.Decode(value); err != nil {
@@ -623,7 +636,10 @@ func readDeletionJSON(ctx context.Context, path string, limit int64, value any) 
 	if err := decoder.Decode(&extra); err != io.EOF {
 		return false, ErrSessionUnverified
 	}
-	return true, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func saveDeletionJournal(ctx context.Context, path string, journal *deletionJournal) error {
