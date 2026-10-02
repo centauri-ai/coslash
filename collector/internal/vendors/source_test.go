@@ -184,7 +184,7 @@ func TestNewIndexedParserIndexesFilesOnce(t *testing.T) {
 
 func TestPiPlatformSupport(t *testing.T) {
 	for _, platform := range []string{"darwin", "windows", "linux", "freebsd", ""} {
-		if got := piSupportedOn(platform); got != (platform == "darwin") {
+		if got := piSupportedOn(platform); got != (platform == "darwin" || platform == "windows") {
 			t.Fatalf("Pi support on %s = %t", platform, got)
 		}
 	}
