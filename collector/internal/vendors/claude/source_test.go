@@ -176,6 +176,41 @@ func TestCollectMarksOnlyDesktopSSHMirrorRoots(t *testing.T) {
 	}
 }
 
+func TestCollectPreservesDesktopSSHMirrorIdentityAcrossDuplicateRoots(t *testing.T) {
+	id := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	for _, test := range []struct {
+		name             string
+		mirrorModified   int64
+		ordinaryModified int64
+	}{
+		{name: "newer ordinary root", mirrorModified: 1_000, ordinaryModified: 2_000},
+		{name: "ordinary root wins tie", mirrorModified: 1_000, ordinaryModified: 1_000},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			setClaudeTestHome(t, home)
+			root := ProjectsRoot(home)
+			mirror := filepath.Join(root, "ssh-"+id, id+".jsonl")
+			ordinary := filepath.Join(root, "project", id+".jsonl")
+			writeTranscript(t, mirror, id, "/workspace")
+			writeTranscript(t, ordinary, id, "/workspace")
+			setModifiedTime(t, mirror, test.mirrorModified)
+			setModifiedTime(t, ordinary, test.ordinaryModified)
+
+			parsed, _, err := Collect(0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(parsed) != 1 || parsed[0].LogPath != ordinary {
+				t.Fatalf("parsed roots = %#v, want ordinary root %q", parsed, ordinary)
+			}
+			if !parsed[0].Session.LocalSSHMirror {
+				t.Fatal("deduplicated ordinary root lost its SSH mirror identity")
+			}
+		})
+	}
+}
+
 func writeTranscript(t *testing.T, path, sessionID, cwd string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
