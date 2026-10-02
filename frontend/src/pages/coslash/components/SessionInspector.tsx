@@ -891,6 +891,26 @@ function DisabledLaunchTooltip({ hint, children }: { hint?: string; children: Re
   );
 }
 
+function GrokFreshSessionButton({ detail }: { detail: SessionDetail }) {
+  const { launch, launchError } = useLaunchTerminal(detail);
+  return (
+    <>
+      <Button
+        className="bg-brand text-brand-foreground w-fit p-2 text-xs hover:bg-[color-mix(in_oklch,var(--brand),var(--foreground)_10%)]"
+        onClick={() => launch('new')}
+      >
+        <PlayIcon />
+        <span>Start fresh</span>
+      </Button>
+      {launchError && (
+        <span role="alert" className="text-danger-fg text-xs">
+          {launchError}
+        </span>
+      )}
+    </>
+  );
+}
+
 function ResumeSessionButton({ detail, disabledHint }: { detail: SessionDetail; disabledHint?: string }) {
   const { launch, launchError } = useLaunchTerminal(detail);
   const disabled = resumeDisabled(detail, disabledHint);
@@ -957,7 +977,7 @@ function HandoffSection({
 
   return (
     <div className="@container flex flex-col gap-2">
-      <SectionLabel title="RESUME OR HAND OFF" />
+      <SectionLabel title={detail.agent === 'grok' ? 'RESUME OR START FRESH' : 'RESUME OR HAND OFF'} />
       <div className="bg-coslash-line grid grid-cols-3 gap-px overflow-hidden rounded-lg border @[560px]:grid-cols-5">
         <ReadinessCell label="Context used" value={contextFill?.value} tone={contextFill?.tone} />
         <ReadinessCell label="Compactions" value={String(detail.compactions)} />
@@ -967,17 +987,21 @@ function HandoffSection({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <DirectedHandoffDialog
-          source={detail}
-          disabledHint={
-            !isLocalSession(detail) && detail.agent === 'pi'
-              ? 'Pi launch is available locally only'
-              : !isLocalSession(detail) && !remoteLaunchable
-                ? remoteLaunchHint
-                : undefined
-          }
-          onStarted={onHandoffStarted}
-        />
+        {detail.agent === 'grok' ? (
+          <GrokFreshSessionButton detail={detail} />
+        ) : (
+          <DirectedHandoffDialog
+            source={detail}
+            disabledHint={
+              !isLocalSession(detail) && detail.agent === 'pi'
+                ? 'Pi launch is available locally only'
+                : !isLocalSession(detail) && !remoteLaunchable
+                  ? remoteLaunchHint
+                  : undefined
+            }
+            onStarted={onHandoffStarted}
+          />
+        )}
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={() => void copyBrief()}>
           <span>Copy handoff</span>
         </Button>
