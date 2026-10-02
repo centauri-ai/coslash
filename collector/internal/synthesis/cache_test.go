@@ -156,7 +156,7 @@ func TestManagerDoesNotReuseSynthesisAcrossAgents(t *testing.T) {
 			agent = "claude"
 		}
 		return session.SessionSynthesis{Outcome: agent}, nil
-	}))
+	}), nil)
 	claude := &session.Session{Agent: "claude", ID: "same", SessionDetails: session.SessionDetails{Turns: 6}}
 	if !manager.Ensure(claude, 42) {
 		t.Fatal("first synthesis was not started")
@@ -311,7 +311,7 @@ func TestPiManagerUsesCanonicalRevisionForBackgroundRuns(t *testing.T) {
 	value := &session.Session{Agent: "pi", ID: "SDK/manager identity", LastActivityTime: 42, SessionDetails: session.SessionDetails{Turns: 6, Digest: []session.DigestEntry{{Description: "selected context"}}}}
 	manager := NewManager(runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
 		return session.SessionSynthesis{Outcome: "selected"}, nil
-	}))
+	}), nil)
 	expected := Revision(value)
 	if !manager.Ensure(value, value.LastActivityTime) {
 		t.Fatal("Pi background run not scheduled")

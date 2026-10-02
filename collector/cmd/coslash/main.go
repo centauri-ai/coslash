@@ -110,6 +110,10 @@ func main() {
 	defer runtimeLock.Close()
 
 	settingsStore := settings.Open()
+	accountingStore := startupAccountingStore(settings.Home(), time.Now().UnixMilli())
+	if accountingStore != nil {
+		defer accountingStore.Close()
+	}
 	if err := pi.EnsureExtension(); err != nil {
 		log.Printf("install Pi coSlash extension: %v", err)
 	}
@@ -123,7 +127,8 @@ func main() {
 	} else if settingsState.Persisted {
 		runner, _ = synthesis.NewRunner(settingsState.Config.Synthesis)
 	}
-	mgr := synthesis.NewManager(runner)
+	mgr := synthesis.NewManager(runner, accountingStore)
+	defer mgr.Shutdown()
 	reviewManager := review.NewManager(launch.Review)
 	directedStore, err := newDirectedHandoffStore()
 	if err != nil {
@@ -141,10 +146,10 @@ func main() {
 	if err := synthesis.CleanupScratch(); err != nil {
 		log.Printf("sweep synthesis scratch directories: %v", err)
 	}
-	go mgr.Run(context.Background(), func() ([]*session.Session, error) {
+	go mgr.Run(context.Background(), func(ctx context.Context) ([]*session.Session, error) {
 		now := time.Now()
 		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		return collector.List(context.Background(), today.UnixMilli())
+		return collector.List(ctx, today.UnixMilli())
 	})
 	go cleanupHandoffs(settingsStore)
 	remoteManager, err := newProductionRemoteManager()
@@ -217,6 +222,14 @@ func main() {
 	}
 }
 
+func startupAccountingStore(home string, nowMs int64) *synthesis.AccountingStore {
+	store, err := synthesis.OpenAccountingStore(home, nowMs)
+	if err != nil {
+		log.Printf("synthesis accounting unavailable: %v", err)
+	}
+	return store
+}
+
 func newProductionRemoteManager() (*remote.Manager, error) {
 	return remote.NewProductionManager()
 }
@@ -260,11 +273,15 @@ func routes(
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}
 	api.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Coslash-Synthesis-Cost-Version", mgr.AccountingVersion())
 		if r.URL.Query().Has("id") {
 			handleExactSession(w, r, collector.GetSessionForPreviewByAgent)
 			return
 		}
 		handleList(w, r, mgr, reviewManager, remoteManager)
+	})
+	api.HandleFunc("GET /api/synthesis-costs", func(w http.ResponseWriter, r *http.Request) {
+		handleSynthesisCosts(w, r, mgr)
 	})
 	api.HandleFunc("GET /api/session-detail", func(w http.ResponseWriter, r *http.Request) {
 		handleSessionDetail(w, r, collector.GetSessionDetail, remoteManager)

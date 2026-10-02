@@ -2,8 +2,12 @@ package synthesis
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -12,10 +16,586 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
+type accountingRunner struct {
+	vendor string
+	model  string
+	run    func(context.Context, string) (RunResult, error)
+}
+
+func (r *accountingRunner) Run(ctx context.Context, input string) (RunResult, error) {
+	return r.run(ctx, input)
+}
+func (r *accountingRunner) VendorName() string { return r.vendor }
+func (r *accountingRunner) ModelName() string  { return r.model }
+
+func TestManagerRecordsRoundsInvocationsAndRetry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	calls := 0
+	failing := false
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o"}
+	runner.run = func(_ context.Context, input string) (RunResult, error) {
+		calls++
+		cost := int64(7)
+		result := RunResult{Synthesis: session.SessionSynthesis{Outcome: fmt.Sprintf("part-%d", calls)}, Usage: UsageReport{ReportedCostMicroUSD: &cost, Coverage: "complete"}}
+		if failing {
+			return result, errors.New("paid failure")
+		}
+		if strings.Contains(input, "PARTIAL SYNTHESES") {
+			result.Synthesis.Outcome = "merged"
+		}
+		return result, nil
+	}
+	manager := NewManager(runner, store)
+	manager.now = func() time.Time { return time.UnixMilli(1000) }
+	s := overflowSession()
+	s.ID = "accounted"
+	s.Turns = 6
+	sourceCalls := len(BuildInputs(s))
+	if sourceCalls < 2 {
+		t.Fatal("fixture did not chunk")
+	}
+	for index, revision := range []int64{100, 101} {
+		if !manager.Ensure(s, revision) {
+			t.Fatalf("revision %d not started", revision)
+		}
+		manager.workers.Wait()
+		if manager.AccountingVersion() != fmt.Sprint(index+1) {
+			t.Fatalf("revision %d version = %s", revision, manager.AccountingVersion())
+		}
+	}
+	failing = true
+	if !manager.Ensure(s, 102) {
+		t.Fatal("failure round not started")
+	}
+	manager.workers.Wait()
+	if manager.AccountingVersion() != "3" {
+		t.Fatalf("paid failure version = %s", manager.AccountingVersion())
+	}
+	failing = false
+	manager.failures.Delete(failureKey{agent: s.Agent, id: s.ID, revision: 102})
+	if !manager.Ensure(s, 102) {
+		t.Fatal("retry round not started")
+	}
+	manager.workers.Wait()
+	if manager.AccountingVersion() != "4" {
+		t.Fatalf("identical-summary retry version = %s", manager.AccountingVersion())
+	}
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: s.Agent, SessionID: s.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCalls := int64(3*(sourceCalls+1) + 1)
+	if got.Totals.RoundCount != 4 || got.Totals.InvocationCount != wantCalls || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 7*wantCalls {
+		t.Fatalf("totals = %+v, want 4 rounds %d calls %d microUSD", got.Totals, wantCalls, 7*wantCalls)
+	}
+	if len(got.Rounds) != 4 {
+		t.Fatalf("rounds = %+v", got.Rounds)
+	}
+	revisions := map[int64]int{}
+	failed := 0
+	for _, round := range got.Rounds {
+		revisions[round.SourceRevision]++
+		if round.Outcome == "failed" {
+			failed++
+			if round.Totals.InvocationCount != 1 || round.Totals.KnownCostMicroUSD == nil || *round.Totals.KnownCostMicroUSD != 7 {
+				t.Fatalf("failed paid round = %+v", round)
+			}
+		} else if round.Outcome != "success" || round.Totals.InvocationCount != int64(sourceCalls+1) || !reflect.DeepEqual(round.VendorModels, []VendorModel{{Vendor: "codex", Model: "gpt-4o"}}) {
+			t.Fatalf("successful round = %+v", round)
+		}
+	}
+	if failed != 1 || !reflect.DeepEqual(revisions, map[int64]int{100: 1, 101: 1, 102: 2}) {
+		t.Fatalf("outcomes/revisions = %+v", got.Rounds)
+	}
+	if manager.AccountingVersion() != "4" {
+		t.Fatalf("version = %q", manager.AccountingVersion())
+	}
+	seen := map[string]bool{}
+	cursor := ""
+	for {
+		page, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: s.Agent, SessionID: s.ID, Limit: 2, Cursor: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, round := range page.Rounds {
+			if len(round.ID) != 32 || seen[round.ID] {
+				t.Fatalf("generated round ID = %q", round.ID)
+			}
+			if raw, err := hex.DecodeString(round.ID); err != nil || len(raw) != 16 {
+				t.Fatalf("invalid generated ID %q: %v", round.ID, err)
+			}
+			seen[round.ID] = true
+			rows, err := store.db.Query("SELECT ordinal,phase FROM invocations WHERE round_id=? ORDER BY ordinal", round.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ordinal := 0
+			for rows.Next() {
+				var gotOrdinal int
+				var phase string
+				if err := rows.Scan(&gotOrdinal, &phase); err != nil {
+					t.Fatal(err)
+				}
+				wantPhase := "source"
+				if round.Outcome == "success" && ordinal == sourceCalls {
+					wantPhase = "merge"
+				}
+				if gotOrdinal != ordinal || phase != wantPhase {
+					t.Fatalf("round %s invocation %d = %d %s", round.ID, ordinal, gotOrdinal, phase)
+				}
+				ordinal++
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+			rows.Close()
+		}
+		if page.NextCursor == nil {
+			break
+		}
+		cursor = *page.NextCursor
+	}
+	if len(seen) != 4 {
+		t.Fatalf("pagination returned %d generated IDs", len(seen))
+	}
+}
+
+func TestManagerSnapshotsInputAndRunnerForActiveWork(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	started := make(chan string, 1)
+	release := make(chan struct{})
+	runner := &accountingRunner{vendor: "claude", model: "gpt-4o"}
+	runner.run = func(_ context.Context, input string) (RunResult, error) {
+		started <- input
+		<-release
+		return RunResult{Synthesis: session.SessionSynthesis{Outcome: "done"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(9), Coverage: "complete"}}, nil
+	}
+	manager := NewManager(runner, store)
+	s := &session.Session{Agent: "claude", ID: "original", SessionDetails: session.SessionDetails{Turns: 6, Digest: []session.DigestEntry{{Turn: 1, Description: "original-digest"}}}}
+	if !manager.Ensure(s, 42) {
+		t.Fatal("not started")
+	}
+	input := <-started
+	s.ID = "changed"
+	s.Digest[0].Description = "changed-digest"
+	runner.vendor, runner.model = "cursor", "changed-model"
+	manager.SetRunner(nil)
+	close(release)
+	manager.workers.Wait()
+	if !strings.Contains(input, "original-digest") || strings.Contains(input, "changed-digest") {
+		t.Fatalf("input = %q", input)
+	}
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "claude", SessionID: "original"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Totals.RoundCount != 1 || len(got.Rounds) != 1 || !reflect.DeepEqual(got.Rounds[0].VendorModels, []VendorModel{{Vendor: "claude", Model: "gpt-4o"}}) {
+		t.Fatalf("snapshot = %+v", got)
+	}
+}
+
+func TestManagerQueuedWorkUsesCurrentRunner(t *testing.T) {
+	for _, disabled := range []bool{true, false} {
+		name := "switch"
+		if disabled {
+			name = "disable"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("COSLASH_HOME", home)
+			store, err := OpenAccountingStore(home, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			oldStarted := make(chan struct{}, defaultConcurrency+1)
+			release := make(chan struct{})
+			old := &accountingRunner{vendor: "codex", model: "old", run: func(context.Context, string) (RunResult, error) {
+				oldStarted <- struct{}{}
+				<-release
+				return RunResult{Synthesis: session.SessionSynthesis{Outcome: "old"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(9), Coverage: "complete"}}, nil
+			}}
+			newCalls := make(chan struct{}, 1)
+			newRunner := &accountingRunner{vendor: "claude", model: "new", run: func(context.Context, string) (RunResult, error) {
+				newCalls <- struct{}{}
+				return RunResult{Synthesis: session.SessionSynthesis{Outcome: "new"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(7), Coverage: "complete"}}, nil
+			}}
+			manager := NewManager(old, store)
+			for i := range cap(manager.slots) {
+				if !manager.Ensure(&session.Session{Agent: "codex", ID: fmt.Sprintf("active-%d", i), SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+					t.Fatalf("active work %d not started", i)
+				}
+			}
+			for range cap(manager.slots) {
+				<-oldStarted
+			}
+			if !manager.Ensure(&session.Session{Agent: "codex", ID: "queued", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+				t.Fatal("work not queued")
+			}
+			if disabled {
+				manager.SetRunner(nil)
+			} else {
+				manager.SetRunner(newRunner)
+			}
+			close(release)
+			manager.workers.Wait()
+			if len(oldStarted) != 0 {
+				t.Fatal("queued work called superseded runner")
+			}
+			active, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "active-0"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(active.Rounds) != 1 || !reflect.DeepEqual(active.Rounds[0].VendorModels, []VendorModel{{Vendor: "codex", Model: "old"}}) {
+				t.Fatalf("active work changed runner identity: %+v", active)
+			}
+			queued, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "queued"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if disabled {
+				if len(newCalls) != 0 || queued.Totals.RoundCount != 0 || manager.Lookup("codex", "queued", 42) != nil || manager.Failure("codex", "queued", 42) != "" || manager.AccountingUnavailable() || manager.AccountingVersion() != "4" {
+					t.Fatalf("disabled queued work ran: calls=%d costs=%+v version=%s", len(newCalls), queued, manager.AccountingVersion())
+				}
+			} else {
+				summary := manager.Lookup("codex", "queued", 42)
+				if len(newCalls) != 1 || len(queued.Rounds) != 1 || !reflect.DeepEqual(queued.Rounds[0].VendorModels, []VendorModel{{Vendor: "claude", Model: "new"}}) || summary == nil || summary.Outcome != "new" || manager.AccountingVersion() != "5" {
+					t.Fatalf("switched queued work: calls=%d costs=%+v summary=%+v version=%s", len(newCalls), queued, summary, manager.AccountingVersion())
+				}
+			}
+		})
+	}
+}
+
+func int64Pointer(n int64) *int64 { return &n }
+
+func TestManagerShutdownKeepsPaidCancellationWithoutPublishingSummary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o"}
+	runner.run = func(ctx context.Context, _ string) (RunResult, error) {
+		close(started)
+		<-ctx.Done()
+		return RunResult{Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(11), Coverage: "complete"}}, ctx.Err()
+	}
+	manager := NewManager(runner, store)
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "paid", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	<-started
+	manager.Shutdown()
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "paid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Rounds) != 1 || got.Rounds[0].Outcome != "interrupted" || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 11 || manager.AccountingVersion() != "1" || manager.Lookup("codex", "paid", 42) != nil {
+		t.Fatalf("cancelled paid round = %+v, version=%s", got, manager.AccountingVersion())
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := OpenAccountingStore(home, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recovered.Close()
+	after, err := recovered.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "paid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Totals.KnownCostMicroUSD == nil || *after.Totals.KnownCostMicroUSD != 11 || after.Totals.RoundCount != 1 {
+		t.Fatalf("recovered paid round = %+v", after)
+	}
+}
+
+func TestManagerMalformedUsageDoesNotDropSummaryOrHideAccountingFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) {
+		return RunResult{Synthesis: session.SessionSynthesis{Outcome: "valid"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(-1)}}, nil
+	}}
+	manager := NewManager(runner, store)
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "malformed", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	manager.workers.Wait()
+	if got := manager.Lookup("codex", "malformed", 42); got == nil || got.Outcome != "valid" {
+		t.Fatalf("valid summary lost: %+v", got)
+	}
+	if !manager.AccountingUnavailable() || manager.AccountingVersion() != "1" {
+		t.Fatalf("accounting state: unavailable=%t version=%s", manager.AccountingUnavailable(), manager.AccountingVersion())
+	}
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "malformed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Rounds) != 1 || got.Rounds[0].Outcome != "running" || got.Totals.UnknownInvocationCount != 1 {
+		t.Fatalf("unresolved accounting = %+v", got)
+	}
+}
+
+func TestManagerCacheFailureDoesNotFinalizeRoundAsSuccess(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	if err := os.WriteFile(SummariesDir(), []byte("blocked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) {
+		return RunResult{Synthesis: session.SessionSynthesis{Outcome: "valid"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(5), Coverage: "complete"}}, nil
+	}}
+	manager := NewManager(runner, store)
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "cache-fail", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	manager.workers.Wait()
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "cache-fail"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Rounds) != 1 || got.Rounds[0].Outcome != "failed" || *got.Totals.KnownCostMicroUSD != 5 || manager.Lookup("codex", "cache-fail", 42) != nil {
+		t.Fatalf("unpublished result = %+v", got)
+	}
+}
+
+func TestManagerQueuedCancellationDoesNotCreateRoundOrCallRunner(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	called := make(chan struct{}, 1)
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) {
+		called <- struct{}{}
+		return RunResult{}, nil
+	}}
+	manager := NewManager(runner, store)
+	for range cap(manager.slots) {
+		manager.slots <- struct{}{}
+	}
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "queued", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("work not queued")
+	}
+	before, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Totals.RoundCount != 0 {
+		t.Fatalf("queued work created round: %+v", before)
+	}
+	manager.Shutdown()
+	select {
+	case <-called:
+		t.Fatal("runner called for canceled queued work")
+	default:
+	}
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Totals.RoundCount != 0 || manager.AccountingUnavailable() || manager.AccountingVersion() != "0" {
+		t.Fatalf("queued cancellation = %+v, unavailable=%t version=%s", got, manager.AccountingUnavailable(), manager.AccountingVersion())
+	}
+}
+
+func TestManagerCanceledAfterSlotDoesNotBeginAccounting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	called := false
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) { called = true; return RunResult{}, nil }}
+	manager := NewManager(runner, store)
+	manager.cancelWork()
+	manager.execute(&session.Session{Agent: "codex", ID: "canceled", SessionDetails: session.SessionDetails{Turns: 6}}, 42, runner, "codex", "gpt-4o", "codex", "canceled")
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "canceled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called || got.Totals.RoundCount != 0 || manager.AccountingUnavailable() || manager.AccountingVersion() != "0" {
+		t.Fatalf("post-slot cancellation: called=%t costs=%+v unavailable=%t version=%s", called, got, manager.AccountingUnavailable(), manager.AccountingVersion())
+	}
+}
+
+func TestManagerShutdownWaitsForSweep(t *testing.T) {
+	manager := NewManager(&accountingRunner{vendor: "codex", model: "gpt-4o"}, nil)
+	entered := make(chan struct{})
+	exited := make(chan struct{})
+	go func() {
+		manager.Run(context.Background(), func(ctx context.Context) ([]*session.Session, error) {
+			close(entered)
+			<-ctx.Done()
+			close(exited)
+			return nil, ctx.Err()
+		})
+	}()
+	<-entered
+	manager.Shutdown()
+	select {
+	case <-exited:
+	default:
+		t.Fatal("shutdown returned before sweep exited")
+	}
+}
+
+func TestManagerStartWriteFailureStaysUnavailableAfterRestart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_start BEFORE INSERT ON invocations BEGIN SELECT RAISE(FAIL,'injected start failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) {
+		return RunResult{Synthesis: session.SessionSynthesis{Outcome: "valid"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(17), Coverage: "complete"}}, nil
+	}}
+	manager := NewManager(runner, store)
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "start-failed", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	manager.workers.Wait()
+	if got := manager.Lookup("codex", "start-failed", 42); got == nil || got.Outcome != "valid" {
+		t.Fatalf("summary = %+v", got)
+	}
+	if _, err := store.db.Exec(`DROP TRIGGER fail_start`); err != nil {
+		t.Fatal(err)
+	}
+	manager.Shutdown()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenAccountingStore(home, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	fresh := NewManager(nil, reopened)
+	if !fresh.AccountingUnavailable() {
+		t.Fatal("missing paid invocation was shown as complete after restart")
+	}
+	if _, err := reopened.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "start-failed"}); !errors.Is(err, ErrAccountingIncomplete) {
+		t.Fatalf("cost read error = %v, want durable incomplete marker", err)
+	}
+}
+
+func TestManagerRetriesStartAfterTransientFailure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_once BEFORE INSERT ON invocations BEGIN SELECT RAISE(FAIL,'injected start failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) {
+		if _, err := store.db.Exec(`DROP TRIGGER fail_once`); err != nil {
+			t.Fatal(err)
+		}
+		return RunResult{Synthesis: session.SessionSynthesis{Outcome: "valid"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(19), Coverage: "complete"}}, nil
+	}}
+	manager := NewManager(runner, store)
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "retry-start", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	manager.workers.Wait()
+	got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "retry-start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Totals.InvocationCount != 1 || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 19 || manager.AccountingUnavailable() {
+		t.Fatalf("recovered start = %+v unavailable=%t", got, manager.AccountingUnavailable())
+	}
+}
+
+func TestManagerStoreWaitDoesNotHoldLifecycleLock(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("COSLASH_HOME", home)
+	store, err := OpenAccountingStore(home, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manager := NewManager(&accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) { return RunResult{}, nil }}, store)
+	defer manager.Shutdown()
+	conn, err := store.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "blocked", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not queued")
+	}
+	for store.db.Stats().WaitCount == 0 {
+		runtime.Gosched()
+	}
+	if !manager.workMu.TryLock() {
+		t.Fatal("storage wait held lifecycle lock")
+	}
+	manager.workMu.Unlock()
+}
+
+func TestManagerCancelsDetailProbeBeforeRunner(t *testing.T) {
+	oldProbe := probeBranchDrift
+	defer func() { probeBranchDrift = oldProbe }()
+	entered := make(chan struct{})
+	probeBranchDrift = func(ctx context.Context, _ string, _ *string) *session.GitDrift {
+		close(entered)
+		<-ctx.Done()
+		return nil
+	}
+	called := false
+	runner := &accountingRunner{vendor: "codex", model: "gpt-4o", run: func(context.Context, string) (RunResult, error) { called = true; return RunResult{}, nil }}
+	manager := NewManager(runner, nil)
+	branch := "feature"
+	if !manager.Ensure(&session.Session{Agent: "codex", ID: "probe", Branch: &branch, WorkingDirectory: t.TempDir(), SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+		t.Fatal("not started")
+	}
+	<-entered
+	manager.Shutdown()
+	if called {
+		t.Fatal("runner called after detail probe cancellation")
+	}
+}
+
 func TestManagerRunSkipsListUntilRunnerConfigured(t *testing.T) {
-	manager := NewManager(nil)
+	manager := NewManager(nil, nil)
 	listCalls := 0
-	list := func() ([]*session.Session, error) {
+	list := func(context.Context) ([]*session.Session, error) {
 		listCalls++
 		return nil, nil
 	}
@@ -30,7 +610,7 @@ func TestManagerRunSkipsListUntilRunnerConfigured(t *testing.T) {
 	manager.SetRunner(runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
 		return session.SessionSynthesis{}, nil
 	}))
-	manager.sweep(list)
+	manager.sweep(context.Background(), list)
 	if listCalls != 1 {
 		t.Fatalf("list called %d times after configuring a runner", listCalls)
 	}
@@ -267,16 +847,72 @@ func TestSweepUsesListRevisionForComposedNonPiSession(t *testing.T) {
 	manager := NewManager(runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
 		<-release
 		return session.SessionSynthesis{}, errors.New("unexpected resynthesis")
-	}))
+	}), nil)
 	manager.now = func() time.Time { return time.UnixMilli(200) }
 	if err := manager.cache.Store(value.Agent, value.ID, Record{Revision: value.LastActivityTime, Synthesis: session.SessionSynthesis{Outcome: "ready"}}); err != nil {
 		t.Fatal(err)
 	}
-	manager.sweep(func() ([]*session.Session, error) { return []*session.Session{value}, nil })
+	manager.sweep(context.Background(), func(context.Context) ([]*session.Session, error) { return []*session.Session{value}, nil })
 	if _, pending := manager.inFlight.Load(cacheKey{agent: value.Agent, id: value.ID}); pending {
 		t.Fatal("sweep missed the completed synthesis stored under the list revision")
 	}
 	if got := manager.Lookup(value.Agent, value.ID, value.LastActivityTime); got == nil || got.Outcome != "ready" {
 		t.Fatalf("list synthesis = %#v", got)
+	}
+}
+
+func TestPiSynthesisKeepsSharedAccountingReadable(t *testing.T) {
+	for _, tc := range []struct{ agent, id, vendor string }{
+		{"pi", "pi-session", "claude"},
+		{"pi", "SDK/opaque identity", "claude"},
+		{"codex", "pi-backend", "pi"},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("COSLASH_HOME", home)
+			store, err := OpenAccountingStore(home, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			price := int64(19)
+			paid := &accountingRunner{vendor: "codex", model: "test", run: func(context.Context, string) (RunResult, error) {
+				return RunResult{Synthesis: session.SessionSynthesis{Outcome: "ready"}, Usage: UsageReport{ReportedCostMicroUSD: &price, Coverage: "complete"}}, nil
+			}}
+			manager := NewManager(paid, store)
+			t.Cleanup(func() { manager.Shutdown(); store.Close() })
+			run := func(agent, id string) {
+				t.Helper()
+				value := &session.Session{Agent: agent, ID: id, LastActivityTime: 42, SessionDetails: session.SessionDetails{Turns: 6, Digest: []session.DigestEntry{{Description: "facts"}}}}
+				if !manager.Ensure(value, Revision(value)) {
+					t.Fatal("not scheduled")
+				}
+				manager.workers.Wait()
+			}
+			run("codex", "before")
+			manager.SetRunner(&accountingRunner{vendor: tc.vendor, model: "test", run: func(context.Context, string) (RunResult, error) {
+				return RunResult{Synthesis: session.SessionSynthesis{Outcome: "ready"}, Usage: UsageReport{Coverage: "unknown"}}, nil
+			}})
+			run(tc.agent, tc.id)
+			manager.SetRunner(paid)
+			run("codex", "after")
+			manager.Shutdown()
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			store, err = OpenAccountingStore(home, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager = NewManager(nil, store)
+			since, until := int64(0), maxSafeInteger
+			got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", SinceMs: &since, UntilMs: &until})
+			if err != nil || manager.AccountingUnavailable() || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 38 || got.Totals.InvocationCount != 3 || got.Totals.UnknownInvocationCount != 1 {
+				t.Fatalf("shared accounting after Pi and restart: %+v, %v", got, err)
+			}
+			detail, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: tc.agent, SessionID: tc.id})
+			if err != nil || detail.Totals.RoundCount != 1 || detail.Totals.UnknownInvocationCount != 1 || detail.Totals.KnownCostMicroUSD != nil {
+				t.Fatalf("unknown Pi call: %+v, %v", detail, err)
+			}
+		})
 	}
 }

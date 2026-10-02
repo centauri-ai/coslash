@@ -43,7 +43,7 @@ func TestDirectedHandoffRejectsEmptyCustomRequestAndPersistsLaunchFailure(t *tes
 	}
 	settingsStore := settings.Open()
 	remoteManager := remote.NewManager(remote.Options{})
-	synthesisManager := synthesis.NewManager(nil)
+	synthesisManager := synthesis.NewManager(nil, nil)
 	for _, test := range []struct {
 		request string
 		status  int
@@ -147,7 +147,7 @@ func TestPiDirectedHandoffUsesCurrentBranchSynthesis(t *testing.T) {
 		}
 		body := `{"sourceId":"local","agent":"` + tc.agent + `","id":"origin","targetAgent":"claude","kind":"custom","request":"Continue"}`
 		response := httptest.NewRecorder()
-		handleDirectedHandoffStart(response, httptest.NewRequest(http.MethodPost, "/api/directed-handoffs", strings.NewReader(body)), store, settings.Open(), remote.NewManager(remote.Options{}), synthesis.NewManager(nil))
+		handleDirectedHandoffStart(response, httptest.NewRequest(http.MethodPost, "/api/directed-handoffs", strings.NewReader(body)), store, settings.Open(), remote.NewManager(remote.Options{}), synthesis.NewManager(nil, nil))
 		if response.Code != http.StatusAccepted {
 			t.Fatalf("%s: status %d %s", tc.agent, response.Code, response.Body.String())
 		}
