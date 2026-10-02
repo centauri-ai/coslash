@@ -860,3 +860,59 @@ func TestSweepUsesListRevisionForComposedNonPiSession(t *testing.T) {
 		t.Fatalf("list synthesis = %#v", got)
 	}
 }
+
+func TestPiSynthesisKeepsSharedAccountingReadable(t *testing.T) {
+	for _, tc := range []struct{ agent, id, vendor string }{
+		{"pi", "pi-session", "claude"},
+		{"pi", "SDK/opaque identity", "claude"},
+		{"codex", "pi-backend", "pi"},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("COSLASH_HOME", home)
+			store, err := OpenAccountingStore(home, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			price := int64(19)
+			paid := &accountingRunner{vendor: "codex", model: "test", run: func(context.Context, string) (RunResult, error) {
+				return RunResult{Synthesis: session.SessionSynthesis{Outcome: "ready"}, Usage: UsageReport{ReportedCostMicroUSD: &price, Coverage: "complete"}}, nil
+			}}
+			manager := NewManager(paid, store)
+			t.Cleanup(func() { manager.Shutdown(); store.Close() })
+			run := func(agent, id string) {
+				t.Helper()
+				value := &session.Session{Agent: agent, ID: id, LastActivityTime: 42, SessionDetails: session.SessionDetails{Turns: 6, Digest: []session.DigestEntry{{Description: "facts"}}}}
+				if !manager.Ensure(value, Revision(value)) {
+					t.Fatal("not scheduled")
+				}
+				manager.workers.Wait()
+			}
+			run("codex", "before")
+			manager.SetRunner(&accountingRunner{vendor: tc.vendor, model: "test", run: func(context.Context, string) (RunResult, error) {
+				return RunResult{Synthesis: session.SessionSynthesis{Outcome: "ready"}, Usage: UsageReport{Coverage: "unknown"}}, nil
+			}})
+			run(tc.agent, tc.id)
+			manager.SetRunner(paid)
+			run("codex", "after")
+			manager.Shutdown()
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			store, err = OpenAccountingStore(home, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager = NewManager(nil, store)
+			since, until := int64(0), maxSafeInteger
+			got, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", SinceMs: &since, UntilMs: &until})
+			if err != nil || manager.AccountingUnavailable() || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 38 || got.Totals.InvocationCount != 3 || got.Totals.UnknownInvocationCount != 1 {
+				t.Fatalf("shared accounting after Pi and restart: %+v, %v", got, err)
+			}
+			detail, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: tc.agent, SessionID: tc.id})
+			if err != nil || detail.Totals.RoundCount != 1 || detail.Totals.UnknownInvocationCount != 1 || detail.Totals.KnownCostMicroUSD != nil {
+				t.Fatalf("unknown Pi call: %+v, %v", detail, err)
+			}
+		})
+	}
+}
