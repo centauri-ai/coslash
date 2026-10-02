@@ -3,11 +3,18 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+)
+
+var desktopSSHMirrorSessionID = regexp.MustCompile(
+	`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
 )
 
 func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
@@ -15,7 +22,15 @@ func Collect(since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, e
 }
 
 func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	files, err := FilesContext(ctx)
+	projectsRoot, err := Root()
+	if err != nil {
+		return nil, nil, err
+	}
+	files, err := FilesSourceContext(ctx, vendors.LocalReadSource, projectsRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	mirrorIDs, err := localSSHMirrorIDs(ctx, projectsRoot, files)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -35,7 +50,45 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 		}
 	}
 	parsed, err := parseFilesContext(ctx, files)
+	if err == nil {
+		markLocalSSHMirrors(parsed, mirrorIDs)
+	}
 	return parsed, metadata, err
+}
+
+func localSSHMirrorIDs(ctx context.Context, projectsRoot string, files []string) (map[string]struct{}, error) {
+	ids := make(map[string]struct{})
+	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		id := IDFromPath(file)
+		if ParentIDFromPath(file) == "" && isDesktopSSHMirrorPath(projectsRoot, file, id) {
+			ids[id] = struct{}{}
+		}
+	}
+	return ids, nil
+}
+
+func markLocalSSHMirrors(parsed []*vendors.ParsedSession, mirrorIDs map[string]struct{}) {
+	for _, item := range parsed {
+		if item == nil || item.Session == nil || item.ParentID != "" {
+			continue
+		}
+		_, item.Session.LocalSSHMirror = mirrorIDs[item.Session.ID]
+	}
+}
+
+func isDesktopSSHMirrorPath(projectsRoot, path, sessionID string) bool {
+	if !desktopSSHMirrorSessionID.MatchString(sessionID) {
+		return false
+	}
+	relative, err := filepath.Rel(filepath.Clean(projectsRoot), filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	return len(parts) == 2 && parts[0] == "ssh-"+sessionID && parts[1] == sessionID+".jsonl"
 }
 
 // RemoteMetadata loads best-effort live/name metadata for a remote source

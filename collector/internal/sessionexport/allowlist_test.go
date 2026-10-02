@@ -45,6 +45,7 @@ var census = map[string]decision{
 	"LastActivityTime":    {true, "session.lastActivityAtMs"},
 	"SynthesisRevision":   {false, "local synthesis revision"},
 	"ActivityFallback":    {false, "local collection-time fallback marker"},
+	"LocalSSHMirror":      {false, "local Desktop SSH mirror marker"},
 	"DetailRevision":      {false, "local detail cache revision"},
 	"Entrypoint":          {true, "bounded session.entrypoint"},
 	"ReviewPending":       {false, "local review state"},
