@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	_ "modernc.org/sqlite"
@@ -177,7 +178,7 @@ func (s *AccountingStore) initialize(ctx context.Context, nowMs int64) error {
 func (s *AccountingStore) Close() error { return errors.Join(s.db.Close(), s.lock.Close()) }
 
 func (s *AccountingStore) BeginRound(ctx context.Context, round Round) error {
-	if !validID(round.ID) || round.SourceID != "local" || !validAgentName(round.Agent) || !validID(round.SessionID) || !safeMs(round.SourceRevision) || !safeMs(round.StartedAtMs) {
+	if !validID(round.ID) || round.SourceID != "local" || !validAgentName(round.Agent) || !validAccountingSessionID(round.Agent, round.SessionID) || !safeMs(round.SourceRevision) || !safeMs(round.StartedAtMs) {
 		return fmt.Errorf("invalid round")
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO rounds(round_id,source_id,agent,session_id,source_revision,started_at_ms,outcome) VALUES(?,?,?,?,?,?,'running')`, round.ID, round.SourceID, round.Agent, round.SessionID, round.SourceRevision, round.StartedAtMs)
@@ -297,7 +298,7 @@ func (s *AccountingStore) FinishRound(ctx context.Context, roundID string, finis
 
 func (s *AccountingStore) ReadCosts(ctx context.Context, query CostQuery) (CostResponse, error) {
 	inspector := query.Agent != "" || query.SessionID != ""
-	if query.SourceID != "local" || (inspector && (!validAgentName(query.Agent) || !validID(query.SessionID) || query.SinceMs != nil || query.UntilMs != nil)) || (!inspector && (query.SinceMs == nil || query.UntilMs == nil || query.Cursor != "")) || query.Limit < 0 || query.Limit > 50 {
+	if query.SourceID != "local" || (inspector && (!validAgentName(query.Agent) || !validAccountingSessionID(query.Agent, query.SessionID) || query.SinceMs != nil || query.UntilMs != nil)) || (!inspector && (query.SinceMs == nil || query.UntilMs == nil || query.Cursor != "")) || query.Limit < 0 || query.Limit > 50 {
 		return CostResponse{}, fmt.Errorf("invalid cost query")
 	}
 	if !inspector && (!safeMs(*query.SinceMs) || !safeMs(*query.UntilMs) || *query.SinceMs >= *query.UntilMs) {
@@ -596,7 +597,21 @@ func validInvocationOutcome(s string) bool {
 	return s == "success" || s == "failed" || s == "interrupted"
 }
 func validAgentName(s string) bool {
-	return s == "claude" || s == "codex" || s == "opencode" || s == "cursor"
+	return s == "claude" || s == "codex" || s == "opencode" || s == "cursor" || s == "pi"
+}
+func validAccountingSessionID(agent, id string) bool {
+	if agent != "pi" {
+		return validID(id)
+	}
+	if id == "" || len(id) > 512 || !utf8.ValidString(id) {
+		return false
+	}
+	for _, r := range id {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 func validID(s string) bool {
 	if s == "" || s == "." || s == ".." || len(s) > 512 || strings.TrimSpace(s) != s || strings.ContainsAny(s, "/\\") {
