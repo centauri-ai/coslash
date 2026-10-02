@@ -817,6 +817,9 @@ func cursorDeleteLoadRecord(ctx context.Context, home, path, id string) (*cursor
 	if _, exists := record.Family[id]; !exists {
 		return nil, nil, ErrDeleteUnverified
 	}
+	if _, exists := record.Family[record.Family[id]]; exists {
+		return nil, nil, ErrDeleteUnverified
+	}
 	for child, parent := range record.Family {
 		if parent == child || canonicalCursorID(child) != child || !transcriptIDPattern.MatchString(child) || (parent != "" && !transcriptIDPattern.MatchString(parent)) {
 			return nil, nil, ErrDeleteUnverified

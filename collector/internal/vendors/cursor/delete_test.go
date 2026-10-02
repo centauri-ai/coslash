@@ -1129,3 +1129,54 @@ func TestDeleteCursorNestedStorePayload(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteCursorPendingRootParent(t *testing.T) {
+	for _, cyclic := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cyclic=%t", cyclic), func(t *testing.T) {
+			home := deleteReviewHome(t)
+			root := deleteFixture(t, home, deleteID, deleteNeighbor)
+			child := deleteFixture(t, home, deleteChild, deleteID)
+			neighbor := deleteFixture(t, home, deleteNeighbor, "")
+			plan, err := cursorDeleteInventory(context.Background(), home, deleteID, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := &cursorDeleteRecord{ID: deleteID, Family: plan.Family, Files: plan.Files}
+			if cyclic {
+				record.Family[deleteID] = deleteChild
+			}
+			path := filepath.Join(home, ".coslash", "deletions", "cursor", deleteID+".json")
+			if _, err := cursorDeleteSaveRecord(home, path, record); err != nil {
+				t.Fatal(err)
+			}
+			// A retry must validate the retained graph even after both stores are gone.
+			for _, store := range []string{root, child} {
+				if err := os.Remove(store); err != nil {
+					t.Fatal(err)
+				}
+			}
+			loaded, _, err := cursorDeleteLoadRecord(context.Background(), home, path, deleteID)
+			if cyclic {
+				if !errors.Is(err, ErrDeleteUnverified) {
+					t.Fatalf("retained root cycle accepted: %v", err)
+				}
+				if err := deleteSession(context.Background(), home, deleteID, closedCursor, func(string) error { t.Fatal("mutation before cycle refusal"); return nil }); !errors.Is(err, ErrDeleteUnverified) {
+					t.Fatal(err)
+				}
+			} else {
+				if err != nil || loaded.Family[deleteID] != deleteNeighbor {
+					t.Fatalf("external parent rejected: %v", err)
+				}
+				if err := deleteSession(context.Background(), home, deleteID, closedCursor, nil); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("retry record remains: %v", err)
+				}
+			}
+			if _, err := os.Stat(neighbor); err != nil {
+				t.Fatalf("external parent removed: %v", err)
+			}
+		})
+	}
+}
