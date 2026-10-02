@@ -22,7 +22,7 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | Rebased onto T1. Head `0cafa753`. PR not opened. |
 | T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | Rebased onto `cvu/grok-t2-t4` at `fdab052b`. Head `d20520b5`. Unique commits are the vendor chip, diagnostics label, and detail allow-list. PR not opened. |
 
-**Next action:** Draft pull requests are open and linear. Do not mark them ready. The integration report's four gaps are fixed on the stack: `GROK_HOME` on T4 `631ad408`, duration and timeline on T2 `a03c25fc`, and the plain fresh-session button on T5 `a4ef43aa`.
+**Next action:** Draft pull requests are open and linear. Do not mark them ready. Retest gaps are fixed on T2 `ed287810`: timeline turns start at 1, and plan and recap text stay whole. Later heads are T4 `ee6afd8f`, T3 `b1ddc3fc`, T5 `6ad3085e`.
 
 - https://github.com/centauri-ai/coslash/pull/386 T1 `cvu/grok-t1-parse` into `cvu/speckle-direction-4ceb2f68`
 - https://github.com/centauri-ai/coslash/pull/387 T2 `cvu/grok-t2-enrich` into `cvu/grok-t1-parse`
