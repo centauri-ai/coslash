@@ -68,7 +68,7 @@ func attachSubagents(parsed []*vendors.ParsedSession) {
 			}
 			child.Session.ToolUses = max(child.Session.ToolUses, meta.ToolCalls)
 			parent.Session.Digest = append(parent.Session.Digest, session.DigestEntry{
-				Category: session.DigestSubagent, Description: meta.Description, SpawnKey: child.Session.ID,
+				Turn: digestTurn(parent.Session.Digest), Category: session.DigestSubagent, Description: meta.Description, SpawnKey: child.Session.ID,
 			})
 		}
 	}
