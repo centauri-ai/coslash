@@ -71,6 +71,79 @@ func TestLocalCommandJoinExecutesPowerShellLauncherWithLiteralArguments(t *testi
 	}
 }
 
+func TestPiWindowsPromptAndHandoffUsePrivateFiles(t *testing.T) {
+	if _, err := exec.LookPath("powershell.exe"); err != nil {
+		t.Skip("Windows PowerShell is not installed")
+	}
+	directory := t.TempDir()
+	home := filepath.Join(directory, "coSlash's home")
+	t.Setenv("COSLASH_HOME", home)
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(directory, "Pi's agent"))
+	t.Setenv("PI_CODING_AGENT_SESSION_DIR", filepath.Join(directory, "Pi's sessions"))
+	cli := filepath.Join(directory, "fake pi.cmd")
+	capture := filepath.Join(directory, "capture.txt")
+	script := "@echo off\r\nsetlocal\r\n" +
+		"> \"" + capture + "\" echo %*\r\n" +
+		"set \"prompt=%~4\"\r\n" +
+		">> \"" + capture + "\" type \"%prompt:~1%\"\r\n" +
+		">> \"" + capture + "\" type \"%COSLASH_PI_HANDOFF_FILE%\"\r\n" +
+		">> \"" + capture + "\" echo %COSLASH_HOME%\r\n" +
+		">> \"" + capture + "\" echo %PI_CODING_AGENT_DIR%\r\n" +
+		">> \"" + capture + "\" echo %PI_CODING_AGENT_SESSION_DIR%\r\n"
+	if err := os.WriteFile(cli, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command, path, err := localPiNewCommand(cli, "private background", "private request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(command, "private background") || strings.Contains(command, "private request") {
+		t.Fatal("private content leaked into terminal command")
+	}
+	out, err := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Pi command: %v\n%s", err, out)
+	}
+	got, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatalf("read capture: %v\n%s", err, out)
+	}
+	for _, want := range []string{"@" + path, "private request", "private background", home, os.Getenv("PI_CODING_AGENT_DIR"), os.Getenv("PI_CODING_AGENT_SESSION_DIR")} {
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("capture does not contain %q: %s", want, got)
+		}
+	}
+	for _, staged := range []string{path, path + ".context"} {
+		if _, err := os.Stat(staged); !os.IsNotExist(err) {
+			t.Fatalf("private file remains: %s, %v", staged, err)
+		}
+	}
+}
+
+func TestPiWindowsHandoffCleansUpAfterChildFailure(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
+	cli := filepath.Join(t.TempDir(), "failed pi.cmd")
+	marker := filepath.Join(t.TempDir(), "started.txt")
+	if err := os.WriteFile(cli, []byte("@echo off\r\n> \""+marker+"\" echo started\r\nexit /b 7\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command, path, err := localPiNewCommand(cli, "private background", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command).CombinedOutput()
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("failed Pi child did not run: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("private handoff remains after child failure: %v", err)
+	}
+}
+
 func TestWindowsTerminalAvailabilityRequiresPowerShell(t *testing.T) {
 	originalLookPath := windowsLookPath
 	t.Cleanup(func() { windowsLookPath = originalLookPath })
