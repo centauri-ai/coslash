@@ -95,7 +95,7 @@ func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 		options = append(options, HandoffTargetOption{Agent: vendors.AgentPi, Label: "Pi", Entrypoint: "pi-tui", Automatic: true})
 	}
 	for i := range options {
-		if !securePromptAvailable() {
+		if !securePromptAvailable() && !(runtime.GOOS == "windows" && options[i].Entrypoint == "pi-tui") {
 			continue
 		}
 		switch options[i].Entrypoint {
@@ -693,6 +693,9 @@ func writeHandoffFile(contents string) (string, error) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", fmt.Errorf("launch: securing handoff directory: %w", err)
 	}
+	if err := protectHandoffDirectory(dir); err != nil {
+		return "", fmt.Errorf("launch: securing handoff directory: %w", err)
+	}
 	file, err := os.CreateTemp(dir, "handoff-*")
 	if err != nil {
 		return "", fmt.Errorf("launch: creating handoff file: %w", err)
@@ -704,6 +707,9 @@ func writeHandoffFile(contents string) (string, error) {
 			_ = os.Remove(file.Name())
 		}
 	}()
+	if err := protectHandoffFile(file); err != nil {
+		return "", fmt.Errorf("launch: securing handoff file: %w", err)
+	}
 	if _, err := file.WriteString(contents); err != nil {
 		return "", fmt.Errorf("launch: writing handoff context: %w", err)
 	}
