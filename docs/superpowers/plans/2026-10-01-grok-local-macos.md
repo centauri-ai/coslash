@@ -16,11 +16,11 @@ A new orchestrator reads this section first and continues from **Next action**. 
 
 | Task | Status | Workspace | Branch | Terminal | Review | Notes |
 |---|---|---|---|---|---|---|
-| T1 | completed | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | `af16d41a` and fix `d3237332`. 13 files, 438 production lines, 2 commits. PR not opened. |
-| T2 | completed | `377101d2-599f-4f16-875f-a0ce27035511` | `cvu/grok-t2-enrich` | `7007053f-3806-4ea5-a772-c3b036475a09` | done | Fix `e7460e1e` on top of `3b027801`. No second review. PR not opened. |
-| T3 | completed | `cd443442-32e2-42dc-af23-d2af34f8afe2` | `cvu/grok-t3-synthesis` | `2a4e1a86-97ab-4894-8310-e26d7c702f4c` | `NO_FINDINGS` | Commit `d7961ec5`. Test only. Browser check not run. PR not opened. |
-| T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | `d8684606` and `3e26eb8c`. Browser check skipped: pid 57333 already listens on 8787. Resume was not clicked. PR not opened. |
-| T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | Head `e7b0c280`. Includes detail allow-list `ade6e0c8` and subagent linking `d7a0d87b`. PR not opened. |
+| T1 | completed | `a24560c4-6aa3-4480-94db-8f1fa4fec8d7` | `cvu/grok-t1-parse` | `4f36a026-65f2-4094-8f6b-d3fd3f623dfc` | done | Rebased onto source. Head `fb648425`. PR not opened. |
+| T2 | completed | `377101d2-599f-4f16-875f-a0ce27035511` | `cvu/grok-t2-enrich` | `7007053f-3806-4ea5-a772-c3b036475a09` | done | Head `9051ffb4`. Includes the moved subagent commits `70ef99e8` and `9051ffb4`. PR not opened. |
+| T3 | completed | `cd443442-32e2-42dc-af23-d2af34f8afe2` | `cvu/grok-t3-synthesis` | `2a4e1a86-97ab-4894-8310-e26d7c702f4c` | `NO_FINDINGS` | Rebased onto T2. Head `a6d6660a`. PR not opened. |
+| T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | Rebased onto T1. Head `0cafa753`. PR not opened. |
+| T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | Rebased onto `cvu/grok-t2-t4` at `fdab052b`. Head `d20520b5`. Unique commits are the vendor chip, diagnostics label, and detail allow-list. PR not opened. |
 
 **Next action:** Codex re-ran `TestExactLocalDetailAcceptsGrokSessions` and reported pass (`ok github.com/centauri-ai/coslash/collector/cmd/coslash 0.268s`). Do not send that test again. Do not open pull requests until the user asks. Do not kill 8787 or 8797. Port 8797 is now `cvu/grok-t5-ui` at `e7b0c280`. A child Grok summary with no `parent_session_id` is linked from the parent's `subagents/*/meta.json`, and the inspector digest shows that subagent. Pane `pane-86b9f5f3-4e1e-4173-9d77-51c19765fc2a`. Do not kill 8787.
 
