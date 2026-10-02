@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -274,16 +275,29 @@ func TestParseDurationAndOrdinaryDigest(t *testing.T) {
 	}
 	got := make([]string, len(parsed.Session.Digest))
 	for i, entry := range parsed.Session.Digest {
-		got[i] = entry.Category + ":" + entry.Description
+		got[i] = strconv.Itoa(entry.Turn) + ":" + entry.Category + ":" + entry.Description
 	}
 	want := []string{
-		session.DigestFirstPrompt + ":First ask",
-		session.DigestUser + ":Second ask",
-		session.DigestRecap + ":Wrapped up",
-		session.DigestPlan + ":Ship the parser",
+		"1:" + session.DigestFirstPrompt + ":First ask",
+		"2:" + session.DigestUser + ":Second ask",
+		"2:" + session.DigestRecap + ":Wrapped up",
+		"2:" + session.DigestPlan + ":Ship the parser",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("digest = %q, want %q", got, want)
+	}
+	long := strings.Repeat("step ", 80)
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte(long), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = parseSession(dir)
+	if err != nil || parsed == nil {
+		t.Fatal(err)
+	}
+	for _, entry := range parsed.Session.Digest {
+		if entry.Category == session.DigestPlan && entry.Description != strings.TrimSpace(long) {
+			t.Fatalf("plan digest = %q, want the full plan", entry.Description)
+		}
 	}
 }
 

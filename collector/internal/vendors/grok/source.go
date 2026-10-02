@@ -240,8 +240,18 @@ func linkSubagentDigest(parent *session.Session, subagent session.Subagent) {
 		}
 	}
 	parent.Digest = append(parent.Digest, session.DigestEntry{
-		Category: session.DigestSubagent, Description: subagent.Name, SubagentID: subagent.ID, SpawnKey: subagent.ID,
+		Turn: digestTurn(parent.Digest), Category: session.DigestSubagent, Description: subagent.Name, SubagentID: subagent.ID, SpawnKey: subagent.ID,
 	})
+}
+
+func digestTurn(entries []session.DigestEntry) int {
+	turn := 1
+	for _, entry := range entries {
+		if entry.Turn > turn {
+			turn = entry.Turn
+		}
+	}
+	return turn
 }
 
 func stringPtr(value *string) string {

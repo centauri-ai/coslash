@@ -179,23 +179,24 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 		s.DurationMs = &ms
 	}
 	s.CompactionSeed = readCompactionSeed(filepath.Join(dir, "compaction_checkpoints"))
-	s.Digest = updates.digest
+	turn := max(updates.userTurn, 1)
 	if summary.LastTurnSummary != "" {
-		s.Digest = append(s.Digest, session.DigestEntry{Category: session.DigestRecap, Description: clipDigest(summary.LastTurnSummary)})
+		updates.digest.Push(turn, session.DigestRecap, summary.LastTurnSummary, 0)
 	}
 	if s.CompactionSeed != "" {
-		s.Digest = append(s.Digest, session.DigestEntry{Category: session.DigestCompaction, Description: clipDigest(s.CompactionSeed)})
+		updates.digest.Push(turn, session.DigestCompaction, s.CompactionSeed, 0)
 	}
 	if len(s.Todos) > 0 {
 		texts := make([]string, len(s.Todos))
 		for i, todo := range s.Todos {
 			texts[i] = todo.Text
 		}
-		s.Digest = append(s.Digest, session.DigestEntry{Category: session.DigestTodos, Description: clipDigest(strings.Join(texts, "; "))})
+		updates.digest.Push(turn, session.DigestTodos, strings.Join(texts, "; "), 0)
 	}
 	if plan := readOptionalText(filepath.Join(dir, "plan.md")); plan != "" {
-		s.Digest = append(s.Digest, session.DigestEntry{Category: session.DigestPlan, Description: clipDigest(plan)})
+		updates.digest.Push(turn, session.DigestPlan, plan, 0)
 	}
+	s.Digest = updates.digest.Entries()
 	if updates.finishedTurns > 0 && signals.ContextTokensUsed > 0 {
 		s.ContextTokens = &signals.ContextTokensUsed
 	}
@@ -260,7 +261,8 @@ type updatesSummary struct {
 	commands      session.CommandLog
 	commitLog     []session.CommitObservation
 	pullRequests  int
-	digest        []session.DigestEntry
+	digest        session.DigestLog
+	userTurn      int
 	userBuf       string
 	sawUser       bool
 }
@@ -348,15 +350,8 @@ func (r *updatesSummary) flushUser() {
 		category = session.DigestFirstPrompt
 		r.sawUser = true
 	}
-	r.digest = append(r.digest, session.DigestEntry{Category: category, Description: clipDigest(text)})
-}
-
-func clipDigest(text string) string {
-	text = strings.TrimSpace(text)
-	if len(text) <= session.TruncateTextLimit {
-		return text
-	}
-	return text[:session.TruncateTextLimit]
+	r.userTurn++
+	r.digest.Push(r.userTurn, category, text, 0)
 }
 
 func readOptionalText(path string) string {
