@@ -165,11 +165,15 @@ ON CONFLICT(kind,job_key) DO UPDATE SET
 }
 
 func deleteDatabaseURI(path string, writable ...bool) (string, error) {
-	path = strings.ReplaceAll(path, `\`, "/")
+	windowsDrive := len(path) >= 3 && strings.ContainsRune("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", rune(path[0])) &&
+		path[1] == ':' && strings.ContainsRune(`\/`, rune(path[2]))
+	if os.PathSeparator == '\\' || windowsDrive || strings.HasPrefix(path, `\\`) {
+		path = strings.ReplaceAll(path, `\`, "/")
+	}
 	if strings.HasPrefix(path, "//") {
 		return "", errors.New("UNC SQLite root is unsupported")
 	}
-	if len(path) > 1 && path[1] == ':' {
+	if windowsDrive {
 		path = "/" + path
 	}
 	mode := "ro"
