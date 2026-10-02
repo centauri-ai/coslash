@@ -1085,3 +1085,47 @@ func TestDeleteCursorRollbackJournalBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteCursorNestedStorePayload(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replaced=%t", changed), func(t *testing.T) {
+			home := deleteReviewHome(t)
+			target := deleteFixture(t, home, deleteID, "")
+			neighbor := deleteFixture(t, home, deleteNeighbor, "")
+			payload := filepath.Join(filepath.Dir(target), "output", "store.db")
+			deleteFile(t, payload)
+			probes := 0
+			err := deleteSession(context.Background(), home, deleteID, func(context.Context) error {
+				probes++
+				if changed && probes == 2 {
+					if err := os.Rename(payload, payload+".saved"); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(payload, []byte("replacement output"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return nil
+			}, nil)
+			if changed {
+				if !errors.Is(err, ErrDeleteFailed) {
+					t.Fatalf("replacement accepted: %v", err)
+				}
+				data, e := os.ReadFile(payload)
+				if e != nil || string(data) != "replacement output" {
+					t.Fatalf("replacement removed: %v", e)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(filepath.Dir(target)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("target remains: %v", err)
+				}
+			}
+			if _, err := os.Stat(neighbor); err != nil {
+				t.Fatalf("neighbor removed: %v", err)
+			}
+		})
+	}
+}

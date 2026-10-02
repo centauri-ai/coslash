@@ -139,7 +139,7 @@ func deleteSession(ctx context.Context, home, id string, probe func(context.Cont
 		if err := cursorDeleteCheck(ctx, home, file, plan); err != nil {
 			return fmt.Errorf("%w: %w", ErrDeleteFailed, err)
 		}
-		if filepath.Base(file.Path) == "store.db" {
+		if cursorDeleteCLIStorePath(home, file.Path) {
 			child, parent, err := cursorDeleteCLIParent(ctx, file.Path)
 			if err != nil || child != canonicalCursorID(filepath.Base(filepath.Dir(file.Path))) || parent != plan.Family[child] {
 				return errors.Join(ErrDeleteFailed, err)
@@ -301,6 +301,12 @@ func cursorDeleteWalk(ctx context.Context, home, root string) ([]string, error) 
 	return paths, err
 }
 
+func cursorDeleteCLIStorePath(home, path string) bool {
+	relative, err := filepath.Rel(filepath.Join(home, ".cursor", "chats"), path)
+	parts := strings.Split(relative, string(filepath.Separator))
+	return err == nil && len(parts) == 3 && parts[2] == "store.db"
+}
+
 func cursorDeleteInventory(ctx context.Context, home, id string, known map[string]string) (*cursorDeletePlan, error) {
 	chats := filepath.Join(home, ".cursor", "chats")
 	projects := ProjectsRoot(home)
@@ -320,7 +326,7 @@ func cursorDeleteInventory(ctx context.Context, home, id string, known map[strin
 	for _, path := range chatPaths {
 		relative, _ := filepath.Rel(chats, path)
 		parts := strings.Split(relative, string(filepath.Separator))
-		if len(parts) != 3 || parts[2] != "store.db" {
+		if !cursorDeleteCLIStorePath(home, path) {
 			continue
 		}
 		if !transcriptIDPattern.MatchString(parts[1]) {
