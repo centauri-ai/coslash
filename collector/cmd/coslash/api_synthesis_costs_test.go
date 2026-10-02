@@ -42,6 +42,7 @@ func TestSynthesisCostsAPIMonthAndIdentity(t *testing.T) {
 	write("start", "claude", "shared", "codex", 1000, 10)
 	write("inside", "claude", "shared", "cursor", 1499, 20)
 	write("end", "codex", "shared", "claude", 1500, 30)
+	write("pi", "pi", "SDK/opaque identity", "pi", 2000, 5)
 	if err := store.BeginRound(ctx, synthesis.Round{ID: "spanning", SourceID: "local", Agent: "cursor", SessionID: "outside-month", SourceRevision: 700, StartedAtMs: 950}); err != nil {
 		t.Fatal(err)
 	}
@@ -81,8 +82,13 @@ func TestSynthesisCostsAPIMonthAndIdentity(t *testing.T) {
 	if code, got := get("/api/synthesis-costs?source=local&agent=cursor&id=outside-month"); code != 200 || got.Totals.RoundCount != 1 || *got.Totals.KnownCostMicroUSD != 90 {
 		t.Fatalf("outside-month session: %d %+v", code, got)
 	}
+	if code, got := get("/api/synthesis-costs?source=local&agent=pi&id=SDK%2Fopaque%20identity"); code != 200 || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 5 {
+		t.Fatalf("Pi identity: %d %+v", code, got)
+	}
 	for _, path := range []string{
 		"/api/synthesis-costs?source=remote&since=1000&until=1500",
+		"/api/synthesis-costs?source=local&agent=codex&id=SDK%2Fopaque%20identity",
+		"/api/synthesis-costs?source=local&agent=pi&id=bad%00identity",
 		"/api/synthesis-costs?source=local&since=1500&until=1000",
 		"/api/synthesis-costs?source=local&since=1000&until=1500&id=shared",
 		"/api/synthesis-costs?source=local&agent=claude&id=shared&cursor=bad",

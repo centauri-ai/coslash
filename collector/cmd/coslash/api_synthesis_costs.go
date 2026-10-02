@@ -31,7 +31,11 @@ func handleSynthesisCosts(w http.ResponseWriter, r *http.Request, manager *synth
 	query := synthesis.CostQuery{SourceID: localSourceID}
 	if values.Has("agent") || values.Has("id") {
 		query.Agent, query.SessionID = values.Get("agent"), values.Get("id")
-		if !validAgent(query.Agent) || !validOpaqueIdentifier(query.SessionID) || values.Has("since") || values.Has("until") {
+		validID := validOpaqueIdentifier(query.SessionID)
+		if query.Agent == "pi" {
+			validID = validLocalPiIdentifier(query.SessionID)
+		}
+		if !validAgent(query.Agent) || !validID || values.Has("since") || values.Has("until") {
 			http.Error(w, "invalid cost query", http.StatusBadRequest)
 			return
 		}
