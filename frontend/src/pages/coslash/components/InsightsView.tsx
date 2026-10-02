@@ -254,7 +254,9 @@ export function InsightsView({
                   </dd>
                 </div>
               </dl>
-              {combined?.partial && <p className="text-warning-fg pt-2 text-xs">Combined known subtotal</p>}
+              {combined && (combined.partial || insights.unknownCostCount > 0) && (
+                <p className="text-warning-fg pt-2 text-xs">Combined known subtotal</p>
+              )}
               <p className="text-coslash-muted pt-3 text-xs">
                 Coding is lifetime cost of sessions last active this month. Synthesis is recorded cost of
                 calls started this month. Combined adds these two scopes; it is not billable coding activity
