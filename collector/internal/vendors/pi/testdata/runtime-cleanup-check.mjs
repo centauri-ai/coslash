@@ -10,7 +10,7 @@ const pidFile=path.join(release,'owned-pids');mkdirSync(path.dirname(cli),{recur
 writeFileSync(cli,`const fs=require('node:fs'),path=require('node:path');
 const dir=path.join(process.env.COSLASH_HOME,'pi-runtime');fs.mkdirSync(dir,{recursive:true});fs.appendFileSync(process.env.PI_TEST_CHILD_PIDS,process.pid+'\\n');
 if(process.argv.includes('--session')) {process.stdin.resume();setInterval(()=>{},1000);}else{
- const r={runtimeId:String(process.pid),pid:process.pid,sessionId:'first',processStartIdentity:'ps:test',workState:'idle',sequence:1,transcriptPath:path.join(process.argv[process.argv.indexOf('--session-dir')+1],'test.jsonl')};
+ const r={runtimeId:String(process.pid),pid:process.pid,sessionId:'first',processStartIdentity:'ps:test',entrypoint:'pi-rpc',workState:'idle',sequence:1,transcriptPath:path.join(process.argv[process.argv.indexOf('--session-dir')+1],'test.jsonl')};
  const save=()=>fs.writeFileSync(path.join(dir,process.pid+'.json'),JSON.stringify(r));save();
  process.stdin.on('data',data=>{for(const line of data.toString().trim().split('\\n')){const v=JSON.parse(line);
  if(v.type==='prompt'&&v.message==='/probe-wait'){r.dialogOpen=true;console.log(JSON.stringify({type:'extension_ui_request',method:'confirm',id:'q'}));save();}
