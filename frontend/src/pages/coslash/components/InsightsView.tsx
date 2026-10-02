@@ -268,10 +268,7 @@ export function InsightsView({
               )}
               {costs.error && (
                 <div role="alert" className="text-warning-fg pt-3 text-xs">
-                  Synthesis and combined costs unavailable: {costs.error}{' '}
-                  <Button variant="outline" size="sm" onClick={costs.retry}>
-                    Retry synthesis costs
-                  </Button>
+                  Synthesis and combined costs unavailable: {costs.error}
                 </div>
               )}
               {costs.data && (
@@ -315,8 +312,18 @@ export function InsightsView({
                   )}
                 </>
               )}
-              <Button variant="outline" size="sm" className="mt-3" onClick={costs.refresh}>
-                Refresh synthesis costs
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                aria-disabled={costs.isLoading}
+                onClick={costs.isLoading ? undefined : costs.error ? costs.retry : costs.refresh}
+              >
+                {costs.isLoading
+                  ? 'Loading synthesis costs...'
+                  : costs.error
+                    ? 'Retry synthesis costs'
+                    : 'Refresh synthesis costs'}
               </Button>
             </div>
           </div>
