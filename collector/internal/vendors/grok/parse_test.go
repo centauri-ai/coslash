@@ -353,6 +353,42 @@ func TestSubagentLinksWhenChildSummaryOmitsParent(t *testing.T) {
 	}
 }
 
+func TestParseDurationAndOrdinaryDigest(t *testing.T) {
+	dir := t.TempDir()
+	writeSummary(t, dir, `{"info":{"id":"s","cwd":"/work"},"chat_format_version":1,"last_turn_summary":"Wrapped up"}`)
+	if err := os.WriteFile(filepath.Join(dir, "signals.json"), []byte(`{"sessionDurationSeconds":304}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	updates := strings.Join([]string{
+		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"First ask"}}}}`,
+		`{"params":{"update":{"sessionUpdate":"turn_completed"}}}`,
+		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Second ask"}}}}`,
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(dir, "updates.jsonl"), []byte(updates), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("Ship the parser"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseSession(dir)
+	if err != nil || parsed == nil || parsed.Session.DurationMs == nil || *parsed.Session.DurationMs != 304000 {
+		t.Fatalf("duration = %v, err = %v", parsed, err)
+	}
+	got := make([]string, len(parsed.Session.Digest))
+	for i, entry := range parsed.Session.Digest {
+		got[i] = entry.Category + ":" + entry.Description
+	}
+	want := []string{
+		session.DigestFirstPrompt + ":First ask",
+		session.DigestUser + ":Second ask",
+		session.DigestRecap + ":Wrapped up",
+		session.DigestPlan + ":Ship the parser",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("digest = %q, want %q", got, want)
+	}
+}
+
 func writeSummary(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
