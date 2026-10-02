@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, copyFileSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 const root=mkdtempSync(path.join(tmpdir(),'coslash-pi-production-'));
 const agent=path.join(root,'agent');mkdirSync(path.join(agent,'extensions'),{recursive:true});
@@ -14,7 +15,7 @@ const release=process.env.PI_TEST_RELEASE_DIR;
 assert.ok(release,'Set PI_TEST_RELEASE_DIR to an installed verified Pi release directory containing node_modules');
 const cli=path.join(release,'node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js');
 const provider=path.join(root,'offline-provider.ts');
-writeFileSync(provider,readFileSync(new URL('./offline-provider.ts',import.meta.url),'utf8').replace('__PI_AI_EVENT_STREAM__',path.join(release,'node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js')));
+writeFileSync(provider,readFileSync(new URL('./offline-provider.ts',import.meta.url),'utf8').replace('__PI_AI_EVENT_STREAM__',pathToFileURL(path.join(release,'node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js')).href));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const claims=()=>{try{return readdirSync(path.join(env.COSLASH_HOME,'pi-runtime')).filter(x=>x.endsWith('.json')).map(x=>JSON.parse(readFileSync(path.join(env.COSLASH_HOME,'pi-runtime',x),'utf8')))}catch{return []}};
 async function until(predicate){for(let i=0;i<120;i++){if(predicate())return;await sleep(100)}throw Error('timeout: '+JSON.stringify(claims()))}
@@ -22,7 +23,7 @@ function start(args=[]){const child=spawn(process.execPath,[cli,'--mode','rpc','
 const p=start(['--session-dir',path.join(root,'override')]);
 let second;
 try{
- await until(()=>claims().length===1);const first=claims()[0];assert.equal(first.workState,'idle');assert.equal(first.entrypoint,'pi-rpc');assert.match(first.processStartIdentity,/^(ps|linux):/);
+ await until(()=>claims().length===1);const first=claims()[0];assert.equal(first.workState,'idle');assert.equal(first.entrypoint,'pi-rpc');assert.match(first.processStartIdentity,/^(ps|linux|windows):/);
  p.send({type:'prompt',message:'hello'});await until(()=>claims()[0]?.workState==='busy');
  await until(()=>claims()[0]?.workState==='idle');assert.ok(claims()[0].sequence>first.sequence);
  p.send({type:'prompt',message:'abort'});await until(()=>claims()[0]?.workState==='busy');p.send({type:'abort'});await until(()=>claims()[0]?.workState==='idle');
