@@ -166,7 +166,7 @@ func TestManagerRecordsRoundsInvocationsAndRetry(t *testing.T) {
 	}
 }
 
-func TestManagerSnapshotsInputAndRunnerBeforeQueuedWork(t *testing.T) {
+func TestManagerSnapshotsInputAndRunnerForActiveWork(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("COSLASH_HOME", home)
 	store, err := OpenAccountingStore(home, 1)
@@ -187,11 +187,11 @@ func TestManagerSnapshotsInputAndRunnerBeforeQueuedWork(t *testing.T) {
 	if !manager.Ensure(s, 42) {
 		t.Fatal("not started")
 	}
+	input := <-started
 	s.ID = "changed"
 	s.Digest[0].Description = "changed-digest"
 	runner.vendor, runner.model = "cursor", "changed-model"
 	manager.SetRunner(nil)
-	input := <-started
 	close(release)
 	manager.workers.Wait()
 	if !strings.Contains(input, "original-digest") || strings.Contains(input, "changed-digest") {
@@ -203,6 +203,79 @@ func TestManagerSnapshotsInputAndRunnerBeforeQueuedWork(t *testing.T) {
 	}
 	if got.Totals.RoundCount != 1 || len(got.Rounds) != 1 || !reflect.DeepEqual(got.Rounds[0].VendorModels, []VendorModel{{Vendor: "claude", Model: "gpt-4o"}}) {
 		t.Fatalf("snapshot = %+v", got)
+	}
+}
+
+func TestManagerQueuedWorkUsesCurrentRunner(t *testing.T) {
+	for _, disabled := range []bool{true, false} {
+		name := "switch"
+		if disabled {
+			name = "disable"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("COSLASH_HOME", home)
+			store, err := OpenAccountingStore(home, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			oldStarted := make(chan struct{}, defaultConcurrency+1)
+			release := make(chan struct{})
+			old := &accountingRunner{vendor: "codex", model: "old", run: func(context.Context, string) (RunResult, error) {
+				oldStarted <- struct{}{}
+				<-release
+				return RunResult{Synthesis: session.SessionSynthesis{Outcome: "old"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(9), Coverage: "complete"}}, nil
+			}}
+			newCalls := make(chan struct{}, 1)
+			newRunner := &accountingRunner{vendor: "claude", model: "new", run: func(context.Context, string) (RunResult, error) {
+				newCalls <- struct{}{}
+				return RunResult{Synthesis: session.SessionSynthesis{Outcome: "new"}, Usage: UsageReport{ReportedCostMicroUSD: int64Pointer(7), Coverage: "complete"}}, nil
+			}}
+			manager := NewManager(old, store)
+			for i := range cap(manager.slots) {
+				if !manager.Ensure(&session.Session{Agent: "codex", ID: fmt.Sprintf("active-%d", i), SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+					t.Fatalf("active work %d not started", i)
+				}
+			}
+			for range cap(manager.slots) {
+				<-oldStarted
+			}
+			if !manager.Ensure(&session.Session{Agent: "codex", ID: "queued", SessionDetails: session.SessionDetails{Turns: 6}}, 42) {
+				t.Fatal("work not queued")
+			}
+			if disabled {
+				manager.SetRunner(nil)
+			} else {
+				manager.SetRunner(newRunner)
+			}
+			close(release)
+			manager.workers.Wait()
+			if len(oldStarted) != 0 {
+				t.Fatal("queued work called superseded runner")
+			}
+			active, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "active-0"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(active.Rounds) != 1 || !reflect.DeepEqual(active.Rounds[0].VendorModels, []VendorModel{{Vendor: "codex", Model: "old"}}) {
+				t.Fatalf("active work changed runner identity: %+v", active)
+			}
+			queued, err := store.ReadCosts(context.Background(), CostQuery{SourceID: "local", Agent: "codex", SessionID: "queued"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if disabled {
+				if len(newCalls) != 0 || queued.Totals.RoundCount != 0 || manager.Lookup("codex", "queued", 42) != nil || manager.Failure("codex", "queued", 42) != "" || manager.AccountingUnavailable() || manager.AccountingVersion() != "4" {
+					t.Fatalf("disabled queued work ran: calls=%d costs=%+v version=%s", len(newCalls), queued, manager.AccountingVersion())
+				}
+			} else {
+				summary := manager.Lookup("codex", "queued", 42)
+				if len(newCalls) != 1 || len(queued.Rounds) != 1 || !reflect.DeepEqual(queued.Rounds[0].VendorModels, []VendorModel{{Vendor: "claude", Model: "new"}}) || summary == nil || summary.Outcome != "new" || manager.AccountingVersion() != "5" {
+					t.Fatalf("switched queued work: calls=%d costs=%+v summary=%+v version=%s", len(newCalls), queued, summary, manager.AccountingVersion())
+				}
+			}
+		})
 	}
 }
 

@@ -126,8 +126,7 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 	if m == nil || revision <= 0 || !Eligible(s) {
 		return false
 	}
-	runner := m.currentRunner()
-	if runner == nil {
+	if m.currentRunner() == nil {
 		return false
 	}
 	if m.Lookup(s.Agent, s.ID, revision) != nil || m.InCooldown(s.Agent, s.ID, revision) {
@@ -139,7 +138,6 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 	}
 	input := session.Clone(s)
 	agent, id := input.Agent, input.ID
-	vendor, model := runner.VendorName(), runner.ModelName()
 	m.workMu.Lock()
 	if m.stopped {
 		m.workMu.Unlock()
@@ -157,6 +155,11 @@ func (m *Manager) Ensure(s *session.Session, revision int64) bool {
 			return
 		}
 		defer func() { <-m.slots }()
+		runner := m.currentRunner()
+		if runner == nil {
+			return
+		}
+		vendor, model := runner.VendorName(), runner.ModelName()
 		m.execute(input, revision, runner, vendor, model, agent, id)
 	}()
 	return true
