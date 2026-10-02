@@ -51,7 +51,7 @@ func ensureExtension() error {
 	current, err := os.ReadFile(target)
 	if err == nil {
 		if bytes.Equal(current, extensionSource) {
-			return nil
+			return protectInstalledExtension(target)
 		}
 		if !bytes.HasPrefix(current, []byte("// managed by coSlash;")) {
 			return fmt.Errorf("refusing to overwrite unmanaged Pi extension %s", target)
@@ -60,6 +60,9 @@ func ensureExtension() error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return err
+	}
+	if err := protectExtensionDirectories(filepath.Dir(target)); err != nil {
 		return err
 	}
 	file, err := os.CreateTemp(filepath.Dir(target), ".coslash-extension-*")
@@ -71,6 +74,10 @@ func ensureExtension() error {
 		file.Close()
 		return err
 	}
+	if err := protectExtensionFile(file); err != nil {
+		file.Close()
+		return err
+	}
 	if _, err := file.Write(extensionSource); err != nil {
 		file.Close()
 		return err
@@ -79,6 +86,18 @@ func ensureExtension() error {
 		return err
 	}
 	return os.Rename(file.Name(), target)
+}
+
+func protectInstalledExtension(path string) error {
+	if err := protectExtensionDirectories(filepath.Dir(path)); err != nil {
+		return err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return protectExtensionFile(file)
 }
 
 type ExtensionHealth struct {

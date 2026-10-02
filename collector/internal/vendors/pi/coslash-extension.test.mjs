@@ -21,7 +21,7 @@ try {
     const handlers = new Map()
     extension.default({ on: (name, handler) => handlers.set(name, handler) })
     assert.equal(extension.identityCalls(), 0, "import and registration must not probe process identity")
-    if (!allowed || process.platform !== "darwin") {
+    if (!allowed || !["darwin", "win32"].includes(process.platform)) {
       assert.equal(handlers.size, 0)
       continue
     }
