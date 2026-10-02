@@ -63,6 +63,7 @@ describe('buildInsights', () => {
     ]);
     expect(result.days[5]).toEqual({ day: 6, count: 2 });
     expect(result.knownCost).toBeNull();
+    expect(result.knownCostSubtotal).toBe(1);
     expect(result.unknownCostCount).toBe(1);
   });
 

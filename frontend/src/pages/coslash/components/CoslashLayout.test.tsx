@@ -2,6 +2,7 @@ import { type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
+import { FirstRunOnboarding } from '@/pages/coslash/components/FirstRunOnboarding';
 import { machineRetryable } from '@/pages/coslash/lib/machine-status';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { buildReviewIndex } from '@/pages/coslash/lib/review';
@@ -32,6 +33,7 @@ const props: ComponentProps<typeof CoslashLayout> = {
   retrying: false,
   isLoading: false,
   loadError: null,
+  synthesisCostVersion: null,
   reviewerOptions: [
     { id: 'claude', label: 'Claude Code', available: true },
     { id: 'codex', label: 'Codex', available: false },
@@ -115,7 +117,7 @@ describe('CoslashLayout', () => {
     expect(markup).toContain('Agents used');
     expect(markup).toContain('Models used');
     expect(markup).toContain('Top repositories');
-    expect(markup).toContain('Lifetime estimated cost');
+    expect(markup).toContain('Estimated cost for selected month');
     expect(markup).toContain('Sessions last active per day');
     expect(markup).toContain('aria-label="View"');
   });
@@ -131,6 +133,74 @@ describe('CoslashLayout', () => {
     expect(renderLayout({ emptyContent, isLoading: true })).not.toContain('Re-run checks');
     expect(renderLayout({ emptyContent, loadError: 'Offline' })).not.toContain('Re-run checks');
     expect(renderLayout({ emptyContent, sessions: [session({ id: 'one' })] })).not.toContain('Re-run checks');
+  });
+
+  it('puts onboarding and synthesis costs in one scroll flow when Insights has no sessions', () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ view: 'insights' }),
+      setItem: () => {},
+    });
+    const emptyContent = (
+      <FirstRunOnboarding
+        diagnostics={{
+          version: 'test',
+          generatedAt: 0,
+          platform: { os: 'darwin', arch: 'arm64', terminalLaunchSupported: true },
+          storage: { home: '', writable: true, error: '' },
+          synthesis: { enabled: true, model: '', cliFound: true, reason: '', error: '' },
+          sources: [],
+          checks: Array.from({ length: 9 }, (_, id) => ({
+            id: String(id),
+            title: `Source check ${id}`,
+            status: 'warn' as const,
+            detail: 'No local sessions are available yet.',
+            fix: 'Run one turn.',
+          })),
+        }}
+        isLoading={false}
+        loadFailed={false}
+        onRefresh={() => {}}
+        inPageFlow
+      />
+    );
+    const markup = renderLayout({ emptyContent });
+    const mainClass = markup.match(/class="([^"]*coslash-main[^"]*)"/)?.[1];
+    const onboardingClass = markup.match(/role="status" class="([^"]*)"/)?.[1];
+    const insightsClass = markup.match(/class="([^"]*flex min-h-0 flex-col gap-4[^"]*)"/)?.[1];
+
+    expect(mainClass).toContain('overflow-y-auto');
+    expect(onboardingClass).not.toContain('overflow-y-auto');
+    expect(onboardingClass).not.toContain('h-full');
+    expect(insightsClass).not.toContain('overflow-y-auto');
+    expect(markup).toContain('Re-run checks');
+    expect(markup).toContain('Synthesis');
+    const recoveryAt = markup.indexOf('Re-run checks');
+    const recoveryButton = markup.slice(markup.lastIndexOf('<button', recoveryAt), recoveryAt);
+    expect(recoveryButton).not.toMatch(/\sdisabled(?:\s|=|>)/);
+  });
+
+  it('keeps the ordinary Insights scroll container when onboarding is absent', () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ view: 'insights' }),
+      setItem: () => {},
+    });
+    const markup = renderLayout();
+    expect(markup.match(/class="([^"]*coslash-main[^"]*)"/)?.[1]).not.toContain('overflow-y-auto');
+    expect(markup.match(/class="([^"]*flex min-h-0 flex-col gap-4[^"]*)"/)?.[1]).toContain('overflow-y-auto');
+  });
+
+  it.each(['table', 'board'] as const)('keeps first-run onboarding scrollable in %s', (view) => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => JSON.stringify({ view }),
+      setItem: () => {},
+    });
+    const markup = renderLayout({
+      emptyContent: (
+        <FirstRunOnboarding diagnostics={null} isLoading={false} loadFailed={false} onRefresh={() => {}} />
+      ),
+    });
+    expect(markup.match(/role="status" class="([^"]*)"/)?.[1]).toContain('h-full overflow-y-auto');
+    expect(markup).toContain('Re-run checks');
   });
 
   it('keeps row dividers in comfortable density and omits them in compact density', () => {

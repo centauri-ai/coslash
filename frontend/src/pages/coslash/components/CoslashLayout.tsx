@@ -1077,6 +1077,7 @@ export function CoslashLayout({
   retrying,
   isLoading,
   loadError,
+  synthesisCostVersion,
   emptyContent,
   banner,
   headerActions,
@@ -1108,6 +1109,7 @@ export function CoslashLayout({
   retrying: boolean;
   isLoading: boolean;
   loadError: string | null;
+  synthesisCostVersion: string | null;
   emptyContent?: ReactNode;
   banner?: ReactNode;
   headerActions?: ReactNode;
@@ -1224,6 +1226,7 @@ export function CoslashLayout({
     });
 
   if (preferences.view === 'insights') {
+    const showOnboarding = !isLoading && loadError == null && sessions.length === 0 && emptyContent != null;
     return (
       <TooltipProvider>
         <div className={cn(styles.shell, { 'inspector-open': inspectorOpen })}>
@@ -1239,20 +1242,19 @@ export function CoslashLayout({
             actions={headerActions}
           />
           {banner}
-          <div className={styles.main}>
+          <div className={cn(styles.main, { 'overflow-y-auto': showOnboarding })}>
             <div className="flex justify-end pb-4">
               <ViewSwitch view={preferences.view} onChange={changeView} />
             </div>
-            {!isLoading && loadError == null && sessions.length === 0 && emptyContent != null ? (
-              <div className="min-h-0 flex-1">{emptyContent}</div>
-            ) : (
-              <InsightsView
-                sessions={sessions}
-                isLoading={isLoading}
-                loadError={loadError}
-                onRetry={onRetrySessions}
-              />
-            )}
+            {showOnboarding && <div className="shrink-0">{emptyContent}</div>}
+            <InsightsView
+              sessions={sessions}
+              isLoading={isLoading}
+              loadError={loadError}
+              synthesisCostVersion={synthesisCostVersion}
+              onRetry={onRetrySessions}
+              inPageFlow={showOnboarding}
+            />
           </div>
         </div>
       </TooltipProvider>

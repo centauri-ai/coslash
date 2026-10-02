@@ -103,11 +103,19 @@ export function CoslashPage() {
   const [hubDestination, setHubDestination] = useState<DestinationResult | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
   const apiWindow = view === 'insights' ? 'all' : apiWindowForRange(range);
-  const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
-    useSessions({
-      localWindow: shareFixtureEnabled ? 'all' : apiWindow,
-      remoteWindow: apiWindow,
-    });
+  const {
+    sessions,
+    machines,
+    isLoading,
+    loadError,
+    sessionsVersion,
+    synthesisCostVersion,
+    retrySessions,
+    refreshSessions,
+  } = useSessions({
+    localWindow: shareFixtureEnabled ? 'all' : apiWindow,
+    remoteWindow: apiWindow,
+  });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
   const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
   const [{ selectedSessionKey, pendingTargetKey }, select] = useReducer(handoffSelection, {
@@ -321,6 +329,7 @@ export function CoslashPage() {
           retrySessionsAndReviewers();
           refreshDiagnostics();
         }}
+        inPageFlow={view === 'insights'}
       />
     ) : undefined;
 
@@ -365,6 +374,7 @@ export function CoslashPage() {
         retrying={remoteRetryInFlight}
         isLoading={isLoading}
         loadError={loadError}
+        synthesisCostVersion={synthesisCostVersion}
         emptyContent={emptyContent}
         banner={
           <>
