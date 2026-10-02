@@ -311,7 +311,7 @@ func TestPiManagerUsesCanonicalRevisionForBackgroundRuns(t *testing.T) {
 	value := &session.Session{Agent: "pi", ID: "SDK/manager identity", LastActivityTime: 42, SessionDetails: session.SessionDetails{Turns: 6, Digest: []session.DigestEntry{{Description: "selected context"}}}}
 	manager := NewManager(runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
 		return session.SessionSynthesis{Outcome: "selected"}, nil
-	}))
+	}), nil)
 	expected := Revision(value)
 	if !manager.Ensure(value, value.LastActivityTime) {
 		t.Fatal("Pi background run not scheduled")

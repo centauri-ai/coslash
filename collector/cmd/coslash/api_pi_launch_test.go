@@ -43,7 +43,7 @@ func TestPiDirectedHandoffLocalCustomOnly(t *testing.T) {
 	}{{"local", "review", 400}, {"remote", "custom", 400}, {"local", "custom", 202}} {
 		body := `{"sourceId":"` + test.source + `","agent":"codex","id":"origin","targetAgent":"pi","kind":"` + test.kind + `","request":"Please continue"}`
 		response := httptest.NewRecorder()
-		handleDirectedHandoffStart(response, httptest.NewRequest(http.MethodPost, "/api/directed-handoffs", strings.NewReader(body)), store, settings.Open(), remote.NewManager(remote.Options{}), synthesis.NewManager(nil))
+		handleDirectedHandoffStart(response, httptest.NewRequest(http.MethodPost, "/api/directed-handoffs", strings.NewReader(body)), store, settings.Open(), remote.NewManager(remote.Options{}), synthesis.NewManager(nil, nil))
 		if response.Code != test.status {
 			t.Fatalf("%+v: %d %s", test, response.Code, response.Body.String())
 		}

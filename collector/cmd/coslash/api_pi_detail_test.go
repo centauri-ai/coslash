@@ -91,7 +91,7 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 	if err := os.MkdirAll(runtimeDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	manager := synthesis.NewManager(nil)
+	manager := synthesis.NewManager(nil, nil)
 	cache := synthesis.NewCache()
 	var previous int64
 	for sequence, leaf := range []string{"a", "b"} {
@@ -153,7 +153,7 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 			t.Fatal(err)
 		}
 		// A new manager represents a server restart and reads the persisted opaque-ID cache.
-		manager = synthesis.NewManager(nil)
+		manager = synthesis.NewManager(nil, nil)
 		response := httptest.NewRecorder()
 		handleSynthesis(response, "pi", id, manager)
 		if response.Code != http.StatusOK {
