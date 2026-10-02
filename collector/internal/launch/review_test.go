@@ -278,6 +278,7 @@ func TestReviewResultHelper(t *testing.T) {
 }
 
 func TestCursorReviewUsesPrivateReadOnlyConfig(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	t.Setenv("REVIEW_CURSOR_HELPER", "1")
 	original := reviewCommandContext
 	t.Cleanup(func() { reviewCommandContext = original })
