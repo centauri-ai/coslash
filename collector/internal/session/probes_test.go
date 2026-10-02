@@ -13,6 +13,30 @@ import (
 	snapshotv1 "github.com/centauri-ai/coslash/collector/snapshot/v1"
 )
 
+func TestLatestFileModificationTimeContext(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "edited.txt")
+	if err := os.WriteFile(path, []byte("edited"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edits := []FileEdit{{Path: "missing.txt"}, {Path: "edited.txt"}}
+	if got := LatestFileModificationTimeContext(context.Background(), directory, edits); got == nil || *got != info.ModTime().UnixMilli() {
+		t.Fatalf("latest modification time = %v, want %d", got, info.ModTime().UnixMilli())
+	}
+	if got := LatestFileModificationTimeContext(context.Background(), "", edits); got != nil {
+		t.Fatalf("relative edits without a working directory = %v, want nil", got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := LatestFileModificationTimeContext(ctx, directory, edits); got != nil {
+		t.Fatalf("canceled modification time = %v, want nil", got)
+	}
+}
+
 func TestCurrentBranchContextCancelsGit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture")

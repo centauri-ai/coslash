@@ -119,12 +119,8 @@ type CommitFacts struct {
 	SHAs     []string
 }
 
-// NewCommitFactsReconciler caches repository history for one reconciliation
+// NewCommitFactsReconcilerContext caches repository history for one reconciliation
 // pass while retaining resolved full object IDs for the public export mapper.
-func NewCommitFactsReconciler() func([]CommitObservation, string, *string) CommitFacts {
-	return NewCommitFactsReconcilerContext(context.Background())
-}
-
 func NewCommitFactsReconcilerContext(ctx context.Context) func([]CommitObservation, string, *string) CommitFacts {
 	type cacheKey struct{ cwd, branch string }
 	type cachedHistory struct {
@@ -263,10 +259,6 @@ func repositoryHistoryContext(ctx context.Context, cwd string, branch *string) (
 		}
 	}
 	return history, true
-}
-
-func fallbackCommitMessages(observations []CommitObservation) []string {
-	return fallbackCommitMessagesContext(context.Background(), observations)
 }
 
 func fallbackCommitMessagesContext(ctx context.Context, observations []CommitObservation) []string {
