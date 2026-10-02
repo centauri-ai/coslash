@@ -18,7 +18,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
 
-var ErrPiUnsupportedVersion = errors.New("launch: Pi requires verified version 0.99.1 or 0.99.2")
+var ErrPiUnsupportedVersion = errors.New("launch: Pi requires a stable release at least " + pi.MinimumRuntimeVersion)
 var ErrPiExtension = errors.New("launch: managed Pi extension is unavailable")
 
 func piSupportedExecutable() (string, error) {
@@ -32,7 +32,7 @@ func piSupportedExecutable() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	version, err := exec.CommandContext(ctx, cli, "--version").Output()
-	if err != nil || (strings.TrimSpace(string(version)) != "0.99.1" && strings.TrimSpace(string(version)) != "0.99.2") {
+	if err != nil || !pi.RuntimeSupported(strings.TrimSpace(string(version))) {
 		return "", ErrPiUnsupportedVersion
 	}
 	return cli, nil

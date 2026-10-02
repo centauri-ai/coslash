@@ -162,7 +162,7 @@ func TestPiUnsupportedVersionAndUnmanagedExtension(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho 0.99.3\n"), 0700); err != nil {
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho 0.99.0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := cliCommand(vendors.AgentPi, "", NewSession, "notes"); !errors.Is(err, ErrPiUnsupportedVersion) {
@@ -202,7 +202,7 @@ func TestPiHandoffCleanupAfterCommandFailure(t *testing.T) {
 	}
 }
 
-func TestPiVerifiedReleaseAllowlist(t *testing.T) {
+func TestPiMinimumReleaseAndTargetAvailability(t *testing.T) {
 	fakePi(t)
 	binary, err := exec.LookPath("pi")
 	if err != nil {
@@ -212,12 +212,21 @@ func TestPiVerifiedReleaseAllowlist(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(binary), "expect"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"0.99.1", "0.99.2", "0.99.3", "1.0.0", "0.98.0"} {
-		if err := os.WriteFile(binary, []byte("#!/bin/sh\necho "+version+"\n"), 0700); err != nil {
+	for _, test := range []struct {
+		version string
+		allowed bool
+	}{
+		{"0.99.1", true}, {"0.99.2", true}, {"0.99.3", true}, {"0.100.0", true},
+		{"1.0.0", true}, {"1.2.3+local.1", true}, {"2.0.0", true},
+		{"0.98.0", false}, {"0.99.0", false}, {"1.0.0-rc.1", false},
+		{"", false}, {"unknown", false}, {"1.0", false}, {"01.0.0", false},
+	} {
+		version := test.version
+		if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' '"+version+"'\n"), 0700); err != nil {
 			t.Fatal(err)
 		}
 		_, _, err := cliCommand(vendors.AgentPi, "", NewSession, "")
-		verified := version == "0.99.1" || version == "0.99.2"
+		verified := test.allowed
 		if available := PiAvailable(); available != verified {
 			t.Fatalf("PiAvailable(%s) = %v, want %v", version, available, verified)
 		}
