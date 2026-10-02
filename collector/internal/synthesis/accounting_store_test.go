@@ -2,6 +2,7 @@ package synthesis
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -234,6 +235,86 @@ func TestAccountingRejectsCursorAndCorruptUsageBeforeCostlyReads(t *testing.T) {
 }
 
 func micro(n int64) *int64 { return &n }
+
+func TestAccountingPiOpaqueIdentityAndUnknownUsage(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenAccountingStore(t.TempDir(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for i, sessionID := range []string{"ordinary", " folder/session 雪 ", ".", "..", strings.Repeat("é", 256)} {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			roundID := fmt.Sprintf("pi-%d", i)
+			if err := store.BeginRound(ctx, Round{ID: roundID, SourceID: "local", Agent: "pi", SessionID: sessionID, SourceRevision: 1, StartedAtMs: 110}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.StartInvocation(ctx, roundID, 0, "source", "pi", "auto", 111); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.FinishInvocation(ctx, roundID, 0, 112, "success", UsageReport{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.FinishRound(ctx, roundID, 113, "success"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "pi", SessionID: sessionID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := CostTotals{RoundCount: 1, InvocationCount: 1, UnknownInvocationCount: 1, IncompleteRoundCount: 1}
+			if !reflect.DeepEqual(got.Totals, want) || len(got.Rounds) != 1 || len(got.ByVendor) != 1 || got.ByVendor[0].Vendor != "pi" || !reflect.DeepEqual(got.ByVendor[0].Totals, want) {
+				t.Fatalf("Pi costs: %+v", got)
+			}
+			round := got.Rounds[0]
+			if round.Agent != "pi" || round.SessionID != sessionID || round.Outcome != "success" || !reflect.DeepEqual(round.Totals, want) || !reflect.DeepEqual(round.VendorModels, []VendorModel{{Vendor: "pi", Model: "auto"}}) || len(round.Tokens) != 0 {
+				t.Fatalf("Pi round: %+v", round)
+			}
+		})
+	}
+	month, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", SinceMs: micro(100), UntilMs: micro(200)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(month.Totals, CostTotals{RoundCount: 5, InvocationCount: 5, UnknownInvocationCount: 5, IncompleteRoundCount: 5}) {
+		t.Fatalf("Pi month: %+v", month)
+	}
+}
+
+func TestAccountingSessionIdentityValidation(t *testing.T) {
+	ctx := context.Background()
+	store, err := OpenAccountingStore(t.TempDir(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, tc := range []struct{ agent, id string }{
+		{"pi", ""}, {"pi", string([]byte{0xff})}, {"pi", "session\x00id"}, {"pi", "session\nid"}, {"pi", "session\u0085id"}, {"pi", strings.Repeat("é", 256) + "x"},
+		{"claude", "session/id"}, {"codex", "session/id"}, {"opencode", "session/id"}, {"cursor", "session/id"}, {"unsupported", "session"},
+	} {
+		t.Run(fmt.Sprintf("%s/%q", tc.agent, tc.id), func(t *testing.T) {
+			if err := store.BeginRound(ctx, Round{ID: "invalid", SourceID: "local", Agent: tc.agent, SessionID: tc.id, StartedAtMs: 110}); err == nil {
+				t.Fatal("invalid session identity accepted for round")
+			}
+			if _, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: tc.agent, SessionID: tc.id}); err == nil {
+				t.Fatal("invalid session identity accepted for query")
+			}
+		})
+	}
+	for _, id := range []string{"round/id", "round id", ".", "..", strings.Repeat("x", 513)} {
+		if err := store.BeginRound(ctx, Round{ID: id, SourceID: "local", Agent: "pi", SessionID: "session/id", StartedAtMs: 110}); err == nil {
+			t.Fatalf("invalid Pi round ID accepted: %q", id)
+		}
+		data, err := json.Marshal(roundCursor{Time: 110, ID: id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cursor := base64.RawURLEncoding.EncodeToString(data)
+		if _, err := store.ReadCosts(ctx, CostQuery{SourceID: "local", Agent: "pi", SessionID: "session/id", Cursor: cursor}); err == nil {
+			t.Fatalf("invalid Pi round cursor accepted: %q", id)
+		}
+	}
+}
 
 func TestAccountingLiveOwnerKeepsInvocation(t *testing.T) {
 	ctx := context.Background()
