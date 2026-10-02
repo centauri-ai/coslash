@@ -87,3 +87,40 @@ func TestCompletedPlanItemsBecomeTimelinePlans(t *testing.T) {
 		t.Fatalf("summary = %v", parsed.Session.Summary)
 	}
 }
+
+func TestPlanModeFinalAnswersBecomeTimelinePlans(t *testing.T) {
+	rows := []string{
+		`{"timestamp":"2026-09-21T17:55:15Z","type":"event_msg","payload":{"type":"task_started","collaboration_mode_kind":"plan"}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Plan the work"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"<proposed_plan>\n# Plan\nFirst version\n</proposed_plan>"}}`,
+		lifecycleRow("2026-09-21T17:55:16Z", "task_complete"),
+		lifecycleRow("2026-09-21T17:55:17Z", "task_started"),
+		`{"type":"turn_context","payload":{"collaboration_mode":{"mode":"plan"}}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Revise it"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"# Plan\nRevised version"}}`,
+		lifecycleRow("2026-09-21T17:55:18Z", "task_complete"),
+		lifecycleRow("2026-09-21T17:55:19Z", "task_started"),
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Describe the plan"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"# Plan\nDescription only"}}`,
+		lifecycleRow("2026-09-21T17:55:20Z", "task_complete"),
+		`{"timestamp":"2026-09-21T17:55:21Z","type":"event_msg","payload":{"type":"task_started","collaboration_mode_kind":"plan"}}`,
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Draft another plan"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"<proposed_plan>Aborted plan</proposed_plan>"}}`,
+		lifecycleRow("2026-09-21T17:55:22Z", "turn_aborted"),
+	}
+	parsed := parseLifecycleRows(t, rows)
+	var got []string
+	for _, entry := range parsed.Session.Digest {
+		if entry.Category == "plan" || entry.Category == "recap" {
+			got = append(got, entry.Category+": "+entry.Description)
+		}
+	}
+	want := []string{
+		"plan: # Plan\nFirst version",
+		"plan: # Plan\nRevised version",
+		"recap: # Plan\nDescription only",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("plan and recap entries = %#v, want %#v", got, want)
+	}
+}

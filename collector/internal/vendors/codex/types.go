@@ -42,6 +42,12 @@ type codexPayload struct {
 	AgentThreadID  string            `json:"agent_thread_id"`
 	Kind           string            `json:"kind"`
 	Item           codexItem         `json:"item"`
+	Mode           codexMode         `json:"collaboration_mode"`
+	ModeKind       string            `json:"collaboration_mode_kind"`
+}
+
+type codexMode struct {
+	Mode string `json:"mode"`
 }
 
 type codexItem struct {
