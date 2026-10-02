@@ -22,11 +22,11 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | Rebased onto T1. Head `0cafa753`. PR not opened. |
 | T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | Rebased onto `cvu/grok-t2-t4` at `fdab052b`. Head `d20520b5`. Unique commits are the vendor chip, diagnostics label, and detail allow-list. PR not opened. |
 
-**Next action:** Codex re-ran `TestExactLocalDetailAcceptsGrokSessions` and reported pass (`ok github.com/centauri-ai/coslash/collector/cmd/coslash 0.268s`). Do not send that test again. Do not open pull requests until the user asks. Do not kill 8787 or 8797. Port 8797 is now `cvu/grok-t5-ui` at `e7b0c280`. A child Grok summary with no `parent_session_id` is linked from the parent's `subagents/*/meta.json`, and the inspector digest shows that subagent. Pane `pane-86b9f5f3-4e1e-4173-9d77-51c19765fc2a`. Do not kill 8787.
+**Next action:** Codex re-ran `TestExactLocalDetailAcceptsGrokSessions` and reported pass (`ok github.com/centauri-ai/coslash/collector/cmd/coslash 0.268s`). Do not send that test again. Do not open pull requests until the user asks. Do not kill 8787 or 8797. The stack was rebased onto `fa76266c`. Current heads: T1 `fb648425`, T2 `9051ffb4`, T4 `0cafa753`, T3 `a6d6660a`, `cvu/grok-t2-t4` `fdab052b`, T5 `d20520b5`. Port 8797 was stopped by the user. Do not restart it. Do not kill 8787.
 
 E2E checks: 1 PASS (four Grok cards, chip label Grok). 2 FAIL (session detail drawer returns HTTP 400; the board itself shows 413 tool uses for the live session). 3 PASS (no subagent cards as peers). 4 PASS (Resume visible, not clicked). 5 PASS (no new console errors after the token URL).
 
-Check 2 was `validAgent` in `collector/cmd/coslash/api_detail.go`. Fixed on `cvu/grok-t5-ui` by `ade6e0c8`. `TestExactLocalDetailAcceptsGrokSessions` passed. The process on port 8797 is still the older binary and will keep returning 400 until that build is replaced. Do not kill 8787.
+Check 2 was `validAgent` in `collector/cmd/coslash/api_detail.go`. That fix is now `d20520b5` on `cvu/grok-t5-ui`. The subagent parent link is on T2 at `70ef99e8` and `9051ffb4`.
 
 **Blockers:** none. Reviews: T1 one fix, T2 one fix, T3 `NO_FINDINGS`, T4 `NO_FINDINGS`, T5 `NO_FINDINGS`. T1 is 13 files and 438 production lines, inside the agent-tooling budget.
 
