@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -922,5 +923,165 @@ func TestDeleteCursorRetryRejectsIdenticalRegularReplacement(t *testing.T) {
 	}
 	if _, err := os.Stat(residue); err != nil {
 		t.Fatalf("replacement was deleted: %v", err)
+	}
+}
+
+func TestDeleteCursorHotJournalOwnership(t *testing.T) {
+	home := deleteReviewHome(t)
+	deleteFixture(t, home, deleteID, "")
+	neighbor := deleteFixture(t, home, deleteNeighbor, "")
+	db, err := sql.Open("sqlite", neighbor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA cache_size=1; CREATE TABLE payload(value BLOB); INSERT INTO payload VALUES(zeroblob(8192));`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(map[string]any{"agentId": deleteNeighbor, "subagentInfo": map[string]string{"parentAgentId": deleteID}})
+	if _, err := tx.Exec(`UPDATE meta SET value=?`, hex.EncodeToString(data)); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 40; i++ {
+		if _, err := tx.Exec(`INSERT INTO payload VALUES(zeroblob(8192))`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	main, err := os.ReadFile(neighbor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := os.ReadFile(neighbor + "-journal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(neighbor, main, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(neighbor+"-journal", journal, 0600); err != nil {
+		t.Fatal(err)
+	}
+	child, parent, err := cursorDeleteCLIParent(context.Background(), neighbor)
+	if !errors.Is(err, ErrDeleteUnverified) || child != "" || parent != "" {
+		t.Fatalf("uncertain ownership accepted: %s %s %v", child, parent, err)
+	}
+	t.Logf("private copy sees child=%s parent=%s err=%v journal-size=%d", child, parent, err, len(journal))
+	control := filepath.Join(t.TempDir(), "store.db")
+	if e := os.WriteFile(control, main, 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(control+"-journal", journal, 0600); e != nil {
+		t.Fatal(e)
+	}
+	recovered, e := sql.Open("sqlite", control)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var recoveredHex string
+	if e := recovered.QueryRow(`SELECT value FROM meta WHERE key='0'`).Scan(&recoveredHex); e != nil {
+		t.Fatal(e)
+	}
+	recovered.Close()
+	recoveredJSON, e := hex.DecodeString(recoveredHex)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var meta struct {
+		SubagentInfo struct {
+			ParentAgentID string `json:"parentAgentId"`
+		} `json:"subagentInfo"`
+	}
+	if e := json.Unmarshal(recoveredJSON, &meta); e != nil {
+		t.Fatal(e)
+	}
+	t.Logf("normal writable SQLite recovery sees parent=%q", meta.SubagentInfo.ParentAgentID)
+	if meta.SubagentInfo.ParentAgentID != "" {
+		t.Fatal("control recovery did not restore committed neighbor ownership")
+	}
+	err = deleteSession(context.Background(), home, deleteID, closedCursor, func(string) error { t.Fatal("mutation before journal refusal"); return nil })
+	if !errors.Is(err, ErrDeleteUnverified) {
+		t.Fatal(err)
+	}
+	t.Logf("delete returned %v", err)
+	for _, path := range []string{neighbor, neighbor + "-journal", filepath.Join(home, ".cursor", "chats", "workspace", deleteID, "store.db")} {
+		if _, e := os.Stat(path); e != nil {
+			t.Fatal(e)
+		}
+	}
+	after, e := os.ReadFile(neighbor)
+	if e != nil || string(after) != string(main) {
+		t.Fatalf("neighbor database changed: %v", e)
+	}
+	after, e = os.ReadFile(neighbor + "-journal")
+	if e != nil || string(after) != string(journal) {
+		t.Fatalf("neighbor journal changed: %v", e)
+	}
+}
+
+func TestDeleteCursorRollbackJournalBoundary(t *testing.T) {
+	for _, shared := range []bool{false, true} {
+		for _, journal := range []string{"absent", "empty", "retained"} {
+			t.Run(fmt.Sprintf("shared=%t/%s", shared, journal), func(t *testing.T) {
+				home := deleteReviewHome(t)
+				target := deleteFixture(t, home, deleteID, "")
+				path := deleteFixture(t, home, deleteNeighbor, "")
+				if shared {
+					path = filepath.Join(cursorGlobalStorage(home), "state.vscdb")
+					if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+						t.Fatal(err)
+					}
+					db, err := sql.Open("sqlite", path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := db.Exec(`CREATE TABLE cursorDiskKV(key TEXT,value TEXT)`); err != nil {
+						t.Fatal(err)
+					}
+					if err := db.Close(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				before, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if journal != "absent" {
+					data := []byte(nil)
+					if journal == "retained" {
+						data = []byte("uncertain rollback state")
+					}
+					if err := os.WriteFile(path+"-journal", data, 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				err = deleteSession(context.Background(), home, deleteID, closedCursor, nil)
+				if journal == "absent" {
+					if err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					if !errors.Is(err, ErrDeleteUnverified) {
+						t.Fatalf("journal accepted: %v", err)
+					}
+					if _, err := os.Stat(target); err != nil {
+						t.Fatal(err)
+					}
+				}
+				after, err := os.ReadFile(path)
+				if err != nil || string(before) != string(after) {
+					t.Fatalf("source changed: %v", err)
+				}
+			})
+		}
 	}
 }

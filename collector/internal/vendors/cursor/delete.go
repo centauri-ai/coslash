@@ -438,6 +438,9 @@ func cursorDeleteInventory(ctx context.Context, home, id string, known map[strin
 // SQLite WAL readers may create or update SHM even in read-only mode.
 // Inspect retained WALs in private scratch storage, leaving vendor files intact.
 func cursorDeleteOpenCLI(ctx context.Context, path string) (*sql.DB, func() error, error) {
+	if _, err := os.Lstat(path + "-journal"); !errors.Is(err, os.ErrNotExist) {
+		return nil, nil, errors.Join(ErrDeleteUnverified, err)
+	}
 	walInfo, err := os.Lstat(path + "-wal")
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, nil, err
