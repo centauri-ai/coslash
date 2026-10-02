@@ -125,7 +125,7 @@ export function SynthesisCostsView({
           <p className="text-coslash-muted">
             {response && (
               <>
-                {totals?.roundCount} rounds recorded
+                {totals?.roundCount} {totals?.roundCount === 1 ? 'round' : 'rounds'} recorded
                 {coverage !== 'complete' && ` · ${coverage === 'partial' ? 'Partial cost' : 'Unknown cost'}`}
                 {(combined?.partial || codingPartial) && ' · Combined known subtotal'}
               </>
@@ -166,7 +166,8 @@ export function SynthesisCostsView({
               ) : (
                 <>
                   <p className="text-coslash-muted pb-2">
-                    {rounds.length} of {totals?.roundCount} rounds loaded
+                    {rounds.length} of {totals?.roundCount} {totals?.roundCount === 1 ? 'round' : 'rounds'}{' '}
+                    loaded
                   </p>
                   <div className="flex flex-col gap-2">
                     {rounds.map((round) => (
