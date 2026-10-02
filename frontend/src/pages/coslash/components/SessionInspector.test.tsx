@@ -21,6 +21,7 @@ import {
   SummaryOnlyBanner,
   synthesisAttemptKey,
   synthesisMatchesSnapshot,
+  synthesisSettlement,
 } from '@/pages/coslash/components/SessionInspector';
 import type { FileSelection } from '@/pages/coslash/hooks/use-sessions';
 import type { Session } from '@/pages/coslash/lib/session';
@@ -41,6 +42,53 @@ const selection: FileSelection = {
   path: 'src/example.ts',
   changeIds: ['change-000000-000000'],
 };
+
+it('refreshes cost accounting once when a pending synthesis settles, including failure', () => {
+  expect(synthesisSettlement(null, 'local:codex:same', { revision: 1, synthesisPending: true }, 1)).toEqual({
+    pendingKey: 'local:codex:same',
+    settled: false,
+    matchesSnapshot: true,
+  });
+  expect(
+    synthesisSettlement('local:codex:same', 'local:codex:same', { revision: 1, synthesisPending: false }, 1),
+  ).toEqual({
+    pendingKey: null,
+    settled: true,
+    matchesSnapshot: true,
+  });
+  expect(synthesisSettlement(null, 'local:codex:same', { revision: 1, synthesisPending: false }, 1)).toEqual({
+    pendingKey: null,
+    settled: false,
+    matchesSnapshot: true,
+  });
+  expect(
+    synthesisSettlement('local:codex:other', 'local:codex:same', { revision: 1, synthesisPending: false }, 1),
+  ).toEqual({
+    pendingKey: null,
+    settled: false,
+    matchesSnapshot: true,
+  });
+});
+
+it('counts a selected identity settlement even when its transcript revision moved on', () => {
+  const identity = 'local:codex:same';
+  const pending = synthesisSettlement(null, identity, { revision: 2, synthesisPending: true }, 1);
+  expect(pending).toEqual({ pendingKey: identity, settled: false, matchesSnapshot: false });
+  expect(
+    synthesisSettlement(pending.pendingKey, identity, { revision: 2, synthesisPending: false }, 1),
+  ).toEqual({
+    pendingKey: null,
+    settled: true,
+    matchesSnapshot: false,
+  });
+  expect(synthesisSettlement(null, identity, { revision: 2, synthesisPending: false }, 1).settled).toBe(
+    false,
+  );
+  expect(
+    synthesisSettlement(pending.pendingKey, 'local:codex:other', { revision: 2, synthesisPending: false }, 1)
+      .settled,
+  ).toBe(false);
+});
 
 describe('SessionInspector exact-detail boundaries', () => {
   it('shows a full plan with a timeline filter and expansion control', () => {

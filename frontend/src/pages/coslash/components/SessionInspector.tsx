@@ -41,6 +41,7 @@ import {
   TokenBreakdown,
 } from '@/pages/coslash/components/SessionCard';
 import { SnapshotPreviewDialog } from '@/pages/coslash/components/SnapshotPreviewDialog';
+import { SynthesisCosts } from '@/pages/coslash/components/SynthesisCosts';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { useLaunchTerminal } from '@/pages/coslash/hooks/use-launch-terminal';
 import {
@@ -158,6 +159,20 @@ export function synthesisMatchesSnapshot(
   synthesisRevision: number,
 ): boolean {
   return synthesisRevision > 0 && result.revision === synthesisRevision;
+}
+
+// oxlint-disable-next-line react/only-export-components -- pure transition used by focused tests
+export function synthesisSettlement(
+  pendingKey: string | null,
+  key: string,
+  result: Pick<SynthesisResponse, 'revision' | 'synthesisPending'>,
+  synthesisRevision: number,
+) {
+  return {
+    pendingKey: result.synthesisPending ? key : null,
+    settled: !result.synthesisPending && pendingKey === key,
+    matchesSnapshot: synthesisMatchesSnapshot(result, synthesisRevision),
+  };
 }
 
 export function refreshSourceAndRetry(
@@ -347,6 +362,7 @@ export function useSessionDetail(
   loadErrorKind: DetailErrorKind | null;
   cachedOffline: boolean;
   summaryOnly: boolean;
+  synthesisSettledCount: number;
 } {
   const [loadedDetail, setLoadedDetail] = useState<{
     key: string;
@@ -357,6 +373,8 @@ export function useSessionDetail(
   } | null>(null);
   const [detailError, setDetailError] = useState<DetailError | null>(null);
   const [loadedSynthesis, setLoadedSynthesis] = useState<({ key: string } & SynthesisResponse) | null>(null);
+  const [synthesisSettledCount, setSynthesisSettledCount] = useState(0);
+  const pendingSynthesisKey = useRef<string | null>(null);
   const pollDeadline = useRef<{ key: string; deadline: number } | null>(null);
   const detailKey = session == null ? null : detailRequestKey(session);
   const snapshot = loadedDetail?.key === detailKey ? loadedDetail.detail : null;
@@ -476,10 +494,12 @@ export function useSessionDetail(
     const current = session;
     if (current == null || synthesisKey == null || snapshot == null) {
       pollDeadline.current = null;
+      pendingSynthesisKey.current = null;
       return;
     }
     if (!isLocalSession(current)) {
       pollDeadline.current = null;
+      pendingSynthesisKey.current = null;
       return;
     }
     if (pollDeadline.current?.key !== synthesisKey) {
@@ -501,18 +521,25 @@ export function useSessionDetail(
         if (!res.ok) return;
         const result = (await res.json()) as SynthesisResponse;
         if (controller.signal.aborted) return;
-        if (!synthesisMatchesSnapshot(result, synthesisRevision)) return;
+        const settlement = synthesisSettlement(
+          pendingSynthesisKey.current,
+          sessionKey(current),
+          result,
+          synthesisRevision,
+        );
+        pendingSynthesisKey.current = settlement.pendingKey;
+        if (settlement.settled) setSynthesisSettledCount((count) => count + 1);
         if (result.synthesis == null && result.synthesisPending) {
           pollDeadline.current ??= { key: synthesisKey, deadline: Date.now() + 2 * MINUTE };
           if (Date.now() < pollDeadline.current.deadline) {
             timer = setTimeout(load, 3_000);
-            setLoadedSynthesis({ key: synthesisKey, ...result });
-          } else {
+            if (settlement.matchesSnapshot) setLoadedSynthesis({ key: synthesisKey, ...result });
+          } else if (settlement.matchesSnapshot) {
             setLoadedSynthesis({ key: synthesisKey, ...result, synthesisPending: false });
           }
         } else {
           pollDeadline.current = null;
-          setLoadedSynthesis({ key: synthesisKey, ...result });
+          if (settlement.matchesSnapshot) setLoadedSynthesis({ key: synthesisKey, ...result });
         }
       } catch (error: unknown) {
         // Detail loading owns the visible request error. Synthesis failures
@@ -536,6 +563,7 @@ export function useSessionDetail(
       loadErrorKind: null,
       cachedOffline: false,
       summaryOnly: false,
+      synthesisSettledCount,
     };
   }
   if (presentation.summaryOnly) {
@@ -546,6 +574,7 @@ export function useSessionDetail(
       loadErrorKind: null,
       cachedOffline: false,
       summaryOnly: true,
+      synthesisSettledCount,
     };
   }
   const attempt = detailAttemptState(loadedDetail, detailError, detailKey, detailRetryToken);
@@ -557,6 +586,7 @@ export function useSessionDetail(
       loadErrorKind: attempt.error?.kind ?? null,
       cachedOffline: false,
       summaryOnly: false,
+      synthesisSettledCount,
     };
   }
   const synthesis =
@@ -579,6 +609,7 @@ export function useSessionDetail(
     loadErrorKind: attempt.error?.kind ?? null,
     cachedOffline: loadedDetail.cachedOffline,
     summaryOnly: false,
+    synthesisSettledCount,
   };
 }
 
@@ -690,7 +721,17 @@ export function PiErrorBadge({ diagnostic }: { diagnostic?: string | null }) {
   );
 }
 
-function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showMachineBadge: boolean }) {
+function HeaderMeta({
+  detail,
+  showMachineBadge,
+  synthesisCostVersion,
+  synthesisSettledCount,
+}: {
+  detail: SessionDetail;
+  showMachineBadge: boolean;
+  synthesisCostVersion: string | null;
+  synthesisSettledCount: number;
+}) {
   const status = STATUSES[boardStatusKey(detail)];
 
   return (
@@ -744,6 +785,14 @@ function HeaderMeta({ detail, showMachineBadge }: { detail: SessionDetail; showM
         </div>
         <TokenBreakdown {...detail} />
       </div>
+      <SynthesisCosts
+        key={sessionKey(detail)}
+        session={detail}
+        codingCost={detail.cost}
+        codingUnpricedModels={detail.unpricedModels}
+        synthesisCostVersion={synthesisCostVersion}
+        synthesisSettledCount={synthesisSettledCount}
+      />
     </div>
   );
 }
@@ -1659,6 +1708,7 @@ export function SessionInspector({
   session,
   sessionsVersion,
   synthesisSettingsKey,
+  synthesisCostVersion,
   showMachineBadge = false,
   machines,
   onRefresh,
@@ -1670,6 +1720,7 @@ export function SessionInspector({
   session: Session | null;
   sessionsVersion: number;
   synthesisSettingsKey: string;
+  synthesisCostVersion: string | null;
   showMachineBadge?: boolean;
   machines: MachineFact[];
   onRefresh: () => void | Promise<void>;
@@ -1684,12 +1735,8 @@ export function SessionInspector({
   useLayoutEffect(() => {
     detailAttemptRef.current = detailAttemptIdentity;
   }, [detailAttemptIdentity]);
-  const { detail, isLoading, loadError, loadErrorKind, cachedOffline, summaryOnly } = useSessionDetail(
-    session,
-    detailRetryToken,
-    sessionsVersion,
-    synthesisSettingsKey,
-  );
+  const { detail, isLoading, loadError, loadErrorKind, cachedOffline, summaryOnly, synthesisSettledCount } =
+    useSessionDetail(session, detailRetryToken, sessionsVersion, synthesisSettingsKey);
   const contentRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<{
     pointerId: number;
@@ -1878,7 +1925,12 @@ export function SessionInspector({
             <SheetHeader>
               <div className="flex min-w-0 flex-col gap-2">
                 <SessionInspectorTitle detail={detail} showMachineBadge={showMachineBadge} />
-                <HeaderMeta detail={detail} showMachineBadge={false} />
+                <HeaderMeta
+                  detail={detail}
+                  showMachineBadge={false}
+                  synthesisCostVersion={synthesisCostVersion}
+                  synthesisSettledCount={synthesisSettledCount}
+                />
                 {session != null && snapshotMayBeStale(detail, session) && <SnapshotStalenessNotice />}
                 <div className="border-b p-1" />
               </div>
