@@ -2,6 +2,7 @@ package grok
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -37,12 +38,13 @@ type summaryFile struct {
 }
 
 type signalsFile struct {
-	TurnCount           int `json:"turnCount"`
-	ErrorCount          int `json:"errorCount"`
-	CompactionCount     int `json:"compactionCount"`
-	ContextTokensUsed   int `json:"contextTokensUsed"`
-	ContextWindowTokens int `json:"contextWindowTokens"`
-	ToolCallCount       int `json:"toolCallCount"`
+	TurnCount              int `json:"turnCount"`
+	ErrorCount             int `json:"errorCount"`
+	CompactionCount        int `json:"compactionCount"`
+	ContextTokensUsed      int `json:"contextTokensUsed"`
+	ContextWindowTokens    int `json:"contextWindowTokens"`
+	ToolCallCount          int `json:"toolCallCount"`
+	SessionDurationSeconds int `json:"sessionDurationSeconds"`
 }
 
 type usageCounts struct {
@@ -65,19 +67,41 @@ type usageFile struct {
 type updateLine struct {
 	Params struct {
 		Update struct {
-			Kind    string `json:"sessionUpdate"`
-			Content struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-				Meta struct {
-					BashCommand *string `json:"bash_command"`
-				} `json:"_meta"`
-			} `json:"content"`
-			Meta struct {
+			Kind      string          `json:"sessionUpdate"`
+			Status    string          `json:"status"`
+			Content   json.RawMessage `json:"content"`
+			RawOutput json.RawMessage `json:"rawOutput"`
+			Meta      struct {
 				HideFromScrollback bool `json:"hideFromScrollback"`
 			} `json:"_meta"`
 		} `json:"update"`
 	} `json:"params"`
+}
+
+// chunkContent is a message chunk's content object.
+type chunkContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+	Meta struct {
+		BashCommand *string `json:"bash_command"`
+	} `json:"_meta"`
+}
+
+// bashOutput is the rawOutput of a completed terminal command.
+type bashOutput struct {
+	Type     string `json:"type"`
+	Command  string `json:"command"`
+	Output   string `json:"output_for_prompt"`
+	ExitCode *int   `json:"exit_code"`
+	TimedOut bool   `json:"timed_out"`
+}
+
+// toolContent is one item of a tool_call_update's content array.
+type toolContent struct {
+	Type    string `json:"type"`
+	Path    string `json:"path"`
+	OldText string `json:"oldText"`
+	NewText string `json:"newText"`
 }
 
 const ticksPerUSD = 1e10
@@ -128,6 +152,17 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 		return nil, err
 	}
 	s.FirstPrompt = nonEmpty(updates.firstPrompt)
+	s.FileEdits = updates.edits.Edits
+	s.EditedFileCount = len(s.FileEdits)
+	s.Commands = updates.commands.Raw()
+	s.CommitLog = updates.commitLog
+	s.PullRequests = updates.pullRequests
+	s.Todos = readTodos(filepath.Join(dir, "plan.json"))
+	var goal struct {
+		Objective string `json:"objective"`
+	}
+	readOptionalJSON(filepath.Join(dir, "goal", "state.json"), &goal)
+	s.DeclaredGoal = nonEmpty(goal.Objective)
 
 	var signals signalsFile
 	readOptionalJSON(filepath.Join(dir, "signals.json"), &signals)
@@ -139,6 +174,29 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 	}
 	s.Errors = signals.ErrorCount
 	s.Compactions = signals.CompactionCount
+	if signals.SessionDurationSeconds > 0 {
+		ms := signals.SessionDurationSeconds * 1000
+		s.DurationMs = &ms
+	}
+	s.CompactionSeed = readCompactionSeed(filepath.Join(dir, "compaction_checkpoints"))
+	turn := max(updates.userTurn, 1)
+	if summary.LastTurnSummary != "" {
+		updates.digest.Push(turn, session.DigestRecap, summary.LastTurnSummary, 0)
+	}
+	if s.CompactionSeed != "" {
+		updates.digest.Push(turn, session.DigestCompaction, s.CompactionSeed, 0)
+	}
+	if len(s.Todos) > 0 {
+		texts := make([]string, len(s.Todos))
+		for i, todo := range s.Todos {
+			texts[i] = todo.Text
+		}
+		updates.digest.Push(turn, session.DigestTodos, strings.Join(texts, "; "), 0)
+	}
+	if plan := readOptionalText(filepath.Join(dir, "plan.md")); plan != "" {
+		updates.digest.Push(turn, session.DigestPlan, plan, 0)
+	}
+	s.Digest = updates.digest.Entries()
 	if updates.finishedTurns > 0 && signals.ContextTokensUsed > 0 {
 		s.ContextTokens = &signals.ContextTokensUsed
 	}
@@ -151,7 +209,9 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 		s.ContextWindow = session.ContextWindowFor(*s.Model)
 	}
 
-	parsed := &vendors.ParsedSession{Session: s, LogPath: filepath.Join(dir, "updates.jsonl"), InTurn: updates.inTurn}
+	parsed := &vendors.ParsedSession{
+		Session: s, LogPath: filepath.Join(dir, "updates.jsonl"), InTurn: updates.inTurn, Commands: updates.commands.Labelled(),
+	}
 	if isSubagentKind(summary.SessionKind) {
 		// A fork or worktree session keeps its parent link but stays a top-level row.
 		parsed.ParentID = summary.ParentSessionID
@@ -197,10 +257,18 @@ type updatesSummary struct {
 	finishedTurns int
 	openToolCalls int
 	inTurn        bool
+	edits         *session.FileEditSet
+	commands      session.CommandLog
+	commitLog     []session.CommitObservation
+	pullRequests  int
+	digest        session.DigestLog
+	userTurn      int
+	userBuf       string
+	sawUser       bool
 }
 
 func readUpdates(path string) (updatesSummary, error) {
-	var result updatesSummary
+	result := updatesSummary{edits: session.NewFileEditSet()}
 	file, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return result, nil
@@ -218,19 +286,44 @@ func readUpdates(path string) (updatesSummary, error) {
 			continue
 		}
 		update := line.Params.Update
-		if update.Content.Meta.BashCommand != nil {
+		if update.Kind == "tool_call_update" {
+			// The diff repeats on the update that completes the call, so count only that one.
+			var items []toolContent
+			var shell bashOutput
+			if update.Status == "completed" && json.Unmarshal(update.RawOutput, &shell) == nil && shell.Type == "Bash" {
+				result.noteCommand(shell)
+			}
+			if update.Status == "completed" && json.Unmarshal(update.Content, &items) == nil {
+				for _, item := range items {
+					if item.Type == "diff" && item.Path != "" {
+						result.edits.Add(item.Path, session.CountLines(item.NewText), session.CountLines(item.OldText), item.OldText == "")
+						result.edits.Change(item.Path, item.OldText, item.NewText)
+					}
+				}
+			}
+			continue
+		}
+		var content chunkContent
+		_ = json.Unmarshal(update.Content, &content)
+		if content.Meta.BashCommand != nil {
 			// A "!cmd" shell row is not a prompt and starts no model turn.
 			continue
 		}
 		if update.Kind != "user_message_chunk" && result.firstPrompt != "" {
 			firstPromptDone = true
 		}
+		if update.Kind != "user_message_chunk" {
+			result.flushUser()
+		}
 		switch update.Kind {
 		case "user_message_chunk":
 			result.inTurn = true
 			// A hidden chunk is an injected system reminder, not the user's prompt.
-			if !firstPromptDone && !update.Meta.HideFromScrollback && update.Content.Type == "text" {
-				result.firstPrompt += update.Content.Text
+			if !update.Meta.HideFromScrollback && content.Type == "text" {
+				if !firstPromptDone {
+					result.firstPrompt += content.Text
+				}
+				result.userBuf += content.Text
 			}
 		case "tool_call":
 			result.inTurn = true
@@ -241,8 +334,125 @@ func readUpdates(path string) (updatesSummary, error) {
 			result.inTurn = false
 		}
 	}
+	result.flushUser()
 	result.firstPrompt = strings.TrimSpace(result.firstPrompt)
 	return result, scanner.Err()
+}
+
+func (r *updatesSummary) flushUser() {
+	text := strings.TrimSpace(r.userBuf)
+	r.userBuf = ""
+	if text == "" {
+		return
+	}
+	category := session.DigestUser
+	if !r.sawUser {
+		category = session.DigestFirstPrompt
+		r.sawUser = true
+	}
+	r.userTurn++
+	r.digest.Push(r.userTurn, category, text, 0)
+}
+
+func readOptionalText(path string) string {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
+// readTodos keeps plan.json order. A cancelled todo is left out, and only completed is done.
+func readTodos(path string) []session.Todo {
+	todos := []session.Todo{}
+	var plan struct {
+		Todos json.RawMessage `json:"todos"`
+	}
+	if readJSON(path, &plan) != nil || len(plan.Todos) == 0 {
+		return todos
+	}
+	decoder := json.NewDecoder(bytes.NewReader(plan.Todos))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('{') {
+		return todos
+	}
+	for decoder.More() {
+		var item struct {
+			Content string `json:"content"`
+			Status  string `json:"status"`
+		}
+		if _, err := decoder.Token(); err != nil || decoder.Decode(&item) != nil {
+			return []session.Todo{}
+		}
+		if text := strings.TrimSpace(item.Content); text != "" && item.Status != "cancelled" {
+			todos = append(todos, session.Todo{Text: text, Done: item.Status == "completed"})
+		}
+	}
+	return todos
+}
+
+func (result *updatesSummary) noteCommand(shell bashOutput) {
+	if shell.Command == "" {
+		return
+	}
+	result.commands.Note(shell.Command, "")
+	// ponytail: substring match, so a quoted "--dry-run" in a commit message also skips that command.
+	if strings.Contains(shell.Command, "--dry-run") {
+		return
+	}
+	succeeded := shell.ExitCode != nil && *shell.ExitCode == 0 && !shell.TimedOut
+	result.commitLog = append(result.commitLog, session.ParseCommitObservations(shell.Command, shell.Output, succeeded)...)
+	if succeeded && session.IsPullRequestCreate(shell.Command) && len(session.PullRequestURLs(shell.Output)) > 0 {
+		result.pullRequests++
+	}
+}
+
+// compactionSummaryPrefix opens the summary item that Grok puts in compacted_history.
+const compactionSummaryPrefix = "This session is being continued from a previous conversation"
+
+// readCompactionSeed returns the summary text of the newest compaction checkpoint.
+func readCompactionSeed(dir string) string {
+	entries, _ := os.ReadDir(dir)
+	seed, newest := "", int64(-1)
+	for _, entry := range entries {
+		var checkpoint struct {
+			CreatedAt        string `json:"created_at"`
+			CompactedHistory []struct {
+				Type    string          `json:"type"`
+				Content json.RawMessage `json:"content"`
+			} `json:"compacted_history"`
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" ||
+			readJSON(filepath.Join(dir, entry.Name()), &checkpoint) != nil {
+			continue
+		}
+		createdAt := parseTime(checkpoint.CreatedAt)
+		if createdAt < newest {
+			continue
+		}
+		for _, item := range checkpoint.CompactedHistory {
+			if text := itemText(item.Content); item.Type == "user" && strings.HasPrefix(text, compactionSummaryPrefix) {
+				seed, newest = text, createdAt
+			}
+		}
+	}
+	return seed
+}
+
+// itemText reads a chat item's content, which is a string or a list of text blocks.
+func itemText(content json.RawMessage) string {
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	var blocks []chunkContent
+	_ = json.Unmarshal(content, &blocks)
+	parts := []string{}
+	for _, block := range blocks {
+		if block.Type == "text" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
 func readJSON(path string, target any) error {

@@ -4,7 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/centauri-ai/coslash/collector/internal/session"
 )
 
 func TestParseFinishedSessionUsesUsageTokensAndSignalsContextFill(t *testing.T) {
@@ -33,6 +38,86 @@ func TestParseFinishedSessionUsesUsageTokensAndSignalsContextFill(t *testing.T) 
 	}
 	if s.ToolUses != 1 || parsed.InTurn {
 		t.Fatalf("tool uses = %d, in turn = %v", s.ToolUses, parsed.InTurn)
+	}
+}
+
+func TestParseFileEditCountsCompletedDiffOnce(t *testing.T) {
+	parsed, err := parseSession(filepath.Join("testdata", "finished"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parsed.Session
+	if len(s.FileEdits) != 1 || s.EditedFileCount != 1 {
+		t.Fatalf("file edits = %+v", s.FileEdits)
+	}
+	edit := s.FileEdits[0]
+	if edit.Path != "/work/repo/alias.sh" || edit.Additions != 2 || edit.Deletions != 1 || edit.Edits != 1 || edit.IsNew {
+		t.Fatalf("file edit = %+v", edit)
+	}
+	if changes := edit.Changes(); len(changes) != 1 || changes[0].Text != "@@\n-alias agent=grok\n+alias agent=cursor\n+alias g=grok\n" {
+		t.Fatalf("changes = %+v", changes)
+	}
+}
+
+func TestReadTodosKeepsOrderDropsCancelledAndMarksOnlyCompletedDone(t *testing.T) {
+	got := readTodos(filepath.Join("testdata", "plan", "plan.json"))
+	want := []session.Todo{{Text: "Ship", Done: true}, {Text: "Review", Done: false}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("todos = %+v, want %+v", got, want)
+	}
+	if got := readTodos(filepath.Join("testdata", "absent", "plan.json")); got == nil || len(got) != 0 {
+		t.Fatalf("missing plan todos = %#v, want empty", got)
+	}
+}
+
+func TestParseDeclaredGoalFromGoalState(t *testing.T) {
+	parsed, err := parseSession(filepath.Join("testdata", "plan"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Session.DeclaredGoal; got == nil || *got != "Ship Grok" {
+		t.Fatalf("declared goal = %q, want Ship Grok", stringValue(got))
+	}
+	if parsed, err = parseSession(filepath.Join("testdata", "finished")); err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Session.DeclaredGoal; got != nil {
+		t.Fatalf("declared goal without goal/state.json = %q, want nil", *got)
+	}
+}
+
+func TestParseCommandsCommitsAndPullRequestsSkipDryRunsAndFailures(t *testing.T) {
+	parsed, err := parseSession(filepath.Join("testdata", "commands"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parsed.Session
+	if len(s.Commands) != 5 || s.Commands[0] != `git commit -m "ship"` || len(parsed.Commands) != 5 {
+		t.Fatalf("commands = %q", s.Commands)
+	}
+	want := []session.CommitObservation{{Hash: "abc1234", Subject: "ship"}}
+	if !slices.Equal(s.CommitLog, want) {
+		t.Fatalf("commit log = %+v, want %+v", s.CommitLog, want)
+	}
+	if s.PullRequests != 1 {
+		t.Fatalf("pull requests = %d, want 1", s.PullRequests)
+	}
+}
+
+func TestParseCompactionSeedFromNewestCheckpoint(t *testing.T) {
+	parsed, err := parseSession(filepath.Join("testdata", "compacted"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parsed.Session
+	if s.Compactions != 1 || !strings.Contains(s.CompactionSeed, "Earlier work") || strings.Contains(s.CompactionSeed, "Oldest work") {
+		t.Fatalf("compactions = %d, seed = %q", s.Compactions, s.CompactionSeed)
+	}
+	if parsed, err = parseSession(filepath.Join("testdata", "finished")); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Session.CompactionSeed != "" {
+		t.Fatalf("seed without checkpoints = %q, want empty", parsed.Session.CompactionSeed)
 	}
 }
 
@@ -78,8 +163,22 @@ func TestCollectSkipsSubagentsAndOtherChatFormats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(parsed) != 1 || parsed[0].Session.ID != "01a0f48a-42bb-7802-b584-f5def46d1e75" || parsed[0].Session.Agent != "grok" {
+	if len(parsed) != 2 {
 		t.Fatalf("parsed = %+v", parsed)
+	}
+	roots := 0
+	for _, item := range parsed {
+		if item.ParentID == "" {
+			roots++
+			if item.Session.ID != "01a0f48a-42bb-7802-b584-f5def46d1e75" || item.Session.Agent != "grok" {
+				t.Fatalf("root = %+v", item.Session)
+			}
+		} else if item.Session.ID != "child" || item.ParentID != "01a0f48a-42bb-7802-b584-f5def46d1e75" {
+			t.Fatalf("child = %+v", item)
+		}
+	}
+	if roots != 1 {
+		t.Fatalf("roots = %d, want 1", roots)
 	}
 	if health := Health(); health.Missing || health.Err != nil || health.Sessions != 1 || health.Entries != 3 {
 		t.Fatalf("health = %+v", health)
@@ -116,6 +215,88 @@ func copyFixture(t *testing.T, from, to string) {
 		}
 		if err := os.WriteFile(filepath.Join(to, entry.Name()), data, 0o644); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestSubagentLinksWhenChildSummaryOmitsParent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	root := filepath.Join(home, "sessions", "%2Fwork%2Frepo")
+	writeSummary(t, filepath.Join(root, "parent"), `{"info":{"id":"parent","cwd":"/work/repo"},"chat_format_version":1,"generated_title":"Create subagent for fake work"}`)
+	writeSummary(t, filepath.Join(root, "child"), `{"info":{"id":"child","cwd":"/work/repo"},"chat_format_version":1,"session_kind":"subagent"}`)
+	meta := filepath.Join(root, "parent", "subagents", "child")
+	if err := os.MkdirAll(meta, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta, "meta.json"), []byte(`{"child_session_id":"child","parent_session_id":"parent","description":"Fake work demo","prompt":"do the fake work","status":"completed","duration_ms":4176}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta, "output.json"), []byte(`{"schema_version":1,"output":"done"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	facts, err := GetSessionFacts("parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if facts == nil || len(facts.Session.Subagents) != 1 {
+		t.Fatalf("subagents = %+v", facts)
+	}
+	got := facts.Session.Subagents[0]
+	if got.ID != "child" || got.Name != "Fake work demo" || got.Status != session.SubagentReturned || got.Task != "do the fake work" || got.Result != "done" {
+		t.Fatalf("subagent = %+v", got)
+	}
+	if len(facts.Session.Digest) != 1 || facts.Session.Digest[0].SubagentID != "child" || facts.Session.Digest[0].Category != session.DigestSubagent {
+		t.Fatalf("digest = %+v", facts.Session.Digest)
+	}
+}
+
+func TestParseDurationAndOrdinaryDigest(t *testing.T) {
+	dir := t.TempDir()
+	writeSummary(t, dir, `{"info":{"id":"s","cwd":"/work"},"chat_format_version":1,"last_turn_summary":"Wrapped up"}`)
+	if err := os.WriteFile(filepath.Join(dir, "signals.json"), []byte(`{"sessionDurationSeconds":304}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	updates := strings.Join([]string{
+		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"First ask"}}}}`,
+		`{"params":{"update":{"sessionUpdate":"turn_completed"}}}`,
+		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"Second ask"}}}}`,
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(dir, "updates.jsonl"), []byte(updates), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("Ship the parser"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseSession(dir)
+	if err != nil || parsed == nil || parsed.Session.DurationMs == nil || *parsed.Session.DurationMs != 304000 {
+		t.Fatalf("duration = %v, err = %v", parsed, err)
+	}
+	got := make([]string, len(parsed.Session.Digest))
+	for i, entry := range parsed.Session.Digest {
+		got[i] = strconv.Itoa(entry.Turn) + ":" + entry.Category + ":" + entry.Description
+	}
+	want := []string{
+		"1:" + session.DigestFirstPrompt + ":First ask",
+		"2:" + session.DigestUser + ":Second ask",
+		"2:" + session.DigestRecap + ":Wrapped up",
+		"2:" + session.DigestPlan + ":Ship the parser",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("digest = %q, want %q", got, want)
+	}
+	long := strings.Repeat("step ", 80)
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte(long), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = parseSession(dir)
+	if err != nil || parsed == nil {
+		t.Fatal(err)
+	}
+	for _, entry := range parsed.Session.Digest {
+		if entry.Category == session.DigestPlan && entry.Description != strings.TrimSpace(long) {
+			t.Fatalf("plan digest = %q, want the full plan", entry.Description)
 		}
 	}
 }
