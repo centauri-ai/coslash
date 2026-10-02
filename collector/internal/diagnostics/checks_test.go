@@ -50,6 +50,19 @@ func TestPiNewReleaseDoesNotHideExtensionRecovery(t *testing.T) {
 	}
 }
 
+func TestPiMissingCLIReportsManagedInstallSearch(t *testing.T) {
+	source := Source{Agent: "pi", Label: "Pi", State: SourceOK, Entries: 1, CLI: CLI{Name: "pi"}}
+	for _, check := range derive(&Snapshot{Sources: []Source{source}}) {
+		if check.ID == "cli.pi" {
+			if !strings.Contains(check.Detail, "managed installation") {
+				t.Fatalf("missing Pi CLI detail = %q", check.Detail)
+			}
+			return
+		}
+	}
+	t.Fatal("missing Pi CLI check")
+}
+
 func TestCursorDiagnosticsWarnWhenBothLanesAreMissing(t *testing.T) {
 	source := Source{Agent: "cursor", Label: "Cursor", State: SourceOK, Entries: 1, Sessions: 1, CLI: CLI{Name: "agent"}, IDE: &CLI{Name: "cursor"}}
 	for _, check := range derive(&Snapshot{Sources: []Source{source}}) {
@@ -114,7 +127,7 @@ func TestUnsupportedPiSynthesisOffersSupportedBackend(t *testing.T) {
 	snapshot := &Snapshot{piSynthesisUnsupported: true, Synthesis: Synthesis{Enabled: true}}
 	for _, check := range derive(snapshot) {
 		if check.ID == "synthesis" {
-			if check.Status != StatusWarn || check.Detail != "Pi synthesis is supported only on macOS." || check.Fix != "Open Settings and choose another synthesis backend." {
+			if check.Status != StatusWarn || check.Detail != "Pi synthesis is unavailable on this platform." || check.Fix != "Open Settings and choose another synthesis backend." {
 				t.Fatalf("wrong platform recovery: %#v", check)
 			}
 			return

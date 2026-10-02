@@ -102,7 +102,7 @@ func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 		return nil, nil
 	}
 	if config.Backend == settings.BackendPi && !vendors.PiSupported() {
-		return nil, errors.New("Pi synthesis is supported only on macOS")
+		return nil, errors.New("Pi synthesis is unavailable on this platform")
 	}
 	bin := settings.BackendExecutable(config.Backend)
 	if bin == "" {
