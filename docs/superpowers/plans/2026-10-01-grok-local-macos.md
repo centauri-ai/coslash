@@ -22,7 +22,13 @@ A new orchestrator reads this section first and continues from **Next action**. 
 | T4 | completed | `bda3a51f-a0e9-4c85-8a9c-19da9ab1647b` | `cvu/grok-t4-launch` | `5675a278-f698-4fa0-9e8c-1aa0e0735940` | `NO_FINDINGS` | Rebased onto T1. Head `0cafa753`. PR not opened. |
 | T5 | completed | `323119d3-178b-4024-b848-18ace9f81ecd` | `cvu/grok-t5-ui` | `1f26f7a8-14fb-4264-9901-f9e0dea3ba2f` | `NO_FINDINGS` | Rebased onto `cvu/grok-t2-t4` at `fdab052b`. Head `d20520b5`. Unique commits are the vendor chip, diagnostics label, and detail allow-list. PR not opened. |
 
-**Next action:** Codex re-ran `TestExactLocalDetailAcceptsGrokSessions` and reported pass (`ok github.com/centauri-ai/coslash/collector/cmd/coslash 0.268s`). Do not send that test again. Do not open pull requests until the user asks. Do not kill 8787 or 8797. The stack was rebased onto `fa76266c`. Current heads: T1 `fb648425`, T2 `9051ffb4`, T4 `0cafa753`, T3 `a6d6660a`, `cvu/grok-t2-t4` `fdab052b`, T5 `d20520b5`. Port 8797 was stopped by the user. Do not restart it. Do not kill 8787.
+**Next action:** Draft pull requests are open. Do not mark them ready. Do not kill 8787. Port 8797 was stopped.
+
+- https://github.com/centauri-ai/coslash/pull/386 T1 `cvu/grok-t1-parse` into `cvu/speckle-direction-4ceb2f68`
+- https://github.com/centauri-ai/coslash/pull/387 T2 `cvu/grok-t2-enrich` into `cvu/grok-t1-parse`
+- https://github.com/centauri-ai/coslash/pull/388 T4 `cvu/grok-t4-launch` into `cvu/grok-t1-parse`
+- https://github.com/centauri-ai/coslash/pull/389 T3 `cvu/grok-t3-synthesis` into `cvu/grok-t2-enrich`
+- https://github.com/centauri-ai/coslash/pull/390 T5 `cvu/grok-t5-ui` into `cvu/grok-t2-t4` The stack was rebased onto `fa76266c`. Current heads: T1 `fb648425`, T2 `9051ffb4`, T4 `0cafa753`, T3 `a6d6660a`, `cvu/grok-t2-t4` `fdab052b`, T5 `d20520b5`. Port 8797 was stopped by the user. Do not restart it. Do not kill 8787.
 
 E2E checks: 1 PASS (four Grok cards, chip label Grok). 2 FAIL (session detail drawer returns HTTP 400; the board itself shows 413 tool uses for the live session). 3 PASS (no subagent cards as peers). 4 PASS (Resume visible, not clicked). 5 PASS (no new console errors after the token URL).
 
