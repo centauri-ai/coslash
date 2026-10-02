@@ -235,11 +235,11 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 			return parseSynthesis(data)
 		}
 		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create synthesis directory: %w", err)
+			return RunResult{}, fmt.Errorf("create synthesis directory: %w", err)
 		}
 		scratchDir, err := os.MkdirTemp(SynthesisCwd(), piScratchPrefix+"*")
 		if err != nil {
-			return session.SessionSynthesis{}, fmt.Errorf("create Pi scratch directory: %w", err)
+			return RunResult{}, fmt.Errorf("create Pi scratch directory: %w", err)
 		}
 		defer os.RemoveAll(scratchDir)
 		dir = scratchDir

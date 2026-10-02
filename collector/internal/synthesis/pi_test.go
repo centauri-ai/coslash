@@ -43,7 +43,7 @@ func TestPiSynthesis(t *testing.T) {
 				return []byte("```json\n{\"goals\":[\"Ship Pi synthesis\"],\"outcome\":\"Backend added\",\"keyDecisions\":[],\"nextStep\":\"Review\"}\n```"), nil
 			}
 			got, err := runner.Run(context.Background(), "private session facts")
-			if err != nil || got.Outcome != "Backend added" {
+			if err != nil || got.Synthesis.Outcome != "Backend added" {
 				t.Fatalf("got=%#v err=%v", got, err)
 			}
 			entries, err := os.ReadDir(SynthesisCwd())
