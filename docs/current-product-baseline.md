@@ -148,3 +148,30 @@ usage remains unavailable. Cursor CLI token and compaction data remain
 unavailable when Cursor does not persist them reliably. Completed Cursor
 assistant replies appear as timeline recaps, and the latest IDE conversation
 summary can inform local synthesis.
+
+## Synthesis cost addendum - 2026-10-01
+
+Insights shows coding cost for sessions last active in the selected month,
+recorded synthesis cost for local invocations started in that month, and their
+combined known amount. The inspector shows lifetime local synthesis rounds and
+costs for the selected session. `GET /api/synthesis-costs` serves monthly totals
+or paginated session rounds through the normal access-token guard; reads never
+start synthesis. SSH and Hub sessions have no local synthesis accounting.
+
+`COSLASH_HOME/synthesis-accounting/costs.sqlite` stores round and invocation
+metadata, token totals, and reported or estimated micro-USD amounts separately
+from latest results in `summaries/`. Failed and interrupted invocations retain
+known spend. Tracking starts when the database is created; earlier spend and
+calls without usable usage or pricing remain unknown or partial. Reported CLI
+amounts take precedence over local estimates but are not invoices. Accounting
+does not change portable session records, revisions, snapshots, or backups.
+
+Deleting `summaries/` removes latest results without deleting cost history.
+With coSlash stopped, deleting `synthesis-accounting/` separately removes that
+history and resets tracking. If an accounting write may have been lost, cost
+reads return HTTP 503 in the current process. When the V2
+`accounting_incomplete` marker is stored, that state persists across restarts.
+Without it, a failed invocation-completion write can recover as unknown usage.
+An accounting store that cannot open does not block startup or cached summaries,
+but cost reads return HTTP 503. An existing zero-byte database can initialize
+as a new store, losing earlier history without an unavailable response.

@@ -26,6 +26,7 @@ coSlash reads, but does not modify:
 | `settings.json` | Synthesis, appearance, and terminal preferences. |
 | `token` | Access token for the current server process. |
 | `summaries/` | Cached synthesis results. |
+| `synthesis-accounting/costs.sqlite` | Local synthesis round and invocation history, including session identity, source revision, time, outcome, vendor, model, token totals, and reported or estimated cost. No prompts, transcripts, or raw CLI output. |
 | `synthesis/` | Temporary synthesis files and isolated CLI data. |
 | `sys-prompts/` | Temporary handoffs for fresh sessions. |
 | `pi-runtime/` and `pi-history/` | Private process identity, session IDs, exact transcript paths, runtime state, and retained discovery evidence. |
@@ -178,6 +179,25 @@ and access coSlash. Do not proxy or forward the port.
 ## Control and removal
 
 Synthesis is off until you enable and save it in Settings. Disable it there to stop new requests, then delete `~/.coslash/summaries` to remove cached results.
+
+Synthesis accounting starts when the local database is first created. Earlier
+summaries have unknown spend, and missing usage or pricing leaves cost coverage
+partial or unknown. coSlash prefers a CLI-reported cost when present, including
+zero, and otherwise estimates from reported model tokens and local prices.
+Neither amount is a vendor invoice. Accounting stays local; it is not added to
+portable session revisions, backups, Hub shares, or remote snapshots.
+
+Deleting `summaries/` removes cached results but retains accounting history.
+To remove that history, quit coSlash and separately delete
+`synthesis-accounting/`. This resets the tracking start on the next launch and
+cannot recover earlier spend. If an accounting write may have been lost, the
+current process returns an unavailable error (HTTP 503) for cost reads. If the
+V2 `accounting_incomplete` marker was stored, that error persists after restart.
+Without the marker, a failed invocation-completion write can instead recover
+as unknown usage; lost spend cannot be reconstructed. If the accounting store
+cannot open at startup, sessions and cached summaries remain available while
+cost reads return HTTP 503. An existing zero-byte database can be initialized
+as a new store, so startup cannot detect every loss of prior history.
 
 Disabling a remote machine stops refreshes and hides its cards but retains its
 normalized last-good cache and any optional helper; it does not change Linux.
