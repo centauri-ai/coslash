@@ -544,7 +544,8 @@ func TestHandleReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
 				func(string) bool { return true },
 				func(string, reviewpkg.Launch) bool { started = true; return true },
 			)
-			if response.Code != http.StatusConflict || response.Body.String() != "session working directory is unavailable\n" {
+			var body struct{ Code, Error string }
+			if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &body) != nil || body.Code != "working_directory_unavailable" || body.Error != "Session working directory is unavailable." {
 				t.Fatalf("response = %d, %q", response.Code, response.Body.String())
 			}
 			if started {
