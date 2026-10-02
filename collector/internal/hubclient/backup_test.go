@@ -281,6 +281,91 @@ func TestPrepareBackupAcceptsOpaqueAudienceVersion(t *testing.T) {
 	}
 }
 
+func TestBackupCapabilityPreflightPreservesOrderingAndConsent(t *testing.T) {
+	readyDestination := `{"contractVersion":"hub-share/v1","state":"ready","destination":{"workspaceId":"` + backupWorkspace + `","workspaceName":"Compiler Team","currentMemberCount":2,"resultingMemberCount":2,"currentApprovedSessionCount":0,"historyDisclosure":"Current members","credentialState":"paired","audienceVersion":"audience-v1"},"configured":true}`
+	for _, test := range []struct {
+		name, destination, capability, previewCode, shareCode string
+		status                                                int
+	}{
+		{name: "destination gate", destination: `{"contractVersion":"hub-share/v1","state":"pairing_required","configured":true}`, previewCode: "unauthorized", shareCode: "destination_changed"},
+		{name: "retryable discovery", status: http.StatusTooManyRequests, previewCode: "temporary_unavailable", shareCode: "temporary_unavailable"},
+		{name: "unused field type error", status: http.StatusOK, capability: capabilityJSONWith(t, map[string]any{"maxFullSessionBytes": map[string]any{}}), previewCode: "temporary_unavailable", shareCode: "temporary_unavailable"},
+		{name: "v2 only", status: http.StatusOK, capability: fullSessionCapability(1 << 20), previewCode: "incompatible_server", shareCode: "incompatible_server"},
+		{name: "server changed", status: http.StatusOK, capability: capabilityJSONWith(t, map[string]any{"serverId": "different-server"}), shareCode: "stale_backup_review"},
+		{name: "capacity changed", status: http.StatusOK, capability: capabilityJSONWith(t, map[string]any{"maxBackupChunkBytes": 256}), shareCode: "stale_backup_review"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			loads := 0
+			manager := sessionbackupproducer.New(sessionbackupproducer.Options{
+				Root: t.TempDir(), OpenSource: func(context.Context, sessionbackupproducer.Selection) (sessionbackupproducer.SourceHandle, error) {
+					loads++
+					return sessionbackupproducer.SourceHandle{}, errors.New("unexpected content load")
+				},
+			})
+			type contextKey struct{}
+			ctx := context.WithValue(context.Background(), contextKey{}, "preflight")
+			base, _ := url.Parse("https://hub.example")
+			paths := []string{}
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{}, Backup: manager,
+				HTTP: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					if request.Context().Value(contextKey{}) != "preflight" {
+						t.Fatal("preflight lost the caller context")
+					}
+					paths = append(paths, request.URL.Path)
+					switch request.URL.Path {
+					case "/v1/share-destination":
+						if test.destination != "" {
+							return response(http.StatusOK, test.destination), nil
+						}
+						return response(http.StatusOK, readyDestination), nil
+					case "/.well-known/coslash-server":
+						return response(test.status, test.capability), nil
+					default:
+						t.Fatalf("request after failed preflight: %s", request.URL.Path)
+						return nil, nil
+					}
+				})},
+			}
+			selection := sessionbackupproducer.Selection{SourceKind: "local", SourceID: "local", Agent: "codex", SessionID: "session"}
+			wantPaths := []string{"/v1/share-destination"}
+			if test.destination == "" {
+				wantPaths = append(wantPaths, "/.well-known/coslash-server")
+			}
+			if test.previewCode != "" {
+				preview, diagnostic := client.PrepareBackup(ctx, selection)
+				if preview.ApprovalAllowed || preview.Capability != nil || preview.Problem == nil || preview.Problem.Code != test.previewCode ||
+					(diagnostic != nil) != (test.previewCode == "temporary_unavailable") || strings.Join(paths, ",") != strings.Join(wantPaths, ",") || loads != 0 {
+					t.Fatalf("preview=%#v diagnostic=%v paths=%v loads=%d", preview, diagnostic, paths, loads)
+				}
+			}
+			paths = nil
+			item := BackupShareItemRequest{
+				LocalSessionID: "local:codex:session", Selection: selection, IdempotencyKey: "backup-preflight-key-0001",
+				Consent: BackupConsent{
+					PreviewContractVersion: BackupPreviewVersion, BundleID: strings.Repeat("a", 64), CompleteBackupSHA256: strings.Repeat("a", 64),
+					SourceRevision: "revision", SelectedRevision: 1, TotalBytes: 1,
+					DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2, AudienceVersion: "audience-v1",
+					ServerID: "server", MaxBackupBytes: 1073741824, MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 53687091200,
+				},
+			}
+			secondItem := item
+			secondItem.IdempotencyKey = "backup-preflight-key-0002"
+			result, err := client.ShareBackups(ctx, BackupShareRequest{ContractVersion: BackupShareVersion, RequestID: "preflight", Items: []BackupShareItemRequest{item, secondItem}})
+			if err != nil || result.State != "failed" || len(result.Results) != 2 || loads != 0 ||
+				strings.Join(paths, ",") != strings.Join(append(wantPaths, wantPaths...), ",") {
+				t.Fatalf("result=%#v error=%v paths=%v loads=%d", result, err, paths, loads)
+			}
+			for index, original := range []BackupShareItemRequest{item, secondItem} {
+				got := result.Results[index]
+				if got.LocalSessionID != original.LocalSessionID || got.IdempotencyKey != original.IdempotencyKey || got.Error == nil ||
+					got.Error.Code != test.shareCode || got.Error.Retryable != (test.shareCode != "incompatible_server") {
+					t.Fatalf("share result=%#v", got)
+				}
+			}
+		})
+	}
+}
+
 func TestCompletedBackupRetryDoesNotRequireDiscardedSpool(t *testing.T) {
 	manager, prepared := openBackupFixture(t)
 	selection, sourceRevision, totalBytes := prepared.Selection, prepared.Manifest.Source.SourceRevision, prepared.Coverage.TotalBytes
