@@ -847,12 +847,12 @@ func TestSweepUsesListRevisionForComposedNonPiSession(t *testing.T) {
 	manager := NewManager(runnerFunc(func(context.Context, string) (session.SessionSynthesis, error) {
 		<-release
 		return session.SessionSynthesis{}, errors.New("unexpected resynthesis")
-	}))
+	}), nil)
 	manager.now = func() time.Time { return time.UnixMilli(200) }
 	if err := manager.cache.Store(value.Agent, value.ID, Record{Revision: value.LastActivityTime, Synthesis: session.SessionSynthesis{Outcome: "ready"}}); err != nil {
 		t.Fatal(err)
 	}
-	manager.sweep(func() ([]*session.Session, error) { return []*session.Session{value}, nil })
+	manager.sweep(context.Background(), func(context.Context) ([]*session.Session, error) { return []*session.Session{value}, nil })
 	if _, pending := manager.inFlight.Load(cacheKey{agent: value.Agent, id: value.ID}); pending {
 		t.Fatal("sweep missed the completed synthesis stored under the list revision")
 	}
