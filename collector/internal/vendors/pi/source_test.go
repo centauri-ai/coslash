@@ -343,6 +343,7 @@ func TestProjectSettingsBoundsAndBareTilde(t *testing.T) {
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", "")
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	if err := os.MkdirAll(filepath.Join(project, ".pi"), 0700); err != nil {
 		t.Fatal(err)
 	}
