@@ -30,6 +30,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err != nil {
 		return nil, nil, err
 	}
+	mirrorIDs := localSSHMirrorIDs(projectsRoot, files)
 	metadata, metadataErr := LoadMetadataContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
@@ -47,17 +48,28 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	}
 	parsed, err := parseFilesContext(ctx, files)
 	if err == nil {
-		markLocalSSHMirrors(parsed, projectsRoot)
+		markLocalSSHMirrors(parsed, mirrorIDs)
 	}
 	return parsed, metadata, err
 }
 
-func markLocalSSHMirrors(parsed []*vendors.ParsedSession, projectsRoot string) {
+func localSSHMirrorIDs(projectsRoot string, files []string) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, file := range files {
+		id := IDFromPath(file)
+		if ParentIDFromPath(file) == "" && isDesktopSSHMirrorPath(projectsRoot, file, id) {
+			ids[id] = struct{}{}
+		}
+	}
+	return ids
+}
+
+func markLocalSSHMirrors(parsed []*vendors.ParsedSession, mirrorIDs map[string]struct{}) {
 	for _, item := range parsed {
 		if item == nil || item.Session == nil || item.ParentID != "" {
 			continue
 		}
-		item.Session.LocalSSHMirror = isDesktopSSHMirrorPath(projectsRoot, item.LogPath, item.Session.ID)
+		_, item.Session.LocalSSHMirror = mirrorIDs[item.Session.ID]
 	}
 }
 
