@@ -300,7 +300,7 @@ func collectSource(
 				source.IDE.Version = commandVersion(ctx, path)
 			}
 		}
-	} else if path, err := exec.LookPath(health.Agent); err == nil {
+	} else if path, err := sourceExecutable(health.Agent); err == nil {
 		source.CLI.Found = true
 		source.CLI.Path = displayPath(userHome, path)
 		if includeVersion || health.Agent == "pi" {
@@ -317,6 +317,13 @@ func collectSource(
 		}
 	}
 	return source
+}
+
+func sourceExecutable(agent string) (string, error) {
+	if agent == vendors.AgentPi {
+		return vendors.PiExecutable()
+	}
+	return exec.LookPath(agent)
 }
 
 func cursorIDEExecutable(home string) string {
