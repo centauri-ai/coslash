@@ -124,3 +124,42 @@ func TestPlanModeFinalAnswersBecomeTimelinePlans(t *testing.T) {
 		t.Fatalf("plan and recap entries = %#v, want %#v", got, want)
 	}
 }
+
+func TestPlanModeMetadataAndHeadingBoundary(t *testing.T) {
+	rows := []string{
+		`{"type":"turn_context","payload":{"collaboration_mode":{"mode":"plan"}}}`,
+		lifecycleRow("2026-09-21T17:55:15Z", "task_started"),
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Draft a plan"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"# Plan\nFirst version"}}`,
+		lifecycleRow("2026-09-21T17:55:16Z", "task_complete"),
+		`{"type":"turn_context","payload":{"collaboration_mode":{"mode":"plan"}}}`,
+		`{"timestamp":"2026-09-21T17:55:17Z","type":"event_msg","payload":{"type":"task_started","collaboration_mode_kind":"default"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"# Plan\nDescription only"}}`,
+		lifecycleRow("2026-09-21T17:55:18Z", "task_complete"),
+		`{"timestamp":"2026-09-21T17:55:19Z","type":"event_msg","payload":{"type":"task_started","collaboration_mode_kind":"plan"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"# Planetary motion\nDetails"}}`,
+		lifecycleRow("2026-09-21T17:55:20Z", "task_complete"),
+		`{"timestamp":"2026-09-21T17:55:21Z","type":"event_msg","payload":{"type":"task_started","collaboration_mode_kind":"plan"}}`,
+		`{"type":"event_msg","payload":{"type":"agent_message","phase":"final_answer","message":"# Plan: next steps\nDetails"}}`,
+		lifecycleRow("2026-09-21T17:55:22Z", "task_complete"),
+	}
+	parsed := parseLifecycleRows(t, rows)
+	var got []string
+	for _, entry := range parsed.Session.Digest {
+		if entry.Category == "plan" || entry.Category == "recap" {
+			got = append(got, entry.Category+": "+entry.Description)
+		}
+	}
+	want := []string{
+		"plan: # Plan\nFirst version",
+		"recap: # Plan\nDescription only",
+		"recap: # Planetary motion\nDetails",
+		"plan: # Plan: next steps\nDetails",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("plan and recap entries = %#v, want %#v", got, want)
+	}
+	if parsed.Session.Summary == nil || *parsed.Session.Summary != "# Planetary motion\nDetails" {
+		t.Fatalf("summary = %v", parsed.Session.Summary)
+	}
+}
