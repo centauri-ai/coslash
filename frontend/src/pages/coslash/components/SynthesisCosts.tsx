@@ -33,6 +33,15 @@ export function pageCursor(
   return page ? page.nextCursor : (first?.nextCursor ?? null);
 }
 
+// oxlint-disable-next-line react/only-export-components -- focus boundary used by focused tests
+export function focusHistoryAfterLastPage(
+  button: HTMLButtonElement,
+  history: HTMLDivElement,
+  activeElement: Element | null,
+) {
+  if (button.isConnected && history.isConnected && activeElement === button) history.focus();
+}
+
 function CostAmount({ microUsd }: { microUsd: number | null }) {
   return <>{microUsd == null ? 'Unknown cost' : formatEstimatedCost(microUsd / 1_000_000)}</>;
 }
@@ -63,9 +72,10 @@ export function SynthesisCostsView({
   error?: string | null;
   pageError?: string | null;
   onRetry?: () => void;
-  onLoadMore?: () => void;
+  onLoadMore?: (button: HTMLButtonElement, history: HTMLDivElement) => void;
   onToggle?: (expanded: boolean) => void;
 }) {
+  const historyRef = useRef<HTMLDivElement>(null);
   const totals = response?.totals;
   const combined =
     totals == null || codingCost == null
@@ -106,25 +116,32 @@ export function SynthesisCostsView({
         </p>
       )}
       {error && (
-        <div role="alert" className="pt-2">
-          <span>Synthesis costs unavailable: {error}</span>{' '}
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            Retry synthesis costs
+        <p role="alert" className="pt-2">
+          Synthesis costs unavailable: {error}
+        </p>
+      )}
+      {(loading || error || response) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+          <p className="text-coslash-muted">
+            {response && (
+              <>
+                {totals?.roundCount} rounds recorded
+                {coverage !== 'complete' && ` · ${coverage === 'partial' ? 'Partial cost' : 'Unknown cost'}`}
+                {(combined?.partial || codingPartial) && ' · Combined known subtotal'}
+              </>
+            )}
+          </p>
+          <Button variant="outline" size="sm" aria-disabled={loading} onClick={loading ? undefined : onRetry}>
+            {loading
+              ? 'Loading synthesis costs...'
+              : error
+                ? 'Retry synthesis costs'
+                : 'Refresh synthesis costs'}
           </Button>
         </div>
       )}
       {response && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-            <p className="text-coslash-muted">
-              {totals?.roundCount} rounds recorded
-              {coverage !== 'complete' && ` · ${coverage === 'partial' ? 'Partial cost' : 'Unknown cost'}`}
-              {(combined?.partial || codingPartial) && ' · Combined known subtotal'}
-            </p>
-            <Button variant="outline" size="sm" onClick={onRetry}>
-              Refresh synthesis costs
-            </Button>
-          </div>
           <p className="text-coslash-muted pt-1">
             Tracking started {new Date(response.trackingStartedAtMs).toLocaleDateString()}.
             {response.historicalUnknown && ' Historical usage before tracking is unavailable.'}
@@ -138,6 +155,7 @@ export function SynthesisCostsView({
               Synthesis rounds ({totals?.roundCount})
             </summary>
             <div
+              ref={historyRef}
               role="region"
               aria-label="Synthesis round history"
               tabIndex={0}
@@ -165,7 +183,8 @@ export function SynthesisCostsView({
                           {round.vendorModels.map(({ vendor, model }) => `${vendor} / ${model}`).join(', ') ||
                             'Unknown vendor / model'}
                           {' · '}
-                          {round.totals.invocationCount} invocations
+                          {round.totals.invocationCount}{' '}
+                          {round.totals.invocationCount === 1 ? 'invocation' : 'invocations'}
                           {synthesisCoverage(round.totals) !== 'complete' &&
                             ` · ${synthesisCoverage(round.totals)} cost`}
                         </p>
@@ -183,7 +202,10 @@ export function SynthesisCostsView({
                       variant="outline"
                       size="sm"
                       className="mt-2"
-                      onClick={onLoadMore}
+                      onClick={(event) => {
+                        if (!loadingMore && historyRef.current)
+                          onLoadMore?.(event.currentTarget, historyRef.current);
+                      }}
                       aria-disabled={loadingMore}
                     >
                       {loadingMore ? 'Loading more...' : pageError ? 'Retry load more' : 'Load more'}
@@ -253,7 +275,7 @@ export function SynthesisCosts({
     pageRequest.current?.abort();
     costs.retry();
   };
-  const loadMore = async () => {
+  const loadMore = async (button: HTMLButtonElement, history: HTMLDivElement) => {
     const cursor = pageCursor(current, costs.data);
     if (!cursor || !costs.data || (pageRequest.current && !pageRequest.current.signal.aborted)) return;
     const controller = new AbortController();
@@ -268,6 +290,8 @@ export function SynthesisCosts({
     try {
       const next = await loadSynthesisCosts({ ...session, cursor }, controller.signal);
       if (controller.signal.aborted) return;
+      if (next.nextCursor === null && pageRequest.current === controller)
+        focusHistoryAfterLastPage(button, history, document.activeElement);
       setPage((previous) =>
         previous?.response === costs.data
           ? {
@@ -308,7 +332,7 @@ export function SynthesisCosts({
       error={costs.error}
       pageError={current?.error}
       onRetry={retry}
-      onLoadMore={() => void loadMore()}
+      onLoadMore={(button, history) => void loadMore(button, history)}
       onToggle={setExpanded}
     />
   );
