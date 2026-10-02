@@ -595,12 +595,14 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 			return piNewCommand(cli, handoff, prompt)
 		}
 		if prompt != "" {
-			return interactivePromptCommand(agent, cli, handoff, prompt)
+			command, name, err := interactivePromptCommand(agent, cli, handoff, prompt)
+			return withGrokHome(agent, command), name, err
 		}
 		if handoff == "" {
-			return localCommandJoin(cli), "", nil
+			return withGrokHome(agent, localCommandJoin(cli)), "", nil
 		}
-		return handoffCommand(agent, cli, handoff, prompt)
+		command, name, err := handoffCommand(agent, cli, handoff, prompt)
+		return withGrokHome(agent, command), name, err
 	case ResumeSession:
 		if prompt != "" {
 			return "", "", errors.New("launch: first prompt requires a new session")
@@ -613,7 +615,7 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 			command, err := piCommand(cli, arguments[1:]...)
 			return command, "", err
 		}
-		return localCommandJoin(arguments...), "", nil
+		return withGrokHome(agent, localCommandJoin(arguments...)), "", nil
 	}
 	return "", "", fmt.Errorf("launch: unknown mode %q", mode)
 }
@@ -763,6 +765,8 @@ func cliName(agent string) (string, error) {
 		return "pi", nil
 	case vendors.AgentCursor:
 		return settings.CursorExecutable(), nil
+	case vendors.AgentGrok:
+		return "grok", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }
@@ -780,7 +784,7 @@ func resumeFlag(agent string) (string, error) {
 	if agent == vendors.AgentOpenCode {
 		return "--session", nil
 	}
-	if agent == vendors.AgentCursor {
+	if agent == vendors.AgentCursor || agent == vendors.AgentGrok {
 		return "--resume", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
@@ -802,6 +806,19 @@ func resumeArguments(agent, cli, sessionID string) ([]string, error) {
 		return nil, err
 	}
 	return []string{cli, resume, sessionID}, nil
+}
+
+// withGrokHome puts the collector's store on the command. A terminal that is
+// already open does not inherit the collector process environment.
+func withGrokHome(agent, command string) string {
+	if agent != vendors.AgentGrok || command == "" {
+		return command
+	}
+	home := os.Getenv("GROK_HOME")
+	if home == "" {
+		return command
+	}
+	return "GROK_HOME=" + shellQuote(home) + " " + command
 }
 
 func shellJoin(arguments ...string) string {
