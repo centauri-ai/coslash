@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 	_ "modernc.org/sqlite"
@@ -1091,6 +1092,43 @@ func TestDeleteRowsHeldHistoryHandle(t *testing.T) {
 			cancel()
 			if _, _, err := filterDeleteRows(canceled, path, "session_id", map[string]bool{deleteRootID: true}, file); !errors.Is(err, context.Canceled) {
 				t.Fatal("owned read ignored cancellation")
+			}
+		})
+	}
+}
+
+func TestDeleteIndexIdentitySurvivesPathReplacement(t *testing.T) {
+	for _, replace := range []bool{false, true} {
+		t.Run(map[bool]string{false: "same inode", true: "replacement"}[replace], func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "session_index.jsonl")
+			writeDeleteFile(t, path, "neighbor\n")
+			stamp := time.Unix(1, 0)
+			if err := os.Chtimes(path, stamp, stamp); err != nil {
+				t.Fatal(err)
+			}
+			original, err := deleteIndexIdentity(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if replace {
+				replacement := path + ".tmp"
+				writeDeleteFile(t, replacement, "neighbor\n")
+				if err := os.Chtimes(replacement, stamp, stamp); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(replacement, path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			current, err := deleteIndexIdentity(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if original.Size() != current.Size() || !original.ModTime().Equal(current.ModTime()) {
+				t.Fatal("fixture metadata differs")
+			}
+			if os.SameFile(original, current) == replace {
+				t.Fatal("index identity followed replacement pathname")
 			}
 		})
 	}

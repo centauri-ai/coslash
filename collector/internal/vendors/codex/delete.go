@@ -148,7 +148,7 @@ func deleteSession(ctx context.Context, root, sqliteRoot, id string,
 		return err
 	}
 	indexPath := filepath.Join(root, "session_index.jsonl")
-	indexInfo, err := os.Stat(indexPath)
+	indexInfo, err := deleteIndexIdentity(indexPath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return ErrSessionUnverified
 	}
@@ -240,7 +240,7 @@ func deleteSession(ctx context.Context, root, sqliteRoot, id string,
 		return err
 	}
 	if indexInfo != nil {
-		current, err := os.Stat(indexPath)
+		current, err := deleteIndexIdentity(indexPath)
 		if err != nil || !os.SameFile(indexInfo, current) {
 			return fmt.Errorf("%w: index inode changed", ErrSessionDeleteFailed)
 		}
@@ -714,4 +714,14 @@ func (output *boundedDeleteOutput) Write(data []byte) (int, error) {
 	}
 	_, _ = output.Buffer.Write(data)
 	return size, nil
+}
+
+func deleteIndexIdentity(path string) (fs.FileInfo, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	// Windows pathname Stat defers identity lookup until SameFile; handle Stat captures it now.
+	info, err := file.Stat()
+	return info, errors.Join(err, file.Close())
 }
