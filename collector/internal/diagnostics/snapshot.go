@@ -339,6 +339,9 @@ func sourceLabel(agent string) string {
 	if agent == "cursor" {
 		return "Cursor"
 	}
+	if agent == "grok" {
+		return "Grok"
+	}
 	return agent
 }
 

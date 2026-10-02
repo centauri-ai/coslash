@@ -40,6 +40,10 @@ describe('getSessionVendors', () => {
 
     expect(getSessionVendors(sessions)).toEqual(['claude', 'opencode']);
   });
+
+  it('includes Grok when a Grok session is loaded', () => {
+    expect(getSessionVendors([{ agent: 'grok' }])).toEqual(['grok']);
+  });
 });
 
 describe('sessionKey', () => {

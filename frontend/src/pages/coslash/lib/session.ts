@@ -336,11 +336,19 @@ const VENDORS = {
   opencode: { label: 'OpenCode', mono: 'OC', fg: 'text-opencode', bg: 'bg-opencode-bg' },
   cursor: { label: 'Cursor', mono: 'CU', fg: 'text-cursor', bg: 'bg-cursor-bg' },
   pi: { label: 'Pi', mono: 'PI', fg: 'text-pi', bg: 'bg-pi-bg' },
+  grok: { label: 'Grok', mono: 'GK', fg: 'text-grok', bg: 'bg-grok-bg' },
 } satisfies Record<string, Vendor>;
 
 export type VendorKey = keyof typeof VENDORS;
 
-const VENDOR_KEYS = ['claude', 'codex', 'opencode', 'cursor', 'pi'] as const satisfies readonly VendorKey[];
+const VENDOR_KEYS = [
+  'claude',
+  'codex',
+  'opencode',
+  'cursor',
+  'pi',
+  'grok',
+] as const satisfies readonly VendorKey[];
 
 export function getSessionVendors(sessions: readonly Pick<Session, 'agent'>[]): VendorKey[] {
   return VENDOR_KEYS.filter((vendor) => sessions.some((session) => session.agent === vendor));

@@ -253,7 +253,7 @@ func parseExactSessionIdentity(w http.ResponseWriter, r *http.Request) (exactSes
 }
 
 func validAgent(agent string) bool {
-	return agent == vendors.AgentClaude || agent == vendors.AgentCodex || agent == vendors.AgentCursor || agent == vendors.AgentOpenCode || agent == vendors.AgentPi
+	return agent == vendors.AgentClaude || agent == vendors.AgentCodex || agent == vendors.AgentCursor || agent == vendors.AgentOpenCode || agent == vendors.AgentPi || agent == vendors.AgentGrok
 }
 
 // Pi identities are persisted data, never filesystem path components.
