@@ -1,5 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { DiagnosticsChecklist } from '@/pages/coslash/components/DiagnosticsChecklist';
 import type { Diagnostics } from '@/pages/coslash/lib/diagnostics';
 
@@ -8,14 +9,19 @@ export function FirstRunOnboarding({
   isLoading,
   loadFailed,
   onRefresh,
+  inPageFlow = false,
 }: {
   diagnostics: Diagnostics | null;
   isLoading: boolean;
   loadFailed: boolean;
   onRefresh: () => void;
+  inPageFlow?: boolean;
 }) {
   return (
-    <div role="status" className="bg-coslash-surface h-full overflow-y-auto px-4 py-8">
+    <div
+      role="status"
+      className={cn('bg-coslash-surface px-4 py-8', { 'h-full overflow-y-auto': !inPageFlow })}
+    >
       <div className="bg-coslash-surface mx-auto flex max-w-2xl flex-col gap-5 rounded-xl border p-6 text-left shadow-sm">
         <div>
           <div className="text-lg font-semibold">No agent sessions found on this machine.</div>

@@ -329,6 +329,7 @@ export function CoslashPage() {
           retrySessionsAndReviewers();
           refreshDiagnostics();
         }}
+        inPageFlow={view === 'insights'}
       />
     ) : undefined;
 

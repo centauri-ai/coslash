@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useSynthesisCosts } from '@/pages/coslash/hooks/use-synthesis-costs';
 import { formatEstimatedCost } from '@/pages/coslash/lib/format';
 import { buildInsights } from '@/pages/coslash/lib/insights';
@@ -97,12 +98,14 @@ export function InsightsView({
   loadError,
   synthesisCostVersion,
   onRetry,
+  inPageFlow = false,
 }: {
   sessions: Session[];
   isLoading: boolean;
   loadError: string | null;
   synthesisCostVersion: string | null;
   onRetry: () => void;
+  inPageFlow?: boolean;
 }) {
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const current = new Date();
@@ -132,7 +135,12 @@ export function InsightsView({
   const maxRepo = insights.repositories[0]?.count ?? 1;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-4">
+    <div
+      className={cn('flex min-h-0 flex-col gap-4 pb-4', {
+        'flex-none overflow-visible': inPageFlow,
+        'flex-1 overflow-y-auto': !inPageFlow,
+      })}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Insights</h1>
