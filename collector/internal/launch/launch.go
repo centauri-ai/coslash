@@ -727,6 +727,8 @@ func cliName(agent string) (string, error) {
 		return "opencode", nil
 	case vendors.AgentCursor:
 		return settings.CursorExecutable(), nil
+	case vendors.AgentGrok:
+		return "grok", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }
@@ -741,7 +743,7 @@ func resumeFlag(agent string) (string, error) {
 	if agent == vendors.AgentOpenCode {
 		return "--session", nil
 	}
-	if agent == vendors.AgentCursor {
+	if agent == vendors.AgentCursor || agent == vendors.AgentGrok {
 		return "--resume", nil
 	}
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
