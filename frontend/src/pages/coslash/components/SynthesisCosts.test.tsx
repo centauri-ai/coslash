@@ -2,7 +2,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it, vi } from 'vitest';
 import { useSynthesisCosts } from '@/pages/coslash/hooks/use-synthesis-costs';
 import type { SynthesisCostsResponse, SynthesisRound } from '@/pages/coslash/lib/synthesis-costs';
-import { mergeRounds, pageCursor, SynthesisCosts, SynthesisCostsView } from './SynthesisCosts';
+import {
+  focusHistoryAfterLastPage,
+  mergeRounds,
+  pageCursor,
+  SynthesisCosts,
+  SynthesisCostsView,
+} from './SynthesisCosts';
 
 vi.mock('@/pages/coslash/hooks/use-synthesis-costs', () => ({ useSynthesisCosts: vi.fn() }));
 
@@ -86,6 +92,135 @@ it('renders empty history and a request failure with focusable recovery', () => 
   expect(failed).toContain('Retry synthesis costs');
 });
 
+it('labels legacy empty history unknown while preserving recorded zero and known spend', () => {
+  const empty = {
+    ...response.totals,
+    knownCostMicroUsd: 0,
+    roundCount: 0,
+    invocationCount: 0,
+    unknownInvocationCount: 0,
+  };
+  const legacy = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={1}
+      response={{ ...response, totals: empty, rounds: [], nextCursor: null }}
+    />,
+  );
+  expect(legacy).toContain('Synthesis <strong>Unknown');
+  expect(legacy).toContain('Combined known subtotal');
+  const recorded = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={1}
+      response={{ ...response, totals: { ...empty, knownCostMicroUsd: 500_000, invocationCount: 1 } }}
+    />,
+  );
+  expect(recorded).toContain('≈$0.50');
+  expect(recorded).toContain('Combined known subtotal');
+  const zero = renderToStaticMarkup(
+    <SynthesisCostsView codingCost={1} response={{ ...response, historicalUnknown: false, totals: empty }} />,
+  );
+  expect(zero).toContain('Synthesis <strong>≈$0.00');
+  expect(zero).not.toContain('Combined known subtotal');
+});
+
+it('keeps a single recovery button present through retry loading and success', () => {
+  const failed = renderToStaticMarkup(<SynthesisCostsView codingCost={1} error="Storage unavailable" />);
+  const pending = renderToStaticMarkup(<SynthesisCostsView codingCost={1} loading />);
+  const recovered = renderToStaticMarkup(<SynthesisCostsView codingCost={1} response={response} />);
+  expect(failed).toContain('Retry synthesis costs');
+  expect(pending).toContain('aria-disabled="true"');
+  expect(pending).toContain('Loading synthesis costs');
+  expect(recovered).toContain('Refresh synthesis costs');
+});
+
+it('focuses history only while the completed page control still owns focus', () => {
+  const buttonNode = { isConnected: true };
+  const button = buttonNode as HTMLButtonElement;
+  const focus = vi.fn();
+  const history = { isConnected: true, focus } as unknown as HTMLDivElement;
+  focusHistoryAfterLastPage(button, history, button);
+  expect(focus).toHaveBeenCalledTimes(1);
+  focusHistoryAfterLastPage(button, history, {} as Element);
+  buttonNode.isConnected = false;
+  focusHistoryAfterLastPage(button, history, button);
+  expect(focus).toHaveBeenCalledTimes(1);
+});
+
+it('keeps load-more focusable while pending and after a failed page', () => {
+  const pending = renderToStaticMarkup(
+    <SynthesisCostsView codingCost={1} response={response} expanded loadingMore />,
+  );
+  expect(pending).toContain('Loading more...');
+  expect(pending).toContain('aria-disabled="true"');
+  const failed = renderToStaticMarkup(
+    <SynthesisCostsView codingCost={1} response={response} expanded pageError="Storage unavailable" />,
+  );
+  expect(failed).toContain('Retry load more');
+  expect(failed).toContain('role="alert"');
+});
+
+it('uses singular invocation wording for one call and plural for other counts', () => {
+  const one = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={1}
+      response={response}
+      rounds={[{ ...round, totals: { ...round.totals, invocationCount: 1 } }]}
+      expanded
+    />,
+  );
+  const many = renderToStaticMarkup(
+    <SynthesisCostsView codingCost={1} response={response} rounds={[round]} expanded />,
+  );
+  expect(one).toContain('1 invocation');
+  expect(one).not.toContain('1 invocations');
+  expect(many).toContain('2 invocations');
+});
+
+it('uses singular round wording only for one recorded round', () => {
+  const one = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={0}
+      response={{
+        ...response,
+        historicalUnknown: false,
+        totals: {
+          knownCostMicroUsd: 0,
+          roundCount: 1,
+          invocationCount: 1,
+          unknownInvocationCount: 0,
+          incompleteRoundCount: 0,
+        },
+      }}
+      rounds={[round]}
+      expanded
+    />,
+  );
+  expect(one).toContain('1 round recorded');
+  expect(one).toContain('1 of 1 round loaded');
+  expect(one).not.toContain('1 rounds');
+
+  const zero = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={0}
+      response={{ ...response, totals: { ...response.totals, roundCount: 0 } }}
+      rounds={[]}
+      expanded
+    />,
+  );
+  expect(zero).toContain('0 rounds recorded');
+
+  const many = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={0}
+      response={{ ...response, totals: { ...response.totals, roundCount: 2 } }}
+      rounds={[round, { ...round, id: 'round-2' }]}
+      expanded
+    />,
+  );
+  expect(many).toContain('2 rounds recorded');
+  expect(many).toContain('2 of 2 rounds loaded');
+});
+
 it('bounds expanded history in a keyboard-scrollable region', () => {
   const markup = renderToStaticMarkup(
     <SynthesisCostsView
@@ -103,7 +238,11 @@ it('bounds expanded history in a keyboard-scrollable region', () => {
 });
 
 it('marks combined cost as a subtotal when coding has unpriced models', () => {
-  const complete = { ...response, totals: { ...response.totals, unknownInvocationCount: 0 } };
+  const complete = {
+    ...response,
+    historicalUnknown: false,
+    totals: { ...response.totals, unknownInvocationCount: 0 },
+  };
   const partial = renderToStaticMarkup(
     <SynthesisCostsView codingCost={1} codingUnpricedModels={['unknown-model']} response={complete} />,
   );
