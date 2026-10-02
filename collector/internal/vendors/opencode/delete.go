@@ -105,12 +105,12 @@ func DeleteSession(ctx context.Context, home, id string) error {
 			return ErrSessionUnverified
 		}
 		for member := range journal.Family {
-			if !sessionIDPattern.MatchString(member) || len(member) > 128 {
+			if !journal.Family[member] || !sessionIDPattern.MatchString(member) || len(member) > 128 {
 				return ErrSessionUnverified
 			}
 		}
 		for _, key := range journal.Keys {
-			if !validDeletionKey(key) || len(key.IDs) > 100000 {
+			if !validDeletionKey(key) || len(key.IDs) > 100000 || (key.Column != "message_id" && !sameDeletionFamily(key.IDs, journal.Family)) {
 				return ErrSessionUnverified
 			}
 		}
@@ -168,10 +168,8 @@ func DeleteSession(ctx context.Context, home, id string) error {
 		return fmt.Errorf("%w: %w", ErrSessionDeleteFailed, err)
 	}
 	ctx = context.WithValue(ctx, deletionConnectionKey{}, bound)
-	if !missing {
-		if err := runSessionDelete(ctx, home, path, id, journal.Family); err != nil {
-			return fmt.Errorf("%w: %w", ErrSessionDeleteFailed, err)
-		}
+	if err := runSessionDelete(ctx, home, path, id, journal.Family); err != nil {
+		return fmt.Errorf("%w: %w", ErrSessionDeleteFailed, err)
 	}
 	if err := bound.checkIdentity(); err != nil {
 		return err
@@ -236,8 +234,8 @@ func sameDeletionFamily(a, b map[string]bool) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for id := range a {
-		if !b[id] {
+	for id, owned := range a {
+		if !owned || !b[id] {
 			return false
 		}
 	}
@@ -368,6 +366,10 @@ func deleteDatabaseSession(ctx context.Context, _ string, path, id string, expec
 	}
 	defer tx.Rollback()
 	family, err := deletionFamily(ctx, tx, id)
+	if errors.Is(err, ErrSessionMissing) && sameDeletionFamily(expected, bound.journal.Family) {
+		family = expected
+		err = nil
+	}
 	if err != nil {
 		return err
 	}
@@ -376,6 +378,24 @@ func deleteDatabaseSession(ctx context.Context, _ string, path, id string, expec
 	}
 	keys, err := databaseDeletionKeys(ctx, tx, family)
 	if err != nil {
+		return fmt.Errorf("%w: %w", ErrSessionUnverified, err)
+	}
+	for _, key := range keys {
+		if key.Column != "message_id" {
+			continue
+		}
+		for _, retained := range bound.journal.Keys {
+			if retained.Table == key.Table && retained.Column == key.Column {
+				for id := range retained.IDs {
+					key.IDs[id] = true
+				}
+			}
+		}
+		if len(key.IDs) > 100000 {
+			return ErrSessionUnverified
+		}
+	}
+	if err := validateRetainedMessageOwners(ctx, tx, keys, family); err != nil {
 		return err
 	}
 	if err := checkDeletionProcesses(ctx, family); err != nil {
@@ -405,6 +425,43 @@ func deleteDatabaseSession(ctx context.Context, _ string, path, id string, expec
 		return err
 	}
 	return tx.Commit()
+}
+
+func validateRetainedMessageOwners(ctx context.Context, db deletionReader, keys []deletionKey, family map[string]bool) error {
+	args := []any{nil}
+	for id := range family {
+		args = append(args, id)
+	}
+	for _, table := range []string{"message", "session_message", "part"} {
+		var scoped bool
+		if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pragma_table_info(?) WHERE name='session_id')`, table).Scan(&scoped); err != nil {
+			return err
+		}
+		if !scoped {
+			continue
+		}
+		column := "id"
+		if table == "part" {
+			column = "message_id"
+		}
+		query := `SELECT EXISTS(SELECT 1 FROM ` + quoteDeletionName(table) + ` WHERE ` + column + `=? AND (session_id IS NULL OR session_id NOT IN (` + strings.TrimSuffix(strings.Repeat("?,", len(family)), ",") + `)))`
+		for _, key := range keys {
+			if key.Column != "message_id" {
+				continue
+			}
+			for id := range key.IDs {
+				args[0] = id
+				var conflicting bool
+				if err := db.QueryRowContext(ctx, query, args...).Scan(&conflicting); err != nil {
+					return err
+				}
+				if conflicting {
+					return ErrSessionUnverified
+				}
+			}
+		}
+	}
+	return nil
 }
 
 type deletionReader interface {
@@ -622,6 +679,11 @@ func saveDeletionJournal(ctx context.Context, path string, journal *deletionJour
 }
 
 func validDeletionKey(key deletionKey) bool {
+	for id, owned := range key.IDs {
+		if id == "" || !owned {
+			return false
+		}
+	}
 	switch key.Table {
 	case "session", "session_v2":
 		return key.Column == "id" || key.Column == "parent_id"

@@ -852,3 +852,153 @@ func TestDeleteRepairRechecksAfterJournalPublication(t *testing.T) {
 		t.Fatal("became active before DELETE but was mutated")
 	}
 }
+
+func TestDeleteRetryReceiptSQLResidue(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		for _, mode := range []string{"complete", "rollback", "ignored", "active", "late active", "unverified", "canceled", "missing receipt", "changed message owner", "changed part owner", "invalid keys", "replacement database", "unsupported layout"} {
+			if legacy && mode == "changed part owner" {
+				continue
+			}
+			t.Run(fmt.Sprintf("legacy=%v/%s", legacy, mode), func(t *testing.T) {
+				home, path, db, _ := deleteFixture(t)
+				if legacy {
+					if _, err := db.Exec(`ALTER TABLE part DROP COLUMN session_id`); err != nil {
+						t.Fatal(err)
+					}
+				}
+				runSessionDelete = func(c context.Context, h, p, id string, f map[string]bool) error {
+					if err := deleteDatabaseSession(c, h, p, id, f); err != nil {
+						return err
+					}
+					query := `INSERT INTO part VALUES('prt_residue','ses_child','msg_target',100,'{}'),('prt_second','ses_grandchild','msg_target',100,'{}')`
+					if legacy {
+						query = `INSERT INTO part VALUES('prt_residue','msg_target',100,'{}'),('prt_second','msg_target',100,'{}')`
+					}
+					_, err := db.Exec(query)
+					return err
+				}
+				if err := DeleteSession(context.Background(), home, "ses_target"); !errors.Is(err, ErrSessionDeleteFailed) {
+					t.Fatalf("initial residue: %v", err)
+				}
+				if rowCount(t, db, `SELECT COUNT(*) FROM session`) != 1 {
+					t.Fatal("initial transaction did not commit")
+				}
+				runSessionDelete = deleteDatabaseSession
+				receipt := filepath.Join(home, ".coslash", "opencode-deletions", "ses_target.json")
+				ctx := context.Background()
+				want := ErrSessionDeleteFailed
+				switch mode {
+				case "complete":
+					want = nil
+				case "rollback", "ignored":
+					action := "ABORT, 'synthetic retry failure'"
+					if mode == "ignored" {
+						action = "IGNORE"
+					}
+					if _, err := db.Exec(`CREATE TRIGGER retry_refusal BEFORE DELETE ON part WHEN OLD.id='prt_second' BEGIN SELECT RAISE(` + action + `); END`); err != nil {
+						t.Fatal(err)
+					}
+				case "active":
+					want = ErrSessionActive
+					deleteProcesses = func(context.Context) ([]tuiProcess, error) { return []tuiProcess{{sessionID: "ses_child"}}, nil }
+				case "late active":
+					want = ErrSessionActive
+					probes := 0
+					deleteProcesses = func(context.Context) ([]tuiProcess, error) {
+						probes++
+						if probes == 4 {
+							return []tuiProcess{{sessionID: "ses_child"}}, nil
+						}
+						return nil, nil
+					}
+				case "unverified":
+					want = ErrSessionUnverified
+					deleteProcesses = func(context.Context) ([]tuiProcess, error) { return nil, errors.New("synthetic probe failure") }
+				case "canceled":
+					want = context.Canceled
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithCancel(ctx)
+					cancel()
+				case "missing receipt":
+					want = ErrSessionMissing
+					if err := os.Remove(receipt); err != nil {
+						t.Fatal(err)
+					}
+				case "changed message owner":
+					want = ErrSessionUnverified
+					if _, err := db.Exec(`INSERT INTO message VALUES('msg_target','ses_neighbor',100,'{}')`); err != nil {
+						t.Fatal(err)
+					}
+				case "changed part owner":
+					want = ErrSessionUnverified
+					if _, err := db.Exec(`UPDATE part SET session_id='ses_neighbor' WHERE id='prt_residue'`); err != nil {
+						t.Fatal(err)
+					}
+				case "invalid keys":
+					want = ErrSessionUnverified
+					var journal deletionJournal
+					if _, err := readDeletionJSON(ctx, receipt, 16<<20, &journal); err != nil {
+						t.Fatal(err)
+					}
+					for i := range journal.Keys {
+						if journal.Keys[i].Column == "session_id" {
+							journal.Keys[i].IDs["ses_neighbor"] = true
+							break
+						}
+					}
+					if err := saveDeletionJournal(ctx, receipt, &journal); err != nil {
+						t.Fatal(err)
+					}
+				case "replacement database":
+					runSessionDelete = func(c context.Context, h, p, id string, f map[string]bool) error {
+						data, err := os.ReadFile(p)
+						if err != nil {
+							return err
+						}
+						if err := os.Rename(p, p+".original"); err != nil {
+							return err
+						}
+						if err := os.WriteFile(p, data, 0600); err != nil {
+							return err
+						}
+						return deleteDatabaseSession(c, h, p, id, f)
+					}
+				case "unsupported layout":
+					want = ErrSessionUnverified
+					if _, err := db.Exec(`CREATE TABLE unknown_session_store(session_id TEXT)`); err != nil {
+						t.Fatal(err)
+					}
+				}
+				err := DeleteSession(ctx, home, "ses_target")
+				if (want == nil && err != nil) || (want != nil && !errors.Is(err, want)) {
+					t.Fatalf("retry: %v, want %v", err, want)
+				}
+				wantParts := 3
+				if want == nil {
+					wantParts = 1
+				}
+				if rowCount(t, db, `SELECT COUNT(*) FROM part`) != wantParts || rowCount(t, db, `SELECT COUNT(*) FROM part WHERE id='prt_neighbor'`) != 1 || rowCount(t, db, `SELECT COUNT(*) FROM message WHERE id='msg_neighbor'`) != 1 || rowCount(t, db, `SELECT COUNT(*) FROM session WHERE id='ses_neighbor'`) != 1 {
+					t.Fatal("residue/neighbor/rollback boundary changed")
+				}
+				if mode == "replacement database" {
+					replacement, err := sql.Open("sqlite", readOnlyDatabaseDSN(path))
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer replacement.Close()
+					if rowCount(t, replacement, `SELECT COUNT(*) FROM part`) != 3 {
+						t.Fatal("replacement database mutated")
+					}
+				}
+				_, statErr := os.Stat(receipt)
+				if want == nil || mode == "missing receipt" {
+					if !errors.Is(statErr, os.ErrNotExist) {
+						t.Fatal("completed or absent receipt remains")
+					}
+				} else if statErr != nil {
+					t.Fatal("failed retry lost receipt")
+				}
+			})
+		}
+	}
+}
