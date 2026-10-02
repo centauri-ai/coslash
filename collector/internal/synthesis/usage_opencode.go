@@ -132,7 +132,7 @@ func parseOpenCodeUsage(data []byte, databasePath string, v2 bool) UsageReport {
 		return unknownUsage()
 	}
 	stream := openCodePartsReport(parts)
-	fromDB, dbCount := readOpenCodeScratchUsage(databasePath, sessionID, v2)
+	fromDB, dbCount, dbIncomplete := readOpenCodeScratchUsage(databasePath, sessionID, v2)
 	selected := stream
 	if dbCount > len(parts) || (dbCount == len(parts) && selected.Tokens == nil && fromDB.Tokens != nil) {
 		selected = fromDB
@@ -145,18 +145,18 @@ func parseOpenCodeUsage(data []byte, databasePath string, v2 bool) UsageReport {
 	if priceErr != nil {
 		report = priceReportedOnly(cost)
 	}
-	if (len(report.Tokens) > 0 || report.ReportedCostMicroUSD != nil) && (err != nil || selected.Coverage == "partial" || (dbCount > 0 && dbCount != len(parts)) || (stream.ReportedCostMicroUSD != nil && fromDB.ReportedCostMicroUSD != nil && *stream.ReportedCostMicroUSD != *fromDB.ReportedCostMicroUSD)) {
+	if (len(report.Tokens) > 0 || report.ReportedCostMicroUSD != nil) && (err != nil || dbIncomplete || selected.Coverage == "partial" || (dbCount > 0 && dbCount != len(parts)) || (stream.ReportedCostMicroUSD != nil && fromDB.ReportedCostMicroUSD != nil && *stream.ReportedCostMicroUSD != *fromDB.ReportedCostMicroUSD)) {
 		report.Coverage = "partial"
 	}
 	return report
 }
 
-func readOpenCodeScratchUsage(path, sessionID string, v2 bool) (UsageReport, int) {
+func readOpenCodeScratchUsage(path, sessionID string, v2 bool) (UsageReport, int, bool) {
 	if sessionID == "" {
-		return unknownUsage(), 0
+		return unknownUsage(), 0, false
 	}
 	if _, err := os.Stat(path); err != nil {
-		return unknownUsage(), 0
+		return unknownUsage(), 0, false
 	}
 	urlPath := path
 	if runtime.GOOS == "windows" {
@@ -168,33 +168,49 @@ func readOpenCodeScratchUsage(path, sessionID string, v2 bool) (UsageReport, int
 	dsn := (&url.URL{Scheme: "file", Path: urlPath, RawQuery: "mode=ro&_query_only=1&_busy_timeout=1000"}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return unknownUsage(), 0
+		return unknownUsage(), 0, false
 	}
 	defer db.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	query := `SELECT substr(data,1,262145), length(data) FROM message WHERE session_id = ? AND json_extract(substr(data,1,262145),'$.role') = 'assistant' LIMIT 65`
+	query := `SELECT raw, size FROM (
+		SELECT CAST(substr(CAST(data AS BLOB),1,262145) AS TEXT) AS raw,
+			length(CAST(data AS BLOB)) AS size
+		FROM message WHERE session_id = ?
+	) WHERE CASE WHEN size > 262144 THEN 1
+		WHEN json_valid(raw) THEN json_extract(raw,'$.role') = 'assistant'
+		ELSE 1 END LIMIT 65`
 	if v2 {
-		query = `SELECT substr(data,1,262145), length(data) FROM session_message WHERE session_id = ? AND type = 'assistant' LIMIT 65`
+		query = `SELECT CAST(substr(CAST(data AS BLOB),1,262145) AS TEXT),
+			length(CAST(data AS BLOB))
+			FROM session_message WHERE session_id = ? AND type = 'assistant' LIMIT 65`
 	}
 	rows, err := db.QueryContext(ctx, query, sessionID)
 	if err != nil {
-		return unknownUsage(), 0
+		return unknownUsage(), 0, false
 	}
 	defer rows.Close()
 	parts := map[string]openCodeUsage{}
+	incomplete := false
 	for index := 0; rows.Next(); index++ {
 		if index >= 64 {
-			return unknownUsage(), 0
+			incomplete = true
+			break
 		}
 		var raw string
 		var length int
-		if rows.Scan(&raw, &length) != nil || length > 262144 {
-			return unknownUsage(), 0
+		if rows.Scan(&raw, &length) != nil {
+			incomplete = true
+			break
+		}
+		if length > 262144 || !json.Valid([]byte(raw)) {
+			incomplete = true
+			continue
 		}
 		var part openCodeUsage
 		if json.Unmarshal([]byte(raw), &part) != nil {
-			return unknownUsage(), 0
+			incomplete = true
+			continue
 		}
 		var completion struct {
 			Time struct {
@@ -207,7 +223,11 @@ func readOpenCodeScratchUsage(path, sessionID string, v2 bool) (UsageReport, int
 		parts[string(rune(index+1))] = part
 	}
 	if rows.Err() != nil {
-		return unknownUsage(), 0
+		incomplete = true
 	}
-	return openCodePartsReport(parts), len(parts)
+	report := openCodePartsReport(parts)
+	if incomplete && (len(report.Tokens) > 0 || report.ReportedCostMicroUSD != nil) {
+		report.Coverage = "partial"
+	}
+	return report, len(parts), incomplete
 }
