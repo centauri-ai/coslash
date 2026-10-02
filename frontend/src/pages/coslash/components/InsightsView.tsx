@@ -129,8 +129,10 @@ export function InsightsView({
     previousCostVersion.current = synthesisCostVersion;
   }, [synthesisCostVersion, refreshCosts]);
   const synthesis = costs.data?.totals;
-  const combined = synthesis ? combinedKnownCost(insights.knownCostSubtotal, synthesis) : null;
-  const synthesisStatus = synthesis ? synthesisCoverage(synthesis) : null;
+  const combined = synthesis
+    ? combinedKnownCost(insights.knownCostSubtotal, synthesis, costs.data?.historicalUnknown)
+    : null;
+  const synthesisStatus = synthesis ? synthesisCoverage(synthesis, costs.data?.historicalUnknown) : null;
   const maxDay = Math.max(1, ...insights.days.map(({ count }) => count));
   const maxRepo = insights.repositories[0]?.count ?? 1;
 
@@ -240,7 +242,7 @@ export function InsightsView({
                   <dd className="tabular-nums">
                     {costs.isLoading
                       ? 'Loading'
-                      : synthesis?.knownCostMicroUsd == null
+                      : synthesisStatus === 'unknown' || synthesis?.knownCostMicroUsd == null
                         ? 'Unknown'
                         : formatEstimatedCost(synthesis.knownCostMicroUsd / 1_000_000)}
                   </dd>
@@ -252,6 +254,7 @@ export function InsightsView({
                   </dd>
                 </div>
               </dl>
+              {combined?.partial && <p className="text-warning-fg pt-2 text-xs">Combined known subtotal</p>}
               <p className="text-coslash-muted pt-3 text-xs">
                 Coding is lifetime cost of sessions last active this month. Synthesis is recorded cost of
                 calls started this month. Combined adds these two scopes; it is not billable coding activity

@@ -103,7 +103,11 @@ it('bounds expanded history in a keyboard-scrollable region', () => {
 });
 
 it('marks combined cost as a subtotal when coding has unpriced models', () => {
-  const complete = { ...response, totals: { ...response.totals, unknownInvocationCount: 0 } };
+  const complete = {
+    ...response,
+    historicalUnknown: false,
+    totals: { ...response.totals, unknownInvocationCount: 0 },
+  };
   const partial = renderToStaticMarkup(
     <SynthesisCostsView codingCost={1} codingUnpricedModels={['unknown-model']} response={complete} />,
   );
