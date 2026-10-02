@@ -207,16 +207,120 @@ func deleteDBTables(ctx context.Context, db deleteDBReader) ([]string, error) {
 	return names, rows.Err()
 }
 
-func checkDeleteDB(ctx context.Context, db deleteDBReader, owners map[string][]string, ids map[string]bool, paths []string, absent, remove bool) error {
-	var executable int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type IN ('trigger','view')`).Scan(&executable); err != nil {
+// Exact native migration definitions; executable schema outside these effects is refused.
+var deleteDBTriggers = map[string]struct {
+	table        string
+	dependencies []string
+	definition   string
+}{
+	"threads_created_at_ms_after_insert": {"threads", []string{"threads"}, `CREATE TRIGGER threads_created_at_ms_after_insert
+AFTER INSERT ON threads
+WHEN NEW.created_at_ms IS NULL
+BEGIN
+    UPDATE threads
+    SET created_at_ms = NEW.created_at * 1000
+    WHERE id = NEW.id;
+END;`},
+	"threads_updated_at_ms_after_insert": {"threads", []string{"threads"}, `CREATE TRIGGER threads_updated_at_ms_after_insert
+AFTER INSERT ON threads
+WHEN NEW.updated_at_ms IS NULL
+BEGIN
+    UPDATE threads
+    SET updated_at_ms = NEW.updated_at * 1000
+    WHERE id = NEW.id;
+END;`},
+	"threads_created_at_ms_after_update": {"threads", []string{"threads"}, `CREATE TRIGGER threads_created_at_ms_after_update
+AFTER UPDATE OF created_at ON threads
+WHEN NEW.created_at != OLD.created_at
+ AND NEW.created_at_ms IS OLD.created_at_ms
+BEGIN
+    UPDATE threads
+    SET created_at_ms = NEW.created_at * 1000
+    WHERE id = NEW.id;
+END;`},
+	"threads_updated_at_ms_after_update": {"threads", []string{"threads"}, `CREATE TRIGGER threads_updated_at_ms_after_update
+AFTER UPDATE OF updated_at ON threads
+WHEN NEW.updated_at != OLD.updated_at
+ AND NEW.updated_at_ms IS OLD.updated_at_ms
+BEGIN
+    UPDATE threads
+    SET updated_at_ms = NEW.updated_at * 1000
+    WHERE id = NEW.id;
+END;`},
+	"threads_recency_at_after_insert": {"threads", []string{"threads"}, `CREATE TRIGGER threads_recency_at_after_insert
+AFTER INSERT ON threads
+WHEN NEW.recency_at_ms = 0
+BEGIN
+    UPDATE threads
+    SET recency_at = NEW.updated_at,
+        recency_at_ms = COALESCE(NEW.updated_at_ms, NEW.updated_at * 1000)
+    WHERE id = NEW.id;
+END;`},
+	"thread_realtime_items_projection_cleanup": {"thread_history_projection_state", []string{"thread_history_projection_state", "thread_realtime_items"}, `CREATE TRIGGER thread_realtime_items_projection_cleanup
+    AFTER DELETE ON thread_history_projection_state
+BEGIN
+    DELETE FROM thread_realtime_items WHERE thread_id = OLD.thread_id;
+END;`},
+	"queued_items_revision_after_insert": {"queued_items", []string{"queued_items", "queued_thread_revisions"}, `CREATE TRIGGER queued_items_revision_after_insert
+AFTER INSERT ON queued_items
+BEGIN
+    INSERT INTO queued_thread_revisions (thread_id)
+    VALUES (NEW.thread_id)
+    ON CONFLICT(thread_id) DO UPDATE
+    SET revision = (SELECT COALESCE(MAX(revision), 0) + 1 FROM queued_thread_revisions);
+END;`},
+	"queued_items_revision_after_update": {"queued_items", []string{"queued_items", "queued_thread_revisions"}, `CREATE TRIGGER queued_items_revision_after_update
+AFTER UPDATE ON queued_items
+BEGIN
+    INSERT INTO queued_thread_revisions (thread_id)
+    VALUES (NEW.thread_id)
+    ON CONFLICT(thread_id) DO UPDATE
+    SET revision = (SELECT COALESCE(MAX(revision), 0) + 1 FROM queued_thread_revisions);
+END;`},
+	"queued_items_revision_after_delete": {"queued_items", []string{"queued_items", "queued_thread_revisions"}, `CREATE TRIGGER queued_items_revision_after_delete
+AFTER DELETE ON queued_items
+BEGIN
+    INSERT INTO queued_thread_revisions (thread_id)
+    VALUES (OLD.thread_id)
+    ON CONFLICT(thread_id) DO UPDATE
+    SET revision = (SELECT COALESCE(MAX(revision), 0) + 1 FROM queued_thread_revisions);
+END;`},
+}
+
+func checkDeleteDBTriggers(ctx context.Context, db deleteDBReader, owners map[string][]string, tables []string) error {
+	rows, err := db.QueryContext(ctx, `SELECT type,name,tbl_name,substr(sql,1,4096),length(sql) FROM sqlite_master WHERE type IN ('trigger','view')`)
+	if err != nil {
 		return err
 	}
-	if executable > 0 {
-		return errors.New("unsupported Codex database executable schema")
+	defer rows.Close()
+	normalize := func(s string) string {
+		return strings.Join(strings.Fields(strings.TrimSuffix(strings.TrimSpace(s), ";")), " ")
 	}
+	for rows.Next() {
+		var kind, name, table, definition string
+		var length int
+		if err := rows.Scan(&kind, &name, &table, &definition, &length); err != nil {
+			return err
+		}
+		known, ok := deleteDBTriggers[name]
+		if kind != "trigger" || !ok || table != known.table || length > 4096 || normalize(definition) != normalize(known.definition) {
+			return errors.New("unsupported Codex database executable schema")
+		}
+		for _, dependency := range known.dependencies {
+			if _, ok := owners[dependency]; !ok || !slices.Contains(tables, dependency) {
+				return errors.New("unsupported Codex trigger ownership")
+			}
+		}
+	}
+	return rows.Err()
+}
+
+func checkDeleteDB(ctx context.Context, db deleteDBReader, owners map[string][]string, ids map[string]bool, paths []string, absent, remove bool) error {
 	names, err := deleteDBTables(ctx, db)
 	if err != nil {
+		return err
+	}
+	if err := checkDeleteDBTriggers(ctx, db, owners, names); err != nil {
 		return err
 	}
 	if slices.Contains(names, "stage1_outputs") && !slices.Contains(names, "jobs") {

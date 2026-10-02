@@ -3,9 +3,11 @@ package codex
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -429,5 +431,143 @@ func TestDeleteSQLPOSIXLiteralBackslashRoot(t *testing.T) {
 	}
 	if err := db.QueryRow(`SELECT count(*) FROM logs WHERE thread_id=?`, sqlDeleteNeighborID).Scan(&count); err != nil || count != 1 {
 		t.Fatal("neighbor changed")
+	}
+}
+
+//go:embed testdata/codex_native_*.sql
+var deleteNativeSQLFixtures embed.FS
+
+func TestDeleteSQLNativeTriggersPreserveOwnedEffects(t *testing.T) {
+	for _, tc := range []struct {
+		name, fixture string
+		triggers      int
+	}{
+		{"state_5.sqlite", "state", 5}, {"queue_1.sqlite", "queue", 3}, {"thread_history_1.sqlite", "history", 1},
+	} {
+		t.Run(tc.fixture, func(t *testing.T) {
+			root := t.TempDir()
+			schema, err := deleteNativeSQLFixtures.ReadFile("testdata/codex_native_" + tc.fixture + ".sql")
+			if err != nil {
+				t.Fatal(err)
+			}
+			db := newDeleteSQLDB(t, root, tc.name, string(schema))
+			paths := []string{filepath.Join(root, "target.jsonl")}
+			for _, id := range []string{sqlDeleteRootID, sqlDeleteNeighborID} {
+				switch tc.fixture {
+				case "state":
+					path := paths[0]
+					if id == sqlDeleteNeighborID {
+						path = filepath.Join(root, "neighbor.jsonl")
+					}
+					if _, err := db.Exec(`INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode) VALUES (?,?,1,2,'synthetic','synthetic','synthetic','synthetic','{}','synthetic')`, id, path); err != nil {
+						t.Fatal(err)
+					}
+				case "queue":
+					if _, err := db.Exec(`INSERT INTO queued_items(id,thread_id,payload_json,queue_order,created_at_ms,updated_at_ms) VALUES (?,?,'{}',0,1,1)`, id, id); err != nil {
+						t.Fatal(err)
+					}
+				case "history":
+					if _, err := db.Exec(`INSERT INTO thread_history_projection_state(thread_id,next_rollout_byte_offset,next_rollout_ordinal) VALUES (?,0,0); INSERT INTO thread_realtime_items VALUES (?,'synthetic',0,1,'synthetic','{}')`, id, id); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			neighborBefore := deleteSQLNativeNeighbor(t, db, tc.fixture)
+			ids := map[string]bool{sqlDeleteRootID: true}
+			if err := deleteDatabaseFiles(t.Context(), root, ids, paths, false, false); err != nil {
+				t.Fatal(err)
+			}
+			if err := deleteDatabaseFiles(t.Context(), root, ids, paths, false, true); err != nil {
+				t.Fatal(err)
+			}
+			if err := deleteDatabaseFiles(t.Context(), root, ids, paths, true, false); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(neighborBefore, deleteSQLNativeNeighbor(t, db, tc.fixture)) {
+				t.Fatal("native trigger altered neighbor")
+			}
+			var count int
+			if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='trigger'`).Scan(&count); err != nil || count != tc.triggers {
+				t.Fatal("native triggers were dropped")
+			}
+			if tc.fixture == "queue" {
+				if err := db.QueryRow(`SELECT count(*) FROM queued_thread_revisions WHERE thread_id=?`, sqlDeleteRootID).Scan(&count); err != nil || count != 0 {
+					t.Fatal("delete trigger left owned revision")
+				}
+			}
+			if tc.fixture == "history" {
+				if err := db.QueryRow(`SELECT count(*) FROM thread_realtime_items WHERE thread_id=?`, sqlDeleteRootID).Scan(&count); err != nil || count != 0 {
+					t.Fatal("projection cleanup failed")
+				}
+			}
+		})
+	}
+}
+
+func deleteSQLNativeNeighbor(t *testing.T, db *sql.DB, fixture string) []any {
+	t.Helper()
+	query := map[string]string{
+		"state":   `SELECT id,created_at_ms,updated_at_ms,recency_at,recency_at_ms FROM threads WHERE id=?`,
+		"queue":   `SELECT i.payload_json,i.queue_order,r.revision FROM queued_items i JOIN queued_thread_revisions r USING(thread_id) WHERE i.thread_id=?`,
+		"history": `SELECT r.item_json,p.next_rollout_byte_offset,p.next_rollout_ordinal FROM thread_realtime_items r JOIN thread_history_projection_state p USING(thread_id) WHERE r.thread_id=?`,
+	}[fixture]
+	rows, err := db.Query(query, sqlDeleteNeighborID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rows.Next() {
+		t.Fatal("neighbor absent")
+	}
+	values := make([]any, len(columns))
+	dest := make([]any, len(columns))
+	for i := range values {
+		dest[i] = &values[i]
+	}
+	if err := rows.Scan(dest...); err != nil {
+		t.Fatal(err)
+	}
+	return values
+}
+
+func TestDeleteSQLRejectsAlteredAndUnknownNativeTriggers(t *testing.T) {
+	for _, scenario := range []string{"changed predicate", "renamed", "view"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			schema, err := deleteNativeSQLFixtures.ReadFile("testdata/codex_native_queue.sql")
+			if err != nil {
+				t.Fatal(err)
+			}
+			db := newDeleteSQLDB(t, root, "queue_1.sqlite", string(schema))
+			if _, err := db.Exec(`INSERT INTO queued_items VALUES (?,?,'{}',0,1,1)`, sqlDeleteRootID, sqlDeleteRootID); err != nil {
+				t.Fatal(err)
+			}
+			var definition string
+			if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE name='queued_items_revision_after_delete'`).Scan(&definition); err != nil {
+				t.Fatal(err)
+			}
+			switch scenario {
+			case "changed predicate":
+				definition = strings.Replace(definition, "OLD.thread_id", "'"+sqlDeleteNeighborID+"'", 1)
+			case "renamed":
+				definition = strings.Replace(definition, "queued_items_revision_after_delete", "unknown_trigger", 1)
+			case "view":
+				definition = `CREATE VIEW unknown_view AS SELECT * FROM queued_items`
+			}
+			if _, err := db.Exec(`DROP TRIGGER queued_items_revision_after_delete;` + definition); err != nil {
+				t.Fatal(err)
+			}
+			if err := deleteDatabaseFiles(t.Context(), root, map[string]bool{sqlDeleteRootID: true}, nil, false, true); err == nil {
+				t.Fatal("unproved executable schema admitted")
+			}
+			var count int
+			if err := db.QueryRow(`SELECT count(*) FROM queued_items WHERE thread_id=?`, sqlDeleteRootID).Scan(&count); err != nil || count != 1 {
+				t.Fatal("refusal removed owned data")
+			}
+		})
 	}
 }
