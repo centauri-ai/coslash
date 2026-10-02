@@ -17,7 +17,7 @@ const (
 )
 
 func PiSupported() bool                  { return piSupportedOn(runtime.GOOS) }
-func piSupportedOn(platform string) bool { return platform == "darwin" }
+func piSupportedOn(platform string) bool { return platform == "darwin" || platform == "windows" }
 
 func PiExecutable() (string, error) {
 	if path, err := exec.LookPath("pi"); err == nil {

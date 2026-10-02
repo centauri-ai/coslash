@@ -23,7 +23,7 @@ var ErrPiExtension = errors.New("launch: managed Pi extension is unavailable")
 
 func piSupportedExecutable() (string, error) {
 	if !vendors.PiSupported() {
-		return "", errors.New("launch: Pi support requires macOS")
+		return "", errors.New("launch: Pi support requires macOS or Windows")
 	}
 	cli, err := vendors.PiExecutable()
 	if err != nil {

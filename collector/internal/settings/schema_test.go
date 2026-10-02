@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -54,6 +55,10 @@ func TestPiSynthesisSettings(t *testing.T) {
 	wantExecutable := ""
 	if vendors.PiSupported() {
 		wantExecutable = "pi"
+	}
+	if runtime.GOOS == "windows" {
+		t.Setenv("PATH", "")
+		t.Setenv("USERPROFILE", t.TempDir())
 	}
 	if BackendExecutable(BackendPi) != wantExecutable {
 		t.Fatal("Pi backend availability does not match platform support")
