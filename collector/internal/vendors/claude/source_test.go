@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,16 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestLocalSSHMirrorIDsReturnsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := localSSHMirrorIDs(ctx, t.TempDir(), []string{"session.jsonl"})
+	if err != context.Canceled {
+		t.Fatalf("mirror ID scan error = %v, want %v", err, context.Canceled)
+	}
+}
 
 func TestParseFilesDeduplicatesRootsBySessionID(t *testing.T) {
 	t.Parallel()
