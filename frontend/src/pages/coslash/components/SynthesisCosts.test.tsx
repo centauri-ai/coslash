@@ -176,6 +176,51 @@ it('uses singular invocation wording for one call and plural for other counts', 
   expect(many).toContain('2 invocations');
 });
 
+it('uses singular round wording only for one recorded round', () => {
+  const one = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={0}
+      response={{
+        ...response,
+        historicalUnknown: false,
+        totals: {
+          knownCostMicroUsd: 0,
+          roundCount: 1,
+          invocationCount: 1,
+          unknownInvocationCount: 0,
+          incompleteRoundCount: 0,
+        },
+      }}
+      rounds={[round]}
+      expanded
+    />,
+  );
+  expect(one).toContain('1 round recorded');
+  expect(one).toContain('1 of 1 round loaded');
+  expect(one).not.toContain('1 rounds');
+
+  const zero = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={0}
+      response={{ ...response, totals: { ...response.totals, roundCount: 0 } }}
+      rounds={[]}
+      expanded
+    />,
+  );
+  expect(zero).toContain('0 rounds recorded');
+
+  const many = renderToStaticMarkup(
+    <SynthesisCostsView
+      codingCost={0}
+      response={{ ...response, totals: { ...response.totals, roundCount: 2 } }}
+      rounds={[round, { ...round, id: 'round-2' }]}
+      expanded
+    />,
+  );
+  expect(many).toContain('2 rounds recorded');
+  expect(many).toContain('2 of 2 rounds loaded');
+});
+
 it('bounds expanded history in a keyboard-scrollable region', () => {
   const markup = renderToStaticMarkup(
     <SynthesisCostsView
