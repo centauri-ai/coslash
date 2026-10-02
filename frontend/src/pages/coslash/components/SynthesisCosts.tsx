@@ -67,8 +67,11 @@ export function SynthesisCostsView({
   onToggle?: (expanded: boolean) => void;
 }) {
   const totals = response?.totals;
-  const combined = totals == null || codingCost == null ? null : combinedKnownCost(codingCost, totals);
-  const coverage = totals == null ? null : synthesisCoverage(totals);
+  const combined =
+    totals == null || codingCost == null
+      ? null
+      : combinedKnownCost(codingCost, totals, response?.historicalUnknown);
+  const coverage = totals == null ? null : synthesisCoverage(totals, response?.historicalUnknown);
   const codingPartial = codingUnpricedModels.length > 0;
   return (
     <div className="bg-coslash-soft min-w-0 rounded-lg border p-3 text-xs">
@@ -77,7 +80,16 @@ export function SynthesisCostsView({
           Coding <strong>{codingCost == null ? 'Unknown' : formatEstimatedCost(codingCost)}</strong>
         </span>
         <span>
-          Synthesis <strong>{totals ? <CostAmount microUsd={totals.knownCostMicroUsd} /> : 'Unknown'}</strong>
+          Synthesis{' '}
+          <strong>
+            {coverage === 'unknown' ? (
+              'Unknown'
+            ) : totals ? (
+              <CostAmount microUsd={totals.knownCostMicroUsd} />
+            ) : (
+              'Unknown'
+            )}
+          </strong>
         </span>
         <span>
           Combined <strong>{combined ? formatEstimatedCost(combined.knownUsd) : 'Unknown'}</strong>

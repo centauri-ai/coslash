@@ -61,20 +61,26 @@ export function synthesisCostVersionChanged(previous: string | null, next: strin
 
 export function synthesisCoverage(
   totals: Pick<CostTotals, 'knownCostMicroUsd' | 'unknownInvocationCount'> &
-    Partial<Pick<CostTotals, 'incompleteRoundCount'>>,
+    Partial<Pick<CostTotals, 'incompleteRoundCount' | 'invocationCount'>>,
+  historicalUnknown = false,
 ) {
   if (totals.knownCostMicroUsd == null) return 'unknown';
-  return totals.unknownInvocationCount > 0 || (totals.incompleteRoundCount ?? 0) > 0 ? 'partial' : 'complete';
+  if (historicalUnknown && totals.knownCostMicroUsd === 0 && (totals.invocationCount ?? 0) === 0)
+    return 'unknown';
+  return historicalUnknown || totals.unknownInvocationCount > 0 || (totals.incompleteRoundCount ?? 0) > 0
+    ? 'partial'
+    : 'complete';
 }
 
 export function combinedKnownCost(
   codingKnownUsd: number,
   synthesis: Pick<CostTotals, 'knownCostMicroUsd' | 'unknownInvocationCount'> &
-    Partial<Pick<CostTotals, 'incompleteRoundCount'>>,
+    Partial<Pick<CostTotals, 'incompleteRoundCount' | 'invocationCount'>>,
+  historicalUnknown = false,
 ) {
   return {
     knownUsd: codingKnownUsd + (synthesis.knownCostMicroUsd ?? 0) / 1_000_000,
-    partial: synthesisCoverage(synthesis) !== 'complete',
+    partial: synthesisCoverage(synthesis, historicalUnknown) !== 'complete',
   };
 }
 

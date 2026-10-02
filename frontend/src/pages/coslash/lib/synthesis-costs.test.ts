@@ -42,6 +42,18 @@ describe('synthesis costs', () => {
     ).toBe('partial');
   });
 
+  it('distinguishes missing historical accounting from recorded zero and known spend', () => {
+    const empty = { knownCostMicroUsd: 0, invocationCount: 0, unknownInvocationCount: 0 };
+    expect(synthesisCoverage(empty, true)).toBe('unknown');
+    expect(combinedKnownCost(1, empty, true)).toEqual({ knownUsd: 1, partial: true });
+    expect(synthesisCoverage({ ...empty, knownCostMicroUsd: 500_000, invocationCount: 1 }, true)).toBe(
+      'partial',
+    );
+    expect(synthesisCoverage({ ...empty, invocationCount: 1 }, true)).toBe('partial');
+    expect(synthesisCoverage(empty, false)).toBe('complete');
+    expect(combinedKnownCost(1, empty, false)).toEqual({ knownUsd: 1, partial: false });
+  });
+
   it('builds independent month and composite session queries', () => {
     expect(synthesisCostsPath({ since: 10, until: 20 })).toBe(
       '/api/synthesis-costs?source=local&since=10&until=20',
