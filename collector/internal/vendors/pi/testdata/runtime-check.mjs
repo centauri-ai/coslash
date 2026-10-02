@@ -9,6 +9,7 @@ const agent=path.join(root,'agent');mkdirSync(path.join(agent,'extensions'),{rec
 copyFileSync(new URL('../coslash-extension.ts',import.meta.url),path.join(agent,'extensions','coslash-extension.ts'));
 writeFileSync(path.join(agent,'settings.json'),JSON.stringify({compaction:{enabled:false,reserveTokens:512,keepRecentTokens:1}}));
 const env={...process.env,PI_CODING_AGENT_DIR:agent,COSLASH_HOME:path.join(root,'coslash'),XDG_CONFIG_HOME:path.join(root,'xdg-config'),XDG_DATA_HOME:path.join(root,'xdg-data')};
+delete env.COSLASH_PI_HANDOFF_FILE;delete env.COSLASH_PI_READY;delete env.PI_TEST_REQUESTS;
 const release=process.env.PI_TEST_RELEASE_DIR;
 assert.ok(release,'Set PI_TEST_RELEASE_DIR to an installed verified Pi release directory containing node_modules');
 const cli=path.join(release,'node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js');

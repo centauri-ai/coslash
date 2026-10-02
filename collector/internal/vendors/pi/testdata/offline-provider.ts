@@ -1,4 +1,5 @@
 import { createAssistantMessageEventStream } from '__PI_AI_EVENT_STREAM__';
+import { appendFileSync } from 'node:fs';
 
 export default function (pi) {
   pi.registerCommand('probe-wait', { description: 'Open an isolated waiting-state probe', handler: async (_args, ctx) => {
@@ -9,7 +10,8 @@ export default function (pi) {
     api: 'coslash-probe-api', baseUrl: 'http://127.0.0.1/unused', apiKey: 'probe-only',
     models: [{ id: 'probe', name: 'Deterministic local probe', reasoning: false, input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 1024 }],
-    streamSimple: (model, _context, options) => {
+    streamSimple: (model, context, options) => {
+      if (process.env.PI_TEST_REQUESTS) appendFileSync(process.env.PI_TEST_REQUESTS, JSON.stringify(context) + '\n', { mode: 0o600 });
       const stream = createAssistantMessageEventStream();
       const message = { role: 'assistant', content: [], api: model.api, provider: model.provider, model: model.id,
         usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
