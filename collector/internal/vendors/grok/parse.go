@@ -38,12 +38,13 @@ type summaryFile struct {
 }
 
 type signalsFile struct {
-	TurnCount           int `json:"turnCount"`
-	ErrorCount          int `json:"errorCount"`
-	CompactionCount     int `json:"compactionCount"`
-	ContextTokensUsed   int `json:"contextTokensUsed"`
-	ContextWindowTokens int `json:"contextWindowTokens"`
-	ToolCallCount       int `json:"toolCallCount"`
+	TurnCount              int `json:"turnCount"`
+	ErrorCount             int `json:"errorCount"`
+	CompactionCount        int `json:"compactionCount"`
+	ContextTokensUsed      int `json:"contextTokensUsed"`
+	ContextWindowTokens    int `json:"contextWindowTokens"`
+	ToolCallCount          int `json:"toolCallCount"`
+	SessionDurationSeconds int `json:"sessionDurationSeconds"`
 }
 
 type usageCounts struct {
@@ -173,7 +174,28 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 	}
 	s.Errors = signals.ErrorCount
 	s.Compactions = signals.CompactionCount
+	if signals.SessionDurationSeconds > 0 {
+		ms := signals.SessionDurationSeconds * 1000
+		s.DurationMs = &ms
+	}
 	s.CompactionSeed = readCompactionSeed(filepath.Join(dir, "compaction_checkpoints"))
+	s.Digest = updates.digest
+	if summary.LastTurnSummary != "" {
+		s.Digest = append(s.Digest, session.DigestEntry{Category: session.DigestRecap, Description: clipDigest(summary.LastTurnSummary)})
+	}
+	if s.CompactionSeed != "" {
+		s.Digest = append(s.Digest, session.DigestEntry{Category: session.DigestCompaction, Description: clipDigest(s.CompactionSeed)})
+	}
+	if len(s.Todos) > 0 {
+		texts := make([]string, len(s.Todos))
+		for i, todo := range s.Todos {
+			texts[i] = todo.Text
+		}
+		s.Digest = append(s.Digest, session.DigestEntry{Category: session.DigestTodos, Description: clipDigest(strings.Join(texts, "; "))})
+	}
+	if plan := readOptionalText(filepath.Join(dir, "plan.md")); plan != "" {
+		s.Digest = append(s.Digest, session.DigestEntry{Category: session.DigestPlan, Description: clipDigest(plan)})
+	}
 	if updates.finishedTurns > 0 && signals.ContextTokensUsed > 0 {
 		s.ContextTokens = &signals.ContextTokensUsed
 	}
@@ -238,6 +260,9 @@ type updatesSummary struct {
 	commands      session.CommandLog
 	commitLog     []session.CommitObservation
 	pullRequests  int
+	digest        []session.DigestEntry
+	userBuf       string
+	sawUser       bool
 }
 
 func readUpdates(path string) (updatesSummary, error) {
@@ -285,12 +310,18 @@ func readUpdates(path string) (updatesSummary, error) {
 		if update.Kind != "user_message_chunk" && result.firstPrompt != "" {
 			firstPromptDone = true
 		}
+		if update.Kind != "user_message_chunk" {
+			result.flushUser()
+		}
 		switch update.Kind {
 		case "user_message_chunk":
 			result.inTurn = true
 			// A hidden chunk is an injected system reminder, not the user's prompt.
-			if !firstPromptDone && !update.Meta.HideFromScrollback && content.Type == "text" {
-				result.firstPrompt += content.Text
+			if !update.Meta.HideFromScrollback && content.Type == "text" {
+				if !firstPromptDone {
+					result.firstPrompt += content.Text
+				}
+				result.userBuf += content.Text
 			}
 		case "tool_call":
 			result.inTurn = true
@@ -301,8 +332,39 @@ func readUpdates(path string) (updatesSummary, error) {
 			result.inTurn = false
 		}
 	}
+	result.flushUser()
 	result.firstPrompt = strings.TrimSpace(result.firstPrompt)
 	return result, scanner.Err()
+}
+
+func (r *updatesSummary) flushUser() {
+	text := strings.TrimSpace(r.userBuf)
+	r.userBuf = ""
+	if text == "" {
+		return
+	}
+	category := session.DigestUser
+	if !r.sawUser {
+		category = session.DigestFirstPrompt
+		r.sawUser = true
+	}
+	r.digest = append(r.digest, session.DigestEntry{Category: category, Description: clipDigest(text)})
+}
+
+func clipDigest(text string) string {
+	text = strings.TrimSpace(text)
+	if len(text) <= session.TruncateTextLimit {
+		return text
+	}
+	return text[:session.TruncateTextLimit]
+}
+
+func readOptionalText(path string) string {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(body)
 }
 
 // readTodos keeps plan.json order. A cancelled todo is left out, and only completed is done.
