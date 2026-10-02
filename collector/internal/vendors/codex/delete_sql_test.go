@@ -382,3 +382,24 @@ func TestDeleteSQLMemoryRefusesIncompleteSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteSQLModeTextInRootPreservesExactPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "mode=ro")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	db := newDeleteSQLDB(t, root, "logs_2.sqlite", `CREATE TABLE logs(thread_id TEXT);`)
+	if _, err := db.Exec(`INSERT INTO logs VALUES (?),(?)`, sqlDeleteRootID, sqlDeleteNeighborID); err != nil {
+		t.Fatal(err)
+	}
+	if err := deleteDatabaseFiles(t.Context(), root, map[string]bool{sqlDeleteRootID: true}, nil, false, true); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM logs WHERE thread_id=?`, sqlDeleteRootID).Scan(&count); err != nil || count != 0 {
+		t.Fatal("target remains")
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM logs WHERE thread_id=?`, sqlDeleteNeighborID).Scan(&count); err != nil || count != 1 {
+		t.Fatal("neighbor changed")
+	}
+}

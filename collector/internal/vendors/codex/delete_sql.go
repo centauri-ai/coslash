@@ -84,12 +84,9 @@ func deleteDatabaseFiles(ctx context.Context, root string, ids map[string]bool, 
 				return err
 			}
 		}
-		uri, err := deleteDatabaseURI(path)
+		uri, err := deleteDatabaseURI(path, remove)
 		if err != nil {
 			return err
-		}
-		if remove {
-			uri = strings.Replace(uri, "mode=ro", "mode=rw", 1)
 		}
 		db, err := sql.Open("sqlite", uri)
 		if err != nil {
@@ -167,7 +164,7 @@ ON CONFLICT(kind,job_key) DO UPDATE SET
 	return err
 }
 
-func deleteDatabaseURI(path string) (string, error) {
+func deleteDatabaseURI(path string, writable ...bool) (string, error) {
 	path = strings.ReplaceAll(path, `\`, "/")
 	if strings.HasPrefix(path, "//") {
 		return "", errors.New("UNC SQLite root is unsupported")
@@ -175,7 +172,11 @@ func deleteDatabaseURI(path string) (string, error) {
 	if len(path) > 1 && path[1] == ':' {
 		path = "/" + path
 	}
-	uri := url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro"}
+	mode := "ro"
+	if len(writable) > 0 && writable[0] {
+		mode = "rw"
+	}
+	uri := url.URL{Scheme: "file", Path: path, RawQuery: "mode=" + mode}
 	return uri.String(), nil
 }
 
