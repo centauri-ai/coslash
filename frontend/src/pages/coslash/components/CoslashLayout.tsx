@@ -1182,13 +1182,6 @@ export function CoslashLayout({
       ),
     [preferences, searchMatches, sessionGroups, sessionsInRange],
   );
-  const countWith = (predicate: (session: Session) => boolean, skip: FacetKey) =>
-    sessionsInRange.filter(
-      (session) =>
-        searchMatches.get(sessionKey(session)) &&
-        matchesFacets(session, sessionGroups.get(sessionKey(session))!, preferences, skip) &&
-        predicate(session),
-    ).length;
   const toggleStatus = (status: StatusKey) =>
     patchPreferences({
       statusFilters: preferences.statusFilters.includes(status)
@@ -1259,6 +1252,29 @@ export function CoslashLayout({
     );
   }
 
+  const statusCounts = new Map<StatusKey, number>();
+  const machineCounts = new Map<string, number>();
+  const agentCounts = new Map<string, number>();
+  const groupCounts = new Map<string, number>();
+  for (const session of sessionsInRange) {
+    const key = sessionKey(session);
+    if (!searchMatches.get(key)) continue;
+    const group = sessionGroups.get(key)!;
+    if (matchesFacets(session, group, preferences, 'status')) {
+      const status = boardStatusKey(session);
+      statusCounts.set(status, (statusCounts.get(status) ?? 0) + 1);
+    }
+    if (matchesFacets(session, group, preferences, 'machine')) {
+      machineCounts.set(session.sourceId, (machineCounts.get(session.sourceId) ?? 0) + 1);
+    }
+    if (matchesFacets(session, group, preferences, 'agent')) {
+      agentCounts.set(session.agent, (agentCounts.get(session.agent) ?? 0) + 1);
+    }
+    if (matchesFacets(session, group, preferences, 'group')) {
+      groupCounts.set(group.id, (groupCounts.get(group.id) ?? 0) + 1);
+    }
+  }
+
   const facetSections: FacetSection[] = [
     {
       id: 'status',
@@ -1267,7 +1283,7 @@ export function CoslashLayout({
         id: status,
         status,
         label: STATUSES[status].label,
-        count: countWith((session) => boardStatusKey(session) === status, 'status'),
+        count: statusCounts.get(status) ?? 0,
         selected: preferences.statusFilters.includes(status),
         onClick: () => toggleStatus(status),
       })),
@@ -1283,7 +1299,7 @@ export function CoslashLayout({
           machine.sourceId === LOCAL_SOURCE_ID ? undefined : (
             <MachineDot machine={machine} onRetry={onRetry} retrying={retrying} />
           ),
-        count: countWith((session) => session.sourceId === machine.sourceId, 'machine'),
+        count: machineCounts.get(machine.sourceId) ?? 0,
         selected: preferences.machineFilters.includes(machine.sourceId),
         onClick: () => toggleMachine(machine.sourceId),
       })),
@@ -1294,7 +1310,7 @@ export function CoslashLayout({
       options: agents.map((agent) => ({
         id: agent,
         label: getVendor(agent).label,
-        count: countWith((session) => session.agent === agent, 'agent'),
+        count: agentCounts.get(agent) ?? 0,
         selected: preferences.agentFilters.includes(agent),
         onClick: () => toggleAgent(agent),
       })),
@@ -1310,7 +1326,7 @@ export function CoslashLayout({
       .map((group) => ({
         id: group.id,
         label: group.label,
-        count: countWith((session) => sessionGroups.get(sessionKey(session))?.id === group.id, 'group'),
+        count: groupCounts.get(group.id) ?? 0,
         selected: preferences.groupFilters.includes(group.id),
         onClick: () => toggleGroup(group.id),
       }));

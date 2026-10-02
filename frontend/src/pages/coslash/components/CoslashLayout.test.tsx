@@ -1,12 +1,27 @@
 import { type ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CoslashLayout } from '@/pages/coslash/components/CoslashLayout';
 import { machineRetryable } from '@/pages/coslash/lib/machine-status';
 import { type MachineFact } from '@/pages/coslash/lib/machines';
 import { buildReviewIndex } from '@/pages/coslash/lib/review';
-import { type Session } from '@/pages/coslash/lib/session';
-import { type SessionSort } from '@/pages/coslash/lib/session-view-preferences';
+import { boardStatusKey, getVendor, STATUS_ORDER, STATUSES, type Session } from '@/pages/coslash/lib/session';
+import {
+  DEFAULT_SESSION_VIEW_PREFERENCES,
+  type SessionRange,
+  type SessionSort,
+  type SessionViewPreferences,
+} from '@/pages/coslash/lib/session-view-preferences';
+
+const groupQuery = vi.hoisted(() => ({ value: null as string | null }));
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>();
+  return {
+    ...actual,
+    useState: (initialState?: unknown) =>
+      actual.useState(initialState === '' && groupQuery.value != null ? groupQuery.value : initialState),
+  };
+});
 
 const props: ComponentProps<typeof CoslashLayout> = {
   sessions: [],
@@ -85,6 +100,7 @@ function storeSort(sort: SessionSort) {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  groupQuery.value = null;
 });
 
 /** The tone class alone, so `bg-success` does not match the `bg-success-bg` wash. */
@@ -97,6 +113,235 @@ function dotFor(markup: string, tone: 'success' | 'warning' | 'danger'): string 
 function orderOf(markup: string, ...titles: string[]): number[] {
   return titles.map((title) => markup.indexOf(title));
 }
+
+describe('CoslashLayout sidebar facet counts', () => {
+  const start = new Date(2026, 1, 2).getTime();
+  const locationData: [id: string, label: string, kind: string, repo: string | null, cwd: string][] = [
+    ['repo:github.com/owner-a/app', 'app', 'Repository', 'github.com/owner-a/app', ''],
+    ['repo:github.com/owner-b/app', 'app', 'Repository', 'github.com/owner-b/app', ''],
+    ['folder:local:/work/client/app', 'client/app', 'Folder', 'app', '/work/client/app/src'],
+    ['folder:local:/work/server/app', 'server/app', 'Folder', 'app', '/work/server/app/src'],
+    ['folder:remote:/work/client/app', 'client/app', 'Folder', 'app', '/work/client/app/src'],
+    ['folder:remote:/home/user/Foo', 'Foo', 'Folder', null, '/home/user/Foo'],
+    ['folder:remote:/home/user/foo', 'foo', 'Folder', null, '/home/user/foo'],
+    ['unlocated', 'No location', 'No location', null, ''],
+  ];
+  const locations = locationData.map(([id, label, kind, repo, cwd]) => ({ id, label, kind, repo, cwd }));
+  const entry = (locationIndex: number, overrides: Partial<Session>) => {
+    const location = locations[locationIndex];
+    const row = session({
+      id: `row-${locationIndex}`,
+      name: 'needle',
+      mtime: start,
+      digest: [],
+      repo: location.repo,
+      repoLocalOnly: location.kind === 'Folder' && location.repo != null,
+      cwd: location.cwd,
+      ...overrides,
+    });
+    row.sourceLabel = row.sourceId === 'local' ? 'Local Mac' : 'agent-box';
+    return { row, group: location.id };
+  };
+  const repeated = entry(0, { id: 'shared', status: 'busy', mtime: 0 });
+  const entries = [
+    repeated,
+    entry(1, { id: 'shared', sourceId: 'local', status: 'waiting', mtime: 0 }),
+    entry(0, { id: 'shared', agent: 'claude', status: 'idle', mtime: 0 }),
+    entry(1, { status: null }),
+    entry(2, { sourceId: 'local', agent: 'claude', status: 'busy', mtime: 0 }),
+    entry(3, { sourceId: 'local', mtime: start - 1 }),
+    entry(4, { agent: 'claude', status: 'waiting', mtime: 0 }),
+    entry(5, { status: 'busy', displayStale: true, mtime: 0 }),
+    entry(6, { agent: 'claude', status: 'unknown', mtime: 0 }),
+    entry(7, { sourceId: 'local', name: null, firstPrompt: 'private-needle' }),
+    entry(7, { agent: 'claude', name: null, firstPrompt: 'private-needle' }),
+    entry(7, { agent: 'opencode', mtime: start - 1 }),
+    entry(0, { id: 'non-match', name: 'other', status: 'busy', mtime: 0 }),
+    entry(1, { id: 'unrecognized-status', status: 'future-status', mtime: 0 }),
+    repeated,
+  ];
+  const machines = [
+    ...props.machines,
+    { sourceId: 'empty', label: 'Empty host', state: 'ok', complete: true } as MachineFact,
+  ];
+  const dimensions = ['status', 'machine', 'agent', 'group'] as const;
+  type Dimension = (typeof dimensions)[number];
+  const options: { dimension: Dimension; id: string; label: string }[] = [
+    ...STATUS_ORDER.map((id) => ({ dimension: 'status' as const, id, label: STATUSES[id].label })),
+    ...machines.map((machine) => ({
+      dimension: 'machine' as const,
+      id: machine.sourceId,
+      label: machine.label,
+    })),
+    ...['claude', 'codex', 'opencode'].map((id) => ({
+      dimension: 'agent' as const,
+      id,
+      label: getVendor(id).label,
+    })),
+    ...['Repository', 'Folder', 'No location'].flatMap((kind) =>
+      locations
+        .filter((location) => location.kind === kind)
+        .sort((left, right) => left.label.localeCompare(right.label))
+        .map((location) => ({ dimension: 'group' as const, id: location.id, label: location.label })),
+    ),
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 1, 2, 12));
+  });
+
+  function referenceRows(preferences: SessionViewPreferences, range: SessionRange) {
+    const filters: Record<Dimension, readonly string[]> = {
+      status: preferences.statusFilters,
+      machine: preferences.machineFilters,
+      agent: preferences.agentFilters,
+      group: preferences.groupFilters,
+    };
+    return options.map((option) => ({
+      label: option.label,
+      selected: filters[option.dimension].includes(option.id),
+      count: entries.filter(({ row, group }) => {
+        if (range !== 'all' && row.status == null && row.mtime < start) return false;
+        const keys = { status: boardStatusKey(row), machine: row.sourceId, agent: row.agent, group };
+        const query = preferences.query;
+        const location = locations.find((candidate) => candidate.id === group)!;
+        let matches =
+          query === '' ||
+          row.name?.includes(query) ||
+          (row.sourceId === 'local' && row.firstPrompt?.includes(query));
+        if (query === 'group:foo') matches = location.label.toLowerCase().includes('foo');
+        if (query === 'repo:owner-a') matches = row.repo?.includes('owner-a');
+        if (query === 'machine:agent-box') matches = row.sourceLabel === 'agent-box';
+        if (query === 'agent:codex') matches = row.agent === 'codex';
+        if (query === 'status:inactive') matches = keys.status === 'inactive';
+        return (
+          matches &&
+          keys[option.dimension] === option.id &&
+          dimensions.every(
+            (dimension) =>
+              dimension === option.dimension ||
+              filters[dimension].length === 0 ||
+              filters[dimension].includes(keys[dimension]),
+          )
+        );
+      }).length,
+    }));
+  }
+
+  function sidebarRows(markup: string) {
+    const sidebar = markup.slice(
+      markup.indexOf('id="coslash-status"'),
+      markup.indexOf('class="coslash-main'),
+    );
+    expect(sidebar).not.toMatch(/<button[^>]*disabled/);
+    return [
+      ...sidebar.matchAll(
+        /aria-pressed="(true|false)"[^>]*>.*?<span class="truncate">([^<]+)<\/span><\/button>.*?<span class="text-meta ml-auto tabular-nums">(\d+)<\/span>/g,
+      ),
+    ].map((match) => ({ label: match[2], count: Number(match[3]), selected: match[1] === 'true' }));
+  }
+
+  function renderFacets(patch: Partial<SessionViewPreferences> = {}, range: SessionRange = 'today') {
+    const preferences = { ...DEFAULT_SESSION_VIEW_PREFERENCES, ...patch };
+    vi.stubGlobal('sessionStorage', { getItem: () => JSON.stringify(preferences), setItem: () => {} });
+    return {
+      preferences,
+      markup: renderLayout({ sessions: entries.map(({ row }) => row), machines, range }),
+    };
+  }
+
+  it.each(Array.from({ length: 16 }, (_, mask) => mask))(
+    'matches per-option scans with selection mask %i, including OR selections and search',
+    (mask) => {
+      for (const multi of [false, true]) {
+        for (const query of ['', 'needle']) {
+          const { preferences, markup } = renderFacets({
+            query,
+            statusFilters: mask & 1 ? (multi ? ['busy', 'inactive'] : ['busy']) : [],
+            machineFilters: mask & 2 ? (multi ? ['local', 'remote'] : ['remote']) : [],
+            agentFilters: mask & 4 ? (multi ? ['claude', 'codex'] : ['codex']) : [],
+            groupFilters: mask & 8 ? (multi ? [locations[0].id, 'unlocated'] : [locations[0].id]) : [],
+          });
+          expect(sidebarRows(markup)).toEqual(referenceRows(preferences, 'today'));
+        }
+      }
+    },
+  );
+
+  it.each([
+    { statusFilters: ['waiting'] },
+    { machineFilters: ['missing'] },
+    { agentFilters: ['missing'] },
+    { groupFilters: ['missing'] },
+    {
+      statusFilters: ['busy'],
+      machineFilters: ['local'],
+      agentFilters: ['codex'],
+      groupFilters: [locations[0].id],
+    },
+  ] satisfies Partial<SessionViewPreferences>[])('keeps zero-count options selectable for %j', (patch) => {
+    const { preferences, markup } = renderFacets(patch);
+    expect(sidebarRows(markup)).toEqual(referenceRows(preferences, 'today'));
+  });
+
+  it.each([
+    'private-needle',
+    'group:foo',
+    'repo:owner-a',
+    'machine:agent-box',
+    'agent:codex',
+    'status:inactive',
+    'absent',
+  ])('preserves privacy-aware and prefixed search counts for %s', (query) => {
+    const { preferences, markup } = renderFacets({ query });
+    expect(sidebarRows(markup)).toEqual(referenceRows(preferences, 'today'));
+  });
+
+  it('preserves the range boundary, raw live status retention, normalized status and repeated rows', () => {
+    const today = renderFacets();
+    expect(sidebarRows(today.markup)).toEqual(referenceRows(today.preferences, 'today'));
+    expect(
+      sidebarRows(today.markup)
+        .slice(0, 5)
+        .map(({ count }) => count),
+    ).toEqual([4, 2, 1, 1, 5]);
+    const all = renderFacets({}, 'all');
+    expect(sidebarRows(all.markup)).toEqual(referenceRows(all.preferences, 'all'));
+  });
+
+  it('reuses the cached search and group results for repeated composite session keys', () => {
+    const sessions = [
+      entry(0, { id: 'same', name: 'needle', status: 'busy' }).row,
+      entry(1, { id: 'same', name: 'other', status: 'waiting' }).row,
+    ];
+    for (const query of ['needle', 'other']) {
+      vi.stubGlobal('sessionStorage', { getItem: () => JSON.stringify({ query }), setItem: () => {} });
+      const rows = sidebarRows(renderLayout({ sessions }));
+      expect(rows.map(({ count }) => count)).toEqual(
+        query === 'needle' ? [0, 0, 0, 0, 0, 0, 0, 0, 0] : [1, 1, 0, 0, 0, 0, 2, 2, 2],
+      );
+      expect(rows.map(({ label }) => label)).toEqual([
+        ...STATUS_ORDER.map((status) => STATUSES[status].label),
+        'Local Mac',
+        'agent-box',
+        'Codex',
+        'app',
+      ]);
+    }
+  });
+
+  it('uses the group query only to present options, not to scope counts or sessions', () => {
+    groupQuery.value = 'owner-a';
+    const { preferences, markup } = renderFacets({ groupFilters: [locations[1].id] });
+    expect(sidebarRows(markup)).toEqual(
+      referenceRows(preferences, 'today').filter(
+        (_, index) => options[index].dimension !== 'group' || options[index].id === locations[0].id,
+      ),
+    );
+    expect(markup).toContain('3 sessions');
+  });
+});
 
 describe('CoslashLayout', () => {
   it('shows the monthly insights view with existing session data', () => {
