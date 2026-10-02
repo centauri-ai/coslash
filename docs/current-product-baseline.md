@@ -168,8 +168,8 @@ does not change portable session records, revisions, snapshots, or backups.
 
 Deleting `summaries/` removes latest results without deleting cost history.
 With coSlash stopped, deleting `synthesis-accounting/` separately removes that
-history and resets tracking. An accounting write failure makes cost reads
-unavailable (HTTP 503) in the current process. When the V2
+history and resets tracking. If an accounting write may have been lost, cost
+reads return HTTP 503 in the current process. When the V2
 `accounting_incomplete` marker is stored, that state persists across restarts.
 Without it, a failed invocation-completion write can recover as unknown usage.
 An accounting store that cannot open does not block startup or cached summaries,
