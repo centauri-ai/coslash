@@ -128,9 +128,127 @@ func TestOpenCodeScratchCostSurvivesMalformedTokens(t *testing.T) {
 		if err = db.Close(); err != nil {
 			t.Fatal(err)
 		}
-		got, count := readOpenCodeScratchUsage(path, "run", v2)
-		if count != 1 || got.ReportedCostMicroUSD == nil || *got.ReportedCostMicroUSD != 250000 || got.Tokens != nil {
+		got, count, incomplete := readOpenCodeScratchUsage(path, "run", v2)
+		if incomplete || count != 1 || got.ReportedCostMicroUSD == nil || *got.ReportedCostMicroUSD != 250000 || got.Tokens != nil {
 			t.Fatalf("v2=%v: count=%d usage=%#v", v2, count, got)
+		}
+	}
+}
+
+func TestOpenCodeScratchSkipsUnsafeRowsAndKeepsKnownUsage(t *testing.T) {
+	const start = `{"role":"assistant","cost":0.3,"time":{"completed":1},"padding":"`
+	const end = `"}`
+	for _, tc := range []struct {
+		name, extra string
+		want        int64
+	}{
+		{"oversized", start + strings.Repeat("x", 262144) + end, 20000},
+		{"multibyte", `{"role":"assistant","cost":0.4,"time":{"completed":1},"padding":"` + strings.Repeat("界", 90000) + `"}`, 20000},
+		{"malformed", `{"role":"assistant","cost":0.3,"time":{"completed":1}`, 20000},
+		{"byte-limit", start + strings.Repeat("x", 262144-len(start)-len(end)) + end, 320000},
+	} {
+		for _, v2 := range []bool{false, true} {
+			t.Run(tc.name+map[bool]string{false: "-v1", true: "-v2"}[v2], func(t *testing.T) {
+				t.Setenv("COSLASH_HOME", t.TempDir())
+				runner := &CLIRunner{Backend: settings.BackendOpenCode, Model: settings.OpenCodeDefaultModel, Timeout: time.Second, openCodeV2: v2}
+				runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+					var path string
+					for _, entry := range spec.env {
+						if strings.HasPrefix(entry, "OPENCODE_DB=") {
+							path = strings.TrimPrefix(entry, "OPENCODE_DB=")
+						}
+					}
+					db, err := sql.Open("sqlite", path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer db.Close()
+					table, insert := `CREATE TABLE message (session_id TEXT, data TEXT)`, `INSERT INTO message VALUES (?,?)`
+					valid := `{"role":"assistant","providerID":"openai","modelID":"gpt-5","cost":0.02,"tokens":{"input":3,"output":2,"cache":{"read":0,"write":0}},"time":{"completed":2}}`
+					if v2 {
+						table, insert = `CREATE TABLE session_message (session_id TEXT, type TEXT, data TEXT)`, `INSERT INTO session_message VALUES (?,"assistant",?)`
+						valid = `{"model":{"providerID":"openai","id":"gpt-5"},"cost":0.02,"tokens":{"input":3,"output":2,"cache":{"read":0,"write":0}},"time":{"completed":2}}`
+					}
+					if _, err := db.Exec(table); err != nil {
+						t.Fatal(err)
+					}
+					for _, row := range []struct{ id, raw string }{{"run", tc.extra}, {"run", valid}, {"other", `{"role":"assistant","cost":99,"time":{"completed":3}}`}} {
+						if _, err := db.Exec(insert, row.id, row.raw); err != nil {
+							t.Fatal(err)
+						}
+					}
+					user := `{"role":"user","cost":11,"time":{"completed":4}}`
+					if v2 {
+						_, err = db.Exec(`INSERT INTO session_message VALUES (?,"user",?)`, "run", user)
+					} else {
+						_, err = db.Exec(insert, "run", user)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					return []byte(`{"type":"text","sessionID":"run","part":{"id":"reply","text":"broken"}}` + "\n"), nil
+				}
+				got, err := runner.Run(context.Background(), "facts")
+				if err == nil || got.Usage.ReportedCostMicroUSD == nil || *got.Usage.ReportedCostMicroUSD != tc.want || got.Usage.Tokens["openai/gpt-5"].InputTokens != 3 || got.Usage.Coverage != "partial" {
+					t.Fatalf("usage = %#v, err = %v", got.Usage, err)
+				}
+			})
+		}
+	}
+}
+
+func TestOpenCodeScratchUnsafeOnlyRemainsUnknown(t *testing.T) {
+	for _, v2 := range []bool{false, true} {
+		path := filepath.Join(t.TempDir(), "usage.db")
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		table, insert := `CREATE TABLE message (session_id TEXT, data TEXT)`, `INSERT INTO message VALUES (?,?)`
+		if v2 {
+			table, insert = `CREATE TABLE session_message (session_id TEXT, type TEXT, data TEXT)`, `INSERT INTO session_message VALUES (?,"assistant",?)`
+		}
+		if _, err = db.Exec(table); err == nil {
+			_, err = db.Exec(insert, "run", `{"role":"assistant","padding":"`+strings.Repeat("x", 262144)+`"}`)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got, count, incomplete := readOpenCodeScratchUsage(path, "run", v2)
+		if !incomplete || count != 0 || got.Coverage != "unknown" || got.ReportedCostMicroUSD != nil || got.Tokens != nil {
+			t.Fatalf("v2=%v: count=%d incomplete=%v usage=%#v", v2, count, incomplete, got)
+		}
+	}
+}
+
+func TestOpenCodeScratchRowCapRetainsKnownSubtotal(t *testing.T) {
+	for _, v2 := range []bool{false, true} {
+		path := filepath.Join(t.TempDir(), "usage.db")
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		table, insert := `CREATE TABLE message (session_id TEXT, data TEXT)`, `INSERT INTO message VALUES (?,?)`
+		if v2 {
+			table, insert = `CREATE TABLE session_message (session_id TEXT, type TEXT, data TEXT)`, `INSERT INTO session_message VALUES (?,"assistant",?)`
+		}
+		if _, err = db.Exec(table); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 65; i++ {
+			if _, err = db.Exec(insert, "run", `{"role":"assistant","cost":0.01,"time":{"completed":1}}`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err = db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got, count, incomplete := readOpenCodeScratchUsage(path, "run", v2)
+		if !incomplete || count != 64 || got.Coverage != "partial" || got.ReportedCostMicroUSD == nil || *got.ReportedCostMicroUSD != 640000 {
+			t.Fatalf("v2=%v: count=%d incomplete=%v usage=%#v", v2, count, incomplete, got)
 		}
 	}
 }
