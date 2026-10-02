@@ -92,6 +92,7 @@ func TestIdentityAndRetainedDiscovery(t *testing.T) {
 func TestEnsureExtensionPreservesUnmanagedFiles(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_DIR", root)
+	t.Setenv("COSLASH_HOME", t.TempDir())
 	settings := filepath.Join(root, "settings.json")
 	os.WriteFile(settings, []byte(`{"extensions":["user.ts"]}`), 0600)
 	if err := ensureExtension(); err != nil {

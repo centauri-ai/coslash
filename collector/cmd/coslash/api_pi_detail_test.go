@@ -58,7 +58,7 @@ func TestLocalPiDetailAcceptsOpaqueIdentityButRemoteRefuses(t *testing.T) {
 
 func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T) {
 	if !vendors.PiSupported() {
-		t.Skip("Pi collection is supported only on macOS")
+		t.Skip("Pi collection is supported only on macOS and Windows")
 	}
 	agentDir, stateDir := t.TempDir(), t.TempDir()
 	t.Setenv("PI_CODING_AGENT_DIR", agentDir)
@@ -182,7 +182,7 @@ func TestPiHTTPSynthesisTracksRuntimeBranchWithoutTranscriptAppend(t *testing.T)
 
 func TestPiProviderErrorSurvivesExactLocalDetail(t *testing.T) {
 	if !vendors.PiSupported() {
-		t.Skip("Pi collection is supported only on macOS")
+		t.Skip("Pi collection is supported only on macOS and Windows")
 	}
 	agentDir := t.TempDir()
 	t.Setenv("PI_CODING_AGENT_DIR", agentDir)

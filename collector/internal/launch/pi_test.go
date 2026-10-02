@@ -20,7 +20,7 @@ import (
 func fakePi(t *testing.T) string {
 	t.Helper()
 	if !vendors.PiSupported() {
-		t.Skip("Pi integration is supported only on macOS")
+		t.Skip("Pi integration is supported only on macOS and Windows")
 	}
 	return setupFakePi(t)
 }

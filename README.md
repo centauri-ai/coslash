@@ -21,7 +21,7 @@ or explicitly approve a Hub share.
 
 | | |
 | --- | --- |
-| **Supported agents** | Claude Code · Codex / ChatGPT · Cursor · OpenCode · Pi (macOS, local) |
+| **Supported agents** | Claude Code · Codex / ChatGPT · Cursor · OpenCode · Pi (macOS and Windows, local) |
 | **Works with** | The desktop apps and the CLIs of each agent |
 | **Reads** | Local transcripts and, optionally, one Linux host over read-only SFTP. No account, no daemon, no telemetry. |
 
@@ -107,13 +107,13 @@ coSlash needs at least one local agent session to read. If it finds none, it say
 
 ### Local Pi sessions
 
-Pi collection, runtime integration, synthesis, resume, and handoff are supported only for local macOS sessions. Windows and Linux Pi support is deferred until device validation; their coSlash builds and other supported agents remain available.
+Pi collection, runtime integration, synthesis, resume, and handoff are supported for local macOS and Windows sessions. Linux Pi support remains deferred.
 
 The reader supports Pi transcript schema **3**. Schema 1, 2, and future schemas are reported as unsupported; synthetic migration research does not establish older-format support. Runtime integration and local launch allow **stable Pi releases at least 0.99.1**, independently of the transcript schema. Pi 0.99.1, 0.99.2, and 1.0.0 are tested baselines. Newer releases remain enabled; diagnostics report untested releases without treating them as incompatible. Prereleases and unrecognizable versions are excluded.
 
 On startup, coSlash installs its managed extension in `PI_CODING_AGENT_DIR/extensions/coslash-extension.ts` (default `~/.pi/agent/extensions/`). It preserves Pi settings and other extensions and refuses to overwrite an unmanaged file. Restart existing Pi processes after installation or update. Missing integration, an excluded runtime release, or unverifiable runtime evidence produces **Unknown**, not Inactive. Print, JSON, and RPC modes load the extension; SDK hosts must load it explicitly.
 
-Default and configured Pi storage is read locally. `PI_CODING_AGENT_DIR` selects the agent directory; `PI_CODING_AGENT_SESSION_DIR` selects a session root. Pi also supports global/project `sessionDir` settings and CLI `--session-dir`. Start coSlash with the same overrides. For historical custom locations never observed by the integration, set `COSLASH_PI_SESSION_ROOTS` to an OS path-list (colon-separated on macOS). Integrated runtimes retain learned exact paths under `COSLASH_HOME`, so those sessions remain discoverable after Pi and coSlash restart. Project settings are discovered from coSlash's startup directory and already-discovered session working directories; arbitrary projects are not searched.
+Default and configured Pi storage is read locally. `PI_CODING_AGENT_DIR` selects the agent directory; `PI_CODING_AGENT_SESSION_DIR` selects a session root. Pi also supports global/project `sessionDir` settings and CLI `--session-dir`. Start coSlash with the same overrides. For historical custom locations never observed by the integration, set `COSLASH_PI_SESSION_ROOTS` to an OS path-list (colon-separated on macOS, semicolon-separated on Windows). Integrated runtimes retain learned exact paths under `COSLASH_HOME`, so those sessions remain discoverable after Pi and coSlash restart. Project settings are discovered from coSlash's startup directory and already-discovered session working directories; arbitrary projects are not searched.
 
 Pi Resume opens the backend-resolved transcript path, including custom session IDs. Start fresh with handoff preserves Pi's normal appended instructions and adds the brief as background on the first user turn. These terminal actions are local only and require a stable Pi release at least 0.99.1; SDK sessions reopen through the CLI rather than reconstructing their host. See [Troubleshooting](docs/troubleshooting.md#pi-sessions-and-runtime-status) for setup and accounting limits.
 
@@ -230,11 +230,11 @@ Per-model token breakdowns including cache reads and writes, estimated cost at l
 
 Debriefs work without any model: goals, outcomes, timelines, and artifacts are derived deterministically from the transcript. Turning on synthesis sharpens them.
 
-When enabled, coSlash passes no more than 12 KB of derived facts to a local agent CLI. Facts can include goals, digest entries, todos, filenames, commits, and statistics. Supported CLIs are Claude Code, Codex, OpenCode, Cursor, and Pi (macOS only). Each CLI uses its existing account. Results are cached under `~/.coslash`. Only substantial sessions qualify, so short runs do not use a model.
+When enabled, coSlash passes no more than 12 KB of derived facts to a local agent CLI. Facts can include goals, digest entries, todos, filenames, commits, and statistics. Supported CLIs are Claude Code, Codex, OpenCode, Cursor, and Pi (macOS and Windows). Each CLI uses its existing account. Results are cached under `~/.coslash`. Only substantial sessions qualify, so short runs do not use a model.
 
 For OpenCode, the model list includes *OpenCode default for a new run* and, when the installed CLI supports listing them, free OpenCode Zen models. The default option passes no model. OpenCode v2 selects its current catalog default in a fresh, isolated process; v1 may instead use a model from the user's configuration. Either may differ from the model shown in an existing OpenCode session. If the resolved model is paid, it will bill your account per debrief.
 
-On macOS, Pi synthesis is verified with Pi 0.99.2. The default option uses Pi's configured provider and model for a new run, with your existing authentication and provider environment. To pin a model, set `synthesis.backend` to `pi-cli` and `synthesis.model` to a provider-qualified ID such as `amazon-bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0` in `settings.json`. Pi runs without tools, extensions, skills, prompt templates, context files, or session persistence. Provider access errors and expired credentials appear as synthesis failures in the inspector; refresh credentials (for example, `aws sso login --profile <profile>`) and retry synthesis. The resolved model may consume paid account usage.
+Pi synthesis is verified with Pi 0.99.2 on macOS and Pi 1.0.0 with an offline provider on Windows. The default option uses Pi's configured provider and model for a new run, with your existing authentication and provider environment. To pin a model, set `synthesis.backend` to `pi-cli` and `synthesis.model` to a provider-qualified ID such as `amazon-bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0` in `settings.json`. Pi runs without tools, extensions, skills, prompt templates, context files, or session persistence. Provider access errors and expired credentials appear as synthesis failures in the inspector; refresh credentials (for example, `aws sso login --profile <profile>`) and retry synthesis. The resolved model may consume paid account usage.
 
 It is **off until you explicitly enable and save it**.
 
