@@ -1,0 +1,9 @@
+{
+  "info": {"id": "01a0f8ba-e252-7c93-bced-99c163326426", "cwd": "/work/repo"},
+  "created_at": "2026-10-01T18:29:52.373029Z",
+  "updated_at": "2026-10-01T18:41:00.473047Z",
+  "last_active_at": "2026-10-01T18:41:00.473047Z",
+  "current_model_id": "grok-4.7",
+  "chat_format_version": 1,
+  "head_branch": "main"
+}
