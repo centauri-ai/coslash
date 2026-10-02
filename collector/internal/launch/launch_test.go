@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -77,5 +78,39 @@ func TestRemoteCLICommandPreservesVendorResumeForms(t *testing.T) {
 				t.Fatalf("remoteCLICommand() = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestGrokLaunchAndResumeArguments(t *testing.T) {
+	cli, err := cliName(vendors.AgentGrok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cli != "grok" {
+		t.Fatalf("cliName() = %q, want grok", cli)
+	}
+	got, err := resumeArguments(vendors.AgentGrok, cli, "01a0f8c9-e0fa-7ec0-a5bf-79da860d539a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"grok", "--resume", "01a0f8c9-e0fa-7ec0-a5bf-79da860d539a"}; !slices.Equal(got, want) {
+		t.Fatalf("resumeArguments() = %q, want %q", got, want)
+	}
+	if slices.Contains(got, "-s") || slices.Contains(got, "--session-id") {
+		t.Fatalf("resumeArguments() = %q uses a new-session id flag", got)
+	}
+	t.Setenv("GROK_HOME", "")
+	if command, _, err := cliCommand(vendors.AgentGrok, "", NewSession, ""); err != nil || command != localCommandJoin("grok") {
+		t.Fatalf("cliCommand(NewSession) = %q, %v, want grok alone", command, err)
+	}
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	id := "01a0f8c9-e0fa-7ec0-a5bf-79da860d539a"
+	prefix := "GROK_HOME=" + shellQuote(home) + " "
+	if command, _, err := cliCommand(vendors.AgentGrok, "", NewSession, ""); err != nil || command != prefix+localCommandJoin("grok") {
+		t.Fatalf("cliCommand(NewSession) = %q, %v", command, err)
+	}
+	if command, _, err := cliCommand(vendors.AgentGrok, id, ResumeSession, ""); err != nil || command != prefix+localCommandJoin("grok", "--resume", id) {
+		t.Fatalf("cliCommand(ResumeSession) = %q, %v", command, err)
 	}
 }
