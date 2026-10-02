@@ -109,12 +109,24 @@ func TestPublishedFixtures(t *testing.T) {
 			if got := hex.EncodeToString(sum[:]); got != fixture.SHA256 {
 				t.Fatalf("sha256 = %s", got)
 			}
-			_, err = Decode(data)
+			record, err := Decode(data)
 			if fixture.Valid && err != nil {
 				t.Fatalf("valid fixture rejected: %v", err)
 			}
 			if !fixture.Valid && err == nil {
 				t.Fatal("invalid fixture accepted")
+			}
+			if fixture.Valid {
+				if err := Validate(record); err != nil {
+					t.Fatalf("valid fixture failed validation: %v", err)
+				}
+				canonical, err := Marshal(record)
+				if err != nil {
+					t.Fatalf("valid fixture failed encoding: %v", err)
+				}
+				if !bytes.Equal(canonical, data) {
+					t.Fatal("encoded fixture differs from published canonical bytes")
+				}
 			}
 		})
 	}

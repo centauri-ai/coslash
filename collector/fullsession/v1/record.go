@@ -262,17 +262,7 @@ func cloneSlice[T any](value []T) []T {
 }
 
 func Marshal(record Record) ([]byte, error) {
-	if err := Validate(record); err != nil {
-		return nil, err
-	}
-	data, err := json.Marshal(record)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > MaxRecordBytes {
-		return nil, ErrOversized
-	}
-	return data, nil
+	return validateAndMarshal(record)
 }
 
 func Decode(data []byte) (Record, error) {
@@ -291,11 +281,11 @@ func Decode(data []byte) (Record, error) {
 	if decoder.Decode(&struct{}{}) != io.EOF {
 		return Record{}, fmt.Errorf("%w: trailing JSON value", ErrInvalid)
 	}
-	if err := Validate(record); err != nil {
+	canonical, err := validateAndMarshal(record)
+	if err != nil {
 		return Record{}, err
 	}
-	canonical, err := json.Marshal(record)
-	if err != nil || !bytes.Equal(canonical, data) {
+	if !bytes.Equal(canonical, data) {
 		return Record{}, fmt.Errorf("%w: non-canonical JSON", ErrInvalid)
 	}
 	return record, nil
@@ -350,27 +340,32 @@ func validateCollectionSizes(data []byte) error {
 }
 
 func Validate(record Record) error {
+	_, err := validateAndMarshal(record)
+	return err
+}
+
+func validateAndMarshal(record Record) ([]byte, error) {
 	if err := validate(record, true); err != nil {
-		return err
+		return nil, err
 	}
 	canonical, err := json.Marshal(record)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(canonical) > MaxRecordBytes {
-		return ErrOversized
+		return nil, ErrOversized
 	}
 	copy := record
 	copy.RevisionID = ""
 	preimage, err := json.Marshal(copy)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	digest := sha256.Sum256(preimage)
 	if record.RevisionID != hex.EncodeToString(digest[:]) {
-		return fmt.Errorf("%w: revision hash mismatch", ErrInvalid)
+		return nil, fmt.Errorf("%w: revision hash mismatch", ErrInvalid)
 	}
-	return nil
+	return canonical, nil
 }
 
 func validate(record Record, requireRevision bool) error {
