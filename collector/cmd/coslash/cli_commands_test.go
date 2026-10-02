@@ -861,9 +861,9 @@ func TestHandleSendReportsUnavailableWorkingDirectory(t *testing.T) {
 			return unavailableWorkingDirectoryError{}
 		},
 	)
-	want := "session working directory is unavailable\n"
-	if response.Code != http.StatusConflict || response.Body.String() != want {
-		t.Fatalf("response = %d %q, want %d %q", response.Code, response.Body.String(), http.StatusConflict, want)
+	var body struct{ Code, Error string }
+	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &body) != nil || body.Code != "working_directory_unavailable" || body.Error != "Session working directory is unavailable." {
+		t.Fatalf("response = %d %q", response.Code, response.Body.String())
 	}
 }
 

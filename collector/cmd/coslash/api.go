@@ -577,18 +577,18 @@ func handleSend(
 
 func writeTerminalLaunchError(w http.ResponseWriter, err error) {
 	if errors.Is(err, launch.ErrPiUnsupportedVersion) {
-		http.Error(w, "Pi launch requires a stable release at least 0.99.1", http.StatusConflict)
+		writeAPIError(w, http.StatusConflict, "pi_runtime_unsupported", "Pi launch requires a stable release at least 0.99.1")
 		return
 	}
 	if errors.Is(err, launch.ErrPiExtension) {
-		http.Error(w, "required Pi extension is unavailable; check local setup", http.StatusConflict)
+		writeAPIError(w, http.StatusConflict, "pi_extension_unavailable", "Required Pi extension is unavailable; check local setup.")
 		return
 	}
 	if errors.Is(err, launch.ErrWorkingDirectoryUnavailable) {
-		http.Error(w, "session working directory is unavailable", http.StatusConflict)
+		writeAPIError(w, http.StatusConflict, "working_directory_unavailable", "Session working directory is unavailable.")
 		return
 	}
-	http.Error(w, "could not launch terminal", http.StatusInternalServerError)
+	writeAPIError(w, http.StatusInternalServerError, "terminal_launch_failed", "Could not launch terminal.")
 }
 
 func openRemoteTerminalWithHandoff(
