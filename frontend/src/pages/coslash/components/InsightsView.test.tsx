@@ -117,3 +117,62 @@ it('keeps the synthesis recovery control present while retrying', () => {
   expect(markup).toContain('aria-disabled="true"');
   expect(markup).toContain('Loading synthesis costs');
 });
+
+it('labels combined known subtotal when coding alone has unpriced usage', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 9, 2));
+  const session = {
+    sourceId: 'local',
+    agent: 'codex',
+    id: 'one',
+    logicalSessionId: 'local:codex:one',
+    revision: 1,
+    eligibleForAggregates: true,
+    mtime: new Date(2026, 9, 1).getTime(),
+    repo: 'app',
+    tokens: {},
+    observedModels: [],
+    model: 'gpt-5',
+    cost: 1,
+    unpricedModels: ['unpriced'],
+  } as unknown as Session;
+  const complete = {
+    sourceId: 'local',
+    trackingStartedAtMs: 0,
+    historicalUnknown: false,
+    totals: {
+      knownCostMicroUsd: 500_000,
+      roundCount: 1,
+      invocationCount: 1,
+      unknownInvocationCount: 0,
+      incompleteRoundCount: 0,
+    },
+    byVendor: [],
+    rounds: [],
+    nextCursor: null,
+  };
+  vi.mocked(useSynthesisCosts).mockReturnValue({
+    data: complete,
+    isLoading: false,
+    error: null,
+    retry: () => {},
+    refresh: () => {},
+  });
+  const partial = render([session]);
+  expect(partial).toContain('Combined known subtotal');
+  expect(partial).toContain('≈$1.50');
+  expect(partial).toContain('Coding excludes unpriced usage in 1 session');
+
+  expect(render([{ ...session, unpricedModels: [] }])).not.toContain('Combined known subtotal');
+
+  vi.mocked(useSynthesisCosts).mockReturnValue({
+    data: null,
+    isLoading: false,
+    error: 'Storage unavailable',
+    retry: () => {},
+    refresh: () => {},
+  });
+  const unavailable = render([session]);
+  expect(unavailable).toContain('Unavailable');
+  expect(unavailable).not.toContain('Combined known subtotal');
+});
