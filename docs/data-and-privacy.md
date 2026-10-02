@@ -191,11 +191,13 @@ Deleting `summaries/` removes cached results but retains accounting history.
 To remove that history, quit coSlash and separately delete
 `synthesis-accounting/`. This resets the tracking start on the next launch and
 cannot recover earlier spend. If an accounting write may have been lost, the
-database keeps a durable V2 `accounting_incomplete` marker and cost reads return
-an unavailable error (HTTP 503), including after restart, instead of showing
-an incomplete total as zero. If the optional accounting database cannot open
-at startup, coSlash still serves sessions and cached summaries, while cost
-reads are unavailable; it does not replace damaged history with an empty DB.
+current process returns an unavailable error (HTTP 503) for cost reads. If the
+V2 `accounting_incomplete` marker was stored, that error persists after restart.
+Without the marker, a failed invocation-completion write can instead recover
+as unknown usage; lost spend cannot be reconstructed. If the accounting store
+cannot open at startup, sessions and cached summaries remain available while
+cost reads return HTTP 503. An existing zero-byte database can be initialized
+as a new store, so startup cannot detect every loss of prior history.
 
 Disabling a remote machine stops refreshes and hides its cards but retains its
 normalized last-good cache and any optional helper; it does not change Linux.
