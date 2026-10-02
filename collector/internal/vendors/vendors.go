@@ -1,6 +1,11 @@
 package vendors
 
-import "runtime"
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+)
 
 const (
 	AgentPi       = "pi"
@@ -12,3 +17,16 @@ const (
 
 func PiSupported() bool                  { return piSupportedOn(runtime.GOOS) }
 func piSupportedOn(platform string) bool { return platform == "darwin" }
+
+func PiExecutable() (string, error) {
+	if path, err := exec.LookPath("pi"); err == nil {
+		return path, nil
+	} else if runtime.GOOS != "windows" {
+		return "", err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return exec.LookPath(filepath.Join(home, ".pi", "agent", "bin", "pi.cmd"))
+}

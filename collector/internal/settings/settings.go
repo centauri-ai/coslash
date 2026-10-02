@@ -246,6 +246,11 @@ func BackendExecutable(backend string) string {
 		return CursorExecutable()
 	case BackendPi:
 		if vendors.PiSupported() {
+			if runtime.GOOS == "windows" {
+				if path, err := vendors.PiExecutable(); err == nil {
+					return path
+				}
+			}
 			return "pi"
 		}
 		return ""

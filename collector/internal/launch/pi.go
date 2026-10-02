@@ -25,7 +25,7 @@ func piSupportedExecutable() (string, error) {
 	if !vendors.PiSupported() {
 		return "", errors.New("launch: Pi support requires macOS")
 	}
-	cli, err := exec.LookPath("pi")
+	cli, err := vendors.PiExecutable()
 	if err != nil {
 		return "", err
 	}
