@@ -296,7 +296,7 @@ npx skills@latest add centauri-ai/coslash -g -a cursor -a opencode --skill '*' -
 
 Use `npx skills@latest ls -g -a cursor -a opencode` to list them, `npx skills@latest update -g` to update them, or `npx skills@latest remove -g` to remove selected skills. The `coslash` executable must also be installed on `PATH`.
 
-The `sessions`, `handoff`, `send`, and `review` skills require the coSlash app to be running. `doctor` works while the app is stopped.
+The `sessions`, `handoff`, `send`, and `review` skills start the coSlash app when it is stopped. `doctor` works without starting it.
 
 The `stable` branch moves with each stable release, so the skills match the coSlash version that Homebrew and the install script ship. Update coSlash and the skills together. For Claude Code, run `claude plugin marketplace update centauri-ai`, then `claude plugin update coslash@centauri-ai`. For Codex, run `codex plugin marketplace upgrade`. If you added the marketplace without `stable`, remove it and add it again with the commands above.
 
