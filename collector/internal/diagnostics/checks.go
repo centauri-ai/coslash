@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/pi"
 )
 
 func derive(snapshot *Snapshot) []Check {
@@ -208,7 +209,7 @@ func remoteCheck(remote *Remote) Check {
 
 func piExtensionCheck(snapshot *Snapshot) Check {
 	extension := snapshot.piExtension
-	check := Check{ID: "pi.extension", Title: "Pi coSlash extension", Status: StatusOK, Detail: "Installed at " + extension.Path + ". Runtime events are verified for Pi 0.99.1 and 0.99.2; restart Pi after extension updates."}
+	check := Check{ID: "pi.extension", Title: "Pi coSlash extension", Status: StatusOK, Detail: "Installed at " + extension.Path + ". Stable Pi releases at least " + pi.MinimumRuntimeVersion + " are allowed; restart Pi after extension updates."}
 	switch {
 	case extension.Err != nil:
 		check.Status = StatusWarn
@@ -228,13 +229,15 @@ func piExtensionCheck(snapshot *Snapshot) Check {
 			continue
 		}
 		version := strings.TrimSpace(source.CLI.Version)
-		if version != "0.99.1" && version != "0.99.2" {
+		if !pi.RuntimeSupported(version) {
 			check.Status = StatusWarn
-			check.Detail = "Pi runtime events are verified only for 0.99.1 and 0.99.2; the installed release is " + version + ". Runtime status remains unknown on unsupported releases."
-			if version == "" {
-				check.Detail = "Pi release could not be verified. Runtime events are verified only for 0.99.1 and 0.99.2."
+			check.Detail = "Pi runtime integration requires a stable release at least " + pi.MinimumRuntimeVersion + "; the installed release is older, prerelease, or could not be verified. Transcript schema 3 remains readable."
+			check.Fix = "Install a stable Pi release at least " + pi.MinimumRuntimeVersion + ", then restart Pi."
+		} else if version != "0.99.1" && version != "0.99.2" && version != "1.0.0" {
+			if check.Status == StatusOK {
+				check.Status = StatusWarn
 			}
-			check.Fix = "Use Pi 0.99.1 or 0.99.2 for verified runtime status. Transcripts must use the supported schema version 3."
+			check.Detail += " The installed release is not yet tested; runtime integration and launch remain enabled."
 		}
 	}
 	return check

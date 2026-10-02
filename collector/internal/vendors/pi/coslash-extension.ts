@@ -93,8 +93,8 @@ function clear() {
 }
 export default function (pi: any) {
   if (!supportedPlatform) return
-  // Event semantics have been verified on this release only.
-  if (VERSION !== "0.99.1" && VERSION !== "0.99.2") return
+  const release = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/.exec(VERSION)
+  if (!release || !(release[1] !== "0" || release[2].length > 2 || (release[2] === "99" && release[3] !== "0"))) return
   const ready = process.env.COSLASH_PI_READY
   delete process.env.COSLASH_PI_READY
   const handoffPath = process.env.COSLASH_PI_HANDOFF_FILE
