@@ -26,9 +26,9 @@ A new orchestrator reads this section first and continues from **Next action**. 
 
 - https://github.com/centauri-ai/coslash/pull/386 T1 `cvu/grok-t1-parse` into `cvu/speckle-direction-4ceb2f68`
 - https://github.com/centauri-ai/coslash/pull/387 T2 `cvu/grok-t2-enrich` into `cvu/grok-t1-parse`
-- https://github.com/centauri-ai/coslash/pull/388 T4 `cvu/grok-t4-launch` into `cvu/grok-t1-parse`
-- https://github.com/centauri-ai/coslash/pull/389 T3 `cvu/grok-t3-synthesis` into `cvu/grok-t2-enrich`
-- https://github.com/centauri-ai/coslash/pull/390 T5 `cvu/grok-t5-ui` into `cvu/grok-t2-t4` The stack was rebased onto `fa76266c`. Current heads: T1 `fb648425`, T2 `9051ffb4`, T4 `0cafa753`, T3 `a6d6660a`, `cvu/grok-t2-t4` `fdab052b`, T5 `d20520b5`. Port 8797 was stopped by the user. Do not restart it. Do not kill 8787.
+- https://github.com/centauri-ai/coslash/pull/388 T4 `cvu/grok-t4-launch` into `cvu/grok-t2-enrich` (`a51c5350`)
+- https://github.com/centauri-ai/coslash/pull/389 T3 `cvu/grok-t3-synthesis` into `cvu/grok-t4-launch` (`d8f5646e`)
+- https://github.com/centauri-ai/coslash/pull/390 T5 `cvu/grok-t5-ui` into `cvu/grok-t3-synthesis` (`62574ccc`) The stack was rebased onto `fa76266c`. Current heads: T1 `fb648425`, T2 `9051ffb4`, T4 `0cafa753`, T3 `a6d6660a`, `cvu/grok-t2-t4` `fdab052b`, T5 `d20520b5`. Port 8797 was stopped by the user. Do not restart it. Do not kill 8787.
 
 E2E checks: 1 PASS (four Grok cards, chip label Grok). 2 FAIL (session detail drawer returns HTTP 400; the board itself shows 413 tool uses for the live session). 3 PASS (no subagent cards as peers). 4 PASS (Resume visible, not clicked). 5 PASS (no new console errors after the token URL).
 
