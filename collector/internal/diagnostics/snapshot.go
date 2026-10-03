@@ -229,9 +229,13 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	if !state.Valid {
 		snapshot.Synthesis.Error = displayError(userHome, state.Error)
 	} else if snapshot.Synthesis.Enabled && snapshot.piSynthesisUnsupported {
-		snapshot.Synthesis.Reason = "Pi synthesis is supported only on macOS."
+		snapshot.Synthesis.Reason = "Pi synthesis is unavailable on this platform."
 	} else if snapshot.Synthesis.Enabled && !synthesisCLIFound {
-		snapshot.Synthesis.Reason = fmt.Sprintf("%s CLI is not on PATH.", synthesisCLI)
+		if config.Backend == settings.BackendPi {
+			snapshot.Synthesis.Reason = "Pi CLI was not found on PATH or in its managed installation."
+		} else {
+			snapshot.Synthesis.Reason = fmt.Sprintf("%s CLI is not on PATH.", synthesisCLI)
+		}
 	}
 	snapshot.Checks = derive(snapshot)
 	return snapshot
