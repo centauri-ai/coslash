@@ -87,7 +87,7 @@ func piCommand(cli string, arguments ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	environment := []string{"env", "COSLASH_HOME=" + stateHome, "PI_CODING_AGENT_DIR=" + filepath.Dir(filepath.Dir(extension))}
+	environment := []string{"COSLASH_HOME=" + stateHome, "PI_CODING_AGENT_DIR=" + filepath.Dir(filepath.Dir(extension))}
 	if root := os.Getenv("PI_CODING_AGENT_SESSION_DIR"); root != "" {
 		root, err = pi.ResolveDirectory(root)
 		if err != nil {
@@ -95,35 +95,18 @@ func piCommand(cli string, arguments ...string) (string, error) {
 		}
 		environment = append(environment, "PI_CODING_AGENT_SESSION_DIR="+root)
 	}
-	return shellJoin(environment...) + " " + shellJoin(append([]string{cli, "-e", extension}, arguments...)...), nil
+	return localPiCommand(cli, extension, environment, arguments), nil
 }
 
 func piNewCommand(cli, handoff, prompt string) (string, string, error) {
 	if len(handoff) > MaxHandoffBytes {
 		return "", "", errors.New("launch: handoff context exceeds size limit")
 	}
-	command, err := piCommand(cli)
-	if err != nil {
-		return "", "", err
-	}
 	context := ""
 	if handoff != "" {
 		context = handoffPreamble + handoff
 	}
-	if prompt != "" {
-		return secureTerminalInputCommand(command, prompt, "pi", context)
-	}
-	path := ""
-	if context != "" {
-		var err error
-		path, err = writeHandoffFile(context)
-		if err != nil {
-			return "", "", err
-		}
-		command = "cat " + shellQuote(path) + " > /dev/null && COSLASH_PI_HANDOFF_FILE=" + shellQuote(path) + " " + command
-	}
-
-	return command, path, nil
+	return localPiNewCommand(cli, context, prompt)
 }
 func localHandoffScript(directory, command, path string, shells ...string) string {
 	shell := os.Getenv("SHELL")

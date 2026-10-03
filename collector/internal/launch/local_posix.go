@@ -19,6 +19,32 @@ func localCommandJoin(arguments ...string) string {
 	return shellJoin(arguments...)
 }
 
+func localPiCommand(cli, extension string, environment, arguments []string) string {
+	return shellJoin(append([]string{"env"}, environment...)...) + " " +
+		shellJoin(append([]string{cli, "-e", extension}, arguments...)...)
+}
+
+func localPiNewCommand(cli, context, prompt string) (string, string, error) {
+	command, err := piCommand(cli)
+	if err != nil {
+		return "", "", err
+	}
+	if prompt != "" {
+		return secureTerminalInputCommand(command, prompt, "pi", context)
+	}
+	if context == "" {
+		return command, "", nil
+	}
+	path, err := writeHandoffFile(context)
+	if err != nil {
+		return "", "", err
+	}
+	return "cat " + shellQuote(path) + " > /dev/null && COSLASH_PI_HANDOFF_FILE=" + shellQuote(path) + " " + command, path, nil
+}
+
+func protectHandoffDirectory(string) error { return nil }
+func protectHandoffFile(*os.File) error    { return nil }
+
 func localCLIExecutable(_ string, fallback string) string {
 	return fallback
 }

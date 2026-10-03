@@ -226,6 +226,91 @@ func localCommandJoin(arguments ...string) string {
 	return "& " + strings.Join(quoted, " ")
 }
 
+func localPiCommand(cli, extension string, environment, arguments []string) string {
+	setup, restore := []string{}, []string{}
+	for index, assignment := range environment {
+		name, value, _ := strings.Cut(assignment, "=")
+		previous := fmt.Sprintf("$coslashPiPrevious%d", index)
+		setup = append(setup, previous+" = [Environment]::GetEnvironmentVariable("+powerShellQuote(name)+", 'Process')", "$env:"+name+" = "+powerShellQuote(value))
+		restore = append(restore, "if ($null -eq "+previous+") { Remove-Item Env:"+name+" -ErrorAction SilentlyContinue } else { $env:"+name+" = "+previous+" }")
+	}
+	command := localCommandJoin(append([]string{cli, "-e", extension}, arguments...)...)
+	return strings.Join(setup, "; ") + "; try { " + command + " } finally { " + strings.Join(restore, "; ") + " }"
+}
+
+func localPiNewCommand(cli, context, prompt string) (string, string, error) {
+	path := ""
+	contextPath := ""
+	if prompt != "" {
+		var err error
+		path, err = writeHandoffFile(prompt)
+		if err != nil {
+			return "", "", err
+		}
+	}
+	if context != "" {
+		if path == "" {
+			var err error
+			path, err = writeHandoffFile(context)
+			if err != nil {
+				return "", "", err
+			}
+			contextPath = path
+		} else {
+			contextPath = path + ".context"
+			if err := writeWindowsHandoffContext(contextPath, context); err != nil {
+				_ = removeHandoffFile(path)
+				return "", "", err
+			}
+		}
+	}
+	arguments := []string{}
+	if prompt != "" {
+		arguments = append(arguments, "--", "@"+path)
+	}
+	command, err := piCommand(cli, arguments...)
+	if err != nil {
+		_ = removeHandoffFile(path)
+		return "", "", err
+	}
+	if contextPath != "" {
+		command = "$coslashPiPreviousHandoff = [Environment]::GetEnvironmentVariable('COSLASH_PI_HANDOFF_FILE', 'Process'); " +
+			"$env:COSLASH_PI_HANDOFF_FILE = " + powerShellQuote(contextPath) + "; " + command
+	}
+	if path != "" {
+		cleanup := powerShellRemove(path) + "; " + powerShellRemove(path+".context")
+		if contextPath != "" {
+			cleanup += "; if ($null -eq $coslashPiPreviousHandoff) { Remove-Item Env:COSLASH_PI_HANDOFF_FILE -ErrorAction SilentlyContinue } else { $env:COSLASH_PI_HANDOFF_FILE = $coslashPiPreviousHandoff }"
+		}
+		command = "try { " + command + " } finally { " + cleanup + " }"
+	}
+	return command, path, nil
+}
+
+func protectHandoffDirectory(directory string) error {
+	if err := windowsprivate.ProtectDirectory(settings.Home(), "launch"); err != nil {
+		return err
+	}
+	return windowsprivate.ProtectDirectory(directory, "launch")
+}
+
+func protectHandoffFile(file *os.File) error {
+	return windowsprivate.ProtectFile(file.Name(), file, "launch handoff")
+}
+
+func writeWindowsHandoffContext(path, contents string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if err := protectHandoffFile(file); err != nil {
+		return err
+	}
+	_, err = file.WriteString(contents)
+	return err
+}
+
 func localCLIExecutable(agent, fallback string) string {
 	if agent != vendors.AgentCursor {
 		return fallback
