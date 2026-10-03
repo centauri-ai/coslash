@@ -68,6 +68,11 @@ assert.notEqual(fresh[0].record.sessionId, original[0].record.sessionId, 'handof
 const providerRequests = readFileSync(requests, 'utf8').trim().split('\n').map(line => JSON.parse(line));
 assert.ok(providerRequests.length, 'handoff must reach the provider');
 for (const request of providerRequests) assert.ok(request.messages.some(message => message.role === 'system' && typeof message.content === 'string' && message.content.includes(notes)), 'handoff context must reach the provider unchanged');
+const promptFile = path.join(root, "prompt ' with spaces.txt");
+const filePrompt = 'offline private file prompt';
+writeFileSync(promptFile, filePrompt, { mode: 0o600 });
+const sentFile = await run(cli, [...common, '--print', '--', '@' + promptFile], '', undefined, 'pi-print');
+assert.ok(readFileSync(sentFile[0].record.transcriptPath, 'utf8').includes(filePrompt), '@file prompt must reach Pi without text on argv');
 await run(cli, [...common, '--print'], 'offline print coverage', undefined, 'pi-print');
 await run(cli, [...common, '--mode', 'json'], 'offline JSON coverage', undefined, 'pi-json');
 await run(cli, common, 'offline implicit piped print coverage', undefined, 'pi-print');
@@ -91,5 +96,5 @@ try {
 await run(sdk, [], '', undefined, undefined);
 await run(sdk, [], '', 'pi-sdk', 'pi-sdk');
 await run(sdk, [], '', 'pi-sdk', undefined, true);
-console.log('PASS native exact-session resume, fresh handoff context, RPC, print, JSON, piped print, RPC launcher, SDK unknown and declared SDK, unsupported-platform extension no-op; no paid requests');
+console.log('PASS native exact-session resume, fresh handoff context, @file prompt, RPC, print, JSON, piped print, RPC launcher, SDK unknown and declared SDK, unsupported-platform extension no-op; no paid requests');
 console.log('isolated root: ' + root);

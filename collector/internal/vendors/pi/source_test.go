@@ -25,7 +25,9 @@ func TestSourceCustomIdentityDedupAndConflict(t *testing.T) {
 	if err := os.WriteFile(path, fixture(t), 0600); err != nil {
 		t.Fatal(err)
 	}
-	path, _ = filepath.EvalSymlinks(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", root+string(os.PathListSeparator)+root)
 	items, _, err := Collect(0)
 	if err != nil || len(items) != 1 {
@@ -343,6 +345,7 @@ func TestProjectSettingsBoundsAndBareTilde(t *testing.T) {
 	t.Setenv("COSLASH_PI_SESSION_ROOTS", "")
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	if err := os.MkdirAll(filepath.Join(project, ".pi"), 0700); err != nil {
 		t.Fatal(err)
 	}
