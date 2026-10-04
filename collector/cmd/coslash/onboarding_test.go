@@ -89,6 +89,56 @@ func TestOnboardingUpdatesHubDestinationRouteClient(t *testing.T) {
 	}
 }
 
+func TestCurrentHubTransportFollowsOnboardingHub(t *testing.T) {
+	manager := newOnboardingManager("0.1.0")
+	defer manager.Close()
+
+	var firstRequests, secondRequests []string
+	newClient := func(rawURL string, requests *[]string) *hubclient.Client {
+		baseURL, err := url.Parse(rawURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &hubclient.Client{
+			BaseURL: baseURL, Credentials: fixedHubCredential("device-credential"), CollectorVersion: "0.1.0",
+			HTTP: &http.Client{Transport: onboardingRoundTripper(func(request *http.Request) (*http.Response, error) {
+				*requests = append(*requests, request.Method+" "+request.URL.Path)
+				switch request.URL.Path {
+				case "/v4/devices/me/check-in":
+					return onboardingResponse(http.StatusOK, `{"configVersion":0,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"minVersion":"0.0.0"}`), nil
+				case "/v4/devices/me/wait":
+					return onboardingResponse(http.StatusOK, `{"configVersion":0,"changed":false,"commandsAvailable":false}`), nil
+				default:
+					return onboardingResponse(http.StatusNotFound, ""), nil
+				}
+			})},
+		}
+	}
+	first := newClient("https://hub-a.example", &firstRequests)
+	second := newClient("https://hub-b.example", &secondRequests)
+	manager.setHubClient(first)
+	transport := currentHubTransport{current: manager.currentHubClient}
+	manager.setHubClient(second)
+
+	wantBinding, err := second.V4Binding(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := transport.V4Binding(t.Context()); err != nil || got != wantBinding {
+		t.Fatalf("sync binding=%q error=%v, want %q", got, err, wantBinding)
+	}
+	if _, err := transport.V4CheckIn(t.Context(), hubclient.V4Queue{}, 0, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.V4Wait(t.Context(), 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(firstRequests) != 0 || len(secondRequests) != 2 ||
+		secondRequests[0] != "POST /v4/devices/me/check-in" || secondRequests[1] != "GET /v4/devices/me/wait" {
+		t.Fatalf("requests to first Hub=%v, second Hub=%v", firstRequests, secondRequests)
+	}
+}
+
 func TestStartCheckInsAvoidsDuplicatesAndV4Overlap(t *testing.T) {
 	baseURL, err := url.Parse("https://hub.coslash.io")
 	if err != nil {
