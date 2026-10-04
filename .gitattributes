@@ -1,2 +1,3 @@
 collector/snapshot/v1/testdata/fixtures/** text eol=lf
 collector/sessionbackup/v1/testdata/fixtures/** text eol=lf
+collector/internal/hubclient/testdata/scale-contracts-v1/** text eol=lf
