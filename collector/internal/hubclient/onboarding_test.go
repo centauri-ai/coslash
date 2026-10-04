@@ -1,0 +1,145 @@
+package hubclient
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestParseLaunchIntentURL(t *testing.T) {
+	const attempt = "10000000-0000-4000-8000-000000000151"
+	t.Run("pair activation", func(t *testing.T) {
+		parsed, err := ParseLaunchIntentURL("coslash://pair?hub=https%3A%2F%2Fbeta.coslash.io&attempt=" + attempt + "&intent=" + strings.Repeat("A", 43))
+		if err != nil || parsed.Action != "pair" || parsed.HubURL.String() != "https://beta.coslash.io" ||
+			parsed.AttemptID != attempt || parsed.LaunchToken != strings.Repeat("A", 43) {
+			t.Fatalf("intent=%#v err=%v", parsed, err)
+		}
+	})
+	t.Run("first check-in retry", func(t *testing.T) {
+		parsed, err := ParseLaunchIntentURL("coslash://check-in?hub=http%3A%2F%2F127.0.0.1%3A8080&attempt=" + attempt)
+		if err != nil || parsed.Action != "check-in" || parsed.HubURL.Host != "127.0.0.1:8080" || parsed.AttemptID != attempt {
+			t.Fatalf("intent=%#v err=%v", parsed, err)
+		}
+	})
+}
+
+func TestParseLaunchIntentURLRejectsMalformedReplayShapesAndUnsafeHubs(t *testing.T) {
+	const attempt = "10000000-0000-4000-8000-000000000151"
+	validHub := "https%3A%2F%2Fbeta.coslash.io"
+	for _, raw := range []string{
+		"coslash://pair?hub=" + validHub + "&attempt=" + attempt, // missing intent
+		"coslash://pair?hub=" + validHub + "&attempt=" + attempt + "&intent=short",
+		"coslash://pair?hub=" + validHub + "&attempt=" + attempt + "&intent=" + strings.Repeat("A", 43) + "&deviceCode=secret",
+		"coslash://pair?hub=" + validHub + "&hub=" + validHub + "&attempt=" + attempt + "&intent=" + strings.Repeat("A", 43),
+		"coslash://pair?hub=https%3A%2F%2Fevil.example&attempt=" + attempt + "&intent=" + strings.Repeat("A", 43),
+		"coslash://pair?hub=http%3A%2F%2Fevil.example&attempt=" + attempt + "&intent=" + strings.Repeat("A", 43),
+		"coslash://unknown?hub=" + validHub + "&attempt=" + attempt,
+		"coslash://check-in?hub=" + validHub + "&attempt=" + attempt + "&intent=not-allowed",
+		"coslash://pair/path?hub=" + validHub + "&attempt=" + attempt + "&intent=" + strings.Repeat("A", 43),
+		"coslash://pair?hub=" + validHub + "&attempt=invalid&intent=" + strings.Repeat("A", 43),
+		"coslash://pair?hub=" + validHub + "&attempt=" + attempt + "&intent=" + strings.Repeat("A", 43) + "#fragment",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			if _, err := ParseLaunchIntentURL(raw); err == nil {
+				t.Fatalf("ParseLaunchIntentURL(%q) succeeded", raw)
+			}
+		})
+	}
+}
+
+func TestValidateHubURL(t *testing.T) {
+	for _, raw := range []string{
+		"https://beta.coslash.io",
+		"https://hub.coslash.io",
+		"http://localhost:8080",
+		"http://[::1]:8080",
+	} {
+		if _, err := ValidateHubURL(raw); err != nil {
+			t.Fatalf("ValidateHubURL(%q): %v", raw, err)
+		}
+	}
+	for _, raw := range []string{
+		"http://example.com",
+		"https://coslash.io.evil.example",
+		"https://evil.example",
+		"https://user@beta.coslash.io",
+	} {
+		if _, err := ValidateHubURL(raw); err == nil {
+			t.Fatalf("ValidateHubURL(%q) succeeded", raw)
+		}
+	}
+}
+
+func TestBeginOnboardingPairingKeepsAuthorizationMaterialInsideLocal(t *testing.T) {
+	const attempt = "10000000-0000-4000-8000-000000000151"
+	const intent = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	credentials := &memoryCredentials{}
+	var claimBody map[string]string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/device-onboardings/"+attempt+"/claim" {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&claimBody); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"10000000-0000-4000-8000-000000000152","deviceCode":"private-device-code","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`))
+	}))
+	defer hub.Close()
+	base, _ := url.Parse(hub.URL)
+	client := Client{BaseURL: base, Credentials: credentials, DeviceName: "Nia’s Mac", HTTP: hub.Client()}
+	pairing, err := client.BeginOnboardingPairing(context.Background(), attempt, intent)
+	if err != nil || pairing.State != "pending" || pairing.UserCode != "" || pairing.PairingID != "10000000-0000-4000-8000-000000000152" {
+		t.Fatalf("pairing=%#v error=%v", pairing, err)
+	}
+	if claimBody["launchIntent"] != intent || claimBody["deviceName"] != "Nia’s Mac" || len(claimBody) != 2 {
+		t.Fatalf("claim body=%#v", claimBody)
+	}
+	client.pairingMu.Lock()
+	secret, ok := client.pairings[pairing.PairingID]
+	client.pairingMu.Unlock()
+	if !ok || secret.deviceCode != "private-device-code" || secret.credential != "" {
+		t.Fatalf("local pairing secret=%#v found=%t", secret, ok)
+	}
+}
+
+func TestCheckInSendsOnlyContentFreeDeviceStateWithStoredCredential(t *testing.T) {
+	credentials := &memoryCredentials{saved: "device-credential"}
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v4/devices/me/check-in" ||
+			request.Header.Get("Authorization") != "Device credential" {
+			t.Fatalf("unexpected check-in request %s %s authorization=%q", request.Method, request.URL.Path, request.Header.Get("Authorization"))
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		for _, forbidden := range []string{"sessions", "content", "deviceCode", "launchIntent", "credential", "localApiToken"} {
+			if _, exists := body[forbidden]; exists {
+				t.Fatalf("check-in included %q: %#v", forbidden, body)
+			}
+		}
+		if body["clientVersion"] != "1.2.3" || body["os"] == "" {
+			t.Fatalf("check-in identity=%#v", body)
+		}
+		queue, ok := body["queue"].(map[string]any)
+		if !ok || queue["pending"] != float64(0) {
+			t.Fatalf("check-in queue=%#v", body["queue"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"nextCheckInSeconds":60}`))
+	}))
+	defer hub.Close()
+	base, _ := url.Parse(hub.URL)
+	client := Client{BaseURL: base, Credentials: credentials, HTTP: hub.Client()}
+	interval, err := client.CheckIn(context.Background(), "1.2.3")
+	if err != nil || interval != time.Minute {
+		t.Fatalf("interval=%s error=%v", interval, err)
+	}
+}

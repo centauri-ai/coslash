@@ -104,6 +104,18 @@ as a standard user with Windows PowerShell 5.1. WSL is not required. See the
 [Windows validation checklist](docs/windows-validation.md) for the release
 contract and remaining manual checks.
 
+### Connect this computer to Hub
+
+In Hub, open **Devices → Add device → This computer**. After installing,
+start coSlash Local once and return to Hub to start the pairing handoff. On
+macOS, the first run registers a per-user Launch Services handler. On Windows,
+the first run registers the `coslash:` URL scheme for the current Windows user;
+neither requires administrator privileges. When Hub asks the browser to open
+Local, allow the app handoff. Hub presents the account, workspace and computer
+name and waits for an explicit approval before Local stores its device key.
+Hub shows the first check-in separately from approval. The Hub-led path does
+not use the manual pairing code screen or share sessions with a team.
+
 ### First run
 
 coSlash needs at least one local agent session to read. If it finds none, it says so and runs a checklist of every source it looked at — run Claude Code, Codex, Cursor (IDE or `agent` CLI), or OpenCode in a repo, take one turn, and re-run the checks. `coslash doctor` prints the same diagnostics from the terminal.

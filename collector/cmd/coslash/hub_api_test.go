@@ -107,7 +107,7 @@ func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) 
 		},
 	}
 	api := http.NewServeMux()
-	registerHubRoutes(api, client, nil, nil)
+	registerHubRoutes(api, client, nil, nil, newOnboardingManager("0.1.0"))
 
 	previewRequest := httptest.NewRequest(http.MethodGet, "/api/hub/full-session-preview?source="+record.SourceID+"&agent="+record.Agent+"&id="+record.SessionID+"&revision="+record.RevisionID, nil)
 	previewResponse := httptest.NewRecorder()
