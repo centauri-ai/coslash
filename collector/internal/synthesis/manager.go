@@ -110,6 +110,27 @@ func (m *Manager) LookupLatest(agent, id string) *session.SessionSynthesis {
 	return m.cache.LookupLatest(agent, id)
 }
 
+func (m *Manager) Available() bool { return m != nil && m.currentRunner() != nil }
+
+func (m *Manager) BackendUnavailable() bool {
+	if !m.Available() || m.cliMissingUntil.Load() > m.now().UnixNano() {
+		return true
+	}
+	if runner, ok := m.currentRunner().(*CLIRunner); ok {
+		_, err := exec.LookPath(runner.Bin)
+		return err != nil
+	}
+	return false
+}
+
+func (m *Manager) Running(agent, id string) bool {
+	if m == nil {
+		return false
+	}
+	_, running := m.inFlight.Load(cacheKey{agent: agent, id: id})
+	return running
+}
+
 // LoadRecord returns the exact persisted synthesis record for immutable
 // backup capture. A nil manager behaves like an empty cache.
 func (m *Manager) LoadRecord(agent, id string) (Record, error) {
@@ -266,7 +287,7 @@ func (m *Manager) execute(input *session.Session, revision int64, runner Runner,
 	}
 	if err != nil {
 		m.recordFailure(agent, id, revision, err)
-		log.Printf("synthesize session %s: %v", id, err)
+		log.Printf("synthesize session %s: failed", id)
 	}
 	if roundID != "" && !accountingFailed {
 		outcome := "success"

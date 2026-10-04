@@ -115,6 +115,7 @@ export function CoslashPage() {
     synthesisCostVersion,
     retrySessions,
     refreshSessions,
+    refreshSessionsNow,
   } = useSessions({
     localWindow: shareFixtureEnabled ? 'all' : apiWindow,
     remoteWindow: apiWindow,
@@ -475,6 +476,13 @@ export function CoslashPage() {
           fixtureMode={shareFixtureEnabled}
           fixtureOutcome={shareFixtureOutcome}
           onDestinationRefresh={refreshHubDestination}
+          onLocalSynthesisReady={async () => {
+            const current = await shareCandidateResult.refresh();
+            await refreshSessionsNow();
+            return current;
+          }}
+          synthesisBackend={settingsState.response?.settings.synthesis.backend}
+          synthesisModel={settingsState.response?.settings.synthesis.model}
           onOpenSettings={() => {
             setShareDialogOpen(false);
             setShareWindow('7d');
