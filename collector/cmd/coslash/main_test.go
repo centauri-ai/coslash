@@ -1006,7 +1006,7 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 		settings.Open(),
 		remote.NewManager(remote.Options{}),
 		nil,
-		newOnboardingManager("0.1.0"),
+		serverServices{onboardings: newOnboardingManager("0.1.0")},
 	)
 	request := httptest.NewRequest(http.MethodGet, "http://evil.example:8787/", nil)
 	response := httptest.NewRecorder()
