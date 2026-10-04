@@ -92,7 +92,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $stdout = Join-Path $env:RUNNER_TEMP "coslash-go-test-stdout.log"
           $stderr = Join-Path $env:RUNNER_TEMP "coslash-go-test-stderr.log"
-          $process = Start-Process -FilePath "go.exe" -ArgumentList @("test", "./...") -WorkingDirectory (Get-Location).Path -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $process = Start-Process -FilePath "go.exe" -ArgumentList @("test", "-json", "./...") -WorkingDirectory (Get-Location).Path -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
           $exitCode = $process.ExitCode
           if ($exitCode -ne 0) {
             function Read-LogTail([string]$path) {
@@ -108,11 +108,29 @@ jobs:
                 $stream.Dispose()
               }
             }
-            $tail = (Read-LogTail $stdout) + "`n" + (Read-LogTail $stderr)
-            if ($tail.Length -gt 8192) { $tail = $tail.Substring($tail.Length - 8192) }
-            $tail = ($tail -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '')
-            $tail = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
-            Write-Output "::error title=Windows Go tests failed::$tail"
+            $events = Get-Content $stdout | ForEach-Object {
+              try { $_ | ConvertFrom-Json } catch { }
+            }
+            $failures = @($events | Where-Object { $_.Action -eq "fail" })
+            $details = @()
+            foreach ($package in @($failures | Select-Object -ExpandProperty Package -Unique)) {
+              $failedTests = @($failures | Where-Object { $_.Package -eq $package -and $_.Test } | Select-Object -ExpandProperty Test -Unique)
+              if ($failedTests.Count -eq 0) {
+                $details += "FAIL $package"
+                $details += @($events | Where-Object { $_.Package -eq $package -and -not $_.Test -and $_.Action -eq "output" } | ForEach-Object { $_.Output })
+                continue
+              }
+              foreach ($test in $failedTests) {
+                $details += "FAIL $package :: $test"
+                $details += @($events | Where-Object { $_.Package -eq $package -and $_.Test -eq $test -and $_.Action -eq "output" } | ForEach-Object { $_.Output })
+              }
+            }
+            if ($details.Count -eq 0) { $details = @((Read-LogTail $stdout), (Read-LogTail $stderr)) }
+            $message = ($details -join "`n")
+            if ($message.Length -gt 6000) { $message = $message.Substring($message.Length - 6000) }
+            $message = ($message -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '')
+            $message = $message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=Windows Go tests failed::$message"
             exit $exitCode
           }
           Write-Output "Windows Go tests passed."
