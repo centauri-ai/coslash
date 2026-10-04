@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -125,9 +126,20 @@ func TestCursorIDEAndCLIV4HTTPRoundTrip(t *testing.T) {
 	}
 }
 
+func cursorFixtureIDEStateDB(home string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(home, "AppData", "Roaming", "Cursor", "User", "globalStorage", "state.vscdb")
+	}
+	return filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+}
+
 func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Manager, *sessionbackupproducer.Prepared, string) {
 	t.Helper()
 	home, workspace, spool := t.TempDir(), t.TempDir(), t.TempDir()
+	workspaceJSON, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transcript := filepath.Join(home, ".cursor", "projects", "repo", "agent-transcripts", cursorFixtureID, cursorFixtureID+".jsonl")
 	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
 		t.Fatal(err)
@@ -136,7 +148,7 @@ func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Mana
 		t.Fatal(err)
 	}
 	if lane == "cursor-ide" {
-		path := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+		path := cursorFixtureIDEStateDB(home)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -149,7 +161,7 @@ func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Mana
 			CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
 			t.Fatal(err)
 		}
-		value := `{"name":"Fixture Cursor","workspaceIdentifier":{"uri":{"fsPath":"` + workspace + `"}}}`
+		value := `{"name":"Fixture Cursor","workspaceIdentifier":{"uri":{"fsPath":` + string(workspaceJSON) + `}}}`
 		if _, err := db.Exec(`INSERT INTO composerHeaders VALUES (?, ?, 1700000000000, 1700000001000)`, cursorFixtureID, value); err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +170,7 @@ func fixtureCursorBundle(t *testing.T, lane string) (*sessionbackupproducer.Mana
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(filepath.Dir(path), "meta.json"), []byte(`{"cwd":"`+workspace+`"}`), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(path), "meta.json"), []byte(`{"cwd":`+string(workspaceJSON)+`}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		db, err := sql.Open("sqlite", path)
