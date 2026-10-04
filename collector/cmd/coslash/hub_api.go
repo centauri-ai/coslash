@@ -125,7 +125,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		}
 		var input hubclient.BackupShareRequest
 		if err := decodeHubJSON(request.Body, &input); err != nil {
-			http.Error(w, "invalid hub-share/v1 request", http.StatusBadRequest)
+			http.Error(w, "invalid hub-share/v2 request", http.StatusBadRequest)
 			return
 		}
 		result, err := client.ShareBackups(request.Context(), input)
