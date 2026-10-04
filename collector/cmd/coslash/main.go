@@ -257,16 +257,21 @@ func main() {
 	inventoryTracker := &inventory.Tracker{}
 	if fingerprints != nil && queue != nil {
 		go runInventory(discoveryContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
-			credential, err := hub.Credentials.Load(ctx)
+			client := onboardings.currentHubClient()
+			if client == nil || client.Credentials == nil {
+				return false
+			}
+			credential, err := client.Credentials.Load(ctx)
 			return err == nil && credential != ""
 		})
 	}
 	if queue != nil {
 		syncContext, stopSync := context.WithCancel(context.Background())
 		server.RegisterOnShutdown(stopSync)
+		syncHub := currentHubTransport{current: onboardings.currentHubClient}
 		runner := &syncv4.Runner{
 			Version: version,
-			Queue:   queue, Backup: hub.Backup, Hub: hub,
+			Queue:   queue, Backup: hub.Backup, Hub: syncHub,
 			Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
 			InventoryProgress: func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
 			Conditions:        syncv4.LocalConditions,
@@ -298,7 +303,7 @@ func main() {
 			}
 		}
 		go func() {
-			runV4SyncLoop(syncContext, runner, queue, hub.V4Wait, wake)
+			runV4SyncLoop(syncContext, runner, queue, syncHub.V4Wait, wake)
 		}()
 	}
 	go func() {
