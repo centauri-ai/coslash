@@ -2,6 +2,7 @@ package hubclient
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -22,6 +23,11 @@ type memoryCredentials struct {
 type contextCredentials struct {
 	saved  string
 	cancel context.CancelFunc
+}
+
+type failOnceCredentials struct {
+	saved    string
+	attempts int
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -49,6 +55,17 @@ func (s *contextCredentials) Save(ctx context.Context, credential string) error 
 	s.cancel()
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	s.saved = credential
+	return nil
+}
+
+func (s *failOnceCredentials) Load(context.Context) (string, error) { return "credential", nil }
+
+func (s *failOnceCredentials) Save(_ context.Context, credential string) error {
+	s.attempts++
+	if s.attempts == 1 {
+		return errors.New("keychain unavailable")
 	}
 	s.saved = credential
 	return nil
@@ -168,6 +185,28 @@ func TestPollPairingSavesCredentialAfterRequestCancellation(t *testing.T) {
 	result, err := client.PollPairing(ctx, "pair")
 	if err != nil || result.State != "paired" || credentials.saved != "secret" {
 		t.Fatalf("result = %#v, saved = %q, error = %v", result, credentials.saved, err)
+	}
+}
+
+func TestPollPairingRetriesKeychainSaveWithoutExchangingCredentialAgain(t *testing.T) {
+	credentials := &failOnceCredentials{}
+	base, _ := url.Parse("https://hub.example")
+	tokenRequests := 0
+	client := Client{
+		BaseURL: base, Credentials: credentials,
+		pairings: map[string]pairingSecret{"pair": {deviceCode: "code", expiresAt: time.Now().Add(time.Minute)}},
+		HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			tokenRequests++
+			return response(http.StatusOK, `{"deviceId":"device","credential":"one-time-secret","tokenType":"Device","scope":"ingest"}`), nil
+		})},
+	}
+	if _, err := client.PollPairing(context.Background(), "pair"); err == nil {
+		t.Fatal("first failed keychain write was ignored")
+	}
+	result, err := client.PollPairing(context.Background(), "pair")
+	if err != nil || result.State != "paired" || credentials.saved != "one-time-secret" ||
+		credentials.attempts != 2 || tokenRequests != 1 {
+		t.Fatalf("result=%#v saved=%q writes=%d token requests=%d error=%v", result, credentials.saved, credentials.attempts, tokenRequests, err)
 	}
 }
 

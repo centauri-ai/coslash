@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -72,7 +73,22 @@ func parseOptions(arguments []string) (options, error) {
 }
 
 func main() {
-	if len(os.Args) > 1 {
+	arguments := os.Args[1:]
+	var startupIntent *hubclient.LaunchIntent
+	protocolRequest := len(arguments) > 0 && arguments[0] == "--protocol-url"
+	if protocolRequest {
+		if len(arguments) != 2 {
+			fmt.Fprintln(os.Stderr, "coSlash activation could not be started; return to Hub and retry.")
+			return
+		}
+		var alreadyRunning bool
+		startupIntent, alreadyRunning = handleProtocolActivation(arguments[1])
+		if alreadyRunning {
+			return
+		}
+		arguments = []string{"--no-open"}
+	}
+	if !protocolRequest && len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "ssh-auth":
 			if len(os.Args) != 3 {
@@ -95,7 +111,7 @@ func main() {
 		}
 	}
 
-	opts, err := parseOptions(os.Args[1:])
+	opts, err := parseOptions(arguments)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
@@ -108,9 +124,17 @@ func main() {
 	}
 	runtimeLock, err := acquireRuntimeLock()
 	if err != nil {
+		if startupIntent != nil && errors.Is(err, errRuntimeAlreadyRunning) && forwardWhenReady(startupIntent) {
+			return
+		}
 		log.Fatalf("coslash: %v", err)
 	}
 	defer runtimeLock.Close()
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		if err := registerProtocolHandler(); err != nil {
+			log.Printf("Hub app launch handoff is unavailable; return to Hub and use the install/open recovery steps")
+		}
+	}
 
 	settingsStore := settings.Open()
 	var fingerprints *syncv4.Fingerprints
@@ -210,8 +234,19 @@ func main() {
 			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
 		}
 	}
-	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
+	onboardings := newOnboardingManager(version)
+	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub, onboardings,
 		serverStores{queue: queue, directed: directedStore})
+	if startupIntent != nil {
+		switch startupIntent.Action {
+		case "pair":
+			if err := onboardings.StartPairing(startupIntent.HubURL.String(), startupIntent.AttemptID, startupIntent.LaunchToken); err != nil {
+				fmt.Fprintln(os.Stderr, "coSlash could not start Hub pairing; return to Hub and retry.")
+			}
+		case "check-in":
+			go func() { _ = onboardings.RetryCheckIn(startupIntent.HubURL.String()) }()
+		}
+	}
 	wake := make(chan struct{}, 1)
 	inventoryTracker := &inventory.Tracker{}
 	if fingerprints != nil && queue != nil {
@@ -343,10 +378,14 @@ func newServer(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
+	onboardings *onboardingManager,
 	stores ...serverStores,
 ) *http.Server {
+	if onboardings == nil {
+		onboardings = newOnboardingManager(version)
+	}
 	server := &http.Server{
-		Handler:           guard.Wrap(routes(mgr, reviewManager, settingsStore, remoteManager, hub, stores...)),
+		Handler:           guard.Wrap(routesWithOnboarding(mgr, reviewManager, settingsStore, remoteManager, hub, onboardings, stores...)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      3 * time.Minute,
@@ -355,6 +394,7 @@ func newServer(
 	}
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
+	server.RegisterOnShutdown(onboardings.Close)
 	if len(stores) > 0 && stores[0].directed != nil {
 		server.RegisterOnShutdown(stores[0].directed.Shutdown)
 	}
@@ -374,6 +414,18 @@ func routes(
 	settingsStore *settings.Store,
 	remoteManager *remote.Manager,
 	hub *hubclient.Client,
+	stores ...serverStores,
+) *http.ServeMux {
+	return routesWithOnboarding(mgr, reviewManager, settingsStore, remoteManager, hub, newOnboardingManager(version), stores...)
+}
+
+func routesWithOnboarding(
+	mgr *synthesis.Manager,
+	reviewManager *review.Manager,
+	settingsStore *settings.Store,
+	remoteManager *remote.Manager,
+	hub *hubclient.Client,
+	onboardings *onboardingManager,
 	stores ...serverStores,
 ) *http.ServeMux {
 	var queue *syncv4.Queue
@@ -489,7 +541,7 @@ func routes(
 			CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
 		})
 	}
-	registerHubRoutes(api, hub, remoteManager, backupManager)
+	registerHubRoutes(api, hub, remoteManager, backupManager, onboardings)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)
 

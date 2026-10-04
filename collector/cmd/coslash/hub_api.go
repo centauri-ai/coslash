@@ -5,9 +5,7 @@ import (
 	"errors"
 	"io"
 	"log"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 
@@ -24,21 +22,22 @@ import (
 func hubClientFromEnvironment(collectorVersion string) (*hubclient.Client, error) {
 	rawURL := strings.TrimSpace(os.Getenv("COSLASH_HUB_URL"))
 	if rawURL == "" {
+		stored, err := readStoredHubURL()
+		if err != nil {
+			return nil, err
+		}
+		rawURL = stored
+	}
+	if rawURL == "" {
 		return nil, nil
 	}
-	baseURL, err := url.Parse(rawURL)
-	if err != nil || baseURL.Host == "" || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" ||
-		(baseURL.Scheme != "https" && baseURL.Scheme != "http") {
-		return nil, errors.New("COSLASH_HUB_URL must be an absolute HTTP(S) URL without credentials")
-	}
-	if baseURL.Scheme == "http" {
-		host := baseURL.Hostname()
-		if host != "localhost" && net.ParseIP(host) == nil {
-			return nil, errors.New("COSLASH_HUB_URL requires HTTPS except for loopback development")
-		}
-		if parsed := net.ParseIP(host); parsed != nil && !parsed.IsLoopback() {
-			return nil, errors.New("COSLASH_HUB_URL requires HTTPS except for loopback development")
-		}
+	return hubClientForURL(collectorVersion, rawURL)
+}
+
+func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error) {
+	baseURL, err := hubclient.ValidateHubURL(strings.TrimSpace(rawURL))
+	if err != nil {
+		return nil, err
 	}
 	deviceName, _ := os.Hostname()
 	deviceName = strings.TrimSpace(deviceName)
@@ -57,7 +56,7 @@ func hubClientFromEnvironment(collectorVersion string) (*hubclient.Client, error
 	}, nil
 }
 
-func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, backupManager *sessionbackupproducer.Manager) {
+func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, backupManager *sessionbackupproducer.Manager, onboardings *onboardingManager) {
 	if client != nil && remoteManager != nil {
 		client.LoadSourceSession = func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
 			if sourceID == localSourceID {
@@ -117,6 +116,45 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			return
 		}
 		writeJSON(w, result)
+	})
+	api.HandleFunc("POST /api/hub/onboarding/activate", func(w http.ResponseWriter, request *http.Request) {
+		if onboardings == nil {
+			http.Error(w, "Hub onboarding is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var input struct {
+			HubURL       string `json:"hubUrl"`
+			AttemptID    string `json:"attemptId"`
+			LaunchIntent string `json:"launchIntent"`
+		}
+		if err := decodeHubJSON(request.Body, &input); err != nil {
+			http.Error(w, "invalid Hub onboarding activation", http.StatusBadRequest)
+			return
+		}
+		if err := onboardings.StartPairing(input.HubURL, input.AttemptID, input.LaunchIntent); err != nil {
+			http.Error(w, "could not start Hub pairing", http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		writeJSON(w, map[string]string{"state": "starting"})
+	})
+	api.HandleFunc("POST /api/hub/onboarding/check-in", func(w http.ResponseWriter, request *http.Request) {
+		if onboardings == nil {
+			http.Error(w, "Hub check-in is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var input struct {
+			HubURL string `json:"hubUrl"`
+		}
+		if err := decodeHubJSON(request.Body, &input); err != nil {
+			http.Error(w, "invalid Hub check-in request", http.StatusBadRequest)
+			return
+		}
+		if err := onboardings.RetryCheckIn(input.HubURL); err != nil {
+			http.Error(w, "Local could not check in with Hub", http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	api.HandleFunc("POST /api/hub/shares", func(w http.ResponseWriter, request *http.Request) {
 		if client == nil {
