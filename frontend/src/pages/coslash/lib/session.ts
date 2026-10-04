@@ -291,12 +291,12 @@ export function goalSourceLabel(source: GoalSource): string {
 export function resolveGoal(
   session: Pick<Session, 'declaredGoal' | 'synthesis'> & { firstPrompt?: string | null },
 ): { texts: string[]; source: GoalSource } {
-  if (session.declaredGoal?.trim()) {
-    return { texts: [session.declaredGoal], source: 'declared' };
-  }
   const goals = session.synthesis?.goals.filter((goal) => goal.trim()) ?? [];
   if (goals.length > 0) {
     return { texts: goals, source: 'inferred' };
+  }
+  if (session.declaredGoal?.trim()) {
+    return { texts: [session.declaredGoal], source: 'declared' };
   }
   return { texts: [session.firstPrompt?.trim() || '—'], source: 'floor' };
 }

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -428,7 +429,7 @@ func TestSynthesisIsRevisionBoundWithoutChangingPortableRecord(t *testing.T) {
 	exact := synthesisStore{records: map[string]synthesis.Record{
 		testRootID: {
 			Revision: baselineRecord.Session.LastActivityAtMs, Model: "fixture", GeneratedAt: 1,
-			Synthesis: session.SessionSynthesis{Goals: []string{"goal"}, Outcome: "done", KeyDecisions: []string{}, NextStep: "ship"},
+			Synthesis: session.SessionSynthesis{Goals: []string{"first", "second"}, Outcome: "done", KeyDecisions: []string{"keep order", "verify"}, NextStep: "ship"},
 		},
 	}}
 	exactPrepared, exactSpool := prepare(exact)
@@ -438,10 +439,94 @@ func TestSynthesisIsRevisionBoundWithoutChangingPortableRecord(t *testing.T) {
 	}
 	found := false
 	for _, artifact := range exactPrepared.Manifest.Artifacts {
-		found = found || artifact.Kind == sessionbackupv1.KindSynthesis
+		if artifact.Kind != sessionbackupv1.KindSynthesis || artifact.MemberID != testRootID {
+			continue
+		}
+		found = true
+		body, err := os.ReadFile(filepath.Join(exactSpool, exactPrepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		record, err := sessionbackupv1.DecodeSynthesisRecord(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record.Revision != baselineRecord.Session.LastActivityAtMs || record.Model != "fixture" || record.GeneratedAt != 1 ||
+			!slices.Equal(record.Synthesis.Goals, []string{"first", "second"}) || record.Synthesis.Outcome != "done" ||
+			!slices.Equal(record.Synthesis.KeyDecisions, []string{"keep order", "verify"}) || record.Synthesis.NextStep != "ship" ||
+			exactPrepared.Manifest.Members[0].SynthesisRevisionMs != record.Revision {
+			t.Fatalf("synthesis artifact or revision mismatch: %+v", record)
+		}
 	}
 	if !found {
 		t.Fatal("exact synthesis artifact missing")
+	}
+	if _, err := sessionbackupv1.VerifyDirectory(filepath.Join(exactSpool, exactPrepared.BundleID)); err != nil {
+		t.Fatalf("complete backup verification: %v", err)
+	}
+}
+
+type fixtureSynthesisRunner struct{ result session.SessionSynthesis }
+
+func (r fixtureSynthesisRunner) Run(context.Context, string) (session.SessionSynthesis, error) {
+	return r.result, nil
+}
+
+func (fixtureSynthesisRunner) ModelName() string { return "synthetic-model" }
+
+func TestSyntheticGenerationThenCompleteBackupCapture(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	home, _ := writeFamilyFixture(t, 0)
+	spool := t.TempDir()
+	openSource := func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}
+	baseline, err := New(Options{Root: spool, OpenSource: openSource}).Prepare(t.Context(), localSelection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := readRootRecord(t, spool, baseline).Session.LastActivityAtMs
+	want := session.SessionSynthesis{Goals: []string{"first", "second"}, Outcome: "done",
+		KeyDecisions: []string{"keep order"}, NextStep: "ship"}
+	mgr := synthesis.NewManager(fixtureSynthesisRunner{result: want})
+	if !mgr.Ensure(&session.Session{ID: testRootID, Agent: vendors.AgentCodex, LastActivityTime: revision,
+		SessionDetails: session.SessionDetails{Turns: 6}}, revision) {
+		t.Fatal("synthetic generation did not start")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for mgr.Lookup(vendors.AgentCodex, testRootID, revision) == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if mgr.Lookup(vendors.AgentCodex, testRootID, revision) == nil {
+		t.Fatal("synthetic generation did not persist")
+	}
+	captureSpool := t.TempDir()
+	prepared, err := New(Options{Root: captureSpool, Synthesis: mgr, OpenSource: openSource}).Prepare(t.Context(), localSelection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, artifact := range prepared.Manifest.Artifacts {
+		if artifact.MemberID != testRootID || artifact.Kind != sessionbackupv1.KindSynthesis {
+			continue
+		}
+		found = true
+		if prepared.Manifest.Members[0].SynthesisRevisionMs != revision {
+			t.Fatalf("captured synthesis revision = %d, want %d", prepared.Manifest.Members[0].SynthesisRevisionMs, revision)
+		}
+		body, err := os.ReadFile(filepath.Join(captureSpool, prepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		record, err := sessionbackupv1.DecodeSynthesisRecord(body)
+		if err != nil || record.Revision != revision || record.Model != "synthetic-model" ||
+			!slices.Equal(record.Synthesis.Goals, want.Goals) || record.Synthesis.Outcome != want.Outcome ||
+			!slices.Equal(record.Synthesis.KeyDecisions, want.KeyDecisions) || record.Synthesis.NextStep != want.NextStep {
+			t.Fatalf("generated debrief changed during capture: %+v, err=%v", record, err)
+		}
+	}
+	if !found {
+		t.Fatal("generated synthesis was not included in the complete backup")
 	}
 }
 

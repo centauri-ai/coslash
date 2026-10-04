@@ -18,7 +18,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { beginHubPairing, pollHubPairing, prepareBackup, submitHubShare, type PairingResult } from './api';
+import { isLocalSession, sessionRevision } from '@/pages/coslash/lib/session';
+import {
+  beginHubPairing,
+  pollHubPairing,
+  prepareBackup,
+  shareSynthesisStatus,
+  submitHubShare,
+  type PairingResult,
+  type ShareSynthesisStatus,
+} from './api';
 import {
   COMPLETE_BACKUP_DRAFT_STORAGE_KEY,
   restoreDraft,
@@ -101,6 +110,7 @@ const ELIGIBILITY_COPY: Record<
 function fixtureBackupPreview(
   selection: ReturnType<typeof backupSelection>,
   audienceVersion: string,
+  revision: number,
 ): BackupPreview {
   const hash = 'a'.repeat(64);
   return {
@@ -110,6 +120,7 @@ function fixtureBackupPreview(
     selection,
     bundleId: hash,
     sourceRevision: 'fixture-revision',
+    synthesisRevision: revision,
     coverage: {
       artifactCount: 6,
       artifactCounts: [
@@ -196,6 +207,46 @@ export function BackupPreparationProgress({ completed, total }: { completed: num
   );
 }
 
+const SYNTHESIS_MESSAGES: Record<Exclude<ShareSynthesisStatus['state'], 'ready' | 'pending'>, string> = {
+  revision_changed:
+    'The session changed while preparing its debrief. Refresh sessions and review this revision again.',
+  missing: 'The selected local session is no longer available. Refresh sessions and try again.',
+  ineligible: 'This session is not eligible for Local AI synthesis under the current settings.',
+  consent_required:
+    'Local AI synthesis needs first-run consent in Settings before this session can be shared.',
+  disabled: 'Local AI synthesis is disabled in Settings. Enable it before sharing this session.',
+  unavailable: 'The configured local synthesis backend is unavailable. Check Settings and retry.',
+  failed: 'Local AI synthesis failed. Check the configured backend, then retry after its cooldown.',
+};
+
+async function waitForLocalDebrief(
+  session: ShareCandidate['session'],
+  signal: AbortSignal,
+  onPending: () => void,
+): Promise<{ status: ShareSynthesisStatus; generated: boolean }> {
+  let generated = false;
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    if (signal.aborted) throw new DOMException('Preparation cancelled', 'AbortError');
+    const status = await shareSynthesisStatus(session, signal);
+    if (status.state === 'ready') return { status, generated };
+    if (status.state !== 'pending') throw new Error(SYNTHESIS_MESSAGES[status.state]);
+    generated = true;
+    onPending();
+    await new Promise<void>((resolve, reject) => {
+      const timer = globalThis.setTimeout(() => {
+        signal.removeEventListener('abort', stop);
+        resolve();
+      }, 1000);
+      const stop = () => {
+        globalThis.clearTimeout(timer);
+        reject(new DOMException('Preparation cancelled', 'AbortError'));
+      };
+      signal.addEventListener('abort', stop, { once: true });
+    });
+  }
+  throw new Error('Local debrief generation is still pending. Retry when the configured backend is ready.');
+}
+
 export function ShareToHubDialog({
   open,
   onOpenChange,
@@ -209,6 +260,9 @@ export function ShareToHubDialog({
   destinationResult,
   onOpenSettings,
   onDestinationRefresh,
+  onLocalSynthesisReady = () => {},
+  synthesisBackend = 'configured CLI',
+  synthesisModel = 'configured model',
   fixtureMode = false,
   fixtureOutcome = 'success',
 }: {
@@ -224,6 +278,9 @@ export function ShareToHubDialog({
   destinationResult: DestinationResult;
   onOpenSettings: () => void;
   onDestinationRefresh: () => Promise<DestinationResult>;
+  onLocalSynthesisReady?: () => void | Promise<ShareCandidate['session'][]>;
+  synthesisBackend?: string;
+  synthesisModel?: string;
   fixtureMode?: boolean;
   fixtureOutcome?: 'success' | 'partial' | 'private' | 'failed';
 }) {
@@ -250,8 +307,10 @@ export function ShareToHubDialog({
   const [renewedReviewIds, setRenewedReviewIds] = useState<Set<string>>(new Set());
   const [uploadRecords, setUploadRecords] = useState<ReviewRecord[]>([]);
   const [preparedCount, setPreparedCount] = useState(0);
+  const [preparationProgress, setPreparationProgress] = useState<Record<string, string>>({});
   const [uploadPending, setUploadPending] = useState(false);
   const previewGeneration = useRef(0);
+  const previewAbort = useRef<AbortController | null>(null);
   const uploadGeneration = useRef(0);
   const uploadInFlight = useRef(false);
   const restoredForOpen = useRef(false);
@@ -273,7 +332,10 @@ export function ShareToHubDialog({
         ({ session }) => localSessionId(session) === record.item.localSessionId,
       );
       return (
-        current != null && consentStillCurrent(record.item, current.session, record.preview, destination)
+        current != null &&
+        consentStillCurrent(record.item, current.session, record.preview, destination) &&
+        (!isLocalSession(current.session) ||
+          record.preview.synthesisRevision === sessionRevision(current.session))
       );
     });
   const groups = useMemo(() => {
@@ -290,6 +352,7 @@ export function ShareToHubDialog({
     if (open) return;
     restoredForOpen.current = false;
     previewGeneration.current += 1;
+    previewAbort.current?.abort();
     uploadGeneration.current += 1;
     setSearch('');
     setSelected(new Set());
@@ -432,6 +495,7 @@ export function ShareToHubDialog({
 
   const replaceSelection = (next: Set<string>) => {
     previewGeneration.current += 1;
+    previewAbort.current?.abort();
     uploadGeneration.current += 1;
     const limited = limitShareSelection(next, candidates);
     const retained = retainRetryDraftSelection({ records, renewedReviewIds }, limited);
@@ -458,39 +522,125 @@ export function ShareToHubDialog({
   const reviewExactPayloads = async () => {
     if (destination == null || selectedCandidates.length === 0) return;
     const generation = ++previewGeneration.current;
+    previewAbort.current?.abort();
+    const controller = new AbortController();
+    previewAbort.current = controller;
+    const activeCandidates = selectedCandidates;
     const prior = new Map(records.map((record) => [record.item.localSessionId, record]));
     setPhase('preparing');
     setProblem(null);
     setPreparedCount(0);
+    setPreparationProgress(
+      Object.fromEntries(activeCandidates.map(({ session }) => [localSessionId(session), 'Queued'])),
+    );
+    const markProgress = (id: string, message: string) => {
+      if (generation === previewGeneration.current)
+        setPreparationProgress((current) => ({ ...current, [id]: message }));
+    };
     const markPrepared = () => {
       if (generation === previewGeneration.current) setPreparedCount((current) => current + 1);
     };
     try {
-      const nextRecords = await Promise.all(
-        selectedCandidates.map(async (candidate) => {
-          const { session } = candidate;
-          const existing = prior.get(localSessionId(session));
-          if (existing && consentStillCurrent(existing.item, session, existing.preview, destination)) {
-            markPrepared();
-            return existing;
+      const nextRecords = new Array<ReviewRecord>(activeCandidates.length);
+      const syntheses = new Array<ShareSynthesisStatus | null>(activeCandidates.length).fill(null);
+      let nextIndex = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(4, activeCandidates.length) }, async () => {
+          while (nextIndex < activeCandidates.length) {
+            const index = nextIndex++;
+            const { session } = activeCandidates[index];
+            const id = localSessionId(session);
+            if (!fixtureMode && isLocalSession(session)) {
+              markProgress(id, 'Checking current local debrief');
+              const result = await waitForLocalDebrief(session, controller.signal, () =>
+                markProgress(id, 'Generating local debrief'),
+              );
+              syntheses[index] = result.status;
+              markProgress(id, result.generated ? 'Local debrief ready' : 'Including current local debrief');
+            } else {
+              markProgress(id, 'Waiting to prepare complete backup');
+            }
           }
-          const selection = backupSelection(session);
-          const preview = fixtureMode
-            ? fixtureBackupPreview(selection, destination.audienceVersion)
-            : await prepareBackup(selection);
-          if (preview.state !== 'ready') {
-            throw new Error(
-              `${preview.problem?.message ?? 'A complete backup could not be prepared.'} ${preview.problem?.action ?? ''}`.trim(),
+        }),
+      );
+      if (generation !== previewGeneration.current) return;
+      if (!fixtureMode && syntheses.some((status) => status != null)) {
+        const refreshed = await onLocalSynthesisReady();
+        if (Array.isArray(refreshed)) {
+          for (let index = 0; index < activeCandidates.length; index += 1) {
+            const expected = syntheses[index];
+            if (!expected) continue;
+            const source = activeCandidates[index].session;
+            const current = refreshed.find((item) => localSessionId(item) === localSessionId(source));
+            if (!current || sessionRevision(current) !== expected.revision || current.synthesis == null) {
+              throw new Error(
+                'The refreshed local session no longer has this revision’s debrief. Refresh sessions and retry.',
+              );
+            }
+          }
+        }
+      }
+      if (generation !== previewGeneration.current) return;
+      nextIndex = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(4, activeCandidates.length) }, async () => {
+          while (nextIndex < activeCandidates.length) {
+            const index = nextIndex++;
+            const candidate = activeCandidates[index];
+            const { session } = candidate;
+            const id = localSessionId(session);
+            const synthesis = syntheses[index];
+            markProgress(id, 'Preparing complete backup after debrief readiness');
+            const existing = prior.get(id);
+            if (
+              existing &&
+              consentStillCurrent(existing.item, session, existing.preview, destination) &&
+              (fixtureMode ||
+                !isLocalSession(session) ||
+                existing.preview.synthesisRevision === synthesis?.revision)
+            ) {
+              markPrepared();
+              nextRecords[index] = existing;
+              continue;
+            }
+            const selection = backupSelection(session);
+            const preview = fixtureMode
+              ? fixtureBackupPreview(selection, destination.audienceVersion, sessionRevision(session))
+              : await prepareBackup(selection, controller.signal);
+            if (preview.state !== 'ready') {
+              throw new Error(
+                `${preview.problem?.message ?? 'A complete backup could not be prepared.'} ${preview.problem?.action ?? ''}`.trim(),
+              );
+            }
+            if (synthesis && preview.synthesisRevision !== synthesis.revision) {
+              throw new Error(
+                'The complete backup no longer contains this revision’s Local AI debrief. Refresh sessions and retry.',
+              );
+            }
+            if (synthesis) {
+              const current = await shareSynthesisStatus(session, controller.signal);
+              if (current.state !== 'ready' || current.revision !== synthesis.revision) {
+                throw new Error(
+                  'The session changed during backup preparation. Refresh sessions and review it again.',
+                );
+              }
+            }
+            const item = bindBackupConsent(
+              session,
+              preview,
+              destination,
+              `${BACKUP_SHARE_VERSION}:${crypto.randomUUID()}`,
             );
+            markPrepared();
+            markProgress(id, 'Complete backup ready for review');
+            nextRecords[index] = {
+              candidate: synthesis
+                ? { ...candidate, session: { ...session, synthesis: synthesis.synthesis ?? null } }
+                : candidate,
+              preview,
+              item,
+            };
           }
-          const item = bindBackupConsent(
-            session,
-            preview,
-            destination,
-            `${BACKUP_SHARE_VERSION}:${crypto.randomUUID()}`,
-          );
-          markPrepared();
-          return { candidate, preview, item };
         }),
       );
       if (generation !== previewGeneration.current) return;
@@ -499,7 +649,17 @@ export function ShareToHubDialog({
       setReviewed(false);
       setPhase('review');
     } catch (error) {
+      controller.abort();
       if (generation !== previewGeneration.current) return;
+      if (
+        error instanceof Error &&
+        (error.message.includes('session changed') ||
+          error.message.includes('no longer contains') ||
+          error.message.includes('no longer available') ||
+          error.message.includes('no longer has this revision'))
+      ) {
+        onRetryCandidates();
+      }
       setProblem(error instanceof Error ? error.message : 'The complete backup could not be prepared.');
       setPhase('select');
     }
@@ -685,6 +845,7 @@ export function ShareToHubDialog({
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       previewGeneration.current += 1;
+      previewAbort.current?.abort();
       uploadGeneration.current += 1;
     }
     onOpenChange(nextOpen);
@@ -895,6 +1056,11 @@ export function ShareToHubDialog({
                 {problem && (
                   <div role="alert" className="bg-warning-bg text-warning-fg rounded-lg border p-3 text-sm">
                     {problem} Sharing remains off.
+                    {(problem.includes('Settings') || problem.includes('backend')) && (
+                      <Button className="mt-2 block" variant="outline" size="sm" onClick={onOpenSettings}>
+                        Open Local AI settings
+                      </Button>
+                    )}
                   </div>
                 )}
 
@@ -928,6 +1094,14 @@ export function ShareToHubDialog({
                       : 'Select all filtered'}
                   </Button>
                 </div>
+
+                {selectedCandidates.some(({ session }) => isLocalSession(session)) && (
+                  <p className="text-coslash-muted text-xs" role="note">
+                    Before preparing a selected Local session, coSlash will use {synthesisBackend} (
+                    {synthesisModel}) to generate any missing current debrief. This may consume your selected
+                    CLI account’s usage. Generation does not approve an upload.
+                  </p>
+                )}
 
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
                   {!candidatesLoading && candidatesError == null && groups.length === 0 && (
@@ -988,7 +1162,7 @@ export function ShareToHubDialog({
                                   <span className="text-coslash-muted block truncate pt-0.5 text-xs">
                                     {candidate.session.sourceLabel} · {candidate.session.agent} ·{' '}
                                     {candidate.session.branch ?? 'no branch'} · revision{' '}
-                                    {candidate.session.mtime}
+                                    {sessionRevision(candidate.session)}
                                   </span>
                                   <CompleteBackupSupport candidate={candidate} />
                                 </span>
@@ -1006,7 +1180,23 @@ export function ShareToHubDialog({
             )}
 
             {phase === 'preparing' && (
-              <BackupPreparationProgress completed={preparedCount} total={selectedCandidates.length} />
+              <div
+                className="min-h-0 flex-1 overflow-y-auto rounded-lg border p-3"
+                role="status"
+                aria-live="polite"
+              >
+                <p className="text-sm font-semibold">
+                  Preparing complete backups: {preparedCount} of {selectedCandidates.length} ready
+                </p>
+                <ul className="pt-3 text-sm">
+                  {selectedCandidates.map(({ session }) => (
+                    <li key={localSessionId(session)} className="flex justify-between gap-3 border-t py-2">
+                      <span className="min-w-0 truncate">{session.name ?? session.id}</span>
+                      <span>{preparationProgress[localSessionId(session)] ?? 'Queued'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
 
             {phase === 'uploading' && (
@@ -1065,6 +1255,25 @@ export function ShareToHubDialog({
                           </dd>
                         </div>
                       </dl>
+                      {record.candidate.session.synthesis && (
+                        <div className="pt-3 text-xs">
+                          <div className="font-semibold">Local AI debrief included</div>
+                          <div className="pt-2">Goals</div>
+                          <ol className="list-inside list-decimal">
+                            {record.candidate.session.synthesis.goals.map((goal, index) => (
+                              <li key={index}>{goal}</li>
+                            ))}
+                          </ol>
+                          <div className="pt-2">Outcome: {record.candidate.session.synthesis.outcome}</div>
+                          <div className="pt-2">Key decisions</div>
+                          <ol className="list-inside list-decimal">
+                            {record.candidate.session.synthesis.keyDecisions.map((decision, index) => (
+                              <li key={index}>{decision}</li>
+                            ))}
+                          </ol>
+                          <div className="pt-2">Next step: {record.candidate.session.synthesis.nextStep}</div>
+                        </div>
+                      )}
                     </details>
                   ))}
                 </div>
@@ -1187,7 +1396,7 @@ export function ShareToHubDialog({
               onClick={reviewExactPayloads}
               disabled={candidatesLoading || candidatesError != null || selectedCandidates.length === 0}
             >
-              See what gets shared
+              {problem ? 'Retry debrief and review' : 'See what gets shared'}
             </Button>
           )}
           {phase === 'review' && destinationResult.state === 'ready' && (

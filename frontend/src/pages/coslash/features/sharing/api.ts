@@ -1,4 +1,5 @@
 import { apiFetch } from '@/pages/coslash/lib/api';
+import type { Session } from '@/pages/coslash/lib/session';
 import {
   BACKUP_SHARE_VERSION,
   isCanonicalBackupRoute,
@@ -20,6 +21,24 @@ export type PairingResult = {
   verificationUriComplete?: string;
   expiresAt?: string;
   intervalSeconds?: number;
+};
+
+export type ShareSynthesisStatus = {
+  state:
+    | 'ready'
+    | 'pending'
+    | 'revision_changed'
+    | 'missing'
+    | 'ineligible'
+    | 'consent_required'
+    | 'disabled'
+    | 'unavailable'
+    | 'failed';
+  revision: number;
+  backend?: string;
+  model?: string;
+  generatedAt?: number;
+  synthesis?: Session['synthesis'];
 };
 
 type Guard<T> = (value: unknown) => value is T;
@@ -141,6 +160,7 @@ function isBackupPreview(value: unknown): value is BackupPreview {
     !Array.isArray(value.coverage.artifactCounts) ||
     typeof value.coverage.totalBytes !== 'number' ||
     typeof value.coverage.revisionSha256 !== 'string' ||
+    (value.synthesisRevision != null && typeof value.synthesisRevision !== 'number') ||
     !Array.isArray(value.coverage.problems)
   ) {
     return false;
@@ -157,6 +177,46 @@ function isBackupPreview(value: unknown): value is BackupPreview {
     typeof value.capability.maxBackupChunkBytes === 'number' &&
     typeof value.capability.backupWorkspaceBytes === 'number' &&
     typeof value.capability.backupUploadExpiresSeconds === 'number'
+  );
+}
+
+function isShareSynthesisStatus(value: unknown): value is ShareSynthesisStatus {
+  return (
+    isRecord(value) &&
+    [
+      'ready',
+      'pending',
+      'revision_changed',
+      'missing',
+      'ineligible',
+      'consent_required',
+      'disabled',
+      'unavailable',
+      'failed',
+    ].includes(String(value.state)) &&
+    typeof value.revision === 'number' &&
+    (value.state !== 'ready' || (isRecord(value.synthesis) && typeof value.generatedAt === 'number'))
+  );
+}
+
+export async function shareSynthesisStatus(
+  session: Session,
+  signal?: AbortSignal,
+): Promise<ShareSynthesisStatus> {
+  return jsonResponse<ShareSynthesisStatus>(
+    await apiFetch('/api/hub/share-synthesis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+      body: JSON.stringify({
+        sourceId: session.sourceId,
+        agent: session.agent,
+        sessionId: session.id,
+        expectedRevision: session.revision ?? session.mtime,
+      }),
+    }),
+    'The local debrief could not be prepared',
+    isShareSynthesisStatus,
   );
 }
 
@@ -203,10 +263,14 @@ export async function submitHubShare(request: ShareRequest): Promise<ShareResult
   );
 }
 
-export async function prepareBackup(selection: BackupSelection): Promise<BackupPreview> {
+export async function prepareBackup(
+  selection: BackupSelection,
+  signal?: AbortSignal,
+): Promise<BackupPreview> {
   return jsonResponse<BackupPreview>(
     await apiFetch('/api/hub/backup-previews', {
       method: 'POST',
+      signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(selection),
     }),

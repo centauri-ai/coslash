@@ -186,6 +186,17 @@ describe('hub-share/v2 complete-backup consumer', () => {
     ).toBe(false);
   });
 
+  it('binds approval to the post-synthesis revision', () => {
+    const chosen = candidates[0]!.session;
+    const exact = { ...preview(chosen), synthesisRevision: chosen.mtime };
+    const item = bindBackupConsent(chosen, exact, destination, 'synthetic-idempotency-key-0002');
+    expect(item.consent.synthesisRevision).toBe(chosen.mtime);
+    expect(consentStillCurrent(item, chosen, exact, destination)).toBe(true);
+    expect(
+      consentStillCurrent(item, chosen, { ...exact, synthesisRevision: chosen.mtime + 1 }, destination),
+    ).toBe(false);
+  });
+
   it('preserves only retryable partial failures and returns the canonical success route', () => {
     const result: ShareResult = {
       contractVersion: 'hub-share/v2',
