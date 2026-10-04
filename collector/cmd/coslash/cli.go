@@ -30,6 +30,7 @@ const (
 const sessionListTimeout = 3 * time.Minute
 
 var writeCursorClipboard = copyToClipboard
+var errRuntimeAlreadyRunning = errors.New("another coSlash app is already running")
 
 type runtimeDescriptor struct {
 	BaseURL string `json:"baseURL"`

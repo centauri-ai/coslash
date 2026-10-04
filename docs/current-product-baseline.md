@@ -68,6 +68,8 @@ All routes are loopback-only and protected by the process access-token guard.
 | `GET /api/hub/destination` | Read pairing and destination readiness |
 | `POST /api/hub/pairings` | Start device pairing |
 | `POST /api/hub/pairings/{id}/poll` | Complete pairing and store the device credential |
+| `POST /api/hub/onboarding/activate` | Consume a Hub launch intent through the token-guarded Local API and start pairing |
+| `POST /api/hub/onboarding/check-in` | Retry a content-free Hub device check-in from a user-clicked Hub recovery link |
 | `POST /api/hub/backup-previews` | Freeze and review a complete `session-backup/v1` bundle |
 | `POST /api/hub/shares` | Resumably upload an explicitly approved complete backup through v3 |
 
@@ -85,8 +87,11 @@ older clients, but there is no separate full-revision action in the normal UI.
   artifact taxonomy, hashing, fixtures, and verifier.
 - `collector/internal/sessionbackupproducer`: frozen local/SSH Codex bundle
   production and restart-safe spools.
-- `collector/internal/hubclient`: discovery, pairing, destination, upload,
-  status, and canonical Hub handoff client.
+- `collector/internal/hubclient`: discovery, manual and Hub-led pairing,
+  content-free device check-in, destination, upload, status, and canonical Hub
+  handoff client.
+- `collector/cmd/coslash/protocol_*.go`: per-user macOS Launch Services and
+  Windows `HKCU` registration for the validated `coslash:` activation URL.
 - At the 2026-09-11 baseline, local-only categories included raw
   prompts/transcripts, summaries/goals, commands, todos, detailed subagent
   content, commit subjects, diffs, and absolute paths. C03 preserves that

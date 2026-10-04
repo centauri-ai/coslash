@@ -59,6 +59,18 @@ Download `coslash-windows-amd64.exe` from the newest stable [release](https://gi
 
 To upgrade, replace the executable with a newer one. To uninstall, delete it. Your data stays in `~\.coslash`. The executable is not code-signed. To verify its checksum, see [Install from a release archive](docs/install.md#windows). The supported baseline is Windows 11 24H2 amd64 ([Windows validation](docs/windows-validation.md)).
 
+### Connect this computer to Hub
+
+In Hub, open **Devices → Add device → This computer**. After installing,
+start coSlash Local once and return to Hub to start the pairing handoff. On
+macOS, the first run registers a per-user Launch Services handler. On Windows,
+the first run registers the `coslash:` URL scheme for the current Windows user;
+neither requires administrator privileges. When Hub asks the browser to open
+Local, allow the app handoff. Hub presents the account, workspace and computer
+name and waits for an explicit approval before Local stores its device key.
+Hub shows the first check-in separately from approval. The Hub-led path does
+not use the manual pairing code screen or share sessions with a team.
+
 ### First run
 
 coSlash needs at least one local agent session to read. If it finds none, it shows a checklist of every source that it looked at. Take one turn in a supported agent in a repo, then run the checks again. `coslash doctor` prints the same diagnostics in the terminal.
