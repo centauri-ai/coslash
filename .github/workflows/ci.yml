@@ -71,6 +71,12 @@ jobs:
         run: make test
       - name: Cross-build collector for Windows amd64
         run: GOOS=windows GOARCH=amd64 go build ./...
+      # The bare dev binary is not part of the release artifact. The Windows
+      # package smoke waits for the whole Release job, so this check stays here.
+      - name: Build development binary
+        run: make build
+      - name: Smoke test development binary
+        run: make smoke-dev
 
   windows:
     name: Windows
@@ -188,10 +194,6 @@ jobs:
           trap 'rm -rf "$unpacked"' EXIT
           tar -xzf "dist/${stem}.tar.gz" -C "$unpacked"
           ./scripts/smoke.sh "$unpacked/$stem/coslash" embedded
-      - name: Build development binary
-        run: make build
-      - name: Smoke test development binary
-        run: make smoke-dev
       - name: Upload release packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
