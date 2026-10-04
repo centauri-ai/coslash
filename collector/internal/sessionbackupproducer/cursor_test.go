@@ -426,8 +426,17 @@ func TestCursorCLIResumeStubIsLeftOut(t *testing.T) {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(spool, prepared.BundleID, filepath.FromSlash(artifact.LogicalName)))
-		if err != nil || !strings.Contains(string(data), workspace) {
-			t.Fatalf("sidecar is not the real store's: %v", err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var metadata struct {
+			CWD string `json:"cwd"`
+		}
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			t.Fatalf("decode real store sidecar: %v", err)
+		}
+		if metadata.CWD != workspace {
+			t.Fatalf("sidecar cwd = %q, want %q", metadata.CWD, workspace)
 		}
 	}
 
