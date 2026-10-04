@@ -683,17 +683,22 @@ function SessionRow({
   return (
     <tr
       className={cn(
-        'group hover:[&>td]:bg-coslash-soft cursor-pointer [&>td]:transition-colors',
+        'group hover:[&>td]:bg-coslash-soft focus-within:[&>td]:bg-coslash-soft cursor-pointer [&>td]:transition-colors',
         selected &&
-          '[&>td]:bg-coslash-tint hover:[&>td]:bg-coslash-tint [&>td:first-child]:shadow-[inset_3px_0_0_var(--coslash-accent)]',
+          '[&>td]:bg-coslash-tint hover:[&>td]:bg-coslash-tint focus-within:[&>td]:bg-coslash-tint [&>td:first-child]:shadow-[inset_3px_0_0_var(--coslash-accent)]',
       )}
       onClick={onSelect}
     >
       <td className={cn(cell, 'w-auto')}>
         <button
           type="button"
-          className="text-ui group-hover:text-coslash-accent block w-full cursor-pointer truncate px-1.5 py-px text-left leading-[1.35] font-semibold transition-colors"
-          onClick={onSelect}
+          aria-label={`Open session: ${sessionTitle(session)}`}
+          aria-pressed={selected}
+          className="text-ui group-hover:text-coslash-accent focus-visible:ring-coslash-accent block w-full cursor-pointer truncate px-1.5 py-px text-left leading-[1.35] font-semibold transition-colors focus-visible:ring-2 focus-visible:outline-none focus-visible:ring-inset"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect();
+          }}
         >
           {sessionTitle(session)}
         </button>

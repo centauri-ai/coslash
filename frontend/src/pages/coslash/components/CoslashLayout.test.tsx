@@ -154,6 +154,19 @@ describe('CoslashLayout', () => {
     expect(compact.every((cell) => !cell.includes('border-b'))).toBe(true);
   });
 
+  it('keeps session rows pointer-hoverable and exposes a focused keyboard open action', () => {
+    const markup = renderLayout({
+      sessions: [session({ id: 'affordance', name: 'Keyboard session' })],
+    });
+
+    expect(markup).toContain('aria-label="Open session: Keyboard session"');
+    expect(markup).toContain('aria-pressed="false"');
+    expect(markup).toContain('cursor-pointer');
+    expect(markup).toContain('hover:[&amp;&gt;td]:bg-coslash-soft');
+    expect(markup).toContain('focus-within:');
+    expect(markup).toContain('focus-visible:ring-2');
+  });
+
   it('offers agent facets for the vendors present, not the reviewer CLIs installed', () => {
     const markup = renderLayout({
       sessions: [

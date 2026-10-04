@@ -131,6 +131,11 @@ function RowGroupHeader({
   );
 }
 
+function hasCardActions(session: Session, review: SessionReviewProps): boolean {
+  const key = sessionKey(session);
+  return review.index.links.has(key) || reviewActionVisible(session, review.index.reviewSessions.has(key));
+}
+
 function CardActions({ session, review }: { session: Session; review: SessionReviewProps }) {
   const key = sessionKey(session);
   const reviewLink = review.index.links.get(key);
@@ -140,9 +145,9 @@ function CardActions({ session, review }: { session: Session; review: SessionRev
     review.reviewerOptions,
     review.remoteReviewerOptions,
   );
-  if (reviewLink == null && !showReviewAction) return null;
+  if (!hasCardActions(session, review)) return null;
   return (
-    <div className="flex flex-wrap items-center gap-1 pt-2" onClick={(event) => event.stopPropagation()}>
+    <div className="flex flex-wrap items-center gap-1 pt-2">
       {reviewLink != null && (
         <Button
           size="xs"
@@ -196,68 +201,76 @@ function BoardCard({
   const readiness = sessionReadiness(session);
   const tone = READINESS_TONE[readiness.key];
   const vendor = getVendor(session.agent);
+  const title = session.name ?? session.firstPrompt ?? 'Untitled session';
   return (
     <div
       className={cn(
-        'group border-coslash-line bg-coslash-surface hover:border-coslash-tint-line hover:ring-coslash-tint-line cursor-pointer rounded-lg border p-3 transition-all hover:ring-1',
+        'group border-coslash-line bg-coslash-surface hover:border-coslash-tint-line hover:ring-coslash-tint-line focus-within:border-coslash-tint-line focus-within:ring-coslash-tint-line rounded-lg border transition-all focus-within:ring-1 hover:ring-1',
         {
           'border-coslash-tint-line shadow-[inset_3px_0_0_var(--coslash-accent)]': selected,
           'opacity-75': session.displayStale,
         },
       )}
-      onClick={onSelect}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          <span className={cn(pillClass, vendor.bg, vendor.fg)}>{vendor.label}</span>
-          {!isLocalSession(session) && (
-            <span className={cn(pillClass, 'bg-coslash-soft text-coslash-muted font-medium')}>
-              {session.sourceLabel}
-            </span>
-          )}
-        </div>
-        <span className="text-meta shrink-0 font-[650] whitespace-nowrap tabular-nums">
-          <UnpricedModelWarning unpriced={session.unpricedModels}>
-            {formatEstimatedCost(sessionCost(session))}
-          </UnpricedModelWarning>
-        </span>
-      </div>
       <button
         type="button"
-        className="group-hover:text-coslash-accent line-clamp-2 w-full cursor-pointer pt-2 text-left text-[13px] leading-[1.35] font-semibold break-words transition-colors"
+        aria-label={`Open session: ${title}`}
+        aria-pressed={selected}
+        className="block w-full cursor-pointer p-3 text-left focus-visible:outline-none"
         onClick={onSelect}
       >
-        {session.name ?? session.firstPrompt ?? 'Untitled session'}
+        <span className="flex items-start justify-between gap-2">
+          <span className="flex min-w-0 flex-wrap items-center gap-1">
+            <span className={cn(pillClass, vendor.bg, vendor.fg)}>{vendor.label}</span>
+            {!isLocalSession(session) && (
+              <span className={cn(pillClass, 'bg-coslash-soft text-coslash-muted font-medium')}>
+                {session.sourceLabel}
+              </span>
+            )}
+          </span>
+          <span className="text-meta shrink-0 font-[650] whitespace-nowrap tabular-nums">
+            <UnpricedModelWarning unpriced={session.unpricedModels}>
+              {formatEstimatedCost(sessionCost(session))}
+            </UnpricedModelWarning>
+          </span>
+        </span>
+        <span className="group-hover:text-coslash-accent group-focus-within:text-coslash-accent line-clamp-2 block pt-2 text-[13px] leading-[1.35] font-semibold break-words transition-colors">
+          {title}
+        </span>
+        <span className="text-coslash-muted line-clamp-2 block pt-1 text-[11.5px] leading-[1.45]">
+          {getSessionCardSummary(session)}
+        </span>
+        <span className="text-meta text-coslash-muted flex items-center justify-between gap-2 pt-2">
+          <span className="min-w-0 truncate font-mono">
+            {session.branch ?? 'No branch'}
+            {session.subagents.length > 0 && ` · ${session.subagents.length} subagents`}
+          </span>
+          <span className="shrink-0 tabular-nums">{formatTimeAgo(session.mtime)}</span>
+        </span>
+        <span className="border-coslash-line-soft text-meta mt-2 flex items-center justify-between gap-2 border-t pt-2">
+          <span className={cn('flex shrink-0 items-center gap-1.5 font-[650]', tone.label)}>
+            <i className={cn('size-[6px] rounded-full', tone.dot)} />
+            {readiness.label}
+          </span>
+          <span
+            className={cn('text-coslash-muted min-w-0 truncate text-right', {
+              'text-success-fg font-[550]': readiness.cacheWarm,
+            })}
+          >
+            {readiness.detail}
+          </span>
+        </span>
       </button>
-      <p className="text-coslash-muted line-clamp-2 pt-1 text-[11.5px] leading-[1.45]">
-        {getSessionCardSummary(session)}
-      </p>
-      {handoff && (
-        <div className="pt-2" onClick={(event) => event.stopPropagation()}>
-          <DirectedHandoffStatus handoff={handoff} onOpenTarget={onOpenHandoffTarget} compact />
+      {(handoff != null || hasCardActions(session, review)) && (
+        <div className="px-3 pb-3">
+          {handoff && (
+            <div className="pt-2">
+              <DirectedHandoffStatus handoff={handoff} onOpenTarget={onOpenHandoffTarget} compact />
+            </div>
+          )}
+          <CardActions session={session} review={review} />
         </div>
       )}
-      <div className="text-meta text-coslash-muted flex items-center justify-between gap-2 pt-2">
-        <span className="min-w-0 truncate font-mono">
-          {session.branch ?? 'No branch'}
-          {session.subagents.length > 0 && ` · ${session.subagents.length} subagents`}
-        </span>
-        <span className="shrink-0 tabular-nums">{formatTimeAgo(session.mtime)}</span>
-      </div>
-      <div className="border-coslash-line-soft text-meta mt-2 flex items-center justify-between gap-2 border-t pt-2">
-        <span className={cn('flex shrink-0 items-center gap-1.5 font-[650]', tone.label)}>
-          <i className={cn('size-[6px] rounded-full', tone.dot)} />
-          {readiness.label}
-        </span>
-        <span
-          className={cn('text-coslash-muted min-w-0 truncate text-right', {
-            'text-success-fg font-[550]': readiness.cacheWarm,
-          })}
-        >
-          {readiness.detail}
-        </span>
-      </div>
-      <CardActions session={session} review={review} />
     </div>
   );
 }

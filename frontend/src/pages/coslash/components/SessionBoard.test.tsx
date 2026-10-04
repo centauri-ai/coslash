@@ -134,4 +134,22 @@ describe('SessionBoard', () => {
     expect(markup).toContain('line-clamp-2');
     expect(markup).toContain('break-words');
   });
+
+  it('makes the session body a focused button and keeps nested review actions independent', () => {
+    const markup = renderBoard([session('action-card', { sourceId: 'local', cwd: '/workspace/app' })]);
+    const labelAt = markup.indexOf('aria-label="Open session: action-card"');
+    const buttonStart = markup.lastIndexOf('<button', labelAt);
+    const buttonEnd = markup.indexOf('</button>', buttonStart);
+    const actionAt = markup.indexOf('Send for review');
+    const primaryButton = markup.slice(buttonStart, buttonEnd);
+
+    expect(buttonStart).toBeGreaterThanOrEqual(0);
+    expect(buttonEnd).toBeGreaterThan(buttonStart);
+    expect(primaryButton).toContain('type="button"');
+    expect(primaryButton).toContain('aria-pressed="false"');
+    expect(primaryButton).toContain('cursor-pointer');
+    expect(markup).toContain('hover:border-coslash-tint-line');
+    expect(markup).toContain('focus-within:ring-1');
+    expect(actionAt).toBeGreaterThan(buttonEnd);
+  });
 });
