@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangleIcon, CheckIcon, ExternalLinkIcon, SearchIcon, ShieldCheckIcon } from 'lucide-react';
+import {
+  AlertTriangleIcon,
+  CheckIcon,
+  ExternalLinkIcon,
+  LoaderCircleIcon,
+  SearchIcon,
+  ShieldCheckIcon,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -163,12 +170,40 @@ export function BackupUploadProgress({ items }: { items: { id: string; label: st
   );
 }
 
+export function ShareCandidatesLoadingStatus({ stage }: { stage: 'loading' | 'refreshing' }) {
+  return (
+    <div
+      data-testid="share-candidates-loading"
+      role="status"
+      aria-atomic="true"
+      className="bg-info-bg text-info-fg flex items-center gap-2 rounded-lg border p-3 text-sm"
+    >
+      <LoaderCircleIcon className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+      <span>
+        {stage === 'refreshing'
+          ? 'Waiting for connected workspaces to finish refreshing…'
+          : 'Loading sessions available to share…'}
+      </span>
+    </div>
+  );
+}
+
+export function BackupPreparationProgress({ completed, total }: { completed: number; total: number }) {
+  return (
+    <div role="status" aria-atomic="true" className="grid min-h-72 place-items-center text-sm">
+      Preparing complete backups: {completed} of {total} ready…
+    </div>
+  );
+}
+
 export function ShareToHubDialog({
   open,
   onOpenChange,
   candidates,
   candidatesLoading,
   candidatesError,
+  candidatesLoadStage = 'loading',
+  onRetryCandidates = () => {},
   window,
   onWindowChange,
   destinationResult,
@@ -182,6 +217,8 @@ export function ShareToHubDialog({
   candidates: ShareCandidate[];
   candidatesLoading: boolean;
   candidatesError: string | null;
+  candidatesLoadStage?: 'loading' | 'refreshing' | 'ready' | 'error';
+  onRetryCandidates?: () => void;
   window: ShareWindow;
   onWindowChange: (window: ShareWindow) => void;
   destinationResult: DestinationResult;
@@ -212,8 +249,11 @@ export function ShareToHubDialog({
   const [resumingDraft, setResumingDraft] = useState(false);
   const [renewedReviewIds, setRenewedReviewIds] = useState<Set<string>>(new Set());
   const [uploadRecords, setUploadRecords] = useState<ReviewRecord[]>([]);
+  const [preparedCount, setPreparedCount] = useState(0);
+  const [uploadPending, setUploadPending] = useState(false);
   const previewGeneration = useRef(0);
   const uploadGeneration = useRef(0);
+  const uploadInFlight = useRef(false);
   const restoredForOpen = useRef(false);
 
   const visible = useMemo(
@@ -270,6 +310,7 @@ export function ShareToHubDialog({
     setResumingDraft(false);
     setRenewedReviewIds(new Set());
     setUploadRecords([]);
+    setPreparedCount(0);
   }, [open]);
   /* oxlint-enable react/set-state-in-effect */
 
@@ -390,6 +431,7 @@ export function ShareToHubDialog({
   /* oxlint-enable react/set-state-in-effect */
 
   const replaceSelection = (next: Set<string>) => {
+    previewGeneration.current += 1;
     uploadGeneration.current += 1;
     const limited = limitShareSelection(next, candidates);
     const retained = retainRetryDraftSelection({ records, renewedReviewIds }, limited);
@@ -419,12 +461,17 @@ export function ShareToHubDialog({
     const prior = new Map(records.map((record) => [record.item.localSessionId, record]));
     setPhase('preparing');
     setProblem(null);
+    setPreparedCount(0);
+    const markPrepared = () => {
+      if (generation === previewGeneration.current) setPreparedCount((current) => current + 1);
+    };
     try {
       const nextRecords = await Promise.all(
         selectedCandidates.map(async (candidate) => {
           const { session } = candidate;
           const existing = prior.get(localSessionId(session));
           if (existing && consentStillCurrent(existing.item, session, existing.preview, destination)) {
+            markPrepared();
             return existing;
           }
           const selection = backupSelection(session);
@@ -442,6 +489,7 @@ export function ShareToHubDialog({
             destination,
             `${BACKUP_SHARE_VERSION}:${crypto.randomUUID()}`,
           );
+          markPrepared();
           return { candidate, preview, item };
         }),
       );
@@ -556,11 +604,14 @@ export function ShareToHubDialog({
   };
 
   const submitReviewed = async () => {
+    if (uploadInFlight.current) return;
     if (fixtureMode) {
       exerciseFixtureResult();
       return;
     }
     if (!reviewed || records.length === 0 || !reviewStillCurrent) return;
+    uploadInFlight.current = true;
+    setUploadPending(true);
     const generation = ++uploadGeneration.current;
     const activeRecords = records;
     setPhase('uploading');
@@ -625,11 +676,17 @@ export function ShareToHubDialog({
       setProblem(error instanceof Error ? error.message : 'The Hub share request failed.');
       setPhase(pendingDraft.renewedReviewIds.size > 0 ? 'select' : 'review');
       setUploadRecords([]);
+    } finally {
+      uploadInFlight.current = false;
+      setUploadPending(false);
     }
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) uploadGeneration.current += 1;
+    if (!nextOpen) {
+      previewGeneration.current += 1;
+      uploadGeneration.current += 1;
+    }
     onOpenChange(nextOpen);
   };
 
@@ -726,6 +783,22 @@ export function ShareToHubDialog({
               : 'Select local or SSH Codex sessions, review each complete unredacted backup, then upload only what you approve.'}
           </DialogDescription>
         </DialogHeader>
+
+        {open && destination != null && candidatesLoading && phase === 'select' && (
+          <ShareCandidatesLoadingStatus
+            stage={candidatesLoadStage === 'refreshing' ? 'refreshing' : 'loading'}
+          />
+        )}
+
+        {open && uploadPending && phase !== 'uploading' && (
+          <div
+            role="status"
+            aria-atomic="true"
+            className="bg-info-bg text-info-fg rounded-lg border p-3 text-sm"
+          >
+            A share request is still finishing. Wait for it to complete before retrying.
+          </div>
+        )}
 
         {destination == null ? (
           <div
@@ -825,15 +898,15 @@ export function ShareToHubDialog({
                   </div>
                 )}
 
-                {candidatesLoading && (
-                  <div role="status" className="text-muted-foreground rounded-lg border p-3 text-sm">
-                    Loading shareable sessions…
-                  </div>
-                )}
-
                 {candidatesError && (
-                  <div role="alert" className="bg-warning-bg text-warning-fg rounded-lg border p-3 text-sm">
+                  <div
+                    role="alert"
+                    className="bg-warning-bg text-warning-fg flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm"
+                  >
                     {candidatesError}
+                    <Button variant="outline" size="sm" onClick={onRetryCandidates}>
+                      Retry loading sessions
+                    </Button>
                   </div>
                 )}
 
@@ -859,7 +932,9 @@ export function ShareToHubDialog({
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
                   {!candidatesLoading && candidatesError == null && groups.length === 0 && (
                     <div className="text-coslash-muted p-8 text-center text-sm">
-                      No sessions match this filter.
+                      {search.trim()
+                        ? 'No sessions match this filter.'
+                        : 'No eligible sessions are available in this time window.'}
                     </div>
                   )}
                   {!candidatesLoading &&
@@ -931,9 +1006,7 @@ export function ShareToHubDialog({
             )}
 
             {phase === 'preparing' && (
-              <div role="status" className="grid min-h-72 place-items-center text-sm">
-                Preparing complete frozen backups…
-              </div>
+              <BackupPreparationProgress completed={preparedCount} total={selectedCandidates.length} />
             )}
 
             {phase === 'uploading' && (
@@ -1024,6 +1097,7 @@ export function ShareToHubDialog({
                 <div
                   data-testid="share-result-summary"
                   role={failedCount > 0 ? 'alert' : 'status'}
+                  aria-atomic="true"
                   className={
                     summary?.tone === 'success'
                       ? 'bg-success-bg text-success-fg rounded-lg border p-4'
@@ -1121,7 +1195,7 @@ export function ShareToHubDialog({
               <Button variant="outline" onClick={() => setPhase('select')}>
                 Back to selection
               </Button>
-              <Button onClick={submitReviewed} disabled={!reviewed}>
+              <Button onClick={submitReviewed} disabled={!reviewed || uploadPending}>
                 {fixtureMode ? 'Exercise fixture result' : 'Approve and upload complete backup'}
               </Button>
             </>

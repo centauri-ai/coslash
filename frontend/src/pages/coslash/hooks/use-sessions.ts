@@ -25,9 +25,15 @@ export function remoteRefreshInProgress(machines: MachineFact[]) {
 export async function loadShareCandidatesUntilTerminal(
   fetchPayload: () => Promise<SessionsPayload>,
   waitForRefresh: () => Promise<unknown>,
+  onRemoteRefresh?: () => void,
 ): Promise<SessionsPayload> {
   let payload = await fetchPayload();
+  let refreshReported = false;
   while (remoteRefreshInProgress(payload.machines)) {
+    if (!refreshReported) {
+      refreshReported = true;
+      onRemoteRefresh?.();
+    }
     await waitForRefresh();
     payload = await fetchPayload();
   }
@@ -102,15 +108,19 @@ export type ShareCandidatesQuery = {
   window: Extract<TimeWindow, '7d' | '30d' | 'all'>;
 };
 
+export type ShareCandidatesLoadStage = 'loading' | 'refreshing' | 'ready' | 'error';
+
 type ShareCandidatesState = {
   window: ShareCandidatesQuery['window'];
   sessions: Session[];
   isLoading: boolean;
+  loadStage: ShareCandidatesLoadStage;
   loadError: string | null;
 } | null;
 
 type ShareCandidatesAction =
   | { type: 'start'; window: ShareCandidatesQuery['window'] }
+  | { type: 'refreshing'; window: ShareCandidatesQuery['window'] }
   | { type: 'success'; window: ShareCandidatesQuery['window']; sessions: Session[] }
   | { type: 'error'; window: ShareCandidatesQuery['window']; message: string };
 
@@ -124,15 +134,26 @@ export function shareCandidatesReducer(
         window: action.window,
         sessions: state?.sessions ?? [],
         isLoading: true,
+        loadStage: 'loading',
         loadError: null,
       };
+    case 'refreshing':
+      if (state?.window !== action.window) return state;
+      return { ...state, isLoading: true, loadStage: 'refreshing' };
     case 'success':
-      return { window: action.window, sessions: action.sessions, isLoading: false, loadError: null };
+      return {
+        window: action.window,
+        sessions: action.sessions,
+        isLoading: false,
+        loadStage: 'ready',
+        loadError: null,
+      };
     case 'error':
       return {
         window: action.window,
         sessions: [],
         isLoading: false,
+        loadStage: 'error',
         loadError: action.message,
       };
   }
@@ -449,6 +470,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
 
 export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
   const [state, dispatch] = useReducer(shareCandidatesReducer, null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useLayoutEffect(() => {
     const path = shareCandidatesRequestPath({ enabled, window });
@@ -464,8 +486,10 @@ export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
       };
 
       try {
-        const payload = await loadShareCandidatesUntilTerminal(fetchPayload, () =>
-          waitForRemoteRefresh(undefined, controller.signal),
+        const payload = await loadShareCandidatesUntilTerminal(
+          fetchPayload,
+          () => waitForRemoteRefresh(undefined, controller.signal),
+          () => dispatch({ type: 'refreshing', window }),
         );
         if (controller.signal.aborted) return;
         dispatch({ type: 'success', window, sessions: payload.sessions });
@@ -484,12 +508,18 @@ export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
     void load();
 
     return () => controller.abort();
-  }, [enabled, window]);
+  }, [enabled, retryCount, window]);
 
-  if (!enabled) return { sessions: [], isLoading: false, loadError: null };
+  const retry = () => setRetryCount((current) => current + 1);
+
+  if (!enabled) {
+    return { sessions: [], isLoading: false, loadError: null, loadStage: 'ready' as const, retry };
+  }
   return {
     sessions: state?.sessions ?? [],
     isLoading: state == null || state.window !== window || state.isLoading,
     loadError: state?.window === window ? state.loadError : null,
+    loadStage: state?.window === window ? state.loadStage : ('loading' as const),
+    retry,
   };
 }
