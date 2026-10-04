@@ -231,6 +231,7 @@ describe('shareCandidatesReducer', () => {
       window: '7d' as const,
       sessions,
       isLoading: false,
+      loadStage: 'ready' as const,
       loadError: null,
     };
 
@@ -238,7 +239,13 @@ describe('shareCandidatesReducer', () => {
       window: '7d',
       sessions,
       isLoading: true,
+      loadStage: 'loading',
       loadError: null,
+    });
+
+    expect(shareCandidatesReducer(loaded, { type: 'refreshing', window: '7d' })).toMatchObject({
+      isLoading: true,
+      loadStage: 'refreshing',
     });
   });
 });
@@ -279,17 +286,22 @@ describe('remoteRefreshInProgress', () => {
     ];
     let fetches = 0;
     let waits = 0;
+    let refreshAnnouncements = 0;
 
     const result = await loadShareCandidatesUntilTerminal(
       async () => payloads[fetches++]!,
       async () => {
         waits += 1;
       },
+      () => {
+        refreshAnnouncements += 1;
+      },
     );
 
     expect(result.sessions).toEqual([finalSession]);
     expect(fetches).toBe(3);
     expect(waits).toBe(2);
+    expect(refreshAnnouncements).toBe(1);
   });
 });
 
