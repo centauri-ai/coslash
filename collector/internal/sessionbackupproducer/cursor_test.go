@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -18,9 +20,20 @@ import (
 
 const cursorTestID = "01234567-89ab-4def-8123-456789abcdef"
 
+func cursorIDEStateDB(home string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(home, "AppData", "Roaming", "Cursor", "User", "globalStorage", "state.vscdb")
+	}
+	return filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+}
+
 func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string) {
 	t.Helper()
 	home, workspace := t.TempDir(), t.TempDir()
+	workspaceJSON, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transcript := filepath.Join(home, ".cursor", "projects", "repo", "agent-transcripts", cursorTestID, cursorTestID+".jsonl")
 	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
 		t.Fatal(err)
@@ -32,7 +45,7 @@ func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string
 		t.Fatal(err)
 	}
 	if lane == "cursor-ide" {
-		state := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+		state := cursorIDEStateDB(home)
 		if err := os.MkdirAll(filepath.Dir(state), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -45,7 +58,7 @@ func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string
 			CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
 			t.Fatal(err)
 		}
-		header := `{"name":"IDE session","workspaceIdentifier":{"uri":{"fsPath":"` + workspace + `"}}}`
+		header := `{"name":"IDE session","workspaceIdentifier":{"uri":{"fsPath":` + string(workspaceJSON) + `}}}`
 		if _, err := db.Exec(`INSERT INTO composerHeaders VALUES (?, ?, ?, ?)`, cursorTestID, header, 1_800_000_000_000, 1_800_000_001_000); err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +67,7 @@ func writeCursorBackupFixture(t *testing.T, lane string) (string, string, string
 		if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(filepath.Dir(store), "meta.json"), []byte(`{"cwd":"`+workspace+`"}`), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(store), "meta.json"), []byte(`{"cwd":`+string(workspaceJSON)+`}`), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		db, err := sql.Open("sqlite", store)
@@ -169,7 +182,7 @@ func TestCursorWrongCLIStoreCannotPublish(t *testing.T) {
 
 func TestCursorChangedIDERowsCannotPublish(t *testing.T) {
 	home, _, _ := writeCursorBackupFixture(t, "cursor-ide")
-	state := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	state := cursorIDEStateDB(home)
 	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
 		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
 	}, AfterRawCopy: func() {
@@ -192,7 +205,7 @@ func TestCursorChangedIDERowsCannotPublish(t *testing.T) {
 
 func TestCursorMissingIDERowsCannotPublish(t *testing.T) {
 	home, _, _ := writeCursorBackupFixture(t, "cursor-ide")
-	state := filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	state := cursorIDEStateDB(home)
 	if err := os.Remove(state); err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +304,7 @@ func TestCursorLargeRowValuesPrepare(t *testing.T) {
 		"ide bubble text": {
 			lane: "cursor-ide",
 			insert: func(t *testing.T, home string) {
-				execCursorFixtureDB(t, filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
+				execCursorFixtureDB(t, cursorIDEStateDB(home),
 					"", `INSERT INTO cursorDiskKV VALUES (?, ?)`, "bubbleId:"+cursorTestID+":large", strings.Repeat("x", 3<<20))
 			},
 		},
@@ -319,7 +332,7 @@ func TestCursorLargeRowValuesPrepare(t *testing.T) {
 // bounds for the contract, not that they could not be attributed.
 func TestCursorUnrepresentableRowIsInvalidNotUnattributable(t *testing.T) {
 	home, _, _ := writeCursorBackupFixture(t, "cursor-ide")
-	execCursorFixtureDB(t, filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
+	execCursorFixtureDB(t, cursorIDEStateDB(home),
 		"", `INSERT INTO cursorDiskKV VALUES (?, CAST(X'FF' AS TEXT))`, "bubbleId:"+cursorTestID+":binary")
 	spool := t.TempDir()
 	manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
@@ -346,7 +359,7 @@ func TestCursorChatWithoutFolderBacksUpWithoutRepository(t *testing.T) {
 		t.Run(lane, func(t *testing.T) {
 			home, _, _ := writeCursorBackupFixture(t, lane)
 			if lane == "cursor-ide" {
-				execCursorFixtureDB(t, filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb"),
+				execCursorFixtureDB(t, cursorIDEStateDB(home),
 					"", `UPDATE composerHeaders SET value = '{"name":"IDE session"}'`)
 			} else if err := os.WriteFile(filepath.Join(home, ".cursor", "chats", "workspace", cursorTestID, "meta.json"), []byte(`{"schemaVersion":1}`), 0o600); err != nil {
 				t.Fatal(err)
