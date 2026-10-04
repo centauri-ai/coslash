@@ -65,6 +65,15 @@ func TestBackupAudienceVersionUsesSharedOpaqueTokenContract(t *testing.T) {
 	if !validBackupShareItem(item) {
 		t.Fatal("cached consent with an opaque audience version was rejected")
 	}
+	item.Consent.SynthesisRevision = item.Consent.SelectedRevision
+	if !validBackupShareItem(item) {
+		t.Fatal("revision-bound synthesis consent was rejected")
+	}
+	item.Consent.SynthesisRevision++
+	if validBackupShareItem(item) {
+		t.Fatal("consent bound to a different synthesis revision was accepted")
+	}
+	item.Consent.SynthesisRevision = item.Consent.SelectedRevision
 	item.Consent.AudienceVersion = " audience-v1"
 	if validBackupShareItem(item) {
 		t.Fatal("cached consent with an unsafe audience version was accepted")

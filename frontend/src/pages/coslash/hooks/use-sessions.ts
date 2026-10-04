@@ -457,6 +457,23 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
 
   const refreshSessions = () => setRetryCount((key) => key + 1);
 
+  const refreshSessionsNow = async (): Promise<Session[]> => {
+    const response = await apiFetch(
+      sessionsRequestPath({
+        localSince: timeWindowStart(localWindow),
+        remoteSince: timeWindowStart(remoteWindow),
+      }),
+    );
+    if (!response.ok) throw new Error(`Sessions request failed (${response.status})`);
+    const payload = decodeSessionsResponse(await response.json());
+    setSessions(payload.sessions);
+    setMachines(payload.machines);
+    setSessionsVersion((version) => version + 1);
+    setIsLoading(false);
+    setLoadError(null);
+    return payload.sessions;
+  };
+
   return {
     sessions,
     machines,
@@ -465,6 +482,7 @@ export function useSessions({ localWindow, remoteWindow }: SessionsQuery) {
     sessionsVersion,
     retrySessions,
     refreshSessions,
+    refreshSessionsNow,
   };
 }
 
@@ -512,8 +530,18 @@ export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
 
   const retry = () => setRetryCount((current) => current + 1);
 
+  const refresh = async (): Promise<Session[]> => {
+    const path = shareCandidatesRequestPath({ enabled, window });
+    if (path == null) return [];
+    const response = await apiFetch(path);
+    if (!response.ok) throw new Error(`Share candidates request failed (${response.status})`);
+    const payload = decodeSessionsResponse(await response.json());
+    dispatch({ type: 'success', window, sessions: payload.sessions });
+    return payload.sessions;
+  };
+
   if (!enabled) {
-    return { sessions: [], isLoading: false, loadError: null, loadStage: 'ready' as const, retry };
+    return { sessions: [], isLoading: false, loadError: null, loadStage: 'ready' as const, retry, refresh };
   }
   return {
     sessions: state?.sessions ?? [],
@@ -521,5 +549,6 @@ export function useShareCandidates({ enabled, window }: ShareCandidatesQuery) {
     loadError: state?.window === window ? state.loadError : null,
     loadStage: state?.window === window ? state.loadStage : ('loading' as const),
     retry,
+    refresh,
   };
 }

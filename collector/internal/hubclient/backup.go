@@ -46,16 +46,17 @@ type BackupPreviewProblem struct {
 }
 
 type BackupPreview struct {
-	AdapterVersion  string                          `json:"adapterVersion"`
-	State           string                          `json:"state"`
-	ApprovalAllowed bool                            `json:"approvalAllowed"`
-	Selection       sessionbackupproducer.Selection `json:"selection"`
-	BundleID        string                          `json:"bundleId,omitempty"`
-	SourceRevision  string                          `json:"sourceRevision,omitempty"`
-	Coverage        sessionbackupproducer.Coverage  `json:"coverage"`
-	Capability      *BackupCapability               `json:"capability,omitempty"`
-	AudienceVersion string                          `json:"audienceVersion,omitempty"`
-	Problem         *BackupPreviewProblem           `json:"problem,omitempty"`
+	AdapterVersion    string                          `json:"adapterVersion"`
+	State             string                          `json:"state"`
+	ApprovalAllowed   bool                            `json:"approvalAllowed"`
+	Selection         sessionbackupproducer.Selection `json:"selection"`
+	BundleID          string                          `json:"bundleId,omitempty"`
+	SourceRevision    string                          `json:"sourceRevision,omitempty"`
+	SynthesisRevision int64                           `json:"synthesisRevision,omitempty"`
+	Coverage          sessionbackupproducer.Coverage  `json:"coverage"`
+	Capability        *BackupCapability               `json:"capability,omitempty"`
+	AudienceVersion   string                          `json:"audienceVersion,omitempty"`
+	Problem           *BackupPreviewProblem           `json:"problem,omitempty"`
 }
 
 type BackupConsent struct {
@@ -63,6 +64,7 @@ type BackupConsent struct {
 	BundleID               string `json:"bundleId"`
 	SourceRevision         string `json:"sourceRevision"`
 	SelectedRevision       int64  `json:"selectedRevision"`
+	SynthesisRevision      int64  `json:"synthesisRevision,omitempty"`
 	CompleteBackupSHA256   string `json:"completeBackupSha256"`
 	TotalBytes             int64  `json:"totalBytes"`
 	DestinationWorkspaceID string `json:"destinationWorkspaceId"`
@@ -232,8 +234,18 @@ func (c *Client) PrepareBackup(ctx context.Context, selection sessionbackupprodu
 	return BackupPreview{
 		AdapterVersion: BackupPreviewVersion, State: "ready", ApprovalAllowed: true,
 		Selection: selection, BundleID: prepared.BundleID, SourceRevision: prepared.Manifest.Source.SourceRevision,
-		Coverage: prepared.Coverage, Capability: &capability, AudienceVersion: destination.Destination.AudienceVersion,
+		SynthesisRevision: rootSynthesisRevision(prepared.Manifest),
+		Coverage:          prepared.Coverage, Capability: &capability, AudienceVersion: destination.Destination.AudienceVersion,
 	}, nil
+}
+
+func rootSynthesisRevision(manifest sessionbackupv1.Manifest) int64 {
+	for _, member := range manifest.Members {
+		if member.MemberID == manifest.Family.RootMemberID {
+			return member.SynthesisRevisionMs
+		}
+	}
+	return 0
 }
 
 type backupChunkSpec struct {
@@ -339,6 +351,7 @@ func validBackupShareItem(item BackupShareItemRequest) bool {
 	return item.LocalSessionID != "" && item.Selection.SourceID != "" && item.Selection.Agent != "" && item.Selection.SessionID != "" &&
 		len(item.IdempotencyKey) >= 16 && len(item.IdempotencyKey) <= 200 &&
 		consent.PreviewContractVersion == BackupPreviewVersion && consent.BundleID == consent.CompleteBackupSHA256 &&
+		(consent.SynthesisRevision == 0 || consent.SynthesisRevision == consent.SelectedRevision) &&
 		len(consent.BundleID) == 64 && consent.SourceRevision != "" && consent.SelectedRevision > 0 && consent.TotalBytes >= 0 &&
 		consent.DestinationWorkspaceID != "" && consent.DestinationName != "" && consent.AudienceMemberCount >= 0 &&
 		validAudienceVersion(consent.AudienceVersion) && consent.ServerID != "" && consent.MaxBackupBytes > 0 &&
@@ -458,6 +471,9 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 	}
 	if prepared.Selection != item.Selection || prepared.Manifest.Source.SourceRevision != consent.SourceRevision ||
 		prepared.Coverage.RevisionSHA256 != consent.CompleteBackupSHA256 || prepared.Coverage.TotalBytes != consent.TotalBytes {
+		return failedBackup(item, "stale_backup_review", true, nil), nil
+	}
+	if consent.SynthesisRevision > 0 && rootSynthesisRevision(prepared.Manifest) != consent.SynthesisRevision {
 		return failedBackup(item, "stale_backup_review", true, nil), nil
 	}
 	current, err := c.loadSourceSession(item.Selection.SourceID, item.Selection.Agent, item.Selection.SessionID, consent.SelectedRevision)
