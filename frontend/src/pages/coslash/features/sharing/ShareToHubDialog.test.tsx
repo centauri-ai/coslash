@@ -23,9 +23,11 @@ import {
   type ShareResult,
 } from './model';
 import {
+  BackupPreparationProgress,
   BackupUploadProgress,
   CompleteBackupDisclosure,
   CompleteBackupSupport,
+  ShareCandidatesLoadingStatus,
   ShareToHubDialog,
 } from './ShareToHubDialog';
 
@@ -192,6 +194,29 @@ function installStorage() {
   return values;
 }
 
+type DialogProps = Parameters<typeof ShareToHubDialog>[0];
+
+function shareDialogProps(overrides: Partial<DialogProps> = {}): DialogProps {
+  return {
+    open: true,
+    onOpenChange: vi.fn(),
+    candidates: [],
+    candidatesLoading: false,
+    candidatesError: null,
+    window: '7d',
+    onWindowChange: vi.fn(),
+    destinationResult: {
+      contractVersion: 'hub-share/v1',
+      configured: true,
+      state: 'ready',
+      destination,
+    },
+    onOpenSettings: vi.fn(),
+    onDestinationRefresh: vi.fn(),
+    ...overrides,
+  };
+}
+
 function elementProps(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'object' || value == null || !('props' in value)) return null;
   return (value as { props: Record<string, unknown> }).props;
@@ -202,6 +227,37 @@ function textContent(value: unknown): string {
   if (Array.isArray(value)) return value.map(textContent).join('');
   const props = elementProps(value);
   return props ? textContent(props.children) : '';
+}
+
+function findComponentProps(root: unknown, type: unknown): Record<string, unknown> | null {
+  if (typeof root !== 'object' || root == null || !('props' in root)) return null;
+  const node = root as { type?: unknown; props: Record<string, unknown> };
+  if (node.type === type) return node.props;
+  const children = Array.isArray(node.props.children) ? node.props.children : [node.props.children];
+  for (const child of children) {
+    const found = findComponentProps(child, type);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findInput(root: unknown, type: string): Record<string, unknown> | null {
+  if (Array.isArray(root)) {
+    for (const child of root) {
+      const found = findInput(child, type);
+      if (found) return found;
+    }
+    return null;
+  }
+  const props = elementProps(root);
+  if (!props) return null;
+  if (props.type === type && typeof props.onChange === 'function') return props;
+  const children = Array.isArray(props.children) ? props.children : [props.children];
+  for (const child of children) {
+    const found = findInput(child, type);
+    if (found) return found;
+  }
+  return null;
 }
 
 function findUploadButton(root: unknown): Record<string, unknown> | null {
@@ -220,6 +276,10 @@ function findButton(root: unknown, label: string): Record<string, unknown> | nul
     if (found) return found;
   }
   return null;
+}
+
+function findActionButton(root: unknown, label: string): Record<string, unknown> | null {
+  return findButton(root, label);
 }
 
 describe('complete backup sharing presentation', () => {
@@ -253,6 +313,57 @@ describe('complete backup sharing presentation', () => {
     expect(markup).toContain('uploading');
     expect(markup).toContain('accepted');
     expect(markup.match(/data-testid="backup-upload-progress"/g)).toHaveLength(3);
+  });
+
+  it('announces candidate loading and the remote-refresh wait as separate stages', () => {
+    const loading = renderToStaticMarkup(<ShareCandidatesLoadingStatus stage="loading" />);
+    const refreshing = renderToStaticMarkup(<ShareCandidatesLoadingStatus stage="refreshing" />);
+    expect(loading).toContain('role="status"');
+    expect(loading).toContain('Loading sessions available to share');
+    expect(refreshing).toContain('Waiting for connected workspaces to finish refreshing');
+  });
+
+  it('shows actual prepared-item counts without a fabricated percentage', () => {
+    const markup = renderToStaticMarkup(<BackupPreparationProgress completed={1} total={3} />);
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('1 of 3 ready');
+    expect(markup).not.toContain('%');
+  });
+
+  it('renders candidate feedback in the initial loading state', () => {
+    installStorage();
+    hooks.reset();
+    const rendered = hooks.render(
+      ShareToHubDialog,
+      shareDialogProps({ candidatesLoading: true, candidatesLoadStage: 'loading' }),
+    );
+    expect(findComponentProps(rendered, ShareCandidatesLoadingStatus)).toMatchObject({ stage: 'loading' });
+  });
+
+  it('shows an empty eligible-session result after loading finishes', () => {
+    installStorage();
+    hooks.reset();
+    const rendered = hooks.render(ShareToHubDialog, shareDialogProps({ window: 'all' }));
+    expect(textContent(rendered)).toContain('No eligible sessions are available in this time window.');
+    expect(findComponentProps(rendered, ShareCandidatesLoadingStatus)).toBeNull();
+  });
+
+  it('offers retry after candidate loading fails', () => {
+    installStorage();
+    const retry = vi.fn();
+    hooks.reset();
+    const rendered = hooks.render(
+      ShareToHubDialog,
+      shareDialogProps({
+        candidatesError: 'Could not load sessions.',
+        candidatesLoadStage: 'error',
+        onRetryCandidates: retry,
+      }),
+    );
+    const button = findActionButton(rendered, 'Retry loading sessions');
+    expect(button).not.toBeNull();
+    (button!.onClick as () => void)();
+    expect(retry).toHaveBeenCalledOnce();
   });
 
   it('keeps mixed-agent rows visible while group selection excludes unsupported agents', () => {
@@ -486,6 +597,55 @@ describe('complete backup sharing presentation', () => {
     expect(text).not.toContain('opaque-failure-two');
   });
 
+  it('requires explicit approval before sending a reviewed backup', async () => {
+    installStorage();
+    const value = candidate('requires-approval');
+    const record = reviewRecord(value, 'original-key-requires-approval');
+    storeDraft([record], false);
+    const props = shareDialogProps({ candidates: [value], window: 'all' });
+    hooks.reset();
+    hooks.render(ShareToHubDialog, props);
+    const rendered = hooks.render(ShareToHubDialog, props);
+    const uploadButton = findUploadButton(rendered);
+    expect(uploadButton).not.toBeNull();
+    expect(uploadButton?.disabled).toBe(true);
+    await (uploadButton!.onClick as () => Promise<void>)();
+    expect(api.submitHubShare).not.toHaveBeenCalled();
+  });
+
+  it('ignores a backup preview that finishes after the dialog closes', async () => {
+    installStorage();
+    const value = candidate('stale-preview');
+    let resolvePreview = (_preview: BackupPreview) => {};
+    api.prepareBackup.mockReturnValue(
+      new Promise<BackupPreview>((resolve) => {
+        resolvePreview = resolve;
+      }),
+    );
+    const props = shareDialogProps({ candidates: [value], window: 'all' });
+    hooks.reset();
+    let rendered = hooks.render(ShareToHubDialog, props);
+    expect(textContent(rendered)).toContain('Session stale-preview');
+    const checkbox = findInput(rendered, 'checkbox');
+    expect(checkbox).not.toBeNull();
+    (checkbox!.onChange as () => void)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    const reviewButton = findActionButton(rendered, 'See what gets shared');
+    expect(reviewButton).not.toBeNull();
+    const completion = (reviewButton!.onClick as () => Promise<void>)();
+    expect(api.prepareBackup).toHaveBeenCalledOnce();
+
+    const rootProps = elementProps(rendered);
+    (rootProps!.onOpenChange as (open: boolean) => void)(false);
+    hooks.render(ShareToHubDialog, shareDialogProps({ open: false, candidates: [value] }));
+    rendered = hooks.render(ShareToHubDialog, props);
+    resolvePreview(reviewRecord(value, 'original-key-stale-preview').preview);
+    await completion;
+    rendered = hooks.render(ShareToHubDialog, props);
+
+    expect(textContent(rendered)).not.toContain('Review binds each complete-backup hash');
+  });
+
   it('ignores an upload response completed after the dialog closes and reopens', async () => {
     const values = installStorage();
     const value = candidate('stale-attempt');
@@ -522,6 +682,7 @@ describe('complete backup sharing presentation', () => {
     expect(uploadButton).not.toBeNull();
     if (!uploadButton) throw new Error('Upload button was not rendered.');
     const completion = (uploadButton.onClick as () => Promise<void>)();
+    const duplicate = (uploadButton.onClick as () => Promise<void>)();
     expect(api.submitHubShare).toHaveBeenCalledOnce();
 
     hooks.render(ShareToHubDialog, { ...props, open: false });
@@ -537,6 +698,7 @@ describe('complete backup sharing presentation', () => {
       results: [accepted(record)],
     });
     await completion;
+    await duplicate;
     rendered = hooks.render(ShareToHubDialog, props);
 
     expect([...values.values()][0]).toBe(reopenedDraft);
