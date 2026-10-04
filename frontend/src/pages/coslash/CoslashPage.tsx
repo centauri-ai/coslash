@@ -126,7 +126,11 @@ export function CoslashPage() {
   const remoteRetryPromise = useRef<Promise<MachineFact | undefined> | null>(null);
   const settingsState = useSettings();
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
-  const shareFixtureOutcome = shareParams.get('share-result') === 'partial' ? 'partial' : 'success';
+  const shareFixtureResult = shareParams.get('share-result');
+  const shareFixtureOutcome =
+    shareFixtureResult === 'partial' || shareFixtureResult === 'private' || shareFixtureResult === 'failed'
+      ? shareFixtureResult
+      : 'success';
   const shareCandidateResult = useShareCandidates({
     enabled: shareDialogOpen && !shareFixtureEnabled && shareDestination?.state === 'ready',
     window: shareWindow,

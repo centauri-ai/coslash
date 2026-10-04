@@ -10,14 +10,18 @@ import {
   limitShareSelection,
   localSessionId,
   localShareCandidates,
+  mergeShareItemResults,
   planShareRetry,
   primarySuccessRoute,
   reconcileVisibleSelection,
   RETRY_RULES,
+  shareBatchSummary,
+  shareResultState,
   toggleCandidateGroup,
   type BackupPreview,
   type ShareCandidate,
   type ShareDestination,
+  type ShareItemResult,
   type ShareResult,
 } from './model';
 
@@ -118,7 +122,7 @@ describe('localShareCandidates', () => {
   });
 });
 
-describe('hub-share/v1 public consumer', () => {
+describe('hub-share/v2 complete-backup consumer', () => {
   const now = Date.UTC(2026, 7, 18);
   const candidates: ShareCandidate[] = [
     { session: session('new', 'alpha', now - 2 * 86_400_000), previouslyShared: false },
@@ -183,7 +187,7 @@ describe('hub-share/v1 public consumer', () => {
 
   it('preserves only retryable partial failures and returns the canonical success route', () => {
     const result: ShareResult = {
-      contractVersion: 'hub-share/v1',
+      contractVersion: 'hub-share/v2',
       requestId: 'request',
       state: 'partial',
       results: [
@@ -222,16 +226,177 @@ describe('hub-share/v1 public consumer', () => {
     expect(primarySuccessRoute(result)?.path).toBe('/v3/session-backups/revision');
   });
 
+  it('separates same-key network retry from renewed review and permanent validation failure', () => {
+    const result: ShareResult = {
+      contractVersion: 'hub-share/v2',
+      requestId: 'request',
+      state: 'failed',
+      results: [
+        {
+          localSessionId: 'network-item',
+          idempotencyKey: 'network-key-0001',
+          state: 'failed',
+          deduplicated: false,
+          error: { code: 'network_unavailable', retryable: true },
+        },
+        {
+          localSessionId: 'review-item',
+          idempotencyKey: 'review-key-0001',
+          state: 'failed',
+          deduplicated: false,
+          error: { code: 'stale_backup_review', retryable: true },
+        },
+        {
+          localSessionId: 'invalid-item',
+          idempotencyKey: 'invalid-key-0001',
+          state: 'failed',
+          deduplicated: false,
+          error: { code: 'backup_manifest_invalid', retryable: false },
+        },
+      ],
+    };
+    const plan = planShareRetry(result);
+    expect([...plan.unchanged]).toEqual(['network-item']);
+    expect([...plan.renewedReview]).toEqual(['review-item']);
+    expect(plan.unchanged.has('invalid-item')).toBe(false);
+    expect(plan.renewedReview.has('invalid-item')).toBe(false);
+  });
+
   it('publishes a complete retry decision for every stable error', () => {
     expect(Object.keys(RETRY_RULES)).toHaveLength(23);
     expect(RETRY_RULES.timeout).toEqual(expect.objectContaining({ renewedReview: false }));
     expect(RETRY_RULES.destination_changed).toEqual(expect.objectContaining({ renewedReview: true }));
     expect(RETRY_RULES.source_deleted).toEqual(expect.objectContaining({ renewedReview: false }));
+    expect(RETRY_RULES.temporary_unavailable).toEqual(
+      expect.objectContaining({
+        renewedReview: false,
+        reason: expect.stringContaining('confirm the upload result'),
+        action: expect.stringContaining('original keys'),
+      }),
+    );
+    expect(RETRY_RULES.stale_backup_review).toEqual(
+      expect.objectContaining({ renewedReview: true, action: expect.stringContaining('Review') }),
+    );
+  });
+
+  it('summarizes identical all-fail items without exposing their internal IDs', () => {
+    const result: ShareResult = {
+      contractVersion: 'hub-share/v2',
+      requestId: 'request',
+      state: 'failed',
+      results: ['private-id-one', 'private-id-two'].map((localSessionId) => ({
+        localSessionId,
+        idempotencyKey: `key-${localSessionId}-0001`,
+        state: 'failed' as const,
+        deduplicated: false as const,
+        error: { code: 'temporary_unavailable' as const, retryable: true },
+      })),
+    };
+    const summary = shareBatchSummary(result, 'Compiler Team');
+    expect(summary.title).toBe('Share failed');
+    expect(summary.detail).toContain('None of the 2 selected sessions were shared');
+    expect(summary.detail).toContain(RETRY_RULES.temporary_unavailable.reason);
+    expect(summary.detail).not.toContain('private-id');
+    expect(shareResultState(result.results)).toBe('failed');
+  });
+
+  it('keeps shared, private, and failed outcomes distinct in mixed batches', () => {
+    const privateItem = {
+      localSessionId: 'private-id',
+      idempotencyKey: 'private-key-0001',
+      state: 'private',
+      private: true,
+      deduplicated: true,
+      sharingNotice: 'This backup is private in My space.',
+    } as const;
+    const result: ShareResult = {
+      contractVersion: 'hub-share/v2',
+      requestId: 'request',
+      state: 'partial',
+      results: [
+        {
+          localSessionId: 'shared-id',
+          idempotencyKey: 'shared-key-0001',
+          state: 'accepted',
+          revisionId: 'revision',
+          deduplicated: false,
+          sharedAt: '2026-09-22T20:00:00Z',
+          route: {
+            hubContractVersion: 'session-backup-read/v1',
+            repositoryId: 'repository',
+            path: '/v3/session-backups/revision',
+          },
+        },
+        privateItem,
+        {
+          localSessionId: 'failed-id',
+          idempotencyKey: 'failed-key-0001',
+          state: 'failed',
+          deduplicated: false,
+          error: { code: 'network_unavailable', retryable: true },
+        },
+      ],
+    };
+    const summary = shareBatchSummary(result, 'Compiler Team');
+    expect(summary.detail).toContain('1 shared with Compiler Team');
+    expect(summary.detail).toContain('1 saved privately in My space');
+    expect(summary.detail).toContain('1 failed item');
+    expect(shareResultState(result.results)).toBe('partial');
+  });
+
+  it('replaces retried failures while keeping prior accepted and private items stable', () => {
+    const first: ShareItemResult = {
+      localSessionId: 'accepted-id',
+      idempotencyKey: 'accepted-key-0001',
+      state: 'accepted',
+      revisionId: 'revision-one',
+      deduplicated: false,
+      sharedAt: '2026-09-22T20:00:00Z',
+      route: {
+        hubContractVersion: 'session-backup-read/v1',
+        repositoryId: 'repository-one',
+        path: '/v3/session-backups/revision-one',
+      },
+    };
+    const privateItem: ShareItemResult = {
+      localSessionId: 'private-id',
+      idempotencyKey: 'private-key-0001',
+      state: 'private',
+      private: true,
+      deduplicated: true,
+      sharingNotice: 'This backup is private in My space.',
+    };
+    const priorFailure: ShareItemResult = {
+      localSessionId: 'retry-id',
+      idempotencyKey: 'retry-key-0001',
+      state: 'failed',
+      deduplicated: false,
+      error: { code: 'temporary_unavailable', retryable: true },
+    };
+    const retried: ShareItemResult = {
+      localSessionId: 'retry-id',
+      idempotencyKey: priorFailure.idempotencyKey,
+      state: 'accepted',
+      revisionId: 'revision-two',
+      deduplicated: true,
+      sharedAt: '2026-09-22T20:01:00Z',
+      route: {
+        hubContractVersion: 'session-backup-read/v1',
+        repositoryId: 'repository-two',
+        path: '/v3/session-backups/revision-two',
+      },
+    };
+    const merged = mergeShareItemResults([first, privateItem, priorFailure], [retried]);
+    expect(merged.map((item) => item.localSessionId)).toEqual(['accepted-id', 'private-id', 'retry-id']);
+    expect(merged[0]).toEqual(first);
+    expect(merged[1]).toEqual(privateItem);
+    expect(merged[2]).toEqual(retried);
+    expect(shareResultState(merged)).toBe('partial');
   });
 
   it('refreshes authority before recovering destination and credential failures', () => {
     const result: ShareResult = {
-      contractVersion: 'hub-share/v1',
+      contractVersion: 'hub-share/v2',
       requestId: 'request',
       state: 'failed',
       results: (['destination_changed', 'credential_revoked', 'stale_backup_review'] as const).map(
