@@ -3,6 +3,7 @@ package sessionbackupproducer
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,6 +22,10 @@ func claudeFixture(t *testing.T) (string, string, string, Selection) {
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	workspaceJSON, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
 	rootID := "11111111-2222-3333-4444-555555555555"
 	dir := filepath.Join(claude.ProjectsRoot(home), "project")
 	rootFile := filepath.Join(dir, rootID+".jsonl")
@@ -28,8 +33,8 @@ func claudeFixture(t *testing.T) (string, string, string, Selection) {
 	if err := os.MkdirAll(filepath.Dir(childFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	root := []byte(`{"sessionId":"` + rootID + `","type":"user","timestamp":"2026-09-20T12:00:00Z","cwd":"` + workspace + `","message":{"content":"hello"}}` + "\n")
-	child := []byte(`{"sessionId":"agent-one","type":"user","timestamp":"2026-09-20T12:00:01Z","cwd":"` + workspace + `","message":{"content":"child task"}}` + "\n")
+	root := []byte(`{"sessionId":"` + rootID + `","type":"user","timestamp":"2026-09-20T12:00:00Z","cwd":` + string(workspaceJSON) + `,"message":{"content":"hello"}}` + "\n")
+	child := []byte(`{"sessionId":"agent-one","type":"user","timestamp":"2026-09-20T12:00:01Z","cwd":` + string(workspaceJSON) + `,"message":{"content":"child task"}}` + "\n")
 	for file, data := range map[string][]byte{rootFile: root, childFile: child, filepath.Join(filepath.Dir(childFile), "agent-one.meta.json"): []byte(`{"description":"Child work","toolUseId":"spawn-one"}`)} {
 		if err := os.WriteFile(file, data, 0o600); err != nil {
 			t.Fatal(err)
@@ -143,6 +148,10 @@ func TestClaudeBackgroundRehomeRetainsPredecessorBytesAndChildLineage(t *testing
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	workspaceJSON, err := json.Marshal(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
 	oldID, newID := "old-session", "new-session"
 	dir := filepath.Join(claude.ProjectsRoot(home), "project")
 	oldRoot := filepath.Join(dir, oldID+".jsonl")
@@ -151,11 +160,11 @@ func TestClaudeBackgroundRehomeRetainsPredecessorBytesAndChildLineage(t *testing
 	if err := os.MkdirAll(filepath.Dir(oldChild), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	shared := `{"sessionId":"old-session","uuid":"shared","timestamp":"2026-09-16T00:00:00Z","cwd":"` + workspace + `","type":"user","message":{"content":"hello"}}` + "\n"
+	shared := `{"sessionId":"old-session","uuid":"shared","timestamp":"2026-09-16T00:00:00Z","cwd":` + string(workspaceJSON) + `,"type":"user","message":{"content":"hello"}}` + "\n"
 	for file, data := range map[string]string{
 		oldRoot:  shared,
-		oldChild: `{"sessionId":"agent-child","uuid":"child-row","timestamp":"2026-09-16T00:00:01Z","cwd":"` + workspace + `","type":"user","message":{"content":"work"}}` + "\n",
-		newRoot:  shared + `{"sessionId":"new-session","sessionKind":"bg","uuid":"new-row","timestamp":"2026-09-18T00:00:00Z","cwd":"` + workspace + `","type":"user","message":{"content":"continued"}}` + "\n",
+		oldChild: `{"sessionId":"agent-child","uuid":"child-row","timestamp":"2026-09-16T00:00:01Z","cwd":` + string(workspaceJSON) + `,"type":"user","message":{"content":"work"}}` + "\n",
+		newRoot:  shared + `{"sessionId":"new-session","sessionKind":"bg","uuid":"new-row","timestamp":"2026-09-18T00:00:00Z","cwd":` + string(workspaceJSON) + `,"type":"user","message":{"content":"continued"}}` + "\n",
 	} {
 		if err := os.WriteFile(file, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
