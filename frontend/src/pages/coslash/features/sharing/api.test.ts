@@ -103,7 +103,7 @@ describe('Hub sharing local adapter', () => {
   it('rejects malformed local adapter responses before they reach the share UI', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
-        contractVersion: 'hub-share/v2',
+        contractVersion: 'hub-share/v1',
         state: 'ready',
         configured: true,
         destination: { workspaceName: 'missing authority and audience fields' },

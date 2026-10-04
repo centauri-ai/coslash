@@ -11,6 +11,7 @@ import {
   localSessionId,
   localShareCandidates,
   mergeShareItemResults,
+  mergeShareItemWorkspaceNames,
   planShareRetry,
   primarySuccessRoute,
   reconcileVisibleSelection,
@@ -342,6 +343,47 @@ describe('hub-share/v2 complete-backup consumer', () => {
     expect(summary.detail).toContain('1 saved privately in My space');
     expect(summary.detail).toContain('1 failed item');
     expect(shareResultState(result.results)).toBe('partial');
+  });
+
+  it('attributes merged accepted items to their original workspaces', () => {
+    const first: ShareItemResult = {
+      localSessionId: 'first-id',
+      idempotencyKey: 'first-key-0001',
+      state: 'accepted',
+      revisionId: 'first-revision',
+      deduplicated: false,
+      sharedAt: '2026-09-22T20:00:00Z',
+      route: {
+        hubContractVersion: 'session-backup-read/v1',
+        repositoryId: 'first-repository',
+        path: '/v3/session-backups/first-revision',
+      },
+    };
+    const second: ShareItemResult = {
+      ...first,
+      localSessionId: 'second-id',
+      idempotencyKey: 'second-key-0001',
+      revisionId: 'second-revision',
+      route: {
+        ...first.route,
+        repositoryId: 'second-repository',
+        path: '/v3/session-backups/second-revision',
+      },
+    };
+    const result: ShareResult = {
+      contractVersion: 'hub-share/v2',
+      requestId: 'request',
+      state: 'succeeded',
+      results: [first, second],
+    };
+
+    const firstWorkspace = mergeShareItemWorkspaceNames({}, [first], 'Compiler Team');
+    const workspaceNames = mergeShareItemWorkspaceNames(firstWorkspace, [second], 'Research Team');
+    const summary = shareBatchSummary(result, 'Research Team', workspaceNames);
+
+    expect(summary.detail).toBe(
+      '2 complete backups were shared across workspaces: 1 shared with Compiler Team; 1 shared with Research Team.',
+    );
   });
 
   it('replaces retried failures while keeping prior accepted and private items stable', () => {
