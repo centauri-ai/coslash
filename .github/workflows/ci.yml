@@ -74,7 +74,6 @@ jobs:
 
   windows:
     name: Windows
-    needs: release
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
@@ -121,6 +120,15 @@ jobs:
         working-directory: collector
         shell: powershell
         run: go vet ./...
+
+  windows-release-smoke:
+    name: Windows release smoke
+    needs: release
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Download release packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
