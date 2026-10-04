@@ -23,27 +23,30 @@ import {
   type ReviewRecord,
 } from './draft';
 import {
+  BACKUP_SHARE_VERSION,
   backupSelection,
   bindBackupConsent,
   COMPLETE_BACKUP_SUPPORT_MESSAGE,
   consentStillCurrent,
   filterShareCandidates,
-  HUB_SHARE_VERSION,
   hubRouteURL,
   isCompleteBackupCandidate,
   limitShareSelection,
   localSessionId,
   MAX_SHARE_ITEMS,
+  mergeShareItemResults,
   planShareRetry,
   primarySuccessRoute,
-  privateNotice,
   reconcileVisibleSelection,
   RETRY_RULES,
+  shareBatchSummary,
+  shareResultState,
   toggleCandidate,
   toggleCandidateGroup,
   type BackupPreview,
   type DestinationResult,
   type ShareCandidate,
+  type ShareItemResult,
   type ShareResult,
   type ShareWindow,
 } from './model';
@@ -184,7 +187,7 @@ export function ShareToHubDialog({
   onOpenSettings: () => void;
   onDestinationRefresh: () => Promise<DestinationResult>;
   fixtureMode?: boolean;
-  fixtureOutcome?: 'success' | 'partial';
+  fixtureOutcome?: 'success' | 'partial' | 'private' | 'failed';
 }) {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -200,8 +203,10 @@ export function ShareToHubDialog({
   const [retryReadyAt, setRetryReadyAt] = useState(0);
   const [clock, setClock] = useState(() => Date.now());
   const [progress, setProgress] = useState<
-    Record<string, 'queued' | 'resuming' | 'uploading' | 'accepted' | 'failed'>
+    Record<string, 'queued' | 'resuming' | 'uploading' | 'accepted' | 'private' | 'failed'>
   >({});
+  const [resultLabels, setResultLabels] = useState<Record<string, string>>({});
+  const [priorResults, setPriorResults] = useState<ShareItemResult[]>([]);
   const [resumingDraft, setResumingDraft] = useState(false);
   const [renewedReviewIds, setRenewedReviewIds] = useState<Set<string>>(new Set());
   const [uploadRecords, setUploadRecords] = useState<ReviewRecord[]>([]);
@@ -257,6 +262,8 @@ export function ShareToHubDialog({
     setPairingRefreshRequired(false);
     setRetryReadyAt(0);
     setProgress({});
+    setResultLabels({});
+    setPriorResults([]);
     setResumingDraft(false);
     setRenewedReviewIds(new Set());
     setUploadRecords([]);
@@ -430,7 +437,7 @@ export function ShareToHubDialog({
             session,
             preview,
             destination,
-            `${HUB_SHARE_VERSION}:${crypto.randomUUID()}`,
+            `${BACKUP_SHARE_VERSION}:${crypto.randomUUID()}`,
           );
           return { candidate, preview, item };
         }),
@@ -452,13 +459,23 @@ export function ShareToHubDialog({
     storeDraft(records, true);
     const partial = fixtureOutcome === 'partial' && fixtureAttempt === 0 && records.length > 1;
     const results: ShareResult['results'] = records.map((record, index) => {
-      if (partial && index === records.length - 1) {
+      if (fixtureOutcome === 'failed' || (partial && index === records.length - 1)) {
         return {
           localSessionId: record.item.localSessionId,
           idempotencyKey: record.item.idempotencyKey,
           state: 'failed',
           deduplicated: false,
-          error: { code: 'temporary_unavailable', retryable: true, retryAfterSeconds: 5 },
+          error: { code: 'temporary_unavailable', retryable: true },
+        };
+      }
+      if (fixtureOutcome === 'private') {
+        return {
+          localSessionId: record.item.localSessionId,
+          idempotencyKey: record.item.idempotencyKey,
+          state: 'private',
+          private: true,
+          deduplicated: false,
+          sharingNotice: 'This backup is private in My space. Share it from coSlash Hub when you are ready.',
         };
       }
       const suffix = String(index + 1).padStart(12, '0');
@@ -479,24 +496,41 @@ export function ShareToHubDialog({
       };
     });
     showResult({
-      contractVersion: HUB_SHARE_VERSION,
+      contractVersion: BACKUP_SHARE_VERSION,
       requestId: crypto.randomUUID(),
-      state: partial ? 'partial' : 'succeeded',
+      state: shareResultState(results),
       results,
     });
   };
 
   const showResult = (next: ShareResult) => {
+    const results = mergeShareItemResults(priorResults, next.results);
+    const combined: ShareResult = { ...next, state: shareResultState(results), results };
     const delay = Math.max(
       0,
-      ...next.results.map((item) =>
+      ...combined.results.map((item) =>
         item.state === 'failed' && item.error.retryable ? (item.error.retryAfterSeconds ?? 0) : 0,
       ),
     );
     const now = Date.now();
-    const retryPlan = planShareRetry(next);
-    const retryDraft = retryDraftForResult(records, next);
+    const retryPlan = planShareRetry(combined);
+    const retryDraft = retryDraftForResult(records, combined);
     const retryable = new Set([...retryPlan.unchanged, ...retryPlan.renewedReview]);
+    setResultLabels(
+      Object.fromEntries(
+        combined.results.map((item, index) => {
+          const candidate =
+            records.find((record) => record.item.localSessionId === item.localSessionId)?.candidate ??
+            candidates.find(({ session }) => localSessionId(session) === item.localSessionId);
+          const label =
+            candidate?.session.name?.trim() ||
+            candidate?.session.sourceLabel?.trim() ||
+            `Session ${index + 1}`;
+          return [item.localSessionId, label];
+        }),
+      ),
+    );
+    setPriorResults([]);
     setRecords(retryDraft.records);
     setRenewedReviewIds(retryDraft.renewedReviewIds);
     setSelected(retryable);
@@ -506,7 +540,7 @@ export function ShareToHubDialog({
       retryDraft.renewedReviewIds.size === 0 && retryDraft.records.length > 0,
       retryDraft.renewedReviewIds,
     );
-    setResult(next);
+    setResult(combined);
     setClock(now);
     setRetryReadyAt(now + delay * 1000);
     setPhase('result');
@@ -550,7 +584,7 @@ export function ShareToHubDialog({
           setProgress((current) => ({ ...current, [record.item.localSessionId]: 'uploading' }));
         }
         const response = await submitHubShare({
-          contractVersion: HUB_SHARE_VERSION,
+          contractVersion: BACKUP_SHARE_VERSION,
           requestId: crypto.randomUUID(),
           items: [record.item],
         });
@@ -562,14 +596,14 @@ export function ShareToHubDialog({
         persistPending();
         setProgress((current) => ({
           ...current,
-          [record.item.localSessionId]: item.state === 'failed' ? 'failed' : 'accepted',
+          [record.item.localSessionId]:
+            item.state === 'failed' ? 'failed' : item.state === 'private' ? 'private' : 'accepted',
         }));
       }
-      const accepted = results.filter((item) => item.state !== 'failed').length;
       showResult({
-        contractVersion: HUB_SHARE_VERSION,
+        contractVersion: BACKUP_SHARE_VERSION,
         requestId: crypto.randomUUID(),
-        state: accepted === results.length ? 'succeeded' : accepted === 0 ? 'failed' : 'partial',
+        state: shareResultState(results),
         results,
       });
       setResumingDraft(false);
@@ -628,6 +662,7 @@ export function ShareToHubDialog({
         return;
       }
     }
+    setPriorResults(result.results);
     setSelected(retry);
     setRecords((current) => current.filter((record) => plan.unchanged.has(record.item.localSessionId)));
     setRenewedReviewIds(plan.renewedReview);
@@ -648,12 +683,16 @@ export function ShareToHubDialog({
     replaceSelection(currentSelection);
     setRecords([]);
     setRenewedReviewIds(new Set());
+    setPriorResults([]);
   };
 
   const eligibility = destinationResult.state === 'ready' ? null : ELIGIBILITY_COPY[destinationResult.state];
   const route = result ? primarySuccessRoute(result) : null;
   const retryPlan = result ? planShareRetry(result) : null;
   const retryCount = retryPlan ? new Set([...retryPlan.unchanged, ...retryPlan.renewedReview]).size : 0;
+  const failedCount = result?.results.filter((item) => item.state === 'failed').length ?? 0;
+  const summary =
+    result == null ? null : shareBatchSummary(result, destination?.workspaceName ?? 'the workspace');
   const retryWait = Math.max(0, Math.ceil((retryReadyAt - clock) / 1000));
 
   return (
@@ -971,54 +1010,63 @@ export function ShareToHubDialog({
                   </div>
                 )}
                 <div
+                  data-testid="share-result-summary"
+                  role={failedCount > 0 ? 'alert' : 'status'}
                   className={
-                    result.state === 'succeeded'
+                    summary?.tone === 'success'
                       ? 'bg-success-bg text-success-fg rounded-lg border p-4'
                       : 'bg-warning-bg text-warning-fg rounded-lg border p-4'
                   }
                 >
                   <div className="flex items-center gap-2 font-semibold">
-                    {result.state === 'succeeded' ? (
+                    {summary?.tone === 'success' ? (
                       <CheckIcon className="size-4" />
                     ) : (
                       <AlertTriangleIcon className="size-4" />
                     )}
-                    {result.state === 'succeeded'
-                      ? fixtureMode
-                        ? 'Fixture share accepted'
-                        : 'Share accepted'
-                      : result.state === 'partial'
-                        ? fixtureMode
-                          ? 'Fixture batch partially accepted'
-                          : 'Share partially accepted'
-                        : 'Share failed'}
+                    {summary?.title}
                   </div>
-                  <p className="pt-2 text-sm">
-                    {result.state === 'failed'
-                      ? 'No complete revision was accepted. Resolve the failures before trying again.'
-                      : (privateNotice(result.results) ??
-                        'Accepted complete backups are visible through their stable Hub revision routes.')}
-                  </p>
+                  <p className="pt-2 text-sm">{summary?.detail}</p>
                 </div>
                 <div className="mt-3 rounded-lg border">
-                  {result.results.map((item) => (
+                  {result.results.map((item, index) => (
                     <div
                       key={item.localSessionId}
                       data-testid="complete-backup-result-item"
-                      className="flex items-center justify-between gap-3 border-b p-3 text-sm last:border-b-0"
+                      className="border-b p-3 text-sm last:border-b-0"
                     >
-                      <span className="min-w-0 truncate font-mono text-xs">{item.localSessionId}</span>
-                      {item.state === 'failed' ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate font-semibold">
+                          {resultLabels[item.localSessionId] ?? `Session ${index + 1}`}
+                        </span>
                         <Badge variant="secondary">
-                          {!item.error.retryable
-                            ? 'Cannot retry'
-                            : RETRY_RULES[item.error.code].renewedReview
-                              ? 'New review required'
-                              : 'Ready to retry'}
+                          {item.state === 'failed'
+                            ? !item.error.retryable
+                              ? 'Cannot retry'
+                              : RETRY_RULES[item.error.code].renewedReview
+                                ? 'New review required'
+                                : 'Same-key retry available'
+                            : item.state === 'private'
+                              ? 'Completed privately'
+                              : item.state === 'already_accepted'
+                                ? 'Already shared with workspace'
+                                : 'Shared with workspace'}
                         </Badge>
-                      ) : (
-                        <Badge variant="secondary">{item.state}</Badge>
-                      )}
+                      </div>
+                      {item.state === 'failed' ? (
+                        <div className="text-coslash-muted mt-2 space-y-1 text-xs">
+                          <p>{RETRY_RULES[item.error.code].reason}</p>
+                          <p>Next step: {RETRY_RULES[item.error.code].action}</p>
+                        </div>
+                      ) : item.state === 'private' ? (
+                        <div className="text-coslash-muted mt-2 space-y-1 text-xs">
+                          <p>{item.sharingNotice}</p>
+                          <p>
+                            This backup is not visible to members of {destination.workspaceName}. Open Hub to
+                            review it, then explicitly share it if you choose.
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -1066,7 +1114,7 @@ export function ShareToHubDialog({
               </Button>
             </>
           )}
-          {phase === 'result' && result?.state !== 'succeeded' && retryPlan != null && retryCount > 0 && (
+          {phase === 'result' && result && retryPlan != null && retryCount > 0 && (
             <Button onClick={retryFailed} disabled={retryWait > 0}>
               {retryWait > 0
                 ? `Retry in ${retryWait}s`
@@ -1075,10 +1123,10 @@ export function ShareToHubDialog({
                   : 'Retry failed with same key'}
             </Button>
           )}
-          {phase === 'result' && result?.state !== 'succeeded' && retryCount === 0 && (
+          {phase === 'result' && result && failedCount > 0 && retryCount === 0 && (
             <Button onClick={restartFailed}>Back to selection</Button>
           )}
-          {phase === 'result' && result?.state === 'succeeded' && (
+          {phase === 'result' && result && failedCount === 0 && (
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Done
             </Button>

@@ -2,6 +2,7 @@ import { isEligibleForSharing, isLocalSession, type Session } from '@/pages/cosl
 
 // C4 contract; provider fixtures live in coslash-server/testdata/hub-share-v1.
 export const HUB_SHARE_VERSION = 'hub-share/v1' as const;
+export const BACKUP_SHARE_VERSION = 'hub-share/v2' as const;
 export const MAX_SHARE_ITEMS = 100;
 
 export type EligibilityState =
@@ -91,7 +92,7 @@ export type ShareItemRequest = {
 };
 
 export type ShareRequest = {
-  contractVersion: typeof HUB_SHARE_VERSION;
+  contractVersion: typeof BACKUP_SHARE_VERSION;
   requestId: string;
   items: ShareItemRequest[];
 };
@@ -145,15 +146,23 @@ export type ShareItemResult =
   | {
       localSessionId: string;
       idempotencyKey: string;
+      state: 'private';
+      private: true;
+      deduplicated: boolean;
+      sharingNotice: string;
+    }
+  | {
+      localSessionId: string;
+      idempotencyKey: string;
       state: 'failed';
       deduplicated: false;
       error: ItemError;
     };
 
 export type ShareResult = {
-  contractVersion: typeof HUB_SHARE_VERSION;
+  contractVersion: typeof BACKUP_SHARE_VERSION;
   requestId: string;
-  state: 'succeeded' | 'partial' | 'failed';
+  state: 'succeeded' | 'partial' | 'failed' | 'private';
   results: ShareItemResult[];
 };
 
@@ -164,106 +173,217 @@ export const COMPLETE_BACKUP_SUPPORT_MESSAGE = 'Complete backup supports local a
 
 export const RETRY_RULES: Record<
   ShareError,
-  { renewedReview: boolean; refreshDestination?: boolean; action: string }
+  { renewedReview: boolean; refreshDestination?: boolean; reason: string; action: string }
 > = {
   invalid_share_request: {
     renewedReview: true,
+    reason: 'The selected sessions no longer match a valid share request.',
     action: 'Review the selected sessions again.',
   },
   complete_backup_unsupported: {
     renewedReview: true,
+    reason: 'This session source does not support complete backups.',
     action: 'Complete backup currently supports local and SSH Codex sessions only.',
   },
   incompatible_server: {
     renewedReview: true,
+    reason: 'The paired Hub does not support complete backups.',
     action: 'Update the Hub before sharing a complete backup.',
   },
   backup_manifest_invalid: {
     renewedReview: true,
+    reason: 'Hub could not validate the complete backup.',
     action: 'Rebuild and review the complete backup.',
   },
   stale_backup_review: {
     renewedReview: true,
+    reason: 'The backup, destination, audience, or capacity changed after review.',
     action: 'Review the current backup, destination, audience, and capacity again.',
   },
   backup_chunk_invalid: {
     renewedReview: true,
+    reason: 'A backup chunk did not match the reviewed complete backup.',
     action: 'Rebuild the frozen backup before retrying.',
   },
   backup_incomplete: {
     renewedReview: false,
+    reason: 'Hub is missing verified backup chunks.',
     action: 'Resume the missing verified chunks with the same upload identity.',
   },
   backup_capacity_exceeded: {
     renewedReview: true,
+    reason: 'The complete backup exceeds Hub capacity.',
     action: 'The Hub cannot accept this complete backup at its current capacity.',
   },
   backup_upload_expired: {
     renewedReview: true,
+    reason: 'The upload reservation expired before completion.',
     action: 'Build a fresh upload intent and review it again.',
   },
   backup_upload_aborted: {
     renewedReview: true,
+    reason: 'The upload was stopped before completion.',
     action: 'Build a fresh upload intent and review it again.',
   },
   not_found: {
     renewedReview: false,
+    reason: 'Hub no longer has the saved upload.',
     action: 'Retry with the frozen backup and original idempotency key.',
   },
   forbidden: {
     renewedReview: true,
     refreshDestination: true,
+    reason: 'This device no longer has permission to share with the workspace.',
     action: 'Restore workspace access and review the destination again.',
   },
   source_deleted: {
     renewedReview: false,
+    reason: 'The source session was deleted.',
     action: 'The source was deleted and cannot be shared.',
   },
   unauthorized: {
     renewedReview: false,
     refreshDestination: true,
+    reason: 'Hub sign-in or device pairing needs attention.',
     action: 'Sign in or pair again, then retry the unchanged selection.',
   },
   credential_dormant: {
     renewedReview: true,
     refreshDestination: true,
+    reason: 'The paired workspace is not active.',
     action: 'Select the paired workspace and review the destination again.',
   },
   credential_revoked: {
     renewedReview: true,
     refreshDestination: true,
+    reason: 'Hub revoked this device’s access.',
     action: 'Pair this device again before sharing.',
   },
   destination_changed: {
     renewedReview: true,
     refreshDestination: true,
+    reason: 'The paired workspace or its audience changed.',
     action: 'Review the current workspace destination and approve it again.',
   },
   idempotency_conflict: {
     renewedReview: true,
+    reason: 'This upload key is already tied to different reviewed content.',
     action: 'Stop retrying this key and build a new preview.',
   },
   rate_limited: {
     renewedReview: false,
+    reason: 'Hub is limiting upload requests temporarily.',
     action: 'Keep the selection and retry after the server delay.',
   },
   network_unavailable: {
     renewedReview: false,
+    reason: 'coSlash could not reach Hub.',
     action: 'Keep the selection and retry when the network returns.',
   },
   timeout: {
     renewedReview: false,
+    reason: 'The upload result took too long to confirm.',
     action: 'Check upload status with the same key before retrying.',
   },
   temporary_unavailable: {
     renewedReview: false,
+    reason: 'Local could not confirm the upload result with Hub.',
     action: 'Keep failed items selected and retry with their original keys.',
   },
   share_failed: {
     renewedReview: false,
+    reason: 'The share could not be completed.',
     action: 'Keep failed items selected and retry with their original keys.',
   },
 };
+
+export function shareBatchSummary(
+  result: ShareResult,
+  workspaceName: string,
+): { title: string; detail: string; tone: 'success' | 'warning' } {
+  const shared = result.results.filter(
+    (item) => item.state === 'accepted' || item.state === 'already_accepted',
+  ).length;
+  const privateCount = result.results.filter((item) => item.state === 'private').length;
+  const failures = result.results.filter((item) => item.state === 'failed');
+  const total = result.results.length;
+
+  if (total === 0) {
+    return {
+      title: 'No sessions selected',
+      detail: 'Return to selection and choose sessions to share.',
+      tone: 'warning',
+    };
+  }
+  if (shared === total) {
+    return {
+      title: 'Share accepted',
+      detail: `${shared} complete ${shared === 1 ? 'backup was' : 'backups were'} shared with ${workspaceName}.`,
+      tone: 'success',
+    };
+  }
+  if (privateCount === total) {
+    return {
+      title: 'Backup completed privately',
+      detail: `All ${total} ${total === 1 ? 'backup is' : 'backups are'} in My space and are not visible to ${workspaceName}. Open Hub to review and explicitly share them if you choose.`,
+      tone: 'warning',
+    };
+  }
+
+  const groupedFailures = new Map<ShareError, number>();
+  for (const item of failures) {
+    groupedFailures.set(item.error.code, (groupedFailures.get(item.error.code) ?? 0) + 1);
+  }
+  const repeatedCode = [...groupedFailures].find(([, count]) => count > 1)?.[0];
+  if (shared === 0 && privateCount === 0 && failures.length === total) {
+    const detail =
+      repeatedCode == null
+        ? `None of the ${total} selected sessions were shared with ${workspaceName}. See each item for its reason and next step.`
+        : `None of the ${total} selected sessions were shared with ${workspaceName}. ${RETRY_RULES[repeatedCode].reason} See each item for its next step.`;
+    return { title: 'Share failed', detail, tone: 'warning' };
+  }
+
+  const parts: string[] = [];
+  if (shared > 0) parts.push(`${shared} shared with ${workspaceName}`);
+  if (privateCount > 0) {
+    parts.push(`${privateCount} saved privately in My space and not visible to ${workspaceName}`);
+  }
+  if (failures.length > 0) {
+    parts.push(`${failures.length} failed ${failures.length === 1 ? 'item' : 'items'}`);
+  }
+  const repeatedReason =
+    repeatedCode == null ? '' : ` The failed items share this reason: ${RETRY_RULES[repeatedCode].reason}`;
+
+  return {
+    title: failures.length > 0 ? 'Share completed with failures' : 'Share completed with private backups',
+    detail: `${parts.join('; ')}.${repeatedReason} See each item for its next step.`,
+    tone: 'warning',
+  };
+}
+
+export function shareResultState(results: ShareItemResult[]): ShareResult['state'] {
+  if (results.length === 0) return 'failed';
+  const shared = results.filter(
+    (item) => item.state === 'accepted' || item.state === 'already_accepted',
+  ).length;
+  const privateCount = results.filter((item) => item.state === 'private').length;
+  const failed = results.filter((item) => item.state === 'failed').length;
+  if (shared === results.length) return 'succeeded';
+  if (privateCount === results.length) return 'private';
+  if (failed === results.length) return 'failed';
+  return 'partial';
+}
+
+export function mergeShareItemResults(
+  previous: ShareItemResult[],
+  latest: ShareItemResult[],
+): ShareItemResult[] {
+  const replacements = new Map(latest.map((item) => [item.localSessionId, item]));
+  const previousIds = new Set(previous.map((item) => item.localSessionId));
+  const merged = previous.map((item) => replacements.get(item.localSessionId) ?? item);
+  for (const [localSessionId, item] of replacements) if (!previousIds.has(localSessionId)) merged.push(item);
+  return merged;
+}
 
 export function localSessionId(session: Pick<Session, 'sourceId' | 'agent' | 'id'>): string {
   // The opaque source ID is part of the local orchestration identity only. It
@@ -451,7 +571,7 @@ export function planShareRetry(result: ShareResult): {
 export function primarySuccessRoute(result: ShareResult): RouteHandoff | null {
   const success = result.results.find(
     (item): item is Extract<ShareItemResult, { state: 'accepted' | 'already_accepted' }> =>
-      item.state !== 'failed' &&
+      (item.state === 'accepted' || item.state === 'already_accepted') &&
       item.route.repositoryId.length > 0 &&
       isCanonicalBackupRoute(item.revisionId, item.route.path),
   );

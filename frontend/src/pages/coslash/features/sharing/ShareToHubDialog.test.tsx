@@ -205,14 +205,18 @@ function textContent(value: unknown): string {
 }
 
 function findUploadButton(root: unknown): Record<string, unknown> | null {
+  return findButton(root, 'Approve and upload') ?? findButton(root, 'Exercise fixture result');
+}
+
+function findButton(root: unknown, label: string): Record<string, unknown> | null {
   const props = elementProps(root);
   if (!props) return null;
-  if (typeof props.onClick === 'function' && textContent(props.children).includes('Approve and upload')) {
+  if (typeof props.onClick === 'function' && textContent(props.children).includes(label)) {
     return props;
   }
   const children = Array.isArray(props.children) ? props.children : [props.children];
   for (const child of children) {
-    const found = findUploadButton(child);
+    const found = findButton(child, label);
     if (found) return found;
   }
   return null;
@@ -269,7 +273,7 @@ describe('complete backup sharing presentation', () => {
     const retry = reviewRecord(candidate('retry'), 'original-key-retry-0001');
     const renew = reviewRecord(candidate('renew'), 'original-key-renew-0001');
     const result: ShareResult = {
-      contractVersion: 'hub-share/v1',
+      contractVersion: 'hub-share/v2',
       requestId: 'request-1',
       state: 'partial',
       results: [
@@ -318,6 +322,170 @@ describe('complete backup sharing presentation', () => {
     ).toBe(0);
   });
 
+  it('removes privately completed items from the retry draft', () => {
+    const record = reviewRecord(candidate('private-id'), 'original-private-key-0001');
+    const result: ShareItemResult = {
+      localSessionId: record.item.localSessionId,
+      idempotencyKey: record.item.idempotencyKey,
+      state: 'private',
+      private: true,
+      deduplicated: true,
+      sharingNotice: 'This backup is private in My space.',
+    };
+    expect(updateRetryDraft({ records: [record], renewedReviewIds: new Set() }, result).records).toEqual([]);
+  });
+
+  it('clearly labels private completion and never renders the local session ID', async () => {
+    installStorage();
+    const value = candidate('opaque-private-id');
+    value.session.name = 'Quarterly planning';
+    const record = reviewRecord(value, 'private-fixture-key-0001');
+    storeDraft([record], true);
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      candidates: [value],
+      candidatesLoading: false,
+      candidatesError: null,
+      window: 'all' as const,
+      onWindowChange: vi.fn(),
+      destinationResult: {
+        contractVersion: 'hub-share/v1' as const,
+        configured: true,
+        state: 'ready' as const,
+        destination,
+      },
+      onOpenSettings: vi.fn(),
+      onDestinationRefresh: vi.fn(),
+      fixtureMode: true,
+      fixtureOutcome: 'private' as const,
+    };
+    hooks.reset();
+    hooks.render(ShareToHubDialog, props);
+    const beforeSubmit = hooks.render(ShareToHubDialog, props);
+    const approve = findUploadButton(beforeSubmit);
+    expect(approve).not.toBeNull();
+    if (!approve) throw new Error('Fixture approval button was not rendered.');
+    await (approve.onClick as () => Promise<void>)();
+    const rendered = hooks.render(ShareToHubDialog, props);
+    const text = textContent(rendered);
+    expect(text).toContain('Backup completed privately');
+    expect(text).toContain('Quarterly planning');
+    expect(text).toContain('not visible to members of Compiler Team');
+    expect(text).toContain('explicitly share it if you choose');
+    expect(text).not.toContain('opaque-private-id');
+    expect(text).not.toContain(record.item.localSessionId);
+  });
+
+  it('preserves prior accepted items when the failed item succeeds on same-key retry', async () => {
+    installStorage();
+    const first = candidate('opaque-accepted-id');
+    const retry = candidate('opaque-retry-id');
+    first.session.name = 'Accepted notes';
+    retry.session.name = 'Retry notes';
+    storeDraft(
+      [reviewRecord(first, 'fixture-accepted-key-0001'), reviewRecord(retry, 'fixture-retry-key-0001')],
+      true,
+    );
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      candidates: [first, retry],
+      candidatesLoading: false,
+      candidatesError: null,
+      window: 'all' as const,
+      onWindowChange: vi.fn(),
+      destinationResult: {
+        contractVersion: 'hub-share/v1' as const,
+        configured: true,
+        state: 'ready' as const,
+        destination,
+      },
+      onOpenSettings: vi.fn(),
+      onDestinationRefresh: vi.fn(),
+      fixtureMode: true,
+      fixtureOutcome: 'partial' as const,
+    };
+    hooks.reset();
+    hooks.render(ShareToHubDialog, props);
+    let rendered = hooks.render(ShareToHubDialog, props);
+    const approve = findUploadButton(rendered);
+    expect(approve).not.toBeNull();
+    if (!approve) throw new Error('Fixture approval button was not rendered.');
+    await (approve.onClick as () => Promise<void>)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    expect(textContent(rendered)).toContain('1 shared with Compiler Team');
+    expect(textContent(rendered)).toContain('1 failed item');
+
+    const retryButton = findButton(rendered, 'Retry failed with same key');
+    expect(retryButton).not.toBeNull();
+    if (!retryButton) throw new Error('Same-key retry button was not rendered.');
+    await (retryButton.onClick as () => Promise<void>)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    const retryApproval = findUploadButton(rendered);
+    expect(retryApproval).not.toBeNull();
+    if (!retryApproval) throw new Error('Retry approval button was not rendered.');
+    await (retryApproval.onClick as () => Promise<void>)();
+
+    const finalText = textContent(hooks.render(ShareToHubDialog, props));
+    expect(finalText).toContain('Share accepted');
+    expect(finalText).toContain('2 complete backups were shared with Compiler Team.');
+    expect(finalText).toContain('Accepted notes');
+    expect(finalText).toContain('Retry notes');
+    expect(finalText).not.toContain('opaque-accepted-id');
+    expect(finalText).not.toContain('opaque-retry-id');
+    expect(api.submitHubShare).not.toHaveBeenCalled();
+  });
+
+  it('explains identical retryable failures and shows same-key recovery by readable name', async () => {
+    installStorage();
+    const first = candidate('opaque-failure-one');
+    const second = candidate('opaque-failure-two');
+    first.session.name = 'Planning notes';
+    second.session.name = 'Review notes';
+    const records = [
+      reviewRecord(first, 'retry-fixture-key-one-0001'),
+      reviewRecord(second, 'retry-fixture-key-two-0001'),
+    ];
+    storeDraft(records, true);
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      candidates: [first, second],
+      candidatesLoading: false,
+      candidatesError: null,
+      window: 'all' as const,
+      onWindowChange: vi.fn(),
+      destinationResult: {
+        contractVersion: 'hub-share/v1' as const,
+        configured: true,
+        state: 'ready' as const,
+        destination,
+      },
+      onOpenSettings: vi.fn(),
+      onDestinationRefresh: vi.fn(),
+      fixtureMode: true,
+      fixtureOutcome: 'failed' as const,
+    };
+    hooks.reset();
+    hooks.render(ShareToHubDialog, props);
+    const beforeSubmit = hooks.render(ShareToHubDialog, props);
+    const approve = findUploadButton(beforeSubmit);
+    expect(approve).not.toBeNull();
+    if (!approve) throw new Error('Fixture approval button was not rendered.');
+    await (approve.onClick as () => Promise<void>)();
+    const rendered = hooks.render(ShareToHubDialog, props);
+    const text = textContent(rendered);
+    expect(text).toContain('None of the 2 selected sessions were shared with Compiler Team');
+    expect(text).toContain('Local could not confirm the upload result with Hub.');
+    expect(text).toContain('Keep failed items selected and retry with their original keys.');
+    expect(text).toContain('Planning notes');
+    expect(text).toContain('Review notes');
+    expect(text).toContain('Same-key retry available');
+    expect(text).not.toContain('opaque-failure-one');
+    expect(text).not.toContain('opaque-failure-two');
+  });
+
   it('ignores an upload response completed after the dialog closes and reopens', async () => {
     const values = installStorage();
     const value = candidate('stale-attempt');
@@ -363,7 +531,7 @@ describe('complete backup sharing presentation', () => {
     expect(textContent(rendered)).toContain('Review binds each complete-backup hash');
 
     resolveUpload({
-      contractVersion: 'hub-share/v1',
+      contractVersion: 'hub-share/v2',
       requestId: 'stale-request',
       state: 'succeeded',
       results: [accepted(record)],

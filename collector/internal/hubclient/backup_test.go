@@ -227,8 +227,8 @@ func TestShareBackupsUploadsCompleteBundleWithDestinationAssertions(t *testing.T
 			},
 		}},
 	})
-	if err != nil || result.State != "succeeded" || len(result.Results) != 1 || result.Results[0].State != "accepted" ||
-		result.Results[0].Route == nil || result.Results[0].Route.Path != "/v3/session-backups/"+backupRevision {
+	if err != nil || result.State != "private" || len(result.Results) != 1 || result.Results[0].State != "private" ||
+		result.Results[0].RevisionID != "" || result.Results[0].Route != nil {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
 	if item := result.Results[0]; !item.Private || item.SharingNotice != "This backup is private in My space. Share it from coSlash Hub when you are ready." {
@@ -309,6 +309,7 @@ func TestCompletedBackupRetryDoesNotRequireDiscardedSpool(t *testing.T) {
 					RevisionID: backupRevision, CompleteBackupSHA256: prepared.BundleID,
 					RepositoryID: "40000000-0000-4000-8000-000000000001", SharedAt: time.Date(2026, 9, 22, 20, 0, 0, 0, time.UTC),
 					RevisionURL: "/v3/session-backups/" + backupRevision,
+					Private:     true, SharingNotice: "This backup is private in My space. Share it from coSlash Hub when you are ready.",
 				},
 			})
 		case strings.HasPrefix(r.URL.Path, "/v3/backup-uploads"):
@@ -339,7 +340,8 @@ func TestCompletedBackupRetryDoesNotRequireDiscardedSpool(t *testing.T) {
 			},
 		}},
 	})
-	if err != nil || result.State != "succeeded" || result.Results[0].State != "already_accepted" ||
+	if err != nil || result.State != "private" || result.Results[0].State != "private" ||
+		!result.Results[0].Private || result.Results[0].SharingNotice == "" ||
 		!result.Results[0].Deduplicated || statusRequests != 1 || uploadRequests != 0 {
 		t.Fatalf("result=%#v status=%d uploads=%d err=%v", result, statusRequests, uploadRequests, err)
 	}
@@ -444,6 +446,78 @@ func TestCompletedBackupResultRequiresCanonicalRevisionRoute(t *testing.T) {
 	valid.RevisionURL = "https://evil.example/v3/session-backups/" + backupRevision
 	if validCompletedBackupResult(&valid, consent) {
 		t.Fatal("absolute result URL was accepted")
+	}
+}
+
+func TestBackupStatusDecodesPrivateAndLegacyCompletedFixtures(t *testing.T) {
+	tests := []struct {
+		name          string
+		fixture       string
+		private       bool
+		sharingNotice string
+	}{
+		{name: "private result", fixture: "backup-status-private.json", private: true,
+			sharingNotice: "This backup is private in My space. Share it from coSlash Hub when you are ready."},
+		{name: "legacy result without optional fields", fixture: "backup-status-legacy.json"},
+	}
+	consent := BackupConsent{CompleteBackupSHA256: strings.Repeat("a", 64)}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join("testdata", test.fixture))
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(body)
+			}))
+			t.Cleanup(server.Close)
+			request, err := http.NewRequest(http.MethodGet, server.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			status, _, err := (&Client{HTTP: server.Client()}).doBackupStatus(request, http.StatusOK)
+			if err != nil || status.State != "completed" || status.Result == nil {
+				t.Fatalf("status=%#v err=%v", status, err)
+			}
+			if status.Result.Private != test.private || status.Result.SharingNotice != test.sharingNotice {
+				t.Fatalf("private metadata = (%t, %q)", status.Result.Private, status.Result.SharingNotice)
+			}
+			if !validCompletedBackupResult(status.Result, consent) {
+				t.Fatal("completed fixture failed its consent and privacy checks")
+			}
+		})
+	}
+}
+
+func TestBackupStatusStillRejectsUnknownAndMalformedPrivateFields(t *testing.T) {
+	fixture, err := os.ReadFile(filepath.Join("testdata", "backup-status-private.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := strings.Replace(string(fixture), `"private": true,`, `"private": true, "futureField": true,`, 1)
+	malformed := strings.Replace(string(fixture), `"private": true,`, `"private": "yes",`, 1)
+	emptyNotice := strings.Replace(string(fixture), `"sharingNotice": "This backup is private in My space. Share it from coSlash Hub when you are ready."`, `"sharingNotice": ""`, 1)
+	for _, test := range []struct{ name, body string }{
+		{name: "unrelated unknown field", body: unknown},
+		{name: "malformed private flag", body: malformed},
+		{name: "missing private notice", body: emptyNotice},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, test.body)
+			}))
+			t.Cleanup(server.Close)
+			request, err := http.NewRequest(http.MethodGet, server.URL, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, problem, err := (&Client{HTTP: server.Client()}).doBackupStatus(request, http.StatusOK)
+			if err == nil || problem.Code != "temporary_unavailable" {
+				t.Fatalf("problem=%#v err=%v", problem, err)
+			}
+		})
 	}
 }
 
