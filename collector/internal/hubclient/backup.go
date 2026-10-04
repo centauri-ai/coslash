@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/centauri-ai/coslash/collector/internal/sessionbackupproducer"
 	sessionbackupv1 "github.com/centauri-ai/coslash/collector/sessionbackup/v1"
@@ -22,7 +23,7 @@ import (
 
 const (
 	BackupPreviewVersion  = "backup-preview/v1"
-	BackupShareVersion    = "hub-share/v1"
+	BackupShareVersion    = "hub-share/v2"
 	backupUploadVersion   = "backup-upload/v1"
 	backupTimeout         = 30 * time.Minute
 	backupWorkspaceHeader = "Coslash-Destination-Workspace-Id"
@@ -283,6 +284,13 @@ func failedBackup(item BackupShareItemRequest, code string, retryable bool, retr
 
 func acceptedBackup(item BackupShareItemRequest, status backupUploadStatus, alreadyAccepted bool) BackupShareItemResult {
 	result := status.Result
+	if result.Private {
+		return BackupShareItemResult{
+			LocalSessionID: item.LocalSessionID, IdempotencyKey: item.IdempotencyKey,
+			State: "private", Private: true, SharingNotice: result.SharingNotice,
+			Deduplicated: alreadyAccepted,
+		}
+	}
 	state := "accepted"
 	if alreadyAccepted {
 		state = "already_accepted"
@@ -307,10 +315,23 @@ func boundedNotice(notice string) string {
 
 func validCompletedBackupResult(result *backupUploadResult, consent BackupConsent) bool {
 	if result == nil || result.RevisionID == "" || result.RepositoryID == "" || result.SharedAt.IsZero() ||
-		result.CompleteBackupSHA256 != consent.CompleteBackupSHA256 {
+		result.CompleteBackupSHA256 != consent.CompleteBackupSHA256 || !validBackupSharingMetadata(result) {
 		return false
 	}
 	return result.RevisionURL == "/v3/session-backups/"+url.PathEscape(result.RevisionID)
+}
+
+func validBackupSharingMetadata(result *backupUploadResult) bool {
+	if result == nil {
+		return true
+	}
+	if len(result.SharingNotice) > 512 {
+		return false
+	}
+	if !result.Private {
+		return true
+	}
+	return strings.TrimSpace(result.SharingNotice) != "" && strings.IndexFunc(result.SharingNotice, unicode.IsControl) < 0
 }
 
 func validBackupShareItem(item BackupShareItemRequest) bool {
@@ -358,19 +379,28 @@ func (c *Client) ShareBackups(ctx context.Context, request BackupShareRequest) (
 	}
 	shareContext, cancel := context.WithTimeout(ctx, backupTimeout)
 	defer cancel()
-	accepted := 0
+	completed := 0
+	shared := 0
+	private := 0
 	for _, item := range request.Items {
 		itemResult, _ := c.shareBackupItem(shareContext, credential, item)
 		if itemResult.State != "failed" {
-			accepted++
+			completed++
+			if itemResult.State == "private" {
+				private++
+			} else {
+				shared++
+			}
 			_ = c.Backup.Discard(item.Consent.BundleID)
 		}
 		result.Results = append(result.Results, itemResult)
 	}
 	switch {
-	case accepted == len(request.Items):
+	case shared == len(request.Items):
 		result.State = "succeeded"
-	case accepted == 0:
+	case private == len(request.Items):
+		result.State = "private"
+	case completed == 0:
 		result.State = "failed"
 	default:
 		result.State = "partial"
@@ -709,7 +739,8 @@ func (c *Client) doBackupStatus(request *http.Request, accepted ...int) (backupU
 		return backupUploadStatus{}, problem, fmt.Errorf("backup request failed (status %d, code %.200q)", response.StatusCode, problem.Code)
 	}
 	var status backupUploadStatus
-	if err := decodeBounded(response.Body, &status); err != nil || status.UploadID == "" || status.CompleteBackupSHA256 == "" {
+	if err := decodeBounded(response.Body, &status); err != nil || status.UploadID == "" ||
+		status.CompleteBackupSHA256 == "" || !validBackupSharingMetadata(status.Result) {
 		return backupUploadStatus{}, Problem{Code: "temporary_unavailable"}, errors.New("decode backup upload status")
 	}
 	return status, Problem{}, nil

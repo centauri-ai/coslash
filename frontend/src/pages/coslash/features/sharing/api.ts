@@ -1,10 +1,13 @@
 import { apiFetch } from '@/pages/coslash/lib/api';
 import {
+  BACKUP_SHARE_VERSION,
   isCanonicalBackupRoute,
   RETRY_RULES,
+  shareResultState,
   type BackupPreview,
   type BackupSelection,
   type DestinationResult,
+  type ShareItemResult,
   type ShareRequest,
   type ShareResult,
 } from './model';
@@ -27,6 +30,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isOptionalString(value: unknown): boolean {
   return value == null || typeof value === 'string';
+}
+
+function isSharingNotice(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > 512) return false;
+  const hasControlCharacters = Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f);
+  });
+  return !hasControlCharacters;
 }
 
 function isHubDestination(value: unknown): value is DestinationResult {
@@ -68,48 +80,53 @@ function isPairingResult(value: unknown): value is PairingResult {
   );
 }
 
+function isShareItemResult(item: unknown): item is ShareItemResult {
+  if (!isRecord(item) || typeof item.localSessionId !== 'string' || typeof item.idempotencyKey !== 'string') {
+    return false;
+  }
+  if (item.state === 'failed') {
+    return (
+      item.deduplicated === false &&
+      isRecord(item.error) &&
+      typeof item.error.code === 'string' &&
+      Object.hasOwn(RETRY_RULES, item.error.code) &&
+      typeof item.error.retryable === 'boolean'
+    );
+  }
+  if (item.state === 'private') {
+    return (
+      item.private === true && typeof item.deduplicated === 'boolean' && isSharingNotice(item.sharingNotice)
+    );
+  }
+  return (
+    (item.state === 'accepted' || item.state === 'already_accepted') &&
+    (item.private == null || item.private === false) &&
+    item.sharingNotice == null &&
+    typeof item.revisionId === 'string' &&
+    item.revisionId.length > 0 &&
+    typeof item.deduplicated === 'boolean' &&
+    typeof item.sharedAt === 'string' &&
+    isRecord(item.route) &&
+    item.route.hubContractVersion === 'session-backup-read/v1' &&
+    typeof item.route.repositoryId === 'string' &&
+    item.route.repositoryId.length > 0 &&
+    typeof item.route.path === 'string' &&
+    isCanonicalBackupRoute(item.revisionId, item.route.path)
+  );
+}
+
 function isShareResult(value: unknown): value is ShareResult {
   if (
     !isRecord(value) ||
-    value.contractVersion !== 'hub-share/v1' ||
+    value.contractVersion !== BACKUP_SHARE_VERSION ||
     typeof value.requestId !== 'string' ||
-    !['succeeded', 'partial', 'failed'].includes(String(value.state)) ||
+    !['succeeded', 'partial', 'failed', 'private'].includes(String(value.state)) ||
     !Array.isArray(value.results)
   ) {
     return false;
   }
-  return value.results.every((item) => {
-    if (
-      !isRecord(item) ||
-      typeof item.localSessionId !== 'string' ||
-      typeof item.idempotencyKey !== 'string'
-    ) {
-      return false;
-    }
-    if (item.state === 'failed') {
-      return (
-        isRecord(item.error) &&
-        typeof item.error.code === 'string' &&
-        Object.hasOwn(RETRY_RULES, item.error.code) &&
-        typeof item.error.retryable === 'boolean'
-      );
-    }
-    return (
-      (item.state === 'accepted' || item.state === 'already_accepted') &&
-      typeof item.revisionId === 'string' &&
-      item.revisionId.length > 0 &&
-      typeof item.deduplicated === 'boolean' &&
-      typeof item.sharedAt === 'string' &&
-      isRecord(item.route) &&
-      item.route.hubContractVersion === 'session-backup-read/v1' &&
-      typeof item.route.repositoryId === 'string' &&
-      item.route.repositoryId.length > 0 &&
-      typeof item.route.path === 'string' &&
-      isCanonicalBackupRoute(item.revisionId, item.route.path) &&
-      (item.private === undefined || typeof item.private === 'boolean') &&
-      (item.sharingNotice === undefined || typeof item.sharingNotice === 'string')
-    );
-  });
+  if (!value.results.every(isShareItemResult)) return false;
+  return value.results.length === 0 || value.state === shareResultState(value.results);
 }
 
 function isBackupPreview(value: unknown): value is BackupPreview {
