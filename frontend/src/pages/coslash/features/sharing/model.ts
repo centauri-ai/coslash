@@ -300,13 +300,27 @@ export const RETRY_RULES: Record<
 export function shareBatchSummary(
   result: ShareResult,
   workspaceName: string,
+  workspaceNamesByItem: Readonly<Record<string, string>> = {},
 ): { title: string; detail: string; tone: 'success' | 'warning' } {
-  const shared = result.results.filter(
+  const sharedItems = result.results.filter(
     (item) => item.state === 'accepted' || item.state === 'already_accepted',
-  ).length;
+  );
+  const shared = sharedItems.length;
   const privateCount = result.results.filter((item) => item.state === 'private').length;
   const failures = result.results.filter((item) => item.state === 'failed');
   const total = result.results.length;
+  const resultWorkspaces = new Set(
+    result.results.map((item) => workspaceNamesByItem[item.localSessionId] ?? workspaceName),
+  );
+  const onlyResultWorkspace =
+    resultWorkspaces.size === 1 ? resultWorkspaces.values().next().value : undefined;
+  const sharedByWorkspace = new Map<string, number>();
+  for (const item of sharedItems) {
+    const itemWorkspaceName = workspaceNamesByItem[item.localSessionId] ?? workspaceName;
+    sharedByWorkspace.set(itemWorkspaceName, (sharedByWorkspace.get(itemWorkspaceName) ?? 0) + 1);
+  }
+  const sharedWorkspaces = [...sharedByWorkspace];
+  const sharedDetails = [...sharedByWorkspace].map(([name, count]) => `${count} shared with ${name}`);
 
   if (total === 0) {
     return {
@@ -316,16 +330,23 @@ export function shareBatchSummary(
     };
   }
   if (shared === total) {
+    const detail =
+      sharedDetails.length === 1
+        ? `${shared} complete ${shared === 1 ? 'backup was' : 'backups were'} shared with ${sharedWorkspaces[0][0]}.`
+        : `${shared} complete backups were shared across workspaces: ${sharedDetails.join('; ')}.`;
     return {
       title: 'Share accepted',
-      detail: `${shared} complete ${shared === 1 ? 'backup was' : 'backups were'} shared with ${workspaceName}.`,
+      detail,
       tone: 'success',
     };
   }
   if (privateCount === total) {
     return {
       title: 'Backup completed privately',
-      detail: `All ${total} ${total === 1 ? 'backup is' : 'backups are'} in My space and are not visible to ${workspaceName}. Open Hub to review and explicitly share them if you choose.`,
+      detail:
+        onlyResultWorkspace == null
+          ? `All ${total} ${total === 1 ? 'backup is' : 'backups are'} saved privately in My space and are not shared with any workspace. Open Hub to review and explicitly share them if you choose.`
+          : `All ${total} ${total === 1 ? 'backup is' : 'backups are'} in My space and are not visible to ${onlyResultWorkspace}. Open Hub to review and explicitly share them if you choose.`,
       tone: 'warning',
     };
   }
@@ -336,17 +357,22 @@ export function shareBatchSummary(
   }
   const repeatedCode = [...groupedFailures].find(([, count]) => count > 1)?.[0];
   if (shared === 0 && privateCount === 0 && failures.length === total) {
+    const destinationDetail = onlyResultWorkspace == null ? '' : ` with ${onlyResultWorkspace}`;
     const detail =
       repeatedCode == null
-        ? `None of the ${total} selected sessions were shared with ${workspaceName}. See each item for its reason and next step.`
-        : `None of the ${total} selected sessions were shared with ${workspaceName}. ${RETRY_RULES[repeatedCode].reason} See each item for its next step.`;
+        ? `None of the ${total} selected sessions were shared${destinationDetail}. See each item for its reason and next step.`
+        : `None of the ${total} selected sessions were shared${destinationDetail}. ${RETRY_RULES[repeatedCode].reason} See each item for its next step.`;
     return { title: 'Share failed', detail, tone: 'warning' };
   }
 
   const parts: string[] = [];
-  if (shared > 0) parts.push(`${shared} shared with ${workspaceName}`);
+  if (shared > 0) parts.push(...sharedDetails);
   if (privateCount > 0) {
-    parts.push(`${privateCount} saved privately in My space and not visible to ${workspaceName}`);
+    parts.push(
+      onlyResultWorkspace == null
+        ? `${privateCount} saved privately in My space and not shared with any workspace`
+        : `${privateCount} saved privately in My space and not visible to ${onlyResultWorkspace}`,
+    );
   }
   if (failures.length > 0) {
     parts.push(`${failures.length} failed ${failures.length === 1 ? 'item' : 'items'}`);
@@ -382,6 +408,16 @@ export function mergeShareItemResults(
   const previousIds = new Set(previous.map((item) => item.localSessionId));
   const merged = previous.map((item) => replacements.get(item.localSessionId) ?? item);
   for (const [localSessionId, item] of replacements) if (!previousIds.has(localSessionId)) merged.push(item);
+  return merged;
+}
+
+export function mergeShareItemWorkspaceNames(
+  previous: Readonly<Record<string, string>>,
+  latest: ShareItemResult[],
+  workspaceName: string,
+): Record<string, string> {
+  const merged = { ...previous };
+  for (const item of latest) merged[item.localSessionId] = workspaceName;
   return merged;
 }
 
