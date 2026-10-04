@@ -90,6 +90,7 @@ const api = vi.hoisted(() => ({
   beginHubPairing: vi.fn(),
   pollHubPairing: vi.fn(),
   prepareBackup: vi.fn(),
+  shareSynthesisStatus: vi.fn(),
   submitHubShare: vi.fn(),
 }));
 
@@ -138,6 +139,7 @@ function reviewRecord(value: ShareCandidate, key: string): ReviewRecord {
     selection: backupSelection(value.session),
     bundleId: hash,
     sourceRevision: `source-${value.session.id}`,
+    synthesisRevision: 123,
     coverage: { artifactCount: 1, artifactCounts: [], totalBytes: 10, revisionSha256: hash, problems: [] },
     capability: {
       serverId: 'server-v3',
@@ -285,7 +287,10 @@ function findActionButton(root: unknown, label: string): Record<string, unknown>
 describe('complete backup sharing presentation', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    api.prepareBackup.mockReset();
+    api.shareSynthesisStatus.mockReset();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it('discloses unredacted secret-bearing content and team visibility', () => {
@@ -616,6 +621,7 @@ describe('complete backup sharing presentation', () => {
   it('ignores a backup preview that finishes after the dialog closes', async () => {
     installStorage();
     const value = candidate('stale-preview');
+    value.session.sourceId = 'remote-one';
     let resolvePreview = (_preview: BackupPreview) => {};
     api.prepareBackup.mockReturnValue(
       new Promise<BackupPreview>((resolve) => {
@@ -633,7 +639,7 @@ describe('complete backup sharing presentation', () => {
     const reviewButton = findActionButton(rendered, 'See what gets shared');
     expect(reviewButton).not.toBeNull();
     const completion = (reviewButton!.onClick as () => Promise<void>)();
-    expect(api.prepareBackup).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(api.prepareBackup).toHaveBeenCalledOnce());
 
     const rootProps = elementProps(rendered);
     (rootProps!.onOpenChange as (open: boolean) => void)(false);
@@ -644,6 +650,136 @@ describe('complete backup sharing presentation', () => {
     rendered = hooks.render(ShareToHubDialog, props);
 
     expect(textContent(rendered)).not.toContain('Review binds each complete-backup hash');
+  });
+
+  it('reuses a current local debrief and reviews the matching synthesis artifact', async () => {
+    installStorage();
+    const value = candidate('debrief-reuse');
+    const synthesis = {
+      goals: ['First goal', 'Second goal'],
+      outcome: 'Done',
+      keyDecisions: ['Keep order'],
+      nextStep: 'Measure',
+    };
+    api.shareSynthesisStatus.mockResolvedValue({
+      state: 'ready',
+      revision: 123,
+      generatedAt: 100,
+      model: 'test-model',
+      synthesis,
+    });
+    api.prepareBackup.mockResolvedValue({
+      ...reviewRecord(value, 'preview-key-00000001').preview,
+      synthesisRevision: 123,
+    });
+    const props = shareDialogProps({ candidates: [value], window: 'all' });
+    hooks.reset();
+    let rendered = hooks.render(ShareToHubDialog, props);
+    (findInput(rendered, 'checkbox')!.onChange as () => void)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    expect(textContent(rendered)).toContain('may consume your selected CLI account’s usage');
+    await (findActionButton(rendered, 'See what gets shared')!.onClick as () => Promise<void>)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    expect(textContent(rendered)).toContain('Local AI debrief included');
+    expect(textContent(rendered)).toContain('First goalSecond goal');
+    expect(textContent(rendered)).toContain('Next step: Measure');
+    expect(api.shareSynthesisStatus).toHaveBeenCalledTimes(2);
+    expect(api.prepareBackup).toHaveBeenCalledOnce();
+    expect(api.submitHubShare).not.toHaveBeenCalled();
+  });
+
+  it('waits for generation and never previews a backup without the current debrief', async () => {
+    installStorage();
+    vi.useFakeTimers();
+    const value = candidate('debrief-pending');
+    const synthesis = { goals: ['Goal'], outcome: 'Done', keyDecisions: [], nextStep: 'Next' };
+    api.shareSynthesisStatus.mockResolvedValueOnce({ state: 'pending', revision: 123 });
+    api.shareSynthesisStatus.mockResolvedValue({
+      state: 'ready',
+      revision: 123,
+      generatedAt: 100,
+      synthesis,
+    });
+    api.prepareBackup.mockResolvedValue({
+      ...reviewRecord(value, 'preview-key-00000001').preview,
+      synthesisRevision: 0,
+    });
+    const onLocalSynthesisReady = vi.fn();
+    const props = shareDialogProps({ candidates: [value], window: 'all', onLocalSynthesisReady });
+    hooks.reset();
+    let rendered = hooks.render(ShareToHubDialog, props);
+    (findInput(rendered, 'checkbox')!.onChange as () => void)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    const completion = (findActionButton(rendered, 'See what gets shared')!.onClick as () => Promise<void>)();
+    await Promise.resolve();
+    expect(api.prepareBackup).not.toHaveBeenCalled();
+    rendered = hooks.render(ShareToHubDialog, props);
+    expect(textContent(rendered)).toContain('Generating local debrief');
+    await vi.advanceTimersByTimeAsync(1000);
+    await completion;
+    rendered = hooks.render(ShareToHubDialog, props);
+    expect(onLocalSynthesisReady).toHaveBeenCalledOnce();
+    expect(textContent(rendered)).toContain('no longer contains this revision’s Local AI debrief');
+    expect(api.submitHubShare).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the Local view before reviewing a generated debrief', async () => {
+    installStorage();
+    vi.useFakeTimers();
+    const value = candidate('debrief-generated');
+    const synthesis = {
+      goals: ['First', 'Second'],
+      outcome: 'Done',
+      keyDecisions: ['Keep order'],
+      nextStep: 'Ship',
+    };
+    api.shareSynthesisStatus.mockResolvedValueOnce({ state: 'pending', revision: 123 });
+    api.shareSynthesisStatus.mockResolvedValue({
+      state: 'ready',
+      revision: 123,
+      generatedAt: 100,
+      synthesis,
+    });
+    api.prepareBackup.mockResolvedValue({
+      ...reviewRecord(value, 'preview-key-00000001').preview,
+      synthesisRevision: 123,
+    });
+    const onLocalSynthesisReady = vi.fn().mockResolvedValue([{ ...value.session, synthesis }]);
+    const props = shareDialogProps({ candidates: [value], window: 'all', onLocalSynthesisReady });
+    hooks.reset();
+    let rendered = hooks.render(ShareToHubDialog, props);
+    (findInput(rendered, 'checkbox')!.onChange as () => void)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    const completion = (findActionButton(rendered, 'See what gets shared')!.onClick as () => Promise<void>)();
+    await Promise.resolve();
+    expect(api.prepareBackup).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    await completion;
+    rendered = hooks.render(ShareToHubDialog, {
+      ...props,
+      candidates: [{ ...value, session: { ...value.session, synthesis } }],
+    });
+    expect(onLocalSynthesisReady).toHaveBeenCalledOnce();
+    expect(api.prepareBackup).toHaveBeenCalledOnce();
+    expect(textContent(rendered)).toContain('Local AI debrief included');
+    expect(textContent(rendered)).toContain('FirstSecond');
+    expect(api.submitHubShare).not.toHaveBeenCalled();
+  });
+
+  it('keeps the selection and reports synthesis consent failures before backup capture', async () => {
+    installStorage();
+    const value = candidate('debrief-consent');
+    api.shareSynthesisStatus.mockResolvedValue({ state: 'consent_required', revision: 123 });
+    const props = shareDialogProps({ candidates: [value], window: 'all' });
+    hooks.reset();
+    let rendered = hooks.render(ShareToHubDialog, props);
+    (findInput(rendered, 'checkbox')!.onChange as () => void)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    await (findActionButton(rendered, 'See what gets shared')!.onClick as () => Promise<void>)();
+    rendered = hooks.render(ShareToHubDialog, props);
+    expect(textContent(rendered)).toContain('needs first-run consent in Settings');
+    expect(textContent(rendered)).toContain('1 / 100 selected');
+    expect(api.prepareBackup).not.toHaveBeenCalled();
   });
 
   it('ignores an upload response completed after the dialog closes and reopens', async () => {
