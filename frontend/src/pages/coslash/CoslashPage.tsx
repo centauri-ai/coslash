@@ -401,6 +401,8 @@ export function CoslashPage() {
           candidates={shareCandidates}
           candidatesLoading={!shareFixtureEnabled && shareCandidateResult.isLoading}
           candidatesError={shareFixtureEnabled ? null : shareCandidateResult.loadError}
+          candidatesLoadStage={shareFixtureEnabled ? 'ready' : shareCandidateResult.loadStage}
+          onRetryCandidates={shareCandidateResult.retry}
           window={shareWindow}
           onWindowChange={setShareWindow}
           destinationResult={shareDestination}
