@@ -35,6 +35,7 @@ import {
   localSessionId,
   MAX_SHARE_ITEMS,
   mergeShareItemResults,
+  mergeShareItemWorkspaceNames,
   planShareRetry,
   primarySuccessRoute,
   reconcileVisibleSelection,
@@ -206,6 +207,7 @@ export function ShareToHubDialog({
     Record<string, 'queued' | 'resuming' | 'uploading' | 'accepted' | 'private' | 'failed'>
   >({});
   const [resultLabels, setResultLabels] = useState<Record<string, string>>({});
+  const [resultWorkspaceNames, setResultWorkspaceNames] = useState<Record<string, string>>({});
   const [priorResults, setPriorResults] = useState<ShareItemResult[]>([]);
   const [resumingDraft, setResumingDraft] = useState(false);
   const [renewedReviewIds, setRenewedReviewIds] = useState<Set<string>>(new Set());
@@ -263,6 +265,7 @@ export function ShareToHubDialog({
     setRetryReadyAt(0);
     setProgress({});
     setResultLabels({});
+    setResultWorkspaceNames({});
     setPriorResults([]);
     setResumingDraft(false);
     setRenewedReviewIds(new Set());
@@ -506,6 +509,11 @@ export function ShareToHubDialog({
   const showResult = (next: ShareResult) => {
     const results = mergeShareItemResults(priorResults, next.results);
     const combined: ShareResult = { ...next, state: shareResultState(results), results };
+    const workspaceNames = mergeShareItemWorkspaceNames(
+      resultWorkspaceNames,
+      next.results,
+      destination?.workspaceName ?? 'the workspace',
+    );
     const delay = Math.max(
       0,
       ...combined.results.map((item) =>
@@ -530,6 +538,7 @@ export function ShareToHubDialog({
         }),
       ),
     );
+    setResultWorkspaceNames(workspaceNames);
     setPriorResults([]);
     setRecords(retryDraft.records);
     setRenewedReviewIds(retryDraft.renewedReviewIds);
@@ -684,6 +693,7 @@ export function ShareToHubDialog({
     setRecords([]);
     setRenewedReviewIds(new Set());
     setPriorResults([]);
+    setResultWorkspaceNames({});
   };
 
   const eligibility = destinationResult.state === 'ready' ? null : ELIGIBILITY_COPY[destinationResult.state];
@@ -692,7 +702,9 @@ export function ShareToHubDialog({
   const retryCount = retryPlan ? new Set([...retryPlan.unchanged, ...retryPlan.renewedReview]).size : 0;
   const failedCount = result?.results.filter((item) => item.state === 'failed').length ?? 0;
   const summary =
-    result == null ? null : shareBatchSummary(result, destination?.workspaceName ?? 'the workspace');
+    result == null
+      ? null
+      : shareBatchSummary(result, destination?.workspaceName ?? 'the workspace', resultWorkspaceNames);
   const retryWait = Math.max(0, Math.ceil((retryReadyAt - clock) / 1000));
 
   return (
@@ -1049,8 +1061,8 @@ export function ShareToHubDialog({
                             : item.state === 'private'
                               ? 'Completed privately'
                               : item.state === 'already_accepted'
-                                ? 'Already shared with workspace'
-                                : 'Shared with workspace'}
+                                ? `Already shared with ${resultWorkspaceNames[item.localSessionId] ?? destination?.workspaceName ?? 'the workspace'}`
+                                : `Shared with ${resultWorkspaceNames[item.localSessionId] ?? destination?.workspaceName ?? 'the workspace'}`}
                         </Badge>
                       </div>
                       {item.state === 'failed' ? (
