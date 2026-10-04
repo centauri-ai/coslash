@@ -474,6 +474,9 @@ func routesWithOnboarding(
 		query := r.URL.Query()
 		handleSynthesis(w, query.Get("agent"), query.Get("id"), mgr)
 	})
+	api.HandleFunc("POST /api/hub/share-synthesis", func(w http.ResponseWriter, r *http.Request) {
+		handleShareSynthesis(w, r, mgr, settingsStore)
+	})
 	api.HandleFunc("GET /api/diff", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Has("session") {
 			handleExactDiff(w, r, collector.GetSessionChanges, remoteManager)

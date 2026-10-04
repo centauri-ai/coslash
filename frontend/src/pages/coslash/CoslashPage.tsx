@@ -106,11 +106,19 @@ export function CoslashPage() {
   const [localUpdate, setLocalUpdate] = useState<LocalUpdate | null>(null);
   const shareEnabled = shareFixtureEnabled || hubDestination?.configured === true;
   const apiWindow = view === 'insights' ? 'all' : apiWindowForRange(range);
-  const { sessions, machines, isLoading, loadError, sessionsVersion, retrySessions, refreshSessions } =
-    useSessions({
-      localWindow: shareFixtureEnabled ? 'all' : apiWindow,
-      remoteWindow: apiWindow,
-    });
+  const {
+    sessions,
+    machines,
+    isLoading,
+    loadError,
+    sessionsVersion,
+    retrySessions,
+    refreshSessions,
+    refreshSessionsNow,
+  } = useSessions({
+    localWindow: shareFixtureEnabled ? 'all' : apiWindow,
+    remoteWindow: apiWindow,
+  });
   const { handoffs, error: handoffsError, refresh: refreshHandoffs } = useDirectedHandoffs();
   const latestHandoffs = useMemo(() => newestHandoffs(handoffs), [handoffs]);
   const [{ selectedSessionKey, pendingTargetKey }, select] = useReducer(handoffSelection, {
@@ -464,6 +472,13 @@ export function CoslashPage() {
           fixtureMode={shareFixtureEnabled}
           fixtureOutcome={shareFixtureOutcome}
           onDestinationRefresh={refreshHubDestination}
+          onLocalSynthesisReady={async () => {
+            const current = await shareCandidateResult.refresh();
+            await refreshSessionsNow();
+            return current;
+          }}
+          synthesisBackend={settingsState.response?.settings.synthesis.backend}
+          synthesisModel={settingsState.response?.settings.synthesis.model}
           onOpenSettings={() => {
             setShareDialogOpen(false);
             setShareWindow('7d');

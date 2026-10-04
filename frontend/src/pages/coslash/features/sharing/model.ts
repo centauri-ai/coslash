@@ -1,4 +1,9 @@
-import { isEligibleForSharing, isLocalSession, type Session } from '@/pages/coslash/lib/session';
+import {
+  isEligibleForSharing,
+  isLocalSession,
+  sessionRevision,
+  type Session,
+} from '@/pages/coslash/lib/session';
 
 // C4 contract; provider fixtures live in coslash-server/testdata/hub-share-v1.
 export const HUB_SHARE_VERSION = 'hub-share/v1' as const;
@@ -36,6 +41,7 @@ export type ConsentBinding = {
   bundleId: string;
   sourceRevision: string;
   selectedRevision: number;
+  synthesisRevision?: number;
   completeBackupSha256: string;
   totalBytes: number;
   destinationWorkspaceId: string;
@@ -78,6 +84,7 @@ export type BackupPreview = {
   selection: BackupSelection;
   bundleId?: string;
   sourceRevision?: string;
+  synthesisRevision?: number;
   coverage: BackupCoverage;
   capability?: BackupCapability;
   audienceVersion?: string;
@@ -508,7 +515,7 @@ export function backupSelection(session: Pick<Session, 'sourceId' | 'id' | 'agen
 }
 
 export function bindBackupConsent(
-  session: Pick<Session, 'sourceId' | 'id' | 'agent' | 'mtime'>,
+  session: Pick<Session, 'sourceId' | 'id' | 'agent' | 'mtime' | 'revision'>,
   preview: BackupPreview,
   destination: ShareDestination,
   idempotencyKey: string,
@@ -542,7 +549,8 @@ export function bindBackupConsent(
       previewContractVersion: preview.adapterVersion,
       bundleId: preview.bundleId,
       sourceRevision: preview.sourceRevision,
-      selectedRevision: session.mtime,
+      selectedRevision: sessionRevision(session),
+      synthesisRevision: preview.synthesisRevision,
       completeBackupSha256: preview.coverage.revisionSha256,
       totalBytes: preview.coverage.totalBytes,
       destinationWorkspaceId: destination.workspaceId,
@@ -569,7 +577,8 @@ export function consentStillCurrent(
     item.localSessionId === localSessionId(session) &&
     item.consent.previewContractVersion === preview.adapterVersion &&
     item.consent.sourceRevision === preview.sourceRevision &&
-    item.consent.selectedRevision === session.mtime &&
+    item.consent.selectedRevision === sessionRevision(session) &&
+    item.consent.synthesisRevision === preview.synthesisRevision &&
     item.consent.bundleId === preview.bundleId &&
     item.consent.completeBackupSha256 === preview.coverage.revisionSha256 &&
     item.consent.totalBytes === preview.coverage.totalBytes &&

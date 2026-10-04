@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -255,11 +254,6 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (session.SessionSynth
 		return session.SessionSynthesis{}, fmt.Errorf("%s synthesis timed out: %w", label, runCtx.Err())
 	}
 	if err != nil {
-		if r.Backend == settings.BackendOpenCode {
-			if diagnostic := openCodeCommandDiagnostic(err, output); diagnostic != "" {
-				log.Printf("OpenCode synthesis CLI: %s", diagnostic)
-			}
-		}
 		return session.SessionSynthesis{}, safeCommandError(label, err)
 	}
 	return parse(output)

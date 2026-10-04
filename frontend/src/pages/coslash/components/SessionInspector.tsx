@@ -1017,6 +1017,12 @@ function RecapSection({ detail }: { detail: SessionDetail }) {
         ) : (
           <div className="pt-1 text-xs">—</div>
         )}
+        {detail.synthesis?.nextStep && (
+          <>
+            <div className="text-coslash-muted pt-3 text-xs">NEXT STEP</div>
+            <div className="pt-1 text-xs">{detail.synthesis.nextStep}</div>
+          </>
+        )}
       </div>
     </div>
   );
