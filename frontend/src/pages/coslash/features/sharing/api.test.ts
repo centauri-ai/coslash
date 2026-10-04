@@ -78,7 +78,7 @@ describe('Hub sharing local adapter', () => {
       .mockResolvedValueOnce(Response.json({ state: 'paired' }))
       .mockResolvedValueOnce(
         Response.json({
-          contractVersion: 'hub-share/v1',
+          contractVersion: 'hub-share/v2',
           requestId: 'request-1',
           state: 'succeeded',
           results: [],
@@ -88,7 +88,7 @@ describe('Hub sharing local adapter', () => {
 
     await beginHubPairing();
     await pollHubPairing('pair-1');
-    await submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] });
+    await submitHubShare({ contractVersion: 'hub-share/v2', requestId: 'request-1', items: [] });
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/hub/pairings',
@@ -103,7 +103,7 @@ describe('Hub sharing local adapter', () => {
   it('rejects malformed local adapter responses before they reach the share UI', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
-        contractVersion: 'hub-share/v1',
+        contractVersion: 'hub-share/v2',
         state: 'ready',
         configured: true,
         destination: { workspaceName: 'missing authority and audience fields' },
@@ -116,7 +116,7 @@ describe('Hub sharing local adapter', () => {
   it.each(['future_error', 'toString', '__proto__'])('rejects unknown share error code %s', async (code) => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
-        contractVersion: 'hub-share/v1',
+        contractVersion: 'hub-share/v2',
         requestId: 'request-1',
         state: 'failed',
         results: [
@@ -132,14 +132,62 @@ describe('Hub sharing local adapter', () => {
     );
     installBrowser(fetchMock);
     await expect(
-      submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] }),
+      submitHubShare({ contractVersion: 'hub-share/v2', requestId: 'request-1', items: [] }),
+    ).rejects.toThrow('outside the expected contract');
+  });
+
+  it('accepts a private completion only with its explicit privacy flag and notice', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        contractVersion: 'hub-share/v2',
+        requestId: 'request-1',
+        state: 'private',
+        results: [
+          {
+            localSessionId: 'local:codex:one',
+            idempotencyKey: 'key-000000000000',
+            state: 'private',
+            private: true,
+            deduplicated: true,
+            sharingNotice: 'This backup is private in My space.',
+          },
+        ],
+      }),
+    );
+    installBrowser(fetchMock);
+    await expect(
+      submitHubShare({ contractVersion: 'hub-share/v2', requestId: 'request-1', items: [] }),
+    ).resolves.toEqual(expect.objectContaining({ state: 'private' }));
+  });
+
+  it('rejects malformed private completion metadata', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        contractVersion: 'hub-share/v2',
+        requestId: 'request-1',
+        state: 'private',
+        results: [
+          {
+            localSessionId: 'local:codex:one',
+            idempotencyKey: 'key-000000000000',
+            state: 'private',
+            private: true,
+            deduplicated: true,
+            sharingNotice: ' ',
+          },
+        ],
+      }),
+    );
+    installBrowser(fetchMock);
+    await expect(
+      submitHubShare({ contractVersion: 'hub-share/v2', requestId: 'request-1', items: [] }),
     ).rejects.toThrow('outside the expected contract');
   });
 
   it('accepts only the canonical completed-backup route', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
-        contractVersion: 'hub-share/v1',
+        contractVersion: 'hub-share/v2',
         requestId: 'request-1',
         state: 'succeeded',
         results: [
@@ -161,18 +209,19 @@ describe('Hub sharing local adapter', () => {
     );
     installBrowser(fetchMock);
     await expect(
-      submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] }),
+      submitHubShare({ contractVersion: 'hub-share/v2', requestId: 'request-1', items: [] }),
     ).resolves.toEqual(expect.objectContaining({ state: 'succeeded' }));
   });
 
   it.each([
-    [{ private: true, sharingNotice: 'This backup is private in My space.' }, true],
+    [{ private: false }, true],
+    [{ private: true, sharingNotice: 'This backup is private in My space.' }, false],
     [{ private: 'yes' }, false],
     [{ sharingNotice: 7 }, false],
-  ])('checks the Hub private-result fields %j', async (extra, ok) => {
+  ])('checks private metadata on a workspace-shared result %j', async (extra, ok) => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
-        contractVersion: 'hub-share/v1',
+        contractVersion: 'hub-share/v2',
         requestId: 'request-1',
         state: 'succeeded',
         results: [
@@ -194,7 +243,7 @@ describe('Hub sharing local adapter', () => {
       }),
     );
     installBrowser(fetchMock);
-    const submitted = submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] });
+    const submitted = submitHubShare({ contractVersion: 'hub-share/v2', requestId: 'request-1', items: [] });
     if (ok) await expect(submitted).resolves.toEqual(expect.objectContaining({ state: 'succeeded' }));
     else await expect(submitted).rejects.toThrow();
   });
@@ -206,7 +255,7 @@ describe('Hub sharing local adapter', () => {
   ])('rejects non-canonical completed-backup route %s', async (path) => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({
-        contractVersion: 'hub-share/v1',
+        contractVersion: 'hub-share/v2',
         requestId: 'request-1',
         state: 'succeeded',
         results: [
@@ -228,7 +277,7 @@ describe('Hub sharing local adapter', () => {
     );
     installBrowser(fetchMock);
     await expect(
-      submitHubShare({ contractVersion: 'hub-share/v1', requestId: 'request-1', items: [] }),
+      submitHubShare({ contractVersion: 'hub-share/v2', requestId: 'request-1', items: [] }),
     ).rejects.toThrow('outside the expected contract');
   });
 });
