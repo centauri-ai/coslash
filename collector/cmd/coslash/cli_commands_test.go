@@ -141,6 +141,9 @@ func TestRuntimeLockAllowsOnlyOneServer(t *testing.T) {
 	if _, err := acquireRuntimeLock(); err == nil {
 		first.Close()
 		t.Fatal("second server acquired the runtime lock")
+	} else if !errors.Is(err, errRuntimeAlreadyRunning) {
+		first.Close()
+		t.Fatalf("second runtime lock error=%v, want %v", err, errRuntimeAlreadyRunning)
 	}
 	if err := first.Close(); err != nil {
 		t.Fatal(err)

@@ -244,8 +244,10 @@ func main() {
 		}
 	}
 	onboardings := newOnboardingManager(version)
+	onboardings.SetV4SyncActive(queue != nil)
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
 		serverServices{queue: queue, directedStore: directedStore, onboardings: onboardings})
+	onboardings.StartCheckIns(hub)
 	if startupIntent != nil {
 		switch startupIntent.Action {
 		case "pair":
