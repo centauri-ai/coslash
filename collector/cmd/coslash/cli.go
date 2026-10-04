@@ -47,7 +47,7 @@ func acquireRuntimeLock() (*os.File, error) {
 	}
 	if err := lockRuntimeFileExclusive(file, true); err != nil {
 		file.Close()
-		return nil, errors.New("another coSlash app is already running")
+		return nil, errRuntimeAlreadyRunning
 	}
 	for _, name := range []string{runtimeFilename, "token"} {
 		if err := os.Remove(filepath.Join(home, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
