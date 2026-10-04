@@ -56,6 +56,7 @@ func TestValidateHubURL(t *testing.T) {
 	for _, raw := range []string{
 		"https://beta.coslash.io",
 		"https://hub.coslash.io",
+		"https://hub.staging.example",
 		"http://localhost:8080",
 		"http://[::1]:8080",
 	} {
@@ -65,12 +66,15 @@ func TestValidateHubURL(t *testing.T) {
 	}
 	for _, raw := range []string{
 		"http://example.com",
-		"https://coslash.io.evil.example",
-		"https://evil.example",
 		"https://user@beta.coslash.io",
 	} {
 		if _, err := ValidateHubURL(raw); err == nil {
 			t.Fatalf("ValidateHubURL(%q) succeeded", raw)
+		}
+	}
+	for _, raw := range []string{"https://hub.staging.example", "https://coslash.io.evil.example"} {
+		if _, err := ValidateActivationHubURL(raw); err == nil {
+			t.Fatalf("ValidateActivationHubURL(%q) succeeded", raw)
 		}
 	}
 }
