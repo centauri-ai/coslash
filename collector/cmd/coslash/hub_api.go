@@ -57,29 +57,45 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 }
 
 func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, backupManager *sessionbackupproducer.Manager, onboardings *onboardingManager) {
-	if client != nil && remoteManager != nil {
-		client.LoadSourceSession = func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
-			if sourceID == localSourceID {
-				found, err := collector.GetSessionForPreview(sessionID, revision)
-				if found == nil || err != nil || found.Agent != agent {
-					return nil, err
+	bindClient := func(client *hubclient.Client) {
+		if client == nil {
+			return
+		}
+		if remoteManager != nil {
+			client.LoadSourceSession = func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
+				if sourceID == localSourceID {
+					found, err := collector.GetSessionForPreview(sessionID, revision)
+					if found == nil || err != nil || found.Agent != agent {
+						return nil, err
+					}
+					return found, nil
 				}
-				return found, nil
+				return remoteManager.PreviewSession(sourceID, agent, sessionID, revision)
 			}
-			return remoteManager.PreviewSession(sourceID, agent, sessionID, revision)
-		}
-		client.LoadFullSession = func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error) {
-			if sourceID == localSourceID {
-				return nil, fullsessionexport.Repository{}, nil
+			client.LoadFullSession = func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error) {
+				if sourceID == localSourceID {
+					return nil, fullsessionexport.Repository{}, nil
+				}
+				record, canonical, localOnly, err := remoteManager.ReadFullSessionForShare(sourceID, agent, sessionID, revisionID)
+				return record, fullsessionexport.Repository{Canonical: canonical, LocalOnly: localOnly}, err
 			}
-			record, canonical, localOnly, err := remoteManager.ReadFullSessionForShare(sourceID, agent, sessionID, revisionID)
-			return record, fullsessionexport.Repository{Canonical: canonical, LocalOnly: localOnly}, err
 		}
-	}
-	if client != nil {
 		client.Backup = backupManager
 	}
+	if onboardings != nil {
+		onboardings.setHubClientBinder(bindClient)
+		onboardings.setHubClient(client)
+	} else {
+		bindClient(client)
+	}
+	currentClient := func() *hubclient.Client {
+		if onboardings != nil {
+			return onboardings.currentHubClient()
+		}
+		return client
+	}
 	api.HandleFunc("GET /api/hub/destination", func(w http.ResponseWriter, request *http.Request) {
+		client := currentClient()
 		if client == nil {
 			writeJSON(w, hubclient.DestinationResult{ContractVersion: hubclient.ContractVersion, State: "signed_out", Configured: false})
 			return
@@ -92,6 +108,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		writeJSON(w, result)
 	})
 	api.HandleFunc("POST /api/hub/pairings", func(w http.ResponseWriter, request *http.Request) {
+		client := currentClient()
 		if client == nil {
 			http.Error(w, "Hub server is not configured", http.StatusConflict)
 			return
@@ -106,6 +123,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		_ = json.NewEncoder(w).Encode(result)
 	})
 	api.HandleFunc("POST /api/hub/pairings/{id}/poll", func(w http.ResponseWriter, request *http.Request) {
+		client := currentClient()
 		if client == nil {
 			http.Error(w, "Hub server is not configured", http.StatusConflict)
 			return
@@ -157,6 +175,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		w.WriteHeader(http.StatusNoContent)
 	})
 	api.HandleFunc("POST /api/hub/shares", func(w http.ResponseWriter, request *http.Request) {
+		client := currentClient()
 		if client == nil {
 			http.Error(w, "Hub server is not configured", http.StatusConflict)
 			return
@@ -175,6 +194,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		writeJSON(w, result)
 	})
 	api.HandleFunc("POST /api/hub/backup-previews", func(w http.ResponseWriter, request *http.Request) {
+		client := currentClient()
 		if client == nil || backupManager == nil {
 			writeJSON(w, hubclient.BackupPreview{AdapterVersion: hubclient.BackupPreviewVersion, State: "incompatible_server",
 				Coverage: sessionbackupproducer.Coverage{Problems: []sessionbackupv1.CaptureProblem{}}, Problem: &hubclient.BackupPreviewProblem{
@@ -199,6 +219,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		writeJSON(w, result)
 	})
 	api.HandleFunc("GET /api/hub/full-session-preview", func(w http.ResponseWriter, request *http.Request) {
+		client := currentClient()
 		if client == nil {
 			writeJSON(w, hubclient.FullSessionPreview{
 				AdapterVersion: fullsessionexport.PreviewVersion, State: "incompatible_server",
@@ -217,6 +238,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		writeJSON(w, result)
 	})
 	api.HandleFunc("POST /api/hub/full-session-shares", func(w http.ResponseWriter, request *http.Request) {
+		client := currentClient()
 		if client == nil {
 			http.Error(w, "Hub server is not configured", http.StatusConflict)
 			return

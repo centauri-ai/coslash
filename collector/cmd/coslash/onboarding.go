@@ -22,9 +22,12 @@ type onboardingManager struct {
 	cancel  context.CancelFunc
 	version string
 
-	mu     sync.Mutex
-	active map[string]context.CancelFunc
-	wait   sync.WaitGroup
+	mu            sync.Mutex
+	active        map[string]context.CancelFunc
+	hubClient     *hubclient.Client
+	bindHubClient func(*hubclient.Client)
+	v4SyncActive  bool
+	wait          sync.WaitGroup
 }
 
 func newOnboardingManager(version string) *onboardingManager {
@@ -45,6 +48,7 @@ func (m *onboardingManager) StartPairing(rawHubURL, attemptID, launchIntent stri
 	if err := writeStoredHubURL(hubURL.String()); err != nil {
 		return errors.New("Hub address could not be saved")
 	}
+	m.setHubClient(client)
 	key := hubURL.Host + "/" + attemptID
 	m.mu.Lock()
 	if _, exists := m.active[key]; exists {
@@ -75,7 +79,7 @@ func (m *onboardingManager) runPairing(ctx context.Context, client *hubclient.Cl
 	for time.Now().Before(pairing.ExpiresAt) {
 		result, err := client.PollPairing(ctx, pairing.PairingID)
 		if err == nil && result.State == "paired" {
-			m.runCheckIns(ctx, client)
+			m.StartCheckIns(client)
 			return
 		}
 		if err == nil && result.State == "expired" {
@@ -85,6 +89,65 @@ func (m *onboardingManager) runPairing(ctx context.Context, client *hubclient.Cl
 			return
 		}
 	}
+}
+
+func (m *onboardingManager) StartCheckIns(client *hubclient.Client) {
+	if client == nil || client.BaseURL == nil || client.Credentials == nil {
+		return
+	}
+	credential, err := client.Credentials.Load(m.ctx)
+	if err != nil || credential == "" {
+		return
+	}
+	key := "check-in/" + client.BaseURL.Host
+	m.mu.Lock()
+	if m.v4SyncActive || m.ctx.Err() != nil {
+		m.mu.Unlock()
+		return
+	}
+	if _, exists := m.active[key]; exists {
+		m.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.active[key] = cancel
+	m.wait.Add(1)
+	m.mu.Unlock()
+	go func() {
+		defer m.wait.Done()
+		defer m.finish(key)
+		m.runCheckIns(ctx, client)
+	}()
+}
+
+func (m *onboardingManager) SetV4SyncActive(active bool) {
+	m.mu.Lock()
+	m.v4SyncActive = active
+	m.mu.Unlock()
+}
+
+func (m *onboardingManager) setHubClient(client *hubclient.Client) {
+	m.mu.Lock()
+	if m.bindHubClient != nil {
+		m.bindHubClient(client)
+	}
+	m.hubClient = client
+	m.mu.Unlock()
+}
+
+func (m *onboardingManager) setHubClientBinder(bind func(*hubclient.Client)) {
+	m.mu.Lock()
+	m.bindHubClient = bind
+	if m.hubClient != nil {
+		bind(m.hubClient)
+	}
+	m.mu.Unlock()
+}
+
+func (m *onboardingManager) currentHubClient() *hubclient.Client {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.hubClient
 }
 
 func (m *onboardingManager) runCheckIns(ctx context.Context, client *hubclient.Client) {
@@ -126,9 +189,17 @@ func (m *onboardingManager) RetryCheckIn(rawHubURL string) error {
 	if err := writeStoredHubURL(hubURL.String()); err != nil {
 		return errors.New("Hub address could not be saved")
 	}
+	m.setHubClient(client)
+	m.mu.Lock()
+	v4SyncActive := m.v4SyncActive
+	m.mu.Unlock()
+	if v4SyncActive {
+		return nil
+	}
 	if _, err := client.CheckIn(m.ctx, m.version); err != nil {
 		return errors.New("Local could not check in with Hub")
 	}
+	m.StartCheckIns(client)
 	return nil
 }
 
@@ -174,7 +245,7 @@ func readStoredHubURL() (string, error) {
 }
 
 func writeStoredHubURL(raw string) error {
-	parsed, err := hubclient.ValidateHubURL(raw)
+	parsed, err := hubclient.ValidateActivationHubURL(raw)
 	if err != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("invalid Hub address")
 	}
@@ -210,7 +281,7 @@ func hubOrigin(raw string) (string, error) {
 	if err != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", errors.New("invalid Hub address")
 	}
-	validated, err := hubclient.ValidateHubURL(raw)
+	validated, err := hubclient.ValidateActivationHubURL(raw)
 	if err != nil {
 		return "", err
 	}
