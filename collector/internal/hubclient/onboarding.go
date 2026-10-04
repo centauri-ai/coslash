@@ -50,7 +50,7 @@ func ParseLaunchIntentURL(raw string) (LaunchIntent, error) {
 	if values.Get("hub") == "" || !onboardingUUID.MatchString(values.Get("attempt")) {
 		return LaunchIntent{}, errors.New("invalid coSlash activation URL")
 	}
-	hub, err := ValidateHubURL(values.Get("hub"))
+	hub, err := ValidateActivationHubURL(values.Get("hub"))
 	if err != nil || hub.Path != "" || hub.RawPath != "" || hub.RawQuery != "" || hub.Fragment != "" {
 		return LaunchIntent{}, errors.New("unsupported Hub address")
 	}
@@ -71,8 +71,7 @@ func ParseLaunchIntentURL(raw string) (LaunchIntent, error) {
 	}
 }
 
-// ValidateHubURL keeps activation intents from redirecting Local's bearer
-// intent to arbitrary hosts. Development may use only loopback HTTP.
+// ValidateHubURL validates a Hub URL explicitly configured by the user.
 func ValidateHubURL(raw string) (*url.URL, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil || !parsed.IsAbs() || parsed.Host == "" || parsed.User != nil || parsed.Opaque != "" ||
@@ -84,7 +83,18 @@ func ValidateHubURL(raw string) (*url.URL, error) {
 		if host != "localhost" && host != "127.0.0.1" && host != "::1" {
 			return nil, errors.New("Hub address requires HTTPS outside loopback development")
 		}
-	} else {
+	}
+	return parsed, nil
+}
+
+// ValidateActivationHubURL prevents an untrusted activation intent from
+// redirecting Local's bearer intent to arbitrary hosts.
+func ValidateActivationHubURL(raw string) (*url.URL, error) {
+	parsed, err := ValidateHubURL(raw)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Scheme == "https" {
 		host := strings.ToLower(parsed.Hostname())
 		if host != "coslash.io" && !strings.HasSuffix(host, ".coslash.io") {
 			return nil, errors.New("Hub address is not a supported coSlash host")
