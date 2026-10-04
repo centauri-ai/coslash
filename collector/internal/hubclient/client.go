@@ -50,6 +50,7 @@ type Client struct {
 type pairingSecret struct {
 	deviceCode string
 	expiresAt  time.Time
+	credential string
 }
 
 func (c *Client) configured() bool {
@@ -170,7 +171,17 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 	c.pairingMu.Lock()
 	secret, ok := c.pairings[pairingID]
 	c.pairingMu.Unlock()
-	if !ok || time.Now().After(secret.expiresAt) {
+	if !ok {
+		return PairingResult{State: "expired"}, nil
+	}
+	if secret.credential != "" {
+		if err := c.savePairingCredential(ctx, pairingID, secret.credential); err != nil {
+			return PairingResult{}, err
+		}
+		return PairingResult{State: "paired"}, nil
+	}
+	if time.Now().After(secret.expiresAt) {
+		c.forgetPairing(pairingID)
 		return PairingResult{State: "expired"}, nil
 	}
 	body, _ := json.Marshal(map[string]string{"deviceCode": secret.deviceCode})
@@ -205,13 +216,25 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 		token.Credential == "" || token.TokenType != "Device" || token.Scope != "ingest" {
 		return PairingResult{}, errors.New("decode Hub credential: invalid response")
 	}
-	saveContext, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancelSave()
-	if err := c.Credentials.Save(saveContext, token.Credential); err != nil {
+	c.pairingMu.Lock()
+	secret = c.pairings[pairingID]
+	secret.credential = token.Credential
+	c.pairings[pairingID] = secret
+	c.pairingMu.Unlock()
+	if err := c.savePairingCredential(ctx, pairingID, token.Credential); err != nil {
 		return PairingResult{}, err
 	}
-	c.forgetPairing(pairingID)
 	return PairingResult{State: "paired"}, nil
+}
+
+func (c *Client) savePairingCredential(ctx context.Context, pairingID, credential string) error {
+	saveContext, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancelSave()
+	if err := c.Credentials.Save(saveContext, credential); err != nil {
+		return err
+	}
+	c.forgetPairing(pairingID)
+	return nil
 }
 
 func (c *Client) forgetPairing(id string) {

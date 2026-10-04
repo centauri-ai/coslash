@@ -169,6 +169,15 @@ levels are checked when available. `COSLASH_SYNC_BATTERY_PERCENT` is a local
 override for testing. Disable the v4 flag and restart to stop automatic
 sync; the existing explicit Share to Hub flow remains available.
 
+Hub-led device setup sends Local an opaque, expiring launch intent through the
+`coslash:` app handoff. Local claims that intent with Hub, then uses the
+existing device-authorization poll and saves the returned device credential in
+the operating-system keychain. The browser does not receive the device code,
+device credential, or Local API access token. The initial check-in contains
+device version, operating system, and empty content-free queue state; it does
+not upload a session or enable team sharing. Device and sync controls remain
+in Hub.
+
 ## Share preview and approval
 
 During an active Share to Hub flow, **See what gets shared** builds a local
