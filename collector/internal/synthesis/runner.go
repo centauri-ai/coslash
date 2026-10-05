@@ -306,6 +306,10 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 			return RunResult{}, fmt.Errorf("create Grok scratch directory: %w", err)
 		}
 		defer os.RemoveAll(scratchDir)
+		scratchDir, err = filepath.Abs(scratchDir)
+		if err != nil {
+			return RunResult{}, fmt.Errorf("resolve Grok scratch directory: %w", err)
+		}
 		grokHome, err := grokcli.PrepareHome(scratchDir)
 		if err != nil {
 			return RunResult{}, fmt.Errorf("prepare Grok home: %w", err)

@@ -93,6 +93,47 @@ func TestGrokSynthesis(t *testing.T) {
 	}
 }
 
+func TestGrokSynthesisResolvesRelativeHomes(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.MkdirAll("coslash", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll("grokhome", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("grokhome", "auth.json"), []byte(`{"token":"secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSLASH_HOME", "coslash")
+	t.Setenv("GROK_HOME", "grokhome")
+	runner := &CLIRunner{Backend: settings.BackendGrok, Bin: "grok", Model: settings.GrokSynthesisModel, Timeout: time.Second}
+	runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
+		prompt := spec.args[slices.Index(spec.args, "--prompt-file")+1]
+		if !filepath.IsAbs(spec.dir) || !filepath.IsAbs(prompt) || filepath.Dir(prompt) != spec.dir {
+			t.Fatalf("scratch=%q prompt=%q", spec.dir, prompt)
+		}
+		grokHome := strings.TrimPrefix(spec.env[0], "GROK_HOME=")
+		if !filepath.IsAbs(grokHome) || filepath.Dir(grokHome) != spec.dir {
+			t.Fatalf("env=%q", spec.env)
+		}
+		if runtime.GOOS != "windows" {
+			link, err := os.Readlink(filepath.Join(grokHome, "auth.json"))
+			if err != nil || link != filepath.Join(root, "grokhome", "auth.json") {
+				t.Fatalf("auth link=%q err=%v", link, err)
+			}
+		}
+		body, err := os.ReadFile(filepath.Join(grokHome, "auth.json"))
+		if err != nil || string(body) != `{"token":"secret"}` {
+			t.Fatalf("login=%q err=%v", body, err)
+		}
+		return []byte(`{"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"keyDecisions\":[],\"nextStep\":\"Review\"}"}`), nil
+	}
+	if _, err := runner.Run(context.Background(), "facts"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGrokStructuredOutput(t *testing.T) {
 	for _, output := range []string{
 		`{"structuredOutput":{"goals":["Ship"],"outcome":"Done","keyDecisions":[],"nextStep":"Review"},"text":"non-JSON commentary"}`,

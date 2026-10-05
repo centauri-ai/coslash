@@ -38,6 +38,10 @@ func Executable() string {
 // PrepareHome isolates generated sessions while retaining the existing login.
 // Windows copies the login because file symlinks require additional privileges.
 func PrepareHome(scratch string) (string, error) {
+	scratch, err := filepath.Abs(scratch)
+	if err != nil {
+		return "", err
+	}
 	if err := protectDirectory(scratch); err != nil {
 		return "", err
 	}
@@ -45,7 +49,10 @@ func PrepareHome(scratch string) (string, error) {
 	if err := os.Mkdir(home, 0o700); err != nil {
 		return "", err
 	}
-	source := filepath.Join(Home(), "auth.json")
+	source, err := filepath.Abs(filepath.Join(Home(), "auth.json"))
+	if err != nil {
+		return "", err
+	}
 	file, err := os.Open(source)
 	if os.IsNotExist(err) {
 		return home, nil
