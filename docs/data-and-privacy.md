@@ -16,6 +16,8 @@ coSlash reads, but does not modify:
   the platform's Cursor global-storage directory (`~/Library/Application Support/Cursor/User/globalStorage`
   on macOS or `%APPDATA%\Cursor\User\globalStorage` on Windows).
 - Local Pi schema-3 transcripts under `~/.pi/agent/sessions`, configured session roots, and exact paths retained by the managed runtime integration. Pi remote collection is unsupported.
+- Local Grok Build transcripts and session metadata under `GROK_HOME/sessions`
+  (default `~/.grok/sessions`). Grok remote collection is unsupported.
 - Recorded working directories and Git metadata used for branch and change summaries.
 - Local process information used to identify live sessions.
 
@@ -104,12 +106,30 @@ Outside an explicitly approved Hub share, the collector does not upload
 session data itself. If you enable synthesis, it passes a bounded set of facts
 to your selected local CLI. These facts can include prompts, recaps, todos,
 filenames, commands, and commit text. Supported CLIs are Claude Code, Codex,
-OpenCode, and Cursor. The CLI uses its existing authentication. The selected
-provider's settings and terms apply.
+OpenCode, Cursor, Pi, and Grok Build. The CLI uses its existing authentication.
+The selected provider's settings and terms apply.
 
 OpenCode has no ephemeral mode, so coSlash points each run at its own scratch database under `~/.coslash/synthesis`, discarded once the run ends. Synthesis runs never enter your own OpenCode history.
 
 Cursor synthesis uses read-only ask mode. coSlash also disables file, shell, write, web, and MCP tools for the run. Each run uses a temporary data directory under `~/.coslash/synthesis`. coSlash removes the directory after the run. At startup, coSlash removes abandoned synthesis directories that are more than one hour old. Synthesis chats do not enter your Cursor history.
+
+Grok synthesis denies all agent tools and runs from an isolated temporary
+directory under `COSLASH_HOME/synthesis`. It retains your existing login by
+copying `auth.json` into a private temporary Grok home on Windows and linking
+it on macOS. The temporary home and prompt are removed after the run; synthesis
+sessions do not enter your normal Grok history.
+
+**Grok reviews on Windows.**
+
+A local Grok review sends session context and a Git change snapshot to Grok
+Build and lets it read files to investigate the changes. coSlash restricts the
+available tools to file reads, directory listing, and search. On Windows,
+Grok's sandbox does not enforce a filesystem boundary: a review can read files
+outside the selected worktree that your Windows account can access. Those
+contents can then be sent to the Grok provider, including if repository text
+induces the agent to read them despite its instructions. Review only trusted
+repositories with Grok on Windows. Tool restrictions do not guarantee that
+outside files remain inaccessible.
 
 Resume and Start fresh launch your installed agent CLI. Its later network and data behavior is governed by that tool.
 
