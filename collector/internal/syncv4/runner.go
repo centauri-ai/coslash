@@ -106,6 +106,7 @@ type Runner struct {
 	InventoryProgress   func() (files int64, running bool)
 	Conditions          func(context.Context) (metered bool, batteryPercent int, err error)
 	LocalPause          func() bool
+	RequireImportPlan   bool
 	Command             func(context.Context, hubclient.V4Command) error
 	Now                 func() time.Time
 	config              hubclient.V4Config
@@ -152,6 +153,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	}
 	if err := r.refreshConsent(ctx); err != nil {
 		return err
+	}
+	if r.RequireImportPlan && !r.scaleEnabled {
+		return ErrPaused
 	}
 	if r.newRetryCommand {
 		r.newRetryCommand = false
