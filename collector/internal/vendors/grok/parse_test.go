@@ -2,6 +2,7 @@ package grok
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,10 +11,79 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
+	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestCompletedAssistantChunksSettleDirectedHandoff(t *testing.T) {
+	store, err := directedhandoff.Open(filepath.Join(t.TempDir(), "handoffs.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.Start("local", "grok", "source", "grok", "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	writeSummary(t, dir, `{"info":{"id":"target","cwd":"/work"},"chat_format_version":1}`)
+	path := filepath.Join(dir, "updates.jsonl")
+	var lines strings.Builder
+	appendUpdate := func(kind, text string) {
+		line := updateLine{}
+		line.Params.Update.Kind = kind
+		line.Params.Update.Content, _ = json.Marshal(chunkContent{Type: "text", Text: text})
+		body, _ := json.Marshal(line)
+		lines.Write(body)
+		lines.WriteByte('\n')
+		if err := os.WriteFile(path, []byte(lines.String()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendUpdate("user_message_chunk", directedhandoff.Marker(record.ID))
+	appendUpdate("agent_message_chunk", "Checking files first.")
+	appendUpdate("tool_call", "")
+	appendUpdate("agent_message_chunk", "coSlash handoff ")
+	appendUpdate("agent_message_chunk", "completed: "+record.ID+"\nWINDOWS_HANDOFF_OK")
+	parsed, err := parseSession(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Observe("local", []*session.Session{parsed.Session}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.List()[0]; got.Status != "running" {
+		t.Fatalf("partial response completed handoff: %+v", got)
+	}
+	appendUpdate("turn_completed", "")
+	parsed, err = parseSession(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.InTurn {
+		t.Fatal("completed turn left open")
+	}
+	if err := store.Observe("local", []*session.Session{parsed.Session}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.List()[0]; got.Status != "completed" || got.Result != "WINDOWS_HANDOFF_OK" {
+		t.Fatalf("handoff = %+v", got)
+	}
+	appendUpdate("agent_message_chunk", strings.Repeat("界", fullsessionv1.MaxStringBytes/3+10))
+	appendUpdate("turn_completed", "")
+	parsed, err = parseSession(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range parsed.Session.Digest {
+		if len(entry.Description) > fullsessionv1.MaxStringBytes || !utf8.ValidString(entry.Description) {
+			t.Fatal("recap exceeds portable UTF-8 bound")
+		}
+	}
+}
 
 func TestParseFinishedSessionUsesUsageTokensAndSignalsContextFill(t *testing.T) {
 	parsed, err := parseSession(filepath.Join("testdata", "finished"))
