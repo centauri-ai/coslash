@@ -107,6 +107,23 @@ func TestParseCommandsCommitsAndPullRequestsSkipDryRunsAndFailures(t *testing.T)
 	}
 }
 
+func TestQuotedDryRunTextDoesNotHideACommit(t *testing.T) {
+	var result updatesSummary
+	code := 0
+	result.noteCommand(bashOutput{
+		Command:  `git commit -m "support --dry-run"`,
+		Output:   "[main abc1234] support --dry-run\n",
+		ExitCode: &code,
+	})
+	if len(result.commitLog) != 1 || result.commitLog[0].Hash != "abc1234" {
+		t.Fatalf("commit log = %+v", result.commitLog)
+	}
+	result.noteCommand(bashOutput{Command: `git commit --dry-run -m "skip"`, Output: "dry", ExitCode: &code})
+	if len(result.commitLog) != 1 {
+		t.Fatalf("dry-run flag was counted: %+v", result.commitLog)
+	}
+}
+
 func TestParseCompactionSeedFromNewestCheckpoint(t *testing.T) {
 	parsed, err := parseSession(filepath.Join("testdata", "compacted"))
 	if err != nil {
@@ -351,6 +368,10 @@ func TestSubagentLinksWhenChildSummaryOmitsParent(t *testing.T) {
 	}
 	if len(facts.Session.Digest) != 1 || facts.Session.Digest[0].SubagentID != "child" || facts.Session.Digest[0].Category != session.DigestSubagent {
 		t.Fatalf("digest = %+v", facts.Session.Digest)
+	}
+	family, _, err := GetSessionFamily("child")
+	if err != nil || len(family) != 2 || family[0].Session.ID != "parent" {
+		t.Fatalf("family for child = %v, err = %v", family, err)
 	}
 }
 

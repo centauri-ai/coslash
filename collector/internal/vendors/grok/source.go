@@ -101,13 +101,15 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	}
 	if since > 0 {
 		// A family is in the window when any member is recent, so a parent and its subagents stay together.
+		// Child summaries often omit parent_session_id; the parent's meta.json is the other link.
+		_, parentOf := sessionIndex(dirs)
 		families := make(map[string]string, len(dirs))
 		recentFamilies := map[string]bool{}
 		for _, dir := range dirs {
 			if err := ctx.Err(); err != nil {
 				return nil, nil, err
 			}
-			families[dir] = familyID(dir)
+			families[dir] = familyKey(dir, parentOf)
 			if modifiedAt(dir) >= since {
 				recentFamilies[families[dir]] = true
 			}
@@ -162,30 +164,39 @@ func loadMetadata() *vendors.SessionMetadata {
 	return metadata
 }
 
-// familyID is the root session id: parent_session_id for a subagent, else the session's own id.
-func familyID(dir string) string {
+// sessionIndex maps each session id to its directory and each child id to the parent that spawned it.
+func sessionIndex(dirs []string) (map[string]string, map[string]string) {
+	byID := make(map[string]string, len(dirs))
+	parentOf := map[string]string{}
+	for _, dir := range dirs {
+		id := filepath.Base(dir)
+		if summary, err := readSummary(dir); err == nil && summary.Info.ID != "" {
+			id = summary.Info.ID
+		}
+		byID[id] = dir
+		for _, meta := range readSubagentMetas(dir) {
+			if meta.ChildSessionID != "" {
+				parentOf[meta.ChildSessionID] = id
+			}
+		}
+	}
+	return byID, parentOf
+}
+
+// familyKey is the root session id. A subagent uses parent_session_id, or the parent meta.json when that field is absent.
+func familyKey(dir string, parentOf map[string]string) string {
 	summary, err := readSummary(dir)
 	switch {
 	case err != nil:
 		return dir
 	case isSubagentKind(summary.SessionKind) && summary.ParentSessionID != "":
 		return summary.ParentSessionID
+	case summary.Info.ID != "" && parentOf[summary.Info.ID] != "":
+		return parentOf[summary.Info.ID]
 	case summary.Info.ID != "":
 		return summary.Info.ID
 	}
 	return dir
-}
-
-func sessionDirsByID() (map[string]string, error) {
-	dirs, err := sessionDirs(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	byID := make(map[string]string, len(dirs))
-	for _, dir := range dirs {
-		byID[filepath.Base(dir)] = dir
-	}
-	return byID, nil
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
@@ -270,20 +281,37 @@ func stringPtr(value *string) string {
 	return *value
 }
 
-// GetSessionFamily returns the session and the children its subagents/ directory names.
+// GetSessionFamily returns the root session and the children its subagents/ directory names.
+// A child id resolves to that same root.
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
-	dirs, err := sessionDirsByID()
-	if err != nil || id == "" || dirs[id] == "" {
+	if id == "" {
+		return nil, vendors.EmptySessionMetadata(), nil
+	}
+	dirs, err := sessionDirs(context.Background())
+	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
-	root, err := parseSession(dirs[id])
+	byID, parentOf := sessionIndex(dirs)
+	rootID := id
+	if parent := parentOf[id]; parent != "" {
+		rootID = parent
+	} else if dir := byID[id]; dir != "" {
+		if summary, err := readSummary(dir); err == nil && isSubagentKind(summary.SessionKind) && summary.ParentSessionID != "" {
+			rootID = summary.ParentSessionID
+		}
+	}
+	dir := byID[rootID]
+	if dir == "" {
+		return nil, vendors.EmptySessionMetadata(), nil
+	}
+	root, err := parseSession(dir)
 	if err != nil || root == nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
 	family := []*vendors.ParsedSession{root}
-	for _, meta := range readSubagentMetas(dirs[id]) {
-		if dir := dirs[meta.ChildSessionID]; dir != "" {
-			child, err := parseSession(dir)
+	for _, meta := range readSubagentMetas(dir) {
+		if childDir := byID[meta.ChildSessionID]; childDir != "" {
+			child, err := parseSession(childDir)
 			if err != nil {
 				return nil, vendors.EmptySessionMetadata(), err
 			}
