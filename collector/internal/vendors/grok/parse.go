@@ -450,13 +450,51 @@ func readTodos(path string) []session.Todo {
 	return todos
 }
 
+// commandHasOption reports whether option is a shell word outside quotes.
+func commandHasOption(command, option string) bool {
+	for _, field := range strings.Fields(maskQuotedShell(command)) {
+		if field == option || strings.HasPrefix(field, option+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+// maskQuotedShell blanks quoted text and escaped characters so option checks ignore commit messages.
+func maskQuotedShell(command string) string {
+	masked := []byte(command)
+	var quote byte
+	for i := 0; i < len(masked); i++ {
+		char := masked[i]
+		if quote != '\'' && char == '\\' {
+			masked[i] = ' '
+			if i+1 < len(masked) {
+				i++
+				masked[i] = ' '
+			}
+			continue
+		}
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			}
+			masked[i] = ' '
+			continue
+		}
+		if char == '\'' || char == '"' {
+			quote = char
+			masked[i] = ' '
+		}
+	}
+	return string(masked)
+}
+
 func (result *updatesSummary) noteCommand(shell bashOutput) {
 	if shell.Command == "" {
 		return
 	}
 	result.commands.Note(shell.Command, "")
-	// ponytail: substring match, so a quoted "--dry-run" in a commit message also skips that command.
-	if strings.Contains(shell.Command, "--dry-run") {
+	if commandHasOption(shell.Command, "--dry-run") {
 		return
 	}
 	succeeded := shell.ExitCode != nil && *shell.ExitCode == 0 && !shell.TimedOut

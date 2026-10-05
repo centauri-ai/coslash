@@ -112,6 +112,35 @@ func TestGrokSinceWindowKeepsSubagentFamiliesTogether(t *testing.T) {
 	}
 }
 
+func TestGrokSinceWindowUsesParentMetaWhenChildOmitsParent(t *testing.T) {
+	now := time.Now()
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	group := filepath.Join(home, "sessions", "%2Fwork%2Frepo")
+	parent := filepath.Join(group, "parent", "summary.json")
+	child := filepath.Join(group, "child", "summary.json")
+	writeGrokFile(t, parent, `{"info":{"id":"parent","cwd":"/work/repo"},"chat_format_version":1}`)
+	writeGrokFile(t, child, `{"info":{"id":"child","cwd":"/work/repo"},"chat_format_version":1,"session_kind":"subagent"}`)
+	writeGrokFile(t, filepath.Join(group, "parent", "subagents", "sub", "meta.json"), `{"child_session_id":"child","status":"completed","description":"demo"}`)
+	old := now.Add(-72 * time.Hour)
+	if err := os.Chtimes(parent, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, metadata, err := grok.CollectContext(context.Background(), now.Add(-48*time.Hour).UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := finalizeSessions(parsed, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata})
+	if len(roots) != 1 || roots[0].Session.ID != "parent" || len(roots[0].Session.Subagents) != 1 || roots[0].Session.Subagents[0].ID != "child" {
+		t.Fatalf("listed roots = %+v", roots)
+	}
+	family, _, err := grok.GetSessionFamily("child")
+	if err != nil || len(family) != 2 || family[0].Session.ID != "parent" {
+		t.Fatalf("family = %v, err = %v", family, err)
+	}
+}
+
 func writeGrokFile(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
