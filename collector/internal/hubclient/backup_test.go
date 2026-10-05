@@ -373,6 +373,38 @@ func TestBackupShareRejectsUnsupportedCachedSelectionBeforeLookup(t *testing.T) 
 	}
 }
 
+func TestShareBackupsRejectsLocalReviewWithoutDebriefBeforeContactingHub(t *testing.T) {
+	manager, prepared := openBackupFixture(t)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	t.Cleanup(server.Close)
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, Backup: manager, RequireLocalSynthesis: true}
+	selection := prepared.Selection
+	selection.SourceKind = "local"
+	item := BackupShareItemRequest{
+		LocalSessionID: selection.SourceID + ":" + selection.Agent + ":" + selection.SessionID,
+		Selection:      selection, IdempotencyKey: "backup-idempotency-key-0003",
+		Consent: BackupConsent{
+			PreviewContractVersion: BackupPreviewVersion, BundleID: prepared.BundleID,
+			SourceRevision: prepared.Manifest.Source.SourceRevision, SelectedRevision: 123,
+			CompleteBackupSHA256: prepared.BundleID, TotalBytes: prepared.Coverage.TotalBytes,
+			DestinationWorkspaceID: backupWorkspace, DestinationName: "Compiler Team", AudienceMemberCount: 2,
+			AudienceVersion: backupAudienceVersion, ServerID: "server-v3", MaxBackupBytes: 1 << 30,
+			MaxBackupChunkBytes: 128, BackupWorkspaceBytes: 50 << 30,
+		},
+	}
+	result, err := client.ShareBackups(context.Background(), BackupShareRequest{
+		ContractVersion: BackupShareVersion, RequestID: "request-no-debrief", Items: []BackupShareItemRequest{item},
+	})
+	if err != nil || result.State != "failed" || len(result.Results) != 1 ||
+		result.Results[0].Error == nil || result.Results[0].Error.Code != "stale_backup_review" || requests != 0 {
+		t.Fatalf("result=%#v requests=%d err=%v", result, requests, err)
+	}
+}
+
 func TestRetainedBackupUsesIdempotentCreateWithoutStatusProbe(t *testing.T) {
 	manager, prepared := openBackupFixture(t)
 	plan, err := (&Client{Backup: manager}).backupChunkPlan(prepared, 128)
