@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/centauri-ai/coslash/collector/internal/agentexec"
+	"github.com/centauri-ai/coslash/collector/internal/grokcli"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -106,7 +107,7 @@ func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 		return nil, errors.New("Pi synthesis is unavailable on this platform")
 	}
 	if config.Backend == settings.BackendGrok && !vendors.GrokSynthesisSupported() {
-		return nil, errors.New("Grok synthesis is supported only on macOS")
+		return nil, errors.New("Grok synthesis is supported only on macOS and Windows")
 	}
 	bin := settings.BackendExecutable(config.Backend)
 	if bin == "" {
@@ -305,12 +306,9 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 			return RunResult{}, fmt.Errorf("create Grok scratch directory: %w", err)
 		}
 		defer os.RemoveAll(scratchDir)
-		grokHome := filepath.Join(scratchDir, "home")
-		if err := os.Mkdir(grokHome, 0o700); err != nil {
-			return RunResult{}, fmt.Errorf("create Grok home: %w", err)
-		}
-		if err := linkGrokAuth(grokHome); err != nil {
-			return RunResult{}, err
+		grokHome, err := grokcli.PrepareHome(scratchDir)
+		if err != nil {
+			return RunResult{}, fmt.Errorf("prepare Grok home: %w", err)
 		}
 		promptPath := filepath.Join(scratchDir, "prompt.txt")
 		if err := os.WriteFile(promptPath, []byte(input), 0o600); err != nil {
@@ -324,6 +322,8 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 			"--json-schema", synthesisSchema,
 			"--max-turns", "1",
 			"--no-subagents",
+			"--tools", "",
+			"--permission-mode", "dontAsk",
 			"--disallowed-tools", "run_terminal_cmd,search_replace,web_search,web_fetch",
 			"--rules", systemPrompt,
 		}
@@ -445,41 +445,17 @@ func parseResultEnvelope(data []byte) (session.SessionSynthesis, error) {
 	return parseSynthesis([]byte(envelope.Result))
 }
 
-func grokConfigDir() string {
-	if home := os.Getenv("GROK_HOME"); home != "" {
-		return home
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".grok")
-}
-
-// linkGrokAuth points the scratch home at the user's login file. The scratch
-// GROK_HOME keeps the synthesis session out of the user's session list.
-func linkGrokAuth(scratchHome string) error {
-	sourceDir := grokConfigDir()
-	if sourceDir == "" || sourceDir == scratchHome {
-		return nil
-	}
-	source := filepath.Join(sourceDir, "auth.json")
-	info, err := os.Stat(source)
-	if err != nil || !info.Mode().IsRegular() {
-		return nil
-	}
-	if err := os.Symlink(source, filepath.Join(scratchHome, "auth.json")); err != nil {
-		return fmt.Errorf("link Grok auth: %w", err)
-	}
-	return nil
-}
-
 func parseGrokSynthesis(data []byte) (session.SessionSynthesis, error) {
 	var envelope struct {
-		Text string `json:"text"`
+		Text             string          `json:"text"`
+		StructuredOutput json.RawMessage `json:"structuredOutput"`
 	}
-	if json.Unmarshal(data, &envelope) == nil && strings.TrimSpace(envelope.Text) != "" {
-		data = []byte(envelope.Text)
+	if json.Unmarshal(data, &envelope) == nil {
+		if len(envelope.StructuredOutput) > 0 && string(envelope.StructuredOutput) != "null" {
+			data = envelope.StructuredOutput
+		} else if strings.TrimSpace(envelope.Text) != "" {
+			data = []byte(envelope.Text)
+		}
 	}
 	if err := requireSynthesisFields([]byte(stripJSONFence(string(data)))); err != nil {
 		return session.SessionSynthesis{}, err

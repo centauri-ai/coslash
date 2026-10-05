@@ -82,7 +82,7 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Fix = "Open Settings and choose another synthesis backend."
 	} else if snapshot.grokSynthesisUnsupported {
 		synthesis.Status = StatusWarn
-		synthesis.Detail = "Grok synthesis is supported only on macOS."
+		synthesis.Detail = "Grok synthesis is supported only on macOS and Windows."
 		synthesis.Fix = "Open Settings and choose another synthesis backend."
 	} else if !snapshot.Storage.Writable {
 		synthesis.Status = StatusFail

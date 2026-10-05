@@ -33,5 +33,5 @@ func PiExecutable() (string, error) {
 }
 
 // GrokSynthesisSupported reports whether the Grok CLI may run synthesis.
-// Session collection is separate; this gate is macOS only.
-func GrokSynthesisSupported() bool { return runtime.GOOS == "darwin" }
+// Session collection is separate from CLI execution.
+func GrokSynthesisSupported() bool { return runtime.GOOS == "darwin" || runtime.GOOS == "windows" }

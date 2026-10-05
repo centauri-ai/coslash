@@ -146,7 +146,7 @@ func TestUnsupportedGrokSynthesisOffersSupportedBackend(t *testing.T) {
 	snapshot := &Snapshot{grokSynthesisUnsupported: true, Synthesis: Synthesis{Enabled: true}}
 	for _, check := range derive(snapshot) {
 		if check.ID == "synthesis" {
-			if check.Status != StatusWarn || check.Detail != "Grok synthesis is supported only on macOS." || check.Fix != "Open Settings and choose another synthesis backend." {
+			if check.Status != StatusWarn || check.Detail != "Grok synthesis is supported only on macOS and Windows." || check.Fix != "Open Settings and choose another synthesis backend." {
 				t.Fatalf("wrong platform recovery: %#v", check)
 			}
 			return
