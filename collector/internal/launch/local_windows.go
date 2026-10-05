@@ -312,6 +312,11 @@ func writeWindowsHandoffContext(path, contents string) error {
 }
 
 func localCLIExecutable(agent, fallback string) string {
+	if agent == vendors.AgentGrok {
+		if path := GrokExecutable(); path != "" {
+			return path
+		}
+	}
 	if agent != vendors.AgentCursor {
 		return fallback
 	}
