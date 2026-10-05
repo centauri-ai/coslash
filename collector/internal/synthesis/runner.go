@@ -327,6 +327,7 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 			"--max-turns", "1",
 			"--no-subagents",
 			"--tools", "",
+			"--deny", "*",
 			"--permission-mode", "dontAsk",
 			"--disallowed-tools", "run_terminal_cmd,search_replace,web_search,web_fetch",
 			"--rules", systemPrompt,
