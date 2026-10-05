@@ -131,9 +131,12 @@ lines older than 29 days are dropped. If the Hub refuses a log batch as invalid,
 Local checks in without it so sync can continue, keeps the refused lines, and
 retries them after one minute. A binding change drops unsent lines.
 
-`COSLASH_V4_SYNC_ENABLED=1` is a development activation flag and defaults off.
-The server's separate v4 upload flag must also be enabled. Disable the Local
-flag and restart to stop this scheduler; v1–v3 sharing remains available.
+The v4 worker starts by default, including before pairing, so Hub can start
+sync without a Local restart. It never uploads until a Hub advertising
+`scale-import/v1` supplies an import plan; the Local pause setting still wins.
+`COSLASH_V4_SYNC_ENABLED=0` disables the worker for development and recovery.
+The server's separate v4 upload flag must also be enabled. v1–v3 sharing
+remains available.
 `COSLASH_SCALE_IMPORT=0` disables the additive import and command progress
 payloads while retaining the command wait fix.
 The Local settings `syncPaused` switch wins over Hub pause/off and stops new
