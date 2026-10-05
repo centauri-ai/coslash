@@ -10,8 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { apiFetch } from '@/pages/coslash/lib/api';
-import { availableReviewers, reviewRequestPath, type ReviewerOption } from '@/pages/coslash/lib/review';
+import { availableReviewers, startReview, type ReviewerOption } from '@/pages/coslash/lib/review';
 import { type SessionIdentity, type VendorKey } from '@/pages/coslash/lib/session';
 
 export type ReviewLaunchState = 'idle' | 'launching' | 'error';
@@ -132,9 +131,7 @@ export function ReviewDialog({
     setState('launching');
     setError(null);
     try {
-      const response = await apiFetch(reviewRequestPath(origin, effectiveSelected), { method: 'POST' });
-      if (!response.ok)
-        throw new Error((await response.text()).trim() || `Review launch failed (${response.status})`);
+      await startReview(origin, effectiveSelected);
       setOpen(false);
       setState('idle');
       onStarted();

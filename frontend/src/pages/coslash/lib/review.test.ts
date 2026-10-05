@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { apiFetch } from '@/pages/coslash/lib/api';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   availableReviewers,
@@ -7,6 +8,7 @@ import {
   reviewActionVisible,
   reviewerOptionsForOrigin,
   reviewRequestPath,
+  startReview,
   type ReviewableSession,
   type ReviewerOption,
 } from '@/pages/coslash/lib/review';
@@ -125,4 +127,38 @@ describe('buildReviewIndex', () => {
     expect(index.links.size).toBe(0);
     expect(index.reviewSessions.has('local:opencode:review')).toBe(true);
   });
+});
+
+vi.mock('@/pages/coslash/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/pages/coslash/lib/api')>()),
+  apiFetch: vi.fn(),
+}));
+
+afterEach(() => vi.resetAllMocks());
+
+it('shows the structured review failure and allows retry', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'working_directory_unavailable',
+          error: 'Session working directory is unavailable.',
+        }),
+        { status: 409 },
+      ),
+    )
+    .mockResolvedValueOnce(new Response(null, { status: 204 }));
+  await expect(startReview(reviewable(), 'codex')).rejects.toThrow(
+    /^Session working directory is unavailable\.$/,
+  );
+  await expect(startReview(reviewable(), 'codex')).resolves.toBeUndefined();
+  expect(apiFetch).toHaveBeenLastCalledWith(reviewRequestPath(reviewable(), 'codex'), { method: 'POST' });
+});
+
+it.each([
+  ['review already running', 'review already running'],
+  ['', 'Review launch failed (409)'],
+])('preserves the review error fallback for %j', async (body, expected) => {
+  vi.mocked(apiFetch).mockResolvedValueOnce(new Response(body, { status: 409 }));
+  await expect(startReview(reviewable(), 'codex')).rejects.toThrow(expected);
 });
