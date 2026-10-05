@@ -14,12 +14,16 @@ import (
 )
 
 func TestPiWindowsAvailabilityResumeAndFailedSendCleanup(t *testing.T) {
-	bin := t.TempDir()
-	cli := filepath.Join(bin, "pi.cmd")
+	home := t.TempDir()
+	cli := filepath.Join(home, ".pi", "agent", "bin", "pi.cmd")
+	if err := os.MkdirAll(filepath.Dir(cli), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(cli, []byte("@echo off\r\nif \"%~1\"==\"--version\" echo 1.0.0\r\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PATH", filepath.Join(os.Getenv("SystemRoot"), "System32"))
 	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	if !PiAvailable() {
