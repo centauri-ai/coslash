@@ -142,6 +142,19 @@ func TestUnsupportedPiSynthesisOffersSupportedBackend(t *testing.T) {
 	t.Fatal("missing synthesis check")
 }
 
+func TestUnsupportedGrokSynthesisOffersSupportedBackend(t *testing.T) {
+	snapshot := &Snapshot{grokSynthesisUnsupported: true, Synthesis: Synthesis{Enabled: true}}
+	for _, check := range derive(snapshot) {
+		if check.ID == "synthesis" {
+			if check.Status != StatusWarn || check.Detail != "Grok synthesis is supported only on macOS." || check.Fix != "Open Settings and choose another synthesis backend." {
+				t.Fatalf("wrong platform recovery: %#v", check)
+			}
+			return
+		}
+	}
+	t.Fatal("missing synthesis check")
+}
+
 func TestGrokSourceLabel(t *testing.T) {
 	if got := sourceLabel("grok"); got != "Grok" {
 		t.Fatalf("sourceLabel(grok) = %q, want Grok", got)

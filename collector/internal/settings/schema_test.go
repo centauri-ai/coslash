@@ -84,4 +84,7 @@ func TestPiSynthesisSettings(t *testing.T) {
 	if !slices.Contains(schema.Properties.Synthesis.Properties.Backend.Enum, BackendPi) {
 		t.Fatal("settings schema rejects Pi")
 	}
+	if !slices.Contains(schema.Properties.Synthesis.Properties.Backend.Enum, BackendGrok) {
+		t.Fatal("settings schema rejects Grok")
+	}
 }

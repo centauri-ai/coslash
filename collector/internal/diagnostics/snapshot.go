@@ -36,20 +36,21 @@ const (
 )
 
 type Snapshot struct {
-	Version                string    `json:"version"`
-	GeneratedAt            int64     `json:"generatedAt"`
-	Platform               Platform  `json:"platform"`
-	Storage                Storage   `json:"storage"`
-	Synthesis              Synthesis `json:"synthesis"`
-	Sources                []Source  `json:"sources"`
-	Remote                 *Remote   `json:"remote,omitempty"`
-	Checks                 []Check   `json:"checks"`
-	openCodePlugin         opencode.PluginHealth
-	openCodePluginError    string
-	piExtension            pi.ExtensionHealth
-	piExtensionError       string
-	piSynthesisUnsupported bool
-	homeError              string
+	Version                  string    `json:"version"`
+	GeneratedAt              int64     `json:"generatedAt"`
+	Platform                 Platform  `json:"platform"`
+	Storage                  Storage   `json:"storage"`
+	Synthesis                Synthesis `json:"synthesis"`
+	Sources                  []Source  `json:"sources"`
+	Remote                   *Remote   `json:"remote,omitempty"`
+	Checks                   []Check   `json:"checks"`
+	openCodePlugin           opencode.PluginHealth
+	openCodePluginError      string
+	piExtension              pi.ExtensionHealth
+	piExtensionError         string
+	piSynthesisUnsupported   bool
+	grokSynthesisUnsupported bool
+	homeError                string
 }
 
 type Remote struct {
@@ -215,9 +216,10 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	}
 
 	snapshot.piSynthesisUnsupported = config.Backend == settings.BackendPi && !vendors.PiSupported()
+	snapshot.grokSynthesisUnsupported = config.Backend == settings.BackendGrok && !vendors.GrokSynthesisSupported()
 	synthesisCLI := settings.BackendExecutable(config.Backend)
 	synthesisCLIFound := false
-	if !snapshot.piSynthesisUnsupported {
+	if !snapshot.piSynthesisUnsupported && !snapshot.grokSynthesisUnsupported {
 		_, err := exec.LookPath(synthesisCLI)
 		synthesisCLIFound = err == nil
 	}
@@ -230,6 +232,8 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 		snapshot.Synthesis.Error = displayError(userHome, state.Error)
 	} else if snapshot.Synthesis.Enabled && snapshot.piSynthesisUnsupported {
 		snapshot.Synthesis.Reason = "Pi synthesis is unavailable on this platform."
+	} else if snapshot.Synthesis.Enabled && snapshot.grokSynthesisUnsupported {
+		snapshot.Synthesis.Reason = "Grok synthesis is supported only on macOS."
 	} else if snapshot.Synthesis.Enabled && !synthesisCLIFound {
 		if config.Backend == settings.BackendPi {
 			snapshot.Synthesis.Reason = piCLIMissingReason(runtime.GOOS) + "."

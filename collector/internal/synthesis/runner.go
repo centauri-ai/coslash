@@ -24,6 +24,7 @@ import (
 const (
 	maxIntermediateKeyDecisions = 12
 	maxFinalKeyDecisions        = 8
+	grokScratchPrefix           = ".grok-"
 	synthesisSchema             = `{"type":"object","properties":{"goals":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":4},"outcome":{"type":"string"},"keyDecisions":{"type":"array","items":{"type":"string"},"maxItems":12},"nextStep":{"type":"string"}},"required":["goals","outcome","keyDecisions","nextStep"],"additionalProperties":false}`
 )
 
@@ -104,6 +105,9 @@ func NewRunner(config settings.SynthesisSettings) (Runner, error) {
 	if config.Backend == settings.BackendPi && !vendors.PiSupported() {
 		return nil, errors.New("Pi synthesis is unavailable on this platform")
 	}
+	if config.Backend == settings.BackendGrok && !vendors.GrokSynthesisSupported() {
+		return nil, errors.New("Grok synthesis is supported only on macOS")
+	}
 	bin := settings.BackendExecutable(config.Backend)
 	if bin == "" {
 		return nil, fmt.Errorf("unsupported synthesis backend %q", config.Backend)
@@ -133,6 +137,8 @@ func (r *CLIRunner) VendorName() string {
 		return "cursor"
 	case settings.BackendPi:
 		return "pi"
+	case settings.BackendGrok:
+		return "grok"
 	default:
 		return ""
 	}
@@ -288,6 +294,45 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		stdin = systemPrompt + jsonInstruction + "\n\n" + input
 		env = []string{"CURSOR_DATA_DIR=" + scratchDir}
 		dir = scratchDir
+	case settings.BackendGrok:
+		label = "Grok"
+		parse = parseGrokSynthesis
+		if err := os.MkdirAll(SynthesisCwd(), 0o700); err != nil {
+			return RunResult{}, fmt.Errorf("create synthesis directory: %w", err)
+		}
+		scratchDir, err := os.MkdirTemp(SynthesisCwd(), grokScratchPrefix+"*")
+		if err != nil {
+			return RunResult{}, fmt.Errorf("create Grok scratch directory: %w", err)
+		}
+		defer os.RemoveAll(scratchDir)
+		grokHome := filepath.Join(scratchDir, "home")
+		if err := os.Mkdir(grokHome, 0o700); err != nil {
+			return RunResult{}, fmt.Errorf("create Grok home: %w", err)
+		}
+		if err := linkGrokAuth(grokHome); err != nil {
+			return RunResult{}, err
+		}
+		promptPath := filepath.Join(scratchDir, "prompt.txt")
+		if err := os.WriteFile(promptPath, []byte(input), 0o600); err != nil {
+			return RunResult{}, fmt.Errorf("write Grok prompt: %w", err)
+		}
+		dir = scratchDir
+		stdin = ""
+		env = []string{"GROK_HOME=" + grokHome, "GROK_MEMORY=0"}
+		args = []string{
+			"--prompt-file", promptPath,
+			"--json-schema", synthesisSchema,
+			"--max-turns", "1",
+			"--no-subagents",
+			"--disallowed-tools", "run_terminal_cmd,search_replace,web_search,web_fetch",
+			"--rules", systemPrompt,
+		}
+		if r.Model != settings.GrokDefaultModel {
+			args = append(args, "--model", r.Model)
+		}
+		if r.Model == settings.GrokSynthesisModel {
+			args = append(args, "--effort", "high")
+		}
 	default:
 		return RunResult{}, fmt.Errorf("unsupported synthesis backend %q", r.Backend)
 	}
@@ -398,6 +443,48 @@ func parseResultEnvelope(data []byte) (session.SessionSynthesis, error) {
 		return session.SessionSynthesis{}, err
 	}
 	return parseSynthesis([]byte(envelope.Result))
+}
+
+func grokConfigDir() string {
+	if home := os.Getenv("GROK_HOME"); home != "" {
+		return home
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".grok")
+}
+
+// linkGrokAuth points the scratch home at the user's login file. The scratch
+// GROK_HOME keeps the synthesis session out of the user's session list.
+func linkGrokAuth(scratchHome string) error {
+	sourceDir := grokConfigDir()
+	if sourceDir == "" || sourceDir == scratchHome {
+		return nil
+	}
+	source := filepath.Join(sourceDir, "auth.json")
+	info, err := os.Stat(source)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	if err := os.Symlink(source, filepath.Join(scratchHome, "auth.json")); err != nil {
+		return fmt.Errorf("link Grok auth: %w", err)
+	}
+	return nil
+}
+
+func parseGrokSynthesis(data []byte) (session.SessionSynthesis, error) {
+	var envelope struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(data, &envelope) == nil && strings.TrimSpace(envelope.Text) != "" {
+		data = []byte(envelope.Text)
+	}
+	if err := requireSynthesisFields([]byte(stripJSONFence(string(data)))); err != nil {
+		return session.SessionSynthesis{}, err
+	}
+	return parseSynthesis(data)
 }
 
 func parseSynthesis(data []byte) (session.SessionSynthesis, error) {

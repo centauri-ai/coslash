@@ -114,6 +114,7 @@ const BACKEND_BINARY: Record<string, string> = {
   'opencode': 'opencode',
   'cursor-cli': 'cursor-agent',
   'pi-cli': 'pi',
+  'grok-cli': 'grok',
 };
 
 function BackendChoice({
@@ -149,6 +150,7 @@ function BackendChoice({
             'bg-opencode': option.id === 'opencode',
             'bg-cursor': option.id === 'cursor-cli',
             'bg-pi': option.id === 'pi-cli',
+            'bg-grok': option.id === 'grok-cli',
           })}
         />
         <span className="text-[13px] font-semibold">{name}</span>
