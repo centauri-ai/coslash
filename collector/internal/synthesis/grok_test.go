@@ -1,6 +1,7 @@
 package synthesis
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -90,6 +91,34 @@ func TestGrokSynthesis(t *testing.T) {
 				t.Fatalf("scratch leaked: %v", entries)
 			}
 		})
+	}
+}
+
+func TestParseGrokUsage(t *testing.T) {
+	output := []byte(`{
+		"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"keyDecisions\":[],\"nextStep\":\"Review\"}",
+		"usage":{"input_tokens":7210,"cache_read_input_tokens":41000,"cache_creation_input_tokens":0,"output_tokens":1893,"reasoning_tokens":412,"total_tokens":50103},
+		"modelUsage":{"grok-4.7":{"inputTokens":7210,"outputTokens":1893,"cacheReadInputTokens":41000,"costUSD":9.9}},
+		"total_cost_usd":9.9,
+		"total_cost_usd_ticks":126890500
+	}`)
+	got := parseGrokUsage(output, settings.GrokDefaultModel)
+	used := got.Tokens["grok-4.7"]
+	if got.Coverage != "complete" || got.ReportedCostMicroUSD == nil || *got.ReportedCostMicroUSD != 12689 || used.InputTokens != 7210 || used.OutputTokens != 1893 || used.CacheReadInputTokens != 41000 || used.CacheCreationInputTokens != 0 {
+		t.Fatalf("usage=%#v tokens=%#v", got, used)
+	}
+	incomplete := append([]byte(nil), output...)
+	incomplete = bytes.Replace(incomplete, []byte(`"total_cost_usd_ticks":126890500`), []byte(`"usage_is_incomplete":true`), 1)
+	got = parseGrokUsage(incomplete, settings.GrokSynthesisModel)
+	if got.Coverage != "partial" || got.ReportedCostMicroUSD != nil || got.Tokens["grok-4.7"].InputTokens != 7210 {
+		t.Fatalf("incomplete=%#v", got)
+	}
+	if got := parseGrokUsage([]byte(`{"text":"ok"}`), settings.GrokSynthesisModel); got.Coverage != "unknown" || got.ReportedCostMicroUSD != nil || got.Tokens != nil {
+		t.Fatalf("missing spend=%#v", got)
+	}
+	negative := parseGrokUsage([]byte(`{"usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"total_cost_usd_ticks":-1}`), settings.GrokSynthesisModel)
+	if negative.ReportedCostMicroUSD != nil || negative.Tokens[settings.GrokSynthesisModel].InputTokens != 1 {
+		t.Fatalf("negative cost=%#v", negative)
 	}
 }
 
