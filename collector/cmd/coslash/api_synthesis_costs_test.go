@@ -220,6 +220,7 @@ func TestSynthesisCostsAPIMonthAndIdentity(t *testing.T) {
 	write("inside", "claude", "shared", "cursor", 1499, 20)
 	write("end", "codex", "shared", "claude", 1500, 30)
 	write("pi", "pi", "SDK/opaque identity", "pi", 2000, 5)
+	write("grok", "grok", "shared", "claude", 2001, 6)
 	if err := store.BeginRound(ctx, synthesis.Round{ID: "spanning", SourceID: "local", Agent: "cursor", SessionID: "outside-month", SourceRevision: 700, StartedAtMs: 950}); err != nil {
 		t.Fatal(err)
 	}
@@ -262,8 +263,13 @@ func TestSynthesisCostsAPIMonthAndIdentity(t *testing.T) {
 	if code, got := get("/api/synthesis-costs?source=local&agent=pi&id=SDK%2Fopaque%20identity"); code != 200 || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 5 {
 		t.Fatalf("Pi identity: %d %+v", code, got)
 	}
+	if code, got := get("/api/synthesis-costs?source=local&agent=grok&id=shared"); code != 200 || got.Totals.RoundCount != 1 || got.Totals.KnownCostMicroUSD == nil || *got.Totals.KnownCostMicroUSD != 6 {
+		t.Fatalf("Grok identity: %d %+v", code, got)
+	}
 	for _, path := range []string{
 		"/api/synthesis-costs?source=remote&since=1000&until=1500",
+		"/api/synthesis-costs?source=local&agent=grok&id=SDK%2Fopaque%20identity",
+		"/api/synthesis-costs?source=local&agent=unsupported&id=shared",
 		"/api/synthesis-costs?source=local&agent=codex&id=SDK%2Fopaque%20identity",
 		"/api/synthesis-costs?source=local&agent=pi&id=bad%00identity",
 		"/api/synthesis-costs?source=local&since=1500&until=1000",
