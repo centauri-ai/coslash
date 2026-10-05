@@ -62,6 +62,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		if client == nil {
 			return
 		}
+		client.RequireLocalSynthesis = true
 		if remoteManager != nil {
 			client.LoadSourceSession = func(sourceID, agent, sessionID string, revision int64) (*session.Session, error) {
 				if sourceID == localSourceID {

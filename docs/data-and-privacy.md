@@ -185,7 +185,10 @@ During an active Share to Hub flow, **See what gets shared** builds a local
 The frozen bundle contains the raw attributable Codex rollouts and sidecar
 bytes, canonical parsed records, exact file-change bodies, session enrichment,
 and revision-matched persisted synthesis. Previewing does not upload or approve
-anything. The v3 Share flow continues to block Claude, Cursor, and OpenCode.
+anything. For a local Codex session, preview first starts or waits for its
+current Local AI debrief. Upload rejects a reviewed local bundle without that
+revision's debrief, including a request from an older open tab. The v3 Share
+flow continues to block Claude, Cursor, and OpenCode.
 The separate v4 local sync can prepare complete local Claude, OpenCode and
 Cursor families when enabled; Claude SSH remains unsupported there. Neither flow falls
 back to a metadata-only upload.
