@@ -428,6 +428,9 @@ func (c *Client) shareBackupItem(ctx context.Context, credential string, item Ba
 	if code := backupShareEligibility(item); code != "" {
 		return failedBackup(item, code, false, nil), nil
 	}
+	if c.RequireLocalSynthesis && item.Selection.SourceKind == sessionbackupv1.SourceLocal && item.Consent.SynthesisRevision == 0 {
+		return failedBackup(item, "stale_backup_review", true, nil), nil
+	}
 	destination, err := c.Destination(ctx)
 	if err != nil {
 		return failedBackup(item, "temporary_unavailable", true, nil), errors.New("verify backup destination")
