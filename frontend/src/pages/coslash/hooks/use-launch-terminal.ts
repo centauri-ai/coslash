@@ -1,7 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiFetch, readApiError } from '@/pages/coslash/lib/api';
 import { copyHandoffText, cursorHandoffText } from '@/pages/coslash/lib/handoff';
-import { isLocalSession, type SessionDetail, type SessionIdentity } from '@/pages/coslash/lib/session';
+import {
+  isLocalSession,
+  sessionKey,
+  type SessionDetail,
+  type SessionIdentity,
+} from '@/pages/coslash/lib/session';
 
 export type LaunchMode = 'resume' | 'new' | 'open';
 
@@ -43,15 +48,64 @@ export async function launchFreshSession(
   await launchTerminal(session, opensCursor ? 'open' : 'new', brief);
 }
 
-export function useLaunchTerminal(session: SessionIdentity) {
-  const [launchError, setLaunchError] = useState<string | null>(null);
+export type LaunchView = {
+  launching: boolean;
+  error: string | null;
+  sessionKey: string;
+  attempt: number;
+};
 
-  const launch = (mode: LaunchMode, handoff?: string) => {
-    setLaunchError(null);
-    launchTerminal(session, mode, handoff).catch((error: unknown) => {
-      setLaunchError(error instanceof Error ? error.message : String(error));
-    });
+export function idleLaunch(key: string): LaunchView {
+  return { launching: false, error: null, sessionKey: key, attempt: 0 };
+}
+
+export function startLaunch(state: LaunchView, key: string): LaunchView | null {
+  if (state.launching) return null;
+  return { launching: true, error: null, sessionKey: key, attempt: state.attempt + 1 };
+}
+
+export function settleLaunch(
+  state: LaunchView,
+  started: { sessionKey: string; attempt: number },
+  error: string | null,
+): LaunchView {
+  if (state.attempt !== started.attempt || state.sessionKey !== started.sessionKey) return state;
+  return { ...state, launching: false, error };
+}
+
+export function retargetLaunch(state: LaunchView, key: string): LaunchView {
+  if (state.sessionKey === key) return state;
+  return { launching: false, error: null, sessionKey: key, attempt: state.attempt + 1 };
+}
+
+export function useLaunchTerminal(session: SessionIdentity) {
+  const key = sessionKey(session);
+  const [view, setView] = useState(() => idleLaunch(key));
+  const stateRef = useRef(view);
+
+  const apply = (next: LaunchView) => {
+    stateRef.current = next;
+    setView(next);
   };
 
-  return { launch, launchError };
+  useEffect(() => {
+    const next = retargetLaunch(stateRef.current, key);
+    if (next !== stateRef.current) apply(next);
+  }, [key]);
+
+  const launch = (mode: LaunchMode, handoff?: string) => {
+    const next = startLaunch(stateRef.current, key);
+    if (next == null) return;
+    apply(next);
+    const started = { sessionKey: next.sessionKey, attempt: next.attempt };
+    void launchTerminal(session, mode, handoff).then(
+      () => apply(settleLaunch(stateRef.current, started, null)),
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        apply(settleLaunch(stateRef.current, started, message));
+      },
+    );
+  };
+
+  return { launch, launchError: view.error, launching: view.launching };
 }

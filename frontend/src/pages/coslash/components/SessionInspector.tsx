@@ -891,13 +891,22 @@ function DisabledLaunchTooltip({ hint, children }: { hint?: string; children: Re
   );
 }
 
-function GrokFreshSessionButton({ detail }: { detail: SessionDetail }) {
-  const { launch, launchError } = useLaunchTerminal(detail);
+export function GrokFreshSessionControl({
+  launching,
+  launchError,
+  onLaunch,
+}: {
+  launching: boolean;
+  launchError: string | null;
+  onLaunch: () => void;
+}) {
   return (
-    <>
+    <div className="flex w-fit max-w-full flex-wrap items-center gap-2">
       <Button
         className="bg-brand text-brand-foreground w-fit p-2 text-xs hover:bg-[color-mix(in_oklch,var(--brand),var(--foreground)_10%)]"
-        onClick={() => launch('new')}
+        disabled={launching}
+        aria-busy={launching}
+        onClick={onLaunch}
       >
         <PlayIcon />
         <span>Start fresh</span>
@@ -907,7 +916,14 @@ function GrokFreshSessionButton({ detail }: { detail: SessionDetail }) {
           {launchError}
         </span>
       )}
-    </>
+    </div>
+  );
+}
+
+function GrokFreshSessionButton({ detail }: { detail: SessionDetail }) {
+  const { launch, launchError, launching } = useLaunchTerminal(detail);
+  return (
+    <GrokFreshSessionControl launching={launching} launchError={launchError} onLaunch={() => launch('new')} />
   );
 }
 
