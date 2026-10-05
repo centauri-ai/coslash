@@ -10,6 +10,7 @@ import {
   detailRequestKey,
   DigestSection,
   filePanelOpen,
+  GrokFreshSessionControl,
   inspectorWidthForKey,
   overlayLiveSessionFields,
   refreshSourceAndRetry,
@@ -88,6 +89,41 @@ it('counts a selected identity settlement even when its transcript revision move
     synthesisSettlement(pending.pendingKey, 'local:codex:other', { revision: 2, synthesisPending: false }, 1)
       .settled,
   ).toBe(false);
+});
+
+describe('GrokFreshSessionControl', () => {
+  it('names the fresh-session action and wraps it at a narrow width', () => {
+    const markup = renderToStaticMarkup(
+      <GrokFreshSessionControl launching={false} launchError={null} onLaunch={() => undefined} />,
+    );
+    expect(markup).toContain('Start fresh');
+    expect(markup).toContain('flex-wrap');
+    expect(markup).toContain('w-fit');
+    expect(markup).toContain('max-w-full');
+    expect(markup).not.toContain('disabled=""');
+  });
+
+  it('disables the control and marks it busy while the launch is in flight', () => {
+    const markup = renderToStaticMarkup(
+      <GrokFreshSessionControl launching launchError={null} onLaunch={() => undefined} />,
+    );
+    expect(markup).toContain('disabled=""');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('Start fresh');
+  });
+
+  it('shows a launch failure as an alert and leaves the action available to retry', () => {
+    const markup = renderToStaticMarkup(
+      <GrokFreshSessionControl
+        launching={false}
+        launchError="Launch failed (500)"
+        onLaunch={() => undefined}
+      />,
+    );
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain('Launch failed (500)');
+    expect(markup).not.toContain('disabled=""');
+  });
 });
 
 describe('SessionInspector exact-detail boundaries', () => {
