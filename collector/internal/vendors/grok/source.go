@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -37,6 +38,9 @@ func scan(ctx context.Context) (string, *vendors.SourceScan, error) {
 	result := &vendors.SourceScan{Files: []string{}, Skipped: []vendors.SkippedPath{}}
 	groups, err := os.ReadDir(root)
 	if errors.Is(err, fs.ErrNotExist) {
+		if info, statErr := os.Stat(root); statErr == nil && !info.IsDir() {
+			return root, nil, fmt.Errorf("grok: session root is not a directory")
+		}
 		result.RootMissing = true
 		return root, result, nil
 	}

@@ -10,7 +10,44 @@ import (
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/grok"
 )
+
+func TestWindowsGrokDiagnosticsSourceStates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	state := func() SourceState {
+		return collectSource(context.Background(), home, grok.Health(), false).State
+	}
+	if got := state(); got != SourceMissing {
+		t.Fatalf("missing source = %q", got)
+	}
+	root := filepath.Join(home, "sessions")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got != SourceEmpty {
+		t.Fatalf("empty source = %q", got)
+	}
+	group := filepath.Join(root, "C%3A%5Cwork%5Crepo", "session")
+	if err := os.MkdirAll(group, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(group, "summary.json"), []byte(`{"info":{"id":"session","cwd":"C:\\work\\repo"},"chat_format_version":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got != SourceOK {
+		t.Fatalf("found source = %q", got)
+	}
+	unreadableHome := t.TempDir()
+	t.Setenv("GROK_HOME", unreadableHome)
+	if err := os.WriteFile(filepath.Join(unreadableHome, "sessions"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got != SourceUnreadable {
+		t.Fatalf("unreadable source = %q", got)
+	}
+}
 
 func TestGrokDiagnosticsFindsCLIOutsidePath(t *testing.T) {
 	home := t.TempDir()
