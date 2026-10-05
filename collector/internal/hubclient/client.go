@@ -33,15 +33,16 @@ type SourceSessionLoader func(sourceID, agent, sessionID string, revision int64)
 type FullSessionLoader func(sourceID, agent, sessionID, revisionID string) (*fullsessionv1.Record, fullsessionexport.Repository, error)
 
 type Client struct {
-	BaseURL           *url.URL
-	HTTP              *http.Client
-	Credentials       CredentialStore
-	DeviceName        string
-	CollectorVersion  string
-	LoadSession       SessionLoader
-	LoadSourceSession SourceSessionLoader
-	LoadFullSession   FullSessionLoader
-	Backup            *sessionbackupproducer.Manager
+	BaseURL               *url.URL
+	HTTP                  *http.Client
+	Credentials           CredentialStore
+	DeviceName            string
+	CollectorVersion      string
+	LoadSession           SessionLoader
+	LoadSourceSession     SourceSessionLoader
+	LoadFullSession       FullSessionLoader
+	Backup                *sessionbackupproducer.Manager
+	RequireLocalSynthesis bool
 
 	pairingMu sync.Mutex
 	pairings  map[string]pairingSecret
