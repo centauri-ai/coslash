@@ -58,6 +58,22 @@ func TestCompletedAssistantChunksSettleDirectedHandoff(t *testing.T) {
 	if got := store.List()[0]; got.Status != "running" {
 		t.Fatalf("partial response completed handoff: %+v", got)
 	}
+	appendUpdate("user_message_chunk", "Retry after the interrupted turn")
+	appendUpdate("agent_message_chunk", "Need clarification")
+	appendUpdate("turn_completed", "")
+	parsed, err = parseSession(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Observe("local", []*session.Session{parsed.Session}); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.List()[0]; got.Status != "running" {
+		t.Fatalf("interrupted response leaked into later turn: %+v", got)
+	}
+	appendUpdate("user_message_chunk", "Now complete the request")
+	appendUpdate("agent_message_chunk", "coSlash handoff ")
+	appendUpdate("agent_message_chunk", "completed: "+record.ID+"\nWINDOWS_HANDOFF_OK")
 	appendUpdate("turn_completed", "")
 	parsed, err = parseSession(dir)
 	if err != nil {
