@@ -2,12 +2,16 @@ package grok
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -82,6 +86,10 @@ type updateLine struct {
 
 const ticksPerUSD = 1e10
 
+// maxGrokJSONBytes matches the update-line buffer. Summary, signals, and usage
+// files stay under it; a larger file is rejected before it is decoded.
+const maxGrokJSONBytes int64 = 64 << 20
+
 func isSubagentKind(kind string) bool {
 	return kind == "subagent" || kind == "subagent_resume" || kind == "subagent_fork"
 }
@@ -96,6 +104,13 @@ func readSummary(dir string) (*summaryFile, error) {
 
 // parseSession returns nil for a chat_format_version other than 1.
 func parseSession(dir string) (*vendors.ParsedSession, error) {
+	return parseSessionContext(context.Background(), dir)
+}
+
+func parseSessionContext(ctx context.Context, dir string) (*vendors.ParsedSession, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	summary, err := readSummary(dir)
 	if err != nil {
 		return nil, err
@@ -123,7 +138,7 @@ func parseSession(dir string) (*vendors.ParsedSession, error) {
 	}
 	s.RepositoryLocalOnly = summary.GitRootDir != "" && len(summary.GitRemotes) == 0
 
-	updates, err := readUpdates(filepath.Join(dir, "updates.jsonl"))
+	updates, err := readUpdates(ctx, filepath.Join(dir, "updates.jsonl"))
 	if err != nil {
 		return nil, err
 	}
@@ -178,11 +193,24 @@ func applyUsage(parsed *vendors.ParsedSession, path string) {
 		}
 		tokens[model] = value
 	}
+	if len(tokens) == 0 && hasTokenCounts(usage.Session.usageCounts) {
+		used := usage.Session.usageCounts
+		parsed.Session.UnattributedTokens = &session.ModelTokens{
+			InputTokens:              used.InputTokens,
+			OutputTokens:             used.OutputTokens,
+			CacheCreationInputTokens: used.CacheCreationTokens,
+			CacheReadInputTokens:     used.CachedReadTokens,
+		}
+	}
 	parsed.Session.Tokens = tokens
 	parsed.Session.ObservedModels = slices.Sorted(maps.Keys(tokens))
 	if cost, ok := usage.Session.cost(); ok {
 		parsed.RecordedCost = &cost
 	}
+}
+
+func hasTokenCounts(used usageCounts) bool {
+	return used.InputTokens != 0 || used.OutputTokens != 0 || used.CachedReadTokens != 0 || used.CacheCreationTokens != 0
 }
 
 func (u usageCounts) cost() (float64, bool) {
@@ -199,8 +227,11 @@ type updatesSummary struct {
 	inTurn        bool
 }
 
-func readUpdates(path string) (updatesSummary, error) {
+func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 	var result updatesSummary
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	file, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return result, nil
@@ -213,6 +244,9 @@ func readUpdates(path string) (updatesSummary, error) {
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return updatesSummary{}, err
+		}
 		var line updateLine
 		if json.Unmarshal(scanner.Bytes(), &line) != nil {
 			continue
@@ -242,15 +276,50 @@ func readUpdates(path string) (updatesSummary, error) {
 		}
 	}
 	result.firstPrompt = strings.TrimSpace(result.firstPrompt)
+	if err := ctx.Err(); err != nil {
+		return updatesSummary{}, err
+	}
 	return result, scanner.Err()
 }
 
+func readBounded(path string, limit int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > limit {
+		return nil, fmt.Errorf("grok: %s exceeds %d bytes", filepath.Base(path), limit)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("grok: %s exceeds %d bytes", filepath.Base(path), limit)
+	}
+	return data, nil
+}
+
 func readJSON(path string, target any) error {
-	data, err := os.ReadFile(path)
+	data, err := readBounded(path, maxGrokJSONBytes)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(data, target)
+	value := reflect.ValueOf(target)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return errors.New("grok: json target must be a pointer")
+	}
+	scratch := reflect.New(value.Elem().Type())
+	if err := json.Unmarshal(data, scratch.Interface()); err != nil {
+		return err
+	}
+	value.Elem().Set(scratch.Elem())
+	return nil
 }
 
 // readOptionalJSON leaves target unset when the file is absent or caught mid-rewrite.
