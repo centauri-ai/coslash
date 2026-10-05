@@ -26,6 +26,9 @@ func TestPiWindowsAvailabilityResumeAndFailedSendCleanup(t *testing.T) {
 	t.Setenv("PATH", filepath.Join(os.Getenv("SystemRoot"), "System32"))
 	t.Setenv("PI_CODING_AGENT_DIR", t.TempDir())
 	t.Setenv("COSLASH_HOME", t.TempDir())
+	if resolved, err := vendors.PiExecutable(); err != nil || resolved != cli {
+		t.Fatalf("resolved Pi executable = %q, %v; want managed %q", resolved, err, cli)
+	}
 	if !PiAvailable() {
 		t.Fatal("installed Pi CLI is unavailable")
 	}
