@@ -343,26 +343,39 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"token":"secret"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("COSLASH_HOME", t.TempDir())
+	root := t.TempDir()
+	t.Chdir(root)
+	if err := os.Mkdir("coslash", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSLASH_HOME", "coslash")
 	got, err := reviewCLICommand(vendors.AgentGrok, "/repo", "name", prompt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(got.cleanup)
-	if got.bin != "grok" || got.stdin != "" || !slices.Contains(got.args, "--prompt-file") || !slices.Contains(got.args, "--tools") || !slices.Contains(got.args, "read_file,grep,list_dir") {
+	if got.bin != "grok" || got.stdin != "" || !slices.Contains(got.args, "--prompt-file") || !slices.Contains(got.args, "--sandbox") || !slices.Contains(got.args, "coslash-review") || !slices.Contains(got.args, "read_file,grep,list_dir") {
 		t.Fatalf("command = %#v", got)
 	}
 	if strings.Contains(strings.Join(got.args, "\n"), prompt) {
 		t.Fatal("review prompt is in argv")
 	}
 	path := got.args[slices.Index(got.args, "--prompt-file")+1]
+	if !filepath.IsAbs(path) {
+		t.Fatalf("prompt path = %q", path)
+	}
 	body, err := os.ReadFile(path)
-	if err != nil || string(body) != prompt {
+	wantPrompt := prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n"
+	if err != nil || string(body) != wantPrompt {
 		t.Fatalf("prompt file = %q, err = %v", body, err)
 	}
 	grokHome := filepath.Join(filepath.Dir(path), "home")
-	if !slices.Contains(got.env, "GROK_HOME="+grokHome) || !slices.Contains(got.env, "GROK_MEMORY=0") {
+	if !slices.Contains(got.env, "GROK_HOME="+grokHome) || !slices.Contains(got.env, "GROK_MEMORY=0") || !filepath.IsAbs(grokHome) {
 		t.Fatalf("env = %q", got.env)
+	}
+	sandbox, err := os.ReadFile(filepath.Join(grokHome, "sandbox.toml"))
+	if err != nil || !strings.Contains(string(sandbox), "extends = \"strict\"") || !strings.Contains(string(sandbox), strings.ReplaceAll(filepath.Dir(path), `\`, `\\`)) {
+		t.Fatalf("sandbox = %q, err = %v", sandbox, err)
 	}
 	auth, err := os.ReadFile(filepath.Join(grokHome, "auth.json"))
 	if err != nil || string(auth) != `{"token":"secret"}` {

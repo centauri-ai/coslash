@@ -26,6 +26,26 @@ func TestTerminalWithPromptRejectsUnavailableWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestGrokSendWithoutMessageKeepsTheHandoff(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("secure interactive prompts require a POSIX terminal")
+	}
+	provideFakeExpect(t)
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	command, path, err := cliCommandWithPrompt(vendors.AgentGrok, "", NewSession, "private prior notes", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = removeHandoffFile(path) })
+	if strings.Contains(command, "unknown agent") || !strings.Contains(command, "expect") || !strings.Contains(command, `{Type a message...}`) {
+		t.Fatalf("command = %q", command)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(contents), "private prior notes") {
+		t.Fatalf("staged prompt = %q, err = %v", contents, err)
+	}
+}
+
 func TestOpenMacTerminalPropagatesCancellation(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	original := runOSAScript
