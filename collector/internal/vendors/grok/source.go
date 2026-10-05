@@ -23,7 +23,10 @@ func Root() (string, error) {
 }
 
 // scan lists <root>/<encoded-cwd>/<session-id>/summary.json paths.
-func scan() (string, *vendors.SourceScan, error) {
+func scan(ctx context.Context) (string, *vendors.SourceScan, error) {
+	if err := ctx.Err(); err != nil {
+		return "", nil, err
+	}
 	root, err := Root()
 	if err != nil {
 		return "", nil, err
@@ -38,6 +41,9 @@ func scan() (string, *vendors.SourceScan, error) {
 		return root, nil, err
 	}
 	for _, group := range groups {
+		if err := ctx.Err(); err != nil {
+			return root, nil, err
+		}
 		if !group.IsDir() {
 			continue
 		}
@@ -48,6 +54,9 @@ func scan() (string, *vendors.SourceScan, error) {
 			continue
 		}
 		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return root, nil, err
+			}
 			summary := filepath.Join(groupDir, entry.Name(), "summary.json")
 			if info, err := os.Stat(summary); entry.IsDir() && err == nil && info.Mode().IsRegular() {
 				result.Files = append(result.Files, summary)
@@ -58,7 +67,7 @@ func scan() (string, *vendors.SourceScan, error) {
 }
 
 func sessionDirs(ctx context.Context) ([]string, error) {
-	_, result, err := scan()
+	_, result, err := scan(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +83,7 @@ func sessionDirs(ctx context.Context) ([]string, error) {
 
 func modifiedAt(dir string) int64 {
 	modified := int64(0)
-	for _, name := range []string{"summary.json", "updates.jsonl"} {
+	for _, name := range []string{"summary.json", "updates.jsonl", "signals.json", "usage.json"} {
 		if info, err := os.Stat(filepath.Join(dir, name)); err == nil {
 			modified = max(modified, info.ModTime().UnixMilli())
 		}
@@ -100,8 +109,8 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 			return nil, nil, err
 		}
 	}
-	parsed, err := vendors.ParseFilesContext(ctx, dirs, func(_ context.Context, dir string) (*vendors.ParsedSession, error) {
-		return parseTopLevel(dir)
+	parsed, err := vendors.ParseFilesContext(ctx, dirs, func(ctx context.Context, dir string) (*vendors.ParsedSession, error) {
+		return parseTopLevel(ctx, dir)
 	})
 	if err != nil {
 		return nil, nil, err
@@ -110,12 +119,15 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 }
 
 // parseTopLevel skips child sessions, which belong under their parent.
-func parseTopLevel(dir string) (*vendors.ParsedSession, error) {
+func parseTopLevel(ctx context.Context, dir string) (*vendors.ParsedSession, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	summary, err := readSummary(dir)
 	if err != nil || isSubagentKind(summary.SessionKind) {
 		return nil, err
 	}
-	return parseSession(dir)
+	return parseSessionContext(ctx, dir)
 }
 
 func GetSessionFacts(id string) (*vendors.ParsedSession, error) {
@@ -143,7 +155,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 }
 
 func Health() vendors.SourceHealth {
-	root, result, err := scan()
+	root, result, err := scan(context.Background())
 	if err != nil {
 		return vendors.SourceHealth{Agent: vendors.AgentGrok, Root: root, Err: err}
 	}

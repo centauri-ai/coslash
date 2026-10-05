@@ -2,9 +2,14 @@ package grok
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/centauri-ai/coslash/collector/internal/session"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestParseFinishedSessionUsesUsageTokensAndSignalsContextFill(t *testing.T) {
@@ -97,6 +102,105 @@ func TestHealthReportsMissingRoot(t *testing.T) {
 	parsed, _, err := CollectContext(context.Background(), 0)
 	if err != nil || len(parsed) != 0 {
 		t.Fatalf("parsed = %v, err = %v", parsed, err)
+	}
+}
+
+func TestPartialUsageJSONDoesNotRecordCost(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.json")
+	body := []byte(`{"session":{"costUsdTicks":10000000000,"costIsPar`)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed := &vendors.ParsedSession{Session: &session.Session{}}
+	applyUsage(parsed, path)
+	if parsed.RecordedCost != nil || parsed.Session.Tokens != nil || parsed.Session.UnattributedTokens != nil {
+		t.Fatalf("partial usage applied cost %v tokens %v", parsed.RecordedCost, parsed.Session.Tokens)
+	}
+}
+
+func TestUsageWithoutModelBreakdownKeepsSessionTotals(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "usage.json")
+	body := []byte(`{"session":{"inputTokens":12,"outputTokens":3,"cachedReadTokens":4,"cacheCreationTokens":0}}`)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed := &vendors.ParsedSession{Session: &session.Session{}}
+	applyUsage(parsed, path)
+	got := parsed.Session.UnattributedTokens
+	if got == nil || got.InputTokens != 12 || got.OutputTokens != 3 || got.CacheReadInputTokens != 4 || len(parsed.Session.Tokens) != 0 {
+		t.Fatalf("unattributed = %+v, tokens = %+v", got, parsed.Session.Tokens)
+	}
+}
+
+func TestReadJSONRejectsFileOverTheCap(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "summary.json")
+	if err := os.WriteFile(path, []byte(`{"info":{"id":"too-big"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBounded(path, 8); err == nil {
+		t.Fatal("readBounded accepted a file over the limit")
+	}
+	var summary summaryFile
+	if err := readJSON(path, &summary); err != nil || summary.Info.ID != "too-big" {
+		t.Fatalf("summary = %+v, err = %v", summary, err)
+	}
+}
+
+type cancelOnCheck struct {
+	context.Context
+	cancel context.CancelFunc
+	after  int
+	seen   int
+}
+
+func (c *cancelOnCheck) Err() error {
+	c.seen++
+	if c.seen > c.after {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+func TestReadUpdatesStopsWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	wrapped := &cancelOnCheck{Context: ctx, cancel: cancel, after: 1}
+	got, err := readUpdates(wrapped, filepath.Join("testdata", "finished", "updates.jsonl"))
+	if !errors.Is(err, context.Canceled) || got.firstPrompt != "" {
+		t.Fatalf("updates = %+v, err = %v", got, err)
+	}
+}
+
+func TestCancelledCollectStopsBeforeParsing(t *testing.T) {
+	t.Setenv("GROK_HOME", t.TempDir())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	parsed, _, err := CollectContext(ctx, 0)
+	if !errors.Is(err, context.Canceled) || parsed != nil {
+		t.Fatalf("parsed = %v, err = %v", parsed, err)
+	}
+}
+
+func TestSinceIncludesSignalAndUsageUpdates(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	dir := filepath.Join(home, "sessions", "%2Fwork%2Frepo", "01a0f48a-42bb-7802-b584-f5def46d1e75")
+	copyFixture(t, filepath.Join("testdata", "finished"), dir)
+	old := time.Now().Add(-72 * time.Hour)
+	for _, name := range []string{"summary.json", "updates.jsonl"} {
+		if err := os.Chtimes(filepath.Join(dir, name), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(dir, "usage.json"), now, now); err != nil {
+		t.Fatal(err)
+	}
+	parsed, _, err := CollectContext(context.Background(), now.Add(-time.Hour).UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed) != 1 || parsed[0].Session.ID != "01a0f48a-42bb-7802-b584-f5def46d1e75" {
+		t.Fatalf("parsed = %+v", parsed)
 	}
 }
 
