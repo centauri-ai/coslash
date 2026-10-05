@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -62,5 +63,37 @@ func TestWindowsStoreCollectsFinishedAndOpenSessions(t *testing.T) {
 	}
 	if health := Health(); health.Missing || health.Err != nil || health.Sessions != 2 {
 		t.Fatalf("health = %+v", health)
+	}
+}
+
+func TestWindowsStoreNestsChildOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	group := filepath.Join(home, "sessions", "C%3A%5Cwork%5Crepo")
+	writeSummary(t, filepath.Join(group, "parent"), `{"info":{"id":"parent","cwd":"C:\\work\\repo"},"chat_format_version":1}`)
+	writeSummary(t, filepath.Join(group, "child"), `{"info":{"id":"child","cwd":"C:\\work\\repo"},"chat_format_version":1,"session_kind":"subagent"}`)
+	meta := filepath.Join(group, "parent", "subagents", "child")
+	if err := os.MkdirAll(meta, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(meta, "meta.json"), []byte(`{"child_session_id":"child","description":"Check Windows paths","status":"completed"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, _, err := CollectContext(context.Background(), 0)
+	if err != nil || len(parsed) != 2 {
+		t.Fatalf("sessions = %v, err = %v", parsed, err)
+	}
+	roots := 0
+	for _, item := range parsed {
+		if item.ParentID == "" {
+			roots++
+		} else if item.Session.ID != "child" || item.ParentID != "parent" {
+			t.Fatalf("child = %+v", item)
+		}
+	}
+	parent, err := GetSessionFacts("parent")
+	if err != nil || roots != 1 || parent == nil || len(parent.Session.Subagents) != 1 ||
+		parent.Session.Subagents[0].ID != "child" || parent.Session.Subagents[0].Status != session.SubagentReturned {
+		t.Fatalf("roots = %d, parent = %+v, err = %v", roots, parent, err)
 	}
 }
