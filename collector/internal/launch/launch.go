@@ -818,7 +818,22 @@ func withGrokHome(agent, command string) string {
 	if home == "" {
 		return command
 	}
-	return "GROK_HOME=" + shellQuote(home) + " " + command
+	return grokHomePrefix(home) + command
+}
+
+func grokHomePrefix(home string) string {
+	if runtime.GOOS == "windows" {
+		return windowsGrokHomePrefix(home)
+	}
+	return posixGrokHomePrefix(home)
+}
+
+func posixGrokHomePrefix(home string) string {
+	return "GROK_HOME=" + shellQuote(home) + " "
+}
+
+func windowsGrokHomePrefix(home string) string {
+	return "$env:GROK_HOME = '" + strings.ReplaceAll(home, "'", "''") + "'; "
 }
 
 func shellJoin(arguments ...string) string {
