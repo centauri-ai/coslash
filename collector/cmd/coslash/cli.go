@@ -477,7 +477,7 @@ func runReview(stdout io.Writer, args []string) error {
 		return fmt.Errorf("--with must be claude, codex, opencode, cursor, pi, or grok")
 	}
 	if reviewer == "grok" && !vendors.GrokSynthesisSupported() {
-		return fmt.Errorf("Grok review is supported only on macOS")
+		return fmt.Errorf("Grok review is supported only on macOS and Windows")
 	}
 	client, err := newLocalAPIClient()
 	if err != nil {

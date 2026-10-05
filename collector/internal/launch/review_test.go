@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/grokcli"
 	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -306,6 +307,9 @@ func TestCursorReviewHelper(t *testing.T) {
 }
 
 func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
+	t.Setenv("GROK_HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("PATH", "")
 	got := ReviewerOptions()
 	want := []ReviewerOption{
 		{ID: "claude", Label: "Claude Code CLI", Executable: "claude"},
@@ -333,6 +337,8 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 		return
 	}
 	home := t.TempDir()
+	t.Setenv("PATH", "")
+	t.Setenv("USERPROFILE", t.TempDir())
 	t.Setenv("GROK_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"token":"secret"}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -358,9 +364,43 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 	if !slices.Contains(got.env, "GROK_HOME="+grokHome) || !slices.Contains(got.env, "GROK_MEMORY=0") {
 		t.Fatalf("env = %q", got.env)
 	}
-	link, err := os.Readlink(filepath.Join(grokHome, "auth.json"))
-	if err != nil || link != filepath.Join(home, "auth.json") {
-		t.Fatalf("auth link = %q, err = %v", link, err)
+	auth, err := os.ReadFile(filepath.Join(grokHome, "auth.json"))
+	if err != nil || string(auth) != `{"token":"secret"}` {
+		t.Fatalf("auth = %q, err = %v", auth, err)
+	}
+	if runtime.GOOS != "windows" {
+		link, err := os.Readlink(filepath.Join(grokHome, "auth.json"))
+		if err != nil || link != filepath.Join(home, "auth.json") {
+			t.Fatalf("auth link = %q, err = %v", link, err)
+		}
+	}
+	got.cleanup()
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("review scratch survived cleanup: %v", err)
+	}
+}
+
+func TestGrokReviewerFindsInstalledExecutable(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows installation path")
+	}
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	t.Setenv("PATH", "")
+	path := filepath.Join(home, "bin", "grok.exe")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !ReviewerAvailable(vendors.AgentGrok) || grokcli.Executable() != path {
+		t.Fatal("installed Grok reviewer unavailable without PATH")
+	}
+	for _, option := range HandoffTargetOptions(context.Background()) {
+		if option.Agent == vendors.AgentGrok && !option.Available {
+			t.Fatal("installed Grok handoff target unavailable")
+		}
 	}
 }
 
