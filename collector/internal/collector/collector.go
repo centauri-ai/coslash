@@ -984,6 +984,9 @@ func resolveStatusContext(
 		} else if p.StatusHint != nil && (!livenessAuthoritative || !agentMetadata.LivenessChecked) {
 			status := *p.StatusHint
 			s.Status = &status
+		} else if s.Agent == vendors.AgentGrok && p.InTurn && agentMetadata.LivenessChecked {
+			status := "idle"
+			s.Status = &status
 		}
 	}
 	return nil

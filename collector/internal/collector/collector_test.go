@@ -566,7 +566,7 @@ func TestGrokStatusIsBusyOnlyForLivePidInOpenTurn(t *testing.T) {
 	if got := statuses(os.Getpid()); got[fixtures["open"]] != "busy" || got[fixtures["finished"]] != "idle" {
 		t.Fatalf("live pid statuses = %v", got)
 	}
-	if got := statuses(1 << 30); got[fixtures["open"]] != "" || got[fixtures["finished"]] != "" {
-		t.Fatalf("dead pid statuses = %v, want no live status", got)
+	if got := statuses(1 << 30); got[fixtures["open"]] != "idle" || got[fixtures["finished"]] != "" {
+		t.Fatalf("dead pid statuses = %v, want open idle and finished inactive", got)
 	}
 }
