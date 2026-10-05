@@ -365,6 +365,8 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		if err != nil && result.Usage.Coverage == "complete" {
 			result.Usage.Coverage = "partial"
 		}
+	} else if r.Backend == settings.BackendGrok {
+		result.Usage = parseGrokUsage(output, r.Model)
 	}
 	if errors.Is(err, errSynthesisOutputLimit) && result.Usage.Coverage == "complete" {
 		result.Usage.Coverage = "partial"
@@ -447,6 +449,130 @@ func parseResultEnvelope(data []byte) (session.SessionSynthesis, error) {
 		return session.SessionSynthesis{}, err
 	}
 	return parseSynthesis([]byte(envelope.Result))
+}
+
+func parseGrokUsage(data []byte, configuredModel string) UsageReport {
+	if len(data) > maxSynthesisOutputBytes {
+		return unknownUsage()
+	}
+	var envelope struct {
+		Usage           json.RawMessage           `json:"usage"`
+		UsageIncomplete bool                      `json:"usage_is_incomplete"`
+		CostPartial     bool                      `json:"cost_is_partial"`
+		TotalCostTicks  *int64                    `json:"total_cost_usd_ticks"`
+		TotalCostUSD    json.RawMessage           `json:"total_cost_usd"`
+		ModelUsage      map[string]grokModelSpend `json:"modelUsage"`
+	}
+	if json.Unmarshal(data, &envelope) != nil {
+		return unknownUsage()
+	}
+	var totals grokTokenSpend
+	if len(envelope.Usage) > 0 && string(envelope.Usage) != "null" && json.Unmarshal(envelope.Usage, &totals) != nil {
+		return unknownUsage()
+	}
+	tokens := grokUsageTokens(totals, envelope.ModelUsage, configuredModel)
+	var reported *int64
+	if !envelope.UsageIncomplete && !envelope.CostPartial {
+		if envelope.TotalCostTicks != nil {
+			if micros, ok := grokTicksToMicroUSD(*envelope.TotalCostTicks); ok {
+				reported = &micros
+			}
+		} else if micros, ok := componentMicros(envelope.TotalCostUSD); ok {
+			reported = &micros
+		}
+	}
+	if tokens == nil && reported == nil {
+		return unknownUsage()
+	}
+	report, err := PriceUsage(tokens, reported)
+	if err != nil {
+		return unknownUsage()
+	}
+	if envelope.UsageIncomplete || envelope.CostPartial {
+		report.ReportedCostMicroUSD = nil
+		if len(report.Tokens) > 0 {
+			report.Coverage = "partial"
+		} else {
+			return unknownUsage()
+		}
+	}
+	return report
+}
+
+type grokTokenSpend struct {
+	Input         *int `json:"input_tokens"`
+	Output        *int `json:"output_tokens"`
+	CacheRead     *int `json:"cache_read_input_tokens"`
+	CacheCreation *int `json:"cache_creation_input_tokens"`
+}
+
+type grokModelSpend struct {
+	Input         *int `json:"inputTokens"`
+	Output        *int `json:"outputTokens"`
+	CacheRead     *int `json:"cacheReadInputTokens"`
+	CacheCreation *int `json:"cacheCreationInputTokens"`
+}
+
+func grokUsageTokens(totals grokTokenSpend, models map[string]grokModelSpend, configuredModel string) map[string]session.ModelTokens {
+	if len(models) > 0 {
+		tokens := make(map[string]session.ModelTokens, len(models))
+		for model, spend := range models {
+			input, output := spend.Input, spend.Output
+			cacheRead, cacheCreation := spend.CacheRead, spend.CacheCreation
+			if len(models) == 1 {
+				if cacheRead == nil {
+					cacheRead = totals.CacheRead
+				}
+				if cacheCreation == nil {
+					cacheCreation = totals.CacheCreation
+				}
+			}
+			row, ok := grokTokenRow(input, output, cacheRead, cacheCreation)
+			if !ok {
+				return nil
+			}
+			tokens[model] = row
+		}
+		return tokens
+	}
+	if configuredModel == "" || configuredModel == settings.GrokDefaultModel {
+		return nil
+	}
+	row, ok := grokTokenRow(totals.Input, totals.Output, totals.CacheRead, totals.CacheCreation)
+	if !ok {
+		return nil
+	}
+	return map[string]session.ModelTokens{configuredModel: row}
+}
+
+func grokTokenRow(input, output, cacheRead, cacheCreation *int) (session.ModelTokens, bool) {
+	if input == nil || output == nil || cacheRead == nil || cacheCreation == nil {
+		return session.ModelTokens{}, false
+	}
+	if *input < 0 || *output < 0 || *cacheRead < 0 || *cacheCreation < 0 {
+		return session.ModelTokens{}, false
+	}
+	return session.ModelTokens{
+		InputTokens:              *input,
+		OutputTokens:             *output,
+		CacheReadInputTokens:     *cacheRead,
+		CacheCreationInputTokens: *cacheCreation,
+	}, true
+}
+
+func grokTicksToMicroUSD(ticks int64) (int64, bool) {
+	if ticks < 0 {
+		return 0, false
+	}
+	const ticksPerMicro int64 = 10_000
+	micros := ticks / ticksPerMicro
+	if ticks%ticksPerMicro >= ticksPerMicro/2 {
+		micros++
+	}
+	if micros > maxSafeInteger {
+		return 0, false
+	}
+	return micros, true
 }
 
 func parseGrokSynthesis(data []byte) (session.SessionSynthesis, error) {
