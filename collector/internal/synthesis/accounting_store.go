@@ -639,7 +639,7 @@ func validInvocationOutcome(s string) bool {
 	return s == "success" || s == "failed" || s == "interrupted"
 }
 func validAgentName(s string) bool {
-	return s == "claude" || s == "codex" || s == "opencode" || s == "cursor" || s == "pi"
+	return s == "claude" || s == "codex" || s == "opencode" || s == "cursor" || s == "pi" || s == "grok"
 }
 func validAccountingSessionID(agent, id string) bool {
 	if agent != "pi" {
