@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/settings"
@@ -106,11 +107,10 @@ func TestGrokLaunchAndResumeArguments(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("GROK_HOME", home)
 	id := "01a0f8c9-e0fa-7ec0-a5bf-79da860d539a"
-	prefix := grokHomePrefix(home)
-	if command, _, err := cliCommand(vendors.AgentGrok, "", NewSession, ""); err != nil || command != prefix+localCommandJoin("grok") {
+	if command, _, err := cliCommand(vendors.AgentGrok, "", NewSession, ""); err != nil || command != grokHomeCommand(home, localCommandJoin("grok")) {
 		t.Fatalf("cliCommand(NewSession) = %q, %v", command, err)
 	}
-	if command, _, err := cliCommand(vendors.AgentGrok, id, ResumeSession, ""); err != nil || command != prefix+localCommandJoin("grok", "--resume", id) {
+	if command, _, err := cliCommand(vendors.AgentGrok, id, ResumeSession, ""); err != nil || command != grokHomeCommand(home, localCommandJoin("grok", "--resume", id)) {
 		t.Fatalf("cliCommand(ResumeSession) = %q, %v", command, err)
 	}
 }
@@ -119,7 +119,16 @@ func TestGrokHomePrefixQuotesTheStorePath(t *testing.T) {
 	if got, want := posixGrokHomePrefix("/tmp/o'brien"), "GROK_HOME='/tmp/o'\\''brien' "; got != want {
 		t.Fatalf("posix prefix = %q, want %q", got, want)
 	}
-	if got, want := windowsGrokHomePrefix(`C:\Users\o'brien`), `$env:GROK_HOME = 'C:\Users\o''brien'; `; got != want {
-		t.Fatalf("windows prefix = %q, want %q", got, want)
+	got := windowsGrokHomeCommand(`C:\Users\o'brien`, "& 'grok'")
+	for _, want := range []string{
+		"$hadGrokHome = Test-Path Env:GROK_HOME",
+		"$env:GROK_HOME = 'C:\\Users\\o''brien'",
+		"try { & 'grok' } finally {",
+		"if ($hadGrokHome) { $env:GROK_HOME = $previousGrokHome }",
+		"Remove-Item Env:GROK_HOME -ErrorAction SilentlyContinue",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("windows command = %q, missing %q", got, want)
+		}
 	}
 }
