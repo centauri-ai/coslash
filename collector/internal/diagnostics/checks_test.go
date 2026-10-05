@@ -52,15 +52,21 @@ func TestPiNewReleaseDoesNotHideExtensionRecovery(t *testing.T) {
 
 func TestPiMissingCLIReportsManagedInstallSearch(t *testing.T) {
 	source := Source{Agent: "pi", Label: "Pi", State: SourceOK, Entries: 1, CLI: CLI{Name: "pi"}}
-	for _, check := range derive(&Snapshot{Sources: []Source{source}}) {
-		if check.ID == "cli.pi" {
-			if !strings.Contains(check.Detail, "managed installation") {
-				t.Fatalf("missing Pi CLI detail = %q", check.Detail)
+	for _, platform := range []string{"darwin", "windows"} {
+		found := false
+		for _, check := range derive(&Snapshot{Platform: Platform{OS: platform}, Sources: []Source{source}}) {
+			if check.ID == "cli.pi" {
+				wantManaged := platform == "windows"
+				if strings.Contains(check.Detail, "managed installation") != wantManaged || !strings.Contains(check.Detail, "not found on PATH") {
+					t.Fatalf("%s missing Pi CLI detail = %q", platform, check.Detail)
+				}
+				found = true
 			}
-			return
+		}
+		if !found {
+			t.Fatalf("%s missing Pi CLI check", platform)
 		}
 	}
-	t.Fatal("missing Pi CLI check")
 }
 
 func TestCursorDiagnosticsWarnWhenBothLanesAreMissing(t *testing.T) {
