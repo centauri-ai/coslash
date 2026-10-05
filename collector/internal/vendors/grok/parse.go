@@ -562,12 +562,13 @@ func readJSON(path string, target any) error {
 	if value.Kind() != reflect.Pointer || value.IsNil() {
 		return errors.New("grok: json target must be a pointer")
 	}
+	// Validate into a temporary first. A truncated file must not leave a partial
+	// value behind, and a later decode into target keeps fields json ignores.
 	scratch := reflect.New(value.Elem().Type())
 	if err := json.Unmarshal(data, scratch.Interface()); err != nil {
 		return err
 	}
-	value.Elem().Set(scratch.Elem())
-	return nil
+	return json.Unmarshal(data, target)
 }
 
 // readOptionalJSON leaves target unset when the file is absent or caught mid-rewrite.
