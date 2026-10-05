@@ -7,6 +7,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 type shareSynthesisRequest struct {
@@ -63,7 +64,7 @@ func shareSynthesisReadiness(found *session.Session, expectedRevision int64, mgr
 		status.State = "failed"
 		return status
 	}
-	if !synthesis.Eligible(found) {
+	if found.Agent != vendors.AgentCodex {
 		status.State = "ineligible"
 	} else if !state.Valid || !state.Persisted {
 		status.State = "consent_required"
@@ -78,7 +79,7 @@ func shareSynthesisReadiness(found *session.Session, expectedRevision int64, mgr
 	} else if mgr.InCooldown(found.Agent, found.ID, revision) {
 		status.State = "unavailable"
 	} else {
-		mgr.Ensure(found, revision)
+		mgr.EnsureForShare(found, revision)
 		status.State = "pending"
 	}
 	return status
