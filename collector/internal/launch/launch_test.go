@@ -83,6 +83,9 @@ func TestRemoteCLICommandPreservesVendorResumeForms(t *testing.T) {
 }
 
 func TestGrokLaunchAndResumeArguments(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	cli, err := cliName(vendors.AgentGrok)
 	if err != nil {
 		t.Fatal(err)

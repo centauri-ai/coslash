@@ -300,11 +300,17 @@ func collectSource(
 				source.IDE.Version = commandVersion(ctx, path)
 			}
 		}
-	} else if path, err := exec.LookPath(health.Agent); err == nil {
-		source.CLI.Found = true
-		source.CLI.Path = displayPath(userHome, path)
-		if includeVersion || health.Agent == "pi" {
-			source.CLI.Version = commandVersion(ctx, path)
+	} else {
+		path, _ := exec.LookPath(health.Agent)
+		if health.Agent == "grok" {
+			path = launch.GrokExecutable()
+		}
+		if path != "" {
+			source.CLI.Found = true
+			source.CLI.Path = displayPath(userHome, path)
+			if includeVersion || health.Agent == "pi" {
+				source.CLI.Version = commandVersion(ctx, path)
+			}
 		}
 	}
 	if source.IDE != nil {
