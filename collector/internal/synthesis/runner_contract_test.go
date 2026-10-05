@@ -16,6 +16,7 @@ func TestRunnerVendorNamesFitAccounting(t *testing.T) {
 		{settings.BackendCodex, "codex"},
 		{settings.BackendOpenCode, "opencode"},
 		{settings.BackendCursor, "cursor"},
+		{settings.BackendGrok, "grok"},
 	} {
 		runner := &CLIRunner{Backend: tc.backend, Model: "gpt-5"}
 		if got := runner.VendorName(); got != tc.vendor {

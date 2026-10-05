@@ -17,10 +17,10 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "backend": {
-          "enum": ["claude-cli", "codex_exec", "opencode", "cursor-cli", "pi-cli"]
+          "enum": ["claude-cli", "codex_exec", "opencode", "cursor-cli", "pi-cli", "grok-cli"]
         },
         "model": {
-          "description": "Model id passed to the selected CLI. Settings offers a short list per backend, but any model that CLI can reach is accepted, including models served through an API proxy or a third-party provider. For the opencode and pi-cli backends, \"default\" passes no model and lets the CLI resolve one.",
+          "description": "Model id passed to the selected CLI. Settings offers a short list per backend, but any model that CLI can reach is accepted, including models served through an API proxy or a third-party provider. For the opencode, pi-cli, and grok-cli backends, \"default\" passes no model and lets the CLI resolve one.",
           "type": "string",
           "minLength": 1,
           "maxLength": 200,

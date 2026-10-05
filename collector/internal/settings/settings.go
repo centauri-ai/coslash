@@ -27,10 +27,13 @@ const (
 	BackendOpenCode = "opencode"
 	BackendCursor   = "cursor-cli"
 	BackendPi       = "pi-cli"
+	BackendGrok     = "grok-cli"
 
 	// Passes no model, leaving OpenCode to resolve its default for each run.
 	OpenCodeDefaultModel = "default"
 	PiDefaultModel       = "default"
+	GrokDefaultModel     = "default"
+	GrokSynthesisModel   = "grok-4.7"
 
 	// Each backend's own default model, which the runner turns up to high
 	// reasoning effort. Changing one of these ids moves that flag with it.
@@ -172,6 +175,14 @@ func BackendOptions() []BackendOption {
 			Label:  "Pi CLI",
 			Models: []ModelOption{{ID: PiDefaultModel, Label: "Pi configured default", Default: true}},
 		},
+		{
+			ID:    BackendGrok,
+			Label: "Grok CLI",
+			Models: []ModelOption{
+				{ID: GrokSynthesisModel, Label: "Grok 4.7", Default: true},
+				{ID: GrokDefaultModel, Label: "Grok configured default"},
+			},
+		},
 	}
 }
 
@@ -252,6 +263,11 @@ func BackendExecutable(backend string) string {
 				}
 			}
 			return "pi"
+		}
+		return ""
+	case BackendGrok:
+		if vendors.GrokSynthesisSupported() {
+			return "grok"
 		}
 		return ""
 	default:

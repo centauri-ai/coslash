@@ -31,3 +31,7 @@ func PiExecutable() (string, error) {
 	}
 	return exec.LookPath(filepath.Join(home, ".pi", "agent", "bin", "pi.cmd"))
 }
+
+// GrokSynthesisSupported reports whether the Grok CLI may run synthesis.
+// Session collection is separate; this gate is macOS only.
+func GrokSynthesisSupported() bool { return runtime.GOOS == "darwin" }

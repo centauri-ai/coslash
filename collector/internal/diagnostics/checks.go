@@ -80,6 +80,10 @@ func derive(snapshot *Snapshot) []Check {
 		synthesis.Status = StatusWarn
 		synthesis.Detail = "Pi synthesis is unavailable on this platform."
 		synthesis.Fix = "Open Settings and choose another synthesis backend."
+	} else if snapshot.grokSynthesisUnsupported {
+		synthesis.Status = StatusWarn
+		synthesis.Detail = "Grok synthesis is supported only on macOS."
+		synthesis.Fix = "Open Settings and choose another synthesis backend."
 	} else if !snapshot.Storage.Writable {
 		synthesis.Status = StatusFail
 		synthesis.Detail = "Enabled, but coSlash storage is not writable."
