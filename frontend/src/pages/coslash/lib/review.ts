@@ -1,3 +1,4 @@
+import { apiFetch, readApiError } from '@/pages/coslash/lib/api';
 import { machineRetryable, machineStatusText } from '@/pages/coslash/lib/machine-status';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
@@ -94,6 +95,16 @@ export function reviewRequestPath(origin: SessionIdentity, reviewer: VendorKey):
     id: origin.id,
     reviewer,
   })}`;
+}
+
+export async function startReview(origin: SessionIdentity, reviewer: VendorKey): Promise<void> {
+  const response = await apiFetch(reviewRequestPath(origin, reviewer), { method: 'POST' });
+  if (!response.ok) {
+    const error = await readApiError(response.clone());
+    throw new Error(
+      error?.error || (await response.text()).trim() || `Review launch failed (${response.status})`,
+    );
+  }
 }
 
 function originShortID(name: string | null): string | null {
