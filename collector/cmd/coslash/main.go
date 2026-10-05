@@ -187,6 +187,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("remote manager: %v", err)
 	}
+	backupManager := sessionbackupproducer.New(sessionbackupproducer.Options{
+		CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
+	})
 	if settingsState.Valid {
 		if err := remoteManager.ApplySettings(settingsState.Config.Remote); err != nil {
 			log.Printf("remote settings: %v", err)
@@ -232,7 +235,9 @@ func main() {
 		log.Printf("Hub integration disabled: %v", err)
 	}
 	var queue *syncv4.Queue
-	if hub != nil && os.Getenv("COSLASH_V4_SYNC_ENABLED") == "1" {
+	// The Hub import plan is the upload consent. Keep the worker available
+	// through first pairing so the Hub can start sync without a Local restart.
+	if os.Getenv("COSLASH_V4_SYNC_ENABLED") != "0" {
 		queue, err = syncv4.Open("")
 		if err != nil {
 			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
@@ -241,7 +246,7 @@ func main() {
 	onboardings := newOnboardingManager(version)
 	onboardings.SetV4SyncActive(queue != nil)
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{queue: queue, directedStore: directedStore, onboardings: onboardings})
+		serverServices{queue: queue, backupManager: backupManager, directedStore: directedStore, onboardings: onboardings})
 	onboardings.StartCheckIns(hub)
 	if startupIntent != nil {
 		switch startupIntent.Action {
@@ -271,7 +276,8 @@ func main() {
 		syncHub := currentHubTransport{current: onboardings.currentHubClient}
 		runner := &syncv4.Runner{
 			Version: version,
-			Queue:   queue, Backup: hub.Backup, Hub: syncHub,
+			Queue:   queue, Backup: backupManager, Hub: syncHub,
+			RequireImportPlan: true,
 			Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
 			InventoryProgress: func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
 			Conditions:        syncv4.LocalConditions,
@@ -384,6 +390,7 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 
 type serverServices struct {
 	queue         *syncv4.Queue
+	backupManager *sessionbackupproducer.Manager
 	directedStore *directedhandoff.Store
 	onboardings   *onboardingManager
 }
@@ -572,8 +579,8 @@ func routesWithOnboarding(
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
-	var backupManager *sessionbackupproducer.Manager
-	if hub != nil {
+	backupManager := service.backupManager
+	if backupManager == nil {
 		backupManager = sessionbackupproducer.New(sessionbackupproducer.Options{
 			CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
 		})
