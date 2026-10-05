@@ -47,7 +47,7 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 	}
 	provideFakeExpect(t)
 	t.Setenv("COSLASH_HOME", t.TempDir())
-	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode, vendors.AgentCursor} {
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex, vendors.AgentOpenCode, vendors.AgentCursor, vendors.AgentGrok} {
 		t.Run(agent, func(t *testing.T) {
 			command, handoffPath, err := cliCommandWithPrompt(agent, "", NewSession, "private prior notes", "fix it")
 			if err != nil {
@@ -62,9 +62,11 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 				ready = `{Ask anything}`
 			} else if agent == vendors.AgentCursor {
 				ready = `{0 in}`
+			} else if agent == vendors.AgentGrok {
+				ready = `{Type a message...}`
 			}
 			submit := `after 300; send -- "\r"`
-			if agent == vendors.AgentCursor || agent == vendors.AgentCodex {
+			if agent == vendors.AgentCursor || agent == vendors.AgentCodex || agent == vendors.AgentGrok {
 				submit = `after 2000; send -- "\r"`
 			}
 			if !strings.Contains(command, ready) || !strings.Contains(command, submit) || strings.Contains(command, "/dev/tty") {

@@ -20,6 +20,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
@@ -500,8 +501,8 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	}{
 		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi] [--recent N] --json\n"},
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
-		{"send", "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi [message]\n"},
-		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi | coslash review status <agent>:<session> --json\n"},
+		{"send", "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi|grok [message]\n"},
+		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi|grok | coslash review status <agent>:<session> --json\n"},
 		{"doctor", "usage: coslash doctor [--json]\n"},
 	} {
 		for _, flag := range []string{"--help", "-h"} {
@@ -587,7 +588,11 @@ func TestRunReviewPreservesServerOutcomes(t *testing.T) {
 	defer server.Close()
 	writeTestRuntime(t, server.URL, "secret")
 
-	for _, selected := range []string{"claude", "codex", "opencode", "cursor", "pi"} {
+	selectedReviewers := []string{"claude", "codex", "opencode", "cursor", "pi"}
+	if vendors.GrokSynthesisSupported() {
+		selectedReviewers = append(selectedReviewers, "grok")
+	}
+	for _, selected := range selectedReviewers {
 		reviewer = selected
 		var stdout, stderr bytes.Buffer
 		if code := runCLI(&stdout, &stderr, []string{"review", "codex:session-1", "--with", selected}); code != 0 {

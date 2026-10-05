@@ -94,6 +94,9 @@ func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 	if vendors.PiSupported() {
 		options = append(options, HandoffTargetOption{Agent: vendors.AgentPi, Label: "Pi", Entrypoint: "pi-tui", Automatic: true})
 	}
+	if vendors.GrokSynthesisSupported() {
+		options = append(options, HandoffTargetOption{Agent: vendors.AgentGrok, Label: "Grok", Entrypoint: "cli", Automatic: true})
+	}
 	for i := range options {
 		if !securePromptAvailable() && !(runtime.GOOS == "windows" && options[i].Entrypoint == "pi-tui") {
 			continue
@@ -121,6 +124,9 @@ func ReviewerOptions() []ReviewerOption {
 	}
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		options = append(options, ReviewerOption{ID: vendors.AgentPi, Label: "Pi CLI", Executable: "pi"})
+	}
+	if vendors.GrokSynthesisSupported() {
+		options = append(options, ReviewerOption{ID: vendors.AgentGrok, Label: "Grok CLI", Executable: "grok"})
 	}
 	return options
 }
@@ -248,10 +254,11 @@ func ReviewCLIAvailable(ctx context.Context, reviewer string) bool {
 }
 
 type reviewCommandSpec struct {
-	bin   string
-	args  []string
-	env   []string
-	stdin string
+	bin     string
+	args    []string
+	env     []string
+	stdin   string
+	cleanup func()
 }
 
 func Review(ctx context.Context, request review.Launch) (string, error) {
@@ -267,7 +274,10 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 		return "", ErrWorkingDirectoryUnavailable
 	}
 	prompt := request.Prompt
-	if request.Reviewer == vendors.AgentOpenCode || request.Reviewer == vendors.AgentCursor || request.Reviewer == vendors.AgentPi {
+	if request.Reviewer == vendors.AgentGrok && request.SSHAlias != "" {
+		return "", errors.New("launch: remote Grok review is unsupported")
+	}
+	if request.Reviewer == vendors.AgentOpenCode || request.Reviewer == vendors.AgentCursor || request.Reviewer == vendors.AgentPi || request.Reviewer == vendors.AgentGrok {
 		snapshot, err := reviewGitSnapshot(ctx, workingDirectory)
 		if err != nil {
 			return "", err
@@ -277,6 +287,9 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 	spec, err := reviewCLICommand(request.Reviewer, workingDirectory, request.Name, prompt)
 	if err != nil {
 		return "", err
+	}
+	if spec.cleanup != nil {
+		defer spec.cleanup()
 	}
 	if request.Reviewer == vendors.AgentCursor {
 		if err := os.MkdirAll(reviewScratchDir(), 0o700); err != nil {
@@ -363,7 +376,7 @@ func cleanupReviewScratch(cutoff time.Time) error {
 		return err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cursor-") {
+		if !entry.IsDir() || (!strings.HasPrefix(entry.Name(), "cursor-") && !strings.HasPrefix(entry.Name(), "grok-")) {
 			continue
 		}
 		info, err := entry.Info()
@@ -470,9 +483,75 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 			args:  args,
 			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		}, nil
+	case vendors.AgentGrok:
+		return grokReviewCommand(prompt)
 	default:
 		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
 	}
+}
+
+func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
+	if !vendors.GrokSynthesisSupported() {
+		return reviewCommandSpec{}, errors.New("launch: Grok review is supported only on macOS")
+	}
+	if err := os.MkdirAll(reviewScratchDir(), 0o700); err != nil {
+		return reviewCommandSpec{}, fmt.Errorf("create Grok review directory: %w", err)
+	}
+	scratch, err := os.MkdirTemp(reviewScratchDir(), "grok-*")
+	if err != nil {
+		return reviewCommandSpec{}, fmt.Errorf("create Grok review directory: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(scratch) }
+	home := filepath.Join(scratch, "home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		cleanup()
+		return reviewCommandSpec{}, fmt.Errorf("create Grok review home: %w", err)
+	}
+	if err := linkGrokReviewAuth(home); err != nil {
+		cleanup()
+		return reviewCommandSpec{}, err
+	}
+	promptPath := filepath.Join(scratch, "prompt.txt")
+	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
+		cleanup()
+		return reviewCommandSpec{}, fmt.Errorf("write Grok review prompt: %w", err)
+	}
+	return reviewCommandSpec{
+		bin: "grok",
+		args: []string{
+			"--prompt-file", promptPath,
+			"--output-format", "plain",
+			"--no-subagents",
+			"--permission-mode", "bypassPermissions",
+			"--tools", "read_file,grep,list_dir",
+			"--disallowed-tools", "run_terminal_cmd,search_replace,web_search,web_fetch",
+		},
+		env:     []string{"GROK_HOME=" + home, "GROK_MEMORY=0"},
+		cleanup: cleanup,
+	}, nil
+}
+
+func linkGrokReviewAuth(scratchHome string) error {
+	sourceDir := os.Getenv("GROK_HOME")
+	if sourceDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil
+		}
+		sourceDir = filepath.Join(home, ".grok")
+	}
+	if sourceDir == scratchHome {
+		return nil
+	}
+	source := filepath.Join(sourceDir, "auth.json")
+	info, err := os.Stat(source)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
+	if err := os.Symlink(source, filepath.Join(scratchHome, "auth.json")); err != nil {
+		return fmt.Errorf("link Grok auth: %w", err)
+	}
+	return nil
 }
 
 type boundedBuffer struct {

@@ -512,8 +512,12 @@ func handleSend(
 	open promptLauncher,
 ) {
 	target := r.URL.Query().Get("to")
-	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode && target != vendors.AgentCursor && target != vendors.AgentPi {
-		http.Error(w, "target must be claude, codex, opencode, cursor, or pi", http.StatusBadRequest)
+	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode && target != vendors.AgentCursor && target != vendors.AgentPi && target != vendors.AgentGrok {
+		http.Error(w, "target must be claude, codex, opencode, cursor, pi, or grok", http.StatusBadRequest)
+		return
+	}
+	if target == vendors.AgentGrok && !vendors.GrokSynthesisSupported() {
+		http.Error(w, "Grok handoff is supported only on macOS", http.StatusBadRequest)
 		return
 	}
 	if (target == vendors.AgentPi && !launch.PiAvailable()) || (target != vendors.AgentPi && !targetAvailable(target)) {

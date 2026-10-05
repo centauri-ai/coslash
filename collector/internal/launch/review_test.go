@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/review"
+	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
 func TestReviewRejectsUnavailableWorkingDirectory(t *testing.T) {
@@ -315,8 +316,51 @@ func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		want = append(want, ReviewerOption{ID: "pi", Label: "Pi CLI", Executable: "pi"})
 	}
+	if vendors.GrokSynthesisSupported() {
+		want = append(want, ReviewerOption{ID: "grok", Label: "Grok CLI", Executable: "grok"})
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReviewerOptions() = %#v, want %#v", got, want)
+	}
+}
+
+func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
+	prompt := "Review the change\nDo not edit."
+	if !vendors.GrokSynthesisSupported() {
+		if _, err := reviewCLICommand(vendors.AgentGrok, "/repo", "name", prompt); err == nil || !strings.Contains(err.Error(), "macOS") {
+			t.Fatalf("error = %v", err)
+		}
+		return
+	}
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"token":"secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	got, err := reviewCLICommand(vendors.AgentGrok, "/repo", "name", prompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(got.cleanup)
+	if got.bin != "grok" || got.stdin != "" || !slices.Contains(got.args, "--prompt-file") || !slices.Contains(got.args, "--tools") || !slices.Contains(got.args, "read_file,grep,list_dir") {
+		t.Fatalf("command = %#v", got)
+	}
+	if strings.Contains(strings.Join(got.args, "\n"), prompt) {
+		t.Fatal("review prompt is in argv")
+	}
+	path := got.args[slices.Index(got.args, "--prompt-file")+1]
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != prompt {
+		t.Fatalf("prompt file = %q, err = %v", body, err)
+	}
+	grokHome := filepath.Join(filepath.Dir(path), "home")
+	if !slices.Contains(got.env, "GROK_HOME="+grokHome) || !slices.Contains(got.env, "GROK_MEMORY=0") {
+		t.Fatalf("env = %q", got.env)
+	}
+	link, err := os.Readlink(filepath.Join(grokHome, "auth.json"))
+	if err != nil || link != filepath.Join(home, "auth.json") {
+		t.Fatalf("auth link = %q, err = %v", link, err)
 	}
 }
 

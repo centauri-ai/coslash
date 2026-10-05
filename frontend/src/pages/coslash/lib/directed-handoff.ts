@@ -64,6 +64,7 @@ export function handoffLabel(handoff: DirectedHandoff): string {
         opencode: 'OpenCode',
         cursor: 'Cursor CLI',
         pi: 'Pi',
+        grok: 'Grok',
       } as Record<string, string>
     )[handoff.targetAgent] ?? handoff.targetAgent;
   if (handoff.status === 'failed') return `${agent} failed`;
