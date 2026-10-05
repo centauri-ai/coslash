@@ -32,7 +32,7 @@ func derive(snapshot *Snapshot) []Check {
 		if source.Entries > 0 && !source.CLI.Found && source.IDE == nil {
 			detail := source.CLI.Name + " is not on PATH; sessions remain browsable."
 			if source.Agent == vendors.AgentPi {
-				detail = "Pi CLI was not found on PATH or in its managed installation; sessions remain browsable."
+				detail = piCLIMissingReason(snapshot.Platform.OS) + "; sessions remain browsable."
 			}
 			checks = append(checks, Check{
 				ID:     "cli." + source.Agent,
@@ -107,6 +107,14 @@ func derive(snapshot *Snapshot) []Check {
 		})
 	}
 	return checks
+}
+
+func piCLIMissingReason(platform string) string {
+	reason := "Pi CLI was not found on PATH"
+	if platform == "windows" {
+		reason += " or in its managed installation"
+	}
+	return reason
 }
 
 func openCodePluginCheck(snapshot *Snapshot) Check {

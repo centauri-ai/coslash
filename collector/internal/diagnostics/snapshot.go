@@ -232,7 +232,7 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 		snapshot.Synthesis.Reason = "Pi synthesis is unavailable on this platform."
 	} else if snapshot.Synthesis.Enabled && !synthesisCLIFound {
 		if config.Backend == settings.BackendPi {
-			snapshot.Synthesis.Reason = "Pi CLI was not found on PATH or in its managed installation."
+			snapshot.Synthesis.Reason = piCLIMissingReason(runtime.GOOS) + "."
 		} else {
 			snapshot.Synthesis.Reason = fmt.Sprintf("%s CLI is not on PATH.", synthesisCLI)
 		}
