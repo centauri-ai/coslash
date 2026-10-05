@@ -818,22 +818,29 @@ func withGrokHome(agent, command string) string {
 	if home == "" {
 		return command
 	}
-	return grokHomePrefix(home) + command
+	return grokHomeCommand(home, command)
 }
 
-func grokHomePrefix(home string) string {
+func grokHomeCommand(home, command string) string {
 	if runtime.GOOS == "windows" {
-		return windowsGrokHomePrefix(home)
+		return windowsGrokHomeCommand(home, command)
 	}
-	return posixGrokHomePrefix(home)
+	return posixGrokHomePrefix(home) + command
 }
 
 func posixGrokHomePrefix(home string) string {
 	return "GROK_HOME=" + shellQuote(home) + " "
 }
 
-func windowsGrokHomePrefix(home string) string {
-	return "$env:GROK_HOME = '" + strings.ReplaceAll(home, "'", "''") + "'; "
+// windowsGrokHomeCommand sets GROK_HOME for one Grok invocation and restores the
+// previous value. The Windows launcher keeps the PowerShell tab open.
+func windowsGrokHomeCommand(home, command string) string {
+	quoted := "'" + strings.ReplaceAll(home, "'", "''") + "'"
+	return "$hadGrokHome = Test-Path Env:GROK_HOME; " +
+		"$previousGrokHome = $env:GROK_HOME; " +
+		"$env:GROK_HOME = " + quoted + "; " +
+		"try { " + command + " } finally { " +
+		"if ($hadGrokHome) { $env:GROK_HOME = $previousGrokHome } else { Remove-Item Env:GROK_HOME -ErrorAction SilentlyContinue } }"
 }
 
 func shellJoin(arguments ...string) string {
