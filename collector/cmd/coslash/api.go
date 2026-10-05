@@ -517,7 +517,7 @@ func handleSend(
 		return
 	}
 	if target == vendors.AgentGrok && !vendors.GrokSynthesisSupported() {
-		http.Error(w, "Grok handoff is supported only on macOS", http.StatusBadRequest)
+		http.Error(w, "Grok handoff is supported only on macOS and Windows", http.StatusBadRequest)
 		return
 	}
 	if (target == vendors.AgentPi && !launch.PiAvailable()) || (target != vendors.AgentPi && !targetAvailable(target)) {

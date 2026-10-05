@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/agentexec"
+	"github.com/centauri-ai/coslash/collector/internal/grokcli"
 	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
@@ -98,7 +99,7 @@ func HandoffTargetOptions(_ context.Context) []HandoffTargetOption {
 		options = append(options, HandoffTargetOption{Agent: vendors.AgentGrok, Label: "Grok", Entrypoint: "cli", Automatic: true})
 	}
 	for i := range options {
-		if !securePromptAvailable() && !(runtime.GOOS == "windows" && options[i].Entrypoint == "pi-tui") {
+		if !securePromptAvailable() && !(runtime.GOOS == "windows" && (options[i].Entrypoint == "pi-tui" || options[i].Agent == vendors.AgentGrok)) {
 			continue
 		}
 		switch options[i].Entrypoint {
@@ -126,7 +127,7 @@ func ReviewerOptions() []ReviewerOption {
 		options = append(options, ReviewerOption{ID: vendors.AgentPi, Label: "Pi CLI", Executable: "pi"})
 	}
 	if vendors.GrokSynthesisSupported() {
-		options = append(options, ReviewerOption{ID: vendors.AgentGrok, Label: "Grok CLI", Executable: "grok"})
+		options = append(options, ReviewerOption{ID: vendors.AgentGrok, Label: "Grok CLI", Executable: grokcli.Executable()})
 	}
 	return options
 }
@@ -492,7 +493,7 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 
 func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 	if !vendors.GrokSynthesisSupported() {
-		return reviewCommandSpec{}, errors.New("launch: Grok review is supported only on macOS")
+		return reviewCommandSpec{}, errors.New("launch: Grok review is supported only on macOS and Windows")
 	}
 	if err := os.MkdirAll(reviewScratchDir(), 0o700); err != nil {
 		return reviewCommandSpec{}, fmt.Errorf("create Grok review directory: %w", err)
@@ -502,12 +503,8 @@ func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 		return reviewCommandSpec{}, fmt.Errorf("create Grok review directory: %w", err)
 	}
 	cleanup := func() { _ = os.RemoveAll(scratch) }
-	home := filepath.Join(scratch, "home")
-	if err := os.Mkdir(home, 0o700); err != nil {
-		cleanup()
-		return reviewCommandSpec{}, fmt.Errorf("create Grok review home: %w", err)
-	}
-	if err := linkGrokReviewAuth(home); err != nil {
+	home, err := grokcli.PrepareHome(scratch)
+	if err != nil {
 		cleanup()
 		return reviewCommandSpec{}, err
 	}
@@ -517,7 +514,7 @@ func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 		return reviewCommandSpec{}, fmt.Errorf("write Grok review prompt: %w", err)
 	}
 	return reviewCommandSpec{
-		bin: "grok",
+		bin: grokcli.Executable(),
 		args: []string{
 			"--prompt-file", promptPath,
 			"--output-format", "plain",
@@ -529,29 +526,6 @@ func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 		env:     []string{"GROK_HOME=" + home, "GROK_MEMORY=0"},
 		cleanup: cleanup,
 	}, nil
-}
-
-func linkGrokReviewAuth(scratchHome string) error {
-	sourceDir := os.Getenv("GROK_HOME")
-	if sourceDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		sourceDir = filepath.Join(home, ".grok")
-	}
-	if sourceDir == scratchHome {
-		return nil
-	}
-	source := filepath.Join(sourceDir, "auth.json")
-	info, err := os.Stat(source)
-	if err != nil || !info.Mode().IsRegular() {
-		return nil
-	}
-	if err := os.Symlink(source, filepath.Join(scratchHome, "auth.json")); err != nil {
-		return fmt.Errorf("link Grok auth: %w", err)
-	}
-	return nil
 }
 
 type boundedBuffer struct {
@@ -714,7 +688,7 @@ func cliCommandWithPrompt(agent, sessionID, mode, handoff, prompt string) (strin
 		if agent == vendors.AgentPi {
 			return piNewCommand(cli, handoff, prompt)
 		}
-		if prompt != "" {
+		if prompt != "" || (agent == vendors.AgentGrok && handoff != "") {
 			command, name, err := interactivePromptCommand(agent, cli, handoff, prompt)
 			return withGrokHome(agent, command), name, err
 		}

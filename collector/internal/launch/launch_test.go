@@ -103,6 +103,8 @@ func TestGrokLaunchAndResumeArguments(t *testing.T) {
 	if slices.Contains(got, "-s") || slices.Contains(got, "--session-id") {
 		t.Fatalf("resumeArguments() = %q uses a new-session id flag", got)
 	}
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("PATH", "")
 	t.Setenv("GROK_HOME", "")
 	if command, _, err := cliCommand(vendors.AgentGrok, "", NewSession, ""); err != nil || command != localCommandJoin("grok") {
 		t.Fatalf("cliCommand(NewSession) = %q, %v, want grok alone", command, err)
