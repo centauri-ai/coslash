@@ -11,6 +11,7 @@ func TestPiExecutableFindsManagedWindowsInstallAndPrefersPATH(t *testing.T) {
 	pathBin := t.TempDir()
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("PATH", pathBin)
+	t.Setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
 	managed := filepath.Join(home, ".pi", "agent", "bin", "pi.cmd")
 	if err := os.MkdirAll(filepath.Dir(managed), 0o700); err != nil {
 		t.Fatal(err)
