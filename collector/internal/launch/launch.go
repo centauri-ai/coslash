@@ -485,7 +485,7 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		}, nil
 	case vendors.AgentGrok:
-		return grokReviewCommand(prompt)
+		return grokReviewCommand(prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n")
 	default:
 		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
 	}
@@ -498,13 +498,22 @@ func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 	if err := os.MkdirAll(reviewScratchDir(), 0o700); err != nil {
 		return reviewCommandSpec{}, fmt.Errorf("create Grok review directory: %w", err)
 	}
-	scratch, err := os.MkdirTemp(reviewScratchDir(), "grok-*")
+	created, err := os.MkdirTemp(reviewScratchDir(), "grok-*")
 	if err != nil {
 		return reviewCommandSpec{}, fmt.Errorf("create Grok review directory: %w", err)
+	}
+	scratch, err := filepath.Abs(created)
+	if err != nil {
+		_ = os.RemoveAll(created)
+		return reviewCommandSpec{}, fmt.Errorf("resolve Grok review directory: %w", err)
 	}
 	cleanup := func() { _ = os.RemoveAll(scratch) }
 	home, err := grokcli.PrepareHome(scratch)
 	if err != nil {
+		cleanup()
+		return reviewCommandSpec{}, err
+	}
+	if err := writeGrokReviewSandbox(home, scratch); err != nil {
 		cleanup()
 		return reviewCommandSpec{}, err
 	}
@@ -519,6 +528,7 @@ func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 			"--prompt-file", promptPath,
 			"--output-format", "plain",
 			"--no-subagents",
+			"--sandbox", "coslash-review",
 			"--permission-mode", "bypassPermissions",
 			"--tools", "read_file,grep,list_dir",
 			"--disallowed-tools", "run_terminal_cmd,search_replace,web_search,web_fetch",
@@ -526,6 +536,26 @@ func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 		env:     []string{"GROK_HOME=" + home, "GROK_MEMORY=0"},
 		cleanup: cleanup,
 	}, nil
+}
+
+// writeGrokReviewSandbox adds the scratch directory to Grok's strict profile.
+// strict already reads the working directory. A custom profile fails closed on
+// macOS and Linux when the kernel policy cannot apply.
+func writeGrokReviewSandbox(home, scratch string) error {
+	var quoted strings.Builder
+	quoted.WriteByte('"')
+	for _, r := range scratch {
+		if r == '\\' || r == '"' {
+			quoted.WriteByte('\\')
+		}
+		quoted.WriteRune(r)
+	}
+	quoted.WriteByte('"')
+	body := "[profiles.coslash-review]\nextends = \"strict\"\nread_only = [" + quoted.String() + "]\n"
+	if err := os.WriteFile(filepath.Join(home, "sandbox.toml"), []byte(body), 0o600); err != nil {
+		return fmt.Errorf("write Grok review sandbox: %w", err)
+	}
+	return nil
 }
 
 type boundedBuffer struct {
