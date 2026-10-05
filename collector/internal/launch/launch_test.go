@@ -106,11 +106,20 @@ func TestGrokLaunchAndResumeArguments(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("GROK_HOME", home)
 	id := "01a0f8c9-e0fa-7ec0-a5bf-79da860d539a"
-	prefix := "GROK_HOME=" + shellQuote(home) + " "
+	prefix := grokHomePrefix(home)
 	if command, _, err := cliCommand(vendors.AgentGrok, "", NewSession, ""); err != nil || command != prefix+localCommandJoin("grok") {
 		t.Fatalf("cliCommand(NewSession) = %q, %v", command, err)
 	}
 	if command, _, err := cliCommand(vendors.AgentGrok, id, ResumeSession, ""); err != nil || command != prefix+localCommandJoin("grok", "--resume", id) {
 		t.Fatalf("cliCommand(ResumeSession) = %q, %v", command, err)
+	}
+}
+
+func TestGrokHomePrefixQuotesTheStorePath(t *testing.T) {
+	if got, want := posixGrokHomePrefix("/tmp/o'brien"), "GROK_HOME='/tmp/o'\\''brien' "; got != want {
+		t.Fatalf("posix prefix = %q, want %q", got, want)
+	}
+	if got, want := windowsGrokHomePrefix(`C:\Users\o'brien`), `$env:GROK_HOME = 'C:\Users\o''brien'; `; got != want {
+		t.Fatalf("windows prefix = %q, want %q", got, want)
 	}
 }
