@@ -16,7 +16,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -305,6 +307,7 @@ type updatesSummary struct {
 	digest        session.DigestLog
 	userTurn      int
 	userBuf       string
+	assistantBuf  strings.Builder
 	sawUser       bool
 }
 
@@ -381,7 +384,17 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 			result.inTurn = true
 			result.openToolCalls++
 			result.noteTool(update.ToolCallID, update.Title, update.Status)
+			result.assistantBuf.Reset()
+		case "agent_message_chunk":
+			if content.Type == "text" {
+				remaining := fullsessionv1.MaxStringBytes + utf8.UTFMax - result.assistantBuf.Len()
+				result.assistantBuf.WriteString(content.Text[:min(len(content.Text), remaining)])
+			}
 		case "turn_completed":
+			if text := strings.TrimSpace(result.assistantBuf.String()); text != "" {
+				result.digest.Push(result.userTurn, session.DigestRecap, text, 0)
+			}
+			result.assistantBuf.Reset()
 			result.finishedTurns++
 			result.openToolCalls = 0
 			result.inTurn = false
