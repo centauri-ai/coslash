@@ -3,6 +3,7 @@ package syncv4
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,14 +20,15 @@ import (
 )
 
 type planHub struct {
-	plan       *hubclient.V4ImportPlan
-	creates    int
-	lists      [][]hubclient.V4ListItem
-	checks     int
-	checkInErr error
-	results    []hubclient.V4CommandResult
-	retryLists int
-	leaveOut   []string
+	plan         *hubclient.V4ImportPlan
+	withoutScale bool
+	creates      int
+	lists        [][]hubclient.V4ListItem
+	checks       int
+	checkInErr   error
+	results      []hubclient.V4CommandResult
+	retryLists   int
+	leaveOut     []string
 }
 
 type asyncCompletionHub struct {
@@ -207,7 +209,11 @@ func (h *planHub) V4CheckIn(_ context.Context, _ hubclient.V4Queue, _ int64, res
 	if rules == nil {
 		rules = []string{}
 	}
-	return hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: rules, ImportPlan: h.plan}, Capabilities: []string{"scale-import/v1"}}, nil
+	capabilities := []string{"scale-import/v1"}
+	if h.withoutScale {
+		capabilities = nil
+	}
+	return hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: rules, ImportPlan: h.plan}, Capabilities: capabilities}, nil
 }
 func (h *planHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
 	h.creates++
@@ -255,6 +261,23 @@ func TestScaleHubWithoutPlanCreatesOrListsNothing(t *testing.T) {
 	}
 	if hub.creates != 0 || len(hub.lists) != 0 || q.ImportSnapshot(now).Phase != "awaiting_plan" {
 		t.Fatalf("creates=%d lists=%d phase=%s", hub.creates, len(hub.lists), q.ImportSnapshot(now).Phase)
+	}
+}
+
+func TestDefaultWorkerDoesNotUploadToHubWithoutImportPlanSupport(t *testing.T) {
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{withoutScale: true}
+	runner := &Runner{Queue: q, Backup: sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}), Hub: hub,
+		Discover:          func(context.Context) ([]*session.Session, error) { t.Fatal("unplanned discovery"); return nil, nil },
+		RequireImportPlan: true}
+	if err := runner.SyncOnce(t.Context()); !errors.Is(err, ErrPaused) {
+		t.Fatalf("sync without import plan support = %v, want paused", err)
+	}
+	if hub.creates != 0 || len(hub.lists) != 0 || hub.checks != 1 {
+		t.Fatalf("creates=%d lists=%d checks=%d", hub.creates, len(hub.lists), hub.checks)
 	}
 }
 
