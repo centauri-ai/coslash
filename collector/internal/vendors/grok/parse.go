@@ -373,6 +373,7 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 		switch update.Kind {
 		case "user_message_chunk":
 			result.inTurn = true
+			result.assistantBuf.Reset()
 			// A hidden chunk is an injected system reminder, not the user's prompt.
 			if !update.Meta.HideFromScrollback && content.Type == "text" {
 				if !firstPromptDone {
