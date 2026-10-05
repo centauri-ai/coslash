@@ -777,6 +777,33 @@ func cliName(agent string) (string, error) {
 	return "", fmt.Errorf("launch: unknown agent %q", agent)
 }
 
+// GrokExecutable finds the local CLI when the installer has not added it to PATH.
+func GrokExecutable() string {
+	if path, err := exec.LookPath("grok"); err == nil {
+		return path
+	}
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	home, _ := os.UserHomeDir()
+	defaultRoot := ""
+	if home != "" {
+		defaultRoot = filepath.Join(home, ".grok")
+	}
+	for _, root := range []string{os.Getenv("GROK_HOME"), defaultRoot} {
+		if root == "" {
+			continue
+		}
+		path, err := filepath.Abs(filepath.Join(root, "bin", "grok.exe"))
+		if err == nil {
+			if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
 func resumeFlag(agent string) (string, error) {
 	if agent == vendors.AgentPi {
 		return "--session", nil

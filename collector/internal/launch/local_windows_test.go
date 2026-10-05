@@ -247,6 +247,44 @@ func TestWindowsCLICommandPreservesVendorResumeForms(t *testing.T) {
 	}
 }
 
+func TestWindowsGrokCLIOutsidePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("GROK_HOME", home)
+	bin := filepath.Join(home, "bin", "grok.exe")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := GrokExecutable(); got != bin {
+		t.Fatalf("GrokExecutable() = %q, want %q", got, bin)
+	}
+	for _, test := range []struct{ mode, id, want string }{
+		{NewSession, "", localCommandJoin(bin)},
+		{ResumeSession, "01234567-89ab-cdef-0123-456789abcdef", localCommandJoin(bin, "--resume", "01234567-89ab-cdef-0123-456789abcdef")},
+	} {
+		command, _, err := cliCommand(vendors.AgentGrok, test.id, test.mode, "")
+		if err != nil || !strings.Contains(command, test.want) {
+			t.Fatalf("cliCommand(%s) = %q, %v; want %q", test.mode, command, err, test.want)
+		}
+	}
+	defaultHome := t.TempDir()
+	t.Setenv("USERPROFILE", defaultHome)
+	t.Setenv("GROK_HOME", "")
+	defaultBin := filepath.Join(defaultHome, ".grok", "bin", "grok.exe")
+	if err := os.MkdirAll(filepath.Dir(defaultBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(defaultBin, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := GrokExecutable(); got != defaultBin {
+		t.Fatalf("GrokExecutable() = %q, want %q", got, defaultBin)
+	}
+}
+
 func TestWindowsHandoffCommandsUsePowerShellCleanup(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	tests := []struct {

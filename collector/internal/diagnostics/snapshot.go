@@ -327,6 +327,11 @@ func sourceExecutable(agent string) (string, error) {
 	if agent == vendors.AgentPi {
 		return vendors.PiExecutable()
 	}
+	if agent == vendors.AgentGrok {
+		if path := launch.GrokExecutable(); path != "" {
+			return path, nil
+		}
+	}
 	return exec.LookPath(agent)
 }
 
