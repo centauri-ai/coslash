@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -33,6 +34,8 @@ func TestGrokSynthesis(t *testing.T) {
 					"--json-schema", synthesisSchema,
 					"--max-turns", "1",
 					"--no-subagents",
+					"--tools", "",
+					"--permission-mode", "dontAsk",
 					"--disallowed-tools", "run_terminal_cmd,search_replace,web_search,web_fetch",
 					"--rules", systemPrompt,
 				}
@@ -56,9 +59,16 @@ func TestGrokSynthesis(t *testing.T) {
 				if !slices.Contains(spec.env, "GROK_HOME="+grokHome) || !slices.Contains(spec.env, "GROK_MEMORY=0") {
 					t.Fatalf("env=%q", spec.env)
 				}
-				link, err := os.Readlink(filepath.Join(grokHome, "auth.json"))
-				if err != nil || link != filepath.Join(home, "auth.json") {
-					t.Fatalf("auth link=%q err=%v", link, err)
+				authPath := filepath.Join(grokHome, "auth.json")
+				body, err = os.ReadFile(authPath)
+				if err != nil || string(body) != `{"token":"secret"}` {
+					t.Fatalf("login was not retained: %v", err)
+				}
+				if runtime.GOOS != "windows" {
+					link, err := os.Readlink(authPath)
+					if err != nil || link != filepath.Join(home, "auth.json") {
+						t.Fatalf("auth link=%q err=%v", link, err)
+					}
 				}
 				if _, err := os.Stat(filepath.Join(grokHome, "sessions")); err == nil {
 					t.Fatal("scratch home must not start with the user's sessions")
@@ -80,6 +90,21 @@ func TestGrokSynthesis(t *testing.T) {
 				t.Fatalf("scratch leaked: %v", entries)
 			}
 		})
+	}
+}
+
+func TestGrokStructuredOutput(t *testing.T) {
+	for _, output := range []string{
+		`{"structuredOutput":{"goals":["Ship"],"outcome":"Done","keyDecisions":[],"nextStep":"Review"},"text":"non-JSON commentary"}`,
+		`{"text":"{\"goals\":[\"Ship\"],\"outcome\":\"Done\",\"keyDecisions\":[],\"nextStep\":\"Review\"}"}`,
+	} {
+		got, err := parseGrokSynthesis([]byte(output))
+		if err != nil || got.Outcome != "Done" {
+			t.Fatalf("structured synthesis = %#v, %v", got, err)
+		}
+	}
+	if _, err := parseGrokSynthesis([]byte(`{"structuredOutput":{"outcome":"incomplete"}}`)); err == nil {
+		t.Fatal("accepted incomplete structured output")
 	}
 }
 
@@ -120,9 +145,9 @@ func TestGrokRunnerPlatformAvailability(t *testing.T) {
 
 func TestGrokSynthesisSettings(t *testing.T) {
 	if settings.BackendExecutable(settings.BackendGrok) == "" && vendors.GrokSynthesisSupported() {
-		t.Fatal("macOS Grok synthesis has no executable")
+		t.Fatal("supported Grok synthesis has no executable")
 	}
 	if settings.BackendExecutable(settings.BackendGrok) != "" && !vendors.GrokSynthesisSupported() {
-		t.Fatal("non-macOS Grok synthesis is executable")
+		t.Fatal("unsupported Grok synthesis is executable")
 	}
 }

@@ -233,7 +233,7 @@ func collectLocal(ctx context.Context, version string, includeVersions bool) *Sn
 	} else if snapshot.Synthesis.Enabled && snapshot.piSynthesisUnsupported {
 		snapshot.Synthesis.Reason = "Pi synthesis is unavailable on this platform."
 	} else if snapshot.Synthesis.Enabled && snapshot.grokSynthesisUnsupported {
-		snapshot.Synthesis.Reason = "Grok synthesis is supported only on macOS."
+		snapshot.Synthesis.Reason = "Grok synthesis is supported only on macOS and Windows."
 	} else if snapshot.Synthesis.Enabled && !synthesisCLIFound {
 		if config.Backend == settings.BackendPi {
 			snapshot.Synthesis.Reason = piCLIMissingReason(runtime.GOOS) + "."

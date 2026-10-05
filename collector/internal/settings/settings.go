@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/centauri-ai/coslash/collector/internal/grokcli"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
@@ -267,7 +268,7 @@ func BackendExecutable(backend string) string {
 		return ""
 	case BackendGrok:
 		if vendors.GrokSynthesisSupported() {
-			return "grok"
+			return grokcli.Executable()
 		}
 		return ""
 	default:
