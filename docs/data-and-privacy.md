@@ -157,7 +157,8 @@ The frozen bundle contains the raw attributable Codex rollouts and sidecar
 bytes, canonical parsed records, exact file-change bodies, session enrichment,
 and revision-matched persisted synthesis. Previewing does not upload or approve
 anything. For a local Codex session, preview first starts or waits for its
-current Local AI debrief. Upload rejects a reviewed local bundle without that
+current Local AI debrief, including for short sessions skipped by automatic
+background synthesis. Upload rejects a reviewed local bundle without that
 revision's debrief, including a request from an older open tab. The v3 Share
 flow continues to block Claude, Cursor, and OpenCode.
 The separate v4 local sync can prepare complete local Claude, OpenCode and
