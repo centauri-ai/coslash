@@ -79,6 +79,7 @@ func TestConnectArgumentsValidateCodeAndHubOrigin(t *testing.T) {
 		{"K7QX-29PI", "--hub", "https://beta.coslash.io"},
 		{"K7QX-29PD", "--hub", "http://example.com"},
 		{"K7QX-29PD", "--hub", "https://beta.coslash.io/path"},
+		{"K7QX-29PD", "--hub", "https://beta.coslash.io?"},
 		{"K7QX-29PD"},
 	} {
 		if _, _, err := parseConnectArgs(args); err == nil {

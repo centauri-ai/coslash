@@ -49,7 +49,7 @@ func TestStoredHubURLContainsOnlyAValidatedHubOrigin(t *testing.T) {
 	if err := writeStoredHubURL("https://hub.staging.example"); err != nil {
 		t.Fatalf("write custom HTTPS Hub origin: %v", err)
 	}
-	for _, invalid := range []string{"https://beta.coslash.io/path", "http://evil.example"} {
+	for _, invalid := range []string{"https://beta.coslash.io/path", "https://beta.coslash.io?", "http://evil.example"} {
 		if err := writeStoredHubURL(invalid); err == nil {
 			t.Fatalf("writeStoredHubURL(%q) succeeded", invalid)
 		}
