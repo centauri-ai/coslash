@@ -104,8 +104,6 @@ func secureTerminalInputCommand(base, prompt, agent, context string) (string, st
 		ready = `{Ask anything}`
 	} else if agent == vendors.AgentCursor {
 		ready = `{0 in}`
-	} else if agent == vendors.AgentGrok {
-		ready = `{Type a message...}`
 	}
 	submit := `after 300; send -- "\r"`
 	if (agent == vendors.AgentClaude || agent == vendors.AgentCursor || agent == vendors.AgentCodex || agent == vendors.AgentGrok) && strings.Contains(prompt, "\n") {

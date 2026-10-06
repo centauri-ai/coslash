@@ -1,13 +1,18 @@
 package launch
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -37,7 +42,7 @@ func TestGrokSendWithoutMessageKeepsTheHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = removeHandoffFile(path) })
-	if strings.Contains(command, "unknown agent") || !strings.Contains(command, "expect") || !strings.Contains(command, `{Type a message...}`) {
+	if strings.Contains(command, "unknown agent") || !strings.Contains(command, "expect") || !strings.Contains(command, `{\x1b\[\?2004h}`) {
 		t.Fatalf("command = %q", command)
 	}
 	contents, err := os.ReadFile(path)
@@ -83,7 +88,7 @@ func TestCLICommandWithPromptStartsInteractiveTargetWithHandoff(t *testing.T) {
 			} else if agent == vendors.AgentCursor {
 				ready = `{0 in}`
 			} else if agent == vendors.AgentGrok {
-				ready = `{Type a message...}`
+				ready = `{\x1b\[\?2004h}`
 			}
 			submit := `after 300; send -- "\r"`
 			if agent == vendors.AgentCursor || agent == vendors.AgentCodex || agent == vendors.AgentGrok {
@@ -199,5 +204,79 @@ func TestFirstPromptRejectsResume(t *testing.T) {
 	}
 	if err := RemoteTerminalWithPrompt(context.Background(), "terminal", "agent-box", vendors.AgentClaude, "/work", "01234567-89ab-cdef-0123-456789abcdef", ResumeSession, "", "request"); err == nil {
 		t.Fatal("remote resume accepted first prompt")
+	}
+}
+
+func TestGrokRelayDeliversMultilinePromptOnce(t *testing.T) {
+	if os.Getenv("COSLASH_TEST_GROK_INPUT") == "1" {
+		command := exec.Command("stty", "raw", "-echo")
+		command.Stdin = os.Stdin
+		if err := command.Run(); err != nil {
+			panic(err)
+		}
+		fmt.Fprint(os.Stdout, "\x1b[?2004h\x1b[32m❯ \x1b[0m")
+		var received []byte
+		for {
+			var b [1]byte
+			if _, err := os.Stdin.Read(b[:]); err != nil {
+				panic(err)
+			}
+			received = append(received, b[0])
+			if b[0] == '\r' {
+				break
+			}
+		}
+		fmt.Fprintf(os.Stdout, "RECEIVED:%x\n", received)
+		os.Exit(0)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX terminal relay")
+	}
+	if _, err := exec.LookPath("expect"); err != nil {
+		t.Skip("system expect unavailable")
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := "--private-first-line\nsecond line ' $ `"
+	base := shellJoin("env", "COSLASH_TEST_GROK_INPUT=1", executable, "-test.run=^TestGrokRelayDeliversMultilinePromptOnce$")
+	command, path, err := secureTerminalInputCommand(base, prompt, vendors.AgentGrok, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = removeHandoffFile(path) })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	child := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	configureReviewProcess(child)
+	input, err := child.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	child.Stderr = &stderr
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	received, err := io.ReadAll(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Wait(); err != nil {
+		t.Fatalf("relay: %v, output=%s, stderr=%s", err, received, &stderr)
+	}
+	want := fmt.Sprintf("RECEIVED:%x", "\x1b[200~"+prompt+"\x1b[201~\r")
+	if strings.Count(string(received), want) != 1 {
+		t.Fatalf("delivery missing or duplicated: %q", received)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("staged prompt remains: %v", err)
 	}
 }
