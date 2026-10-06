@@ -51,8 +51,8 @@ func windowDuration(window string) (time.Duration, bool) {
 	}
 }
 
-// DiscoveryMinActivity returns the earliest activity to parse for a bounded
-// import. The stat-only inventory still covers the full device.
+// DiscoveryMinActivity returns the requested cutoff for timestamp-indexed
+// discovery sources. Transcript families still need parsing to determine activity.
 func DiscoveryMinActivity(plan *hubclient.V4ImportPlan, now time.Time) int64 {
 	if plan == nil || plan.History {
 		return 0
