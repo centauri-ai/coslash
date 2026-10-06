@@ -1,0 +1,17 @@
+{
+  "schema": "t52-home/v1",
+  "purpose": "synthetic only; never includes a user's real agent data",
+  "recentWindowDays": 10,
+  "catchupLimit": 45,
+  "leaveOut": ["~/personal/"],
+  "users": {
+    "maya": {"email": "t52-maya@example.test", "devices": ["maya-mbp", "maya-air"]},
+    "omar": {"email": "t52-omar@example.test", "devices": ["omar-desktop"]}
+  },
+  "lanes": {
+    "a": {"dataset": "D-A", "sessions": {"codexRecent": 34, "codexOlder": 6, "codexLeaveOut": 2, "claudeRecent": 12, "cursorRecent": 0, "opencodeRecent": 3, "opencodeOlder": 20}},
+    "b": {"dataset": "D-B", "extends": "a", "liveClaude": 1, "devices": {"maya-air": {"os": "macOS", "channel": "script", "running": false, "lastContactHoursAgo": 4}, "omar-desktop": {"os": "Windows", "version": "0.0.2", "channel": "unknown"}}},
+    "c": {"dataset": "D-C", "cleanUser": "t52clean", "sessions": {"codexRecent": 0, "codexOlder": 0, "claudeRecent": 0, "cursorRecent": 0, "opencodeRecent": 0, "opencodeOlder": 0}}
+  },
+  "selection": "order eligible sessions newest first, exclude ~/personal/, then cap at 45"
+}
