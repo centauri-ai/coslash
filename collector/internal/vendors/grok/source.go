@@ -103,10 +103,13 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err != nil {
 		return nil, nil, err
 	}
+	_, parentOf, metasByDir := sessionIndex(ctx, dirs)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if since > 0 {
 		// A family is in the window when any member is recent, so a parent and its subagents stay together.
-		// Child summaries often omit parent_session_id; the parent's meta.json is the other link.
-		_, parentOf := sessionIndex(dirs)
+		// Child summaries often omit parent_session_id; parent metadata or spawn events supply the link.
 		families := make(map[string]string, len(dirs))
 		recentFamilies := map[string]bool{}
 		for _, dir := range dirs {
@@ -136,7 +139,7 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err != nil {
 		return nil, nil, err
 	}
-	attachSubagents(parsed)
+	attachSubagents(parsed, metasByDir)
 	return parsed, loadMetadata(), nil
 }
 
@@ -169,25 +172,30 @@ func loadMetadata() *vendors.SessionMetadata {
 }
 
 // sessionIndex maps each session id to its directory and each child id to the parent that spawned it.
-func sessionIndex(dirs []string) (map[string]string, map[string]string) {
+func sessionIndex(ctx context.Context, dirs []string) (map[string]string, map[string]string, map[string][]subagentMeta) {
 	byID := make(map[string]string, len(dirs))
 	parentOf := map[string]string{}
+	metasByDir := make(map[string][]subagentMeta, len(dirs))
 	for _, dir := range dirs {
+		if ctx.Err() != nil {
+			break
+		}
 		id := filepath.Base(dir)
 		if summary, err := readSummary(dir); err == nil && summary.Info.ID != "" {
 			id = summary.Info.ID
 		}
 		byID[id] = dir
-		for _, meta := range readSubagentMetas(dir) {
+		metasByDir[dir] = readSubagentMetas(ctx, dir)
+		for _, meta := range metasByDir[dir] {
 			if meta.ChildSessionID != "" {
 				parentOf[meta.ChildSessionID] = id
 			}
 		}
 	}
-	return byID, parentOf
+	return byID, parentOf, metasByDir
 }
 
-// familyKey is the root session id. A subagent uses parent_session_id, or the parent meta.json when that field is absent.
+// familyKey uses declared parent lineage, falling back to the parent's spawn records.
 func familyKey(dir string, parentOf map[string]string) string {
 	summary, err := readSummary(dir)
 	switch {
@@ -285,7 +293,7 @@ func stringPtr(value *string) string {
 	return *value
 }
 
-// GetSessionFamily returns the root session and the children its subagents/ directory names.
+// GetSessionFamily returns the root session and its linked children.
 // A child id resolves to that same root.
 func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMetadata, error) {
 	if id == "" {
@@ -295,7 +303,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 	if err != nil {
 		return nil, vendors.EmptySessionMetadata(), err
 	}
-	byID, parentOf := sessionIndex(dirs)
+	byID, parentOf, metasByDir := sessionIndex(context.Background(), dirs)
 	rootID := id
 	if parent := parentOf[id]; parent != "" {
 		rootID = parent
@@ -313,7 +321,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 		return nil, vendors.EmptySessionMetadata(), err
 	}
 	family := []*vendors.ParsedSession{root}
-	for _, meta := range readSubagentMetas(dir) {
+	for _, meta := range metasByDir[dir] {
 		if childDir := byID[meta.ChildSessionID]; childDir != "" {
 			child, err := parseSession(childDir)
 			if err != nil {
@@ -324,7 +332,7 @@ func GetSessionFamily(id string) ([]*vendors.ParsedSession, *vendors.SessionMeta
 			}
 		}
 	}
-	attachSubagents(family)
+	attachSubagents(family, metasByDir)
 	return family, loadMetadata(), nil
 }
 
