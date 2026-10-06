@@ -13,6 +13,18 @@ import (
 )
 
 func handleProtocolActivation(raw string) (*hubclient.LaunchIntent, bool) {
+	wake, wakeErr := parseWakeIntentURL(raw)
+	if wakeErr == nil {
+		stored, err := readStoredHubURL()
+		if err != nil || stored == "" || stored != wake.HubURL.String() {
+			return nil, true
+		}
+		intent := hubclient.LaunchIntent{Action: "wake", HubURL: wake.HubURL}
+		if forwardWhenReady(&intent) {
+			return nil, true
+		}
+		return &intent, false
+	}
 	intent, err := hubclient.ParseLaunchIntentURL(raw)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "coSlash activation could not be started; return to Hub and retry.")
@@ -70,6 +82,9 @@ func forwardProtocolActivation(intent *hubclient.LaunchIntent) error {
 		})
 	case "check-in":
 		path = "/api/hub/onboarding/check-in"
+		body, err = json.Marshal(map[string]string{"hubUrl": intent.HubURL.String()})
+	case "wake":
+		path = "/api/hub/wake"
 		body, err = json.Marshal(map[string]string{"hubUrl": intent.HubURL.String()})
 	default:
 		return errors.New("unsupported coSlash activation")
