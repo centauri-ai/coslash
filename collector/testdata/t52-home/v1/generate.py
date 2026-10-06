@@ -41,10 +41,15 @@ def codex_rows(session_id: str, cwd: str, at: dt.datetime, topic: str) -> list[d
 
 
 def claude_rows(session_id: str, cwd: str, at: dt.datetime, topic: str, live: bool = False) -> list[dict]:
+    previous_uuid: str | None = None
+
     def row(kind: str, offset: int, message: dict | None = None) -> dict:
-        value = {"type": kind, "timestamp": stamp(at + dt.timedelta(seconds=offset)), "sessionId": session_id, "uuid": identity("claude-row", f"{session_id}:{kind}:{offset}"), "parentUuid": None, "cwd": cwd, "gitBranch": "main", "isSidechain": False, "userType": "external", "version": "2.1.3"}
+        nonlocal previous_uuid
+        row_uuid = identity("claude-row", f"{session_id}:{kind}:{offset}")
+        value = {"type": kind, "timestamp": stamp(at + dt.timedelta(seconds=offset)), "sessionId": session_id, "uuid": row_uuid, "parentUuid": previous_uuid, "cwd": cwd, "gitBranch": "main", "isSidechain": False, "userType": "external", "version": "2.1.3"}
         if message is not None:
             value["message"] = message
+        previous_uuid = row_uuid
         return value
     prompt = {"role": "user", "content": f"Review synthetic {topic} fixture."}
     answer = {"role": "assistant", "model": "claude-sonnet-4-5-20250929", "id": "msg_" + session_id.replace("-", "")[:24], "type": "message", "content": [{"type": "text", "text": f"Synthetic {topic} work is complete."}], "stop_reason": "end_turn", "usage": {"input_tokens": 40, "output_tokens": 12}}
@@ -155,6 +160,7 @@ def generate(out: Path, lane: str, now: dt.datetime) -> dict:
             records.append({"id": key, "agent": "opencode", "startedAt": stamp(at), "leaveOut": False, "eligible": False})
         make_opencode(home, open_entries)
     spec = json.loads(SPEC.read_text(encoding="utf-8"))
+    lane_spec = spec["lanes"].get(lane, {})
     tracked = sorted((p for p in home.rglob("*") if p.is_file()), key=lambda p: p.relative_to(home).as_posix())
     content = [{"path": p.relative_to(home).as_posix(), "bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in tracked]
     selected = sorted((r for r in records if r.get("eligible") and not r.get("leaveOut")), key=lambda r: r["startedAt"], reverse=True)[: spec["catchupLimit"]]
@@ -163,8 +169,10 @@ def generate(out: Path, lane: str, now: dt.datetime) -> dict:
         "generatedAt": stamp(now), "home": "home", "expectedCatchup": len(selected), "expectedAgentCounts": {agent: sum(r["agent"] == agent for r in selected) for agent in ("codex", "claude", "cursor", "opencode")},
         "expectedLeaveOut": sum(r.get("leaveOut", False) for r in records), "sessions": records, "files": content,
         "selection": spec["selection"], "liveSessions": [r["id"] for r in records if r.get("live")],
-        "devices": spec["lanes"].get(lane, {}).get("devices", {}),
+        "devices": lane_spec.get("devices", {}),
     }
+    if "cleanUser" in lane_spec:
+        summary["cleanUser"] = lane_spec["cleanUser"]
     (out / "manifest.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     os.chmod(out / "manifest.json", 0o600)
     return summary
@@ -208,8 +216,9 @@ def main() -> None:
         if now.tzinfo is None:
             raise ValueError("--now must include a timezone")
         now = now.astimezone(dt.timezone.utc)
-    data = generate(args.out, args.lane, now)
-    print(f"{data['dataset']} manifest written; catch-up={data['expectedCatchup']} leave-out={data['expectedLeaveOut']} files={len(data['files'])} output={args.out}")
+    out = args.out.expanduser().resolve()
+    data = generate(out, args.lane, now)
+    print(f"{data['dataset']} manifest written; catch-up={data['expectedCatchup']} leave-out={data['expectedLeaveOut']} files={len(data['files'])} output={out}")
 
 if __name__ == "__main__":
     main()
