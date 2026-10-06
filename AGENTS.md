@@ -9,6 +9,16 @@ Keep project instructions in `AGENTS.md` files. Claude Code, Codex, Cursor, and 
 them; only Claude Code reads `CLAUDE.md`, and Claude Code skips this file when a `CLAUDE.md` exists
 in the working directory or above it. Claude Code also ignores `AGENTS.override.md` and `.agents/`.
 
+## Project documentation
+
+`docs/` records what the code cannot express: decisions, vendor behavior, and deliberate compromises. Do not add docs that restate the code.
+
+- Start with `docs/decisions/README.md`. It indexes each decision with a "Read if" trigger. Read every decision whose trigger matches your task.
+- Read the matching file in `docs/vendors/` before you change `collector/internal/vendors/<vendor>/`. The `claude` package maps to `claude-code.md`. When you observe new vendor behavior, record it there with the vendor version and date.
+- `docs/implementation-notes.md` holds the source layout, boundary rules, and intentional compromises. Do not copy a compromise as a pattern.
+- If a change contradicts a decision, update or supersede that decision in the same pull request.
+- Cite a decision by its path, for example `see docs/decisions/<slug>.md`. Never rename a merged slug.
+
 ## Keep changes small
 
 - Before handoff, inspect `git diff --stat` and `git diff --numstat`. If a small request produced a large net line increase, simplify it before declaring the work done.
