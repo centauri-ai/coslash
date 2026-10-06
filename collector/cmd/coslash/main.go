@@ -290,8 +290,9 @@ func main() {
 			}
 		},
 	})
+	shutdownRequests := make(chan struct{}, 1)
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{queue: queue, backupManager: backupManager, directedStore: directedStore, onboardings: onboardings})
+		serverServices{queue: queue, backupManager: backupManager, directedStore: directedStore, onboardings: onboardings, shutdown: shutdownRequests})
 	onboardings.ensureSync(hub)
 	if startupIntent != nil {
 		switch startupIntent.Action {
@@ -360,11 +361,16 @@ func main() {
 			runV4SyncLoop(syncContext, runner, queue, syncHub.V4Wait, wake)
 		}()
 	}
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-		<-signals
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		select {
+		case <-signals:
+		case <-shutdownRequests:
+		}
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		_ = server.Shutdown(shutdownContext)
 	}()
@@ -374,6 +380,9 @@ func main() {
 	}
 	defer runtimeReady.Close()
 	serveErr := server.Serve(listener)
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		<-shutdownDone
+	}
 	stopDiscovery()
 	directedStore.Shutdown()
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -449,6 +458,7 @@ type serverServices struct {
 	backupManager *sessionbackupproducer.Manager
 	directedStore *directedhandoff.Store
 	onboardings   *onboardingManager
+	shutdown      chan struct{}
 }
 
 func newServer(
@@ -510,6 +520,15 @@ func routesWithOnboarding(
 	}
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
+	if service.shutdown != nil {
+		api.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, _ *http.Request) {
+			select {
+			case service.shutdown <- struct{}{}:
+			default:
+			}
+			w.WriteHeader(http.StatusAccepted)
+		})
+	}
 	api.HandleFunc("GET /api/hub/v4-update", func(w http.ResponseWriter, _ *http.Request) {
 		if service.queue == nil {
 			writeJSON(w, syncv4.UpdatePrompt{})

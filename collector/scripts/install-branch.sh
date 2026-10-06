@@ -29,6 +29,7 @@ stop_existing_coslash_servers() {
     executable="$(lsof -nP -a -p "$pid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
     executable="${executable% (deleted)}"
     [[ "$(basename "$executable")" == "coslash" ]] || fail "could not verify the listener process (PID $pid); no processes were stopped"
+    [[ "$executable" == "$target_binary" ]] || continue
     coslash_pids+=("$pid")
   done < <(pgrep -u "$uid" -x coslash || true)
 
@@ -50,7 +51,7 @@ stop_existing_coslash_servers() {
     kill -TERM "$pid" 2>/dev/null || fail "could not stop coSlash Local PID $pid; the selected binary was not replaced"
   done
 
-  for attempt in {1..50}; do
+  for attempt in {1..950}; do
     remaining_pids=()
     for pid in "${coslash_pids[@]}"; do
       if kill -0 "$pid" 2>/dev/null; then
@@ -86,7 +87,7 @@ Usage: install-branch.sh [--branch NAME] [--connect CODE --hub ORIGIN]
 
 Builds coSlash Local from a GitHub source branch. Requires Git, Go 1.26+,
 Node 24+, npm, and make. The default branch is hlu/hub-support.
-Stops verified running coSlash Local servers before replacing the selected binary.
+Stops the selected branch's running coSlash Local server before replacing its binary.
 USAGE
       exit 0
       ;;
@@ -135,7 +136,8 @@ if [[ -z "${COSLASH_HOME:-}" ]]; then
 fi
 
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/coslash-branch-install.XXXXXX")"
-trap 'rm -rf "$work_dir"' EXIT
+staged_binary=""
+trap '[[ -z "$staged_binary" ]] || rm -f "$staged_binary"; rm -rf "$work_dir"' EXIT
 
 printf 'Building coSlash Local from branch %s…\n' "$branch"
 git clone --depth 1 --single-branch --branch "$branch" "$repo" "$work_dir/source" >/dev/null
@@ -145,9 +147,15 @@ make -C "$work_dir/source/collector" release VERSION=0.0.0
 binary="$work_dir/source/collector/bin/coslash"
 "$binary" connect --help >/dev/null 2>&1 || fail "branch $branch does not include the Hub connect command"
 
-stop_existing_coslash_servers
 mkdir -p "$install_dir"
-install -m 0755 "$binary" "$install_dir/coslash"
+install_dir="$(cd -P -- "$install_dir" && pwd)"
+target_binary="$install_dir/coslash"
+staged_binary="$(mktemp "$install_dir/.coslash.XXXXXX")"
+install -m 0755 "$binary" "$staged_binary"
+
+stop_existing_coslash_servers
+mv -f -- "$staged_binary" "$target_binary"
+staged_binary=""
 printf 'Installed coSlash Local from %s (%s) to %s/coslash\n' "$branch" "$commit" "$install_dir"
 
 case ":${PATH}:" in

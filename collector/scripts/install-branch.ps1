@@ -23,7 +23,7 @@ function Invoke-Native([string]$Command, [string[]]$NativeArgs, [string]$Working
     }
 }
 
-function Stop-RunningCoslashServers {
+function Stop-RunningCoslashServers([string]$SelectedBinary) {
     try {
         $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop)
     }
@@ -46,10 +46,15 @@ function Stop-RunningCoslashServers {
         }
 
         $imageName = [IO.Path]::GetFileName([string]$process.ExecutablePath)
-        if ($process.Name -ieq "coslash.exe" -and -not $process.ExecutablePath) {
+        if ($process.Name -ieq "coslash.exe" -and -not $process.ExecutablePath -and $ownsDefaultPort) {
             Stop-Install "could not verify the coSlash listener process (PID $processId); no processes were stopped"
         }
-        if ($imageName -ieq "coslash.exe") {
+        $isSelectedBinary = $imageName -ieq "coslash.exe" -and [string]::Equals(
+            [IO.Path]::GetFullPath([string]$process.ExecutablePath),
+            $SelectedBinary,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+        if ($isSelectedBinary) {
             try {
                 $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
             }
@@ -69,17 +74,23 @@ function Stop-RunningCoslashServers {
     }
 
     if ($serverIds.Count -eq 0) { return }
-    foreach ($processId in $serverIds) {
-        Write-Host "Stopping running coSlash Local server (PID $processId)…"
-        try {
-            Stop-Process -Id $processId -ErrorAction Stop
-        }
-        catch {
-            Stop-Install "could not stop coSlash Local PID $processId; the selected binary was not replaced"
-        }
+    $runtimePath = Join-Path $env:COSLASH_HOME "runtime.json"
+    $tokenPath = Join-Path $env:COSLASH_HOME "token"
+    try {
+        $runtime = Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json -ErrorAction Stop
+        $token = (Get-Content -LiteralPath $tokenPath -Raw -ErrorAction Stop).Trim()
+        if (-not $runtime.baseURL -or -not $token) { throw "runtime discovery is incomplete" }
+        Invoke-RestMethod -Uri ($runtime.baseURL.TrimEnd("/") + "/api/shutdown") -Method Post -Headers @{ "X-Coslash-Token" = $token } -TimeoutSec 10 | Out-Null
+    }
+    catch {
+        Stop-Install "could not request graceful shutdown of the selected coSlash Local server; close it manually and retry"
     }
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    foreach ($processId in $serverIds) {
+        Write-Host "Waiting for coSlash Local to finish shutting down (PID $processId)…"
+    }
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(210)
     do {
         $remaining = @($serverIds | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
         if ($remaining.Count -eq 0) { return }
@@ -110,7 +121,12 @@ if ($LASTEXITCODE -ne 0) { Stop-Install "invalid source branch name" }
 $branchSlug = $branch -replace "[/\\]", "-"
 $workRoot = Join-Path $env:TEMP ("coslash-branch-install-" + [guid]::NewGuid().ToString("N"))
 $source = Join-Path $workRoot "source"
-$installDir = Join-Path $env:LOCALAPPDATA ("coSlash\dev\" + $branchSlug)
+$installDir = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA ("coSlash\dev\" + $branchSlug)))
+$targetBinary = Join-Path $installDir "coslash.exe"
+if (-not $env:COSLASH_HOME) {
+    $env:COSLASH_HOME = Join-Path $env:USERPROFILE (".coslash-dev\" + $branchSlug)
+}
+$stagedBinary = $null
 $oldGoos = $env:GOOS
 $oldGoarch = $env:GOARCH
 $oldCgo = $env:CGO_ENABLED
@@ -153,15 +169,20 @@ try {
         Stop-Install "branch $branch does not include the Hub connect command"
     }
 
-    Stop-RunningCoslashServers
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-    Copy-Item -LiteralPath $binary -Destination (Join-Path $installDir "coslash.exe") -Force
+    $stagedBinary = Join-Path $installDir (".coslash-" + [guid]::NewGuid().ToString("N") + ".tmp")
+    Copy-Item -LiteralPath $binary -Destination $stagedBinary
+    Stop-RunningCoslashServers $targetBinary
+    if (Test-Path -LiteralPath $targetBinary) {
+        [IO.File]::Replace($stagedBinary, $targetBinary, $null)
+    }
+    else {
+        [IO.File]::Move($stagedBinary, $targetBinary)
+    }
+    $stagedBinary = $null
     $commit = (git -C $source rev-parse --short HEAD).Trim()
     Write-Host "Installed coSlash Local from $branch ($commit) to $installDir"
 
-    if (-not $env:COSLASH_HOME) {
-        $env:COSLASH_HOME = Join-Path $env:USERPROFILE (".coslash-dev\" + $branchSlug)
-    }
     $pathEntries = [Environment]::GetEnvironmentVariable("Path", "User") -split ";"
     if ($pathEntries -notcontains $installDir) {
         $newUserPath = (@($pathEntries | Where-Object { $_ }) + $installDir) -join ";"
@@ -178,5 +199,6 @@ finally {
     $env:GOOS = $oldGoos
     $env:GOARCH = $oldGoarch
     $env:CGO_ENABLED = $oldCgo
+    if ($stagedBinary -and (Test-Path -LiteralPath $stagedBinary)) { Remove-Item -LiteralPath $stagedBinary -Force }
     if (Test-Path $workRoot) { Remove-Item -LiteralPath $workRoot -Recurse -Force }
 }
