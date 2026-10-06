@@ -191,7 +191,7 @@ Or for Cursor CLI and OpenCode:
 npx skills@latest add centauri-ai/coslash -g -a cursor -a opencode --skill '*' -y
 ```
 
-The skills call the `coslash` executable, so it must be on `PATH`. They start the app when it is stopped. The `stable` branch moves with each stable release. When you update coSlash, update the skills too: `claude plugin marketplace update centauri-ai` then `claude plugin update coslash@centauri-ai`, `codex plugin marketplace upgrade`, or `npx skills@latest update -g`.
+The skills call the `coslash` executable, so it must be on `PATH`. The `sessions`, `handoff`, `send`, and `review` skills start the app when it is stopped. `doctor` works without starting it. The `stable` branch moves with each stable release. When you update coSlash, update the skills too: `claude plugin marketplace update centauri-ai` then `claude plugin update coslash@centauri-ai`, `codex plugin marketplace upgrade`, or `npx skills@latest update -g`.
 
 If you use a custom `COSLASH_HOME` with Codex, a `shell_environment_policy` in `~/.codex/config.toml` can drop it. Set it under `[shell_environment_policy.set]` as `COSLASH_HOME = "<path>"`. `coslash doctor --json` shows the `storage.home` that the skills use.
 
