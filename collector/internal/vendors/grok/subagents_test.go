@@ -15,10 +15,10 @@ func TestMissingSubagentMetaRecoversStructuredEvents(t *testing.T) {
 	spawn := `{"params":{"sessionId":"parent","update":{"sessionUpdate":"subagent_spawned","subagent_id":"sub","attempt_id":"current","parent_session_id":"parent","child_session_id":"child","description":"Check paths","model":"grok-4.7"}}}`
 	finish := `{"params":{"sessionId":"parent","update":{"sessionUpdate":"subagent_finished","subagent_id":"sub","attempt_id":"current","child_session_id":"child","status":"completed","duration_ms":1961,"tool_calls":3,"output":"CHILD_WINDOWS_OK"}}}`
 	for _, tt := range []struct {
-		name, spawn, finish, meta, childParent string
-		wantChild                              bool
-		status                                 string
-		result                                 string
+		name, spawn, finish, meta, childParent, sidecar string
+		wantChild                                       bool
+		status                                          string
+		result                                          string
 	}{
 		{name: "completed", spawn: spawn, finish: finish, wantChild: true, status: session.SubagentReturned, result: "CHILD_WINDOWS_OK"},
 		{name: "failed", spawn: spawn, finish: strings.ReplaceAll(finish, "completed", "failed"), wantChild: true, status: session.SubagentAborted, result: "CHILD_WINDOWS_OK"},
@@ -30,6 +30,9 @@ func TestMissingSubagentMetaRecoversStructuredEvents(t *testing.T) {
 		{name: "declared parent wins", spawn: spawn, finish: finish, childParent: "other"},
 		{name: "metadata wins", spawn: spawn, finish: finish, meta: `{"child_session_id":"child","description":"metadata","status":"failed"}`, wantChild: true, status: session.SubagentAborted},
 		{name: "truncated metadata", spawn: spawn, finish: finish, meta: `{"child_session_id":"child"`, wantChild: true, status: session.SubagentReturned, result: "CHILD_WINDOWS_OK"},
+		{name: "sidecar without event output", spawn: spawn, finish: strings.ReplaceAll(finish, `,"output":"CHILD_WINDOWS_OK"`, ""), sidecar: `{"output":"CHILD_WINDOWS_OK"}`, wantChild: true, status: session.SubagentReturned, result: "CHILD_WINDOWS_OK"},
+		{name: "sidecar wins over event", spawn: spawn, finish: strings.ReplaceAll(finish, "CHILD_WINDOWS_OK", "event result"), meta: `{"child_session_id":"child"`, sidecar: `{"output":"CHILD_WINDOWS_OK"}`, wantChild: true, status: session.SubagentReturned, result: "CHILD_WINDOWS_OK"},
+		{name: "invalid sidecar keeps event output", spawn: spawn, finish: finish, sidecar: `{`, wantChild: true, status: session.SubagentReturned, result: "CHILD_WINDOWS_OK"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			home := filepath.Join(t.TempDir(), strings.Repeat("long custom path ", 9)+"home")
@@ -45,6 +48,11 @@ func TestMissingSubagentMetaRecoversStructuredEvents(t *testing.T) {
 			}
 			if tt.meta != "" {
 				if err := os.WriteFile(filepath.Join(metaDir, "meta.json"), []byte(tt.meta), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tt.sidecar != "" {
+				if err := os.WriteFile(filepath.Join(metaDir, "output.json"), []byte(tt.sidecar), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -68,6 +76,9 @@ func TestMissingSubagentMetaRecoversStructuredEvents(t *testing.T) {
 				for _, item := range parsed {
 					if item.Session.ID == "child" && item.ParentID == "parent" {
 						linked++
+						if item.Result != tt.result {
+							t.Fatalf("since=%d result=%q, want %q", since, item.Result, tt.result)
+						}
 					}
 				}
 				if (linked == 1) != tt.wantChild {
@@ -105,7 +116,7 @@ func TestMissingSubagentMetaRecoversStructuredEvents(t *testing.T) {
 	}
 }
 
-func TestSubagentFallbackPreservesMetadataAndReadBound(t *testing.T) {
+func TestSubagentFallbackPreservesMetadataAndLineBound(t *testing.T) {
 	dir := t.TempDir()
 	writeSummary(t, dir, `{"info":{"id":"parent"},"chat_format_version":1}`)
 	for _, name := range []string{"valid", "missing"} {
@@ -117,7 +128,7 @@ func TestSubagentFallbackPreservesMetadataAndReadBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeUpdates(t, dir, []string{`{"params":{"sessionId":"parent","update":{"sessionUpdate":"subagent_spawned","subagent_id":"missing","parent_session_id":"parent","child_session_id":"child","description":"fallback"}}}`})
-	if metas := readSubagentMetas(context.Background(), dir); len(metas) != 1 || metas[0].Description != "authoritative" {
+	if metas := readSubagentMetas(context.Background(), dir, true); len(metas) != 1 || metas[0].Description != "authoritative" {
 		t.Fatalf("metadata=%+v", metas)
 	}
 	file, err := os.OpenFile(filepath.Join(dir, "updates.jsonl"), os.O_WRONLY, 0)
@@ -129,7 +140,56 @@ func TestSubagentFallbackPreservesMetadataAndReadBound(t *testing.T) {
 	if err != nil || closeErr != nil {
 		t.Fatalf("truncate=%v close=%v", err, closeErr)
 	}
-	if metas := readSubagentMetas(context.Background(), dir); len(metas) != 1 || metas[0].Description != "authoritative" {
+	if metas := readSubagentMetas(context.Background(), dir, true); len(metas) != 1 || metas[0].Description != "authoritative" {
 		t.Fatalf("oversized fallback metadata=%+v", metas)
+	}
+}
+
+func TestSubagentRecoveryStreamsLargeLogsAndIndexesOnlyLineage(t *testing.T) {
+	dir := t.TempDir()
+	writeSummary(t, dir, `{"info":{"id":"parent"},"chat_format_version":1}`)
+	for _, name := range []string{"valid", "missing"} {
+		if err := os.MkdirAll(filepath.Join(dir, "subagents", name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "subagents", "valid", "meta.json"), []byte(`{"child_session_id":"valid-child","prompt":"task","output":"sidecar result"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(filepath.Join(dir, "updates.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	line := "{}" + strings.Repeat(" ", 64*1024-3) + "\n"
+	for written := int64(0); written <= maxGrokJSONBytes; written += int64(len(line)) {
+		if _, err := file.WriteString(line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, event := range []string{
+		`{"params":{"sessionId":"parent","update":{"sessionUpdate":"subagent_spawned","subagent_id":"missing","parent_session_id":"parent","child_session_id":"child","prompt":"task","description":"name"}}}`,
+		`{"params":{"sessionId":"parent","update":{"sessionUpdate":"subagent_finished","subagent_id":"missing","child_session_id":"child","status":"completed","output":"recovered result"}}}`,
+	} {
+		if _, err := file.WriteString(event + "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, details := range []bool{false, true} {
+		metas := readSubagentMetas(context.Background(), dir, details)
+		if len(metas) != 2 {
+			t.Fatalf("details=%v metadata=%+v", details, metas)
+		}
+		for _, meta := range metas {
+			if !details && meta != (subagentMeta{ChildSessionID: meta.ChildSessionID}) {
+				t.Fatalf("archive index retained details: %+v", meta)
+			}
+			if details && meta.ChildSessionID == "child" && (meta.Status != "completed" || meta.Output != "recovered result" || meta.dir != filepath.Join(dir, "subagents", "missing")) {
+				t.Fatalf("large-log recovery=%+v", meta)
+			}
+		}
 	}
 }

@@ -2,7 +2,6 @@ package grok
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -24,13 +23,16 @@ type subagentMeta struct {
 	Output           string `json:"output"`
 }
 
-func readSubagentMetas(ctx context.Context, sessionDir string) []subagentMeta {
+func readSubagentMetas(ctx context.Context, sessionDir string, withDetails bool) []subagentMeta {
 	entries, _ := os.ReadDir(filepath.Join(sessionDir, "subagents"))
 	metas := []subagentMeta{}
 	missing := map[string]bool{}
 	for _, entry := range entries {
 		meta := subagentMeta{dir: filepath.Join(sessionDir, "subagents", entry.Name())}
 		if entry.IsDir() && readJSON(filepath.Join(meta.dir, "meta.json"), &meta) == nil && meta.ChildSessionID != "" {
+			if !withDetails {
+				meta = subagentMeta{ChildSessionID: meta.ChildSessionID}
+			}
 			metas = append(metas, meta)
 		} else if entry.IsDir() {
 			missing[entry.Name()] = true
@@ -40,9 +42,13 @@ func readSubagentMetas(ctx context.Context, sessionDir string) []subagentMeta {
 		return metas
 	}
 	// Grok can create the child directory but fail to write meta.json on long Windows paths.
-	body, err := readBounded(filepath.Join(sessionDir, "updates.jsonl"), maxGrokJSONBytes)
+	file, err := os.Open(filepath.Join(sessionDir, "updates.jsonl"))
+	if err != nil {
+		return metas
+	}
+	defer file.Close()
 	summary, summaryErr := readSummary(sessionDir)
-	if err != nil || summaryErr != nil {
+	if summaryErr != nil {
 		return metas
 	}
 	type eventLine struct {
@@ -60,7 +66,7 @@ func readSubagentMetas(ctx context.Context, sessionDir string) []subagentMeta {
 	}
 	recovered := map[string]subagentMeta{}
 	attempts := map[string]string{}
-	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), int(maxGrokJSONBytes))
 	for scanner.Scan() {
 		if ctx.Err() != nil {
@@ -76,12 +82,16 @@ func readSubagentMetas(ctx context.Context, sessionDir string) []subagentMeta {
 			case "subagent_spawned":
 				if update.ParentID == summary.Info.ID {
 					meta := update.subagentMeta
+					meta.dir = filepath.Join(sessionDir, "subagents", update.ID)
 					meta.EffectiveModelID = update.Model
+					if !withDetails {
+						meta = subagentMeta{ChildSessionID: meta.ChildSessionID}
+					}
 					recovered[update.ID], attempts[update.ID] = meta, update.AttemptID
 				}
 			case "subagent_finished":
 				meta, ok := recovered[update.ID]
-				if ok && meta.ChildSessionID == update.ChildSessionID && attempts[update.ID] == update.AttemptID {
+				if withDetails && ok && meta.ChildSessionID == update.ChildSessionID && attempts[update.ID] == update.AttemptID {
 					meta.Status, meta.DurationMs, meta.ToolCalls, meta.Output = update.Status, update.DurationMs, update.ToolCalls, update.Output
 					recovered[update.ID] = meta
 				}
