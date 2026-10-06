@@ -32,7 +32,7 @@ func parseWakeIntentURL(raw string) (wakeIntent, error) {
 		return wakeIntent{}, errors.New("invalid coSlash wake URL")
 	}
 	hub, err := hubclient.ValidateHubURL(values.Get("hub"))
-	if err != nil || hub.Scheme != "https" || hub.Path != "" || hub.RawPath != "" || hub.RawQuery != "" || hub.Fragment != "" {
+	if err != nil || hub.Scheme != "https" || hub.Path != "" || hub.RawPath != "" || hub.RawQuery != "" || hub.ForceQuery || hub.Fragment != "" {
 		return wakeIntent{}, errors.New("invalid coSlash wake Hub")
 	}
 	return wakeIntent{HubURL: hub}, nil
