@@ -17,8 +17,10 @@ find_existing_coslash_servers() {
   command -v lsof >/dev/null 2>&1 || fail "lsof is required to identify running coSlash Local servers"
 
   local uid pid executable is_coslash coslash_pid
+  local verified_coslash_pid_count=0
   local -a verified_coslash_pids=()
   selected_coslash_pids=()
+  selected_coslash_pid_count=0
   uid="$(id -u)"
 
   while IFS= read -r pid; do
@@ -30,31 +32,34 @@ find_existing_coslash_servers() {
     executable="${executable% (deleted)}"
     [[ "$(basename "$executable")" == "coslash" ]] || fail "could not verify the listener process (PID $pid); no processes were stopped"
     verified_coslash_pids+=("$pid")
+    ((verified_coslash_pid_count += 1))
     if [[ "$executable" == "$target_binary" ]]; then
       selected_coslash_pids+=("$pid")
+      ((selected_coslash_pid_count += 1))
     fi
   done < <(pgrep -u "$uid" -x coslash || true)
 
   while IFS= read -r pid; do
     [[ "$pid" =~ ^[0-9]+$ ]] || continue
     is_coslash=0
-    for coslash_pid in "${verified_coslash_pids[@]}"; do
-      if [[ "$pid" == "$coslash_pid" ]]; then
-        is_coslash=1
-        break
-      fi
-    done
+    if ((verified_coslash_pid_count > 0)); then
+      for coslash_pid in "${verified_coslash_pids[@]}"; do
+        if [[ "$pid" == "$coslash_pid" ]]; then
+          is_coslash=1
+          break
+        fi
+      done
+    fi
     ((is_coslash)) || fail "port 8787 is in use by PID $pid, which is not a verified coSlash Local server; no processes were stopped"
   done < <(lsof -nP -t -iTCP:8787 -sTCP:LISTEN 2>/dev/null | sort -u || true)
 
 }
 
 stop_existing_coslash_servers() {
-  local pid attempt
-  local -a remaining_pids=()
+  local pid attempt remaining_pid_count
 
-  ((${#selected_coslash_pids[@]})) || return 0
-  printf 'Stopping %d running coSlash Local server(s)…\n' "${#selected_coslash_pids[@]}"
+  ((selected_coslash_pid_count > 0)) || return 0
+  printf 'Stopping %d running coSlash Local server(s)…\n' "$selected_coslash_pid_count"
   for pid in "${selected_coslash_pids[@]}"; do
     if ! kill -TERM "$pid" 2>/dev/null; then
       kill -0 "$pid" 2>/dev/null && fail "the new binary was installed, but selected coSlash Local PID $pid could not be stopped"
@@ -62,13 +67,13 @@ stop_existing_coslash_servers() {
   done
 
   for attempt in {1..950}; do
-    remaining_pids=()
+    remaining_pid_count=0
     for pid in "${selected_coslash_pids[@]}"; do
       if kill -0 "$pid" 2>/dev/null; then
-        remaining_pids+=("$pid")
+        ((remaining_pid_count += 1))
       fi
     done
-    ((${#remaining_pids[@]} == 0)) && return 0
+    ((remaining_pid_count == 0)) && return 0
     sleep 0.2
   done
   fail "coSlash Local did not stop after SIGTERM; the new binary was installed"
