@@ -12,6 +12,8 @@ with `HOME=DIR/home`, `XDG_DATA_HOME=DIR/home/.local/share`, and
 `COSLASH_HOME` set to a separate disposable path. Do not use a real
 `COSLASH_HOME` or real credentials for a lane. Verify generated files with
 `python3 generate.py --verify DIR` before seeding a stack.
+Run `python3 -m unittest test_scripts.py` from this directory to check the
+generator and append helper's path, timestamp, lineage, and lane metadata rules.
 
 The manifest distinguishes source rows from the sessions eligible for the
 10-day import window and 45-session catch-up cap. The two `~/personal/`
