@@ -971,7 +971,8 @@ func resolveStatusContext(
 			raw = enrichment.Live
 		}
 		live := raw != ""
-		if deref(s.Status) == "waiting" && (!livenessAuthoritative || live) {
+		waiting := deref(s.Status) == "waiting"
+		if waiting && (!livenessAuthoritative || live) {
 			continue
 		}
 		s.Status = nil
@@ -984,7 +985,7 @@ func resolveStatusContext(
 		} else if p.StatusHint != nil && (!livenessAuthoritative || !agentMetadata.LivenessChecked) {
 			status := *p.StatusHint
 			s.Status = &status
-		} else if s.Agent == vendors.AgentGrok && p.InTurn && agentMetadata.LivenessChecked {
+		} else if s.Agent == vendors.AgentGrok && p.InTurn && !waiting && agentMetadata.LivenessChecked {
 			status := "idle"
 			s.Status = &status
 		}
