@@ -447,10 +447,12 @@ func TestGrokEntrypointAndWaiting(t *testing.T) {
 		t.Fatalf("noninteractive = %s, err = %v", stringValue(parsed.Session.Entrypoint), err)
 	}
 
-	writeSummary(t, dir, `{"info":{"id":"child","cwd":"/work"},"chat_format_version":1,"session_kind":"subagent"}`)
-	parsed, err = parseSession(dir)
-	if err != nil || stringValue(parsed.Session.Entrypoint) != "grok-subagent" {
-		t.Fatalf("subagent = %s, err = %v", stringValue(parsed.Session.Entrypoint), err)
+	for _, kind := range []string{"subagent", "subagent_resume", "subagent_fork"} {
+		writeSummary(t, dir, `{"info":{"id":"child","cwd":"/work"},"chat_format_version":1,"session_kind":"`+kind+`"}`)
+		parsed, err = parseSession(dir)
+		if err != nil || stringValue(parsed.Session.Entrypoint) != "grok-subagent" {
+			t.Fatalf("%s = %s, err = %v", kind, stringValue(parsed.Session.Entrypoint), err)
+		}
 	}
 
 	writeSummary(t, dir, `{"info":{"id":"plan","cwd":"/work"},"chat_format_version":1}`)
@@ -472,6 +474,15 @@ func TestGrokEntrypointAndWaiting(t *testing.T) {
 	parsed, err = parseSession(dir)
 	if err != nil || parsed.Session.Status == nil || *parsed.Session.Status != "waiting" {
 		t.Fatalf("question status = %#v, err = %v", parsed.Session.Status, err)
+	}
+	writeUpdates(t, dir, []string{
+		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"ship it"}}}}`,
+		`{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"p1","title":"run_terminal_command","status":"pending"}}}`,
+		`{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1","title":"run_terminal_command","status":"in_progress"}}}`,
+	})
+	parsed, err = parseSession(dir)
+	if err != nil || parsed.Session.Status != nil {
+		t.Fatalf("running tool status = %#v, err = %v", parsed.Session.Status, err)
 	}
 	writeUpdates(t, dir, []string{
 		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"ship it"}}}}`,
