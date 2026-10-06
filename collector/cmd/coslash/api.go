@@ -512,8 +512,8 @@ func handleSend(
 	open promptLauncher,
 ) {
 	target := r.URL.Query().Get("to")
-	if target != vendors.AgentClaude && target != vendors.AgentCodex && target != vendors.AgentOpenCode && target != vendors.AgentCursor && target != vendors.AgentPi && target != vendors.AgentGrok {
-		http.Error(w, "target must be claude, codex, opencode, cursor, pi, or grok", http.StatusBadRequest)
+	if !validAgent(target) {
+		http.Error(w, "target must be "+agentCommaList(), http.StatusBadRequest)
 		return
 	}
 	if target == vendors.AgentGrok && !vendors.GrokSynthesisSupported() {

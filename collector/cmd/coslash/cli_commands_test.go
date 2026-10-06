@@ -494,15 +494,26 @@ func TestRunSendCursorReportsServerFailure(t *testing.T) {
 	}
 }
 
+func TestValidAgentMatchesLocalAgents(t *testing.T) {
+	for _, agent := range localAgents {
+		if !validAgent(agent) {
+			t.Fatalf("%s", agent)
+		}
+	}
+	if validAgent("other") {
+		t.Fatal("other")
+	}
+}
+
 func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 	for _, test := range []struct {
 		command string
 		usage   string
 	}{
-		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi|grok] [--recent N] --json\n"},
+		{"sessions", sessionsUsage() + "\n"},
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
-		{"send", "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi|grok [message]\n"},
-		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi|grok | coslash review status <agent>:<session> --json\n"},
+		{"send", sendUsage() + "\n"},
+		{"review", reviewHelp() + "\n"},
 		{"doctor", "usage: coslash doctor [--json]\n"},
 	} {
 		for _, flag := range []string{"--help", "-h"} {
@@ -542,8 +553,11 @@ func TestPluginSkillCommandsParse(t *testing.T) {
 				var stdout, stderr bytes.Buffer
 				code := runCLI(&stdout, &stderr, variant)
 				errText := stderr.String()
-				if code != 1 || (!strings.Contains(errText, "coSlash app is not running") &&
-					!strings.Contains(errText, "Grok review is supported only on macOS and Windows")) {
+				want := "coSlash app is not running"
+				if len(variant) >= 4 && variant[0] == "review" && variant[2] == "--with" && variant[3] == vendors.AgentGrok && !vendors.GrokSynthesisSupported() {
+					want = "Grok review is supported only on macOS and Windows"
+				}
+				if code != 1 || !strings.Contains(errText, want) {
 					t.Errorf("%s: coslash %s: code=%d stderr=%q", path, strings.Join(variant, " "), code, errText)
 				}
 				checked++
@@ -590,9 +604,11 @@ func TestRunReviewPreservesServerOutcomes(t *testing.T) {
 	defer server.Close()
 	writeTestRuntime(t, server.URL, "secret")
 
-	selectedReviewers := []string{"claude", "codex", "opencode", "cursor", "pi"}
-	if vendors.GrokSynthesisSupported() {
-		selectedReviewers = append(selectedReviewers, "grok")
+	selectedReviewers := slices.Clone(localAgents)
+	if !vendors.GrokSynthesisSupported() {
+		selectedReviewers = slices.DeleteFunc(selectedReviewers, func(agent string) bool {
+			return agent == vendors.AgentGrok
+		})
 	}
 	for _, selected := range selectedReviewers {
 		reviewer = selected
