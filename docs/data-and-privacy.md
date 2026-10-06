@@ -119,6 +119,14 @@ copying `auth.json` into a private temporary Grok home on Windows and linking
 it on macOS. The temporary home and prompt are removed after the run; synthesis
 sessions do not enter your normal Grok history.
 
+On macOS, coSlash runs Grok reviews inside its own kernel sandbox. The review
+can read the selected worktree, required system runtime files, and the Grok
+login. It can write only its private scratch directory. Provider requests and
+the system DNS resolver are allowed; other Unix sockets are blocked. Grok runs
+from scratch so project hooks, plugins, and MCP configuration are not loaded.
+If the sandbox cannot apply, the review fails. Scratch files are removed when
+the review ends.
+
 **Grok reviews on Windows.**
 
 A local Grok review sends session context and a Git change snapshot to Grok

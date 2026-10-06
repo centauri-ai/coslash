@@ -255,6 +255,7 @@ func ReviewCLIAvailable(ctx context.Context, reviewer string) bool {
 }
 
 type reviewCommandSpec struct {
+	dir     string
 	bin     string
 	args    []string
 	env     []string
@@ -335,6 +336,9 @@ func Review(ctx context.Context, request review.Launch) (string, error) {
 	command := reviewCommandContext(ctx, bin, args...)
 	if request.SSHAlias == "" {
 		command.Dir = workingDirectory
+		if spec.dir != "" {
+			command.Dir = spec.dir
+		}
 	}
 	configureReviewProcess(command)
 	command.Stdin = strings.NewReader(spec.stdin)
@@ -485,13 +489,13 @@ func reviewCLICommand(reviewer, workingDirectory, name, prompt string) (reviewCo
 			stdin: prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n",
 		}, nil
 	case vendors.AgentGrok:
-		return grokReviewCommand(prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n")
+		return grokReviewCommand(workingDirectory, prompt+"\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n")
 	default:
 		return reviewCommandSpec{}, fmt.Errorf("launch: unknown reviewer %q", reviewer)
 	}
 }
 
-func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
+func grokReviewCommand(workingDirectory, prompt string) (reviewCommandSpec, error) {
 	if !vendors.GrokSynthesisSupported() {
 		return reviewCommandSpec{}, errors.New("launch: Grok review is supported only on macOS and Windows")
 	}
@@ -513,16 +517,15 @@ func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 		cleanup()
 		return reviewCommandSpec{}, err
 	}
-	if err := writeGrokReviewSandbox(home, scratch); err != nil {
-		cleanup()
-		return reviewCommandSpec{}, err
+	if runtime.GOOS == "darwin" {
+		prompt += fmt.Sprintf("\nThe selected worktree is %q. Use absolute paths to read its files; the current directory is private review scratch.\n", workingDirectory)
 	}
 	promptPath := filepath.Join(scratch, "prompt.txt")
 	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
 		cleanup()
 		return reviewCommandSpec{}, fmt.Errorf("write Grok review prompt: %w", err)
 	}
-	return reviewCommandSpec{
+	spec, err := sandboxGrokReview(reviewCommandSpec{
 		bin: grokcli.Executable(),
 		args: []string{
 			"--prompt-file", promptPath,
@@ -535,7 +538,12 @@ func grokReviewCommand(prompt string) (reviewCommandSpec, error) {
 		},
 		env:     []string{"GROK_HOME=" + home, "GROK_MEMORY=0"},
 		cleanup: cleanup,
-	}, nil
+	}, workingDirectory, scratch)
+	if err != nil {
+		cleanup()
+		return reviewCommandSpec{}, err
+	}
+	return spec, nil
 }
 
 // writeGrokReviewSandbox adds the scratch directory to Grok's strict profile.

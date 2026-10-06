@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -349,12 +350,22 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("COSLASH_HOME", "coslash")
-	got, err := reviewCLICommand(vendors.AgentGrok, "/repo", "name", prompt)
+	if runtime.GOOS == "darwin" {
+		if err := os.WriteFile(filepath.Join(root, "grok"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", root)
+	}
+	got, err := reviewCLICommand(vendors.AgentGrok, root, "name", prompt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(got.cleanup)
-	if got.bin != "grok" || got.stdin != "" || !slices.Contains(got.args, "--prompt-file") || !slices.Contains(got.args, "--sandbox") || !slices.Contains(got.args, "coslash-review") || !slices.Contains(got.args, "read_file,grep,list_dir") {
+	expectedBin, expectedProfile := "grok", "coslash-review"
+	if runtime.GOOS == "darwin" {
+		expectedBin, expectedProfile = "/usr/bin/sandbox-exec", "off"
+	}
+	if got.bin != expectedBin || got.stdin != "" || !slices.Contains(got.args, "--prompt-file") || !slices.Contains(got.args, "--sandbox") || !slices.Contains(got.args, expectedProfile) || !slices.Contains(got.args, "read_file,grep,list_dir") {
 		t.Fatalf("command = %#v", got)
 	}
 	if strings.Contains(strings.Join(got.args, "\n"), prompt) {
@@ -366,6 +377,9 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 	}
 	body, err := os.ReadFile(path)
 	wantPrompt := prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n"
+	if runtime.GOOS == "darwin" {
+		wantPrompt += fmt.Sprintf("\nThe selected worktree is %q. Use absolute paths to read its files; the current directory is private review scratch.\n", root)
+	}
 	if err != nil || string(body) != wantPrompt {
 		t.Fatalf("prompt file = %q, err = %v", body, err)
 	}
@@ -373,9 +387,22 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 	if !slices.Contains(got.env, "GROK_HOME="+grokHome) || !slices.Contains(got.env, "GROK_MEMORY=0") || !filepath.IsAbs(grokHome) {
 		t.Fatalf("env = %q", got.env)
 	}
-	sandbox, err := os.ReadFile(filepath.Join(grokHome, "sandbox.toml"))
-	if err != nil || !strings.Contains(string(sandbox), "extends = \"strict\"") || !strings.Contains(string(sandbox), strings.ReplaceAll(filepath.Dir(path), `\`, `\\`)) {
-		t.Fatalf("sandbox = %q, err = %v", sandbox, err)
+	if runtime.GOOS == "darwin" {
+		resolved, err := filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.dir != resolved {
+			t.Fatalf("review cwd=%q", got.dir)
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(path), "review.sb")); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		sandbox, err := os.ReadFile(filepath.Join(grokHome, "sandbox.toml"))
+		if err != nil || !strings.Contains(string(sandbox), "extends = \"strict\"") || !strings.Contains(string(sandbox), strings.ReplaceAll(filepath.Dir(path), `\`, `\\`)) {
+			t.Fatalf("sandbox=%q, err=%v", sandbox, err)
+		}
 	}
 	auth, err := os.ReadFile(filepath.Join(grokHome, "auth.json"))
 	if err != nil || string(auth) != `{"token":"secret"}` {
