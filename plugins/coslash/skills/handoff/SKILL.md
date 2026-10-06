@@ -5,7 +5,18 @@ description: Use when a user wants the canonical coSlash handoff or context for 
 
 # coSlash handoff
 
-If the user means the current session, use `claude:$CLAUDE_CODE_SESSION_ID` in Claude Code or `codex:$CODEX_SESSION_ID` in Codex when that variable is set. If that variable is unset, list sessions for that agent. In OpenCode, run `coslash sessions --agent opencode --recent 20 --json`; in Cursor CLI, run `coslash sessions --agent cursor --recent 20 --json`. In Pi, use `pi:$PI_SESSION_ID` when that variable is set, otherwise run `coslash sessions --agent pi --recent 20 --json`. In Grok, run `coslash sessions --agent grok --recent 20 --json`. Use a returned `selector` only when it uniquely identifies the intended session; if multiple sessions could match, ask the user to choose. Do not assume the newest session is current. For a named session, use the `selector` returned by `coslash sessions [query] --json`. Then run `coslash handoff <agent>:<session>`.
+If the user means the current session, resolve it from the host:
+
+| Host | Selector |
+| --- | --- |
+| Claude Code | `claude:$CLAUDE_CODE_SESSION_ID` when that variable is set. If it is unset, list sessions for Claude. |
+| Codex | `codex:$CODEX_SESSION_ID` when that variable is set. If it is unset, list sessions for Codex. |
+| OpenCode | `coslash sessions --agent opencode --recent 20 --json` |
+| Cursor CLI | `coslash sessions --agent cursor --recent 20 --json` |
+| Pi | `coslash sessions --agent pi --recent 20 --json` |
+| Grok | `coslash sessions --agent grok --recent 20 --json` |
+
+Use a returned `selector` only when it uniquely identifies the intended session; if multiple sessions could match, ask the user to choose. Do not assume the newest session is current. For a named session, use the `selector` returned by `coslash sessions [query] --json`. Then run `coslash handoff <agent>:<session>`.
 
 Use the `coslash` executable found on `PATH` and preserve the inherited `COSLASH_HOME`. Do not substitute a repository-relative binary or `go run` unless the user explicitly asks to test a source build.
 

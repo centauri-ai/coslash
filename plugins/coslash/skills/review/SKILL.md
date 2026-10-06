@@ -5,7 +5,18 @@ description: Use when a user wants Claude Code, Codex, OpenCode, Cursor CLI, Pi,
 
 # coSlash review
 
-If the user means the current session, use `claude:$CLAUDE_CODE_SESSION_ID` in Claude Code or `codex:$CODEX_SESSION_ID` in Codex when that variable is set. If that variable is unset, list sessions for that agent. In OpenCode, run `coslash sessions --agent opencode --recent 20 --json`; in Cursor CLI, run `coslash sessions --agent cursor --recent 20 --json`. In Pi, use `pi:$PI_SESSION_ID` when that variable is set, otherwise run `coslash sessions --agent pi --recent 20 --json`. In Grok, run `coslash sessions --agent grok --recent 20 --json`. Use a returned `selector` only when it uniquely identifies the intended session; if multiple sessions could match, ask the user to choose. Do not assume the newest session is current. For a named session, use the `selector` returned by `coslash sessions [query] --json`. Then run `coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi|grok` with that selector and the user's reviewer. If the user did not specify a reviewer, ask which one to use; do not choose or fall back automatically.
+If the user means the current session, resolve it from the host:
+
+| Host | Selector |
+| --- | --- |
+| Claude Code | `claude:$CLAUDE_CODE_SESSION_ID` when that variable is set. If it is unset, list sessions for Claude. |
+| Codex | `codex:$CODEX_SESSION_ID` when that variable is set. If it is unset, list sessions for Codex. |
+| OpenCode | `coslash sessions --agent opencode --recent 20 --json` |
+| Cursor CLI | `coslash sessions --agent cursor --recent 20 --json` |
+| Pi | `coslash sessions --agent pi --recent 20 --json` |
+| Grok | `coslash sessions --agent grok --recent 20 --json` |
+
+Use a returned `selector` only when it uniquely identifies the intended session; if multiple sessions could match, ask the user to choose. Do not assume the newest session is current. For a named session, use the `selector` returned by `coslash sessions [query] --json`. Then run `coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi|grok` with that selector and the user's reviewer. If the user did not specify a reviewer, ask which one to use; do not choose or fall back automatically.
 
 After starting a review, run `coslash review status <agent>:<session> --json` with the same selector to check its progress. While the status is `pending`, retry at reasonable intervals if the user wants the outcome. Report the `result` when it is `completed` or the `error` when it is `failed`. If the app restarts or its 100-result history evicts an old review, status is lost; a `review not found` response does not prove that the review failed.
 
