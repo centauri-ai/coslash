@@ -31,9 +31,50 @@ privacy](docs/data-and-privacy.md).
 | Pi | macOS, Windows | CLI | No | Yes |
 | Grok Build | macOS, Windows | CLI | No | Yes |
 
-No account, no daemon, no telemetry.
+Local collection needs no Hub account or telemetry.
 
-## Install
+## Install and connect from Hub
+
+In Hub, open **Devices → Add device → This computer** and copy the command for
+your computer. The command installs coSlash Local, adds it to `PATH`, starts it
+in the background, and claims your one-use setup code. Return to Hub to approve
+the computer.
+
+Hub shows a personalized command. These examples use a sample code and origin;
+run the exact command Hub provides.
+
+**macOS:**
+
+```sh
+curl -fsSL https://coslash.io/install.sh | bash -s -- --connect K7QX-29PD --hub https://hub.coslash.io
+```
+
+**Homebrew:**
+
+```sh
+brew install centauri-ai/tap/coslash && coslash connect K7QX-29PD --hub https://hub.coslash.io
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:COSLASH_CONNECT='K7QX-29PD'; $env:COSLASH_HUB='https://hub.coslash.io'; irm https://coslash.io/install.ps1 | iex
+```
+
+The code expires after ten minutes and can be used once. Hub switches to the
+computer's **Connect** card after Local claims the code; approving there
+connects the device.
+
+### Open coSlash Local
+
+When Local is not running, Hub offers **Open coSlash Local**. Click it to start
+Local on that computer and request an immediate Hub check-in. Local stays in
+the background without opening its own browser tab. The first start registers a
+per-user URL handler on macOS or Windows; neither requires administrator rights.
+
+## Install coSlash Local separately
+
+Use these options when you want to install Local before connecting it to Hub.
 
 ### macOS
 
@@ -58,18 +99,6 @@ coSlash serves <http://127.0.0.1:8787> and opens your browser with a fresh acces
 Download `coslash-windows-amd64.exe` from the newest stable [release](https://github.com/centauri-ai/coslash/releases) that includes it, or from the newest prerelease if no stable release does. Double-click it. coSlash runs as a portable application and opens its UI in your browser. It needs no administrator privileges, WSL, Go, Node, or GNU tools.
 
 To upgrade, replace the executable with a newer one. To uninstall, delete it. Your data stays in `~\.coslash`. The executable is not code-signed. To verify its checksum, see [Install from a release archive](docs/install.md#windows). The supported baseline is Windows 11 24H2 amd64 ([Windows validation](docs/windows-validation.md)).
-
-### Connect this computer to Hub
-
-In Hub, open **Devices → Add device → This computer**. After installing,
-start coSlash Local once and return to Hub to start the pairing handoff. On
-macOS, the first run registers a per-user Launch Services handler. On Windows,
-the first run registers the `coslash:` URL scheme for the current Windows user;
-neither requires administrator privileges. When Hub asks the browser to open
-Local, allow the app handoff. Hub presents the account, workspace and computer
-name and waits for an explicit approval before Local stores its device key.
-Hub shows the first check-in separately from approval. The Hub-led path does
-not use the manual pairing code screen or share sessions with a team.
 
 ### First run
 

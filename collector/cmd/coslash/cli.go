@@ -246,6 +246,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	}
 	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 		switch args[0] {
+		case "connect":
+			return runConnectCLI(stdout, stderr, args[1:])
 		case "sessions":
 			fmt.Fprintln(stdout, sessionsUsage())
 		case "handoff":
@@ -265,6 +267,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	}
 	var err error
 	switch args[0] {
+	case "connect":
+		return runConnectCLI(stdout, stderr, args[1:])
 	case "sessions":
 		err = runSessions(stdout, args[1:])
 	case "handoff":
