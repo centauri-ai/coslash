@@ -269,7 +269,7 @@ func readStoredHubURL() (string, error) {
 
 func writeStoredHubURL(raw string) error {
 	parsed, err := hubclient.ValidateHubURL(raw)
-	if err != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+	if err != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
 		return errors.New("invalid Hub address")
 	}
 	home := settings.Home()
@@ -301,7 +301,7 @@ func writeStoredHubURL(raw string) error {
 
 func hubOrigin(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+	if err != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
 		return "", errors.New("invalid Hub address")
 	}
 	validated, err := hubclient.ValidateHubURL(raw)

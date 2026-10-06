@@ -15,6 +15,7 @@ func TestWakeIntentURLGrammar(t *testing.T) {
 	}
 	for _, raw := range []string{
 		"coslash://wake?hub=http%3A%2F%2Flocalhost",
+		"coslash://wake?hub=https%3A%2F%2Fhub.coslash.io%3F",
 		valid + "&extra=1",
 		"coslash://wake?hub=https%3A%2F%2Fhub.coslash.io&hub=https%3A%2F%2Fhub.coslash.io",
 		"coslash://wake?hub=https%3A%2F%2Fhub.coslash.io#fragment",
