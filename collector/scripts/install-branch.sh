@@ -12,13 +12,13 @@ fail() {
   exit 1
 }
 
-stop_existing_coslash_servers() {
+find_existing_coslash_servers() {
   command -v pgrep >/dev/null 2>&1 || fail "pgrep is required to find a running coSlash Local server"
   command -v lsof >/dev/null 2>&1 || fail "lsof is required to identify running coSlash Local servers"
 
-  local uid pid executable is_coslash attempt coslash_pid
-  local -a coslash_pids=()
-  local -a remaining_pids=()
+  local uid pid executable is_coslash coslash_pid
+  local -a verified_coslash_pids=()
+  selected_coslash_pids=()
   uid="$(id -u)"
 
   while IFS= read -r pid; do
@@ -29,14 +29,16 @@ stop_existing_coslash_servers() {
     executable="$(lsof -nP -a -p "$pid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
     executable="${executable% (deleted)}"
     [[ "$(basename "$executable")" == "coslash" ]] || fail "could not verify the listener process (PID $pid); no processes were stopped"
-    [[ "$executable" == "$target_binary" ]] || continue
-    coslash_pids+=("$pid")
+    verified_coslash_pids+=("$pid")
+    if [[ "$executable" == "$target_binary" ]]; then
+      selected_coslash_pids+=("$pid")
+    fi
   done < <(pgrep -u "$uid" -x coslash || true)
 
   while IFS= read -r pid; do
     [[ "$pid" =~ ^[0-9]+$ ]] || continue
     is_coslash=0
-    for coslash_pid in "${coslash_pids[@]}"; do
+    for coslash_pid in "${verified_coslash_pids[@]}"; do
       if [[ "$pid" == "$coslash_pid" ]]; then
         is_coslash=1
         break
@@ -45,15 +47,23 @@ stop_existing_coslash_servers() {
     ((is_coslash)) || fail "port 8787 is in use by PID $pid, which is not a verified coSlash Local server; no processes were stopped"
   done < <(lsof -nP -t -iTCP:8787 -sTCP:LISTEN 2>/dev/null | sort -u || true)
 
-  ((${#coslash_pids[@]})) || return 0
-  printf 'Stopping %d running coSlash Local server(s)…\n' "${#coslash_pids[@]}"
-  for pid in "${coslash_pids[@]}"; do
-    kill -TERM "$pid" 2>/dev/null || fail "could not stop coSlash Local PID $pid; the selected binary was not replaced"
+}
+
+stop_existing_coslash_servers() {
+  local pid attempt
+  local -a remaining_pids=()
+
+  ((${#selected_coslash_pids[@]})) || return 0
+  printf 'Stopping %d running coSlash Local server(s)…\n' "${#selected_coslash_pids[@]}"
+  for pid in "${selected_coslash_pids[@]}"; do
+    if ! kill -TERM "$pid" 2>/dev/null; then
+      kill -0 "$pid" 2>/dev/null && fail "the new binary was installed, but selected coSlash Local PID $pid could not be stopped"
+    fi
   done
 
   for attempt in {1..950}; do
     remaining_pids=()
-    for pid in "${coslash_pids[@]}"; do
+    for pid in "${selected_coslash_pids[@]}"; do
       if kill -0 "$pid" 2>/dev/null; then
         remaining_pids+=("$pid")
       fi
@@ -61,7 +71,7 @@ stop_existing_coslash_servers() {
     ((${#remaining_pids[@]} == 0)) && return 0
     sleep 0.2
   done
-  fail "coSlash Local did not stop after SIGTERM; no binary was replaced"
+  fail "coSlash Local did not stop after SIGTERM; the new binary was installed"
 }
 
 while (($#)); do
@@ -87,7 +97,7 @@ Usage: install-branch.sh [--branch NAME] [--connect CODE --hub ORIGIN]
 
 Builds coSlash Local from a GitHub source branch. Requires Git, Go 1.26+,
 Node 24+, npm, and make. The default branch is hlu/hub-support.
-Stops the selected branch's running coSlash Local server before replacing its binary.
+Replaces the binary, then stops the selected branch's running coSlash Local server.
 USAGE
       exit 0
       ;;
@@ -153,9 +163,10 @@ target_binary="$install_dir/coslash"
 staged_binary="$(mktemp "$install_dir/.coslash.XXXXXX")"
 install -m 0755 "$binary" "$staged_binary"
 
-stop_existing_coslash_servers
-mv -f -- "$staged_binary" "$target_binary"
+find_existing_coslash_servers
+mv -f -- "$staged_binary" "$target_binary" || fail "could not publish the new binary; existing servers were left running"
 staged_binary=""
+stop_existing_coslash_servers
 printf 'Installed coSlash Local from %s (%s) to %s/coslash\n' "$branch" "$commit" "$install_dir"
 
 case ":${PATH}:" in
