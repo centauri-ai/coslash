@@ -28,6 +28,8 @@ make release
 
 `make release` checks Go and Node versions before building. If either is missing or unsupported, install the toolchain or use a release archive / Homebrew install.
 
+Release packaging runs `make dist` on macOS. It builds both macOS archives and the native Windows executable from one staged frontend and helper build. On Windows, use `go build` for local collector development.
+
 For UI development, run the API and Vite separately:
 
 ```sh
