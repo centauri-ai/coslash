@@ -252,12 +252,16 @@ func (r *CLIRunner) Run(ctx context.Context, input string) (RunResult, error) {
 		}
 		defer os.RemoveAll(scratchDir)
 		dir = scratchDir
+		promptPath := filepath.Join(scratchDir, "system-prompt.md")
+		if err := os.WriteFile(promptPath, []byte(systemPrompt+jsonInstruction), 0o600); err != nil {
+			return RunResult{}, fmt.Errorf("write Pi system prompt: %w", err)
+		}
 		args = []string{
 			"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills",
 			"--no-prompt-templates", "--no-themes", "--no-context-files",
-			"--system-prompt", systemPrompt + jsonInstruction,
-			// Explicit empty append suppresses automatic APPEND_SYSTEM.md loading.
-			"--append-system-prompt", "",
+			"--system-prompt", promptPath,
+			// Whitespace suppresses APPEND_SYSTEM.md and survives Windows native argument transport.
+			"--append-system-prompt", " ",
 		}
 		if r.Model != settings.PiDefaultModel {
 			args = append(args, "--model", r.Model)

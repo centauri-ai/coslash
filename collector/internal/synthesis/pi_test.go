@@ -24,7 +24,12 @@ func TestPiSynthesis(t *testing.T) {
 				t.Fatal("Pi vendor identity missing")
 			}
 			runner.exec = func(_ context.Context, spec commandSpec) ([]byte, error) {
-				want := []string{"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--system-prompt", systemPrompt + jsonInstruction, "--append-system-prompt", ""}
+				promptPath := filepath.Join(spec.dir, "system-prompt.md")
+				want := []string{"--print", "--no-session", "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--system-prompt", promptPath, "--append-system-prompt", " "}
+				prompt, err := os.ReadFile(promptPath)
+				if err != nil || string(prompt) != systemPrompt+jsonInstruction {
+					t.Fatalf("system prompt = %q, %v", prompt, err)
+				}
 				if model != "default" {
 					want = append(want, "--model", model)
 				}
@@ -79,6 +84,10 @@ func TestPiSynthesisFailure(t *testing.T) {
 			_, err := r.Run(context.Background(), "facts")
 			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "private-token") {
 				t.Fatalf("error=%v", err)
+			}
+			entries, err := os.ReadDir(SynthesisCwd())
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("scratch leaked after failure: %v, %v", entries, err)
 			}
 		})
 	}
