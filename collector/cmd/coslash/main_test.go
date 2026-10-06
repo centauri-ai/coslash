@@ -413,7 +413,7 @@ func sourceAwareListResponse(
 	defer reviewManager.Shutdown()
 	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/sessions?sourceAware=1", nil)
 	response := httptest.NewRecorder()
-	handleList(response, request, synthesis.NewManager(nil), reviewManager, manager)
+	handleList(response, request, synthesis.NewManager(nil, nil), reviewManager, manager)
 	if response.Code != http.StatusOK {
 		t.Fatalf("source-aware status = %d, body=%s", response.Code, response.Body.String())
 	}
