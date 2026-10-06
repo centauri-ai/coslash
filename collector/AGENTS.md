@@ -47,7 +47,7 @@ against local processes running as the same user, which can read the token file.
 - When a test overrides the home directory, set `USERPROFILE` together with `HOME`. On Windows, `os.UserHomeDir` reads `USERPROFILE`.
 - Build agent storage paths with the vendor package's path function, for example `claude.ProjectsRoot`. Never write a literal macOS path such as `Library/Application Support` in a test.
 - Put a path into JSON with `json.Marshal`, and decode JSON before you compare a path. JSON escapes Windows backslashes, so string concatenation makes invalid JSON and a raw substring check fails.
-- Close a file before you rename or delete it, and do not read a file that another handle has locked. Windows refuses both. Do not call `/bin/sh` or build a SQLite `file:` URI from a drive-letter path.
+- Close a file before you rename or delete it, and do not read a file that another handle has locked. Windows refuses both. Do not call `/bin/sh`. Do not concatenate a drive-letter path into a SQLite `file:` URI. Build the URI with `url.URL` as `readOnlyDatabaseDSN` in `internal/vendors/opencode` does.
 - Only the CI Windows job or a Windows machine verifies Windows behavior. A passing macOS or Linux run does not.
 
 ## Verification
