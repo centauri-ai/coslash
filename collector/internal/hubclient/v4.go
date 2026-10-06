@@ -127,11 +127,12 @@ type V4Import struct {
 }
 
 type V4ImportPlan struct {
-	Version          int64  `json:"version"`
-	Window           string `json:"window"`
-	History          bool   `json:"history"`
-	HistoryPaused    bool   `json:"historyPaused"`
-	WarmStartSeconds int64  `json:"warmStartSeconds"`
+	Version             int64  `json:"version"`
+	Window              string `json:"window"`
+	History             bool   `json:"history"`
+	HistoryPaused       bool   `json:"historyPaused"`
+	MaxSessionsPerAgent int    `json:"maxSessionsPerAgent,omitempty"`
+	WarmStartSeconds    int64  `json:"warmStartSeconds"`
 }
 
 type V4Config struct {
@@ -217,6 +218,7 @@ type V4Wait struct {
 	ConfigVersion     int64 `json:"configVersion"`
 	Changed           bool  `json:"changed"`
 	CommandsAvailable bool  `json:"commandsAvailable"`
+	SyncRequested     bool  `json:"syncRequested"`
 }
 
 type V4Problem struct {

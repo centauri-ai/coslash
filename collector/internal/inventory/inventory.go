@@ -365,6 +365,9 @@ func (s *Snapshot) Inventory() hubclient.DeviceInventory {
 		if age <= 30*24*time.Hour {
 			buckets = append(buckets, &inventory.Windows.D30)
 		}
+		if age <= 10*24*time.Hour {
+			buckets = append(buckets, &inventory.Windows.D10)
+		}
 		if age <= 7*24*time.Hour {
 			buckets = append(buckets, &inventory.Windows.D7)
 		}

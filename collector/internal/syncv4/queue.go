@@ -29,6 +29,8 @@ type Entry struct {
 	SourceRevision       string                          `json:"sourceRevision,omitempty"`
 	SyncedSourceRevision string                          `json:"syncedSourceRevision,omitempty"`
 	Recent               bool                            `json:"recent"`
+	CatchUpPlanVersion   int64                           `json:"catchUpPlanVersion,omitempty"`
+	ChangedPlanVersion   int64                           `json:"changedPlanVersion,omitempty"`
 	ContentBytes         int64                           `json:"contentBytes,omitempty"`
 	Live                 bool                            `json:"live,omitempty"`
 	ChangedAt            int64                           `json:"changedAt,omitempty"`
@@ -58,20 +60,22 @@ type Entry struct {
 }
 
 type state struct {
-	Version         int                `json:"version"`
-	ScaleVersion    int                `json:"scaleVersion,omitempty"`
-	InstallID       string             `json:"installId"`
-	Binding         string             `json:"binding,omitempty"`
-	Entries         []Entry            `json:"entries"`
-	ConfigVersion   int64              `json:"configVersion,omitempty"`
-	Config          hubclient.V4Config `json:"config"`
-	PlanStartedAt   int64              `json:"planStartedAt,omitempty"`
-	Phase           string             `json:"phase,omitempty"`
-	RateBytesSec    float64            `json:"rateBytesSec,omitempty"`
-	RateSamples     int                `json:"rateSamples,omitempty"`
-	Rates           []RateSample       `json:"rates,omitempty"`
-	LastProgressAt  int64              `json:"lastProgressAt,omitempty"`
-	HistoryCursorAt int64              `json:"historyCursorAt,omitempty"`
+	Version              int                `json:"version"`
+	ScaleVersion         int                `json:"scaleVersion,omitempty"`
+	InstallID            string             `json:"installId"`
+	Binding              string             `json:"binding,omitempty"`
+	Entries              []Entry            `json:"entries"`
+	ConfigVersion        int64              `json:"configVersion,omitempty"`
+	Config               hubclient.V4Config `json:"config"`
+	PlanStartedAt        int64              `json:"planStartedAt,omitempty"`
+	CatchUpFrozenVersion int64              `json:"catchUpFrozenVersion,omitempty"`
+	NextCheckInSeconds   int                `json:"nextCheckInSeconds,omitempty"`
+	Phase                string             `json:"phase,omitempty"`
+	RateBytesSec         float64            `json:"rateBytesSec,omitempty"`
+	RateSamples          int                `json:"rateSamples,omitempty"`
+	Rates                []RateSample       `json:"rates,omitempty"`
+	LastProgressAt       int64              `json:"lastProgressAt,omitempty"`
+	HistoryCursorAt      int64              `json:"historyCursorAt,omitempty"`
 	// PolicyKnown records that Config came from a Hub check-in, including
 	// the owner's version-0 default policy.
 	PolicyKnown            bool            `json:"policyKnown,omitempty"`
@@ -222,13 +226,19 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 		q.state.PolicyKnown = true
 		if result.Config.ImportPlan != nil {
 			q.state.ScaleVersion = 1
-			if oldPlan == nil || oldPlan.Window != result.Config.ImportPlan.Window || oldPlan.History != result.Config.ImportPlan.History {
+			if oldPlan == nil || oldPlan.Version != result.Config.ImportPlan.Version || q.state.PlanStartedAt == 0 {
 				q.state.PlanStartedAt = now.UnixMilli()
 				q.state.Phase = "warm_start"
+				q.state.CatchUpFrozenVersion = 0
+				for i := range q.state.Entries {
+					q.state.Entries[i].CatchUpPlanVersion = 0
+					q.state.Entries[i].ChangedPlanVersion = 0
+				}
 			}
 		}
 		if result.Config.ImportPlan == nil {
 			q.state.PlanStartedAt, q.state.Phase = 0, "awaiting_plan"
+			q.state.CatchUpFrozenVersion = 0
 		}
 		for i := range q.state.Entries {
 			entry := &q.state.Entries[i]
@@ -239,6 +249,9 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 				q.exclude(entry)
 			}
 		}
+	}
+	if result.NextCheckInSeconds > 0 {
+		q.state.NextCheckInSeconds = result.NextCheckInSeconds
 	}
 	q.state.MinVersion = result.MinVersion
 	q.state.RecommendedVersion = result.RecommendedVersion
@@ -488,6 +501,9 @@ func (q *Queue) Merge(found []Entry, now time.Time) error {
 				entry.Listed = false
 			}
 			if item.Activity > entry.Activity || item.SourceRevision != "" && item.SourceRevision != entry.SourceRevision {
+				if plan := q.state.Config.ImportPlan; plan != nil && q.state.PlanStartedAt > 0 && now.UnixMilli() >= q.state.PlanStartedAt {
+					entry.ChangedPlanVersion = plan.Version
+				}
 				if item.ContentBytes <= 0 {
 					entry.ContentBytes = 0
 				}
@@ -539,7 +555,7 @@ func (q *Queue) update(entry Entry, line *LogLine) error {
 			q.state.Entries[i] = entry
 			if entry.RevisionID != "" && !pending(entry) && (priorEntry.RevisionID != entry.RevisionID || pending(priorEntry)) {
 				q.state.LastProgressAt = time.Now().UnixMilli()
-				if plan := q.state.Config.ImportPlan; plan != nil && !inWindow(entry, *plan, time.Now()) {
+				if plan := q.state.Config.ImportPlan; plan != nil && !isCatchUpEntry(entry, *plan) && entry.Activity < q.state.PlanStartedAt {
 					q.state.HistoryCursorAt = entry.Activity
 				}
 			}
@@ -628,16 +644,24 @@ func (q *Queue) Progress() hubclient.V4Queue {
 	defer q.mu.Unlock()
 	var progress hubclient.V4Queue
 	progress.FirstSync.HistoryState = "complete"
+	plan := q.state.Config.ImportPlan
+	startedAt := time.Time{}
+	if q.state.PlanStartedAt > 0 {
+		startedAt = time.UnixMilli(q.state.PlanStartedAt)
+	}
+	if plan != nil && !plan.History {
+		progress.FirstSync.HistoryState = "syncing"
+	}
 	for _, entry := range q.state.Entries {
-		if entry.Excluded {
+		if plan != nil && !inScope(entry, *plan, startedAt) || plan == nil && entry.Excluded {
 			continue
 		}
-		if entry.Recent {
+		if plan != nil && isCatchUpEntry(entry, *plan) || plan == nil && entry.Recent {
 			progress.FirstSync.RecentTotal++
 			if !pending(entry) {
 				progress.FirstSync.RecentDone++
 			}
-		} else if pending(entry) {
+		} else if plan != nil && plan.History && pending(entry) || plan == nil && pending(entry) && !entry.Recent {
 			progress.FirstSync.HistoryState = "syncing"
 		}
 		if pending(entry) {
@@ -647,6 +671,9 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		if entry.FailureCode != "" && entry.FailureCode != "rate_limited" {
 			progress.Failing++
 		}
+	}
+	if plan != nil && !plan.History && q.state.CatchUpFrozenVersion == plan.Version && progress.FirstSync.RecentDone == progress.FirstSync.RecentTotal {
+		progress.FirstSync.HistoryState = "off"
 	}
 	if q.state.Inventory != nil && hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport) {
 		inventory := *q.state.Inventory
@@ -660,6 +687,35 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		progress.Inventory = &inventory
 	}
 	return progress
+}
+
+func (q *Queue) NextCheckInDelay() time.Duration {
+	q.mu.Lock()
+	seconds := q.state.NextCheckInSeconds
+	q.mu.Unlock()
+	return BaseCheckInCadence(seconds)
+}
+
+func (q *Queue) PlanStartedAt() time.Time {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.PlanStartedAt <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(q.state.PlanStartedAt)
+}
+
+func (q *Queue) InPlanScope(entry Entry, plan hubclient.V4ImportPlan) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.Config.ImportPlan == nil || q.state.Config.ImportPlan.Version != plan.Version {
+		return false
+	}
+	startedAt := time.Time{}
+	if q.state.PlanStartedAt > 0 {
+		startedAt = time.UnixMilli(q.state.PlanStartedAt)
+	}
+	return inScope(entry, plan, startedAt)
 }
 
 func pending(entry Entry) bool {

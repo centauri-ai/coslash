@@ -160,7 +160,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.discardAbandoned(); err != nil {
 		return err
 	}
-	if r.scaleEnabled && r.DiscoverBatches != nil {
+	if r.config.ImportPlan != nil && r.DiscoverBatches != nil {
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
 			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil)
 			for i := range entries {
@@ -175,22 +175,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			if err := r.applyExclusions(); err != nil {
 				return err
 			}
-			plan := r.config.ImportPlan
-			if plan == nil {
-				return r.Queue.SetPhase("awaiting_plan")
-			}
-			phase, started, rate := r.Queue.Phase()
-			budget := time.Duration(plan.WarmStartSeconds) * time.Second
-			if phase == "warm_start" && r.now().Sub(started) < budget {
-				return r.warmStart(ctx, *plan, started, budget, rate)
-			}
-			if phase == "warm_start" {
-				if err := r.Queue.SetPhase("listing"); err != nil {
-					return err
-				}
-				phase = "listing"
-			}
-			return r.listAll(ctx, *plan)
+			return nil
 		}); err != nil {
 			return err
 		}
@@ -223,7 +208,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.applyExclusions(); err != nil {
 		return err
 	}
-	if r.scaleEnabled {
+	if r.config.ImportPlan != nil {
 		return r.runPlannedAndReport(ctx)
 	}
 	entries := r.Queue.Entries()
@@ -848,8 +833,8 @@ func (r *Runner) entryAllowed(entry Entry) error {
 	if entry.Excluded || leftOut(entry.Session, r.config.LeaveOut) {
 		return hubclient.V4Problem{Code: "left_out"}
 	}
-	if r.scaleEnabled {
-		if r.config.ImportPlan == nil || !inScope(entry, *r.config.ImportPlan, r.now()) {
+	if r.config.ImportPlan != nil {
+		if r.Queue == nil || !r.Queue.InPlanScope(entry, *r.config.ImportPlan) {
 			return ErrPaused
 		}
 	}

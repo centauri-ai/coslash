@@ -38,11 +38,12 @@ func (r *Runner) importProgress(ctx context.Context, now time.Time) *hubclient.V
 		}
 	}
 	if _, config, _ := r.Queue.Policy(); config.ImportPlan != nil && snapshot.PlanVersion == config.ImportPlan.Version {
+		startedAt := r.Queue.PlanStartedAt()
 		positions := make(map[string]int64)
 		var position int64
 		for _, entry := range r.Queue.PlannedEntries(*config.ImportPlan, now) {
 			if !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, now) ||
-				!entry.Priority && !inWindow(entry, *config.ImportPlan, now) && config.ImportPlan.HistoryPaused {
+				!entry.Priority && !planRecent(entry, *config.ImportPlan, startedAt) && config.ImportPlan.HistoryPaused {
 				continue
 			}
 			position++

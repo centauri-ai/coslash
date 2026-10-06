@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -19,11 +20,67 @@ type v4SyncState interface {
 	Results() []hubclient.V4CommandResult
 	InFlight() int
 	NextRetryDelay() time.Duration
+	NextCheckInDelay() time.Duration
 	Progress() hubclient.V4Queue
 }
 
+type syncLoopControl struct {
+	wake   chan struct{}
+	mu     sync.Mutex
+	idle   bool
+	paused func() bool
+}
+
+func newSyncLoopControl(paused func() bool) *syncLoopControl {
+	return &syncLoopControl{wake: make(chan struct{}, 1), idle: true, paused: paused}
+}
+
+func (control *syncLoopControl) signal() {
+	control.mu.Lock()
+	defer control.mu.Unlock()
+	select {
+	case control.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (control *syncLoopControl) wakeIfIdle() bool {
+	control.mu.Lock()
+	defer control.mu.Unlock()
+	if !control.idle || control.paused != nil && control.paused() {
+		return false
+	}
+	select {
+	case control.wake <- struct{}{}:
+		return true
+	default:
+		return true // A coalesced wake will start a pass that sees this change.
+	}
+}
+
+func (control *syncLoopControl) setIdle(idle bool) {
+	control.mu.Lock()
+	control.idle = idle
+	control.mu.Unlock()
+}
+
+func (control *syncLoopControl) beginPass() {
+	control.mu.Lock()
+	control.idle = false
+	// A pass begins with a check-in, so a wake queued while the loop was idle
+	// is satisfied by this pass and should not immediately cancel it.
+	select {
+	case <-control.wake:
+	default:
+	}
+	control.mu.Unlock()
+}
+
 func runV4SyncLoop(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), externalWake ...<-chan struct{}) {
-	wake := make(chan struct{}, 1)
+	runV4SyncLoopWithControl(ctx, runner, queue, wait, newSyncLoopControl(nil), externalWake...)
+}
+
+func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4SyncState, wait func(context.Context, int64) (hubclient.V4Wait, error), control *syncLoopControl, externalWake ...<-chan struct{}) {
 	var inventoryWake <-chan struct{}
 	if len(externalWake) > 0 {
 		inventoryWake = externalWake[0]
@@ -35,11 +92,8 @@ func runV4SyncLoop(ctx context.Context, runner v4SyncWorker, queue v4SyncState, 
 			if ctx.Err() != nil {
 				return
 			}
-			if err == nil && (result.Changed || result.CommandsAvailable) {
-				select {
-				case wake <- struct{}{}:
-				default:
-				}
+			if err == nil && (result.Changed || result.CommandsAvailable || result.SyncRequested) {
+				control.signal()
 			}
 			delay := 100 * time.Millisecond
 			if err != nil {
@@ -75,37 +129,38 @@ func runV4SyncLoop(ctx context.Context, runner v4SyncWorker, queue v4SyncState, 
 					continue
 				}
 				if changed {
-					select {
-					case wake <- struct{}{}:
-					default:
-					}
+					control.signal()
 				}
 			}
 		}()
 	}
 
-	const interval = 5 * time.Minute
 	for ctx.Err() == nil {
+		control.beginPass()
 		passContext, cancel := context.WithCancel(ctx)
 		done := make(chan error, 1)
 		go func() { done <- runner.SyncOnce(passContext) }()
 		var err error
 		select {
 		case err = <-done:
-		case <-wake:
+		case <-control.wake:
 			cancel()
 			<-done
+			control.setIdle(true)
 			continue
 		case <-inventoryWake:
 			cancel()
 			<-done
+			control.setIdle(true)
 			continue
 		case <-ctx.Done():
 			cancel()
 			<-done
+			control.setIdle(true)
 			return
 		}
 		cancel()
+		control.setIdle(true)
 		if errors.Is(err, syncv4.ErrCommandPickedUp) {
 			continue
 		}
@@ -124,7 +179,7 @@ func runV4SyncLoop(ctx context.Context, runner v4SyncWorker, queue v4SyncState, 
 		if terminalResult {
 			continue
 		}
-		delay := syncv4.NextSyncDelay(err, queue.InFlight(), interval)
+		delay := syncv4.NextSyncDelay(err, queue.InFlight(), queue.NextCheckInDelay())
 		if active, ok := runner.(interface{ ImportActive() bool }); ok && active.ImportActive() && delay > 10*time.Second {
 			delay = 10 * time.Second
 		}
@@ -142,7 +197,7 @@ func runV4SyncLoop(ctx context.Context, runner v4SyncWorker, queue v4SyncState, 
 		select {
 		case <-ctx.Done():
 			return
-		case <-wake:
+		case <-control.wake:
 		case <-inventoryWake:
 		case <-time.After(delay):
 		}

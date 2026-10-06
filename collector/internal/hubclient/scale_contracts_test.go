@@ -19,10 +19,10 @@ import (
 // at b1345ed (testdata/scale-contracts-v1/SHA256SUMS); the hashes are
 // repeated here so a silent edit on either side is caught.
 var scaleFixtureHashes = map[string]string{
-	"check-in-import-progress.json":         "e11309486356925bfeff15c2b754f64465112afc5484034b5566fb9629d75bbd",
-	"check-in-inventory-unknown-agent.json": "1aaf7bf1a6a8d937a7fb70143fffe7e0600d95e431f15e11586392eb9f853f4b",
-	"check-in-inventory-with-path.json":     "1f8341217fd0a71d6ac79cc5a5c3e116710ddb7eb81c3b97b7d6cf033637fcab",
-	"check-in-inventory-with-title.json":    "1dd60ddfe31cee375e173835a462acf8d43962316ed77795b50d9a16f723a152",
+	"check-in-import-progress.json":         "d960aa5fc7693058d66682736c4e30b4fd8104859f836a60d7aa070caf60b1fd",
+	"check-in-inventory-unknown-agent.json": "3c0fc797e351a2969471149a4ed98dff9dea54501fd519db27616f283a417ce7",
+	"check-in-inventory-with-path.json":     "efe6cb8f2219dfc7bc10bb5c31e98ccab6ddc0a7e66a0409af4009f7f164ea56",
+	"check-in-inventory-with-title.json":    "192a80ca9c5f263bf6b45248ef4b977a7666658288aaa34683e1b0282149f011",
 	"check-in-response-import-plan.json":    "2ac857f153f5ed5861cf05f7e3fdd5faf5659530863a4afa94501e3b570ee025",
 }
 

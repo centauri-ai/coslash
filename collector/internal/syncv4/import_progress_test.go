@@ -16,6 +16,7 @@ func TestImportProgressProjectsSchedulerSnapshotWithoutIdentity(t *testing.T) {
 	queue := &Queue{}
 	plan := &hubclient.V4ImportPlan{Version: 7, Window: "all"}
 	queue.state.Config.ImportPlan = plan
+	queue.state.PlanStartedAt = now.Add(-time.Hour).UnixMilli()
 	queue.state.Phase = "recent"
 	queue.state.LastProgressAt = now.Add(-time.Second).UnixMilli()
 	queue.state.HistoryCursorAt = now.Add(-time.Hour).UnixMilli()
@@ -57,6 +58,7 @@ func TestImportProgressReportsSchedulerQueuePositions(t *testing.T) {
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	queue := &Queue{}
 	queue.state.Config.ImportPlan = &hubclient.V4ImportPlan{Version: 7, Window: "all"}
+	queue.state.PlanStartedAt = now.Add(-2 * time.Hour).UnixMilli()
 	queue.state.Entries = []Entry{
 		{Key: "older-private-key", SessionID: "ses_older", Activity: now.Add(-time.Hour).UnixMilli(), Listed: true, Priority: true},
 		{Key: "newer-private-key", SessionID: "ses_newer", Activity: now.UnixMilli(), Listed: true},

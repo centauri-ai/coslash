@@ -34,6 +34,9 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 	if _, ok := windowDuration(plan.Window); !ok {
 		return errors.New("invalid import plan window")
 	}
+	if err := r.Queue.FreezeCatchUp(*plan); err != nil {
+		return err
+	}
 	phase, started, rate := r.Queue.Phase()
 	if phase == "" || phase == "awaiting_plan" {
 		phase = "warm_start"
@@ -50,7 +53,7 @@ func (r *Runner) runPlanned(ctx context.Context) error {
 		}
 		if r.now().Sub(started) < budget {
 			for _, entry := range r.Queue.PlannedEntries(*plan, r.now()) {
-				if inWindow(entry, *plan, r.now()) && entry.UploadID != "" && entry.RevisionID == "" {
+				if planRecent(entry, *plan, started) && entry.UploadID != "" && entry.RevisionID == "" {
 					return nil
 				}
 			}
@@ -75,7 +78,7 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 		}
 		var pick *Entry
 		for _, entry := range r.Queue.PlannedEntries(plan, r.now()) {
-			if !inWindow(entry, plan, r.now()) || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
+			if !planRecent(entry, plan, started) || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
 				continue
 			}
 			if entry.ContentBytes <= 0 && !attemptedUnknown[entry.Key] {
@@ -213,6 +216,9 @@ func invalidListBatch(err error) bool {
 }
 
 func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error {
+	if err := r.Queue.FreezeCatchUp(plan); err != nil {
+		return err
+	}
 	lister, ok := r.Hub.(listingTransport)
 	if !ok {
 		return errors.New("v4 listing transport unavailable")
@@ -283,6 +289,7 @@ func (r *Runner) listAll(ctx context.Context, plan hubclient.V4ImportPlan) error
 
 func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4ImportPlan) error {
 	started := r.now()
+	planStartedAt := r.Queue.PlanStartedAt()
 	workCtx, cancel := context.WithTimeout(ctx, plannedContentBudget)
 	defer cancel()
 	entries := r.Queue.PlannedEntries(plan, r.now())
@@ -316,11 +323,11 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if r.now().Sub(started) >= plannedContentBudget || workCtx.Err() != nil {
 			return firstErr
 		}
-		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) || !entry.Priority && !inWindow(entry, plan, r.now()) && plan.HistoryPaused {
+		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) || !entry.Priority && !planRecent(entry, plan, planStartedAt) && plan.HistoryPaused {
 			continue
 		}
 		phase := "recent"
-		if !inWindow(entry, plan, r.now()) {
+		if !planRecent(entry, plan, planStartedAt) {
 			phase = "history"
 		}
 		if err := r.Queue.SetPhase(phase); err != nil {
