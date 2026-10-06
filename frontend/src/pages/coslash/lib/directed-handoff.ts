@@ -75,10 +75,8 @@ export function handoffLabel(handoff: DirectedHandoff): string {
   return `Starting ${agent}`;
 }
 
-export function handoffTargetsPath(source: SessionIdentity): string {
-  return `/api/directed-handoffs/targets?${new URLSearchParams({ source: source.sourceId })}`;
-}
-
-export function handoffKindAvailable(target: string, kind: 'review' | 'custom'): boolean {
-  return target !== 'pi' || kind === 'custom';
+export function handoffTargetsPath(source: SessionIdentity, kind: 'review' | 'custom' = 'custom'): string {
+  const query = new URLSearchParams({ source: source.sourceId });
+  if (kind === 'review') query.set('kind', kind);
+  return `/api/directed-handoffs/targets?${query}`;
 }

@@ -37,7 +37,7 @@ the host is offline and leaves its optional helper installed on the host.
 
 ## Pi sessions and runtime status
 
-Pi support is available for local macOS and Windows sessions. Linux Pi sessions, runtime integration, synthesis, and launch actions are not supported.
+Pi support is available for local macOS and Windows sessions. Local Pi CLI reviews on both platforms work independently of collection and terminal support. Linux Pi sessions, runtime integration, synthesis, and launch actions are not supported.
 
 Run `coslash doctor` and inspect the Pi source, CLI release, and managed-extension checks. Transcript schema 3 is supported; older and future schemas are skipped with diagnostics. Runtime hooks and terminal launch allow stable Pi releases at least 0.99.1. Pi 0.99.1, 0.99.2, and 1.0.0 are tested baselines; newer releases remain enabled with an untested-release diagnostic. Older releases, prereleases, and unrecognizable versions are excluded. An excluded runtime can have a readable schema-3 transcript while its status stays Unknown. An eligible release still needs valid runtime evidence to establish status.
 
@@ -49,7 +49,7 @@ Pi costs are historical pricing estimates. Missing usage or ambiguous zero prici
 
 Interactive CLI, print, JSON, and RPC entrypoints load extensions on eligible Pi releases. Native Pi entrypoints report CLI, Print, JSON, or RPC from the runtime mode and verified package launcher. SDK hosts require explicit extension loading and `COSLASH_PI_ENTRYPOINT=pi-sdk`; unfamiliar hosts stay Unknown without that declaration. Native launcher evidence takes precedence over an inherited SDK declaration. The integration retains the latest terminated runtime modality, but conflicting or unverifiable live owners withhold it. Older runtime records and transcripts alone do not prove modality or a live branch. Restart existing Pi sessions after updating the integration; historical transcripts are not relabeled. Resume reopens the resolved file through the CLI; it cannot recreate an SDK host. Resume and handoff require an existing working directory and installed supported CLI. A deleted transcript, unknown identity, unsupported release, or missing working directory produces a local launch error.
 
-Pi terminal actions are available on macOS and Windows. On Windows, coSlash finds `pi.cmd` on `PATH` or in the managed `~/.pi/agent/bin` installation. Custom handoff and local synthesis support Pi; background review remains unsupported. Private handoff notes and staged Send prompts are removed on launch exit, signals, and failed directory changes.
+Pi terminal actions, custom handoff, and local synthesis are available on macOS and Windows. Local background reviews with Pi CLI work on both platforms without the managed extension; an installed CLI must expose all required read-only and resource-disabling flags. On Windows, coSlash finds `pi.cmd` on `PATH` or in the managed `~/.pi/agent/bin` installation. Private handoff notes and staged Send prompts are removed on launch exit, signals, and failed directory changes.
 
 Pi synthesis uses your configured provider/model by default. Pin a provider-qualified model in `settings.json` if needed. If synthesis fails, verify access to that model and refresh provider credentials, including expired AWS SSO sessions, then retry synthesis from the inspector.
 

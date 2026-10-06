@@ -107,6 +107,8 @@ coSlash needs at least one local agent session to read. If it finds none, it say
 
 ### Local Pi sessions
 
+Pi CLI can review local sessions on macOS and Windows, independently of Pi collection and terminal support. Reviews use your configured provider/model, allow only read, search, and listing tools, disable extensions and project instructions, and do not create a Pi session. An installed CLI must expose the required isolation flags.
+
 Pi collection, runtime integration, synthesis, resume, and handoff are supported for local macOS and Windows sessions. Linux Pi support remains deferred.
 
 The reader supports Pi transcript schema **3**. Schema 1, 2, and future schemas are reported as unsupported; synthetic migration research does not establish older-format support. Runtime integration and local launch allow **stable Pi releases at least 0.99.1**, independently of the transcript schema. Pi 0.99.1, 0.99.2, and 1.0.0 are tested baselines. Newer releases remain enabled; diagnostics report untested releases without treating them as incompatible. Prereleases and unrecognizable versions are excluded.
@@ -266,7 +268,7 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 | `coslash sessions [query] --json` | List local sessions as JSON, optionally filtering by title, repository, branch, or agent. A query that is an exact session ID or `<agent>:<session>` selector returns only that session without a full list. Requires the app to be running. |
 | `coslash handoff <agent>:<session>` | Print canonical handoff Markdown for the selector returned by `coslash sessions`. Requires the app to be running. |
 | `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Cursor copies the handoff and task to the clipboard; paste them into the new Cursor CLI session. Requires the app to be running. |
-| `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor` | Start a review of the selected local session with the selected installed agent. Requires the app to be running. |
+| `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor\|pi` | Start a review of the selected local session with the selected installed agent. Requires the app to be running. |
 | `coslash doctor` | Check session sources, agent CLIs, and local storage. |
 | `coslash doctor --json` | Print the same diagnostics as JSON — a shareable report. |
 

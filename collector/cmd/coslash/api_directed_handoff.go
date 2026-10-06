@@ -34,10 +34,12 @@ type directedHandoffRequest struct {
 }
 
 var (
-	directedLocalTargets         = launch.HandoffTargetOptions
-	directedLocalSession         = collector.GetSessionForPreviewByAgent
-	directedLocalTerminal        = launch.TerminalWithPrompt
-	launchDirectedRemoteTerminal = launch.RemoteTerminalWithPrompt
+	directedLocalTargets           = launch.HandoffTargetOptions
+	directedLocalSession           = collector.GetSessionForPreviewByAgent
+	directedLocalTerminal          = launch.TerminalWithPrompt
+	directedLocalReviewerAvailable = launch.ReviewCLIAvailable
+	directedLocalReview            = launch.Review
+	launchDirectedRemoteTerminal   = launch.RemoteTerminalWithPrompt
 )
 
 func newDirectedHandoffStore() (*directedhandoff.Store, error) {
@@ -45,6 +47,14 @@ func newDirectedHandoffStore() (*directedhandoff.Store, error) {
 }
 
 func handleDirectedHandoffTargets(w http.ResponseWriter, r *http.Request, settingsStore *settings.Store) {
+	kind := r.URL.Query().Get("kind")
+	if kind == "" {
+		kind = "custom"
+	}
+	if kind != "custom" && kind != "review" {
+		http.Error(w, "invalid handoff kind", http.StatusBadRequest)
+		return
+	}
 	sourceID, err := parseSourceID(r.URL.Query().Get("source"))
 	if err != nil {
 		http.Error(w, "invalid source", http.StatusBadRequest)
@@ -55,7 +65,7 @@ func handleDirectedHandoffTargets(w http.ResponseWriter, r *http.Request, settin
 		Label string `json:"label"`
 	}{}
 	if sourceID == localSourceID {
-		for _, option := range directedLocalTargets(r.Context()) {
+		for _, option := range localDirectedTargets(r.Context(), kind) {
 			if option.Available && option.Automatic {
 				targets = append(targets, struct {
 					ID    string `json:"id"`
@@ -88,6 +98,20 @@ func handleDirectedHandoffTargets(w http.ResponseWriter, r *http.Request, settin
 	}{targets})
 }
 
+func localDirectedTargets(ctx context.Context, kind string) []launch.HandoffTargetOption {
+	if kind != "review" {
+		return directedLocalTargets(ctx)
+	}
+	options := []launch.HandoffTargetOption{}
+	for _, reviewer := range launch.ReviewerOptions() {
+		options = append(options, launch.HandoffTargetOption{
+			Agent: reviewer.ID, Label: reviewer.Label,
+			Available: directedLocalReviewerAvailable(ctx, reviewer.ID), Automatic: true,
+		})
+	}
+	return options
+}
+
 func handleDirectedHandoffStart(w http.ResponseWriter, r *http.Request, store *directedhandoff.Store, settingsStore *settings.Store, remoteManager *remote.Manager, synthesisManager *synthesis.Manager) {
 	if store == nil {
 		http.Error(w, "handoffs unavailable", http.StatusServiceUnavailable)
@@ -109,8 +133,8 @@ func handleDirectedHandoffStart(w http.ResponseWriter, r *http.Request, store *d
 		http.Error(w, "invalid handoff request", http.StatusBadRequest)
 		return
 	}
-	if input.TargetAgent == vendors.AgentPi && (sourceID != localSourceID || input.Kind == "review") {
-		http.Error(w, "Pi supports local custom handoffs only", http.StatusBadRequest)
+	if input.TargetAgent == vendors.AgentPi && sourceID != localSourceID {
+		http.Error(w, "Pi supports local handoffs only", http.StatusBadRequest)
 		return
 	}
 	if len(input.Request) > 16*1024 {
@@ -128,7 +152,7 @@ func handleDirectedHandoffStart(w http.ResponseWriter, r *http.Request, store *d
 	}
 	allowed := false
 	if sourceID == localSourceID {
-		for _, option := range directedLocalTargets(r.Context()) {
+		for _, option := range localDirectedTargets(r.Context(), input.Kind) {
 			if option.Agent == input.TargetAgent && option.Available && option.Automatic {
 				allowed = true
 				break
@@ -227,7 +251,7 @@ func runDirectedReview(parent context.Context, store *directedhandoff.Store, rec
 	var result string
 	var err error
 	if record.SourceID == localSourceID {
-		result, err = launch.Review(ctx, review.Launch{Reviewer: record.TargetAgent, WorkingDirectory: origin.WorkingDirectory, Name: "Review " + record.SourceSessionID, Prompt: prompt})
+		result, err = directedLocalReview(ctx, review.Launch{Reviewer: record.TargetAgent, WorkingDirectory: origin.WorkingDirectory, Name: "Review " + record.SourceSessionID, Prompt: prompt})
 	} else {
 		result, err = remote.Review(ctx, alias, record.TargetAgent, origin.WorkingDirectory, "Review "+record.SourceSessionID, prompt)
 	}

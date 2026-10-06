@@ -8,17 +8,19 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/directedhandoff"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
+	"github.com/centauri-ai/coslash/collector/internal/review"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
-func TestPiDirectedHandoffLocalCustomOnly(t *testing.T) {
+func TestPiDirectedHandoffCustomLocalOnly(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	store, err := directedhandoff.Open(filepath.Join(t.TempDir(), "handoffs.json"))
 	if err != nil {
@@ -43,7 +45,7 @@ func TestPiDirectedHandoffLocalCustomOnly(t *testing.T) {
 	for _, test := range []struct {
 		source, kind string
 		status       int
-	}{{"local", "review", 400}, {"remote", "custom", 400}, {"local", "custom", 202}} {
+	}{{"remote", "review", 400}, {"remote", "custom", 400}, {"local", "custom", 202}} {
 		body := `{"sourceId":"` + test.source + `","agent":"codex","id":"origin","targetAgent":"pi","kind":"` + test.kind + `","request":"Please continue"}`
 		response := httptest.NewRecorder()
 		handleDirectedHandoffStart(response, httptest.NewRequest(http.MethodPost, "/api/directed-handoffs", strings.NewReader(body)), store, settings.Open(), remote.NewManager(remote.Options{}), synthesis.NewManager(nil, nil))
@@ -53,6 +55,58 @@ func TestPiDirectedHandoffLocalCustomOnly(t *testing.T) {
 	}
 	if launched != 1 {
 		t.Fatalf("launch count %d", launched)
+	}
+}
+
+func TestPiDirectedReviewIndependentOfTerminalSupport(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		t.Skip("Pi reviews require macOS or Windows")
+	}
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	store, err := directedhandoff.Open(filepath.Join(t.TempDir(), "handoffs.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Shutdown()
+	available, run, source, targets := directedLocalReviewerAvailable, directedLocalReview, directedLocalSession, directedLocalTargets
+	t.Cleanup(func() {
+		directedLocalReviewerAvailable, directedLocalReview, directedLocalSession, directedLocalTargets = available, run, source, targets
+	})
+	directedLocalReviewerAvailable = func(_ context.Context, agent string) bool { return agent == "pi" }
+	directedLocalTargets = func(context.Context) []launch.HandoffTargetOption { return nil }
+	cwd := t.TempDir()
+	directedLocalSession = func(agent, id string, _ int64) (*session.Session, error) {
+		return &session.Session{Agent: agent, ID: id, WorkingDirectory: cwd}, nil
+	}
+	started := make(chan review.Launch, 1)
+	directedLocalReview = func(_ context.Context, request review.Launch) (string, error) {
+		started <- request
+		return "Found a regression", nil
+	}
+	settingsStore := settings.Open()
+	for _, test := range []struct {
+		kind   string
+		wantPi bool
+	}{{"review", true}, {"custom", false}} {
+		response := httptest.NewRecorder()
+		handleDirectedHandoffTargets(response, httptest.NewRequest(http.MethodGet, "/api/directed-handoffs/targets?source=local&kind="+test.kind, nil), settingsStore)
+		if response.Code != http.StatusOK || strings.Contains(response.Body.String(), `"id":"pi"`) != test.wantPi {
+			t.Fatalf("%s targets: %d %s", test.kind, response.Code, response.Body.String())
+		}
+	}
+	response := httptest.NewRecorder()
+	body := `{"sourceId":"local","agent":"codex","id":"origin","targetAgent":"pi","kind":"review"}`
+	handleDirectedHandoffStart(response, httptest.NewRequest(http.MethodPost, "/api/directed-handoffs", strings.NewReader(body)), store, settingsStore, remote.NewManager(remote.Options{}), synthesis.NewManager(nil, nil))
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("Pi review: %d %s", response.Code, response.Body.String())
+	}
+	store.Shutdown()
+	request := <-started
+	if request.Reviewer != "pi" || request.WorkingDirectory != cwd || !strings.Contains(request.Prompt, "<session-context>") {
+		t.Fatalf("Pi launch = %#v", request)
+	}
+	if records := store.List(); len(records) != 1 || records[0].Status != "completed" || records[0].Result != "Found a regression" {
+		t.Fatalf("Pi review result = %#v", records)
 	}
 }
 

@@ -312,6 +312,9 @@ func TestReviewerOptionsAreCollectedAgents(t *testing.T) {
 		{ID: "opencode", Label: "OpenCode CLI", Executable: "opencode"},
 		{ID: "cursor", Label: "Cursor CLI", Executable: cursorReviewerExecutable()},
 	}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		want = append(want, ReviewerOption{ID: "pi", Label: "Pi CLI", Executable: "pi"})
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("ReviewerOptions() = %#v, want %#v", got, want)
 	}
