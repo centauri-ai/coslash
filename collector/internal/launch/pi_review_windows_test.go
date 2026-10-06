@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,8 +26,12 @@ func TestPiReviewManagedWindowsShim(t *testing.T) {
 	if err := os.WriteFile(cli, []byte(script), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	powerShell, err := exec.LookPath("powershell.exe")
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PATH", filepath.Join(os.Getenv("SystemRoot"), "System32"))
+	t.Setenv("PATH", filepath.Dir(powerShell)+string(os.PathListSeparator)+filepath.Join(os.Getenv("SystemRoot"), "System32"))
 	if !ReviewCLIAvailable(context.Background(), "pi") {
 		t.Fatal("managed Windows Pi shim is unavailable")
 	}
