@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { TokenBreakdown } from '../components/SessionCard';
 import { DigestSection } from '../components/SessionInspector';
-import { handoffKindAvailable } from './directed-handoff';
+import { handoffTargetsPath } from './directed-handoff';
 import { handoffBrief } from './handoff';
 import { buildInsights } from './insights';
 import {
@@ -108,9 +108,12 @@ describe('Pi accounting and local affordances', () => {
       expect(resumeDisabledHint({ ...local, status })).toContain('already active');
     expect(freshLaunchDisabledHint({ ...local, sourceId: 'remote' })).toContain('locally only');
     expect(resumeDisabled({ ...local, sourceId: 'remote', launchable: true })).toBe(true);
-    expect(handoffKindAvailable('pi', 'review')).toBe(false);
-    expect(handoffKindAvailable('pi', 'custom')).toBe(true);
-    expect(handoffKindAvailable('cursor', 'review')).toBe(true);
+    expect(handoffTargetsPath({ ...local, id: 'session' }, 'review')).toBe(
+      '/api/directed-handoffs/targets?source=local&kind=review',
+    );
+    expect(handoffTargetsPath({ ...local, id: 'session' }, 'custom')).toBe(
+      '/api/directed-handoffs/targets?source=local',
+    );
   });
 
   it('hands off selected edited context while preserving the historical digest', () => {

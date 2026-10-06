@@ -236,7 +236,7 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		case "send":
 			fmt.Fprintln(stdout, "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi [message]")
 		case "review":
-			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor | coslash review status <agent>:<session> --json")
+			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi | coslash review status <agent>:<session> --json")
 		case "doctor":
 			fmt.Fprintln(stdout, "usage: coslash doctor [--json]")
 		default:
@@ -466,15 +466,15 @@ func runReview(stdout io.Writer, args []string) error {
 		return runReviewStatus(stdout, args[1:])
 	}
 	if len(args) != 3 || args[1] != "--with" {
-		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor")
+		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi")
 	}
 	agent, id, ok := parseLocalSessionSelector(args[0])
 	if !ok {
-		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor")
+		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi")
 	}
 	reviewer := args[2]
-	if reviewer != "claude" && reviewer != "codex" && reviewer != "opencode" && reviewer != "cursor" {
-		return fmt.Errorf("--with must be claude, codex, opencode, or cursor")
+	if reviewer != "claude" && reviewer != "codex" && reviewer != "opencode" && reviewer != "cursor" && reviewer != "pi" {
+		return fmt.Errorf("--with must be claude, codex, opencode, cursor, or pi")
 	}
 	client, err := newLocalAPIClient()
 	if err != nil {

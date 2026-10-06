@@ -12,11 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { launchFreshSession } from '@/pages/coslash/hooks/use-launch-terminal';
 import { apiFetch } from '@/pages/coslash/lib/api';
-import {
-  handoffKindAvailable,
-  handoffTargetsPath,
-  type HandoffTarget,
-} from '@/pages/coslash/lib/directed-handoff';
+import { handoffTargetsPath, type HandoffTarget } from '@/pages/coslash/lib/directed-handoff';
 import { handoffBrief } from '@/pages/coslash/lib/handoff';
 import { freshLaunchDisabledHint, isLocalSession, type SessionDetail } from '@/pages/coslash/lib/session';
 
@@ -39,7 +35,7 @@ export function DirectedHandoffDialog({
   const [retryKey, setRetryKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const targetsPath = handoffTargetsPath(source);
+  const targetsPath = handoffTargetsPath(source, kind === 'review' ? 'review' : 'custom');
   const freshHint =
     disabledHint ??
     freshLaunchDisabledHint(source) ??
@@ -62,9 +58,8 @@ export function DirectedHandoffDialog({
       })
       .then(({ targets: available }) => {
         if (!active) return;
-        const supported = available.filter((option) => handoffKindAvailable(option.id, kind));
-        setTargets(supported);
-        setTarget(supported[0]?.id ?? '');
+        setTargets(available);
+        setTarget(available[0]?.id ?? '');
       })
       .catch((failure: unknown) => {
         if (active) setError(failure instanceof Error ? failure.message : String(failure));
@@ -92,7 +87,7 @@ export function DirectedHandoffDialog({
   const launch = async () => {
     if (
       submitting ||
-      (kind === 'fresh' ? freshHint != null : target === '' || !handoffKindAvailable(target, kind)) ||
+      (kind === 'fresh' ? freshHint != null : target === '') ||
       (kind === 'custom' && request.trim() === '')
     )
       return;
@@ -279,7 +274,6 @@ export function DirectedHandoffDialog({
                 loading ||
                 target === '' ||
                 kind === 'fresh' ||
-                !handoffKindAvailable(target, kind) ||
                 (kind === 'custom' && request.trim() === '')
               }
             >
