@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -140,7 +141,9 @@ func TestShareSynthesisReadinessGeneratesOnceAndWaitsForPersistedRecord(t *testi
 func TestShareSynthesisReadinessGeneratesShortCodexSession(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	want := session.SessionSynthesis{Goals: []string{"Finish the task"}, Outcome: "Done"}
+	finished := make(chan struct{})
 	mgr := synthesis.NewManager(shareFixtureRunner{run: func(context.Context, string) (session.SessionSynthesis, error) {
+		defer close(finished)
 		return want, nil
 	}})
 	found := &session.Session{Agent: "codex", ID: "short", LastActivityTime: 123,
@@ -150,21 +153,14 @@ func TestShareSynthesisReadinessGeneratesShortCodexSession(t *testing.T) {
 	if got := shareSynthesisReadiness(found, 123, mgr, state); got.State != "pending" {
 		t.Fatalf("initial readiness = %+v", got)
 	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		got := shareSynthesisReadiness(found, 123, mgr, state)
-		if got.State == "ready" {
-			if got.Synthesis == nil || !reflect.DeepEqual(*got.Synthesis, want) {
-				t.Fatalf("persisted result = %+v", got)
-			}
-			return
-		}
-		if got.State != "pending" {
-			t.Fatalf("readiness while waiting = %+v", got)
-		}
-		time.Sleep(10 * time.Millisecond)
+	<-finished
+	for mgr.Running("codex", "short") {
+		runtime.Gosched()
 	}
-	t.Fatal("short-session synthesis did not persist")
+	got := shareSynthesisReadiness(found, 123, mgr, state)
+	if got.State != "ready" || got.Synthesis == nil || !reflect.DeepEqual(*got.Synthesis, want) {
+		t.Fatalf("persisted result = %+v", got)
+	}
 }
 
 func TestShareSynthesisReadinessReportsFailureWithoutRetrying(t *testing.T) {
