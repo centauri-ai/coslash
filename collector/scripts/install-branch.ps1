@@ -46,15 +46,16 @@ function Stop-RunningCoslashServers([string]$SelectedBinary) {
         }
 
         $imageName = [IO.Path]::GetFileName([string]$process.ExecutablePath)
+        $isCoslashBinary = $imageName -ieq "coslash.exe"
         if ($process.Name -ieq "coslash.exe" -and -not $process.ExecutablePath -and $ownsDefaultPort) {
             Stop-Install "could not verify the coSlash listener process (PID $processId); no processes were stopped"
         }
-        $isSelectedBinary = $imageName -ieq "coslash.exe" -and [string]::Equals(
+        $isSelectedBinary = $isCoslashBinary -and [string]::Equals(
             [IO.Path]::GetFullPath([string]$process.ExecutablePath),
             $SelectedBinary,
             [StringComparison]::OrdinalIgnoreCase
         )
-        if ($isSelectedBinary) {
+        if ($isSelectedBinary -or ($ownsDefaultPort -and $isCoslashBinary)) {
             try {
                 $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
             }
@@ -66,7 +67,7 @@ function Stop-RunningCoslashServers([string]$SelectedBinary) {
             if ($owner.ReturnValue -ne 0 -or $ownerName -ine $currentOwner) {
                 Stop-Install "coSlash listener PID $processId is not owned by the current user; no processes were stopped"
             }
-            if ($serverIds -notcontains $processId) { $serverIds += $processId }
+            if ($isSelectedBinary -and $serverIds -notcontains $processId) { $serverIds += $processId }
         }
         elseif ($ownsDefaultPort) {
             Stop-Install "port 8787 is owned by $($process.Name) (PID $processId), not a verified coSlash Local server; no processes were stopped"
@@ -80,7 +81,18 @@ function Stop-RunningCoslashServers([string]$SelectedBinary) {
         $runtime = Get-Content -LiteralPath $runtimePath -Raw | ConvertFrom-Json -ErrorAction Stop
         $token = (Get-Content -LiteralPath $tokenPath -Raw -ErrorAction Stop).Trim()
         if (-not $runtime.baseURL -or -not $token) { throw "runtime discovery is incomplete" }
-        Invoke-RestMethod -Uri ($runtime.baseURL.TrimEnd("/") + "/api/shutdown") -Method Post -Headers @{ "X-Coslash-Token" = $token } -TimeoutSec 10 | Out-Null
+        $runtimeUri = [Uri]$runtime.baseURL
+        if ($runtimeUri.Scheme -ne "http" -or -not [Uri]::IsLoopback($runtimeUri) -or
+            $runtimeUri.AbsolutePath -ne "/" -or $runtimeUri.Query -or $runtimeUri.Fragment) {
+            throw "runtime URL is invalid"
+        }
+        $runtimeListeners = @(Get-NetTCPConnection -LocalPort $runtimeUri.Port -State Listen -ErrorAction Stop)
+        $runtimeServerIds = @($runtimeListeners | Where-Object { $serverIds -contains [int]$_.OwningProcess } |
+            Select-Object -ExpandProperty OwningProcess -Unique)
+        if ($serverIds.Count -ne 1 -or $runtimeServerIds.Count -ne 1) {
+            throw "runtime descriptor does not identify one selected listener"
+        }
+        Invoke-RestMethod -Uri ($runtimeUri.AbsoluteUri.TrimEnd("/") + "/api/shutdown") -Method Post -Headers @{ "X-Coslash-Token" = $token } -TimeoutSec 10 | Out-Null
     }
     catch {
         Stop-Install "could not request graceful shutdown of the selected coSlash Local server; close it manually and retry"
