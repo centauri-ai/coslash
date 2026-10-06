@@ -12,7 +12,7 @@
 - The browser source summary never contains host names, user names, absolute paths, prompts, commands, or transcripts. SSH sources show a fixed, safe label.
 - The revision of a session is a SHA-256 fingerprint of its parsed content. Live overlays never change it. Process state, repository and Git facts, filesystem probes, review state, synthesis, subagent status, and collection-time fallbacks are overlays.
 - Exact detail and revision generation use the same parsed session family. An action that depends on a revision (detail, diff, preview, share, review) uses the exact revision that the user saw or approved.
-- File-change bodies are reachable only through opaque change IDs that belong to the selected revision. A display path is never a file to open.
+- File-change bodies are reachable only through opaque change IDs that belong to the selected revision. A display path is never a file to open. The exception is the legacy path-based `GET /api/diff?id=...&path=...` form for local sessions, which has no revision. The normal UI does not use it ([`docs/implementation-notes.md`](../implementation-notes.md)).
 
 ## Context
 
