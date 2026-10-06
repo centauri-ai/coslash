@@ -346,17 +346,27 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if err := r.Queue.SetPhase(phase); err != nil {
 			return err
 		}
-		prepareCtx, stopPrepare := context.WithTimeout(workCtx, sourcePreparationBudget)
-		err := r.ensureCreated(prepareCtx, &entry)
-		stopPrepare()
-		if errors.Is(err, context.DeadlineExceeded) && workCtx.Err() == nil && ctx.Err() == nil {
-			entry.FailureCode = "unreadable_source"
-			entry.BackoffAttempt++
-			entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
-			if updateErr := r.failed(&entry, err); updateErr != nil {
-				return updateErr
+		err := r.ensureConsent(workCtx)
+		if err == nil {
+			err = r.entryAllowed(entry)
+		}
+		if err == nil && entry.UploadID == "" && entry.RevisionID == "" {
+			prepareCtx, stopPrepare := context.WithTimeout(workCtx, sourcePreparationBudget)
+			err = r.prepareEntry(prepareCtx, &entry)
+			sourceTimedOut := prepareCtx.Err() == context.DeadlineExceeded
+			stopPrepare()
+			if sourceTimedOut && workCtx.Err() == nil && ctx.Err() == nil {
+				entry.FailureCode = "unreadable_source"
+				entry.BackoffAttempt++
+				entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
+				if updateErr := r.failed(&entry, err); updateErr != nil {
+					return updateErr
+				}
+				continue
 			}
-			continue
+			if err == nil {
+				err = r.createUpload(workCtx, &entry)
+			}
 		}
 		if err == nil && entry.UploadID != "" {
 			err = r.transfer(workCtx, &entry)
@@ -379,7 +389,8 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 				}
 				return firstErr
 			}
-			if stopSync(err) || Busy(err) {
+			remoteTimeout := errors.Is(err, context.DeadlineExceeded) && workCtx.Err() == nil && ctx.Err() == nil
+			if (stopSync(err) && !remoteTimeout) || Busy(err) {
 				return err
 			}
 			if firstErr == nil {

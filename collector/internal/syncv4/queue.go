@@ -631,7 +631,8 @@ func (q *Queue) Progress() hubclient.V4Queue {
 	entries := q.state.Entries
 	plan := q.state.Config.ImportPlan
 	now := time.Now()
-	if plan != nil {
+	planned := plan != nil && hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport)
+	if planned {
 		entries = q.plannedEntriesLocked(*plan, now)
 	}
 	for _, entry := range entries {
@@ -639,7 +640,7 @@ func (q *Queue) Progress() hubclient.V4Queue {
 			continue
 		}
 		recent := entry.Recent
-		if plan != nil {
+		if planned {
 			recent = inWindow(entry, *plan, now)
 		}
 		if recent {
