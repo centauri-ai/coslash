@@ -628,11 +628,21 @@ func (q *Queue) Progress() hubclient.V4Queue {
 	defer q.mu.Unlock()
 	var progress hubclient.V4Queue
 	progress.FirstSync.HistoryState = "complete"
-	for _, entry := range q.state.Entries {
+	entries := q.state.Entries
+	plan := q.state.Config.ImportPlan
+	now := time.Now()
+	if plan != nil {
+		entries = q.plannedEntriesLocked(*plan, now)
+	}
+	for _, entry := range entries {
 		if entry.Excluded {
 			continue
 		}
-		if entry.Recent {
+		recent := entry.Recent
+		if plan != nil {
+			recent = inWindow(entry, *plan, now)
+		}
+		if recent {
 			progress.FirstSync.RecentTotal++
 			if !pending(entry) {
 				progress.FirstSync.RecentDone++
