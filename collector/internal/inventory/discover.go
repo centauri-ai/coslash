@@ -35,8 +35,8 @@ type Cursor struct {
 type DiscoverOptions struct {
 	// Snapshot is the stat-only inventory to plan from; nil scans now.
 	Snapshot *Snapshot
-	// MinActivityMs skips parsing families whose newest source is older than
-	// this timestamp. Zero includes all history.
+	// MinActivityMs filters timestamp-indexed sources; transcript families still
+	// parse to determine their activity.
 	MinActivityMs int64
 	// Resume continues an incomplete earlier pass.
 	Resume *Cursor
@@ -129,22 +129,6 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		if snapshot, err = Scan(ctx, Options{}); err != nil {
 			return nil, err
 		}
-	}
-	if opts.MinActivityMs > 0 {
-		newest := make(map[string]int64, len(snapshot.Files))
-		for _, file := range snapshot.Files {
-			key := file.Agent + "\x00" + file.FamilyID
-			newest[key] = max(newest[key], file.ModTimeMs)
-		}
-		filtered := make([]File, 0, len(snapshot.Files))
-		for _, file := range snapshot.Files {
-			if file.Agent == vendors.AgentOpenCode || newest[file.Agent+"\x00"+file.FamilyID] >= opts.MinActivityMs {
-				filtered = append(filtered, file)
-			}
-		}
-		copy := *snapshot
-		copy.Files = filtered
-		snapshot = &copy
 	}
 	byAgent := map[string][]string{}
 	for _, file := range snapshot.Files {

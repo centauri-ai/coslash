@@ -937,6 +937,13 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 	if entry.UploadID != "" || entry.RevisionID != "" {
 		return nil
 	}
+	if err := r.prepareEntry(ctx, entry); err != nil {
+		return err
+	}
+	return r.createUpload(ctx, entry)
+}
+
+func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 	if entry.BundleID == "" {
 		prepared, err := r.Backup.Prepare(ctx, entry.Selection)
 		if err != nil {
@@ -968,6 +975,12 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 			return err
 		}
 	}
+	entry.ContentSHA256 = manifest.ContentSHA256
+	return nil
+}
+
+func (r *Runner) createUpload(ctx context.Context, entry *Entry) error {
+	manifest := entry.Manifest
 	entry.ContentSHA256 = manifest.ContentSHA256
 	key := localKey(entry.Key, manifest.ContentSHA256, fmt.Sprint(entry.Attempt))
 	status, err := r.Hub.V4Create(ctx, hubclient.V4Create{IdempotencyKey: key, Session: entry.Session, Manifest: *manifest})

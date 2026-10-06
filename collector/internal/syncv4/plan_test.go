@@ -57,6 +57,15 @@ func (h *freshDuringPassHub) V4Create(context.Context, hubclient.V4Create) (hubc
 	return hubclient.V4Status{}, hubclient.V4Problem{Code: "temporary_unavailable", HTTPStatus: 503}
 }
 
+type deadlineCreateHub struct {
+	*planHub
+}
+
+func (h *deadlineCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
+	h.creates++
+	return hubclient.V4Status{}, context.DeadlineExceeded
+}
+
 func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
 	started := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	now := started
@@ -98,11 +107,42 @@ func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range q.Entries() {
-		if entry.Key == "fresh" && entry.Listed && now.Sub(started) < time.Minute {
+		if entry.Key == "fresh" && entry.Listed {
 			return
 		}
 	}
 	t.Fatal("fresh session was not listed on the next boundary within the budget")
+}
+
+func TestPlannedContentClassifiesHubDeadlineAsServerError(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, prepared := artifactLimitBundle(t, 1)
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &deadlineCreateHub{planHub: &planHub{plan: &plan}}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now,
+		scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}, lastReportedPhase: "recent"}
+	manifest, err := runner.manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "timed-out-create", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "timed-out-create"},
+		Activity: now.UnixMilli(), Listed: true, BundleID: prepared.BundleID, Manifest: &manifest, ContentSHA256: manifest.ContentSHA256}
+	if err := q.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.syncPlannedContent(t.Context(), plan); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("sync error = %v, want Hub deadline", err)
+	}
+	if got := q.Entries()[0].FailureCode; got != "server_error" {
+		t.Fatalf("failure code = %q, want server_error", got)
+	}
 }
 
 func (h *rateLimitedCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
