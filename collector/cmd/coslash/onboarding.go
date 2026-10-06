@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -24,15 +25,18 @@ type onboardingManager struct {
 
 	mu            sync.Mutex
 	active        map[string]context.CancelFunc
+	connectJobs   map[string]connectJob
 	hubClient     *hubclient.Client
 	bindHubClient func(*hubclient.Client)
+	syncHooks     syncHooks
 	v4SyncActive  bool
+	lastWake      time.Time
 	wait          sync.WaitGroup
 }
 
 func newOnboardingManager(version string) *onboardingManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &onboardingManager{ctx: ctx, cancel: cancel, version: version, active: make(map[string]context.CancelFunc)}
+	return &onboardingManager{ctx: ctx, cancel: cancel, version: version, active: make(map[string]context.CancelFunc), connectJobs: make(map[string]connectJob)}
 }
 
 func (m *onboardingManager) StartPairing(rawHubURL, attemptID, launchIntent string) error {
@@ -79,7 +83,7 @@ func (m *onboardingManager) runPairing(ctx context.Context, client *hubclient.Cl
 	for time.Now().Before(pairing.ExpiresAt) {
 		result, err := client.PollPairing(ctx, pairing.PairingID)
 		if err == nil && result.State == "paired" {
-			m.StartCheckIns(client)
+			m.ensureSync(client)
 			return
 		}
 		if err == nil && result.State == "expired" {
@@ -124,6 +128,25 @@ func (m *onboardingManager) SetV4SyncActive(active bool) {
 	m.mu.Lock()
 	m.v4SyncActive = active
 	m.mu.Unlock()
+}
+
+func (m *onboardingManager) setSyncHooks(hooks syncHooks) {
+	m.mu.Lock()
+	m.syncHooks = hooks
+	m.mu.Unlock()
+}
+
+func (m *onboardingManager) ensureSync(client *hubclient.Client) {
+	m.mu.Lock()
+	hooks := m.syncHooks
+	m.mu.Unlock()
+	if hooks != nil {
+		if err := hooks.Ensure(client); err != nil {
+			log.Printf("start Hub sync: %v", err)
+		}
+		return
+	}
+	m.StartCheckIns(client)
 }
 
 func (m *onboardingManager) setHubClient(client *hubclient.Client) {
@@ -245,7 +268,7 @@ func readStoredHubURL() (string, error) {
 }
 
 func writeStoredHubURL(raw string) error {
-	parsed, err := hubclient.ValidateActivationHubURL(raw)
+	parsed, err := hubclient.ValidateHubURL(raw)
 	if err != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("invalid Hub address")
 	}
@@ -281,7 +304,7 @@ func hubOrigin(raw string) (string, error) {
 	if err != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", errors.New("invalid Hub address")
 	}
-	validated, err := hubclient.ValidateActivationHubURL(raw)
+	validated, err := hubclient.ValidateHubURL(raw)
 	if err != nil {
 		return "", err
 	}
