@@ -67,7 +67,7 @@ coslash --port 8888
 
 `make release` in `collector/` needs supported Go and Node versions. It checks them before building and prints install hints if either is missing or unsupported.
 
-- **End users** should not build from source. On macOS, use the install script, Homebrew, or a release archive. On Windows, download the release executable (see the README Install section).
+- **End users** should not build from source. On macOS, use the install script, Homebrew, or a [release archive](install.md). On Windows, download the release executable (see the README Install section).
 - **Developers** need Go 1.26+ (`brew install go` or https://go.dev/dl/) and Node 24+ (`brew install node` or https://nodejs.org/). Versions are pinned in `collector/go.mod` and `frontend/.nvmrc`.
 - If the binary starts but the UI is missing, it was built with `make build` instead of `make release`. Rebuild with `make release` so the frontend is embedded.
 
