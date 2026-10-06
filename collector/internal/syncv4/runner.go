@@ -123,6 +123,7 @@ type Runner struct {
 	lastProgressCheckIn atomic.Int64
 	checkInRetryUntil   atomic.Int64
 	lastReportedPhase   string
+	lastDiscoveryAt     time.Time
 	logRejectedUntil    time.Time
 }
 
@@ -165,6 +166,21 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		return err
 	}
 	if r.scaleEnabled && r.DiscoverBatches != nil {
+		// A large local discovery pass can take minutes. Resume already listed
+		// uploads first so a fresh scan does not block visible content progress.
+		var transferErr error
+		if plan := r.config.ImportPlan; plan != nil && len(r.Queue.PlannedEntries(*plan, r.now())) > 0 {
+			transferErr = r.runPlannedAndReport(ctx)
+			if stopSync(transferErr) {
+				return transferErr
+			}
+		}
+		// The inventory refreshes every five minutes. Between refreshes, use
+		// the saved queue to keep transferring instead of reparsing the same
+		// source files on every sync pass.
+		if !r.lastDiscoveryAt.IsZero() && r.now().Sub(r.lastDiscoveryAt) < 5*time.Minute {
+			return transferErr
+		}
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
 			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil)
 			for i := range entries {
@@ -196,9 +212,10 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			}
 			return r.listAll(ctx, *plan)
 		}); err != nil {
-			return err
+			return errors.Join(transferErr, err)
 		}
-		return r.runPlannedAndReport(ctx)
+		r.lastDiscoveryAt = r.now()
+		return errors.Join(transferErr, r.runPlannedAndReport(ctx))
 	}
 	sessions, err := r.Discover(ctx)
 	if err != nil {

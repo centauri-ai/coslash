@@ -40,6 +40,8 @@ func windowDuration(window string) (time.Duration, bool) {
 		return 72 * time.Hour, true
 	case "7d":
 		return 7 * 24 * time.Hour, true
+	case "10d":
+		return 10 * 24 * time.Hour, true
 	case "30d":
 		return 30 * 24 * time.Hour, true
 	case "all":
@@ -47,6 +49,19 @@ func windowDuration(window string) (time.Duration, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// DiscoveryMinActivity returns the earliest activity to parse for a bounded
+// import. The stat-only inventory still covers the full device.
+func DiscoveryMinActivity(plan *hubclient.V4ImportPlan, now time.Time) int64 {
+	if plan == nil || plan.History {
+		return 0
+	}
+	duration, ok := windowDuration(plan.Window)
+	if !ok || duration == 0 {
+		return 0
+	}
+	return now.Add(-duration).UnixMilli()
 }
 
 func inWindow(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
@@ -61,6 +76,10 @@ func inScope(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 func (q *Queue) PlannedEntries(plan hubclient.V4ImportPlan, now time.Time) []Entry {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	return q.plannedEntriesLocked(plan, now)
+}
+
+func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan, now time.Time) []Entry {
 	var entries []Entry
 	for _, entry := range q.state.Entries {
 		if inScope(entry, plan, now) {
@@ -81,6 +100,21 @@ func (q *Queue) PlannedEntries(plan hubclient.V4ImportPlan, now time.Time) []Ent
 		}
 		return a.Key < b.Key
 	})
+	if !plan.History && (plan.MaxSessions > 0 || plan.MaxSessionsPerAgent > 0) {
+		selected := make([]Entry, 0, len(entries))
+		byAgent := make(map[string]int)
+		for _, entry := range entries {
+			if plan.MaxSessionsPerAgent > 0 && byAgent[entry.Session.Agent] >= int(plan.MaxSessionsPerAgent) {
+				continue
+			}
+			selected = append(selected, entry)
+			byAgent[entry.Session.Agent]++
+			if plan.MaxSessions > 0 && len(selected) >= int(plan.MaxSessions) {
+				break
+			}
+		}
+		entries = selected
+	}
 	return entries
 }
 
@@ -195,12 +229,9 @@ func (q *Queue) ImportSnapshot(now time.Time) ImportSnapshot {
 		return snapshot
 	}
 	snapshot.PlanVersion = plan.Version
-	for _, entry := range q.state.Entries {
+	for _, entry := range q.plannedEntriesLocked(*plan, now) {
 		if entry.Key == q.currentKey {
 			snapshot.CurrentSessionID = entry.SessionID
-		}
-		if !inScope(entry, *plan, now) {
-			continue
 		}
 		snapshot.TotalSessions++
 		snapshot.TotalBytes += max(0, entry.ContentBytes)
