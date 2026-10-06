@@ -71,11 +71,13 @@ type usageFile struct {
 type updateLine struct {
 	Params struct {
 		Update struct {
-			Kind      string          `json:"sessionUpdate"`
-			Status    string          `json:"status"`
-			Content   json.RawMessage `json:"content"`
-			RawOutput json.RawMessage `json:"rawOutput"`
-			Meta      struct {
+			Kind       string          `json:"sessionUpdate"`
+			Status     string          `json:"status"`
+			ToolCallID string          `json:"toolCallId"`
+			Title      string          `json:"title"`
+			Content    json.RawMessage `json:"content"`
+			RawOutput  json.RawMessage `json:"rawOutput"`
+			Meta       struct {
 				HideFromScrollback bool `json:"hideFromScrollback"`
 			} `json:"_meta"`
 		} `json:"update"`
@@ -212,6 +214,11 @@ func parseSessionContext(ctx context.Context, dir string) (*vendors.ParsedSessio
 		updates.digest.Push(turn, session.DigestPlan, plan, 0)
 	}
 	s.Digest = updates.digest.Entries()
+	s.Entrypoint = grokEntrypoint(summary.SessionKind, promptNonInteractive(dir))
+	if updates.waitingForUser() || planAwaitingApproval(dir) {
+		status := "waiting"
+		s.Status = &status
+	}
 	if updates.finishedTurns > 0 && signals.ContextTokensUsed > 0 {
 		s.ContextTokens = &signals.ContextTokensUsed
 	}
@@ -285,6 +292,7 @@ type updatesSummary struct {
 	finishedTurns int
 	openToolCalls int
 	inTurn        bool
+	pendingTools  map[string]struct{}
 	edits         *session.FileEditSet
 	commands      session.CommandLog
 	commitLog     []session.CommitObservation
@@ -321,6 +329,7 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 		}
 		update := line.Params.Update
 		if update.Kind == "tool_call_update" {
+			result.noteTool(update.ToolCallID, update.Title, update.Status)
 			// The diff repeats on the update that completes the call, so count only that one.
 			var items []toolContent
 			var shell bashOutput
@@ -362,10 +371,12 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 		case "tool_call":
 			result.inTurn = true
 			result.openToolCalls++
+			result.noteTool(update.ToolCallID, update.Title, update.Status)
 		case "turn_completed":
 			result.finishedTurns++
 			result.openToolCalls = 0
 			result.inTurn = false
+			result.pendingTools = nil
 		}
 	}
 	result.flushUser()
@@ -374,6 +385,65 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 		return updatesSummary{}, err
 	}
 	return result, scanner.Err()
+}
+
+func (r *updatesSummary) noteTool(id, title, status string) {
+	if id == "" {
+		return
+	}
+	switch status {
+	case "completed", "failed", "cancelled":
+		delete(r.pendingTools, id)
+		return
+	case "pending":
+		if r.pendingTools == nil {
+			r.pendingTools = map[string]struct{}{}
+		}
+		r.pendingTools[id] = struct{}{}
+		return
+	}
+	if status == "" && isGrokUserQuestion(title) {
+		if r.pendingTools == nil {
+			r.pendingTools = map[string]struct{}{}
+		}
+		r.pendingTools[id] = struct{}{}
+	}
+}
+
+func (r updatesSummary) waitingForUser() bool {
+	return r.inTurn && len(r.pendingTools) > 0
+}
+
+func isGrokUserQuestion(title string) bool {
+	title = strings.ToLower(strings.TrimSpace(title))
+	return title == "ask_user_question" || title == "askuserquestion"
+}
+
+func grokEntrypoint(kind string, nonInteractive bool) *string {
+	value := "grok-cli"
+	switch {
+	case kind == "subagent":
+		value = "grok-subagent"
+	case kind == "headless" || nonInteractive:
+		value = "grok-headless"
+	}
+	return &value
+}
+
+func promptNonInteractive(dir string) bool {
+	var prompt struct {
+		NonInteractive bool `json:"is_non_interactive"`
+	}
+	readOptionalJSON(filepath.Join(dir, "prompt_context.json"), &prompt)
+	return prompt.NonInteractive
+}
+
+func planAwaitingApproval(dir string) bool {
+	var plan struct {
+		Awaiting bool `json:"awaiting_plan_approval"`
+	}
+	readOptionalJSON(filepath.Join(dir, "plan_mode.json"), &plan)
+	return plan.Awaiting
 }
 
 func readBounded(path string, limit int64) ([]byte, error) {

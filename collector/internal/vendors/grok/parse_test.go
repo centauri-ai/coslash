@@ -424,6 +424,74 @@ func TestParseDurationAndOrdinaryDigest(t *testing.T) {
 	}
 }
 
+func TestGrokEntrypointAndWaiting(t *testing.T) {
+	dir := t.TempDir()
+	writeSummary(t, dir, `{"info":{"id":"interactive","cwd":"/work"},"chat_format_version":1,"generated_title":"Review the login change"}`)
+	parsed, err := parseSession(dir)
+	if err != nil || parsed == nil || stringValue(parsed.Session.Entrypoint) != "grok-cli" || parsed.Session.Status != nil {
+		t.Fatalf("interactive = %#v, err = %v", parsed, err)
+	}
+
+	writeSummary(t, dir, `{"info":{"id":"batch","cwd":"/work"},"chat_format_version":1,"session_kind":"headless"}`)
+	parsed, err = parseSession(dir)
+	if err != nil || stringValue(parsed.Session.Entrypoint) != "grok-headless" {
+		t.Fatalf("headless = %s, err = %v", stringValue(parsed.Session.Entrypoint), err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "prompt_context.json"), []byte(`{"is_non_interactive":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSummary(t, dir, `{"info":{"id":"prompt","cwd":"/work"},"chat_format_version":1}`)
+	parsed, err = parseSession(dir)
+	if err != nil || stringValue(parsed.Session.Entrypoint) != "grok-headless" {
+		t.Fatalf("noninteractive = %s, err = %v", stringValue(parsed.Session.Entrypoint), err)
+	}
+
+	writeSummary(t, dir, `{"info":{"id":"child","cwd":"/work"},"chat_format_version":1,"session_kind":"subagent"}`)
+	parsed, err = parseSession(dir)
+	if err != nil || stringValue(parsed.Session.Entrypoint) != "grok-subagent" {
+		t.Fatalf("subagent = %s, err = %v", stringValue(parsed.Session.Entrypoint), err)
+	}
+
+	writeSummary(t, dir, `{"info":{"id":"plan","cwd":"/work"},"chat_format_version":1}`)
+	if err := os.WriteFile(filepath.Join(dir, "plan_mode.json"), []byte(`{"state":"Inactive","awaiting_plan_approval":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = parseSession(dir)
+	if err != nil || parsed.Session.Status == nil || *parsed.Session.Status != "waiting" {
+		t.Fatalf("plan approval status = %#v, err = %v", parsed.Session.Status, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "plan_mode.json"), []byte(`{"awaiting_plan_approval":false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeUpdates(t, dir, []string{
+		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"ship it"}}}}`,
+		`{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"q1","title":"ask_user_question"}}}`,
+	})
+	parsed, err = parseSession(dir)
+	if err != nil || parsed.Session.Status == nil || *parsed.Session.Status != "waiting" {
+		t.Fatalf("question status = %#v, err = %v", parsed.Session.Status, err)
+	}
+	writeUpdates(t, dir, []string{
+		`{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"ship it"}}}}`,
+		`{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"p1","title":"run_terminal_command","status":"pending"}}}`,
+		`{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1","status":"completed"}}}`,
+		`{"params":{"update":{"sessionUpdate":"turn_completed"}}}`,
+	})
+	parsed, err = parseSession(dir)
+	if err != nil || parsed.Session.Status != nil {
+		t.Fatalf("settled status = %#v, err = %v", parsed.Session.Status, err)
+	}
+}
+
+func writeUpdates(t *testing.T, dir string, lines []string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "updates.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeSummary(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
