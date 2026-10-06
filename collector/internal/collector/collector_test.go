@@ -133,7 +133,7 @@ func TestApplyActivityFallbacksKeepsPortableTimingDeterministic(t *testing.T) {
 
 func TestGrokWaitingStaysOnlyWhileTheProcessIsLive(t *testing.T) {
 	waiting := "waiting"
-	root := &vendors.ParsedSession{Session: &session.Session{
+	root := &vendors.ParsedSession{InTurn: true, Session: &session.Session{
 		Agent: vendors.AgentGrok, ID: "plan", Status: &waiting,
 	}}
 	metadata := vendors.EmptySessionMetadata()
