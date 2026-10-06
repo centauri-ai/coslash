@@ -7,7 +7,7 @@ description: Use when a user wants to list, find, search, or select local coSlas
 
 For a broad list request, run `coslash sessions [query] --recent 20 --json`, omitting the query to list local sessions. Present this as a preview limited to 20 most recently active sessions. Use `coslash sessions [query] --json` for a specific search or when the user explicitly requests the full machine-readable list. Do not fetch the unrestricted list for a broad chat request.
 
-For an exact agent filter, use `--agent claude|codex|cursor|opencode|pi|grok`. To get the most recently active matches, add `--recent N`; it sorts by activity time before limiting. For example, `coslash sessions --agent codex --recent 1 --json` finds the latest Codex session. A text query still searches session names, repositories, branches, and agents.
+For an exact agent filter, use `--agent claude|codex|opencode|cursor|pi|grok`. To get the most recently active matches, add `--recent N`; it sorts by activity time before limiting. For example, `coslash sessions --agent codex --recent 1 --json` finds the latest Codex session. A text query still searches session names, repositories, branches, and agents.
 
 Use the `coslash` executable found on `PATH` and preserve the inherited `COSLASH_HOME`. Do not substitute a repository-relative binary or `go run` unless the user explicitly asks to test a source build.
 
