@@ -230,7 +230,7 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 		switch args[0] {
 		case "sessions":
-			fmt.Fprintln(stdout, "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi] [--recent N] --json")
+			fmt.Fprintln(stdout, "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi|grok] [--recent N] --json")
 		case "handoff":
 			fmt.Fprintln(stdout, "usage: coslash handoff <agent>:<session>")
 		case "send":
@@ -271,7 +271,7 @@ func runSessions(stdout io.Writer, args []string) error {
 	query := ""
 	agentFilter := ""
 	recent := 0
-	usage := errors.New("usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi] [--recent N] --json")
+	usage := errors.New("usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi|grok] [--recent N] --json")
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		switch {

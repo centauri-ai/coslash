@@ -499,7 +499,7 @@ func TestSubcommandHelpExitsSuccessfullyWithoutApp(t *testing.T) {
 		command string
 		usage   string
 	}{
-		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi] [--recent N] --json\n"},
+		{"sessions", "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi|grok] [--recent N] --json\n"},
 		{"handoff", "usage: coslash handoff <agent>:<session>\n"},
 		{"send", "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi|grok [message]\n"},
 		{"review", "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi|grok | coslash review status <agent>:<session> --json\n"},
@@ -541,8 +541,10 @@ func TestPluginSkillCommandsParse(t *testing.T) {
 			for _, variant := range skillCommandVariants(args) {
 				var stdout, stderr bytes.Buffer
 				code := runCLI(&stdout, &stderr, variant)
-				if code != 1 || !strings.Contains(stderr.String(), "coSlash app is not running") {
-					t.Errorf("%s: coslash %s: code=%d stderr=%q", path, strings.Join(variant, " "), code, stderr.String())
+				errText := stderr.String()
+				if code != 1 || (!strings.Contains(errText, "coSlash app is not running") &&
+					!strings.Contains(errText, "Grok review is supported only on macOS and Windows")) {
+					t.Errorf("%s: coslash %s: code=%d stderr=%q", path, strings.Join(variant, " "), code, errText)
 				}
 				checked++
 			}
