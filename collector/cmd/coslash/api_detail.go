@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -252,8 +253,25 @@ func parseExactSessionIdentity(w http.ResponseWriter, r *http.Request) (exactSes
 	return identity, true
 }
 
+var localAgents = []string{
+	vendors.AgentClaude,
+	vendors.AgentCodex,
+	vendors.AgentOpenCode,
+	vendors.AgentCursor,
+	vendors.AgentPi,
+	vendors.AgentGrok,
+}
+
 func validAgent(agent string) bool {
-	return agent == vendors.AgentClaude || agent == vendors.AgentCodex || agent == vendors.AgentCursor || agent == vendors.AgentOpenCode || agent == vendors.AgentPi || agent == vendors.AgentGrok
+	return slices.Contains(localAgents, agent)
+}
+
+func agentPipeList() string {
+	return strings.Join(localAgents, "|")
+}
+
+func agentCommaList() string {
+	return strings.Join(localAgents[:len(localAgents)-1], ", ") + ", or " + localAgents[len(localAgents)-1]
 }
 
 // Pi identities are persisted data, never filesystem path components.

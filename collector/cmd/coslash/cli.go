@@ -219,6 +219,22 @@ func (client *localAPIClient) request(method, path string, body io.Reader) ([]by
 	return data, nil
 }
 
+func sessionsUsage() string {
+	return "usage: coslash sessions [query] [--agent " + agentPipeList() + "] [--recent N] --json"
+}
+
+func sendUsage() string {
+	return "usage: coslash send <agent>:<session> --to " + agentPipeList() + " [message]"
+}
+
+func reviewUsage() string {
+	return "usage: coslash review <agent>:<session> --with " + agentPipeList()
+}
+
+func reviewHelp() string {
+	return reviewUsage() + " | coslash review status <agent>:<session> --json"
+}
+
 func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 0 {
 		return 2
@@ -230,13 +246,13 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
 		switch args[0] {
 		case "sessions":
-			fmt.Fprintln(stdout, "usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi|grok] [--recent N] --json")
+			fmt.Fprintln(stdout, sessionsUsage())
 		case "handoff":
 			fmt.Fprintln(stdout, "usage: coslash handoff <agent>:<session>")
 		case "send":
-			fmt.Fprintln(stdout, "usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi|grok [message]")
+			fmt.Fprintln(stdout, sendUsage())
 		case "review":
-			fmt.Fprintln(stdout, "usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi|grok | coslash review status <agent>:<session> --json")
+			fmt.Fprintln(stdout, reviewHelp())
 		case "doctor":
 			fmt.Fprintln(stdout, "usage: coslash doctor [--json]")
 		default:
@@ -271,7 +287,7 @@ func runSessions(stdout io.Writer, args []string) error {
 	query := ""
 	agentFilter := ""
 	recent := 0
-	usage := errors.New("usage: coslash sessions [query] [--agent claude|codex|cursor|opencode|pi|grok] [--recent N] --json")
+	usage := errors.New(sessionsUsage())
 	for index := 0; index < len(args); index++ {
 		argument := args[index]
 		switch {
@@ -425,15 +441,15 @@ func runHandoff(stdout io.Writer, args []string) error {
 
 func runSend(stdout io.Writer, args []string) error {
 	if len(args) < 3 || args[1] != "--to" {
-		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi|grok [message]")
+		return errors.New(sendUsage())
 	}
 	agent, id, ok := parseLocalSessionSelector(args[0])
 	if !ok {
-		return fmt.Errorf("usage: coslash send <agent>:<session> --to claude|codex|opencode|cursor|pi|grok [message]")
+		return errors.New(sendUsage())
 	}
 	target := args[2]
 	if !validAgent(target) {
-		return fmt.Errorf("--to must be claude, codex, opencode, cursor, pi, or grok")
+		return fmt.Errorf("--to must be %s", agentCommaList())
 	}
 	message := strings.Join(args[3:], " ")
 	client, err := newLocalAPIClient()
@@ -466,15 +482,15 @@ func runReview(stdout io.Writer, args []string) error {
 		return runReviewStatus(stdout, args[1:])
 	}
 	if len(args) != 3 || args[1] != "--with" {
-		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi|grok")
+		return errors.New(reviewUsage())
 	}
 	agent, id, ok := parseLocalSessionSelector(args[0])
 	if !ok {
-		return fmt.Errorf("usage: coslash review <agent>:<session> --with claude|codex|opencode|cursor|pi|grok")
+		return errors.New(reviewUsage())
 	}
 	reviewer := args[2]
-	if reviewer != "claude" && reviewer != "codex" && reviewer != "opencode" && reviewer != "cursor" && reviewer != "pi" && reviewer != "grok" {
-		return fmt.Errorf("--with must be claude, codex, opencode, cursor, pi, or grok")
+	if !validAgent(reviewer) {
+		return fmt.Errorf("--with must be %s", agentCommaList())
 	}
 	if reviewer == "grok" && !vendors.GrokSynthesisSupported() {
 		return fmt.Errorf("Grok review is supported only on macOS and Windows")
