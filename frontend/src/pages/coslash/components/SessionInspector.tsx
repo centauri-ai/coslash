@@ -993,7 +993,7 @@ function HandoffSection({
 
   return (
     <div className="@container flex flex-col gap-2">
-      <SectionLabel title="RESUME OR HAND OFF" />
+      <SectionLabel title={detail.agent === 'grok' ? 'RESUME OR START FRESH' : 'RESUME OR HAND OFF'} />
       <div className="bg-coslash-line grid grid-cols-3 gap-px overflow-hidden rounded-lg border @[560px]:grid-cols-5">
         <ReadinessCell label="Context used" value={contextFill?.value} tone={contextFill?.tone} />
         <ReadinessCell label="Compactions" value={String(detail.compactions)} />
@@ -1003,18 +1003,21 @@ function HandoffSection({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {detail.agent === 'grok' && <GrokFreshSessionButton detail={detail} />}
-        <DirectedHandoffDialog
-          source={detail}
-          disabledHint={
-            !isLocalSession(detail) && detail.agent === 'pi'
-              ? 'Pi launch is available locally only'
-              : !isLocalSession(detail) && !remoteLaunchable
-                ? remoteLaunchHint
-                : undefined
-          }
-          onStarted={onHandoffStarted}
-        />
+        {detail.agent === 'grok' ? (
+          <GrokFreshSessionButton detail={detail} />
+        ) : (
+          <DirectedHandoffDialog
+            source={detail}
+            disabledHint={
+              !isLocalSession(detail) && detail.agent === 'pi'
+                ? 'Pi launch is available locally only'
+                : !isLocalSession(detail) && !remoteLaunchable
+                  ? remoteLaunchHint
+                  : undefined
+            }
+            onStarted={onHandoffStarted}
+          />
+        )}
         <Button variant="outline" className="w-fit p-2 text-xs" onClick={() => void copyBrief()}>
           <span>Copy handoff</span>
         </Button>
