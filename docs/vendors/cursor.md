@@ -17,10 +17,10 @@ Code: `collector/internal/vendors/cursor/`. This package reads local Cursor IDE 
 
 - SDK transcripts use an `agent-<uuid>` directory and file name. coSlash excludes them before parsing and does not read SDK stores. The SDK store has no parent id, so SDK subagents cannot be rebuilt. Observed: unknown, 2026-09-16, faffd465.
 - An id that appears in both the IDE and the CLI stores gets no lane. coSlash then clears every lane-specific field (model, cwd, times, usage, edits, commits) for that id. Joins use stable ids only, never timestamps. Observed: unknown, 2026-09-16, 242f39b0.
-- Records have only `role`, `type`, `message`, and `status`. Rows have no timestamp field. Observed: unknown, 2026-09-16, `docs/evidence/cursor-cli-session-e915b167.jsonl`.
-- CLI user rows wrap the prompt as `<timestamp>Friday, Jul 10, 2026, 10:29 AM (UTC-7)</timestamp><user_query>...</user_query>`. This minute-precision local time is the only in-transcript time (`parse.go` `parseTimestamp`). Observed: unknown, 2026-09-16, CLI evidence sample.
-- IDE user rows in the sample have neither `<timestamp>` nor `<user_query>`. They start with blocks such as `<attached_files>` or `<external_links>`. IDE start and end times must come from `composerHeaders`. Observed: unknown, 2026-09-16, `docs/evidence/cursor-ide-session-f6feb819.jsonl`.
-- The IDE sample transcript has no `tool_use` blocks. IDE tool activity, terminal commands, and diffs are in `bubbleId` rows and `composerData`, not in the JSONL. Observed: unknown, 2026-09-16, IDE evidence sample, 242f39b0.
+- Rows have no timestamp field. The parser reads only `role`, `type`, `message`, `status`, and `error` (`types.go` `transcriptRecord`). Observed: unknown, 2026-09-14, 781c1e6d.
+- CLI user rows wrap the prompt as `<timestamp>Friday, Jul 10, 2026, 10:29 AM (UTC-7)</timestamp><user_query>...</user_query>`. This minute-precision local time is the only in-transcript time (`parse.go` `parseTimestamp`). Observed: unknown, 2026-09-14, 781c1e6d.
+- IDE user rows in the sample have neither `<timestamp>` nor `<user_query>`. They start with blocks such as `<attached_files>` or `<external_links>`. IDE start and end times must come from `composerHeaders` (`metadata.go`). Observed: unknown, 2026-09-16, 242f39b0.
+- The IDE sample transcript has no `tool_use` blocks. IDE tool activity, terminal commands, and diffs are in `bubbleId` rows and `composerData`, not in the JSONL. Observed: unknown, 2026-09-16, 242f39b0.
 - `turn_ended` is rare. The CLI sample has 38 user rows and one `turn_ended`. A turn with no end record still gets its last text-only assistant reply as a recap (`TestParseTranscriptAddsRepliesWithoutTurnEndedRecords`). Observed: unknown, 2026-09-18, 1a11d720.
 - For a live session, the trailing reply is not final yet. coSlash adds it as a recap only after the session is no longer live. Observed: unknown, 2026-09-18, a582950a.
 - `turn_ended.status = "error"` is the only reliable error terminal. It overrides a store that still looks open (`source.go`). Observed: unknown, 2026-09-16, f787cebd.
@@ -58,4 +58,4 @@ Code: `collector/internal/vendors/cursor/`. This package reads local Cursor IDE 
 - It is not known which persisted Cursor states map to Waiting and terminal status for CLI sessions. IDE status fields can be unset.
 - It is not known what evidence proves that IDE cost entries are complete enough for aggregate reports.
 - Remote Cursor collection and SDK support are deferred.
-- The meaning of CLI user rows that start with `Run the following command:` and have no `<user_query>` is not confirmed. They count as turns today (CLI evidence sample).
+- The meaning of CLI user rows that start with `Run the following command:` and have no `<user_query>` is not confirmed. They count as turns today (`parse.go`).
