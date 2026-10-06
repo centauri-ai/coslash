@@ -160,6 +160,71 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		w.WriteHeader(http.StatusAccepted)
 		writeJSON(w, map[string]string{"state": "starting"})
 	})
+	api.HandleFunc("POST /api/hub/onboarding/connect", func(w http.ResponseWriter, request *http.Request) {
+		if onboardings == nil {
+			http.Error(w, "unreachable", http.StatusServiceUnavailable)
+			return
+		}
+		var input struct {
+			HubURL      string `json:"hubUrl"`
+			ConnectCode string `json:"connectCode"`
+		}
+		if err := decodeHubJSON(request.Body, &input); err != nil {
+			http.Error(w, "invalid connect request", http.StatusBadRequest)
+			return
+		}
+		id, err := onboardings.StartConnectCode(input.HubURL, input.ConnectCode)
+		if errors.Is(err, hubclient.ErrConnectCodeInvalid) {
+			http.Error(w, hubclient.ErrConnectCodeInvalid.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, hubclient.ErrConnectUnsupported) {
+			http.Error(w, hubclient.ErrConnectUnsupported.Error(), http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, "unreachable", http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		writeJSON(w, map[string]string{"id": id, "state": "claimed"})
+	})
+	api.HandleFunc("GET /api/hub/onboarding/connect/{id}", func(w http.ResponseWriter, request *http.Request) {
+		if onboardings == nil {
+			http.Error(w, "connect status is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		state, ok := onboardings.ConnectJobState(request.PathValue("id"))
+		if !ok {
+			http.Error(w, "connect status is unavailable", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]string{"state": state})
+	})
+	api.HandleFunc("POST /api/hub/wake", func(w http.ResponseWriter, request *http.Request) {
+		if onboardings == nil {
+			http.Error(w, "Local sync is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var input struct {
+			HubURL string `json:"hubUrl"`
+		}
+		if err := decodeHubJSON(request.Body, &input); err != nil {
+			http.Error(w, "invalid wake request", http.StatusBadRequest)
+			return
+		}
+		if err := onboardings.RequestWake(input.HubURL); errors.Is(err, errForeignWakeHub) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		} else if errors.Is(err, errWakeRateLimited) {
+			http.Error(w, "wake rate limited", http.StatusTooManyRequests)
+			return
+		} else if err != nil {
+			http.Error(w, "Local sync is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
 	api.HandleFunc("POST /api/hub/onboarding/check-in", func(w http.ResponseWriter, request *http.Request) {
 		if onboardings == nil {
 			http.Error(w, "Hub check-in is unavailable", http.StatusServiceUnavailable)

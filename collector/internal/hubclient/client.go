@@ -200,6 +200,10 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 		if problem.Code == "pairing_pending" {
 			return PairingResult{State: "pending", PairingID: pairingID}, nil
 		}
+		if problem.Code == "onboarding_declined" {
+			c.forgetPairing(pairingID)
+			return PairingResult{State: "declined"}, nil
+		}
 		if problem.Code == "pairing_expired" || response.StatusCode == http.StatusGone {
 			c.forgetPairing(pairingID)
 			return PairingResult{State: "expired"}, nil

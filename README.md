@@ -26,9 +26,50 @@ privacy](docs/data-and-privacy.md).
 | --- | --- |
 | **Supported agents** | Claude Code · Codex / ChatGPT · Cursor · OpenCode · Pi (macOS, local) |
 | **Works with** | The desktop apps and the CLIs of each agent |
-| **Reads** | Local transcripts and, optionally, one Linux host over read-only SFTP. No account, no daemon, no telemetry. |
+| **Reads** | Local transcripts and, optionally, one Linux host over read-only SFTP. Local collection needs no Hub account or telemetry. |
 
-## Install
+## Install and connect from Hub
+
+In Hub, open **Devices → Add device → This computer** and copy the command for
+your computer. The command installs coSlash Local, adds it to `PATH`, starts it
+in the background, and claims your one-use setup code. Return to Hub to approve
+the computer.
+
+Hub shows a personalized command. These examples use a sample code and origin;
+run the exact command Hub provides.
+
+**macOS:**
+
+```sh
+curl -fsSL https://coslash.io/install.sh | bash -s -- --connect K7QX-29PD --hub https://hub.coslash.io
+```
+
+**Homebrew:**
+
+```sh
+brew install centauri-ai/tap/coslash && coslash connect K7QX-29PD --hub https://hub.coslash.io
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:COSLASH_CONNECT='K7QX-29PD'; $env:COSLASH_HUB='https://hub.coslash.io'; irm https://coslash.io/install.ps1 | iex
+```
+
+The code expires after ten minutes and can be used once. Hub switches to the
+computer's **Connect** card after Local claims the code; approving there
+connects the device.
+
+### Open coSlash Local
+
+When Local is not running, Hub offers **Open coSlash Local**. Click it to start
+Local on that computer and request an immediate Hub check-in. Local stays in
+the background without opening its own browser tab. The first start registers a
+per-user URL handler on macOS or Windows; neither requires administrator rights.
+
+## Install coSlash Local separately
+
+Use these options when you want to install Local before connecting it to Hub.
 
 ### macOS
 
@@ -103,18 +144,6 @@ Windows support is validated on Windows 11 24H2 (build 26100 or later), amd64,
 as a standard user with Windows PowerShell 5.1. WSL is not required. See the
 [Windows validation checklist](docs/windows-validation.md) for the release
 contract and remaining manual checks.
-
-### Connect this computer to Hub
-
-In Hub, open **Devices → Add device → This computer**. After installing,
-start coSlash Local once and return to Hub to start the pairing handoff. On
-macOS, the first run registers a per-user Launch Services handler. On Windows,
-the first run registers the `coslash:` URL scheme for the current Windows user;
-neither requires administrator privileges. When Hub asks the browser to open
-Local, allow the app handoff. Hub presents the account, workspace and computer
-name and waits for an explicit approval before Local stores its device key.
-Hub shows the first check-in separately from approval. The Hub-led path does
-not use the manual pairing code screen or share sessions with a team.
 
 ### First run
 

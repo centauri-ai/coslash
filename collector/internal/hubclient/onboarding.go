@@ -18,7 +18,15 @@ var (
 	onboardingUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	launchToken    = regexp.MustCompile(`^[A-Za-z0-9_-]{40,128}$`)
 	clientVersion  = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+	connectCode    = regexp.MustCompile(`(?i)^[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$`)
 )
+
+var (
+	ErrConnectCodeInvalid = errors.New("connect_code_invalid")
+	ErrConnectUnsupported = errors.New("connect_unsupported")
+)
+
+func ValidConnectCode(code string) bool { return connectCode.MatchString(code) }
 
 type LaunchIntent struct {
 	Action      string
@@ -131,6 +139,54 @@ func (c *Client) BeginOnboardingPairing(ctx context.Context, attemptID, launchIn
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
 		problem := readProblem(response)
+		return PairingResult{}, fmt.Errorf("Hub could not start pairing: %s", problem.Code)
+	}
+	var authorization onboardingClaimResponse
+	if err := decodeBounded(response.Body, &authorization); err != nil || !onboardingUUID.MatchString(authorization.ID) ||
+		authorization.DeviceCode == "" || len(authorization.DeviceCode) > 256 ||
+		!authorization.ExpiresAt.After(time.Now()) || authorization.IntervalSeconds < 1 || authorization.IntervalSeconds > 30 {
+		return PairingResult{}, errors.New("Hub returned an invalid onboarding response")
+	}
+	c.pairingMu.Lock()
+	if c.pairings == nil {
+		c.pairings = make(map[string]pairingSecret)
+	}
+	c.pairings[authorization.ID] = pairingSecret{deviceCode: authorization.DeviceCode, expiresAt: authorization.ExpiresAt}
+	c.pairingMu.Unlock()
+	return PairingResult{State: "pending", PairingID: authorization.ID,
+		ExpiresAt: authorization.ExpiresAt, IntervalSeconds: authorization.IntervalSeconds}, nil
+}
+
+// ClaimOnboardingCode claims the single-use setup request from the command the
+// person pasted into Terminal. The code is sent only in the request body and is
+// never retained by this client after the request completes.
+func (c *Client) ClaimOnboardingCode(ctx context.Context, code string) (PairingResult, error) {
+	if !c.configured() || !ValidConnectCode(code) {
+		return PairingResult{}, errors.New("invalid connect code")
+	}
+	body, err := json.Marshal(map[string]string{"connectCode": strings.ToUpper(code), "deviceName": c.DeviceName})
+	if err != nil {
+		return PairingResult{}, errors.New("could not prepare Hub onboarding")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.endpoint("/v1/device-onboarding-codes/claim"), bytes.NewReader(body))
+	if err != nil {
+		return PairingResult{}, errors.New("could not prepare Hub onboarding")
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.httpClient().Do(request)
+	if err != nil {
+		return PairingResult{}, errors.New("Hub could not receive the Local pairing request")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		problem := readProblem(response)
+		if response.StatusCode == http.StatusNotFound {
+			if problem.Code == "connect_code_invalid" {
+				return PairingResult{}, ErrConnectCodeInvalid
+			}
+			return PairingResult{}, ErrConnectUnsupported
+		}
 		return PairingResult{}, fmt.Errorf("Hub could not start pairing: %s", problem.Code)
 	}
 	var authorization onboardingClaimResponse

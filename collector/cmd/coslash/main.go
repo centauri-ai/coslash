@@ -46,6 +46,7 @@ const defaultPort = 8787
 type options struct {
 	port        int
 	noOpen      bool
+	background  bool
 	showVersion bool
 }
 
@@ -59,6 +60,7 @@ func parseOptions(arguments []string) (options, error) {
 		"port to serve on, loopback only; 0 picks any free port",
 	)
 	flags.BoolVar(&opts.noOpen, "no-open", false, "do not open a browser on startup")
+	flags.BoolVar(&opts.background, "background", false, "run coSlash Local in the background")
 	flags.BoolVar(&opts.showVersion, "version", false, "print the version and exit")
 	if err := flags.Parse(arguments); err != nil {
 		return options{}, err
@@ -69,6 +71,9 @@ func parseOptions(arguments []string) (options, error) {
 	}
 	if extra := flags.Args(); len(extra) > 0 {
 		return options{}, fmt.Errorf("unexpected argument %q", extra[0])
+	}
+	if opts.background {
+		opts.noOpen = true
 	}
 	return opts, nil
 }
@@ -87,7 +92,7 @@ func main() {
 		if alreadyRunning {
 			return
 		}
-		arguments = []string{"--no-open"}
+		arguments = []string{"--background"}
 	}
 	if !protocolRequest && len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -107,7 +112,7 @@ func main() {
 			}
 			fmt.Println("SSH authentication ready; return to coSlash.")
 			return
-		case "sessions", "handoff", "send", "review", "doctor", "mcp":
+		case "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
 			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		}
 	}
@@ -123,9 +128,25 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	if opts.background {
+		ignoreBackgroundHangup()
+		if err := configureBackgroundLog(); err != nil {
+			fmt.Fprintln(os.Stderr, "coSlash Local could not start in the background.")
+			return
+		}
+	}
 	runtimeLock, err := acquireRuntimeLock()
 	if err != nil {
 		if startupIntent != nil && errors.Is(err, errRuntimeAlreadyRunning) && forwardWhenReady(startupIntent) {
+			return
+		}
+		if !opts.background && len(os.Args) == 1 && errors.Is(err, errRuntimeAlreadyRunning) {
+			fmt.Fprintln(os.Stdout, "coSlash Local is already running.")
+			if baseURL, token, readErr := readRuntime(); readErr == nil {
+				if openErr := openBrowser(baseURL + "/#t=" + token); openErr != nil {
+					fmt.Fprintln(os.Stderr, "coSlash Local is running, but its window could not be opened.")
+				}
+			}
 			return
 		}
 		log.Fatalf("coslash: %v", err)
@@ -220,7 +241,6 @@ func main() {
 	}()
 	accessURL := baseURL + "/#t=" + token
 	log.Printf("listening on %s", baseURL)
-	log.Printf("open %s", accessURL)
 	if !opts.noOpen {
 		if err := openBrowser(accessURL); err != nil {
 			log.Printf("could not open a browser (%v); use the URL above", err)
@@ -240,9 +260,29 @@ func main() {
 	}
 	onboardings := newOnboardingManager(version)
 	onboardings.SetV4SyncActive(queue != nil)
+	wake := make(chan struct{}, 1)
+	onboardings.setSyncHooks(syncHookFuncs{
+		ensure: func(client *hubclient.Client) error {
+			onboardings.StartCheckIns(client)
+			return nil
+		},
+		pass: func(reason string) {
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+			if reason == "wake" && queue == nil {
+				go func() {
+					if stored, err := readStoredHubURL(); err == nil && stored != "" {
+						_ = onboardings.RetryCheckIn(stored)
+					}
+				}()
+			}
+		},
+	})
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
 		serverServices{queue: queue, directedStore: directedStore, onboardings: onboardings})
-	onboardings.StartCheckIns(hub)
+	onboardings.ensureSync(hub)
 	if startupIntent != nil {
 		switch startupIntent.Action {
 		case "pair":
@@ -251,9 +291,12 @@ func main() {
 			}
 		case "check-in":
 			go func() { _ = onboardings.RetryCheckIn(startupIntent.HubURL.String()) }()
+		case "wake":
+			if err := onboardings.RequestWake(startupIntent.HubURL.String()); err != nil {
+				log.Printf("wake request was ignored")
+			}
 		}
 	}
-	wake := make(chan struct{}, 1)
 	inventoryTracker := &inventory.Tracker{}
 	if fingerprints != nil && queue != nil {
 		go runInventory(discoveryContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
