@@ -78,8 +78,8 @@ jobs:
       - name: Smoke test development binary
         run: make smoke-dev
 
-  windows:
-    name: Windows
+  windows-tests:
+    name: Windows tests
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
@@ -150,6 +150,28 @@ jobs:
             throw "$artifact checksum does not match checksums-windows.txt"
           }
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File collector/scripts/windows-smoke.ps1 -BinaryPath "$dist/$artifact"
+
+  windows:
+    name: Windows
+    needs:
+      - windows-tests
+      - windows-release-smoke
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require Windows tests and release smoke
+        env:
+          WINDOWS_TESTS_RESULT: ${{ needs.windows-tests.result }}
+          WINDOWS_RELEASE_SMOKE_RESULT: ${{ needs.windows-release-smoke.result }}
+        run: |
+          if [[ "$WINDOWS_TESTS_RESULT" != success ]]; then
+            echo "::error::Windows tests completed with $WINDOWS_TESTS_RESULT."
+            exit 1
+          fi
+          if [[ "$WINDOWS_RELEASE_SMOKE_RESULT" != success ]]; then
+            echo "::error::Windows release smoke completed with $WINDOWS_RELEASE_SMOKE_RESULT."
+            exit 1
+          fi
 
   release:
     name: Release
