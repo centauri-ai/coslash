@@ -23,6 +23,72 @@ function Invoke-Native([string]$Command, [string[]]$NativeArgs, [string]$Working
     }
 }
 
+function Stop-RunningCoslashServers {
+    try {
+        $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop)
+    }
+    catch {
+        Stop-Install "could not inspect active TCP listeners; no processes were stopped"
+    }
+
+    $serverIds = @()
+    $port8787Pids = @($listeners | Where-Object { [int]$_.LocalPort -eq 8787 } | Select-Object -ExpandProperty OwningProcess -Unique)
+    $listenerProcessIds = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+    foreach ($processId in $listenerProcessIds) {
+        $processId = [int]$processId
+        $ownsDefaultPort = $port8787Pids -contains $processId
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+        if (-not $process) {
+            if ($ownsDefaultPort) {
+                Stop-Install "port 8787 is owned by an unverified process (PID $processId); no processes were stopped"
+            }
+            continue
+        }
+
+        $imageName = [IO.Path]::GetFileName([string]$process.ExecutablePath)
+        if ($process.Name -ieq "coslash.exe" -and -not $process.ExecutablePath) {
+            Stop-Install "could not verify the coSlash listener process (PID $processId); no processes were stopped"
+        }
+        if ($imageName -ieq "coslash.exe") {
+            try {
+                $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+            }
+            catch {
+                Stop-Install "could not verify the owner of coSlash listener PID $processId; no processes were stopped"
+            }
+            $ownerName = "$($owner.Domain)\$($owner.User)"
+            $currentOwner = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+            if ($owner.ReturnValue -ne 0 -or $ownerName -ine $currentOwner) {
+                Stop-Install "coSlash listener PID $processId is not owned by the current user; no processes were stopped"
+            }
+            if ($serverIds -notcontains $processId) { $serverIds += $processId }
+        }
+        elseif ($ownsDefaultPort) {
+            Stop-Install "port 8787 is owned by $($process.Name) (PID $processId), not a verified coSlash Local server; no processes were stopped"
+        }
+    }
+
+    if ($serverIds.Count -eq 0) { return }
+    foreach ($processId in $serverIds) {
+        Write-Host "Stopping running coSlash Local server (PID $processId)…"
+        try {
+            Stop-Process -Id $processId -ErrorAction Stop
+        }
+        catch {
+            Stop-Install "could not stop coSlash Local PID $processId; the selected binary was not replaced"
+        }
+    }
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        $remaining = @($serverIds | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+        if ($remaining.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    Stop-Install "coSlash Local did not stop; the installed binary was not replaced"
+}
+
 if ([bool]$connectCode -ne [bool]$hub) {
     Stop-Install "COSLASH_CONNECT and COSLASH_HUB must be provided together"
 }
@@ -87,6 +153,7 @@ try {
         Stop-Install "branch $branch does not include the Hub connect command"
     }
 
+    Stop-RunningCoslashServers
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
     Copy-Item -LiteralPath $binary -Destination (Join-Path $installDir "coslash.exe") -Force
     $commit = (git -C $source rev-parse --short HEAD).Trim()
