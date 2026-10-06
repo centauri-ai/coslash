@@ -59,8 +59,8 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: collector/go.mod
-          # This module has no dependencies or go.sum to cache.
-          cache: false
+          cache: true
+          cache-dependency-path: collector/go.sum
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -84,7 +84,8 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: collector/go.mod
-          cache: false
+          cache: true
+          cache-dependency-path: collector/go.sum
       - name: Test collector on Windows
         working-directory: collector
         shell: powershell
@@ -159,8 +160,8 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: collector/go.mod
-          # This module has no dependencies or go.sum to cache.
-          cache: false
+          cache: true
+          cache-dependency-path: collector/go.sum
       - name: Build release packages
         run: make dist
       - name: Verify release leaves worktree clean
