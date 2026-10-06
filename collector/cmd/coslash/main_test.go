@@ -1225,6 +1225,45 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	}
 }
 
+func TestServerShutdownEndpointRequiresTokenAndRequestsGracefulShutdown(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	shutdown := make(chan struct{}, 1)
+	server := newServer(
+		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
+		synthesis.NewManager(nil),
+		reviewpkg.NewManager(nil),
+		settings.Open(),
+		remote.NewManager(remote.Options{}),
+		nil,
+		serverServices{onboardings: newOnboardingManager("0.1.0"), shutdown: shutdown},
+	)
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8787/api/shutdown", nil)
+	unauthorizedResponse := httptest.NewRecorder()
+	server.Handler.ServeHTTP(unauthorizedResponse, unauthorized)
+	if unauthorizedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", unauthorizedResponse.Code, http.StatusUnauthorized)
+	}
+	select {
+	case <-shutdown:
+		t.Fatal("unauthorized request requested shutdown")
+	default:
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8787/api/shutdown", nil)
+	request.Header.Set("X-Coslash-Token", "secret")
+	response := httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("authorized status = %d, want %d", response.Code, http.StatusAccepted)
+	}
+	select {
+	case <-shutdown:
+	default:
+		t.Fatal("authorized request did not request shutdown")
+	}
+}
+
 func TestTokenLifecycle(t *testing.T) {
 	token, err := newToken()
 	if err != nil {
