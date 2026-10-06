@@ -264,6 +264,49 @@ func TestProgressDoesNotCountBackPressureAsFailing(t *testing.T) {
 	}
 }
 
+func TestProgressUsesImportPlanOnlyWhenScaleImportIsActive(t *testing.T) {
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", MaxSessions: 1}
+	for _, test := range []struct {
+		name         string
+		scaleEnabled string
+		capability   bool
+		pending      int
+		failing      int
+	}{
+		{name: "disabled", scaleEnabled: "0", capability: true, pending: 2, failing: 1},
+		{name: "unsupported", scaleEnabled: "1", pending: 2, failing: 1},
+		{name: "active", scaleEnabled: "1", capability: true, pending: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("COSLASH_SCALE_IMPORT", test.scaleEnabled)
+			now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+			queue, err := Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var capabilities []string
+			if test.capability {
+				capabilities = []string{hubclient.CapabilityScaleImport}
+			}
+			if err := queue.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1,
+				Config: hubclient.V4Config{ImportPlan: &plan}, Capabilities: capabilities}, now); err != nil {
+				t.Fatal(err)
+			}
+			entries := []Entry{
+				{Key: "a", Activity: now.UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "a"}},
+				{Key: "b", Activity: now.UnixMilli(), FailureCode: "server_error", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "b"}},
+			}
+			if err := queue.Merge(entries, now); err != nil {
+				t.Fatal(err)
+			}
+			progress := queue.Progress()
+			if progress.Pending != test.pending || progress.Failing != test.failing {
+				t.Fatalf("progress = %+v, want pending=%d failing=%d", progress, test.pending, test.failing)
+			}
+		})
+	}
+}
+
 // A prepared bundle that no entry refers to any more is scheduled for
 // deletion whichever path dropped it: a new bundle, changed source activity,
 // or a new Hub binding.

@@ -3,8 +3,10 @@ package inventory
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
@@ -59,6 +61,59 @@ func TestPlanDiscoveryResumesBelowTheCursorAndRevisitsChangedFamilies(t *testing
 	}
 	if cursor := DecodeCursor(json.RawMessage(`{"startedAtMs":7,"activityMs":3,"agent":"claude","family":"x"}`)); cursor == nil || cursor.Family != "x" {
 		t.Fatalf("cursor = %+v", cursor)
+	}
+}
+
+func TestDiscoverKeepsTranscriptActivityDespiteOldFileMtime(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	cutoff := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	stale := cutoff.Add(-time.Hour)
+	claudeID := "11111111-2222-3333-4444-555555555555"
+	codexID := "019f4dde-db5b-7100-bdc0-09b5aaaac56f"
+	claudePath := filepath.Join(home, ".claude", "projects", "p", claudeID+".jsonl")
+	codexPath := filepath.Join(home, ".codex", "sessions", "2026", "09", "04", "rollout-2026-09-04T10-00-00-"+codexID+".jsonl")
+	for _, file := range []struct {
+		path    string
+		content string
+	}{
+		{claudePath, `{"sessionId":"` + claudeID + `","uuid":"row-1","cwd":"/repo","timestamp":"2026-09-04T10:00:00Z","type":"user","message":{"content":"hello"}}` + "\n"},
+		{codexPath, `{"timestamp":"2026-09-04T10:00:00Z","type":"session_meta","payload":{"id":"` + codexID + `","session_id":"` + codexID + `"}}` + "\n" +
+			`{"timestamp":"2026-09-04T10:01:00Z","type":"event_msg","payload":{"type":"user_message","message":"hello"}}` + "\n"},
+	} {
+		if err := os.MkdirAll(filepath.Dir(file.path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file.path, []byte(file.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(file.path, stale, stale); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := Scan(t.Context(), Options{Home: home, OpenCodeDB: filepath.Join(home, "opencode.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := DiscoverAll(t.Context(), DiscoverOptions{Snapshot: snapshot, MinActivityMs: cutoff.UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("discovered sessions = %+v", sessions)
+	}
+	activities := make(map[string]int64, len(sessions))
+	for _, item := range sessions {
+		activities[item.Agent+"\x00"+item.ID] = item.LastActivityTime
+		if item.LastActivityTime < cutoff.UnixMilli() {
+			t.Errorf("%s activity = %d, want at least %d", item.Agent, item.LastActivityTime, cutoff.UnixMilli())
+		}
+	}
+	for _, key := range []string{vendors.AgentClaude + "\x00" + claudeID, vendors.AgentCodex + "\x00" + codexID} {
+		if _, ok := activities[key]; !ok {
+			t.Errorf("transcript family %q was not discovered", key)
+		}
 	}
 }
 
