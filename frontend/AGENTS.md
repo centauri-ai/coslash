@@ -2,7 +2,7 @@
 
 ## Preserve identity and derived behavior
 
-- A session is the composite of source, agent, and session ID. Key, deduplicate, select, cache, and reconcile sessions with `sessionKey` and `sameSession` from `lib/session.ts`, never by a display label, a basename, or a session ID alone. Keep revision-bound actions tied to the exact revision they displayed or approved, resolved through `sessionRevision`.
+- A session is the composite of source, agent, and session ID. Key, deduplicate, select, cache, and reconcile sessions with `sessionKey` from `src/pages/coslash/lib/session.ts`, never by a display label, a basename, or a session ID alone. Keep revision-bound actions tied to the exact revision they displayed or approved, resolved through `sessionRevision`.
 - Derive displayed titles, status, grouping, sorting, searching, totals, and facet counts from the shared helpers: `displayStatusLabel` and `boardStatusKey` in `lib/session.ts`, `groupSessions` and `boardGroupKey` in `lib/session-grouping.ts`, `sessionMatchesSearchTerm` in `lib/search.ts`. A control must sort and search the value users actually see. Do not add a local re-implementation of product logic a helper already expresses.
 - Preserve API-owned labels and typed status/reason fields. Do not reconstruct sanitized labels from configuration or collapse distinct setup, credential, offline, limited-coverage, disabled, and request-failure states into one action.
 
