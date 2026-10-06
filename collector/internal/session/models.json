@@ -12988,13 +12988,13 @@
     "output_cost_per_token": 4.1E-7
   },
   "openrouter/deepseek/deepseek-v4-flash": {
-    "cache_read_input_token_cost": 5.6E-9,
-    "input_cost_per_token": 2.8E-8,
+    "cache_read_input_token_cost": 2.24E-8,
+    "input_cost_per_token": 2.24E-8,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 5.6E-8
+    "output_cost_per_token": 0.00000128
   },
   "openrouter/deepseek/deepseek-v4-flash-0731": {
-    "cache_read_input_token_cost": 1.37E-8,
+    "cache_read_input_token_cost": 1.52E-8,
     "input_cost_per_token": 1.52E-8,
     "max_input_tokens": 1048576,
     "output_cost_per_token": 0.00000128
@@ -13012,16 +13012,16 @@
     "output_cost_per_token": 4.176E-7
   },
   "openrouter/deepseek/deepseek-v4-pro-0813": {
-    "cache_read_input_token_cost": 1.4E-7,
-    "input_cost_per_token": 2.2E-7,
+    "cache_read_input_token_cost": 7E-7,
+    "input_cost_per_token": 8.5E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000042
+    "output_cost_per_token": 0.000005
   },
   "openrouter/deepseek/deepseek-v4.1-flash": {
-    "cache_read_input_token_cost": 6E-9,
-    "input_cost_per_token": 3E-7,
+    "cache_read_input_token_cost": 3E-9,
+    "input_cost_per_token": 3E-9,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.0000012
+    "output_cost_per_token": 0.0000024
   },
   "openrouter/deepseek/deepseek-v4.1-flash:batch": {
     "cache_read_input_token_cost": 3.36E-9,
@@ -13730,10 +13730,10 @@
     "output_cost_per_token": 0.00000335
   },
   "openrouter/moonshotai/kimi-k3": {
-    "cache_read_input_token_cost": 4.9E-7,
-    "input_cost_per_token": 4.99E-7,
+    "cache_read_input_token_cost": 7E-7,
+    "input_cost_per_token": 7.2E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.000013
+    "output_cost_per_token": 0.000014
   },
   "openrouter/moonshotai/kimi-k3:batch": {
     "cache_read_input_token_cost": 2.28E-7,
@@ -14837,10 +14837,11 @@
     "output_cost_per_token": 0.000006
   },
   "openrouter/qwen/qwen3.8-27b": {
+    "cache_creation_input_token_cost": 5.3125E-7,
     "cache_read_input_token_cost": 8.5E-8,
-    "input_cost_per_token": 4.2E-7,
+    "input_cost_per_token": 4.25E-7,
     "max_input_tokens": 1000000,
-    "output_cost_per_token": 0.000003
+    "output_cost_per_token": 0.00000255
   },
   "openrouter/qwen/qwen3.8-27b:free": {
     "input_cost_per_token": 0.0,
@@ -15243,10 +15244,10 @@
     "output_cost_per_token": 0.0000044
   },
   "openrouter/z-ai/glm-5.2": {
-    "cache_read_input_token_cost": 2.6E-7,
-    "input_cost_per_token": 3E-7,
+    "cache_read_input_token_cost": 1E-7,
+    "input_cost_per_token": 1.04E-7,
     "max_input_tokens": 1048576,
-    "output_cost_per_token": 0.00000349
+    "output_cost_per_token": 0.000008
   },
   "openrouter/z-ai/glm-5.2:free": {
     "input_cost_per_token": 0.0,
