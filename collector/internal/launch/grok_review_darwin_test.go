@@ -10,6 +10,46 @@ import (
 	"testing"
 )
 
+func TestGrokReviewExecutableUsesNativePayload(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, payload := range []string{"grok", "grok-native", filepath.Join("home", "bin", "grok"), "missing"} {
+		t.Run(payload, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("GROK_HOME", filepath.Join(root, "home"))
+			launcher := filepath.Join(root, "grok")
+			if payload != "grok" {
+				if err := os.WriteFile(launcher, []byte("#!/usr/bin/env node\nrequire('./bootstrap.js');\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if payload != "missing" {
+				native := filepath.Join(root, payload)
+				if err := os.MkdirAll(filepath.Dir(native), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(executable, native); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := grokReviewExecutable(launcher)
+			if payload == "missing" {
+				if err == nil {
+					t.Fatal("script without native payload did not fail closed")
+				}
+			} else if err != nil || got != executable {
+				t.Fatalf("executable=%q err=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestGrokReviewSandboxBoundaries(t *testing.T) {
 	if os.Getenv("COSLASH_TEST_SANDBOX") == "1" {
 		check := func(ok bool, message string) {

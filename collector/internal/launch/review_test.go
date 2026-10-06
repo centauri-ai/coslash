@@ -351,12 +351,16 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 	}
 	t.Setenv("COSLASH_HOME", "coslash")
 	if runtime.GOOS == "darwin" {
-		if err := os.WriteFile(filepath.Join(root, "grok"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(executable, filepath.Join(root, "grok")); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("PATH", root)
 	}
-	got, err := reviewCLICommand(vendors.AgentGrok, root, "name", prompt)
+	got, err := reviewCLICommand(vendors.AgentGrok, ".", "name", prompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +382,11 @@ func TestGrokReviewCommandIsolatesTheSession(t *testing.T) {
 	body, err := os.ReadFile(path)
 	wantPrompt := prompt + "\nUse the supplied worktree snapshot for the review. Read the contents of untracked files named in git status with the file reader. Do not run shell commands.\n"
 	if runtime.GOOS == "darwin" {
-		wantPrompt += fmt.Sprintf("\nThe selected worktree is %q. Use absolute paths to read its files; the current directory is private review scratch.\n", root)
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantPrompt += fmt.Sprintf("\nThe selected worktree is %q. Use absolute paths to read its files; the current directory is private review scratch.\n", resolvedRoot)
 	}
 	if err != nil || string(body) != wantPrompt {
 		t.Fatalf("prompt file = %q, err = %v", body, err)

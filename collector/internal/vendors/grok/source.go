@@ -103,11 +103,11 @@ func CollectContext(ctx context.Context, since int64) ([]*vendors.ParsedSession,
 	if err != nil {
 		return nil, nil, err
 	}
-	_, parentOf := sessionIndex(ctx, dirs)
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
 	if since > 0 {
+		_, parentOf := sessionIndex(ctx, dirs)
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		// A family is in the window when any member is recent, so a parent and its subagents stay together.
 		// Child summaries often omit parent_session_id; parent metadata or spawn events supply the link.
 		families := make(map[string]string, len(dirs))
