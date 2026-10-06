@@ -406,9 +406,10 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 }
 
 type serverServices struct {
-	queue         *syncv4.Queue
-	directedStore *directedhandoff.Store
-	onboardings   *onboardingManager
+	queue          *syncv4.Queue
+	directedStore  *directedhandoff.Store
+	onboardings    *onboardingManager
+	syncController *syncController
 }
 
 func newServer(
@@ -438,6 +439,9 @@ func newServer(
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
 	server.RegisterOnShutdown(service.onboardings.Close)
+	if service.syncController != nil {
+		server.RegisterOnShutdown(service.syncController.Stop)
+	}
 	if service.directedStore != nil {
 		server.RegisterOnShutdown(service.directedStore.Shutdown)
 	}
@@ -476,6 +480,13 @@ func routesWithOnboarding(
 			return
 		}
 		writeJSON(w, service.queue.UpdatePrompt())
+	})
+	api.HandleFunc("GET /api/sync/status", func(w http.ResponseWriter, _ *http.Request) {
+		if service.syncController == nil {
+			writeJSON(w, syncStatus{State: "not_connected", Sessions: map[string]string{}})
+			return
+		}
+		writeJSON(w, service.syncController.Status())
 	})
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
@@ -517,7 +528,11 @@ func routesWithOnboarding(
 		writeSettings(r.Context(), w, settingsStore.State())
 	})
 	api.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		wasPaused := settingsStore.State().Config.SyncPaused
 		handleSaveSettings(w, r, settingsStore, mgr, remoteManager)
+		if service.syncController != nil && wasPaused != settingsStore.State().Config.SyncPaused {
+			service.syncController.RequestPass("settings")
+		}
 	})
 	api.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
 		handleLaunch(w, r, settingsStore, remoteManager)

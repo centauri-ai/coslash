@@ -96,6 +96,15 @@ func (m *onboardingManager) runPairing(ctx context.Context, client *hubclient.Cl
 }
 
 func (m *onboardingManager) StartCheckIns(client *hubclient.Client) {
+	m.mu.Lock()
+	hooks := m.syncHooks
+	m.mu.Unlock()
+	if hooks != nil {
+		if err := hooks.Ensure(client); err != nil {
+			log.Printf("start Hub sync: %v", err)
+		}
+		return
+	}
 	if client == nil || client.BaseURL == nil || client.Credentials == nil {
 		return
 	}

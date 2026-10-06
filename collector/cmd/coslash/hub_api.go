@@ -139,7 +139,7 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 			return
 		}
 		if result.State == "paired" && onboardings != nil {
-			onboardings.StartCheckIns(client)
+			onboardings.ensureSync(client)
 		}
 		writeJSON(w, result)
 	})
