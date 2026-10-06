@@ -23,7 +23,8 @@ func TestGrokWindowsWaitingAndEntrypoint(t *testing.T) {
 	}{
 		{name: "plan approval", pid: os.Getpid(), plan: `{"awaiting_plan_approval":true}`, entrypoint: "grok-cli", status: "waiting"},
 		{name: "tool permission", pid: os.Getpid(), updates: `{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"p1","title":"run_terminal_cmd","status":"pending"}}}`, entrypoint: "grok-cli", status: "waiting"},
-		{name: "running tool", pid: os.Getpid(), updates: `{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"p1","title":"run_terminal_cmd","status":"pending"}}}` + "\n" + `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1","status":"in_progress"}}}`, entrypoint: "grok-cli"},
+		{name: "metadata tool permission", pid: os.Getpid(), updates: `{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"p1","title":"run_terminal_command"},"_meta":{"updateParams":{"status":"Pending"}}}}`, entrypoint: "grok-cli", status: "waiting"},
+		{name: "running tool", pid: os.Getpid(), updates: `{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"p1","title":"run_terminal_cmd","status":"pending"}}}` + "\n" + `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1","status":"in_progress"}}}`, entrypoint: "grok-cli", status: "busy"},
 		{name: "user question", pid: os.Getpid(), updates: `{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"q1","title":"ask_user_question"}}}`, entrypoint: "grok-cli", status: "waiting"},
 		{name: "exited plan approval", pid: process.Process.Pid, plan: `{"awaiting_plan_approval":true}`, entrypoint: "grok-cli"},
 		{name: "exited user question", pid: process.Process.Pid, updates: `{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"q1","title":"ask_user_question"}}}`, entrypoint: "grok-cli"},
