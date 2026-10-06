@@ -46,7 +46,10 @@ func TestStoredHubURLContainsOnlyAValidatedHubOrigin(t *testing.T) {
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("Hub address file permissions=%#o", info.Mode().Perm())
 	}
-	for _, invalid := range []string{"https://beta.coslash.io/path", "https://evil.example", "http://evil.example"} {
+	if err := writeStoredHubURL("https://hub.staging.example"); err != nil {
+		t.Fatalf("write custom HTTPS Hub origin: %v", err)
+	}
+	for _, invalid := range []string{"https://beta.coslash.io/path", "http://evil.example"} {
 		if err := writeStoredHubURL(invalid); err == nil {
 			t.Fatalf("writeStoredHubURL(%q) succeeded", invalid)
 		}

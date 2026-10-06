@@ -3,6 +3,8 @@ package hubclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -110,6 +112,95 @@ func TestBeginOnboardingPairingKeepsAuthorizationMaterialInsideLocal(t *testing.
 	client.pairingMu.Unlock()
 	if !ok || secret.deviceCode != "private-device-code" || secret.credential != "" {
 		t.Fatalf("local pairing secret=%#v found=%t", secret, ok)
+	}
+}
+
+func TestClaimOnboardingCodeKeepsCodeAndAuthorizationMaterialInMemory(t *testing.T) {
+	credentials := &memoryCredentials{}
+	var claimBody map[string]string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/device-onboarding-codes/claim" {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+		if err := json.NewDecoder(request.Body).Decode(&claimBody); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"10000000-0000-4000-8000-000000000152","deviceCode":"private-device-code","expiresAt":"2099-01-01T00:00:00Z","intervalSeconds":2}`))
+	}))
+	defer hub.Close()
+	base, _ := url.Parse(hub.URL)
+	client := Client{BaseURL: base, Credentials: credentials, DeviceName: "Nia’s Mac", HTTP: hub.Client()}
+	pairing, err := client.ClaimOnboardingCode(context.Background(), "k7qx-29pd")
+	if err != nil || pairing.State != "pending" || pairing.PairingID != "10000000-0000-4000-8000-000000000152" {
+		t.Fatalf("pairing=%#v error=%v", pairing, err)
+	}
+	if claimBody["connectCode"] != "K7QX-29PD" || claimBody["deviceName"] != "Nia’s Mac" || len(claimBody) != 2 {
+		t.Fatalf("claim body=%#v", claimBody)
+	}
+	client.pairingMu.Lock()
+	secret, ok := client.pairings[pairing.PairingID]
+	client.pairingMu.Unlock()
+	if !ok || secret.deviceCode != "private-device-code" || secret.credential != "" {
+		t.Fatalf("local pairing secret=%#v found=%t", secret, ok)
+	}
+}
+
+func TestClaimOnboardingCodeDistinguishesInvalidAndUnsupported(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		problem string
+		want    error
+	}{
+		{name: "invalid code", problem: "connect_code_invalid", want: ErrConnectCodeInvalid},
+		{name: "old Hub", problem: "not_found", want: ErrConnectUnsupported},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = fmt.Fprintf(w, `{"code":%q}`, test.problem)
+			}))
+			defer hub.Close()
+			base, _ := url.Parse(hub.URL)
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{}, HTTP: hub.Client()}
+			_, err := client.ClaimOnboardingCode(context.Background(), "K7QX-29PD")
+			if !errors.Is(err, test.want) {
+				t.Fatalf("ClaimOnboardingCode error=%v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestClaimOnboardingCodeRejectsMalformedCodeBeforeRequest(t *testing.T) {
+	called := false
+	hub := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	defer hub.Close()
+	base, _ := url.Parse(hub.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, HTTP: hub.Client()}
+	if _, err := client.ClaimOnboardingCode(context.Background(), "K7QX-29PI"); err == nil || called {
+		t.Fatalf("ClaimOnboardingCode malformed code error=%v called=%t", err, called)
+	}
+}
+
+func TestConnectPairingReportsDeclinedApproval(t *testing.T) {
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/device-authorizations/token" {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":"onboarding_declined"}`))
+	}))
+	defer hub.Close()
+	base, _ := url.Parse(hub.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, HTTP: hub.Client(), pairings: map[string]pairingSecret{
+		"10000000-0000-4000-8000-000000000152": {deviceCode: "device-code", expiresAt: time.Now().Add(time.Minute)},
+	}}
+	result, err := client.PollPairing(context.Background(), "10000000-0000-4000-8000-000000000152")
+	if err != nil || result.State != "declined" {
+		t.Fatalf("pairing result=%#v error=%v", result, err)
 	}
 }
 
