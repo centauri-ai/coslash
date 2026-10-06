@@ -12,6 +12,57 @@ fail() {
   exit 1
 }
 
+stop_existing_coslash_servers() {
+  command -v pgrep >/dev/null 2>&1 || fail "pgrep is required to find a running coSlash Local server"
+  command -v lsof >/dev/null 2>&1 || fail "lsof is required to identify running coSlash Local servers"
+
+  local uid pid executable is_coslash attempt coslash_pid
+  local -a coslash_pids=()
+  local -a remaining_pids=()
+  uid="$(id -u)"
+
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    if ! lsof -nP -a -p "$pid" -iTCP -sTCP:LISTEN >/dev/null 2>&1; then
+      continue
+    fi
+    executable="$(lsof -nP -a -p "$pid" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
+    executable="${executable% (deleted)}"
+    [[ "$(basename "$executable")" == "coslash" ]] || fail "could not verify the listener process (PID $pid); no processes were stopped"
+    coslash_pids+=("$pid")
+  done < <(pgrep -u "$uid" -x coslash || true)
+
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    is_coslash=0
+    for coslash_pid in "${coslash_pids[@]}"; do
+      if [[ "$pid" == "$coslash_pid" ]]; then
+        is_coslash=1
+        break
+      fi
+    done
+    ((is_coslash)) || fail "port 8787 is in use by PID $pid, which is not a verified coSlash Local server; no processes were stopped"
+  done < <(lsof -nP -t -iTCP:8787 -sTCP:LISTEN 2>/dev/null | sort -u || true)
+
+  ((${#coslash_pids[@]})) || return 0
+  printf 'Stopping %d running coSlash Local server(s)…\n' "${#coslash_pids[@]}"
+  for pid in "${coslash_pids[@]}"; do
+    kill -TERM "$pid" 2>/dev/null || fail "could not stop coSlash Local PID $pid; the selected binary was not replaced"
+  done
+
+  for attempt in {1..50}; do
+    remaining_pids=()
+    for pid in "${coslash_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        remaining_pids+=("$pid")
+      fi
+    done
+    ((${#remaining_pids[@]} == 0)) && return 0
+    sleep 0.2
+  done
+  fail "coSlash Local did not stop after SIGTERM; no binary was replaced"
+}
+
 while (($#)); do
   case "$1" in
     --branch)
@@ -35,6 +86,7 @@ Usage: install-branch.sh [--branch NAME] [--connect CODE --hub ORIGIN]
 
 Builds coSlash Local from a GitHub source branch. Requires Git, Go 1.26+,
 Node 24+, npm, and make. The default branch is hlu/hub-support.
+Stops verified running coSlash Local servers before replacing the selected binary.
 USAGE
       exit 0
       ;;
@@ -93,6 +145,7 @@ make -C "$work_dir/source/collector" release VERSION=0.0.0
 binary="$work_dir/source/collector/bin/coslash"
 "$binary" connect --help >/dev/null 2>&1 || fail "branch $branch does not include the Hub connect command"
 
+stop_existing_coslash_servers
 mkdir -p "$install_dir"
 install -m 0755 "$binary" "$install_dir/coslash"
 printf 'Installed coSlash Local from %s (%s) to %s/coslash\n' "$branch" "$commit" "$install_dir"
