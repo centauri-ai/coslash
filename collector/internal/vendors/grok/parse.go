@@ -392,7 +392,7 @@ func (r *updatesSummary) noteTool(id, title, status string) {
 		return
 	}
 	switch status {
-	case "completed", "failed", "cancelled":
+	case "completed", "failed", "cancelled", "in_progress":
 		delete(r.pendingTools, id)
 		return
 	case "pending":
@@ -422,7 +422,7 @@ func isGrokUserQuestion(title string) bool {
 func grokEntrypoint(kind string, nonInteractive bool) *string {
 	value := "grok-cli"
 	switch {
-	case kind == "subagent":
+	case isSubagentKind(kind):
 		value = "grok-subagent"
 	case kind == "headless" || nonInteractive:
 		value = "grok-headless"
