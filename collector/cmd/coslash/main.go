@@ -334,7 +334,8 @@ func main() {
 				if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
 					resume = inventory.DecodeCursor(saved)
 				}
-				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume}) {
+				_, config, _ := queue.Policy()
+				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume, MinActivityMs: syncv4.DiscoveryMinActivity(config.ImportPlan, time.Now())}) {
 					if err != nil {
 						return err
 					}
