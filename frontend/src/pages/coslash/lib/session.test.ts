@@ -26,6 +26,9 @@ describe('getModality', () => {
     expect(getModality('opencode-desktop')).toBe('Desktop');
     expect(getModality('opencode-cli')).toBe('CLI');
     expect(getModality('cli')).toBe('Interactive');
+    expect(getModality('grok-cli')).toBe('CLI');
+    expect(getModality('grok-headless')).toBe('Headless');
+    expect(getModality('grok-subagent')).toBe('Subagent');
   });
 });
 

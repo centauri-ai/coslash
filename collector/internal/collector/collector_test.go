@@ -131,6 +131,25 @@ func TestApplyActivityFallbacksKeepsPortableTimingDeterministic(t *testing.T) {
 	}
 }
 
+func TestGrokWaitingStaysOnlyWhileTheProcessIsLive(t *testing.T) {
+	waiting := "waiting"
+	root := &vendors.ParsedSession{Session: &session.Session{
+		Agent: vendors.AgentGrok, ID: "plan", Status: &waiting,
+	}}
+	metadata := vendors.EmptySessionMetadata()
+	metadata.LivenessChecked = true
+	resolveStatus([]*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}, true, true)
+	if root.Session.Status != nil {
+		t.Fatal("dead Grok session stayed waiting")
+	}
+	root.Session.Status = &waiting
+	metadata.Session("plan").Live = "interactive"
+	resolveStatus([]*vendors.ParsedSession{root}, map[string]*vendors.SessionMetadata{vendors.AgentGrok: metadata}, true, true)
+	if root.Session.Status == nil || *root.Session.Status != "waiting" {
+		t.Fatalf("live Grok status = %#v", root.Session.Status)
+	}
+}
+
 func TestResolveStatusClearsWaitingForClosedSession(t *testing.T) {
 	waiting := "waiting"
 	root := &vendors.ParsedSession{Session: &session.Session{
