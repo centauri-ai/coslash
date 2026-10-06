@@ -162,8 +162,8 @@ Read [Data and privacy](docs/data-and-privacy.md) before you point coSlash at se
 | `coslash --version` | Print the version. |
 | `coslash sessions [query] --json` | List local sessions as JSON. The query filters by title, repository, branch, or agent. An exact session ID or `<agent>:<session>` selector returns only that session. |
 | `coslash handoff <agent>:<session>` | Print the handoff Markdown for a selector from `coslash sessions`. |
-| `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi [message]` | Start the target agent in the working directory of the session, with the handoff and an optional first task. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
-| `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor\|pi` | Start a review of a local session with an installed agent. |
+| `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi\|grok [message]` | Start the target agent in the working directory of the session, with the handoff and an optional first task. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
+| `coslash review <agent>:<session> --with claude\|codex\|opencode\|cursor\|pi\|grok` | Start a review of a local session with an installed agent. |
 | `coslash doctor` | Check session sources, agent CLIs, and local storage. |
 | `coslash doctor --json` | Print the same diagnostics as JSON, as a shareable report. |
 
@@ -185,13 +185,20 @@ codex plugin marketplace add centauri-ai/coslash --ref stable
 codex plugin add coslash@centauri-ai
 ```
 
-Or for Cursor CLI and OpenCode:
+Or for Grok:
 
 ```sh
-npx skills@latest add centauri-ai/coslash -g -a cursor -a opencode --skill '*' -y
+grok plugin install centauri-ai/coslash@stable#plugins/coslash --trust
+grok plugin enable coslash
 ```
 
-The skills call the `coslash` executable, so it must be on `PATH`. The `sessions`, `handoff`, `send`, and `review` skills start the app when it is stopped. `doctor` works without starting it. The `stable` branch moves with each stable release. When you update coSlash, update the skills too: `claude plugin marketplace update centauri-ai` then `claude plugin update coslash@centauri-ai`, `codex plugin marketplace upgrade`, or `npx skills@latest update -g`.
+Or for Cursor CLI, OpenCode, and Pi:
+
+```sh
+npx skills@latest add centauri-ai/coslash -g -a cursor -a opencode -a pi --skill '*' -y
+```
+
+The skills call the `coslash` executable, so it must be on `PATH`. The `sessions`, `handoff`, `send`, and `review` skills start the app when it is stopped. `doctor` works without starting it. The `stable` branch moves with each stable release. When you update coSlash, update the skills too: `claude plugin marketplace update centauri-ai` then `claude plugin update coslash@centauri-ai`, `codex plugin marketplace upgrade`, `grok plugin update coslash`, or `npx skills@latest update -g`. On Windows, if `npx skills` fails on a symlink, rerun the same command with `--copy`.
 
 If you use a custom `COSLASH_HOME` with Codex, a `shell_environment_policy` in `~/.codex/config.toml` can drop it. Set it under `[shell_environment_policy.set]` as `COSLASH_HOME = "<path>"`. `coslash doctor --json` shows the `storage.home` that the skills use.
 

@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "coslash",
-      "description": "Use coSlash sessions, handoffs, agent launches, and diagnostics from Claude Code.",
+      "description": "Use coSlash sessions, handoffs, agent launches, and diagnostics.",
       "source": "./plugins/coslash",
       "category": "productivity"
     }
