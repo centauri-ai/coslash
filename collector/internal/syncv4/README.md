@@ -33,10 +33,16 @@ locally done.
 
 With `scale-import/v1`, a device waits for `config.importPlan` before creating
 uploads or listing sessions. The plan's window and history choice set the scope.
+For a bounded plan, Local selects the newest eligible families, applies the
+per-agent limit, then applies the overall `maxSessions` limit. Older families
+remain local. The stat-only inventory still covers the device, while discovery
+parses only families within the requested window.
 Warm start selects in-window sessions within its time budget, one completed
 session at a time. The first selection is at most 25 MiB. Local then lists
 remaining metadata in batches of at most 50 before transferring window content
-newest first and history content newest first. A `prioritize` command moves a
+with non-Cursor sources first and history content newest first. Cursor source
+preparation has a bounded attempt and retries with backoff after a timeout.
+A `prioritize` command moves a
 listed session to the front, including a history session while history is
 paused. Live sources wait for two minutes without a change or for the session
 to end before a changed revision is sent. The chunk path sends at most four
