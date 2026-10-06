@@ -81,6 +81,11 @@ type updateLine struct {
 				HideFromScrollback bool `json:"hideFromScrollback"`
 			} `json:"_meta"`
 		} `json:"update"`
+		Meta struct {
+			UpdateParams struct {
+				Status string `json:"status"`
+			} `json:"updateParams"`
+		} `json:"_meta"`
 	} `json:"params"`
 }
 
@@ -328,6 +333,10 @@ func readUpdates(ctx context.Context, path string) (updatesSummary, error) {
 			continue
 		}
 		update := line.Params.Update
+		if update.Status == "" {
+			update.Status = line.Params.Meta.UpdateParams.Status
+		}
+		update.Status = strings.ToLower(update.Status)
 		if update.Kind == "tool_call_update" {
 			result.noteTool(update.ToolCallID, update.Title, update.Status)
 			// The diff repeats on the update that completes the call, so count only that one.
@@ -392,7 +401,7 @@ func (r *updatesSummary) noteTool(id, title, status string) {
 		return
 	}
 	switch status {
-	case "completed", "failed", "cancelled", "in_progress":
+	case "completed", "failed", "cancelled", "in_progress", "inprogress":
 		delete(r.pendingTools, id)
 		return
 	case "pending":

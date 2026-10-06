@@ -496,6 +496,36 @@ func TestGrokEntrypointAndWaiting(t *testing.T) {
 	}
 }
 
+func TestGrokToolPermissionMetadataStatus(t *testing.T) {
+	const pending = `{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"p1","title":"run_terminal_command","rawInput":{"command":"echo TOOL_PR432_OK"}},"_meta":{"updateParams":{"status":"Pending"}}}}`
+	for _, tt := range []struct {
+		name, update string
+		waiting      bool
+	}{
+		{"permission prompt", "", true},
+		{"execution starts", `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1"},"_meta":{"updateParams":{"status":"InProgress"}}}}`, false},
+		{"completed", `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1"},"_meta":{"updateParams":{"status":"Completed"}}}}`, false},
+		{"failed", `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1"},"_meta":{"updateParams":{"status":"Failed"}}}}`, false},
+		{"cancelled", `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1"},"_meta":{"updateParams":{"status":"Cancelled"}}}}`, false},
+		{"primary status wins", `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1","status":"in_progress"},"_meta":{"updateParams":{"status":"Pending"}}}}`, false},
+		{"unknown status preserves wait", `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p1"},"_meta":{"updateParams":{"status":"Unknown"}}}}`, true},
+		{"other tool preserves wait", `{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"p2"},"_meta":{"updateParams":{"status":"Completed"}}}}`, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeSummary(t, dir, `{"info":{"id":"permission","cwd":"C:\\Work Repo"},"chat_format_version":1}`)
+			writeUpdates(t, dir, []string{pending, tt.update})
+			parsed, err := parseSession(dir)
+			if err != nil || parsed == nil {
+				t.Fatalf("parseSession = %#v, err = %v", parsed, err)
+			}
+			if waiting := parsed.Session.Status != nil && *parsed.Session.Status == "waiting"; waiting != tt.waiting {
+				t.Fatalf("status = %s, want waiting = %v", stringValue(parsed.Session.Status), tt.waiting)
+			}
+		})
+	}
+}
+
 func writeUpdates(t *testing.T, dir string, lines []string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "updates.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
