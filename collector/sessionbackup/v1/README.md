@@ -26,7 +26,7 @@ records per-source evidence, build gaps, and the v4 compatibility boundary.
 | Kind | Source bytes | Local Codex | SSH Codex | Completeness rule |
 | --- | --- | --- | --- | --- |
 | `raw-transcript` | Exact rollout JSONL for each family member under `.codex/sessions` or `.codex/archived_sessions` | Read every discovered family rollout from both trees | Read every discovered family rollout from both trees during freeze | Exactly one per discovered rollout; an absent, unreadable, malformed, or changing discovered file blocks completion |
-| `raw-sidecar` | Every exactly attributed `session_index.jsonl` row whose `id` is a family member | Project matching rows when the file exists | Project matching rows when the file exists | Preserve repeated matching rows verbatim in one member sidecar; malformed, unidentifiable, unreadable, or over-bound row data blocks completion because it might belong to a member |
+| `raw-sidecar` | Every exactly attributed `session_index.jsonl` row whose `id` is a family member or hidden guardian | Project matching rows when the file exists | Project matching rows when the file exists | Preserve repeated matching rows verbatim in one member sidecar; malformed, unidentifiable, unreadable, or over-bound row data blocks completion because it might belong to a member |
 | `raw-metadata-rows` | Not a Codex v1 input | Prohibited | Prohibited | Codex v1 has no shared SQLite artifact; `session_index.jsonl` is its only shared metadata source |
 | `parsed-session-record` | Canonical `full-session-record/v1` | Required for every represented member | Same | Exactly one per declared member; it must match source, agent, member identity, lineage, and revision |
 | `exact-change-body` | Exact UTF-8 body keyed by the parsed record's change ID | Present for every parsed change | Same | Bytes must equal the body in the referenced parsed record |
@@ -37,9 +37,12 @@ Codex's guardian (auto-review) subagent rollouts are hidden from the product,
 so they have no card, member, or parsed record. Each is still a discovered
 family rollout: its exact bytes are a `raw-transcript` artifact of the nearest
 represented ancestor it reviewed and count toward that member's source
-revision. The rollout's own header and the parser must agree that it is
-hidden, and it must have no `session_index.jsonl` row; otherwise completion
-is blocked.
+revision. Any exactly attributed `session_index.jsonl` rows for a guardian
+are retained verbatim in a separate `raw-sidecar` artifact of that same ancestor and count
+toward its source revision. The guardian ID distinguishes its sidecar from the
+ancestor's own sidecar; guardian names never become ancestor metadata. The
+rollout's own header and the parser must agree that it is hidden; otherwise
+completion is blocked.
 
 The fixture includes every Codex v1 input kind, root and child parsed records,
 two exact change bodies, both enrichment branches, and a persisted synthesis
