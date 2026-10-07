@@ -76,6 +76,12 @@ if [[ -z "$base_url" ]]; then
 fi
 echo "server ready on $base_url ($mode mode)"
 
+ui_url=$(env HOME="$smoke_home" "$binary" ui-url)
+if [[ "$ui_url" != "$base_url/#t=$token" ]] || grep -Fq "$token" "$server_log"; then
+  echo "error: ui-url did not return the authenticated URL or startup logged the token" >&2
+  exit 1
+fi
+
 expect_status() {
   local path=$1
   local expected=$2

@@ -112,7 +112,7 @@ func main() {
 			}
 			fmt.Println("SSH authentication ready; return to coSlash.")
 			return
-		case "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
+		case "connect", "sessions", "handoff", "send", "review", "doctor", "mcp", "ui-url":
 			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
 		}
 	}
