@@ -132,7 +132,7 @@ Subagents appear on a rail under the parent that spawned them, with their model,
 
 Per-model token breakdowns including cache reads and writes, estimated cost at list API prices, and totals rolled up per branch, per repo, and across the whole window. Models with no verified price are excluded from the total and flagged rather than guessed at, so the number is never quietly wrong. OpenCode sessions report their recorded cost instead of an estimate.
 
-**Insights** shows one month at a time: the agents and models in use, the top repositories, and sessions per day. Its cost panel separates the coding cost of sessions last active in that month from the cost of synthesis runs that started in that month, and adds the known amounts together. In the inspector, **Synthesis rounds** lists each synthesis run for that session with its model, tokens, and cost. Synthesis cost history stays in `~/.coslash` and covers local runs only.
+**Insights** shows one month at a time: the agents and models in use, the top repositories, and sessions per day. Its cost panel separates the coding cost of sessions last active in that month from the cost of synthesis runs that started in that month, and adds the known amounts together. In the inspector, **Synthesis rounds** lists each synthesis run for that session with its model, tokens, and cost. Synthesis cost history stays under `COSLASH_HOME` (default `~/.coslash`) and covers local runs only.
 
 ![Board rollup of token and cost totals per repository and branch](docs/media/cost.png)
 
