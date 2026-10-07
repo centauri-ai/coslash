@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"reflect"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -26,6 +28,46 @@ func (r *commandRelay) ApplySettings(next *settings.RemoteSettings) error {
 	return r.applyErr
 }
 func (r *commandRelay) UninstallHelper(context.Context) error { r.uninstalls++; return r.uninstallErr }
+
+func TestSSHInstallPersistsMissingSettings(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	if local.State().Persisted {
+		t.Fatal("settings already exist")
+	}
+	if err := configureCommandSSHHost(context.Background(), local, &commandRelay{}, "11111111-2222-3333-4444-555555555555", "agent-box"); err != nil {
+		t.Fatal(err)
+	}
+	state := settings.Open().State()
+	if !state.Valid || !state.Persisted || state.Config.Remote == nil {
+		t.Fatalf("persisted settings=%+v", state)
+	}
+	if state.Config.Remote.ID == "" || state.Config.Remote.SSHAlias != "agent-box" || !state.Config.Remote.Enabled {
+		t.Fatalf("persisted host=%+v", state.Config.Remote)
+	}
+	state.Config.Remote = nil
+	if !reflect.DeepEqual(state.Config, settings.Defaults()) {
+		t.Fatalf("defaults changed: %+v", state.Config)
+	}
+}
+
+func TestSSHInstallRejectsInvalidSettings(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	const invalid = "invalid settings"
+	if err := os.WriteFile(settings.Path(), []byte(invalid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := configureCommandSSHHost(context.Background(), settings.Open(), &commandRelay{}, "11111111-2222-3333-4444-555555555555", "agent-box"); err == nil {
+		t.Fatal("invalid settings accepted")
+	}
+	data, err := os.ReadFile(settings.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != invalid {
+		t.Fatal("invalid settings overwritten")
+	}
+}
 
 func TestSSHInstallConfiguresOnlyConfirmedLocalHost(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
