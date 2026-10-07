@@ -299,7 +299,7 @@ func TestPrepareRejectsSkippedInventory(t *testing.T) {
 // its exact bytes, with the member it reviewed, without changing that
 // member's portable record.
 func TestPrepareRetainsHiddenGuardianRolloutWithReviewedMember(t *testing.T) {
-	home, workspace := writeFamilyFixture(t, 0)
+	home, _ := writeFamilyFixture(t, 0)
 	prepare := func() (*Prepared, string) {
 		spool := t.TempDir()
 		manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
@@ -325,17 +325,40 @@ func TestPrepareRetainsHiddenGuardianRolloutWithReviewedMember(t *testing.T) {
 	withoutGuardian, _ := prepare()
 
 	guardianFile := familyFile(home, false, testGuardianID)
-	guardianBytes := guardianRollout(testGuardianID, testRootID, workspace)
+	guardianFixture, err := os.ReadFile("testdata/guardian.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardianBytes := string(guardianFixture)
 	writeRollout(t, guardianFile, guardianBytes)
+	withoutIndex, _ := prepare()
+	indexRows := []byte(fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Fixture review\"}\r\n", testGuardianID))
+	indexRows = append(indexRows, indexRows...)
+	index, err := os.OpenFile(codex.SessionIndexPath(home), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = index.Write(indexRows)
+	if closeErr := index.Close(); err != nil || closeErr != nil {
+		t.Fatal(err, closeErr)
+	}
 	withGuardian, spool := prepare()
 
 	if len(withGuardian.Manifest.Members) != 2 {
 		t.Fatalf("members = %#v, want only the represented root and child", withGuardian.Manifest.Members)
 	}
 	var rootRollouts []string
+	var guardianSidecars int
 	for _, artifact := range withGuardian.Manifest.Artifacts {
 		if artifact.MemberID == testGuardianID {
 			t.Fatalf("hidden guardian became artifact member: %#v", artifact)
+		}
+		if artifact.Kind == sessionbackupv1.KindRawSidecar && artifact.SourceKey == "session_index-"+testGuardianID {
+			data, err := os.ReadFile(filepath.Join(spool, withGuardian.BundleID, filepath.FromSlash(artifact.LogicalName)))
+			if err != nil || artifact.MemberID != testRootID || !bytes.Equal(data, indexRows) {
+				t.Fatalf("guardian sidecar = %#v, %q, %v", artifact, data, err)
+			}
+			guardianSidecars++
 		}
 		if artifact.MemberID == testRootID && artifact.Kind == sessionbackupv1.KindRawTranscript {
 			rootRollouts = append(rootRollouts, artifact.LogicalName)
@@ -349,7 +372,7 @@ func TestPrepareRetainsHiddenGuardianRolloutWithReviewedMember(t *testing.T) {
 		}
 		retained = retained || string(data) == guardianBytes
 	}
-	if len(rootRollouts) != 2 || !retained {
+	if len(rootRollouts) != 2 || !retained || guardianSidecars != 1 {
 		t.Fatalf("root raw transcripts = %q, want its own rollout plus the exact guardian rollout", rootRollouts)
 	}
 	if got, want := rootRecordRevision(withGuardian.Manifest), rootRecordRevision(withoutGuardian.Manifest); got == "" || got != want {
@@ -358,48 +381,64 @@ func TestPrepareRetainsHiddenGuardianRolloutWithReviewedMember(t *testing.T) {
 	if withGuardian.Manifest.Members[0].SourceRevision == withoutGuardian.Manifest.Members[0].SourceRevision {
 		t.Fatal("root source revision ignores the retained guardian bytes")
 	}
+	if withGuardian.Manifest.Members[0].SourceRevision == withoutIndex.Manifest.Members[0].SourceRevision {
+		t.Fatal("root source revision ignores the retained guardian index rows")
+	}
 }
 
-func TestPrepareBlocksHiddenGuardianInputsItCannotAttribute(t *testing.T) {
-	for name, test := range map[string]struct {
-		rollout, indexRow, code, kind string
-	}{
-		"session index row for the hidden rollout": {
-			rollout:  guardianRollout(testGuardianID, testRootID, "/fixture/workspace"),
-			indexRow: fmt.Sprintf("{\"id\":%q,\"thread_name\":\"Fixture review\"}\n", testGuardianID),
-			code:     sessionbackupv1.ProblemUnattributable, kind: sessionbackupv1.KindRawSidecar,
-		},
-		"parser keeps a rollout the header hid": {
-			rollout: guardianRollout(testGuardianID, testRootID, "/fixture/workspace") + fmt.Sprintf(
-				"{\"timestamp\":\"2026-08-18T10:00:10.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":%q,\"session_id\":%q,\"parent_thread_id\":%q}}\n",
-				testGuardianID, testGuardianID, testRootID),
-			code: sessionbackupv1.ProblemInvalid, kind: sessionbackupv1.KindParsedSessionRecord,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			home, _ := writeFamilyFixture(t, 0)
-			writeRollout(t, familyFile(home, false, testGuardianID), test.rollout)
-			if test.indexRow != "" {
-				index, err := os.OpenFile(codex.SessionIndexPath(home), os.O_APPEND|os.O_WRONLY, 0)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, err = index.WriteString(test.indexRow)
-				if closeErr := index.Close(); err != nil || closeErr != nil {
-					t.Fatal(err, closeErr)
-				}
-			}
-			manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
-				return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
-			}})
-			prepared, err := manager.Prepare(t.Context(), localSelection())
-			var preparation *PreparationError
-			if prepared != nil || !errors.As(err, &preparation) || len(preparation.Coverage.Problems) != 1 ||
-				preparation.Coverage.Problems[0].Code != test.code || preparation.Coverage.Problems[0].Kind != test.kind {
-				t.Fatalf("prepared=%#v error=%#v, want %s %s", prepared, err, test.code, test.kind)
-			}
-		})
+func TestPrepareBlocksGuardianHeaderParserMismatch(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	rollout := guardianRollout(testGuardianID, testRootID, "/fixture/workspace") + fmt.Sprintf(
+		"{\"timestamp\":\"2026-08-18T10:00:10.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":%q,\"session_id\":%q,\"parent_thread_id\":%q}}\n",
+		testGuardianID, testGuardianID, testRootID)
+	writeRollout(t, familyFile(home, false, testGuardianID), rollout)
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), localSelection())
+	var preparation *PreparationError
+	if prepared != nil || !errors.As(err, &preparation) || len(preparation.Coverage.Problems) != 1 ||
+		preparation.Coverage.Problems[0].Code != sessionbackupv1.ProblemInvalid ||
+		preparation.Coverage.Problems[0].Kind != sessionbackupv1.KindParsedSessionRecord {
+		t.Fatalf("prepared=%#v error=%#v, want invalid parsed record", prepared, err)
 	}
+}
+
+func TestPrepareAttributesGuardianSidecarToReviewedChild(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	fixture, err := os.ReadFile("testdata/guardian.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRollout(t, familyFile(home, false, testGuardianID), strings.ReplaceAll(string(fixture), testRootID, testChildID))
+	index, err := os.OpenFile(codex.SessionIndexPath(home), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fmt.Fprintf(index, "{\"id\":%q,\"thread_name\":\"Fixture review\"}\n", testGuardianID)
+	if closeErr := index.Close(); err != nil || closeErr != nil {
+		t.Fatal(err, closeErr)
+	}
+	spool := t.TempDir()
+	manager := New(Options{Root: spool, OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), localSelection())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessionbackupv1.VerifyDirectory(filepath.Join(spool, prepared.BundleID)); err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range prepared.Manifest.Artifacts {
+		if artifact.Kind == sessionbackupv1.KindRawSidecar && artifact.SourceKey == "session_index-"+testGuardianID {
+			if artifact.MemberID != testChildID {
+				t.Fatalf("guardian sidecar owner = %q, want reviewed child", artifact.MemberID)
+			}
+			return
+		}
+	}
+	t.Fatal("guardian sidecar missing")
 }
 
 func TestSynthesisIsRevisionBoundWithoutChangingPortableRecord(t *testing.T) {

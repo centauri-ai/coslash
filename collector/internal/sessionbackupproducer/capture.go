@@ -242,6 +242,7 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	// A hidden guardian rollout has no parsed record of its own, so its exact
 	// bytes belong to the nearest represented ancestor whose work it reviewed.
 	owners := make(map[string]string, len(familyFiles))
+	hiddenOwners := make(map[string]string, len(hiddenParents))
 	for _, file := range familyFiles {
 		owner := headers[file].SessionID
 		for steps := 0; !memberIDs[owner]; steps++ {
@@ -255,6 +256,9 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
 		}
 		owners[file] = owner
+		if headers[file].Hidden {
+			hiddenOwners[headers[file].SessionID] = owner
+		}
 	}
 	indexIDs := maps.Clone(memberIDs)
 	for id := range hiddenParents {
@@ -273,11 +277,6 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	indexRows, indexPresent, err := codex.ReadSessionIndexRowsContext(ctx, handle.Source, handle.Home, indexIDs)
 	if err != nil {
 		return nil, sourceReadFailure(err, sessionbackupv1.KindRawSidecar)
-	}
-	for id := range hiddenParents {
-		if len(indexRows[id]) > 0 {
-			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawSidecar, false)
-		}
 	}
 	if indexPresent != (len(indexBefore) == 1) {
 		return nil, captureFailure(sessionbackupv1.ProblemUnstable, sessionbackupv1.KindRawSidecar, true)
@@ -319,11 +318,17 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 		frozenFiles[file] = filepath.Join(staging, filepath.FromSlash(name))
 		rawEvidenceByMember[memberID] = append(rawEvidenceByMember[memberID], writes.evidence[name].SHA256)
 	}
-	for memberID, rows := range indexRows {
+	for sessionID, rows := range indexRows {
+		memberID, sourceKey := sessionID, "session_index"
 		name := fmt.Sprintf("members/%s/raw/session-index-row.jsonl", memberID)
+		if owner, hidden := hiddenOwners[sessionID]; hidden {
+			memberID = owner
+			sourceKey += "-" + sessionID
+			name = fmt.Sprintf("members/%s/raw/session-index-%s.jsonl", memberID, sessionID)
+		}
 		artifact := sessionbackupv1.Artifact{
 			LogicalName: name, MemberID: memberID, Source: sessionbackupv1.ArtifactSourceCodex,
-			Kind: sessionbackupv1.KindRawSidecar, SourceKey: "session_index", MediaType: "application/x-ndjson",
+			Kind: sessionbackupv1.KindRawSidecar, SourceKey: sourceKey, MediaType: "application/x-ndjson",
 			Encoding: sessionbackupv1.EncodingIdentity,
 		}
 		if err := writes.stream(ctx, artifact, func() (io.ReadCloser, error) {
