@@ -71,11 +71,11 @@ Remote Claude Code and Codex sessions support **Resume** and **Start fresh with 
 
 ### One board for every agent
 
-Sessions from every supported agent land in the same place, whether they came from a desktop app or a CLI. **List view** gives you a compact, title-first row per session with vendor, activity, machine, resume readiness, update time, and cost aligned for comparison. **Board view** groups sessions by repository and branch, with a column per state, so a repo with four parallel branches reads as four rows instead of a scroll.
+Sessions from every supported agent land in the same place, whether they came from a desktop app or a CLI. **Table view** gives you a compact, title-first row per session with vendor, activity, machine, resume readiness, update time, and cost aligned for comparison. **Board view** groups sessions by repository and branch, with a column per state, so a repo with four parallel branches reads as four rows instead of a scroll.
 
 Search by title, repo, branch, agent, prompt, recap, summary, goal, or synthesis. Filter by state, machine, vendor, folder, and time window, and sort by recency, title, or estimated cost. The list refreshes itself every minute, so statuses and "3 min ago" stay honest without a reload.
 
-![Switching from list view to board view, then searching to filter sessions to one repository](docs/media/list-and-board.gif)
+![Switching from table view to board view, then searching to filter sessions to one repository](docs/media/list-and-board.gif)
 
 ### States that tell you where to look
 
@@ -131,6 +131,8 @@ Subagents appear on a rail under the parent that spawned them, with their model,
 ### Tokens and cost you can actually audit
 
 Per-model token breakdowns including cache reads and writes, estimated cost at list API prices, and totals rolled up per branch, per repo, and across the whole window. Models with no verified price are excluded from the total and flagged rather than guessed at, so the number is never quietly wrong. OpenCode sessions report their recorded cost instead of an estimate.
+
+**Insights** shows one month at a time: the agents and models in use, the top repositories, and sessions per day. Its cost panel separates the coding cost of sessions last active in that month from the cost of synthesis runs that started in that month, and adds the known amounts together. In the inspector, **Synthesis rounds** lists each synthesis run for that session with its model, tokens, and cost. Synthesis cost history stays in `~/.coslash` and covers local runs only.
 
 ![Board rollup of token and cost totals per repository and branch](docs/media/cost.png)
 
