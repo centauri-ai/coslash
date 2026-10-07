@@ -5,7 +5,7 @@ The [README](../README.md#install) covers the normal install paths. Use this pag
 ## macOS
 
 ```sh
-VERSION="v0.0.1" # or the desired version tag
+VERSION="v0.2.0" # or the desired version tag
 ARCH="arm64"  # amd64 on Intel
 ASSET="coslash_${VERSION}_darwin_${ARCH}.tar.gz"
 BASE_URL="https://github.com/centauri-ai/coslash/releases/download/${VERSION}"

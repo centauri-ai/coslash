@@ -55,6 +55,22 @@ Pi synthesis uses your configured provider/model by default. Pin a provider-qual
 
 Pi provider failures recorded in the selected session branch appear as an Error badge in the inspector. Hover or focus the badge to read the diagnostic, then refresh credentials or change the model in Pi and retry. A successful assistant response clears the badge. Failures before Pi creates a transcript remain visible in the Pi terminal.
 
+## Grok sessions
+
+coSlash reads local Grok Build sessions on every platform. Grok synthesis, reviews, and handoffs into Grok work only on macOS and Windows. Remote Grok sessions are not supported.
+
+Run `coslash doctor` and inspect the Grok source and CLI checks. coSlash reads sessions from `$GROK_HOME`, or from `~/.grok` when `GROK_HOME` is not set. If you use a custom `GROK_HOME`, start coSlash with the same value. A session root that is not a directory shows as unreadable. coSlash reads only the current Grok chat format. Sessions in the legacy format are skipped.
+
+On Windows, coSlash finds `grok` on `PATH` or in `~/.grok/bin/grok.exe`.
+
+A session shows as live only when Grok lists its process in `active_sessions.json` and that process runs. Grok writes token usage and cost at the end of each turn. During an open turn, tokens, cost, and context fill show the last completed turn. If Grok marks the usage of a session as partial, coSlash shows no cost for it.
+
+Synthesis and reviews run in a separate Grok home that uses your existing Grok login. If they fail with a login error, log in to Grok in a terminal, then try again.
+
+Resume runs `grok --resume` with your `GROK_HOME`. In the inspector, a Grok session offers **Start fresh**, but not a review or custom request. Grok is still a valid destination for a handoff from another agent. On Windows, a handoff into Grok first runs one turn that loads the brief. That turn stays in the new session.
+
+On Windows, a Grok review can read files outside the worktree. Read [Data and privacy](data-and-privacy.md) before you use it.
+
 ## coSlash will not start
 
 A port conflict is reported in the terminal. Stop the other process or run:
@@ -82,6 +98,8 @@ Launching requires a recorded working directory, the agent CLI, and the terminal
 Cursor CLI **Resume** requires the `agent` command and restores the recorded session. **Open Cursor** for a Cursor IDE session requires the `cursor` command and only opens the recorded workspace; Cursor does not provide a way to restore that specific IDE chat.
 
 **Start fresh with handoff** offers installed agents on the source host, then sends a Review or custom request to the selected CLI. If Cursor asks you to trust the workspace, answer that prompt first; coSlash sends the handoff when the agent is ready.
+
+For Pi and Grok launch requirements, see [Pi sessions and runtime status](#pi-sessions-and-runtime-status) and [Grok sessions](#grok-sessions).
 
 Remote Resume and Start fresh require a live SSH connection and a recorded
 working directory. They are disabled while the host is offline; wait for it to

@@ -175,3 +175,23 @@ Without it, a failed invocation-completion write can recover as unknown usage.
 An accounting store that cannot open does not block startup or cached summaries,
 but cost reads return HTTP 503. An existing zero-byte database can initialize
 as a new store, losing earlier history without an unavailable response.
+
+## Pi and Grok support addendum - 2026-10-07
+
+Pi and Grok Build support is local-only on macOS and Windows. coSlash reads
+both transcript stores without modifying them. Both agents support resume,
+handoff and review destinations, local synthesis backends (`pi-cli` and
+`grok-cli`), and the coSlash agent skills. SSH collection does not include
+either agent, and Pi snapshot and full-session exports are unavailable.
+
+Pi reads transcript schema 3 and needs a managed extension, which coSlash
+installs on startup, for live status. Pi costs are pricing estimates, and
+verified forks exclude inherited spending. Grok reads `chat_format_version` 1
+from `$GROK_HOME` or `~/.grok`. Its live status comes from
+`active_sessions.json`, and its cost is the amount that Grok reports. A Grok
+source session offers Start fresh, but not a directed handoff. Grok synthesis
+and reviews run in an isolated Grok home that reuses the existing login. On
+Windows, a Grok review can read files outside the worktree.
+
+Vendor behavior and its evidence are in `docs/vendors/pi.md` and
+`docs/vendors/grok.md`. User-facing limits are in `docs/troubleshooting.md`.
