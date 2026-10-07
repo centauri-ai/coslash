@@ -25,8 +25,11 @@ Before releasing, perform this manual check on the packaged
    configured provider/model. Repeat Pi discovery with a custom session root
    and verify missing or unsupported CLI diagnostics.
    For Grok Build, confirm discovery, Resume, a handoff into Grok, a Grok
-   review, and synthesis. Repeat with `grok` only in `~/.grok/bin` and not on
-   `PATH`, and with a custom `GROK_HOME`.
+   review, and synthesis. Before running a Grok review on Windows, use a
+   trusted checkout or an isolated account: the Grok sandbox can read files
+   outside the worktree. Read [Data and privacy](data-and-privacy.md) first.
+   Repeat with `grok` only in `~/.grok/bin` and not on `PATH`, and with a custom
+   `GROK_HOME`.
 3. With a configured Linux OpenSSH destination, inspect `Get-Service ssh-agent`
    and `ssh-add.exe -l` without changing either. Authenticate through the UI,
    complete the native key-based prompt in Windows Terminal or Windows
