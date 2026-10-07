@@ -250,6 +250,7 @@ var cliCommandHelp = []struct {
 	{"status", "show sync health and optionally retry Hub sync", "coslash status [--json] [--retry]"},
 	{"hub", "connect to the Hub agent tools", hubUsage},
 	{"mcp", "configure the Hub MCP server", mcpUsage},
+	{"ui-url", "print the authenticated web UI URL", "coslash ui-url"},
 	{"version", "print the Local version", "coslash version"},
 }
 
@@ -333,6 +334,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 			fmt.Fprintln(stdout, hubUsage)
 		case "mcp":
 			fmt.Fprintln(stdout, mcpUsage)
+		case "ui-url":
+			fmt.Fprintln(stdout, "usage: coslash ui-url")
 		default:
 			return 2
 		}
@@ -358,6 +361,8 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		err = runHubCLI(stdout, args[1:])
 	case "mcp":
 		err = runMCP(stdout, args[1:])
+	case "ui-url":
+		err = runUIURL(stdout, args[1:])
 	default:
 		fmt.Fprintf(stderr, "coslash: unknown command %q\n", args[0])
 		printCLIHelp(stderr)
@@ -368,6 +373,18 @@ func runCLI(stdout, stderr io.Writer, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func runUIURL(stdout io.Writer, args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: coslash ui-url")
+	}
+	baseURL, token, err := readRuntime()
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(stdout, baseURL+"/#t="+token)
+	return err
 }
 
 func runSessions(stdout io.Writer, args []string) error {
