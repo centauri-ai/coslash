@@ -104,7 +104,7 @@ func configureCommandSSHHost(ctx context.Context, local *settings.Store, relay c
 		return errors.New("invalid SSH alias")
 	}
 	state := local.State()
-	if !state.Valid || !state.Persisted {
+	if !state.Valid {
 		return errors.New("Local settings must be configured")
 	}
 	current := state.Config.Remote
