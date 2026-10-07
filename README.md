@@ -303,6 +303,7 @@ Read [Data and privacy](docs/data-and-privacy.md) before you point coSlash at se
 | `coslash --version` | Print the version. |
 | `coslash --help` / `coslash help` | List the CLI commands and their purpose. |
 | `coslash version` | Print the version. |
+| `coslash ui-url` | Print the authenticated web UI URL of the running app, also after `--background` or `--no-open` startup. Use the same `COSLASH_HOME` as the running app. |
 | `coslash sessions [query] --json` | List local sessions as JSON. The query filters by title, repository, branch, or agent. An exact session ID or `<agent>:<session>` selector returns only that session. |
 | `coslash handoff <agent>:<session>` | Print the handoff Markdown for a selector from `coslash sessions`. |
 | `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi\|grok [message]` | Start the target agent in the working directory of the session, with the handoff and an optional first task. For Cursor, coSlash copies both to the clipboard. Paste them into the new Cursor CLI session. |
@@ -311,7 +312,7 @@ Read [Data and privacy](docs/data-and-privacy.md) before you point coSlash at se
 | `coslash doctor --json` / `coslash status --json` | Print the same diagnostics as JSON, including Hub origin, pairing, last check-in, content-free queue counts, and link-handler state. |
 | `coslash doctor --fix-links [--yes]` | On macOS, list stale URL handlers; add `--yes` to unregister the listed bundles. |
 
-`sessions`, `handoff`, `send`, and `review` need the app to be running. Results go to standard output. Failures write `Error: <message>` to standard error and exit non-zero. The commands find the access token of the running app locally and never print it.
+`sessions`, `handoff`, `send`, and `review` need the app to be running. Results go to standard output. Failures write `Error: <message>` to standard error and exit non-zero. The commands find the access token of the running app locally and never print it. Only `coslash ui-url` prints the token, as part of the URL on standard output. It does not write the URL to the app logs.
 
 ### Agent skills
 
