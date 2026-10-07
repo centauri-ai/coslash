@@ -104,7 +104,7 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 		entries := r.Queue.PlannedEntries(plan, r.now())
 		contentOrder(entries)
 		for _, entry := range entries {
-			if !planRecent(entry, plan, activeSince) || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
+			if !planRecent(entry, plan, activeSince) || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) {
 				continue
 			}
 			if entry.ContentBytes <= 0 && !attemptedUnknown[entry.Key] {
