@@ -328,6 +328,7 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 | `coslash --port N` | Use another loopback port. |
 | `coslash --no-open` | Do not open the browser. |
 | `coslash --version` | Print the version. |
+| `coslash ui-url` | Print the authenticated web UI URL for the running app, including after `--background` or `--no-open` startup. Use the same `COSLASH_HOME` as the running app. |
 | `coslash sessions [query] --json` | List local sessions as JSON, optionally filtering by title, repository, branch, or agent. A query that is an exact session ID or `<agent>:<session>` selector returns only that session without a full list. Requires the app to be running. |
 | `coslash handoff <agent>:<session>` | Print canonical handoff Markdown for the selector returned by `coslash sessions`. Requires the app to be running. |
 | `coslash send <agent>:<session> --to claude\|codex\|opencode\|cursor\|pi [message]` | Start the target agent in the selected session working directory with its handoff and optional initial task. Cursor copies the handoff and task to the clipboard; paste them into the new Cursor CLI session. Requires the app to be running. |
@@ -335,7 +336,7 @@ Read [Data and privacy](docs/data-and-privacy.md) before pointing coSlash at sen
 | `coslash doctor` | Check session sources, agent CLIs, and local storage. |
 | `coslash doctor --json` | Print the same diagnostics as JSON — a shareable report. |
 
-Successful data commands write their result to standard output. Failures write `Error: <message>` to standard error and exit non-zero; run `coslash doctor --json` for diagnostics. Authentication for the running app is discovered locally and is never printed.
+Successful data commands write their result to standard output. Failures write `Error: <message>` to standard error and exit non-zero; run `coslash doctor --json` for diagnostics. Authentication for the running app is discovered locally. Only `coslash ui-url` prints the access token, as part of the URL on standard output; it does not write the URL to app logs.
 
 ### Agent skills
 

@@ -64,6 +64,43 @@ func TestRuntimeRoundTripKeepsTokenSeparate(t *testing.T) {
 	}
 }
 
+func TestUIURLPrintsCurrentRuntimeAccessURL(t *testing.T) {
+	writeTestRuntime(t, "http://127.0.0.1:4321", "secret")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"ui-url"}); code != 0 {
+		t.Fatalf("ui-url exit = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "http://127.0.0.1:4321/#t=secret\n" || stderr.Len() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+	for _, args := range [][]string{{"ui-url", "--help"}, {"ui-url", "-h"}, {"ui-url", "unexpected"}} {
+		stdout.Reset()
+		stderr.Reset()
+		code := runCLI(&stdout, &stderr, args)
+		if args[1] == "unexpected" {
+			if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "usage:") {
+				t.Fatalf("invalid arguments: exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+			}
+		} else if code != 0 || stdout.String() != "usage: coslash ui-url\n" || stderr.Len() != 0 {
+			t.Fatalf("help: exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestUIURLRejectsStaleRuntimeWithoutPrintingToken(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	if err := writeToken("stale-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRuntime("http://127.0.0.1:4321"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI(&stdout, &stderr, []string{"ui-url"}); code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "coSlash app is not running") || strings.Contains(stderr.String(), "stale-secret") {
+		t.Fatalf("stale runtime: exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestReadRuntimeRejectsDescriptorWithoutOwnerLock(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	if err := writeToken("secret"); err != nil {
