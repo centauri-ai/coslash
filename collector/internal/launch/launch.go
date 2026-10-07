@@ -500,13 +500,13 @@ func grokReviewCommand(workingDirectory, prompt string) (reviewCommandSpec, erro
 		return reviewCommandSpec{}, errors.New("launch: Grok review is supported only on macOS and Windows")
 	}
 	if runtime.GOOS == "darwin" {
-		resolved, err := filepath.EvalSymlinks(workingDirectory)
-		if err != nil {
-			return reviewCommandSpec{}, fmt.Errorf("resolve Grok review worktree: %w", err)
-		}
-		workingDirectory, err = filepath.Abs(resolved)
+		absolute, err := filepath.Abs(workingDirectory)
 		if err != nil {
 			return reviewCommandSpec{}, err
+		}
+		workingDirectory, err = filepath.EvalSymlinks(absolute)
+		if err != nil {
+			return reviewCommandSpec{}, fmt.Errorf("resolve Grok review worktree: %w", err)
 		}
 	}
 	if err := os.MkdirAll(reviewScratchDir(), 0o700); err != nil {
