@@ -63,6 +63,78 @@ func fixtureBundle(t *testing.T) (*sessionbackupproducer.Manager, *sessionbackup
 	return manager, prepared, root
 }
 
+func TestWarmStartUploadFailuresRespectBackoff(t *testing.T) {
+	for _, code := range []string{"idempotency_conflict", "destination_changed", "http_409"} {
+		t.Run(code, func(t *testing.T) {
+			manager, prepared, _ := fixtureBundle(t)
+			root := t.TempDir()
+			queue, err := Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+			now := started
+			entry := Entry{Key: "conflict", Session: hubclient.V4Session{Agent: "codex"},
+				Activity: now.UnixMilli(), BundleID: prepared.BundleID, ContentBytes: 1024}
+			if err := queue.Merge([]Entry{entry}, now); err != nil {
+				t.Fatal(err)
+			}
+			creates, limit := 0, 1
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/v4/uploads" {
+					t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				creates++
+				if creates > limit {
+					// Bound the reproduction even when the picker ignores backoff.
+					w.WriteHeader(http.StatusTooManyRequests)
+					io.WriteString(w, `{"code":"rate_limited"}`)
+					return
+				}
+				w.WriteHeader(http.StatusConflict)
+				json.NewEncoder(w).Encode(hubclient.V4Problem{Code: code})
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			runner := &Runner{Queue: queue, Backup: manager, checkedAt: now, Now: func() time.Time { return now },
+				Hub: &hubclient.Client{BaseURL: base, Credentials: fixedCredential{}}}
+			plan := hubclient.V4ImportPlan{Version: 1, Window: "all"}
+			run := func() {
+				t.Helper()
+				if err := runner.warmStart(t.Context(), plan, started, 10*time.Minute, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			run()
+			failed := queue.Entries()[0]
+			if creates != 1 || failed.FailureCode != code || !failed.RetryAt.Equal(started.Add(time.Minute)) || queue.Progress().Failing != 1 {
+				t.Fatalf("creates=%d entry=%+v progress=%+v", creates, failed, queue.Progress())
+			}
+			lines, _ := queue.PendingLog(now)
+			if len(lines) != 1 || lines[0].Code != "server_error" || lines[0].Level != "error" {
+				t.Fatalf("failure log=%+v", lines)
+			}
+			runner.Queue, err = Open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now = started.Add(time.Minute - time.Nanosecond)
+			run()
+			if creates != 1 {
+				t.Fatalf("retried before backoff elapsed: creates=%d", creates)
+			}
+			now = started.Add(time.Minute)
+			limit = 2
+			run()
+			if creates != 2 || !runner.Queue.Entries()[0].RetryAt.Equal(now.Add(5*time.Minute)) {
+				t.Fatalf("retry did not back off: creates=%d entry=%+v", creates, runner.Queue.Entries()[0])
+			}
+		})
+	}
+}
+
 func TestOpenCodeDiscoveryRetainsSourceIdentity(t *testing.T) {
 	items := discoveredEntries([]*session.Session{
 		{Agent: "opencode", ID: "shared", StartedAt: 1, LastActivityTime: 2, DetailRevision: "source-revision"},
