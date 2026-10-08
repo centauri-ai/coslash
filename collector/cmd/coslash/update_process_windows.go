@@ -84,15 +84,15 @@ func restoreUpdateTarget(target, backup string) error {
 
 func scheduleUpdateHelperCleanup(helper string) error {
 	pathLiteral := "'" + strings.ReplaceAll(helper, "'", "''") + "'"
-	script := "$path = " + pathLiteral + `; $deadline = [DateTime]::UtcNow.AddMinutes(3); while ([DateTime]::UtcNow -lt $deadline) { if (-not (Test-Path -LiteralPath $path)) { exit 0 }; try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; exit 0 } catch { Start-Sleep -Seconds 1 } }`
+	script := "$ErrorActionPreference = 'Stop'; $path = " + pathLiteral + `; $deadline = [DateTime]::UtcNow.AddMinutes(3); while ([DateTime]::UtcNow -lt $deadline) { try { [IO.File]::Delete($path) } catch { }; if (-not [IO.File]::Exists($path)) { exit 0 }; Start-Sleep -Milliseconds 500 }; Write-Error 'timed out deleting update helper'; exit 1`
 	encoded := utf16.Encode([]rune(script))
 	bytes := make([]byte, len(encoded)*2)
 	for i, unit := range encoded {
 		binary.LittleEndian.PutUint16(bytes[i*2:], unit)
 	}
-	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", base64.StdEncoding.EncodeToString(bytes))
-	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000008}
-	command.Stdin, command.Stdout, command.Stderr = nil, nil, nil
+	command := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-EncodedCommand", base64.StdEncoding.EncodeToString(bytes))
+	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	command.Stdin, command.Stdout, command.Stderr = nil, os.Stdout, os.Stderr
 	if err := command.Start(); err != nil {
 		return err
 	}
