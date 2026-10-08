@@ -206,7 +206,7 @@ func (h *asyncCompletionHub) V4Status(_ context.Context, uploadID string) (hubcl
 }
 
 func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
-	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	q, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -216,11 +216,15 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Key: "async", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "async"},
-		Activity: now.UnixMilli(), Listed: true, UploadID: "up_async", SessionID: "ses_async", BundleID: prepared.BundleID}
+	entry := Entry{Key: "async", Recent: true, Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "async"},
+		Activity: now.Add(-time.Hour).UnixMilli(), Listed: true, UploadID: "up_async", SessionID: "ses_async", BundleID: prepared.BundleID}
 	if err := q.Merge([]Entry{entry}, now); err != nil {
 		t.Fatal(err)
 	}
+	if err := q.FreezeCatchUp(plan); err != nil {
+		t.Fatal(err)
+	}
+	entry = q.Entries()[0]
 	hub := &asyncCompletionHub{planHub: &planHub{plan: &plan}}
 	runner := &Runner{Queue: q, Backup: manager,
 		Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true,
@@ -233,7 +237,7 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 	}
 	progress := q.Progress()
 	snapshot := q.ImportSnapshot(now)
-	if progress.Pending != 0 || progress.FirstSync.RecentDone != 1 || snapshot.ContentSessions != 1 {
+	if progress.Pending != 0 || snapshot.ContentSessions != 1 {
 		t.Fatalf("queue=%+v import=%+v", progress, snapshot)
 	}
 }
@@ -301,6 +305,49 @@ func TestScaleHubWithoutPlanCreatesOrListsNothing(t *testing.T) {
 	}
 	if hub.creates != 0 || len(hub.lists) != 0 || q.ImportSnapshot(now).Phase != "awaiting_plan" {
 		t.Fatalf("creates=%d lists=%d phase=%s", hub.creates, len(hub.lists), q.ImportSnapshot(now).Phase)
+	}
+}
+
+func TestMergePlannedDiscoveryCountsOnlyPendingInScopeEntries(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all"}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	listed := Entry{Key: "listed", Listed: true, Activity: now.Add(time.Minute).UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "listed"}}
+	if err := q.Merge([]Entry{listed}, now); err != nil {
+		t.Fatal(err)
+	}
+	newEntry := Entry{Key: "new", Activity: now.Add(time.Minute).UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "new"}}
+	oldEntry := Entry{Key: "old", Activity: now.Add(-24 * time.Hour).UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "old"}}
+	count, err := q.MergePlannedDiscovery([]Entry{newEntry, listed, oldEntry}, now, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("pending listing count = %d, want 1", count)
+	}
+}
+
+func TestChunkScalingEnabledHonorsKillSwitchAndPlan(t *testing.T) {
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all"}
+	runner := &Runner{scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}}
+	t.Setenv("COSLASH_SCALE_IMPORT", "0")
+	if runner.chunkScalingEnabled() {
+		t.Fatal("chunk scaling enabled with kill switch off")
+	}
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	runner.scaleEnabled = false
+	if !runner.chunkScalingEnabled() {
+		t.Fatal("plan-based chunk scaling disabled without Hub capability")
+	}
+	runner.config.ImportPlan = nil
+	if runner.chunkScalingEnabled() {
+		t.Fatal("chunk scaling enabled without capability or import plan")
 	}
 }
 
@@ -816,7 +863,7 @@ func TestScaleChunkUploadRunsFourInParallel(t *testing.T) {
 		t.Fatal(err)
 	}
 	hub := &parallelHub{planHub: &planHub{}, gate: make(chan struct{})}
-	runner := &Runner{Backup: manager, Hub: hub, scaleEnabled: true}
+	runner := &Runner{Backup: manager, Hub: hub, scaleEnabled: true, chunkWorkers: 4}
 	manifest, err := runner.manifest(prepared)
 	if err != nil {
 		t.Fatal(err)
@@ -933,13 +980,13 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
-	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	hub := &resumeScaleHub{planHub: &planHub{plan: plan}, confirmed: map[[2]int]bool{}, attempts: map[[2]int]int{}, failOnce: [2]int{1, 0}}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true, lastReportedPhase: "awaiting_plan",
+		config: hubclient.V4Config{ImportPlan: plan}}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: runner.config}, now); err != nil {
 		t.Fatal(err)
 	}
-	hub := &resumeScaleHub{planHub: &planHub{}, confirmed: map[[2]int]bool{}, attempts: map[[2]int]int{}, failOnce: [2]int{1, 0}}
-	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true, lastReportedPhase: "awaiting_plan",
-		config: hubclient.V4Config{ImportPlan: &plan}}
 	manifest, err := runner.manifest(prepared)
 	if err != nil {
 		t.Fatal(err)
@@ -950,7 +997,15 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 	if err := q.Merge([]Entry{entry}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := runner.transfer(t.Context(), &entry); err == nil {
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Capabilities: []string{"scale-import/v1"}, Config: hubclient.V4Config{ImportPlan: plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.FreezeCatchUp(*plan); err != nil {
+		t.Fatal(err)
+	}
+	entry = q.Entries()[0]
+	firstErr := runner.transfer(t.Context(), &entry)
+	if firstErr == nil {
 		t.Fatal("first parallel pass should stop on the injected chunk failure")
 	}
 	hub.mu.Lock()
@@ -960,7 +1015,7 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 	}
 	hub.mu.Unlock()
 	if len(firstConfirmed) == 0 {
-		t.Fatal("successful chunks were not confirmed before interruption")
+		t.Fatalf("successful chunks were not confirmed before interruption: %v", firstErr)
 	}
 	if err := runner.transfer(t.Context(), &entry); err != nil {
 		t.Fatal(err)

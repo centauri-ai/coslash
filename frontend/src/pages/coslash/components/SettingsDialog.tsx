@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { MachinesSettingsSection } from '@/pages/coslash/components/MachinesSettingsSection';
+import type { SyncStatus, SyncStatusLoad } from '@/pages/coslash/features/sync/api';
+import { SyncSettingsSection } from '@/pages/coslash/features/sync/SyncSettingsSection';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   availableSynthesisBackends,
@@ -182,6 +184,8 @@ export function SettingsDialog({
   onRemoteConnectionVerified,
   onRemoteRetry,
   remoteRetryInFlight,
+  syncStatus,
+  syncStatusLoadState,
 }: {
   open: boolean;
   mode: SettingsDialogMode;
@@ -195,6 +199,8 @@ export function SettingsDialog({
   onRemoteConnectionVerified?: () => void;
   onRemoteRetry?: () => Promise<MachineFact | undefined>;
   remoteRetryInFlight?: boolean;
+  syncStatus?: SyncStatus;
+  syncStatusLoadState: SyncStatusLoad;
 }) {
   const [draft, setDraft] = useState<CoslashSettings | null>(
     response ? initialSettingsDraft(response) : null,
@@ -457,24 +463,12 @@ export function SettingsDialog({
               </div>
 
               {mode === 'full-settings' && (
-                <div className="flex flex-col gap-2">
-                  <SectionLabel>Hub sync on this device</SectionLabel>
-                  <div className="border-coslash-line bg-coslash-surface flex items-center justify-between gap-4 rounded-xl border p-4">
-                    <div className="flex flex-col gap-1">
-                      <div className="text-sm font-semibold">Pause local sync</div>
-                      <div className="text-coslash-muted text-xs">
-                        Stops uploads and retries from this computer until you resume.
-                      </div>
-                    </div>
-                    <input
-                      type="checkbox"
-                      aria-label="Pause local Hub sync"
-                      checked={draft.syncPaused === true}
-                      onChange={(event) => saveChange({ ...draft, syncPaused: event.target.checked })}
-                      className="size-5 shrink-0"
-                    />
-                  </div>
-                </div>
+                <SyncSettingsSection
+                  status={syncStatus ?? null}
+                  statusLoadState={syncStatusLoadState}
+                  paused={draft.syncPaused === true}
+                  onPauseChange={(syncPaused) => saveChange({ ...draft, syncPaused })}
+                />
               )}
 
               {mode === 'full-settings' && (

@@ -58,6 +58,7 @@ export type ShareEligibility =
 
 export type Session = {
   sourceId: string;
+  hubSyncChip?: 'in_hub' | 'syncing' | 'not_in_hub' | 'left_out' | 'none';
   sourceLabel: string;
   /** Stable across a remote alias rename. Never contains host or path data. */
   sourceClass?: SourceClass;

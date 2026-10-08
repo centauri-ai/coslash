@@ -1242,6 +1242,24 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	}
 }
 
+func TestLateHubPairingGetsBackupProducer(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	onboardings := newOnboardingManager("1.2.3")
+	defer onboardings.Close()
+	remoteManager := remote.NewManager(remote.Options{})
+	routesWithOnboarding(
+		synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remoteManager, nil, onboardings,
+	)
+	client, err := hubClientForURL("1.2.3", "https://hub.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onboardings.setHubClient(client)
+	if client.Backup == nil {
+		t.Fatal("Hub client paired after startup has no session backup producer")
+	}
+}
+
 func TestServerShutdownEndpointRequiresTokenAndRequestsGracefulShutdown(t *testing.T) {
 	t.Setenv("COSLASH_HOME", t.TempDir())
 	shutdown := make(chan struct{}, 1)

@@ -101,7 +101,7 @@ func windowsCredentialLoadError(err error) error {
 	return fmt.Errorf("load Hub credential: Credential Manager failed: %w", err)
 }
 
-func (s OSKeychain) Save(ctx context.Context, value string) error {
+func (s OSKeychain) save(ctx context.Context, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return errors.New("save Hub credential: empty credential")
 	}
@@ -131,7 +131,7 @@ func (s OSKeychain) Save(ctx context.Context, value string) error {
 	return nil
 }
 
-func (s OSKeychain) Delete(ctx context.Context) error {
+func (s OSKeychain) delete(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
