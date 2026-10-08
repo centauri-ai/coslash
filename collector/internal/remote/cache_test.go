@@ -422,6 +422,56 @@ func TestCacheV2DoesNotReapUnownedTempFiles(t *testing.T) {
 	}
 }
 
+func TestCacheV2PreservesEmptyAndNullChangeCollections(t *testing.T) {
+	for _, agent := range []string{vendors.AgentClaude, vendors.AgentCodex} {
+		for _, kind := range []string{"null_edits", "empty_edits", "null_changes", "empty_changes"} {
+			t.Run(agent+"/"+kind, func(t *testing.T) {
+				snapshot := completeCodexSnapshot(t, "generation", "body\n")
+				snapshot.Families[0].Vendor = agent
+				snapshot.Families[0].Facts.Vendor = agent
+				record := snapshot.FullRecords[0].Record
+				record.Agent = agent
+				switch kind {
+				case "null_edits":
+					record.Session.FileEdits = nil
+				case "empty_edits":
+					record.Session.FileEdits = []fullsessionv1.FileEdit{}
+				case "null_changes":
+					record.Session.FileEdits[0].Changes = nil
+				case "empty_changes":
+					record.Session.FileEdits[0].Changes = []fullsessionv1.FileChange{}
+				}
+				record.Session.EditedFileCount = len(record.Session.FileEdits)
+				record, err := fullsessionv1.Freeze(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				snapshot.FullRecords[0].Record = record
+				before, err := fullsessionv1.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				root := t.TempDir()
+				if err := NewCache(root).StoreV2(snapshot.SourceID, snapshot); err != nil {
+					t.Fatal(err)
+				}
+				loaded, ok, err := NewCache(root).LoadV2(snapshot.SourceID)
+				if err != nil || !ok || len(loaded.FullRecords) != 1 {
+					t.Fatalf("restart lost exact record: found=%v records=%d err=%v", ok, len(loaded.FullRecords), err)
+				}
+				after, err := fullsessionv1.Marshal(loaded.FullRecords[0].Record)
+				if err != nil || string(after) != string(before) {
+					t.Fatalf("restart changed canonical record: err=%v\nbefore=%s\nafter=%s", err, before, after)
+				}
+				unchanged, err := fullsessionv1.Marshal(snapshot.FullRecords[0].Record)
+				if err != nil || string(unchanged) != string(before) {
+					t.Fatalf("cache mutated caller record: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestCloneFullRecordsCopiesOnlyMutableChangeContainers(t *testing.T) {
 	records := completeCodexSnapshot(t, "generation", "body\n").FullRecords
 	cloned := cloneFullRecords(records)

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -932,13 +933,13 @@ func hydrateChangeBodies(cached *CachedSnapshotV2) bool {
 }
 
 func cloneFullRecords(records []remoteprotocol.FullRecord) []remoteprotocol.FullRecord {
-	result := append([]remoteprotocol.FullRecord(nil), records...)
+	result := slices.Clone(records)
 	for recordIndex := range result {
 		edits := result[recordIndex].Record.Session.FileEdits
-		result[recordIndex].Record.Session.FileEdits = append([]fullsessionv1.FileEdit(nil), edits...)
+		result[recordIndex].Record.Session.FileEdits = slices.Clone(edits)
 		for editIndex := range result[recordIndex].Record.Session.FileEdits {
 			changes := result[recordIndex].Record.Session.FileEdits[editIndex].Changes
-			result[recordIndex].Record.Session.FileEdits[editIndex].Changes = append([]fullsessionv1.FileChange(nil), changes...)
+			result[recordIndex].Record.Session.FileEdits[editIndex].Changes = slices.Clone(changes)
 		}
 	}
 	return result
