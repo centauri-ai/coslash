@@ -35,19 +35,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value != null && !Array.isArray(value);
 }
 
-function validHubOrigin(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  if (value === '') return true;
+function canonicalHubOrigin(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  if (value === '') return '';
   try {
     const parsed = new URL(value);
-    return (
-      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
-      parsed.username === '' &&
-      parsed.password === '' &&
-      parsed.origin === value
-    );
+    if (
+      (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+      parsed.username !== '' ||
+      parsed.password !== '' ||
+      parsed.pathname !== '/' ||
+      parsed.search !== '' ||
+      parsed.hash !== ''
+    ) {
+      return null;
+    }
+    return parsed.origin;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -56,17 +61,18 @@ export function decodeSyncStatus(value: unknown): SyncStatus {
     !isRecord(value) ||
     typeof value.state !== 'string' ||
     !SYNC_STATES.has(value.state as SyncState) ||
-    !validHubOrigin(value.hubOrigin) ||
     !isRecord(value.sessions)
   ) {
     throw new Error('Invalid sync status');
   }
+  const hubOrigin = canonicalHubOrigin(value.hubOrigin);
+  if (hubOrigin === null) throw new Error('Invalid sync status');
   const sessions: Record<string, SessionSyncState> = {};
   for (const [key, state] of Object.entries(value.sessions)) {
     if (!SESSION_STATES.has(state as SessionSyncState)) throw new Error('Invalid sync status');
     sessions[key] = state as SessionSyncState;
   }
-  return { state: value.state as SyncState, hubOrigin: value.hubOrigin, sessions };
+  return { state: value.state as SyncState, hubOrigin, sessions };
 }
 
 export async function loadSyncStatus(signal?: AbortSignal): Promise<SyncStatus> {

@@ -16,7 +16,9 @@ export function SyncSettingsSection({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-0.5">
-        <span className="text-coslash-muted text-[11px] font-semibold tracking-widest uppercase">Hub sync</span>
+        <span className="text-coslash-muted text-[11px] font-semibold tracking-widest uppercase">
+          Hub sync
+        </span>
         <span className="bg-coslash-line h-px flex-1" />
       </div>
       <div className="border-coslash-line bg-coslash-surface overflow-hidden rounded-xl border">
@@ -27,7 +29,7 @@ export function SyncSettingsSection({
               <dd className="m-0 font-semibold">{view.autoLine}</dd>
             </dl>
             <div className="bg-coslash-soft flex items-center justify-between gap-3 p-3">
-              <span className="text-sm">Auto-sync is managed in Hub.</span>
+              <span className="text-sm">{view.autoSyncNote}</span>
               {status.hubOrigin && (
                 <a
                   href={status.hubOrigin}

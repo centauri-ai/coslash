@@ -52,7 +52,7 @@ export function syncHeader(status: SyncStatus): { label: string; href: string | 
     case 'connected_idle':
       return { label: 'Auto-sync on · managed in Hub', href: hub, linked: true };
     case 'auto_sync_off':
-      return { label: 'Auto-sync off · managed in Hub', href: hub, linked: true };
+      return { label: 'Auto-sync off', href: hub, linked: true };
     case 'paused':
       return { label: 'Paused on this computer', href: null, linked: false };
     case 'disconnected':
@@ -67,20 +67,19 @@ export function syncHeader(status: SyncStatus): { label: string; href: string | 
 export type SyncSettingsView = {
   connected: boolean;
   autoLine: string;
+  autoSyncNote: string;
   notConnectedText: string;
 };
 
 export function syncSettingsView(status: SyncStatus): SyncSettingsView {
   const connected = status.state !== 'not_connected' && status.state !== 'disconnected';
   const autoLine =
-    status.state === 'auto_sync_off'
-      ? 'Off'
-      : status.state === 'update_required'
-        ? 'Update required'
-        : 'On';
+    status.state === 'auto_sync_off' ? 'Off' : status.state === 'update_required' ? 'Update required' : 'On';
+  const autoSyncNote =
+    status.state === 'auto_sync_off' ? 'Auto-sync is off.' : 'Auto-sync is managed in Hub.';
   const notConnectedText =
     status.state === 'disconnected'
       ? 'Disconnected from Hub. This computer was removed from your account.'
       : 'Not connected to Hub.';
-  return { connected, autoLine, notConnectedText };
+  return { connected, autoLine, autoSyncNote, notConnectedText };
 }
