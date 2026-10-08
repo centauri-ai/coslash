@@ -4,6 +4,8 @@ import (
 	"io"
 	"os"
 	"path"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -201,4 +203,105 @@ func TestBaseSourceRetainsAggregateByteBudget(t *testing.T) {
 	if _, err := io.ReadAll(reader); err == nil {
 		t.Fatal("separate base-source opens bypassed the aggregate byte budget")
 	}
+}
+
+func TestSharedBudgetDoesNotFailPeerDuringShortReadRefund(t *testing.T) {
+	fs := newFakeFS()
+	first := path.Join(fakeHome, ".claude/projects/proj/a.jsonl")
+	second := path.Join(fakeHome, ".codex/sessions/b.jsonl")
+	fs.writeFile(first, "abc", time.Unix(1, 0))
+	fs.writeFile(second, "de", time.Unix(1, 0))
+	readStarted := make(chan struct{})
+	releaseRead := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseRead) }) }
+	defer release()
+	ops := fs.ops()
+	open := ops.open
+	ops.open = func(name string) (io.ReadCloser, error) {
+		reader, err := open(name)
+		if err == nil && name == first {
+			reader = &shortReadGate{ReadCloser: reader, started: readStarted, release: releaseRead}
+		}
+		return reader, err
+	}
+	source, err := newSource(ops, Limits{MaxTotalBytes: 5, MaxFileBytes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	locker := &readAttemptLocker{secondAttempt: make(chan struct{})}
+	budget := source.sharedBudgetView().budget
+	budget.mu = locker
+	firstReader, err := source.open(first, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondReader, err := source.open(second, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		content string
+		err     error
+	}
+	firstDone := make(chan result, 1)
+	go func() {
+		content, err := io.ReadAll(firstReader)
+		firstDone <- result{content: string(content), err: err}
+	}()
+	<-readStarted
+	secondDone := make(chan result, 1)
+	go func() {
+		content, err := io.ReadAll(secondReader)
+		secondDone <- result{content: string(content), err: err}
+	}()
+	select {
+	case <-locker.secondAttempt:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second read did not contend for the shared byte budget")
+	}
+	release()
+	firstResult := <-firstDone
+	secondResult := <-secondDone
+	if firstResult.err != nil || firstResult.content != "abc" {
+		t.Fatalf("first read = %q, %v", firstResult.content, firstResult.err)
+	}
+	if secondResult.err != nil || secondResult.content != "de" {
+		t.Fatalf("second read = %q, %v", secondResult.content, secondResult.err)
+	}
+}
+
+type shortReadGate struct {
+	io.ReadCloser
+	started chan<- struct{}
+	release <-chan struct{}
+	read    bool
+}
+
+func (reader *shortReadGate) Read(buffer []byte) (int, error) {
+	if !reader.read {
+		reader.read = true
+		close(reader.started)
+		<-reader.release
+		buffer = buffer[:min(len(buffer), 2)]
+	}
+	return reader.ReadCloser.Read(buffer)
+}
+
+type readAttemptLocker struct {
+	sync.Mutex
+	attempts      atomic.Int32
+	secondAttempt chan struct{}
+}
+
+func (locker *readAttemptLocker) Lock() {
+	if locker.attempts.Add(1) == 2 {
+		close(locker.secondAttempt)
+	}
+	locker.Mutex.Lock()
+}
+
+func (locker *readAttemptLocker) Unlock() {
+	locker.Mutex.Unlock()
 }
