@@ -982,7 +982,7 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 	}
 	plan := &hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
 	hub := &resumeScaleHub{planHub: &planHub{plan: plan}, confirmed: map[[2]int]bool{}, attempts: map[[2]int]int{}, failOnce: [2]int{1, 0}}
-	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true, lastReportedPhase: "awaiting_plan",
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true, chunkWorkers: 4, lastReportedPhase: "awaiting_plan",
 		config: hubclient.V4Config{ImportPlan: plan}}
 	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: runner.config}, now); err != nil {
 		t.Fatal(err)

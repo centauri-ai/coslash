@@ -21,6 +21,8 @@ coSlash reads, but does not modify:
 - Recorded working directories and Git metadata used for branch and change summaries.
 - Local process information used to identify live sessions.
 
+On macOS, background enrichment does not open project files in Desktop, Documents, Downloads, iCloud Drive, or mounted volumes. Transcript discovery and sync continue, but repository and file timestamp details may use fallback values or be absent for those sessions.
+
 `COSLASH_HOME` sets the storage root and defaults to `~/.coslash`:
 
 | Path | Contents |
