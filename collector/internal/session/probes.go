@@ -31,6 +31,9 @@ func LatestFileModificationTimeContext(ctx context.Context, cwd string, fileEdit
 			}
 			path = filepath.Join(cwd, path)
 		}
+		if !backgroundFilesystemProbeAllowed(path) {
+			continue
+		}
 		info, err := os.Stat(path)
 		if err != nil {
 			continue
@@ -60,6 +63,9 @@ func CanonicalRepositoryNameContext(ctx context.Context, cwd string) (string, bo
 		return "", false
 	}
 	fallback := filepath.Base(filepath.Clean(cwd))
+	if !backgroundFilesystemProbeAllowed(cwd) {
+		return fallback, true
+	}
 	resolved, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		return fallback, true
@@ -141,6 +147,9 @@ func RepositoryRoot(cwd string) string {
 }
 
 func RepositoryRootContext(ctx context.Context, cwd string) string {
+	if !backgroundFilesystemProbeAllowed(cwd) {
+		return ""
+	}
 	info, err := os.Stat(cwd)
 	if err != nil || !info.IsDir() {
 		return ""
@@ -165,7 +174,7 @@ func CurrentBranch(cwd string) *string {
 
 func CurrentBranchContext(ctx context.Context, cwd string) *string {
 	// git -C "" stays in the process directory, which is not the session's.
-	if cwd == "" {
+	if !backgroundFilesystemProbeAllowed(cwd) {
 		return nil
 	}
 	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
@@ -184,7 +193,7 @@ func BranchDrift(cwd string, recordedBranch *string) *GitDrift {
 }
 
 func BranchDriftContext(ctx context.Context, cwd string, recordedBranch *string) *GitDrift {
-	if cwd == "" || recordedBranch == nil {
+	if !backgroundFilesystemProbeAllowed(cwd) || recordedBranch == nil {
 		return nil
 	}
 	branch := strings.TrimSpace(*recordedBranch)
@@ -257,5 +266,8 @@ func gitRefExists(cwd, ref string) bool {
 }
 
 func gitRefExistsContext(ctx context.Context, cwd, ref string) bool {
+	if !backgroundFilesystemProbeAllowed(cwd) {
+		return false
+	}
 	return exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--verify", "--quiet", ref).Run() == nil
 }
