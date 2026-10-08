@@ -3,14 +3,19 @@ package remote
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/pkg/sftp"
 )
@@ -135,5 +140,108 @@ func TestResolveLifecyclePathAcceptsOnlyExactKnownLayout(t *testing.T) {
 		if _, _, err := resolveLifecyclePath("/home/user", candidate); !errors.Is(err, ErrUnknownHelperPath) {
 			t.Fatalf("accepted lifecycle path %q: %v", candidate, err)
 		}
+	}
+}
+
+// pipelineGate holds the first SFTP data request until a second one arrives,
+// so a client that waits for each reply before sending the next fails.
+type pipelineGate struct {
+	once     sync.Once
+	second   chan struct{}
+	calls    atomic.Int32
+	pipeline atomic.Bool
+}
+
+func newPipelineGate() *pipelineGate { return &pipelineGate{second: make(chan struct{})} }
+
+func (gate *pipelineGate) enter() {
+	if gate.calls.Add(1) != 1 {
+		gate.once.Do(func() { close(gate.second) })
+		return
+	}
+	select {
+	case <-gate.second:
+		gate.pipeline.Store(true)
+	case <-time.After(5 * time.Second):
+	}
+}
+
+type gatedFile struct {
+	io.ReaderAt
+	io.WriterAt
+	gate *pipelineGate
+}
+
+func (file gatedFile) ReadAt(data []byte, offset int64) (int, error) {
+	file.gate.enter()
+	return file.ReaderAt.ReadAt(data, offset)
+}
+
+func (file gatedFile) WriteAt(data []byte, offset int64) (int, error) {
+	file.gate.enter()
+	return file.WriterAt.WriteAt(data, offset)
+}
+
+type gatedHandlers struct {
+	sftp.Handlers
+	reads, writes *pipelineGate
+}
+
+func (handlers gatedHandlers) Fileread(request *sftp.Request) (io.ReaderAt, error) {
+	reader, err := handlers.FileGet.Fileread(request)
+	return gatedFile{ReaderAt: reader, gate: handlers.reads}, err
+}
+
+func (handlers gatedHandlers) Filewrite(request *sftp.Request) (io.WriterAt, error) {
+	writer, err := handlers.FilePut.Filewrite(request)
+	return gatedFile{WriterAt: writer, gate: handlers.writes}, err
+}
+
+func TestHelperTransferPipelinesSFTPRequests(t *testing.T) {
+	memory := sftp.InMemHandler()
+	gated := gatedHandlers{Handlers: memory, reads: newPipelineGate(), writes: newPipelineGate()}
+	clientConn, serverConn := net.Pipe()
+	server := sftp.NewRequestServer(serverConn, sftp.Handlers{
+		FileGet: gated, FilePut: gated, FileCmd: memory.FileCmd, FileList: memory.FileList,
+	})
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve() }()
+	client, err := newSFTPClient(clientConn, clientConn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+		<-serveDone
+	})
+	content := bytes.Repeat([]byte("helper"), 200_000)
+	file, err := client.OpenFile("/coslash-helper", os.O_WRONLY|os.O_CREATE|os.O_EXCL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(file, bytes.NewReader(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	remoteFile, err := inspectLifecycleFile(client, "/coslash-helper", "reported")
+	if err != nil || remoteFile.SHA256 != digest(content) || remoteFile.Size != int64(len(content)) {
+		t.Fatalf("remote file = %#v, error = %v", remoteFile, err)
+	}
+	if !gated.writes.pipeline.Load() || !gated.reads.pipeline.Load() {
+		t.Fatalf("helper transfer waited for each reply: writes pipelined=%v reads pipelined=%v",
+			gated.writes.pipeline.Load(), gated.reads.pipeline.Load())
+	}
+}
+
+func TestCappedWriterRejectsGrowthPastReportedSize(t *testing.T) {
+	capped := &cappedWriter{writer: sha256.New(), remaining: 4}
+	if _, err := capped.Write([]byte("four")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := capped.Write([]byte("x")); !errors.Is(err, ErrHelperVerification) {
+		t.Fatalf("growth error = %v, want ErrHelperVerification", err)
 	}
 }
