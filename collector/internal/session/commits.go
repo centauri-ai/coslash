@@ -235,7 +235,7 @@ func repositoryHistory(cwd string, branch *string) ([]repositoryCommit, bool) {
 }
 
 func repositoryHistoryContext(ctx context.Context, cwd string, branch *string) ([]repositoryCommit, bool) {
-	if cwd == "" {
+	if !backgroundFilesystemProbeAllowed(cwd) {
 		return nil, false
 	}
 	ref := "HEAD"
