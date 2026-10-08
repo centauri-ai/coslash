@@ -216,8 +216,8 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Key: "async", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "async"},
-		Activity: now.Add(-time.Minute).UnixMilli(), Listed: true, UploadID: "up_async", SessionID: "ses_async", BundleID: prepared.BundleID}
+	entry := Entry{Key: "async", Recent: true, Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "async"},
+		Activity: now.Add(-time.Hour).UnixMilli(), Listed: true, UploadID: "up_async", SessionID: "ses_async", BundleID: prepared.BundleID}
 	if err := q.Merge([]Entry{entry}, now); err != nil {
 		t.Fatal(err)
 	}
@@ -305,6 +305,49 @@ func TestScaleHubWithoutPlanCreatesOrListsNothing(t *testing.T) {
 	}
 	if hub.creates != 0 || len(hub.lists) != 0 || q.ImportSnapshot(now).Phase != "awaiting_plan" {
 		t.Fatalf("creates=%d lists=%d phase=%s", hub.creates, len(hub.lists), q.ImportSnapshot(now).Phase)
+	}
+}
+
+func TestMergePlannedDiscoveryCountsOnlyPendingInScopeEntries(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all"}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	listed := Entry{Key: "listed", Listed: true, Activity: now.Add(time.Minute).UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "listed"}}
+	if err := q.Merge([]Entry{listed}, now); err != nil {
+		t.Fatal(err)
+	}
+	newEntry := Entry{Key: "new", Activity: now.Add(time.Minute).UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "new"}}
+	oldEntry := Entry{Key: "old", Activity: now.Add(-24 * time.Hour).UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "old"}}
+	count, err := q.MergePlannedDiscovery([]Entry{newEntry, listed, oldEntry}, now, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("pending listing count = %d, want 1", count)
+	}
+}
+
+func TestChunkScalingEnabledHonorsKillSwitchAndPlan(t *testing.T) {
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all"}
+	runner := &Runner{scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}}
+	t.Setenv("COSLASH_SCALE_IMPORT", "0")
+	if runner.chunkScalingEnabled() {
+		t.Fatal("chunk scaling enabled with kill switch off")
+	}
+	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	runner.scaleEnabled = false
+	if !runner.chunkScalingEnabled() {
+		t.Fatal("plan-based chunk scaling disabled without Hub capability")
+	}
+	runner.config.ImportPlan = nil
+	if runner.chunkScalingEnabled() {
+		t.Fatal("chunk scaling enabled without capability or import plan")
 	}
 }
 
@@ -820,7 +863,7 @@ func TestScaleChunkUploadRunsFourInParallel(t *testing.T) {
 		t.Fatal(err)
 	}
 	hub := &parallelHub{planHub: &planHub{}, gate: make(chan struct{})}
-	runner := &Runner{Backup: manager, Hub: hub, scaleEnabled: true}
+	runner := &Runner{Backup: manager, Hub: hub, scaleEnabled: true, chunkWorkers: 4}
 	manifest, err := runner.manifest(prepared)
 	if err != nil {
 		t.Fatal(err)
