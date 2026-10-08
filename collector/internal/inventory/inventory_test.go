@@ -80,6 +80,7 @@ func TestScanCountsOnlyDiscoverableFilesAndBucketsFamilies(t *testing.T) {
 	// counts bytes only; sessions: claude 2, codex 2 (one archived duplicate
 	// skipped), cursor 1.
 	if w.H24 != (windowOf(1, 150+500)) || w.D3 != windowOf(2, 150+500+100) || w.D7 != windowOf(3, 150+500+100+300) ||
+		w.D10 != w.D7 ||
 		w.D30 != windowOf(4, 150+500+100+300+1000) || w.All != windowOf(5, report.Bytes) {
 		t.Fatalf("windows = %+v", w)
 	}
@@ -94,6 +95,22 @@ func TestScanCountsOnlyDiscoverableFilesAndBucketsFamilies(t *testing.T) {
 		if families[index].ActivityMs > families[index-1].ActivityMs {
 			t.Fatalf("families not newest first: %+v", families)
 		}
+	}
+}
+
+func TestTenDayWindowBucketIncludesNineDaySessions(t *testing.T) {
+	home, db := fixtureHome(t)
+	write(t, filepath.Join(home, ".claude", "projects", "ten-day", "55555555-5555-4555-8555-555555555555.jsonl"), 70, 9*24*time.Hour)
+	snapshot, err := Scan(context.Background(), Options{Home: home, OpenCodeDB: db, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	windows := snapshot.Inventory().Windows
+	if windows.D10.Sessions != windows.D7.Sessions+1 || windows.D10.Bytes != windows.D7.Bytes+70 {
+		t.Fatalf("10-day window = %+v; 7-day window = %+v", windows.D10, windows.D7)
+	}
+	if windows.D10.Sessions > windows.D30.Sessions || windows.D10.Bytes > windows.D30.Bytes {
+		t.Fatalf("10-day bucket exceeds 30-day bucket: %+v", windows)
 	}
 }
 
@@ -139,7 +156,7 @@ func TestInventoryJSONIsContentFree(t *testing.T) {
 	}
 	allowed := map[string]bool{
 		"scannedAt": true, "durationMs": true, "files": true, "bytes": true, "largestBytes": true, "filesOver10MiB": true,
-		"agents": true, "windows": true, "agent": true, "sessions": true, "h24": true, "d3": true, "d7": true, "d30": true, "all": true,
+		"agents": true, "windows": true, "agent": true, "sessions": true, "h24": true, "d3": true, "d7": true, "d10": true, "d30": true, "all": true,
 	}
 	agentNames := map[string]bool{vendors.AgentClaude: true, vendors.AgentCodex: true, vendors.AgentCursor: true, vendors.AgentOpenCode: true}
 	var document any
