@@ -46,6 +46,7 @@ import { cn } from '@/lib/utils';
 import { InsightsView } from '@/pages/coslash/components/InsightsView';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
+import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
 import { handoffLabel, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo } from '@/pages/coslash/lib/format';
@@ -690,13 +691,16 @@ function SessionRow({
       onClick={onSelect}
     >
       <td className={cn(cell, 'w-auto')}>
-        <button
-          type="button"
-          className="text-ui group-hover:text-coslash-accent block w-full cursor-pointer truncate px-1.5 py-px text-left leading-[1.35] font-semibold transition-colors"
-          onClick={onSelect}
-        >
-          {sessionTitle(session)}
-        </button>
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            className="text-ui group-hover:text-coslash-accent min-w-0 flex-1 cursor-pointer truncate px-1.5 py-px text-left leading-[1.35] font-semibold transition-colors"
+            onClick={onSelect}
+          >
+            {sessionTitle(session)}
+          </button>
+          {isLocalSession(session) && session.hubSyncChip && <SyncChip state={session.hubSyncChip} />}
+        </div>
         <span
           className={cn(
             'text-coslash-muted mt-0.5 block truncate px-1.5 text-[11.5px] leading-[1.4]',
