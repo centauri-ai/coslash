@@ -5,8 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { setTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { MachinesSettingsSection } from '@/pages/coslash/components/MachinesSettingsSection';
-import { SyncSettingsSection } from '@/pages/coslash/features/sync/SyncSettingsSection';
 import type { SyncStatus } from '@/pages/coslash/features/sync/api';
+import { SyncSettingsSection } from '@/pages/coslash/features/sync/SyncSettingsSection';
 import type { MachineFact } from '@/pages/coslash/lib/machines';
 import {
   availableSynthesisBackends,

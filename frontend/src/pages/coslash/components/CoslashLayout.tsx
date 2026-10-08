@@ -46,8 +46,8 @@ import { cn } from '@/lib/utils';
 import { InsightsView } from '@/pages/coslash/components/InsightsView';
 import { LoadingSpinner } from '@/pages/coslash/components/LoadingSpinner';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
-import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
+import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
 import { handoffLabel, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo } from '@/pages/coslash/lib/format';
 import {

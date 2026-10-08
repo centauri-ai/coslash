@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -43,7 +44,7 @@ func detectedInstallChannel() string {
 func installChannelForPaths(executable, resolved, home, localAppData, goos string) string {
 	paths := []string{normalizeInstallPath(executable, goos), normalizeInstallPath(resolved, goos)}
 	if goos == "windows" {
-		root := normalizeInstallPath(filepath.Join(localAppData, "Programs", "coSlash"), goos)
+		root := normalizeInstallPath(path.Join(localAppData, "Programs", "coSlash"), goos)
 		for _, candidate := range paths {
 			if pathWithin(candidate, root, true) {
 				return "windows-script"
@@ -56,7 +57,7 @@ func installChannelForPaths(executable, resolved, home, localAppData, goos strin
 			return "brew"
 		}
 	}
-	localBin := normalizeInstallPath(filepath.Join(home, ".local", "bin"), goos)
+	localBin := normalizeInstallPath(path.Join(home, ".local", "bin"), goos)
 	for _, candidate := range paths {
 		if pathWithin(candidate, "/usr/local/bin", false) || (localBin != "" && pathWithin(candidate, localBin, false)) {
 			return "script"
@@ -66,7 +67,7 @@ func installChannelForPaths(executable, resolved, home, localAppData, goos strin
 }
 
 func normalizeInstallPath(value, goos string) string {
-	value = filepath.Clean(strings.ReplaceAll(value, `\`, "/"))
+	value = path.Clean(strings.ReplaceAll(value, `\`, "/"))
 	if goos == "windows" {
 		value = strings.ToLower(strings.ReplaceAll(value, `\`, "/"))
 	}

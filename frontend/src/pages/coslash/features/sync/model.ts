@@ -73,11 +73,7 @@ export type SyncSettingsView = {
 export function syncSettingsView(status: SyncStatus): SyncSettingsView {
   const connected = status.state !== 'not_connected' && status.state !== 'disconnected';
   const autoLine =
-    status.state === 'auto_sync_off'
-      ? 'Off'
-      : status.state === 'update_required'
-        ? 'Update required'
-        : 'On';
+    status.state === 'auto_sync_off' ? 'Off' : status.state === 'update_required' ? 'Update required' : 'On';
   const notConnectedText =
     status.state === 'disconnected'
       ? 'Disconnected from Hub. This computer was removed from your account.'

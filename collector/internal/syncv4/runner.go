@@ -162,7 +162,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.discardAbandoned(); err != nil {
 		return err
 	}
-	if r.config.ImportPlan != nil && r.DiscoverBatches != nil {
+	if r.scaleEnabled && r.DiscoverBatches != nil {
 		listedOnce, unlistedSince := false, 0
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
 			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil)
@@ -179,7 +179,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 				return err
 			}
 			unlistedSince += len(entries)
-			if unlistedSince == 0 || listedOnce && unlistedSince < 50 {
+			if r.config.ImportPlan == nil || unlistedSince == 0 || listedOnce && unlistedSince < 50 {
 				return nil
 			}
 			if err := r.listAll(ctx, *r.config.ImportPlan); err != nil {
@@ -221,6 +221,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	}
 	if r.config.ImportPlan != nil {
 		return r.runPlannedAndReport(ctx)
+	}
+	if r.scaleEnabled {
+		return r.Queue.SetPhase("awaiting_plan")
 	}
 	entries := r.Queue.Entries()
 	var firstErr error
