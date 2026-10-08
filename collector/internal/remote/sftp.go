@@ -235,6 +235,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 			err = fmt.Errorf("resolve SFTP home: %w", homeErr)
 		} else {
 			source = &Source{home: path.Clean(home), limits: limits}
+			source.sharedBudget = newVendorBudget(&source.bytes, source.limits.MaxTotalBytes)
 		}
 	} else {
 		source, err = newSource(operations, limits)
