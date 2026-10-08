@@ -1,0 +1,35 @@
+{
+  "id": "11111111-2222-4333-8444-555555555555",
+  "name": "maya-mbp",
+  "os": "darwin",
+  "clientVersion": "0.0.5",
+  "agentsFound": [
+    "codex",
+    "claude"
+  ],
+  "lastContactAt": "2026-10-05T22:45:00Z",
+  "resumeContactFresh": true,
+  "appliedConfigVersion": 1,
+  "configVersion": 1,
+  "applyState": "up_to_date",
+  "syncOff": false,
+  "failureCount": 0,
+  "syncCell": {
+    "state": "healthy",
+    "label": "Up to date",
+    "retryAllowed": true
+  },
+  "queue": {
+    "pending": 2,
+    "failing": 0,
+    "firstSync": {
+      "recentDone": 3,
+      "recentTotal": 45,
+      "historyState": "none"
+    }
+  },
+  "listening": true,
+  "syncRequestedAt": "2026-10-05T22:45:00Z",
+  "installChannel": "script",
+  "lastSyncedAt": "2026-10-05T22:45:00Z"
+}

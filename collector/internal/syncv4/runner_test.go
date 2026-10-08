@@ -37,6 +37,7 @@ type fixedCredential struct{}
 
 func (fixedCredential) Load(context.Context) (string, error) { return "fixture-device-key", nil }
 func (fixedCredential) Save(context.Context, string) error   { return nil }
+func (fixedCredential) Delete(context.Context) error         { return nil }
 
 func fixtureBundle(t *testing.T) (*sessionbackupproducer.Manager, *sessionbackupproducer.Prepared, string) {
 	t.Helper()
@@ -478,6 +479,56 @@ func TestPausedOrOfflineCheckInSendsNoUpload(t *testing.T) {
 	}
 }
 
+func TestPolicyStopCodesDoNotRecordFailures(t *testing.T) {
+	root := t.TempDir()
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: []string{}}}
+	if err := queue.ApplyPolicyAt(policy, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "policy-stop", Activity: 1, Session: hubclient.V4Session{Agent: "codex"},
+		FailureCode: "server_error", ParkedVersion: "1.2.3", LoggedFailure: "server_error", BackoffAttempt: 3, RetryAt: time.Now().Add(time.Hour)}
+	if err := queue.Merge([]Entry{entry}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Queue: queue, configVersion: 1}
+	for _, test := range []struct {
+		code string
+		want error
+	}{{"sync_paused", ErrPolicyBlocked}, {"device_sync_off", ErrDeviceSyncOff}} {
+		t.Run(test.code, func(t *testing.T) {
+			stored := queue.Entries()[0]
+			stored.FailureCode, stored.ParkedVersion, stored.LoggedFailure = "server_error", "1.2.3", "server_error"
+			stored.BackoffAttempt, stored.RetryAt = 3, time.Now().Add(time.Hour)
+			if err := queue.Update(stored); err != nil {
+				t.Fatal(err)
+			}
+			err := runner.persistPolicyStop(&stored, hubclient.V4Problem{Code: test.code, HTTPStatus: http.StatusConflict})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("recordFailure error=%v, want %v", err, test.want)
+			}
+			got := queue.Entries()[0]
+			if got.FailureCode != "" || got.ParkedVersion != "" || got.LoggedFailure != "" || got.BackoffAttempt != 0 || !got.RetryAt.IsZero() || len(queue.state.Log) != 0 || !queue.PolicyBlocked() {
+				t.Fatalf("policy stop recorded failure state: entry=%+v log=%v", got, queue.state.Log)
+			}
+		})
+	}
+	reopened, err := Open(root)
+	if err != nil || !reopened.PolicyBlocked() {
+		t.Fatalf("policy stop was not persisted: queue=%v err=%v", reopened, err)
+	}
+	if err := reopened.ApplyPolicyAt(policy, time.Now()); err != nil || !reopened.PolicyBlocked() {
+		t.Fatalf("unchanged policy cleared stop state: err=%v blocked=%t", err, reopened.PolicyBlocked())
+	}
+	policy.ConfigVersion++
+	if err := reopened.ApplyPolicyAt(policy, time.Now()); err != nil || reopened.PolicyBlocked() {
+		t.Fatalf("new policy did not clear stop state: err=%v blocked=%t", err, reopened.PolicyBlocked())
+	}
+}
+
 func TestRecentBeforeDurableHistoryNewestFirst(t *testing.T) {
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	root := t.TempDir()
@@ -512,18 +563,23 @@ func TestRecentBeforeDurableHistoryNewestFirst(t *testing.T) {
 func TestNextSyncDelayRetriesSoonAtTheActiveUploadLimit(t *testing.T) {
 	busy := hubclient.V4Problem{Code: "rate_limited"}
 	for _, tc := range []struct {
-		err  error
-		want time.Duration
+		err      error
+		inFlight int
+		want     time.Duration
 	}{
-		{nil, 5 * time.Minute},
-		{busy, busyRetry},
-		{errors.Join(busy, errors.New("other entry failed")), busyRetry},
-		{fmt.Errorf("create: %w", busy), busyRetry},
-		{hubclient.V4Problem{Code: "hash_mismatch"}, 5 * time.Minute},
-		{errors.New("server error"), 5 * time.Minute},
+		{nil, 0, 5 * time.Minute},
+		{busy, 0, busyRetry},
+		{errors.Join(busy, errors.New("other entry failed")), 0, busyRetry},
+		{fmt.Errorf("create: %w", busy), 0, busyRetry},
+		{hubclient.V4Problem{Code: "hash_mismatch"}, 0, 5 * time.Minute},
+		{errors.New("server error"), 0, 5 * time.Minute},
+		{ErrPolicyBlocked, 3, 5 * time.Minute},
+		{ErrDeviceSyncOff, 3, 5 * time.Minute},
+		{hubclient.ErrNotPaired, 3, 5 * time.Minute},
+		{hubclient.V4Problem{Code: "device_revoked"}, 3, 5 * time.Minute},
 	} {
-		if got := NextSyncDelay(tc.err, 0, 5*time.Minute); got != tc.want {
-			t.Errorf("NextSyncDelay(%v) = %s, want %s", tc.err, got, tc.want)
+		if got := NextSyncDelay(tc.err, tc.inFlight, 5*time.Minute); got != tc.want {
+			t.Errorf("NextSyncDelay(%v, %d) = %s, want %s", tc.err, tc.inFlight, got, tc.want)
 		}
 	}
 	// A finalizing upload is recorded on the next pass; history waits for it.

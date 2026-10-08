@@ -1,0 +1,12 @@
+{
+  "requestedAt": "2026-10-05T22:45:00Z",
+  "coalesced": false,
+  "devices": [
+    {
+      "id": "11111111-2222-4333-8444-555555555555",
+      "name": "maya-mbp",
+      "listening": true,
+      "lastContactAt": "2026-10-05T22:45:00Z"
+    }
+  ]
+}
