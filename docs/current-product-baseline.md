@@ -25,8 +25,9 @@ also contains the two maintenance commits that were already on `origin/main`.
   out of the browser source summary.
 - Pair with a configured coSlash Hub, freeze the complete local/SSH Codex
   session-family backup, review its inventory/hash/bytes/capacity and the
-  destination audience, and explicitly share one session or a bounded batch.
-  There is no standing auto-share rule.
+  destination audience, and explicitly share one session or a bounded batch
+  through the v3 Share flow. The separate personal v4 sync follows Hub device
+  policy and does not enable team sharing or standing team auto-share rules.
 - Open the server-confirmed Hub route after an accepted upload and preserve
   idempotent retry behavior.
 
@@ -38,7 +39,7 @@ also contains the two maintenance commits that were already on `origin/main`.
 | UI | React, TypeScript, Vite, Tailwind, and Radix primitives in `frontend` |
 | Session sources | Read-only parsers for Claude Code, Codex, and OpenCode local data |
 | Remote source | SSH manager plus versioned `coslash-helper` for Linux amd64/arm64 |
-| Local state | `~/.coslash/settings.json`, cached derived summaries, temporary handoffs, and normalized remote facts |
+| Local state | `~/.coslash/settings.json`, cached derived summaries, temporary handoffs, normalized remote facts, and private v4 sync queue state |
 | Hub credential | OS keychain entry scoped to the configured Hub host |
 | Raw source policy | Local and remote transcripts are read-only; an explicitly prepared complete backup persists exact attributable bytes in a private retry spool until discarded |
 
@@ -64,6 +65,7 @@ All routes are loopback-only and protected by the process access-token guard.
 | `POST /api/remote/test` | Validate the configured SSH source |
 | `POST /api/remote/retry` | Retry remote collection |
 | `GET /api/remote/status` | Read sanitized remote/helper health |
+| `GET /api/sync/status` | Read content-free Hub sync state and per-session membership, protected by the Local access token |
 | `POST /api/remote/helper/setup` | Install or update the managed remote helper |
 | `GET /api/diagnostics` | Read content-free build/source/CLI/storage diagnostics |
 | `GET /api/hub/destination` | Read pairing and destination readiness |
@@ -154,3 +156,14 @@ usage remains unavailable. Cursor CLI token and compaction data remain
 unavailable when Cursor does not persist them reliably. Completed Cursor
 assistant replies appear as timeline recaps, and the latest IDE conversation
 summary can inform local synthesis.
+
+## Hub sync runtime addendum - 2026-10-05
+
+Local v4 personal sync starts by default after pairing and at startup when a
+stored Hub credential exists. The Hub's device policy controls automatic
+uploads; the Local settings pause stops uploads and retry work on this
+computer. Local reports a content-free `/api/sync/status` response and
+per-session `in_hub`, `syncing`, `not_in_hub`, or `left_out` states for the UI.
+Hub device revocation deletes the stored credential and changes the Local
+status to disconnected. `COSLASH_V4_SYNC=0` disables local v4 sync;
+`COSLASH_SYNC_POLICY=0` suppresses the `sync-policy/1` capability.

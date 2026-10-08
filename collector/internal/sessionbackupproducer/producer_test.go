@@ -819,6 +819,9 @@ func writeFamilyFixture(t *testing.T, padding int) (string, string) {
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Mkdir(filepath.Join(workspace, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	writeRollout(t, familyFile(home, false, testRootID), completeRollout(testRootID, "", workspace, padding))
 	writeRollout(t, familyFile(home, true, testChildID), completeRollout(testChildID, testRootID, workspace, 0))
 	indexPath := codex.SessionIndexPath(home)

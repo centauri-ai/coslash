@@ -16,6 +16,9 @@ import {
   type ShareWindow,
 } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
+import { chipOf, syncMode } from '@/pages/coslash/features/sync/model';
+import { SyncHeader } from '@/pages/coslash/features/sync/SyncHeader';
+import { useSyncStatus } from '@/pages/coslash/features/sync/use-sync-status';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useDirectedHandoffs } from '@/pages/coslash/hooks/use-directed-handoffs';
 import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessions';
@@ -139,6 +142,8 @@ export function CoslashPage() {
   } = useDiagnostics(diagnosticsEnabled);
   const remoteRetryPromise = useRef<Promise<MachineFact | undefined> | null>(null);
   const settingsState = useSettings();
+  const syncStatusState = useSyncStatus();
+  const syncStatus = syncStatusState.status;
   const shareDestination = shareFixtureEnabled ? fixtureDestination(window.location.search) : hubDestination;
   const shareFixtureResult = shareParams.get('share-result');
   const shareFixtureOutcome =
@@ -149,7 +154,15 @@ export function CoslashPage() {
     enabled: shareDialogOpen && !shareFixtureEnabled && shareDestination?.state === 'ready',
     window: shareWindow,
   });
-  const librarySessions = useMemo(() => latestLogicalSessions(sessions), [sessions]);
+  const librarySessions = useMemo(
+    () =>
+      latestLogicalSessions(sessions).map((session) => {
+        if (!isLocalSession(session) || !syncStatusState.hasStatus) return session;
+        const state = syncStatus.sessions[sessionKey(session)] ?? 'not_in_hub';
+        return { ...session, hubSyncChip: chipOf(syncMode(syncStatus.state), state) };
+      }),
+    [sessions, syncStatus, syncStatusState.hasStatus],
+  );
   const reviewIndex = useMemo(() => buildReviewIndex(librarySessions), [librarySessions]);
   const selectedSession =
     librarySessions.find((session) => sessionKey(session) === selectedSessionKey) ?? null;
@@ -414,22 +427,34 @@ export function CoslashPage() {
           </>
         }
         headerActions={
-          shareEnabled ? (
-            <>
-              {shareDestination?.state === 'ready' && (
-                <Badge
-                  variant="secondary"
-                  className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
-                >
-                  <ShieldCheck className="size-3.5" aria-hidden="true" />
-                  {shareDestination.destination.workspaceName} paired
-                </Badge>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
-                Share to Hub
-              </Button>
-            </>
-          ) : undefined
+          <>
+            <SyncHeader
+              status={syncStatus}
+              loaded={syncStatusState.hasStatus}
+              onSettings={() => setSettingsDialogMode('full-settings')}
+            />
+            {selectedSession?.hubSyncChip === 'in_hub' && isLocalSession(selectedSession) && (
+              <Badge variant="secondary" className="shrink-0 text-xs font-semibold">
+                Already in My space
+              </Badge>
+            )}
+            {shareEnabled && (
+              <>
+                {shareDestination?.state === 'ready' && (
+                  <Badge
+                    variant="secondary"
+                    className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
+                  >
+                    <ShieldCheck className="size-3.5" aria-hidden="true" />
+                    {shareDestination.destination.workspaceName} paired
+                  </Badge>
+                )}
+                <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
+                  Share to Hub
+                </Button>
+              </>
+            )}
+          </>
         }
         inspectorOpen={selectedSession != null}
         reviewerOptions={settingsState.response?.options.reviewers ?? []}
@@ -501,6 +526,8 @@ export function CoslashPage() {
         onRemoteConnectionVerified={handleRemoteConnectionVerified}
         onRemoteRetry={handleRemoteRetry}
         remoteRetryInFlight={remoteRetryInFlight}
+        syncStatus={syncStatusState.hasStatus ? syncStatus : undefined}
+        syncStatusLoadState={syncStatusState.loadState}
       />
     </>
   );
