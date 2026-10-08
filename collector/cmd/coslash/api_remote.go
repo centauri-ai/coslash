@@ -42,7 +42,7 @@ type helperSetupResponse struct {
 // helperSetupOutcome is separate from machine collection health. A host may
 // have a healthy SFTP cache while a requested helper action has failed; the
 // setup response must never present that operation as a green success.
-func helperSetupOutcome(health remote.Health, testSucceeded bool) (outcome, errorCopy string, succeeded bool) {
+func helperSetupOutcome(health remote.Health, test remote.HelperTestResult) (outcome, errorCopy string, succeeded bool) {
 	helper := health.Helper
 	if helper == nil || !helper.Compatible {
 		if helper == nil || helper.Reason == nil {
@@ -71,8 +71,12 @@ func helperSetupOutcome(health remote.Health, testSucceeded bool) (outcome, erro
 			return "sftp_fallback", genericHelperCopy(*helper.Reason), false
 		}
 	}
-	if !testSucceeded {
-		return "helper_test_failed", "helper installed but its collection test did not complete", false
+	if !test.Succeeded {
+		errorCopy = "helper installed but its collection test did not complete"
+		if test.Reason != nil {
+			errorCopy = "helper installed but its collection test failed (" + genericHelperCopy(*test.Reason) + ")"
+		}
+		return "helper_test_failed", errorCopy, false
 	}
 	if helper.State == remote.LifecycleDeprecated {
 		return "deprecated_helper_active", "", true
@@ -235,6 +239,7 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 	// The single Add remote host action authorizes replacing a verified older
 	// connector as well as an initial install.
 	setup, err := manager.SetupHelperForAlias(ctx, body.SSHAlias, remote.Consent{Install: body.Install, Upgrade: body.Install || body.Upgrade})
+	cancel()
 	if errors.Is(err, remote.ErrHelperAliasMismatch) {
 		writeAPIError(w, http.StatusConflict, "remote_alias_mismatch", "SSH alias changed; save settings and test that host before setting up its helper")
 		return
@@ -243,13 +248,16 @@ func handleRemoteHelperSetup(w http.ResponseWriter, request *http.Request, manag
 		writeAPIError(w, http.StatusConflict, "remote_helper_setup_in_progress", "helper setup is already running for this host")
 		return
 	}
-	testSucceeded := false
+	var test remote.HelperTestResult
 	if setup.Helper != nil && setup.Helper.Compatible {
-		test := manager.TestHelper(ctx)
+		// A slow install must not spend the test's budget and turn a working
+		// helper into a reported failure.
+		testCtx, cancelTest := context.WithTimeout(request.Context(), 2*time.Minute)
+		test = manager.TestHelper(testCtx)
+		cancelTest()
 		setup = test.Health
-		testSucceeded = test.Succeeded
 	}
-	outcome, errorCopy, succeeded := helperSetupOutcome(setup, testSucceeded)
+	outcome, errorCopy, succeeded := helperSetupOutcome(setup, test)
 	machine := machineFromHealth(setup)
 	response := helperSetupResponse{Machine: machine, Outcome: outcome, Error: errorCopy}
 	if !succeeded {

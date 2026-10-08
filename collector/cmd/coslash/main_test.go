@@ -1013,9 +1013,22 @@ func TestHelperSetupOutcomeUsesOperationSuccessNotBoardCoverage(t *testing.T) {
 		State: remote.StateOK, Complete: false,
 		Helper: &remote.HelperStatus{State: remote.LifecycleReady, Compatible: true},
 	}
-	outcome, _, succeeded := helperSetupOutcome(health, true)
+	outcome, _, succeeded := helperSetupOutcome(health, remote.HelperTestResult{Succeeded: true})
 	if !succeeded || outcome != "installed_and_tested" {
 		t.Fatalf("outcome = %q, succeeded=%v", outcome, succeeded)
+	}
+}
+
+func TestHelperSetupOutcomeReportsTestFailureReason(t *testing.T) {
+	health := remote.Health{Helper: &remote.HelperStatus{State: remote.LifecycleReady, Compatible: true}}
+	timeout := remote.ReasonRefreshTimeout
+	outcome, errorCopy, succeeded := helperSetupOutcome(health, remote.HelperTestResult{Reason: &timeout})
+	if succeeded || outcome != "helper_test_failed" || errorCopy != "helper installed but its collection test failed (refresh timed out)" {
+		t.Fatalf("outcome = %q, error = %q, succeeded = %v", outcome, errorCopy, succeeded)
+	}
+	_, errorCopy, _ = helperSetupOutcome(health, remote.HelperTestResult{})
+	if errorCopy != "helper installed but its collection test did not complete" {
+		t.Fatalf("error without reason = %q", errorCopy)
 	}
 }
 
