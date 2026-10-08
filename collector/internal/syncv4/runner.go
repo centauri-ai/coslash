@@ -214,6 +214,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		r.lastDiscoveryAt = r.now()
 		return errors.Join(transferErr, r.runPlannedAndReport(ctx))
 	}
+	if r.scaleEnabled && r.config.ImportPlan == nil {
+		return r.runPlannedAndReport(ctx)
+	}
 	sessions, err := r.Discover(ctx)
 	if err != nil {
 		return err

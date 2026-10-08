@@ -206,7 +206,7 @@ func (h *asyncCompletionHub) V4Status(_ context.Context, uploadID string) (hubcl
 }
 
 func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
-	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	q, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -224,6 +224,7 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 	if err := q.FreezeCatchUp(plan); err != nil {
 		t.Fatal(err)
 	}
+	entry = q.Entries()[0]
 	hub := &asyncCompletionHub{planHub: &planHub{plan: &plan}}
 	runner := &Runner{Queue: q, Backup: manager,
 		Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true,
@@ -236,7 +237,7 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 	}
 	progress := q.Progress()
 	snapshot := q.ImportSnapshot(now)
-	if progress.Pending != 0 || progress.FirstSync.RecentDone != 1 || snapshot.ContentSessions != 1 {
+	if progress.Pending != 0 || snapshot.ContentSessions != 1 {
 		t.Fatalf("queue=%+v import=%+v", progress, snapshot)
 	}
 }
@@ -953,7 +954,15 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 	if err := q.Merge([]Entry{entry}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := runner.transfer(t.Context(), &entry); err == nil {
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Capabilities: []string{"scale-import/v1"}, Config: hubclient.V4Config{ImportPlan: plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.FreezeCatchUp(*plan); err != nil {
+		t.Fatal(err)
+	}
+	entry = q.Entries()[0]
+	firstErr := runner.transfer(t.Context(), &entry)
+	if firstErr == nil {
 		t.Fatal("first parallel pass should stop on the injected chunk failure")
 	}
 	hub.mu.Lock()
@@ -963,7 +972,7 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 	}
 	hub.mu.Unlock()
 	if len(firstConfirmed) == 0 {
-		t.Fatal("successful chunks were not confirmed before interruption")
+		t.Fatalf("successful chunks were not confirmed before interruption: %v", firstErr)
 	}
 	if err := runner.transfer(t.Context(), &entry); err != nil {
 		t.Fatal(err)

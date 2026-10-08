@@ -6,8 +6,6 @@ export function SyncChip({ state, className }: { state: SyncChipState; className
   const label = chipLabel(state);
   return (
     <span
-      role="status"
-      aria-label={label}
       title={label}
       className={cn(
         'border-coslash-line bg-coslash-surface text-coslash-muted inline-flex h-5 w-[88px] shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border px-1.5 text-[10px] leading-none font-semibold whitespace-nowrap',
