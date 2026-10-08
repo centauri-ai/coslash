@@ -494,6 +494,22 @@ describe('CoslashLayout', () => {
     expect(searched).not.toContain('>Repository session<');
   });
 
+  it.each([
+    ['/home/milan', '~'],
+    ['/Users/milan', '~'],
+    ['/root', '~'],
+    ['/home/milan/projects/app', 'projects/app'],
+    ['/tmp', '/tmp'],
+  ])('shows a non-repository SSH Codex location for %s', (cwd, label) => {
+    const markup = renderLayout({
+      sessions: [session({ id: 'remote-folder', repo: null, cwd, sourceLabel: 'SSH workspace' })],
+    });
+
+    expect(markup.split(`>${label}<`)).toHaveLength(3);
+    expect(markup).not.toContain('>No location<');
+    expect(markup).not.toContain(`SSH workspace · ${label}`);
+  });
+
   it('keeps case-sensitive remote folder groups distinct', () => {
     const folder = (id: string, cwd: string) =>
       session({

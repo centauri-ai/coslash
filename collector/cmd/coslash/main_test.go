@@ -954,15 +954,26 @@ func TestBoardRemoteSessionDoesNotSerializeRemoteOperationalOrContentFields(t *t
 }
 
 func TestBoardRemoteSessionSerializesWorkingDirectoryWithoutRepository(t *testing.T) {
-	encoded, err := json.Marshal(boardRemoteSession(remote.IndexedSession{
-		Key:     remote.SessionKey{SourceID: "r_0123456789abcdef"},
-		Session: &session.Session{Agent: "codex", ID: "session-1", WorkingDirectory: "/private/workspace"},
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(encoded), `"cwd":"/private/workspace"`) {
-		t.Fatalf("remote board response omitted working directory without a repository: %s", encoded)
+	for _, cwd := range []string{"/home/remote-user", "/home/remote-user/projects/app", "/tmp"} {
+		t.Run(cwd, func(t *testing.T) {
+			encoded, err := json.Marshal(boardRemoteSession(remote.IndexedSession{
+				Key:     remote.SessionKey{SourceID: "r_0123456789abcdef"},
+				Session: &session.Session{Agent: "codex", ID: "session-1", WorkingDirectory: cwd},
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var value struct {
+				Cwd  string  `json:"cwd"`
+				Repo *string `json:"repo"`
+			}
+			if err := json.Unmarshal(encoded, &value); err != nil {
+				t.Fatal(err)
+			}
+			if value.Cwd != cwd || value.Repo != nil {
+				t.Fatalf("remote board location = %#v, want full cwd %q without repository", value, cwd)
+			}
+		})
 	}
 }
 
