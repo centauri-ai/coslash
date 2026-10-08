@@ -214,8 +214,15 @@ func (m *onboardingManager) RetryCheckIn(rawHubURL string) error {
 	}
 	m.setHubClient(client)
 	m.mu.Lock()
+	hooks := m.syncHooks
 	v4SyncActive := m.v4SyncActive
 	m.mu.Unlock()
+	if hooks != nil {
+		if err := hooks.Ensure(client); err != nil {
+			return errors.New("Local could not check in with Hub")
+		}
+		return nil
+	}
 	if v4SyncActive {
 		return nil
 	}

@@ -53,6 +53,7 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 		},
 		DeviceName:       deviceName,
 		CollectorVersion: collectorVersion,
+		InstallChannel:   detectedInstallChannel(),
 		LoadSession:      collector.GetSessionForPreview,
 	}, nil
 }
@@ -136,6 +137,9 @@ func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManag
 		if err != nil {
 			http.Error(w, "could not finish Hub pairing", http.StatusBadGateway)
 			return
+		}
+		if result.State == "paired" && onboardings != nil {
+			onboardings.StartCheckIns(client)
 		}
 		writeJSON(w, result)
 	})
