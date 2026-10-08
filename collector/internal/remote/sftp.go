@@ -15,6 +15,13 @@ import (
 	"github.com/pkg/sftp"
 )
 
+// newSFTPClient pipelines writes as well as reads. Over a high-latency SSH
+// path, one round trip per 32 KiB packet made helper upload and verification
+// exceed the setup deadline.
+func newSFTPClient(reader io.Reader, writer io.WriteCloser) (*sftp.Client, error) {
+	return sftp.NewClientPipe(reader, writer, sftp.UseConcurrentWrites(true))
+}
+
 func parseDestination(value string) (settings.SSHDestination, error) {
 	destination, err := settings.ParseSSHDestination(value)
 	if err != nil {
@@ -184,7 +191,7 @@ func OpenSession(ctx context.Context, alias string, options OpenOptions) (*Sessi
 	}
 	opened := make(chan clientResult, 1)
 	go func() {
-		client, openErr := sftp.NewClientPipe(stdout, stdin)
+		client, openErr := newSFTPClient(stdout, stdin)
 		opened <- clientResult{client: client, err: openErr}
 	}()
 	handshakeCtx, cancelHandshake := context.WithTimeout(ctx, limits.ConnectTimeout)

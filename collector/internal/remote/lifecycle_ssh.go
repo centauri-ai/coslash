@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"os"
@@ -362,11 +363,9 @@ func inspectLifecycleFile(client *sftp.Client, absolute, reported string) (Remot
 	if err != nil {
 		return RemoteFile{}, err
 	}
-	hash := sha256.New()
-	_, copyErr := io.CopyN(hash, file, info.Size()+1)
-	if errors.Is(copyErr, io.EOF) {
-		copyErr = nil
-	}
+	// WriteTo pipelines reads; io.CopyN would hide it behind a LimitReader.
+	capped := &cappedWriter{writer: sha256.New(), remaining: info.Size()}
+	_, copyErr := file.WriteTo(capped)
 	closeErr := file.Close()
 	if err := errors.Join(copyErr, closeErr); err != nil {
 		return RemoteFile{}, err
@@ -376,7 +375,7 @@ func inspectLifecycleFile(client *sftp.Client, absolute, reported string) (Remot
 		return RemoteFile{}, ErrHelperVerification
 	}
 	return RemoteFile{
-		Path: reported, Size: info.Size(), SHA256: fmt.Sprintf("%x", hash.Sum(nil)),
+		Path: reported, Size: info.Size(), SHA256: fmt.Sprintf("%x", capped.writer.Sum(nil)),
 		Mode: info.Mode(), UID: stat.UID, Regular: info.Mode().IsRegular(),
 	}, nil
 }
@@ -393,6 +392,20 @@ func removeStaleLifecycleTemporary(client *sftp.Client, temporary string, uid ui
 		return err
 	}
 	return client.Remove(temporary)
+}
+
+// cappedWriter fails once a file grows past the size that Lstat reported.
+type cappedWriter struct {
+	writer    hash.Hash
+	remaining int64
+}
+
+func (capped *cappedWriter) Write(data []byte) (int, error) {
+	if int64(len(data)) > capped.remaining {
+		return 0, ErrHelperVerification
+	}
+	capped.remaining -= int64(len(data))
+	return capped.writer.Write(data)
 }
 
 type lifecycleArtifactFile interface {
