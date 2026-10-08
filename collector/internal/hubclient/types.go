@@ -120,11 +120,12 @@ type InventoryWindow struct {
 	Bytes    int64 `json:"bytes"`
 }
 
-// InventoryWindows are cumulative activity buckets: h24 ⊆ d3 ⊆ d7 ⊆ d30 ⊆ all.
+// InventoryWindows are cumulative activity buckets: h24 ⊆ d3 ⊆ d7 ⊆ d10 ⊆ d30 ⊆ all.
 type InventoryWindows struct {
 	H24 InventoryWindow `json:"h24"`
 	D3  InventoryWindow `json:"d3"`
 	D7  InventoryWindow `json:"d7"`
+	D10 InventoryWindow `json:"d10"`
 	D30 InventoryWindow `json:"d30"`
 	All InventoryWindow `json:"all"`
 }

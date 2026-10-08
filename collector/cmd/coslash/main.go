@@ -354,7 +354,12 @@ func main() {
 			}
 		}
 		go func() {
-			runV4SyncLoop(syncContext, runner, queue, syncHub.V4Wait, wake)
+			loopControl := newSyncLoopControl(func() bool {
+				_, config, _ := queue.Policy()
+				return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
+			})
+			go runActivePoller(syncContext, "", loopControl)
+			runV4SyncLoopWithControl(syncContext, runner, queue, syncHub.V4Wait, loopControl, wake)
 		}()
 	}
 	shutdownDone := make(chan struct{})
