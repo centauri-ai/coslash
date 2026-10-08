@@ -10,6 +10,7 @@ var ErrNotPaired = errors.New("hub device credential is not available")
 type CredentialStore interface {
 	Load(context.Context) (string, error)
 	Save(context.Context, string) error
+	Delete(context.Context) error
 }
 
 type OSKeychain struct {

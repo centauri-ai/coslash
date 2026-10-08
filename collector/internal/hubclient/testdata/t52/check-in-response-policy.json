@@ -1,0 +1,24 @@
+{
+  "configVersion": 1,
+  "config": {
+    "paused": false,
+    "deviceOff": false,
+    "leaveOut": [],
+    "agentKnowledge": false,
+    "importPlan": {
+      "version": 1,
+      "window": "10d",
+      "history": false,
+      "historyPaused": false,
+      "maxSessionsPerAgent": 30,
+      "warmStartSeconds": 30
+    }
+  },
+  "commands": [],
+  "minVersion": "0.0.3",
+  "recommendedVersion": "0.0.5",
+  "nextCheckInSeconds": 30,
+  "capabilities": [
+    "sync-policy/1"
+  ]
+}

@@ -101,7 +101,7 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 				cancel()
 				if err != nil {
 					if stopSync(err) {
-						return err
+						return r.persistPolicyStop(&entry, err)
 					}
 					if updateErr := r.recordFailure(&entry, err); updateErr != nil {
 						return updateErr
@@ -125,7 +125,7 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 				return nil
 			}
 			if stopSync(err) || Busy(err) {
-				return err
+				return r.persistPolicyStop(pick, err)
 			}
 			if updateErr := r.recordFailure(pick, err); updateErr != nil {
 				return updateErr
@@ -139,7 +139,7 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 					return nil
 				}
 				if stopSync(err) || Busy(err) {
-					return err
+					return r.persistPolicyStop(pick, err)
 				}
 				if updateErr := r.recordFailure(pick, err); updateErr != nil {
 					return updateErr
@@ -327,7 +327,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 				return firstErr
 			}
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -398,7 +398,7 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 			}
 			remoteTimeout := errors.Is(err, context.DeadlineExceeded) && workCtx.Err() == nil && ctx.Err() == nil
 			if (stopSync(err) && !remoteTimeout) || Busy(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if firstErr == nil {
 				firstErr = err

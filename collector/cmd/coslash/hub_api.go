@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	fullsessionv1 "github.com/centauri-ai/coslash/collector/fullsession/v1"
@@ -53,8 +55,32 @@ func hubClientForURL(collectorVersion, rawURL string) (*hubclient.Client, error)
 		},
 		DeviceName:       deviceName,
 		CollectorVersion: collectorVersion,
+		InstallChannel:   localInstallChannel(),
 		LoadSession:      collector.GetSessionForPreview,
 	}, nil
+}
+
+func localInstallChannel() string {
+	executable, err := os.Executable()
+	if err == nil {
+		if resolved, resolveErr := filepath.EvalSymlinks(executable); resolveErr == nil {
+			executable = resolved
+		}
+	}
+	return installChannelFor(runtime.GOOS, filepath.ToSlash(executable))
+}
+
+func installChannelFor(goos, executable string) string {
+	if goos == "windows" {
+		return "windows-script"
+	}
+	if goos == "darwin" && strings.Contains(executable, "/Cellar/coslash/") {
+		return "brew"
+	}
+	if goos == "darwin" || goos == "linux" {
+		return "script"
+	}
+	return "unknown"
 }
 
 func registerHubRoutes(api *http.ServeMux, client *hubclient.Client, remoteManager *remote.Manager, backupManager *sessionbackupproducer.Manager, onboardings *onboardingManager) {
