@@ -127,27 +127,34 @@ the connection in that agent to clear its local OAuth credential; the Hub
 checks access on each tool request and denies revoked access.
 
 Experimental personal v4 sync of Codex, local Claude, OpenCode and Cursor
-sessions is disabled by default. A development build with a paired Hub, a
-supported semantic Local version, and `COSLASH_V4_SYNC_ENABLED=1` starts it,
-right after pairing: a new owner's default Hub policy (version 0) is enough.
-Each check-in reports which agents this install has sessions for. It sends recent session metadata before
-content, then imports older history. The Hub check-in supplies the current
-pause, device-off and leave-out policy; if check-in fails or the policy becomes
-stale, upload stops. `COSLASH_SYNC_METERED=1` and
+sessions starts by default when Local pairs with Hub or starts with a stored
+credential. The first check-in advertises sync capabilities and reports the
+normalized Local version, install channel, operating system, and content-free
+queue state. A new owner's default Hub policy (version 0) is enough to start.
+Each check-in reports which agents this install has sessions for. It sends
+recent session metadata before content, then imports older history. The Hub
+check-in supplies the current pause, device-off and leave-out policy; if
+check-in fails or the policy becomes stale, upload stops. A Hub `device_revoked`
+response removes the stored credential and marks this computer disconnected.
+`COSLASH_V4_SYNC=0` disables Local auto-sync and stops advertising `sync-v4`;
+`COSLASH_SYNC_POLICY=0` stops advertising `sync-policy/1`. Both default on.
+`COSLASH_SYNC_METERED=1` and
 `COSLASH_SYNC_OFFLINE=1` stop uploads locally. On macOS, low battery uses
 `pmset`; on Linux, metered NetworkManager connections and discharging battery
 levels are checked when available. `COSLASH_SYNC_BATTERY_PERCENT` is a local
-override for testing. Disable the v4 flag and restart to stop automatic
-sync; the existing explicit Share to Hub flow remains available.
+override for testing. The per-computer pause setting also stops uploads and
+retries until resumed. The existing explicit Share to Hub flow remains
+available while local sync is paused; automatic personal sync does not enable
+team sharing.
 
 Hub-led device setup sends Local an opaque, expiring launch intent through the
 `coslash:` app handoff. Local claims that intent with Hub, then uses the
 existing device-authorization poll and saves the returned device credential in
 the operating-system keychain. The browser does not receive the device code,
 device credential, or Local API access token. The initial check-in contains
-device version, operating system, and empty content-free queue state; it does
-not upload a session or enable team sharing. Device and sync controls remain
-in Hub.
+device version, install channel, operating system, capabilities, and empty
+content-free queue state; it does not upload a session or enable team sharing.
+Hub manages device and sync policy; Local also offers a per-computer pause.
 
 ## Share preview and approval
 

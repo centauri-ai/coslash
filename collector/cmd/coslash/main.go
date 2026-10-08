@@ -250,83 +250,28 @@ func main() {
 		}
 	}
 	guard := httpsec.Guard{Addr: listener.Addr().String(), Token: token}
-	hub, err := hubClientFromEnvironment(version)
+	collectorVersion := normalizedVersion()
+	hub, err := hubClientFromEnvironment(collectorVersion)
 	if err != nil {
 		log.Printf("Hub integration disabled: %v", err)
 	}
-	var queue *syncv4.Queue
-	// The Hub import plan is the upload consent. Keep the worker available
-	// through first pairing so the Hub can start sync without a Local restart.
-	if shouldStartV4Sync(hub) {
-		queue, err = syncv4.Open("")
-		if err != nil {
-			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
-		}
-	}
-	onboardings := newOnboardingManager(version)
-	onboardings.SetV4SyncActive(queue != nil)
-	wake := make(chan struct{}, 1)
-	onboardings.setSyncHooks(syncHookFuncs{
-		ensure: func(client *hubclient.Client) error {
-			if queue == nil {
-				onboardings.StartCheckIns(client)
-			} else {
-				select {
-				case wake <- struct{}{}:
-				default:
-				}
-			}
-			return nil
-		},
-		pass: func(reason string) {
-			select {
-			case wake <- struct{}{}:
-			default:
-			}
-			if reason == "wake" && queue == nil {
-				go func() {
-					if stored, err := readStoredHubURL(); err == nil && stored != "" {
-						_ = onboardings.RetryCheckIn(stored)
-					}
-				}()
-			}
-		},
-	})
-	shutdownRequests := make(chan struct{}, 1)
-	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{queue: queue, backupManager: backupManager, directedStore: directedStore, onboardings: onboardings, shutdown: shutdownRequests})
-	onboardings.ensureSync(hub)
-	if startupIntent != nil {
-		switch startupIntent.Action {
-		case "pair":
-			if err := onboardings.StartPairing(startupIntent.HubURL.String(), startupIntent.AttemptID, startupIntent.LaunchToken); err != nil {
-				fmt.Fprintln(os.Stderr, "coSlash could not start Hub pairing; return to Hub and retry.")
-			}
-		case "check-in":
-			go func() { _ = onboardings.RetryCheckIn(startupIntent.HubURL.String()) }()
-		case "wake":
-			if err := onboardings.RequestWake(startupIntent.HubURL.String()); err != nil {
-				log.Printf("wake request was ignored")
-			}
-		}
-	}
+	onboardings := newOnboardingManager(collectorVersion)
 	inventoryTracker := &inventory.Tracker{}
-	if fingerprints != nil && queue != nil {
-		go runInventory(discoveryContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
-			client := onboardings.currentHubClient()
-			if client == nil || client.Credentials == nil {
-				return false
-			}
-			credential, err := client.Credentials.Load(ctx)
-			return err == nil && credential != ""
-		})
-	}
-	if queue != nil {
-		syncContext, stopSync := context.WithCancel(context.Background())
-		server.RegisterOnShutdown(stopSync)
+	var controller *syncController
+	controller, err = newSyncController(func(syncContext context.Context, queue *syncv4.Queue, client *hubclient.Client, wake chan struct{}) {
+		if fingerprints != nil {
+			go runInventory(syncContext, fingerprints, queue, wake, inventoryTracker, func(ctx context.Context) bool {
+				current := onboardings.currentHubClient()
+				if current == nil || current.Credentials == nil {
+					return false
+				}
+				credential, err := current.Credentials.Load(ctx)
+				return err == nil && credential != ""
+			})
+		}
 		syncHub := currentHubTransport{current: onboardings.currentHubClient}
 		runner := &syncv4.Runner{
-			Version: version,
+			Version: collectorVersion,
 			Queue:   queue, Backup: backupManager, Hub: syncHub,
 			RequireImportPlan: true,
 			Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
@@ -360,14 +305,35 @@ func main() {
 				return nil
 			}
 		}
-		go func() {
-			loopControl := newSyncLoopControl(func() bool {
-				_, config, _ := queue.Policy()
-				return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
-			})
-			go runActivePoller(syncContext, "", loopControl)
-			runV4SyncLoopWithControl(syncContext, runner, queue, syncHub.V4Wait, loopControl, wake)
-		}()
+		loopControl := newSyncLoopControl(func() bool {
+			_, config, _ := queue.Policy()
+			return config.Paused || config.DeviceOff || os.Getenv("COSLASH_SYNC_PAUSED") == "1" || settingsStore.State().Config.SyncPaused
+		})
+		go runActivePoller(syncContext, "", loopControl)
+		runV4SyncLoopWithControl(syncContext, controller.observed(runner, client), queue, syncHub.V4Wait, loopControl, wake)
+	}, func() bool { return settingsStore.State().Config.SyncPaused })
+	if err != nil {
+		log.Fatalf("coslash: initialize v4 sync controller: %v", err)
+	}
+	onboardings.SetV4SyncActive(controller.Queue() != nil)
+	onboardings.setSyncHooks(controller)
+	shutdownRequests := make(chan struct{}, 1)
+	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
+		serverServices{queue: controller.Queue(), backupManager: backupManager, directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests})
+	onboardings.ensureSync(hub)
+	if startupIntent != nil {
+		switch startupIntent.Action {
+		case "pair":
+			if err := onboardings.StartPairing(startupIntent.HubURL.String(), startupIntent.AttemptID, startupIntent.LaunchToken); err != nil {
+				fmt.Fprintln(os.Stderr, "coSlash could not start Hub pairing; return to Hub and retry.")
+			}
+		case "check-in":
+			go func() { _ = onboardings.RetryCheckIn(startupIntent.HubURL.String()) }()
+		case "wake":
+			if err := onboardings.RequestWake(startupIntent.HubURL.String()); err != nil {
+				log.Printf("wake request was ignored")
+			}
+		}
 	}
 	shutdownDone := make(chan struct{})
 	go func() {
@@ -458,11 +424,12 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 }
 
 type serverServices struct {
-	queue         *syncv4.Queue
-	backupManager *sessionbackupproducer.Manager
-	directedStore *directedhandoff.Store
-	onboardings   *onboardingManager
-	shutdown      chan struct{}
+	queue          *syncv4.Queue
+	backupManager  *sessionbackupproducer.Manager
+	directedStore  *directedhandoff.Store
+	onboardings    *onboardingManager
+	syncController *syncController
+	shutdown       chan struct{}
 }
 
 func newServer(
@@ -492,6 +459,9 @@ func newServer(
 	server.RegisterOnShutdown(remoteManager.Shutdown)
 	server.RegisterOnShutdown(reviewManager.Shutdown)
 	server.RegisterOnShutdown(service.onboardings.Close)
+	if service.syncController != nil {
+		server.RegisterOnShutdown(service.syncController.Stop)
+	}
 	if service.directedStore != nil {
 		server.RegisterOnShutdown(service.directedStore.Shutdown)
 	}
@@ -540,6 +510,13 @@ func routesWithOnboarding(
 		}
 		writeJSON(w, service.queue.UpdatePrompt())
 	})
+	api.HandleFunc("GET /api/sync/status", func(w http.ResponseWriter, _ *http.Request) {
+		if service.syncController == nil {
+			writeJSON(w, syncStatus{State: "not_connected", Sessions: map[string]string{}})
+			return
+		}
+		writeJSON(w, service.syncController.Status())
+	})
 	getCanonicalSession := func(agent, id string) (*session.Session, error) {
 		return canonicalSession(agent, id, mgr, collector.GetSessionForPreviewByAgent)
 	}
@@ -580,7 +557,11 @@ func routesWithOnboarding(
 		writeSettings(r.Context(), w, settingsStore.State())
 	})
 	api.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		wasPaused := settingsStore.State().Config.SyncPaused
 		handleSaveSettings(w, r, settingsStore, mgr, remoteManager)
+		if service.syncController != nil && wasPaused != settingsStore.State().Config.SyncPaused {
+			service.syncController.RequestPass("settings")
+		}
 	})
 	api.HandleFunc("POST /api/launch", func(w http.ResponseWriter, r *http.Request) {
 		handleLaunch(w, r, settingsStore, remoteManager)

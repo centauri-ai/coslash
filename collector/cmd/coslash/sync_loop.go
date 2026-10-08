@@ -85,19 +85,39 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 	if len(externalWake) > 0 {
 		inventoryWake = externalWake[0]
 	}
+	policyWake := make(chan struct{}, 1)
+	var policyMu sync.Mutex
+	blockedPolicyVersion := int64(-1)
 	go func() {
+		authFailures := 0
 		for ctx.Err() == nil {
 			version, _, _ := queue.Policy()
 			result, err := wait(ctx, version)
 			if ctx.Err() != nil {
 				return
 			}
-			if err == nil && (result.Changed || result.CommandsAvailable || result.SyncRequested) {
-				control.signal()
+			if err == nil {
+				policyMu.Lock()
+				blockedAt := blockedPolicyVersion
+				switch {
+				case blockedAt >= 0 && result.ConfigVersion > blockedAt:
+					select {
+					case policyWake <- struct{}{}:
+					default:
+					}
+				case blockedAt < 0 && (result.Changed || result.CommandsAvailable || result.SyncRequested):
+					control.signal()
+				}
+				policyMu.Unlock()
 			}
 			delay := 100 * time.Millisecond
-			if err != nil {
+			if credentialRetry(err) {
+				authFailures++
+				delay = credentialRetryDelay(authFailures)
+			} else if err != nil {
 				delay = time.Second
+			} else {
+				authFailures = 0
 			}
 			select {
 			case <-ctx.Done():
@@ -135,6 +155,7 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		}()
 	}
 
+	authFailures := 0
 	for ctx.Err() == nil {
 		control.beginPass()
 		passContext, cancel := context.WithCancel(ctx)
@@ -164,8 +185,35 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		if errors.Is(err, syncv4.ErrCommandPickedUp) {
 			continue
 		}
+		if policyBlocked(err) {
+			version, _, _ := queue.Policy()
+			policyMu.Lock()
+			blockedPolicyVersion = version
+			// Ignore requests that arrived before the policy block was observed.
+			clearWake(control.wake)
+			clearWake(inventoryWake)
+			clearWake(policyWake)
+			policyMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return
+			case <-policyWake:
+			}
+			policyMu.Lock()
+			blockedPolicyVersion = -1
+			clearWake(policyWake)
+			clearWake(control.wake)
+			clearWake(inventoryWake)
+			policyMu.Unlock()
+			continue
+		}
 		if err != nil && ctx.Err() == nil {
 			log.Printf("v4 sync deferred: %s", syncv4.DeferReason(err))
+		}
+		if credentialRetry(err) {
+			authFailures++
+		} else if err == nil {
+			authFailures = 0
 		}
 		terminalResult := false
 		if err == nil || errors.Is(err, syncv4.ErrPaused) {
@@ -180,13 +228,16 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 			continue
 		}
 		delay := syncv4.NextSyncDelay(err, queue.InFlight(), queue.NextCheckInDelay())
-		if active, ok := runner.(interface{ ImportActive() bool }); ok && active.ImportActive() && delay > 10*time.Second {
-			delay = 10 * time.Second
+		if credentialRetry(err) {
+			delay = credentialRetryDelay(authFailures)
+		}
+		importActive := false
+		if active, ok := runner.(interface{ ImportActive() bool }); ok {
+			importActive = active.ImportActive()
 		}
 		_, config, _ := queue.Policy()
-		if config.ImportPlan != nil && queue.Progress().Pending > 0 && delay > 10*time.Second {
-			delay = 10 * time.Second
-		}
+		importPending := config.ImportPlan != nil && queue.Progress().Pending > 0
+		delay = clampImportRetry(delay, err, importActive, importPending)
 		if retry := queue.NextRetryDelay(); retry > 0 && retry < delay {
 			delay = retry
 		}
@@ -201,5 +252,48 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		case <-inventoryWake:
 		case <-time.After(delay):
 		}
+	}
+}
+
+func clampImportRetry(delay time.Duration, err error, importActive, importPending bool) time.Duration {
+	if !credentialRetry(err) && (importActive || importPending) && delay > 10*time.Second {
+		return 10 * time.Second
+	}
+	return delay
+}
+
+func clearWake(wake <-chan struct{}) {
+	if wake == nil {
+		return
+	}
+	select {
+	case <-wake:
+	default:
+	}
+}
+
+func policyBlocked(err error) bool {
+	if errors.Is(err, syncv4.ErrPolicyBlocked) || errors.Is(err, syncv4.ErrDeviceSyncOff) {
+		return true
+	}
+	var problem hubclient.V4Problem
+	return errors.As(err, &problem) && (problem.Code == "sync_paused" || problem.Code == "device_sync_off")
+}
+
+func credentialRetry(err error) bool {
+	var problem hubclient.V4Problem
+	return errors.As(err, &problem) && (problem.Code == "device_dormant" || problem.Code == "unauthorized" || problem.HTTPStatus == 401)
+}
+
+func credentialRetryDelay(attempt int) time.Duration {
+	switch attempt {
+	case 1:
+		return time.Minute
+	case 2:
+		return 5 * time.Minute
+	case 3:
+		return 15 * time.Minute
+	default:
+		return time.Hour
 	}
 }
