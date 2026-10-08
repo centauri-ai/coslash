@@ -381,6 +381,29 @@ make release
 
 If `make release` reports a missing or unsupported Go or Node version, install the toolchain first or switch to the curl/Homebrew install path.
 
+### Connect to a Hub from a source branch
+
+For local Hub testing, `collector/scripts/install-branch.sh` and
+`collector/scripts/install-branch.ps1` build the selected source branch directly;
+they do not download a release or require a release tag. Both require Git, Go
+1.26+, Node 24+, and npm. The macOS script also requires `make`.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/centauri-ai/coslash/hlu/hub-support/collector/scripts/install-branch.sh | bash -s -- --branch hlu/hub-support --connect CODE --hub http://localhost:8080
+```
+
+```powershell
+$env:COSLASH_SOURCE_BRANCH='hlu/hub-support'; $env:COSLASH_CONNECT='CODE'; $env:COSLASH_HUB='http://localhost:8080'; irm https://raw.githubusercontent.com/centauri-ai/coslash/hlu/hub-support/collector/scripts/install-branch.ps1 | iex
+```
+
+Replace `CODE` and the Hub origin with the values shown in Hub. To build another
+branch, change `--branch` on macOS or `COSLASH_SOURCE_BRANCH` on Windows (for
+example, `main`). A branch without `coslash connect` stops before replacing an
+installed binary. Branch builds report version `0.0.0`; set the local Hub's
+minimum and recommended Local versions to `0.0.0` while using them. Each source
+branch gets its own install directory and `COSLASH_HOME`, so a dev build does
+not replace the regular coSlash install or its data.
+
 Release packaging uses `make dist` on macOS to build both macOS archives and
 the native Windows executable from one staged frontend/helper build. Windows
 contributors can use `go build` for local collector development; end users

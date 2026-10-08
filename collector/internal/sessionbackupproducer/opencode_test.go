@@ -180,10 +180,10 @@ func TestOpenCodeV2RowsAndRecordedCost(t *testing.T) {
 	defer db.Close()
 	for _, statement := range []string{
 		`CREATE TABLE session_v2 (id TEXT, parent_id TEXT, directory TEXT, title TEXT, summary_files INTEGER, summary_diffs TEXT, agent TEXT, model TEXT, cost REAL, time_created INTEGER, time_updated INTEGER, time_archived INTEGER, future_v2 TEXT)`,
-		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER DEFAULT 0, data TEXT)`,
+		`CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT)`,
 		`INSERT INTO session_v2 VALUES ('v2-root', NULL, '/tmp', 'V2 root', NULL, NULL, NULL, NULL, 2.75, 100, 300, NULL, 'retained')`,
-		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('m1', 'v2-root', 'user', 1, 100, '{"text":"hello","time":{"created":100}}')`,
-		`INSERT INTO session_message (id, session_id, type, seq, time_created, data) VALUES ('m2', 'v2-root', 'assistant', 2, 200, '{"content":[{"type":"text","text":"done"}],"finish":"stop","time":{"created":200,"completed":300}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES ('m1', 'v2-root', 'user', 1, 100, 100, '{"text":"hello","time":{"created":100}}')`,
+		`INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES ('m2', 'v2-root', 'assistant', 2, 200, 300, '{"content":[{"type":"text","text":"done"}],"finish":"stop","time":{"created":200,"completed":300}}')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)

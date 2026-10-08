@@ -33,10 +33,16 @@ locally done.
 
 With `scale-import/v1`, a device waits for `config.importPlan` before creating
 uploads or listing sessions. The plan's window and history choice set the scope.
+For a bounded plan, Local selects the newest eligible families, applies the
+per-agent limit, then applies the overall `maxSessions` limit. Older families
+remain local. The stat-only inventory still covers the device, while discovery
+parses only families within the requested window.
 Warm start selects in-window sessions within its time budget, one completed
 session at a time. The first selection is at most 25 MiB. Local then lists
 remaining metadata in batches of at most 50 before transferring window content
-newest first and history content newest first. A `prioritize` command moves a
+with non-Cursor sources first and history content newest first. Cursor source
+preparation has a bounded attempt and retries with backoff after a timeout.
+A `prioritize` command moves a
 listed session to the front, including a history session while history is
 paused. Live sources wait for two minutes without a change or for the session
 to end before a changed revision is sent. The chunk path sends at most four
@@ -131,9 +137,12 @@ lines older than 29 days are dropped. If the Hub refuses a log batch as invalid,
 Local checks in without it so sync can continue, keeps the refused lines, and
 retries them after one minute. A binding change drops unsent lines.
 
-`COSLASH_V4_SYNC_ENABLED=1` is a development activation flag and defaults off.
-The server's separate v4 upload flag must also be enabled. Disable the Local
-flag and restart to stop this scheduler; v1–v3 sharing remains available.
+The v4 worker starts by default, including before pairing, so Hub can start
+sync without a Local restart. It never uploads until a Hub advertising
+`scale-import/v1` supplies an import plan; the Local pause setting still wins.
+`COSLASH_V4_SYNC_ENABLED=0` disables the worker for development and recovery.
+The server's separate v4 upload flag must also be enabled. v1–v3 sharing
+remains available.
 `COSLASH_SCALE_IMPORT=0` disables the additive import and command progress
 payloads while retaining the command wait fix.
 The Local settings `syncPaused` switch wins over Hub pause/off and stops new

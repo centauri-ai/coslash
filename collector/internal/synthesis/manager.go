@@ -107,10 +107,20 @@ func (m *Manager) LoadRecord(agent, id string) (Record, error) {
 }
 
 func (m *Manager) Ensure(s *session.Session, revision int64) bool {
+	return m.ensure(s, revision, false)
+}
+
+// EnsureForShare runs synthesis on demand for a session the user chose to share.
+// Background eligibility only controls automatic synthesis work.
+func (m *Manager) EnsureForShare(s *session.Session, revision int64) bool {
+	return m.ensure(s, revision, true)
+}
+
+func (m *Manager) ensure(s *session.Session, revision int64, requested bool) bool {
 	if s != nil && s.Agent == "pi" {
 		revision = Revision(s)
 	}
-	if m == nil || revision <= 0 || !Eligible(s) {
+	if m == nil || s == nil || revision <= 0 || (!requested && !Eligible(s)) {
 		return false
 	}
 	if m.currentRunner() == nil {
