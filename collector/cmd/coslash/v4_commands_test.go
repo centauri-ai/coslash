@@ -113,6 +113,26 @@ func TestSSHInstallRestoresSettingsWhenRelayApplyFails(t *testing.T) {
 	}
 }
 
+func TestSSHInstallDoesNotPersistMissingSettingsWhenRelayApplyFails(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	local := settings.Open()
+	if state := local.State(); !state.Valid || state.Persisted {
+		t.Fatalf("initial settings=%+v", state)
+	}
+
+	relay := &commandRelay{applyErr: errors.New("apply failed")}
+	if err := configureCommandSSHHost(context.Background(), local, relay, "11111111-2222-3333-4444-555555555555", "agent-box"); err == nil {
+		t.Fatal("missing relay failure")
+	}
+	state := local.State()
+	if !state.Valid || state.Persisted || !reflect.DeepEqual(state.Config, settings.Defaults()) {
+		t.Fatalf("restored settings=%+v", state)
+	}
+	if _, err := os.Stat(settings.Path()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("settings file exists after rollback: %v", err)
+	}
+}
+
 func TestLocalUpdateRouteUsesDurablePrompt(t *testing.T) {
 	queue, err := syncv4.Open(t.TempDir())
 	if err != nil {
