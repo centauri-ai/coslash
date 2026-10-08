@@ -224,13 +224,13 @@ func TestV4WaitCarriesSinceAndDeviceCredential(t *testing.T) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v4/devices/me/wait" || r.URL.Query().Get("since") != "8" || r.Header.Get("Authorization") != "Device credential" {
 			t.Errorf("wait request=%s %s auth=%q", r.Method, r.URL.String(), r.Header.Get("Authorization"))
 		}
-		io.WriteString(w, `{"configVersion":9,"changed":true,"commandsAvailable":false}`)
+		io.WriteString(w, `{"configVersion":9,"changed":true,"commandsAvailable":false,"syncRequested":true}`)
 	}))
 	defer server.Close()
 	base, _ := url.Parse(server.URL)
 	client := Client{BaseURL: base, Credentials: &memoryCredentials{}}
 	result, err := client.V4Wait(context.Background(), 8)
-	if err != nil || !result.Changed || result.ConfigVersion != 9 {
+	if err != nil || !result.Changed || !result.SyncRequested || result.ConfigVersion != 9 {
 		t.Fatalf("wait=%+v err=%v", result, err)
 	}
 }

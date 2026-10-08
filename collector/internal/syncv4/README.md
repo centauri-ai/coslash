@@ -107,10 +107,11 @@ discovery (`inventory.Discover`) yields whole families newest first in
 batches and persists a cursor (`discovery-cursor.json`) after each batch so a
 restart resumes below it and revisits only families that changed since the
 pass began.
-OpenCode inventory counts the standard XDG database by stat; a database at a
-CLI-configured custom path is omitted from the inventory because resolving it
-would invoke OpenCode and violate the stat-only rule. Discovery still reads
-that database through the normal exporter.
+OpenCode inventory stats the configured database path, including `OPENCODE_DB`
+overrides and the standard XDG path when no override is set. A custom path
+discoverable only by invoking the OpenCode CLI is omitted because that lookup
+could read content. Discovery still reads the database through the normal
+exporter.
 When Hub leave-out rules are set, the stat-only walker cannot prove which
 source files belong to an excluded repository or working directory. Local
 therefore reports zero window buckets while those rules are set; aggregate
