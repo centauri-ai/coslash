@@ -512,7 +512,7 @@ export function MachinesSettingsSection({
         )}
         {message != null && (
           <div
-            role={messageIsError ? 'alert' : 'status'}
+            role={messageIsError || readyNotice?.success === false ? 'alert' : 'status'}
             className={cn('flex items-center gap-3 border-t px-4 py-3 text-xs', {
               'bg-coslash-soft text-coslash-muted':
                 busy || stage === 'consent' || authenticationPending || readyNotice?.success === false,
