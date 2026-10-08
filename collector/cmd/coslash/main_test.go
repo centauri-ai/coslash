@@ -954,8 +954,16 @@ func TestBoardRemoteSessionDoesNotSerializeRemoteOperationalOrContentFields(t *t
 }
 
 func TestBoardRemoteSessionSerializesWorkingDirectoryWithoutRepository(t *testing.T) {
-	for _, cwd := range []string{"/home/remote-user", "/home/remote-user/projects/app", "/tmp"} {
-		t.Run(cwd, func(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		cwd  string
+	}{
+		{name: "home", cwd: "/home/remote-user"},
+		{name: "nested-project", cwd: "/home/remote-user/projects/app"},
+		{name: "tmp", cwd: "/tmp"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cwd := testCase.cwd
 			encoded, err := json.Marshal(boardRemoteSession(remote.IndexedSession{
 				Key:     remote.SessionKey{SourceID: "r_0123456789abcdef"},
 				Session: &session.Session{Agent: "codex", ID: "session-1", WorkingDirectory: cwd},
