@@ -48,9 +48,9 @@ type Source struct {
 	allowed []allowedPath
 	limits  Limits
 
-	entries atomic.Int64
-	bytes   atomic.Int64
-	bytesMu sync.Mutex
+	entries      atomic.Int64
+	bytes        atomic.Int64
+	sharedBudget *vendorBudget
 
 	dirCache sync.Map // cleaned lexical path -> dirCacheEntry
 	ssh      sshTarget
@@ -75,6 +75,7 @@ func newSource(ops sftpOperations, limits Limits) (*Source, error) {
 	}
 	home = path.Clean(home)
 	source := &Source{ops: ops, home: home, limits: limits.withDefaults()}
+	source.sharedBudget = newVendorBudget(&source.bytes, source.limits.MaxTotalBytes)
 	for _, item := range homeAllowlist {
 		lexical := path.Join(home, item.relative)
 		canonical := ""
@@ -117,13 +118,17 @@ func (source *Source) Limits() Limits {
 	return source.limits
 }
 
-// vendorBudget bounds reads for a source view. Its counter may be private to
-// one vendor or shared by both vendors during an SFTP refresh.
+// vendorBudget coordinates byte reservations for one or more source views.
 type vendorBudget struct {
-	used  *atomic.Int64
-	limit int64
-	// mu keeps peers from treating a pending reservation as exhausted before a short-read refund.
-	mu sync.Locker
+	used     *atomic.Int64
+	limit    int64
+	mu       sync.Mutex
+	reserved int64
+	changed  chan struct{}
+}
+
+func newVendorBudget(used *atomic.Int64, limit int64) *vendorBudget {
+	return &vendorBudget{used: used, limit: limit, changed: make(chan struct{})}
 }
 
 // ForVendor returns a view of Source with its own byte budget. Path
@@ -132,13 +137,13 @@ func (source *Source) ForVendor(maxBytes int64) *VendorSource {
 	if maxBytes <= 0 {
 		maxBytes = source.limits.MaxTotalBytes
 	}
-	return &VendorSource{source: source, budget: &vendorBudget{used: &atomic.Int64{}, limit: maxBytes, mu: &sync.Mutex{}}}
+	return &VendorSource{source: source, budget: newVendorBudget(&atomic.Int64{}, maxBytes)}
 }
 
 // sharedBudgetView keeps FreshStat available while charging both vendors to
 // the same source-wide byte limit during an SFTP refresh.
 func (source *Source) sharedBudgetView() *VendorSource {
-	return &VendorSource{source: source, budget: &vendorBudget{used: &source.bytes, limit: source.limits.MaxTotalBytes, mu: &source.bytesMu}}
+	return &VendorSource{source: source, budget: source.sharedBudget}
 }
 
 // VendorSource implements vendors.ReadSource with a private byte budget.
@@ -177,7 +182,7 @@ func (v *VendorSource) Stat(name string) (fs.FileInfo, error)      { return v.so
 func (v *VendorSource) FreshStat(name string) (fs.FileInfo, error) { return v.source.freshStat(name) }
 
 func (source *Source) Open(name string) (io.ReadCloser, error) {
-	return source.open(name, &vendorBudget{used: &source.bytes, limit: source.limits.MaxTotalBytes, mu: &source.bytesMu})
+	return source.open(name, source.sharedBudget)
 }
 
 func (source *Source) open(name string, budget *vendorBudget) (io.ReadCloser, error) {
@@ -203,9 +208,7 @@ func (source *Source) open(name string, budget *vendorBudget) (io.ReadCloser, er
 		path:        name,
 		fileLeft:    source.limits.MaxFileBytes,
 		contentLeft: info.Size(),
-		total:       budget.used,
-		totalLimit:  budget.limit,
-		budgetMu:    budget.mu,
+		budget:      budget,
 	}, nil
 }
 
@@ -374,9 +377,7 @@ type boundedRemoteFile struct {
 	path        string
 	fileLeft    int64
 	contentLeft int64
-	total       *atomic.Int64
-	totalLimit  int64
-	budgetMu    sync.Locker
+	budget      *vendorBudget
 	exhausted   bool
 }
 
@@ -390,40 +391,52 @@ func (file *boundedRemoteFile) Read(buffer []byte) (int, error) {
 	if file.contentLeft == 0 {
 		return 0, io.EOF
 	}
-	// Keep each reservation and its possible refund atomic with respect to peer reads.
-	file.budgetMu.Lock()
-	defer file.budgetMu.Unlock()
 	requested := min(int64(len(buffer)), file.fileLeft+1)
-	reserved := file.reserve(requested)
+	reserved, awaitingRefund := file.budget.reserve(requested)
 	if reserved == 0 {
 		return 0, fmt.Errorf("%w: %s", ErrTotalLimit, file.path)
 	}
 	buffer = buffer[:reserved]
 	n, err := file.ReadCloser.Read(buffer)
-	if int64(n) < reserved {
-		file.total.Add(int64(n) - reserved)
-	}
+	file.budget.complete(reserved, int64(n))
 	file.fileLeft -= int64(n)
 	file.contentLeft -= int64(n)
 	if file.fileLeft < 0 {
 		file.exhausted = true
 		return n, fmt.Errorf("%w: %s", ErrFileLimit, file.path)
 	}
-	if reserved < requested && file.contentLeft > 0 {
+	if reserved < requested && !awaitingRefund && file.contentLeft > 0 {
 		return n, fmt.Errorf("%w: %s", ErrTotalLimit, file.path)
 	}
 	return n, err
 }
 
-func (file *boundedRemoteFile) reserve(requested int64) int64 {
+func (budget *vendorBudget) reserve(requested int64) (int64, bool) {
 	for {
-		used := file.total.Load()
-		if used >= file.totalLimit {
-			return 0
+		budget.mu.Lock()
+		available := budget.limit - budget.used.Load() - budget.reserved
+		if available > 0 {
+			reserved := min(requested, available)
+			pending := reserved < requested && budget.reserved > 0
+			budget.reserved += reserved
+			budget.mu.Unlock()
+			return reserved, pending
 		}
-		reserved := min(requested, file.totalLimit-used)
-		if file.total.CompareAndSwap(used, used+reserved) {
-			return reserved
+		if budget.reserved == 0 {
+			budget.mu.Unlock()
+			return 0, false
 		}
+		changed := budget.changed
+		budget.mu.Unlock()
+		<-changed
 	}
+}
+
+func (budget *vendorBudget) complete(reserved, read int64) {
+	budget.mu.Lock()
+	budget.reserved -= reserved
+	budget.used.Add(read)
+	close(budget.changed)
+	budget.changed = make(chan struct{})
+	budget.mu.Unlock()
 }
