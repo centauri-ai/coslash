@@ -162,7 +162,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.discardAbandoned(); err != nil {
 		return err
 	}
-	if r.config.ImportPlan != nil && r.DiscoverBatches != nil {
+	if r.scaleEnabled && r.DiscoverBatches != nil {
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
 			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil)
 			for i := range entries {
@@ -210,7 +210,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.applyExclusions(); err != nil {
 		return err
 	}
-	if r.config.ImportPlan != nil {
+	if r.config.ImportPlan != nil || r.scaleEnabled {
 		return r.runPlannedAndReport(ctx)
 	}
 	entries := r.Queue.Entries()

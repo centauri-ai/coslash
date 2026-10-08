@@ -175,8 +175,11 @@ func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := Entry{Key: "async", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "async"},
-		Activity: now.UnixMilli(), Listed: true, UploadID: "up_async", SessionID: "ses_async", BundleID: prepared.BundleID}
+		Activity: now.Add(-time.Minute).UnixMilli(), Listed: true, UploadID: "up_async", SessionID: "ses_async", BundleID: prepared.BundleID}
 	if err := q.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.FreezeCatchUp(plan); err != nil {
 		t.Fatal(err)
 	}
 	hub := &asyncCompletionHub{planHub: &planHub{plan: &plan}}
@@ -870,9 +873,13 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hub := &resumeScaleHub{planHub: &planHub{}, confirmed: map[[2]int]bool{}, attempts: map[[2]int]int{}, failOnce: [2]int{1, 0}}
+	plan := &hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	hub := &resumeScaleHub{planHub: &planHub{plan: plan}, confirmed: map[[2]int]bool{}, attempts: map[[2]int]int{}, failOnce: [2]int{1, 0}}
 	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true, lastReportedPhase: "awaiting_plan",
-		config: hubclient.V4Config{ImportPlan: &hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}}}
+		config: hubclient.V4Config{ImportPlan: plan}}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: runner.config}, now); err != nil {
+		t.Fatal(err)
+	}
 	manifest, err := runner.manifest(prepared)
 	if err != nil {
 		t.Fatal(err)

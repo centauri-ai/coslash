@@ -128,7 +128,7 @@ func validateSchemaContext(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	if count != 0 {
-		checks = append(checks, `SELECT id, session_id, type, seq, time_created, time_updated, data FROM session_message WHERE 0`)
+		checks = append(checks, `SELECT id, session_id, type, seq, time_created, data FROM session_message WHERE 0`)
 	}
 	for _, query := range checks {
 		statement, err := db.PrepareContext(ctx, query)
@@ -161,8 +161,12 @@ func sessionSourceContext(ctx context.Context, db *sql.DB) (string, error) {
 		summary_diffs, agent, model, cost, time_created, %s AS time_updated, time_archived`
 	parts := []string{}
 	if v2 {
+		messageTimeColumn, err := sessionMessageTimeColumn(ctx, db)
+		if err != nil {
+			return "", err
+		}
 		activity := `MAX(session_v2.time_updated, COALESCE((
-			SELECT time_updated FROM session_message
+			SELECT ` + messageTimeColumn + ` FROM session_message
 			WHERE session_id = session_v2.id ORDER BY seq DESC LIMIT 1
 		), session_v2.time_updated))`
 		parts = append(parts, `SELECT `+fmt.Sprintf(projection, activity)+`, 1 AS v2 FROM session_v2`)
@@ -186,4 +190,37 @@ func sessionSourceContext(ctx context.Context, db *sql.DB) (string, error) {
 		return "", err
 	}
 	return source, nil
+}
+
+func sessionMessageTimeColumn(ctx context.Context, db *sql.DB) (string, error) {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(session_message)`)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	hasCreated, hasUpdated := false, false
+	for rows.Next() {
+		var index, notNull, primaryKey int
+		var name, dataType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&index, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return "", err
+		}
+		switch name {
+		case "time_created":
+			hasCreated = true
+		case "time_updated":
+			hasUpdated = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if hasUpdated {
+		return "time_updated", nil
+	}
+	if hasCreated {
+		return "time_created", nil
+	}
+	return "", fmt.Errorf("unsupported OpenCode database schema: session_message has no time column")
 }
