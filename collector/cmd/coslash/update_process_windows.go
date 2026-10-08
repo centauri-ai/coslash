@@ -3,11 +3,15 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
+	"unicode/utf16"
 
 	"golang.org/x/sys/windows"
 )
@@ -79,8 +83,14 @@ func restoreUpdateTarget(target, backup string) error {
 }
 
 func scheduleUpdateHelperCleanup(helper string) error {
-	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", `$path = [Environment]::GetEnvironmentVariable('COSLASH_UPDATE_HELPER'); $deadline = [DateTime]::UtcNow.AddMinutes(3); while ([DateTime]::UtcNow -lt $deadline) { if (-not (Test-Path -LiteralPath $path)) { exit 0 }; try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; exit 0 } catch { Start-Sleep -Seconds 1 } }`)
-	command.Env = append(os.Environ(), "COSLASH_UPDATE_HELPER="+helper)
+	pathLiteral := "'" + strings.ReplaceAll(helper, "'", "''") + "'"
+	script := "$path = " + pathLiteral + `; $deadline = [DateTime]::UtcNow.AddMinutes(3); while ([DateTime]::UtcNow -lt $deadline) { if (-not (Test-Path -LiteralPath $path)) { exit 0 }; try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; exit 0 } catch { Start-Sleep -Seconds 1 } }`
+	encoded := utf16.Encode([]rune(script))
+	bytes := make([]byte, len(encoded)*2)
+	for i, unit := range encoded {
+		binary.LittleEndian.PutUint16(bytes[i*2:], unit)
+	}
+	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", base64.StdEncoding.EncodeToString(bytes))
 	command.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x00000008}
 	command.Stdin, command.Stdout, command.Stderr = nil, nil, nil
 	if err := command.Start(); err != nil {
