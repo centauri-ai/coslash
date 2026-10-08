@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -66,7 +67,7 @@ func installChannelForPaths(executable, resolved, home, localAppData, goos strin
 }
 
 func normalizeInstallPath(value, goos string) string {
-	value = filepath.Clean(strings.ReplaceAll(value, `\`, "/"))
+	value = path.Clean(strings.ReplaceAll(value, `\`, "/"))
 	if goos == "windows" {
 		value = strings.ToLower(strings.ReplaceAll(value, `\`, "/"))
 	}
