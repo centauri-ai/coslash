@@ -135,3 +135,17 @@ export function needsBanner(machine: MachineFact): boolean {
   if (isChecking(machine) || machine.state === 'disabled') return false;
   return machineTone(machine) === 'failed';
 }
+
+/**
+ * The install result stays true after the board refreshes, but a green notice
+ * must not sit next to a failed connection.
+ */
+export function connectorReadyNotice(machine: MachineFact | null): { text: string; success: boolean } {
+  if (machine != null && machineTone(machine) === 'failed') {
+    return {
+      text: 'Connector installed and verified, but the latest refresh failed. Retry the connection.',
+      success: false,
+    };
+  }
+  return { text: 'Connector installed and verified. SSH monitoring is active.', success: true };
+}

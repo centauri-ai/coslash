@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  connectorReadyNotice,
   machineRetryable,
   machineStatusText,
   machineTone,
@@ -30,5 +31,23 @@ describe('SSH action status', () => {
 
     expect(machineRetryable(authentication)).toBe(true);
     expect(machineStatusText(authentication)).toContain('Terminal guidance');
+  });
+});
+
+describe('connector ready notice', () => {
+  it('stays a success while the connection is healthy', () => {
+    expect(connectorReadyNotice({ ...machine(undefined), state: 'ok', complete: true }).success).toBe(true);
+    expect(connectorReadyNotice(null).success).toBe(true);
+  });
+
+  it('stops claiming success when the latest refresh failed', () => {
+    const notice = connectorReadyNotice({
+      ...machine(undefined),
+      state: 'error',
+      reason: 'partial_agent_data',
+    });
+
+    expect(notice.success).toBe(false);
+    expect(notice.text).toContain('latest refresh failed');
   });
 });

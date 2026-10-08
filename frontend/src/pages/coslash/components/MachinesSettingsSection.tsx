@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
+  connectorReadyNotice,
   MACHINE_TONE_DOT,
   machineRetryable,
   machineStatusText,
@@ -101,6 +102,7 @@ export function MachinesSettingsSection({
   const authenticationPending = stage === 'authentication_required' || stage === 'authenticating';
   const setupActionsLocked = busy || authenticationPending;
   const messageIsError = stage === 'error' || stage === 'connector_error';
+  const readyNotice = stage === 'ready' ? connectorReadyNotice(currentMachine) : null;
   const canAuthenticate = currentMachine?.actionRequired === 'authenticate' && !authenticationPending;
   const setupFailed =
     stage === 'connector_error' ||
@@ -169,7 +171,7 @@ export function MachinesSettingsSection({
         return;
       }
       setStage('ready');
-      setMessage('Connector installed and verified. SSH monitoring is active.');
+      setMessage(connectorReadyNotice(setup.machine).text);
       onConnectionVerified?.();
     } catch (error: unknown) {
       setStage('connector_error');
@@ -512,13 +514,14 @@ export function MachinesSettingsSection({
           <div
             role={messageIsError ? 'alert' : 'status'}
             className={cn('flex items-center gap-3 border-t px-4 py-3 text-xs', {
-              'bg-coslash-soft text-coslash-muted': busy || stage === 'consent' || authenticationPending,
-              'bg-success-bg text-success-fg': stage === 'ready',
+              'bg-coslash-soft text-coslash-muted':
+                busy || stage === 'consent' || authenticationPending || readyNotice?.success === false,
+              'bg-success-bg text-success-fg': readyNotice?.success === true,
               'bg-danger-bg text-danger-fg': messageIsError,
             })}
           >
             <span className={cn({ 'animate-pulse': stage === 'installing' || stage === 'authenticating' })}>
-              {message}
+              {readyNotice?.text ?? message}
             </span>
             {stage === 'authentication_required' && (
               <Button type="button" size="sm" onClick={() => void authenticateInTerminal()}>
