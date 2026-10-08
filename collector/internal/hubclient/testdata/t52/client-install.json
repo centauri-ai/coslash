@@ -1,0 +1,12 @@
+{
+  "recommendedVersion": "0.0.5",
+  "minVersion": "0.0.3",
+  "unixScriptUrl": "https://coslash.io/install.sh",
+  "windowsScriptUrl": "https://coslash.io/install.ps1",
+  "brewFormula": "centauri-ai/tap/coslash",
+  "platforms": {
+    "macos": true,
+    "windows": true,
+    "linux": false
+  }
+}

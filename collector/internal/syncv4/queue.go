@@ -462,6 +462,32 @@ func (q *Queue) Entries() []Entry {
 	return entries
 }
 
+// SessionStates returns local session identities and their Hub membership
+// state without exposing session content or server identifiers.
+func (q *Queue) SessionStates() map[string]string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	states := make(map[string]string, len(q.state.Entries))
+	for _, entry := range q.state.Entries {
+		selection := entry.Selection
+		if selection.SourceID == "" || selection.Agent == "" || selection.SessionID == "" {
+			continue
+		}
+		key := selection.SourceID + ":" + selection.Agent + ":" + selection.SessionID
+		switch {
+		case entry.Excluded:
+			states[key] = "left_out"
+		case pending(entry) && (entry.BundleID != "" || entry.UploadID != "" || entry.SessionID != ""):
+			states[key] = "syncing"
+		case entry.RevisionID != "":
+			states[key] = "in_hub"
+		default:
+			states[key] = "not_in_hub"
+		}
+	}
+	return states
+}
+
 func (q *Queue) Matches(entry Entry) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()

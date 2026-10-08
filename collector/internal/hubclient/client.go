@@ -38,6 +38,7 @@ type Client struct {
 	Credentials       CredentialStore
 	DeviceName        string
 	CollectorVersion  string
+	InstallChannel    string
 	LoadSession       SessionLoader
 	LoadSourceSession SourceSessionLoader
 	LoadFullSession   FullSessionLoader

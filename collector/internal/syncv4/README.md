@@ -131,9 +131,14 @@ lines older than 29 days are dropped. If the Hub refuses a log batch as invalid,
 Local checks in without it so sync can continue, keeps the refused lines, and
 retries them after one minute. A binding change drops unsent lines.
 
-`COSLASH_V4_SYNC_ENABLED=1` is a development activation flag and defaults off.
-The server's separate v4 upload flag must also be enabled. Disable the Local
-flag and restart to stop this scheduler; v1–v3 sharing remains available.
+Local v4 sync starts by default after pairing and at startup when a stored
+credential exists. `COSLASH_V4_SYNC=0` disables the Local scheduler and stops
+advertising `sync-v4`; `COSLASH_SYNC_POLICY=0` stops advertising `sync-policy/1`.
+Both switches default on. The Hub's separate v4 upload and device policy still
+control whether it accepts uploads. A 409 `sync_paused` or `device_sync_off`
+clears transient failure/backoff state and leaves the worker idle until the Hub
+policy version changes. `device_revoked` removes the keychain credential and
+stops the sync loop. v1–v3 sharing remains available.
 `COSLASH_SCALE_IMPORT=0` disables the additive import and command progress
 payloads while retaining the command wait fix.
 The Local settings `syncPaused` switch wins over Hub pause/off and stops new

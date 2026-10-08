@@ -478,6 +478,40 @@ func TestPausedOrOfflineCheckInSendsNoUpload(t *testing.T) {
 	}
 }
 
+func TestPolicyStopCodesDoNotRecordFailures(t *testing.T) {
+	queue, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "policy-stop", Activity: 1, Session: hubclient.V4Session{Agent: "codex"},
+		FailureCode: "server_error", ParkedVersion: "1.2.3", LoggedFailure: "server_error", BackoffAttempt: 3, RetryAt: time.Now().Add(time.Hour)}
+	if err := queue.Merge([]Entry{entry}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Queue: queue}
+	for _, test := range []struct {
+		code string
+		want error
+	}{{"sync_paused", ErrPolicyBlocked}, {"device_sync_off", ErrDeviceSyncOff}} {
+		t.Run(test.code, func(t *testing.T) {
+			stored := queue.Entries()[0]
+			stored.FailureCode, stored.ParkedVersion, stored.LoggedFailure = "server_error", "1.2.3", "server_error"
+			stored.BackoffAttempt, stored.RetryAt = 3, time.Now().Add(time.Hour)
+			if err := queue.Update(stored); err != nil {
+				t.Fatal(err)
+			}
+			err := runner.recordFailure(&stored, hubclient.V4Problem{Code: test.code, HTTPStatus: http.StatusConflict})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("recordFailure error=%v, want %v", err, test.want)
+			}
+			got := queue.Entries()[0]
+			if got.FailureCode != "" || got.ParkedVersion != "" || got.LoggedFailure != "" || got.BackoffAttempt != 0 || !got.RetryAt.IsZero() || len(queue.state.Log) != 0 {
+				t.Fatalf("policy stop recorded failure state: entry=%+v log=%v", got, queue.state.Log)
+			}
+		})
+	}
+}
+
 func TestRecentBeforeDurableHistoryNewestFirst(t *testing.T) {
 	now := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	root := t.TempDir()

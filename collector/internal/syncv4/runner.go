@@ -42,6 +42,8 @@ const (
 const consentAge = 5 * time.Minute
 
 var ErrPaused = errors.New("v4 sync paused")
+var ErrPolicyBlocked = errors.New("v4 sync blocked by Hub policy")
+var ErrDeviceSyncOff = errors.New("Hub turned sync off for this device")
 var ErrStaleConsent = errors.New("v4 sync consent unavailable or stale")
 var ErrCommandPickedUp = errors.New("v4 command picked up")
 
@@ -367,7 +369,14 @@ func agentLabel(agent string) string {
 }
 
 func stopSync(err error) bool {
-	return errors.Is(err, ErrPaused) || errors.Is(err, ErrStaleConsent) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	return errors.Is(err, ErrPaused) || errors.Is(err, ErrPolicyBlocked) || errors.Is(err, ErrDeviceSyncOff) ||
+		policyBlocked(err) || errors.Is(err, ErrStaleConsent) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func policyBlocked(err error) bool {
+	var problem hubclient.V4Problem
+	return errors.Is(err, ErrPolicyBlocked) || errors.Is(err, ErrDeviceSyncOff) ||
+		(errors.As(err, &problem) && (problem.Code == "sync_paused" || problem.Code == "device_sync_off"))
 }
 
 func (r *Runner) recordFailure(entry *Entry, failure error) error {
@@ -378,6 +387,17 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 	}
 	var problem hubclient.V4Problem
 	if errors.As(failure, &problem) {
+		if problem.Code == "sync_paused" || problem.Code == "device_sync_off" {
+			entry.FailureCode, entry.ParkedVersion, entry.LoggedFailure = "", "", ""
+			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
+			if err := r.Queue.Update(*entry); err != nil {
+				return err
+			}
+			if problem.Code == "device_sync_off" {
+				return ErrDeviceSyncOff
+			}
+			return ErrPolicyBlocked
+		}
 		if problem.Code == "left_out" {
 			entry.Excluded, entry.ServerLeftOut, entry.FailureCode = true, true, ""
 			return r.Queue.Update(*entry)

@@ -47,12 +47,15 @@ func TestV4PutChunkUsesSignedURLWithoutDeviceCredential(t *testing.T) {
 
 func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	t.Setenv("COSLASH_SCALE_IMPORT", "1")
+	t.Setenv("COSLASH_V4_SYNC", "1")
+	t.Setenv("COSLASH_SYNC_POLICY", "1")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v4/devices/me/check-in" || r.Header.Get("Authorization") != "Device credential" {
 			t.Fatalf("check-in request = %s %s auth=%q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
 		}
 		var input struct {
 			OS                   string   `json:"os"`
+			InstallChannel       string   `json:"installChannel"`
 			AppliedConfigVersion int64    `json:"appliedConfigVersion"`
 			Capabilities         []string `json:"capabilities"`
 			AgentsFound          []string `json:"agentsFound"`
@@ -61,7 +64,7 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			t.Fatal(err)
 		}
-		if input.OS != runtime.GOOS || input.AppliedConfigVersion != 7 || strings.Join(input.Capabilities, ",") != "sync-v4,session-backup/v1,launch,ssh-relay,scale-import/v1" || strings.Join(input.AgentsFound, ",") != "claude,codex,cursor" ||
+		if input.OS != runtime.GOOS || input.InstallChannel != "script" || input.AppliedConfigVersion != 7 || strings.Join(input.Capabilities, ",") != "sync-v4,session-backup/v1,launch,ssh-relay,scale-import/v1,sync-policy/1" || strings.Join(input.AgentsFound, ",") != "claude,codex,cursor" ||
 			input.Queue.FirstSync.RecentDone != 2 || input.Queue.FirstSync.RecentTotal != 3 || input.Queue.FirstSync.HistoryState != "syncing" {
 			t.Fatalf("check-in input = %+v", input)
 		}
@@ -69,13 +72,55 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	}))
 	defer server.Close()
 	base, _ := url.Parse(server.URL)
-	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5", InstallChannel: "script"}
 	var queue V4Queue
 	queue.Pending = 1
 	queue.FirstSync.RecentDone, queue.FirstSync.RecentTotal, queue.FirstSync.HistoryState = 2, 3, "syncing"
 	result, err := client.V4CheckIn(context.Background(), queue, 7, nil, []string{"claude", "codex", "cursor"}, nil)
 	if err != nil || result.ConfigVersion != 8 {
 		t.Fatalf("check-in result=%+v err=%v", result, err)
+	}
+}
+
+func TestV4CheckInReportsNormalizedSemverVersion(t *testing.T) {
+	for _, want := range []string{"0.0.0-dev", "1.2.3-rc.1+build.4"} {
+		t.Run(want, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var input struct {
+					ClientVersion string `json:"clientVersion"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+					t.Fatal(err)
+				}
+				if input.ClientVersion != want {
+					t.Errorf("reported client version=%q, want %q", input.ClientVersion, want)
+				}
+				io.WriteString(w, `{"configVersion":0,"config":{"paused":false,"deviceOff":false,"leaveOut":[],"agentKnowledge":true},"commands":[],"minVersion":"0.0.0","nextCheckInSeconds":60}`)
+			}))
+			defer server.Close()
+			base, _ := url.Parse(server.URL)
+			client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: want}
+			if _, err := client.V4CheckIn(context.Background(), V4Queue{}, 0, nil, nil, nil); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestClientVersionLessUsesSemverPrereleaseOrdering(t *testing.T) {
+	for _, test := range []struct {
+		left, right string
+		want        bool
+	}{
+		{"1.2.3-rc.1", "1.2.3", true},
+		{"1.2.3-alpha.2", "1.2.3-alpha.10", true},
+		{"1.2.3-alpha", "1.2.3-1", false},
+		{"1.2.3+one", "1.2.3+two", false},
+		{"1.2.3", "1.2.4-dev", true},
+	} {
+		if got := clientVersionLess(test.left, test.right); got != test.want {
+			t.Errorf("clientVersionLess(%q,%q)=%t, want %t", test.left, test.right, got, test.want)
+		}
 	}
 }
 
@@ -98,6 +143,21 @@ func TestV4CheckInScaleSwitchOmitsCapability(t *testing.T) {
 	client := Client{BaseURL: base, Credentials: &memoryCredentials{}, CollectorVersion: "v0.0.5"}
 	if _, err := client.V4CheckIn(context.Background(), V4Queue{}, 0, nil, nil, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSyncCapabilitiesDefaultOnAndCanBeDisabled(t *testing.T) {
+	t.Setenv("COSLASH_V4_SYNC", "")
+	t.Setenv("COSLASH_SYNC_POLICY", "")
+	if !V4SyncEnabled() || !SyncPolicyEnabled() ||
+		!slices.Contains(localCapabilities(), "sync-v4") || !slices.Contains(localCapabilities(), CapabilitySyncPolicy) {
+		t.Fatal("sync and policy capabilities should be enabled by default")
+	}
+	t.Setenv("COSLASH_V4_SYNC", "0")
+	t.Setenv("COSLASH_SYNC_POLICY", "0")
+	capabilities := localCapabilities()
+	if slices.Contains(capabilities, "sync-v4") || slices.Contains(capabilities, CapabilitySyncPolicy) {
+		t.Fatalf("disabled sync capabilities are still advertised: %v", capabilities)
 	}
 }
 

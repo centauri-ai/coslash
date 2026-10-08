@@ -1,0 +1,23 @@
+{
+  "clientVersion": "0.0.5",
+  "capabilities": [
+    "sync-policy/1",
+    "scale-import/v1"
+  ],
+  "os": "darwin",
+  "appliedConfigVersion": 1,
+  "agentsFound": [
+    "codex",
+    "claude"
+  ],
+  "queue": {
+    "pending": 2,
+    "failing": 0,
+    "firstSync": {
+      "recentDone": 3,
+      "recentTotal": 45,
+      "historyState": "none"
+    }
+  },
+  "installChannel": "script"
+}

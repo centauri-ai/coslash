@@ -300,7 +300,7 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 // log carries the unsent sync log lines (at most 200).
 func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVersion int64, results []V4CommandResult, agentsFound []string, log []V4LogEntry) (V4CheckIn, error) {
 	var result V4CheckIn
-	version := strings.SplitN(strings.TrimPrefix(c.CollectorVersion, "v"), "-", 2)[0]
+	version := strings.TrimPrefix(c.CollectorVersion, "v")
 	if !validClientVersion(version) {
 		return result, errors.New("v4 sync requires a semantic Local version")
 	}
@@ -308,12 +308,13 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 		ClientVersion        string            `json:"clientVersion"`
 		Capabilities         []string          `json:"capabilities"`
 		OS                   string            `json:"os"`
+		InstallChannel       string            `json:"installChannel"`
 		AppliedConfigVersion int64             `json:"appliedConfigVersion"`
 		AgentsFound          []string          `json:"agentsFound"`
 		Queue                V4Queue           `json:"queue"`
 		Results              []V4CommandResult `json:"results,omitempty"`
 		Log                  []V4LogEntry      `json:"log,omitempty"`
-	}{version, localCapabilities(), runtime.GOOS, appliedConfigVersion, agentsFound, queue, results, log}
+	}{version, localCapabilities(), runtime.GOOS, normalizedInstallChannel(c.InstallChannel), appliedConfigVersion, agentsFound, queue, results, log}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
 	// Version 0 is the owner's default policy before any settings save, and
 	// UnmarshalJSON already requires every policy field.
@@ -335,11 +336,37 @@ func ScaleImportEnabled() bool {
 }
 
 func localCapabilities() []string {
-	capabilities := []string{"sync-v4", "session-backup/v1", "launch", "ssh-relay"}
+	capabilities := []string{}
+	if V4SyncEnabled() {
+		capabilities = append(capabilities, "sync-v4")
+	}
+	capabilities = append(capabilities, "session-backup/v1", "launch", "ssh-relay")
 	if ScaleImportEnabled() {
 		capabilities = append(capabilities, CapabilityScaleImport)
 	}
+	if SyncPolicyEnabled() {
+		capabilities = append(capabilities, CapabilitySyncPolicy)
+	}
 	return capabilities
+}
+
+const CapabilitySyncPolicy = "sync-policy/1"
+
+func V4SyncEnabled() bool {
+	return os.Getenv("COSLASH_V4_SYNC") != "0"
+}
+
+func SyncPolicyEnabled() bool {
+	return os.Getenv("COSLASH_SYNC_POLICY") != "0"
+}
+
+func normalizedInstallChannel(channel string) string {
+	switch channel {
+	case "brew", "script", "windows-script", "unknown":
+		return channel
+	default:
+		return "unknown"
+	}
 }
 
 func (c *Client) V4Wait(ctx context.Context, since int64) (V4Wait, error) {
@@ -349,34 +376,67 @@ func (c *Client) V4Wait(ctx context.Context, since int64) (V4Wait, error) {
 }
 
 func clientVersionLess(left, right string) bool {
-	a, b := strings.Split(left, "."), strings.Split(right, ".")
+	aCore, aPre := semverParts(left)
+	bCore, bPre := semverParts(right)
 	for i := range 3 {
-		var x, y int
-		fmt.Sscan(a[i], &x)
-		fmt.Sscan(b[i], &y)
-		if x != y {
-			return x < y
+		if aCore[i] != bCore[i] {
+			return compareNumericIdentifier(aCore[i], bCore[i]) < 0
 		}
 	}
-	return false
+	if aPre == "" || bPre == "" {
+		return aPre != "" && bPre == ""
+	}
+	aIDs, bIDs := strings.Split(aPre, "."), strings.Split(bPre, ".")
+	for i := 0; i < min(len(aIDs), len(bIDs)); i++ {
+		if aIDs[i] == bIDs[i] {
+			continue
+		}
+		aNumeric, bNumeric := numericIdentifier(aIDs[i]), numericIdentifier(bIDs[i])
+		switch {
+		case aNumeric && bNumeric:
+			return compareNumericIdentifier(aIDs[i], bIDs[i]) < 0
+		case aNumeric != bNumeric:
+			return aNumeric
+		default:
+			return aIDs[i] < bIDs[i]
+		}
+	}
+	return len(aIDs) < len(bIDs)
 }
 
 func validClientVersion(value string) bool {
-	parts := strings.Split(value, ".")
-	if len(parts) != 3 || len(value) > 32 {
+	return len(value) <= 128 && clientVersion.MatchString(value)
+}
+
+func semverParts(value string) ([3]string, string) {
+	value, _, _ = strings.Cut(value, "+")
+	core, prerelease, _ := strings.Cut(value, "-")
+	parts := strings.Split(core, ".")
+	return [3]string{parts[0], parts[1], parts[2]}, prerelease
+}
+
+func numericIdentifier(value string) bool {
+	if value == "" {
 		return false
 	}
-	for _, part := range parts {
-		if part == "" {
+	for _, r := range value {
+		if r < '0' || r > '9' {
 			return false
-		}
-		for _, ch := range part {
-			if ch < '0' || ch > '9' {
-				return false
-			}
 		}
 	}
 	return true
+}
+
+func compareNumericIdentifier(left, right string) int {
+	left = strings.TrimLeft(left, "0")
+	right = strings.TrimLeft(right, "0")
+	if len(left) < len(right) {
+		return -1
+	}
+	if len(left) > len(right) {
+		return 1
+	}
+	return strings.Compare(left, right)
 }
 
 func (c *Client) V4Create(ctx context.Context, input V4Create) (V4Status, error) {

@@ -1,0 +1,7 @@
+{
+  "type": "https://problems.coslash.dev/sync_paused",
+  "title": "Request unavailable",
+  "status": 409,
+  "code": "sync_paused",
+  "requestId": "synthetic-request-id"
+}

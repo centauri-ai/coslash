@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -72,6 +73,27 @@ func TestRepositoryLeaveOutWildcardMatchesOneRepository(t *testing.T) {
 	}
 	if leftOut(hubclient.V4Session{Repo: "acme/team/private"}, []string{"acme/*"}) {
 		t.Fatal("repository wildcard matched a nested path")
+	}
+}
+
+func TestQueueSessionStatesDistinguishHubAndPendingSessions(t *testing.T) {
+	selectSession := func(id string) sessionbackupproducer.Selection {
+		return sessionbackupproducer.Selection{SourceID: "local", Agent: "codex", SessionID: id}
+	}
+	queue := &Queue{state: state{Entries: []Entry{
+		{Key: "in-hub", Selection: selectSession("in-hub"), Activity: 4, SyncedActivity: 4, RevisionID: "revision"},
+		{Key: "syncing", Selection: selectSession("syncing"), Activity: 5, BundleID: "bundle", UploadID: "upload"},
+		{Key: "not-in-hub", Selection: selectSession("not-in-hub"), Activity: 6},
+		{Key: "left-out", Selection: selectSession("left-out"), Activity: 7, Excluded: true},
+	}}}
+	want := map[string]string{
+		"local:codex:in-hub":     "in_hub",
+		"local:codex:syncing":    "syncing",
+		"local:codex:not-in-hub": "not_in_hub",
+		"local:codex:left-out":   "left_out",
+	}
+	if got := queue.SessionStates(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("session states=%v, want %v", got, want)
 	}
 }
 
