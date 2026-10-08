@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
@@ -25,6 +26,21 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestV4SyncStartupUsesTheDocumentedSwitch(t *testing.T) {
+	t.Setenv("COSLASH_V4_SYNC_ENABLED", "0")
+	t.Setenv("COSLASH_V4_SYNC", "")
+	if !shouldStartV4Sync(&hubclient.Client{}) {
+		t.Fatal("v4 sync should start by default when a Hub is configured")
+	}
+	t.Setenv("COSLASH_V4_SYNC", "0")
+	if shouldStartV4Sync(&hubclient.Client{}) {
+		t.Fatal("v4 sync started despite COSLASH_V4_SYNC=0")
+	}
+	if shouldStartV4Sync(nil) {
+		t.Fatal("v4 sync started without a configured Hub")
+	}
+}
 
 func TestValidateCursorLaunch(t *testing.T) {
 	directory := t.TempDir()

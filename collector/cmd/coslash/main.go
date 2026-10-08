@@ -252,7 +252,7 @@ func main() {
 		log.Printf("Hub integration disabled: %v", err)
 	}
 	var queue *syncv4.Queue
-	if hub != nil && os.Getenv("COSLASH_V4_SYNC_ENABLED") == "1" {
+	if shouldStartV4Sync(hub) {
 		queue, err = syncv4.Open("")
 		if err != nil {
 			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
@@ -263,7 +263,14 @@ func main() {
 	wake := make(chan struct{}, 1)
 	onboardings.setSyncHooks(syncHookFuncs{
 		ensure: func(client *hubclient.Client) error {
-			onboardings.StartCheckIns(client)
+			if queue == nil {
+				onboardings.StartCheckIns(client)
+			} else {
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
 			return nil
 		},
 		pass: func(reason string) {
@@ -373,6 +380,10 @@ func main() {
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", serveErr)
 	}
+}
+
+func shouldStartV4Sync(hub *hubclient.Client) bool {
+	return hub != nil && hubclient.V4SyncEnabled()
 }
 
 // runInventory takes the stat-only inventory at startup and every sync

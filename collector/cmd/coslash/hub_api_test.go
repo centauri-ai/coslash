@@ -28,6 +28,31 @@ func (credential fixedHubCredential) Load(context.Context) (string, error) {
 
 func (fixedHubCredential) Save(context.Context, string) error { return nil }
 
+func (fixedHubCredential) Delete(context.Context) error { return nil }
+
+func TestInstallChannelForProductionExecutables(t *testing.T) {
+	for _, test := range []struct {
+		goos, executable, want string
+	}{
+		{"darwin", "/opt/homebrew/Cellar/coslash/1.0/bin/coslash", "brew"},
+		{"darwin", "/Users/test/.local/bin/coslash", "script"},
+		{"linux", "/home/test/.local/bin/coslash", "script"},
+		{"windows", `C:/Users/test/AppData/Local/Programs/coSlash/coslash.exe`, "windows-script"},
+		{"freebsd", "/usr/local/bin/coslash", "unknown"},
+	} {
+		if got := installChannelFor(test.goos, test.executable); got != test.want {
+			t.Errorf("installChannelFor(%q, %q) = %q, want %q", test.goos, test.executable, got, test.want)
+		}
+	}
+	client, err := hubClientForURL("0.1.0", "http://127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.InstallChannel != localInstallChannel() {
+		t.Fatalf("production Hub client install channel=%q, want %q", client.InstallChannel, localInstallChannel())
+	}
+}
+
 func TestFullSessionLocalAPIPreservesConsentBytesAndRetryIdentity(t *testing.T) {
 	recordData, err := os.ReadFile(filepath.Join("..", "..", "fullsession", "v1", "testdata", "fixtures", "valid", "codex.json"))
 	if err != nil {

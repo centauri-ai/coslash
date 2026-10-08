@@ -189,6 +189,18 @@ type V4CheckIn struct {
 	RecommendedUpdate bool     `json:"-"`
 }
 
+type v4CheckInRequest struct {
+	ClientVersion        string            `json:"clientVersion"`
+	Capabilities         []string          `json:"capabilities"`
+	OS                   string            `json:"os"`
+	InstallChannel       string            `json:"installChannel"`
+	AppliedConfigVersion int64             `json:"appliedConfigVersion"`
+	AgentsFound          []string          `json:"agentsFound"`
+	Queue                V4Queue           `json:"queue"`
+	Results              []V4CommandResult `json:"results,omitempty"`
+	Log                  []V4LogEntry      `json:"log,omitempty"`
+}
+
 func (result *V4CheckIn) UnmarshalJSON(data []byte) error {
 	type alias V4CheckIn
 	var decoded alias
@@ -287,6 +299,11 @@ func (c *Client) v4Request(ctx context.Context, method, path string, body any, r
 		if problem.Code == "" {
 			problem.Code = fmt.Sprintf("http_%d", response.StatusCode)
 		}
+		if problem.Code == "device_revoked" {
+			if deleteErr := c.Credentials.Delete(context.WithoutCancel(ctx)); deleteErr != nil {
+				return errors.Join(problem, fmt.Errorf("delete revoked Hub credential: %w", deleteErr))
+			}
+		}
 		return problem
 	}
 	if result != nil {
@@ -304,17 +321,11 @@ func (c *Client) V4CheckIn(ctx context.Context, queue V4Queue, appliedConfigVers
 	if !validClientVersion(version) {
 		return result, errors.New("v4 sync requires a semantic Local version")
 	}
-	input := struct {
-		ClientVersion        string            `json:"clientVersion"`
-		Capabilities         []string          `json:"capabilities"`
-		OS                   string            `json:"os"`
-		InstallChannel       string            `json:"installChannel"`
-		AppliedConfigVersion int64             `json:"appliedConfigVersion"`
-		AgentsFound          []string          `json:"agentsFound"`
-		Queue                V4Queue           `json:"queue"`
-		Results              []V4CommandResult `json:"results,omitempty"`
-		Log                  []V4LogEntry      `json:"log,omitempty"`
-	}{version, localCapabilities(), runtime.GOOS, normalizedInstallChannel(c.InstallChannel), appliedConfigVersion, agentsFound, queue, results, log}
+	input := v4CheckInRequest{
+		ClientVersion: version, Capabilities: localCapabilities(), OS: runtime.GOOS,
+		InstallChannel: normalizedInstallChannel(c.InstallChannel), AppliedConfigVersion: appliedConfigVersion,
+		AgentsFound: agentsFound, Queue: queue, Results: results, Log: log,
+	}
 	err := c.v4Request(ctx, http.MethodPost, "/v4/devices/me/check-in", input, &result)
 	// Version 0 is the owner's default policy before any settings save, and
 	// UnmarshalJSON already requires every policy field.
