@@ -244,7 +244,11 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	owners := make(map[string]string, len(familyFiles))
 	hiddenOwners := make(map[string]string, len(hiddenParents))
 	for _, file := range familyFiles {
-		owner := headers[file].SessionID
+		header := headers[file]
+		owner := header.SessionID
+		if header.Hidden {
+			owner = header.ParentID
+		}
 		for steps := 0; !memberIDs[owner]; steps++ {
 			parent, hidden := hiddenParents[owner]
 			if !hidden || parent == "" || steps > len(hiddenParents) {
@@ -252,13 +256,16 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 			}
 			owner = parent
 		}
-		if headers[file].Hidden && owner == headers[file].SessionID {
-			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
+		if header.Hidden {
+			if owner == header.SessionID {
+				return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
+			}
+			if previousOwner, exists := hiddenOwners[header.SessionID]; exists && previousOwner != owner {
+				return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
+			}
+			hiddenOwners[header.SessionID] = owner
 		}
 		owners[file] = owner
-		if headers[file].Hidden {
-			hiddenOwners[headers[file].SessionID] = owner
-		}
 	}
 	indexIDs := maps.Clone(memberIDs)
 	for id := range hiddenParents {
