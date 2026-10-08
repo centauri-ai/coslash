@@ -1,0 +1,4 @@
+curl -fsSL https://coslash.io/install.sh | bash -s -- --connect K7QX-29PD --hub https://hub.coslash.io
+brew install centauri-ai/tap/coslash && coslash connect K7QX-29PD --hub https://hub.coslash.io
+coslash connect K7QX-29PD --hub https://hub.coslash.io
+$env:COSLASH_CONNECT='K7QX-29PD'; $env:COSLASH_HUB='https://hub.coslash.io'; irm https://coslash.io/install.ps1 | iex

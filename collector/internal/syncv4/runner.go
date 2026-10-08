@@ -42,6 +42,8 @@ const (
 const consentAge = 5 * time.Minute
 
 var ErrPaused = errors.New("v4 sync paused")
+var ErrPolicyBlocked = errors.New("v4 sync blocked by Hub policy")
+var ErrDeviceSyncOff = errors.New("Hub turned sync off for this device")
 var ErrStaleConsent = errors.New("v4 sync consent unavailable or stale")
 var ErrCommandPickedUp = errors.New("v4 command picked up")
 
@@ -78,6 +80,13 @@ func DeferReason(err error) string {
 // (finalize runs asynchronously on the Hub, and history waits for recent
 // sessions to be recorded), otherwise the regular interval.
 func NextSyncDelay(err error, inFlight int, interval time.Duration) time.Duration {
+	if errors.Is(err, ErrPolicyBlocked) || errors.Is(err, ErrDeviceSyncOff) || errors.Is(err, hubclient.ErrNotPaired) {
+		return interval
+	}
+	var problem hubclient.V4Problem
+	if errors.As(err, &problem) && problem.Code == "device_revoked" {
+		return interval
+	}
 	if Busy(err) || inFlight > 0 {
 		return busyRetry
 	}
@@ -155,6 +164,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.refreshConsent(ctx); err != nil {
 		return err
 	}
+	if r.Queue.PolicyBlocked() {
+		return ErrPolicyBlocked
+	}
 	if r.RequireImportPlan && !r.scaleEnabled {
 		return ErrPaused
 	}
@@ -165,7 +177,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.discardAbandoned(); err != nil {
 		return err
 	}
-	if r.scaleEnabled && r.DiscoverBatches != nil {
+	if r.DiscoverBatches != nil && (r.config.ImportPlan != nil || r.scaleEnabled) {
 		// A large local discovery pass can take minutes. Resume already listed
 		// uploads first so a fresh scan does not block visible content progress.
 		var transferErr error
@@ -229,7 +241,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.applyExclusions(); err != nil {
 		return err
 	}
-	if r.scaleEnabled {
+	if r.config.ImportPlan != nil || r.scaleEnabled {
 		return r.runPlannedAndReport(ctx)
 	}
 	entries := r.Queue.Entries()
@@ -241,7 +253,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.ensureCreated(ctx, &entry); err != nil {
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -257,7 +269,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.transfer(ctx, &entry); err != nil {
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -288,7 +300,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.ensureCreated(ctx, &entry); err != nil {
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if Busy(err) {
 				busyErr = err
@@ -305,7 +317,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.transfer(ctx, &entry); err != nil {
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -388,7 +400,22 @@ func agentLabel(agent string) string {
 }
 
 func stopSync(err error) bool {
-	return errors.Is(err, ErrPaused) || errors.Is(err, ErrStaleConsent) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	return errors.Is(err, ErrPaused) || errors.Is(err, ErrPolicyBlocked) || errors.Is(err, ErrDeviceSyncOff) ||
+		policyBlocked(err) || errors.Is(err, ErrStaleConsent) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func policyBlocked(err error) bool {
+	var problem hubclient.V4Problem
+	return errors.Is(err, ErrPolicyBlocked) || errors.Is(err, ErrDeviceSyncOff) ||
+		(errors.As(err, &problem) && (problem.Code == "sync_paused" || problem.Code == "device_sync_off"))
+}
+
+func (r *Runner) persistPolicyStop(entry *Entry, err error) error {
+	var problem hubclient.V4Problem
+	if errors.As(err, &problem) && (problem.Code == "sync_paused" || problem.Code == "device_sync_off") {
+		return r.recordFailure(entry, err)
+	}
+	return err
 }
 
 func (r *Runner) recordFailure(entry *Entry, failure error) error {
@@ -399,6 +426,20 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 	}
 	var problem hubclient.V4Problem
 	if errors.As(failure, &problem) {
+		if problem.Code == "sync_paused" || problem.Code == "device_sync_off" {
+			entry.FailureCode, entry.ParkedVersion, entry.LoggedFailure = "", "", ""
+			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
+			if err := r.Queue.SetPolicyBlocked(); err != nil {
+				return err
+			}
+			if err := r.Queue.Update(*entry); err != nil {
+				return err
+			}
+			if problem.Code == "device_sync_off" {
+				return ErrDeviceSyncOff
+			}
+			return ErrPolicyBlocked
+		}
 		if problem.Code == "left_out" {
 			entry.Excluded, entry.ServerLeftOut, entry.FailureCode = true, true, ""
 			return r.Queue.Update(*entry)
