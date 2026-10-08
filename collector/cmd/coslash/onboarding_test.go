@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 )
@@ -179,4 +180,54 @@ func TestStartCheckInsAvoidsDuplicatesAndV4Overlap(t *testing.T) {
 			t.Fatalf("active legacy check-in workers=%d, want 0", active)
 		}
 	})
+}
+
+func TestPairingWithV4SyncDisabledKeepsLegacyCheckIn(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	t.Setenv("COSLASH_V4_SYNC", "0")
+	requests := make(chan map[string]any, 1)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v4/devices/me/check-in" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid check-in", http.StatusBadRequest)
+			return
+		}
+		requests <- body
+		_, _ = io.WriteString(w, `{"nextCheckInSeconds":300}`)
+	}))
+	defer hub.Close()
+	baseURL, err := url.Parse(hub.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &hubclient.Client{
+		BaseURL: baseURL, Credentials: fixedHubCredential("device-credential"), CollectorVersion: "1.2.3", HTTP: hub.Client(),
+	}
+	controller, err := newSyncController(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer controller.Stop()
+	onboardings := newOnboardingManager("1.2.3")
+	defer onboardings.Close()
+	onboardings.SetV4SyncActive(controller.Queue() != nil)
+	onboardings.setSyncHooks(controller)
+	onboardings.ensureSync(client)
+
+	select {
+	case body := <-requests:
+		if got, ok := body["agentsFound"].([]any); !ok || len(got) != 0 {
+			t.Fatalf("content-free check-in agents=%v", body["agentsFound"])
+		}
+		got, ok := body["queue"].(map[string]any)
+		if !ok || got["pending"] != float64(0) || got["failing"] != float64(0) {
+			t.Fatalf("content-free check-in queue=%v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("legacy content-free check-in did not start after pairing")
+	}
 }

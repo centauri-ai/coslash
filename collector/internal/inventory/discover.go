@@ -42,6 +42,9 @@ type DiscoverOptions struct {
 	Resume *Cursor
 	// BatchFamilies bounds how many families are parsed before a yield.
 	BatchFamilies int
+	// FirstBatchFamilies optionally sets a smaller first yield before the
+	// regular BatchFamilies size is used for the rest of the pass.
+	FirstBatchFamilies int
 	// Persist is called with the cursor after every yielded batch and once
 	// more with Complete set; a nil Persist keeps the cursor in memory.
 	Persist func(Cursor) error
@@ -114,12 +117,13 @@ func DiscoverAll(ctx context.Context, opts DiscoverOptions) ([]*session.Session,
 }
 
 type discoveryPlan struct {
-	families []family
-	metadata map[string]*vendors.SessionMetadata
-	cursor   Cursor
-	batch    int
-	persist  func(Cursor) error
-	live     map[string]string
+	families   []family
+	metadata   map[string]*vendors.SessionMetadata
+	cursor     Cursor
+	batch      int
+	firstBatch int
+	persist    func(Cursor) error
+	live       map[string]string
 }
 
 func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, error) {
@@ -157,9 +161,12 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		return total
 	}
 
-	plan := &discoveryPlan{metadata: map[string]*vendors.SessionMetadata{}, batch: opts.BatchFamilies, persist: opts.Persist}
+	plan := &discoveryPlan{metadata: map[string]*vendors.SessionMetadata{}, batch: opts.BatchFamilies, firstBatch: opts.FirstBatchFamilies, persist: opts.Persist}
 	if plan.batch <= 0 {
 		plan.batch = defaultBatchFamilies
+	}
+	if plan.firstBatch <= 0 {
+		plan.firstBatch = plan.batch
 	}
 	var failures []error
 	// Claude: families follow paths; the parser reads no header.
@@ -264,12 +271,16 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 	type sessionKey struct{ agent, id string }
 	yielded := map[sessionKey]bool{}
 	cursor := plan.cursor
-	for start := 0; start < len(plan.families); start += plan.batch {
+	for start := 0; start < len(plan.families); {
 		if err := ctx.Err(); err != nil {
 			yield(Batch{}, err)
 			return
 		}
-		end := min(start+plan.batch, len(plan.families))
+		batchSize := plan.batch
+		if start == 0 {
+			batchSize = plan.firstBatch
+		}
+		end := min(start+batchSize, len(plan.families))
 		batch := plan.families[start:end]
 		sessions, err := plan.parseBatch(ctx, batch)
 		if err != nil {
@@ -316,6 +327,7 @@ func (plan *discoveryPlan) run(ctx context.Context, yield func(Batch, error) boo
 		if !continued {
 			return
 		}
+		start = end
 	}
 	if len(plan.families) == 0 {
 		cursor.Complete = true

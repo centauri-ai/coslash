@@ -96,6 +96,18 @@ func (m *onboardingManager) runPairing(ctx context.Context, client *hubclient.Cl
 }
 
 func (m *onboardingManager) StartCheckIns(client *hubclient.Client) {
+	m.mu.Lock()
+	hooks := m.syncHooks
+	m.mu.Unlock()
+	if hooks != nil {
+		if err := hooks.Ensure(client); err != nil {
+			log.Printf("start Hub sync: %v", err)
+		}
+	}
+	m.startLegacyCheckIns(client)
+}
+
+func (m *onboardingManager) startLegacyCheckIns(client *hubclient.Client) {
 	if client == nil || client.BaseURL == nil || client.Credentials == nil {
 		return
 	}
@@ -137,15 +149,6 @@ func (m *onboardingManager) setSyncHooks(hooks syncHooks) {
 }
 
 func (m *onboardingManager) ensureSync(client *hubclient.Client) {
-	m.mu.Lock()
-	hooks := m.syncHooks
-	m.mu.Unlock()
-	if hooks != nil {
-		if err := hooks.Ensure(client); err != nil {
-			log.Printf("start Hub sync: %v", err)
-		}
-		return
-	}
 	m.StartCheckIns(client)
 }
 
@@ -214,15 +217,21 @@ func (m *onboardingManager) RetryCheckIn(rawHubURL string) error {
 	}
 	m.setHubClient(client)
 	m.mu.Lock()
+	hooks := m.syncHooks
 	v4SyncActive := m.v4SyncActive
 	m.mu.Unlock()
+	if hooks != nil {
+		if err := hooks.Ensure(client); err != nil {
+			return errors.New("Local could not check in with Hub")
+		}
+	}
 	if v4SyncActive {
 		return nil
 	}
 	if _, err := client.CheckIn(m.ctx, m.version); err != nil {
 		return errors.New("Local could not check in with Hub")
 	}
-	m.StartCheckIns(client)
+	m.startLegacyCheckIns(client)
 	return nil
 }
 

@@ -32,7 +32,7 @@ func (s OSKeychain) Load(ctx context.Context) (string, error) {
 	return credential, nil
 }
 
-func (s OSKeychain) Save(ctx context.Context, credential string) error {
+func (s OSKeychain) save(ctx context.Context, credential string) error {
 	if strings.TrimSpace(credential) == "" {
 		return errors.New("save Hub credential: empty credential")
 	}
@@ -46,7 +46,7 @@ func (s OSKeychain) Save(ctx context.Context, credential string) error {
 	return nil
 }
 
-func (s OSKeychain) Delete(ctx context.Context) error {
+func (s OSKeychain) delete(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
