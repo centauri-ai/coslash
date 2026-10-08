@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -48,6 +49,17 @@ type options struct {
 	noOpen      bool
 	background  bool
 	showVersion bool
+}
+
+func gracefulShutdown(server *http.Server, grace time.Duration) error {
+	shutdownContext, cancel := context.WithTimeout(context.Background(), grace)
+	err := server.Shutdown(shutdownContext)
+	cancel()
+	if err != nil {
+		log.Printf("graceful shutdown exceeded %s: %v; waiting for active requests", grace, err)
+		return server.Shutdown(context.Background())
+	}
+	return nil
 }
 
 func parseOptions(arguments []string) (options, error) {
@@ -139,6 +151,14 @@ func main() {
 		}
 	}
 	runtimeLock, err := acquireRuntimeLock()
+	if opts.background && runtime.GOOS == "darwin" && errors.Is(err, errRuntimeAlreadyRunning) {
+		waitContext, stopWaiting := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+		runtimeLock, err = waitForRuntimeLock(waitContext)
+		stopWaiting()
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+	}
 	if err != nil {
 		if startupIntent != nil && errors.Is(err, errRuntimeAlreadyRunning) && forwardWhenReady(startupIntent) {
 			return
@@ -319,12 +339,22 @@ func main() {
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
 		serverServices{queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller})
 	onboardings.ensureSync(hub)
-	preparedUpdate := make(chan string, 1)
+	shutdownComplete := make(chan error, 1)
+	var shutdownOnce sync.Once
+	shutdown := func(grace time.Duration) {
+		shutdownOnce.Do(func() {
+			go func() {
+				shutdownComplete <- gracefulShutdown(server, grace)
+			}()
+		})
+	}
 	if queue := controller.Queue(); queue != nil {
-		go watchAutomaticUpdates(queue, preparedUpdate, func() {
-			shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			_ = server.Shutdown(shutdownContext)
+		go watchAutomaticUpdates(queue, func(staged string) error {
+			if err := launchUpdateHelper(staged); err != nil {
+				return err
+			}
+			shutdown(15 * time.Second)
+			return nil
 		})
 	}
 	if startupIntent != nil {
@@ -345,9 +375,7 @@ func main() {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 		<-signals
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdownContext)
+		shutdown(5 * time.Second)
 	}()
 	runtimeReady, err := acquireRuntimeReadiness()
 	if err != nil {
@@ -355,17 +383,14 @@ func main() {
 	}
 	defer runtimeReady.Close()
 	serveErr := server.Serve(listener)
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		if err := <-shutdownComplete; err != nil {
+			log.Printf("coSlash Local shutdown: %v", err)
+		}
+	}
 	controller.Stop()
 	stopDiscovery()
 	directedStore.Shutdown()
-	select {
-	case staged := <-preparedUpdate:
-		if err := launchUpdateHelper(staged); err != nil {
-			log.Printf("start coSlash Local update: %v", err)
-			_ = os.Remove(staged)
-		}
-	default:
-	}
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", serveErr)
 	}

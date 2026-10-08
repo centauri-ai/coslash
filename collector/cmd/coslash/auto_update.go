@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/centauri-ai/coslash/collector/internal/settings"
 	"github.com/centauri-ai/coslash/collector/internal/syncv4"
 )
 
@@ -83,6 +84,67 @@ func releaseClient() *http.Client {
 		}
 	}
 	return client
+}
+
+const updateLockName = "update.lock"
+
+func acquireUpdateLock() (*os.File, error) {
+	home := settings.Home()
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(filepath.Join(home, updateLockName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := lockRuntimeFileExclusive(file, true); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
+func updateInProgress() bool {
+	return exclusiveRuntimeLockHeld(updateLockName)
+}
+
+func waitForRuntimeLock(ctx context.Context) (*os.File, error) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	executable, _ := os.Executable()
+	runningFile, _ := os.Stat(executable)
+	sawUpdate := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		updating := updateInProgress()
+		if updating {
+			sawUpdate = true
+		}
+		if !updating {
+			if sawUpdate && runningFile != nil {
+				if currentFile, err := os.Stat(executable); err == nil && !os.SameFile(runningFile, currentFile) {
+					if err := reexecBackground(executable); err != nil {
+						return nil, fmt.Errorf("restart updated coSlash Local: %w", err)
+					}
+					return nil, errors.New("restart updated coSlash Local returned")
+				}
+			}
+			file, err := acquireRuntimeLock()
+			if err == nil {
+				return file, nil
+			}
+			if !errors.Is(err, errRuntimeAlreadyRunning) {
+				return nil, err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func downloadReleaseFile(ctx context.Context, name string, maximum int64) (*os.File, string, error) {
@@ -170,8 +232,10 @@ func prepareAutomaticUpdate(ctx context.Context, prompt syncv4.UpdatePrompt) (st
 	if err != nil {
 		return "", err
 	}
-	defer archive.Close()
-	defer os.Remove(archive.Name())
+	defer func() {
+		_ = archive.Close()
+		_ = os.Remove(archive.Name())
+	}()
 	if digest != expected {
 		return "", errors.New("release checksum does not match")
 	}
@@ -184,9 +248,9 @@ func prepareAutomaticUpdate(ctx context.Context, prompt syncv4.UpdatePrompt) (st
 	if err != nil {
 		return "", err
 	}
-	defer staged.Close()
 	ok := false
 	defer func() {
+		_ = staged.Close()
 		if !ok {
 			_ = os.Remove(staged.Name())
 		}
@@ -263,7 +327,14 @@ func launchUpdateHelper(staged string) error {
 	if err != nil {
 		return err
 	}
-	defer helper.Close()
+	helperPath := helper.Name()
+	started := false
+	defer func() {
+		if !started {
+			_ = helper.Close()
+			_ = os.Remove(helperPath)
+		}
+	}()
 	if _, err := io.Copy(helper, current); err != nil {
 		return err
 	}
@@ -273,15 +344,59 @@ func launchUpdateHelper(staged string) error {
 	if err := helper.Close(); err != nil {
 		return err
 	}
-	return startDetachedUpdateProcess(helper.Name(), "update-apply", target, staged)
+	readyPath := staged + ".ready"
+	_ = os.Remove(readyPath)
+	if err := startDetachedUpdateProcess(helperPath, "update-apply", target, staged, readyPath); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		state, err := os.ReadFile(readyPath)
+		if err == nil {
+			_ = os.Remove(readyPath)
+			if strings.TrimSpace(string(state)) != "ready" {
+				return errors.New("update helper could not claim the update handoff")
+			}
+			started = true
+			return nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return errors.New("update helper did not claim the update handoff")
 }
 
 func runUpdateApply(arguments []string) {
-	if len(arguments) != 2 {
+	if len(arguments) != 3 {
 		return
 	}
-	target, staged := arguments[0], arguments[1]
-	if !filepath.IsAbs(target) || !filepath.IsAbs(staged) || filepath.Dir(target) != filepath.Dir(staged) || !strings.HasPrefix(filepath.Base(staged), ".coslash-update-") {
+	target, staged, readyPath := arguments[0], arguments[1], arguments[2]
+	if !filepath.IsAbs(target) || !filepath.IsAbs(staged) || !filepath.IsAbs(readyPath) ||
+		filepath.Dir(target) != filepath.Dir(staged) || filepath.Dir(staged) != filepath.Dir(readyPath) ||
+		!strings.HasPrefix(filepath.Base(staged), ".coslash-update-") || filepath.Base(readyPath) != filepath.Base(staged)+".ready" {
+		return
+	}
+	helper, _ := os.Executable()
+	defer func() {
+		if err := scheduleUpdateHelperCleanup(helper); err != nil {
+			log.Printf("remove coSlash Local update helper: %v", err)
+		}
+	}()
+	defer os.Remove(staged)
+	updateLock, err := acquireUpdateLock()
+	if err != nil {
+		_ = os.WriteFile(readyPath, []byte("error"), 0o600)
+		return
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			_ = updateLock.Close()
+		}
+	}()
+	if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
 		return
 	}
 	for deadline := time.Now().Add(time.Minute); runtimeOwnerActive() && time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
@@ -290,29 +405,45 @@ func runUpdateApply(arguments []string) {
 		return
 	}
 	backup := target + ".previous"
-	_ = os.Remove(backup)
-	if err := os.Rename(target, backup); err != nil {
+	if err := replaceUpdateTarget(target, staged, backup); err != nil {
+		log.Printf("stage coSlash Local replacement: %v", err)
 		return
 	}
-	if err := os.Rename(staged, target); err != nil {
-		_ = os.Rename(backup, target)
+	if err := updateLock.Close(); err != nil {
+		log.Printf("release coSlash Local update handoff: %v", err)
 		return
 	}
-	if err := startDetachedUpdateProcess(target, "--background"); err == nil {
-		for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
-			if runtimeOwnerActive() {
-				_ = os.Remove(backup)
+	lockHeld = false
+	if !backgroundLoginLoaded() {
+		if err := startDetachedUpdateProcess(target, "--background"); err != nil {
+			if restoreErr := restoreUpdateTarget(target, backup); restoreErr != nil {
+				log.Printf("restore previous coSlash Local after launch failure: %v", restoreErr)
 				return
 			}
+			_ = startDetachedUpdateProcess(target, "--background")
+			return
 		}
 	}
-	_ = os.Remove(target)
-	if os.Rename(backup, target) == nil {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if runtimeOwnerActive() {
+			_ = os.Remove(backup)
+			return
+		}
+	}
+	if err := restoreUpdateTarget(target, backup); err != nil {
+		log.Printf("restore previous coSlash Local after readiness timeout: %v", err)
+		return
+	}
+	if !backgroundLoginLoaded() {
 		_ = startDetachedUpdateProcess(target, "--background")
 	}
 }
 
-func watchAutomaticUpdates(queue *syncv4.Queue, prepared chan<- string, shutdown func()) {
+func automaticUpdateNeeded(enabled bool, prompt syncv4.UpdatePrompt, runningVersion string) bool {
+	return enabled && prompt.Available && prompt.Version != "" && prompt.Version != runningVersion
+}
+
+func watchAutomaticUpdates(queue *syncv4.Queue, onPrepared func(string) error) {
 	if _, err := updateTarget(); err != nil {
 		return
 	}
@@ -323,7 +454,7 @@ func watchAutomaticUpdates(queue *syncv4.Queue, prepared chan<- string, shutdown
 	for {
 		_, config, _ := queue.Policy()
 		prompt := queue.UpdatePrompt()
-		if config.AutoUpdate && prompt.Available && (prompt.Version != failedVersion || time.Now().After(retryAfter)) {
+		if automaticUpdateNeeded(config.AutoUpdate, prompt, normalizedVersion()) && (prompt.Version != failedVersion || time.Now().After(retryAfter)) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			staged, err := prepareAutomaticUpdate(ctx, prompt)
 			cancel()
@@ -331,11 +462,14 @@ func watchAutomaticUpdates(queue *syncv4.Queue, prepared chan<- string, shutdown
 				_, latestConfig, _ := queue.Policy()
 				latestPrompt := queue.UpdatePrompt()
 				if latestConfig.AutoUpdate && latestPrompt.Available && latestPrompt.Version == prompt.Version {
-					prepared <- staged
-					shutdown()
-					return
+					if err := onPrepared(staged); err == nil {
+						return
+					} else {
+						log.Printf("start coSlash Local update: %v", err)
+					}
 				}
 				_ = os.Remove(staged)
+				failedVersion, retryAfter = prompt.Version, time.Now().Add(15*time.Minute)
 				continue
 			}
 			log.Printf("prepare coSlash Local update: %v", err)

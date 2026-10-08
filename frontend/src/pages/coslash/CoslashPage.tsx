@@ -16,13 +16,13 @@ import {
   type ShareWindow,
 } from '@/pages/coslash/features/sharing/model';
 import { ShareToHubDialog } from '@/pages/coslash/features/sharing/ShareToHubDialog';
-import { SyncHeader } from '@/pages/coslash/features/sync/SyncHeader';
 import { chipOf, syncMode } from '@/pages/coslash/features/sync/model';
+import { SyncHeader } from '@/pages/coslash/features/sync/SyncHeader';
+import { useSyncStatus } from '@/pages/coslash/features/sync/use-sync-status';
 import { useDiagnostics } from '@/pages/coslash/hooks/use-diagnostics';
 import { useDirectedHandoffs } from '@/pages/coslash/hooks/use-directed-handoffs';
 import { useSessions, useShareCandidates } from '@/pages/coslash/hooks/use-sessions';
 import { useSettings } from '@/pages/coslash/hooks/use-settings';
-import { useSyncStatus } from '@/pages/coslash/features/sync/use-sync-status';
 import { apiFetch } from '@/pages/coslash/lib/api';
 import { handoffSelection, newestHandoffs, type DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { isLocalUpdate, type LocalUpdate } from '@/pages/coslash/lib/local-update';
@@ -440,18 +440,18 @@ export function CoslashPage() {
             )}
             {shareEnabled && (
               <>
-              {shareDestination?.state === 'ready' && (
-                <Badge
-                  variant="secondary"
-                  className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
-                >
-                  <ShieldCheck className="size-3.5" aria-hidden="true" />
-                  {shareDestination.destination.workspaceName} paired
-                </Badge>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
-                Share to Hub
-              </Button>
+                {shareDestination?.state === 'ready' && (
+                  <Badge
+                    variant="secondary"
+                    className="text-info-fg bg-info-bg shrink-0 gap-1 text-xs font-semibold"
+                  >
+                    <ShieldCheck className="size-3.5" aria-hidden="true" />
+                    {shareDestination.destination.workspaceName} paired
+                  </Badge>
+                )}
+                <Button variant="outline" size="sm" onClick={() => setShareDialogOpen(true)}>
+                  Share to Hub
+                </Button>
               </>
             )}
           </>

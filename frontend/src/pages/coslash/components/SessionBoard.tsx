@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { DirectedHandoffStatus } from '@/pages/coslash/components/DirectedHandoffStatus';
 import { ReviewDialog } from '@/pages/coslash/components/ReviewDialog';
-import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
 import { UnpricedModelWarning } from '@/pages/coslash/components/UnpricedModelWarning';
+import { SyncChip } from '@/pages/coslash/features/sync/SyncChip';
 import type { DirectedHandoff } from '@/pages/coslash/lib/directed-handoff';
 import { formatEstimatedCost, formatTimeAgo, formatTokens } from '@/pages/coslash/lib/format';
 import {

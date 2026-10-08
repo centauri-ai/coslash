@@ -4,9 +4,11 @@ package main
 
 import (
 	"bytes"
-	"encoding/xml"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 func registerBackgroundLogin() error {
@@ -27,22 +29,12 @@ func registerBackgroundLogin() error {
 		return err
 	}
 	path := filepath.Join(dir, "io.coslash.local.plist")
-	var escaped bytes.Buffer
-	if err := xml.EscapeText(&escaped, []byte(executable)); err != nil {
+	contents, err := backgroundLoginPlist(executable)
+	if err != nil {
 		return err
 	}
-	contents := []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>io.coslash.local</string>
-<key>ProgramArguments</key><array><string>` + escaped.String() + `</string><string>--background</string></array>
-<key>RunAtLoad</key><true/>
-<key>KeepAlive</key><true/>
-<key>ThrottleInterval</key><integer>15</integer>
-</dict></plist>
-`)
 	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, contents) {
-		return nil
+		return loadBackgroundLogin(path)
 	}
 	temporary, err := os.CreateTemp(dir, ".coslash-local-*.plist")
 	if err != nil {
@@ -60,5 +52,29 @@ func registerBackgroundLogin() error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporary.Name(), path)
+	if err := os.Rename(temporary.Name(), path); err != nil {
+		return err
+	}
+	return loadBackgroundLogin(path)
+}
+
+func backgroundLoginTarget() string {
+	return fmt.Sprintf("gui/%d/io.coslash.local", os.Getuid())
+}
+
+func backgroundLoginLoaded() bool {
+	return exec.Command("launchctl", "print", backgroundLoginTarget()).Run() == nil
+}
+
+func loadBackgroundLogin(path string) error {
+	if backgroundLoginLoaded() {
+		return nil
+	}
+	domain := fmt.Sprintf("gui/%d", os.Getuid())
+	command := exec.Command("launchctl", "bootstrap", domain, path)
+	output, err := command.CombinedOutput()
+	if err != nil && !backgroundLoginLoaded() {
+		return fmt.Errorf("launchctl bootstrap: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }

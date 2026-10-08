@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import designCases from './testdata/design-cases.json';
 import type { SessionSyncState, SyncState, SyncStatus } from './api';
 import { chipLabel, chipOf, syncHeader, syncMode, syncSettingsView } from './model';
+import designCases from './testdata/design-cases.json';
 
 const stateByMode: Record<string, SyncState> = {
   on: 'connected_idle',
