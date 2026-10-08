@@ -13,7 +13,7 @@
 - Without an installed helper, coSlash uses the read-only SFTP fallback. Transcript files then cross SSH, and the Mac parses them. A helper that fails verification or refresh does not fall back to SFTP.
 - The first helper installation needs an explicit user action. Later releases can replace only a helper that coSlash installed and verified before. Builds without authenticated embedded helper assets never upload a helper.
 - coSlash never interpolates transcript content, remote paths, or handoff text into an SSH shell command.
-- A refresh that is interrupted, malformed, skipped, or over budget keeps the last good generation and marks it stale. An absent session counts as deleted only after the authoritative completion evidence of the protocol.
+- A refresh that is interrupted, has malformed protocol output, cannot enumerate families, or exceeds its bounds keeps the last good generation and marks it stale. Invalid transcript data in an attributed family retains that family's last good records as stale while healthy families refresh; the response must still complete with an authoritative inventory. An absent session counts as deleted only after the authoritative completion evidence of the protocol.
 - One unreachable or misconfigured host never blocks local sessions.
 
 ## Context

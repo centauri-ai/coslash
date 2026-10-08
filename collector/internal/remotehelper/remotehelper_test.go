@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/remoteprotocol"
 	"github.com/centauri-ai/coslash/collector/internal/session"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/claude"
+	"github.com/centauri-ai/coslash/collector/internal/vendors/codex"
 )
 
 func TestSourceEntryLimitIsEnforcedWhileReadingDirectory(t *testing.T) {
@@ -410,7 +413,7 @@ func TestKnownClaudeFamilyWithOversizedExactDetailRemainsBounded(t *testing.T) {
 	}
 }
 
-func TestCollectWithSkippedFamilyWithholdsCompletion(t *testing.T) {
+func TestCollectWithCachedHeaderIsolatesInvalidFamily(t *testing.T) {
 	home := t.TempDir()
 	root := filepath.Join(home, ".codex", "sessions")
 	if err := os.MkdirAll(root, 0o700); err != nil {
@@ -444,8 +447,112 @@ func TestCollectWithSkippedFamilyWithholdsCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outcome.RequestComplete || strings.Contains(output.String(), `"type":"request_complete"`) || !strings.Contains(output.String(), `"type":"skipped_family"`) {
-		t.Fatalf("skipped response was reported complete: outcome=%#v output=%s", outcome, output.String())
+	if !outcome.RequestComplete || !strings.Contains(output.String(), `"type":"request_complete"`) || !strings.Contains(output.String(), `"type":"skipped_family"`) {
+		t.Fatalf("attributed invalid family blocked completion: outcome=%#v output=%s", outcome, output.String())
+	}
+}
+
+func TestCollectIsolatesInvalidFamilyBody(t *testing.T) {
+	for _, test := range []struct {
+		vendor string
+		known  bool
+	}{
+		{vendors.AgentClaude, false}, {vendors.AgentClaude, true},
+		{vendors.AgentCodex, false}, {vendors.AgentCodex, true},
+	} {
+		t.Run(fmt.Sprintf("%s/known=%t", test.vendor, test.known), func(t *testing.T) {
+			home := t.TempDir()
+			root := codex.SessionsRoot(home)
+			goodID := "11111111-2222-3333-4444-555555555555"
+			badID := "66666666-7777-8888-9999-aaaaaaaaaaaa"
+			prefix := "rollout-2026-07-10T14-11-18-"
+			if test.vendor == vendors.AgentClaude {
+				root, prefix = filepath.Join(claude.ProjectsRoot(home), "project"), ""
+			}
+			goodPath := filepath.Join(root, prefix+goodID+".jsonl")
+			badPath := filepath.Join(root, prefix+badID+".jsonl")
+			content := func(id, prompt string) string {
+				if test.vendor == vendors.AgentClaude {
+					return `{"type":"user","sessionId":"` + id + `","cwd":"/test/project","timestamp":"2026-07-10T14:11:18Z","message":{"content":"` + prompt + `"}}` + "\n"
+				}
+				return `{"timestamp":"2026-07-10T14:11:18Z","type":"session_meta","payload":{"id":"` + id + `","cwd":"/test/project"}}` + "\n" +
+					`{"timestamp":"2026-07-10T14:11:19Z","type":"event_msg","payload":{"type":"user_message","message":"` + prompt + `"}}` + "\n"
+			}
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range []string{goodPath, badPath} {
+				id := goodID
+				if file == badPath {
+					id = badID
+				}
+				if err := os.WriteFile(file, []byte(content(id, "original")), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			request := validRequest()
+			request.Vendors = []string{test.vendor}
+			request.SourceID = "r_0123456789abcdef"
+			request.CollectedAtMs = time.Date(2026, 7, 10, 15, 0, 0, 0, time.UTC).UnixMilli()
+			options := testOptions(home)
+			options.Now = func() time.Time { return time.UnixMilli(request.CollectedAtMs) }
+			baseline := remoteprotocol.Generation{BaselineID: request.BaselineID}
+			collect := func() remoteprotocol.Generation {
+				t.Helper()
+				var output bytes.Buffer
+				outcome, err := Collect(t.Context(), request, options, &output)
+				if err != nil || !outcome.RequestComplete {
+					t.Fatalf("collection = %#v, err=%v", outcome, err)
+				}
+				records, err := remoteprotocol.Decode(&output, request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				accumulator, err := remoteprotocol.NewAccumulator(request, baseline)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, record := range records {
+					if err := accumulator.Apply(record); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return accumulator.Proposal()
+			}
+			baseline = collect()
+			badKey := remoteprotocol.FamilyKey{Vendor: test.vendor, FamilyID: badID}
+			badRecordKey := remoteprotocol.FullRecordKey{Vendor: test.vendor, SessionID: badID}
+			prior := baseline.FullRecords[badRecordKey]
+			request.RequestID = "req-2"
+			if test.known {
+				request.BaselineID = baseline.BaselineID
+				for _, id := range []string{goodID, badID} {
+					family := baseline.Families[remoteprotocol.FamilyKey{Vendor: test.vendor, FamilyID: id}]
+					request.Known = append(request.Known, remoteprotocol.KnownFamily{Vendor: test.vendor, FamilyID: id, Fingerprint: family.Fingerprint})
+				}
+			} else {
+				request.BaselineMode, request.BaselineID = remoteprotocol.BaselineNone, ""
+				baseline = remoteprotocol.Generation{}
+			}
+			if err := os.WriteFile(goodPath, []byte(content(goodID, "updated healthy session")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(badPath, []byte(content(badID, "invalid\nmessage")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			result := collect()
+			good := result.FullRecords[remoteprotocol.FullRecordKey{Vendor: test.vendor, SessionID: goodID}]
+			if good.Record.Session.FirstPrompt == nil || *good.Record.Session.FirstPrompt != "updated healthy session" {
+				t.Fatalf("healthy family did not refresh: %#v", good.Record.Session.FirstPrompt)
+			}
+			if test.known {
+				if result.Families[badKey].StaleReason != remotefacts.StaleReasonInvalidData || result.FullRecords[badRecordKey].Record.RevisionID != prior.Record.RevisionID {
+					t.Fatal("invalid family did not retain its last good record as stale")
+				}
+			} else if _, exists := result.Families[badKey]; exists {
+				t.Fatal("invalid family was published without a last good record")
+			}
+		})
 	}
 }
 
