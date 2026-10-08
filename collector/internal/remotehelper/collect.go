@@ -205,8 +205,11 @@ func collectVendor(
 			counts.SelectedFamilies++
 		}
 	}
+	// Scan failures leave family attribution uncertain; only body failures are isolated.
+	invalidBefore := emitter.invalidSkipped
 	parser, err := publishChanged(ctx, emitter, request, scanned, changed, known, &counts)
 	budgetSkipped := emitter.budgetSkipped - budgetBefore
+	invalidSkipped := emitter.invalidSkipped - invalidBefore
 	result := vendorResult{parser: parser, counts: counts}
 	if err != nil {
 		return result, err
@@ -231,7 +234,7 @@ func collectVendor(
 	// vendor_complete asserts authoritative enumeration, so it is emitted only
 	// when the scan really saw everything. A baseline-free response must also
 	// carry the complete inventory or it cannot authorise any deletion.
-	if !scanned.scan.complete || counts.SkippedFamilies > budgetSkipped || ctx.Err() != nil {
+	if !scanned.scan.complete || counts.SkippedFamilies > budgetSkipped+invalidSkipped || ctx.Err() != nil {
 		return result, nil
 	}
 	if request.BaselineMode == remoteprotocol.BaselineNone && !inventoryComplete {
@@ -663,7 +666,13 @@ func emitSkipped(emitter *emitter, vendor, familyID, reason string) error {
 		// as a budget-only omission.
 		return nil
 	}
-	return emitter.emitPrepared(record, line)
+	if err := emitter.emitPrepared(record, line); err != nil {
+		return err
+	}
+	if reason == remotefacts.StaleReasonInvalidData {
+		emitter.invalidSkipped++
+	}
+	return nil
 }
 
 // groupByFamily maps parsed sessions onto the families the grouping pass built.

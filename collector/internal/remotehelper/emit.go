@@ -27,6 +27,7 @@ type emitter struct {
 	reservedBytes   int
 	reservedRecords int
 	budgetSkipped   int
+	invalidSkipped  int
 }
 
 func newEmitter(output io.Writer, request remoteprotocol.Request) *emitter {
