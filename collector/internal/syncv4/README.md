@@ -141,9 +141,13 @@ retries them after one minute. A binding change drops unsent lines.
 The v4 worker starts by default, including before pairing, so Hub can start
 sync without a Local restart. It never uploads until a Hub advertising
 `scale-import/v1` supplies an import plan; the Local pause setting still wins.
-`COSLASH_V4_SYNC_ENABLED=0` disables the worker for development and recovery.
-The server's separate v4 upload flag must also be enabled. v1–v3 sharing
-remains available.
+`COSLASH_V4_SYNC=0` disables the Local scheduler and stops advertising
+`sync-v4`; `COSLASH_SYNC_POLICY=0` stops advertising `sync-policy/1`.
+Both switches default on. The server's separate v4 upload flag and device
+policy also control whether it accepts uploads. A 409 `sync_paused` or
+`device_sync_off` clears transient failure and backoff state and leaves the
+worker idle until the Hub policy version changes. `device_revoked` removes the
+keychain credential and stops the sync loop. v1–v3 sharing remains available.
 `COSLASH_SCALE_IMPORT=0` disables the additive import and command progress
 payloads while retaining the command wait fix.
 The Local settings `syncPaused` switch wins over Hub pause/off and stops new

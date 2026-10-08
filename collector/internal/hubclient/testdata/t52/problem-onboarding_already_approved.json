@@ -1,0 +1,7 @@
+{
+  "type": "https://problems.coslash.dev/onboarding_already_approved",
+  "title": "Request unavailable",
+  "status": 409,
+  "code": "onboarding_already_approved",
+  "requestId": "synthetic-request-id"
+}

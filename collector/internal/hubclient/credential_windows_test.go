@@ -43,9 +43,9 @@ func TestWindowsCredentialEmptyValuesRequirePairing(t *testing.T) {
 }
 
 func TestOSKeychainWindowsLifecycle(t *testing.T) {
-	originalRead, originalWrite, originalFree := readWindowsCredential, writeWindowsCredential, freeWindowsCredential
+	originalRead, originalWrite, originalDelete, originalFree := readWindowsCredential, writeWindowsCredential, deleteWindowsCredential, freeWindowsCredential
 	t.Cleanup(func() {
-		readWindowsCredential, writeWindowsCredential, freeWindowsCredential = originalRead, originalWrite, originalFree
+		readWindowsCredential, writeWindowsCredential, deleteWindowsCredential, freeWindowsCredential = originalRead, originalWrite, originalDelete, originalFree
 	})
 	credentials := map[string][]byte{}
 	readWindowsCredential = func(target *uint16) (*windowsCredential, error) {
@@ -60,6 +60,14 @@ func TestOSKeychainWindowsLifecycle(t *testing.T) {
 		credentials[windows.UTF16PtrToString(credential.TargetName)] = append(
 			[]byte(nil), unsafe.Slice(credential.CredentialBlob, credential.CredentialBlobSize)...,
 		)
+		return nil
+	}
+	deleteWindowsCredential = func(target *uint16) error {
+		key := windows.UTF16PtrToString(target)
+		if _, ok := credentials[key]; !ok {
+			return windows.ERROR_NOT_FOUND
+		}
+		delete(credentials, key)
 		return nil
 	}
 	freeWindowsCredential = func(*windowsCredential) {}
@@ -81,8 +89,13 @@ func TestOSKeychainWindowsLifecycle(t *testing.T) {
 		t.Fatalf("load replaced credential = %q, %v; want %q, nil", got, err, "second")
 	}
 
-	delete(credentials, windowsCredentialTarget(store))
+	if err := store.Delete(ctx); err != nil {
+		t.Fatalf("delete credential: %v", err)
+	}
 	if _, err := store.Load(ctx); !errors.Is(err, ErrNotPaired) {
 		t.Fatalf("load deleted credential error = %v; want %v", err, ErrNotPaired)
+	}
+	if err := store.Delete(ctx); err != nil {
+		t.Fatalf("delete missing credential should be idempotent: %v", err)
 	}
 }

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "window": "11d",
+  "history": false,
+  "historyPaused": false,
+  "maxSessionsPerAgent": 30,
+  "warmStartSeconds": 30
+}
