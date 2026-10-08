@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -22,11 +23,12 @@ func readT52Fixture(t *testing.T, name string) []byte {
 }
 
 func TestT52CheckInFixturesDecode(t *testing.T) {
-	var request checkInRequest
+	var request v4CheckInRequest
 	if err := json.Unmarshal(readT52Fixture(t, "check-in-policy.json"), &request); err != nil {
 		t.Fatalf("decode check-in request fixture: %v", err)
 	}
 	if request.ClientVersion != "0.0.5" || request.InstallChannel != "script" ||
+		!slices.Contains(request.Capabilities, CapabilitySyncPolicy) ||
 		request.Queue.Pending != 2 || request.AppliedConfigVersion != 1 {
 		t.Fatalf("decoded check-in request = %+v", request)
 	}

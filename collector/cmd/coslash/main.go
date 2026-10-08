@@ -208,6 +208,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("remote manager: %v", err)
 	}
+	backupManager := sessionbackupproducer.New(sessionbackupproducer.Options{
+		CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
+	})
 	if settingsState.Valid {
 		if err := remoteManager.ApplySettings(settingsState.Config.Remote); err != nil {
 			log.Printf("remote settings: %v", err)
@@ -269,7 +272,8 @@ func main() {
 		syncHub := currentHubTransport{current: onboardings.currentHubClient}
 		runner := &syncv4.Runner{
 			Version: collectorVersion,
-			Queue:   queue, Backup: client.Backup, Hub: syncHub,
+			Queue:   queue, Backup: backupManager, Hub: syncHub,
+			RequireImportPlan: true,
 			Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
 			InventoryProgress: func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
 			Conditions:        syncv4.LocalConditions,
@@ -282,7 +286,8 @@ func main() {
 				if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
 					resume = inventory.DecodeCursor(saved)
 				}
-				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume}) {
+				_, config, _ := queue.Policy()
+				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume, MinActivityMs: syncv4.DiscoveryMinActivity(config.ImportPlan, time.Now())}) {
 					if err != nil {
 						return err
 					}
@@ -312,8 +317,9 @@ func main() {
 	}
 	onboardings.SetV4SyncActive(controller.Queue() != nil)
 	onboardings.setSyncHooks(controller)
+	shutdownRequests := make(chan struct{}, 1)
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller})
+		serverServices{queue: controller.Queue(), backupManager: backupManager, directedStore: directedStore, onboardings: onboardings, syncController: controller, shutdown: shutdownRequests})
 	onboardings.ensureSync(hub)
 	if startupIntent != nil {
 		switch startupIntent.Action {
@@ -329,11 +335,16 @@ func main() {
 			}
 		}
 	}
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-		<-signals
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		select {
+		case <-signals:
+		case <-shutdownRequests:
+		}
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		_ = server.Shutdown(shutdownContext)
 	}()
@@ -343,11 +354,18 @@ func main() {
 	}
 	defer runtimeReady.Close()
 	serveErr := server.Serve(listener)
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		<-shutdownDone
+	}
 	stopDiscovery()
 	directedStore.Shutdown()
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", serveErr)
 	}
+}
+
+func shouldStartV4Sync(_ *hubclient.Client) bool {
+	return hubclient.V4SyncEnabled()
 }
 
 // runInventory takes the stat-only inventory at startup and every sync
@@ -407,9 +425,11 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 
 type serverServices struct {
 	queue          *syncv4.Queue
+	backupManager  *sessionbackupproducer.Manager
 	directedStore  *directedhandoff.Store
 	onboardings    *onboardingManager
 	syncController *syncController
+	shutdown       chan struct{}
 }
 
 func newServer(
@@ -474,6 +494,15 @@ func routesWithOnboarding(
 	}
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
+	if service.shutdown != nil {
+		api.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, _ *http.Request) {
+			select {
+			case service.shutdown <- struct{}{}:
+			default:
+			}
+			w.WriteHeader(http.StatusAccepted)
+		})
+	}
 	api.HandleFunc("GET /api/hub/v4-update", func(w http.ResponseWriter, _ *http.Request) {
 		if service.queue == nil {
 			writeJSON(w, syncv4.UpdatePrompt{})
@@ -610,8 +639,8 @@ func routesWithOnboarding(
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
-	var backupManager *sessionbackupproducer.Manager
-	if hub != nil {
+	backupManager := service.backupManager
+	if backupManager == nil {
 		backupManager = sessionbackupproducer.New(sessionbackupproducer.Options{
 			CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
 		})

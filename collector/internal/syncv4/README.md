@@ -33,10 +33,16 @@ locally done.
 
 With `scale-import/v1`, a device waits for `config.importPlan` before creating
 uploads or listing sessions. The plan's window and history choice set the scope.
+For a bounded plan, Local selects the newest eligible families, applies the
+per-agent limit, then applies the overall `maxSessions` limit. Older families
+remain local. The stat-only inventory still covers the device, while discovery
+parses only families within the requested window.
 Warm start selects in-window sessions within its time budget, one completed
 session at a time. The first selection is at most 25 MiB. Local then lists
 remaining metadata in batches of at most 50 before transferring window content
-newest first and history content newest first. A `prioritize` command moves a
+with non-Cursor sources first and history content newest first. Cursor source
+preparation has a bounded attempt and retries with backoff after a timeout.
+A `prioritize` command moves a
 listed session to the front, including a history session while history is
 paused. Live sources wait for two minutes without a change or for the session
 to end before a changed revision is sent. The chunk path sends at most four
@@ -101,10 +107,11 @@ discovery (`inventory.Discover`) yields whole families newest first in
 batches and persists a cursor (`discovery-cursor.json`) after each batch so a
 restart resumes below it and revisits only families that changed since the
 pass began.
-OpenCode inventory counts the standard XDG database by stat; a database at a
-CLI-configured custom path is omitted from the inventory because resolving it
-would invoke OpenCode and violate the stat-only rule. Discovery still reads
-that database through the normal exporter.
+OpenCode inventory stats the configured database path, including `OPENCODE_DB`
+overrides and the standard XDG path when no override is set. A custom path
+discoverable only by invoking the OpenCode CLI is omitted because that lookup
+could read content. Discovery still reads the database through the normal
+exporter.
 When Hub leave-out rules are set, the stat-only walker cannot prove which
 source files belong to an excluded repository or working directory. Local
 therefore reports zero window buckets while those rules are set; aggregate
@@ -131,14 +138,16 @@ lines older than 29 days are dropped. If the Hub refuses a log batch as invalid,
 Local checks in without it so sync can continue, keeps the refused lines, and
 retries them after one minute. A binding change drops unsent lines.
 
-Local v4 sync starts by default after pairing and at startup when a stored
-credential exists. `COSLASH_V4_SYNC=0` disables the Local scheduler and stops
-advertising `sync-v4`; `COSLASH_SYNC_POLICY=0` stops advertising `sync-policy/1`.
-Both switches default on. The Hub's separate v4 upload and device policy still
-control whether it accepts uploads. A 409 `sync_paused` or `device_sync_off`
-clears transient failure/backoff state and leaves the worker idle until the Hub
-policy version changes. `device_revoked` removes the keychain credential and
-stops the sync loop. v1–v3 sharing remains available.
+The v4 worker starts by default, including before pairing, so Hub can start
+sync without a Local restart. It never uploads until a Hub advertising
+`scale-import/v1` supplies an import plan; the Local pause setting still wins.
+`COSLASH_V4_SYNC=0` disables the Local scheduler and stops advertising
+`sync-v4`; `COSLASH_SYNC_POLICY=0` stops advertising `sync-policy/1`.
+Both switches default on. The server's separate v4 upload flag and device
+policy also control whether it accepts uploads. A 409 `sync_paused` or
+`device_sync_off` clears transient failure and backoff state and leaves the
+worker idle until the Hub policy version changes. `device_revoked` removes the
+keychain credential and stops the sync loop. v1–v3 sharing remains available.
 `COSLASH_SCALE_IMPORT=0` disables the additive import and command progress
 payloads while retaining the command wait fix.
 The Local settings `syncPaused` switch wins over Hub pause/off and stops new

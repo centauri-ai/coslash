@@ -226,19 +226,26 @@ type observedSyncWorker struct {
 }
 
 func (w observedSyncWorker) SyncOnce(ctx context.Context) error {
+	var credential string
+	var credentialErr error
+	if w.client != nil && w.client.Credentials != nil {
+		credential, credentialErr = w.client.Credentials.Load(ctx)
+	}
 	w.controller.passActive.Store(true)
 	err := w.runner.SyncOnce(ctx)
 	w.controller.passActive.Store(false)
 	var problem hubclient.V4Problem
-	if errors.As(err, &problem) && problem.Code == "device_revoked" {
-		if deleter, ok := w.client.Credentials.(interface{ Delete(context.Context) error }); ok {
+	if errors.As(err, &problem) && problem.Code == "device_revoked" && credentialErr == nil && credential != "" {
+		if deleter, ok := w.client.Credentials.(hubclient.ConditionalCredentialDeleter); ok {
 			deleteContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if deleteErr := deleter.Delete(deleteContext); deleteErr != nil {
+			deleted, deleteErr := deleter.DeleteIfMatches(deleteContext, credential)
+			if deleteErr != nil {
 				log.Printf("delete revoked Hub credential: %v", deleteErr)
+			} else if deleted {
+				w.controller.markRevoked(w.client, w.binding)
 			}
 		}
-		w.controller.markRevoked(w.client, w.binding)
 	}
 	return err
 }

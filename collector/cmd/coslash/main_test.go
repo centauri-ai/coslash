@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/httpsec"
+	"github.com/centauri-ai/coslash/collector/internal/hubclient"
 	"github.com/centauri-ai/coslash/collector/internal/launch"
 	"github.com/centauri-ai/coslash/collector/internal/remote"
 	reviewpkg "github.com/centauri-ai/coslash/collector/internal/review"
@@ -25,6 +26,22 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/synthesis"
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
+
+func TestV4SyncStartupUsesTheDocumentedSwitch(t *testing.T) {
+	t.Setenv("COSLASH_V4_SYNC_ENABLED", "0")
+	t.Setenv("COSLASH_V4_SYNC", "")
+	if !shouldStartV4Sync(&hubclient.Client{}) {
+		t.Fatal("v4 sync should start by default when a Hub is configured")
+	}
+	t.Setenv("COSLASH_V4_SYNC", "0")
+	if shouldStartV4Sync(&hubclient.Client{}) {
+		t.Fatal("v4 sync started despite COSLASH_V4_SYNC=0")
+	}
+	t.Setenv("COSLASH_V4_SYNC", "")
+	if !shouldStartV4Sync(nil) {
+		t.Fatal("v4 sync did not start before pairing")
+	}
+}
 
 func TestValidateCursorLaunch(t *testing.T) {
 	directory := t.TempDir()
@@ -1013,6 +1030,63 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	server.Handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+}
+
+func TestLateHubPairingGetsBackupProducer(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	onboardings := newOnboardingManager("1.2.3")
+	defer onboardings.Close()
+	remoteManager := remote.NewManager(remote.Options{})
+	routesWithOnboarding(
+		synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remoteManager, nil, onboardings,
+	)
+	client, err := hubClientForURL("1.2.3", "https://hub.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onboardings.setHubClient(client)
+	if client.Backup == nil {
+		t.Fatal("Hub client paired after startup has no session backup producer")
+	}
+}
+
+func TestServerShutdownEndpointRequiresTokenAndRequestsGracefulShutdown(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	shutdown := make(chan struct{}, 1)
+	server := newServer(
+		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
+		synthesis.NewManager(nil),
+		reviewpkg.NewManager(nil),
+		settings.Open(),
+		remote.NewManager(remote.Options{}),
+		nil,
+		serverServices{onboardings: newOnboardingManager("0.1.0"), shutdown: shutdown},
+	)
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8787/api/shutdown", nil)
+	unauthorizedResponse := httptest.NewRecorder()
+	server.Handler.ServeHTTP(unauthorizedResponse, unauthorized)
+	if unauthorizedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", unauthorizedResponse.Code, http.StatusUnauthorized)
+	}
+	select {
+	case <-shutdown:
+		t.Fatal("unauthorized request requested shutdown")
+	default:
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8787/api/shutdown", nil)
+	request.Header.Set("X-Coslash-Token", "secret")
+	response := httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("authorized status = %d, want %d", response.Code, http.StatusAccepted)
+	}
+	select {
+	case <-shutdown:
+	default:
+		t.Fatal("authorized request did not request shutdown")
 	}
 }
 

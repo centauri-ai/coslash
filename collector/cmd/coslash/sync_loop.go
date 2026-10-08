@@ -231,13 +231,13 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		if credentialRetry(err) {
 			delay = credentialRetryDelay(authFailures)
 		}
-		if active, ok := runner.(interface{ ImportActive() bool }); ok && active.ImportActive() && delay > 10*time.Second {
-			delay = 10 * time.Second
+		importActive := false
+		if active, ok := runner.(interface{ ImportActive() bool }); ok {
+			importActive = active.ImportActive()
 		}
 		_, config, _ := queue.Policy()
-		if config.ImportPlan != nil && queue.Progress().Pending > 0 && delay > 10*time.Second {
-			delay = 10 * time.Second
-		}
+		importPending := config.ImportPlan != nil && queue.Progress().Pending > 0
+		delay = clampImportRetry(delay, err, importActive, importPending)
 		if retry := queue.NextRetryDelay(); retry > 0 && retry < delay {
 			delay = retry
 		}
@@ -253,6 +253,13 @@ func runV4SyncLoopWithControl(ctx context.Context, runner v4SyncWorker, queue v4
 		case <-time.After(delay):
 		}
 	}
+}
+
+func clampImportRetry(delay time.Duration, err error, importActive, importPending bool) time.Duration {
+	if !credentialRetry(err) && (importActive || importPending) && delay > 10*time.Second {
+		return 10 * time.Second
+	}
+	return delay
 }
 
 func clearWake(wake <-chan struct{}) {
