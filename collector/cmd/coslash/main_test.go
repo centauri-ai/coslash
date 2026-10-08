@@ -37,8 +37,9 @@ func TestV4SyncStartupUsesTheDocumentedSwitch(t *testing.T) {
 	if shouldStartV4Sync(&hubclient.Client{}) {
 		t.Fatal("v4 sync started despite COSLASH_V4_SYNC=0")
 	}
-	if shouldStartV4Sync(nil) {
-		t.Fatal("v4 sync started without a configured Hub")
+	t.Setenv("COSLASH_V4_SYNC", "")
+	if !shouldStartV4Sync(nil) {
+		t.Fatal("v4 sync did not start before pairing")
 	}
 }
 
@@ -1029,6 +1030,45 @@ func TestServerWrapsRoutesWithGuard(t *testing.T) {
 	server.Handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusForbidden)
+	}
+}
+
+func TestServerShutdownEndpointRequiresTokenAndRequestsGracefulShutdown(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	shutdown := make(chan struct{}, 1)
+	server := newServer(
+		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
+		synthesis.NewManager(nil),
+		reviewpkg.NewManager(nil),
+		settings.Open(),
+		remote.NewManager(remote.Options{}),
+		nil,
+		serverServices{onboardings: newOnboardingManager("0.1.0"), shutdown: shutdown},
+	)
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8787/api/shutdown", nil)
+	unauthorizedResponse := httptest.NewRecorder()
+	server.Handler.ServeHTTP(unauthorizedResponse, unauthorized)
+	if unauthorizedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", unauthorizedResponse.Code, http.StatusUnauthorized)
+	}
+	select {
+	case <-shutdown:
+		t.Fatal("unauthorized request requested shutdown")
+	default:
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8787/api/shutdown", nil)
+	request.Header.Set("X-Coslash-Token", "secret")
+	response := httptest.NewRecorder()
+	server.Handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("authorized status = %d, want %d", response.Code, http.StatusAccepted)
+	}
+	select {
+	case <-shutdown:
+	default:
+		t.Fatal("authorized request did not request shutdown")
 	}
 }
 

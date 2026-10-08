@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -131,8 +132,9 @@ type V4ImportPlan struct {
 	Window              string `json:"window"`
 	History             bool   `json:"history"`
 	HistoryPaused       bool   `json:"historyPaused"`
-	MaxSessionsPerAgent int    `json:"maxSessionsPerAgent,omitempty"`
 	WarmStartSeconds    int64  `json:"warmStartSeconds"`
+	MaxSessionsPerAgent int64  `json:"maxSessionsPerAgent,omitempty"`
+	MaxSessions         int64  `json:"maxSessions,omitempty"`
 }
 
 type V4Config struct {
@@ -509,7 +511,7 @@ func (c *Client) V4PutChunk(ctx context.Context, uploadID string, missing V4Miss
 		parsed, err := url.Parse(item.URL)
 		if err != nil || parsed.User != nil || parsed.Hostname() == "" || parsed.Fragment != "" ||
 			(parsed.Scheme != "https" && !(parsed.Scheme == "http" && isLoopback(parsed.Hostname()))) {
-			return errors.New("v4 signed URL is invalid")
+			return c.v4ProxyChunk(ctx, uploadID, missing, bytes.NewReader(data))
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPut, item.URL, bytes.NewReader(data))
 		if err != nil {
@@ -551,8 +553,13 @@ func isLoopback(host string) bool {
 }
 
 func (c *Client) v4ProxyChunk(ctx context.Context, uploadID string, missing V4Missing, body io.Reader) error {
+	firstChunk := missing.ArtifactOrdinal == 0 && missing.ChunkOrdinal == 0
+	if firstChunk {
+		log.Printf("v4 upload: sending first chunk through Hub proxy")
+	}
 	credential, err := c.Credentials.Load(ctx)
 	if err != nil {
+		log.Printf("v4 upload: Hub proxy credential unavailable: %T", err)
 		return err
 	}
 	path := fmt.Sprintf("/v4/uploads/%s/chunks/%d/%d", url.PathEscape(uploadID), missing.ArtifactOrdinal, missing.ChunkOrdinal)
@@ -569,9 +576,13 @@ func (c *Client) v4ProxyChunk(ctx context.Context, uploadID string, missing V4Mi
 	}
 	response, err := client.Do(req)
 	if err != nil {
+		log.Printf("v4 upload: Hub proxy request failed: %T", err)
 		return err
 	}
 	defer response.Body.Close()
+	if firstChunk || response.StatusCode != http.StatusNoContent {
+		log.Printf("v4 upload: Hub proxy returned HTTP %d", response.StatusCode)
+	}
 	if response.StatusCode != http.StatusNoContent {
 		var problem V4Problem
 		_ = json.NewDecoder(io.LimitReader(response.Body, 1<<16)).Decode(&problem)
