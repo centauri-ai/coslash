@@ -114,6 +114,9 @@ func main() {
 			return
 		case "connect", "sessions", "handoff", "send", "review", "doctor", "mcp":
 			os.Exit(runCLI(os.Stdout, os.Stderr, os.Args[1:]))
+		case "update-apply":
+			runUpdateApply(os.Args[2:])
+			return
 		}
 	}
 
@@ -312,9 +315,18 @@ func main() {
 	}
 	onboardings.SetV4SyncActive(controller.Queue() != nil)
 	onboardings.setSyncHooks(controller)
+	onboardings.setBackgroundRegistration(registerBackgroundLogin)
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
 		serverServices{queue: controller.Queue(), directedStore: directedStore, onboardings: onboardings, syncController: controller})
 	onboardings.ensureSync(hub)
+	preparedUpdate := make(chan string, 1)
+	if queue := controller.Queue(); queue != nil {
+		go watchAutomaticUpdates(queue, preparedUpdate, func() {
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = server.Shutdown(shutdownContext)
+		})
+	}
 	if startupIntent != nil {
 		switch startupIntent.Action {
 		case "pair":
@@ -343,8 +355,17 @@ func main() {
 	}
 	defer runtimeReady.Close()
 	serveErr := server.Serve(listener)
+	controller.Stop()
 	stopDiscovery()
 	directedStore.Shutdown()
+	select {
+	case staged := <-preparedUpdate:
+		if err := launchUpdateHelper(staged); err != nil {
+			log.Printf("start coSlash Local update: %v", err)
+			_ = os.Remove(staged)
+		}
+	default:
+	}
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 		log.Fatalf("coslash: %v", serveErr)
 	}

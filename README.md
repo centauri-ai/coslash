@@ -66,6 +66,14 @@ When Local is not running, Hub offers **Open coSlash Local**. Click it to start
 Local on that computer and request an immediate Hub check-in. Local stays in
 the background without opening its own browser tab. The first start registers a
 per-user URL handler on macOS or Windows; neither requires administrator rights.
+Once paired, Local also registers a per-user login start. Closing the browser
+does not stop its sync worker. On macOS, the login agent restarts Local if its
+process exits; on Windows, Local starts at the next sign-in. Hub asks running
+Locals to check in when My space opens and shows whether they are reachable.
+Settings → Sync has an **Automatically update coSlash Local** switch, on by
+default. Script installations stage a checksum-verified release, checkpoint
+active queue work, restart, and roll back if the new Local fails to become ready.
+Homebrew and portable installs use the device's manual update action.
 
 ## Install coSlash Local separately
 

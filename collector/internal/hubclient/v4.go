@@ -137,6 +137,7 @@ type V4ImportPlan struct {
 
 type V4Config struct {
 	Paused         bool          `json:"paused"`
+	AutoUpdate     bool          `json:"autoUpdate"`
 	DeviceOff      bool          `json:"deviceOff"`
 	LeaveOut       []string      `json:"leaveOut"`
 	AgentKnowledge bool          `json:"agentKnowledge"`
