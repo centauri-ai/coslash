@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -236,5 +237,27 @@ func TestCheckInSendsOnlyContentFreeDeviceStateWithStoredCredential(t *testing.T
 	interval, err := client.CheckIn(context.Background(), "1.2.3")
 	if err != nil || interval != time.Minute {
 		t.Fatalf("interval=%s error=%v", interval, err)
+	}
+}
+
+func TestLegacyCheckInReportsNormalizedVersion(t *testing.T) {
+	var seen checkInRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v4/devices/me/check-in" {
+			t.Fatalf("check-in path = %q", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatal(err)
+		}
+		io.WriteString(w, `{"nextCheckInSeconds":60}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: &memoryCredentials{saved: "device-credential"}, InstallChannel: "script"}
+	if _, err := client.CheckIn(context.Background(), "1.2.3+build.7"); err != nil {
+		t.Fatal(err)
+	}
+	if seen.ClientVersion != "1.2.3+build.7" {
+		t.Fatalf("legacy check-in identity = %+v", seen)
 	}
 }

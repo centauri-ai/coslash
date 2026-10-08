@@ -1,0 +1,26 @@
+{
+  "h24": {
+    "sessions": 1,
+    "bytes": 100
+  },
+  "d3": {
+    "sessions": 2,
+    "bytes": 200
+  },
+  "d7": {
+    "sessions": 3,
+    "bytes": 300
+  },
+  "d10": {
+    "sessions": 4,
+    "bytes": 400
+  },
+  "d30": {
+    "sessions": 5,
+    "bytes": 500
+  },
+  "all": {
+    "sessions": 6,
+    "bytes": 600
+  }
+}

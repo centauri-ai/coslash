@@ -17,7 +17,8 @@ import (
 )
 
 type memoryCredentials struct {
-	saved string
+	saved   string
+	deleted bool
 }
 
 type contextCredentials struct {
@@ -42,10 +43,21 @@ func response(status int, body string) *http.Response {
 	}
 }
 
-func (s *memoryCredentials) Load(context.Context) (string, error) { return "credential", nil }
+func (s *memoryCredentials) Load(context.Context) (string, error) {
+	if s.deleted {
+		return "", ErrNotPaired
+	}
+	return "credential", nil
+}
 
 func (s *memoryCredentials) Save(_ context.Context, credential string) error {
 	s.saved = credential
+	s.deleted = false
+	return nil
+}
+
+func (s *memoryCredentials) Delete(context.Context) error {
+	s.deleted = true
 	return nil
 }
 
@@ -60,6 +72,8 @@ func (s *contextCredentials) Save(ctx context.Context, credential string) error 
 	return nil
 }
 
+func (s *contextCredentials) Delete(context.Context) error { return nil }
+
 func (s *failOnceCredentials) Load(context.Context) (string, error) { return "credential", nil }
 
 func (s *failOnceCredentials) Save(_ context.Context, credential string) error {
@@ -70,6 +84,8 @@ func (s *failOnceCredentials) Save(_ context.Context, credential string) error {
 	s.saved = credential
 	return nil
 }
+
+func (s *failOnceCredentials) Delete(context.Context) error { return nil }
 
 func TestEndpointPreservesBasePath(t *testing.T) {
 	base, _ := url.Parse("https://hub.example.test/coSlash/")

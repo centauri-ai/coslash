@@ -18,10 +18,11 @@ const (
 )
 
 var (
-	advapi32   = windows.NewLazySystemDLL("advapi32.dll")
-	credReadW  = advapi32.NewProc("CredReadW")
-	credWriteW = advapi32.NewProc("CredWriteW")
-	credFree   = advapi32.NewProc("CredFree")
+	advapi32    = windows.NewLazySystemDLL("advapi32.dll")
+	credReadW   = advapi32.NewProc("CredReadW")
+	credWriteW  = advapi32.NewProc("CredWriteW")
+	credDeleteW = advapi32.NewProc("CredDeleteW")
+	credFree    = advapi32.NewProc("CredFree")
 
 	readWindowsCredential = func(target *uint16) (*windowsCredential, error) {
 		var credential *windowsCredential
@@ -38,6 +39,13 @@ var (
 	}
 	writeWindowsCredential = func(credential *windowsCredential) error {
 		ok, _, callErr := credWriteW.Call(uintptr(unsafe.Pointer(credential)), 0)
+		if ok == 0 {
+			return callErr
+		}
+		return nil
+	}
+	deleteWindowsCredential = func(target *uint16) error {
+		ok, _, callErr := credDeleteW.Call(uintptr(unsafe.Pointer(target)), windowsCredentialTypeGeneric, 0)
 		if ok == 0 {
 			return callErr
 		}
@@ -119,6 +127,20 @@ func (s OSKeychain) Save(ctx context.Context, value string) error {
 	}
 	if err := writeWindowsCredential(&credential); err != nil {
 		return fmt.Errorf("save Hub credential: Credential Manager failed: %w", err)
+	}
+	return nil
+}
+
+func (s OSKeychain) Delete(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	target, err := windows.UTF16PtrFromString(windowsCredentialTarget(s))
+	if err != nil {
+		return fmt.Errorf("delete Hub credential: invalid target: %w", err)
+	}
+	if err := deleteWindowsCredential(target); err != nil && !errors.Is(err, windows.ERROR_NOT_FOUND) {
+		return fmt.Errorf("delete Hub credential: Credential Manager failed: %w", err)
 	}
 	return nil
 }

@@ -79,6 +79,7 @@ type state struct {
 	// PolicyKnown records that Config came from a Hub check-in, including
 	// the owner's version-0 default policy.
 	PolicyKnown            bool            `json:"policyKnown,omitempty"`
+	PolicyBlocked          bool            `json:"policyBlocked,omitempty"`
 	MinVersion             string          `json:"minVersion,omitempty"`
 	RecommendedVersion     string          `json:"recommendedVersion,omitempty"`
 	RecommendedDownloadURL string          `json:"recommendedDownloadUrl,omitempty"`
@@ -202,7 +203,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.Manifest, entry.Attempt = nil, 0
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		}
-		q.state.ConfigVersion, q.state.PolicyKnown = 0, false
+		q.state.ConfigVersion, q.state.PolicyKnown, q.state.PolicyBlocked = 0, false, false
 		q.state.Config = hubclient.V4Config{}
 		q.state.PlanStartedAt, q.state.Phase = 0, ""
 		q.state.Commands = nil
@@ -225,6 +226,26 @@ func (q *Queue) Policy() (int64, hubclient.V4Config, string) {
 	return q.state.ConfigVersion, q.state.Config, q.state.MinVersion
 }
 
+func (q *Queue) PolicyBlocked() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.state.PolicyBlocked
+}
+
+func (q *Queue) SetPolicyBlocked() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.PolicyBlocked {
+		return nil
+	}
+	q.state.PolicyBlocked = true
+	if err := q.save(); err != nil {
+		q.state.PolicyBlocked = false
+		return err
+	}
+	return nil
+}
+
 func (q *Queue) ApplyPolicy(result hubclient.V4CheckIn) error {
 	return q.ApplyPolicyAt(result, time.Now())
 }
@@ -240,6 +261,7 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 		q.state.ConfigVersion = result.ConfigVersion
 		q.state.Config = result.Config
 		q.state.PolicyKnown = true
+		q.state.PolicyBlocked = false
 		if result.Config.ImportPlan != nil {
 			q.state.ScaleVersion = 1
 			if oldPlan == nil || oldPlan.Version != result.Config.ImportPlan.Version || q.state.PlanStartedAt == 0 {
@@ -476,6 +498,32 @@ func (q *Queue) Entries() []Entry {
 		return entries[i].Key < entries[j].Key
 	})
 	return entries
+}
+
+// SessionStates returns local session identities and their Hub membership
+// state without exposing session content or server identifiers.
+func (q *Queue) SessionStates() map[string]string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	states := make(map[string]string, len(q.state.Entries))
+	for _, entry := range q.state.Entries {
+		selection := entry.Selection
+		if selection.SourceID == "" || selection.Agent == "" || selection.SessionID == "" {
+			continue
+		}
+		key := selection.SourceID + ":" + selection.Agent + ":" + selection.SessionID
+		switch {
+		case entry.Excluded:
+			states[key] = "left_out"
+		case pending(entry) && (entry.BundleID != "" || entry.UploadID != "" || entry.SessionID != ""):
+			states[key] = "syncing"
+		case entry.RevisionID != "":
+			states[key] = "in_hub"
+		default:
+			states[key] = "not_in_hub"
+		}
+	}
+	return states
 }
 
 func (q *Queue) Matches(entry Entry) bool {

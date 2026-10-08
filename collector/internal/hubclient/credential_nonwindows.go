@@ -45,3 +45,28 @@ func (s OSKeychain) Save(ctx context.Context, credential string) error {
 	}
 	return nil
 }
+
+func (s OSKeychain) Delete(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var command *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		command = exec.CommandContext(ctx, "/usr/bin/security", "delete-generic-password", "-s", s.Service, "-a", s.Account)
+	case "linux":
+		command = exec.CommandContext(ctx, "secret-tool", "clear", "service", s.Service, "account", s.Account)
+	default:
+		return fmt.Errorf("delete Hub credential: unsupported OS %s", runtime.GOOS)
+	}
+	output, err := command.CombinedOutput()
+	if err == nil || missingCredentialItem(string(output)) {
+		return nil
+	}
+	return fmt.Errorf("delete Hub credential: keychain command failed: %w", err)
+}
+
+func missingCredentialItem(message string) bool {
+	message = strings.ToLower(message)
+	return strings.Contains(message, "could not be found") || strings.Contains(message, "no matching items") || strings.Contains(message, "not found")
+}
