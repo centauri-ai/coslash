@@ -132,7 +132,9 @@ func configureCommandSSHHost(ctx context.Context, local *settings.Store, relay c
 		return err
 	}
 	if err := relay.ApplySettings(config.Remote); err != nil {
-		_ = local.Save(state.Config)
+		if restoreErr := local.Restore(state); restoreErr != nil {
+			return errors.Join(err, fmt.Errorf("restore local settings: %w", restoreErr))
+		}
 		return err
 	}
 	return nil
