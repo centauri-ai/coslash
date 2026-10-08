@@ -61,7 +61,8 @@ func activeSnapshot(ctx context.Context, home string, now time.Time) (map[string
 	if dataHome == "" {
 		dataHome = filepath.Join(home, ".local", "share")
 	}
-	roots = append(roots, filepath.Join(dataHome, "opencode"))
+	openCodeDB := inventory.OpenCodeDatabasePath(home)
+	roots = append(roots, filepath.Join(dataHome, "opencode"), openCodeDB, openCodeDB+"-wal")
 	snapshot := make(map[string]string)
 	for _, root := range roots {
 		info, err := os.Stat(root)
@@ -71,7 +72,7 @@ func activeSnapshot(ctx context.Context, home string, now time.Time) (map[string
 		}
 		snapshot["root:"+root] = fmt.Sprintf("%d:%d", info.ModTime().UnixNano(), info.Size())
 	}
-	inventorySnapshot, err := inventory.Scan(ctx, inventory.Options{Home: home, Now: now})
+	inventorySnapshot, err := inventory.Scan(ctx, inventory.Options{Home: home, OpenCodeDB: openCodeDB, Now: now})
 	if err != nil {
 		return nil, err
 	}

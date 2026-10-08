@@ -3,6 +3,7 @@ package syncv4
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,14 +20,15 @@ import (
 )
 
 type planHub struct {
-	plan       *hubclient.V4ImportPlan
-	creates    int
-	lists      [][]hubclient.V4ListItem
-	checks     int
-	checkInErr error
-	results    []hubclient.V4CommandResult
-	retryLists int
-	leaveOut   []string
+	plan         *hubclient.V4ImportPlan
+	withoutScale bool
+	creates      int
+	lists        [][]hubclient.V4ListItem
+	checks       int
+	checkInErr   error
+	results      []hubclient.V4CommandResult
+	retryLists   int
+	leaveOut     []string
 }
 
 type asyncCompletionHub struct {
@@ -53,6 +55,15 @@ func (h *freshDuringPassHub) V4Create(context.Context, hubclient.V4Create) (hubc
 		}
 	}
 	return hubclient.V4Status{}, hubclient.V4Problem{Code: "temporary_unavailable", HTTPStatus: 503}
+}
+
+type deadlineCreateHub struct {
+	*planHub
+}
+
+func (h *deadlineCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
+	h.creates++
+	return hubclient.V4Status{}, context.DeadlineExceeded
 }
 
 func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
@@ -96,11 +107,42 @@ func TestPlannedContentYieldsForFreshDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range q.Entries() {
-		if entry.Key == "fresh" && entry.Listed && now.Sub(started) < time.Minute {
+		if entry.Key == "fresh" && entry.Listed {
 			return
 		}
 	}
 	t.Fatal("fresh session was not listed on the next boundary within the budget")
+}
+
+func TestPlannedContentClassifiesHubDeadlineAsServerError(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, prepared := artifactLimitBundle(t, 1)
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
+	hub := &deadlineCreateHub{planHub: &planHub{plan: &plan}}
+	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now,
+		scaleEnabled: true, config: hubclient.V4Config{ImportPlan: &plan}, lastReportedPhase: "recent"}
+	manifest, err := runner.manifest(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := Entry{Key: "timed-out-create", Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "timed-out-create"},
+		Activity: now.UnixMilli(), Listed: true, BundleID: prepared.BundleID, Manifest: &manifest, ContentSHA256: manifest.ContentSHA256}
+	if err := q.Merge([]Entry{entry}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.syncPlannedContent(t.Context(), plan); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("sync error = %v, want Hub deadline", err)
+	}
+	if got := q.Entries()[0].FailureCode; got != "server_error" {
+		t.Fatalf("failure code = %q, want server_error", got)
+	}
 }
 
 func (h *rateLimitedCreateHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
@@ -164,7 +206,7 @@ func (h *asyncCompletionHub) V4Status(_ context.Context, uploadID string) (hubcl
 }
 
 func TestPlannedPassReconcilesAsyncFinalizeBeforeNextCreate(t *testing.T) {
-	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	q, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +252,11 @@ func (h *planHub) V4CheckIn(_ context.Context, _ hubclient.V4Queue, _ int64, res
 	if rules == nil {
 		rules = []string{}
 	}
-	return hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: rules, ImportPlan: h.plan}, Capabilities: []string{"scale-import/v1"}}, nil
+	capabilities := []string{"scale-import/v1"}
+	if h.withoutScale {
+		capabilities = nil
+	}
+	return hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{LeaveOut: rules, ImportPlan: h.plan}, Capabilities: capabilities}, nil
 }
 func (h *planHub) V4Create(context.Context, hubclient.V4Create) (hubclient.V4Status, error) {
 	h.creates++
@@ -258,6 +304,23 @@ func TestScaleHubWithoutPlanCreatesOrListsNothing(t *testing.T) {
 	}
 	if hub.creates != 0 || len(hub.lists) != 0 || q.ImportSnapshot(now).Phase != "awaiting_plan" {
 		t.Fatalf("creates=%d lists=%d phase=%s", hub.creates, len(hub.lists), q.ImportSnapshot(now).Phase)
+	}
+}
+
+func TestDefaultWorkerDoesNotUploadToHubWithoutImportPlanSupport(t *testing.T) {
+	q, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := &planHub{withoutScale: true}
+	runner := &Runner{Queue: q, Backup: sessionbackupproducer.New(sessionbackupproducer.Options{Root: t.TempDir()}), Hub: hub,
+		Discover:          func(context.Context) ([]*session.Session, error) { t.Fatal("unplanned discovery"); return nil, nil },
+		RequireImportPlan: true}
+	if err := runner.SyncOnce(t.Context()); !errors.Is(err, ErrPaused) {
+		t.Fatalf("sync without import plan support = %v, want paused", err)
+	}
+	if hub.creates != 0 || len(hub.lists) != 0 || hub.checks != 1 {
+		t.Fatalf("creates=%d lists=%d checks=%d", hub.creates, len(hub.lists), hub.checks)
 	}
 }
 

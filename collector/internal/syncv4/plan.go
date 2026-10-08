@@ -52,6 +52,19 @@ func windowDuration(window string) (time.Duration, bool) {
 	}
 }
 
+// DiscoveryMinActivity returns the requested cutoff for timestamp-indexed
+// discovery sources. Transcript families still need parsing to determine activity.
+func DiscoveryMinActivity(plan *hubclient.V4ImportPlan, now time.Time) int64 {
+	if plan == nil || plan.History {
+		return 0
+	}
+	duration, ok := windowDuration(plan.Window)
+	if !ok || duration == 0 {
+		return 0
+	}
+	return now.Add(-duration).UnixMilli()
+}
+
 func inWindow(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 	duration, ok := windowDuration(plan.Window)
 	return ok && (duration == 0 || entry.Activity >= now.Add(-duration).UnixMilli())
@@ -82,6 +95,10 @@ func planRecent(entry Entry, plan hubclient.V4ImportPlan, startedAt time.Time) b
 func (q *Queue) PlannedEntries(plan hubclient.V4ImportPlan, _ time.Time) []Entry {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	return q.plannedEntriesLocked(plan)
+}
+
+func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan) []Entry {
 	startedAt := time.Time{}
 	if q.state.PlanStartedAt > 0 {
 		startedAt = time.UnixMilli(q.state.PlanStartedAt)
@@ -89,9 +106,10 @@ func (q *Queue) PlannedEntries(plan hubclient.V4ImportPlan, _ time.Time) []Entry
 	if q.state.PlanStartedAt <= 0 || q.state.Config.ImportPlan == nil || q.state.Config.ImportPlan.Version != plan.Version {
 		return nil
 	}
+	frozen := q.state.CatchUpFrozenVersion == plan.Version
 	var entries []Entry
 	for _, entry := range q.state.Entries {
-		if inScope(entry, plan, startedAt) {
+		if frozen && inScope(entry, plan, startedAt) || !frozen && !entry.Excluded && (plan.History || inWindow(entry, plan, startedAt) || entry.Priority) {
 			entries = append(entries, entry)
 		}
 	}
@@ -100,7 +118,10 @@ func (q *Queue) PlannedEntries(plan hubclient.V4ImportPlan, _ time.Time) []Entry
 		if a.Priority != b.Priority {
 			return a.Priority
 		}
-		aw, bw := planRecent(a, plan, startedAt), planRecent(b, plan, startedAt)
+		aw, bw := inWindow(a, plan, startedAt), inWindow(b, plan, startedAt)
+		if frozen {
+			aw, bw = planRecent(a, plan, startedAt), planRecent(b, plan, startedAt)
+		}
 		if aw != bw {
 			return aw
 		}
@@ -109,6 +130,21 @@ func (q *Queue) PlannedEntries(plan hubclient.V4ImportPlan, _ time.Time) []Entry
 		}
 		return a.Key < b.Key
 	})
+	if !frozen && !plan.History && (plan.MaxSessions > 0 || plan.MaxSessionsPerAgent > 0) {
+		selected := make([]Entry, 0, len(entries))
+		byAgent := make(map[string]int)
+		for _, entry := range entries {
+			if plan.MaxSessionsPerAgent > 0 && byAgent[entry.Session.Agent] >= int(plan.MaxSessionsPerAgent) {
+				continue
+			}
+			selected = append(selected, entry)
+			byAgent[entry.Session.Agent]++
+			if plan.MaxSessions > 0 && int64(len(selected)) >= plan.MaxSessions {
+				break
+			}
+		}
+		entries = selected
+	}
 	return entries
 }
 
@@ -133,6 +169,9 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 	}
 	if limit < 1 || limit > 500 {
 		return errors.New("invalid max sessions per agent")
+	}
+	if plan.MaxSessions < 0 {
+		return errors.New("invalid max sessions")
 	}
 	priorEntries := slices.Clone(q.state.Entries)
 	priorFrozen := q.state.CatchUpFrozenVersion
@@ -166,8 +205,28 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 			}
 			return a.Key < b.Key
 		})
-		for _, index := range indexes[:min(limit, len(indexes))] {
+		for _, index := range indexes[:min(int(limit), len(indexes))] {
 			q.state.Entries[index].CatchUpPlanVersion = plan.Version
+		}
+	}
+	if !plan.History && plan.MaxSessions > 0 {
+		var selected []int
+		for i := range q.state.Entries {
+			if q.state.Entries[i].CatchUpPlanVersion == plan.Version {
+				selected = append(selected, i)
+			}
+		}
+		sort.Slice(selected, func(i, j int) bool {
+			a, b := q.state.Entries[selected[i]], q.state.Entries[selected[j]]
+			if a.Activity != b.Activity {
+				return a.Activity > b.Activity
+			}
+			return a.Key < b.Key
+		})
+		if int64(len(selected)) > plan.MaxSessions {
+			for _, index := range selected[int(plan.MaxSessions):] {
+				q.state.Entries[index].CatchUpPlanVersion = 0
+			}
 		}
 	}
 	q.state.CatchUpFrozenVersion = plan.Version
@@ -290,16 +349,9 @@ func (q *Queue) ImportSnapshot(now time.Time) ImportSnapshot {
 		return snapshot
 	}
 	snapshot.PlanVersion = plan.Version
-	if q.state.PlanStartedAt <= 0 {
-		return snapshot
-	}
-	startedAt := time.UnixMilli(q.state.PlanStartedAt)
-	for _, entry := range q.state.Entries {
+	for _, entry := range q.plannedEntriesLocked(*plan) {
 		if entry.Key == q.currentKey {
 			snapshot.CurrentSessionID = entry.SessionID
-		}
-		if !inScope(entry, *plan, startedAt) {
-			continue
 		}
 		snapshot.TotalSessions++
 		snapshot.TotalBytes += max(0, entry.ContentBytes)

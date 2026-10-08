@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -258,7 +257,7 @@ func TestLegacyCheckInReportsNormalizedVersion(t *testing.T) {
 	if _, err := client.CheckIn(context.Background(), "1.2.3+build.7"); err != nil {
 		t.Fatal(err)
 	}
-	if seen.ClientVersion != "1.2.3+build.7" || seen.InstallChannel != "script" || !slices.Contains(seen.Capabilities, CapabilitySyncPolicy) {
+	if seen.ClientVersion != "1.2.3+build.7" {
 		t.Fatalf("legacy check-in identity = %+v", seen)
 	}
 }

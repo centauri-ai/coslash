@@ -53,14 +53,7 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v4/devices/me/check-in" || r.Header.Get("Authorization") != "Device credential" {
 			t.Fatalf("check-in request = %s %s auth=%q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
 		}
-		var input struct {
-			OS                   string   `json:"os"`
-			InstallChannel       string   `json:"installChannel"`
-			AppliedConfigVersion int64    `json:"appliedConfigVersion"`
-			Capabilities         []string `json:"capabilities"`
-			AgentsFound          []string `json:"agentsFound"`
-			Queue                V4Queue  `json:"queue"`
-		}
+		var input v4CheckInRequest
 		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 			t.Fatal(err)
 		}
@@ -79,6 +72,31 @@ func TestV4CheckInReportsPlatformQueueAndAppliedPolicyVersion(t *testing.T) {
 	result, err := client.V4CheckIn(context.Background(), queue, 7, nil, []string{"claude", "codex", "cursor"}, nil)
 	if err != nil || result.ConfigVersion != 8 {
 		t.Fatalf("check-in result=%+v err=%v", result, err)
+	}
+}
+
+func TestV4RequestDeletesRevokedCredential(t *testing.T) {
+	credentials := &memoryCredentials{}
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusForbidden)
+		io.WriteString(w, `{"code":"device_revoked"}`)
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	client := Client{BaseURL: base, Credentials: credentials}
+
+	_, err := client.V4Wait(context.Background(), 0)
+	var problem V4Problem
+	if !errors.As(err, &problem) || problem.Code != "device_revoked" || !credentials.deleted {
+		t.Fatalf("revoked request error=%v deleted=%t", err, credentials.deleted)
+	}
+	if _, err := client.V4Wait(context.Background(), 0); !errors.Is(err, ErrNotPaired) {
+		t.Fatalf("request after revocation error=%v, want %v", err, ErrNotPaired)
+	}
+	if requests != 1 {
+		t.Fatalf("requests after revocation=%d, want 1", requests)
 	}
 }
 

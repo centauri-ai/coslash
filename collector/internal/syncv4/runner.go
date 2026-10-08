@@ -80,6 +80,13 @@ func DeferReason(err error) string {
 // (finalize runs asynchronously on the Hub, and history waits for recent
 // sessions to be recorded), otherwise the regular interval.
 func NextSyncDelay(err error, inFlight int, interval time.Duration) time.Duration {
+	if errors.Is(err, ErrPolicyBlocked) || errors.Is(err, ErrDeviceSyncOff) || errors.Is(err, hubclient.ErrNotPaired) {
+		return interval
+	}
+	var problem hubclient.V4Problem
+	if errors.As(err, &problem) && problem.Code == "device_revoked" {
+		return interval
+	}
 	if Busy(err) || inFlight > 0 {
 		return busyRetry
 	}
@@ -108,6 +115,7 @@ type Runner struct {
 	InventoryProgress   func() (files int64, running bool)
 	Conditions          func(context.Context) (metered bool, batteryPercent int, err error)
 	LocalPause          func() bool
+	RequireImportPlan   bool
 	Command             func(context.Context, hubclient.V4Command) error
 	Now                 func() time.Time
 	config              hubclient.V4Config
@@ -124,6 +132,7 @@ type Runner struct {
 	lastProgressCheckIn atomic.Int64
 	checkInRetryUntil   atomic.Int64
 	lastReportedPhase   string
+	lastDiscoveryAt     time.Time
 	logRejectedUntil    time.Time
 }
 
@@ -155,6 +164,12 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.refreshConsent(ctx); err != nil {
 		return err
 	}
+	if r.Queue.PolicyBlocked() {
+		return ErrPolicyBlocked
+	}
+	if r.RequireImportPlan && !r.scaleEnabled {
+		return ErrPaused
+	}
 	if r.newRetryCommand {
 		r.newRetryCommand = false
 		return ErrCommandPickedUp
@@ -162,7 +177,22 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if err := r.discardAbandoned(); err != nil {
 		return err
 	}
-	if r.scaleEnabled && r.DiscoverBatches != nil {
+	if r.DiscoverBatches != nil && (r.config.ImportPlan != nil || r.scaleEnabled) {
+		// A large local discovery pass can take minutes. Resume already listed
+		// uploads first so a fresh scan does not block visible content progress.
+		var transferErr error
+		if plan := r.config.ImportPlan; plan != nil && len(r.Queue.PlannedEntries(*plan, r.now())) > 0 {
+			transferErr = r.runPlannedAndReport(ctx)
+			if stopSync(transferErr) {
+				return transferErr
+			}
+		}
+		// The inventory refreshes every five minutes. Between refreshes, use
+		// the saved queue to keep transferring instead of reparsing the same
+		// source files on every sync pass.
+		if !r.lastDiscoveryAt.IsZero() && r.now().Sub(r.lastDiscoveryAt) < 5*time.Minute {
+			return transferErr
+		}
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
 			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil)
 			for i := range entries {
@@ -179,9 +209,10 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			}
 			return nil
 		}); err != nil {
-			return err
+			return errors.Join(transferErr, err)
 		}
-		return r.runPlannedAndReport(ctx)
+		r.lastDiscoveryAt = r.now()
+		return errors.Join(transferErr, r.runPlannedAndReport(ctx))
 	}
 	sessions, err := r.Discover(ctx)
 	if err != nil {
@@ -222,7 +253,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.ensureCreated(ctx, &entry); err != nil {
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -238,7 +269,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.transfer(ctx, &entry); err != nil {
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -269,7 +300,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.ensureCreated(ctx, &entry); err != nil {
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if Busy(err) {
 				busyErr = err
@@ -286,7 +317,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		}
 		if err := r.transfer(ctx, &entry); err != nil {
 			if stopSync(err) {
-				return err
+				return r.persistPolicyStop(&entry, err)
 			}
 			if firstErr == nil {
 				firstErr = err
@@ -379,6 +410,14 @@ func policyBlocked(err error) bool {
 		(errors.As(err, &problem) && (problem.Code == "sync_paused" || problem.Code == "device_sync_off"))
 }
 
+func (r *Runner) persistPolicyStop(entry *Entry, err error) error {
+	var problem hubclient.V4Problem
+	if errors.As(err, &problem) && (problem.Code == "sync_paused" || problem.Code == "device_sync_off") {
+		return r.recordFailure(entry, err)
+	}
+	return err
+}
+
 func (r *Runner) recordFailure(entry *Entry, failure error) error {
 	if errors.Is(failure, sessionbackupproducer.ErrNotPrepared) {
 		entry.BundleID, entry.ContentSHA256, entry.UploadID = "", "", ""
@@ -390,6 +429,9 @@ func (r *Runner) recordFailure(entry *Entry, failure error) error {
 		if problem.Code == "sync_paused" || problem.Code == "device_sync_off" {
 			entry.FailureCode, entry.ParkedVersion, entry.LoggedFailure = "", "", ""
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
+			if err := r.Queue.SetPolicyBlocked(); err != nil {
+				return err
+			}
 			if err := r.Queue.Update(*entry); err != nil {
 				return err
 			}
@@ -853,8 +895,8 @@ func (r *Runner) entryAllowed(entry Entry) error {
 	if entry.Excluded || leftOut(entry.Session, r.config.LeaveOut) {
 		return hubclient.V4Problem{Code: "left_out"}
 	}
-	if r.config.ImportPlan != nil {
-		if r.Queue == nil || !r.Queue.InPlanScope(entry, *r.config.ImportPlan) {
+	if r.scaleEnabled || r.config.ImportPlan != nil {
+		if r.config.ImportPlan == nil || r.Queue == nil || !r.Queue.InPlanScope(entry, *r.config.ImportPlan) {
 			return ErrPaused
 		}
 	}
@@ -921,6 +963,13 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 	if entry.UploadID != "" || entry.RevisionID != "" {
 		return nil
 	}
+	if err := r.prepareEntry(ctx, entry); err != nil {
+		return err
+	}
+	return r.createUpload(ctx, entry)
+}
+
+func (r *Runner) prepareEntry(ctx context.Context, entry *Entry) error {
 	if entry.BundleID == "" {
 		prepared, err := r.Backup.Prepare(ctx, entry.Selection)
 		if err != nil {
@@ -952,6 +1001,12 @@ func (r *Runner) ensureCreated(ctx context.Context, entry *Entry) error {
 			return err
 		}
 	}
+	entry.ContentSHA256 = manifest.ContentSHA256
+	return nil
+}
+
+func (r *Runner) createUpload(ctx context.Context, entry *Entry) error {
+	manifest := entry.Manifest
 	entry.ContentSHA256 = manifest.ContentSHA256
 	key := localKey(entry.Key, manifest.ContentSHA256, fmt.Sprint(entry.Attempt))
 	status, err := r.Hub.V4Create(ctx, hubclient.V4Create{IdempotencyKey: key, Session: entry.Session, Manifest: *manifest})

@@ -79,6 +79,7 @@ type state struct {
 	// PolicyKnown records that Config came from a Hub check-in, including
 	// the owner's version-0 default policy.
 	PolicyKnown            bool            `json:"policyKnown,omitempty"`
+	PolicyBlocked          bool            `json:"policyBlocked,omitempty"`
 	MinVersion             string          `json:"minVersion,omitempty"`
 	RecommendedVersion     string          `json:"recommendedVersion,omitempty"`
 	RecommendedDownloadURL string          `json:"recommendedDownloadUrl,omitempty"`
@@ -138,6 +139,9 @@ func Open(root string) (*Queue, error) {
 		if err := json.Unmarshal(data, &q.state); err != nil || q.state.Version != 1 || q.state.InstallID == "" {
 			return nil, errors.New("invalid v4 queue")
 		}
+		if q.state.Inventory != nil && !storedInventoryHasD10(data) {
+			q.state.Inventory = nil
+		}
 		for i := range q.state.Commands {
 			command := &q.state.Commands[i]
 			if command.Result.Result == "in_progress" {
@@ -163,6 +167,19 @@ func Open(root string) (*Queue, error) {
 	return q, nil
 }
 
+func storedInventoryHasD10(data []byte) bool {
+	var persisted struct {
+		Inventory *struct {
+			Windows map[string]json.RawMessage `json:"windows"`
+		} `json:"inventory"`
+	}
+	if err := json.Unmarshal(data, &persisted); err != nil || persisted.Inventory == nil {
+		return false
+	}
+	_, ok := persisted.Inventory.Windows["d10"]
+	return ok
+}
+
 func (q *Queue) InstallID() string { q.mu.Lock(); defer q.mu.Unlock(); return q.state.InstallID }
 
 func (q *Queue) Rebind(binding string) error {
@@ -186,7 +203,7 @@ func (q *Queue) Rebind(binding string) error {
 			entry.Manifest, entry.Attempt = nil, 0
 			entry.BackoffAttempt, entry.RetryAt = 0, time.Time{}
 		}
-		q.state.ConfigVersion, q.state.PolicyKnown = 0, false
+		q.state.ConfigVersion, q.state.PolicyKnown, q.state.PolicyBlocked = 0, false, false
 		q.state.Config = hubclient.V4Config{}
 		q.state.PlanStartedAt, q.state.Phase = 0, ""
 		q.state.Commands = nil
@@ -209,6 +226,26 @@ func (q *Queue) Policy() (int64, hubclient.V4Config, string) {
 	return q.state.ConfigVersion, q.state.Config, q.state.MinVersion
 }
 
+func (q *Queue) PolicyBlocked() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.state.PolicyBlocked
+}
+
+func (q *Queue) SetPolicyBlocked() error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.PolicyBlocked {
+		return nil
+	}
+	q.state.PolicyBlocked = true
+	if err := q.save(); err != nil {
+		q.state.PolicyBlocked = false
+		return err
+	}
+	return nil
+}
+
 func (q *Queue) ApplyPolicy(result hubclient.V4CheckIn) error {
 	return q.ApplyPolicyAt(result, time.Now())
 }
@@ -224,6 +261,7 @@ func (q *Queue) ApplyPolicyAt(result hubclient.V4CheckIn, now time.Time) error {
 		q.state.ConfigVersion = result.ConfigVersion
 		q.state.Config = result.Config
 		q.state.PolicyKnown = true
+		q.state.PolicyBlocked = false
 		if result.Config.ImportPlan != nil {
 			q.state.ScaleVersion = 1
 			if oldPlan == nil || oldPlan.Version != result.Config.ImportPlan.Version || q.state.PlanStartedAt == 0 {
@@ -670,24 +708,36 @@ func (q *Queue) Progress() hubclient.V4Queue {
 	defer q.mu.Unlock()
 	var progress hubclient.V4Queue
 	progress.FirstSync.HistoryState = "complete"
+	entries := q.state.Entries
 	plan := q.state.Config.ImportPlan
+	planned := plan != nil && (q.state.CatchUpFrozenVersion == plan.Version || hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport))
+	if planned {
+		entries = q.plannedEntriesLocked(*plan)
+		if !plan.History {
+			progress.FirstSync.HistoryState = "syncing"
+		}
+	}
 	startedAt := time.Time{}
 	if q.state.PlanStartedAt > 0 {
 		startedAt = time.UnixMilli(q.state.PlanStartedAt)
 	}
-	if plan != nil && !plan.History {
-		progress.FirstSync.HistoryState = "syncing"
-	}
-	for _, entry := range q.state.Entries {
-		if plan != nil && !inScope(entry, *plan, startedAt) || plan == nil && entry.Excluded {
+	for _, entry := range entries {
+		if entry.Excluded {
 			continue
 		}
-		if plan != nil && isCatchUpEntry(entry, *plan) || plan == nil && entry.Recent {
+		recent := entry.Recent
+		if planned {
+			recent = inWindow(entry, *plan, startedAt)
+			if q.state.CatchUpFrozenVersion == plan.Version {
+				recent = planRecent(entry, *plan, startedAt)
+			}
+		}
+		if recent {
 			progress.FirstSync.RecentTotal++
 			if !pending(entry) {
 				progress.FirstSync.RecentDone++
 			}
-		} else if plan != nil && plan.History && pending(entry) || plan == nil && pending(entry) && !entry.Recent {
+		} else if pending(entry) && (plan == nil || plan.History) {
 			progress.FirstSync.HistoryState = "syncing"
 		}
 		if pending(entry) {

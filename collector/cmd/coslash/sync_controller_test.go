@@ -38,6 +38,14 @@ func (c *syncTestCredentials) Save(_ context.Context, value string) error {
 	return nil
 }
 
+func (c *syncTestCredentials) Delete(context.Context) error {
+	c.mu.Lock()
+	c.value = ""
+	c.deleted++
+	c.mu.Unlock()
+	return nil
+}
+
 func (c *syncTestCredentials) DeleteIfMatches(_ context.Context, expected string) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
