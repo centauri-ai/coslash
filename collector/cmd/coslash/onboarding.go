@@ -23,15 +23,16 @@ type onboardingManager struct {
 	cancel  context.CancelFunc
 	version string
 
-	mu            sync.Mutex
-	active        map[string]context.CancelFunc
-	connectJobs   map[string]connectJob
-	hubClient     *hubclient.Client
-	bindHubClient func(*hubclient.Client)
-	syncHooks     syncHooks
-	v4SyncActive  bool
-	lastWake      time.Time
-	wait          sync.WaitGroup
+	mu                 sync.Mutex
+	active             map[string]context.CancelFunc
+	connectJobs        map[string]connectJob
+	hubClient          *hubclient.Client
+	bindHubClient      func(*hubclient.Client)
+	syncHooks          syncHooks
+	registerBackground func() error
+	v4SyncActive       bool
+	lastWake           time.Time
+	wait               sync.WaitGroup
 }
 
 func newOnboardingManager(version string) *onboardingManager {
@@ -149,7 +150,28 @@ func (m *onboardingManager) setSyncHooks(hooks syncHooks) {
 }
 
 func (m *onboardingManager) ensureSync(client *hubclient.Client) {
+	m.mu.Lock()
+	registerBackground := m.registerBackground
+	m.mu.Unlock()
+	if registerBackground != nil && client != nil && client.Credentials != nil {
+		go func() {
+			loadContext, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+			credential, err := client.Credentials.Load(loadContext)
+			cancel()
+			if err == nil && credential != "" {
+				if err := registerBackground(); err != nil {
+					log.Printf("register background coSlash Local: %v", err)
+				}
+			}
+		}()
+	}
 	m.StartCheckIns(client)
+}
+
+func (m *onboardingManager) setBackgroundRegistration(register func() error) {
+	m.mu.Lock()
+	m.registerBackground = register
+	m.mu.Unlock()
 }
 
 func (m *onboardingManager) setHubClient(client *hubclient.Client) {

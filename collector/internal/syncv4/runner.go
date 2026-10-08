@@ -269,6 +269,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.scaleEnabled {
 		return r.runPlannedAndReport(ctx)
 	}
+	if r.scaleEnabled {
+		return r.Queue.SetPhase("awaiting_plan")
+	}
 	entries := r.Queue.Entries()
 	var firstErr error
 	// Publish every recent metadata row before sending its first content chunk.

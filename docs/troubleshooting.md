@@ -6,6 +6,8 @@ Start with `coslash doctor`. It checks session sources, agent CLIs, and storage.
 
 Create at least one local Claude Code, Codex, Cursor, or OpenCode session, then reload. Run `coslash doctor` for unreadable or missing sources. In the UI, select **All** vendors and time windows and clear search.
 
+On macOS, coSlash does not need access to a session's project folder to discover or sync its transcript. Background enrichment skips project files in Desktop, Documents, Downloads, iCloud Drive, and mounted volumes, so repository details, Git drift, and file modification times may be unavailable for those sessions. A source transcript stored in one of those locations, or an explicit action that opens the project, can still require macOS folder permission. If macOS asks again after each coSlash update, note the folder named in the prompt and the coSlash install method when reporting it; macOS tracks privacy access by the program's code identity.
+
 For Cursor, `coslash doctor` reports the IDE (`cursor`) and CLI (`agent`) separately. coSlash reads only local Cursor IDE and CLI sessions: Cursor SDK sessions and remote Cursor collection are unsupported. Cursor CLI token and compaction data can be unavailable because Cursor does not store them reliably; Cursor IDE exposes current context occupancy separately, not cumulative token usage.
 
 For a remote machine, choose **Settings → Machines → Add remote host**. coSlash
