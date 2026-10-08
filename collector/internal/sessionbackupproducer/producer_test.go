@@ -441,6 +441,30 @@ func TestPrepareAttributesGuardianSidecarToReviewedChild(t *testing.T) {
 	t.Fatal("guardian sidecar missing")
 }
 
+func TestPrepareRejectsGuardianIDWithConflictingOwners(t *testing.T) {
+	home, _ := writeFamilyFixture(t, 0)
+	writeRollout(t, familyFile(home, false, testGuardianID), guardianRollout(testGuardianID, testRootID, "/fixture/workspace"))
+	writeRollout(t, familyFile(home, true, testGuardianID), guardianRollout(testGuardianID, testChildID, "/fixture/workspace"))
+	index, err := os.OpenFile(codex.SessionIndexPath(home), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fmt.Fprintf(index, "{\"id\":%q,\"thread_name\":\"Fixture review\"}\n", testGuardianID)
+	if closeErr := index.Close(); err != nil || closeErr != nil {
+		t.Fatal(err, closeErr)
+	}
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), localSelection())
+	var preparation *PreparationError
+	if prepared != nil || !errors.As(err, &preparation) || len(preparation.Coverage.Problems) != 1 ||
+		preparation.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnattributable ||
+		preparation.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
+		t.Fatalf("prepared=%#v error=%#v, want unattributable raw transcript", prepared, err)
+	}
+}
+
 func TestSynthesisIsRevisionBoundWithoutChangingPortableRecord(t *testing.T) {
 	home, _ := writeFamilyFixture(t, 0)
 	prepare := func(store SynthesisStore) (*Prepared, string) {
