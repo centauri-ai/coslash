@@ -64,6 +64,10 @@
           "sessions": 88,
           "bytes": 512000000
         },
+        "d10": {
+          "sessions": 88,
+          "bytes": 512000000
+        },
         "d30": {
           "sessions": 410,
           "bytes": 1650000000

@@ -220,6 +220,7 @@ type V4Wait struct {
 	ConfigVersion     int64 `json:"configVersion"`
 	Changed           bool  `json:"changed"`
 	CommandsAvailable bool  `json:"commandsAvailable"`
+	SyncRequested     bool  `json:"syncRequested"`
 }
 
 type V4Problem struct {

@@ -2,6 +2,7 @@ package syncv4
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"time"
 
@@ -70,19 +71,45 @@ func inWindow(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 }
 
 func inScope(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
-	return !entry.Excluded && (inWindow(entry, plan, now) || plan.History || entry.Priority)
+	if entry.Excluded || now.IsZero() {
+		return false
+	}
+	if _, ok := windowDuration(plan.Window); !ok {
+		return false
+	}
+	if plan.MaxSessionsPerAgent < 0 || plan.MaxSessionsPerAgent > 500 {
+		return false
+	}
+	return isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version ||
+		entry.Activity >= now.UnixMilli() || plan.History || entry.Priority
 }
 
-func (q *Queue) PlannedEntries(plan hubclient.V4ImportPlan, now time.Time) []Entry {
+func isCatchUpEntry(entry Entry, plan hubclient.V4ImportPlan) bool {
+	return entry.CatchUpPlanVersion == plan.Version
+}
+
+func planRecent(entry Entry, plan hubclient.V4ImportPlan, startedAt time.Time) bool {
+	return !startedAt.IsZero() && (isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version || entry.Activity >= startedAt.UnixMilli())
+}
+
+func (q *Queue) PlannedEntries(plan hubclient.V4ImportPlan, _ time.Time) []Entry {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.plannedEntriesLocked(plan, now)
+	return q.plannedEntriesLocked(plan)
 }
 
-func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan, now time.Time) []Entry {
+func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan) []Entry {
+	startedAt := time.Time{}
+	if q.state.PlanStartedAt > 0 {
+		startedAt = time.UnixMilli(q.state.PlanStartedAt)
+	}
+	if q.state.PlanStartedAt <= 0 || q.state.Config.ImportPlan == nil || q.state.Config.ImportPlan.Version != plan.Version {
+		return nil
+	}
+	frozen := q.state.CatchUpFrozenVersion == plan.Version
 	var entries []Entry
 	for _, entry := range q.state.Entries {
-		if inScope(entry, plan, now) {
+		if frozen && inScope(entry, plan, startedAt) || !frozen && !entry.Excluded && (plan.History || inWindow(entry, plan, startedAt) || entry.Priority) {
 			entries = append(entries, entry)
 		}
 	}
@@ -91,7 +118,10 @@ func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan, now time.Time)
 		if a.Priority != b.Priority {
 			return a.Priority
 		}
-		aw, bw := inWindow(a, plan, now), inWindow(b, plan, now)
+		aw, bw := inWindow(a, plan, startedAt), inWindow(b, plan, startedAt)
+		if frozen {
+			aw, bw = planRecent(a, plan, startedAt), planRecent(b, plan, startedAt)
+		}
 		if aw != bw {
 			return aw
 		}
@@ -100,7 +130,7 @@ func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan, now time.Time)
 		}
 		return a.Key < b.Key
 	})
-	if !plan.History && (plan.MaxSessions > 0 || plan.MaxSessionsPerAgent > 0) {
+	if !frozen && !plan.History && (plan.MaxSessions > 0 || plan.MaxSessionsPerAgent > 0) {
 		selected := make([]Entry, 0, len(entries))
 		byAgent := make(map[string]int)
 		for _, entry := range entries {
@@ -109,13 +139,103 @@ func (q *Queue) plannedEntriesLocked(plan hubclient.V4ImportPlan, now time.Time)
 			}
 			selected = append(selected, entry)
 			byAgent[entry.Session.Agent]++
-			if plan.MaxSessions > 0 && len(selected) >= int(plan.MaxSessions) {
+			if plan.MaxSessions > 0 && int64(len(selected)) >= plan.MaxSessions {
 				break
 			}
 		}
 		entries = selected
 	}
 	return entries
+}
+
+// FreezeCatchUp persists the bounded set selected for one plan version. The
+// timestamp is the plan's start time, so discoveries and live updates that
+// arrive later cannot displace a session already selected for catch-up.
+func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.state.PlanStartedAt <= 0 || q.state.Config.ImportPlan == nil || q.state.Config.ImportPlan.Version != plan.Version {
+		return errors.New("cannot freeze catch-up without the current import plan")
+	}
+	if q.state.CatchUpFrozenVersion == plan.Version {
+		return nil
+	}
+	if _, ok := windowDuration(plan.Window); !ok {
+		return errors.New("invalid import plan window")
+	}
+	limit := plan.MaxSessionsPerAgent
+	if limit == 0 {
+		limit = 30
+	}
+	if limit < 1 || limit > 500 {
+		return errors.New("invalid max sessions per agent")
+	}
+	if plan.MaxSessions < 0 {
+		return errors.New("invalid max sessions")
+	}
+	priorEntries := slices.Clone(q.state.Entries)
+	priorFrozen := q.state.CatchUpFrozenVersion
+	startedAt := time.Time{}
+	if q.state.PlanStartedAt > 0 {
+		startedAt = time.UnixMilli(q.state.PlanStartedAt)
+	}
+	duration, _ := windowDuration(plan.Window)
+	cutoff := int64(0)
+	if duration > 0 {
+		cutoff = startedAt.Add(-duration).UnixMilli()
+	}
+	byAgent := make(map[string][]int)
+	for i := range q.state.Entries {
+		entry := &q.state.Entries[i]
+		entry.CatchUpPlanVersion = 0
+		if entry.Excluded || entry.Activity >= startedAt.UnixMilli() || duration > 0 && entry.Activity < cutoff {
+			continue
+		}
+		agent := entry.Session.Agent
+		if agent == "" {
+			continue
+		}
+		byAgent[agent] = append(byAgent[agent], i)
+	}
+	for _, indexes := range byAgent {
+		sort.Slice(indexes, func(i, j int) bool {
+			a, b := q.state.Entries[indexes[i]], q.state.Entries[indexes[j]]
+			if a.Activity != b.Activity {
+				return a.Activity > b.Activity
+			}
+			return a.Key < b.Key
+		})
+		for _, index := range indexes[:min(int(limit), len(indexes))] {
+			q.state.Entries[index].CatchUpPlanVersion = plan.Version
+		}
+	}
+	if !plan.History && plan.MaxSessions > 0 {
+		var selected []int
+		for i := range q.state.Entries {
+			if q.state.Entries[i].CatchUpPlanVersion == plan.Version {
+				selected = append(selected, i)
+			}
+		}
+		sort.Slice(selected, func(i, j int) bool {
+			a, b := q.state.Entries[selected[i]], q.state.Entries[selected[j]]
+			if a.Activity != b.Activity {
+				return a.Activity > b.Activity
+			}
+			return a.Key < b.Key
+		})
+		if int64(len(selected)) > plan.MaxSessions {
+			for _, index := range selected[int(plan.MaxSessions):] {
+				q.state.Entries[index].CatchUpPlanVersion = 0
+			}
+		}
+	}
+	q.state.CatchUpFrozenVersion = plan.Version
+	if err := q.save(); err != nil {
+		q.state.Entries = priorEntries
+		q.state.CatchUpFrozenVersion = priorFrozen
+		return err
+	}
+	return nil
 }
 
 func (q *Queue) SetPhase(phase string) error {
@@ -229,7 +349,7 @@ func (q *Queue) ImportSnapshot(now time.Time) ImportSnapshot {
 		return snapshot
 	}
 	snapshot.PlanVersion = plan.Version
-	for _, entry := range q.plannedEntriesLocked(*plan, now) {
+	for _, entry := range q.plannedEntriesLocked(*plan) {
 		if entry.Key == q.currentKey {
 			snapshot.CurrentSessionID = entry.SessionID
 		}

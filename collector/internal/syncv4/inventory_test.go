@@ -1,6 +1,8 @@
 package syncv4
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -71,5 +73,31 @@ func TestProgressReportsInventoryOnlyAfterHubAdvertisesScaleImport(t *testing.T)
 	t.Setenv("COSLASH_SCALE_IMPORT", "0")
 	if reopened.Progress().Inventory != nil {
 		t.Fatal("inventory reported with the kill switch off")
+	}
+}
+
+func TestQueueWithholdsLegacyInventoryUntilD10Refresh(t *testing.T) {
+	root := t.TempDir()
+	legacy := `{"version":1,"installId":"legacy","entries":[],"inventory":{"scannedAt":"2026-09-29T19:29:52Z","windows":{"d7":{"sessions":7,"bytes":70},"d30":{"sessions":30,"bytes":300},"all":{"sessions":40,"bytes":400}}}}`
+	if err := os.WriteFile(filepath.Join(root, "queue.json"), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	queue, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queue.Inventory() != nil {
+		t.Fatal("legacy inventory was exposed before its 10-day bucket was refreshed")
+	}
+
+	fresh := hubclient.DeviceInventory{ScannedAt: "2026-10-01T19:29:52Z"}
+	fresh.Windows.D7 = hubclient.InventoryWindow{Sessions: 7, Bytes: 70}
+	fresh.Windows.D10 = hubclient.InventoryWindow{Sessions: 10, Bytes: 100}
+	if err := queue.SetInventory(fresh); err != nil {
+		t.Fatal(err)
+	}
+	if got := queue.Inventory(); got == nil || got.Windows.D10 != fresh.Windows.D10 {
+		t.Fatalf("refreshed inventory = %+v", got)
 	}
 }

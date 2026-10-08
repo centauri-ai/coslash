@@ -16,6 +16,7 @@ func (syncLoopQueue) Policy() (int64, hubclient.V4Config, string) { return 1, hu
 func (syncLoopQueue) Results() []hubclient.V4CommandResult        { return nil }
 func (syncLoopQueue) InFlight() int                               { return 0 }
 func (syncLoopQueue) NextRetryDelay() time.Duration               { return 0 }
+func (syncLoopQueue) NextCheckInDelay() time.Duration             { return 60 * time.Second }
 func (syncLoopQueue) Progress() hubclient.V4Queue                 { return hubclient.V4Queue{} }
 
 type syncLoopWorker struct{ started chan context.Context }
@@ -67,6 +68,56 @@ func TestV4WaitInterruptsActiveSyncForCommands(t *testing.T) {
 	case <-worker.started:
 	case <-time.After(3 * time.Second):
 		t.Fatal("command wait did not interrupt the active pass")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("sync loop did not stop")
+	}
+}
+
+func TestSyncRequestedRunsCheckInWithinOneSecond(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	worker := syncLoopWorker{started: make(chan context.Context, 3)}
+	request := make(chan hubclient.V4Wait, 1)
+	waitStarted := make(chan struct{}, 4)
+	done := make(chan struct{})
+	go func() {
+		runV4SyncLoop(ctx, worker, syncLoopQueue{}, func(ctx context.Context, _ int64) (hubclient.V4Wait, error) {
+			select {
+			case waitStarted <- struct{}{}:
+			default:
+			}
+			select {
+			case value := <-request:
+				return value, nil
+			case <-ctx.Done():
+				return hubclient.V4Wait{}, ctx.Err()
+			}
+		})
+		close(done)
+	}()
+	select {
+	case <-worker.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("initial pass did not start")
+	}
+	select {
+	case <-waitStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("long-poll wait did not start")
+	}
+	requestedAt := time.Now()
+	request <- hubclient.V4Wait{SyncRequested: true}
+	select {
+	case <-worker.started:
+		if elapsed := time.Since(requestedAt); elapsed > time.Second {
+			t.Fatalf("sync-now pass started after %s", elapsed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("sync-now did not start a check-in pass within one second")
 	}
 	cancel()
 	select {

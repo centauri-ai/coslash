@@ -2,6 +2,16 @@ package syncv4
 
 import "time"
 
+// BaseCheckInCadence applies the Hub's advertised idle cadence. Active import
+// work and explicit sync-now signals can wake earlier through the sync loop.
+func BaseCheckInCadence(seconds int) time.Duration {
+	if seconds <= 0 {
+		seconds = 300
+	}
+	seconds = max(60, min(seconds, 900))
+	return time.Duration(seconds) * time.Second
+}
+
 func retryBackoff(attempt int) time.Duration {
 	switch {
 	case attempt <= 1:
