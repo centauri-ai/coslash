@@ -234,6 +234,7 @@ func TestConnectApprovalWaitsAndTracksTerminalState(t *testing.T) {
 			defer hub.Close()
 
 			manager := newOnboardingManager("0.1.0")
+			manager.SetV4SyncActive(true)
 			manager.setHubClientBinder(func(client *hubclient.Client) { client.Credentials = credentials })
 			manager.setSyncHooks(syncHookFuncs{ensure: func(*hubclient.Client) error {
 				ensureCalls.Add(1)

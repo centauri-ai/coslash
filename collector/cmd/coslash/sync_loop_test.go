@@ -258,4 +258,10 @@ func TestDormantBacksOff(t *testing.T) {
 		!credentialRetry(hubclient.V4Problem{HTTPStatus: 401}) {
 		t.Fatal("dormant and unauthorized credentials must use the backoff schedule")
 	}
+	if got := clampImportRetry(time.Minute, hubclient.V4Problem{Code: "device_dormant"}, true, true); got != time.Minute {
+		t.Fatalf("credential retry during import=%s, want %s", got, time.Minute)
+	}
+	if got := clampImportRetry(time.Minute, errors.New("temporary import error"), true, false); got != 10*time.Second {
+		t.Fatalf("ordinary retry during import=%s, want %s", got, 10*time.Second)
+	}
 }

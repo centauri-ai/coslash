@@ -610,12 +610,9 @@ func routesWithOnboarding(
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
-	var backupManager *sessionbackupproducer.Manager
-	if hub != nil {
-		backupManager = sessionbackupproducer.New(sessionbackupproducer.Options{
-			CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
-		})
-	}
+	backupManager := sessionbackupproducer.New(sessionbackupproducer.Options{
+		CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
+	})
 	registerHubRoutes(api, hub, remoteManager, backupManager, onboardings)
 	mux.Handle("/api", api)
 	mux.Handle("/api/", api)

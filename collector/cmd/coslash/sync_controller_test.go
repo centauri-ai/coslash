@@ -38,12 +38,15 @@ func (c *syncTestCredentials) Save(_ context.Context, value string) error {
 	return nil
 }
 
-func (c *syncTestCredentials) Delete(context.Context) error {
+func (c *syncTestCredentials) DeleteIfMatches(_ context.Context, expected string) (bool, error) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.value != expected {
+		return false, nil
+	}
 	c.value = ""
 	c.deleted++
-	c.mu.Unlock()
-	return nil
+	return true, nil
 }
 
 func (c *syncTestCredentials) deletedCount() int {
@@ -88,6 +91,7 @@ func TestPairingStartsSyncWithoutRestart(t *testing.T) {
 	var loadedBeforeEnsure atomic.Bool
 	onboardings := newOnboardingManager("1.2.3")
 	defer onboardings.Close()
+	onboardings.SetV4SyncActive(true)
 	onboardings.setSyncHooks(syncHooksSpy{ensureCalls: &ensureCalls, loadedBeforeEnsure: &loadedBeforeEnsure})
 
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +160,7 @@ func TestStartupWithStoredCredentialStartsSync(t *testing.T) {
 	}, nil)
 	manager := newOnboardingManager("1.2.3")
 	defer manager.Close()
+	manager.SetV4SyncActive(controller.Queue() != nil)
 	manager.setSyncHooks(controller)
 
 	manager.StartCheckIns(syncTestClient(t, &syncTestCredentials{value: "stored-device-credential"}))
@@ -235,4 +240,37 @@ func TestRevokedCredentialIsDeletedAndCallsStop(t *testing.T) {
 	if status := controller.Status(); status.State != "disconnected" {
 		t.Fatalf("status after revocation = %+v (binding %s)", status, binding)
 	}
+}
+
+func TestStaleRevocationPreservesReplacementCredential(t *testing.T) {
+	stopped := make(chan struct{}, 1)
+	credentials := &syncTestCredentials{value: "old-device-credential"}
+	controller := newTestSyncController(t, func(ctx context.Context, _ *syncv4.Queue, _ *hubclient.Client, _ chan struct{}) {
+		<-ctx.Done()
+		stopped <- struct{}{}
+	}, nil)
+	client := syncTestClient(t, credentials)
+	if err := controller.Ensure(client); err != nil {
+		t.Fatal(err)
+	}
+	worker := controller.observed(syncLoopWorkerFunc(func(context.Context) error {
+		if err := credentials.Save(context.Background(), "replacement-device-credential"); err != nil {
+			return err
+		}
+		return hubclient.V4Problem{Code: "device_revoked", HTTPStatus: http.StatusForbidden}
+	}), client)
+	if err := worker.SyncOnce(context.Background()); err == nil {
+		t.Fatal("revocation error was swallowed")
+	}
+	if got, err := credentials.Load(context.Background()); err != nil || got != "replacement-device-credential" {
+		t.Fatalf("credential after stale revocation = %q, error %v", got, err)
+	}
+	if credentials.deletedCount() != 0 {
+		t.Fatalf("deleted credentials=%d, want 0", credentials.deletedCount())
+	}
+	if status := controller.Status(); status.State != "connected_idle" {
+		t.Fatalf("status after stale revocation = %+v, want connected", status)
+	}
+	controller.Stop()
+	waitSignal(t, stopped)
 }
