@@ -448,6 +448,25 @@ func (store *Store) State() State {
 	return store.state
 }
 
+func (store *Store) Restore(state State) error {
+	if !state.Valid {
+		return errors.New("cannot restore invalid settings")
+	}
+	if err := Validate(state.Config); err != nil {
+		return err
+	}
+	if state.Persisted {
+		return store.Save(state.Config)
+	}
+	if err := os.Remove(Path()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove settings.json: %w", err)
+	}
+	store.mu.Lock()
+	store.state = state
+	store.mu.Unlock()
+	return nil
+}
+
 func (store *Store) Save(config Config) error {
 	if err := Validate(config); err != nil {
 		return err
