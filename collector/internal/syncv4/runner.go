@@ -178,6 +178,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		return err
 	}
 	if r.DiscoverBatches != nil && (r.config.ImportPlan != nil || r.scaleEnabled) {
+		listedOnce, unlistedSince := false, 0
 		// A large local discovery pass can take minutes. Resume already listed
 		// uploads first so a fresh scan does not block visible content progress.
 		var transferErr error
@@ -198,8 +199,16 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			for i := range entries {
 				entries[i].ContentBytes = batch.ContentBytes[entries[i].Selection.Agent+"\x00"+entries[i].Selection.SessionID]
 			}
-			if err := r.Queue.Merge(entries, r.now()); err != nil {
-				return err
+			if r.config.ImportPlan == nil {
+				if err := r.Queue.Merge(entries, r.now()); err != nil {
+					return err
+				}
+			} else {
+				count, err := r.Queue.MergePlannedDiscovery(entries, r.now(), *r.config.ImportPlan)
+				if err != nil {
+					return err
+				}
+				unlistedSince += count
 			}
 			if err := r.releaseParked(); err != nil {
 				return err
@@ -207,12 +216,25 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			if err := r.applyExclusions(); err != nil {
 				return err
 			}
+			if r.config.ImportPlan == nil {
+				return nil
+			}
+			if unlistedSince == 0 || listedOnce && unlistedSince < 50 {
+				return nil
+			}
+			if err := r.listAll(ctx, *r.config.ImportPlan); err != nil {
+				return err
+			}
+			listedOnce, unlistedSince = true, 0
 			return nil
 		}); err != nil {
 			return errors.Join(transferErr, err)
 		}
 		r.lastDiscoveryAt = r.now()
 		return errors.Join(transferErr, r.runPlannedAndReport(ctx))
+	}
+	if r.scaleEnabled && r.config.ImportPlan == nil {
+		return r.runPlannedAndReport(ctx)
 	}
 	sessions, err := r.Discover(ctx)
 	if err != nil {
@@ -242,6 +264,9 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		return err
 	}
 	if r.config.ImportPlan != nil || r.scaleEnabled {
+		return r.runPlannedAndReport(ctx)
+	}
+	if r.scaleEnabled {
 		return r.runPlannedAndReport(ctx)
 	}
 	entries := r.Queue.Entries()

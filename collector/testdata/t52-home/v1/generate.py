@@ -105,11 +105,13 @@ def generate(out: Path, lane: str, now: dt.datetime) -> dict:
     if lane in {"a", "b"}:
         root = home / "workspaces"
         root.mkdir(mode=0o700)
+        workspace = root / "maya-project"
+        workspace.mkdir(mode=0o700)
         # Recent records are stable and intentionally newest-first across agents.
         for index in range(34):
             key = f"codex-recent-{index + 1:02d}"
             at = now - dt.timedelta(minutes=8 * index + 2)
-            cwd = str(root / "maya-project")
+            cwd = str(workspace)
             sid = identity("codex", key)
             path = home / ".codex/sessions" / at.strftime("%Y/%m/%d") / f"rollout-{at.strftime('%Y-%m-%dT%H-%M-%S')}-{sid}.jsonl"
             write_jsonl(path, codex_rows(sid, cwd, at, key), at + dt.timedelta(seconds=4))
@@ -117,7 +119,7 @@ def generate(out: Path, lane: str, now: dt.datetime) -> dict:
         for index in range(6):
             key = f"codex-older-{index + 1:02d}"
             at = now - dt.timedelta(days=15, minutes=index * 20)
-            cwd = str(root / "maya-project")
+            cwd = str(workspace)
             sid = identity("codex", key)
             path = home / ".codex/sessions" / at.strftime("%Y/%m/%d") / f"rollout-{at.strftime('%Y-%m-%dT%H-%M-%S')}-{sid}.jsonl"
             write_jsonl(path, codex_rows(sid, cwd, at, key), at + dt.timedelta(seconds=4))
@@ -134,7 +136,7 @@ def generate(out: Path, lane: str, now: dt.datetime) -> dict:
         for index in range(12):
             key = f"claude-recent-{index + 1:02d}"
             at = now - dt.timedelta(minutes=5 + index * 13)
-            cwd = str(root / "maya-project")
+            cwd = str(workspace)
             sid = identity("claude", key)
             path = claude_dir / f"{sid}.jsonl"
             write_jsonl(path, claude_rows(sid, cwd, at, key), at + dt.timedelta(seconds=2))
@@ -151,22 +153,22 @@ def generate(out: Path, lane: str, now: dt.datetime) -> dict:
         for index in range(3):
             key = f"opencode-recent-{index + 1:02d}"
             at = now - dt.timedelta(minutes=7 + index * 9)
-            open_entries.append((key, str(root / "maya-project"), at, key))
+            open_entries.append((key, str(workspace), at, key))
             records.append({"id": key, "agent": "opencode", "startedAt": stamp(at), "leaveOut": False, "eligible": True})
         for index in range(20):
             key = f"opencode-older-{index + 1:02d}"
             at = now - dt.timedelta(days=16, minutes=index * 10)
-            open_entries.append((key, str(root / "maya-project"), at, key))
+            open_entries.append((key, str(workspace), at, key))
             records.append({"id": key, "agent": "opencode", "startedAt": stamp(at), "leaveOut": False, "eligible": False})
         make_opencode(home, open_entries)
     spec = json.loads(SPEC.read_text(encoding="utf-8"))
     lane_spec = spec["lanes"].get(lane, {})
     tracked = sorted((p for p in home.rglob("*") if p.is_file()), key=lambda p: p.relative_to(home).as_posix())
     content = [{"path": p.relative_to(home).as_posix(), "bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in tracked]
-    selected = sorted((r for r in records if r.get("eligible") and not r.get("leaveOut")), key=lambda r: r["startedAt"], reverse=True)[: spec["catchupLimit"]]
+    selected = select_catchup(records, spec["maxSessionsPerAgent"])
     summary = {
         "schema": "t52-home/v1", "dataset": {"a": "D-A", "b": "D-B", "c": "D-C"}[lane], "lane": lane,
-        "generatedAt": stamp(now), "home": "home", "expectedCatchup": len(selected), "expectedAgentCounts": {agent: sum(r["agent"] == agent for r in selected) for agent in ("codex", "claude", "cursor", "opencode")},
+        "generatedAt": stamp(now), "home": "home", "maxSessionsPerAgent": spec["maxSessionsPerAgent"], "expectedCatchup": len(selected), "expectedAgentCounts": {agent: sum(r["agent"] == agent for r in selected) for agent in ("codex", "claude", "cursor", "opencode")},
         "expectedLeaveOut": sum(r.get("leaveOut", False) for r in records), "sessions": records, "files": content,
         "selection": spec["selection"], "liveSessions": [r["id"] for r in records if r.get("live")],
         "devices": lane_spec.get("devices", {}),
@@ -178,6 +180,17 @@ def generate(out: Path, lane: str, now: dt.datetime) -> dict:
     return summary
 
 
+def select_catchup(records: list[dict], max_per_agent: int) -> list[dict]:
+    by_agent: dict[str, list[dict]] = {}
+    for record in records:
+        if record.get("eligible") and not record.get("leaveOut"):
+            by_agent.setdefault(record["agent"], []).append(record)
+    selected = []
+    for candidates in by_agent.values():
+        selected.extend(sorted(candidates, key=lambda r: r["startedAt"], reverse=True)[:max_per_agent])
+    return sorted(selected, key=lambda r: r["startedAt"], reverse=True)
+
+
 def verify(out: Path) -> dict:
     data = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     home = out / data["home"]
@@ -187,7 +200,7 @@ def verify(out: Path) -> dict:
         if len(raw) != entry["bytes"] or hashlib.sha256(raw).hexdigest() != entry["sha256"]:
             raise ValueError(f"manifest mismatch: {entry['path']}")
     candidates = [r for r in data["sessions"] if r.get("eligible") and not r.get("leaveOut")]
-    selected = sorted(candidates, key=lambda r: r["startedAt"], reverse=True)[:45]
+    selected = select_catchup(candidates, data["maxSessionsPerAgent"])
     if len(selected) != data["expectedCatchup"]:
         raise ValueError("manifest catch-up count mismatch")
     if data["lane"] in {"a", "b"}:

@@ -209,6 +209,7 @@ type checkInRequest struct {
 	ClientVersion        string       `json:"clientVersion"`
 	Capabilities         []string     `json:"capabilities"`
 	OS                   string       `json:"os"`
+	InstallChannel       string       `json:"installChannel"`
 	AppliedConfigVersion int64        `json:"appliedConfigVersion"`
 	AgentsFound          []string     `json:"agentsFound"`
 	Queue                checkInQueue `json:"queue"`
@@ -239,8 +240,9 @@ func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, er
 	if !clientVersion.MatchString(version) {
 		version = "0.0.0"
 	}
-	input := checkInRequest{ClientVersion: version, Capabilities: []string{}, OS: runtime.GOOS,
-		AgentsFound: []string{}, Queue: checkInQueue{}}
+	input := checkInRequest{ClientVersion: version, Capabilities: localCapabilities(), OS: runtime.GOOS,
+		InstallChannel: normalizedInstallChannel(c.InstallChannel),
+		AgentsFound:    []string{}, Queue: checkInQueue{}}
 	input.Queue.FirstSync.HistoryState = "not_started"
 	body, err := json.Marshal(input)
 	if err != nil {

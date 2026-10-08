@@ -48,8 +48,8 @@ func TestInstallChannelForProductionExecutables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if client.InstallChannel != localInstallChannel() {
-		t.Fatalf("production Hub client install channel=%q, want %q", client.InstallChannel, localInstallChannel())
+	if client.InstallChannel != detectedInstallChannel() {
+		t.Fatalf("production Hub client install channel=%q, want %q", client.InstallChannel, detectedInstallChannel())
 	}
 }
 

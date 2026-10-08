@@ -16,5 +16,5 @@ Run `python3 -m unittest test_scripts.py` from this directory to check the
 generator and append helper's path, timestamp, lineage, and lane metadata rules.
 
 The manifest distinguishes source rows from the sessions eligible for the
-10-day import window and 45-session catch-up cap. The two `~/personal/`
-Codex rows are always excluded. Cursor is intentionally empty.
+10-day import window and the 30-session-per-agent catch-up cap. The two
+`~/personal/` Codex rows are always excluded. Cursor is intentionally empty.
