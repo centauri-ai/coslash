@@ -21,3 +21,5 @@ func registerBackgroundLogin() error {
 	defer key.Close()
 	return key.SetStringValue("coSlash Local", fmt.Sprintf(`"%s" --background`, executable))
 }
+
+func backgroundLoginLoaded() bool { return false }

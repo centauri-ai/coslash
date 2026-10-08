@@ -70,6 +70,8 @@ Once paired, Local also registers a per-user login start. Closing the browser
 does not stop its sync worker. On macOS, the login agent restarts Local if its
 process exits; on Windows, Local starts at the next sign-in. Hub asks running
 Locals to check in when My space opens and shows whether they are reachable.
+When uninstalling a paired Windows copy, remove its login entry with
+`Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'coSlash Local'`.
 Settings → Sync has an **Automatically update coSlash Local** switch, on by
 default. Script installations stage a checksum-verified release, checkpoint
 active queue work, restart, and roll back if the new Local fails to become ready.
