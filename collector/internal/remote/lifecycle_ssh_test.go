@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"io"
 	"net"
@@ -143,27 +144,80 @@ func TestResolveLifecyclePathAcceptsOnlyExactKnownLayout(t *testing.T) {
 	}
 }
 
-// pipelineGate holds the first SFTP data request until a second one arrives,
-// so a client that waits for each reply before sending the next fails.
+// pipelineGate holds the first data operation until another matching SFTP
+// request has been observed in the client's outgoing stream.
 type pipelineGate struct {
 	once     sync.Once
 	second   chan struct{}
+	requests atomic.Int32
 	calls    atomic.Int32
+	waiting  atomic.Bool
 	pipeline atomic.Bool
 }
 
 func newPipelineGate() *pipelineGate { return &pipelineGate{second: make(chan struct{})} }
 
-func (gate *pipelineGate) enter() {
-	if gate.calls.Add(1) != 1 {
+func (gate *pipelineGate) requestSent() {
+	if gate.requests.Add(1) > 1 {
+		if gate.waiting.Load() {
+			gate.pipeline.Store(true)
+		}
 		gate.once.Do(func() { close(gate.second) })
-		return
 	}
+}
+
+func (gate *pipelineGate) enter() bool {
+	if gate.calls.Add(1) != 1 {
+		return false
+	}
+	gate.waiting.Store(true)
+	if gate.requests.Load() > 1 {
+		gate.pipeline.Store(true)
+	}
+	// The timeout only prevents a broken client from hanging the fixture.
 	select {
 	case <-gate.second:
-		gate.pipeline.Store(true)
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 	}
+	return true
+}
+
+func (gate *pipelineGate) leave() {
+	gate.waiting.Store(false)
+}
+
+type observedSFTPWriter struct {
+	io.WriteCloser
+	mu            sync.Mutex
+	pending       []byte
+	reads, writes *pipelineGate
+}
+
+const (
+	sftpReadRequestPacket  = 5
+	sftpWriteRequestPacket = 6
+)
+
+func (writer *observedSFTPWriter) Write(data []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	n, err := writer.WriteCloser.Write(data)
+	writer.pending = append(writer.pending, data[:n]...)
+	for len(writer.pending) >= 4 {
+		packetLength := int(binary.BigEndian.Uint32(writer.pending[:4]))
+		packetSize := 4 + packetLength
+		if packetLength == 0 || len(writer.pending) < packetSize {
+			break
+		}
+		switch writer.pending[4] {
+		case sftpReadRequestPacket:
+			writer.reads.requestSent()
+		case sftpWriteRequestPacket:
+			writer.writes.requestSent()
+		}
+		writer.pending = writer.pending[packetSize:]
+	}
+	return n, err
 }
 
 type gatedFile struct {
@@ -173,12 +227,18 @@ type gatedFile struct {
 }
 
 func (file gatedFile) ReadAt(data []byte, offset int64) (int, error) {
-	file.gate.enter()
+	first := file.gate.enter()
+	if first {
+		defer file.gate.leave()
+	}
 	return file.ReaderAt.ReadAt(data, offset)
 }
 
 func (file gatedFile) WriteAt(data []byte, offset int64) (int, error) {
-	file.gate.enter()
+	first := file.gate.enter()
+	if first {
+		defer file.gate.leave()
+	}
 	return file.WriterAt.WriteAt(data, offset)
 }
 
@@ -206,7 +266,8 @@ func TestHelperTransferPipelinesSFTPRequests(t *testing.T) {
 	})
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- server.Serve() }()
-	client, err := newSFTPClient(clientConn, clientConn)
+	writer := &observedSFTPWriter{WriteCloser: clientConn, reads: gated.reads, writes: gated.writes}
+	client, err := newSFTPClient(clientConn, writer)
 	if err != nil {
 		t.Fatal(err)
 	}
