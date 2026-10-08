@@ -157,9 +157,6 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 	if q.state.PlanStartedAt <= 0 || q.state.Config.ImportPlan == nil || q.state.Config.ImportPlan.Version != plan.Version {
 		return errors.New("cannot freeze catch-up without the current import plan")
 	}
-	if q.state.CatchUpFrozenVersion == plan.Version {
-		return nil
-	}
 	if _, ok := windowDuration(plan.Window); !ok {
 		return errors.New("invalid import plan window")
 	}
@@ -175,6 +172,8 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 	}
 	priorEntries := slices.Clone(q.state.Entries)
 	priorFrozen := q.state.CatchUpFrozenVersion
+	firstSelection := priorFrozen != plan.Version
+	changed := firstSelection
 	startedAt := time.Time{}
 	if q.state.PlanStartedAt > 0 {
 		startedAt = time.UnixMilli(q.state.PlanStartedAt)
@@ -185,9 +184,13 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 		cutoff = startedAt.Add(-duration).UnixMilli()
 	}
 	byAgent := make(map[string][]int)
+	selected := make(map[string]int)
 	for i := range q.state.Entries {
 		entry := &q.state.Entries[i]
-		entry.CatchUpPlanVersion = 0
+		if firstSelection || entry.Excluded {
+			changed = changed || entry.CatchUpPlanVersion != 0
+			entry.CatchUpPlanVersion = 0
+		}
 		if entry.Excluded || entry.Activity >= startedAt.UnixMilli() || duration > 0 && entry.Activity < cutoff {
 			continue
 		}
@@ -195,9 +198,13 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 		if agent == "" {
 			continue
 		}
+		if entry.CatchUpPlanVersion == plan.Version {
+			selected[agent]++
+			continue
+		}
 		byAgent[agent] = append(byAgent[agent], i)
 	}
-	for _, indexes := range byAgent {
+	for agent, indexes := range byAgent {
 		sort.Slice(indexes, func(i, j int) bool {
 			a, b := q.state.Entries[indexes[i]], q.state.Entries[indexes[j]]
 			if a.Activity != b.Activity {
@@ -205,8 +212,9 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 			}
 			return a.Key < b.Key
 		})
-		for _, index := range indexes[:min(int(limit), len(indexes))] {
+		for _, index := range indexes[:min(max(0, int(limit)-selected[agent]), len(indexes))] {
 			q.state.Entries[index].CatchUpPlanVersion = plan.Version
+			changed = true
 		}
 	}
 	if !plan.History && plan.MaxSessions > 0 {
@@ -226,8 +234,12 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 		if int64(len(selected)) > plan.MaxSessions {
 			for _, index := range selected[int(plan.MaxSessions):] {
 				q.state.Entries[index].CatchUpPlanVersion = 0
+				changed = true
 			}
 		}
+	}
+	if !changed {
+		return nil
 	}
 	q.state.CatchUpFrozenVersion = plan.Version
 	if err := q.save(); err != nil {

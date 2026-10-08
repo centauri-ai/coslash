@@ -539,6 +539,17 @@ func (q *Queue) Matches(entry Entry) bool {
 }
 
 func (q *Queue) Merge(found []Entry, now time.Time) error {
+	_, err := q.merge(found, now, nil)
+	return err
+}
+
+// MergePlannedDiscovery counts only newly discovered entries that are
+// currently in the plan and still need Hub listing.
+func (q *Queue) MergePlannedDiscovery(found []Entry, now time.Time, plan hubclient.V4ImportPlan) (int, error) {
+	return q.merge(found, now, &plan)
+}
+
+func (q *Queue) merge(found []Entry, now time.Time, plan *hubclient.V4ImportPlan) (int, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	index := make(map[string]int, len(q.state.Entries))
@@ -591,7 +602,32 @@ func (q *Queue) Merge(found []Entry, now time.Time) error {
 			q.state.Entries = append(q.state.Entries, item)
 		}
 	}
-	return q.save()
+	pendingListings := 0
+	if plan != nil && q.state.Config.ImportPlan != nil && q.state.Config.ImportPlan.Version == plan.Version && q.state.PlanStartedAt > 0 {
+		startedAt := time.UnixMilli(q.state.PlanStartedAt)
+		counted := make(map[string]bool, len(found))
+		for _, item := range found {
+			if item.Key == "" || counted[item.Key] {
+				continue
+			}
+			counted[item.Key] = true
+			storedIndex, ok := index[item.Key]
+			if !ok {
+				continue
+			}
+			entry := q.state.Entries[storedIndex]
+			if entry.Listed || entry.RevisionID != "" || entry.Excluded || entry.ListRejected || leftOut(entry.Session, q.state.Config.LeaveOut) {
+				continue
+			}
+			if inScope(entry, *plan, now) && (plan.History || entry.CatchUpPlanVersion == plan.Version || entry.ChangedPlanVersion == plan.Version || entry.Priority || entry.Activity >= startedAt.UnixMilli()) {
+				pendingListings++
+			}
+		}
+	}
+	if err := q.save(); err != nil {
+		return 0, err
+	}
+	return pendingListings, nil
 }
 
 func (q *Queue) Update(entry Entry) error {

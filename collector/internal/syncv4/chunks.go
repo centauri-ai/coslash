@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,10 @@ func retryableChunk(err error) bool {
 	return problem.HTTPStatus == 429 || problem.HTTPStatus >= 500 || problem.Code == "rate_limited" || strings.HasPrefix(problem.Code, "http_5")
 }
 
+func (r *Runner) chunkScalingEnabled() bool {
+	return os.Getenv("COSLASH_SCALE_IMPORT") != "0" && (r.scaleEnabled || r.config.ImportPlan != nil)
+}
+
 func (r *Runner) putChunk(ctx context.Context, reader *sessionbackupproducer.BundleReader, uploadID string, job chunkJob) (error, bool) {
 	if err := ctx.Err(); err != nil {
 		return err, false
@@ -38,7 +43,7 @@ func (r *Runner) putChunk(ctx context.Context, reader *sessionbackupproducer.Bun
 	for attempt := 0; attempt < 3; attempt++ {
 		err = r.Hub.V4PutChunk(ctx, uploadID, job.missing, bytes.NewReader(body))
 		throttled = throttled || retryableChunk(err)
-		if err == nil || !r.scaleEnabled || !retryableChunk(err) {
+		if err == nil || !r.chunkScalingEnabled() || !retryableChunk(err) {
 			return err, throttled
 		}
 		timer := time.NewTimer(time.Duration(1<<attempt) * 200 * time.Millisecond)
@@ -54,12 +59,12 @@ func (r *Runner) putChunk(ctx context.Context, reader *sessionbackupproducer.Bun
 
 func (r *Runner) putChunkGroup(ctx context.Context, reader *sessionbackupproducer.BundleReader, uploadID string, jobs []chunkJob) ([]hubclient.V4Missing, error) {
 	maxWorkers := 1
-	if r.scaleEnabled {
+	if r.chunkScalingEnabled() {
 		maxWorkers = 4
 	}
 	workers := r.chunkWorkers
 	if workers <= 0 {
-		workers = maxWorkers
+		workers = min(2, maxWorkers)
 	}
 	workers = min(workers, maxWorkers, len(jobs))
 	results := make([]error, len(jobs))

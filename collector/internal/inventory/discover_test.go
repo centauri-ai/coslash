@@ -11,6 +11,35 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/vendors"
 )
 
+func TestDiscoverUsesSmallFirstBatchThenRegularBatches(t *testing.T) {
+	plan := &discoveryPlan{
+		families:   make([]family, 10),
+		firstBatch: 2,
+		batch:      4,
+		cursor:     Cursor{StartedAtMs: 1},
+	}
+	for i := range plan.families {
+		plan.families[i] = family{agent: "test", id: string(rune('a' + i)), activityMs: int64(10 - i)}
+	}
+	var lastFamilies []string
+	plan.run(context.Background(), func(batch Batch, err error) bool {
+		if err != nil {
+			t.Fatal(err)
+		}
+		lastFamilies = append(lastFamilies, batch.Cursor.Family)
+		return true
+	})
+	want := []string{"b", "f", "j"}
+	if len(lastFamilies) != len(want) {
+		t.Fatalf("batch ends = %v, want %v", lastFamilies, want)
+	}
+	for i := range want {
+		if lastFamilies[i] != want[i] {
+			t.Fatalf("batch ends = %v, want %v", lastFamilies, want)
+		}
+	}
+}
+
 func TestPlanDiscoveryResumesBelowTheCursorAndRevisitsChangedFamilies(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
