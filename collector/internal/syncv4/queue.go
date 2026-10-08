@@ -138,6 +138,9 @@ func Open(root string) (*Queue, error) {
 		if err := json.Unmarshal(data, &q.state); err != nil || q.state.Version != 1 || q.state.InstallID == "" {
 			return nil, errors.New("invalid v4 queue")
 		}
+		if q.state.Inventory != nil && !storedInventoryHasD10(data) {
+			q.state.Inventory = nil
+		}
 		for i := range q.state.Commands {
 			command := &q.state.Commands[i]
 			if command.Result.Result == "in_progress" {
@@ -161,6 +164,19 @@ func Open(root string) (*Queue, error) {
 		return nil, err
 	}
 	return q, nil
+}
+
+func storedInventoryHasD10(data []byte) bool {
+	var persisted struct {
+		Inventory *struct {
+			Windows map[string]json.RawMessage `json:"windows"`
+		} `json:"inventory"`
+	}
+	if err := json.Unmarshal(data, &persisted); err != nil || persisted.Inventory == nil {
+		return false
+	}
+	_, ok := persisted.Inventory.Windows["d10"]
+	return ok
 }
 
 func (q *Queue) InstallID() string { q.mu.Lock(); defer q.mu.Unlock(); return q.state.InstallID }
@@ -656,12 +672,16 @@ func (q *Queue) Progress() hubclient.V4Queue {
 		if plan != nil && !inScope(entry, *plan, startedAt) || plan == nil && entry.Excluded {
 			continue
 		}
-		if plan != nil && isCatchUpEntry(entry, *plan) || plan == nil && entry.Recent {
+		recent := entry.Recent
+		if plan != nil {
+			recent = planRecent(entry, *plan, startedAt)
+		}
+		if recent {
 			progress.FirstSync.RecentTotal++
 			if !pending(entry) {
 				progress.FirstSync.RecentDone++
 			}
-		} else if plan != nil && plan.History && pending(entry) || plan == nil && pending(entry) && !entry.Recent {
+		} else if pending(entry) && (plan == nil || plan.History) {
 			progress.FirstSync.HistoryState = "syncing"
 		}
 		if pending(entry) {

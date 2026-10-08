@@ -870,9 +870,13 @@ func TestScaleResumeOnlySendsMissingChunks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	plan := hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}
+	if err := q.ApplyPolicyAt(hubclient.V4CheckIn{ConfigVersion: 1, Config: hubclient.V4Config{ImportPlan: &plan}}, now); err != nil {
+		t.Fatal(err)
+	}
 	hub := &resumeScaleHub{planHub: &planHub{}, confirmed: map[[2]int]bool{}, attempts: map[[2]int]int{}, failOnce: [2]int{1, 0}}
 	runner := &Runner{Queue: q, Backup: manager, Hub: hub, Now: func() time.Time { return now }, checkedAt: now, scaleEnabled: true, lastReportedPhase: "awaiting_plan",
-		config: hubclient.V4Config{ImportPlan: &hubclient.V4ImportPlan{Version: 1, Window: "all", History: true}}}
+		config: hubclient.V4Config{ImportPlan: &plan}}
 	manifest, err := runner.manifest(prepared)
 	if err != nil {
 		t.Fatal(err)

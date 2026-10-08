@@ -17,9 +17,10 @@
 //     ~/.cursor/projects (IDE and CLI); agent-transcripts/<id>/<id>.jsonl is a
 //     session and subagents/<id>.jsonl joins its parent's family. SQLite
 //     stores under Cursor's global storage are excluded.
-//   - OpenCode: the standard XDG SQLite database is one file (plus its WAL
-//     when present) whose bytes fall in the window of its modification time.
-//     A database placed elsewhere by the CLI is omitted from this stat-only
+//   - OpenCode: the configured SQLite database is one file (plus its WAL when
+//     present) whose bytes fall in the window of its modification time. The
+//     OPENCODE_DB override is resolved without invoking the CLI; a custom path
+//     discoverable only through the CLI is omitted from this stat-only
 //     inventory. Its sessions are counted by discovery, not by the inventory,
 //     because counting them would read the database.
 package inventory
@@ -76,6 +77,23 @@ type Options struct {
 	OpenCodeDB string
 	Now        time.Time
 	Tracker    *Tracker
+}
+
+// OpenCodeDatabasePath returns the configured OpenCode database path without
+// invoking the OpenCode CLI. Relative OPENCODE_DB values use OpenCode's data
+// directory, matching the source reader's path resolution.
+func OpenCodeDatabasePath(home string) string {
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if dataHome == "" {
+		dataHome = filepath.Join(home, ".local", "share")
+	}
+	if override := os.Getenv("OPENCODE_DB"); override != "" {
+		if filepath.IsAbs(override) {
+			return filepath.Clean(override)
+		}
+		return filepath.Join(dataHome, "opencode", override)
+	}
+	return filepath.Join(dataHome, "opencode", "opencode.db")
 }
 
 // Tracker exposes the live "files so far" count while a scan runs.
@@ -158,12 +176,8 @@ func Scan(ctx context.Context, opts Options) (*Snapshot, error) {
 	dbPath := opts.OpenCodeDB
 	if dbPath == "" {
 		// Inventory cannot invoke the OpenCode CLI to resolve a database path:
-		// that command may read content. The standard XDG path is stat-only.
-		dataHome := os.Getenv("XDG_DATA_HOME")
-		if dataHome == "" {
-			dataHome = filepath.Join(home, ".local", "share")
-		}
-		dbPath = filepath.Join(dataHome, "opencode", "opencode.db")
+		// that command may read content. Environment configuration is stat-only.
+		dbPath = OpenCodeDatabasePath(home)
 	}
 	dbFiles, dbMissing := statDatabase(dbPath)
 	if dbMissing {
