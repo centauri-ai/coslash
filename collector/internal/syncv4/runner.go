@@ -163,6 +163,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 		return err
 	}
 	if r.config.ImportPlan != nil && r.DiscoverBatches != nil {
+		listedOnce, unlistedSince := false, 0
 		if err := r.DiscoverBatches(ctx, func(batch DiscoveryBatch) error {
 			entries := discoveredEntries(batch.Sessions, r.Queue.InstallID(), nil)
 			for i := range entries {
@@ -177,6 +178,14 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 			if err := r.applyExclusions(); err != nil {
 				return err
 			}
+			unlistedSince += len(entries)
+			if unlistedSince == 0 || listedOnce && unlistedSince < 50 {
+				return nil
+			}
+			if err := r.listAll(ctx, *r.config.ImportPlan); err != nil {
+				return err
+			}
+			listedOnce, unlistedSince = true, 0
 			return nil
 		}); err != nil {
 			return err

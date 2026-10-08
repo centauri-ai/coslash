@@ -31,17 +31,20 @@ failure. The client confirms sent chunks in batches of up to 50 chunks and
 8 MiB, and treats only a completed status with an accepted revision ID as
 locally done.
 
-With `scale-import/v1`, a device waits for `config.importPlan` before creating
-uploads or listing sessions. The plan's window and history choice set the scope.
+With a `config.importPlan` delivered under `sync-policy/1` or
+`scale-import/v1`, the device waits for the plan before creating uploads or
+listing sessions. The plan's window and history choice set the scope. Streamed
+discovery parses eight newest families per yield, publishes the first available
+metadata immediately, then publishes further metadata in groups of about 50.
 Warm start selects in-window sessions within its time budget, one completed
-session at a time. The first selection is at most 25 MiB. Local then lists
-remaining metadata in batches of at most 50 before transferring window content
-newest first and history content newest first. A `prioritize` command moves a
+session at a time. The first selection is at most 25 MiB. Local then transfers
+window content newest first and history content newest first. A `prioritize` command moves a
 listed session to the front, including a history session while history is
 paused. Live sources wait for two minutes without a change or for the session
-to end before a changed revision is sent. The chunk path sends at most four
-PUTs per upload concurrently and confirms only chunks the Hub marked missing;
-old Hubs retain serial transfer. Check-in refreshes on phase changes and a
+to end before a changed revision is sent. The chunk path starts with two PUT
+workers per upload and adapts up to four, reducing concurrency after throttling.
+It confirms only chunks the Hub marked missing; old Hubs retain serial transfer.
+Check-in refreshes on phase changes and a
 coalesced progress heartbeat runs about every eight seconds during active
 import, including slow transfers. A heartbeat carries in-progress command
 stages; the normal pass handles policy and queued commands. Outside active

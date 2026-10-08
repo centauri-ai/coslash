@@ -282,7 +282,7 @@ func main() {
 				if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
 					resume = inventory.DecodeCursor(saved)
 				}
-				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume}) {
+				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume, BatchFamilies: 8}) {
 					if err != nil {
 						return err
 					}
