@@ -3,6 +3,7 @@ package syncv4
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/centauri-ai/coslash/collector/internal/hubclient"
@@ -10,7 +11,8 @@ import (
 
 const initialBytesPerSecond = 20_000_000 / 8
 const firstWarmMaxBytes = 25 << 20
-const plannedContentBudget = 35 * time.Second
+const plannedContentBudget = 2 * time.Minute
+const sourcePreparationBudget = 15 * time.Second
 
 type listingTransport interface {
 	V4ListBatch(context.Context, []hubclient.V4ListItem) ([]hubclient.V4ListResult, error)
@@ -24,6 +26,15 @@ func warmFits(entry Entry, remaining time.Duration, rate float64, first bool) bo
 		rate = initialBytesPerSecond
 	}
 	return float64(entry.ContentBytes)/rate+1 < remaining.Seconds()
+}
+
+func contentOrder(entries []Entry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].Priority != entries[j].Priority {
+			return entries[i].Priority
+		}
+		return entries[i].Session.Agent != "cursor" && entries[j].Session.Agent == "cursor"
+	})
 }
 
 func (r *Runner) runPlanned(ctx context.Context) error {
@@ -77,7 +88,9 @@ func (r *Runner) warmStart(ctx context.Context, plan hubclient.V4ImportPlan, sta
 			return nil
 		}
 		var pick *Entry
-		for _, entry := range r.Queue.PlannedEntries(plan, r.now()) {
+		entries := r.Queue.PlannedEntries(plan, r.now())
+		contentOrder(entries)
+		for _, entry := range entries {
 			if !planRecent(entry, plan, started) || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
 				continue
 			}
@@ -300,11 +313,17 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if r.now().Sub(started) >= plannedContentBudget || workCtx.Err() != nil {
 			return firstErr
 		}
-		if entry.UploadID == "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) {
+		if entry.UploadID == "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) {
 			continue
 		}
 		if err := r.transfer(workCtx, &entry); err != nil {
 			if workCtx.Err() != nil && ctx.Err() == nil {
+				entry.FailureCode = "server_error"
+				entry.BackoffAttempt++
+				entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
+				if updateErr := r.failed(&entry, err); updateErr != nil {
+					return updateErr
+				}
 				return firstErr
 			}
 			if stopSync(err) {
@@ -319,11 +338,12 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		}
 	}
 	entries = r.Queue.PlannedEntries(plan, r.now())
+	contentOrder(entries)
 	for _, entry := range entries {
 		if r.now().Sub(started) >= plannedContentBudget || workCtx.Err() != nil {
 			return firstErr
 		}
-		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !readyLive(entry, r.now()) || !entry.Priority && !planRecent(entry, plan, planStartedAt) && plan.HistoryPaused {
+		if entry.UploadID != "" || !pending(entry) || entry.ParkedVersion != "" || entry.ListRejected || !retryDue(entry, r.now()) || !readyLive(entry, r.now()) || !entry.Priority && !planRecent(entry, plan, planStartedAt) && plan.HistoryPaused {
 			continue
 		}
 		phase := "recent"
@@ -333,7 +353,28 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		if err := r.Queue.SetPhase(phase); err != nil {
 			return err
 		}
-		err := r.ensureCreated(workCtx, &entry)
+		err := r.ensureConsent(workCtx)
+		if err == nil {
+			err = r.entryAllowed(entry)
+		}
+		if err == nil && entry.UploadID == "" && entry.RevisionID == "" {
+			prepareCtx, stopPrepare := context.WithTimeout(workCtx, sourcePreparationBudget)
+			err = r.prepareEntry(prepareCtx, &entry)
+			sourceTimedOut := prepareCtx.Err() == context.DeadlineExceeded
+			stopPrepare()
+			if sourceTimedOut && workCtx.Err() == nil && ctx.Err() == nil {
+				entry.FailureCode = "unreadable_source"
+				entry.BackoffAttempt++
+				entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
+				if updateErr := r.failed(&entry, err); updateErr != nil {
+					return updateErr
+				}
+				continue
+			}
+			if err == nil {
+				err = r.createUpload(workCtx, &entry)
+			}
+		}
 		if err == nil && entry.UploadID != "" {
 			err = r.transfer(workCtx, &entry)
 			if err == nil && entry.RevisionID != "" {
@@ -347,9 +388,16 @@ func (r *Runner) syncPlannedContent(ctx context.Context, plan hubclient.V4Import
 		}
 		if err != nil {
 			if workCtx.Err() != nil && ctx.Err() == nil {
+				entry.FailureCode = "server_error"
+				entry.BackoffAttempt++
+				entry.RetryAt = r.now().Add(retryBackoff(entry.BackoffAttempt))
+				if updateErr := r.failed(&entry, err); updateErr != nil {
+					return updateErr
+				}
 				return firstErr
 			}
-			if stopSync(err) || Busy(err) {
+			remoteTimeout := errors.Is(err, context.DeadlineExceeded) && workCtx.Err() == nil && ctx.Err() == nil
+			if (stopSync(err) && !remoteTimeout) || Busy(err) {
 				return err
 			}
 			if firstErr == nil {

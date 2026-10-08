@@ -35,6 +35,9 @@ type Cursor struct {
 type DiscoverOptions struct {
 	// Snapshot is the stat-only inventory to plan from; nil scans now.
 	Snapshot *Snapshot
+	// MinActivityMs filters timestamp-indexed sources; transcript families still
+	// parse to determine their activity.
+	MinActivityMs int64
 	// Resume continues an incomplete earlier pass.
 	Resume *Cursor
 	// BatchFamilies bounds how many families are parsed before a yield.
@@ -224,6 +227,9 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 		}
 	}
 	for _, ref := range refs {
+		if opts.MinActivityMs > 0 && ref.ActivityMs < opts.MinActivityMs {
+			continue
+		}
 		plan.families = append(plan.families, family{agent: vendors.AgentOpenCode, id: ref.ID, activityMs: ref.ActivityMs, bytes: databaseBytes / int64(len(refs))})
 	}
 	if len(failures) > 0 {

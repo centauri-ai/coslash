@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func TestShareSynthesisReadinessGatesBackendAndRevision(t *testing.T) {
 		want     string
 	}{
 		{"source changed", 122, nil, "revision_changed"},
-		{"ineligible", 123, func(s *session.Session, _ *settings.State) { s.Turns = 1 }, "ineligible"},
+		{"unsupported agent", 123, func(s *session.Session, _ *settings.State) { s.Agent = "claude" }, "ineligible"},
 		{"consent missing", 123, func(_ *session.Session, state *settings.State) { state.Persisted = false }, "consent_required"},
 		{"disabled", 123, func(_ *session.Session, state *settings.State) { state.Config.Synthesis.Enabled = false }, "disabled"},
 		{"backend unavailable", 123, nil, "unavailable"},
@@ -135,6 +136,31 @@ func TestShareSynthesisReadinessGeneratesOnceAndWaitsForPersistedRecord(t *testi
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("synthetic synthesis did not persist")
+}
+
+func TestShareSynthesisReadinessGeneratesShortCodexSession(t *testing.T) {
+	t.Setenv("COSLASH_HOME", t.TempDir())
+	want := session.SessionSynthesis{Goals: []string{"Finish the task"}, Outcome: "Done"}
+	finished := make(chan struct{})
+	mgr := synthesis.NewManager(shareFixtureRunner{run: func(context.Context, string) (session.SessionSynthesis, error) {
+		defer close(finished)
+		return want, nil
+	}})
+	found := &session.Session{Agent: "codex", ID: "short", LastActivityTime: 123,
+		SessionDetails: session.SessionDetails{Turns: 1}}
+	state := settings.State{Config: settings.Defaults(), Valid: true, Persisted: true}
+	state.Config.Synthesis.Enabled = true
+	if got := shareSynthesisReadiness(found, 123, mgr, state); got.State != "pending" {
+		t.Fatalf("initial readiness = %+v", got)
+	}
+	<-finished
+	for mgr.Running("codex", "short") {
+		runtime.Gosched()
+	}
+	got := shareSynthesisReadiness(found, 123, mgr, state)
+	if got.State != "ready" || got.Synthesis == nil || !reflect.DeepEqual(*got.Synthesis, want) {
+		t.Fatalf("persisted result = %+v", got)
+	}
 }
 
 func TestShareSynthesisReadinessReportsFailureWithoutRetrying(t *testing.T) {

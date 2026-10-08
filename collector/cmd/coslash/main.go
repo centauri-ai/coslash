@@ -208,6 +208,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("remote manager: %v", err)
 	}
+	backupManager := sessionbackupproducer.New(sessionbackupproducer.Options{
+		CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
+	})
 	if settingsState.Valid {
 		if err := remoteManager.ApplySettings(settingsState.Config.Remote); err != nil {
 			log.Printf("remote settings: %v", err)
@@ -252,7 +255,9 @@ func main() {
 		log.Printf("Hub integration disabled: %v", err)
 	}
 	var queue *syncv4.Queue
-	if hub != nil && os.Getenv("COSLASH_V4_SYNC_ENABLED") == "1" {
+	// The Hub import plan is the upload consent. Keep the worker available
+	// through first pairing so the Hub can start sync without a Local restart.
+	if os.Getenv("COSLASH_V4_SYNC_ENABLED") != "0" {
 		queue, err = syncv4.Open("")
 		if err != nil {
 			log.Fatalf("coslash: initialize v4 sync queue: %v", err)
@@ -280,8 +285,9 @@ func main() {
 			}
 		},
 	})
+	shutdownRequests := make(chan struct{}, 1)
 	server := newServer(guard, mgr, reviewManager, settingsStore, remoteManager, hub,
-		serverServices{queue: queue, directedStore: directedStore, onboardings: onboardings})
+		serverServices{queue: queue, backupManager: backupManager, directedStore: directedStore, onboardings: onboardings, shutdown: shutdownRequests})
 	onboardings.ensureSync(hub)
 	if startupIntent != nil {
 		switch startupIntent.Action {
@@ -314,7 +320,8 @@ func main() {
 		syncHub := currentHubTransport{current: onboardings.currentHubClient}
 		runner := &syncv4.Runner{
 			Version: version,
-			Queue:   queue, Backup: hub.Backup, Hub: syncHub,
+			Queue:   queue, Backup: backupManager, Hub: syncHub,
+			RequireImportPlan: true,
 			Discover:          func(ctx context.Context) ([]*session.Session, error) { return collector.List(ctx, 0) },
 			InventoryProgress: func() (int64, bool) { return inventoryTracker.FilesSoFar(), inventoryTracker.Running() },
 			Conditions:        syncv4.LocalConditions,
@@ -327,7 +334,8 @@ func main() {
 				if saved, ok := fingerprints.LoadDiscoveryCursor(); ok {
 					resume = inventory.DecodeCursor(saved)
 				}
-				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume}) {
+				_, config, _ := queue.Policy()
+				for batch, err := range inventory.Discover(ctx, inventory.DiscoverOptions{Resume: resume, MinActivityMs: syncv4.DiscoveryMinActivity(config.ImportPlan, time.Now())}) {
 					if err != nil {
 						return err
 					}
@@ -354,11 +362,16 @@ func main() {
 			runV4SyncLoopWithControl(syncContext, runner, queue, syncHub.V4Wait, loopControl, wake)
 		}()
 	}
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-		<-signals
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		select {
+		case <-signals:
+		case <-shutdownRequests:
+		}
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		_ = server.Shutdown(shutdownContext)
 	}()
@@ -368,6 +381,9 @@ func main() {
 	}
 	defer runtimeReady.Close()
 	serveErr := server.Serve(listener)
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		<-shutdownDone
+	}
 	stopDiscovery()
 	directedStore.Shutdown()
 	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -432,8 +448,10 @@ func newProductionRemoteManager() (*remote.Manager, error) {
 
 type serverServices struct {
 	queue         *syncv4.Queue
+	backupManager *sessionbackupproducer.Manager
 	directedStore *directedhandoff.Store
 	onboardings   *onboardingManager
+	shutdown      chan struct{}
 }
 
 func newServer(
@@ -495,6 +513,15 @@ func routesWithOnboarding(
 	}
 	mux := http.NewServeMux()
 	api := http.NewServeMux()
+	if service.shutdown != nil {
+		api.HandleFunc("POST /api/shutdown", func(w http.ResponseWriter, _ *http.Request) {
+			select {
+			case service.shutdown <- struct{}{}:
+			default:
+			}
+			w.WriteHeader(http.StatusAccepted)
+		})
+	}
 	api.HandleFunc("GET /api/hub/v4-update", func(w http.ResponseWriter, _ *http.Request) {
 		if service.queue == nil {
 			writeJSON(w, syncv4.UpdatePrompt{})
@@ -620,8 +647,8 @@ func routesWithOnboarding(
 	api.HandleFunc("GET /api/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, diagnostics.CollectWithRemote(r.Context(), version, false, remoteHealthFact(remoteManager)))
 	})
-	var backupManager *sessionbackupproducer.Manager
-	if hub != nil {
+	backupManager := service.backupManager
+	if backupManager == nil {
 		backupManager = sessionbackupproducer.New(sessionbackupproducer.Options{
 			CollectorVersion: version, Remote: remoteManager, Synthesis: mgr,
 		})

@@ -660,21 +660,29 @@ func (q *Queue) Progress() hubclient.V4Queue {
 	defer q.mu.Unlock()
 	var progress hubclient.V4Queue
 	progress.FirstSync.HistoryState = "complete"
+	entries := q.state.Entries
 	plan := q.state.Config.ImportPlan
+	planned := plan != nil && (q.state.CatchUpFrozenVersion == plan.Version || hubclient.ScaleImportEnabled() && slices.Contains(q.state.HubCapabilities, hubclient.CapabilityScaleImport))
+	if planned {
+		entries = q.plannedEntriesLocked(*plan)
+		if !plan.History {
+			progress.FirstSync.HistoryState = "syncing"
+		}
+	}
 	startedAt := time.Time{}
 	if q.state.PlanStartedAt > 0 {
 		startedAt = time.UnixMilli(q.state.PlanStartedAt)
 	}
-	if plan != nil && !plan.History {
-		progress.FirstSync.HistoryState = "syncing"
-	}
-	for _, entry := range q.state.Entries {
-		if plan != nil && !inScope(entry, *plan, startedAt) || plan == nil && entry.Excluded {
+	for _, entry := range entries {
+		if entry.Excluded {
 			continue
 		}
 		recent := entry.Recent
-		if plan != nil {
-			recent = planRecent(entry, *plan, startedAt)
+		if planned {
+			recent = inWindow(entry, *plan, startedAt)
+			if q.state.CatchUpFrozenVersion == plan.Version {
+				recent = planRecent(entry, *plan, startedAt)
+			}
 		}
 		if recent {
 			progress.FirstSync.RecentTotal++
