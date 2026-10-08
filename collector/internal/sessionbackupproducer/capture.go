@@ -239,6 +239,11 @@ func (manager *Manager) capture(ctx context.Context, staging string, selection S
 	if len(memberIDs) > sessionbackupv1.MaxMembers {
 		return nil, captureFailure(sessionbackupv1.ProblemInvalid, sessionbackupv1.KindRawTranscript, false)
 	}
+	for id := range hiddenParents {
+		if memberIDs[id] {
+			return nil, captureFailure(sessionbackupv1.ProblemUnattributable, sessionbackupv1.KindRawTranscript, false)
+		}
+	}
 	// A hidden guardian rollout has no parsed record of its own, so its exact
 	// bytes belong to the nearest represented ancestor whose work it reviewed.
 	owners := make(map[string]string, len(familyFiles))

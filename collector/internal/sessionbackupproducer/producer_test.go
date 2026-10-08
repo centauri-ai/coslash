@@ -27,6 +27,7 @@ import (
 const (
 	testRootID     = "11111111-2222-3333-4444-555555555555"
 	testChildID    = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+	testSiblingID  = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
 	testGuardianID = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
 )
 
@@ -439,6 +440,22 @@ func TestPrepareAttributesGuardianSidecarToReviewedChild(t *testing.T) {
 		}
 	}
 	t.Fatal("guardian sidecar missing")
+}
+
+func TestPrepareRejectsGuardianIDCollidingWithMember(t *testing.T) {
+	home, workspace := writeFamilyFixture(t, 0)
+	writeRollout(t, familyFile(home, true, testSiblingID), completeRollout(testSiblingID, testRootID, workspace, 0))
+	writeRollout(t, familyFile(home, false, testChildID), guardianRollout(testChildID, testSiblingID, workspace))
+	manager := New(Options{Root: t.TempDir(), OpenSource: func(context.Context, Selection) (SourceHandle, error) {
+		return SourceHandle{Source: vendors.LocalReadSource, Home: home}, nil
+	}})
+	prepared, err := manager.Prepare(t.Context(), localSelection())
+	var preparation *PreparationError
+	if prepared != nil || !errors.As(err, &preparation) || len(preparation.Coverage.Problems) != 1 ||
+		preparation.Coverage.Problems[0].Code != sessionbackupv1.ProblemUnattributable ||
+		preparation.Coverage.Problems[0].Kind != sessionbackupv1.KindRawTranscript {
+		t.Fatalf("prepared=%#v error=%#v, want unattributable raw transcript", prepared, err)
+	}
 }
 
 func TestPrepareRejectsGuardianIDWithConflictingOwners(t *testing.T) {
