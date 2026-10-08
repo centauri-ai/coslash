@@ -116,9 +116,8 @@ func (source *Source) Limits() Limits {
 	return source.limits
 }
 
-// vendorBudget is an independent byte allowance so one vendor's large files
-// cannot starve another vendor collecting concurrently through the same
-// Source.
+// vendorBudget bounds reads for a source view. Its counter may be private to
+// one vendor or shared by both vendors during an SFTP refresh.
 type vendorBudget struct {
 	used  *atomic.Int64
 	limit int64
@@ -131,6 +130,12 @@ func (source *Source) ForVendor(maxBytes int64) *VendorSource {
 		maxBytes = source.limits.MaxTotalBytes
 	}
 	return &VendorSource{source: source, budget: &vendorBudget{used: &atomic.Int64{}, limit: maxBytes}}
+}
+
+// sharedBudgetView keeps FreshStat available while charging both vendors to
+// the same source-wide byte limit during an SFTP refresh.
+func (source *Source) sharedBudgetView() *VendorSource {
+	return &VendorSource{source: source, budget: &vendorBudget{used: &source.bytes, limit: source.limits.MaxTotalBytes}}
 }
 
 // VendorSource implements vendors.ReadSource with a private byte budget.

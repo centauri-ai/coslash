@@ -715,6 +715,38 @@ func TestCollectIncrementalHandlesMissingVendorRoots(t *testing.T) {
 	}
 }
 
+func TestCollectIncrementalUsesSharedReadBudget(t *testing.T) {
+	fs := newFakeFS()
+	writeCodexFixture(fs, "11111111-2222-3333-4444-555555555555", "", time.Unix(1000, 0))
+	now := time.Unix(2000, 0)
+	measure := newFakeSource(fs, Limits{})
+	snapshot, sessions, failures, err := collectIncremental(context.Background(), measure, 0, now, CachedSnapshotV2{})
+	if err != nil || !snapshot.RequestComplete || len(sessions) != 1 || len(failures) != 0 {
+		t.Fatalf("measure collection: complete=%v sessions=%d failures=%v err=%v", snapshot.RequestComplete, len(sessions), failures, err)
+	}
+	used := measure.bytes.Load()
+	if used < 2 {
+		t.Fatalf("measured read bytes = %d", used)
+	}
+
+	// Codex alone needs more than half the available budget. Its reads still
+	// fit the overall source limit, so an empty Claude source must not block it.
+	source := newFakeSource(fs, Limits{MaxTotalBytes: used + 1})
+	snapshot, sessions, failures, err = collectIncremental(context.Background(), source, 0, now, CachedSnapshotV2{})
+	if err != nil || !snapshot.RequestComplete || len(sessions) != 1 || len(failures) != 0 {
+		t.Fatalf("shared budget collection: complete=%v sessions=%d failures=%v err=%v", snapshot.RequestComplete, len(sessions), failures, err)
+	}
+	if got := source.bytes.Load(); got > used+1 {
+		t.Fatalf("read %d bytes beyond the source limit %d", got, used+1)
+	}
+
+	source = newFakeSource(fs, Limits{MaxTotalBytes: used - 1})
+	snapshot, _, failures, err = collectIncremental(context.Background(), source, 0, now, CachedSnapshotV2{})
+	if err != nil || snapshot.RequestComplete || len(failures) == 0 {
+		t.Fatalf("over-budget collection: complete=%v failures=%v err=%v", snapshot.RequestComplete, failures, err)
+	}
+}
+
 func TestCollectIncrementalSkipsUnchangedFamiliesAndHeaders(t *testing.T) {
 	fs := newFakeFS()
 	claudeID := "aaaaaaaa-0000-0000-0000-000000000001"

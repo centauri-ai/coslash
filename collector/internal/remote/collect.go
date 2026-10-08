@@ -20,11 +20,11 @@ import (
 // Incremental SFTP collection drives the same pure remoteprotocol.Accumulator
 // state machine a Linux helper's NDJSON response would drive: each vendor is
 // diffed against the cached baseline into changed/unchanged/skipped/tombstone
-// records in memory, then applied to the accumulator sequentially so cache
-// and helper collection share one safety model (family commits are eager,
-// deletion requires a complete inventory, and an incomplete vendor withholds
-// vendor_complete so request_complete — and any coverage-window advance —
-// never happens for it).
+// records in memory under one shared read budget, then applied to the
+// accumulator sequentially so cache and helper collection share one safety
+// model (family commits are eager, deletion requires a complete inventory,
+// and an incomplete vendor withholds vendor_complete so request_complete —
+// and any coverage-window advance — never happens for it).
 const (
 	claudeParserVersion        = vendors.ParserVersion
 	codexParserVersion         = vendors.ParserVersion
@@ -485,7 +485,6 @@ func collectIncremental(
 	}
 	home := source.Home()
 	parseSince := max(0, since-(24*time.Hour).Milliseconds())
-	perVendorBudget := source.Limits().MaxTotalBytes / 2
 	requestID := fmt.Sprintf("sftp-%d", now.UnixNano())
 	request, err := buildLocalRequest(requestID, baseline.SourceID, since, now.UnixMilli(), baseline.BaselineID, knownFamiliesFor(baseline), baseline.PageAfter)
 	if err != nil {
@@ -513,11 +512,12 @@ func collectIncremental(
 	}
 	claudeCh := make(chan claudeResult, 1)
 	codexCh := make(chan codexResult, 1)
+	sharedSource := source.sharedBudgetView()
 	go func() {
-		claudeCh <- claudeResult{collectClaudeVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, now, claudeBaseline)}
+		claudeCh <- claudeResult{collectClaudeVendor(sharedSource, baseline.SourceID, home, parseSince, now, claudeBaseline)}
 	}()
 	go func() {
-		outcome, headers := collectCodexVendor(source.ForVendor(perVendorBudget), baseline.SourceID, home, parseSince, codexBaseline, codexHeaders, source.ssh.codexLive(ctx))
+		outcome, headers := collectCodexVendor(sharedSource, baseline.SourceID, home, parseSince, codexBaseline, codexHeaders, source.ssh.codexLive(ctx))
 		codexCh <- codexResult{outcome, headers}
 	}()
 	claudeOut := <-claudeCh
