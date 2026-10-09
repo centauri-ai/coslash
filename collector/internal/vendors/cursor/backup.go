@@ -85,7 +85,7 @@ func PlanBackupContext(ctx context.Context, home, rootID string) (*BackupPlan, e
 	for _, path := range files {
 		ids = append(ids, IDFromPath(path))
 	}
-	global := cursorGlobalStorage(home)
+	global := GlobalStorage(home)
 	statePath := filepath.Join(global, "state.vscdb")
 	searchPath := filepath.Join(global, "conversation-search.db")
 	trackingPath := filepath.Join(home, ".cursor", "ai-tracking", "ai-code-tracking.db")

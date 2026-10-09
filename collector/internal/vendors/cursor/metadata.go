@@ -64,7 +64,7 @@ func loadSelectionMetadataWithLive(home string, live map[string]string) (*vendor
 
 func loadSelectionMetadataWithLiveContext(ctx context.Context, home string, live map[string]string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
+	path := filepath.Join(GlobalStorage(home), "state.vscdb")
 	db, err := openCursorDBContext(ctx, path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -121,7 +121,7 @@ func LoadRelationshipMetadataForSessions(ids []string) (*vendors.SessionMetadata
 
 func loadRelationshipMetadataForSessions(home string, ids []string) (*vendors.SessionMetadata, error) {
 	metadata := vendors.EmptySessionMetadata()
-	path := filepath.Join(cursorGlobalStorage(home), "state.vscdb")
+	path := filepath.Join(GlobalStorage(home), "state.vscdb")
 	db, err := openCursorDB(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -194,7 +194,7 @@ func loadMetadataForSessionsWithLiveContext(ctx context.Context, home string, id
 	}
 	metadata := vendors.EmptySessionMetadata()
 	lanes := map[string]map[string]bool{}
-	globalStorage := cursorGlobalStorage(home)
+	globalStorage := GlobalStorage(home)
 	statePath := filepath.Join(globalStorage, "state.vscdb")
 	stateDB, stateErr := openCursorDBContext(ctx, statePath)
 	if err := ctx.Err(); err != nil {

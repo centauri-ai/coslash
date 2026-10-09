@@ -68,7 +68,7 @@ var vendorSources = func() []vendorSource {
 			health:     grok.Health,
 		},
 	}
-	if vendors.PiSupported() {
+	if vendors.PiCollectionSupported() {
 		sources = append([]vendorSource{{name: vendors.AgentPi, collect: pi.CollectContext, loadFacts: pi.GetSessionFacts, loadFamily: pi.GetSessionFamily, health: pi.Health}}, sources...)
 	}
 	return sources
