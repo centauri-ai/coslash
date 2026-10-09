@@ -85,6 +85,16 @@ template: |
 
   Substitute the release version and architecture. The binaries are unsigned and unnotarized, so macOS may warn about an archive downloaded through a browser; the Homebrew install above is not affected.
 
+  ### Linux (amd64, arm64)
+
+  Connect a Linux machine from Hub with **Devices → Add device**; Hub shows a one-line command with a single-use connect code. To install without connecting:
+
+  ```sh
+  curl -fsSL https://coslash.io/install.sh | bash
+  ```
+
+  The installer picks the `linux_amd64` or `linux_arm64` archive from `uname -m` and verifies it against `checksums.txt`. After connecting, coSlash Local runs as the systemd user service `coslash.service`.
+
   ### Windows 11 (amd64)
 
   Download [coslash-windows-amd64.exe](https://github.com/centauri-ai/coslash/releases/download/v$RESOLVED_VERSION/coslash-windows-amd64.exe) and double-click it. coSlash runs as a portable application and opens in your browser; no administrator privileges or WSL are required.
