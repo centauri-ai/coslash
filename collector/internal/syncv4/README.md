@@ -33,9 +33,16 @@ locally done.
 
 With `config.importPlan` delivered under `sync-policy/1` or `scale-import/v1`,
 the device waits for the plan before creating uploads or listing sessions. The
-plan's window and history choice set the scope. For a bounded plan, Local
-selects the newest eligible families, applies the per-agent limit, then applies
-the overall `maxSessions` limit; older families remain local. The stat-only
+plan's window and history choice set the scope. The default plan is recent
+`3d` activity capped at 30 sessions; it does not start an extended backfill.
+Hub Settings can explicitly start a per-device 30-day, 60-day, or all-history
+import. Local receives finite choices as one-time `backfill: true`,
+`history: false` plans; the all-history choice retains `history: true`. Finite
+cutoffs are anchored to the plan start, and zero session caps mean unlimited
+for an explicit backfill. Legacy `history: true` plans retain their
+continuing-history behavior. For a bounded plan, Local selects the
+newest eligible families, applies the per-agent limit, then applies the overall
+`maxSessions` limit; older families remain local. The stat-only
 inventory still covers the device, while discovery parses only families within
 the requested window. Streamed discovery parses eight newest families per
 yield, publishes the first available metadata immediately, then publishes
@@ -48,7 +55,14 @@ preparation has a bounded attempt and retries with backoff after a timeout. A
 `prioritize` command moves a
 listed session to the front, including a history session while history is
 paused. Live sources wait for two minutes without a change or for the session
-to end before a changed revision is sent. The chunk path starts with two PUT
+to end before a changed revision is sent. After a one-time backfill completes,
+Hub restores the default recent plan. Local does not start another catch-up; it
+syncs activity observed since the current Local process started, so sessions
+created while Local was offline are not uploaded by the default live plan. The
+Local check-in includes the `d60` inventory bucket only after the Hub advertises
+`scale-import/v1`. Deploy the Hub schema that accepts `d60` and `backfill`
+before releasing this Local version, and keep the Hub's import-plan feature
+gate closed until compatible clients are available. The chunk path starts with two PUT
 workers per upload and adapts up to four, reducing concurrency after throttling.
 It confirms only chunks the Hub marked missing; old Hubs retain serial transfer.
 Check-in refreshes on phase changes and a
