@@ -263,11 +263,13 @@ func (c *Client) CheckIn(ctx context.Context, version string) (time.Duration, er
 		problem := readProblem(response)
 		if problem.Code == "device_revoked" {
 			revoked := V4Problem{Code: problem.Code, HTTPStatus: response.StatusCode}
+			cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cancelCleanup()
 			var deleteErr error
 			if deleter, ok := c.Credentials.(ConditionalCredentialDeleter); ok {
-				_, deleteErr = deleter.DeleteIfMatches(context.WithoutCancel(ctx), credential)
+				_, deleteErr = deleter.DeleteIfMatches(cleanupCtx, credential)
 			} else {
-				deleteErr = c.Credentials.Delete(context.WithoutCancel(ctx))
+				deleteErr = c.Credentials.Delete(cleanupCtx)
 			}
 			if deleteErr != nil {
 				return 0, errors.Join(revoked, fmt.Errorf("delete revoked Hub credential: %w", deleteErr))
