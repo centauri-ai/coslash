@@ -376,6 +376,9 @@ func (s *Snapshot) Inventory() hubclient.DeviceInventory {
 	for _, family := range s.Families() {
 		age := time.Duration(now-family.ActivityMs) * time.Millisecond
 		buckets := []*hubclient.InventoryWindow{&inventory.Windows.All}
+		if age <= 60*24*time.Hour {
+			buckets = append(buckets, &inventory.Windows.D60)
+		}
 		if age <= 30*24*time.Hour {
 			buckets = append(buckets, &inventory.Windows.D30)
 		}

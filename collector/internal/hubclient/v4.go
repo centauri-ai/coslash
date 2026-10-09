@@ -131,6 +131,7 @@ type V4ImportPlan struct {
 	Version             int64  `json:"version"`
 	Window              string `json:"window"`
 	History             bool   `json:"history"`
+	Backfill            bool   `json:"backfill"`
 	HistoryPaused       bool   `json:"historyPaused"`
 	WarmStartSeconds    int64  `json:"warmStartSeconds"`
 	MaxSessionsPerAgent int64  `json:"maxSessionsPerAgent,omitempty"`

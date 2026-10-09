@@ -71,6 +71,10 @@
           "sessions": 410,
           "bytes": 1650000000
         },
+        "d60": {
+          "sessions": 1100,
+          "bytes": 2750000000
+        },
         "all": {
           "sessions": 3712,
           "bytes": 4617089843
