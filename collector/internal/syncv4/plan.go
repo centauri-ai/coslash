@@ -102,7 +102,7 @@ func inScope(entry Entry, plan hubclient.V4ImportPlan, now time.Time) bool {
 }
 
 func (q *Queue) inPlanScopeLocked(entry Entry, plan hubclient.V4ImportPlan, startedAt time.Time) bool {
-	if q.state.CatchUpFrozenVersion == plan.Version && q.state.Phase == "complete" && !plan.History && !plan.Backfill {
+	if q.state.LiveOnlyPlanVersion == plan.Version && !plan.History && !plan.Backfill {
 		return inScope(entry, plan, startedAt) &&
 			(isCatchUpEntry(entry, plan) || entry.ChangedPlanVersion == plan.Version || entry.Priority)
 	}
@@ -183,7 +183,8 @@ func (q *Queue) FreezeCatchUp(plan hubclient.V4ImportPlan) error {
 	if err := validateImportPlan(plan); err != nil {
 		return err
 	}
-	if q.state.CatchUpFrozenVersion == plan.Version && q.state.Phase == "complete" {
+	if (q.state.LiveOnlyPlanVersion == plan.Version && !plan.History && !plan.Backfill) ||
+		(q.state.CatchUpFrozenVersion == plan.Version && q.state.Phase == "complete") {
 		return nil
 	}
 	backfill := plan.Backfill
