@@ -20,7 +20,10 @@ export type DestinationResult = {
   hubUrl?: string;
 } & (
   | { state: 'ready'; destination: ShareDestination }
-  | { state: 'signed_out' | 'pairing_required' | 'credential_dormant' | 'credential_revoked'; destination?: never }
+  | {
+      state: 'signed_out' | 'pairing_required' | 'credential_dormant' | 'credential_revoked';
+      destination?: never;
+    }
 );
 
 export type FullSessionSelection = {

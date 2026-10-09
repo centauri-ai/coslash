@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Session } from './session';
-import {
-  ALL_REPOSITORIES,
-  filterSessionLibrary,
-  latestLogicalSessions,
-} from './session-library';
+import { ALL_REPOSITORIES, filterSessionLibrary, latestLogicalSessions } from './session-library';
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -213,5 +209,4 @@ describe('session library', () => {
     expect(search([row], 'marigold')).toEqual([row]);
     expect(search([row], 'cerulean')).toEqual([]);
   });
-
 });
