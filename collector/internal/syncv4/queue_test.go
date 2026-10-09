@@ -160,7 +160,8 @@ func TestRePairKeepsInstallIDAndReconcilesUploadState(t *testing.T) {
 	if err := queue.Rebind(first); err != nil {
 		t.Fatal(err)
 	}
-	entry := Entry{Key: "codex", Activity: 100, SyncedActivity: 100, RevisionID: "rev_old", SessionID: "ses_old", BundleID: "old_bundle", Session: hubclient.V4Session{Agent: "codex"}}
+	entry := Entry{Key: "codex", Activity: 100, SyncedActivity: 100, Listed: true, ListRejected: true, ServerLeftOut: true,
+		RevisionID: "rev_old", SessionID: "ses_old", BundleID: "old_bundle", Session: hubclient.V4Session{Agent: "codex"}}
 	if err := queue.Merge([]Entry{entry}, time.UnixMilli(100)); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +169,8 @@ func TestRePairKeepsInstallIDAndReconcilesUploadState(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := queue.Entries()[0]
-	if queue.InstallID() != installID || !pending(got) || got.RevisionID != "" || got.SessionID != "" || got.BundleID != "" {
+	if queue.InstallID() != installID || !pending(got) || got.RevisionID != "" || got.SessionID != "" || got.BundleID != "" ||
+		got.Listed || got.ListRejected || got.ServerLeftOut {
 		t.Fatalf("re-pair state=%+v install=%q", got, queue.InstallID())
 	}
 }
