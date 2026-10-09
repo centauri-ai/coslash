@@ -18,7 +18,7 @@ func TestSyncStatusRouteIsTokenGuardedAndContentFree(t *testing.T) {
 	onboardings := newOnboardingManager("1.2.3")
 	defer onboardings.Close()
 	handler := httpsec.Guard{Addr: "127.0.0.1:8787", Token: "local-secret"}.Wrap(routesWithOnboarding(
-		synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil,
+		synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remote.NewManager(remote.Options{}), nil,
 		onboardings, serverServices{syncController: &syncController{}},
 	))
 

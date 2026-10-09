@@ -468,9 +468,11 @@ func TestSynthesisIsRevisionBoundWithoutChangingPortableRecord(t *testing.T) {
 
 type fixtureSynthesisRunner struct{ result session.SessionSynthesis }
 
-func (r fixtureSynthesisRunner) Run(context.Context, string) (session.SessionSynthesis, error) {
-	return r.result, nil
+func (r fixtureSynthesisRunner) Run(context.Context, string) (synthesis.RunResult, error) {
+	return synthesis.RunResult{Synthesis: r.result}, nil
 }
+
+func (fixtureSynthesisRunner) VendorName() string { return "codex" }
 
 func (fixtureSynthesisRunner) ModelName() string { return "synthetic-model" }
 
@@ -488,7 +490,7 @@ func TestSyntheticGenerationThenCompleteBackupCapture(t *testing.T) {
 	revision := readRootRecord(t, spool, baseline).Session.LastActivityAtMs
 	want := session.SessionSynthesis{Goals: []string{"first", "second"}, Outcome: "done",
 		KeyDecisions: []string{"keep order"}, NextStep: "ship"}
-	mgr := synthesis.NewManager(fixtureSynthesisRunner{result: want})
+	mgr := synthesis.NewManager(fixtureSynthesisRunner{result: want}, nil)
 	if !mgr.Ensure(&session.Session{ID: testRootID, Agent: vendors.AgentCodex, LastActivityTime: revision,
 		SessionDetails: session.SessionDetails{Turns: 6}}, revision) {
 		t.Fatal("synthetic generation did not start")

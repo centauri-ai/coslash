@@ -1248,7 +1248,7 @@ func TestLateHubPairingGetsBackupProducer(t *testing.T) {
 	defer onboardings.Close()
 	remoteManager := remote.NewManager(remote.Options{})
 	routesWithOnboarding(
-		synthesis.NewManager(nil), reviewpkg.NewManager(nil), settings.Open(), remoteManager, nil, onboardings,
+		synthesis.NewManager(nil, nil), reviewpkg.NewManager(nil), settings.Open(), remoteManager, nil, onboardings,
 	)
 	client, err := hubClientForURL("1.2.3", "https://hub.example")
 	if err != nil {
@@ -1265,7 +1265,7 @@ func TestServerShutdownEndpointRequiresTokenAndRequestsGracefulShutdown(t *testi
 	shutdown := make(chan struct{}, 1)
 	server := newServer(
 		httpsec.Guard{Addr: "127.0.0.1:8787", Token: "secret"},
-		synthesis.NewManager(nil),
+		synthesis.NewManager(nil, nil),
 		reviewpkg.NewManager(nil),
 		settings.Open(),
 		remote.NewManager(remote.Options{}),
