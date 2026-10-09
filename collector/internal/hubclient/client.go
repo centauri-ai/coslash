@@ -47,10 +47,13 @@ type Client struct {
 }
 
 type pairingSecret struct {
-	deviceCode string
-	expiresAt  time.Time
-	credential string
+	deviceCode   string
+	expiresAt    time.Time
+	credential   string
+	saveFailures int
 }
+
+const maxPairingCredentialSaveAttempts = 3
 
 func (c *Client) configured() bool {
 	return c != nil && c.BaseURL != nil && c.Credentials != nil
@@ -171,13 +174,10 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 	secret, ok := c.pairings[pairingID]
 	c.pairingMu.Unlock()
 	if !ok {
-		return PairingResult{State: "expired"}, nil
+		return PairingResult{State: PairingStateExpired}, nil
 	}
 	if secret.credential != "" {
-		if err := c.savePairingCredential(ctx, pairingID, secret.credential); err != nil {
-			return PairingResult{}, err
-		}
-		return PairingResult{State: "paired"}, nil
+		return c.savePairingCredential(ctx, pairingID, secret.credential)
 	}
 	if time.Now().After(secret.expiresAt) {
 		c.forgetPairing(pairingID)
@@ -221,23 +221,39 @@ func (c *Client) PollPairing(ctx context.Context, pairingID string) (PairingResu
 	}
 	c.pairingMu.Lock()
 	secret = c.pairings[pairingID]
+	if secret.deviceCode == "" {
+		c.pairingMu.Unlock()
+		return PairingResult{State: PairingStateExpired}, nil
+	}
 	secret.credential = token.Credential
 	c.pairings[pairingID] = secret
 	c.pairingMu.Unlock()
-	if err := c.savePairingCredential(ctx, pairingID, token.Credential); err != nil {
-		return PairingResult{}, err
-	}
-	return PairingResult{State: "paired"}, nil
+	return c.savePairingCredential(ctx, pairingID, token.Credential)
 }
 
-func (c *Client) savePairingCredential(ctx context.Context, pairingID, credential string) error {
+func (c *Client) savePairingCredential(ctx context.Context, pairingID, credential string) (PairingResult, error) {
 	saveContext, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancelSave()
-	if err := c.Credentials.Save(saveContext, credential); err != nil {
-		return err
+	if c.Credentials == nil || c.Credentials.Save(saveContext, credential) != nil {
+		c.pairingMu.Lock()
+		secret, ok := c.pairings[pairingID]
+		if ok {
+			secret.saveFailures++
+			c.pairings[pairingID] = secret
+		}
+		attempts := secret.saveFailures
+		c.pairingMu.Unlock()
+		if !ok {
+			return PairingResult{State: PairingStateRetrying}, nil
+		}
+		if attempts >= maxPairingCredentialSaveAttempts {
+			c.forgetPairing(pairingID)
+			return PairingResult{State: PairingStateCredentialStoreFailed}, nil
+		}
+		return PairingResult{State: PairingStateRetrying, PairingID: pairingID}, nil
 	}
 	c.forgetPairing(pairingID)
-	return nil
+	return PairingResult{State: PairingStatePaired}, nil
 }
 
 func (c *Client) forgetPairing(id string) {
