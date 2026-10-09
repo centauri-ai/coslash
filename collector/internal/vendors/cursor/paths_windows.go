@@ -8,6 +8,7 @@ import (
 	"github.com/centauri-ai/coslash/collector/internal/winfolders"
 )
 
-func cursorGlobalStorage(home string) string {
+// GlobalStorage is the Cursor IDE globalStorage directory for home.
+func GlobalStorage(home string) string {
 	return filepath.Join(winfolders.RoamingAppData(home), "Cursor", "User", "globalStorage")
 }

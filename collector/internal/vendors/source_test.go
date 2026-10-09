@@ -182,6 +182,14 @@ func TestNewIndexedParserIndexesFilesOnce(t *testing.T) {
 	}
 }
 
+func TestPiCollectionPlatformSupport(t *testing.T) {
+	for _, platform := range []string{"darwin", "windows", "linux", "freebsd", ""} {
+		if got := piCollectionSupportedOn(platform); got != (platform == "darwin" || platform == "windows" || platform == "linux") {
+			t.Fatalf("Pi collection support on %s = %t", platform, got)
+		}
+	}
+}
+
 func TestPiPlatformSupport(t *testing.T) {
 	for _, platform := range []string{"darwin", "windows", "linux", "freebsd", ""} {
 		if got := piSupportedOn(platform); got != (platform == "darwin" || platform == "windows") {

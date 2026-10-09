@@ -6,7 +6,7 @@ import { getPackageDir, VERSION } from "@earendil-works/pi-coding-agent"
 import os from "node:os"
 import path from "node:path"
 
-const supportedPlatform = process.platform === "darwin" || process.platform === "win32"
+const supportedPlatform = process.platform === "darwin" || process.platform === "win32" || process.platform === "linux"
 const home = process.env.COSLASH_HOME || path.join(os.homedir(), ".coslash")
 const runtimeId = randomUUID()
 const startedAtMs = Date.now()

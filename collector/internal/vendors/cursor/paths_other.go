@@ -1,9 +1,21 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package cursor
 
-import "path/filepath"
+import (
+	"os"
+	"path/filepath"
+)
 
-func cursorGlobalStorage(home string) string {
-	return filepath.Join(home, "Library", "Application Support", "Cursor", "User", "globalStorage")
+// The Linux build of Cursor is an Electron app named "cursor" that keeps its
+// user data under the XDG config directory.
+const cursorIDEProcess = "cursor"
+
+// GlobalStorage is the Cursor IDE globalStorage directory for home.
+func GlobalStorage(home string) string {
+	config := os.Getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(config) {
+		config = filepath.Join(home, ".config")
+	}
+	return filepath.Join(config, "Cursor", "User", "globalStorage")
 }
