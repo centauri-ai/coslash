@@ -25,6 +25,7 @@ const defaultBatchFamilies = 64
 // after the pass began.
 type Cursor struct {
 	StartedAtMs int64  `json:"startedAtMs"`
+	PlanVersion int64  `json:"planVersion,omitempty"`
 	ActivityMs  int64  `json:"activityMs"`
 	Agent       string `json:"agent"`
 	Family      string `json:"family"`
@@ -38,6 +39,8 @@ type DiscoverOptions struct {
 	// MinActivityMs filters timestamp-indexed sources; transcript families still
 	// parse to determine their activity.
 	MinActivityMs int64
+	// PlanVersion invalidates an incomplete cursor when Hub changes the plan.
+	PlanVersion int64
 	// Resume continues an incomplete earlier pass.
 	Resume *Cursor
 	// BatchFamilies bounds how many families are parsed before a yield.
@@ -244,8 +247,8 @@ func planDiscovery(ctx context.Context, opts DiscoverOptions) (*discoveryPlan, e
 	}
 	sort.SliceStable(plan.families, func(i, j int) bool { return familyBefore(plan.families[i], plan.families[j]) })
 
-	plan.cursor = Cursor{StartedAtMs: time.Now().UnixMilli()}
-	if resume := opts.Resume; resume != nil && !resume.Complete && resume.StartedAtMs > 0 {
+	plan.cursor = Cursor{StartedAtMs: time.Now().UnixMilli(), PlanVersion: opts.PlanVersion}
+	if resume := opts.Resume; resume != nil && !resume.Complete && resume.StartedAtMs > 0 && resume.PlanVersion == opts.PlanVersion {
 		plan.cursor = *resume
 		position := family{agent: resume.Agent, id: resume.Family, activityMs: resume.ActivityMs}
 		kept := plan.families[:0]

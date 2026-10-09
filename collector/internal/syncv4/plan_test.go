@@ -324,7 +324,7 @@ func TestMergePlannedDiscoveryCountsOnlyPendingInScopeEntries(t *testing.T) {
 	}
 	newEntry := Entry{Key: "new", Activity: now.Add(time.Minute).UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "new"}}
 	oldEntry := Entry{Key: "old", Activity: now.Add(-24 * time.Hour).UnixMilli(), Session: hubclient.V4Session{Agent: "codex", LocalKeyHash: "old"}}
-	count, err := q.MergePlannedDiscovery([]Entry{newEntry, listed, oldEntry}, now, plan)
+	count, err := q.MergePlannedDiscovery([]Entry{newEntry, listed, oldEntry}, now, plan, now)
 	if err != nil {
 		t.Fatal(err)
 	}

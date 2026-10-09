@@ -81,7 +81,7 @@ func TestScanCountsOnlyDiscoverableFilesAndBucketsFamilies(t *testing.T) {
 	// skipped), cursor 1.
 	if w.H24 != (windowOf(1, 150+500)) || w.D3 != windowOf(2, 150+500+100) || w.D7 != windowOf(3, 150+500+100+300) ||
 		w.D10 != w.D7 ||
-		w.D30 != windowOf(4, 150+500+100+300+1000) || w.All != windowOf(5, report.Bytes) {
+		w.D30 != windowOf(4, 150+500+100+300+1000) || w.D60 != windowOf(5, report.Bytes) || w.All != windowOf(5, report.Bytes) {
 		t.Fatalf("windows = %+v", w)
 	}
 	if strings.Join(snapshot.Missing, ",") != "" {
@@ -95,6 +95,20 @@ func TestScanCountsOnlyDiscoverableFilesAndBucketsFamilies(t *testing.T) {
 		if families[index].ActivityMs > families[index-1].ActivityMs {
 			t.Fatalf("families not newest first: %+v", families)
 		}
+	}
+}
+
+func TestSixtyDayBucketIncludesCutoffButExcludesOlderFamilies(t *testing.T) {
+	home := t.TempDir()
+	write(t, filepath.Join(home, ".claude", "projects", "cutoff", "55555555-5555-4555-8555-555555555555.jsonl"), 60, 60*24*time.Hour)
+	write(t, filepath.Join(home, ".claude", "projects", "older", "66666666-6666-4666-8666-666666666666.jsonl"), 61, 60*24*time.Hour+time.Millisecond)
+	snapshot, err := Scan(context.Background(), Options{Home: home, OpenCodeDB: filepath.Join(home, "none.db"), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	windows := snapshot.Inventory().Windows
+	if windows.D60 != windowOf(1, 60) || windows.All != windowOf(2, 121) {
+		t.Fatalf("60-day boundary = d60:%+v all:%+v", windows.D60, windows.All)
 	}
 }
 
@@ -156,7 +170,7 @@ func TestInventoryJSONIsContentFree(t *testing.T) {
 	}
 	allowed := map[string]bool{
 		"scannedAt": true, "durationMs": true, "files": true, "bytes": true, "largestBytes": true, "filesOver10MiB": true,
-		"agents": true, "windows": true, "agent": true, "sessions": true, "h24": true, "d3": true, "d7": true, "d10": true, "d30": true, "all": true,
+		"agents": true, "windows": true, "agent": true, "sessions": true, "h24": true, "d3": true, "d7": true, "d10": true, "d30": true, "d60": true, "all": true,
 	}
 	agentNames := map[string]bool{vendors.AgentClaude: true, vendors.AgentCodex: true, vendors.AgentCursor: true, vendors.AgentOpenCode: true}
 	var document any
