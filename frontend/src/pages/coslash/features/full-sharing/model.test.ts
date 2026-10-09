@@ -5,8 +5,8 @@ import {
   fullSessionCandidates,
   fullSessionReviewStillCurrent,
   hubRouteURL,
-  type ShareDestination,
   type FullSessionPreview,
+  type ShareDestination,
 } from './model';
 
 describe('full-session Hub handoff route', () => {

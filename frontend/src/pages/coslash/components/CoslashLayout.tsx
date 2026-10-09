@@ -1468,7 +1468,7 @@ export function CoslashLayout({
                     <X />
                   </button>
                 )}
-                <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex min-w-0 flex-1 [scrollbar-width:none] items-center gap-1.5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
                   {activeChips.map((chip) => (
                     <span className={styles.chip} key={`${chip.kind}:${chip.value}`}>
                       <span className="font-normal opacity-70">{chip.kind}:</span> {chip.label}
