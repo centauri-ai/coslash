@@ -326,7 +326,14 @@ func (q *Queue) MarkListedAt(results []hubclient.V4ListResult, now time.Time) er
 			continue
 		}
 		switch result.State {
-		case "listed", "existing":
+		case "listed":
+			entry.Listed = true
+			entry.ListRejected, entry.FailureCode = false, ""
+			entry.SyncedActivity, entry.SyncedSourceRevision, entry.RevisionID = 0, "", ""
+			if result.SessionID != "" {
+				entry.SessionID = result.SessionID
+			}
+		case "existing":
 			entry.Listed = true
 			entry.ListRejected, entry.FailureCode = false, ""
 			if result.SessionID != "" {
