@@ -73,7 +73,7 @@ func TestOnboardingUpdatesHubDestinationRouteClient(t *testing.T) {
 	onboardings := newOnboardingManager("0.1.0")
 	defer onboardings.Close()
 	api := http.NewServeMux()
-	registerHubRoutes(api, nil, nil, nil, onboardings)
+	registerHubRoutes(api, nil, nil, onboardings)
 	onboardings.setHubClient(&hubclient.Client{
 		BaseURL: baseURL, Credentials: fixedHubCredential("device-credential"),
 		HTTP: &http.Client{Transport: onboardingRoundTripper(func(request *http.Request) (*http.Response, error) {

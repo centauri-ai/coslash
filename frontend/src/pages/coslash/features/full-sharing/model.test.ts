@@ -1,12 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import type { ShareDestination } from '@/pages/coslash/features/sharing/model';
 import type { Session } from '@/pages/coslash/lib/session';
 import {
   bindFullSessionReview,
   fullSessionCandidates,
   fullSessionReviewStillCurrent,
+  hubRouteURL,
+  type ShareDestination,
   type FullSessionPreview,
 } from './model';
+
+describe('full-session Hub handoff route', () => {
+  it('keeps a path-prefixed Hub URL and rejects external or escaping routes', () => {
+    const origin = 'https://hub.example.test/coSlash';
+    expect(hubRouteURL(origin, '/v2/revisions/revision-one')).toBe(
+      'https://hub.example.test/coSlash/v2/revisions/revision-one',
+    );
+    expect(() => hubRouteURL(origin, 'https://evil.example/revision-one')).toThrow(
+      'outside the expected contract',
+    );
+    expect(() => hubRouteURL(origin, '/../outside')).toThrow('outside the expected contract');
+  });
+});
 
 const destination: ShareDestination = {
   workspaceId: 'workspace',
