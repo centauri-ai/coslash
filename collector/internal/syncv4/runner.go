@@ -155,6 +155,7 @@ func (r *Runner) SyncOnce(ctx context.Context) (syncErr error) {
 	if r.activeSince.IsZero() {
 		r.activeSince = r.now()
 	}
+	r.Queue.SetActiveSince(r.activeSince)
 	// Retry commands stay open across passes until their session settles.
 	defer func() { syncErr = errors.Join(syncErr, r.finishRetryCommands()) }()
 	binding, err := r.Hub.V4Binding(ctx)
